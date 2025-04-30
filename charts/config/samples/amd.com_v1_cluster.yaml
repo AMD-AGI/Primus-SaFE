@@ -1,0 +1,9 @@
+apiVersion: amd.com/v1
+kind: Cluster
+metadata:
+  labels:
+    app.kubernetes.io/name: apis
+    app.kubernetes.io/managed-by: kustomize
+  name: cluster-sample
+spec:
+  # TODO(user): Add fields here

@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- amd.com_v1_cluster.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
