@@ -32,7 +32,11 @@ func WriteFile(filename, content string, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if err = f.Close(); err != nil {
+			klog.ErrorS(err, "fail to close file")
+		}
+	}()
 	if _, err = f.WriteString(content); err != nil {
 		return err
 	}

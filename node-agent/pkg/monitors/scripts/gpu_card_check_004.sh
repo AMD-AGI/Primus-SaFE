@@ -20,7 +20,7 @@ if [ -z "$expectedCount" ] || [ "$expectedCount" == "null" ] || [ $expectedCount
     exit 2
 fi
 
-actualCount=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi |grep ^[0-9] |wc -l`
+actualCount=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi | grep ^[0-9] |wc -l`
 ret=$?
 if [ $ret -ne 0 ]; then
   echo "Error: failed to execute rocm-smi"
