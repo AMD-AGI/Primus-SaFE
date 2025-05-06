@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 
 #
-# Copyright © AMD. 2025-2026. All rights reserved.
+# /*
+#  * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+#  * See LICENSE for license information.
+#  */
 #
 
-WORK_PATH=/opt/safe/node-agent
+WORK_PATH=/opt/primus-safe/node-agent
 
 . /etc/bashrc
 

@@ -1,5 +1,6 @@
 /*
- * Copyright © AMD. 2025-2026. All rights reserved.
+ * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
  */
 
 // Package v1 contains API Schema definitions for the amd.com v1 API group.

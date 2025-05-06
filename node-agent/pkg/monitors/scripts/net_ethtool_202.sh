@@ -1,7 +1,8 @@
 #!/bin/bash
 
 #
-# Copyright © AMD. 2025-2026. All rights reserved.
+# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
 #
 
 data=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rdma link show |grep LINK_UP |grep ACTIVE`

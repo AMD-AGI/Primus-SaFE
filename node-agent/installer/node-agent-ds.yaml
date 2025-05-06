@@ -1,14 +1,14 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: safe-node-agent
-  namespace: safe
+  name: primus-safe-node-agent
+  namespace: primus-safe
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: safe-node-agent
-  namespace: safe
+  name: primus-safe-node-agent
+  namespace: primus-safe
 rules:
   - apiGroups:
       - ""
@@ -32,33 +32,33 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: safe-node-agent
-  namespace: safe
+  name: primus-safe-node-agent
+  namespace: primus-safe
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: safe-node-agent
+  name: primus-safe-node-agent
 subjects:
   - kind: ServiceAccount
-    name: safe-node-agent
-    namespace: safe
+    name: primus-safe-node-agent
+    namespace: primus-safe
 ---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: safe-node-agent
-  namespace: safe
+  name: primus-safe-node-agent
+  namespace: primus-safe
   labels:
-    app: safe-node-agent
+    app: primus-safe-node-agent
 spec:
   revisionHistoryLimit: 10
   selector:
     matchLabels:
-      app: safe-node-agent
+      app: primus-safe-node-agent
   template:
     metadata:
       labels:
-        app: safe-node-agent
+        app: primus-safe-node-agent
     spec:
       affinity:
         nodeAffinity:
@@ -67,21 +67,21 @@ spec:
               - matchExpressions:
                 - key: node-role.kubernetes.io/control-plane
                   operator: DoesNotExist
-      serviceAccountName: safe-node-agent
+      serviceAccountName: primus-safe-node-agent
       hostPID: true
       containers:
         - env:
             - name: NODE_CONFIGMAP_PATH
-              value: /opt/safe/node-agent/config
+              value: /opt/primus-safe/node-agent/config
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: spec.nodeName
-          image: /safe/node-agent:latest
+          image: /primus-safe/node-agent:latest
           imagePullPolicy: Always
           name: node-agent
-          command: ["/bin/sh", "/opt/safe/node-agent/run.sh"]
+          command: ["/bin/sh", "/opt/primus-safe/node-agent/run.sh"]
           resources:
             limits:
               cpu: "1500m"
@@ -96,7 +96,7 @@ spec:
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
           volumeMounts:
-            - mountPath: /opt/safe/node-agent/config
+            - mountPath: /opt/primus-safe/node-agent/config
               name: node-agent-config
               readOnly: true
             - mountPath: /var/log

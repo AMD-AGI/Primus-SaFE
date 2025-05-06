@@ -1,5 +1,6 @@
 /*
- * Copyright © AMD. 2025-2026. All rights reserved.
+ * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
  */
 
 package config
@@ -77,92 +78,4 @@ func removeBlank(slice []string) []string {
 
 func IsCryptoEnable() bool {
 	return getBool(cryptoEnable, true)
-}
-
-func GetLogServiceHost() string {
-	return getString(logServiceHost, "")
-}
-
-func GetLogServicePort() int {
-	return getInt(logServicePort, 9200)
-}
-
-func GetLogServiceUser() string {
-	return getString(logServiceUser, "")
-}
-
-func GetLogServicePasswd() string {
-	return getString(logServicePasswd, "")
-}
-
-func GetLogServicePrefix() string {
-	return getString(logServicePrefix, "")
-}
-
-func GetMemoryReservePercent() float64 {
-	return getFloat(memoryReservePercent, 0)
-}
-
-func GetCpuReservePercent() float64 {
-	return getFloat(cpuReservePercent, 0)
-}
-
-func GetEphemeralStoreReservePercent() float64 {
-	return getFloat(ephemeralStoreReservePercent, 0)
-}
-
-func GetMaxEphemeralStorePercent() float64 {
-	return getFloat(maxEphemeralStorePercent, 0)
-}
-
-func GetS3Configs() map[string]any {
-	return viper.GetStringMap("s3")
-}
-
-func GetS3Namespace() string {
-	return getString(s3Namespace, "")
-}
-
-func GetS3Secret() string {
-	return getString(s3Secret, "")
-}
-
-func GetS3Service() string {
-	return getString(s3Service, "")
-}
-
-func GetS3Endpoint() string {
-	return getString(s3Endpoint, "")
-}
-
-func GetS3Clusters() string {
-	return getString(s3Clusters, "")
-}
-
-func GetS3DefaultBucket() string {
-	return getString(s3DefaultBucket, "")
-}
-
-func GetS3BucketRegion() string {
-	return getString(s3BucketRegion, "")
-}
-
-func GetS3ExpireDays() int {
-	return getInt(s3ExpireDays, 1)
-}
-
-func GetS3Timeout() int {
-	return getInt(s3Timeout, 0)
-}
-
-func GetS3DefaultLlmModelBucket() string {
-	return getString(s3DefaultLlmModelBucket, "")
-}
-
-func GetS3DefaultDataSetBucket() string {
-	return getString(s3DefaultDataSetBucket, "dataset")
-}
-
-func IsS3Enable() bool {
-	return getBool(s3Enable, false)
 }

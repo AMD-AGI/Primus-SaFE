@@ -1,7 +1,8 @@
 #!/bin/bash
 
 #
-# Copyright © AMD. 2025-2026. All rights reserved.
+# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
 #
 
 nsenter --target 1 --mount --uts --ipc --net --pid -- ls /usr/bin/amd-smi > /dev/null

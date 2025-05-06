@@ -1,7 +1,8 @@
 #!/bin/bash
 
 #
-# Copyright © AMD. 2025-2026. All rights reserved.
+# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
 #
 
 ps aux | grep /usr/local/bin/containerd | grep -v grep > /dev/null

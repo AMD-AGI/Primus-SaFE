@@ -29,10 +29,10 @@ ENV GO111MODULE="on"
 ENV GOROOT="/usr/local/go"
 ENV GOBIN="/usr/local/go/bin"
 ENV CGO_ENABLED=0
-ENV GOPATH="/workspace/safe/go"
+ENV GOPATH="/workspace/primus-safe/go"
 
-ENV BASE_HOME=/opt/safe
-ENV APP_HOME=/opt/safe/node-agent
+ENV BASE_HOME=/opt/primus-safe
+ENV APP_HOME=/opt/primus-safe/node-agent
 RUN mkdir -p ${BASE_HOME} && chmod 750 ${BASE_HOME}
 RUN mkdir ${APP_HOME} && chmod 750 ${APP_HOME}
 RUN mkdir ${APP_HOME}/logs && chmod 750 ${APP_HOME}/logs
