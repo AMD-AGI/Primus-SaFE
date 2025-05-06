@@ -1,0 +1,194 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: primus-safe-node-agent
+  namespace: primus-safe
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: primus-safe-node-agent
+  namespace: primus-safe
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - get
+      - watch
+      - patch
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - nodes/status
+    verbs:
+      - get
+      - watch
+      - patch
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: primus-safe-node-agent
+  namespace: primus-safe
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: primus-safe-node-agent
+subjects:
+  - kind: ServiceAccount
+    name: primus-safe-node-agent
+    namespace: primus-safe
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: primus-safe-node-agent
+  namespace: primus-safe
+  labels:
+    app: primus-safe-node-agent
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: primus-safe-node-agent
+  template:
+    metadata:
+      labels:
+        app: primus-safe-node-agent
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
+      serviceAccountName: primus-safe-node-agent
+      hostPID: true
+      containers:
+        - env:
+            - name: NODE_CONFIGMAP_PATH
+              value: /opt/primus-safe/node-agent/config
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: spec.nodeName
+          image: /primus-safe/node-agent:latest
+          imagePullPolicy: Always
+          name: node-agent
+          command: ["/bin/sh", "/opt/primus-safe/node-agent/run.sh"]
+          resources:
+            limits:
+              cpu: "1500m"
+              memory: 250Mi
+              ephemeral-storage: 2Gi
+            requests:
+              cpu: "1500m"
+              memory: 250Mi
+              ephemeral-storage: 2Gi
+          securityContext:
+            privileged: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /opt/primus-safe/node-agent/config
+              name: node-agent-config
+              readOnly: true
+            - mountPath: /var/log
+              name: log
+              readOnly: true
+            - mountPath: /dev/kmsg
+              name: kmsg
+              readOnly: true
+            - mountPath: /etc/localtime
+              name: localtime
+              readOnly: true
+            - mountPath: /host/proc
+              name: proc
+              readOnly: true
+            - mountPath: /var/run/dbus
+              name: dbus
+              readOnly: true
+            - mountPath: /run/systemd
+              name: systemd
+              readOnly: true
+            - mountPath: /etc/systemd/system
+              name: system
+            - mountPath: /sys/fs/cgroup
+              name: cgroup
+              readOnly: true
+            - mountPath: /var/hostrun
+              name: dockersock
+              readOnly: true
+            - mountPath: /etc/kubernetes/pki
+              name: pki
+              readOnly: true
+            - mountPath: /var/lib/kubelet/device-plugins
+              name: device-plugin
+      dnsPolicy: ClusterFirst
+      priorityClassName: system-cluster-critical
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+      terminationGracePeriodSeconds: 10
+      volumes:
+        - configMap:
+            defaultMode: 256
+            name: node-agent-config
+          name: node-agent-config
+        - hostPath:
+            path: /var/log/
+            type: ""
+          name: log
+        - hostPath:
+            path: /dev/kmsg
+            type: ""
+          name: kmsg
+        - hostPath:
+            path: /etc/localtime
+            type: ""
+          name: localtime
+        - hostPath:
+            path: /proc
+            type: ""
+          name: proc
+        - hostPath:
+            path: /var/run/dbus
+            type: ""
+          name: dbus
+        - hostPath:
+            path: /run/systemd
+            type: ""
+          name: systemd
+        - hostPath:
+            path: /etc/systemd/system
+            type: ""
+          name: system
+        - hostPath:
+            path: /sys/fs/cgroup
+            type: ""
+          name: cgroup
+        - hostPath:
+            path: /var/run
+            type: DirectoryOrCreate
+          name: dockersock
+        - hostPath:
+            path: /cert
+            type: DirectoryOrCreate
+          name: pki
+        - hostPath:
+            path: /var/lib/kubelet/device-plugins
+            type: ""
+          name: device-plugin
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 10
+    type: RollingUpdate

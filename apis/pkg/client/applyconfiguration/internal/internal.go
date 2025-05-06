@@ -18,7 +18,7 @@ func Parser() *typed.Parser {
 		var err error
 		parser, err = typed.NewParser(schemaYAML)
 		if err != nil {
-			panic(fmt.Sprintf("Failed to parse schema: %v", err))
+			panic(fmt.Sprintf("failed to parse schema: %v", err))
 		}
 	})
 	return parser

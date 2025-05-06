@@ -1,0 +1,8 @@
+go 1.24.2
+
+use (
+	./common
+	./node-agent
+	./utils
+	./apis
+)
