@@ -1,0 +1,80 @@
+/*
+ * Copyright © AMD. 2025-2026. All rights reserved.
+ */
+
+package exporters
+
+import (
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/node"
+	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
+)
+
+type K8sExporter struct {
+	node *node.Node
+}
+
+func (ke *K8sExporter) Handle(msg *types.MonitorMessage) error {
+	var conditions []corev1.NodeCondition
+	var isChanged bool
+	if msg.StatusCode != types.StatusError {
+		conditions, isChanged = genDeleteConditions(ke.node.GetK8sNode(), msg)
+	} else {
+		conditions, isChanged = genAddConditions(ke.node.GetK8sNode(), msg)
+	}
+	if !isChanged {
+		return nil
+	}
+	return ke.node.UpdateConditions(conditions)
+}
+
+func (ke *K8sExporter) Name() string {
+	return "k8sExporter"
+}
+
+func genAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.NodeCondition, bool) {
+	var conditions []corev1.NodeCondition
+	isFound := false
+	for _, cond := range node.Status.Conditions {
+		if string(cond.Type) == msg.Id {
+			if cond.Status == corev1.ConditionTrue {
+				return nil, false
+			}
+			cond.Status = corev1.ConditionTrue
+			cond.Message = msg.Value
+			cond.LastTransitionTime = metav1.NewTime(time.Now().UTC())
+			isFound = true
+		}
+		conditions = append(conditions, cond)
+	}
+
+	if isFound {
+		return conditions, true
+	}
+	results := make([]corev1.NodeCondition, 0, len(conditions)+1)
+	results = append(results, corev1.NodeCondition{
+		Type:               corev1.NodeConditionType(msg.Id),
+		Status:             corev1.ConditionTrue,
+		LastTransitionTime: metav1.NewTime(time.Now().UTC()),
+		Message:            msg.Value,
+	})
+	results = append(results, conditions...)
+	return results, true
+}
+
+func genDeleteConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.NodeCondition, bool) {
+	var results []corev1.NodeCondition
+	for i, cond := range node.Status.Conditions {
+		if string(cond.Type) != msg.Id {
+			results = append(results, node.Status.Conditions[i])
+		}
+	}
+	if len(results) == len(node.Status.Conditions) {
+		return nil, false
+	}
+	return results, true
+}
