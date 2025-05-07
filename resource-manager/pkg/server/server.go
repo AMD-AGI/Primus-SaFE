@@ -21,6 +21,8 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
+
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 )
 
 var (
@@ -64,6 +66,9 @@ func (s *Server) init() error {
 	}
 	if s.ctrlManager, err = NewControllerManager(scheme); err != nil {
 		return fmt.Errorf("failed to new controller manager. %s", err.Error())
+	}
+	if err = resource.SetupControllers(s.ctrlManager.ctrlManager); err != nil {
+		return fmt.Errorf("failed to setup resource controllers. %s", err.Error())
 	}
 	s.isInited = true
 	return nil
