@@ -27,6 +27,7 @@ func TestConfig(t *testing.T) {
 	assert.Equal(t, getInt("server.port", 0), 8080)
 	assert.Equal(t, getString("server.timeout", ""), "30s")
 	assert.Equal(t, getBool("server.enable", false), true)
+	assert.Equal(t, getFloat("server.ratio", 0), 0.01)
 
 	assert.Equal(t, getString("database.host", ""), "localhost")
 	assert.Equal(t, getInt("database.port", 8081), 8081)

@@ -19,13 +19,11 @@ RUN apt-get update && apt-get install -y wget \
 RUN go version
 
 RUN apt-get install -y sed
-RUN apt-get install -y jq
-RUN apt-get install -y bc
 
 ENV LANG="en_US.UTF-8"
 ENV GOOS="linux"
-ENV GOPROXY=$GOPROXY
 ENV GO111MODULE="on"
+ENV GOPROXY=$GOPROXY
 ENV GOROOT="/usr/local/go"
 ENV GOBIN="/usr/local/go/bin"
 ENV CGO_ENABLED=0
@@ -35,21 +33,25 @@ COPY . /workspace/primus-safe
 WORKDIR /workspace/primus-safe
 
 ENV BASE_HOME=/opt/primus-safe
-ENV APP_HOME=/opt/primus-safe/node-agent
+ENV APP_HOME=/opt/primus-safe/resource-manager
 RUN mkdir -p ${BASE_HOME} && chmod 750 ${BASE_HOME}
 RUN mkdir ${APP_HOME} && chmod 750 ${APP_HOME}
 RUN mkdir ${APP_HOME}/logs && chmod 750 ${APP_HOME}/logs
-RUN cd ./node-agent/cmd && go build -o ${APP_HOME}/node_agent main.go \
+RUN mkdir ${APP_HOME}/config && chmod 750 ${APP_HOME}/config
+RUN cd ./tools/crypto/ && go build -o ${APP_HOME}/crypto main.go && cd ../.. \
+  && cd ./resource-manager/cmd && go build -o ${APP_HOME}/resource_manager main.go \
   && go clean --modcache --cache && cd ../..
 
-COPY ./node-agent/installer/dockerfile/run.sh ${APP_HOME}/
+COPY ./resource-manager/installer/dockerfile/run.sh ${APP_HOME}/
+COPY ./resource-manager/config/config.yaml ${APP_HOME}/config/config.yaml
 
-RUN  \
+RUN  ls  -l ${APP_HOME} && \
   echo 'umask 0027' | tee -a /etc/bashrc && \
   echo "export HISTSIZE=100" >> /etc/bashrc && \
   echo "export HISTSIZE=100" >> /etc/profile
 
 RUN rm -rf /workspace/primus-safe
 
+EXPOSE 8081
 WORKDIR ${APP_HOME}
 CMD ["/bin/sh", "run.sh"]

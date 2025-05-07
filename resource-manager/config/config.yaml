@@ -1,0 +1,6 @@
+health_check:
+  enable: true
+  port: 8081
+leader_election:
+  enable: true
+  lock_namespace: "default"

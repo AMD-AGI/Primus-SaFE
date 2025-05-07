@@ -5,4 +5,6 @@ use (
 	./node-agent
 	./utils
 	./apis
+	./resource-manager
+	./tools/crypto
 )

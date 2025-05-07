@@ -72,6 +72,7 @@ func (c *Crypto) Decrypt(ciphertext string) (string, error) {
 	return string(data), nil
 }
 
+// The crypto_file is created during deployment and acts as the global key for the entire system
 func getCryptoKey() (string, error) {
 	value := os.Getenv("Crypto")
 	if value != "" {
@@ -85,7 +86,11 @@ func getCryptoKey() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		if err = f.Close(); err != nil {
+			klog.ErrorS(err, "failed to close file")
+		}
+	}()
 
 	data := make([]byte, 1024)
 	n, err := f.Read(data)

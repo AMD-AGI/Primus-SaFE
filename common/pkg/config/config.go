@@ -79,3 +79,19 @@ func removeBlank(slice []string) []string {
 func IsCryptoEnable() bool {
 	return getBool(cryptoEnable, true)
 }
+
+func IsHealthCheckEnabled() bool {
+	return getBool(healthCheckEnable, true)
+}
+
+func GetHealthCheckPort() int {
+	return viper.GetInt(healthCheckPort)
+}
+
+func IsLeaderElectionEnable() bool {
+	return getBool(leaderElectionEnable, true)
+}
+
+func GetLeaderElectionLock() string {
+	return getString(leaderElectionLock, "default")
+}
