@@ -8,14 +8,14 @@ package main
 import (
 	"fmt"
 
-	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/daemon"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/server"
 )
 
 func main() {
-	d, err := daemon.NewDaemon()
+	s, err := server.NewServer()
 	if err != nil {
-		fmt.Println("fail to new node-agent daemon, err: ", err.Error())
+		fmt.Println("fail to new server, err: ", err.Error())
 		return
 	}
-	d.Start()
+	s.Start()
 }
