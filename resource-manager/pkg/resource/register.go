@@ -15,5 +15,8 @@ func SetupControllers(mgr manager.Manager) error {
 	if err := SetupNodeController(mgr); err != nil {
 		return fmt.Errorf("fail to set up node controller: %v", err)
 	}
+	if err := SetupClusterController(mgr); err != nil {
+		return fmt.Errorf("fail to set up cluster controller: %+v", err)
+	}
 	return nil
 }

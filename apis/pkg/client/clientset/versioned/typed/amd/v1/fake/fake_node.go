@@ -19,11 +19,11 @@ type fakeNodes struct {
 	Fake *FakeAmdV1
 }
 
-func newFakeNodes(fake *FakeAmdV1, namespace string) typedamdv1.NodeInterface {
+func newFakeNodes(fake *FakeAmdV1) typedamdv1.NodeInterface {
 	return &fakeNodes{
 		gentype.NewFakeClientWithListAndApply[*v1.Node, *v1.NodeList, *amdv1.NodeApplyConfiguration](
 			fake.Fake,
-			namespace,
+			"",
 			v1.SchemeGroupVersion.WithResource("nodes"),
 			v1.SchemeGroupVersion.WithKind("Node"),
 			func() *v1.Node { return &v1.Node{} },

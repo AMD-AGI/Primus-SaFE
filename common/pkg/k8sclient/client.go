@@ -89,6 +89,7 @@ func GetRestConfigInCluster() (*rest.Config, error) {
 	}
 	restCfg.QPS = common.DefaultQPS
 	restCfg.Burst = common.DefaultBurst
+	klog.Infof("%+v", restCfg)
 	return restCfg, nil
 }
 

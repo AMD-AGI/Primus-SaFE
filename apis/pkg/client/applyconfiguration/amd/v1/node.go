@@ -7,7 +7,6 @@ Copyright The AMD Authors.
 package v1
 
 import (
-	amdv1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	apismetav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	metav1 "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -18,16 +17,15 @@ import (
 type NodeApplyConfiguration struct {
 	metav1.TypeMetaApplyConfiguration    `json:",inline"`
 	*metav1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                                 *amdv1.NodeSpec   `json:"spec,omitempty"`
-	Status                               *amdv1.NodeStatus `json:"status,omitempty"`
+	Spec                                 *NodeSpecApplyConfiguration   `json:"spec,omitempty"`
+	Status                               *NodeStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // Node constructs a declarative configuration of the Node type for use with
 // apply.
-func Node(name, namespace string) *NodeApplyConfiguration {
+func Node(name string) *NodeApplyConfiguration {
 	b := &NodeApplyConfiguration{}
 	b.WithName(name)
-	b.WithNamespace(namespace)
 	b.WithKind("Node")
 	b.WithAPIVersion("amd.com/v1")
 	return b
@@ -194,16 +192,16 @@ func (b *NodeApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
 // WithSpec sets the Spec field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Spec field is set to the value of the last call.
-func (b *NodeApplyConfiguration) WithSpec(value amdv1.NodeSpec) *NodeApplyConfiguration {
-	b.Spec = &value
+func (b *NodeApplyConfiguration) WithSpec(value *NodeSpecApplyConfiguration) *NodeApplyConfiguration {
+	b.Spec = value
 	return b
 }
 
 // WithStatus sets the Status field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Status field is set to the value of the last call.
-func (b *NodeApplyConfiguration) WithStatus(value amdv1.NodeStatus) *NodeApplyConfiguration {
-	b.Status = &value
+func (b *NodeApplyConfiguration) WithStatus(value *NodeStatusApplyConfiguration) *NodeApplyConfiguration {
+	b.Status = value
 	return b
 }
 

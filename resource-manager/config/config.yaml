@@ -2,5 +2,5 @@ health_check:
   enable: true
   port: 8081
 leader_election:
-  enable: true
+  enable: false
   lock_namespace: "default"
