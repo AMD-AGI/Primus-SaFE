@@ -6,4 +6,5 @@ use (
 	./utils
 	./apis
 	./resource-manager
+	./tools/crypto
 )
