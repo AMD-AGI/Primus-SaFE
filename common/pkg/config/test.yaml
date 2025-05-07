@@ -2,6 +2,7 @@ server:
   port: 8080
   timeout: 30s
   enable: true
+  ratio: 0.01
 database:
   host: localhost
   users: user1,user2
