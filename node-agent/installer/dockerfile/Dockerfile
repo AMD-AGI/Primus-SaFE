@@ -47,7 +47,7 @@ COPY ./node-agent/installer/dockerfile/run.sh ${APP_HOME}/
 RUN  \
   echo 'umask 0027' | tee -a /etc/bashrc && \
   echo "export HISTSIZE=100" >> /etc/bashrc && \
-  echo "export HISTSIZE=100" >> /etc/profile \
+  echo "export HISTSIZE=100" >> /etc/profile
 
 RUN rm -rf /workspace/primus-safe
 
