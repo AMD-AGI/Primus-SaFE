@@ -38,9 +38,6 @@ type CommandStatus struct {
 	Phase CommandPhase `json:"phase,omitempty"`
 }
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // NodeSpec defines the desired state of Node.
 type NodeSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of Node
@@ -91,7 +88,6 @@ type NodeStatus struct {
 
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-// +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster

@@ -8,6 +8,10 @@ package v1
 
 type ClusterExpansion interface{}
 
+type FaultExpansion interface{}
+
 type NodeExpansion interface{}
 
 type StorageClusterExpansion interface{}
+
+type WorkspaceExpansion interface{}

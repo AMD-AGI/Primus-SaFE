@@ -5,6 +5,7 @@ use (
 	./common
 	./node-agent
 	./resource-manager
+	./webhooks
 	./tools/crypto
 	./utils
 )

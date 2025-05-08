@@ -38,6 +38,16 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.ControlPlaneApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ErasureCodedSpec"):
 		return &amdv1.ErasureCodedSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("Fault"):
+		return &amdv1.FaultApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("FaultNode"):
+		return &amdv1.FaultNodeApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("FaultSpec"):
+		return &amdv1.FaultSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("FaultStatus"):
+		return &amdv1.FaultStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("FlavorReplica"):
+		return &amdv1.FlavorReplicaApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("HybridStorageSpec"):
 		return &amdv1.HybridStorageSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("MachineStatus"):
@@ -62,6 +72,16 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.StorageClusterStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("StorageStatus"):
 		return &amdv1.StorageStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("Workspace"):
+		return &amdv1.WorkspaceApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("WorkspaceNodes"):
+		return &amdv1.WorkspaceNodesApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("WorkspaceSpec"):
+		return &amdv1.WorkspaceSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("WorkspaceStatus"):
+		return &amdv1.WorkspaceStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("WorkspaceVolume"):
+		return &amdv1.WorkspaceVolumeApplyConfiguration{}
 
 	}
 	return nil

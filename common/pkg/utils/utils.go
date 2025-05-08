@@ -9,6 +9,9 @@ import (
 	"fmt"
 
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 const (
@@ -16,7 +19,8 @@ const (
 	MaxNameLength          = 63
 	randomLength           = 5
 	MaxGeneratedNameLength = MaxNameLength - randomLength - 1
-	MaxDisplayNameLen      = MaxGeneratedNameLength - 17
+	// 12 is the fixed suffix length of pytorchjob.
+	MaxDisplayNameLen = MaxGeneratedNameLength - len(Safe) - 12
 )
 
 func GenerateName(base string) string {
@@ -49,4 +53,16 @@ func GetBaseByGenerateName(name string) string {
 		return name
 	}
 	return name[0 : len(name)-randomLength-1]
+}
+
+func GenerateTaintKey(code string) string {
+	key := v1.PrimusTaintPrefix + code
+	return stringutil.NormalizeName(key)
+}
+
+func GetCodeByTaintKey(taintKey string) string {
+	if len(taintKey) <= len(v1.PrimusTaintPrefix) {
+		return ""
+	}
+	return taintKey[len(v1.PrimusTaintPrefix):]
 }

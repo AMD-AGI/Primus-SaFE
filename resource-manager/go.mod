@@ -3,6 +3,9 @@ module github.com/AMD-AIG-AIMA/SAFE/resource-manager
 go 1.24.2
 
 require (
+	github.com/AMD-AIG-AIMA/SAFE/apis v0.0.0
+	github.com/AMD-AIG-AIMA/SAFE/common v0.0.0
+	github.com/AMD-AIG-AIMA/SAFE/utils v0.0.0
 	golang.org/x/crypto v0.37.0
 	k8s.io/api v0.33.0
 	k8s.io/apimachinery v0.33.0
@@ -65,4 +68,10 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.7.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
+)
+
+replace (
+	github.com/AMD-AIG-AIMA/SAFE/apis => ../apis
+	github.com/AMD-AIG-AIMA/SAFE/common => ../common
+	github.com/AMD-AIG-AIMA/SAFE/utils => ../utils
 )

@@ -23,9 +23,10 @@ type NodeApplyConfiguration struct {
 
 // Node constructs a declarative configuration of the Node type for use with
 // apply.
-func Node(name string) *NodeApplyConfiguration {
+func Node(name, namespace string) *NodeApplyConfiguration {
 	b := &NodeApplyConfiguration{}
 	b.WithName(name)
+	b.WithNamespace(namespace)
 	b.WithKind("Node")
 	b.WithAPIVersion("amd.com/v1")
 	return b

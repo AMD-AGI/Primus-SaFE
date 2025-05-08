@@ -85,7 +85,7 @@ func IsHealthCheckEnabled() bool {
 }
 
 func GetHealthCheckPort() int {
-	return viper.GetInt(healthCheckPort)
+	return getInt(healthCheckPort, 0)
 }
 
 func IsLeaderElectionEnable() bool {
@@ -94,4 +94,8 @@ func IsLeaderElectionEnable() bool {
 
 func GetLeaderElectionLock() string {
 	return getString(leaderElectionLock, "default")
+}
+
+func GetServerPort() int {
+	return getInt(serverPort, 0)
 }
