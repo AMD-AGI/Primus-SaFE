@@ -9,7 +9,9 @@ package v1
 // ClusterSpecApplyConfiguration represents a declarative configuration of the ClusterSpec type for use
 // with apply.
 type ClusterSpecApplyConfiguration struct {
-	Foo *string `json:"foo,omitempty"`
+	ClusterID    *string                         `json:"clusterID,omitempty"`
+	ControlPlane *ControlPlaneApplyConfiguration `json:"controlPlane,omitempty"`
+	Storages     []StorageApplyConfiguration     `json:"storages,omitempty"`
 }
 
 // ClusterSpecApplyConfiguration constructs a declarative configuration of the ClusterSpec type for use with
@@ -18,10 +20,31 @@ func ClusterSpec() *ClusterSpecApplyConfiguration {
 	return &ClusterSpecApplyConfiguration{}
 }
 
-// WithFoo sets the Foo field in the declarative configuration to the given value
+// WithClusterID sets the ClusterID field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Foo field is set to the value of the last call.
-func (b *ClusterSpecApplyConfiguration) WithFoo(value string) *ClusterSpecApplyConfiguration {
-	b.Foo = &value
+// If called multiple times, the ClusterID field is set to the value of the last call.
+func (b *ClusterSpecApplyConfiguration) WithClusterID(value string) *ClusterSpecApplyConfiguration {
+	b.ClusterID = &value
+	return b
+}
+
+// WithControlPlane sets the ControlPlane field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ControlPlane field is set to the value of the last call.
+func (b *ClusterSpecApplyConfiguration) WithControlPlane(value *ControlPlaneApplyConfiguration) *ClusterSpecApplyConfiguration {
+	b.ControlPlane = value
+	return b
+}
+
+// WithStorages adds the given value to the Storages field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Storages field.
+func (b *ClusterSpecApplyConfiguration) WithStorages(values ...*StorageApplyConfiguration) *ClusterSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithStorages")
+		}
+		b.Storages = append(b.Storages, *values[i])
+	}
 	return b
 }

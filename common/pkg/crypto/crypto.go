@@ -13,7 +13,7 @@ import (
 
 	"k8s.io/klog/v2"
 
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/crypto"
 )
 
@@ -33,7 +33,7 @@ var (
 func Instance() *Crypto {
 	once.Do(func() {
 		key := ""
-		if commonconfig.IsCryptoEnable() {
+		if config.IsCryptoEnable() {
 			var err error
 			key, err = getCryptoKey()
 			if err != nil {
@@ -49,7 +49,7 @@ func Instance() *Crypto {
 }
 
 func (c *Crypto) Encrypt(plainText []byte) (string, error) {
-	if !commonconfig.IsCryptoEnable() {
+	if !config.IsCryptoEnable() {
 		return string(plainText), nil
 	}
 	if c.key == "" {
@@ -59,7 +59,7 @@ func (c *Crypto) Encrypt(plainText []byte) (string, error) {
 }
 
 func (c *Crypto) Decrypt(ciphertext string) (string, error) {
-	if !commonconfig.IsCryptoEnable() {
+	if !config.IsCryptoEnable() {
 		return ciphertext, nil
 	}
 	if c.key == "" {

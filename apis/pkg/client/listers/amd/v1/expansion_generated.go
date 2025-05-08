@@ -10,14 +10,10 @@ package v1
 // ClusterLister.
 type ClusterListerExpansion interface{}
 
-// ClusterNamespaceListerExpansion allows custom methods to be added to
-// ClusterNamespaceLister.
-type ClusterNamespaceListerExpansion interface{}
-
 // NodeListerExpansion allows custom methods to be added to
 // NodeLister.
 type NodeListerExpansion interface{}
 
-// NodeNamespaceListerExpansion allows custom methods to be added to
-// NodeNamespaceLister.
-type NodeNamespaceListerExpansion interface{}
+// StorageClusterListerExpansion allows custom methods to be added to
+// StorageClusterLister.
+type StorageClusterListerExpansion interface{}

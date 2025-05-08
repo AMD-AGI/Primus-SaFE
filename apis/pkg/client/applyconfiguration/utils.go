@@ -20,12 +20,48 @@ import (
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
 	// Group=amd.com, Version=v1
+	case v1.SchemeGroupVersion.WithKind("Capacity"):
+		return &amdv1.CapacityApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("CephClusterStatus"):
+		return &amdv1.CephClusterStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Cluster"):
 		return &amdv1.ClusterApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ClusterSpec"):
 		return &amdv1.ClusterSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ClusterStatus"):
+		return &amdv1.ClusterStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("CommandStatus"):
+		return &amdv1.CommandStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ControlePlaneStatus"):
+		return &amdv1.ControlePlaneStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ControlPlane"):
+		return &amdv1.ControlPlaneApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ErasureCodedSpec"):
+		return &amdv1.ErasureCodedSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("HybridStorageSpec"):
+		return &amdv1.HybridStorageSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("MachineStatus"):
+		return &amdv1.MachineStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Node"):
 		return &amdv1.NodeApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("NodeClusterStatus"):
+		return &amdv1.NodeClusterStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("NodeSpec"):
+		return &amdv1.NodeSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("NodeStatus"):
+		return &amdv1.NodeStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ReplicatedSpec"):
+		return &amdv1.ReplicatedSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("Storage"):
+		return &amdv1.StorageApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("StorageCluster"):
+		return &amdv1.StorageClusterApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("StorageClusterSpec"):
+		return &amdv1.StorageClusterSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("StorageClusterStatus"):
+		return &amdv1.StorageClusterStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("StorageStatus"):
+		return &amdv1.StorageStatusApplyConfiguration{}
 
 	}
 	return nil
