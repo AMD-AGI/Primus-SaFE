@@ -19,8 +19,9 @@ type NodeLister interface {
 	// List lists all Nodes in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*amdv1.Node, err error)
-	// Nodes returns an object that can list and get Nodes.
-	Nodes(namespace string) NodeNamespaceLister
+	// Get retrieves the Node from the index for a given name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*amdv1.Node, error)
 	NodeListerExpansion
 }
 
@@ -32,27 +33,4 @@ type nodeLister struct {
 // NewNodeLister returns a new NodeLister.
 func NewNodeLister(indexer cache.Indexer) NodeLister {
 	return &nodeLister{listers.New[*amdv1.Node](indexer, amdv1.Resource("node"))}
-}
-
-// Nodes returns an object that can list and get Nodes.
-func (s *nodeLister) Nodes(namespace string) NodeNamespaceLister {
-	return nodeNamespaceLister{listers.NewNamespaced[*amdv1.Node](s.ResourceIndexer, namespace)}
-}
-
-// NodeNamespaceLister helps list and get Nodes.
-// All objects returned here must be treated as read-only.
-type NodeNamespaceLister interface {
-	// List lists all Nodes in the indexer for a given namespace.
-	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*amdv1.Node, err error)
-	// Get retrieves the Node from the indexer for a given namespace and name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*amdv1.Node, error)
-	NodeNamespaceListerExpansion
-}
-
-// nodeNamespaceLister implements the NodeNamespaceLister
-// interface.
-type nodeNamespaceLister struct {
-	listers.ResourceIndexer[*amdv1.Node]
 }

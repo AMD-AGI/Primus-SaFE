@@ -7,7 +7,6 @@ Copyright The AMD Authors.
 package v1
 
 import (
-	amdv1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	apismetav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	metav1 "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -18,16 +17,15 @@ import (
 type ClusterApplyConfiguration struct {
 	metav1.TypeMetaApplyConfiguration    `json:",inline"`
 	*metav1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                                 *ClusterSpecApplyConfiguration `json:"spec,omitempty"`
-	Status                               *amdv1.ClusterStatus           `json:"status,omitempty"`
+	Spec                                 *ClusterSpecApplyConfiguration   `json:"spec,omitempty"`
+	Status                               *ClusterStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // Cluster constructs a declarative configuration of the Cluster type for use with
 // apply.
-func Cluster(name, namespace string) *ClusterApplyConfiguration {
+func Cluster(name string) *ClusterApplyConfiguration {
 	b := &ClusterApplyConfiguration{}
 	b.WithName(name)
-	b.WithNamespace(namespace)
 	b.WithKind("Cluster")
 	b.WithAPIVersion("amd.com/v1")
 	return b
@@ -202,8 +200,8 @@ func (b *ClusterApplyConfiguration) WithSpec(value *ClusterSpecApplyConfiguratio
 // WithStatus sets the Status field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Status field is set to the value of the last call.
-func (b *ClusterApplyConfiguration) WithStatus(value amdv1.ClusterStatus) *ClusterApplyConfiguration {
-	b.Status = &value
+func (b *ClusterApplyConfiguration) WithStatus(value *ClusterStatusApplyConfiguration) *ClusterApplyConfiguration {
+	b.Status = value
 	return b
 }
 

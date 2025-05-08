@@ -14,4 +14,33 @@ const (
 	NodeGpuCountLabel = NodePrefix + "gpu.count"
 	// The node's last startup time
 	NodeStartupTimeLabel = NodePrefix + "startup.time"
+
+	// nodeflavor
+	NodeFlavorPrefix = PrimusSafePrefix + "nodeflavor."
+	NodeFlavorLabel  = NodeFlavorPrefix + "name"
+	// Cluster lables
+	ClusterPrefix                 = PrimusSafePrefix + "cluster."
+	ClusterManagePrefix           = ClusterPrefix + "manage."
+	ClusterManageActionLabel      = ClusterManagePrefix + "action"
+	ClusterManageClusterLabel     = ClusterManagePrefix + "cluster"
+	ClusterManageNodeLabel        = ClusterManagePrefix + "node"
+	ClusterManageNodeClusterLabel = ClusterManagePrefix + "node.cluster"
+	ClusterManageScaleDownLabel   = ClusterManagePrefix + "scale.down"
+	ClusterServiceName            = ClusterManagePrefix + "service.name"
+	// cluster
+	ClusterNameLabel = ClusterPrefix + ".name"
+
+	// storage
+	StoragePrefix              = PrimusSafePrefix + "storage."
+	StorageDefaultClusterLabel = StoragePrefix + "default.cluster"
+	StorageTypeLabel           = StoragePrefix + "type"
+	StorageClusterNameLabel    = StoragePrefix + "cluster.name"
+)
+
+const (
+	Pending  Phase = "Pending"
+	Creating Phase = "Creating"
+	Ready    Phase = "Ready"
+	Unknown  Phase = "Unknown"
+	Deleted  Phase = "Deleted"
 )

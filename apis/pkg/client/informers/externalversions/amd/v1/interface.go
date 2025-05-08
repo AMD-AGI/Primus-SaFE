@@ -16,6 +16,8 @@ type Interface interface {
 	Clusters() ClusterInformer
 	// Nodes returns a NodeInformer.
 	Nodes() NodeInformer
+	// StorageClusters returns a StorageClusterInformer.
+	StorageClusters() StorageClusterInformer
 }
 
 type version struct {
@@ -31,10 +33,15 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 
 // Clusters returns a ClusterInformer.
 func (v *version) Clusters() ClusterInformer {
-	return &clusterInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+	return &clusterInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // Nodes returns a NodeInformer.
 func (v *version) Nodes() NodeInformer {
-	return &nodeInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+	return &nodeInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// StorageClusters returns a StorageClusterInformer.
+func (v *version) StorageClusters() StorageClusterInformer {
+	return &storageClusterInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }

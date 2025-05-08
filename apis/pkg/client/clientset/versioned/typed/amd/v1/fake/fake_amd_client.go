@@ -16,12 +16,16 @@ type FakeAmdV1 struct {
 	*testing.Fake
 }
 
-func (c *FakeAmdV1) Clusters(namespace string) v1.ClusterInterface {
-	return newFakeClusters(c, namespace)
+func (c *FakeAmdV1) Clusters() v1.ClusterInterface {
+	return newFakeClusters(c)
 }
 
-func (c *FakeAmdV1) Nodes(namespace string) v1.NodeInterface {
-	return newFakeNodes(c, namespace)
+func (c *FakeAmdV1) Nodes() v1.NodeInterface {
+	return newFakeNodes(c)
+}
+
+func (c *FakeAmdV1) StorageClusters() v1.StorageClusterInterface {
+	return newFakeStorageClusters(c)
 }
 
 // RESTClient returns a RESTClient that is used to communicate
