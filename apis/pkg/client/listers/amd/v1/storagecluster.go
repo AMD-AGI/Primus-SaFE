@@ -19,9 +19,8 @@ type StorageClusterLister interface {
 	// List lists all StorageClusters in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*amdv1.StorageCluster, err error)
-	// Get retrieves the StorageCluster from the index for a given name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*amdv1.StorageCluster, error)
+	// StorageClusters returns an object that can list and get StorageClusters.
+	StorageClusters(namespace string) StorageClusterNamespaceLister
 	StorageClusterListerExpansion
 }
 
@@ -33,4 +32,27 @@ type storageClusterLister struct {
 // NewStorageClusterLister returns a new StorageClusterLister.
 func NewStorageClusterLister(indexer cache.Indexer) StorageClusterLister {
 	return &storageClusterLister{listers.New[*amdv1.StorageCluster](indexer, amdv1.Resource("storagecluster"))}
+}
+
+// StorageClusters returns an object that can list and get StorageClusters.
+func (s *storageClusterLister) StorageClusters(namespace string) StorageClusterNamespaceLister {
+	return storageClusterNamespaceLister{listers.NewNamespaced[*amdv1.StorageCluster](s.ResourceIndexer, namespace)}
+}
+
+// StorageClusterNamespaceLister helps list and get StorageClusters.
+// All objects returned here must be treated as read-only.
+type StorageClusterNamespaceLister interface {
+	// List lists all StorageClusters in the indexer for a given namespace.
+	// Objects returned here must be treated as read-only.
+	List(selector labels.Selector) (ret []*amdv1.StorageCluster, err error)
+	// Get retrieves the StorageCluster from the indexer for a given namespace and name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*amdv1.StorageCluster, error)
+	StorageClusterNamespaceListerExpansion
+}
+
+// storageClusterNamespaceLister implements the StorageClusterNamespaceLister
+// interface.
+type storageClusterNamespaceLister struct {
+	listers.ResourceIndexer[*amdv1.StorageCluster]
 }

@@ -19,11 +19,11 @@ type fakeStorageClusters struct {
 	Fake *FakeAmdV1
 }
 
-func newFakeStorageClusters(fake *FakeAmdV1) typedamdv1.StorageClusterInterface {
+func newFakeStorageClusters(fake *FakeAmdV1, namespace string) typedamdv1.StorageClusterInterface {
 	return &fakeStorageClusters{
 		gentype.NewFakeClientWithListAndApply[*v1.StorageCluster, *v1.StorageClusterList, *amdv1.StorageClusterApplyConfiguration](
 			fake.Fake,
-			"",
+			namespace,
 			v1.SchemeGroupVersion.WithResource("storageclusters"),
 			v1.SchemeGroupVersion.WithKind("StorageCluster"),
 			func() *v1.StorageCluster { return &v1.StorageCluster{} },

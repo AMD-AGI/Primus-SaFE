@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
@@ -632,7 +632,7 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 			return err
 		}
 
-		if _, err = r.ensureHostsConfigMapCreated(ctx, adminNode.Name,
+		if _, err = r.guaranteeHostsConfigMapCreated(ctx, adminNode.Name,
 			genNodeOwnerReference(adminNode), hostsContent); err != nil {
 			return err
 		}
@@ -735,7 +735,7 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 		if err != nil || hostsContent == nil {
 			return err
 		}
-		if _, err = r.ensureHostsConfigMapCreated(ctx, adminNode.Name,
+		if _, err = r.guaranteeHostsConfigMapCreated(ctx, adminNode.Name,
 			genNodeOwnerReference(adminNode), hostsContent); err != nil {
 			return err
 		}

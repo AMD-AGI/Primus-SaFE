@@ -23,9 +23,10 @@ type StorageClusterApplyConfiguration struct {
 
 // StorageCluster constructs a declarative configuration of the StorageCluster type for use with
 // apply.
-func StorageCluster(name string) *StorageClusterApplyConfiguration {
+func StorageCluster(name, namespace string) *StorageClusterApplyConfiguration {
 	b := &StorageClusterApplyConfiguration{}
 	b.WithName(name)
+	b.WithNamespace(namespace)
 	b.WithKind("StorageCluster")
 	b.WithAPIVersion("amd.com/v1")
 	return b

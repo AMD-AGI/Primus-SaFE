@@ -181,7 +181,7 @@ func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.C
 	return hostsContent, nil
 }
 
-func (r *ClusterBaseReconciler) ensureHostsConfigMapCreated(ctx context.Context, name string, owner metav1.OwnerReference, hostsContent *HostTemplateContent) (*corev1.ConfigMap, error) {
+func (r *ClusterBaseReconciler) guaranteeHostsConfigMapCreated(ctx context.Context, name string, owner metav1.OwnerReference, hostsContent *HostTemplateContent) (*corev1.ConfigMap, error) {
 	kubesprayHostData := &strings.Builder{}
 	tmpl := template.Must(template.New("").Parse(kubesprayHostsTemplate))
 	if err := tmpl.Execute(kubesprayHostData, hostsContent); err != nil {
@@ -190,10 +190,6 @@ func (r *ClusterBaseReconciler) ensureHostsConfigMapCreated(ctx context.Context,
 
 	hostData := &strings.Builder{}
 
-	tmpl = template.Must(template.New("").Parse(clusterHostsTemplate))
-	if err := tmpl.Execute(hostData, hostsContent); err != nil {
-		return nil, err
-	}
 	cm := new(corev1.ConfigMap)
 	err := r.Get(ctx, apitypes.NamespacedName{
 		Namespace: common.PrimusSafeNamespace,
@@ -269,14 +265,10 @@ func (r *ClusterBaseReconciler) getCluster(ctx context.Context, clusterName stri
 	return cluster, nil
 }
 
-//go:embed cluster_hosts.template
-var clusterHostsTemplate string
-
 //go:embed kubespray_hosts.template
 var kubesprayHostsTemplate string
 
 const (
-	KubernetesFinalizer       = "kubernetes.finalizer"
 	ProvisionedKubeConfigPath = "/etc/kubernetes/admin.conf"
 	Username                  = "username"
 	Password                  = "password"
@@ -330,8 +322,8 @@ func getSHHConfig(secret *corev1.Secret) (*ssh.ClientConfig, error) {
 }
 
 func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, username, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
-	basePodName := cluster.Name + "-" + string(action)
-	name := names.SimpleNameGenerator.GenerateName(basePodName + "-")
+	// basePodName := cluster.Name + "-" + string(action)
+	name := cluster.Name + "-" + string(action) // names.SimpleNameGenerator.GenerateName(basePodName + "-")
 	hostsAlias := make([]corev1.HostAlias, 0, len(hostsContent.PodHostsAlias))
 	for hostname, ip := range hostsContent.PodHostsAlias {
 		hostsAlias = append(hostsAlias, corev1.HostAlias{
@@ -364,8 +356,8 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 			Name:      name,
 			Namespace: common.PrimusSafeNamespace,
 			Labels: map[string]string{
-				v1.ClusterManageActionLabel:  string(action),
 				v1.ClusterManageClusterLabel: cluster.Name,
+				v1.ClusterManageActionLabel:  string(action),
 			},
 			OwnerReferences: []metav1.OwnerReference{
 				{
@@ -451,6 +443,23 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 	return pod
 }
 
+func generateScaleWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, node *v1.Node, usename, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
+	pod := generateWorkerPod(action, cluster, usename, cmd, image, config, hostsContent)
+	name := fmt.Sprintf("%s-%s", cluster.Name, node.Name)
+	// if len(name) > 58 {
+	// 	name = name[:58]
+	// }
+	// name = fmt.Sprintf("%s-%s", name, action)
+	pod.Name = names.SimpleNameGenerator.GenerateName(name + "-")
+	pod.Labels[v1.ClusterManageNodeLabel] = node.Name
+	pod.OwnerReferences = append(pod.OwnerReferences, metav1.OwnerReference{
+		APIVersion: node.APIVersion,
+		Kind:       node.Kind,
+		Name:       node.Name,
+		UID:        node.UID,
+	})
+	return pod
+}
 func getKubeSprayCreateCMD(user, env string) string {
 	cmd := fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s cluster.yml --become-user=root %s -b -vvv", Authorize, env)
 	if user == "" || user == "root" {
@@ -569,4 +578,15 @@ func isReadyMachineNode(node *v1.Node) bool {
 		return false
 	}
 	return true
+}
+
+func guaranteeControllerPlane(cluster *v1.Cluster) bool {
+	if !cluster.DeletionTimestamp.IsZero() {
+		return true
+	}
+	switch phase := cluster.Status.ControlPlaneStatus.Phase; phase {
+	case "", v1.PendingPhase, v1.CreatingPhase, v1.CreationFailed:
+		return true
+	}
+	return false
 }
