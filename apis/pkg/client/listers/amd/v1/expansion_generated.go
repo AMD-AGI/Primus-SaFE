@@ -10,10 +10,50 @@ package v1
 // ClusterLister.
 type ClusterListerExpansion interface{}
 
+// ClusterNamespaceListerExpansion allows custom methods to be added to
+// ClusterNamespaceLister.
+type ClusterNamespaceListerExpansion interface{}
+
+// FaultListerExpansion allows custom methods to be added to
+// FaultLister.
+type FaultListerExpansion interface{}
+
+// FaultNamespaceListerExpansion allows custom methods to be added to
+// FaultNamespaceLister.
+type FaultNamespaceListerExpansion interface{}
+
 // NodeListerExpansion allows custom methods to be added to
 // NodeLister.
 type NodeListerExpansion interface{}
 
+// NodeNamespaceListerExpansion allows custom methods to be added to
+// NodeNamespaceLister.
+type NodeNamespaceListerExpansion interface{}
+
+// NodeFlavorListerExpansion allows custom methods to be added to
+// NodeFlavorLister.
+type NodeFlavorListerExpansion interface{}
+
+// NodeFlavorNamespaceListerExpansion allows custom methods to be added to
+// NodeFlavorNamespaceLister.
+type NodeFlavorNamespaceListerExpansion interface{}
+
 // StorageClusterListerExpansion allows custom methods to be added to
 // StorageClusterLister.
 type StorageClusterListerExpansion interface{}
+
+// WorkloadListerExpansion allows custom methods to be added to
+// WorkloadLister.
+type WorkloadListerExpansion interface{}
+
+// WorkloadNamespaceListerExpansion allows custom methods to be added to
+// WorkloadNamespaceLister.
+type WorkloadNamespaceListerExpansion interface{}
+
+// WorkspaceListerExpansion allows custom methods to be added to
+// WorkspaceLister.
+type WorkspaceListerExpansion interface{}
+
+// WorkspaceNamespaceListerExpansion allows custom methods to be added to
+// WorkspaceNamespaceLister.
+type WorkspaceNamespaceListerExpansion interface{}

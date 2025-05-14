@@ -19,11 +19,11 @@ type fakeClusters struct {
 	Fake *FakeAmdV1
 }
 
-func newFakeClusters(fake *FakeAmdV1) typedamdv1.ClusterInterface {
+func newFakeClusters(fake *FakeAmdV1, namespace string) typedamdv1.ClusterInterface {
 	return &fakeClusters{
 		gentype.NewFakeClientWithListAndApply[*v1.Cluster, *v1.ClusterList, *amdv1.ClusterApplyConfiguration](
 			fake.Fake,
-			"",
+			namespace,
 			v1.SchemeGroupVersion.WithResource("clusters"),
 			v1.SchemeGroupVersion.WithKind("Cluster"),
 			func() *v1.Cluster { return &v1.Cluster{} },

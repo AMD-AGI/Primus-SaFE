@@ -6,41 +6,35 @@
 package resource
 
 import (
-	"bytes"
+	"context"
 	_ "embed"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"strings"
-	"time"
 
-	"context"
-
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apiserver/pkg/storage/names"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
-type BaseReconciler struct {
+type ClusterBaseReconciler struct {
 	client.Client
 }
 
-func (r *BaseReconciler) getUsername(ctx context.Context, node *v1.Node, cluster *v1.Cluster) (string, error) {
+func (r *ClusterBaseReconciler) getUsername(ctx context.Context, node *v1.Node, cluster *v1.Cluster) (string, error) {
 	if cluster.Spec.ControlPlane.SSHSecret != nil {
 		secret := new(corev1.Secret)
-		err := r.Get(ctx, types.NamespacedName{
+		err := r.Get(ctx, apitypes.NamespacedName{
 			Namespace: cluster.Spec.ControlPlane.SSHSecret.Namespace,
 			Name:      cluster.Spec.ControlPlane.SSHSecret.Name,
 		}, secret)
@@ -53,7 +47,7 @@ func (r *BaseReconciler) getUsername(ctx context.Context, node *v1.Node, cluster
 	}
 	if node.Spec.SSHSecret != nil {
 		secret := new(corev1.Secret)
-		err := r.Get(ctx, types.NamespacedName{Name: node.Spec.SSHSecret.Name, Namespace: node.Spec.SSHSecret.Namespace}, secret)
+		err := r.Get(ctx, apitypes.NamespacedName{Name: node.Spec.SSHSecret.Name, Namespace: node.Spec.SSHSecret.Namespace}, secret)
 		if err != nil {
 			return "", err
 		}
@@ -64,7 +58,7 @@ func (r *BaseReconciler) getUsername(ctx context.Context, node *v1.Node, cluster
 		}
 	}
 	secret := new(corev1.Secret)
-	err := r.Get(ctx, types.NamespacedName{
+	err := r.Get(ctx, apitypes.NamespacedName{
 		Namespace: common.PrimusSafeNamespace,
 		Name:      cluster.Name,
 	}, secret)
@@ -78,16 +72,15 @@ func (r *BaseReconciler) getUsername(ctx context.Context, node *v1.Node, cluster
 	return username, nil
 }
 
-func (r *BaseReconciler) getNode(ctx context.Context, nodes *v1.NodeList, name string) (*v1.Node, error) {
+func (r *ClusterBaseReconciler) getNode(ctx context.Context, nodes *v1.NodeList, name string) (*v1.Node, error) {
 	for _, n := range nodes.Items {
 		if n.Name == name {
 			return n.DeepCopy(), nil
 		}
 	}
 	node := new(v1.Node)
-	err := r.Get(ctx, types.NamespacedName{
-		Namespace: common.PrimusSafeNamespace,
-		Name:      name,
+	err := r.Get(ctx, apitypes.NamespacedName{
+		Name: name,
 	}, node)
 	if err != nil {
 		return nil, err
@@ -95,14 +88,11 @@ func (r *BaseReconciler) getNode(ctx context.Context, nodes *v1.NodeList, name s
 	return node, nil
 }
 
-func (r *BaseReconciler) generateHosts(ctx context.Context, cluster *v1.Cluster, worker *v1.Node) (*HostTemplateContent, error) {
-	nodes := new(v1.NodeList)
-	if err := r.List(ctx, nodes); err != nil {
-		return nil, err
-	}
+func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.Cluster, worker *v1.Node) (*HostTemplateContent, error) {
 	controllers := make([]*v1.Node, 0, len(cluster.Spec.ControlPlane.Nodes))
 	for _, v := range cluster.Spec.ControlPlane.Nodes {
-		node, err := r.getNode(ctx, nodes, v)
+		node := new(v1.Node)
+		err := r.Get(ctx, apitypes.NamespacedName{Name: v}, node)
 		if err != nil {
 			return nil, err
 		}
@@ -158,7 +148,8 @@ func (r *BaseReconciler) generateHosts(ctx context.Context, cluster *v1.Cluster,
 		count++
 	}
 	if worker != nil {
-		node, err := r.getNode(ctx, nodes, worker.Name)
+		node := new(v1.Node)
+		err := r.Get(ctx, apitypes.NamespacedName{Name: worker.Name}, node)
 		if err != nil {
 			return nil, err
 		}
@@ -190,10 +181,10 @@ func (r *BaseReconciler) generateHosts(ctx context.Context, cluster *v1.Cluster,
 	return hostsContent, nil
 }
 
-func (r *BaseReconciler) ensureHostsConfigMapCreated(ctx context.Context, name string, owner metav1.OwnerReference, hostsContent *HostTemplateContent) (*corev1.ConfigMap, error) {
-	kebesprayHostData := &strings.Builder{}
+func (r *ClusterBaseReconciler) ensureHostsConfigMapCreated(ctx context.Context, name string, owner metav1.OwnerReference, hostsContent *HostTemplateContent) (*corev1.ConfigMap, error) {
+	kubesprayHostData := &strings.Builder{}
 	tmpl := template.Must(template.New("").Parse(kubesprayHostsTemplate))
-	if err := tmpl.Execute(kebesprayHostData, hostsContent); err != nil {
+	if err := tmpl.Execute(kubesprayHostData, hostsContent); err != nil {
 		return nil, err
 	}
 
@@ -204,7 +195,7 @@ func (r *BaseReconciler) ensureHostsConfigMapCreated(ctx context.Context, name s
 		return nil, err
 	}
 	cm := new(corev1.ConfigMap)
-	err := r.Get(ctx, types.NamespacedName{
+	err := r.Get(ctx, apitypes.NamespacedName{
 		Namespace: common.PrimusSafeNamespace,
 		Name:      name,
 	}, cm)
@@ -225,7 +216,7 @@ func (r *BaseReconciler) ensureHostsConfigMapCreated(ctx context.Context, name s
 				},
 			},
 			Data: map[string]string{
-				HostsYaml: strings.TrimSpace(kebesprayHostData.String()),
+				HostsYaml: strings.TrimSpace(kubesprayHostData.String()),
 				Hosts:     strings.TrimSpace(hostData.String()),
 			},
 		}
@@ -234,7 +225,7 @@ func (r *BaseReconciler) ensureHostsConfigMapCreated(ctx context.Context, name s
 		}
 	} else {
 		c := client.MergeFrom(cm.DeepCopy())
-		cm.Data[HostsYaml] = strings.TrimSpace(kebesprayHostData.String())
+		cm.Data[HostsYaml] = strings.TrimSpace(kubesprayHostData.String())
 		cm.Data[Hosts] = strings.TrimSpace(hostData.String())
 		err = r.Patch(ctx, cm, c)
 		if err != nil {
@@ -245,8 +236,7 @@ func (r *BaseReconciler) ensureHostsConfigMapCreated(ctx context.Context, name s
 	return cm, nil
 }
 
-func (r *BaseReconciler) ensurePod(ctx context.Context, clusterName string, action v1.ClusterManageAction) (*corev1.Pod, error) {
-	labelSelector := client.MatchingLabels{v1.ClusterManageActionLabel: string(action), v1.ClusterManageClusterLabel: clusterName}
+func (r *ClusterBaseReconciler) getPod(ctx context.Context, labelSelector client.MatchingLabels) (*corev1.Pod, error) {
 	list := new(corev1.PodList)
 	err := r.List(ctx, list, client.InNamespace(common.PrimusSafeNamespace), labelSelector)
 	if err != nil {
@@ -258,9 +248,26 @@ func (r *BaseReconciler) ensurePod(ctx context.Context, clusterName string, acti
 	return nil, nil
 }
 
-const (
-	finalizer = "storage.controller"
-)
+func (r *ClusterBaseReconciler) getPodList(ctx context.Context, labelSelector client.MatchingLabels) ([]corev1.Pod, error) {
+	list := new(corev1.PodList)
+	err := r.List(ctx, list, client.InNamespace(common.PrimusSafeNamespace), labelSelector)
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+func (r *ClusterBaseReconciler) getCluster(ctx context.Context, clusterName string) (*v1.Cluster, error) {
+	if clusterName == "" {
+		return nil, nil
+	}
+	cluster := new(v1.Cluster)
+	err := r.Get(ctx, apitypes.NamespacedName{Name: clusterName}, cluster)
+	if err != nil {
+		return nil, err
+	}
+	return cluster, nil
+}
 
 //go:embed cluster_hosts.template
 var clusterHostsTemplate string
@@ -280,9 +287,6 @@ const (
 	HostsYaml                 = "hosts.yaml"
 	Authorize                 = "authorize"
 	AuthorizePub              = "authorize.pub"
-	Requeue                   = time.Second * 30
-	Zero                      = time.Duration(0)
-	HarborCA                  = "harbor-ca"
 )
 
 type HostTemplateContent struct {
@@ -447,24 +451,7 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 	return pod
 }
 
-func generateScaleWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, node *v1.Node, usename, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
-	pod := generateWorkerPod(action, cluster, usename, cmd, image, config, hostsContent)
-	name := fmt.Sprintf("%s-%s", cluster.Name, node.Name)
-	if len(name) > 58 {
-		name = name[:58]
-	}
-	name = fmt.Sprintf("%s-%s", name, action)
-	pod.Name = names.SimpleNameGenerator.GenerateName(name + "-")
-	pod.Labels[v1.ClusterManageNodeLabel] = node.Name
-	pod.OwnerReferences = append(pod.OwnerReferences, metav1.OwnerReference{
-		APIVersion: node.APIVersion,
-		Kind:       node.Kind,
-		Name:       node.Name,
-		UID:        node.UID,
-	})
-	return pod
-}
-func GetKubeSprayCreateCMD(user, env string) string {
+func getKubeSprayCreateCMD(user, env string) string {
 	cmd := fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s cluster.yml --become-user=root %s -b -vvv", Authorize, env)
 	if user == "" || user == "root" {
 		return cmd
@@ -473,25 +460,7 @@ func GetKubeSprayCreateCMD(user, env string) string {
 		user, user, user, user, cmd)
 }
 
-func GetKubeSprayScaleUpCMD(user, node, env string) string {
-	cmd := fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s scale.yml --limit=%s %s --become-user=root -b -vvv", Authorize, node, env)
-	if user == "" || user == "root" {
-		return cmd
-	}
-	return fmt.Sprintf("groupadd -r kubespray && useradd -r -g kubespray %s && mkdir -p /home/%s && chmod -R 777 /home/%s && su %s -c '%s'",
-		user, user, user, user, cmd)
-}
-
-func GetKubeSprayScaleDownCMD(user, node, env string) string {
-	cmd := fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s remove-node.yml -e node=%s -e skip_confirmation=yes -e reset_nodes=true -e allow_ungraceful_removal=false %s --become-user=root -b -vvv", Authorize, node, env)
-	if user == "" || user == "root" {
-		return cmd
-	}
-	return fmt.Sprintf("groupadd -r kubespray && useradd -r -g kubespray %s && mkdir -p /home/%s && chmod -R 777 /home/%s && su %s -c '%s'",
-		user, user, user, user, cmd)
-}
-
-func GetKubeSprayHostsCMD(user string) string {
+func getKubeSprayHostsCMD(user string) string {
 	cmd := fmt.Sprintf("ansible all -i hosts/hosts.yaml --private-key .ssh/%s -m copy -a \"src=inventory/hosts dest=/etc/hosts mode=u+x\" --become-user=root -b -vvv", Authorize)
 	if user == "" || user == "root" {
 		return cmd
@@ -500,7 +469,7 @@ func GetKubeSprayHostsCMD(user string) string {
 		user, user, user, user, cmd)
 }
 
-func GetKubeSprayEnv(cluster *v1.Cluster) string {
+func getKubeSprayEnv(cluster *v1.Cluster) string {
 	cmd := ""
 	if cluster.Spec.ControlPlane.KubeVersion != nil {
 		cmd = fmt.Sprintf("%s -e kube_version=%s", cmd, *cluster.Spec.ControlPlane.KubeVersion)
@@ -531,7 +500,7 @@ func GetKubeSprayEnv(cluster *v1.Cluster) string {
 	return cmd
 }
 
-func GetKubeSprayResetCMD(user, env string) string {
+func getKubeSprayResetCMD(user, env string) string {
 	cmd := fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s reset.yml -e reset_confirmation=yes %s --become-user=root -b -vvv", Authorize, env)
 	if user == "" || user == "root" {
 		return cmd
@@ -562,42 +531,6 @@ func addOwnerReferences(references []metav1.OwnerReference, cluster *v1.Cluster)
 	return references
 }
 
-func removeOwnerReferences(references []metav1.OwnerReference, uid types.UID) []metav1.OwnerReference {
-	newReferences := make([]metav1.OwnerReference, 0, len(references))
-	for k, r := range references {
-		if r.UID != uid {
-			newReferences = append(newReferences, references[k])
-		}
-	}
-	return newReferences
-}
-
-func getHostname(conn *ssh.Client) (string, error) {
-	session, err := conn.NewSession()
-	if err != nil {
-		return "", err
-	}
-	var b bytes.Buffer
-	session.Stdout = &b
-	if err := session.Run("hostname"); err != nil {
-		return "", fmt.Errorf("failed get hostname: %v", err)
-	}
-	return strings.Replace(b.String(), "\n", "", -1), nil
-}
-
-func setHostname(conn *ssh.Client, hostname string) (string, error) {
-	session, err := conn.NewSession()
-	if err != nil {
-		return "", err
-	}
-	var b bytes.Buffer
-	session.Stdout = &b
-	if err := session.Run(fmt.Sprintf("sudo hostnamectl set-hostname %s && hostname", hostname)); err != nil {
-		return "", fmt.Errorf("failed get hostname: %v", err)
-	}
-	return strings.Replace(b.String(), "\n", "", -1), nil
-}
-
 func getNodeLabelsString(node *v1.Node) (string, bool) {
 	if node.Labels == nil {
 		return "", false
@@ -605,7 +538,7 @@ func getNodeLabelsString(node *v1.Node) (string, bool) {
 	labels := node.Labels
 	delete(node.Labels, v1.ClusterManageNodeClusterLabel)
 	if node.Spec.NodeFlavor != nil {
-		labels[v1.NodeFlavorLabel] = node.Spec.NodeFlavor.Name
+		labels[v1.NodeFlavorIdLabel] = node.Spec.NodeFlavor.Name
 	}
 	l, err := json.Marshal(labels)
 	if err != nil {
@@ -623,48 +556,6 @@ func createKubernetesClusterOwnerReference(cluster *v1.Cluster) metav1.OwnerRefe
 		Controller:         pointer.Bool(true),
 		BlockOwnerDeletion: pointer.Bool(true),
 	}
-}
-
-func newKubernetesConfig(cluster *v1.Cluster) (*rest.Config, error) {
-	if cluster.Status.ControlePlaneStatus.Phase != v1.ReadyPhase || cluster.Status.ControlePlaneStatus.CAData == "" ||
-		cluster.Status.ControlePlaneStatus.KeyData == "" || cluster.Status.ControlePlaneStatus.CertData == "" {
-		return nil, fmt.Errorf("cluster is not ready")
-	}
-	if len(cluster.Status.ControlePlaneStatus.Endpoints) == 0 {
-		return nil, nil
-	}
-	crypto := crypto.Instance()
-	config := &rest.Config{
-		Host: fmt.Sprintf("https://%s.%s.svc", cluster.Name, ""),
-		TLSClientConfig: rest.TLSClientConfig{
-			Insecure: true,
-		},
-	}
-	certData, err := crypto.Decrypt(cluster.Status.ControlePlaneStatus.CertData)
-	if err != nil {
-		return nil, err
-	}
-	config.TLSClientConfig.CertData, err = base64.StdEncoding.DecodeString(certData)
-	if err != nil {
-		return nil, err
-	}
-	keyData, err := crypto.Decrypt(cluster.Status.ControlePlaneStatus.KeyData)
-	if err != nil {
-		return nil, err
-	}
-	config.TLSClientConfig.KeyData, err = base64.StdEncoding.DecodeString(keyData)
-	if err != nil {
-		return nil, err
-	}
-	return config, nil
-}
-
-func newKubernetesClientSet(cluster *v1.Cluster) (kubernetes.Interface, error) {
-	config, err := newKubernetesConfig(cluster)
-	if err != nil {
-		return nil, err
-	}
-	return kubernetes.NewForConfig(config)
 }
 
 func isReadyMachineNode(node *v1.Node) bool {

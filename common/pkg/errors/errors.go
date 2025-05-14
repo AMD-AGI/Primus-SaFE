@@ -83,7 +83,7 @@ func NewError() *Error {
 
 func newError(callerSkip int) *Error {
 	return &Error{
-		Stack:      callers(callerSkip),
+		Stack:      call(callerSkip),
 		InnerError: nil,
 		Code:       "",
 		Message:    "",
@@ -98,7 +98,7 @@ func WrapMessage(message, code string) *Error {
 	return newError(2).WithCode(code).WithMessage(message)
 }
 
-func callers(callerSkip int) []runtime.Frame {
+func call(callerSkip int) []runtime.Frame {
 	rpc := make([]uintptr, 10)
 	result := []runtime.Frame{}
 	n := runtime.Callers(callerSkip+2, rpc)

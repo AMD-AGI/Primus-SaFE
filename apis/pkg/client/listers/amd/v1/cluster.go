@@ -19,9 +19,8 @@ type ClusterLister interface {
 	// List lists all Clusters in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*amdv1.Cluster, err error)
-	// Get retrieves the Cluster from the index for a given name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*amdv1.Cluster, error)
+	// Clusters returns an object that can list and get Clusters.
+	Clusters(namespace string) ClusterNamespaceLister
 	ClusterListerExpansion
 }
 
@@ -33,4 +32,27 @@ type clusterLister struct {
 // NewClusterLister returns a new ClusterLister.
 func NewClusterLister(indexer cache.Indexer) ClusterLister {
 	return &clusterLister{listers.New[*amdv1.Cluster](indexer, amdv1.Resource("cluster"))}
+}
+
+// Clusters returns an object that can list and get Clusters.
+func (s *clusterLister) Clusters(namespace string) ClusterNamespaceLister {
+	return clusterNamespaceLister{listers.NewNamespaced[*amdv1.Cluster](s.ResourceIndexer, namespace)}
+}
+
+// ClusterNamespaceLister helps list and get Clusters.
+// All objects returned here must be treated as read-only.
+type ClusterNamespaceLister interface {
+	// List lists all Clusters in the indexer for a given namespace.
+	// Objects returned here must be treated as read-only.
+	List(selector labels.Selector) (ret []*amdv1.Cluster, err error)
+	// Get retrieves the Cluster from the indexer for a given namespace and name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*amdv1.Cluster, error)
+	ClusterNamespaceListerExpansion
+}
+
+// clusterNamespaceLister implements the ClusterNamespaceLister
+// interface.
+type clusterNamespaceLister struct {
+	listers.ResourceIndexer[*amdv1.Cluster]
 }

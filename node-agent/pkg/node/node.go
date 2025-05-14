@@ -224,7 +224,7 @@ func getLocation() (*time.Location, error) {
 	cmd := fmt.Sprintf(`%s timedatectl |grep "Time zone" |awk -F" " '{print $3}'`, nsenter)
 	statusCode, resp := utils.ExecuteCommand(cmd, 0)
 	if statusCode != types.StatusOk {
-		return nil, fmt.Errorf("fail to execute command, resp: %s", resp)
+		return nil, fmt.Errorf("failed to execute command, resp: %s", resp)
 	}
 	timezone := resp
 	if timezone == "" {
@@ -244,7 +244,7 @@ func getUptime(loc *time.Location) (time.Time, error) {
 	cmd := fmt.Sprintf("%s uptime -s", nsenter)
 	statusCode, resp := utils.ExecuteCommand(cmd, 0)
 	if statusCode != types.StatusOk {
-		return time.Time{}, fmt.Errorf("fail to do 'uptime -s', resp: %s", resp)
+		return time.Time{}, fmt.Errorf("failed to do 'uptime -s', resp: %s", resp)
 	}
 	startTime, err := time.ParseInLocation(time.DateTime, resp, loc)
 	if err != nil {

@@ -12,16 +12,14 @@ import (
 	"fmt"
 	"time"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
-
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/secure"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
@@ -33,15 +31,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 )
 
 type ClusterReconciler struct {
-	*BaseReconciler
+	*ClusterBaseReconciler
 }
 
 func SetupClusterController(mgr manager.Manager) error {
 	r := &ClusterReconciler{
-		&BaseReconciler{
+		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: mgr.GetClient(),
 		},
 	}
@@ -60,7 +62,6 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	defer func() {
 		klog.V(4).Infof("Finished node reconcile %s cost (%v)", req.Name, time.Since(startTime))
 	}()
-	klog.Infof("%+s", req.Name)
 	cluster := new(v1.Cluster)
 	err := r.Get(ctx, req.NamespacedName, cluster)
 	if err != nil {
@@ -69,13 +70,55 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 		}
 		return ctrlruntime.Result{}, err
 	}
-	if err := r.ensureClusterControlePlane(ctx, cluster); err != nil {
+	if !cluster.DeletionTimestamp.IsZero() {
+		return ctrlruntime.Result{}, r.delete(ctx, cluster)
+	}
+	if err := r.ensureClusterControlPlane(ctx, cluster); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	return ctrlruntime.Result{}, nil
 }
 
-func (r *ClusterReconciler) ensureClusterControlePlane(ctx context.Context, cluster *v1.Cluster) error {
+func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) error {
+	if err := r.resetNodesOfCluster(cluster.Name); err != nil {
+		return err
+	}
+	cm := newClusterManager()
+	cm.deleteInformer(cluster.Name)
+	if err := removeFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *ClusterReconciler) resetNodesOfCluster(clusterName string) error {
+	req, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{clusterName})
+	labelSelector := labels.NewSelector().Add(*req)
+	nodeList := &v1.NodeList{}
+	if err := r.List(context.Background(), nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		klog.ErrorS(err, "failed to list nodes")
+		return err
+	}
+	for _, n := range nodeList.Items {
+		deleteConcernedMeta(&n)
+		n.Spec.Cluster = nil
+		n.Spec.Workspace = nil
+		if err := r.Update(context.Background(), &n); err != nil {
+			klog.ErrorS(err, "failed to update node")
+			return err
+		}
+
+		n.Status = v1.NodeStatus{}
+		if err := r.Status().Update(context.Background(), &n); err != nil {
+			klog.ErrorS(err, "failed to update node status")
+			return err
+		}
+		klog.Infof("reset the node(%s) after the cluster(%s) is deleted.", n.Name, clusterName)
+	}
+	return nil
+}
+
+func (r *ClusterReconciler) ensureClusterControlPlane(ctx context.Context, cluster *v1.Cluster) error {
 	if err := r.addFinalizer(ctx, cluster); err != nil {
 		return err
 	}
@@ -89,11 +132,11 @@ func (r *ClusterReconciler) ensureClusterControlePlane(ctx context.Context, clus
 		}
 	}
 
-	if cluster.Status.ControlePlaneStatus.Phase == "" {
+	if cluster.Status.ControlPlaneStatus.Phase == "" {
 		if err := r.fetchProvisionedClusterKubeConfig(ctx, cluster); err != nil {
 			return err
 		}
-		if cluster.Status.ControlePlaneStatus.Phase != "" {
+		if cluster.Status.ControlPlaneStatus.Phase != "" {
 			return nil
 		}
 	}
@@ -115,7 +158,7 @@ func (r *ClusterReconciler) ensureClusterControlePlane(ctx context.Context, clus
 		}
 		return err
 	}
-	if cluster.Status.ControlePlaneStatus.Phase != v1.ReadyPhase && hostsContent == nil && cluster.DeletionTimestamp.IsZero() {
+	if !cluster.IsReady() && hostsContent == nil && cluster.DeletionTimestamp.IsZero() {
 		klog.Infof("cluster %s Kube control plane nodes not ready, plase wait", cluster.Name)
 		return nil
 	}
@@ -123,7 +166,7 @@ func (r *ClusterReconciler) ensureClusterControlePlane(ctx context.Context, clus
 		return r.reset(ctx, cluster, hostsContent)
 	}
 
-	phase := cluster.Status.ControlePlaneStatus.Phase
+	phase := cluster.Status.ControlPlaneStatus.Phase
 	if phase == "" || phase == v1.PendingPhase || phase == v1.CreatingPhase || phase == v1.CreationFailed {
 
 		pod, err := r.ensureInitWorkerPodCreated(ctx, cluster, hostsContent)
@@ -132,11 +175,11 @@ func (r *ClusterReconciler) ensureClusterControlePlane(ctx context.Context, clus
 		}
 		if pod != nil {
 			c := client.MergeFrom(cluster.DeepCopy())
-			cluster.Status.ControlePlaneStatus.Phase = v1.CreatingPhase
+			cluster.Status.ControlPlaneStatus.Phase = v1.CreatingPhase
 			if pod.Status.Phase == corev1.PodSucceeded {
-				cluster.Status.ControlePlaneStatus.Phase = v1.CreatedPhase
+				cluster.Status.ControlPlaneStatus.Phase = v1.CreatedPhase
 			} else if pod.Status.Phase == corev1.PodFailed {
-				cluster.Status.ControlePlaneStatus.Phase = v1.CreationFailed
+				cluster.Status.ControlPlaneStatus.Phase = v1.CreationFailed
 			}
 			if err := r.Status().Patch(ctx, cluster, c); err != nil {
 				return err
@@ -153,7 +196,7 @@ func (r *ClusterReconciler) ensureClusterControlePlane(ctx context.Context, clus
 	if err := r.ensureService(ctx, cluster); err != nil {
 		return err
 	}
-	if cluster.Status.ControlePlaneStatus.Phase == v1.ReadyPhase {
+	if cluster.IsReady() {
 		if err = r.podClear(ctx, cluster); err != nil {
 			return err
 		}
@@ -162,11 +205,12 @@ func (r *ClusterReconciler) ensureClusterControlePlane(ctx context.Context, clus
 }
 
 func (r *ClusterReconciler) reset(ctx context.Context, cluster *v1.Cluster, hostsContent *HostTemplateContent) error {
-	if cluster.Status.ControlePlaneStatus.Phase == v1.DeletedPhase {
+	if cluster.Status.ControlPlaneStatus.Phase == v1.DeletedPhase {
 		if err := r.patchKubeControlPlanNodes(ctx, cluster); err != nil {
 			return err
 		}
-		pod, _ := r.ensurePod(ctx, cluster.Name, v1.ClusterCreateAction)
+		labelSelector := client.MatchingLabels{v1.ClusterManageActionLabel: string(v1.ClusterCreateAction), v1.ClusterManageClusterLabel: cluster.Name}
+		pod, _ := r.getPod(ctx, labelSelector)
 		if pod != nil {
 			for _, m := range hostsContent.Controllers {
 				pod.OwnerReferences = removeOwnerReferences(pod.OwnerReferences, m.UID)
@@ -185,8 +229,8 @@ func (r *ClusterReconciler) reset(ctx context.Context, cluster *v1.Cluster, host
 
 	}
 	c := client.MergeFrom(cluster.DeepCopy())
-	if cluster.Status.ControlePlaneStatus.Phase == v1.CreationFailed || cluster.Status.ControlePlaneStatus.Phase == v1.PendingPhase {
-		cluster.Status.ControlePlaneStatus.Phase = v1.DeletedPhase
+	if cluster.Status.ControlPlaneStatus.Phase == v1.CreationFailed || cluster.Status.ControlPlaneStatus.Phase == v1.PendingPhase {
+		cluster.Status.ControlPlaneStatus.Phase = v1.DeletedPhase
 	} else {
 		pod, err := r.ensureResetWorkPodCreated(ctx, cluster, hostsContent)
 		if err != nil {
@@ -204,11 +248,11 @@ func (r *ClusterReconciler) reset(ctx context.Context, cluster *v1.Cluster, host
 			return err
 		}
 		if pod.Status.Phase == corev1.PodSucceeded {
-			cluster.Status.ControlePlaneStatus.Phase = v1.DeletedPhase
+			cluster.Status.ControlPlaneStatus.Phase = v1.DeletedPhase
 		} else if pod.Status.Phase == corev1.PodFailed {
-			cluster.Status.ControlePlaneStatus.Phase = v1.DeleteFailedPhase
+			cluster.Status.ControlPlaneStatus.Phase = v1.DeleteFailedPhase
 		} else {
-			cluster.Status.ControlePlaneStatus.Phase = v1.DeletingPhase
+			cluster.Status.ControlPlaneStatus.Phase = v1.DeletingPhase
 		}
 	}
 	return r.Status().Patch(ctx, cluster, c)
@@ -220,7 +264,7 @@ func (r *ClusterReconciler) getUsername(ctx context.Context, cluster *v1.Cluster
 	if err != nil {
 		return "", err
 	}
-	return r.BaseReconciler.getUsername(ctx, node, cluster)
+	return r.ClusterBaseReconciler.getUsername(ctx, node, cluster)
 }
 
 func (r *ClusterReconciler) ensureInitWorkerPodCreated(ctx context.Context, cluster *v1.Cluster, hostsContent *HostTemplateContent) (*corev1.Pod, error) {
@@ -254,7 +298,7 @@ func (r *ClusterReconciler) ensureInitWorkerPodCreated(ctx context.Context, clus
 	if err != nil {
 		return nil, err
 	}
-	cmd := GetKubeSprayCreateCMD(username, GetKubeSprayEnv(cluster))
+	cmd := getKubeSprayCreateCMD(username, getKubeSprayEnv(cluster))
 	pod := generateWorkerPod(v1.ClusterCreateAction, cluster, username, cmd, getKubesprayImage(cluster), cluster.Name, hostsContent)
 	for _, m := range hostsContent.Controllers {
 		pod.OwnerReferences = append(pod.OwnerReferences, metav1.OwnerReference{
@@ -300,7 +344,7 @@ func (r *ClusterReconciler) ensureResetWorkPodCreated(ctx context.Context, clust
 	if err != nil {
 		return nil, err
 	}
-	cmd := GetKubeSprayResetCMD(username, GetKubeSprayEnv(cluster))
+	cmd := getKubeSprayResetCMD(username, getKubeSprayEnv(cluster))
 	pod := generateWorkerPod(v1.ClusterResetAction, cluster, username, cmd, getKubesprayImage(cluster), cluster.Name, hostsContent)
 	if err := r.Create(ctx, pod); err != nil {
 		return nil, err
@@ -323,11 +367,12 @@ func (r *ClusterReconciler) getNodes(ctx context.Context, names []string) []*v1.
 	}
 	return nodes
 }
+
 func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Context, cluster *v1.Cluster) error {
-	if cluster.Status.ControlePlaneStatus.Phase != v1.CreatedPhase && cluster.Status.ControlePlaneStatus.Phase != "" {
+	if cluster.Status.ControlPlaneStatus.Phase != v1.CreatedPhase && cluster.Status.ControlPlaneStatus.Phase != "" {
 		return nil
 	}
-	if len(cluster.Status.ControlePlaneStatus.CAData) != 0 && len(cluster.Status.ControlePlaneStatus.CertData) != 0 && len(cluster.Status.ControlePlaneStatus.KeyData) != 0 {
+	if len(cluster.Status.ControlPlaneStatus.CAData) != 0 && len(cluster.Status.ControlPlaneStatus.CertData) != 0 && len(cluster.Status.ControlPlaneStatus.KeyData) != 0 {
 		return nil
 	}
 	nodes := r.getNodes(ctx, cluster.Spec.ControlPlane.Nodes)
@@ -391,24 +436,25 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 		return nil
 	}
 	c := client.MergeFrom(cluster.DeepCopy())
-	crypto := crypto.Instance()
-	cluster.Status.ControlePlaneStatus.CertData, err = crypto.Encrypt([]byte(base64.StdEncoding.EncodeToString(conf.CertData)))
+	cryptoInstance := crypto.Instance()
+	cluster.Status.ControlPlaneStatus.CertData, err = cryptoInstance.Encrypt([]byte(base64.StdEncoding.EncodeToString(conf.CertData)))
 	if err != nil {
 		return fmt.Errorf("cert  encrypt error %+v", err)
 	}
-	cluster.Status.ControlePlaneStatus.CAData, err = crypto.Encrypt([]byte(base64.StdEncoding.EncodeToString(conf.CAData)))
+	cluster.Status.ControlPlaneStatus.CAData, err = cryptoInstance.Encrypt([]byte(base64.StdEncoding.EncodeToString(conf.CAData)))
 	if err != nil {
 		return fmt.Errorf("ca encrypt error %+v", err)
 	}
-	cluster.Status.ControlePlaneStatus.KeyData, err = crypto.Encrypt([]byte(base64.StdEncoding.EncodeToString(conf.KeyData)))
+	cluster.Status.ControlPlaneStatus.KeyData, err = cryptoInstance.Encrypt([]byte(base64.StdEncoding.EncodeToString(conf.KeyData)))
 	if err != nil {
 		return fmt.Errorf("key encrypt error %+v", err)
 	}
-	cluster.Status.ControlePlaneStatus.Endpoints = make([]string, 0, len(nodes))
+	cluster.Status.ControlPlaneStatus.Endpoints = make([]string, 0, len(nodes))
 	for _, n := range nodes {
-		cluster.Status.ControlePlaneStatus.Endpoints = append(cluster.Status.ControlePlaneStatus.Endpoints, fmt.Sprintf("https://%s:6443", n.Spec.PrivateIP))
+		cluster.Status.ControlPlaneStatus.Endpoints = append(cluster.Status.ControlPlaneStatus.Endpoints, fmt.Sprintf("https://%s:6443", n.Spec.PrivateIP))
 	}
-	cluster.Status.ControlePlaneStatus.Phase = v1.ReadyPhase
+
+	cluster.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
 	if err := r.ensureService(ctx, cluster); err != nil {
 		return err
 	}
@@ -458,20 +504,15 @@ func (r *ClusterReconciler) patchKubeControlPlanNodes(ctx context.Context, clust
 
 func (r *ClusterReconciler) patchMachineNode(ctx context.Context, cluster *v1.Cluster, node *v1.Node) error {
 	if cluster.DeletionTimestamp.IsZero() {
-		if node.Labels == nil {
-			node.Labels = map[string]string{}
-		}
-		node.Labels[v1.ClusterManageNodeClusterLabel] = cluster.Name
-		node.Labels[v1.ClusterNameLabel] = cluster.Name
+		v1.SetLabel(node, v1.ClusterManageNodeClusterLabel, cluster.Name)
+		v1.SetLabel(node, v1.ClusterIdLabel, cluster.Name)
+		v1.SetLabel(node, v1.KubernetesControlPlane, "")
 		node.Spec.Cluster = &cluster.Name
 		node.OwnerReferences = addOwnerReferences(node.OwnerReferences, cluster)
-	} else if cluster.Status.ControlePlaneStatus.Phase == v1.DeletedPhase {
-		if _, ok := node.Labels[v1.ClusterManageNodeClusterLabel]; ok {
-			delete(node.Labels, v1.ClusterManageNodeClusterLabel)
-		}
-		if _, ok := node.Labels[v1.ClusterNameLabel]; ok {
-			delete(node.Labels, v1.ClusterNameLabel)
-		}
+	} else if cluster.Status.ControlPlaneStatus.Phase == v1.DeletedPhase {
+		v1.RemoveLabel(node, v1.ClusterManageNodeClusterLabel)
+		v1.RemoveLabel(node, v1.ClusterIdLabel)
+		v1.RemoveLabel(node, v1.KubernetesControlPlane)
 		node.Spec.Cluster = nil
 		node.OwnerReferences = removeOwnerReferences(node.OwnerReferences, cluster.UID)
 		klog.Infof("machine nodes %s remove  owner references", node.Name)
@@ -497,7 +538,7 @@ func (r *ClusterReconciler) generateSSHSecret(ctx context.Context, cluster *v1.C
 		return err
 	}
 	klog.Infof("%+v", err)
-	username, err := r.BaseReconciler.getUsername(ctx, node, cluster)
+	username, err := r.ClusterBaseReconciler.getUsername(ctx, node, cluster)
 	if err != nil {
 		return nil
 	}
@@ -587,8 +628,8 @@ func (r *ClusterReconciler) podClear(ctx context.Context, cluster *v1.Cluster) e
 }
 
 func (r *ClusterReconciler) ensureService(ctx context.Context, cluster *v1.Cluster) error {
-	klog.Infof("ensureService %s Phase %s", cluster.Name, cluster.Status.ControlePlaneStatus.Phase)
-	if cluster.Status.ControlePlaneStatus.Phase != v1.ReadyPhase && cluster.Status.ControlePlaneStatus.Phase != v1.CreatedPhase {
+	klog.Infof("ensureService %s Phase %s", cluster.Name, cluster.Status.ControlPlaneStatus.Phase)
+	if !cluster.IsReady() && cluster.Status.ControlPlaneStatus.Phase != v1.CreatedPhase {
 		return nil
 	}
 	nodes := r.getNodes(ctx, cluster.Spec.ControlPlane.Nodes)

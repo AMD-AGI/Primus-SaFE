@@ -23,9 +23,10 @@ type ClusterApplyConfiguration struct {
 
 // Cluster constructs a declarative configuration of the Cluster type for use with
 // apply.
-func Cluster(name string) *ClusterApplyConfiguration {
+func Cluster(name, namespace string) *ClusterApplyConfiguration {
 	b := &ClusterApplyConfiguration{}
 	b.WithName(name)
+	b.WithNamespace(namespace)
 	b.WithKind("Cluster")
 	b.WithAPIVersion("amd.com/v1")
 	return b

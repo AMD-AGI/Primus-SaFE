@@ -22,7 +22,7 @@ func (opt *Options) InitFlags() error {
 	if opt == nil {
 		return fmt.Errorf("the options is not initialized")
 	}
-	flag.StringVar(&opt.Config, "config", "", "Path to the safe config.yaml")
+	flag.StringVar(&opt.Config, "config", "", "Path to the primus-safe config.yaml")
 	flag.StringVar(&opt.KubeConfig, "kube_config", "", "Path to the kubectl config")
 	flag.IntVar(&opt.LogFileSize, "log_file_size", 0,
 		"Defines the maximum size of the log file. Unit is megabytes. "+

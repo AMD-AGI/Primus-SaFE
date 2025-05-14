@@ -21,7 +21,7 @@ import (
 // ClustersGetter has a method to return a ClusterInterface.
 // A group's client should implement this interface.
 type ClustersGetter interface {
-	Clusters() ClusterInterface
+	Clusters(namespace string) ClusterInterface
 }
 
 // ClusterInterface has methods to work with Cluster resources.
@@ -48,13 +48,13 @@ type clusters struct {
 }
 
 // newClusters returns a Clusters
-func newClusters(c *AmdV1Client) *clusters {
+func newClusters(c *AmdV1Client, namespace string) *clusters {
 	return &clusters{
 		gentype.NewClientWithListAndApply[*amdv1.Cluster, *amdv1.ClusterList, *applyconfigurationamdv1.ClusterApplyConfiguration](
 			"clusters",
 			c.RESTClient(),
 			scheme.ParameterCodec,
-			"",
+			namespace,
 			func() *amdv1.Cluster { return &amdv1.Cluster{} },
 			func() *amdv1.ClusterList { return &amdv1.ClusterList{} },
 		),

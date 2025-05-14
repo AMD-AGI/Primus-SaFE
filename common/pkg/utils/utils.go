@@ -16,7 +16,8 @@ const (
 	MaxNameLength          = 63
 	randomLength           = 5
 	MaxGeneratedNameLength = MaxNameLength - randomLength - 1
-	MaxDisplayNameLen      = MaxGeneratedNameLength - 17
+	// 12 is the fixed suffix length of pytorchjob.
+	MaxDisplayNameLen = MaxGeneratedNameLength - len(Safe) - 12
 )
 
 func GenerateName(base string) string {

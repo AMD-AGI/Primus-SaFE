@@ -22,7 +22,7 @@ var (
 )
 
 type MonitorConfig struct {
-	// The unique ID identifier. e.g., "safe.001"
+	// The unique ID identifier. e.g., "001"
 	Id string `json:"id"`
 	// The name of the script to be executed
 	Script string `json:"script"`
