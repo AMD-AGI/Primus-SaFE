@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	ClusterKind = "ClusterName"
+	ClusterKind = "Cluster"
 )
 
 type (
@@ -129,7 +129,7 @@ type ClusterStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=ClusterName
+// +kubebuilder:resource:scope=Cluster
 
 // Cluster is the Schema for the clusters API.
 type Cluster struct {

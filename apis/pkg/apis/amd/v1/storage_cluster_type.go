@@ -66,7 +66,7 @@ type ReadAffinity struct {
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=ClusterName
+// +kubebuilder:resource:scope=Cluster
 
 type StorageCluster struct {
 	metav1.TypeMeta   `json:",inline"`

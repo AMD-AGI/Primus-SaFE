@@ -48,7 +48,7 @@ type FaultStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=ClusterName
+// +kubebuilder:resource:scope=Cluster
 // +kubebuilder:webhook:path=/mutate-amd.com-v1-fault,mutating=true,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=faults,verbs=create;update,versions=v1,name=mfault.kb.io,admissionReviewVersions={v1,v1beta1}
 // +kubebuilder:webhook:path=/validate-amd.com-v1-fault,mutating=false,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=faults,verbs=create;update,versions=v1,name=vfault.kb.io,admissionReviewVersions={v1,v1beta1}
 // +kubebuilder:rbac:groups=amd.com,resources=faults,verbs=get;list;watch;create;update;patch;delete
