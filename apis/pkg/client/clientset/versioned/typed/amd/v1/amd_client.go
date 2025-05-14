@@ -46,8 +46,8 @@ func (c *AmdV1Client) NodeFlavors(namespace string) NodeFlavorInterface {
 	return newNodeFlavors(c, namespace)
 }
 
-func (c *AmdV1Client) StorageClusters() StorageClusterInterface {
-	return newStorageClusters(c)
+func (c *AmdV1Client) StorageClusters(namespace string) StorageClusterInterface {
+	return newStorageClusters(c, namespace)
 }
 
 func (c *AmdV1Client) Workloads(namespace string) WorkloadInterface {

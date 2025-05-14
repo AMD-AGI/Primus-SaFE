@@ -43,7 +43,8 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) crd paths="./apis/pkg/apis/..." output:crd:artifacts:config=charts/config/crd/bases
+	$(CONTROLLER_GEN) crd webhook paths="./apis/pkg/apis/..." output:crd:artifacts:config=charts/primus-safe/crd \
+	output:webhook:artifacts:config=charts/config/webhooks/
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.

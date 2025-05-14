@@ -21,7 +21,7 @@ import (
 // StorageClustersGetter has a method to return a StorageClusterInterface.
 // A group's client should implement this interface.
 type StorageClustersGetter interface {
-	StorageClusters() StorageClusterInterface
+	StorageClusters(namespace string) StorageClusterInterface
 }
 
 // StorageClusterInterface has methods to work with StorageCluster resources.
@@ -48,13 +48,13 @@ type storageClusters struct {
 }
 
 // newStorageClusters returns a StorageClusters
-func newStorageClusters(c *AmdV1Client) *storageClusters {
+func newStorageClusters(c *AmdV1Client, namespace string) *storageClusters {
 	return &storageClusters{
 		gentype.NewClientWithListAndApply[*amdv1.StorageCluster, *amdv1.StorageClusterList, *applyconfigurationamdv1.StorageClusterApplyConfiguration](
 			"storageclusters",
 			c.RESTClient(),
 			scheme.ParameterCodec,
-			"",
+			namespace,
 			func() *amdv1.StorageCluster { return &amdv1.StorageCluster{} },
 			func() *amdv1.StorageClusterList { return &amdv1.StorageClusterList{} },
 		),

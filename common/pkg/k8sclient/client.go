@@ -11,7 +11,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -89,7 +88,6 @@ func GetRestConfigInCluster() (*rest.Config, error) {
 	}
 	restCfg.QPS = common.DefaultQPS
 	restCfg.Burst = common.DefaultBurst
-	klog.Infof("%+v", restCfg)
 	return restCfg, nil
 }
 

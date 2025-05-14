@@ -48,6 +48,7 @@ const (
 
 	// storage
 	StoragePrefix              = PrimusSafePrefix + "storage."
+	StorageFinalizer           = StoragePrefix + "finalizer"
 	StorageDefaultClusterLabel = StoragePrefix + "default.cluster"
 	StorageTypeLabel           = StoragePrefix + "type"
 	StorageClusterNameLabel    = StoragePrefix + "cluster.name"
@@ -69,4 +70,12 @@ const (
 	// workload
 	WorkloadPrefix               = PrimusSafePrefix + "workload."
 	WorkloadDispatchedAnnotation = WorkloadPrefix + "dispatched"
+)
+
+const (
+	Pending  Phase = "Pending"
+	Creating Phase = "Creating"
+	Ready    Phase = "Ready"
+	Unknown  Phase = "Unknown"
+	Deleted  Phase = "Deleted"
 )
