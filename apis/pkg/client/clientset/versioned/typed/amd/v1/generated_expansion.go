@@ -12,6 +12,10 @@ type FaultExpansion interface{}
 
 type NodeExpansion interface{}
 
+type NodeFlavorExpansion interface{}
+
 type StorageClusterExpansion interface{}
+
+type WorkloadExpansion interface{}
 
 type WorkspaceExpansion interface{}

@@ -8,6 +8,7 @@ package exporters
 import (
 	"time"
 
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -40,8 +41,9 @@ func (ke *K8sExporter) Name() string {
 func genAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.NodeCondition, bool) {
 	var conditions []corev1.NodeCondition
 	isFound := false
+	key := commonfaults.GenerateTaintKey(msg.Id)
 	for _, cond := range node.Status.Conditions {
-		if string(cond.Type) == msg.Id {
+		if string(cond.Type) == key {
 			if cond.Status == corev1.ConditionTrue {
 				return nil, false
 			}
@@ -58,7 +60,7 @@ func genAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.No
 	}
 	results := make([]corev1.NodeCondition, 0, len(conditions)+1)
 	results = append(results, corev1.NodeCondition{
-		Type:               corev1.NodeConditionType(msg.Id),
+		Type:               corev1.NodeConditionType(key),
 		Status:             corev1.ConditionTrue,
 		LastTransitionTime: metav1.NewTime(time.Now().UTC()),
 		Message:            msg.Value,
@@ -69,8 +71,9 @@ func genAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.No
 
 func genDeleteConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.NodeCondition, bool) {
 	var results []corev1.NodeCondition
+	key := commonfaults.GenerateTaintKey(msg.Id)
 	for i, cond := range node.Status.Conditions {
-		if string(cond.Type) != msg.Id {
+		if string(cond.Type) != key {
 			results = append(results, node.Status.Conditions[i])
 		}
 	}

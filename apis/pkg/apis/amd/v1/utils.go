@@ -111,6 +111,10 @@ func GetWorkspaceId(obj metav1.Object) string {
 	return GetLabel(obj, WorkspaceIdLabel)
 }
 
+func GetNodeId(obj metav1.Object) string {
+	return GetLabel(obj, NodeIdLabel)
+}
+
 func GetNodeFlavorId(obj metav1.Object) string {
 	return GetLabel(obj, NodeFlavorIdLabel)
 }
@@ -127,12 +131,32 @@ func GetGpuResourceName(obj metav1.Object) string {
 	return GetAnnotation(obj, GpuResourceNameAnnotation)
 }
 
-func GetNodesLabelAction(obj metav1.Object) string {
-	return GetAnnotation(obj, NodesLabelAction)
+func GetNodeLabelAction(obj metav1.Object) string {
+	return GetAnnotation(obj, NodeLabelAction)
 }
 
-func GetNodesAnnotationAction(obj metav1.Object) string {
-	return GetAnnotation(obj, NodesAnnotationAction)
+func GetNodeAnnotationAction(obj metav1.Object) string {
+	return GetAnnotation(obj, NodeAnnotationAction)
+}
+
+func GetNodesWorkspaceAction(obj metav1.Object) string {
+	return GetAnnotation(obj, NodesWorkspaceAction)
+}
+
+func IsWorkloadDispatched(obj metav1.Object) bool {
+	if obj == nil || len(obj.GetAnnotations()) == 0 {
+		return false
+	}
+	_, ok := obj.GetAnnotations()[WorkloadDispatchedAnnotation]
+	return ok
+}
+
+func IsControlPlane(obj metav1.Object) bool {
+	if obj == nil {
+		return false
+	}
+	_, ok := obj.GetLabels()[KubernetesControlPlane]
+	return ok
 }
 
 func atoi(str string) int {

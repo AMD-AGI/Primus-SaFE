@@ -9,13 +9,11 @@ package v1
 // FaultSpecApplyConfiguration represents a declarative configuration of the FaultSpec type for use
 // with apply.
 type FaultSpecApplyConfiguration struct {
-	Code              *string                      `json:"code,omitempty"`
-	Message           *string                      `json:"message,omitempty"`
-	IsNodeIndependent *bool                        `json:"isNodeIndependent,omitempty"`
-	Node              *FaultNodeApplyConfiguration `json:"node,omitempty"`
-	Action            *string                      `json:"action,omitempty"`
-	DisableAutoRepair *bool                        `json:"disableAutoRepair,omitempty"`
-	RepairSuggestion  *string                      `json:"repairSuggestion,omitempty"`
+	Id                  *string                      `json:"id,omitempty"`
+	Message             *string                      `json:"message,omitempty"`
+	Node                *FaultNodeApplyConfiguration `json:"node,omitempty"`
+	Action              *string                      `json:"action,omitempty"`
+	IsAutoRepairEnabled *bool                        `json:"isAutoRepairEnabled,omitempty"`
 }
 
 // FaultSpecApplyConfiguration constructs a declarative configuration of the FaultSpec type for use with
@@ -24,11 +22,11 @@ func FaultSpec() *FaultSpecApplyConfiguration {
 	return &FaultSpecApplyConfiguration{}
 }
 
-// WithCode sets the Code field in the declarative configuration to the given value
+// WithId sets the Id field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Code field is set to the value of the last call.
-func (b *FaultSpecApplyConfiguration) WithCode(value string) *FaultSpecApplyConfiguration {
-	b.Code = &value
+// If called multiple times, the Id field is set to the value of the last call.
+func (b *FaultSpecApplyConfiguration) WithId(value string) *FaultSpecApplyConfiguration {
+	b.Id = &value
 	return b
 }
 
@@ -37,14 +35,6 @@ func (b *FaultSpecApplyConfiguration) WithCode(value string) *FaultSpecApplyConf
 // If called multiple times, the Message field is set to the value of the last call.
 func (b *FaultSpecApplyConfiguration) WithMessage(value string) *FaultSpecApplyConfiguration {
 	b.Message = &value
-	return b
-}
-
-// WithIsNodeIndependent sets the IsNodeIndependent field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the IsNodeIndependent field is set to the value of the last call.
-func (b *FaultSpecApplyConfiguration) WithIsNodeIndependent(value bool) *FaultSpecApplyConfiguration {
-	b.IsNodeIndependent = &value
 	return b
 }
 
@@ -64,18 +54,10 @@ func (b *FaultSpecApplyConfiguration) WithAction(value string) *FaultSpecApplyCo
 	return b
 }
 
-// WithDisableAutoRepair sets the DisableAutoRepair field in the declarative configuration to the given value
+// WithIsAutoRepairEnabled sets the IsAutoRepairEnabled field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the DisableAutoRepair field is set to the value of the last call.
-func (b *FaultSpecApplyConfiguration) WithDisableAutoRepair(value bool) *FaultSpecApplyConfiguration {
-	b.DisableAutoRepair = &value
-	return b
-}
-
-// WithRepairSuggestion sets the RepairSuggestion field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the RepairSuggestion field is set to the value of the last call.
-func (b *FaultSpecApplyConfiguration) WithRepairSuggestion(value string) *FaultSpecApplyConfiguration {
-	b.RepairSuggestion = &value
+// If called multiple times, the IsAutoRepairEnabled field is set to the value of the last call.
+func (b *FaultSpecApplyConfiguration) WithIsAutoRepairEnabled(value bool) *FaultSpecApplyConfiguration {
+	b.IsAutoRepairEnabled = &value
 	return b
 }

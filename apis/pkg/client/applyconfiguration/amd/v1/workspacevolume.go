@@ -14,15 +14,13 @@ import (
 // WorkspaceVolumeApplyConfiguration represents a declarative configuration of the WorkspaceVolume type for use
 // with apply.
 type WorkspaceVolumeApplyConfiguration struct {
-	FsType        *amdv1.StorageUseType              `json:"fsType,omitempty"`
-	MountPath     *string                            `json:"mountPath,omitempty"`
-	SubPath       *string                            `json:"subPath,omitempty"`
-	EnableUserDir *bool                              `json:"enableUserDir,omitempty"`
-	Purpose       *amdv1.VolumePurpose               `json:"purpose,omitempty"`
-	HostPath      *string                            `json:"hostPath,omitempty"`
-	Capacity      *string                            `json:"capacity,omitempty"`
-	StorageClass  *string                            `json:"storageClass,omitempty"`
-	AccessMode    *corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
+	StorageType  *amdv1.StorageUseType              `json:"storageType,omitempty"`
+	MountPath    *string                            `json:"mountPath,omitempty"`
+	SubPath      *string                            `json:"subPath,omitempty"`
+	HostPath     *string                            `json:"hostPath,omitempty"`
+	Capacity     *string                            `json:"capacity,omitempty"`
+	StorageClass *string                            `json:"storageClass,omitempty"`
+	AccessMode   *corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
 }
 
 // WorkspaceVolumeApplyConfiguration constructs a declarative configuration of the WorkspaceVolume type for use with
@@ -31,11 +29,11 @@ func WorkspaceVolume() *WorkspaceVolumeApplyConfiguration {
 	return &WorkspaceVolumeApplyConfiguration{}
 }
 
-// WithFsType sets the FsType field in the declarative configuration to the given value
+// WithStorageType sets the StorageType field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the FsType field is set to the value of the last call.
-func (b *WorkspaceVolumeApplyConfiguration) WithFsType(value amdv1.StorageUseType) *WorkspaceVolumeApplyConfiguration {
-	b.FsType = &value
+// If called multiple times, the StorageType field is set to the value of the last call.
+func (b *WorkspaceVolumeApplyConfiguration) WithStorageType(value amdv1.StorageUseType) *WorkspaceVolumeApplyConfiguration {
+	b.StorageType = &value
 	return b
 }
 
@@ -52,22 +50,6 @@ func (b *WorkspaceVolumeApplyConfiguration) WithMountPath(value string) *Workspa
 // If called multiple times, the SubPath field is set to the value of the last call.
 func (b *WorkspaceVolumeApplyConfiguration) WithSubPath(value string) *WorkspaceVolumeApplyConfiguration {
 	b.SubPath = &value
-	return b
-}
-
-// WithEnableUserDir sets the EnableUserDir field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the EnableUserDir field is set to the value of the last call.
-func (b *WorkspaceVolumeApplyConfiguration) WithEnableUserDir(value bool) *WorkspaceVolumeApplyConfiguration {
-	b.EnableUserDir = &value
-	return b
-}
-
-// WithPurpose sets the Purpose field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Purpose field is set to the value of the last call.
-func (b *WorkspaceVolumeApplyConfiguration) WithPurpose(value amdv1.VolumePurpose) *WorkspaceVolumeApplyConfiguration {
-	b.Purpose = &value
 	return b
 }
 

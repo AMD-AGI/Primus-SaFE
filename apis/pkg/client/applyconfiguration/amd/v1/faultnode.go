@@ -9,10 +9,9 @@ package v1
 // FaultNodeApplyConfiguration represents a declarative configuration of the FaultNode type for use
 // with apply.
 type FaultNodeApplyConfiguration struct {
-	Cluster    *string `json:"cluster,omitempty"`
-	Name       *string `json:"name,omitempty"`
-	AdminName  *string `json:"adminName,omitempty"`
-	InternalIP *string `json:"internalIP,omitempty"`
+	ClusterName *string `json:"clusterName,omitempty"`
+	K8sName     *string `json:"k8sName,omitempty"`
+	AdminName   *string `json:"adminName,omitempty"`
 }
 
 // FaultNodeApplyConfiguration constructs a declarative configuration of the FaultNode type for use with
@@ -21,19 +20,19 @@ func FaultNode() *FaultNodeApplyConfiguration {
 	return &FaultNodeApplyConfiguration{}
 }
 
-// WithCluster sets the Cluster field in the declarative configuration to the given value
+// WithClusterName sets the ClusterName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Cluster field is set to the value of the last call.
-func (b *FaultNodeApplyConfiguration) WithCluster(value string) *FaultNodeApplyConfiguration {
-	b.Cluster = &value
+// If called multiple times, the ClusterName field is set to the value of the last call.
+func (b *FaultNodeApplyConfiguration) WithClusterName(value string) *FaultNodeApplyConfiguration {
+	b.ClusterName = &value
 	return b
 }
 
-// WithName sets the Name field in the declarative configuration to the given value
+// WithK8sName sets the K8sName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Name field is set to the value of the last call.
-func (b *FaultNodeApplyConfiguration) WithName(value string) *FaultNodeApplyConfiguration {
-	b.Name = &value
+// If called multiple times, the K8sName field is set to the value of the last call.
+func (b *FaultNodeApplyConfiguration) WithK8sName(value string) *FaultNodeApplyConfiguration {
+	b.K8sName = &value
 	return b
 }
 
@@ -42,13 +41,5 @@ func (b *FaultNodeApplyConfiguration) WithName(value string) *FaultNodeApplyConf
 // If called multiple times, the AdminName field is set to the value of the last call.
 func (b *FaultNodeApplyConfiguration) WithAdminName(value string) *FaultNodeApplyConfiguration {
 	b.AdminName = &value
-	return b
-}
-
-// WithInternalIP sets the InternalIP field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the InternalIP field is set to the value of the last call.
-func (b *FaultNodeApplyConfiguration) WithInternalIP(value string) *FaultNodeApplyConfiguration {
-	b.InternalIP = &value
 	return b
 }

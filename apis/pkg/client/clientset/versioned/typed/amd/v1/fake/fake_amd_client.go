@@ -28,8 +28,16 @@ func (c *FakeAmdV1) Nodes(namespace string) v1.NodeInterface {
 	return newFakeNodes(c, namespace)
 }
 
+func (c *FakeAmdV1) NodeFlavors(namespace string) v1.NodeFlavorInterface {
+	return newFakeNodeFlavors(c, namespace)
+}
+
 func (c *FakeAmdV1) StorageClusters() v1.StorageClusterInterface {
 	return newFakeStorageClusters(c)
+}
+
+func (c *FakeAmdV1) Workloads(namespace string) v1.WorkloadInterface {
+	return newFakeWorkloads(c, namespace)
 }
 
 func (c *FakeAmdV1) Workspaces(namespace string) v1.WorkspaceInterface {

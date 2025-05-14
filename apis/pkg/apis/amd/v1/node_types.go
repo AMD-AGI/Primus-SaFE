@@ -13,6 +13,8 @@ import (
 type NodePhase string
 
 const (
+	NodeKind = "Node"
+
 	NodeManaging        NodePhase = "Managing"
 	NodeManaged         NodePhase = "Managed"
 	NodeManagedFailed   NodePhase = "ManagedFailed"
@@ -23,6 +25,7 @@ const (
 	NodeUnmanagedFailed NodePhase = "UnmanagedFailed"
 	NodeSSHFailed       NodePhase = "SSHFailed"
 	NodeHostnameFailed  NodePhase = "HostnameFailed"
+	NodeDeleting        NodePhase = "Deleting"
 )
 
 type CommandPhase string
@@ -38,28 +41,24 @@ type CommandStatus struct {
 	Phase CommandPhase `json:"phase,omitempty"`
 }
 
-// NodeSpec defines the desired state of Node.
 type NodeSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of Node
-	// Important: Run "make" to regenerate code after modifying this file
-	// node flavor id
-	NodeFlavor *corev1.ObjectReference `json:"nodeFlavor,omitempty"`
-	//
-	Hostname *string `json:"hostname,omitempty"`
-	// 私有IP
-	PrivateIP string `json:"privateIP"`
-	// 公共IP
-	PublicIP string `json:"publicIP,omitempty"`
-	// SSH 端口，默认22
-	Port *int32 `json:"port,omitempty"`
-	// SSH 登录节点
-	SSHSecret *corev1.ObjectReference `json:"secret"`
-	// 节点模板
-	NodeTemplate *corev1.ObjectReference `json:"nodeTemplate,omitempty"`
-	// 解纳管后操作 discarded
-	KubernetesUnmanaged *corev1.ObjectReference `json:"kubernetesUnmanaged,omitempty"`
-
+	// The name of the cluster that the node belongs to
 	Cluster *string `json:"cluster,omitempty"`
+	// The name of the workspace that the node belongs to
+	Workspace *string `json:"workspace,omitempty"`
+	// node flavor id
+	NodeFlavor *corev1.ObjectReference `json:"nodeFlavor"`
+	// node hostname
+	Hostname  *string `json:"hostname,omitempty"`
+	PrivateIP string  `json:"privateIP,omitempty"`
+	// option
+	PublicIP string `json:"publicIP,omitempty"`
+	// SSH port，default 22
+	Port *int32 `json:"port,omitempty"`
+	// The taint will be automatically synchronized to the Kubernetes node.
+	Taints []corev1.Taint `json:"taints,omitempty"`
+	// secret for ssh
+	SSHSecret *corev1.ObjectReference `json:"secret"`
 }
 
 type NodeClusterStatus struct {
@@ -69,30 +68,38 @@ type NodeClusterStatus struct {
 }
 
 type MachineStatus struct {
-	// HostName is the hostname of the machinenode.
+	// HostName is the hostname of the machine node.
 	HostName string    `json:"hostName,omitempty"`
 	Phase    NodePhase `json:"phase,omitempty"`
-	// PrivateIP is the private ip address of the machinenode.
+	// PrivateIP is the private ip address of the machine node.
 	PrivateIP string `json:"privateIP,omitempty"`
 	// PublicIP specifies the public IP.
-	PublicIP        string          `json:"publicIP,omitempty"`
-	CommandStatus   []CommandStatus `json:"commandStatus,omitempty"`
-	UnmanagedStatus []CommandStatus `json:"unmanagedStatus,omitempty"`
+	PublicIP      string          `json:"publicIP,omitempty"`
+	CommandStatus []CommandStatus `json:"commandStatus,omitempty"`
 }
 
 // NodeStatus defines the observed state of Node.
 type NodeStatus struct {
 	MachineStatus MachineStatus     `json:"machineStatus,omitempty"`
 	ClusterStatus NodeClusterStatus `json:"clusterStatus,omitempty"`
+	Unschedulable bool              `json:"unschedulable,omitempty"`
+	// taint automatically synchronized from the Kubernetes node
+	Taints []corev1.Taint `json:"taints,omitempty"`
+	// all the resource of node
+	Resources corev1.ResourceList `json:"resources,omitempty"`
+	// Node condition, automatically synchronized from the Kubernetes node
+	Conditions []corev1.NodeCondition `json:"conditions,omitempty"`
 }
 
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
-
-// Node is the Schema for the Nodes API.
+// +kubebuilder:resource:scope=ClusterName
+// +kubebuilder:webhook:path=/mutate-amd.com-v1-node,mutating=true,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=nodes,verbs=create;update,versions=v1,name=mnode.kb.io,admissionReviewVersions={v1,v1beta1}
+// +kubebuilder:webhook:path=/validate-amd.com-v1-node,mutating=false,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=nodes,verbs=create;update,versions=v1,name=vnode.kb.io,admissionReviewVersions={v1,v1beta1}
+// +kubebuilder:rbac:groups=amd.com,resources=nodes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=amd.com,resources=nodes/status,verbs=get;update;patch
 type Node struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -103,8 +110,6 @@ type Node struct {
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
-
-// NodeList contains a list of Node.
 type NodeList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -113,4 +118,62 @@ type NodeList struct {
 
 func init() {
 	SchemeBuilder.Register(&Node{}, &NodeList{})
+}
+
+func (n *Node) IsAvailable() bool {
+	if n == nil {
+		return false
+	}
+	if !n.IsReady() {
+		return false
+	}
+	if !n.IsManaged() {
+		return false
+	}
+	if len(n.Status.Taints) > 0 || n.Status.Unschedulable {
+		return false
+	}
+	return true
+}
+
+func (n *Node) IsReady() bool {
+	return n != nil && n.Status.MachineStatus.Phase == NodeReady
+}
+
+func (n *Node) IsManaged() bool {
+	return n != nil && n.Status.ClusterStatus.Phase == NodeManaged
+}
+
+func (n *Node) GetSpecCluster() string {
+	if n == nil || n.Spec.Cluster == nil {
+		return ""
+	}
+	return *n.Spec.Cluster
+}
+
+func (n *Node) GetSpecWorkspace() string {
+	if n == nil || n.Spec.Workspace == nil {
+		return ""
+	}
+	return *n.Spec.Workspace
+}
+
+func (n *Node) GetSpecHostName() string {
+	if n == nil || n.Spec.Hostname == nil {
+		return ""
+	}
+	return *n.Spec.Hostname
+}
+
+func (n *Node) GetK8sNodeName() string {
+	if n == nil {
+		return ""
+	}
+	if n.Status.MachineStatus.HostName != "" {
+		return n.Status.MachineStatus.HostName
+	}
+	if n.Spec.Hostname != nil {
+		return *n.Spec.Hostname
+	}
+	return ""
 }

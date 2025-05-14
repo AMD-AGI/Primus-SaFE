@@ -161,4 +161,6 @@ func setUpWebhooks(mgr manager.Manager, server webhook.Server) {
 	decoder := admission.NewDecoder(mgr.GetScheme())
 	AddNodeWebhook(mgr, &server, decoder)
 	AddNodeFlavorWebhook(mgr, &server, decoder)
+	AddFaultWebhook(mgr, &server, decoder)
+	AddWorkspaceWebhook(mgr, &server, decoder)
 }

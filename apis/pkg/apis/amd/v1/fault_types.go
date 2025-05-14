@@ -12,44 +12,35 @@ import (
 type FaultPhase string
 
 const (
+	FaultKind                      = "Fault"
 	FaultPhaseSucceeded FaultPhase = "Succeeded"
 	FaultPhaseFailed    FaultPhase = "Failed"
-
-	FaultRepairManual = "manual"
-	FaultRepairReport = "report"
-	FaultRepairReboot = "reboot"
 )
 
 type FaultNode struct {
-	Cluster string `json:"cluster,omitempty"`
-	// k8s node name
-	Name string `json:"name"`
-	// 管理面节点name
+	ClusterName string `json:"clusterName"`
+	// fault-associated k8s node name
+	K8sName string `json:"k8sName"`
+	// fault-associated admin node name
 	AdminName string `json:"adminName"`
-	// 节点ip
-	InternalIP string `json:"internalIP,omitempty"`
 }
 
 type FaultSpec struct {
-	// 故障码
-	Code string `json:"code"`
-	// 故障信息
+	// a unique fault ID that is consistent with the ID used by NodeAgent for monitoring.
+	Id string `json:"id"`
+	// error message
 	Message string `json:"message,omitempty"`
-	// 是否是节点无关的故障
-	IsNodeIndependent bool `json:"isNodeIndependent,omitempty"`
-	// 故障对应的节点信息
-	Node FaultNode `json:"node"`
-	// 故障对应的action处理, 比如taint,reboot
+	// node information related to the fault
+	Node *FaultNode `json:"node,omitempty"`
+	// Handling actions for the fault. e.g. reboot,taint
 	Action string `json:"action,omitempty"`
-	// 故障是否会自动修复，目前xid错误无法自动修复
-	DisableAutoRepair bool `json:"disableAutoRepair,omitempty"`
-	// 修复建议，目前主要用于前端展示用。 目前主要有reboot/manual/report
-	RepairSuggestion string `json:"repairSuggestion,omitempty"`
+	// whether the fault is auto repaired or not. default true
+	IsAutoRepairEnabled bool `json:"isAutoRepairEnabled,omitempty"`
 }
 
 type FaultStatus struct {
 	Phase FaultPhase `json:"phase,omitempty"`
-	// 最后一次更新Status的时间
+	// the last update time
 	UpdateTime *metav1.Time `json:"updateTime,omitempty"`
 }
 
@@ -57,7 +48,7 @@ type FaultStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=ClusterName
 // +kubebuilder:webhook:path=/mutate-amd.com-v1-fault,mutating=true,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=faults,verbs=create;update,versions=v1,name=mfault.kb.io,admissionReviewVersions={v1,v1beta1}
 // +kubebuilder:webhook:path=/validate-amd.com-v1-fault,mutating=false,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=faults,verbs=create;update,versions=v1,name=vfault.kb.io,admissionReviewVersions={v1,v1beta1}
 // +kubebuilder:rbac:groups=amd.com,resources=faults,verbs=get;list;watch;create;update;patch;delete
@@ -84,7 +75,7 @@ func init() {
 }
 
 func (f *Fault) IsEnd() bool {
-	if f.Status.Phase == FaultPhaseSucceeded || f.Status.Phase == FaultPhaseFailed {
+	if f != nil && f.Status.Phase != "" {
 		return true
 	}
 	return false

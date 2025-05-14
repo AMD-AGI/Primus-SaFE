@@ -62,7 +62,7 @@ type NodeFlavorStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=ClusterName
 // +kubebuilder:webhook:path=/mutate-amd.com-v1-nodeflavor,mutating=true,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=nodeflavors,verbs=create;update,versions=v1,name=mnodeflavor.kb.io,admissionReviewVersions={v1,v1beta1}
 // +kubebuilder:webhook:path=/validate-amd.com-v1-nodeflavor,mutating=false,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=nodeflavors,verbs=create;update,versions=v1,name=vnodeflavor.kb.io,admissionReviewVersions={v1,v1beta1}
 // +kubebuilder:rbac:groups=amd.com,resources=nodeflavors,verbs=get;list;watch;create;update;patch;delete
@@ -88,13 +88,16 @@ func init() {
 }
 
 func (nf *NodeFlavor) HasGpu() bool {
-	if nf.Spec.Gpu != nil && !nf.Spec.Gpu.Quantity.IsZero() {
+	if nf != nil && nf.Spec.Gpu != nil && !nf.Spec.Gpu.Quantity.IsZero() {
 		return true
 	}
 	return false
 }
 
 func (nf *NodeFlavor) ToResourceList() corev1.ResourceList {
+	if nf == nil {
+		return nil
+	}
 	result := make(corev1.ResourceList)
 	result[corev1.ResourceCPU] = nf.Spec.Cpu.Quantity
 	result[corev1.ResourceMemory] = nf.Spec.Memory

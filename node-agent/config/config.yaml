@@ -6,7 +6,7 @@ metadata:
 data:
   # Config:
   # script: The name of the script to be executed
-  # id: The unique ID identifier. e.g., "primus-safe.001"
+  # id: The unique ID identifier. e.g., "001"
   # toggle: on/off. default "off"
   # cronjob: Execution interval, default "@every 30s"
   # timeoutSecond: Timeout duration in seconds. default 300
@@ -16,24 +16,22 @@ data:
   #  The following reserved keywords will be automatically passed to the script by the system::
   #  1. $Node: Node information, in json format, e.g., '{"nodeName": "testNode", "gpuSpecCount": 8}'
   # GPU: 0XX - 1XX
-  gpu_module_001: '{"script":"gpu_module_001.sh","id":"primus-safe.001","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  gpu_ecc_002: '{"script":"gpu_ecc_002.sh","id":"primus-safe.002","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  gpu_bad_pages_003: '{"script":"gpu_bad_pages_003.sh","id":"primus-safe.003","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  gpu_card_check_004: '{"script":"gpu_card_check_004.sh","id":"primus-safe.004","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["$Node"]}'
-  gpu_device_plugin_005: '{"script":"gpu_device_plugin_005.sh","id":"primus-safe.005","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["$Node"]}'
-  gpu_temperature_006: '{"script":"gpu_temperature_006.sh","id":"primus-safe.006","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  gpu_driver_007: '{"script":"gpu_driver_007.sh","id":"primus-safe.007","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  gpu_ras_008: '{"script":"gpu_ras_008.sh","id":"primus-safe.008","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  gpu_link_009: '{"script":"gpu_link_009.sh","id":"primus-safe.009","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  gpu_xgmi_link_010: '{"script":"gpu_xgmi_link_010.sh","id":"primus-safe.010","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  gpu_module_001: '{"script":"gpu_module_001.sh","id":"001","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  gpu_ecc_002: '{"script":"gpu_ecc_002.sh","id":"002","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  gpu_bad_pages_003: '{"script":"gpu_bad_pages_003.sh","id":"003","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  gpu_card_check_004: '{"script":"gpu_card_check_004.sh","id":"004","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["$Node"]}'
+  gpu_device_plugin_005: '{"script":"gpu_device_plugin_005.sh","id":"005","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["$Node"]}'
+  gpu_temperature_006: '{"script":"gpu_temperature_006.sh","id":"006","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  gpu_driver_007: '{"script":"gpu_driver_007.sh","id":"007","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  gpu_ras_008: '{"script":"gpu_ras_008.sh","id":"008","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  gpu_link_009: '{"script":"gpu_link_009.sh","id":"009","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  gpu_xgmi_link_010: '{"script":"gpu_xgmi_link_010.sh","id":"010","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   # Network: 2XX
-  net_ib_status_201: '{"script":"net_ib_status_201.sh","id":"primus-safe.201","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  net_ethtool_202: '{"script":"net_ethtool_202.sh","id":"primus-safe.202","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
+  net_ib_status_201: '{"script":"net_ib_status_201.sh","id":"201","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  net_ethtool_202: '{"script":"net_ethtool_202.sh","id":"202","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
   # System: 3XX
-  sys_timezone_301: '{"script":"sys_timezone_301.sh","id":"primus-safe.301","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  sys_hostname_302: '{"script":"sys_hostname_302.sh","id":"primus-safe.302","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  sys_containerd_303: '{"script":"sys_containerd_303.sh","id":"primus-safe.303","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  sys_kernel_lock_304: '{"script":"sys_kernel_lock_304.sh","id":"primus-safe.304","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  sys_acsctl_305: '{"script":"sys_acsctl_305.sh","id":"primus-safe.305","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-
-
+  sys_timezone_301: '{"script":"sys_timezone_301.sh","id":"301","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  sys_hostname_302: '{"script":"sys_hostname_302.sh","id":"302","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  sys_containerd_303: '{"script":"sys_containerd_303.sh","id":"303","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  sys_kernel_lock_304: '{"script":"sys_kernel_lock_304.sh","id":"304","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  sys_acsctl_305: '{"script":"sys_acsctl_305.sh","id":"305","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'

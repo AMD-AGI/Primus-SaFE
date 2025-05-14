@@ -26,7 +26,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -118,8 +117,10 @@ func (m *NodeMutator) mutateCommon(ctx context.Context, n *v1.Node) bool {
 
 func (m *NodeMutator) mutateLabels(n *v1.Node) bool {
 	isChanged := false
-	if v1.SetLabel(n, v1.NodeFlavorIdLabel, n.Spec.Flavor) {
-		isChanged = true
+	if n.Spec.NodeFlavor != nil {
+		if v1.SetLabel(n, v1.NodeFlavorIdLabel, n.Spec.NodeFlavor.Name) {
+			isChanged = true
+		}
 	}
 	if v1.RemoveEmptyLabel(n, v1.WorkspaceIdLabel) {
 		isChanged = true
@@ -132,7 +133,7 @@ func (m *NodeMutator) mutateLabels(n *v1.Node) bool {
 
 func (m *NodeMutator) mutateTaints(n *v1.Node) bool {
 	isChanged := false
-	if n.Spec.Cluster != nil && n.GetSpecCluster() == "" {
+	if n.GetSpecCluster() == "" {
 		// clear all taints when unmanaging node
 		if len(n.Spec.Taints) > 0 {
 			n.Spec.Taints = nil
@@ -261,6 +262,9 @@ func (v *NodeValidator) validateNodeSpec(ctx context.Context, node *v1.Node) err
 	if err := v.validateNodeFlavor(ctx, node); err != nil {
 		return err
 	}
+	if err := v.validateNodeSSH(ctx, node); err != nil {
+		return err
+	}
 	if node.Spec.Port != nil {
 		if err := validatePort(v1.NodeKind, int(*node.Spec.Port)); err != nil {
 			return err
@@ -284,12 +288,19 @@ func (v *NodeValidator) validateNodeWorkspace(ctx context.Context, node *v1.Node
 }
 
 func (v *NodeValidator) validateNodeFlavor(ctx context.Context, node *v1.Node) error {
-	if node.Spec.Flavor == "" {
+	if node.Spec.NodeFlavor == nil {
 		return commonerrors.NewBadRequest("the flavor of node is not found")
 	}
 	nf := &v1.NodeFlavor{}
-	if err := v.Get(ctx, client.ObjectKey{Name: node.Spec.Flavor}, nf); err != nil {
+	if err := v.Get(ctx, client.ObjectKey{Name: node.Spec.NodeFlavor.Name}, nf); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (v *NodeValidator) validateNodeSSH(_ context.Context, node *v1.Node) error {
+	if node.Spec.SSHSecret == nil {
+		return commonerrors.NewBadRequest("the ssh secret of node is not found")
 	}
 	return nil
 }
@@ -332,15 +343,20 @@ func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error
 		oldNode.GetSpecWorkspace() != newNode.GetSpecWorkspace() {
 		return field.Forbidden(field.NewPath("spec").Key("workspace"), "immutable")
 	}
+	if newNode.Spec.SSHSecret == nil ||
+		oldNode.Spec.SSHSecret.Name != newNode.Spec.SSHSecret.Name ||
+		oldNode.Spec.SSHSecret.Namespace != newNode.Spec.SSHSecret.Namespace {
+		return field.Forbidden(field.NewPath("spec").Key("sshSecret"), "immutable")
+	}
 	return nil
 }
 
 // When a node is being managed by the cluster, it must be in the Ready state.
 func (v *NodeValidator) validateReadyWhenManaging(_ context.Context, newNode, oldNode *v1.Node) error {
 	if oldNode.GetSpecCluster() == "" && newNode.GetSpecCluster() != "" &&
-		oldNode.Status.Phase != v1.NodeReady && oldNode.Status.Phase != v1.NodeRunning {
+		oldNode.Status.MachineStatus.Phase != v1.NodeReady {
 		return commonerrors.NewNodeNotReady(
-			fmt.Sprintf("node %s is not ready. current state: %s", oldNode.Name, oldNode.Status.Phase))
+			fmt.Sprintf("node %s is not ready. current state: %s", oldNode.Name, oldNode.Status.MachineStatus.Phase))
 	}
 	return nil
 }
@@ -357,8 +373,8 @@ func (v *NodeValidator) validateRelatedFaults(ctx context.Context, newNode, oldN
 		if newTaintKeys.Has(t.Key) {
 			continue
 		}
-		code := commonutils.GetCodeByTaintKey(t.Key)
-		faultName := commonfaults.GenerateFaultName(newNode.Name, code)
+		id := commonfaults.GetIdByTaintKey(t.Key)
+		faultName := commonfaults.GenerateFaultName(newNode.Name, id)
 		fault := &v1.Fault{}
 		if v.Get(ctx, client.ObjectKey{Name: faultName}, fault) == nil && fault.GetDeletionTimestamp().IsZero() {
 			return commonerrors.NewForbidden(

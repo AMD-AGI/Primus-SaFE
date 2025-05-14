@@ -13,15 +13,12 @@ import (
 // WorkspaceSpecApplyConfiguration represents a declarative configuration of the WorkspaceSpec type for use
 // with apply.
 type WorkspaceSpecApplyConfiguration struct {
-	Cluster          *string                             `json:"cluster,omitempty"`
-	Type             *amdv1.WorkspaceType                `json:"type,omitempty"`
-	Nodes            []FlavorReplicaApplyConfiguration   `json:"nodes,omitempty"`
-	QueuePolicy      *amdv1.WorkspaceQueuePolicy         `json:"queuePolicy,omitempty"`
-	Scopes           []amdv1.WorkspaceScope              `json:"scopes,omitempty"`
-	Volumes          []WorkspaceVolumeApplyConfiguration `json:"volumes,omitempty"`
-	EnablePreempt    *bool                               `json:"enablePreempt,omitempty"`
-	BindDedicatedIds []string                            `json:"bindDedicatedIds,omitempty"`
-	Managers         []string                            `json:"managers,omitempty"`
+	Cluster     *string                             `json:"cluster,omitempty"`
+	NodeFlavor  *string                             `json:"nodeFlavor,omitempty"`
+	Replica     *int                                `json:"replica,omitempty"`
+	QueuePolicy *amdv1.WorkspaceQueuePolicy         `json:"queuePolicy,omitempty"`
+	Scopes      []amdv1.WorkspaceScope              `json:"scopes,omitempty"`
+	Volumes     []WorkspaceVolumeApplyConfiguration `json:"volumes,omitempty"`
 }
 
 // WorkspaceSpecApplyConfiguration constructs a declarative configuration of the WorkspaceSpec type for use with
@@ -38,24 +35,19 @@ func (b *WorkspaceSpecApplyConfiguration) WithCluster(value string) *WorkspaceSp
 	return b
 }
 
-// WithType sets the Type field in the declarative configuration to the given value
+// WithNodeFlavor sets the NodeFlavor field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Type field is set to the value of the last call.
-func (b *WorkspaceSpecApplyConfiguration) WithType(value amdv1.WorkspaceType) *WorkspaceSpecApplyConfiguration {
-	b.Type = &value
+// If called multiple times, the NodeFlavor field is set to the value of the last call.
+func (b *WorkspaceSpecApplyConfiguration) WithNodeFlavor(value string) *WorkspaceSpecApplyConfiguration {
+	b.NodeFlavor = &value
 	return b
 }
 
-// WithNodes adds the given value to the Nodes field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the Nodes field.
-func (b *WorkspaceSpecApplyConfiguration) WithNodes(values ...*FlavorReplicaApplyConfiguration) *WorkspaceSpecApplyConfiguration {
-	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithNodes")
-		}
-		b.Nodes = append(b.Nodes, *values[i])
-	}
+// WithReplica sets the Replica field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Replica field is set to the value of the last call.
+func (b *WorkspaceSpecApplyConfiguration) WithReplica(value int) *WorkspaceSpecApplyConfiguration {
+	b.Replica = &value
 	return b
 }
 
@@ -86,34 +78,6 @@ func (b *WorkspaceSpecApplyConfiguration) WithVolumes(values ...*WorkspaceVolume
 			panic("nil value passed to WithVolumes")
 		}
 		b.Volumes = append(b.Volumes, *values[i])
-	}
-	return b
-}
-
-// WithEnablePreempt sets the EnablePreempt field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the EnablePreempt field is set to the value of the last call.
-func (b *WorkspaceSpecApplyConfiguration) WithEnablePreempt(value bool) *WorkspaceSpecApplyConfiguration {
-	b.EnablePreempt = &value
-	return b
-}
-
-// WithBindDedicatedIds adds the given value to the BindDedicatedIds field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the BindDedicatedIds field.
-func (b *WorkspaceSpecApplyConfiguration) WithBindDedicatedIds(values ...string) *WorkspaceSpecApplyConfiguration {
-	for i := range values {
-		b.BindDedicatedIds = append(b.BindDedicatedIds, values[i])
-	}
-	return b
-}
-
-// WithManagers adds the given value to the Managers field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the Managers field.
-func (b *WorkspaceSpecApplyConfiguration) WithManagers(values ...string) *WorkspaceSpecApplyConfiguration {
-	for i := range values {
-		b.Managers = append(b.Managers, values[i])
 	}
 	return b
 }

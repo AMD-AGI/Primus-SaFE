@@ -283,7 +283,7 @@ func (mm *MonitorManager) getMonitorConfigs(configPath string) ([]*MonitorConfig
 	var results []*MonitorConfig
 	files, err := os.ReadDir(configPath)
 	if err != nil {
-		klog.ErrorS(err, "fail to read directory", "path", configPath)
+		klog.ErrorS(err, "failed to read directory", "path", configPath)
 		return nil, err
 	}
 	for _, f := range files {

@@ -9,8 +9,8 @@ package v1
 // ClusterStatusApplyConfiguration represents a declarative configuration of the ClusterStatus type for use
 // with apply.
 type ClusterStatusApplyConfiguration struct {
-	ControlePlaneStatus *ControlePlaneStatusApplyConfiguration `json:"controlPlaneStatus,omitempty"`
-	StorageStatus       []StorageStatusApplyConfiguration      `json:"storageStatus,omitempty"`
+	ControlPlaneStatus *ControlPlaneStatusApplyConfiguration `json:"controlPlaneStatus,omitempty"`
+	StorageStatus      []StorageStatusApplyConfiguration     `json:"storageStatus,omitempty"`
 }
 
 // ClusterStatusApplyConfiguration constructs a declarative configuration of the ClusterStatus type for use with
@@ -19,11 +19,11 @@ func ClusterStatus() *ClusterStatusApplyConfiguration {
 	return &ClusterStatusApplyConfiguration{}
 }
 
-// WithControlePlaneStatus sets the ControlePlaneStatus field in the declarative configuration to the given value
+// WithControlPlaneStatus sets the ControlPlaneStatus field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ControlePlaneStatus field is set to the value of the last call.
-func (b *ClusterStatusApplyConfiguration) WithControlePlaneStatus(value *ControlePlaneStatusApplyConfiguration) *ClusterStatusApplyConfiguration {
-	b.ControlePlaneStatus = value
+// If called multiple times, the ControlPlaneStatus field is set to the value of the last call.
+func (b *ClusterStatusApplyConfiguration) WithControlPlaneStatus(value *ControlPlaneStatusApplyConfiguration) *ClusterStatusApplyConfiguration {
+	b.ControlPlaneStatus = value
 	return b
 }
 

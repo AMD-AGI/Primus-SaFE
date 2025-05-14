@@ -13,21 +13,37 @@ import (
 // NodeSpecApplyConfiguration represents a declarative configuration of the NodeSpec type for use
 // with apply.
 type NodeSpecApplyConfiguration struct {
-	NodeFlavor          *corev1.ObjectReference `json:"nodeFlavor,omitempty"`
-	Hostname            *string                 `json:"hostname,omitempty"`
-	PrivateIP           *string                 `json:"privateIP,omitempty"`
-	PublicIP            *string                 `json:"publicIP,omitempty"`
-	Port                *int32                  `json:"port,omitempty"`
-	SSHSecret           *corev1.ObjectReference `json:"secret,omitempty"`
-	NodeTemplate        *corev1.ObjectReference `json:"nodeTemplate,omitempty"`
-	KubernetesUnmanaged *corev1.ObjectReference `json:"kubernetesUnmanaged,omitempty"`
-	Cluster             *string                 `json:"cluster,omitempty"`
+	Cluster    *string                 `json:"cluster,omitempty"`
+	Workspace  *string                 `json:"workspace,omitempty"`
+	NodeFlavor *corev1.ObjectReference `json:"nodeFlavor,omitempty"`
+	Hostname   *string                 `json:"hostname,omitempty"`
+	PrivateIP  *string                 `json:"privateIP,omitempty"`
+	PublicIP   *string                 `json:"publicIP,omitempty"`
+	Port       *int32                  `json:"port,omitempty"`
+	Taints     []corev1.Taint          `json:"taints,omitempty"`
+	SSHSecret  *corev1.ObjectReference `json:"secret,omitempty"`
 }
 
 // NodeSpecApplyConfiguration constructs a declarative configuration of the NodeSpec type for use with
 // apply.
 func NodeSpec() *NodeSpecApplyConfiguration {
 	return &NodeSpecApplyConfiguration{}
+}
+
+// WithCluster sets the Cluster field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Cluster field is set to the value of the last call.
+func (b *NodeSpecApplyConfiguration) WithCluster(value string) *NodeSpecApplyConfiguration {
+	b.Cluster = &value
+	return b
+}
+
+// WithWorkspace sets the Workspace field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Workspace field is set to the value of the last call.
+func (b *NodeSpecApplyConfiguration) WithWorkspace(value string) *NodeSpecApplyConfiguration {
+	b.Workspace = &value
+	return b
 }
 
 // WithNodeFlavor sets the NodeFlavor field in the declarative configuration to the given value
@@ -70,34 +86,20 @@ func (b *NodeSpecApplyConfiguration) WithPort(value int32) *NodeSpecApplyConfigu
 	return b
 }
 
+// WithTaints adds the given value to the Taints field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Taints field.
+func (b *NodeSpecApplyConfiguration) WithTaints(values ...corev1.Taint) *NodeSpecApplyConfiguration {
+	for i := range values {
+		b.Taints = append(b.Taints, values[i])
+	}
+	return b
+}
+
 // WithSSHSecret sets the SSHSecret field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the SSHSecret field is set to the value of the last call.
 func (b *NodeSpecApplyConfiguration) WithSSHSecret(value corev1.ObjectReference) *NodeSpecApplyConfiguration {
 	b.SSHSecret = &value
-	return b
-}
-
-// WithNodeTemplate sets the NodeTemplate field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the NodeTemplate field is set to the value of the last call.
-func (b *NodeSpecApplyConfiguration) WithNodeTemplate(value corev1.ObjectReference) *NodeSpecApplyConfiguration {
-	b.NodeTemplate = &value
-	return b
-}
-
-// WithKubernetesUnmanaged sets the KubernetesUnmanaged field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the KubernetesUnmanaged field is set to the value of the last call.
-func (b *NodeSpecApplyConfiguration) WithKubernetesUnmanaged(value corev1.ObjectReference) *NodeSpecApplyConfiguration {
-	b.KubernetesUnmanaged = &value
-	return b
-}
-
-// WithCluster sets the Cluster field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Cluster field is set to the value of the last call.
-func (b *NodeSpecApplyConfiguration) WithCluster(value string) *NodeSpecApplyConfiguration {
-	b.Cluster = &value
 	return b
 }

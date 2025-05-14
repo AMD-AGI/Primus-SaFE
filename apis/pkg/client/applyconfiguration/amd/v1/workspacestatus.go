@@ -15,11 +15,12 @@ import (
 // WorkspaceStatusApplyConfiguration represents a declarative configuration of the WorkspaceStatus type for use
 // with apply.
 type WorkspaceStatusApplyConfiguration struct {
-	Phase              *amdv1.WorkspacePhase             `json:"phase,omitempty"`
-	Nodes              *WorkspaceNodesApplyConfiguration `json:"nodes,omitempty"`
-	TotalResources     *corev1.ResourceList              `json:"totalResources,omitempty"`
-	AvailableResources *corev1.ResourceList              `json:"availableResources,omitempty"`
-	UpdateTime         *metav1.Time                      `json:"updateTime,omitempty"`
+	Phase              *amdv1.WorkspacePhase `json:"phase,omitempty"`
+	TotalResources     *corev1.ResourceList  `json:"totalResources,omitempty"`
+	AvailableResources *corev1.ResourceList  `json:"availableResources,omitempty"`
+	AvailableReplica   *int                  `json:"availableReplica,omitempty"`
+	AbnormalReplica    *int                  `json:"abnormalReplica,omitempty"`
+	UpdateTime         *metav1.Time          `json:"updateTime,omitempty"`
 }
 
 // WorkspaceStatusApplyConfiguration constructs a declarative configuration of the WorkspaceStatus type for use with
@@ -36,14 +37,6 @@ func (b *WorkspaceStatusApplyConfiguration) WithPhase(value amdv1.WorkspacePhase
 	return b
 }
 
-// WithNodes sets the Nodes field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Nodes field is set to the value of the last call.
-func (b *WorkspaceStatusApplyConfiguration) WithNodes(value *WorkspaceNodesApplyConfiguration) *WorkspaceStatusApplyConfiguration {
-	b.Nodes = value
-	return b
-}
-
 // WithTotalResources sets the TotalResources field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the TotalResources field is set to the value of the last call.
@@ -57,6 +50,22 @@ func (b *WorkspaceStatusApplyConfiguration) WithTotalResources(value corev1.Reso
 // If called multiple times, the AvailableResources field is set to the value of the last call.
 func (b *WorkspaceStatusApplyConfiguration) WithAvailableResources(value corev1.ResourceList) *WorkspaceStatusApplyConfiguration {
 	b.AvailableResources = &value
+	return b
+}
+
+// WithAvailableReplica sets the AvailableReplica field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AvailableReplica field is set to the value of the last call.
+func (b *WorkspaceStatusApplyConfiguration) WithAvailableReplica(value int) *WorkspaceStatusApplyConfiguration {
+	b.AvailableReplica = &value
+	return b
+}
+
+// WithAbnormalReplica sets the AbnormalReplica field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AbnormalReplica field is set to the value of the last call.
+func (b *WorkspaceStatusApplyConfiguration) WithAbnormalReplica(value int) *WorkspaceStatusApplyConfiguration {
+	b.AbnormalReplica = &value
 	return b
 }
 

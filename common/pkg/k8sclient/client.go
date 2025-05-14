@@ -61,7 +61,7 @@ func NewClientSetWithRestConfig(cfg *rest.Config) (kubernetes.Interface, error) 
 func GetRestConfig(endpoint, clientCert, clientKey, clusterCa string, insecure bool) (*rest.Config, error) {
 	inst := crypto.Instance()
 	if inst == nil {
-		klog.Errorf("failed to new crypto instance")
+		return nil, fmt.Errorf("failed to new crypto instance")
 	}
 	cert, err := inst.Decrypt(clientCert)
 	if err != nil {
@@ -96,8 +96,7 @@ func GetRestConfigInCluster() (*rest.Config, error) {
 func getRestConfig(endpoint, clientCert, clientKey, clusterCa string, insecure bool) (*rest.Config, error) {
 	cert := stringutil.Base64Decode(clientCert)
 	key := stringutil.Base64Decode(clientKey)
-	ca := stringutil.Base64Decode(clusterCa)
-	if endpoint == "" || cert == "" || key == "" || ca == "" {
+	if endpoint == "" || cert == "" || key == "" {
 		return nil, fmt.Errorf("invalid input")
 	}
 	cfg := &rest.Config{
@@ -111,6 +110,10 @@ func getRestConfig(endpoint, clientCert, clientKey, clusterCa string, insecure b
 		Burst: common.DefaultBurst,
 	}
 	if !insecure {
+		ca := stringutil.Base64Decode(clusterCa)
+		if ca == "" {
+			return nil, fmt.Errorf("invalid input")
+		}
 		cfg.TLSClientConfig.CAData = []byte(ca)
 	}
 	return cfg, nil

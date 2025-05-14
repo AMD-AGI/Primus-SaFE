@@ -19,7 +19,9 @@ type AmdV1Interface interface {
 	ClustersGetter
 	FaultsGetter
 	NodesGetter
+	NodeFlavorsGetter
 	StorageClustersGetter
+	WorkloadsGetter
 	WorkspacesGetter
 }
 
@@ -40,8 +42,16 @@ func (c *AmdV1Client) Nodes(namespace string) NodeInterface {
 	return newNodes(c, namespace)
 }
 
+func (c *AmdV1Client) NodeFlavors(namespace string) NodeFlavorInterface {
+	return newNodeFlavors(c, namespace)
+}
+
 func (c *AmdV1Client) StorageClusters() StorageClusterInterface {
 	return newStorageClusters(c)
+}
+
+func (c *AmdV1Client) Workloads(namespace string) WorkloadInterface {
+	return newWorkloads(c, namespace)
 }
 
 func (c *AmdV1Client) Workspaces(namespace string) WorkspaceInterface {
