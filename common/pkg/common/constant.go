@@ -22,8 +22,4 @@ const (
 
 	AMDGpuIdentification = "feature.node.kubernetes.io/amd-gpu"
 	AmdGpu               = "amd.com/gpu"
-
-	HighPriority = "high-priority"
-	MedPriority  = "med-priority"
-	LowPriority  = "low-priority"
 )

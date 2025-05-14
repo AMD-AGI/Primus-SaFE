@@ -53,7 +53,7 @@ func SetupClusterController(mgr manager.Manager) error {
 	if err != nil {
 		return err
 	}
-	klog.Infof("Setup ClusterName Controller successfully")
+	klog.Infof("Setup Cluster Controller successfully")
 	return nil
 }
 
@@ -80,7 +80,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 }
 
 func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) error {
-	if err := r.resetNodes(cluster.Name); err != nil {
+	if err := r.resetNodesOfCluster(cluster.Name); err != nil {
 		return err
 	}
 	cm := newClusterManager()
@@ -91,9 +91,9 @@ func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) err
 	return nil
 }
 
-func (r *ClusterReconciler) resetNodes(clusterName string) error {
-	req1, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{clusterName})
-	labelSelector := labels.NewSelector().Add(*req1)
+func (r *ClusterReconciler) resetNodesOfCluster(clusterName string) error {
+	req, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{clusterName})
+	labelSelector := labels.NewSelector().Add(*req)
 	nodeList := &v1.NodeList{}
 	if err := r.List(context.Background(), nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		klog.ErrorS(err, "failed to list nodes")

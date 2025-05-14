@@ -1,7 +1,7 @@
 module github.com/AMD-AIG-AIMA/SAFE/apis
 
 go 1.24.2
-
+toolchain go1.24.2
 godebug default=go1.24.2
 
 require (
