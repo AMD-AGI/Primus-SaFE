@@ -91,10 +91,10 @@ func (r *FaultReconciler) deleteAllFaults(ctx context.Context, node *v1.Node) er
 			return err
 		}
 		for _, f := range faultList {
-			klog.Infof("delete fault: %s", f.Name)
 			if err = r.Delete(ctx, &f); client.IgnoreNotFound(err) != nil {
 				return err
 			}
+			klog.Infof("delete fault: %s", f.Name)
 		}
 		return nil
 	}, time.Second, 100*time.Millisecond)
@@ -124,7 +124,7 @@ func (r *FaultReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request
 func (r *FaultReconciler) delete(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
 	err := r.removeNodeTaint(ctx, fault)
 	if ignoreError(err) != nil {
-		if result, err := r.processWait(ctx, fault); err != nil || result.RequeueAfter > 0 {
+		if result, err := r.retry(ctx, fault); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
 	}
@@ -160,7 +160,7 @@ func (r *FaultReconciler) handle(ctx context.Context, fault *v1.Fault) (ctrlrunt
 		klog.ErrorS(err, "failed to handle fault")
 		if ignoreError(err) != nil {
 			// Stop after exceeding the maximum retry limit.
-			if result, err := r.processWait(ctx, fault); err != nil || result.RequeueAfter > 0 {
+			if result, err := r.retry(ctx, fault); err != nil || result.RequeueAfter > 0 {
 				return result, err
 			}
 		}
@@ -242,7 +242,7 @@ func (r *FaultReconciler) removeNodeTaint(ctx context.Context, fault *v1.Fault) 
 	return nil
 }
 
-func (r *FaultReconciler) processWait(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
+func (r *FaultReconciler) retry(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
 	if fault == nil {
 		return ctrlruntime.Result{}, nil
 	}

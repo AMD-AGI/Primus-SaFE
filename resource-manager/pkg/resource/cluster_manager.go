@@ -9,12 +9,12 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/channel"
 )
@@ -29,16 +29,16 @@ type ClusterInformer struct {
 	invalidReason string
 }
 
-func newClusterInformer(name string, controlPlane *v1.ControlPlaneStatus) (*ClusterInformer, error) {
+func newClusterInformer(name string, cert *v1.ControlPlaneStatus) (*ClusterInformer, error) {
 	serviceUrl := fmt.Sprintf("https://%s.%s.svc", name, common.PrimusSafeNamespace)
 	clientSet, _, err := commonclient.NewClientSet(serviceUrl,
-		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, true)
+		cert.CertData, cert.KeyData, cert.CAData, true)
 	if err != nil {
 		return nil, err
 	}
 	informer := &ClusterInformer{
 		name:                  name,
-		cert:                  *controlPlane,
+		cert:                  *cert,
 		clientSet:             clientSet,
 		SharedInformerFactory: informers.NewSharedInformerFactory(clientSet, 0),
 		stopCh:                make(chan struct{}),

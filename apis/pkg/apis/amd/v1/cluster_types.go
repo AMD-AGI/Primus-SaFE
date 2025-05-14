@@ -16,8 +16,10 @@ const (
 )
 
 type (
+	Phase               string
 	ClusterPhase        string
 	ClusterManageAction string
+	StorageUseType      string
 )
 
 const (
@@ -40,9 +42,6 @@ const (
 	ClusterHostsAction     ClusterManageAction = "hosts"
 	ClusterResetAction     ClusterManageAction = "reset"
 )
-
-type StorageUseType string
-type Phase string
 
 const (
 	RBD StorageUseType = "rbd"
