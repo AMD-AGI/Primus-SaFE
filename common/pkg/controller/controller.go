@@ -54,10 +54,6 @@ func (c *Controller[T]) processNext(ctx context.Context) bool {
 		return false
 	}
 	defer c.queue.Done(req)
-	if req == nil {
-		c.queue.Forget(req)
-		return true
-	}
 	if result, err := c.handler.Do(ctx, req); err != nil {
 		c.queue.AddRateLimited(req)
 		return true

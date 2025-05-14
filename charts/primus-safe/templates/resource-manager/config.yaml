@@ -1,0 +1,15 @@
+apiVersion: v1
+data:
+  config.yaml: |
+    global:
+      enable_crypto: {{ .Values.crypto.enable }}
+    health_check:
+      enable: true
+      port: 8081
+    leader_election:
+      enable: true
+      lock_namespace: "{{ .Release.Namespace }}"
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-resource-manager
+  namespace: {{ .Release.Namespace }} 

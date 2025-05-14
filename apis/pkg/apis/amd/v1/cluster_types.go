@@ -39,7 +39,6 @@ const (
 	ClusterCreateAction    ClusterManageAction = "create"
 	ClusterScaleUpAction   ClusterManageAction = "up"
 	ClusterScaleDownAction ClusterManageAction = "down"
-	ClusterHostsAction     ClusterManageAction = "hosts"
 	ClusterResetAction     ClusterManageAction = "reset"
 )
 
@@ -129,6 +128,10 @@ type ClusterStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
+// +kubebuilder:webhook:path=/mutate-amd-primus-safe-v1-clusters,mutating=true,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=clusters,verbs=create;update,versions=v1,name=mcluster.kb.io,admissionReviewVersions={v1}
+// +kubebuilder:webhook:path=/validate-amd-primus-safe-v1-clusters,mutating=false,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=cluster,verbs=create;update,versions=v1,name=vcluster.kb.io,admissionReviewVersions={v1}
+// +kubebuilder:rbac:groups=amd.com,resources=clusters,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=amd.com,resources=clusters/status,verbs=get;update;patch
 
 // Cluster is the Schema for the clusters API.
 type Cluster struct {

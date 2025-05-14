@@ -42,6 +42,10 @@ type NodeFlavorNamespaceListerExpansion interface{}
 // StorageClusterLister.
 type StorageClusterListerExpansion interface{}
 
+// StorageClusterNamespaceListerExpansion allows custom methods to be added to
+// StorageClusterNamespaceLister.
+type StorageClusterNamespaceListerExpansion interface{}
+
 // WorkloadListerExpansion allows custom methods to be added to
 // WorkloadLister.
 type WorkloadListerExpansion interface{}
