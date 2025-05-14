@@ -10,9 +10,9 @@ import (
 	amdv1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
-// ControlePlaneStatusApplyConfiguration represents a declarative configuration of the ControlePlaneStatus type for use
+// ControlPlaneStatusApplyConfiguration represents a declarative configuration of the ControlPlaneStatus type for use
 // with apply.
-type ControlePlaneStatusApplyConfiguration struct {
+type ControlPlaneStatusApplyConfiguration struct {
 	Phase     *amdv1.ClusterPhase `json:"phase,omitempty"`
 	CertData  *string             `json:"certData,omitempty"`
 	KeyData   *string             `json:"keyData,omitempty"`
@@ -20,16 +20,16 @@ type ControlePlaneStatusApplyConfiguration struct {
 	Endpoints []string            `json:"endpoints,omitempty"`
 }
 
-// ControlePlaneStatusApplyConfiguration constructs a declarative configuration of the ControlePlaneStatus type for use with
+// ControlPlaneStatusApplyConfiguration constructs a declarative configuration of the ControlPlaneStatus type for use with
 // apply.
-func ControlePlaneStatus() *ControlePlaneStatusApplyConfiguration {
-	return &ControlePlaneStatusApplyConfiguration{}
+func ControlPlaneStatus() *ControlPlaneStatusApplyConfiguration {
+	return &ControlPlaneStatusApplyConfiguration{}
 }
 
 // WithPhase sets the Phase field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Phase field is set to the value of the last call.
-func (b *ControlePlaneStatusApplyConfiguration) WithPhase(value amdv1.ClusterPhase) *ControlePlaneStatusApplyConfiguration {
+func (b *ControlPlaneStatusApplyConfiguration) WithPhase(value amdv1.ClusterPhase) *ControlPlaneStatusApplyConfiguration {
 	b.Phase = &value
 	return b
 }
@@ -37,7 +37,7 @@ func (b *ControlePlaneStatusApplyConfiguration) WithPhase(value amdv1.ClusterPha
 // WithCertData sets the CertData field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the CertData field is set to the value of the last call.
-func (b *ControlePlaneStatusApplyConfiguration) WithCertData(value string) *ControlePlaneStatusApplyConfiguration {
+func (b *ControlPlaneStatusApplyConfiguration) WithCertData(value string) *ControlPlaneStatusApplyConfiguration {
 	b.CertData = &value
 	return b
 }
@@ -45,7 +45,7 @@ func (b *ControlePlaneStatusApplyConfiguration) WithCertData(value string) *Cont
 // WithKeyData sets the KeyData field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the KeyData field is set to the value of the last call.
-func (b *ControlePlaneStatusApplyConfiguration) WithKeyData(value string) *ControlePlaneStatusApplyConfiguration {
+func (b *ControlPlaneStatusApplyConfiguration) WithKeyData(value string) *ControlPlaneStatusApplyConfiguration {
 	b.KeyData = &value
 	return b
 }
@@ -53,7 +53,7 @@ func (b *ControlePlaneStatusApplyConfiguration) WithKeyData(value string) *Contr
 // WithCAData sets the CAData field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the CAData field is set to the value of the last call.
-func (b *ControlePlaneStatusApplyConfiguration) WithCAData(value string) *ControlePlaneStatusApplyConfiguration {
+func (b *ControlPlaneStatusApplyConfiguration) WithCAData(value string) *ControlPlaneStatusApplyConfiguration {
 	b.CAData = &value
 	return b
 }
@@ -61,7 +61,7 @@ func (b *ControlePlaneStatusApplyConfiguration) WithCAData(value string) *Contro
 // WithEndpoints adds the given value to the Endpoints field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Endpoints field.
-func (b *ControlePlaneStatusApplyConfiguration) WithEndpoints(values ...string) *ControlePlaneStatusApplyConfiguration {
+func (b *ControlPlaneStatusApplyConfiguration) WithEndpoints(values ...string) *ControlPlaneStatusApplyConfiguration {
 	for i := range values {
 		b.Endpoints = append(b.Endpoints, values[i])
 	}

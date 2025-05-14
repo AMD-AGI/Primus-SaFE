@@ -14,10 +14,18 @@ import (
 type Interface interface {
 	// Clusters returns a ClusterInformer.
 	Clusters() ClusterInformer
+	// Faults returns a FaultInformer.
+	Faults() FaultInformer
 	// Nodes returns a NodeInformer.
 	Nodes() NodeInformer
+	// NodeFlavors returns a NodeFlavorInformer.
+	NodeFlavors() NodeFlavorInformer
 	// StorageClusters returns a StorageClusterInformer.
 	StorageClusters() StorageClusterInformer
+	// Workloads returns a WorkloadInformer.
+	Workloads() WorkloadInformer
+	// Workspaces returns a WorkspaceInformer.
+	Workspaces() WorkspaceInformer
 }
 
 type version struct {
@@ -33,15 +41,35 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 
 // Clusters returns a ClusterInformer.
 func (v *version) Clusters() ClusterInformer {
-	return &clusterInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+	return &clusterInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// Faults returns a FaultInformer.
+func (v *version) Faults() FaultInformer {
+	return &faultInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Nodes returns a NodeInformer.
 func (v *version) Nodes() NodeInformer {
-	return &nodeInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+	return &nodeInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// NodeFlavors returns a NodeFlavorInformer.
+func (v *version) NodeFlavors() NodeFlavorInformer {
+	return &nodeFlavorInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // StorageClusters returns a StorageClusterInformer.
 func (v *version) StorageClusters() StorageClusterInformer {
 	return &storageClusterInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// Workloads returns a WorkloadInformer.
+func (v *version) Workloads() WorkloadInformer {
+	return &workloadInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// Workspaces returns a WorkspaceInformer.
+func (v *version) Workspaces() WorkspaceInformer {
+	return &workspaceInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

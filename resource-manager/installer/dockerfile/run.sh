@@ -12,4 +12,4 @@ WORK_PATH=/opt/primus-safe/resource-manager
 cd ${WORK_PATH}
 find ${WORK_PATH} -type f -name "*.sh" -exec chmod 700 {} +
 
-./resource_manager --config=${WORK_PATH}/config/config.toml --log_file_path=${WORK_PATH}/logs/manager.log
+./resource_manager --config=${WORK_PATH}/config/config.yaml --log_file_path=${WORK_PATH}/logs/manager.log

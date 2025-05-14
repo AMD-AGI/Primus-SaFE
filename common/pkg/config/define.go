@@ -10,6 +10,10 @@ const (
 	globalPrefix = "global."
 	cryptoEnable = globalPrefix + "enable_crypto"
 
+	// server
+	serverPrefix = "server."
+	serverPort   = serverPrefix + "port"
+
 	// health_check
 	healthCheckPrefix = "health_check."
 	healthCheckEnable = healthCheckPrefix + "enable"

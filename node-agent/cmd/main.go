@@ -14,7 +14,7 @@ import (
 func main() {
 	d, err := daemon.NewDaemon()
 	if err != nil {
-		fmt.Println("fail to new node-agent daemon, err: ", err.Error())
+		fmt.Println("failed to new node-agent daemon, err: ", err.Error())
 		return
 	}
 	d.Start()

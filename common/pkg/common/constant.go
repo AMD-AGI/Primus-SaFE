@@ -7,6 +7,11 @@ package common
 
 const (
 	PrimusSafeNamespace = "primus-safe"
+	PrimusFault         = "primus-fault"
+
+	NodeNameSelector    = "spec.nodeName="
+	KubeSystemNamespace = "kube-system"
+	KubePublicNamespace = "kube-public"
 
 	DefaultBurst = 1000
 	DefaultQPS   = 1000

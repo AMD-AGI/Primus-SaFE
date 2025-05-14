@@ -20,8 +20,8 @@ type options struct {
 }
 
 func (opt *options) InitFlags() error {
-	flag.StringVar(&opt.secret, "key", "", "The secret key")
-	flag.StringVar(&opt.input, "input", "", "The string to be input")
+	flag.StringVar(&opt.secret, "key", "", "the secret key")
+	flag.StringVar(&opt.input, "input", "", "the input to be processed")
 	flag.BoolVar(&opt.doEncrypt, "e", false, "do encryption")
 	flag.BoolVar(&opt.doDecrypt, "d", false, "do decryption")
 	flag.Parse()

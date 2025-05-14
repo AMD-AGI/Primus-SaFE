@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: primus-safe-webhooks
+  namespace: primus-safe
+  labels:
+    app: primus-safe-webhooks
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: primus-safe-webhooks
+  template:
+    metadata:
+      labels:
+        app: primus-safe-webhooks
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: feature.node.kubernetes.io/amd-gpu
+                    operator: DoesNotExist
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: feature.node.kubernetes.io/amd-gpu
+                    operator: NotIn
+                    values:
+                      - "true"
+      serviceAccountName: primus-safe-manager
+      containers:
+        - name: primus-safe-webhooks
+          image: /primus-safe/webhooks:latest
+          imagePullPolicy: Always
+          command: ["/bin/sh", "/opt/primus-safe/webhooks/run.sh"]
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          env:
+            - name: CERT_DIR
+              value: "/opt/primus-safe/webhooks/cert"
+            - name: KEY_NAME
+              value: "tls.key"
+            - name: CERT_NAME
+              value: "tls.crt"
+            - name: CA_NAME
+              value: "ca.crt"
+          volumeMounts:
+            - name: primus-safe-webhooks-cert
+              mountPath: "/opt/primus-safe/webhooks/cert"
+          ports:
+            - containerPort: 8084
+              protocol: TCP
+          resources:
+            limits:
+              cpu: "4000m"
+              memory: 8Gi
+            requests:
+              cpu: "4000m"
+              memory: 8Gi
+      volumes:
+        - name: primus-safe-webhooks-cert
+          secret:
+            secretName: primus-safe-webhooks-cert
+      terminationGracePeriodSeconds: 10
+      priorityClassName: system-cluster-critical
+      restartPolicy: Always

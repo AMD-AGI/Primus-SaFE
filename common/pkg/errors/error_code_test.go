@@ -14,13 +14,24 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+func TestIsPrimus(t *testing.T) {
+	err := NewBadRequest("test")
+	assert.Equal(t, IsPrimus(err), true)
+	assert.Equal(t, IgnorePrimusError(err) == nil, true)
+	assert.Equal(t, GetErrorCode(err), BadRequest)
+
+	err2 := fmt.Errorf("test")
+	assert.Equal(t, IsPrimus(err2), false)
+	assert.Equal(t, IgnorePrimusError(err2) == nil, false)
+	assert.Equal(t, GetErrorCode(err2), "")
+}
+
 func TestIsAlreadyExist(t *testing.T) {
 	err := NewAlreadyExist("test")
 	assert.Equal(t, IsAlreadyExist(err), true)
 	err2 := fmt.Errorf("test")
 	assert.Equal(t, IsAlreadyExist(err2), false)
-	err3 := NewInternalError("test")
+
+	err3 := apierrors.NewAlreadyExists(schema.GroupResource{}, "test")
 	assert.Equal(t, IsAlreadyExist(err3), false)
-	err4 := apierrors.NewAlreadyExists(schema.GroupResource{}, "test")
-	assert.Equal(t, IsAlreadyExist(err4), false)
 }

@@ -3,6 +3,7 @@ module github.com/AMD-AIG-AIMA/SAFE/common
 go 1.24.2
 
 require (
+	github.com/AMD-AIG-AIMA/SAFE/apis v0.0.0
 	github.com/AMD-AIG-AIMA/SAFE/utils v0.0.0
 	github.com/spf13/viper v1.20.1
 	gotest.tools v2.2.0+incompatible
@@ -64,3 +65,7 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
+replace (
+	github.com/AMD-AIG-AIMA/SAFE/utils => ../utils
+	github.com/AMD-AIG-AIMA/SAFE/apis => ../apis
+)

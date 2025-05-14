@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: primus-fault
+  labels:
+    kind: fault
+  namespace: primus-safe
+data:
+  gpu_module_001: '{"id":"001","action":"taint","toggle":"on"}'
+  gpu_ecc_002: '{"id":"002","toggle":"on"}'
+  gpu_bad_pages_003: '{"id":"003","toggle":"on"}'
+  gpu_card_check_004: '{"id":"004","action":"taint","toggle":"on"}'
+  gpu_device_plugin_005: '{id":"005","action":"taint","toggle":"on"}'
+  gpu_temperature_006: '{"id":"006","toggle":"on"}'
+  gpu_driver_007: '{"id":"007","action":"taint","toggle":"on"}'
+  gpu_ras_008: '{"id":"008","toggle":"on"}'
+  gpu_link_009: '{"id":"009","toggle":"on"}'
+  gpu_xgmi_link_010: '{"id":"010","toggle":"on"}'
+  # Network: 2XX
+  net_ib_status_201: '{"id":"201","action":"taint","toggle":"on"}'
+  net_ethtool_202: '{"id":"202","action":"taint","toggle":"on"}'
+  # System: 3XX
+  sys_timezone_301: '{"id":"301","toggle":"on"}'
+  sys_hostname_302: '{"id":"302","action":"taint","toggle":"on"}'
+  sys_containerd_303: '{"id":"303","action":"taint","toggle":"on"}'
+  sys_kernel_lock_304: '{"id":"304","action":"taint","toggle":"on"}'
+  sys_acsctl_305: '{"id":"305","action":"taint","toggle":"on"}'
+  # k8s
+  NotReady: '{"id":"NotReady","action":"taint","toggle":"on"}'
+  DiskPressure: '{"id":"DiskPressure","action":"taint","toggle":"on"}'
+  MemoryPressure: '{"id":"MemoryPressure","action":"taint","toggle":"on"}'
+  PIDPressure: '{"id":"PIDPressure","action":"taint","toggle":"on"}'
+  NetworkUnavailable: '{"id":"NetworkUnavailable","action":"taint","toggle":"on"}'

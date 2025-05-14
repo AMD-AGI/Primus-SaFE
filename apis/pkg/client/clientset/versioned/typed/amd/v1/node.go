@@ -21,7 +21,7 @@ import (
 // NodesGetter has a method to return a NodeInterface.
 // A group's client should implement this interface.
 type NodesGetter interface {
-	Nodes() NodeInterface
+	Nodes(namespace string) NodeInterface
 }
 
 // NodeInterface has methods to work with Node resources.
@@ -48,13 +48,13 @@ type nodes struct {
 }
 
 // newNodes returns a Nodes
-func newNodes(c *AmdV1Client) *nodes {
+func newNodes(c *AmdV1Client, namespace string) *nodes {
 	return &nodes{
 		gentype.NewClientWithListAndApply[*amdv1.Node, *amdv1.NodeList, *applyconfigurationamdv1.NodeApplyConfiguration](
 			"nodes",
 			c.RESTClient(),
 			scheme.ParameterCodec,
-			"",
+			namespace,
 			func() *amdv1.Node { return &amdv1.Node{} },
 			func() *amdv1.NodeList { return &amdv1.NodeList{} },
 		),

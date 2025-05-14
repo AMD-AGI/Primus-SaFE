@@ -16,7 +16,7 @@ if [ $? -ne 0 ]; then
   exit 2
 fi
 
-threshold=85
+threshold=100
 while read -r line; do
   temp=$(echo "$line" | awk '{print $NF}')
   temp=$(echo "$temp / 1" | bc)

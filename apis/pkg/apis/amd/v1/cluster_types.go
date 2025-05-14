@@ -13,13 +13,13 @@ import (
 
 const (
 	ClusterKind = "Cluster"
-	NodeKind    = "Node"
 )
 
 type (
 	Phase               string
 	ClusterPhase        string
 	ClusterManageAction string
+	StorageUseType      string
 )
 
 const (
@@ -42,8 +42,6 @@ const (
 	ClusterHostsAction     ClusterManageAction = "hosts"
 	ClusterResetAction     ClusterManageAction = "reset"
 )
-
-type StorageUseType string
 
 const (
 	RBD StorageUseType = "rbd"
@@ -120,7 +118,7 @@ type ClusterSpec struct {
 type ClusterStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	ControlePlaneStatus ControlePlaneStatus `json:"controlPlaneStatus,omitempty"`
+	ControlPlaneStatus ControlPlaneStatus `json:"controlPlaneStatus,omitempty"`
 
 	// 存储状态
 	StorageStatus []StorageStatus `json:"storageStatus,omitempty"`
@@ -128,7 +126,6 @@ type ClusterStatus struct {
 
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-// +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
@@ -160,7 +157,7 @@ type ControlPlane struct {
 	KubeletLogFilesMaxSize *resource.Quantity      `json:"kubeletLogFilesMaxSize,omitempty"`
 }
 
-type ControlePlaneStatus struct {
+type ControlPlaneStatus struct {
 	Phase ClusterPhase `json:"phase,omitempty"`
 	// CertData holds PEM-encoded bytes (typically read from a client certificate file).
 	// CertData takes precedence over CertFile
@@ -186,4 +183,11 @@ type ClusterList struct {
 
 func init() {
 	SchemeBuilder.Register(&Cluster{}, &ClusterList{})
+}
+
+func (c *Cluster) IsReady() bool {
+	if c != nil && c.Status.ControlPlaneStatus.Phase == ReadyPhase {
+		return true
+	}
+	return false
 }

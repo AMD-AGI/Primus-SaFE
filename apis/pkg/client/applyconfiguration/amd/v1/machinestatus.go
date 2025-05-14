@@ -13,12 +13,11 @@ import (
 // MachineStatusApplyConfiguration represents a declarative configuration of the MachineStatus type for use
 // with apply.
 type MachineStatusApplyConfiguration struct {
-	HostName        *string                           `json:"hostName,omitempty"`
-	Phase           *amdv1.NodePhase                  `json:"phase,omitempty"`
-	PrivateIP       *string                           `json:"privateIP,omitempty"`
-	PublicIP        *string                           `json:"publicIP,omitempty"`
-	CommandStatus   []CommandStatusApplyConfiguration `json:"commandStatus,omitempty"`
-	UnmanagedStatus []CommandStatusApplyConfiguration `json:"unmanagedStatus,omitempty"`
+	HostName      *string                           `json:"hostName,omitempty"`
+	Phase         *amdv1.NodePhase                  `json:"phase,omitempty"`
+	PrivateIP     *string                           `json:"privateIP,omitempty"`
+	PublicIP      *string                           `json:"publicIP,omitempty"`
+	CommandStatus []CommandStatusApplyConfiguration `json:"commandStatus,omitempty"`
 }
 
 // MachineStatusApplyConfiguration constructs a declarative configuration of the MachineStatus type for use with
@@ -68,19 +67,6 @@ func (b *MachineStatusApplyConfiguration) WithCommandStatus(values ...*CommandSt
 			panic("nil value passed to WithCommandStatus")
 		}
 		b.CommandStatus = append(b.CommandStatus, *values[i])
-	}
-	return b
-}
-
-// WithUnmanagedStatus adds the given value to the UnmanagedStatus field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the UnmanagedStatus field.
-func (b *MachineStatusApplyConfiguration) WithUnmanagedStatus(values ...*CommandStatusApplyConfiguration) *MachineStatusApplyConfiguration {
-	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithUnmanagedStatus")
-		}
-		b.UnmanagedStatus = append(b.UnmanagedStatus, *values[i])
 	}
 	return b
 }

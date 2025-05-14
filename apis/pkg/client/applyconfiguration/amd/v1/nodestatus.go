@@ -6,11 +6,19 @@ Copyright The AMD Authors.
 
 package v1
 
+import (
+	corev1 "k8s.io/api/core/v1"
+)
+
 // NodeStatusApplyConfiguration represents a declarative configuration of the NodeStatus type for use
 // with apply.
 type NodeStatusApplyConfiguration struct {
 	MachineStatus *MachineStatusApplyConfiguration     `json:"machineStatus,omitempty"`
 	ClusterStatus *NodeClusterStatusApplyConfiguration `json:"clusterStatus,omitempty"`
+	Unschedulable *bool                                `json:"unschedulable,omitempty"`
+	Taints        []corev1.Taint                       `json:"taints,omitempty"`
+	Resources     *corev1.ResourceList                 `json:"resources,omitempty"`
+	Conditions    []corev1.NodeCondition               `json:"conditions,omitempty"`
 }
 
 // NodeStatusApplyConfiguration constructs a declarative configuration of the NodeStatus type for use with
@@ -32,5 +40,41 @@ func (b *NodeStatusApplyConfiguration) WithMachineStatus(value *MachineStatusApp
 // If called multiple times, the ClusterStatus field is set to the value of the last call.
 func (b *NodeStatusApplyConfiguration) WithClusterStatus(value *NodeClusterStatusApplyConfiguration) *NodeStatusApplyConfiguration {
 	b.ClusterStatus = value
+	return b
+}
+
+// WithUnschedulable sets the Unschedulable field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Unschedulable field is set to the value of the last call.
+func (b *NodeStatusApplyConfiguration) WithUnschedulable(value bool) *NodeStatusApplyConfiguration {
+	b.Unschedulable = &value
+	return b
+}
+
+// WithTaints adds the given value to the Taints field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Taints field.
+func (b *NodeStatusApplyConfiguration) WithTaints(values ...corev1.Taint) *NodeStatusApplyConfiguration {
+	for i := range values {
+		b.Taints = append(b.Taints, values[i])
+	}
+	return b
+}
+
+// WithResources sets the Resources field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Resources field is set to the value of the last call.
+func (b *NodeStatusApplyConfiguration) WithResources(value corev1.ResourceList) *NodeStatusApplyConfiguration {
+	b.Resources = &value
+	return b
+}
+
+// WithConditions adds the given value to the Conditions field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Conditions field.
+func (b *NodeStatusApplyConfiguration) WithConditions(values ...corev1.NodeCondition) *NodeStatusApplyConfiguration {
+	for i := range values {
+		b.Conditions = append(b.Conditions, values[i])
+	}
 	return b
 }

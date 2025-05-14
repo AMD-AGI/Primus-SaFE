@@ -17,8 +17,12 @@ import (
 type AmdV1Interface interface {
 	RESTClient() rest.Interface
 	ClustersGetter
+	FaultsGetter
 	NodesGetter
+	NodeFlavorsGetter
 	StorageClustersGetter
+	WorkloadsGetter
+	WorkspacesGetter
 }
 
 // AmdV1Client is used to interact with features provided by the amd.com group.
@@ -26,16 +30,32 @@ type AmdV1Client struct {
 	restClient rest.Interface
 }
 
-func (c *AmdV1Client) Clusters() ClusterInterface {
-	return newClusters(c)
+func (c *AmdV1Client) Clusters(namespace string) ClusterInterface {
+	return newClusters(c, namespace)
 }
 
-func (c *AmdV1Client) Nodes() NodeInterface {
-	return newNodes(c)
+func (c *AmdV1Client) Faults(namespace string) FaultInterface {
+	return newFaults(c, namespace)
+}
+
+func (c *AmdV1Client) Nodes(namespace string) NodeInterface {
+	return newNodes(c, namespace)
+}
+
+func (c *AmdV1Client) NodeFlavors(namespace string) NodeFlavorInterface {
+	return newNodeFlavors(c, namespace)
 }
 
 func (c *AmdV1Client) StorageClusters() StorageClusterInterface {
 	return newStorageClusters(c)
+}
+
+func (c *AmdV1Client) Workloads(namespace string) WorkloadInterface {
+	return newWorkloads(c, namespace)
+}
+
+func (c *AmdV1Client) Workspaces(namespace string) WorkspaceInterface {
+	return newWorkspaces(c, namespace)
 }
 
 // NewForConfig creates a new AmdV1Client for the given config.

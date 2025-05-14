@@ -21,7 +21,7 @@ func GetDirWatcher(directoryPath string) (*fsnotify.Watcher, error) {
 	err = watcher.Add(directoryPath)
 	if err != nil {
 		if err2 := watcher.Close(); err2 != nil {
-			klog.ErrorS(err2, "fail to close watcher")
+			klog.ErrorS(err2, "failed to close watcher")
 		}
 		return nil, err
 	}
@@ -35,7 +35,7 @@ func WriteFile(filename, content string, perm os.FileMode) error {
 	}
 	defer func() {
 		if err = f.Close(); err != nil {
-			klog.ErrorS(err, "fail to close file")
+			klog.ErrorS(err, "failed to close file")
 		}
 	}()
 	if _, err = f.WriteString(content); err != nil {
