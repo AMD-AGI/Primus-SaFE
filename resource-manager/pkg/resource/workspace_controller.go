@@ -44,22 +44,22 @@ type WorkspaceReconciler struct {
 	// Maintain a map of ongoing operations
 	// key is workspace ID, value is the list of node IDs involved in the operation
 	expectations map[string]sets.Set
-	opts         *WorkspaceReconcilerOptions
+	opt          *WorkspaceReconcilerOption
 }
 
-type WorkspaceReconcilerOptions struct {
+type WorkspaceReconcilerOption struct {
 	processWait time.Duration
 	nodeWait    time.Duration
 }
 
-func SetupWorkspaceController(mgr manager.Manager) error {
+func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOption) error {
 	r := &WorkspaceReconciler{
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: mgr.GetClient(),
 		},
 		cm:           newClusterManager(),
 		expectations: make(map[string]sets.Set),
-		opts:         genDefaultWorkspaceOptions(),
+		opt:          opt,
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workspace{}, builder.WithPredicates(predicate.Or(
@@ -289,7 +289,7 @@ func (r *WorkspaceReconciler) scaleDown(ctx context.Context, workspace *v1.Works
 		}
 	}
 	if len(nodes) < count {
-		return ctrlruntime.Result{RequeueAfter: r.opts.nodeWait}, nil
+		return ctrlruntime.Result{RequeueAfter: r.opt.nodeWait}, nil
 	}
 	return ctrlruntime.Result{}, nil
 }
@@ -305,8 +305,8 @@ func (r *WorkspaceReconciler) scaleUp(ctx context.Context, workspace *v1.Workspa
 		return ctrlruntime.Result{}, err
 	}
 	if len(nodes) == 0 {
-		klog.Infof("no nodes available to add. Waiting for %s seconds and then retrying.", r.opts.nodeWait.String())
-		return ctrlruntime.Result{RequeueAfter: r.opts.nodeWait}, nil
+		klog.Infof("no nodes available to add. Waiting for %s seconds and then retrying.", r.opt.nodeWait.String())
+		return ctrlruntime.Result{RequeueAfter: r.opt.nodeWait}, nil
 	}
 	targets := buildTargetList(nodes, workspace.Name)
 	klog.Infof("The workspace(%s) is starting to scale up. targets: %v, targets.len: %d", workspace.Name, targets, len(targets))
@@ -573,11 +573,4 @@ func buildTargetList(nodes []*v1.Node, target string) map[string]string {
 		results[n.Name] = target
 	}
 	return results
-}
-
-func genDefaultWorkspaceOptions() *WorkspaceReconcilerOptions {
-	return &WorkspaceReconcilerOptions{
-		processWait: 1 * time.Second,
-		nodeWait:    30 * time.Second,
-	}
 }

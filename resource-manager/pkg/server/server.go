@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/log"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/options"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -20,6 +18,8 @@ import (
 	"k8s.io/klog/v2/klogr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 )
 

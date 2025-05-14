@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -57,6 +58,7 @@ func NewControllerManager(scheme *runtime.Scheme) (*ControllerManager, error) {
 		},
 		Controller: config.Controller{
 			MaxConcurrentReconciles: 10,
+			SkipNameValidation:      ptr.To(true),
 		},
 	}
 

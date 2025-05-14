@@ -8,6 +8,8 @@ package utils
 import (
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 )
 
@@ -50,4 +52,15 @@ func GetBaseByGenerateName(name string) string {
 		return name
 	}
 	return name[0 : len(name)-randomLength-1]
+}
+
+func GenObjectReference(typeMeta metav1.TypeMeta, objMeta metav1.ObjectMeta) *corev1.ObjectReference {
+	return &corev1.ObjectReference{
+		Namespace:       objMeta.GetNamespace(),
+		Name:            objMeta.GetName(),
+		UID:             objMeta.GetUID(),
+		APIVersion:      typeMeta.APIVersion,
+		Kind:            typeMeta.Kind,
+		ResourceVersion: objMeta.GetResourceVersion(),
+	}
 }

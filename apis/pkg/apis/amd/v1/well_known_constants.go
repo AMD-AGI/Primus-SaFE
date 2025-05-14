@@ -43,7 +43,6 @@ const (
 	ClusterManageNodeLabel        = ClusterManagePrefix + "node"
 	ClusterManageNodeClusterLabel = ClusterManagePrefix + "node.cluster"
 	ClusterManageScaleDownLabel   = ClusterManagePrefix + "scale.down"
-	ClusterServiceName            = ClusterManagePrefix + "service.name"
 	ClusterIdLabel                = ClusterPrefix + "id"
 
 	// storage
@@ -65,7 +64,6 @@ const (
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
 	FaultFinalizer = FaultPrefix + "finalizer"
-	FaultIDLabel   = FaultPrefix + "id"
 
 	// workload
 	WorkloadPrefix               = PrimusSafePrefix + "workload."

@@ -112,7 +112,7 @@ func (r *NodeK8sReconciler) CaredPredicate() predicate.Predicate {
 func (r *NodeK8sReconciler) addClusterInformer(cluster *v1.Cluster) error {
 	r.cm.Lock()
 	defer r.cm.Unlock()
-	clusterInformer, err := newClusterInformer(cluster.Name, &cluster.Status.ControlPlaneStatus)
+	clusterInformer, err := newClusterInformer(context.Background(), cluster.Name, r.Client, &cluster.Status.ControlPlaneStatus)
 	if err != nil {
 		return err
 	}
