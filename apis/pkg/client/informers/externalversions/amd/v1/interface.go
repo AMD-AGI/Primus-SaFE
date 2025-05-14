@@ -61,7 +61,7 @@ func (v *version) NodeFlavors() NodeFlavorInformer {
 
 // StorageClusters returns a StorageClusterInformer.
 func (v *version) StorageClusters() StorageClusterInformer {
-	return &storageClusterInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+	return &storageClusterInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Workloads returns a WorkloadInformer.

@@ -25,5 +25,8 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupWorkspaceController(mgr); err != nil {
 		return fmt.Errorf("failed to set up workspace controller: %v", err)
 	}
+	if err := SetupStorageClusterController(mgr); err != nil {
+		return fmt.Errorf("failed to set up storage cluster controller: %+v", err)
+	}
 	return nil
 }

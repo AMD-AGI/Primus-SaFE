@@ -15,12 +15,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
@@ -114,24 +113,6 @@ func getSSHConfig(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.C
 		return nil, err
 	}
 	return getSHHConfig(secret)
-}
-
-func generateScaleWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, node *v1.Node, username, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
-	pod := generateWorkerPod(action, cluster, username, cmd, image, config, hostsContent)
-	name := fmt.Sprintf("%s-%s", cluster.Name, node.Name)
-	if len(name) > 58 {
-		name = name[:58]
-	}
-	name = fmt.Sprintf("%s-%s", name, action)
-	pod.Name = names.SimpleNameGenerator.GenerateName(name + "-")
-	pod.Labels[v1.ClusterManageNodeLabel] = node.Name
-	pod.OwnerReferences = append(pod.OwnerReferences, metav1.OwnerReference{
-		APIVersion: node.APIVersion,
-		Kind:       node.Kind,
-		Name:       node.Name,
-		UID:        node.UID,
-	})
-	return pod
 }
 
 func getKubeSprayScaleUpCMD(user, node, env string) string {

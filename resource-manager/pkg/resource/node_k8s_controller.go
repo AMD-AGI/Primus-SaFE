@@ -23,7 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"

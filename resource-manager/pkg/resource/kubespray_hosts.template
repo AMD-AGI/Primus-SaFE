@@ -17,25 +17,3 @@
 [k8s-cluster:children]
   kube_node
   kube_control_plane
-
-[calico_rr]
-  {{- range $v := .MasterName }}
-     {{ $v }}
-  {{ end }}
-
-[rack]
-  {{- range $v := .MasterName }}
-     {{ $v }}
-  {{ end }}
-
-[rack:vars]
-  cluster_id={{ .ClusterID }}
-  calico_rr_id={{ .ClusterName }}.xcloud.ai
-  calico_group_id={{ .ClusterName }}.xcloud.ai
-
-{{ range $k, $v := .Labels }}
-[{{ $k }}]
-  {{ $k }}
-[{{ $k }}:vars]
-  node_labels={{ $v }}
-{{ end }}

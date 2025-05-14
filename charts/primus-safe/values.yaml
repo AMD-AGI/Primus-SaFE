@@ -1,0 +1,9 @@
+crypto:
+  enable: true
+  key: UHJpbXVzU2FmZTEyMzQ1Ngo=
+repository: docker.io/primussafe
+stroageClass: default
+resource_manager:
+  replicas: 1
+  tag: "latest"
+  
