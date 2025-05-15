@@ -6,9 +6,6 @@ require (
 	github.com/AMD-AIG-AIMA/SAFE/apis v0.0.0
 	github.com/AMD-AIG-AIMA/SAFE/common v0.0.0
 	github.com/AMD-AIG-AIMA/SAFE/utils v0.0.0
-	github.com/golang/mock v1.6.0
-	github.com/onsi/ginkgo v1.16.5
-	github.com/onsi/gomega v1.36.1
 	golang.org/x/crypto v0.37.0
 	k8s.io/api v0.33.0
 	k8s.io/apimachinery v0.33.0
@@ -17,6 +14,8 @@ require (
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/utils v0.0.0-20250321185631-1f6e0b77f77e
 	sigs.k8s.io/controller-runtime v0.20.4
+	github.com/rook/rook v1.17.2
+	github.com/rook/rook/pkg/apis v0.0.0-20241216163035-3170ac6a0c58
 )
 
 require (
@@ -88,4 +87,6 @@ replace (
 	github.com/AMD-AIG-AIMA/SAFE/apis => ../apis
 	github.com/AMD-AIG-AIMA/SAFE/common => ../common
 	github.com/AMD-AIG-AIMA/SAFE/utils => ../utils
+	github.com/kubernetes-incubator/external-storage => github.com/libopenstorage/external-storage v0.20.4-openstorage-rc10
+	github.com/libopenstorage/secrets => github.com/rook/secrets v0.0.0-20240315053144-3195f6906937
 )

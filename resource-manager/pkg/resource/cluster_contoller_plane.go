@@ -12,11 +12,6 @@ import (
 	"fmt"
 	"time"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/secure"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -28,6 +23,12 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/secure"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 )
 
 func (r *ClusterReconciler) guaranteeClusterControlePlane(ctx context.Context, cluster *v1.Cluster) error {

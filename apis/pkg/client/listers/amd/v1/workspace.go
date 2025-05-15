@@ -19,8 +19,9 @@ type WorkspaceLister interface {
 	// List lists all Workspaces in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*amdv1.Workspace, err error)
-	// Workspaces returns an object that can list and get Workspaces.
-	Workspaces(namespace string) WorkspaceNamespaceLister
+	// Get retrieves the Workspace from the index for a given name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*amdv1.Workspace, error)
 	WorkspaceListerExpansion
 }
 
@@ -32,27 +33,4 @@ type workspaceLister struct {
 // NewWorkspaceLister returns a new WorkspaceLister.
 func NewWorkspaceLister(indexer cache.Indexer) WorkspaceLister {
 	return &workspaceLister{listers.New[*amdv1.Workspace](indexer, amdv1.Resource("workspace"))}
-}
-
-// Workspaces returns an object that can list and get Workspaces.
-func (s *workspaceLister) Workspaces(namespace string) WorkspaceNamespaceLister {
-	return workspaceNamespaceLister{listers.NewNamespaced[*amdv1.Workspace](s.ResourceIndexer, namespace)}
-}
-
-// WorkspaceNamespaceLister helps list and get Workspaces.
-// All objects returned here must be treated as read-only.
-type WorkspaceNamespaceLister interface {
-	// List lists all Workspaces in the indexer for a given namespace.
-	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*amdv1.Workspace, err error)
-	// Get retrieves the Workspace from the indexer for a given namespace and name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*amdv1.Workspace, error)
-	WorkspaceNamespaceListerExpansion
-}
-
-// workspaceNamespaceLister implements the WorkspaceNamespaceLister
-// interface.
-type workspaceNamespaceLister struct {
-	listers.ResourceIndexer[*amdv1.Workspace]
 }

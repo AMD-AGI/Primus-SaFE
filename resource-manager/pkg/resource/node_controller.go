@@ -139,7 +139,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request)
 	if !adminNode.GetDeletionTimestamp().IsZero() {
 		return ctrlruntime.Result{}, r.delete(ctx, adminNode)
 	}
-	k8sNode, result, err := r.getK8sNode(adminNode)
+	k8sNode, result, err := r.getK8sNode(ctx, adminNode)
 	if client.IgnoreNotFound(err) != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
@@ -153,7 +153,7 @@ func (r *NodeReconciler) delete(ctx context.Context, adminNode *v1.Node) error {
 	return removeFinalizer(ctx, r.Client, adminNode, v1.NodeFinalizer)
 }
 
-func (r *NodeReconciler) getK8sNode(adminNode *v1.Node) (*corev1.Node, ctrlruntime.Result, error) {
+func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*corev1.Node, ctrlruntime.Result, error) {
 	clusterName := getClusterId(adminNode)
 	k8sNodeName := adminNode.GetK8sNodeName()
 	if clusterName == "" || k8sNodeName == "" {
@@ -163,7 +163,7 @@ func (r *NodeReconciler) getK8sNode(adminNode *v1.Node) (*corev1.Node, ctrlrunti
 	if informer == nil || !informer.IsValid() {
 		return nil, ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	k8sNode, err := getNodeByInformer(informer, k8sNodeName)
+	k8sNode, err := getNodeByInformer(ctx, informer, k8sNodeName)
 	return k8sNode, ctrlruntime.Result{}, err
 }
 

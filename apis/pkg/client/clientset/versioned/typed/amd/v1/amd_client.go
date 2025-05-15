@@ -54,8 +54,8 @@ func (c *AmdV1Client) Workloads(namespace string) WorkloadInterface {
 	return newWorkloads(c, namespace)
 }
 
-func (c *AmdV1Client) Workspaces(namespace string) WorkspaceInterface {
-	return newWorkspaces(c, namespace)
+func (c *AmdV1Client) Workspaces() WorkspaceInterface {
+	return newWorkspaces(c)
 }
 
 // NewForConfig creates a new AmdV1Client for the given config.

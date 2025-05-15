@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-
 #ca_pem_b64=`cat ./build/webhooks/cert/ca.crt |base64`
 output_file="primus-safe/templates/webhooks/manifests.yaml"
 

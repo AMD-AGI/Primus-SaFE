@@ -188,6 +188,7 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 	}
 	r.removeExpectations(workspace.Name)
 	if err = r.updatePhase(ctx, workspace, v1.WorkspaceDeleted); err != nil {
+		klog.ErrorS(err, "failed to update phase for workspace")
 		return err
 	}
 	return removeFinalizer(ctx, r.Client, workspace, v1.WorkspaceFinalizer)
@@ -197,9 +198,10 @@ func (r *WorkspaceReconciler) updatePhase(ctx context.Context, workspace *v1.Wor
 	if workspace.Status.Phase == phase {
 		return nil
 	}
+	n := client.MergeFrom(workspace.DeepCopy())
 	workspace.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 	workspace.Status.Phase = phase
-	if err := r.Status().Update(ctx, workspace); err != nil {
+	if err := r.Status().Patch(ctx, workspace, n); err != nil {
 		return err
 	}
 	return nil
@@ -338,7 +340,7 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 		if v1.GetNodeFlavorId(&n) != workspace.Spec.NodeFlavor {
 			continue
 		}
-		k8sNode, err := getNodeByInformer(informer, n.GetK8sNodeName())
+		k8sNode, err := getNodeByInformer(ctx, informer, n.GetK8sNodeName())
 		if err != nil {
 			klog.ErrorS(err, "failed to get k8sNode")
 			continue

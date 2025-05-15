@@ -23,10 +23,9 @@ type WorkspaceApplyConfiguration struct {
 
 // Workspace constructs a declarative configuration of the Workspace type for use with
 // apply.
-func Workspace(name, namespace string) *WorkspaceApplyConfiguration {
+func Workspace(name string) *WorkspaceApplyConfiguration {
 	b := &WorkspaceApplyConfiguration{}
 	b.WithName(name)
-	b.WithNamespace(namespace)
 	b.WithKind("Workspace")
 	b.WithAPIVersion("amd.com/v1")
 	return b
