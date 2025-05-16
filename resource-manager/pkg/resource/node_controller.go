@@ -216,9 +216,6 @@ func (r *NodeReconciler) observeWorkspace(adminNode *v1.Node) (bool, error) {
 }
 
 func (r *NodeReconciler) observeCluster(adminNode *v1.Node) (bool, error) {
-	if adminNode.Spec.Cluster == nil {
-		return true, nil
-	}
 	if adminNode.GetSpecCluster() == v1.GetClusterId(adminNode) {
 		return true, nil
 	}
@@ -310,7 +307,7 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 			return ctrlruntime.Result{}, err
 		}
 	}
-	if err = r.removeTaintConditions(ctx, informer.GetClient(), k8sNode); err != nil {
+	if err = removeTaintConditions(ctx, informer.GetClient(), k8sNode); err != nil {
 		klog.ErrorS(err, "failed to remove taint conditions")
 		return ctrlruntime.Result{}, err
 	}
@@ -339,7 +336,7 @@ func (r *NodeReconciler) updateK8sNodeTaints(adminNode *v1.Node, k8sNode *corev1
 	return true
 }
 
-func (r *NodeReconciler) removeTaintConditions(ctx context.Context,
+func removeTaintConditions(ctx context.Context,
 	k8sClient kubernetes.Interface, k8sNode *corev1.Node) error {
 	specTaintsSet := sets.NewSet()
 	for _, t := range k8sNode.Spec.Taints {
@@ -631,7 +628,6 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 		if err != nil || hostsContent == nil {
 			return err
 		}
-
 		if _, err = r.guaranteeHostsConfigMapCreated(ctx, adminNode.Name,
 			genNodeOwnerReference(adminNode), hostsContent); err != nil {
 			return err
@@ -639,6 +635,7 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 		cmd := getKubeSprayScaleUpCMD(username, adminNode.Name, getKubeSprayEnv(cluster))
 		pod = generateScaleWorkerPod(v1.ClusterScaleUpAction, cluster, adminNode, username,
 			cmd, getKubesprayImage(cluster), adminNode.Name, hostsContent)
+
 		if err = r.Create(ctx, pod); err != nil {
 			return err
 		}
@@ -739,13 +736,14 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 			genNodeOwnerReference(adminNode), hostsContent); err != nil {
 			return err
 		}
-		klog.Infof("kubernetes cluster %s scale down %s", cluster.Name, adminNode.Name)
 		pod = generateScaleWorkerPod(v1.ClusterScaleDownAction, cluster, adminNode, username,
 			getKubeSprayScaleDownCMD(username, hostname, getKubeSprayEnv(cluster)),
 			getKubesprayImage(cluster), adminNode.Name, hostsContent)
 		if err = r.Create(ctx, pod); err != nil {
 			return err
 		}
+		klog.Infof("kubernetes cluster %s scale down %s, pod: %s",
+			cluster.Name, adminNode.Name, pod.Name)
 	} else {
 		switch pod.Status.Phase {
 		case corev1.PodSucceeded:

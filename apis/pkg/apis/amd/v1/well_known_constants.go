@@ -28,7 +28,6 @@ const (
 	NodeStartupTimeLabel = NodePrefix + "startup.time"
 	NodeLabelAction      = NodePrefix + "label.action"
 	NodeAnnotationAction = NodePrefix + "annotation.action"
-	NodesWorkspaceAction = NodePrefix + "workspace.action"
 	NodeIdLabel          = NodePrefix + "id"
 
 	NodeActionAdd    = "add"
@@ -57,9 +56,10 @@ const (
 	NodeFlavorIdLabel = NodeFlavorPrefix + "id"
 
 	// workspace
-	WorkspacePrefix    = PrimusSafePrefix + "workspace."
-	WorkspaceFinalizer = WorkspacePrefix + "finalizer"
-	WorkspaceIdLabel   = WorkspacePrefix + "id"
+	WorkspacePrefix      = PrimusSafePrefix + "workspace."
+	WorkspaceFinalizer   = WorkspacePrefix + "finalizer"
+	WorkspaceIdLabel     = WorkspacePrefix + "id"
+	WorkspaceNodesAction = WorkspacePrefix + "nodes.action"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."

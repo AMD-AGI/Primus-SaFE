@@ -19,11 +19,11 @@ type fakeWorkspaces struct {
 	Fake *FakeAmdV1
 }
 
-func newFakeWorkspaces(fake *FakeAmdV1) typedamdv1.WorkspaceInterface {
+func newFakeWorkspaces(fake *FakeAmdV1, namespace string) typedamdv1.WorkspaceInterface {
 	return &fakeWorkspaces{
 		gentype.NewFakeClientWithListAndApply[*v1.Workspace, *v1.WorkspaceList, *amdv1.WorkspaceApplyConfiguration](
 			fake.Fake,
-			"",
+			namespace,
 			v1.SchemeGroupVersion.WithResource("workspaces"),
 			v1.SchemeGroupVersion.WithKind("Workspace"),
 			func() *v1.Workspace { return &v1.Workspace{} },

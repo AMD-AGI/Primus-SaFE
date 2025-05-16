@@ -16,6 +16,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.20.4
 	github.com/rook/rook v1.17.2
 	github.com/rook/rook/pkg/apis v0.0.0-20241216163035-3170ac6a0c58
+	github.com/agiledragon/gomonkey/v2 v2.13.0
 )
 
 require (

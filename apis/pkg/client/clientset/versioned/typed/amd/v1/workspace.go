@@ -21,7 +21,7 @@ import (
 // WorkspacesGetter has a method to return a WorkspaceInterface.
 // A group's client should implement this interface.
 type WorkspacesGetter interface {
-	Workspaces() WorkspaceInterface
+	Workspaces(namespace string) WorkspaceInterface
 }
 
 // WorkspaceInterface has methods to work with Workspace resources.
@@ -48,13 +48,13 @@ type workspaces struct {
 }
 
 // newWorkspaces returns a Workspaces
-func newWorkspaces(c *AmdV1Client) *workspaces {
+func newWorkspaces(c *AmdV1Client, namespace string) *workspaces {
 	return &workspaces{
 		gentype.NewClientWithListAndApply[*amdv1.Workspace, *amdv1.WorkspaceList, *applyconfigurationamdv1.WorkspaceApplyConfiguration](
 			"workspaces",
 			c.RESTClient(),
 			scheme.ParameterCodec,
-			"",
+			namespace,
 			func() *amdv1.Workspace { return &amdv1.Workspace{} },
 			func() *amdv1.WorkspaceList { return &amdv1.WorkspaceList{} },
 		),

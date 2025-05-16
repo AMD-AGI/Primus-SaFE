@@ -40,8 +40,8 @@ func (c *FakeAmdV1) Workloads(namespace string) v1.WorkloadInterface {
 	return newFakeWorkloads(c, namespace)
 }
 
-func (c *FakeAmdV1) Workspaces() v1.WorkspaceInterface {
-	return newFakeWorkspaces(c)
+func (c *FakeAmdV1) Workspaces(namespace string) v1.WorkspaceInterface {
+	return newFakeWorkspaces(c, namespace)
 }
 
 // RESTClient returns a RESTClient that is used to communicate

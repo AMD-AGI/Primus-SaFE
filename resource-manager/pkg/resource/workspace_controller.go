@@ -76,7 +76,7 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 func (r *WorkspaceReconciler) enqueueRequestByWorkspace() predicate.Predicate {
 	isCaredFieldChanged := func(oldWorkspace, newWorkspace *v1.Workspace) bool {
 		if oldWorkspace.Spec.Replica != newWorkspace.Spec.Replica ||
-			v1.GetNodesWorkspaceAction(oldWorkspace) == "" && v1.GetNodesWorkspaceAction(newWorkspace) != "" ||
+			v1.GetWorkspaceNodesAction(oldWorkspace) == "" && v1.GetWorkspaceNodesAction(newWorkspace) != "" ||
 			(oldWorkspace.GetDeletionTimestamp().IsZero() && !newWorkspace.GetDeletionTimestamp().IsZero()) {
 			return true
 		}
@@ -246,7 +246,7 @@ func (r *WorkspaceReconciler) handle(ctx context.Context, workspace *v1.Workspac
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
-	if v1.GetNodesWorkspaceAction(workspace) != "" {
+	if v1.GetWorkspaceNodesAction(workspace) != "" {
 		isUpdated, err := r.handleNodesAction(ctx, workspace)
 		if err != nil || isUpdated {
 			return ctrlruntime.Result{}, err
@@ -451,9 +451,9 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 
 func (r *WorkspaceReconciler) handleNodesAction(ctx context.Context, w *v1.Workspace) (bool, error) {
 	var actions map[string]string
-	if err := json.Unmarshal([]byte(v1.GetNodesWorkspaceAction(w)), &actions); err != nil || len(actions) == 0 {
+	if err := json.Unmarshal([]byte(v1.GetWorkspaceNodesAction(w)), &actions); err != nil || len(actions) == 0 {
 		if err != nil {
-			klog.ErrorS(err, "failed to unmarshal json. skip it", "data", v1.GetNodesWorkspaceAction(w))
+			klog.ErrorS(err, "failed to unmarshal json. skip it", "data", v1.GetWorkspaceNodesAction(w))
 		}
 		return false, r.removeNodesAction(ctx, w)
 	}
@@ -492,10 +492,10 @@ func (r *WorkspaceReconciler) handleNodesAction(ctx context.Context, w *v1.Works
 }
 
 func (r *WorkspaceReconciler) removeNodesAction(ctx context.Context, w *v1.Workspace) error {
-	if v1.GetNodesWorkspaceAction(w) == "" {
+	if v1.GetWorkspaceNodesAction(w) == "" {
 		return nil
 	}
-	delete(w.Annotations, v1.NodesWorkspaceAction)
+	delete(w.Annotations, v1.WorkspaceNodesAction)
 	if err := r.Update(ctx, w); err != nil {
 		return err
 	}
