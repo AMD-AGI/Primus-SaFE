@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"reflect"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
@@ -22,6 +21,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
 func (r *ClusterReconciler) guaranteeStorage(ctx context.Context, cluster *v1.Cluster) error {

@@ -139,8 +139,8 @@ func GetNodeAnnotationAction(obj metav1.Object) string {
 	return GetAnnotation(obj, NodeAnnotationAction)
 }
 
-func GetNodesWorkspaceAction(obj metav1.Object) string {
-	return GetAnnotation(obj, NodesWorkspaceAction)
+func GetWorkspaceNodesAction(obj metav1.Object) string {
+	return GetAnnotation(obj, WorkspaceNodesAction)
 }
 
 func IsWorkloadDispatched(obj metav1.Object) bool {

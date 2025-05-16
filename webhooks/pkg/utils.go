@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	WebhookPathPrefix = "amd.com-v1-"
+	WebhookPathPrefix = "amd-primus-safe-v1-"
 	DisplayNameRule   = "^[a-z][-a-z0-9\\.]{0,%d}[a-z0-9]$"
 	DNSNameRule       = "^[a-z][-a-z0-9]{0,%d}[a-z0-9]$"
 	DisplayNamePrompt = "the name must consist of 1 to %d lower case alphanumeric characters or '-' or '.'" +

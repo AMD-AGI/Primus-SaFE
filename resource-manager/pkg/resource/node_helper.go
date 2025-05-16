@@ -23,11 +23,11 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
-func getNodeByInformer(informer *ClusterInformer, nodeName string) (*corev1.Node, error) {
+func getNodeByInformer(ctx context.Context, informer *ClusterInformer, nodeName string) (*corev1.Node, error) {
 	if nodeName == "" {
 		return nil, fmt.Errorf("the node name is empty")
 	}
-	result, err := informer.SharedInformerFactory.Core().V1().Nodes().Lister().Get(nodeName)
+	result, err := informer.clientSet.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}

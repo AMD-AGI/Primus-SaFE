@@ -81,8 +81,8 @@ type WorkspaceStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
-// +kubebuilder:webhook:path=/mutate-amd.com-v1-workspace,mutating=true,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=workspaces,verbs=create;update,versions=v1,name=mworkspace.kb.io,admissionReviewVersions={v1,v1beta1}
-// +kubebuilder:webhook:path=/validate-amd.com-v1-workspace,mutating=false,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=workspaces,verbs=create;update,versions=v1,name=vworkspace.kb.io,admissionReviewVersions={v1,v1beta1}
+// +kubebuilder:webhook:path=/mutate-amd-primus-safe-v1-workspace,mutating=true,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=workspaces,verbs=create;update,versions=v1,name=mworkspace.kb.io,admissionReviewVersions={v1,v1beta1}
+// +kubebuilder:webhook:path=/validate-amd-primus-safe-v1-workspace,mutating=false,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=workspaces,verbs=create;update,versions=v1,name=vworkspace.kb.io,admissionReviewVersions={v1,v1beta1}
 // +kubebuilder:rbac:groups=amd.com,resources=workspaces,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=amd.com,resources=workspaces/status,verbs=get;update;patch
 type Workspace struct {
