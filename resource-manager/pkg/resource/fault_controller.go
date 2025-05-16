@@ -32,22 +32,22 @@ import (
 
 type FaultReconciler struct {
 	*ClusterBaseReconciler
-	cm   *ClusterManager
-	opts *FaultReconcilerOptions
+	cm  *ClusterManager
+	opt *FaultReconcilerOption
 }
 
-type FaultReconcilerOptions struct {
+type FaultReconcilerOption struct {
 	processWait   time.Duration
 	maxRetryCount int
 }
 
-func SetupFaultController(mgr manager.Manager) error {
+func SetupFaultController(mgr manager.Manager, opt *FaultReconcilerOption) error {
 	r := &FaultReconciler{
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: mgr.GetClient(),
 		},
-		cm:   newClusterManager(),
-		opts: genDefaultFaultOptions(),
+		cm:  newClusterManager(),
+		opt: opt,
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Fault{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
@@ -251,18 +251,11 @@ func (r *FaultReconciler) retry(ctx context.Context, fault *v1.Fault) (ctrlrunti
 		klog.ErrorS(err, "failed to incFailedTimes", "name", fault.Name)
 		return ctrlruntime.Result{}, err
 	}
-	if count < r.opts.maxRetryCount {
+	if count < r.opt.maxRetryCount {
 		// The maximum number of retries has not been reached, try again later
 		klog.Infof("fault %s will retry %d times after %v",
-			fault.Name, count, r.opts.processWait)
-		return ctrlruntime.Result{RequeueAfter: r.opts.processWait}, nil
+			fault.Name, count, r.opt.processWait)
+		return ctrlruntime.Result{RequeueAfter: r.opt.processWait}, nil
 	}
 	return ctrlruntime.Result{}, nil
-}
-
-func genDefaultFaultOptions() *FaultReconcilerOptions {
-	return &FaultReconcilerOptions{
-		maxRetryCount: 60,
-		processWait:   10 * time.Second,
-	}
 }

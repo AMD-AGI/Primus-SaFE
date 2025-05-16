@@ -112,7 +112,7 @@ func (r *NodeK8sReconciler) CaredPredicate() predicate.Predicate {
 func (r *NodeK8sReconciler) addClusterInformer(cluster *v1.Cluster) error {
 	r.cm.Lock()
 	defer r.cm.Unlock()
-	clusterInformer, err := newClusterInformer(cluster.Name, &cluster.Status.ControlPlaneStatus)
+	clusterInformer, err := newClusterInformer(context.Background(), cluster.Name, r.Client, &cluster.Status.ControlPlaneStatus)
 	if err != nil {
 		return err
 	}
@@ -284,7 +284,7 @@ func (r *NodeK8sReconciler) handleNodeUpdate(ctx context.Context, message *nodeQ
 	if informer == nil || !informer.IsValid() {
 		return fmt.Errorf("the cluster(%s) informer is not ready", message.clusterName)
 	}
-	k8sNode, err := getNodeByInformer(informer, message.k8sNodeName)
+	k8sNode, err := getNodeByInformer(ctx, informer, message.k8sNodeName)
 	if err != nil {
 		return err
 	}

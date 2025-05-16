@@ -95,7 +95,7 @@ func (m *WorkspaceMutator) mutateCreate(ctx context.Context, w *v1.Workspace) {
 
 func (m *WorkspaceMutator) mutateUpdate(ctx context.Context, oldObj, newObj *v1.Workspace) error {
 	m.mutateCommon(ctx, newObj)
-	if v1.GetNodesWorkspaceAction(oldObj) != v1.GetNodesWorkspaceAction(newObj) {
+	if v1.GetWorkspaceNodesAction(oldObj) != v1.GetWorkspaceNodesAction(newObj) {
 		if err := m.mutateNodesAction(ctx, oldObj, newObj); err != nil {
 			return err
 		}
@@ -215,7 +215,7 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldObj, newObj *
 		nodeNames = append(nodeNames, n.Name)
 	}
 	action := commonnodes.BuildAction(v1.NodeActionRemove, nodeNames...)
-	metav1.SetMetaDataAnnotation(&newObj.ObjectMeta, v1.NodesWorkspaceAction, string(action))
+	metav1.SetMetaDataAnnotation(&newObj.ObjectMeta, v1.WorkspaceNodesAction, string(action))
 	return nil
 }
 
@@ -442,7 +442,7 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newObj, ol
 	}
 	if len(oldActions) > 0 && len(newActions) > 0 && !maps.EqualIgnoreOrder(oldActions, newActions) {
 		return commonerrors.NewResourceProcessing(
-			fmt.Sprintf("%s is processing", v1.GetNodesWorkspaceAction(oldObj)))
+			fmt.Sprintf("%s is processing", v1.GetWorkspaceNodesAction(oldObj)))
 	}
 	var toRemoveNodes []string
 	for key, val := range newActions {
@@ -474,13 +474,13 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newObj, ol
 }
 
 func parseNodesAction(w *v1.Workspace) (map[string]string, error) {
-	actionsStr := v1.GetNodesWorkspaceAction(w)
+	actionsStr := v1.GetWorkspaceNodesAction(w)
 	if actionsStr == "" {
 		return nil, nil
 	}
 	var actions map[string]string
 	if err := json.Unmarshal([]byte(actionsStr), &actions); err != nil {
-		klog.ErrorS(err, "invalid nodes action json", "data", v1.GetNodesWorkspaceAction(w))
+		klog.ErrorS(err, "invalid nodes action json", "data", v1.GetWorkspaceNodesAction(w))
 		return nil, err
 	}
 	if len(actions) == 0 {

@@ -6,12 +6,16 @@
 package resource
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -29,8 +33,18 @@ type ClusterInformer struct {
 	invalidReason string
 }
 
-func newClusterInformer(name string, cert *v1.ControlPlaneStatus) (*ClusterInformer, error) {
-	serviceUrl := fmt.Sprintf("https://%s.%s.svc", name, common.PrimusSafeNamespace)
+func newClusterInformer(ctx context.Context, name string, adminClient client.Client, cert *v1.ControlPlaneStatus) (*ClusterInformer, error) {
+	service := new(corev1.Service)
+	err := adminClient.Get(ctx, types.NamespacedName{
+		Name:      name,
+		Namespace: common.PrimusSafeNamespace,
+	}, service)
+	serviceUrl := ""
+	if err == nil {
+		serviceUrl = fmt.Sprintf("https://%s.%s.svc", name, common.PrimusSafeNamespace)
+	} else {
+		serviceUrl = cert.Endpoints[0]
+	}
 	clientSet, _, err := commonclient.NewClientSet(serviceUrl,
 		cert.CertData, cert.KeyData, cert.CAData, true)
 	if err != nil {

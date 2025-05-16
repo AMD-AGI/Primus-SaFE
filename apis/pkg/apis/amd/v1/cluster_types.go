@@ -132,8 +132,6 @@ type ClusterStatus struct {
 // +kubebuilder:webhook:path=/validate-amd-primus-safe-v1-clusters,mutating=false,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=cluster,verbs=create;update,versions=v1,name=vcluster.kb.io,admissionReviewVersions={v1}
 // +kubebuilder:rbac:groups=amd.com,resources=clusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=amd.com,resources=clusters/status,verbs=get;update;patch
-
-// Cluster is the Schema for the clusters API.
 type Cluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -177,7 +175,6 @@ type ControlPlaneStatus struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 
-// ClusterList contains a list of Cluster.
 type ClusterList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

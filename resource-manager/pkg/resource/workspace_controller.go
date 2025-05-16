@@ -44,22 +44,22 @@ type WorkspaceReconciler struct {
 	// Maintain a map of ongoing operations
 	// key is workspace ID, value is the list of node IDs involved in the operation
 	expectations map[string]sets.Set
-	opts         *WorkspaceReconcilerOptions
+	opt          *WorkspaceReconcilerOption
 }
 
-type WorkspaceReconcilerOptions struct {
+type WorkspaceReconcilerOption struct {
 	processWait time.Duration
 	nodeWait    time.Duration
 }
 
-func SetupWorkspaceController(mgr manager.Manager) error {
+func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOption) error {
 	r := &WorkspaceReconciler{
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: mgr.GetClient(),
 		},
 		cm:           newClusterManager(),
 		expectations: make(map[string]sets.Set),
-		opts:         genDefaultWorkspaceOptions(),
+		opt:          opt,
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workspace{}, builder.WithPredicates(predicate.Or(
@@ -76,7 +76,7 @@ func SetupWorkspaceController(mgr manager.Manager) error {
 func (r *WorkspaceReconciler) enqueueRequestByWorkspace() predicate.Predicate {
 	isCaredFieldChanged := func(oldWorkspace, newWorkspace *v1.Workspace) bool {
 		if oldWorkspace.Spec.Replica != newWorkspace.Spec.Replica ||
-			v1.GetNodesWorkspaceAction(oldWorkspace) == "" && v1.GetNodesWorkspaceAction(newWorkspace) != "" ||
+			v1.GetWorkspaceNodesAction(oldWorkspace) == "" && v1.GetWorkspaceNodesAction(newWorkspace) != "" ||
 			(oldWorkspace.GetDeletionTimestamp().IsZero() && !newWorkspace.GetDeletionTimestamp().IsZero()) {
 			return true
 		}
@@ -188,6 +188,7 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 	}
 	r.removeExpectations(workspace.Name)
 	if err = r.updatePhase(ctx, workspace, v1.WorkspaceDeleted); err != nil {
+		klog.ErrorS(err, "failed to update phase for workspace")
 		return err
 	}
 	return removeFinalizer(ctx, r.Client, workspace, v1.WorkspaceFinalizer)
@@ -197,9 +198,10 @@ func (r *WorkspaceReconciler) updatePhase(ctx context.Context, workspace *v1.Wor
 	if workspace.Status.Phase == phase {
 		return nil
 	}
+	n := client.MergeFrom(workspace.DeepCopy())
 	workspace.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 	workspace.Status.Phase = phase
-	if err := r.Status().Update(ctx, workspace); err != nil {
+	if err := r.Status().Patch(ctx, workspace, n); err != nil {
 		return err
 	}
 	return nil
@@ -244,7 +246,7 @@ func (r *WorkspaceReconciler) handle(ctx context.Context, workspace *v1.Workspac
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
-	if v1.GetNodesWorkspaceAction(workspace) != "" {
+	if v1.GetWorkspaceNodesAction(workspace) != "" {
 		isUpdated, err := r.handleNodesAction(ctx, workspace)
 		if err != nil || isUpdated {
 			return ctrlruntime.Result{}, err
@@ -289,7 +291,7 @@ func (r *WorkspaceReconciler) scaleDown(ctx context.Context, workspace *v1.Works
 		}
 	}
 	if len(nodes) < count {
-		return ctrlruntime.Result{RequeueAfter: r.opts.nodeWait}, nil
+		return ctrlruntime.Result{RequeueAfter: r.opt.nodeWait}, nil
 	}
 	return ctrlruntime.Result{}, nil
 }
@@ -305,8 +307,8 @@ func (r *WorkspaceReconciler) scaleUp(ctx context.Context, workspace *v1.Workspa
 		return ctrlruntime.Result{}, err
 	}
 	if len(nodes) == 0 {
-		klog.Infof("no nodes available to add. Waiting for %s seconds and then retrying.", r.opts.nodeWait.String())
-		return ctrlruntime.Result{RequeueAfter: r.opts.nodeWait}, nil
+		klog.Infof("no nodes available to add. Waiting for %s seconds and then retrying.", r.opt.nodeWait.String())
+		return ctrlruntime.Result{RequeueAfter: r.opt.nodeWait}, nil
 	}
 	targets := buildTargetList(nodes, workspace.Name)
 	klog.Infof("The workspace(%s) is starting to scale up. targets: %v, targets.len: %d", workspace.Name, targets, len(targets))
@@ -338,7 +340,7 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 		if v1.GetNodeFlavorId(&n) != workspace.Spec.NodeFlavor {
 			continue
 		}
-		k8sNode, err := getNodeByInformer(informer, n.GetK8sNodeName())
+		k8sNode, err := getNodeByInformer(ctx, informer, n.GetK8sNodeName())
 		if err != nil {
 			klog.ErrorS(err, "failed to get k8sNode")
 			continue
@@ -449,9 +451,9 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 
 func (r *WorkspaceReconciler) handleNodesAction(ctx context.Context, w *v1.Workspace) (bool, error) {
 	var actions map[string]string
-	if err := json.Unmarshal([]byte(v1.GetNodesWorkspaceAction(w)), &actions); err != nil || len(actions) == 0 {
+	if err := json.Unmarshal([]byte(v1.GetWorkspaceNodesAction(w)), &actions); err != nil || len(actions) == 0 {
 		if err != nil {
-			klog.ErrorS(err, "failed to unmarshal json. skip it", "data", v1.GetNodesWorkspaceAction(w))
+			klog.ErrorS(err, "failed to unmarshal json. skip it", "data", v1.GetWorkspaceNodesAction(w))
 		}
 		return false, r.removeNodesAction(ctx, w)
 	}
@@ -490,10 +492,10 @@ func (r *WorkspaceReconciler) handleNodesAction(ctx context.Context, w *v1.Works
 }
 
 func (r *WorkspaceReconciler) removeNodesAction(ctx context.Context, w *v1.Workspace) error {
-	if v1.GetNodesWorkspaceAction(w) == "" {
+	if v1.GetWorkspaceNodesAction(w) == "" {
 		return nil
 	}
-	delete(w.Annotations, v1.NodesWorkspaceAction)
+	delete(w.Annotations, v1.WorkspaceNodesAction)
 	if err := r.Update(ctx, w); err != nil {
 		return err
 	}
@@ -573,11 +575,4 @@ func buildTargetList(nodes []*v1.Node, target string) map[string]string {
 		results[n.Name] = target
 	}
 	return results
-}
-
-func genDefaultWorkspaceOptions() *WorkspaceReconcilerOptions {
-	return &WorkspaceReconcilerOptions{
-		processWait: 1 * time.Second,
-		nodeWait:    30 * time.Second,
-	}
 }
