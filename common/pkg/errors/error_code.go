@@ -12,6 +12,8 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
 const PrimusPrefix = "Primus."
@@ -57,6 +59,7 @@ const (
 // node: 03xxx
 const (
 	NodeNotReady = PrimusPrefix + "03001"
+	NodeNotFound = PrimusPrefix + "03002"
 )
 
 // returns true if the specified error reason is primus error.
@@ -136,12 +139,14 @@ func NewForbidden(message string) *apierrors.StatusError {
 
 func NotFoundErrorCode(resource string) metav1.StatusReason {
 	switch strings.ToLower(resource) {
-	case "workload":
+	case v1.WorkloadKind:
 		return WorkloadNotFound
-	case "resourcetemplate":
+	case v1.ResourceTemplateKind:
 		return ResourceTemplateNotFound
-	case "workspace":
+	case v1.WorkspaceKind:
 		return WorkspaceNotFound
+	case v1.NodeKind:
+		return NodeNotFound
 	default:
 		return NotFound
 	}

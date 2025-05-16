@@ -69,14 +69,13 @@ func (m *FaultMutator) mutate(ctx context.Context, f *v1.Fault) {
 
 	if f.Spec.Node != nil {
 		adminNodeName := f.Spec.Node.AdminName
-		node := &v1.Node{}
-		err := m.Get(ctx, client.ObjectKey{Name: adminNodeName}, node)
-		if err != nil {
+		node, _ := getNode(ctx, m.Client, adminNodeName)
+		if node == nil {
 			return
 		}
 		metav1.SetMetaDataLabel(&node.ObjectMeta, v1.NodeIdLabel, adminNodeName)
 		if !hasOwnerReferences(f, adminNodeName) {
-			if err = controllerutil.SetControllerReference(node, f, m.Client.Scheme()); err != nil {
+			if err := controllerutil.SetControllerReference(node, f, m.Client.Scheme()); err != nil {
 				klog.ErrorS(err, "failed to SetControllerReference")
 			}
 		}

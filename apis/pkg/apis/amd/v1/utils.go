@@ -151,6 +151,14 @@ func IsWorkloadDispatched(obj metav1.Object) bool {
 	return ok
 }
 
+func IsWorkloadScheduled(obj metav1.Object) bool {
+	if obj == nil {
+		return false
+	}
+	_, ok := obj.GetAnnotations()[WorkloadScheduledAnnotation]
+	return ok
+}
+
 func IsControlPlane(obj metav1.Object) bool {
 	if obj == nil {
 		return false

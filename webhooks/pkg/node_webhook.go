@@ -280,9 +280,9 @@ func (v *NodeValidator) validateNodeFlavor(ctx context.Context, node *v1.Node) e
 	if node.Spec.NodeFlavor == nil {
 		return commonerrors.NewBadRequest("the flavor of node is not found")
 	}
-	nf := &v1.NodeFlavor{}
-	if err := v.Get(ctx, client.ObjectKey{Name: node.Spec.NodeFlavor.Name}, nf); err != nil {
-		return err
+	nf, _ := getNodeFlavor(ctx, v.Client, node.Spec.NodeFlavor.Name)
+	if nf == nil {
+		return commonerrors.NewBadRequest(fmt.Sprintf("the flavo(%s) is not found", node.Spec.NodeFlavor.Name))
 	}
 	return nil
 }
@@ -372,4 +372,15 @@ func (v *NodeValidator) validateRelatedFaults(ctx context.Context, newNode, oldN
 		}
 	}
 	return nil
+}
+
+func getNode(ctx context.Context, cli client.Client, name string) (*v1.Node, error) {
+	if name == "" {
+		return nil, nil
+	}
+	node := &v1.Node{}
+	if err := cli.Get(ctx, client.ObjectKey{Name: name}, node); err != nil {
+		return nil, err
+	}
+	return node, nil
 }

@@ -139,3 +139,14 @@ func isValidGpuResource(name string) bool {
 	}
 	return false
 }
+
+func getNodeFlavor(ctx context.Context, cli client.Client, name string) (*v1.NodeFlavor, error) {
+	if name == "" {
+		return nil, nil
+	}
+	nf := &v1.NodeFlavor{}
+	if err := cli.Get(ctx, client.ObjectKey{Name: name}, nf); err != nil {
+		return nil, err
+	}
+	return nf, nil
+}

@@ -69,6 +69,7 @@ const (
 	WorkloadPrefix                   = PrimusSafePrefix + "workload."
 	WorkloadFinalizer                = WorkloadPrefix + "finalizer"
 	WorkloadDispatchedAnnotation     = WorkloadPrefix + "dispatched"
+	WorkloadScheduledAnnotation      = WorkloadPrefix + "scheduled"
 	WorkloadMainContainer            = WorkloadPrefix + "main.container"
 	EnableHostNetworkAnnotation      = WorkloadPrefix + "enable.host.network"
 	WorkloadForcedFailoverAnnotation = WorkloadPrefix + "forced.failover"

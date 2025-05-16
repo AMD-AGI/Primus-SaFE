@@ -13,8 +13,6 @@ import (
 	"strconv"
 	"strings"
 
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -30,14 +28,15 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
@@ -265,9 +264,8 @@ func (m *WorkloadMutator) canUseHostNetwork(ctx context.Context, adminWorkload *
 	if commonworkload.GetTotalCount(adminWorkload) == 1 {
 		return false
 	}
-	nf := &v1.NodeFlavor{}
-	err := m.Get(ctx, client.ObjectKey{Name: workspace.Spec.NodeFlavor}, nf)
-	if err != nil {
+	nf, _ := getNodeFlavor(ctx, m.Client, workspace.Spec.NodeFlavor)
+	if nf == nil {
 		return false
 	}
 	gpuCount := 0
@@ -409,9 +407,6 @@ func (v *WorkloadValidator) validateUpdate(ctx context.Context, newObj, oldObj *
 	if err := v.validateSpecChanged(newObj, oldObj); err != nil {
 		return err
 	}
-	if err := v.validateCronScaleChanged(newObj, oldObj); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -432,9 +427,6 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, w *v1.Workload) 
 		return err
 	}
 	if err := v.validateDisplayName(w); err != nil {
-		return err
-	}
-	if err := v.validateCronScales(w); err != nil {
 		return err
 	}
 	return nil
@@ -573,7 +565,7 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, w *v1.Wo
 	// workspace must exist
 	workspace, err := getWorkspace(ctx, v.Client, w.Spec.Workspace)
 	if err != nil {
-		return commonerrors.NewNotFound("workspaces", w.Spec.Workspace)
+		return commonerrors.NewNotFound(v1.WorkspaceKind, w.Spec.Workspace)
 	}
 	if v1.IsWorkloadForcedFailover(w) {
 		return nil
@@ -587,11 +579,8 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, w *v1.Wo
 				commonworkload.GetTotalCount(w), workspace.Spec.Replica))
 	}
 
-	if workspace.Spec.NodeFlavor == "" {
-		return nil
-	}
-	nf := &v1.NodeFlavor{}
-	if err = v.Get(ctx, client.ObjectKey{Name: workspace.Spec.NodeFlavor}, nf); err != nil {
+	nf, err := getNodeFlavor(ctx, v.Client, workspace.Spec.NodeFlavor)
+	if nf == nil {
 		return err
 	}
 	nodeResource := nf.ToResourceList()
@@ -602,8 +591,6 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, w *v1.Wo
 	}
 	maxMemoryQuantity := availNodeResource[corev1.ResourceMemory]
 	for _, res := range w.Spec.Resources {
-
-		// 校验share memory输入是否正确
 		shareMemQuantity, err := resource.ParseQuantity(res.ShareMemory)
 		if err != nil {
 			return err
@@ -612,20 +599,19 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, w *v1.Wo
 			return fmt.Errorf("invalid share memory")
 		}
 
-		// 校验workload申请的资源是否超过单节点限制
-		rl, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU, res.GPUType, res.EphemeralStorage, 1)
+		// Validate if the workload's resource requests exceed the per-node resource limits
+		requestResource, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU, res.GPUName, res.EphemeralStorage, 1)
 		if err != nil {
 			return err
 		}
-		if ok, key := quantity.IsSubResource(rl, availNodeResource); !ok {
+		if ok, key := quantity.IsSubResource(requestResource, availNodeResource); !ok {
 			return commonerrors.NewQuotaInsufficient(
 				fmt.Sprintf("Insufficient resource: %s, request: %v, available: %v",
-					key, rl, availNodeResource))
+					key, requestResource, availNodeResource))
 		}
 
-		// 检查存储是否超过限制，存储会做额外限制
-		if !commonworkload.IsVirtualMachine(w) && maxEphemeralStoreQuantity != nil {
-			requestStoreQuantity, ok := rl[corev1.ResourceEphemeralStorage]
+		if maxEphemeralStoreQuantity != nil {
+			requestStoreQuantity, ok := requestResource[corev1.ResourceEphemeralStorage]
 			if ok && maxEphemeralStoreQuantity.Cmp(requestStoreQuantity) < 0 {
 				return commonerrors.NewQuotaInsufficient(
 					fmt.Sprintf("Insufficient resource: %s, request: %v, max: %v",
@@ -650,14 +636,12 @@ func (v *WorkloadValidator) validateResourceTemplate(ctx context.Context, w *v1.
 		}
 	}
 	if !hasFound {
-		return commonerrors.NewBadRequest(
-			fmt.Sprintf("the workload kind(%s) is not supported", w.Spec.Kind))
+		return commonerrors.NewNotFound(v1.ResourceTemplateKind, w.Spec.Kind)
 	}
 	return nil
 }
 
 func (v *WorkloadValidator) validateDisplayName(w *v1.Workload) error {
-	// 名字过长会导致dns解析失败
 	l := len(v1.GetDisplayName(w))
 	if l > commonutils.MaxDisplayNameLen {
 		return fmt.Errorf("the maximum length of the workload name [%s] is %d",
@@ -680,14 +664,14 @@ func (v *WorkloadValidator) validateImmutableFields(newObj, oldObj *v1.Workload)
 			return field.Forbidden(
 				field.NewPath("spec", "resources").Key("length"), "immutable")
 		}
-		resourceNameSet := sets.NewSet()
+		roleSet := sets.NewSet()
 		for _, res := range oldObj.Spec.Resources {
-			resourceNameSet.Insert(res.Name)
+			roleSet.Insert(res.Role)
 		}
 		for _, res := range newObj.Spec.Resources {
-			if !resourceNameSet.Has(res.Name) {
+			if !roleSet.Has(res.Role) {
 				return field.Forbidden(
-					field.NewPath("spec", "resources").Key("name"), "immutable")
+					field.NewPath("spec", "resources").Key("role"), "immutable")
 			}
 		}
 	}
@@ -699,7 +683,7 @@ func (v *WorkloadValidator) validateImmutableFields(newObj, oldObj *v1.Workload)
 	return nil
 }
 
-// pytorchJob资源类/virtualMachine修改，只能在任务排队时操作
+// Changes to the PyTorchJob are only allowed when the job is queued.
 func (v *WorkloadValidator) validateSpecChanged(newObj, oldObj *v1.Workload) error {
 	if commonworkload.IsApplication(newObj) || !v1.IsWorkloadScheduled(newObj) {
 		return nil
@@ -720,16 +704,16 @@ func (v *WorkloadValidator) validateSpecChanged(newObj, oldObj *v1.Workload) err
 }
 
 func (v *WorkloadValidator) validateScope(ctx context.Context, w *v1.Workload) error {
-	if v1.GetUserId(w) == common.SystemUserId {
-		return nil
-	}
-	scope := commonworkload.GetScope(w.Spec.Kind, v1.IsAuthoring(w))
+	scope := commonworkload.GetScope(w.Spec.Kind)
 	if scope == "" {
-		return commonerrors.NewBadRequest("the scope for workload is invalid")
+		return commonerrors.NewBadRequest(fmt.Sprintf("unknown workload kind, %s", w.Spec.Kind))
 	}
 	workspace, err := getWorkspace(ctx, v.Client, w.Spec.Workspace)
 	if err != nil {
 		return err
+	}
+	if len(workspace.Spec.Scopes) == 0 {
+		return nil
 	}
 	hasFound := false
 	for _, s := range workspace.Spec.Scopes {
@@ -743,39 +727,4 @@ func (v *WorkloadValidator) validateScope(ctx context.Context, w *v1.Workload) e
 			workspace.Spec.Scopes, scope))
 	}
 	return nil
-}
-
-func (v *WorkloadValidator) validateCronScales(w *v1.Workload) error {
-	if len(w.Spec.CronScales) == 0 {
-		return nil
-	}
-	if (len(w.Spec.CronScales) % 2) != 0 {
-		return commonerrors.NewBadRequest("the cronScales must appear in pairs")
-	}
-	for _, s := range w.Spec.CronScales {
-		_, _, err := timeutil.ParseCronStandard(s.Schedule)
-		if err != nil {
-			return err
-		}
-		if s.TargetSize < 0 || s.TargetRatio < 0 {
-			return commonerrors.NewBadRequest("the targetSize or targetRatio is less than 0")
-		}
-		if s.TargetSize == 0 && floatutil.FloatEqual(s.TargetRatio, 0) {
-			return commonerrors.NewBadRequest("one of targetSize and targetRatio must be configured")
-		}
-	}
-	return nil
-}
-
-func (v *WorkloadValidator) validateCronScaleChanged(newObj, oldObj *v1.Workload) error {
-	if len(newObj.Spec.CronScales) != 0 && len(oldObj.Spec.CronScales) == 0 {
-		return nil
-	}
-	if len(oldObj.Spec.CronScales) != 0 && len(newObj.Spec.CronScales) == 0 {
-		return nil
-	}
-	if reflect.DeepEqual(oldObj.Spec.CronScales, newObj.Spec.CronScales) {
-		return nil
-	}
-	return commonerrors.NewForbidden("The cron-scale cannot be changed")
 }

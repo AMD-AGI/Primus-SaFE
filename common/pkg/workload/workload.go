@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package workload
 
 import (
@@ -6,6 +11,7 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -72,4 +78,43 @@ func IsApplication(w *v1.Workload) bool {
 		return true
 	}
 	return false
+}
+
+func CvtToResourceList(resources []v1.WorkloadResource) (corev1.ResourceList, error) {
+	var result corev1.ResourceList
+	for _, res := range resources {
+		rl, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
+			res.GPUName, res.EphemeralStorage, int64(res.Replica))
+		if err != nil {
+			return nil, err
+		}
+		result = quantity.AddResource(result, rl)
+	}
+	return result, nil
+}
+
+func IsResourceListEqual(resources1, resources2 []v1.WorkloadResource) bool {
+	if len(resources1) != len(resources2) {
+		return false
+	}
+	rl1, err1 := CvtToResourceList(resources1)
+	if err1 != nil {
+		return false
+	}
+	rl2, err2 := CvtToResourceList(resources2)
+	if err2 != nil {
+		return false
+	}
+	return quantity.Equal(rl1, rl2)
+}
+
+func GetScope(kind string) v1.WorkspaceScope {
+	switch kind {
+	case common.PytorchJobKind:
+		return v1.TrainScope
+	case common.DeploymentKind, common.StatefulSetKind:
+		return v1.InferScope
+	default:
+		return ""
+	}
 }

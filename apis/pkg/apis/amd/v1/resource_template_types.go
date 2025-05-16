@@ -10,6 +10,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+const (
+	ResourceTemplateKind = "ResourceTemplate"
+)
+
 type ResourceTemplateSpec struct {
 	GroupVersionKind GroupVersionKind `json:"groupVersionKind"`
 	Templates        []Template       `json:"templates,omitempty"`

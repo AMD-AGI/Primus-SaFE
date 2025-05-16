@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/strings/slices"
 )
 
 const (
@@ -100,10 +101,6 @@ type StorageStatus struct {
 	Subsets   []corev1.EndpointSubset `json:"subsets,omitempty"`
 }
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// ClusterSpec defines the desired state of Cluster.
 type ClusterSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
@@ -113,7 +110,6 @@ type ClusterSpec struct {
 	Storages     []Storage    `json:"storages,omitempty"`
 }
 
-// ClusterStatus defines the observed state of Cluster.
 type ClusterStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
@@ -187,6 +183,22 @@ func init() {
 
 func (c *Cluster) IsReady() bool {
 	if c != nil && c.Status.ControlPlaneStatus.Phase == ReadyPhase {
+		return true
+	}
+	return false
+}
+
+func (c *Cluster) IsControlPlaneCertEqual(input ControlPlaneStatus) bool {
+	if c.Status.ControlPlaneStatus.CAData == input.CAData &&
+		c.Status.ControlPlaneStatus.CertData == input.CertData &&
+		c.Status.ControlPlaneStatus.KeyData == input.KeyData {
+		return true
+	}
+	return false
+}
+
+func (c *Cluster) IsControlPlaneEndpointEqual(endpoints []string) bool {
+	if slices.Equal(c.Status.ControlPlaneStatus.Endpoints, endpoints) {
 		return true
 	}
 	return false
