@@ -15,7 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,11 +55,6 @@ type NodeMutator struct {
 }
 
 func (m *NodeMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("%s mutate %s, cost: %v", v1.NodeKind, req.Name, time.Since(start))
-	}()
-
 	node := &v1.Node{}
 	if err := m.decoder.Decode(req, node); err != nil {
 		return handleError(v1.NodeKind, err)
@@ -190,11 +184,6 @@ type NodeValidator struct {
 }
 
 func (v *NodeValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("%s validator %s, cost: %v", v1.NodeKind, req.Name, time.Since(start))
-	}()
-
 	node := &v1.Node{}
 	var err error
 	switch req.Operation {

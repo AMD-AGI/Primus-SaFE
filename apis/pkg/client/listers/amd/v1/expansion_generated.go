@@ -38,6 +38,14 @@ type NodeFlavorListerExpansion interface{}
 // NodeFlavorNamespaceLister.
 type NodeFlavorNamespaceListerExpansion interface{}
 
+// ResourceTemplateListerExpansion allows custom methods to be added to
+// ResourceTemplateLister.
+type ResourceTemplateListerExpansion interface{}
+
+// ResourceTemplateNamespaceListerExpansion allows custom methods to be added to
+// ResourceTemplateNamespaceLister.
+type ResourceTemplateNamespaceListerExpansion interface{}
+
 // StorageClusterListerExpansion allows custom methods to be added to
 // StorageClusterLister.
 type StorageClusterListerExpansion interface{}

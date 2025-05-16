@@ -18,6 +18,9 @@ type WorkloadPhase string
 const (
 	WorkloadKind = "Workload"
 
+	MaxPriority = 2
+	MinPriority = 0
+
 	WorkloadSucceeded WorkloadPhase = "Succeeded"
 	WorkloadFailed    WorkloadPhase = "Failed"
 	WorkloadPending   WorkloadPhase = "Pending"
@@ -58,8 +61,8 @@ type WorkloadResource struct {
 	CPU string `json:"cpu"`
 	// Requested GPU card count (e.g., 8)
 	GPU string `json:"gpu,omitempty"`
-	// Requested GPU type(e.g. amd.com/gpu)
-	GPUType string `json:"gpuType,omitempty"`
+	// This field is set internally to match the resource supported by the workspace. e.g. amd.com/gpu
+	GPUName string `json:"-,omitempty"`
 	// Requested Memory size (e.g., 128Gi)
 	Memory string `json:"memory"`
 	// Requested Share Memory size (e.g., 128Gi). default: Memory/2
@@ -98,12 +101,6 @@ type Service struct {
 	ServiceType corev1.ServiceType `json:"serviceType"`
 	// Extended environment variable
 	Extends map[string]string `json:"extends,omitempty"`
-}
-
-type GroupVersionKind struct {
-	Group   string `json:"group,omitempty"`
-	Version string `json:"version,omitempty"`
-	Kind    string `json:"kind,omitempty"`
 }
 
 type WorkloadSpec struct {

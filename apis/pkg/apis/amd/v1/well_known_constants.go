@@ -66,8 +66,12 @@ const (
 	FaultFinalizer = FaultPrefix + "finalizer"
 
 	// workload
-	WorkloadPrefix               = PrimusSafePrefix + "workload."
-	WorkloadDispatchedAnnotation = WorkloadPrefix + "dispatched"
+	WorkloadPrefix                   = PrimusSafePrefix + "workload."
+	WorkloadFinalizer                = WorkloadPrefix + "finalizer"
+	WorkloadDispatchedAnnotation     = WorkloadPrefix + "dispatched"
+	WorkloadMainContainer            = WorkloadPrefix + "main.container"
+	EnableHostNetworkAnnotation      = WorkloadPrefix + "enable.host.network"
+	WorkloadForcedFailoverAnnotation = WorkloadPrefix + "forced.failover"
 )
 
 const (

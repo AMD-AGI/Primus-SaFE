@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,10 +41,6 @@ type FaultMutator struct {
 }
 
 func (m *FaultMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("finished fault mutate %s, cost: %v", req.Name, time.Since(start))
-	}()
 	if req.Operation != admissionv1.Create {
 		return admission.Allowed("")
 	}
@@ -94,11 +89,6 @@ type FaultValidator struct {
 }
 
 func (v *FaultValidator) Handle(_ context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("finished %s validator %s, cost: %v", v1.FaultKind, req.Name, time.Since(start))
-	}()
-
 	obj := &v1.Fault{}
 	var err error
 	switch req.Operation {

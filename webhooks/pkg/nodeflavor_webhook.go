@@ -9,12 +9,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -46,11 +44,6 @@ type NodeFlavorMutator struct {
 }
 
 func (m *NodeFlavorMutator) Handle(_ context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("%s mutate %s, cost: %v",
-			v1.NodeFlavorKind, req.Name, time.Since(start))
-	}()
 	if req.Operation != admissionv1.Create {
 		return admission.Allowed("")
 	}
@@ -87,12 +80,6 @@ type NodeFlavorValidator struct {
 }
 
 func (v *NodeFlavorValidator) Handle(_ context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("%s validator %s, cost: %v",
-			v1.NodeFlavorKind, req.Name, time.Since(start))
-	}()
-
 	nf := &v1.NodeFlavor{}
 	var err error
 	switch req.Operation {
@@ -120,7 +107,7 @@ func (v *NodeFlavorValidator) validate(nf *v1.NodeFlavor) error {
 		return fmt.Errorf("invalid memory: %s", nf.Spec.Memory.String())
 	}
 	if nf.Spec.Gpu != nil {
-		if !v.isValidGpuResource(nf.Spec.Gpu.ResourceName) {
+		if !isValidGpuResource(nf.Spec.Gpu.ResourceName) {
 			return fmt.Errorf("invalid gpu resourceName: %s", nf.Spec.Gpu.ResourceName)
 		}
 		if nf.Spec.Gpu.Quantity.Value() <= 0 {
@@ -144,7 +131,7 @@ func (v *NodeFlavorValidator) validate(nf *v1.NodeFlavor) error {
 	return nil
 }
 
-func (v *NodeFlavorValidator) isValidGpuResource(name string) bool {
+func isValidGpuResource(name string) bool {
 	for _, n := range GpuResourceWhiteList {
 		if name == n {
 			return true

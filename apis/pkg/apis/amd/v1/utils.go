@@ -159,6 +159,14 @@ func IsControlPlane(obj metav1.Object) bool {
 	return ok
 }
 
+func IsWorkloadForcedFailover(obj metav1.Object) bool {
+	if obj == nil {
+		return false
+	}
+	_, ok := obj.GetAnnotations()[WorkloadForcedFailoverAnnotation]
+	return ok
+}
+
 func atoi(str string) int {
 	if str == "" {
 		return 0

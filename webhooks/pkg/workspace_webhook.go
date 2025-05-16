@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -53,10 +52,6 @@ type WorkspaceMutator struct {
 }
 
 func (m *WorkspaceMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("finished %s mutate %s, cost: %v", v1.WorkspaceKind, req.Name, time.Since(start))
-	}()
 	if req.Operation == admissionv1.Delete {
 		return admission.Allowed("")
 	}
@@ -225,12 +220,6 @@ type WorkspaceValidator struct {
 }
 
 func (v *WorkspaceValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("finished %s validator %s, cost: %v",
-			v1.WorkspaceKind, req.Name, time.Since(start))
-	}()
-
 	obj := &v1.Workspace{}
 	var err error
 	switch req.Operation {

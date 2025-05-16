@@ -32,6 +32,10 @@ func (c *FakeAmdV1) NodeFlavors(namespace string) v1.NodeFlavorInterface {
 	return newFakeNodeFlavors(c, namespace)
 }
 
+func (c *FakeAmdV1) ResourceTemplates(namespace string) v1.ResourceTemplateInterface {
+	return newFakeResourceTemplates(c, namespace)
+}
+
 func (c *FakeAmdV1) StorageClusters(namespace string) v1.StorageClusterInterface {
 	return newFakeStorageClusters(c, namespace)
 }
