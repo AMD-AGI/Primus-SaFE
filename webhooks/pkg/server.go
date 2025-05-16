@@ -159,6 +159,7 @@ func (s *Server) newCtrlManager() error {
 
 func setUpWebhooks(mgr manager.Manager, server webhook.Server) {
 	decoder := admission.NewDecoder(mgr.GetScheme())
+	AddClusterWebhook(mgr, &server, decoder)
 	AddNodeWebhook(mgr, &server, decoder)
 	AddNodeFlavorWebhook(mgr, &server, decoder)
 	AddFaultWebhook(mgr, &server, decoder)

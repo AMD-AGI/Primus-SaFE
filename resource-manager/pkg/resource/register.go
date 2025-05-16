@@ -8,8 +8,20 @@ package resource
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+)
+
+var (
+	defaultWorkspaceOption = WorkspaceReconcilerOption{
+		processWait: 1 * time.Second,
+		nodeWait:    30 * time.Second,
+	}
+	defaultFaultOption = FaultReconcilerOption{
+		maxRetryCount: 30,
+		processWait:   1 * time.Second,
+	}
 )
 
 func SetupControllers(ctx context.Context, mgr manager.Manager) error {
@@ -22,7 +34,10 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupNodeK8sController(ctx, mgr); err != nil {
 		return fmt.Errorf("failed to set up node controller: %v", err)
 	}
-	if err := SetupWorkspaceController(mgr); err != nil {
+	if err := SetupWorkspaceController(mgr, &defaultWorkspaceOption); err != nil {
+		return fmt.Errorf("failed to set up workspace controller: %v", err)
+	}
+	if err := SetupFaultController(mgr, &defaultFaultOption); err != nil {
 		return fmt.Errorf("failed to set up workspace controller: %v", err)
 	}
 	if err := SetupStorageClusterController(mgr); err != nil {

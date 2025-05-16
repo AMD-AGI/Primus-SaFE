@@ -28,7 +28,6 @@ const (
 	NodeStartupTimeLabel = NodePrefix + "startup.time"
 	NodeLabelAction      = NodePrefix + "label.action"
 	NodeAnnotationAction = NodePrefix + "annotation.action"
-	NodesWorkspaceAction = NodePrefix + "workspace.action"
 	NodeIdLabel          = NodePrefix + "id"
 
 	NodeActionAdd    = "add"
@@ -43,7 +42,6 @@ const (
 	ClusterManageNodeLabel        = ClusterManagePrefix + "node"
 	ClusterManageNodeClusterLabel = ClusterManagePrefix + "node.cluster"
 	ClusterManageScaleDownLabel   = ClusterManagePrefix + "scale.down"
-	ClusterServiceName            = ClusterManagePrefix + "service.name"
 	ClusterIdLabel                = ClusterPrefix + "id"
 
 	// storage
@@ -58,14 +56,14 @@ const (
 	NodeFlavorIdLabel = NodeFlavorPrefix + "id"
 
 	// workspace
-	WorkspacePrefix    = PrimusSafePrefix + "workspace."
-	WorkspaceFinalizer = WorkspacePrefix + "finalizer"
-	WorkspaceIdLabel   = WorkspacePrefix + "id"
+	WorkspacePrefix      = PrimusSafePrefix + "workspace."
+	WorkspaceFinalizer   = WorkspacePrefix + "finalizer"
+	WorkspaceIdLabel     = WorkspacePrefix + "id"
+	WorkspaceNodesAction = WorkspacePrefix + "nodes.action"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
 	FaultFinalizer = FaultPrefix + "finalizer"
-	FaultIDLabel   = FaultPrefix + "id"
 
 	// workload
 	WorkloadPrefix               = PrimusSafePrefix + "workload."
