@@ -18,6 +18,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 	$(CONTROLLER_GEN) rbac:roleName=primus-safe-manager crd webhook paths="../apis/pkg/apis/..." output:crd:artifacts:config=primus-safe/crds \
 	output:webhook:artifacts:config=primus-safe/templates/webhooks \
 	output:rbac:artifacts:config=primus-safe/templates/rbac
+	sed -i 's/\r//' hack/webhooks.sh
 	bash hack/webhooks.sh
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
