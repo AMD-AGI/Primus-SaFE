@@ -7,13 +7,14 @@ Copyright The AMD Authors.
 package v1
 
 import (
+	amdv1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	resource "k8s.io/apimachinery/pkg/api/resource"
 )
 
 // DiskFlavorApplyConfiguration represents a declarative configuration of the DiskFlavor type for use
 // with apply.
 type DiskFlavorApplyConfiguration struct {
-	Type     *string            `json:"type,omitempty"`
+	Type     *amdv1.StorageType `json:"type,omitempty"`
 	Quantity *resource.Quantity `json:"quantity,omitempty"`
 	Count    *int               `json:"count,omitempty"`
 }
@@ -27,7 +28,7 @@ func DiskFlavor() *DiskFlavorApplyConfiguration {
 // WithType sets the Type field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Type field is set to the value of the last call.
-func (b *DiskFlavorApplyConfiguration) WithType(value string) *DiskFlavorApplyConfiguration {
+func (b *DiskFlavorApplyConfiguration) WithType(value amdv1.StorageType) *DiskFlavorApplyConfiguration {
 	b.Type = &value
 	return b
 }
