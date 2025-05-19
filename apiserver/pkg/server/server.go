@@ -73,7 +73,7 @@ func (s *Server) init() error {
 		return fmt.Errorf("failed to init logs. %s", err.Error())
 	}
 	if err = s.initConfig(); err != nil {
-		return fmt.Errorf("failed to init xcs config. %s", err.Error())
+		return fmt.Errorf("failed to init config. %s", err.Error())
 	}
 	if s.ctrlManager, err = newCtrlManager(); err != nil {
 		return fmt.Errorf("failed to new manager. %s", err.Error())
