@@ -49,7 +49,7 @@ type NodeFlavorSpec struct {
 }
 
 type DiskFlavor struct {
-	Type     string            `json:"type,omitempty"`
+	Type     StorageType       `json:"type,omitempty"`
 	Quantity resource.Quantity `json:"quantity"`
 	Count    int               `json:"count"`
 }

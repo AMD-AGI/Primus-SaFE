@@ -63,9 +63,7 @@ func (m *NodeFlavorMutator) Handle(_ context.Context, req admission.Request) adm
 }
 
 func (m *NodeFlavorMutator) mutate(nf *v1.NodeFlavor) {
-	if nf.Name != "" {
-		nf.Name = stringutil.NormalizeName(nf.Name)
-	}
+	nf.Name = stringutil.NormalizeName(nf.Name)
 	if nf.Spec.Gpu != nil && nf.Spec.Gpu.Quantity.IsZero() {
 		nf.Spec.Gpu = nil
 	}

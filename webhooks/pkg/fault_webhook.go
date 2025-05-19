@@ -61,9 +61,7 @@ func (m *FaultMutator) Handle(ctx context.Context, req admission.Request) admiss
 }
 
 func (m *FaultMutator) mutate(ctx context.Context, f *v1.Fault) {
-	if f.Name != "" {
-		f.Name = stringutil.NormalizeName(f.Name)
-	}
+	f.Name = stringutil.NormalizeName(f.Name)
 	metav1.SetMetaDataLabel(&f.ObjectMeta, v1.ClusterIdLabel, f.Spec.Node.ClusterName)
 	controllerutil.AddFinalizer(f, v1.FaultFinalizer)
 

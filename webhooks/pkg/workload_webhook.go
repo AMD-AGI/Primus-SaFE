@@ -152,8 +152,12 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	if v1.GetWorkspaceId(workload) == "" {
 		metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	}
-	if workload.Annotations[v1.WorkloadMainContainer] == "" && len(workload.Spec.Resources) > 0 {
-		cm, err := commonworkload.GetWorkloadTemplateConfig(ctx, m.Client,
+	metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkloadKindLabel, workload.Spec.Kind)
+	if v1.GetUserName(workload) != "" {
+		metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
+	}
+	if v1.GetWorkloadMainContainer(workload) == "" && len(workload.Spec.Resources) > 0 {
+		cm, err := commonworkload.GetTemplateConfig(ctx, m.Client,
 			workload.Spec.Kind, workload.Spec.Resources[0].GPUName)
 		if err == nil {
 			metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.WorkloadMainContainer, cm.Labels[common.MainContainer])
@@ -694,7 +698,7 @@ func (v *WorkloadValidator) validateSpecChanged(newObj, oldObj *v1.Workload) err
 	if oldObj.Spec.Image != newObj.Spec.Image {
 		return commonerrors.NewForbidden("Image cannot be changed when the workload has been scheduled")
 	}
-	if !commonworkload.IsResourceListEqual(oldObj.Spec.Resources, newObj.Spec.Resources) {
+	if !commonworkload.IsResourceEqual(oldObj, newObj) {
 		return commonerrors.NewForbidden("Resources cannot be changed when the workload has been scheduled")
 	}
 	if !maps.EqualIgnoreOrder(oldObj.Spec.Env, newObj.Spec.Env) {
@@ -704,7 +708,7 @@ func (v *WorkloadValidator) validateSpecChanged(newObj, oldObj *v1.Workload) err
 }
 
 func (v *WorkloadValidator) validateScope(ctx context.Context, w *v1.Workload) error {
-	scope := commonworkload.GetScope(w.Spec.Kind)
+	scope := commonworkload.GetScope(w)
 	if scope == "" {
 		return commonerrors.NewBadRequest(fmt.Sprintf("unknown workload kind, %s", w.Spec.Kind))
 	}

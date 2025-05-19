@@ -101,9 +101,7 @@ func (m *WorkspaceMutator) mutateUpdate(ctx context.Context, oldObj, newObj *v1.
 }
 
 func (m *WorkspaceMutator) mutateMeta(ctx context.Context, w *v1.Workspace) {
-	if w.Name != "" {
-		w.Name = stringutil.NormalizeName(w.Name)
-	}
+	w.Name = stringutil.NormalizeName(w.Name)
 	if w.Spec.Cluster != "" {
 		cl, _ := getCluster(ctx, m.Client, w.Spec.Cluster)
 		if cl != nil {
@@ -210,7 +208,7 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldObj, newObj *
 		nodeNames = append(nodeNames, n.Name)
 	}
 	action := commonnodes.BuildAction(v1.NodeActionRemove, nodeNames...)
-	metav1.SetMetaDataAnnotation(&newObj.ObjectMeta, v1.WorkspaceNodesAction, string(action))
+	metav1.SetMetaDataAnnotation(&newObj.ObjectMeta, v1.WorkspaceNodesAction, action)
 	return nil
 }
 

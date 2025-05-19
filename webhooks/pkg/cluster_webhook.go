@@ -67,9 +67,7 @@ func (m *ClusterMutator) Handle(ctx context.Context, req admission.Request) admi
 }
 
 func (m *ClusterMutator) mutateCreate(_ context.Context, c *v1.Cluster) bool {
-	if c.Name != "" {
-		c.Name = stringutil.NormalizeName(c.Name)
-	}
+	c.Name = stringutil.NormalizeName(c.Name)
 	controllerutil.AddFinalizer(c, v1.ClusterFinalizer)
 	return true
 }

@@ -108,27 +108,27 @@ type WorkloadSpec struct {
 	Resources []WorkloadResource `json:"resources"`
 	// requested workspace
 	Workspace string `json:"workspace,omitempty"`
-	// task image address
+	// workload image address
 	Image string `json:"image,omitempty"`
-	// task entryPoint, required in base64 encoding
+	// workload entryPoint, required in base64 encoding
 	EntryPoint string `json:"entryPoint,omitempty"`
-	// environment variable for task
+	// environment variable for workload
 	Env map[string]string `json:"env,omitempty"`
 	// whether ssh is enabled
 	IsSSHEnabled bool `json:"isSSHEnabled,omitempty"`
-	// Supervision flag for the task. When enabled, it performs operations like hang detection
+	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised,omitempty"`
-	// task define
+	// workload define
 	GroupVersionKind `json:"gvk,omitempty"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`
-	// Task scheduling priority. Defaults to 0; valid range: 0–2
+	// workload scheduling priority. Defaults to 0; valid range: 0–2
 	Priority int `json:"priority,omitempty"`
-	// The lifecycle of the task after completion, in seconds. Default to 60.
+	// The lifecycle of the workload after completion, in seconds. Default to 60.
 	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
-	// Task timeout in hours. Default is 0 (no timeout).
+	// workload timeout in hours. Default is 0 (no timeout).
 	Timeout *int `json:"timeout,omitempty"`
-	// The task will run on nodes with the user-specified labels.
+	// The workload will run on nodes with the user-specified labels.
 	// If multiple labels are specified, all of them must be satisfied.
 	CustomerLabels map[string]string `json:"customerLabels,omitempty"`
 	// k8s liveness check
@@ -140,21 +140,21 @@ type WorkloadSpec struct {
 }
 
 type WorkloadStatus struct {
-	// Task start time
+	// workload start time
 	StartTime *metav1.Time `json:"startTime,omitempty"`
-	// Task end time
+	// workload end time
 	EndTime *metav1.Time `json:"endTime,omitempty"`
-	// Some status descriptions of the task
+	// Some status descriptions of the workload
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// Pending，Running，Succeeded，Failed, Stopped, Error
 	Phase WorkloadPhase `json:"phase,omitempty"`
-	// Some status descriptions of the task. only for pending
+	// Some status descriptions of the workload. only for pending
 	Message string `json:"message,omitempty"`
-	// The current position of the task in the queue
+	// The current position of the workload in the queue
 	SchedulerOrder int `json:"schedulerOrder,omitempty"`
-	// Pod info related to the task
+	// Pod info related to the workload
 	Pods []WorkloadPod `json:"pods,omitempty"`
-	// The node used for each task execution. If the task is retried multiple times, there will be multiple entries.
+	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
 	Nodes [][]string `json:"nodes,omitempty"`
 }
 
@@ -301,7 +301,7 @@ func (w *Workload) GetTimeout() int {
 	return *w.Spec.Timeout
 }
 
-func (w *Workload) GetLastCond() *metav1.Condition {
+func (w *Workload) GetLastCondition() *metav1.Condition {
 	l := len(w.Status.Conditions)
 	if l == 0 {
 		return nil
