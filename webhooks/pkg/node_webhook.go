@@ -11,12 +11,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -27,7 +28,6 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 const (
@@ -56,11 +56,6 @@ type NodeMutator struct {
 }
 
 func (m *NodeMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("%s mutate %s, cost: %v", v1.NodeKind, req.Name, time.Since(start))
-	}()
-
 	node := &v1.Node{}
 	if err := m.decoder.Decode(req, node); err != nil {
 		return handleError(v1.NodeKind, err)
@@ -86,19 +81,31 @@ func (m *NodeMutator) Handle(ctx context.Context, req admission.Request) admissi
 }
 
 func (m *NodeMutator) mutateOnCreation(ctx context.Context, n *v1.Node) bool {
-	if n.Name != "" {
-		n.Name = stringutil.NormalizeName(n.Name)
-	}
-	if n.Spec.Port == nil {
-		n.Spec.Port = pointer.Int32(DefaultPort)
-	}
-	controllerutil.AddFinalizer(n, v1.NodeFinalizer)
+	m.mutateSpec(ctx, n)
+	m.mutateMeta(ctx, n)
 	m.mutateCommon(ctx, n)
 	return true
 }
 
 func (m *NodeMutator) mutateOnUpdate(ctx context.Context, n *v1.Node) bool {
 	return m.mutateCommon(ctx, n)
+}
+
+func (m *NodeMutator) mutateSpec(_ context.Context, n *v1.Node) {
+	if n.GetSpecHostName() == "" {
+		n.Spec.Hostname = ptr.To(n.Spec.PrivateIP)
+	}
+	if n.Spec.Port == nil {
+		n.Spec.Port = pointer.Int32(DefaultPort)
+	}
+}
+
+func (m *NodeMutator) mutateMeta(_ context.Context, n *v1.Node) {
+	n.Name = stringutil.NormalizeName(n.GetSpecHostName())
+	if v1.GetDisplayName(n) == "" {
+		metav1.SetMetaDataLabel(&n.ObjectMeta, v1.DisplayNameLabel, n.GetSpecHostName())
+	}
+	controllerutil.AddFinalizer(n, v1.NodeFinalizer)
 }
 
 func (m *NodeMutator) mutateCommon(ctx context.Context, n *v1.Node) bool {
@@ -131,32 +138,9 @@ func (m *NodeMutator) mutateLabels(n *v1.Node) bool {
 	return isChanged
 }
 
-func (m *NodeMutator) mutateTaints(n *v1.Node) bool {
-	isChanged := false
-	if n.GetSpecCluster() == "" {
-		// clear all taints when unmanaging node
-		if len(n.Spec.Taints) > 0 {
-			n.Spec.Taints = nil
-			isChanged = true
-		}
-	} else {
-		for i := range n.Spec.Taints {
-			if n.Spec.Taints[i].TimeAdded == nil {
-				n.Spec.Taints[i].TimeAdded = &metav1.Time{Time: time.Now().UTC()}
-				isChanged = true
-			}
-		}
-	}
-	return isChanged
-}
-
 func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, n *v1.Node) bool {
-	flavorId := v1.GetNodeFlavorId(n)
-	if flavorId == "" {
-		return false
-	}
-	nf := &v1.NodeFlavor{}
-	if m.Get(ctx, client.ObjectKey{Name: flavorId}, nf) != nil {
+	nf, _ := getNodeFlavor(ctx, m.Client, v1.GetNodeFlavorId(n))
+	if nf == nil {
 		return false
 	}
 	isChanged := false
@@ -184,17 +168,31 @@ func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, n *v1.Node) bool {
 	return isChanged
 }
 
+func (m *NodeMutator) mutateTaints(n *v1.Node) bool {
+	isChanged := false
+	if n.GetSpecCluster() == "" {
+		// clear all taints when unmanaging node
+		if len(n.Spec.Taints) > 0 {
+			n.Spec.Taints = nil
+			isChanged = true
+		}
+	} else {
+		for i := range n.Spec.Taints {
+			if n.Spec.Taints[i].TimeAdded == nil {
+				n.Spec.Taints[i].TimeAdded = &metav1.Time{Time: time.Now().UTC()}
+				isChanged = true
+			}
+		}
+	}
+	return isChanged
+}
+
 type NodeValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
 func (v *NodeValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("%s validator %s, cost: %v", v1.NodeKind, req.Name, time.Since(start))
-	}()
-
 	node := &v1.Node{}
 	var err error
 	switch req.Operation {
@@ -270,6 +268,9 @@ func (v *NodeValidator) validateNodeSpec(ctx context.Context, node *v1.Node) err
 			return err
 		}
 	}
+	if node.Spec.PrivateIP == "" {
+		return commonerrors.NewBadRequest("privateIp is required")
+	}
 	if err := v.validateNodeTaints(node); err != nil {
 		return err
 	}
@@ -291,9 +292,9 @@ func (v *NodeValidator) validateNodeFlavor(ctx context.Context, node *v1.Node) e
 	if node.Spec.NodeFlavor == nil {
 		return commonerrors.NewBadRequest("the flavor of node is not found")
 	}
-	nf := &v1.NodeFlavor{}
-	if err := v.Get(ctx, client.ObjectKey{Name: node.Spec.NodeFlavor.Name}, nf); err != nil {
-		return err
+	nf, _ := getNodeFlavor(ctx, v.Client, node.Spec.NodeFlavor.Name)
+	if nf == nil {
+		return commonerrors.NewBadRequest(fmt.Sprintf("the flavo(%s) is not found", node.Spec.NodeFlavor.Name))
 	}
 	return nil
 }
@@ -332,7 +333,7 @@ func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error
 	if oldNode.GetSpecHostName() != newNode.GetSpecHostName() {
 		return field.Forbidden(field.NewPath("spec").Key("hostname"), "immutable")
 	}
-	if oldNode.Spec.Port != nil && (newNode.Spec.Port == nil || *oldNode.Spec.Port != *newNode.Spec.Port) {
+	if newNode.Spec.Port == nil || *oldNode.Spec.Port != *newNode.Spec.Port {
 		return field.Forbidden(field.NewPath("spec").Key("port"), "immutable")
 	}
 	if oldNode.GetSpecCluster() != "" && newNode.GetSpecCluster() != "" &&
@@ -383,4 +384,15 @@ func (v *NodeValidator) validateRelatedFaults(ctx context.Context, newNode, oldN
 		}
 	}
 	return nil
+}
+
+func getNode(ctx context.Context, cli client.Client, name string) (*v1.Node, error) {
+	if name == "" {
+		return nil, nil
+	}
+	node := &v1.Node{}
+	if err := cli.Get(ctx, client.ObjectKey{Name: name}, node); err != nil {
+		return nil, err
+	}
+	return node, nil
 }

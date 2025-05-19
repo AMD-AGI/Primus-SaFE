@@ -14,6 +14,8 @@ type NodeExpansion interface{}
 
 type NodeFlavorExpansion interface{}
 
+type ResourceTemplateExpansion interface{}
+
 type StorageClusterExpansion interface{}
 
 type WorkloadExpansion interface{}

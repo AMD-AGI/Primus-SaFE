@@ -130,12 +130,12 @@ func GetInternalIp(node *corev1.Node) string {
 	return internalIp
 }
 
-func BuildAction(action string, keys ...string) []byte {
+func BuildAction(action string, keys ...string) string {
 	result := make(map[string]string)
 	for _, k := range keys {
 		result[k] = action
 	}
-	return jsonutils.MarshalSilently(result)
+	return string(jsonutils.MarshalSilently(result))
 }
 
 func GetAllUsedNodes(ctx context.Context, cli client.Client, clusterName string) (sets.Set, error) {

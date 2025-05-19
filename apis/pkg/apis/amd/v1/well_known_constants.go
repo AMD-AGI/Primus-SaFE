@@ -18,6 +18,8 @@ const (
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 	// total number of failures (used for internal retries)
 	FailedCountAnnotation = PrimusSafePrefix + "failed.count"
+	DescriptionAnnotation = PrimusSafePrefix + "description"
+	ProtectLabel          = PrimusSafePrefix + "protect"
 
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."
@@ -48,7 +50,6 @@ const (
 	StoragePrefix              = PrimusSafePrefix + "storage."
 	StorageFinalizer           = StoragePrefix + "finalizer"
 	StorageDefaultClusterLabel = StoragePrefix + "default.cluster"
-	StorageTypeLabel           = StoragePrefix + "type"
 	StorageClusterNameLabel    = StoragePrefix + "cluster.name"
 
 	// nodeflavor
@@ -56,18 +57,36 @@ const (
 	NodeFlavorIdLabel = NodeFlavorPrefix + "id"
 
 	// workspace
-	WorkspacePrefix      = PrimusSafePrefix + "workspace."
-	WorkspaceFinalizer   = WorkspacePrefix + "finalizer"
-	WorkspaceIdLabel     = WorkspacePrefix + "id"
-	WorkspaceNodesAction = WorkspacePrefix + "nodes.action"
+	WorkspacePrefix               = PrimusSafePrefix + "workspace."
+	WorkspaceFinalizer            = WorkspacePrefix + "finalizer"
+	WorkspaceIdLabel              = WorkspacePrefix + "id"
+	WorkspaceNodesAction          = WorkspacePrefix + "nodes.action"
+	QueueBalanceTimeoutAnnotation = "queue.balance.timeout"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
 	FaultFinalizer = FaultPrefix + "finalizer"
 
 	// workload
-	WorkloadPrefix               = PrimusSafePrefix + "workload."
-	WorkloadDispatchedAnnotation = WorkloadPrefix + "dispatched"
+	WorkloadPrefix                   = PrimusSafePrefix + "workload."
+	WorkloadFinalizer                = WorkloadPrefix + "finalizer"
+	WorkloadDispatchedAnnotation     = WorkloadPrefix + "dispatched"
+	WorkloadScheduledAnnotation      = WorkloadPrefix + "scheduled"
+	WorkloadMainContainer            = WorkloadPrefix + "main.container"
+	EnableHostNetworkAnnotation      = WorkloadPrefix + "enable.host.network"
+	WorkloadForcedFailoverAnnotation = WorkloadPrefix + "forced.failover"
+	WorkloadKindLabel                = WorkloadPrefix + "kind"
+	WorkloadDispatchCntLabel         = WorkloadPrefix + "dispatch.count"
+
+	// user
+	UserPrefix         = PrimusSafePrefix + "user."
+	UserNameAnnotation = UserPrefix + "name"
+	UserNameMd5Label   = UserPrefix + "name.md5"
+
+	// secret
+	SecretPrefix    = PrimusSafePrefix + "secret."
+	SecretTypeLabel = SecretPrefix + "type"
+	SecretMd5Label  = SecretPrefix + "md5"
 )
 
 const (
