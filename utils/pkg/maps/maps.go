@@ -75,3 +75,14 @@ func Copy(m map[string]string) map[string]string {
 	}
 	return result
 }
+
+func RemoveValue(m map[string]string, input string) map[string]string {
+	result := make(map[string]string)
+	for key, val := range m {
+		if val == input {
+			continue
+		}
+		result[key] = val
+	}
+	return result
+}

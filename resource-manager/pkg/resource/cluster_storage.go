@@ -1,6 +1,7 @@
 /*
-   Copyright © 01.AI Co., Ltd. 2023-2024. All rights reserved.
-*/
+ * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
 
 package resource
 

@@ -28,6 +28,11 @@ func TestAddResource(t *testing.T) {
 	assert.Equal(t, result.Cpu().Value(), int64(2))
 	assert.Equal(t, result.Memory().Value(), int64(1024))
 	assert.Equal(t, result.Storage().String(), "1Mi")
+
+	result = AddResource(nil, resource1)
+	assert.Equal(t, result.Cpu().Value(), int64(1))
+	assert.Equal(t, result.Memory().Value(), int64(1024))
+	assert.Equal(t, result.Storage().Value(), int64(0))
 }
 
 func TestSubResource(t *testing.T) {

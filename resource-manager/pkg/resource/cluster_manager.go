@@ -7,58 +7,48 @@ package resource
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/channel"
 )
 
 type ClusterInformer struct {
-	name      string
-	cert      v1.ControlPlaneStatus
-	clientSet kubernetes.Interface
+	name         string
+	controlPlane v1.ControlPlaneStatus
+	clientSet    kubernetes.Interface
 	informers.SharedInformerFactory
 	stopCh        chan struct{}
 	valid         bool
 	invalidReason string
 }
 
-func newClusterInformer(ctx context.Context, name string, adminClient client.Client, cert *v1.ControlPlaneStatus) (*ClusterInformer, error) {
-	service := new(corev1.Service)
-	err := adminClient.Get(ctx, types.NamespacedName{
-		Name:      name,
-		Namespace: common.PrimusSafeNamespace,
-	}, service)
-	serviceUrl := ""
-	if err == nil {
-		serviceUrl = fmt.Sprintf("https://%s.%s.svc", name, common.PrimusSafeNamespace)
-	} else {
-		serviceUrl = cert.Endpoints[0]
+func newClusterInformer(ctx context.Context, name string, adminClient client.Client, controlPlane *v1.ControlPlaneStatus) (*ClusterInformer, error) {
+	endpoint, err := commoncluster.GetClusterEndpoint(ctx, adminClient, name, controlPlane.Endpoints)
+	if err != nil {
+		return nil, err
 	}
-	clientSet, _, err := commonclient.NewClientSet(serviceUrl,
-		cert.CertData, cert.KeyData, cert.CAData, true)
+	clientSet, _, err := commonclient.NewClientSet(endpoint,
+		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, true)
 	if err != nil {
 		return nil, err
 	}
 	informer := &ClusterInformer{
 		name:                  name,
-		cert:                  *cert,
+		controlPlane:          *controlPlane,
 		clientSet:             clientSet,
 		SharedInformerFactory: informers.NewSharedInformerFactory(clientSet, 0),
 		stopCh:                make(chan struct{}),
 		valid:                 true,
 	}
-	klog.Infof("new cluster informer. name: %s, service: %s", name, serviceUrl)
+	klog.Infof("new cluster informer. name: %s, endpoint: %s", name, endpoint)
 	return informer, nil
 }
 

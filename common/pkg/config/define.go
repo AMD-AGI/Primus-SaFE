@@ -23,4 +23,16 @@ const (
 	leaderElectionPrefix = "leader_election."
 	leaderElectionEnable = leaderElectionPrefix + "enable"
 	leaderElectionLock   = leaderElectionPrefix + "lock_namespace"
+
+	// workspace
+	workspacePrefix              = "workspace."
+	memoryReservePercent         = workspacePrefix + "mem_reserve_percent"
+	cpuReservePercent            = workspacePrefix + "cpu_reserve_percent"
+	ephemeralStoreReservePercent = workspacePrefix + "ephemeral_store_reserve_percent"
+
+	// workload
+	workloadPrefix = "workload."
+	// The maximum percentage of total local storage that a single task can allocate
+	// No configuration or a value of 0 indicates no limit.
+	maxEphemeralStorePercent = workloadPrefix + "max_ephemeral_store_percent"
 )

@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,10 +41,6 @@ type FaultMutator struct {
 }
 
 func (m *FaultMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("finished fault mutate %s, cost: %v", req.Name, time.Since(start))
-	}()
 	if req.Operation != admissionv1.Create {
 		return admission.Allowed("")
 	}
@@ -66,22 +61,19 @@ func (m *FaultMutator) Handle(ctx context.Context, req admission.Request) admiss
 }
 
 func (m *FaultMutator) mutate(ctx context.Context, f *v1.Fault) {
-	if f.Name != "" {
-		f.Name = stringutil.NormalizeName(f.Name)
-	}
+	f.Name = stringutil.NormalizeName(f.Name)
 	metav1.SetMetaDataLabel(&f.ObjectMeta, v1.ClusterIdLabel, f.Spec.Node.ClusterName)
 	controllerutil.AddFinalizer(f, v1.FaultFinalizer)
 
 	if f.Spec.Node != nil {
 		adminNodeName := f.Spec.Node.AdminName
-		node := &v1.Node{}
-		err := m.Get(ctx, client.ObjectKey{Name: adminNodeName}, node)
-		if err != nil {
+		node, _ := getNode(ctx, m.Client, adminNodeName)
+		if node == nil {
 			return
 		}
 		metav1.SetMetaDataLabel(&node.ObjectMeta, v1.NodeIdLabel, adminNodeName)
 		if !hasOwnerReferences(f, adminNodeName) {
-			if err = controllerutil.SetControllerReference(node, f, m.Client.Scheme()); err != nil {
+			if err := controllerutil.SetControllerReference(node, f, m.Client.Scheme()); err != nil {
 				klog.ErrorS(err, "failed to SetControllerReference")
 			}
 		}
@@ -94,11 +86,6 @@ type FaultValidator struct {
 }
 
 func (v *FaultValidator) Handle(_ context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("finished %s validator %s, cost: %v", v1.FaultKind, req.Name, time.Since(start))
-	}()
-
 	obj := &v1.Fault{}
 	var err error
 	switch req.Operation {

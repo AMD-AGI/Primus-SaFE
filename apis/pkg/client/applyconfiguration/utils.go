@@ -20,6 +20,8 @@ import (
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
 	// Group=amd.com, Version=v1
+	case v1.SchemeGroupVersion.WithKind("ActiveState"):
+		return &amdv1.ActiveStateApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Capacity"):
 		return &amdv1.CapacityApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("CephClusterStatus"):
@@ -42,6 +44,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.CpuChipApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("DiskFlavor"):
 		return &amdv1.DiskFlavorApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("EndState"):
+		return &amdv1.EndStateApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ErasureCodedSpec"):
 		return &amdv1.ErasureCodedSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Fault"):
@@ -78,6 +82,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.PodFailedMessageApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ReplicatedSpec"):
 		return &amdv1.ReplicatedSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ResourceTemplate"):
+		return &amdv1.ResourceTemplateApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ResourceTemplateSpec"):
+		return &amdv1.ResourceTemplateSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Service"):
 		return &amdv1.ServiceApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Storage"):
@@ -90,6 +98,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.StorageClusterStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("StorageStatus"):
 		return &amdv1.StorageStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("Template"):
+		return &amdv1.TemplateApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("TemplatePhase"):
+		return &amdv1.TemplatePhaseApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Workload"):
 		return &amdv1.WorkloadApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("WorkloadPod"):

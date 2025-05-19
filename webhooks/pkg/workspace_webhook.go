@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
-	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -53,10 +52,6 @@ type WorkspaceMutator struct {
 }
 
 func (m *WorkspaceMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("finished %s mutate %s, cost: %v", v1.WorkspaceKind, req.Name, time.Since(start))
-	}()
 	if req.Operation == admissionv1.Delete {
 		return admission.Allowed("")
 	}
@@ -106,14 +101,12 @@ func (m *WorkspaceMutator) mutateUpdate(ctx context.Context, oldObj, newObj *v1.
 }
 
 func (m *WorkspaceMutator) mutateMeta(ctx context.Context, w *v1.Workspace) {
-	if w.Name != "" {
-		w.Name = stringutil.NormalizeName(w.Name)
-	}
+	w.Name = stringutil.NormalizeName(w.Name)
 	if w.Spec.Cluster != "" {
-		cl := &v1.Cluster{}
-		if err := m.Get(ctx, client.ObjectKey{Name: w.Spec.Cluster}, cl); err == nil {
+		cl, _ := getCluster(ctx, m.Client, w.Spec.Cluster)
+		if cl != nil {
 			if !hasOwnerReferences(w, cl.Name) {
-				if err = controllerutil.SetControllerReference(cl, w, m.Client.Scheme()); err != nil {
+				if err := controllerutil.SetControllerReference(cl, w, m.Client.Scheme()); err != nil {
 					klog.ErrorS(err, "failed to SetControllerReference")
 				}
 			}
@@ -135,10 +128,10 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldObj, newObj
 		return err
 	}
 	for key, val := range actions {
-		n := &v1.Node{}
-		if err = m.Get(ctx, client.ObjectKey{Name: key}, n); err != nil {
+		n, _ := getNode(ctx, m.Client, key)
+		if n == nil {
 			klog.ErrorS(err, "failed to get node")
-			return err
+			return commonerrors.NewNotFound(v1.NodeKind, key)
 		}
 		if v1.GetClusterId(n) != newObj.Spec.Cluster {
 			err = fmt.Errorf("The cluster(%s) of the operation and the workspace's cluster do not match.", v1.GetClusterId(n))
@@ -187,8 +180,8 @@ func (m *WorkspaceMutator) mutateCommon(ctx context.Context, w *v1.Workspace) {
 	if w.Spec.NodeFlavor == "" {
 		w.Spec.Replica = 0
 	} else if v1.GetGpuResourceName(w) == "" {
-		nf := &v1.NodeFlavor{}
-		if m.Get(ctx, client.ObjectKey{Name: w.Spec.NodeFlavor}, nf) == nil && nf.HasGpu() {
+		nf, _ := getNodeFlavor(ctx, m.Client, w.Spec.NodeFlavor)
+		if nf != nil && nf.HasGpu() {
 			metav1.SetMetaDataAnnotation(&w.ObjectMeta, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName)
 			metav1.SetMetaDataAnnotation(&w.ObjectMeta, v1.GpuProductNameAnnotation, nf.Spec.Gpu.Product)
 		}
@@ -215,7 +208,7 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldObj, newObj *
 		nodeNames = append(nodeNames, n.Name)
 	}
 	action := commonnodes.BuildAction(v1.NodeActionRemove, nodeNames...)
-	metav1.SetMetaDataAnnotation(&newObj.ObjectMeta, v1.WorkspaceNodesAction, string(action))
+	metav1.SetMetaDataAnnotation(&newObj.ObjectMeta, v1.WorkspaceNodesAction, action)
 	return nil
 }
 
@@ -225,12 +218,6 @@ type WorkspaceValidator struct {
 }
 
 func (v *WorkspaceValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("finished %s validator %s, cost: %v",
-			v1.WorkspaceKind, req.Name, time.Since(start))
-	}()
-
 	obj := &v1.Workspace{}
 	var err error
 	switch req.Operation {
@@ -329,15 +316,13 @@ func (v *WorkspaceValidator) validateResource(ctx context.Context, w *v1.Workspa
 	if w.Spec.Replica <= 0 || w.Spec.NodeFlavor == "" {
 		return nil
 	}
-	nf := &v1.NodeFlavor{}
-	err := v.Get(ctx, client.ObjectKey{Name: w.Spec.NodeFlavor}, nf)
-	if err != nil {
-		return commonerrors.NewNotFound("nodeflavor", w.Spec.NodeFlavor)
+	nf, _ := getNodeFlavor(ctx, v.Client, w.Spec.NodeFlavor)
+	if nf == nil {
+		return commonerrors.NewNotFound(v1.NodeFlavorKind, w.Spec.NodeFlavor)
 	}
-	cl := &v1.Cluster{}
-	err = v.Get(ctx, client.ObjectKey{Name: w.Spec.Cluster}, cl)
-	if err != nil {
-		return commonerrors.NewNotFound("cluster", w.Spec.Cluster)
+	cl, _ := getCluster(ctx, v.Client, w.Spec.Cluster)
+	if cl == nil {
+		return commonerrors.NewNotFound(v1.ClusterKind, w.Spec.Cluster)
 	}
 	return nil
 }
@@ -446,10 +431,9 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newObj, ol
 	}
 	var toRemoveNodes []string
 	for key, val := range newActions {
-		n := &v1.Node{}
-		err = v.Get(ctx, client.ObjectKey{Name: key}, n)
-		if err != nil {
-			return err
+		n, _ := getNode(ctx, v.Client, key)
+		if n == nil {
+			return commonerrors.NewNotFound(v1.NodeKind, key)
 		}
 		if v1.GetClusterId(n) != newObj.Spec.Cluster {
 			return fmt.Errorf("the node %s and workspace %s are not in the same cluster", n.Name, newObj.Name)
