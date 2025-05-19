@@ -96,9 +96,11 @@ func (r *NodeK8sReconciler) CaredPredicate() predicate.Predicate {
 			if !ok1 || !ok2 {
 				return false
 			}
-			if !oldCluster.IsReady() && newCluster.IsReady() {
+			if !oldCluster.IsReady() && newCluster.IsReady() ||
+				!oldCluster.IsControlPlaneCertEqual(newCluster.Status.ControlPlaneStatus) ||
+				!oldCluster.IsControlPlaneEndpointEqual(newCluster.Status.ControlPlaneStatus.Endpoints) {
 				if err := r.addClusterInformer(newCluster); err != nil {
-					klog.Errorf("add cluster informer failed: %v", err)
+					klog.Errorf("failed to add cluster informer, err: %v", err)
 				}
 			} else if oldCluster.IsReady() &&
 				(!newCluster.IsReady() || !newCluster.GetDeletionTimestamp().IsZero()) {
@@ -127,6 +129,10 @@ func (r *NodeK8sReconciler) addClusterInformer(cluster *v1.Cluster) error {
 	}
 	clusterInformer.Start()
 	clusterInformer.WaitCache()
+	oldInformer, ok := r.cm.Informers[cluster.Name]
+	if ok && oldInformer != nil {
+		oldInformer.Stop()
+	}
 	r.cm.Informers[cluster.Name] = clusterInformer
 	return nil
 }

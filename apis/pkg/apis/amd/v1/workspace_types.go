@@ -112,6 +112,13 @@ func (w *Workspace) IsEnd() bool {
 	return false
 }
 
+func (w *Workspace) IsAbnormal() bool {
+	if w.Status.Phase == WorkspaceAbnormal {
+		return true
+	}
+	return false
+}
+
 func (w *Workspace) IsPending() bool {
 	if w.Status.Phase == "" || w.Status.Phase == WorkspaceCreating {
 		return true

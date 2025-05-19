@@ -75,14 +75,14 @@ func StrCaseEqual(str1, str2 string) bool {
 }
 
 // Extract the numeric part from the string
-func ExtractNumber(s string) int {
+func ExtractNumber(s string) int64 {
 	var str string
 	for _, c := range s {
 		if c >= '0' && c <= '9' {
 			str += string(c)
 		}
 	}
-	num, err := strconv.Atoi(str)
+	num, err := strconv.ParseInt(str, 10, 0)
 	if err != nil {
 		return 0
 	}

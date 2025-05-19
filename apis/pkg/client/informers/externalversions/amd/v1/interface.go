@@ -20,6 +20,8 @@ type Interface interface {
 	Nodes() NodeInformer
 	// NodeFlavors returns a NodeFlavorInformer.
 	NodeFlavors() NodeFlavorInformer
+	// ResourceTemplates returns a ResourceTemplateInformer.
+	ResourceTemplates() ResourceTemplateInformer
 	// StorageClusters returns a StorageClusterInformer.
 	StorageClusters() StorageClusterInformer
 	// Workloads returns a WorkloadInformer.
@@ -57,6 +59,11 @@ func (v *version) Nodes() NodeInformer {
 // NodeFlavors returns a NodeFlavorInformer.
 func (v *version) NodeFlavors() NodeFlavorInformer {
 	return &nodeFlavorInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// ResourceTemplates returns a ResourceTemplateInformer.
+func (v *version) ResourceTemplates() ResourceTemplateInformer {
+	return &resourceTemplateInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // StorageClusters returns a StorageClusterInformer.

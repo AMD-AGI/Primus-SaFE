@@ -139,6 +139,8 @@ spec:
         - effect: NoSchedule
           operator: Exists
       terminationGracePeriodSeconds: 10
+      imagePullSecrets:
+        - name: primus-safe-image
       volumes:
         - configMap:
             defaultMode: 256

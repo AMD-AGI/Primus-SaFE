@@ -6,7 +6,6 @@
 package config
 
 import (
-	"strconv"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -23,42 +22,31 @@ func LoadConfig(path string) error {
 }
 
 func getString(key, defaultValue string) string {
-	if viper.IsSet(key) {
-		return viper.GetString(key)
-	} else {
+	if !viper.IsSet(key) {
 		return defaultValue
 	}
+	return viper.GetString(key)
 }
 
 func getBool(key string, defaultValue bool) bool {
-	if viper.IsSet(key) {
-		return viper.GetBool(key)
-	} else {
+	if !viper.IsSet(key) {
 		return defaultValue
 	}
+	return viper.GetBool(key)
 }
 
 func getInt(key string, defaultValue int) int {
-	if viper.IsSet(key) {
-		return viper.GetInt(key)
-	} else {
+	if !viper.IsSet(key) {
 		return defaultValue
 	}
+	return viper.GetInt(key)
 }
 
 func getFloat(key string, defaultValue float64) float64 {
 	if !viper.IsSet(key) {
 		return defaultValue
 	}
-	str := getString(key, "")
-	if str == "" {
-		return 0
-	}
-	f, err := strconv.ParseFloat(str, 64)
-	if err != nil {
-		return 0
-	}
-	return f
+	return viper.GetFloat64(key)
 }
 
 func getStrings(key string) []string {
@@ -98,4 +86,20 @@ func GetLeaderElectionLock() string {
 
 func GetServerPort() int {
 	return getInt(serverPort, 0)
+}
+
+func GetMemoryReservePercent() float64 {
+	return getFloat(memoryReservePercent, 0)
+}
+
+func GetCpuReservePercent() float64 {
+	return getFloat(cpuReservePercent, 0)
+}
+
+func GetEphemeralStoreReservePercent() float64 {
+	return getFloat(ephemeralStoreReservePercent, 0)
+}
+
+func GetMaxEphemeralStorePercent() float64 {
+	return getFloat(maxEphemeralStorePercent, 0)
 }

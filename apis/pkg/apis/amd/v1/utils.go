@@ -151,12 +151,60 @@ func IsWorkloadDispatched(obj metav1.Object) bool {
 	return ok
 }
 
+func IsWorkloadScheduled(obj metav1.Object) bool {
+	if obj == nil {
+		return false
+	}
+	_, ok := obj.GetAnnotations()[WorkloadScheduledAnnotation]
+	return ok
+}
+
 func IsControlPlane(obj metav1.Object) bool {
 	if obj == nil {
 		return false
 	}
 	_, ok := obj.GetLabels()[KubernetesControlPlane]
 	return ok
+}
+
+func IsWorkloadForcedFailover(obj metav1.Object) bool {
+	if obj == nil {
+		return false
+	}
+	_, ok := obj.GetAnnotations()[WorkloadForcedFailoverAnnotation]
+	return ok
+}
+
+func IsProtected(obj metav1.Object) bool {
+	if obj == nil {
+		return false
+	}
+	_, ok := obj.GetLabels()[ProtectLabel]
+	return ok
+}
+
+func GetUserName(obj metav1.Object) string {
+	return GetAnnotation(obj, UserNameAnnotation)
+}
+
+func GetUserNameMd5(obj metav1.Object) string {
+	return GetLabel(obj, UserNameMd5Label)
+}
+
+func GetWorkloadDispatchCnt(obj metav1.Object) int {
+	return atoi(GetLabel(obj, WorkloadDispatchCntLabel))
+}
+
+func GetDescription(obj metav1.Object) string {
+	return GetAnnotation(obj, DescriptionAnnotation)
+}
+
+func GetWorkloadMainContainer(obj metav1.Object) string {
+	return GetAnnotation(obj, WorkloadMainContainer)
+}
+
+func GetQueueBalanceTimeout(obj metav1.Object) int {
+	return atoi(GetAnnotation(obj, QueueBalanceTimeoutAnnotation))
 }
 
 func atoi(str string) int {

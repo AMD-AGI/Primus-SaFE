@@ -164,4 +164,5 @@ func setUpWebhooks(mgr manager.Manager, server webhook.Server) {
 	AddNodeFlavorWebhook(mgr, &server, decoder)
 	AddFaultWebhook(mgr, &server, decoder)
 	AddWorkspaceWebhook(mgr, &server, decoder)
+	AddWorkloadWebhook(mgr, &server, decoder)
 }

@@ -7,7 +7,10 @@ package quantity
 
 import (
 	"fmt"
+	"math"
 
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
@@ -227,4 +230,59 @@ func Format(key string, quantity resource.Quantity) string {
 		quantityStr = quantity.String()
 	}
 	return quantityStr
+}
+
+func GetAvailResource(resources corev1.ResourceList) corev1.ResourceList {
+	if len(resources) == 0 {
+		return resources
+	}
+	if floatutil.FloatEqual(commonconfig.GetMemoryReservePercent(), 0) &&
+		floatutil.FloatEqual(commonconfig.GetCpuReservePercent(), 0) &&
+		floatutil.FloatEqual(commonconfig.GetEphemeralStoreReservePercent(), 0) {
+		return resources
+	}
+	result := resources.DeepCopy()
+	if !floatutil.FloatEqual(commonconfig.GetMemoryReservePercent(), 0) {
+		memQuantity, ok := result[corev1.ResourceMemory]
+		if ok {
+			reserveQuantity := int64(math.Ceil(float64(memQuantity.Value()) * commonconfig.GetMemoryReservePercent()))
+			result[corev1.ResourceMemory] = *resource.NewQuantity(memQuantity.Value()-reserveQuantity, resource.BinarySI)
+		}
+	}
+	if !floatutil.FloatEqual(commonconfig.GetCpuReservePercent(), 0) {
+		cpuQuantity, ok := result[corev1.ResourceCPU]
+		if ok {
+			reserveQuantity := int64(math.Ceil(float64(cpuQuantity.Value()) * commonconfig.GetCpuReservePercent()))
+			result[corev1.ResourceCPU] = *resource.NewQuantity(cpuQuantity.Value()-reserveQuantity, resource.DecimalSI)
+		}
+	}
+	if !floatutil.FloatEqual(commonconfig.GetEphemeralStoreReservePercent(), 0) {
+		storeQuantity, ok := result[corev1.ResourceEphemeralStorage]
+		if ok {
+			reserveQuantity := int64(math.Ceil(float64(storeQuantity.Value()) *
+				commonconfig.GetEphemeralStoreReservePercent()))
+			result[corev1.ResourceEphemeralStorage] = *resource.NewQuantity(
+				storeQuantity.Value()-reserveQuantity, resource.DecimalSI)
+		}
+	}
+	return result
+}
+
+func GetMaxEphemeralStoreQuantity(resources corev1.ResourceList) (*resource.Quantity, error) {
+	storeQuantity, ok := resources[corev1.ResourceEphemeralStorage]
+	if !ok {
+		return nil, fmt.Errorf("the ephemeralStore is not found")
+	}
+	var maxPercent float64 = 0
+	maxPercent = 1 - commonconfig.GetEphemeralStoreReservePercent()
+	if !floatutil.FloatEqual(commonconfig.GetMaxEphemeralStorePercent(), 0) {
+		if maxPercent > commonconfig.GetMaxEphemeralStorePercent() {
+			maxPercent = commonconfig.GetMaxEphemeralStorePercent()
+		}
+	}
+	if floatutil.FloatEqual(maxPercent, 1) {
+		return &storeQuantity, nil
+	}
+	newQuantity := float64(storeQuantity.Value()) * maxPercent
+	return resource.NewQuantity(int64(newQuantity), resource.DecimalSI), nil
 }

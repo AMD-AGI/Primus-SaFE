@@ -9,11 +9,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -44,10 +42,6 @@ type ClusterMutator struct {
 }
 
 func (m *ClusterMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("finished %s mutate %s, cost: %v", v1.ClusterKind, req.Name, time.Since(start))
-	}()
 	if req.Operation != admissionv1.Create {
 		return admission.Allowed("")
 	}
@@ -73,9 +67,7 @@ func (m *ClusterMutator) Handle(ctx context.Context, req admission.Request) admi
 }
 
 func (m *ClusterMutator) mutateCreate(_ context.Context, c *v1.Cluster) bool {
-	if c.Name != "" {
-		c.Name = stringutil.NormalizeName(c.Name)
-	}
+	c.Name = stringutil.NormalizeName(c.Name)
 	controllerutil.AddFinalizer(c, v1.ClusterFinalizer)
 	return true
 }
@@ -86,11 +78,6 @@ type ClusterValidator struct {
 }
 
 func (v *ClusterValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	start := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("finished %s validator %s, cost: %v", v1.ClusterKind, req.Name, time.Since(start))
-	}()
-
 	obj := &v1.Cluster{}
 	var err error
 	switch req.Operation {
@@ -187,4 +174,15 @@ func (v *ClusterValidator) validateImmutableFields(newCluster, oldCluster *v1.Cl
 			Key("nodes"), "immutable")
 	}
 	return nil
+}
+
+func getCluster(ctx context.Context, cli client.Client, name string) (*v1.Cluster, error) {
+	if name == "" {
+		return nil, nil
+	}
+	cluster := &v1.Cluster{}
+	if err := cli.Get(ctx, client.ObjectKey{Name: name}, cluster); err != nil {
+		return nil, err
+	}
+	return cluster, nil
 }
