@@ -1146,7 +1146,7 @@ func (s *storageCluster) getFileSystem(ctx context.Context, cluster *v1.StorageC
 				},
 			},
 			Spec: rookv1.CephFilesystemSubVolumeGroupSpec{
-				Name:           "xcs",
+				Name:           "primus-safe",
 				FilesystemName: name,
 			},
 			Status: nil,

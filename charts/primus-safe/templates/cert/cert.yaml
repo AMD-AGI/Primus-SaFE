@@ -1,0 +1,51 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ .Release.Name }}-selfsigned-issuer
+  namespace: {{ .Release.Namespace }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Release.Name }}-ca
+  namespace: {{ .Release.Namespace }}
+spec:
+  duration: 105192h0m0s
+  isCA: true
+  commonName: {{ .Release.Name }}-ca
+  subject:
+    organizations:
+      - amd.com
+  secretName: {{ .Release.Name }}-ca-secret
+  issuerRef:
+    name: {{ .Release.Name }}-selfsigned-issuer
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ .Release.Name }}-ca-issuer
+  namespace: {{ .Release.Namespace }}
+spec:
+  ca:
+    secretName: {{ .Release.Name }}-ca-secret
+---
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ .Release.Name }}-cert
+  namespace: {{ .Release.Namespace }}
+spec:
+  duration: 105192h0m0s
+  secretName: {{ .Release.Name }}-cert
+  isCA: false
+  dnsNames:
+    - webhook-service
+    - webhook-service.{{ .Release.Namespace }}
+    - webhook-service.{{ .Release.Namespace }}.svc
+  issuerRef:
+    name: {{ .Release.Name }}-ca-issuer
