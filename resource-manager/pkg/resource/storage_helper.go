@@ -14,6 +14,10 @@ import (
 	"sync"
 	"time"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	rookv1 "github.com/rook/rook/pkg/apis/ceph.rook.io/v1"
 	rook "github.com/rook/rook/pkg/client/clientset/versioned"
 	rookexter "github.com/rook/rook/pkg/client/informers/externalversions"
@@ -26,16 +30,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
 const (
@@ -90,7 +87,7 @@ type storageCluster struct {
 	clientset     kubernetes.Interface
 	rookClientset *rook.Clientset
 	cephInformer  rookexter.SharedInformerFactory
-	queue         workqueue.TypedRateLimitingInterface[reconcile.Request]
+	queue         v1.RequestWorkQueue
 }
 
 var mgrResources = corev1.ResourceRequirements{
@@ -137,9 +134,9 @@ var nvmeResources = corev1.ResourceRequirements{
 	},
 }
 
-type GetQueue func() workqueue.TypedRateLimitingInterface[reconcile.Request]
+type GetQueue func() v1.RequestWorkQueue
 
-func newStorageCluster(cluster *v1.Cluster, queue workqueue.TypedRateLimitingInterface[reconcile.Request], stopCh chan struct{}) (*storageCluster, error) {
+func newStorageCluster(cluster *v1.Cluster, queue v1.RequestWorkQueue, stopCh chan struct{}) (*storageCluster, error) {
 	if queue == nil {
 		return nil, fmt.Errorf("queue is nil")
 	}

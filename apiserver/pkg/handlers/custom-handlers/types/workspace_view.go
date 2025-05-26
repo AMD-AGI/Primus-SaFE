@@ -16,9 +16,6 @@ type CreateWorkspaceRequest struct {
 	// Queuing policy for tasks submitted in this workspace.
 	// All tasks currently share the same policy (no per-task customization). Default: fifo.
 	QueuePolicy string `json:"queuePolicy,omitempty"`
-	// If the balance strategy is selected, set the scheduling timeout duration (in seconds).
-	// Traversal will only be performed after the timeout. Default is 0 seconds.
-	QueueBalanceTimeout int `json:"queueBalanceTimeout,omitempty"`
 	// node flavor id
 	NodeFlavor string `json:"nodeFlavor,omitempty"`
 	// node count
@@ -68,9 +65,6 @@ type GetWorkspaceResponseItem struct {
 	Description string `json:"description,omitempty"`
 	// Queuing policy for tasks submitted in this workspace.
 	QueuePolicy v1.WorkspaceQueuePolicy `json:"queuePolicy"`
-	// If the balance strategy is selected, set the scheduling timeout duration (in seconds).
-	// Traversal will only be performed after the timeout. Default is 0 seconds.
-	QueueBalanceTimeout int `json:"queueBalanceTimeout,omitempty"`
 	// support service module: Train/Infer/Authoring, No limitation if not specified
 	Scopes []v1.WorkspaceScope `json:"scopes"`
 	// the store volumes used by workspace

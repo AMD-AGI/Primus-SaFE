@@ -6,6 +6,7 @@ use (
 	./common
 	./node-agent
 	./resource-manager
+	./job-manager
 	./webhooks
 	./tools/crypto
 	./utils

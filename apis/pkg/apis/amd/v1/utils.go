@@ -33,6 +33,22 @@ func GetAnnotation(obj metav1.Object, key string) string {
 	return val
 }
 
+func HasLabel(obj metav1.Object, key string) bool {
+	if obj == nil || len(obj.GetLabels()) == 0 {
+		return false
+	}
+	_, ok := obj.GetLabels()[key]
+	return ok
+}
+
+func HasAnnotation(obj metav1.Object, key string) bool {
+	if obj == nil || len(obj.GetAnnotations()) == 0 {
+		return false
+	}
+	_, ok := obj.GetAnnotations()[key]
+	return ok
+}
+
 func RemoveLabel(obj metav1.Object, key string) bool {
 	if obj == nil {
 		return false
@@ -144,43 +160,19 @@ func GetWorkspaceNodesAction(obj metav1.Object) string {
 }
 
 func IsWorkloadDispatched(obj metav1.Object) bool {
-	if obj == nil || len(obj.GetAnnotations()) == 0 {
-		return false
-	}
-	_, ok := obj.GetAnnotations()[WorkloadDispatchedAnnotation]
-	return ok
+	return HasAnnotation(obj, WorkloadDispatchedAnnotation)
 }
 
 func IsWorkloadScheduled(obj metav1.Object) bool {
-	if obj == nil {
-		return false
-	}
-	_, ok := obj.GetAnnotations()[WorkloadScheduledAnnotation]
-	return ok
+	return HasAnnotation(obj, WorkloadScheduledAnnotation)
 }
 
 func IsControlPlane(obj metav1.Object) bool {
-	if obj == nil {
-		return false
-	}
-	_, ok := obj.GetLabels()[KubernetesControlPlane]
-	return ok
-}
-
-func IsWorkloadForcedFailover(obj metav1.Object) bool {
-	if obj == nil {
-		return false
-	}
-	_, ok := obj.GetAnnotations()[WorkloadForcedFailoverAnnotation]
-	return ok
+	return HasLabel(obj, KubernetesControlPlane)
 }
 
 func IsProtected(obj metav1.Object) bool {
-	if obj == nil {
-		return false
-	}
-	_, ok := obj.GetLabels()[ProtectLabel]
-	return ok
+	return HasLabel(obj, ProtectLabel)
 }
 
 func GetUserName(obj metav1.Object) string {
@@ -203,8 +195,24 @@ func GetWorkloadMainContainer(obj metav1.Object) string {
 	return GetAnnotation(obj, WorkloadMainContainer)
 }
 
-func GetQueueBalanceTimeout(obj metav1.Object) int {
-	return atoi(GetAnnotation(obj, QueueBalanceTimeoutAnnotation))
+func GetWorkloadId(obj metav1.Object) string {
+	return GetLabel(obj, WorkloadIdLabel)
+}
+
+func IsWorkloadDisableFailover(obj metav1.Object) bool {
+	return HasAnnotation(obj, WorkloadDisableFailoverAnnotation)
+}
+
+func IsWorkloadReScheduled(obj metav1.Object) bool {
+	return HasAnnotation(obj, WorkloadReScheduledAnnotation)
+}
+
+func IsEnableHostNetwork(obj metav1.Object) bool {
+	return GetAnnotation(obj, EnableHostNetworkAnnotation) == "true"
+}
+
+func GetImageSecretName(obj metav1.Object) string {
+	return GetAnnotation(obj, ImageSecretNameAnnotation)
 }
 
 func atoi(str string) int {

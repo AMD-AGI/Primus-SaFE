@@ -51,7 +51,7 @@ func NewControllerManager(scheme *runtime.Scheme) (*ControllerManager, error) {
 		LeaderElection:             commonconfig.IsLeaderElectionEnable(),
 		LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
 		LeaderElectionNamespace:    commonconfig.GetLeaderElectionLock(),
-		LeaderElectionID:           "safe-resource-manager-1",
+		LeaderElectionID:           "primus-resource-manager",
 		HealthProbeBindAddress:     healthProbeAddress,
 		Metrics: metricsserver.Options{
 			BindAddress: "0",

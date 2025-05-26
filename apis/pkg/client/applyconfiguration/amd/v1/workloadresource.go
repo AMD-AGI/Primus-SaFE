@@ -9,7 +9,6 @@ package v1
 // WorkloadResourceApplyConfiguration represents a declarative configuration of the WorkloadResource type for use
 // with apply.
 type WorkloadResourceApplyConfiguration struct {
-	Role             *string `json:"role,omitempty"`
 	Replica          *int    `json:"replica,omitempty"`
 	CPU              *string `json:"cpu,omitempty"`
 	GPU              *string `json:"gpu,omitempty"`
@@ -25,14 +24,6 @@ type WorkloadResourceApplyConfiguration struct {
 // apply.
 func WorkloadResource() *WorkloadResourceApplyConfiguration {
 	return &WorkloadResourceApplyConfiguration{}
-}
-
-// WithRole sets the Role field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Role field is set to the value of the last call.
-func (b *WorkloadResourceApplyConfiguration) WithRole(value string) *WorkloadResourceApplyConfiguration {
-	b.Role = &value
-	return b
 }
 
 // WithReplica sets the Replica field in the declarative configuration to the given value

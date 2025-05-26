@@ -22,9 +22,10 @@ const (
 	EventKind           = "Event"
 	DeploymentKind      = "Deployment"
 	StatefulSetKind     = "StatefulSet"
-	PytorchMaster       = "Master"
-	PytorchWorker       = "Worker"
+	JobPortName         = "job-port"
+	SSHPortName         = "ssh-port"
 	MainContainer       = "mainContainer"
+	Rdma                = "rdma/hca"
 
 	DefaultBurst   = 1000
 	DefaultQPS     = 1000

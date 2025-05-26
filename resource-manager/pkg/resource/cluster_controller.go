@@ -9,12 +9,12 @@ import (
 	"context"
 	"time"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -23,9 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
 type ClusterReconciler struct {
@@ -51,7 +48,7 @@ func SetupClusterController(mgr manager.Manager) error {
 }
 
 func (r *ClusterReconciler) enqueueRequestByNode() handler.EventHandler {
-	equeue := func(node *v1.Node, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	enqueue := func(node *v1.Node, q v1.RequestWorkQueue) {
 		for _, owner := range node.OwnerReferences {
 			if owner.APIVersion == v1.SchemeGroupVersion.String() && owner.Kind == v1.ClusterKind {
 				q.Add(ctrlruntime.Request{
@@ -63,19 +60,19 @@ func (r *ClusterReconciler) enqueueRequestByNode() handler.EventHandler {
 		}
 	}
 	return handler.Funcs{
-		CreateFunc: func(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		CreateFunc: func(ctx context.Context, event event.CreateEvent, q v1.RequestWorkQueue) {
 			if node, ok := event.Object.(*v1.Node); ok {
-				equeue(node, q)
+				enqueue(node, q)
 			}
 		},
-		UpdateFunc: func(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		UpdateFunc: func(ctx context.Context, event event.UpdateEvent, q v1.RequestWorkQueue) {
 			if node, ok := event.ObjectNew.(*v1.Node); ok {
-				equeue(node, q)
+				enqueue(node, q)
 			}
 		},
-		DeleteFunc: func(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		DeleteFunc: func(ctx context.Context, event event.DeleteEvent, q v1.RequestWorkQueue) {
 			if node, ok := event.Object.(*v1.Node); ok {
-				equeue(node, q)
+				enqueue(node, q)
 			}
 		},
 		GenericFunc: nil,
@@ -83,7 +80,7 @@ func (r *ClusterReconciler) enqueueRequestByNode() handler.EventHandler {
 }
 
 func (r *ClusterReconciler) enqueueRequestByWorkerPod() handler.EventHandler {
-	enqueue := func(pod *corev1.Pod, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	enqueue := func(pod *corev1.Pod, q v1.RequestWorkQueue) {
 		for _, owner := range pod.OwnerReferences {
 			if owner.APIVersion == v1.SchemeGroupVersion.String() && owner.Kind == v1.ClusterKind {
 				q.Add(ctrlruntime.Request{
@@ -95,17 +92,17 @@ func (r *ClusterReconciler) enqueueRequestByWorkerPod() handler.EventHandler {
 		}
 	}
 	return handler.Funcs{
-		CreateFunc: func(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		CreateFunc: func(ctx context.Context, event event.CreateEvent, q v1.RequestWorkQueue) {
 			if pod, ok := event.Object.(*corev1.Pod); ok {
 				enqueue(pod, q)
 			}
 		},
-		UpdateFunc: func(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		UpdateFunc: func(ctx context.Context, event event.UpdateEvent, q v1.RequestWorkQueue) {
 			if pod, ok := event.ObjectNew.(*corev1.Pod); ok {
 				enqueue(pod, q)
 			}
 		},
-		DeleteFunc: func(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		DeleteFunc: func(ctx context.Context, event event.DeleteEvent, q v1.RequestWorkQueue) {
 			if pod, ok := event.Object.(*corev1.Pod); ok {
 				enqueue(pod, q)
 			}
@@ -144,8 +141,6 @@ func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) err
 	if err := r.resetNodesOfCluster(cluster.Name); err != nil {
 		return err
 	}
-	cm := newClusterManager()
-	cm.deleteInformer(cluster.Name)
 	if err := removeFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer); err != nil {
 		return err
 	}

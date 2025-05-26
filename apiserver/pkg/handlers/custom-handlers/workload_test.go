@@ -40,21 +40,13 @@ func genMockWorkload(clusterId, workspaceId string) *v1.Workload {
 				Version: "v1",
 				Kind:    "PyTorchJob",
 			},
-			Resources: []v1.WorkloadResource{{
-				Role:    "Master",
-				Replica: 1,
+			Resource: v1.WorkloadResource{
+				Replica: 2,
 				CPU:     "16",
 				GPU:     "4",
 				GPUName: common.AmdGpu,
 				Memory:  "1Gi",
-			}, {
-				Role:    "Worker",
-				Replica: 1,
-				CPU:     "16",
-				GPU:     "4",
-				GPUName: common.AmdGpu,
-				Memory:  "1Gi",
-			}},
+			},
 		},
 		Status: v1.WorkloadStatus{
 			Phase: v1.WorkloadRunning,

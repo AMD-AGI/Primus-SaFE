@@ -8,7 +8,6 @@ package custom_handlers
 import (
 	"context"
 	"sort"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -76,8 +75,7 @@ func generateWorkspace(req *types.CreateWorkspaceRequest) *v1.Workspace {
 				v1.DisplayNameLabel: req.Name,
 			},
 			Annotations: map[string]string{
-				v1.DescriptionAnnotation:         req.Description,
-				v1.QueueBalanceTimeoutAnnotation: strconv.Itoa(req.QueueBalanceTimeout),
+				v1.DescriptionAnnotation: req.Description,
 			},
 		},
 		Spec: v1.WorkspaceSpec{
@@ -173,10 +171,6 @@ func updateWorkspace(workspace *v1.Workspace, req *types.PatchWorkspaceRequest) 
 	if req.Description != nil {
 		metav1.SetMetaDataAnnotation(&workspace.ObjectMeta, v1.DescriptionAnnotation, *req.Description)
 	}
-	if req.QueueBalanceTimeout != nil {
-		metav1.SetMetaDataAnnotation(&workspace.ObjectMeta,
-			v1.QueueBalanceTimeoutAnnotation, strconv.Itoa(*req.QueueBalanceTimeout))
-	}
 	if req.NodeFlavor != nil {
 		workspace.Spec.NodeFlavor = *req.NodeFlavor
 	}
@@ -227,18 +221,17 @@ func buildListWorkspaceSelector(query *types.GetWorkspaceRequest) (labels.Select
 func (h *Handler) cvtToWorkspaceResItem(ctx context.Context,
 	w *v1.Workspace, isNeedDetail bool) (*types.GetWorkspaceResponseItem, error) {
 	result := &types.GetWorkspaceResponseItem{
-		WorkspaceId:         w.Name,
-		WorkspaceName:       v1.GetDisplayName(w),
-		ClusterId:           w.Spec.Cluster,
-		NodeFlavor:          w.Spec.NodeFlavor,
-		TotalReplica:        w.Spec.Replica,
-		Phase:               string(w.Status.Phase),
-		CreatedTime:         timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
-		Description:         v1.GetDescription(w),
-		QueuePolicy:         w.Spec.QueuePolicy,
-		QueueBalanceTimeout: v1.GetQueueBalanceTimeout(w),
-		Scopes:              w.Spec.Scopes,
-		Volumes:             w.Spec.Volumes,
+		WorkspaceId:   w.Name,
+		WorkspaceName: v1.GetDisplayName(w),
+		ClusterId:     w.Spec.Cluster,
+		NodeFlavor:    w.Spec.NodeFlavor,
+		TotalReplica:  w.Spec.Replica,
+		Phase:         string(w.Status.Phase),
+		CreatedTime:   timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
+		Description:   v1.GetDescription(w),
+		QueuePolicy:   w.Spec.QueuePolicy,
+		Scopes:        w.Spec.Scopes,
+		Volumes:       w.Spec.Volumes,
 	}
 	if isNeedDetail {
 		if err := h.buildWorkspaceDetail(ctx, w, result); err != nil {
@@ -261,7 +254,7 @@ func (h *Handler) buildWorkspaceDetail(ctx context.Context, workspace *v1.Worksp
 
 	totalQuota := quantity.MultiResource(nfResource, int64(result.AvailableReplica+result.AbnormalReplica))
 	availQuota := quantity.MultiResource(nfResource, int64(result.AvailableReplica))
-	availQuota = quantity.GetAvailResource(availQuota)
+	availQuota = quantity.GetAvailableResource(availQuota)
 	abnormalQuota := quantity.MultiResource(nfResource, int64(result.AbnormalReplica))
 	result.TotalQuota = cvtToResourceList(totalQuota)
 	result.AvailQuota = cvtToResourceList(availQuota)
@@ -285,7 +278,7 @@ func (h *Handler) buildWorkspaceDetail(ctx context.Context, workspace *v1.Worksp
 	}
 	var usedQuota corev1.ResourceList
 	for _, w := range workloads {
-		res, err := commonworkload.GetActiveResource(w, filterNode)
+		res, err := commonworkload.GetActiveResources(w, filterNode)
 		if err != nil {
 			return err
 		}

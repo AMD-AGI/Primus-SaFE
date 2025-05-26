@@ -1,0 +1,415 @@
+/*
+ * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
+package dispatcher
+
+import (
+	"context"
+	"fmt"
+	"io/ioutil"
+	"strings"
+	"testing"
+
+	"gotest.tools/assert"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
+)
+
+type PytorchSpec struct {
+	PytorchReplicaSpecs struct {
+		Master struct {
+			Replicas int                    `json:"replicas"`
+			Template corev1.PodTemplateSpec `json:"template"`
+		} `json:"Master"`
+		Worker struct {
+			Replicas int                    `json:"replicas"`
+			Template corev1.PodTemplateSpec `json:"template"`
+		} `json:"Worker"`
+	} `json:"pytorchReplicaSpecs"`
+}
+type PytorchJob struct {
+	Spec PytorchSpec `json:"spec"`
+}
+
+func genMockScheme() (*runtime.Scheme, error) {
+	result := runtime.NewScheme()
+	err := v1.AddToScheme(result)
+	if err != nil {
+		return nil, err
+	}
+	err = corev1.AddToScheme(result)
+	if err != nil {
+		return nil, err
+	}
+	err = appsv1.AddToScheme(result)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func loadConfigmap(configmapName string) (*corev1.ConfigMap, error) {
+	data, err := ioutil.ReadFile(fmt.Sprintf("../../config/%s", configmapName))
+	if err != nil {
+		return nil, err
+	}
+	decoder := yamlutil.NewYAMLOrJSONDecoder(strings.NewReader(string(data)), 100)
+	var configMap corev1.ConfigMap
+	if err = decoder.Decode(&configMap); err != nil {
+		return nil, err
+	}
+	return &configMap, nil
+}
+
+func TestCreatePytorchJob(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.IsSSHEnabled = true
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
+
+	configmap, err := loadConfigmap("pytorch_job.template")
+	assert.NilError(t, err)
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestPytorchResourceTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.createK8sObject(context.Background(), workload)
+	assert.NilError(t, err)
+	templates := jobutils.TestPytorchResourceTemplate.Spec.Templates
+
+	checkResources(t, obj, workload, &templates[0], 1)
+	checkPorts(t, obj, workload, &templates[0])
+	checkEnvs(t, obj, workload, &templates[0])
+	checkVolumeMounts(t, obj, &templates[0])
+	checkVolumes(t, obj, workload, &templates[0])
+	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload, workspace, &templates[0])
+	checkLabels(t, obj, workload, &templates[0])
+	checkHostNetwork(t, obj, workload, &templates[0])
+	_, found, err := unstructured.NestedSlice(obj.Object, templates[1].PrePaths...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, false)
+
+	// enable worker
+	workload.Spec.Resource.Replica = 3
+	obj, err = r.createK8sObject(context.Background(), workload)
+	assert.NilError(t, err)
+	checkResources(t, obj, workload, &templates[1], 2)
+	checkEnvs(t, obj, workload, &templates[1])
+	checkPorts(t, obj, workload, &templates[1])
+	checkVolumeMounts(t, obj, &templates[1])
+	checkVolumes(t, obj, workload, &templates[1])
+	checkNodeSelectorTerms(t, obj, workload, &templates[1])
+	checkImage(t, obj, workload, workspace, &templates[1])
+	checkLabels(t, obj, workload, &templates[1])
+	checkHostNetwork(t, obj, workload, &templates[1])
+	// fmt.Println(unstructuredutils.ToString(obj))
+}
+
+func TestCreateDeployment(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
+		Group:   "apps",
+		Version: "v1",
+		Kind:    "Deployment",
+	}
+	workload.Spec.Service = &v1.Service{
+		ServiceType: corev1.ServiceTypeNodePort,
+		NodePort:    32198,
+		Extends: map[string]string{
+			"maxSurge":       "25%",
+			"maxUnavailable": "25%",
+		},
+	}
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.WorkloadMainContainer, "main")
+
+	configmap, err := loadConfigmap("deployment.template")
+	assert.NilError(t, err)
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestDeploymentTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.createK8sObject(context.Background(), workload)
+	assert.NilError(t, err)
+	templates := jobutils.TestDeploymentTemplate.Spec.Templates
+
+	checkResources(t, obj, workload, &templates[0], 1)
+	checkPorts(t, obj, workload, &templates[0])
+	checkEnvs(t, obj, workload, &templates[0])
+	checkVolumeMounts(t, obj, &templates[0])
+	checkVolumes(t, obj, workload, &templates[0])
+	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload, workspace, &templates[0])
+	checkLabels(t, obj, workload, &templates[0])
+	checkHostNetwork(t, obj, workload, &templates[0])
+	checkSelector(t, obj, workload)
+	checkStrategy(t, obj, workload)
+	// fmt.Println(unstructuredutils.ToString(obj))
+}
+
+func TestUpdateDeployment(t *testing.T) {
+	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
+	assert.NilError(t, err)
+	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "test")
+
+	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
+	assert.NilError(t, err)
+	deployment := &appsv1.Deployment{}
+	err = unstructuredutils.ConvertUnstructuredToObject(workloadObj, deployment)
+	assert.NilError(t, err)
+
+	assert.Equal(t, *deployment.Spec.Replicas, int32(1))
+	assert.Equal(t, len(deployment.Spec.Template.Spec.Containers), 1)
+	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Resources.Limits.Cpu().Value(), int64(32))
+	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Resources.Limits.Memory().String(), "256Gi")
+	gpuQuantity, ok := deployment.Spec.Template.Spec.Containers[0].Resources.Limits[common.AmdGpu]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, gpuQuantity.Value(), int64(4))
+
+	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Image, "test-image")
+
+	assert.Equal(t, len(deployment.Spec.Template.Spec.Containers[0].Command), 3)
+	cmd := "/bin/bash /shared-data/launcher.sh 'c2ggLWMgdGVzdC5zaA=='"
+	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Command[2], cmd)
+
+	shareMemorySize, err := jobutils.GetShareMemorySize(workloadObj, jobutils.TestDeploymentTemplate)
+	assert.NilError(t, err)
+	assert.Equal(t, shareMemorySize, "32Gi")
+}
+
+func TestUpdatePytorchJob(t *testing.T) {
+	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
+	assert.NilError(t, err)
+	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+	adminWorkload.Spec.Resource = v1.WorkloadResource{
+		Replica:          3,
+		CPU:              "64",
+		GPU:              "8",
+		GPUName:          "amd.com/gpu",
+		Memory:           "512Gi",
+		ShareMemory:      "512Gi",
+		EphemeralStorage: "100Gi",
+	}
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "pytorch")
+	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestPytorchResourceTemplate)
+	assert.NilError(t, err)
+
+	pytorchJob := &PytorchJob{}
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(workloadObj.Object, pytorchJob)
+	assert.NilError(t, err)
+	assert.Equal(t, pytorchJob.Spec.PytorchReplicaSpecs.Master.Replicas, 1)
+	template := pytorchJob.Spec.PytorchReplicaSpecs.Master.Template
+	assert.Equal(t, len(template.Spec.Containers), 1)
+	assert.Equal(t, template.Spec.Containers[0].Resources.Limits.Cpu().Value(), int64(64))
+	assert.Equal(t, template.Spec.Containers[0].Resources.Limits.Memory().String(), "512Gi")
+	gpuQuantity, ok := template.Spec.Containers[0].Resources.Limits[common.AmdGpu]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, gpuQuantity.Value(), int64(8))
+	rdmaQuantity, ok := template.Spec.Containers[0].Resources.Limits[common.Rdma]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, rdmaQuantity.Value(), int64(1))
+
+	assert.Equal(t, pytorchJob.Spec.PytorchReplicaSpecs.Worker.Replicas, 2)
+	template = pytorchJob.Spec.PytorchReplicaSpecs.Worker.Template
+	assert.Equal(t, len(template.Spec.Containers), 1)
+	assert.Equal(t, template.Spec.Containers[0].Resources.Limits.Cpu().Value(), int64(64))
+	assert.Equal(t, template.Spec.Containers[0].Resources.Limits.Memory().String(), "512Gi")
+	gpuQuantity, ok = template.Spec.Containers[0].Resources.Limits[common.AmdGpu]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, gpuQuantity.Value(), int64(8))
+	rdmaQuantity, ok = template.Spec.Containers[0].Resources.Limits[common.Rdma]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, rdmaQuantity.Value(), int64(1))
+}
+
+func TestUpdatePytorchJobMaster(t *testing.T) {
+	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
+	assert.NilError(t, err)
+	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "pytorch")
+	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestPytorchResourceTemplate)
+	assert.NilError(t, err)
+
+	pytorchJob := &PytorchJob{}
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(workloadObj.Object, pytorchJob)
+	assert.NilError(t, err)
+	assert.Equal(t, pytorchJob.Spec.PytorchReplicaSpecs.Master.Replicas, 1)
+	template := pytorchJob.Spec.PytorchReplicaSpecs.Master.Template
+	assert.Equal(t, len(template.Spec.Containers), 1)
+	assert.Equal(t, template.Spec.Containers[0].Resources.Limits.Cpu().Value(), int64(32))
+	assert.Equal(t, template.Spec.Containers[0].Resources.Limits.Memory().String(), "256Gi")
+	gpuQuantity, ok := template.Spec.Containers[0].Resources.Limits[common.AmdGpu]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, gpuQuantity.Value(), int64(4))
+	_, ok = template.Spec.Containers[0].Resources.Limits[common.Rdma]
+	assert.Equal(t, ok, false)
+
+	assert.Equal(t, pytorchJob.Spec.PytorchReplicaSpecs.Worker.Replicas, 0)
+}
+
+func TestIsImageChanged(t *testing.T) {
+	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
+	assert.NilError(t, err)
+	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "test")
+
+	adminWorkload.Spec.Image = "test-image:latest"
+	ok := isImageChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	assert.Equal(t, ok, false)
+
+	adminWorkload.Spec.Image = "test-image:1234"
+	ok = isImageChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	assert.Equal(t, ok, true)
+}
+
+func TestIsEntryPointChanged(t *testing.T) {
+	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
+	assert.NilError(t, err)
+	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "test")
+
+	adminWorkload.Spec.EntryPoint = "abcd"
+	ok := isEntryPointChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	assert.Equal(t, ok, false)
+
+	adminWorkload.Spec.EntryPoint = "123"
+	ok = isEntryPointChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	assert.Equal(t, ok, true)
+}
+
+func TestIsShareMemoryChanged(t *testing.T) {
+	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
+	assert.NilError(t, err)
+	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+
+	adminWorkload.Spec.Resource.ShareMemory = "20Gi"
+	ok := isShareMemoryChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	assert.Equal(t, ok, false)
+
+	adminWorkload.Spec.Resource.ShareMemory = "30Gi"
+	ok = isShareMemoryChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	assert.Equal(t, ok, true)
+}
+
+func TestIsEnvChanged(t *testing.T) {
+	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
+	assert.NilError(t, err)
+	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "test")
+
+	ok := isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	assert.Equal(t, ok, true)
+
+	adminWorkload.Spec.Env = map[string]string{
+		"NCCL_SOCKET_IFNAME": "eth0",
+	}
+	ok = isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	assert.Equal(t, ok, false)
+
+	adminWorkload.Spec.Env = map[string]string{
+		"NCCL_SOCKET_IFNAME": "eth1",
+	}
+	ok = isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	assert.Equal(t, ok, true)
+
+	adminWorkload = jobutils.TestWorkloadData.DeepCopy()
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "test")
+	adminWorkload.Spec.Env = map[string]string{
+		"NCCL_SOCKET_IFNAME": "eth0",
+		"GLOO_SOCKET_IFNAME": "",
+	}
+	ok = isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	assert.Equal(t, ok, true)
+
+	adminWorkload.Spec.Env = map[string]string{
+		"NCCL_SOCKET_IFNAME": "eth0",
+		"GLOO_SOCKET_IFNAME": "eth0",
+		"key":                "val",
+	}
+	ok = isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	assert.Equal(t, ok, true)
+}
+
+func TestUpdateDeploymentEnv(t *testing.T) {
+	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
+	assert.NilError(t, err)
+	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "test")
+
+	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
+	assert.NilError(t, err)
+	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
+	assert.NilError(t, err)
+	assert.Equal(t, len(envs), 3)
+	env, ok := envs[0].(map[string]interface{})
+	assert.Equal(t, ok, true)
+	assert.Equal(t, env["name"].(string), "NCCL_SOCKET_IFNAME")
+	assert.Equal(t, env["value"].(string), "eth0")
+	env, ok = envs[1].(map[string]interface{})
+	assert.Equal(t, ok, true)
+	assert.Equal(t, env["name"].(string), "GLOO_SOCKET_IFNAME")
+	assert.Equal(t, env["value"].(string), "eth0")
+	env, ok = envs[2].(map[string]interface{})
+	assert.Equal(t, ok, true)
+	assert.Equal(t, env["name"].(string), "key")
+	assert.Equal(t, env["value"].(string), "value")
+
+	adminWorkload.Spec.Env = map[string]string{
+		"NCCL_SOCKET_IFNAME": "eth1",
+		"key":                "val",
+	}
+	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
+	assert.NilError(t, err)
+	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
+	assert.NilError(t, err)
+	assert.Equal(t, len(envs), 3)
+	env, ok = envs[0].(map[string]interface{})
+	assert.Equal(t, ok, true)
+	assert.Equal(t, env["name"].(string), "NCCL_SOCKET_IFNAME")
+	assert.Equal(t, env["value"].(string), "eth1")
+	env, ok = envs[1].(map[string]interface{})
+	assert.Equal(t, ok, true)
+	assert.Equal(t, env["name"].(string), "GLOO_SOCKET_IFNAME")
+	assert.Equal(t, env["value"].(string), "eth0")
+	env, ok = envs[2].(map[string]interface{})
+	assert.Equal(t, ok, true)
+	assert.Equal(t, env["name"].(string), "key")
+	assert.Equal(t, env["value"].(string), "val")
+
+	adminWorkload.Spec.Env = map[string]string{
+		"NCCL_SOCKET_IFNAME": "eth1",
+		"key":                "",
+	}
+	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
+	assert.NilError(t, err)
+	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
+	assert.NilError(t, err)
+	assert.Equal(t, len(envs), 2)
+	env, ok = envs[0].(map[string]interface{})
+	assert.Equal(t, ok, true)
+	assert.Equal(t, env["name"].(string), "NCCL_SOCKET_IFNAME")
+	assert.Equal(t, env["value"].(string), "eth1")
+	env, ok = envs[1].(map[string]interface{})
+	assert.Equal(t, ok, true)
+	assert.Equal(t, env["name"].(string), "GLOO_SOCKET_IFNAME")
+	assert.Equal(t, env["value"].(string), "eth0")
+}

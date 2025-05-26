@@ -232,7 +232,7 @@ func Format(key string, quantity resource.Quantity) string {
 	return quantityStr
 }
 
-func GetAvailResource(resources corev1.ResourceList) corev1.ResourceList {
+func GetAvailableResource(resources corev1.ResourceList) corev1.ResourceList {
 	if len(resources) == 0 {
 		return resources
 	}

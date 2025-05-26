@@ -16,20 +16,20 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
-func GetClusterEndpoint(ctx context.Context, cli client.Client, clusterName string, endpoints []string) (string, error) {
+func GetEndpoint(ctx context.Context, cli client.Client, clusterName string, endpoints []string) (string, error) {
 	service := new(corev1.Service)
 	err := cli.Get(ctx, types.NamespacedName{
 		Name:      clusterName,
 		Namespace: common.PrimusSafeNamespace,
 	}, service)
-	serviceUrl := ""
+	result := ""
 	if err == nil {
-		serviceUrl = fmt.Sprintf("https://%s.%s.svc", clusterName, common.PrimusSafeNamespace)
+		result = fmt.Sprintf("https://%s.%s.svc", clusterName, common.PrimusSafeNamespace)
 	} else {
 		if len(endpoints) == 0 {
-			return "", fmt.Errorf("cluster %s has no endpoints", clusterName)
+			return "", fmt.Errorf("either the Service address or the Endpoint is empty")
 		}
-		serviceUrl = endpoints[0]
+		result = endpoints[0]
 	}
-	return serviceUrl, nil
+	return result, nil
 }
