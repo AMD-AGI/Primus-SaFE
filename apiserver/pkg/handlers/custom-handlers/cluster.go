@@ -264,6 +264,13 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 	if v1.IsProtected(cluster) {
 		return nil, commonerrors.NewForbidden("the cluster is protected, it can not be deleted")
 	}
+	workloads, err := h.getRunningWorkloads(c.Request.Context(), cluster.Name, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(workloads) > 0 {
+		return nil, commonerrors.NewForbidden("some workloads are still in progress. Please terminate them first.")
+	}
 	return nil, h.Delete(c.Request.Context(), cluster)
 }
 

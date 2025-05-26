@@ -12,11 +12,12 @@ import (
 	"reflect"
 	"time"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	rookv1 "github.com/rook/rook/pkg/apis/ceph.rook.io/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -25,17 +26,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 )
 
 type StorageClusterController struct {
 	client.Client
 	*storageClusters
 	defaultStorageCluster *storageCluster
-	queue                 workqueue.TypedRateLimitingInterface[reconcile.Request]
+	queue                 v1.RequestWorkQueue
 }
 
 func SetupStorageClusterController(mgr manager.Manager) error {
@@ -56,7 +53,7 @@ func SetupStorageClusterController(mgr manager.Manager) error {
 }
 
 func (r *StorageClusterController) enqueueRequestByCluster() handler.EventHandler {
-	enqueue := func(kc *v1.Cluster, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	enqueue := func(kc *v1.Cluster, queue v1.RequestWorkQueue) {
 		added := map[string]struct{}{}
 		for _, s := range kc.Spec.Storages {
 			added[s.StorageCluster] = struct{}{}
@@ -73,7 +70,7 @@ func (r *StorageClusterController) enqueueRequestByCluster() handler.EventHandle
 		}
 	}
 	return handler.Funcs{
-		CreateFunc: func(ctx context.Context, event event.CreateEvent, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		CreateFunc: func(ctx context.Context, event event.CreateEvent, queue v1.RequestWorkQueue) {
 			if r.queue == nil {
 				r.queue = queue
 			}
@@ -83,7 +80,7 @@ func (r *StorageClusterController) enqueueRequestByCluster() handler.EventHandle
 			}
 			enqueue(kc, queue)
 		},
-		UpdateFunc: func(ctx context.Context, updateEvent event.UpdateEvent, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		UpdateFunc: func(ctx context.Context, updateEvent event.UpdateEvent, queue v1.RequestWorkQueue) {
 			newKC, ok := updateEvent.ObjectNew.(*v1.Cluster)
 			if !ok {
 				return
@@ -96,7 +93,7 @@ func (r *StorageClusterController) enqueueRequestByCluster() handler.EventHandle
 				enqueue(newKC, queue)
 			}
 		},
-		DeleteFunc: func(ctx context.Context, event event.DeleteEvent, queue workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		DeleteFunc: func(ctx context.Context, event event.DeleteEvent, queue v1.RequestWorkQueue) {
 			kc, ok := event.Object.(*v1.Cluster)
 			if !ok {
 				return

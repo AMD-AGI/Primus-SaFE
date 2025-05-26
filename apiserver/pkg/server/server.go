@@ -46,7 +46,7 @@ func init() {
 
 type Server struct {
 	opts        *options.Options
-	server      *http.Server
+	httpServer  *http.Server
 	ctrlManager ctrlruntime.Manager
 	ctx         context.Context
 	isInited    bool
@@ -117,7 +117,7 @@ func (s *Server) Start() {
 func (s *Server) Stop() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := s.server.Shutdown(ctx); err != nil {
+	if err := s.httpServer.Shutdown(ctx); err != nil {
 		klog.Error(gerrors.Wrap(err, "api-server is stopped"))
 	}
 	klog.Info("api-server is stopped")
@@ -152,9 +152,9 @@ func (s *Server) startHttpServer() error {
 		return err
 	}
 	address := fmt.Sprintf(":%d", commonconfig.GetServerPort())
-	s.server = &http.Server{Addr: address, Handler: router}
-	klog.Infof("api-server listen http://%s", s.server.Addr)
-	if err = s.server.ListenAndServe(); err != nil {
+	s.httpServer = &http.Server{Addr: address, Handler: router}
+	klog.Infof("api-server listen http://%s", s.httpServer.Addr)
+	if err = s.httpServer.ListenAndServe(); err != nil {
 		klog.ErrorS(err, "failed to ListenAndServe")
 		return err
 	}

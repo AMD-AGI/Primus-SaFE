@@ -1,0 +1,452 @@
+/*
+ * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
+package dispatcher
+
+import (
+	"fmt"
+	"strconv"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
+)
+
+const (
+	ShareMemoryVolumeName = "sugaku-volume"
+)
+
+func modifyObjectOnCreation(obj *unstructured.Unstructured,
+	adminWorkload *v1.Workload, workspace *v1.Workspace, template *v1.Template) error {
+	_, found, err := unstructured.NestedFieldNoCopy(obj.Object, template.PrePaths...)
+	if err != nil || !found {
+		return nil
+	}
+	templatePath := template.GetTemplatePath()
+
+	path := append(templatePath, "metadata", "labels")
+	if err = modifyLabels(obj, adminWorkload, path); err != nil {
+		return err
+	}
+	path = append(templatePath, "spec",
+		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	if err = modifyNodeSelectorTerms(obj, adminWorkload, path); err != nil {
+		return err
+	}
+	path = append(templatePath, "spec", "containers")
+	if err = modifyMainContainer(obj, adminWorkload, workspace, path); err != nil {
+		return err
+	}
+	path = append(templatePath, "spec", "volumes")
+	if err = modifyVolumes(obj, workspace, path); err != nil {
+		return err
+	}
+	path = append(templatePath, "spec", "hostNetwork")
+	if err = modifyHostNetWork(obj, adminWorkload, path); err != nil {
+		return err
+	}
+	path = append(templatePath, "spec", "imagePullSecrets")
+	if err = modifyImageSecret(obj, workspace, path); err != nil {
+		return err
+	}
+	if commonworkload.IsApplication(adminWorkload) {
+		path = []string{"spec", "strategy"}
+		if err = modifyStrategy(obj, adminWorkload, path); err != nil {
+			return err
+		}
+		path = []string{"spec", "selector"}
+		if err = modifySelector(obj, adminWorkload, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func modifyLabels(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
+	labels := buildLabels(adminWorkload)
+	if err := unstructured.SetNestedMap(obj.Object, labels, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func modifyNodeSelectorTerms(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
+	nodeSelectorTerms, _, err := unstructured.NestedSlice(obj.Object, path...)
+	if err != nil {
+		return err
+	}
+	expression := buildMatchExpression(adminWorkload)
+	if len(nodeSelectorTerms) == 0 {
+		expressions := make(map[string]interface{})
+		expressions["matchExpressions"] = expression
+		nodeSelectorTerms = append(nodeSelectorTerms, expressions)
+	} else {
+		matchExpressions := nodeSelectorTerms[0].(map[string]interface{})
+		objs, ok := matchExpressions["matchExpressions"]
+		if ok {
+			expressions := objs.([]interface{})
+			expressions = append(expressions, expression...)
+			matchExpressions["matchExpressions"] = expressions
+		} else {
+			matchExpressions["matchExpressions"] = []interface{}{expression}
+		}
+	}
+	if err = unstructured.SetNestedSlice(obj.Object, nodeSelectorTerms, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func modifyMainContainer(obj *unstructured.Unstructured,
+	adminWorkload *v1.Workload, workspace *v1.Workspace, path []string) error {
+	containers, found, err := unstructured.NestedSlice(obj.Object, path...)
+	if err != nil {
+		return err
+	}
+	if !found || len(containers) == 0 {
+		return fmt.Errorf("fail to find container with path: %v", path)
+	}
+	mainContainer, err := getMainContainer(containers, v1.GetWorkloadMainContainer(adminWorkload))
+	if err != nil {
+		return err
+	}
+	env := buildEnvironment(adminWorkload)
+	modifyEnv(mainContainer, env)
+
+	modifyVolumeMounts(mainContainer, workspace)
+	mainContainer["ports"] = buildPorts(adminWorkload)
+	if healthz := buildHealthCheck(adminWorkload.Spec.Liveness); healthz != nil {
+		mainContainer["livenessProbe"] = healthz
+	}
+	if healthz := buildHealthCheck(adminWorkload.Spec.Readiness); healthz != nil {
+		mainContainer["readinessProbe"] = healthz
+	}
+	if err = unstructured.SetNestedField(obj.Object, containers, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func modifyEnv(mainContainer map[string]interface{}, env []interface{}) {
+	if len(env) == 0 {
+		return
+	}
+	currentEnv := mainContainer["env"].([]interface{})
+	currentEnv = append(currentEnv, env...)
+	mainContainer["env"] = currentEnv
+}
+
+func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Workspace) {
+	currentMounts := mainContainer["volumeMounts"].([]interface{})
+	if len(workspace.Spec.Volumes) == 0 {
+		return
+	}
+	for _, vol := range workspace.Spec.Volumes {
+		volumeName := string(vol.StorageType)
+		mounts := buildVolumeMounts(vol, volumeName)
+		currentMounts = append(currentMounts, mounts...)
+	}
+	mainContainer["volumeMounts"] = currentMounts
+}
+
+func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path []string) error {
+	volumes, _, err := unstructured.NestedSlice(obj.Object, path...)
+	if err != nil {
+		return err
+	}
+	if len(workspace.Spec.Volumes) == 0 {
+		return nil
+	}
+
+	volumeSets := sets.NewSet()
+	for _, vol := range workspace.Spec.Volumes {
+		volumeName := string(vol.StorageType)
+		if volumeSets.Has(volumeName) {
+			continue
+		}
+		volumeSets.Insert(volumeName)
+		volume := buildPvcVolume(volumeName, volumeName)
+		volumes = append(volumes, volume)
+	}
+	if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func modifyHostNetWork(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
+	isEnableHostNetWork := v1.IsEnableHostNetwork(adminWorkload)
+	if err := unstructured.SetNestedField(obj.Object, isEnableHostNetWork, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func modifyImageSecret(obj *unstructured.Unstructured, workspace *v1.Workspace, path []string) error {
+	if v1.GetImageSecretName(workspace) == "" {
+		return nil
+	}
+	var imageSecrets []interface{}
+	imageSecrets = append(imageSecrets, map[string]interface{}{
+		"name": v1.GetImageSecretName(workspace),
+	})
+	if err := unstructured.SetNestedSlice(obj.Object, imageSecrets, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func modifyStrategy(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
+	if adminWorkload.Spec.Kind != common.DeploymentKind {
+		return nil
+	}
+	rollingUpdate := buildStrategy(adminWorkload)
+	if err := unstructured.SetNestedMap(obj.Object, rollingUpdate, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func modifySelector(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
+	selector := buildSelector(adminWorkload)
+	if err := unstructured.SetNestedMap(obj.Object, selector, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func getMainContainer(containers []interface{}, mainContainerName string) (map[string]interface{}, error) {
+	var mainContainer map[string]interface{}
+	for i := range containers {
+		container := containers[i].(map[string]interface{})
+		name := jobutils.GetUnstructuredString(container, []string{"name"})
+		if name == mainContainerName {
+			mainContainer = container
+			break
+		}
+	}
+	if mainContainer == nil {
+		return nil, fmt.Errorf("fail to find main container, name: %s", mainContainerName)
+	}
+	return mainContainer, nil
+}
+
+func buildCommands(entryPoint string) []interface{} {
+	return []interface{}{"/bin/sh", "-c", buildEntryPoint(entryPoint)}
+}
+
+func buildEntryPoint(entryPoint string) string {
+	if !stringutil.IsBase64(entryPoint) {
+		entryPoint = stringutil.Base64Encode(entryPoint)
+	}
+	entryPoint = "/bin/bash /shared-data/launcher.sh '" + entryPoint + "'"
+	return entryPoint
+}
+
+func buildLabels(adminWorkload *v1.Workload) map[string]interface{} {
+	return map[string]interface{}{
+		v1.WorkloadIdLabel:          adminWorkload.Name,
+		v1.WorkloadDispatchCntLabel: buildDispatchCount(adminWorkload),
+	}
+}
+
+func buildResources(adminWorkload *v1.Workload) map[string]interface{} {
+	result := map[string]interface{}{
+		string(corev1.ResourceCPU):              adminWorkload.Spec.Resource.CPU,
+		string(corev1.ResourceMemory):           adminWorkload.Spec.Resource.Memory,
+		string(corev1.ResourceEphemeralStorage): adminWorkload.Spec.Resource.EphemeralStorage,
+	}
+	if adminWorkload.Spec.Resource.GPU != "" {
+		result[adminWorkload.Spec.Resource.GPUName] = adminWorkload.Spec.Resource.GPU
+		if adminWorkload.Spec.Resource.Replica > 1 {
+			result[common.Rdma] = "1"
+		}
+	}
+	return result
+}
+
+func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
+	var result []interface{}
+	if adminWorkload.Spec.IsSSHEnabled {
+		result = append(result, map[string]interface{}{
+			"name":  "SSH_PORT",
+			"value": strconv.Itoa(adminWorkload.Spec.Resource.SSHPort),
+		})
+	}
+	if adminWorkload.Spec.IsSupervised {
+		result = append(result, map[string]interface{}{
+			"name":  "ENABLE_SUPERVISE",
+			"value": "true",
+		})
+		if commonconfig.GetWorkloadHangCheckSecond() > 0 {
+			result = append(result, map[string]interface{}{
+				"name":  "HANG_CHECK_INTERVAL",
+				"value": strconv.Itoa(commonconfig.GetWorkloadHangCheckSecond()),
+			})
+		}
+	}
+	if adminWorkload.Spec.Resource.GPU == "" {
+		if adminWorkload.Spec.Resource.GPUName == common.NvidiaGpu {
+			result = append(result, map[string]interface{}{
+				"name":  "NVIDIA_VISIBLE_DEVICES",
+				"value": "void",
+			})
+		}
+	} else {
+		result = append(result, map[string]interface{}{
+			"name":  "GPUS_PER_NODE",
+			"value": adminWorkload.Spec.Resource.GPU,
+		})
+		result = append(result, map[string]interface{}{
+			"name":  "NUM_HOSTS",
+			"value": strconv.Itoa(adminWorkload.Spec.Resource.Replica),
+		})
+	}
+	result = append(result, map[string]interface{}{
+		"name":  "DISPATCH_COUNT",
+		"value": buildDispatchCount(adminWorkload),
+	})
+	return result
+}
+
+func buildPorts(adminWorkload *v1.Workload) []interface{} {
+	jobPort := map[string]interface{}{
+		"containerPort": int64(adminWorkload.Spec.Resource.JobPort),
+		"protocol":      "TCP",
+		"name":          common.JobPortName,
+	}
+	result := []interface{}{jobPort}
+	if adminWorkload.Spec.IsSSHEnabled {
+		result = append(result, map[string]interface{}{
+			"containerPort": int64(adminWorkload.Spec.Resource.SSHPort),
+			"name":          common.SSHPortName,
+			"protocol":      "TCP",
+		})
+	}
+	return result
+}
+
+func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {
+	if healthz == nil {
+		return nil
+	}
+	return map[string]interface{}{
+		"failureThreshold":    int64(healthz.FailureThreshold),
+		"initialDelaySeconds": int64(healthz.InitialDelaySeconds),
+		"periodSeconds":       int64(healthz.PeriodSeconds),
+		"httpGet": map[string]interface{}{
+			"path": healthz.Path,
+			"port": int64(healthz.Port),
+		},
+	}
+}
+
+func buildVolumeMounts(vol v1.WorkspaceVolume, volumeName string) []interface{} {
+	var result []interface{}
+	if vol.MountPath != "" {
+		volMount := map[string]interface{}{
+			"mountPath": vol.MountPath,
+			"name":      volumeName,
+		}
+		if vol.SubPath != "" {
+			volMount["subPath"] = vol.SubPath
+		}
+		result = append(result, volMount)
+	}
+	return result
+}
+
+func buildPvcVolume(volumeName, claimName string) interface{} {
+	return map[string]interface{}{
+		"persistentVolumeClaim": map[string]interface{}{
+			"claimName": claimName,
+		},
+		"name": volumeName,
+	}
+}
+
+func buildMatchExpression(adminWorkload *v1.Workload) []interface{} {
+	var result []interface{}
+	result = append(result, map[string]interface{}{
+		"key":      v1.WorkspaceIdLabel,
+		"operator": "In",
+		"values":   []interface{}{adminWorkload.Spec.Workspace},
+	})
+	for key, val := range adminWorkload.Spec.CustomerLabels {
+		result = append(result, map[string]interface{}{
+			"key":      key,
+			"operator": "In",
+			"values":   []interface{}{val},
+		})
+	}
+	return result
+}
+
+func buildShareMemory(sizeLimit string) interface{} {
+	return map[string]interface{}{
+		"emptyDir": map[string]interface{}{
+			"medium":    string(corev1.StorageMediumMemory),
+			"sizeLimit": sizeLimit,
+		},
+		"name": ShareMemoryVolumeName,
+	}
+}
+
+func buildStrategy(adminWorkload *v1.Workload) map[string]interface{} {
+	keys := []string{"maxSurge", "maxUnavailable"}
+	rollingUpdate := make(map[string]interface{})
+	for _, key := range keys {
+		rollingUpdate[key] = adminWorkload.Spec.Service.Extends[key]
+	}
+	return map[string]interface{}{
+		"type":          "RollingUpdate",
+		"rollingUpdate": rollingUpdate,
+	}
+}
+
+func buildSelector(adminWorkload *v1.Workload) map[string]interface{} {
+	return map[string]interface{}{
+		"matchLabels": map[string]interface{}{
+			v1.WorkloadIdLabel: adminWorkload.Name,
+		},
+	}
+}
+
+func convertToStringMap(input map[string]interface{}) map[string]string {
+	result := make(map[string]string)
+	for key, value := range input {
+		if strValue, ok := value.(string); ok {
+			result[key] = strValue
+		}
+	}
+	return result
+}
+
+func convertEnvsToStringMap(envs []interface{}) map[string]string {
+	result := make(map[string]string)
+	for _, e := range envs {
+		env, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, ok := env["name"]
+		if !ok {
+			continue
+		}
+		value, ok := env["value"]
+		if !ok {
+			continue
+		}
+		result[name.(string)] = value.(string)
+	}
+	return result
+}

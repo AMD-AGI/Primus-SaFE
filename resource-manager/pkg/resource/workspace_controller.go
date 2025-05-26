@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
@@ -39,7 +40,7 @@ import (
 
 type WorkspaceReconciler struct {
 	*ClusterBaseReconciler
-	cm *ClusterManager
+	clientManager *commonutils.ObjectManager
 	sync.RWMutex
 	// Maintain a map of ongoing operations
 	// key is workspace ID, value is the list of node IDs involved in the operation
@@ -57,9 +58,9 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: mgr.GetClient(),
 		},
-		cm:           newClusterManager(),
-		expectations: make(map[string]sets.Set),
-		opt:          opt,
+		clientManager: commonutils.NewObjectManagerSingleton(),
+		expectations:  make(map[string]sets.Set),
+		opt:           opt,
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workspace{}, builder.WithPredicates(predicate.Or(
@@ -115,7 +116,7 @@ func (r *WorkspaceReconciler) enqueueRequestByNode() handler.EventHandler {
 		}
 		return false
 	}
-	enqueue := func(q workqueue.TypedRateLimitingInterface[reconcile.Request], nodeName, workspaceId string, doObserve bool) {
+	enqueue := func(q v1.RequestWorkQueue, nodeName, workspaceId string, doObserve bool) {
 		if workspaceId == "" {
 			return
 		}
@@ -125,14 +126,14 @@ func (r *WorkspaceReconciler) enqueueRequestByNode() handler.EventHandler {
 		q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: workspaceId}})
 	}
 	return handler.Funcs{
-		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
 			n, ok := evt.Object.(*v1.Node)
 			if !ok {
 				return
 			}
 			enqueue(q, n.Name, v1.GetWorkspaceId(n), true)
 		},
-		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
 			oldNode, ok1 := evt.ObjectOld.(*v1.Node)
 			newNode, ok2 := evt.ObjectNew.(*v1.Node)
 			if !ok1 || !ok2 {
@@ -145,7 +146,7 @@ func (r *WorkspaceReconciler) enqueueRequestByNode() handler.EventHandler {
 				enqueue(q, newNode.Name, v1.GetWorkspaceId(newNode), false)
 			}
 		},
-		DeleteFunc: func(ctx context.Context, evt event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		DeleteFunc: func(ctx context.Context, evt event.DeleteEvent, q v1.RequestWorkQueue) {
 			n, ok := evt.Object.(*v1.Node)
 			if !ok {
 				return
@@ -241,8 +242,8 @@ func (r *WorkspaceReconciler) handle(ctx context.Context, workspace *v1.Workspac
 	if !r.meetExpectations(workspace.Name) {
 		return ctrlruntime.Result{}, nil
 	}
-	informer := r.cm.getInformer(workspace.Spec.Cluster)
-	if informer == nil || !informer.IsValid() {
+	k8sClients, err := getK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
+	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
@@ -252,7 +253,6 @@ func (r *WorkspaceReconciler) handle(ctx context.Context, workspace *v1.Workspac
 			return ctrlruntime.Result{}, err
 		}
 	}
-	var err error
 	if err = r.syncWorkspace(ctx, workspace); err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -265,7 +265,7 @@ func (r *WorkspaceReconciler) handle(ctx context.Context, workspace *v1.Workspac
 		result, err = r.scaleDown(ctx, workspace, count)
 	case totalStatusCount < workspace.Spec.Replica:
 		count := workspace.Spec.Replica - totalStatusCount
-		result, err = r.scaleUp(ctx, workspace, informer, count)
+		result, err = r.scaleUp(ctx, workspace, k8sClients, count)
 	default:
 		phase := v1.WorkspaceRunning
 		if workspace.Status.AvailableReplica == 0 {
@@ -296,13 +296,13 @@ func (r *WorkspaceReconciler) scaleDown(ctx context.Context, workspace *v1.Works
 	return ctrlruntime.Result{}, nil
 }
 
-func (r *WorkspaceReconciler) scaleUp(ctx context.Context, workspace *v1.Workspace, informer *ClusterInformer, count int) (ctrlruntime.Result, error) {
+func (r *WorkspaceReconciler) scaleUp(ctx context.Context, workspace *v1.Workspace, k8sClients *commonclient.ClientFactory, count int) (ctrlruntime.Result, error) {
 	if workspace.Status.Phase == "" {
 		if err := r.updatePhase(ctx, workspace, v1.WorkspaceCreating); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 	}
-	nodes, err := r.getNodesForScalingUp(ctx, workspace, informer, count)
+	nodes, err := r.getNodesForScalingUp(ctx, workspace, k8sClients, count)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -318,7 +318,7 @@ func (r *WorkspaceReconciler) scaleUp(ctx context.Context, workspace *v1.Workspa
 	return ctrlruntime.Result{}, nil
 }
 
-func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspace *v1.Workspace, informer *ClusterInformer, count int) ([]*v1.Node, error) {
+func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspace *v1.Workspace, k8sClients *commonclient.ClientFactory, count int) ([]*v1.Node, error) {
 	if workspace.Spec.NodeFlavor == "" {
 		return nil, nil
 	}
@@ -340,7 +340,7 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 		if v1.GetNodeFlavorId(&n) != workspace.Spec.NodeFlavor {
 			continue
 		}
-		k8sNode, err := getNodeByInformer(ctx, informer, n.GetK8sNodeName())
+		k8sNode, err := getNodeByInformer(ctx, k8sClients, n.GetK8sNodeName())
 		if err != nil {
 			klog.ErrorS(err, "failed to get k8sNode")
 			continue
@@ -409,9 +409,6 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 	var availReplica, abnormalReplica int
 	var totalResources, availResources corev1.ResourceList
 	for _, node := range nodes {
-		if !node.GetDeletionTimestamp().IsZero() {
-			continue
-		}
 		if v1.GetNodeFlavorId(&node) != workspace.Spec.NodeFlavor {
 			continue
 		}

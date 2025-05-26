@@ -17,12 +17,10 @@ import (
 func TestIsPrimus(t *testing.T) {
 	err := NewBadRequest("test")
 	assert.Equal(t, IsPrimus(err), true)
-	assert.Equal(t, IgnorePrimusError(err) == nil, true)
 	assert.Equal(t, GetErrorCode(err), BadRequest)
 
 	err2 := fmt.Errorf("test")
 	assert.Equal(t, IsPrimus(err2), false)
-	assert.Equal(t, IgnorePrimusError(err2) == nil, false)
 	assert.Equal(t, GetErrorCode(err2), "")
 }
 

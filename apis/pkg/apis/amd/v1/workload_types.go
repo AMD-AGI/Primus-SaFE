@@ -53,8 +53,6 @@ const (
 )
 
 type WorkloadResource struct {
-	// Valid only for PyTorchJob jobs; values can be "master" or "worker". Optional for other job types.
-	Role string `json:"role,omitempty"`
 	// Number of requested nodes
 	Replica int `json:"replica"`
 	// Requested CPU core count (e.g., 128)
@@ -104,8 +102,8 @@ type Service struct {
 }
 
 type WorkloadSpec struct {
-	// workload resource requirements. Only PyTorchJob uses multiple resource entries
-	Resources []WorkloadResource `json:"resources"`
+	// workload resource requirements
+	Resource WorkloadResource `json:"resource"`
 	// requested workspace
 	Workspace string `json:"workspace,omitempty"`
 	// workload image address
@@ -125,7 +123,7 @@ type WorkloadSpec struct {
 	// workload scheduling priority. Defaults to 0; valid range: 0–2
 	Priority int `json:"priority,omitempty"`
 	// The lifecycle of the workload after completion, in seconds. Default to 60.
-	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
+	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished,omitempty"`
 	// workload timeout in hours. Default is 0 (no timeout).
 	Timeout *int `json:"timeout,omitempty"`
 	// The workload will run on nodes with the user-specified labels.

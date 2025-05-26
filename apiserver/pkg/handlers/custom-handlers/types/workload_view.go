@@ -71,28 +71,21 @@ type GetWorkloadResponse struct {
 	Items      []GetWorkloadResponseItem `json:"items,omitempty"`
 }
 
-type WorkloadResource struct {
-	// Valid only for PyTorchJob jobs; values can be "master" or "worker". Optional for other job types.
-	Role string `json:"name,omitempty"`
-	// Requested replica count for the workload
-	Replica int `json:"replica,omitempty"`
-	// cpu cores, e.g. 128
-	CPU string `json:"cpu,omitempty"`
-	// gpu card, e.g. 8
-	GPU *string `json:"gpu,omitempty"`
-	// memory size, e.g. 128Gi
-	Memory string `json:"memory,omitempty"`
-	// pod storage size, e.g. 50Gi
-	EphemeralStorage string `json:"ephemeralStorage,omitempty"`
-	// share memory, e.g. 20Gi
-	ShareMemory string `json:"shareMemory,omitempty"`
-}
-
 type PatchWorkloadRequest struct {
 	// workload scheduling priority. valid range: 0–2
 	Priority *int `json:"priority,omitempty"`
-	// workload resource requirements
-	Resources *[]WorkloadResource `json:"resources,omitempty"`
+	// Requested replica count for the workload
+	Replica *int `json:"replica,omitempty"`
+	// cpu cores, e.g. 128
+	CPU *string `json:"cpu,omitempty"`
+	// gpu card, e.g. 8
+	GPU *string `json:"gpu,omitempty"`
+	// memory size, e.g. 128Gi
+	Memory *string `json:"memory,omitempty"`
+	// pod storage size, e.g. 50Gi
+	EphemeralStorage *string `json:"ephemeralStorage,omitempty"`
+	// share memory, e.g. 20Gi
+	ShareMemory *string `json:"shareMemory,omitempty"`
 	// the image used by workload
 	Image *string `json:"image,omitempty"`
 	// workload entryPoint, required in base64 encoding

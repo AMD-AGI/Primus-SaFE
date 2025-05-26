@@ -24,10 +24,20 @@ type Result struct {
 	RequeueAfter time.Duration
 }
 
-type AddQueue[T comparable] func(item T)
+type QueueHandler[T comparable] func(message T)
 
 type Handler[T comparable] interface {
-	Do(ctx context.Context, item T) (Result, error)
+	Do(ctx context.Context, message T) (Result, error)
+}
+
+func NewController[T comparable](h Handler[T], concurrent int) *Controller[T] {
+	return &Controller[T]{
+		handler: h,
+		queue: workqueue.NewTypedRateLimitingQueueWithConfig(
+			workqueue.DefaultTypedControllerRateLimiter[T](),
+			workqueue.TypedRateLimitingQueueConfig[T]{}),
+		MaxConcurrent: concurrent,
+	}
 }
 
 func NewControllerWithQueue[T comparable](h Handler[T], queue workqueue.TypedRateLimitingInterface[T], concurrent int) *Controller[T] {
@@ -69,13 +79,12 @@ func (c *Controller[T]) processNext(ctx context.Context) bool {
 	return true
 }
 
-// AddQueue add object into queue
-func (c *Controller[T]) Add(item T) {
-	c.queue.Add(item)
+func (c *Controller[T]) Add(message T) {
+	c.queue.Add(message)
 }
 
-func (c *Controller[T]) AddAfter(item T, duration time.Duration) {
-	c.queue.AddAfter(item, duration)
+func (c *Controller[T]) AddAfter(message T, duration time.Duration) {
+	c.queue.AddAfter(message, duration)
 }
 
 func (c *Controller[T]) GetQueueSize() int {

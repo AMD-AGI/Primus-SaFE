@@ -260,7 +260,7 @@ func (h *Handler) getAllUsedResourcePerNode(ctx context.Context,
 	}
 
 	for _, w := range workloads {
-		resourcePerNode, err := commonworkload.GetResourcePerNode(w, "")
+		resourcePerNode, err := commonworkload.GetResourcesPerNode(w, "")
 		if err != nil {
 			return nil, err
 		}
@@ -292,7 +292,7 @@ func (h *Handler) getUsedResource(ctx context.Context, node *v1.Node) (*resource
 	}
 	result := new(resourceInfo)
 	for _, w := range workloads {
-		resourcePerNode, err := commonworkload.GetResourcePerNode(w, node.Name)
+		resourcePerNode, err := commonworkload.GetResourcesPerNode(w, node.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -458,11 +458,11 @@ func cvtToGetNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.GetN
 	}
 	var availResource corev1.ResourceList
 	if usedResource != nil && len(usedResource.resource) > 0 {
-		availResource = quantity.GetAvailResource(n.Status.Resources)
+		availResource = quantity.GetAvailableResource(n.Status.Resources)
 		availResource = quantity.SubResource(availResource, usedResource.resource)
 		result.Workloads = usedResource.workloads
 	} else {
-		availResource = quantity.GetAvailResource(n.Status.Resources)
+		availResource = quantity.GetAvailableResource(n.Status.Resources)
 	}
 	result.AvailResources = cvtToResourceList(availResource)
 	lastStartupTime := timeutil.CvtStrUnixToTime(v1.GetNodeStartupTime(n))

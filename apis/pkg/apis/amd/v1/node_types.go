@@ -130,6 +130,9 @@ func (n *Node) IsAvailable() bool {
 	if !n.IsManaged() {
 		return false
 	}
+	if !n.GetDeletionTimestamp().IsZero() {
+		return false
+	}
 	if len(n.Status.Taints) > 0 || n.Status.Unschedulable {
 		return false
 	}
