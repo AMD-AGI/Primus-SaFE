@@ -77,7 +77,7 @@ func (r *ClusterReconciler) addClientFactory(ctx context.Context, c *v1.Cluster)
 	}
 	mgr := commonutils.NewObjectManagerSingleton()
 	if mgr == nil {
-		return fmt.Errorf("failed to new cluster clients manager")
+		return fmt.Errorf("failed to new clients manager")
 	}
 	controlPlane := &c.Status.ControlPlaneStatus
 	endpoint, err := commoncluster.GetEndpoint(ctx, r.Client, c.Name, controlPlane.Endpoints)

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [ -z "$HANG_CHECK_INTERVAL" ] || [ "$JOB_KIND" != "PytorchJob" ]; then
+if [ -z "${HANG_CHECK_INTERVAL}" ] || [ "${JOB_KIND}" != "PytorchJob" ]; then
   exit 0
 fi
 

@@ -5,7 +5,7 @@
 # See LICENSE for license information.
 #
 
-WORK_PATH=/opt/xcs/job-manager
+WORK_PATH=/opt/primus-safe/job-manager
 
 . /etc/bashrc
 
