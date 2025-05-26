@@ -14,7 +14,7 @@ const (
 )
 
 func FloatEqual(f1, f2 float64) bool {
-	if math.Abs(f1-f2) < epsilon {
+	if math.Abs(f1-f2) <= epsilon {
 		return true
 	}
 	return false

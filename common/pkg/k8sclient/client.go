@@ -27,9 +27,9 @@ func NewClientSetInCluster() (kubernetes.Interface, *rest.Config, error) {
 	return cli, restConfig, err
 }
 
-func NewClientSet(endpoint, clientCert, clientKey, clusterCa string,
+func NewClientSet(endpoint, certData, keyData, caData string,
 	insecure bool) (kubernetes.Interface, *rest.Config, error) {
-	restConfig, err := GetRestConfig(endpoint, clientCert, clientKey, clusterCa, insecure)
+	restConfig, err := GetRestConfig(endpoint, certData, keyData, caData, insecure)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -57,24 +57,24 @@ func NewClientSetWithRestConfig(cfg *rest.Config) (kubernetes.Interface, error) 
 	return client, nil
 }
 
-func GetRestConfig(endpoint, clientCert, clientKey, clusterCa string, insecure bool) (*rest.Config, error) {
+func GetRestConfig(endpoint, certData, keyData, caData string, insecure bool) (*rest.Config, error) {
 	inst := crypto.Instance()
 	if inst == nil {
 		return nil, fmt.Errorf("failed to new crypto instance")
 	}
-	cert, err := inst.Decrypt(clientCert)
+	decryptedCertData, err := inst.Decrypt(certData)
 	if err != nil {
 		return nil, err
 	}
-	key, err := inst.Decrypt(clientKey)
+	decryptedKeyData, err := inst.Decrypt(keyData)
 	if err != nil {
 		return nil, err
 	}
-	ca, err := inst.Decrypt(clusterCa)
+	decryptedCaData, err := inst.Decrypt(caData)
 	if err != nil {
 		return nil, err
 	}
-	restConfig, err := getRestConfig(endpoint, cert, key, ca, insecure)
+	restConfig, err := getRestConfig(endpoint, decryptedCertData, decryptedKeyData, decryptedCaData, insecure)
 	if err != nil {
 		return nil, err
 	}
@@ -91,9 +91,9 @@ func GetRestConfigInCluster() (*rest.Config, error) {
 	return restCfg, nil
 }
 
-func getRestConfig(endpoint, clientCert, clientKey, clusterCa string, insecure bool) (*rest.Config, error) {
-	cert := stringutil.Base64Decode(clientCert)
-	key := stringutil.Base64Decode(clientKey)
+func getRestConfig(endpoint, certData, keyData, caData string, insecure bool) (*rest.Config, error) {
+	cert := stringutil.Base64Decode(certData)
+	key := stringutil.Base64Decode(keyData)
 	if endpoint == "" || cert == "" || key == "" {
 		return nil, fmt.Errorf("invalid input")
 	}
@@ -108,7 +108,7 @@ func getRestConfig(endpoint, clientCert, clientKey, clusterCa string, insecure b
 		Burst: common.DefaultBurst,
 	}
 	if !insecure {
-		ca := stringutil.Base64Decode(clusterCa)
+		ca := stringutil.Base64Decode(caData)
 		if ca == "" {
 			return nil, fmt.Errorf("invalid input")
 		}

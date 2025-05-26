@@ -6,8 +6,6 @@
 package custom_handlers
 
 import (
-	"fmt"
-
 	"github.com/gin-gonic/gin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -31,12 +29,11 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	}
 	workspace := adminWorkload.Spec.Workspace
 
-	cluster := h.clusterManager.Get(v1.GetClusterId(adminWorkload))
-	if cluster == nil {
-		err = fmt.Errorf("the cluster %s is not found. pls retry later", v1.GetClusterId(adminWorkload))
-		return nil, commonerrors.NewInternalError(err.Error())
+	k8sClients, err := h.getK8sClientFactory(v1.GetClusterId(adminWorkload))
+	if err != nil {
+		return nil, err
 	}
-	service, err := cluster.ClientSet.CoreV1().Services(workspace).Get(
+	service, err := k8sClients.ClientSet().CoreV1().Services(workspace).Get(
 		c.Request.Context(), name, metav1.GetOptions{})
 	if err != nil {
 		return nil, err

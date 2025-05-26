@@ -78,7 +78,7 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: spec.nodeName
-          image: /primus-safe/node-agent:latest
+          image: primussafe/node-agent:latest
           imagePullPolicy: Always
           name: node-agent
           command: ["/bin/sh", "/opt/primus-safe/node-agent/run.sh"]

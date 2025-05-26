@@ -8,7 +8,6 @@ package custom_handlers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"sort"
 	"strings"
@@ -170,12 +169,12 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	cluster := h.clusterManager.Get(v1.GetClusterId(workload))
-	if cluster == nil {
-		return nil, fmt.Errorf("the cluster %s is not found, pls retry later", v1.GetClusterId(workload))
+	k8sClients, err := h.getK8sClientFactory(v1.GetClusterId(workload))
+	if err != nil {
+		return nil, err
 	}
 	podName := strings.TrimSpace(c.Param(types.PodId))
-	podLogs, err := h.getPodLog(c, cluster.ClientSet,
+	podLogs, err := h.getPodLog(c, k8sClients.ClientSet(),
 		workload.Spec.Workspace, podName, v1.GetWorkloadMainContainer(workload))
 	if err != nil {
 		return nil, err
@@ -200,7 +199,7 @@ func (h *Handler) patchPhase(ctx context.Context, workload *v1.Workload,
 
 	if cond != nil {
 		cond.LastTransitionTime = metav1.NewTime(time.Now())
-		cond.Reason = commonworkload.GenerateCondReason(v1.GetWorkloadDispatchCnt(workload))
+		cond.Reason = commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload))
 		if cond2 := workload.GetLastCondition(); cond2 != nil && cond2.Type == cond.Type {
 			meta.SetStatusCondition(&workload.Status.Conditions, *cond)
 		} else {
@@ -326,11 +325,23 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	if req.Priority != nil {
 		adminWorkload.Spec.Priority = *req.Priority
 	}
-	if req.Description != nil {
-		metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.DescriptionAnnotation, *req.Description)
+	if req.Replica != nil {
+		adminWorkload.Spec.Resource.Replica = *req.Replica
 	}
-	if req.Timeout != nil {
-		adminWorkload.Spec.Timeout = pointer.Int(*req.Timeout)
+	if req.CPU != nil {
+		adminWorkload.Spec.Resource.CPU = *req.CPU
+	}
+	if req.GPU != nil {
+		adminWorkload.Spec.Resource.GPU = *req.GPU
+	}
+	if req.Memory != nil {
+		adminWorkload.Spec.Resource.Memory = *req.Memory
+	}
+	if req.EphemeralStorage != nil {
+		adminWorkload.Spec.Resource.EphemeralStorage = *req.EphemeralStorage
+	}
+	if req.ShareMemory != nil {
+		adminWorkload.Spec.Resource.ShareMemory = *req.ShareMemory
 	}
 	if req.Image != nil && *req.Image != "" {
 		adminWorkload.Spec.Image = *req.Image
@@ -338,36 +349,11 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	if req.EntryPoint != nil && *req.EntryPoint != "" {
 		adminWorkload.Spec.EntryPoint = *req.EntryPoint
 	}
-	if req.Resources != nil {
-		if len(*req.Resources) == 1 && len(adminWorkload.Spec.Resources) == 1 && (*req.Resources)[0].Role == "" {
-			(*req.Resources)[0].Role = adminWorkload.Spec.Resources[0].Role
-		}
-		for _, res := range *req.Resources {
-			for i, res2 := range adminWorkload.Spec.Resources {
-				if res.Role != res2.Role {
-					continue
-				}
-				if res.Replica > 0 {
-					adminWorkload.Spec.Resources[i].Replica = res.Replica
-				}
-				if res.GPU != nil {
-					adminWorkload.Spec.Resources[i].GPU = *res.GPU
-				}
-				if res.CPU != "" {
-					adminWorkload.Spec.Resources[i].CPU = res.CPU
-				}
-				if res.Memory != "" {
-					adminWorkload.Spec.Resources[i].Memory = res.Memory
-				}
-				if res.EphemeralStorage != "" {
-					adminWorkload.Spec.Resources[i].EphemeralStorage = res.EphemeralStorage
-				}
-				if res.ShareMemory != "" {
-					adminWorkload.Spec.Resources[i].ShareMemory = res.ShareMemory
-				}
-				break
-			}
-		}
+	if req.Description != nil {
+		metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.DescriptionAnnotation, *req.Description)
+	}
+	if req.Timeout != nil {
+		adminWorkload.Spec.Timeout = pointer.Int(*req.Timeout)
 	}
 	if req.Env != nil {
 		for key, val := range *req.Env {

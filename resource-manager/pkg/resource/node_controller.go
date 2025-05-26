@@ -13,12 +13,15 @@ import (
 	"strings"
 	"time"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -27,16 +30,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
 type NodeReconciler struct {
 	*ClusterBaseReconciler
-	cm *ClusterManager
+	clientManager *commonutils.ObjectManager
 }
 
 func SetupNodeController(mgr manager.Manager) error {
@@ -44,7 +42,7 @@ func SetupNodeController(mgr manager.Manager) error {
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: mgr.GetClient(),
 		},
-		cm: newClusterManager(),
+		clientManager: commonutils.NewObjectManagerSingleton(),
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Node{}, builder.WithPredicates(predicate.Or(
@@ -95,7 +93,7 @@ func (r *NodeReconciler) isNodeCaredFieldChanged(oldNode, newNode *v1.Node) bool
 }
 
 func (r *NodeReconciler) enqueueRequestByWorkerPod() handler.EventHandler {
-	enqueue := func(pod *corev1.Pod, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	enqueue := func(pod *corev1.Pod, q v1.RequestWorkQueue) {
 		for _, owner := range pod.OwnerReferences {
 			if owner.APIVersion == v1.SchemeGroupVersion.String() && owner.Kind == v1.NodeKind {
 				q.Add(ctrlruntime.Request{
@@ -107,17 +105,17 @@ func (r *NodeReconciler) enqueueRequestByWorkerPod() handler.EventHandler {
 		}
 	}
 	return handler.Funcs{
-		CreateFunc: func(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		CreateFunc: func(ctx context.Context, event event.CreateEvent, q v1.RequestWorkQueue) {
 			if pod, ok := event.Object.(*corev1.Pod); ok {
 				enqueue(pod, q)
 			}
 		},
-		UpdateFunc: func(ctx context.Context, event event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		UpdateFunc: func(ctx context.Context, event event.UpdateEvent, q v1.RequestWorkQueue) {
 			if pod, ok := event.ObjectNew.(*corev1.Pod); ok {
 				enqueue(pod, q)
 			}
 		},
-		DeleteFunc: func(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		DeleteFunc: func(ctx context.Context, event event.DeleteEvent, q v1.RequestWorkQueue) {
 			if pod, ok := event.Object.(*corev1.Pod); ok {
 				enqueue(pod, q)
 			}
@@ -159,11 +157,11 @@ func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*c
 	if clusterName == "" || k8sNodeName == "" {
 		return nil, ctrlruntime.Result{}, nil
 	}
-	informer := r.cm.getInformer(clusterName)
-	if informer == nil || !informer.IsValid() {
+	k8sClients, err := getK8sClientFactory(r.clientManager, clusterName)
+	if err != nil || !k8sClients.IsValid() {
 		return nil, ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	k8sNode, err := getNodeByInformer(ctx, informer, k8sNodeName)
+	k8sNode, err := getNodeByInformer(ctx, k8sClients, k8sNodeName)
 	return k8sNode, ctrlruntime.Result{}, err
 }
 
@@ -285,11 +283,11 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 	if k8sNode == nil || clusterName == "" {
 		return ctrlruntime.Result{}, nil
 	}
-
-	informer := r.cm.getInformer(clusterName)
-	if informer == nil || !informer.IsValid() {
+	k8sClients, err := getK8sClientFactory(r.clientManager, clusterName)
+	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
+
 	functions := []func(adminNode *v1.Node, k8sNode *corev1.Node) bool{
 		r.updateK8sNodeTaints, r.updateK8sNodeLabels,
 		r.updateK8sNodeAnnotations, r.updateK8sNodeWorkspace,
@@ -300,14 +298,13 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 			isShouldUpdate = true
 		}
 	}
-	var err error
 	if isShouldUpdate {
-		if k8sNode, err = informer.GetClient().CoreV1().Nodes().Update(ctx, k8sNode, metav1.UpdateOptions{}); err != nil {
+		if k8sNode, err = k8sClients.ClientSet().CoreV1().Nodes().Update(ctx, k8sNode, metav1.UpdateOptions{}); err != nil {
 			klog.ErrorS(err, "failed to update k8s node")
 			return ctrlruntime.Result{}, err
 		}
 	}
-	if err = removeTaintConditions(ctx, informer.GetClient(), k8sNode); err != nil {
+	if err = removeTaintConditions(ctx, k8sClients.ClientSet(), k8sNode); err != nil {
 		klog.ErrorS(err, "failed to remove taint conditions")
 		return ctrlruntime.Result{}, err
 	}
@@ -532,11 +529,11 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 	}
 	// if the Kubernetes node is already present, it means the node has been successfully managed.
 	if k8sNode != nil {
-		informer := r.cm.getInformer(adminNode.GetSpecCluster())
-		if informer == nil || !informer.IsValid() {
+		k8sClients, err := getK8sClientFactory(r.clientManager, adminNode.GetSpecCluster())
+		if err != nil || !k8sClients.IsValid() {
 			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 		}
-		if err := r.syncLabelsToK8sNode(ctx, informer.clientSet, adminNode, k8sNode); err != nil {
+		if err = r.syncLabelsToK8sNode(ctx, k8sClients.ClientSet(), adminNode, k8sNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
@@ -683,12 +680,11 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 			return ctrlruntime.Result{}, err
 		}
 	}
-
-	informer := r.cm.getInformer(clusterName)
-	if informer == nil || !informer.IsValid() {
+	k8sClients, err := getK8sClientFactory(r.clientManager, clusterName)
+	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	return ctrlruntime.Result{}, r.syncOrCreateScaleDownPod(ctx, informer.clientSet, adminNode, k8sNode)
+	return ctrlruntime.Result{}, r.syncOrCreateScaleDownPod(ctx, k8sClients.ClientSet(), adminNode, k8sNode)
 }
 
 func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {

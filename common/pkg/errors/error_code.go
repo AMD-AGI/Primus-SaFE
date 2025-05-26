@@ -70,19 +70,24 @@ func IsPrimus(err error) bool {
 	return strings.HasPrefix(string(apierrors.ReasonForError(err)), PrimusPrefix)
 }
 
-func IgnorePrimusError(err error) error {
-	if IsPrimus(err) {
-		return nil
-	}
-	return err
-}
-
 func IsAlreadyExist(err error) bool {
 	return apierrors.ReasonForError(err) == AlreadyExist
 }
 
 func IsBadRequest(err error) bool {
 	return apierrors.ReasonForError(err) == BadRequest
+}
+
+func IsInternal(err error) bool {
+	return apierrors.ReasonForError(err) == InternalError
+}
+func IsNotFound(err error) bool {
+	reason := apierrors.ReasonForError(err)
+	if reason == NotFound || reason == WorkloadNotFound ||
+		reason == NodeNotFound || reason == ResourceTemplateNotFound {
+		return true
+	}
+	return false
 }
 
 func GetErrorCode(err error) string {
@@ -98,15 +103,6 @@ func NewBadRequest(message string) *apierrors.StatusError {
 		Code:    http.StatusBadRequest,
 		Reason:  BadRequest,
 		Message: fmt.Sprintf("Bad request. %s", message),
-	}}
-}
-
-func NewBadRequestWithRawMsg(message string) *apierrors.StatusError {
-	return &apierrors.StatusError{ErrStatus: metav1.Status{
-		Status:  metav1.StatusFailure,
-		Code:    http.StatusBadRequest,
-		Reason:  BadRequest,
-		Message: message,
 	}}
 }
 

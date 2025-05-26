@@ -20,6 +20,7 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -35,7 +36,6 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -47,6 +47,7 @@ const (
 	DefaultMaxUnavailable      = "25%"
 	DefaultMaxMaxSurge         = "25%"
 	DefaultMaxFailover         = 50
+	DefaultWorkloadTTL         = 60
 )
 
 func AddWorkloadWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
@@ -120,6 +121,7 @@ func (m *WorkloadMutator) mutateCreate(ctx context.Context, workload *v1.Workloa
 	m.mutateService(workload)
 	m.mutateMaxRetry(workload)
 	m.mutateCreateEnv(workload)
+	m.mutateTTLSeconds(workload)
 	m.mutateCommon(workload)
 	return true
 }
@@ -153,12 +155,13 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 		metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	}
 	metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkloadKindLabel, workload.Spec.Kind)
+	metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkloadIdLabel, workload.Name)
+	metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
 	if v1.GetUserName(workload) != "" {
 		metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	}
-	if v1.GetWorkloadMainContainer(workload) == "" && len(workload.Spec.Resources) > 0 {
-		cm, err := commonworkload.GetTemplateConfig(ctx, m.Client,
-			workload.Spec.Kind, workload.Spec.Resources[0].GPUName)
+	if v1.GetWorkloadMainContainer(workload) == "" {
+		cm, err := commonworkload.GetTemplateConfig(ctx, m.Client, workload.Spec.Kind)
 		if err == nil {
 			metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.WorkloadMainContainer, cm.Labels[common.MainContainer])
 		}
@@ -175,15 +178,8 @@ func (m *WorkloadMutator) mutateGvk(ctx context.Context, workload *v1.Workload) 
 		workload.Spec.Kind = common.PytorchJobKind
 	}
 	if workload.Spec.Group == "" || workload.Spec.Version == "" {
-		rtl := &v1.ResourceTemplateList{}
-		err := m.List(ctx, rtl)
-		if err != nil {
-			return
-		}
-		for _, rt := range rtl.Items {
-			if rt.Spec.GroupVersionKind.Kind != workload.Spec.Kind {
-				continue
-			}
+		rt, _ := getResourceTemplate(ctx, m.Client, workload.Spec.Kind)
+		if rt != nil {
 			if workload.Spec.Group == "" {
 				workload.Spec.Group = rt.Spec.GroupVersionKind.Group
 			}
@@ -208,24 +204,22 @@ func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
 
 func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Workspace) bool {
 	isChanged := false
-	for i := range workload.Spec.Resources {
-		if workload.Spec.Resources[i].GPU != "" && workspace != nil {
-			workload.Spec.Resources[i].GPUName = v1.GetGpuResourceName(workspace)
-		}
-		if workload.Spec.Resources[i].ShareMemory == "" && workload.Spec.Resources[i].Memory != "" {
-			memQuantity, err := resource.ParseQuantity(workload.Spec.Resources[i].Memory)
-			if err == nil && memQuantity.Value() > 0 {
-				shareMemQuantity := resource.NewQuantity(memQuantity.Value()/2, memQuantity.Format)
-				if shareMemQuantity != nil {
-					workload.Spec.Resources[i].ShareMemory = shareMemQuantity.String()
-					isChanged = true
-				}
+	if workload.Spec.Resource.GPU != "" && workspace != nil {
+		workload.Spec.Resource.GPUName = v1.GetGpuResourceName(workspace)
+	}
+	if workload.Spec.Resource.ShareMemory == "" && workload.Spec.Resource.Memory != "" {
+		memQuantity, err := resource.ParseQuantity(workload.Spec.Resource.Memory)
+		if err == nil && memQuantity.Value() > 0 {
+			shareMemQuantity := resource.NewQuantity(memQuantity.Value()/2, memQuantity.Format)
+			if shareMemQuantity != nil {
+				workload.Spec.Resource.ShareMemory = shareMemQuantity.String()
+				isChanged = true
 			}
 		}
-		if workload.Spec.Resources[i].EphemeralStorage == "" {
-			workload.Spec.Resources[i].EphemeralStorage = DefaultEphemeralStorage
-			isChanged = true
-		}
+	}
+	if workload.Spec.Resource.EphemeralStorage == "" {
+		workload.Spec.Resource.EphemeralStorage = DefaultEphemeralStorage
+		isChanged = true
 	}
 	return isChanged
 }
@@ -264,8 +258,8 @@ func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 	}
 }
 
-func (m *WorkloadMutator) canUseHostNetwork(ctx context.Context, adminWorkload *v1.Workload, workspace *v1.Workspace) bool {
-	if commonworkload.GetTotalCount(adminWorkload) == 1 {
+func (m *WorkloadMutator) canUseHostNetwork(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
+	if workload.Spec.Resource.Replica <= 1 {
 		return false
 	}
 	nf, _ := getNodeFlavor(ctx, m.Client, workspace.Spec.NodeFlavor)
@@ -276,14 +270,12 @@ func (m *WorkloadMutator) canUseHostNetwork(ctx context.Context, adminWorkload *
 	if nf.HasGpu() {
 		gpuCount = int(nf.Spec.Gpu.Quantity.Value())
 	}
-	for _, res := range adminWorkload.Spec.Resources {
-		if res.GPU == "" {
-			return false
-		}
-		n, err := strconv.Atoi(res.GPU)
-		if err != nil || n != gpuCount {
-			return false
-		}
+	if workload.Spec.Resource.GPU == "" {
+		return false
+	}
+	n, err := strconv.Atoi(workload.Spec.Resource.GPU)
+	if err != nil || n != gpuCount {
+		return false
 	}
 	return true
 }
@@ -303,19 +295,11 @@ func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 	if _, ok := workload.Spec.Service.Extends["maxSurge"]; !ok {
 		workload.Spec.Service.Extends["maxSurge"] = DefaultMaxMaxSurge
 	}
-	// role is only used for PyTorch Job
-	if len(workload.Spec.Resources) > 0 {
-		workload.Spec.Resources[0].Role = "main"
-	}
 }
 
 func (m *WorkloadMutator) mutateStatefulSet(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
-	// role is only used for PyTorch Job
-	if len(workload.Spec.Resources) > 0 {
-		workload.Spec.Resources[0].Role = "main"
-	}
 }
 
 func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {
@@ -346,6 +330,12 @@ func (m *WorkloadMutator) mutateUpdateEnv(oldObj, newObj *v1.Workload) {
 		if _, ok := newObj.Spec.Env[key]; !ok {
 			newObj.Spec.Env[key] = ""
 		}
+	}
+}
+
+func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
+	if workload.Spec.TTLSecondsAfterFinished == nil {
+		workload.Spec.TTLSecondsAfterFinished = ptr.To(DefaultWorkloadTTL)
 	}
 }
 
@@ -418,16 +408,16 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, w *v1.Workload) 
 	if err := v.validateRequiredParams(w); err != nil {
 		return err
 	}
-	if err := v.validatePytorchJob(w); err != nil {
+	if err := v.validateApplication(w); err != nil {
 		return err
 	}
-	if err := v.validateApplication(w); err != nil {
+	if err := v.validateWorkspace(ctx, w); err != nil {
 		return err
 	}
 	if err := v.validateResourceEnough(ctx, w); err != nil {
 		return err
 	}
-	if err := v.validateResourceTemplate(ctx, w); err != nil {
+	if _, err := getResourceTemplate(ctx, v.Client, w.Spec.Kind); err != nil {
 		return err
 	}
 	if err := v.validateDisplayName(w); err != nil {
@@ -456,29 +446,8 @@ func (v *WorkloadValidator) validateRequiredParams(w *v1.Workload) error {
 	if w.Spec.Group == "" || w.Spec.Version == "" || w.Spec.Kind == "" {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
-	if len(w.Spec.Resources) == 0 {
-		errs = append(errs, fmt.Errorf("the resources are empty"))
-	}
-	if len(w.Spec.Resources) > 1 && w.Spec.Kind != common.PytorchJobKind {
-		return commonerrors.NewBadRequest("only PytorchJob supports multi resource")
-	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
-	}
-	return nil
-}
-
-func (v *WorkloadValidator) validatePytorchJob(w *v1.Workload) error {
-	if w.Spec.Kind != common.PytorchJobKind {
-		return nil
-	}
-	if !isContainTemplateName(w.Spec.Resources, common.PytorchMaster) {
-		return fmt.Errorf("%s resource must be specified", common.PytorchMaster)
-	}
-	if len(w.Spec.Resources) > 1 {
-		if !isContainTemplateName(w.Spec.Resources, common.PytorchWorker) {
-			return fmt.Errorf("%s resource not found", common.PytorchWorker)
-		}
 	}
 	return nil
 }
@@ -486,9 +455,6 @@ func (v *WorkloadValidator) validatePytorchJob(w *v1.Workload) error {
 func (v *WorkloadValidator) validateApplication(w *v1.Workload) error {
 	if !commonworkload.IsApplication(w) {
 		return nil
-	}
-	if len(w.Spec.Resources) > 1 {
-		return commonerrors.NewBadRequest(fmt.Sprintf("the %s workload only supports one resource", w.Spec.Kind))
 	}
 	if w.Spec.Service != nil {
 		if err := validatePort("service", w.Spec.Service.Port); err != nil {
@@ -531,30 +497,16 @@ func (v *WorkloadValidator) validateApplication(w *v1.Workload) error {
 	return nil
 }
 
-func isContainTemplateName(resources []v1.WorkloadResource, name string) bool {
-	for _, res := range resources {
-		if res.Role == name {
-			return true
-		}
-	}
-	return false
-}
-
 func (v *WorkloadValidator) validateResourceValid(w *v1.Workload) error {
 	var errs []error
-	if len(w.Spec.Resources) == 0 {
-		errs = append(errs, fmt.Errorf("the resources are empty"))
+	if w.Spec.Resource.Replica <= 0 {
+		errs = append(errs, fmt.Errorf("the replica is zero"))
 	}
-	for _, res := range w.Spec.Resources {
-		if res.Replica <= 0 {
-			errs = append(errs, fmt.Errorf("the replica is invalid"))
-		}
-		if res.CPU == "" {
-			errs = append(errs, fmt.Errorf("the cpu is empty"))
-		}
-		if res.Memory == "" {
-			errs = append(errs, fmt.Errorf("the memory is empty"))
-		}
+	if w.Spec.Resource.CPU == "" {
+		errs = append(errs, fmt.Errorf("the cpu is empty"))
+	}
+	if w.Spec.Resource.Memory == "" {
+		errs = append(errs, fmt.Errorf("the memory is empty"))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
@@ -562,85 +514,67 @@ func (v *WorkloadValidator) validateResourceValid(w *v1.Workload) error {
 	return nil
 }
 
-func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, w *v1.Workload) error {
-	if commonworkload.GetTotalCount(w) == 0 {
-		return nil
-	}
+func (v *WorkloadValidator) validateWorkspace(ctx context.Context, w *v1.Workload) error {
 	// workspace must exist
 	workspace, err := getWorkspace(ctx, v.Client, w.Spec.Workspace)
 	if err != nil {
 		return commonerrors.NewNotFound(v1.WorkspaceKind, w.Spec.Workspace)
 	}
-	if v1.IsWorkloadForcedFailover(w) {
-		return nil
-	}
 	if workspace.IsAbnormal() {
 		return commonerrors.NewInternalError(fmt.Sprintf("workspace %s is abnormal", workspace.Name))
 	}
-	if commonworkload.GetTotalCount(w) > workspace.Spec.Replica {
+	if w.Spec.Resource.Replica > workspace.Spec.Replica {
 		return commonerrors.NewQuotaInsufficient(
 			fmt.Sprintf("Insufficient resource: request.replica: %d, total.replica: %d",
-				commonworkload.GetTotalCount(w), workspace.Spec.Replica))
-	}
-
-	nf, err := getNodeFlavor(ctx, v.Client, workspace.Spec.NodeFlavor)
-	if nf == nil {
-		return err
-	}
-	nodeResource := nf.ToResourceList()
-	availNodeResource := quantity.GetAvailResource(nodeResource)
-	var maxEphemeralStoreQuantity *resource.Quantity
-	if !floatutil.FloatEqual(commonconfig.GetMaxEphemeralStorePercent(), 0) {
-		maxEphemeralStoreQuantity, _ = quantity.GetMaxEphemeralStoreQuantity(nodeResource)
-	}
-	maxMemoryQuantity := availNodeResource[corev1.ResourceMemory]
-	for _, res := range w.Spec.Resources {
-		shareMemQuantity, err := resource.ParseQuantity(res.ShareMemory)
-		if err != nil {
-			return err
-		}
-		if shareMemQuantity.Value() <= 0 || shareMemQuantity.Value() > maxMemoryQuantity.Value() {
-			return fmt.Errorf("invalid share memory")
-		}
-
-		// Validate if the workload's resource requests exceed the per-node resource limits
-		requestResource, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU, res.GPUName, res.EphemeralStorage, 1)
-		if err != nil {
-			return err
-		}
-		if ok, key := quantity.IsSubResource(requestResource, availNodeResource); !ok {
-			return commonerrors.NewQuotaInsufficient(
-				fmt.Sprintf("Insufficient resource: %s, request: %v, available: %v",
-					key, requestResource, availNodeResource))
-		}
-
-		if maxEphemeralStoreQuantity != nil {
-			requestStoreQuantity, ok := requestResource[corev1.ResourceEphemeralStorage]
-			if ok && maxEphemeralStoreQuantity.Cmp(requestStoreQuantity) < 0 {
-				return commonerrors.NewQuotaInsufficient(
-					fmt.Sprintf("Insufficient resource: %s, request: %v, max: %v",
-						corev1.ResourceEphemeralStorage, requestStoreQuantity, *maxEphemeralStoreQuantity))
-			}
-		}
+				w.Spec.Resource.Replica, workspace.Spec.Replica))
 	}
 	return nil
 }
 
-func (v *WorkloadValidator) validateResourceTemplate(ctx context.Context, w *v1.Workload) error {
-	rtl := &v1.ResourceTemplateList{}
-	err := v.List(ctx, rtl)
+func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, w *v1.Workload) error {
+	if w.Spec.Resource.Replica <= 0 {
+		return nil
+	}
+	nf, err := getNodeFlavor(ctx, v.Client, v1.GetNodeFlavorId(w))
+	if nf == nil {
+		return err
+	}
+	if v1.IsWorkloadForcedFailover(w) {
+		return nil
+	}
+	nodeResources := nf.ToResourceList()
+	availNodeResources := quantity.GetAvailableResource(nodeResources)
+
+	// Validate if the workload's resource requests exceed the per-node resource limits
+	podResources, err := commonworkload.GetPodResources(w)
 	if err != nil {
 		return err
 	}
-	hasFound := false
-	for _, rt := range rtl.Items {
-		if rt.Spec.GroupVersionKind.Kind == w.Spec.Kind {
-			hasFound = true
-			break
-		}
+	if ok, key := quantity.IsSubResource(podResources, availNodeResources); !ok {
+		return commonerrors.NewQuotaInsufficient(
+			fmt.Sprintf("Insufficient resource: %s, request: %v, available: %v",
+				key, podResources, availNodeResources))
 	}
-	if !hasFound {
-		return commonerrors.NewNotFound(v1.ResourceTemplateKind, w.Spec.Kind)
+
+	// Validate if the workload's share memory requests exceed the memory
+	shareMemQuantity, err := resource.ParseQuantity(w.Spec.Resource.ShareMemory)
+	if err != nil {
+		return err
+	}
+	maxMemoryQuantity := availNodeResources[corev1.ResourceMemory]
+	if shareMemQuantity.Value() <= 0 || shareMemQuantity.Value() > maxMemoryQuantity.Value() {
+		return fmt.Errorf("invalid share memory")
+	}
+
+	// Validate if the workload's ephemeral storage requests exceed the limit
+	if !floatutil.FloatEqual(commonconfig.GetMaxEphemeralStorePercent(), 0) {
+		maxEphemeralStoreQuantity, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
+		requestQuantity, ok := podResources[corev1.ResourceEphemeralStorage]
+		if ok && maxEphemeralStoreQuantity.Cmp(requestQuantity) < 0 {
+			return commonerrors.NewQuotaInsufficient(
+				fmt.Sprintf("Insufficient resource: %s, request: %v, max: %v",
+					corev1.ResourceEphemeralStorage, requestQuantity, *maxEphemeralStoreQuantity))
+		}
 	}
 	return nil
 }
@@ -662,22 +596,6 @@ func (v *WorkloadValidator) validateImmutableFields(newObj, oldObj *v1.Workload)
 	}
 	if newObj.Spec.GroupVersionKind != oldObj.Spec.GroupVersionKind {
 		return field.Forbidden(field.NewPath("spec").Key("gvk"), "immutable")
-	}
-	if len(newObj.Spec.Resources) != 0 && len(oldObj.Spec.Resources) != 0 {
-		if len(newObj.Spec.Resources) != len(oldObj.Spec.Resources) {
-			return field.Forbidden(
-				field.NewPath("spec", "resources").Key("length"), "immutable")
-		}
-		roleSet := sets.NewSet()
-		for _, res := range oldObj.Spec.Resources {
-			roleSet.Insert(res.Role)
-		}
-		for _, res := range newObj.Spec.Resources {
-			if !roleSet.Has(res.Role) {
-				return field.Forbidden(
-					field.NewPath("spec", "resources").Key("role"), "immutable")
-			}
-		}
 	}
 	if oldObj.Spec.Service != nil && (newObj.Spec.Service == nil ||
 		!reflect.DeepEqual(*oldObj.Spec.Service, *newObj.Spec.Service)) {

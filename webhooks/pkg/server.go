@@ -165,4 +165,5 @@ func setUpWebhooks(mgr manager.Manager, server webhook.Server) {
 	AddFaultWebhook(mgr, &server, decoder)
 	AddWorkspaceWebhook(mgr, &server, decoder)
 	AddWorkloadWebhook(mgr, &server, decoder)
+	AddResourceTemplateWebhook(mgr, &server, decoder)
 }

@@ -21,13 +21,14 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
-func getNodeByInformer(ctx context.Context, informer *ClusterInformer, nodeName string) (*corev1.Node, error) {
+func getNodeByInformer(ctx context.Context, k8sClients *commonclient.ClientFactory, nodeName string) (*corev1.Node, error) {
 	if nodeName == "" {
 		return nil, fmt.Errorf("the node name is empty")
 	}
-	result, err := informer.clientSet.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+	result, err := k8sClients.ClientSet().CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}

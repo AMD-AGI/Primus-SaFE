@@ -27,6 +27,17 @@ type Template struct {
 	// PodTemplateSpec
 	TemplatePaths []string `json:"templatePaths,omitempty"`
 	ReplicasPaths []string `json:"replicasPaths,omitempty"`
+	// If the replica count is set to a non-zero value, it will be used as a fixed allocation when the task is submitted
+	// This applies only to the master role of a PyTorchJob (or similar structures).
+	Replica int64 `json:"replica,omitempty"`
+}
+
+func (t *Template) GetTemplatePath() []string {
+	if t == nil {
+		return nil
+	}
+	path := append(t.PrePaths, t.TemplatePaths...)
+	return path
 }
 
 type GroupVersionKind struct {
@@ -64,6 +75,8 @@ type ResourceTemplateStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
+// +kubebuilder:webhook:path=/mutate-amd-primus-safe-v1-resourcetemplate,mutating=true,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=resourcetemplates,verbs=create;update,versions=v1,name=mresourcetemplate.kb.io,admissionReviewVersions={v1}
+// +kubebuilder:webhook:path=/validate-amd-primus-safe-v1-resourcetemplate,mutating=false,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=resourcetemplates,verbs=create;update,versions=v1,name=vresourcetemplate.kb.io,admissionReviewVersions={v1}
 // +kubebuilder:rbac:groups=amd.com,resources=resourcetemplates,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=amd.com,resources=resourcetemplates/status,verbs=get;update;patch
 type ResourceTemplate struct {

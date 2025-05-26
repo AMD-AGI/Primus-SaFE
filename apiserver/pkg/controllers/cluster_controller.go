@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -21,6 +20,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 type ClusterReconciler struct {
@@ -51,13 +51,15 @@ func (r *ClusterReconciler) CaredPredicate() predicate.Predicate {
 			if !oldCluster.IsReady() && newCluster.IsReady() ||
 				!oldCluster.IsControlPlaneCertEqual(newCluster.Status.ControlPlaneStatus) ||
 				!oldCluster.IsControlPlaneEndpointEqual(newCluster.Status.ControlPlaneStatus.Endpoints) {
-				if err := r.addClusterInfo(context.Background(), newCluster); err != nil {
+				if err := r.addClientFactory(context.Background(), newCluster); err != nil {
 					klog.Errorf("failed to add cluster, err: %v", err)
 				}
 			} else if oldCluster.IsReady() &&
 				(!newCluster.IsReady() || !newCluster.GetDeletionTimestamp().IsZero()) {
-				if cm := NewClusterManager(); cm != nil {
-					cm.Delete(newCluster.Name)
+				if mgr := commonutils.NewObjectManagerSingleton(); mgr != nil {
+					if err := mgr.Delete(newCluster.Name); err != nil {
+						klog.Errorf("failed to delete cluster clients, err: %v", err)
+					}
 				}
 			}
 			return false
@@ -69,35 +71,25 @@ func (r *ClusterReconciler) Reconcile(_ context.Context, _ ctrlruntime.Request) 
 	return ctrlruntime.Result{}, nil
 }
 
-func (r *ClusterReconciler) addClusterInfo(ctx context.Context, c *v1.Cluster) error {
+func (r *ClusterReconciler) addClientFactory(ctx context.Context, c *v1.Cluster) error {
 	if !c.IsReady() {
 		return fmt.Errorf("cluster %s is not ready", c.Name)
 	}
-	cm := NewClusterManager()
-	if cm == nil {
-		return fmt.Errorf("failed to new cluster manager ")
+	mgr := commonutils.NewObjectManagerSingleton()
+	if mgr == nil {
+		return fmt.Errorf("failed to new cluster clients manager")
 	}
 	controlPlane := &c.Status.ControlPlaneStatus
+	endpoint, err := commoncluster.GetEndpoint(ctx, r.Client, c.Name, controlPlane.Endpoints)
+	if err != nil {
+		return err
+	}
 
-	endpoint, err := commoncluster.GetClusterEndpoint(ctx, r.Client, c.Name, controlPlane.Endpoints)
+	k8sClientFactory, err := commonclient.NewClientFactory(ctx, c.Name, endpoint,
+		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, commonclient.DisableInformer)
 	if err != nil {
 		return err
 	}
-	clientSet, restCfg, err := commonclient.NewClientSet(endpoint,
-		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, true)
-	if err != nil {
-		klog.ErrorS(err, "fail to new clientSet", "cluster", c.Name)
-		return err
-	}
-	dynamicClient, err := dynamic.NewForConfig(restCfg)
-	if err != nil {
-		klog.ErrorS(err, "fail to new dynamic client", "cluster", c.Name)
-		return err
-	}
-	cm.Add(c.Name, &ClusterInfo{
-		ControlPlane:  *controlPlane,
-		ClientSet:     clientSet,
-		DynamicClient: dynamicClient,
-	})
+	mgr.AddOrReplace(c.Name, k8sClientFactory)
 	return nil
 }

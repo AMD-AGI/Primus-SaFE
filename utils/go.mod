@@ -9,8 +9,8 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/crypto v0.37.0
 	gotest.tools v2.2.0+incompatible
-	k8s.io/api v0.33.0
-	k8s.io/apimachinery v0.33.0
+	k8s.io/api v0.33.1
+	k8s.io/apimachinery v0.33.1
 	sigs.k8s.io/yaml v1.4.0
 )
 

@@ -5,6 +5,13 @@
 
 package v1
 
+import (
+	"k8s.io/client-go/util/workqueue"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+)
+
+type RequestWorkQueue = workqueue.TypedRateLimitingInterface[reconcile.Request]
+
 const (
 	PrimusSafePrefix = "primus-safe."
 
@@ -17,9 +24,10 @@ const (
 	// the label for Control-plane node
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 	// total number of failures (used for internal retries)
-	FailedCountAnnotation = PrimusSafePrefix + "failed.count"
-	DescriptionAnnotation = PrimusSafePrefix + "description"
-	ProtectLabel          = PrimusSafePrefix + "protect"
+	FailedCountAnnotation     = PrimusSafePrefix + "failed.count"
+	DescriptionAnnotation     = PrimusSafePrefix + "description"
+	ProtectLabel              = PrimusSafePrefix + "protect"
+	ImageSecretNameAnnotation = PrimusSafePrefix + "image.secret"
 
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."
@@ -57,26 +65,28 @@ const (
 	NodeFlavorIdLabel = NodeFlavorPrefix + "id"
 
 	// workspace
-	WorkspacePrefix               = PrimusSafePrefix + "workspace."
-	WorkspaceFinalizer            = WorkspacePrefix + "finalizer"
-	WorkspaceIdLabel              = WorkspacePrefix + "id"
-	WorkspaceNodesAction          = WorkspacePrefix + "nodes.action"
-	QueueBalanceTimeoutAnnotation = "queue.balance.timeout"
+	WorkspacePrefix      = PrimusSafePrefix + "workspace."
+	WorkspaceFinalizer   = WorkspacePrefix + "finalizer"
+	WorkspaceIdLabel     = WorkspacePrefix + "id"
+	WorkspaceNodesAction = WorkspacePrefix + "nodes.action"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
 	FaultFinalizer = FaultPrefix + "finalizer"
 
 	// workload
-	WorkloadPrefix                   = PrimusSafePrefix + "workload."
-	WorkloadFinalizer                = WorkloadPrefix + "finalizer"
-	WorkloadDispatchedAnnotation     = WorkloadPrefix + "dispatched"
-	WorkloadScheduledAnnotation      = WorkloadPrefix + "scheduled"
-	WorkloadMainContainer            = WorkloadPrefix + "main.container"
-	EnableHostNetworkAnnotation      = WorkloadPrefix + "enable.host.network"
-	WorkloadForcedFailoverAnnotation = WorkloadPrefix + "forced.failover"
-	WorkloadKindLabel                = WorkloadPrefix + "kind"
-	WorkloadDispatchCntLabel         = WorkloadPrefix + "dispatch.count"
+	WorkloadPrefix                    = PrimusSafePrefix + "workload."
+	WorkloadFinalizer                 = WorkloadPrefix + "finalizer"
+	WorkloadIdLabel                   = WorkloadPrefix + "id"
+	WorkloadDispatchedAnnotation      = WorkloadPrefix + "dispatched"
+	WorkloadScheduledAnnotation       = WorkloadPrefix + "scheduled"
+	WorkloadMainContainer             = WorkloadPrefix + "main.container"
+	EnableHostNetworkAnnotation       = WorkloadPrefix + "enable.host.network"
+	WorkloadKindLabel                 = WorkloadPrefix + "kind"
+	WorkloadDispatchCntLabel          = WorkloadPrefix + "dispatch.count"
+	WorkloadReScheduledAnnotation     = WorkloadPrefix + "rescheduled"
+	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
+	WorkloadForcedFoAnnotation        = WorkloadPrefix + "forced.failover"
 
 	// user
 	UserPrefix         = PrimusSafePrefix + "user."

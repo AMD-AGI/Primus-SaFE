@@ -9,13 +9,13 @@ package v1
 // WorkloadSpecApplyConfiguration represents a declarative configuration of the WorkloadSpec type for use
 // with apply.
 type WorkloadSpecApplyConfiguration struct {
-	Resources                           []WorkloadResourceApplyConfiguration `json:"resources,omitempty"`
-	Workspace                           *string                              `json:"workspace,omitempty"`
-	Image                               *string                              `json:"image,omitempty"`
-	EntryPoint                          *string                              `json:"entryPoint,omitempty"`
-	Env                                 map[string]string                    `json:"env,omitempty"`
-	IsSSHEnabled                        *bool                                `json:"isSSHEnabled,omitempty"`
-	IsSupervised                        *bool                                `json:"isSupervised,omitempty"`
+	Resource                            *WorkloadResourceApplyConfiguration `json:"resource,omitempty"`
+	Workspace                           *string                             `json:"workspace,omitempty"`
+	Image                               *string                             `json:"image,omitempty"`
+	EntryPoint                          *string                             `json:"entryPoint,omitempty"`
+	Env                                 map[string]string                   `json:"env,omitempty"`
+	IsSSHEnabled                        *bool                               `json:"isSSHEnabled,omitempty"`
+	IsSupervised                        *bool                               `json:"isSupervised,omitempty"`
 	*GroupVersionKindApplyConfiguration `json:"gvk,omitempty"`
 	MaxRetry                            *int                           `json:"maxRetry,omitempty"`
 	Priority                            *int                           `json:"priority,omitempty"`
@@ -33,16 +33,11 @@ func WorkloadSpec() *WorkloadSpecApplyConfiguration {
 	return &WorkloadSpecApplyConfiguration{}
 }
 
-// WithResources adds the given value to the Resources field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the Resources field.
-func (b *WorkloadSpecApplyConfiguration) WithResources(values ...*WorkloadResourceApplyConfiguration) *WorkloadSpecApplyConfiguration {
-	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithResources")
-		}
-		b.Resources = append(b.Resources, *values[i])
-	}
+// WithResource sets the Resource field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Resource field is set to the value of the last call.
+func (b *WorkloadSpecApplyConfiguration) WithResource(value *WorkloadResourceApplyConfiguration) *WorkloadSpecApplyConfiguration {
+	b.Resource = value
 	return b
 }
 

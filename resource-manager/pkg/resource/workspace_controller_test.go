@@ -24,6 +24,7 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonquantity "github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -35,9 +36,9 @@ func newMockWorkspaceReconciler(adminClient client.Client) WorkspaceReconciler {
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: adminClient,
 		},
-		opt:          &defaultWorkspaceOption,
-		expectations: make(map[string]sets.Set),
-		cm:           newClusterManager(),
+		opt:           &defaultWorkspaceOption,
+		expectations:  make(map[string]sets.Set),
+		clientManager: commonutils.NewObjectManagerSingleton(),
 	}
 }
 
@@ -110,7 +111,8 @@ func TestReconcile(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace).
 		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(adminClient)
-	r.cm.Informers[clusterName] = &ClusterInformer{valid: true}
+	k8sClients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), clusterName, nil)
+	r.clientManager.AddOrReplace(clusterName, k8sClients)
 
 	req := ctrlruntime.Request{
 		NamespacedName: types.NamespacedName{Name: workspace.Name},
@@ -137,13 +139,10 @@ func TestScaleUpWorkspace(t *testing.T) {
 	k8sNode1 := genMockK8sNode(adminNode1.Name, clusterName, nodeFlavor.Name, workspace.Name)
 	k8sNode2 := genMockK8sNode(adminNode2.Name, clusterName, nodeFlavor.Name, workspace.Name)
 	k8sClient := k8sfake.NewClientset(k8sNode1, k8sNode2)
-
-	informer := &ClusterInformer{
-		clientSet: k8sClient,
-	}
+	k8sClientFactory := commonclient.NewClientFactoryWithOnlyClient(context.Background(), clusterName, k8sClient)
 	r := newMockWorkspaceReconciler(adminClient)
 
-	_, err := r.scaleUp(context.Background(), workspace, informer, 1)
+	_, err := r.scaleUp(context.Background(), workspace, k8sClientFactory, 1)
 	assert.NilError(t, err)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode1.Name}, adminNode1)
 	assert.NilError(t, err)

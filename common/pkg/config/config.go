@@ -103,3 +103,11 @@ func GetEphemeralStoreReservePercent() float64 {
 func GetMaxEphemeralStorePercent() float64 {
 	return getFloat(maxEphemeralStorePercent, 0)
 }
+
+func GetWorkloadHangCheckSecond() int {
+	return getInt(workloadHangCheckSecond, 0)
+}
+
+func IsWorkloadFailoverEnable() bool {
+	return getBool(workloadEnableFailover, true)
+}
