@@ -33,7 +33,7 @@ spec:
       serviceAccountName: primus-safe-manager
       containers:
         - name: primus-safe-resource-manager
-          image: primussafe/resource-manager:latest
+          image: docker.io/primussafe/resource-manager:latest
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/resource-manager/run.sh"]
           terminationMessagePath: /dev/termination-log

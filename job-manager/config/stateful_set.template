@@ -18,7 +18,7 @@ data:
          dnsPolicy: ClusterFirstWithHostNet
          initContainers:
            - name: preprocess
-             image: primussafe/preprocess:latest
+             image: docker.io/primussafe/preprocess:latest
              imagePullPolicy: IfNotPresent
              command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
              securityContext:

@@ -33,7 +33,7 @@ spec:
       serviceAccountName: primus-safe-manager
       containers:
         - name: primus-safe-job-manager
-          image: primussafe/job-manager:latest
+          image: docker.io/primussafe/job-manager:latest
           imagePullPolicy: Always
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File

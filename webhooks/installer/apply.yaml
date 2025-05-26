@@ -33,7 +33,7 @@ spec:
       serviceAccountName: primus-safe-manager
       containers:
         - name: primus-safe-webhooks
-          image: primussafe/webhooks:latest
+          image: docker.io/primussafe/webhooks:latest
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/webhooks/run.sh"]
           terminationMessagePath: /dev/termination-log
