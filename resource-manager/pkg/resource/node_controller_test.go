@@ -28,6 +28,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
@@ -143,7 +144,7 @@ func newMockNodeReconciler(adminClient client.Client) NodeReconciler {
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: adminClient,
 		},
-		cm: newClusterManager(),
+		clientManager: commonutils.NewObjectManagerSingleton(),
 	}
 }
 
@@ -156,10 +157,8 @@ func TestGetK8sNode(t *testing.T) {
 	k8sClient := k8sfake.NewClientset(k8sNode)
 
 	r := newMockNodeReconciler(adminClient)
-	r.cm.Informers[clusterName] = &ClusterInformer{
-		clientSet: k8sClient,
-		valid:     true,
-	}
+	k8sClients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), clusterName, k8sClient)
+	r.clientManager.AddOrReplace(clusterName, k8sClients)
 	node, _, err := r.getK8sNode(context.Background(), adminNode)
 	assert.NilError(t, err)
 	assert.Equal(t, node != nil, true)
@@ -294,10 +293,8 @@ func TestUpdateK8sNode(t *testing.T) {
 	k8sNode := genMockK8sNode(adminNode.Name, clusterName, nodeFlavor.Name, "")
 	k8sClient := k8sfake.NewClientset(k8sNode)
 	r := newMockNodeReconciler(adminClient)
-	r.cm.Informers[clusterName] = &ClusterInformer{
-		clientSet: k8sClient,
-		valid:     true,
-	}
+	k8sClients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), clusterName, k8sClient)
+	r.clientManager.AddOrReplace(clusterName, k8sClients)
 	assert.Equal(t, v1.GetNodeLabelAction(adminNode) != "", true)
 
 	_, err := r.updateK8sNode(context.Background(), adminNode, k8sNode)
@@ -441,10 +438,8 @@ func TestManageNodeSuccessfully(t *testing.T) {
 	k8sNode := genMockK8sNode(adminNode.Name, "", "", "")
 	k8sClient := k8sfake.NewClientset(k8sNode)
 	r := newMockNodeReconciler(adminClient)
-	r.cm.Informers[cluster.Name] = &ClusterInformer{
-		clientSet: k8sClient,
-		valid:     true,
-	}
+	k8sClients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), cluster.Name, k8sClient)
+	r.clientManager.AddOrReplace(cluster.Name, k8sClients)
 
 	assert.Equal(t, v1.GetClusterId(k8sNode), "")
 	assert.Equal(t, v1.GetNodeFlavorId(k8sNode), "")
@@ -572,10 +567,8 @@ func TestUnmanagingNode(t *testing.T) {
 
 	k8sClient := k8sfake.NewClientset(k8sNode, ns)
 	r := newMockNodeReconciler(adminClient)
-	r.cm.Informers[cluster.Name] = &ClusterInformer{
-		clientSet: k8sClient,
-		valid:     true,
-	}
+	k8sClients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), cluster.Name, k8sClient)
+	r.clientManager.AddOrReplace(cluster.Name, k8sClients)
 
 	_, err = r.updateAdminNode(context.Background(), adminNode, k8sNode)
 	time.Sleep(time.Millisecond * 200)

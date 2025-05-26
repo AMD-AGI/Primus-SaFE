@@ -1,0 +1,149 @@
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
+  name: pytorch-job
+spec:
+  groupVersionKind:
+    group: kubeflow.org
+    version: v1
+    kind: PyTorchJob
+  templates:
+    - prePaths:
+        - spec
+        - pytorchReplicaSpecs
+        - Master
+      templatePaths:
+        - template
+      replicasPaths:
+        - replicas
+      replica: 1
+    - prePaths:
+        - spec
+        - pytorchReplicaSpecs
+        - Worker
+      templatePaths:
+        - template
+      replicasPaths:
+        - replicas
+  endState:
+    prePaths:
+      - status
+      - conditions
+    messagePaths:
+      - message
+    reasonPaths:
+      - reason
+    phases:
+      - matchExpressions:
+          status: 'True'
+          type: Succeeded
+        phase: K8sSucceeded
+      - matchExpressions:
+          status: 'True'
+          type: Failed
+        phase: K8sFailed
+      - matchExpressions:
+          status: 'True'
+          type: FailedValidation
+        phase: K8sFailed
+      - matchExpressions:
+          status: 'True'
+          type: Running
+        phase: K8sRunning
+  activeState:
+    prePaths:
+      - status
+      - replicaStatuses
+    active: active
+---
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
+  name: pod
+spec:
+  groupVersionKind:
+    group: ""
+    version: v1
+    kind: Pod
+---
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
+  name: event
+spec:
+  groupVersionKind:
+    group: ""
+    version: v1
+    kind: Event
+---
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
+  name: deployment
+spec:
+  groupVersionKind:
+    group: apps
+    version: v1
+    kind: Deployment
+  templates:
+    - prePaths:
+        - spec
+      templatePaths:
+        - template
+      replicasPaths:
+        - replicas
+  endState:
+    prePaths:
+      - status
+      - conditions
+    messagePaths:
+      - message
+    reasonPaths:
+      - reason
+    phases:
+      - matchExpressions:
+          status: 'False'
+          type: Available
+        phase: K8sFailed
+      - matchExpressions:
+          reason: ReplicaSetUpdated
+          status: 'True'
+          type: Progressing
+        phase: K8sUpdating
+      - matchExpressions:
+          status: 'True'
+          type: Available
+        phase: K8sRunning
+  activeState:
+    prePaths:
+      - status
+    active: availableReplicas
+---
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
+  name: stateful-set
+spec:
+  groupVersionKind:
+    group: apps
+    version: v1
+    kind: StatefulSet
+  templates:
+    - prePaths:
+        - spec
+      templatePaths:
+        - template
+      replicasPaths:
+        - replicas
+  endState:
+    prePaths:
+      - status
+      - conditions
+    messagePaths:
+      - message
+    reasonPaths:
+      - reason
+  activeState:
+    prePaths:
+      - status
+    active: availableReplicas

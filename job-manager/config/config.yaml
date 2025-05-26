@@ -1,0 +1,13 @@
+health_check:
+  enable: true
+  port: 8083
+leader_election:
+  enable: true
+  lock_namespace: "default"
+workspace:
+  mem_reserve_percent: 0.02
+  cpu_reserve_percent: 0.06
+  ephemeral_store_reserve_percent: 0.1
+workload:
+  enable_failover: true
+  hangcheck_second: 1200

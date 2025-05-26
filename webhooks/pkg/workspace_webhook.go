@@ -111,6 +111,9 @@ func (m *WorkspaceMutator) mutateMeta(ctx context.Context, w *v1.Workspace) {
 				}
 			}
 			metav1.SetMetaDataLabel(&w.ObjectMeta, v1.ClusterIdLabel, w.Spec.Cluster)
+			if cl.Spec.ControlPlane.ImageSecret != nil {
+				metav1.SetMetaDataAnnotation(&w.ObjectMeta, v1.ImageSecretNameAnnotation, cl.Spec.ControlPlane.ImageSecret.Name)
+			}
 		}
 	}
 	metav1.SetMetaDataLabel(&w.ObjectMeta, v1.WorkspaceIdLabel, w.Name)

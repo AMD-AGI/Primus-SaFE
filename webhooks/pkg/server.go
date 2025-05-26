@@ -94,10 +94,10 @@ func (s *Server) Start() {
 		os.Exit(-1)
 	}
 	<-ctx.Done()
-	s.shutdown()
+	s.Stop()
 }
 
-func (s *Server) shutdown() {
+func (s *Server) Stop() {
 	klog.Infof("webhooks server stopped")
 	klog.Flush()
 }
@@ -165,4 +165,5 @@ func setUpWebhooks(mgr manager.Manager, server webhook.Server) {
 	AddFaultWebhook(mgr, &server, decoder)
 	AddWorkspaceWebhook(mgr, &server, decoder)
 	AddWorkloadWebhook(mgr, &server, decoder)
+	AddResourceTemplateWebhook(mgr, &server, decoder)
 }

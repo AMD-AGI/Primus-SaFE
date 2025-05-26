@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deployment-template
+  namespace: primus-safe
+  labels:
+    kind: Deployment
+    # The main container name should match the configuration defined in the template below
+    mainContainer: main
+data:
+ template: |
+   apiVersion: apps/v1
+   kind: Deployment
+   spec:
+     progressDeadlineSeconds: 10800
+     template:
+       spec:
+         dnsPolicy: ClusterFirstWithHostNet
+         initContainers:
+           - name: preprocess
+             image: docker.io/primussafe/preprocess:latest
+             imagePullPolicy: IfNotPresent
+             command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
+             securityContext:
+               capabilities:
+                 add: [ "IPC_LOCK" ]
+             resources:
+               limits:
+                 cpu: 1000m
+                 memory: 128Mi
+             volumeMounts:
+             - name: shared-data
+               mountPath: /shared-data
+         containers:
+           - name: main
+             imagePullPolicy: IfNotPresent
+             env:
+               - name: NCCL_SOCKET_IFNAME
+                 value: "benic7p1"
+               - name: GLOO_SOCKET_IFNAME
+                 value: "benic7p1"
+               - name: NCCL_IB_HCA
+                 value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
+               - name: NCCL_DEBUG
+                 value: "INFO"
+               - name: NCCL_IB_DISABLE
+                 value: "0"
+               - name: NCCL_IB_TIMEOUT
+                 value: "22"
+               - name: NCCL_IB_QPS_PER_CONNECTION
+                 value: "8"
+               - name: NCCL_IB_RETRY_CNT
+                 value: "12"
+               - name: NCCL_NVLS_ENABLE
+                 value: "0"
+               - name: NCCL_SOCKET_FAMILY
+                 value: "AF_INET"
+               - name: POD_IP
+                 valueFrom:
+                   fieldRef:
+                     fieldPath: status.podIP
+             securityContext:
+               capabilities:
+                 add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
+             volumeMounts:
+               - name: sugaku-volume
+                 mountPath: /dev/shm
+               - name: varlog
+                 mountPath: /var/log
+               - name: shared-data
+                 mountPath: /shared-data
+         volumes:
+           - name: varlog
+             hostPath:
+               path: /var/log
+           - name: shared-data
+             emptyDir: {}
+         terminationGracePeriodSeconds: 10
+         restartPolicy: Always
+         schedulerName: default-scheduler

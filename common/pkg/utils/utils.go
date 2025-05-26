@@ -14,25 +14,15 @@ import (
 )
 
 const (
-	Safe                   = "safe-"
+	Primus                 = "primus-"
 	MaxNameLength          = 63
 	randomLength           = 5
 	MaxGeneratedNameLength = MaxNameLength - randomLength - 1
 	// 12 is the fixed suffix length of pytorchjob.
-	MaxDisplayNameLen = MaxGeneratedNameLength - len(Safe) - 12
+	MaxDisplayNameLen = MaxGeneratedNameLength - len(Primus) - 12
 )
 
 func GenerateName(base string) string {
-	if base == "" {
-		return ""
-	}
-	if len(base) > MaxGeneratedNameLength {
-		return ""
-	}
-	return fmt.Sprintf("%s-%s", base, utilrand.String(randomLength))
-}
-
-func GenerateTruncationName(base string) string {
 	if base == "" {
 		return ""
 	}
@@ -43,15 +33,8 @@ func GenerateTruncationName(base string) string {
 }
 
 func GenerateNameWithPrefix(base string) string {
-	name := Safe + base
+	name := Primus + base
 	return GenerateName(name)
-}
-
-func GetBaseByGenerateName(name string) string {
-	if len(name) <= randomLength+1 {
-		return name
-	}
-	return name[0 : len(name)-randomLength-1]
 }
 
 func GenObjectReference(typeMeta metav1.TypeMeta, objMeta metav1.ObjectMeta) *corev1.ObjectReference {

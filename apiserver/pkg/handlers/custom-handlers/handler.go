@@ -6,6 +6,7 @@
 package custom_handlers
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -14,10 +15,11 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/controllers"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
@@ -29,9 +31,9 @@ var (
 
 type Handler struct {
 	client.Client
-	clientSet      *kubernetes.Clientset
-	httpClient     httpclient.Interface
-	clusterManager *controllers.ClusterManager
+	clientSet     *kubernetes.Clientset
+	httpClient    httpclient.Interface
+	clientManager *commonutils.ObjectManager
 }
 
 func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
@@ -41,10 +43,10 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 	}
 
 	h := &Handler{
-		Client:         mgr.GetClient(),
-		clientSet:      clientSet,
-		httpClient:     httpclient.Instance(),
-		clusterManager: controllers.NewClusterManager(),
+		Client:        mgr.GetClient(),
+		clientSet:     clientSet,
+		httpClient:    httpclient.Instance(),
+		clientManager: commonutils.NewObjectManagerSingleton(),
 	}
 	return h, nil
 }
@@ -73,6 +75,19 @@ func handle(c *gin.Context, fn handleFunc) {
 	default:
 		c.JSON(code, rspType)
 	}
+}
+
+func (h *Handler) getK8sClientFactory(clusterId string) (*commonclient.ClientFactory, error) {
+	obj, _ := h.clientManager.Get(clusterId)
+	if obj == nil {
+		err := fmt.Errorf("the client of cluster %s is not found. pls retry later", clusterId)
+		return nil, commonerrors.NewInternalError(err.Error())
+	}
+	k8sClients, ok := obj.(*commonclient.ClientFactory)
+	if !ok {
+		return nil, commonerrors.NewInternalError("failed to correctly build the k8s client")
+	}
+	return k8sClients, nil
 }
 
 func getBodyFromRequest(req *http.Request, bodyStruct interface{}) ([]byte, error) {

@@ -14,7 +14,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -32,7 +31,6 @@ import (
 
 type FaultReconciler struct {
 	*ClusterBaseReconciler
-	cm  *ClusterManager
 	opt *FaultReconcilerOption
 }
 
@@ -46,7 +44,6 @@ func SetupFaultController(mgr manager.Manager, opt *FaultReconcilerOption) error
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: mgr.GetClient(),
 		},
-		cm:  newClusterManager(),
 		opt: opt,
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
@@ -62,7 +59,7 @@ func SetupFaultController(mgr manager.Manager, opt *FaultReconcilerOption) error
 
 func (r *FaultReconciler) enqueueRequestByNode() handler.EventHandler {
 	return handler.Funcs{
-		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
 			oldNode, ok1 := evt.ObjectOld.(*v1.Node)
 			newNode, ok2 := evt.ObjectNew.(*v1.Node)
 			if !ok1 || !ok2 {
@@ -85,19 +82,20 @@ func (r *FaultReconciler) enqueueRequestByNode() handler.EventHandler {
 }
 
 func (r *FaultReconciler) deleteAllFaults(ctx context.Context, node *v1.Node) error {
-	err := backoff.Retry(func() error {
+	op := func() error {
 		faultList, err := listFaultsByNode(ctx, r.Client, node.Name)
 		if err != nil {
 			return err
 		}
-		for _, f := range faultList {
-			if err = r.Delete(ctx, &f); client.IgnoreNotFound(err) != nil {
+		for _, fault := range faultList {
+			if err = r.Delete(ctx, &fault); client.IgnoreNotFound(err) != nil {
 				return err
 			}
-			klog.Infof("delete fault: %s", f.Name)
+			klog.Infof("delete fault: %s", fault.Name)
 		}
 		return nil
-	}, time.Second, 100*time.Millisecond)
+	}
+	err := backoff.Retry(op, time.Second, 100*time.Millisecond)
 	return err
 }
 

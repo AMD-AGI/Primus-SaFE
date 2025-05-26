@@ -7,8 +7,11 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -82,4 +85,17 @@ func ignoreError(err error) error {
 		return nil
 	}
 	return err
+}
+
+func getK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
+	obj, _ := clientManager.Get(clusterId)
+	if obj == nil {
+		err := fmt.Errorf("the client of cluster %s is not found. pls retry later", clusterId)
+		return nil, commonerrors.NewInternalError(err.Error())
+	}
+	k8sClients, ok := obj.(*commonclient.ClientFactory)
+	if !ok {
+		return nil, commonerrors.NewInternalError("failed to correctly build the k8s client")
+	}
+	return k8sClients, nil
 }

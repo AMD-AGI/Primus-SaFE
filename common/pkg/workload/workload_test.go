@@ -38,14 +38,13 @@ func genMockWorkload(clusterName, workspace string) *v1.Workload {
 			GroupVersionKind: v1.GroupVersionKind{
 				Kind: common.PytorchJobKind,
 			},
-			Resources: []v1.WorkloadResource{{
-				Role:    "Master",
+			Resource: v1.WorkloadResource{
 				Replica: 2,
 				CPU:     "64",
 				Memory:  "1024Gi",
 				GPU:     "8",
 				GPUName: common.AmdGpu,
-			}},
+			},
 		},
 	}
 	return workload
@@ -84,13 +83,12 @@ func TestCvtToResourceList(t *testing.T) {
 			"success",
 			&v1.Workload{
 				Spec: v1.WorkloadSpec{
-					Resources: []v1.WorkloadResource{{
-						Replica: 1,
+					Resource: v1.WorkloadResource{
 						CPU:     "64",
 						Memory:  "100Mi",
 						GPU:     "1",
 						GPUName: common.AmdGpu,
-					}},
+					},
 				},
 			},
 			false,
@@ -99,11 +97,11 @@ func TestCvtToResourceList(t *testing.T) {
 			"Invalid cpu",
 			&v1.Workload{
 				Spec: v1.WorkloadSpec{
-					Resources: []v1.WorkloadResource{{
+					Resource: v1.WorkloadResource{
 						Replica: 1,
 						CPU:     "-64",
 						Memory:  "100Ki",
-					}},
+					},
 				},
 			},
 			true,
@@ -112,11 +110,11 @@ func TestCvtToResourceList(t *testing.T) {
 			"Invalid memory",
 			&v1.Workload{
 				Spec: v1.WorkloadSpec{
-					Resources: []v1.WorkloadResource{{
+					Resource: v1.WorkloadResource{
 						Replica: 1,
 						CPU:     "64",
 						Memory:  "1000abc",
-					}},
+					},
 				},
 			},
 			true,
@@ -125,13 +123,13 @@ func TestCvtToResourceList(t *testing.T) {
 			"Invalid gpu",
 			&v1.Workload{
 				Spec: v1.WorkloadSpec{
-					Resources: []v1.WorkloadResource{{
+					Resource: v1.WorkloadResource{
 						Replica: 2,
 						CPU:     "10",
 						Memory:  "10Mi",
 						GPU:     "-1",
 						GPUName: common.AmdGpu,
-					}},
+					},
 				},
 			},
 			true,
@@ -154,22 +152,20 @@ func TestGetTemplateConfig(t *testing.T) {
 
 	configmap1 := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        "configmap1",
-			Namespace:   common.PrimusSafeNamespace,
-			Labels:      map[string]string{v1.KindLabel: "kind"},
-			Annotations: map[string]string{v1.GpuResourceNameAnnotation: common.NvidiaGpu},
+			Name:      "configmap1",
+			Namespace: common.PrimusSafeNamespace,
+			Labels:    map[string]string{v1.KindLabel: "kind1"},
 		},
 	}
 	configmap2 := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        "configmap2",
-			Namespace:   common.PrimusSafeNamespace,
-			Labels:      map[string]string{v1.KindLabel: "kind"},
-			Annotations: map[string]string{v1.GpuResourceNameAnnotation: common.AmdGpu},
+			Name:      "configmap2",
+			Namespace: common.PrimusSafeNamespace,
+			Labels:    map[string]string{v1.KindLabel: "kind2"},
 		},
 	}
 	cli := fake.NewClientBuilder().WithObjects(configmap1, configmap2).WithScheme(mockScheme).Build()
-	resp, err := GetTemplateConfig(context.Background(), cli, "kind", common.AmdGpu)
+	resp, err := GetTemplateConfig(context.Background(), cli, "kind2")
 	assert.NilError(t, err)
 	assert.Equal(t, resp.Name, configmap2.Name)
 }
@@ -177,11 +173,11 @@ func TestGetTemplateConfig(t *testing.T) {
 func TestGetResourcePerNode(t *testing.T) {
 	workload := &v1.Workload{
 		Spec: v1.WorkloadSpec{
-			Resources: []v1.WorkloadResource{{
+			Resource: v1.WorkloadResource{
 				CPU:     "8",
 				Memory:  "128",
 				Replica: 3,
-			}},
+			},
 		},
 		Status: v1.WorkloadStatus{
 			Pods: []v1.WorkloadPod{
@@ -190,7 +186,7 @@ func TestGetResourcePerNode(t *testing.T) {
 				{AdminNodeName: "n1", K8sNodeName: "n1"}},
 		},
 	}
-	allResourcePerNode, err := GetResourcePerNode(workload, "")
+	allResourcePerNode, err := GetResourcesPerNode(workload, "")
 	assert.NilError(t, err)
 	res, ok := allResourcePerNode["n1"]
 	assert.Equal(t, ok, true)
@@ -250,11 +246,11 @@ func TestGetActiveResource(t *testing.T) {
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Resources: []v1.WorkloadResource{{
+			Resource: v1.WorkloadResource{
 				CPU:     "8",
 				Memory:  "10",
 				Replica: 3,
-			}},
+			},
 		},
 		Status: v1.WorkloadStatus{
 			Pods: []v1.WorkloadPod{
@@ -276,7 +272,7 @@ func TestGetActiveResource(t *testing.T) {
 		}
 		return false
 	}
-	res, err := GetActiveResource(workload1, filterFunc)
+	res, err := GetActiveResources(workload1, filterFunc)
 	assert.NilError(t, err)
 	assert.Equal(t, res.Cpu().Value(), int64(8))
 	assert.Equal(t, res.Memory().Value(), int64(10))
@@ -288,14 +284,13 @@ func TestIsResourceEqual(t *testing.T) {
 	resp := IsResourceEqual(workload1, workload2)
 	assert.Equal(t, resp, true)
 
-	workload2.Spec.Resources[0].CPU = "256"
+	workload2.Spec.Resource.CPU = "256"
 	resp = IsResourceEqual(workload1, workload2)
 	assert.Equal(t, resp, false)
 }
 
 func TestGeneral(t *testing.T) {
 	workload := genMockWorkload("cluster1", "workspace1")
-	assert.Equal(t, GetTotalCount(workload), 2)
 	assert.Equal(t, GetScope(workload), v1.TrainScope)
 	assert.Equal(t, IsApplication(workload), false)
 }
