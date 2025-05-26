@@ -22,7 +22,6 @@ const (
 type FailoverConfig struct {
 	Key    string `json:"key"`
 	Action string `json:"action"`
-	Force  bool   `json:"force,omitempty"`
 }
 
 func (conf *FailoverConfig) Release() error {

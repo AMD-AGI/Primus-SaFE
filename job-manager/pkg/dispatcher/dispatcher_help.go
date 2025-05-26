@@ -282,11 +282,17 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 			"value": strconv.Itoa(adminWorkload.Spec.Resource.SSHPort),
 		})
 	}
-	if adminWorkload.Spec.IsSupervised && commonconfig.GetWorkloadHangCheckSecond() > 0 {
+	if adminWorkload.Spec.IsSupervised {
 		result = append(result, map[string]interface{}{
-			"name":  "HANG_CHECK_INTERVAL",
-			"value": strconv.Itoa(commonconfig.GetWorkloadHangCheckSecond()),
+			"name":  "ENABLE_SUPERVISE",
+			"value": "true",
 		})
+		if commonconfig.GetWorkloadHangCheckSecond() > 0 {
+			result = append(result, map[string]interface{}{
+				"name":  "HANG_CHECK_INTERVAL",
+				"value": strconv.Itoa(commonconfig.GetWorkloadHangCheckSecond()),
+			})
+		}
 	}
 	if adminWorkload.Spec.Resource.GPU == "" {
 		if adminWorkload.Spec.Resource.GPUName == common.NvidiaGpu {

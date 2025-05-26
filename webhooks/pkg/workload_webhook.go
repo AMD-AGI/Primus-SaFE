@@ -539,9 +539,6 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, w *v1.Wo
 	if nf == nil {
 		return err
 	}
-	if v1.IsWorkloadForcedFailover(w) {
-		return nil
-	}
 	nodeResources := nf.ToResourceList()
 	availNodeResources := quantity.GetAvailableResource(nodeResources)
 

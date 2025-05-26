@@ -69,6 +69,8 @@ data:
                       value: "AF_INET"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
+                    - name: JOB_KIND
+                      value: "PytorchJob"
                     - name: POD_NAME
                       valueFrom:
                         fieldRef:
@@ -148,6 +150,8 @@ data:
                       value: "AF_INET"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
+                    - name: JOB_KIND
+                      value: "PytorchJob"
                     - name: POD_NAME
                       valueFrom:
                         fieldRef:

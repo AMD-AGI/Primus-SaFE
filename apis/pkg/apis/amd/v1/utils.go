@@ -211,10 +211,6 @@ func IsEnableHostNetwork(obj metav1.Object) bool {
 	return GetAnnotation(obj, EnableHostNetworkAnnotation) == "true"
 }
 
-func IsWorkloadForcedFailover(obj metav1.Object) bool {
-	return HasAnnotation(obj, WorkloadForcedFoAnnotation)
-}
-
 func GetImageSecretName(obj metav1.Object) string {
 	return GetAnnotation(obj, ImageSecretNameAnnotation)
 }

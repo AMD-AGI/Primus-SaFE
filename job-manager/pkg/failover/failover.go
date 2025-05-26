@@ -51,7 +51,7 @@ func SetupFailoverController(mgr manager.Manager) error {
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workload{}, builder.WithPredicates(CaredChangePredicate{})).
 		Watches(&v1.Fault{}, r.enqueueRequestByFault()).
-		Watches(&corev1.ConfigMap{}, r.enqueueRequestByConfigmap()).
+		Watches(&corev1.ConfigMap{}, r.updateConfig()).
 		Complete(r)
 	if err != nil {
 		return err
@@ -91,9 +91,6 @@ func isNeedFailover(workload *v1.Workload) bool {
 	if isDisableFailover(workload) {
 		return false
 	}
-	if v1.IsWorkloadForcedFailover(workload) {
-		return true
-	}
 	cond := &metav1.Condition{
 		Type:   string(v1.K8sFailed),
 		Reason: commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload)),
@@ -105,14 +102,11 @@ func isNeedFailover(workload *v1.Workload) bool {
 }
 
 func isDisableFailover(w *v1.Workload) bool {
-	if w.IsEnd() || v1.IsWorkloadDisableFailover(w) {
+	if v1.IsWorkloadDisableFailover(w) {
 		return true
 	}
-	if !v1.IsWorkloadDispatched(w) {
+	if !v1.IsWorkloadDispatched(w) || w.IsEnd() {
 		return true
-	}
-	if v1.IsWorkloadForcedFailover(w) {
-		return false
 	}
 	if w.Spec.MaxRetry <= 0 || v1.GetWorkloadDispatchCnt(w) > w.Spec.MaxRetry {
 		return true
@@ -121,45 +115,40 @@ func isDisableFailover(w *v1.Workload) bool {
 }
 
 func (r *FailoverReconciler) enqueueRequestByFault() handler.EventHandler {
+	check := func(fault *v1.Fault) bool {
+		if fault.Status.Phase != v1.FaultPhaseSucceeded || fault.Spec.Node == nil {
+			return false
+		}
+		conf := getFailoverConfig(r.failoverConfig, strings.ToLower(fault.Spec.Id))
+		if conf == nil || conf.Action != GLOBAL_RESTART {
+			return false
+		}
+		return true
+	}
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
 			fault, ok := evt.Object.(*v1.Fault)
-			if !ok || fault.Status.Phase != v1.FaultPhaseSucceeded {
+			if !ok || !check(fault) {
 				return
 			}
-			conf := getFailoverConfig(r.failoverConfig, strings.ToLower(fault.Spec.Id))
-			if conf == nil || conf.Action != GLOBAL_RESTART || fault.Spec.Node == nil {
-				return
-			}
-			message := fmt.Sprintf("the node %s has fault %s, detail: %s", fault.Spec.Node.K8sName,
-				commonfaults.GenerateTaintKey(fault.Spec.Id), fault.Spec.Message)
-			r.enqueue(ctx, fault, q, message, conf.Force)
+			r.enqueue(ctx, fault, q)
 		},
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
-			oldFault, ok1 := evt.ObjectOld.(*v1.Fault)
-			newFault, ok2 := evt.ObjectNew.(*v1.Fault)
-			if !ok1 || !ok2 {
+			fault, ok := evt.ObjectNew.(*v1.Fault)
+			if !ok || !check(fault) {
 				return
 			}
-			if oldFault.Status.Phase == v1.FaultPhaseSucceeded || newFault.Status.Phase != v1.FaultPhaseSucceeded {
-				return
-			}
-			conf := getFailoverConfig(r.failoverConfig, strings.ToLower(newFault.Spec.Id))
-			if conf == nil || conf.Action != GLOBAL_RESTART || newFault.Spec.Node == nil {
-				return
-			}
-			message := fmt.Sprintf("the node %s has fault %s, detail: %s", newFault.Spec.Node.K8sName,
-				commonfaults.GenerateTaintKey(newFault.Spec.Id), newFault.Spec.Message)
-			r.enqueue(ctx, newFault, q, message, conf.Force)
+			r.enqueue(ctx, fault, q)
 		},
 	}
 }
 
-func (r *FailoverReconciler) enqueue(ctx context.Context,
-	fault *v1.Fault, q v1.RequestWorkQueue, message string, isForce bool) {
+func (r *FailoverReconciler) enqueue(ctx context.Context, fault *v1.Fault, q v1.RequestWorkQueue) {
+	message := fmt.Sprintf("the node %s has fault %s, detail: %s", fault.Spec.Node.K8sName,
+		commonfaults.GenerateTaintKey(fault.Spec.Id), fault.Spec.Message)
 	klog.Infof("%s, try to do failover", message)
-	waitTime := time.Millisecond * 200
 	const maxRetry = 10
+	waitTime := time.Millisecond * 200
 	maxWaitTime := waitTime * maxRetry
 
 	var clusterInformer *syncer.ClusterInformer
@@ -176,7 +165,7 @@ func (r *FailoverReconciler) enqueue(ctx context.Context,
 	}
 
 	faultNode := fault.Spec.Node
-	workloadNames, err := r.getAllWorkloadsOfNode(ctx, clusterInformer, faultNode.AdminName, faultNode.K8sName)
+	workloadNames, err := r.getWorkloadsOfK8sNode(ctx, clusterInformer, faultNode.AdminName, faultNode.K8sName)
 	if err != nil {
 		return
 	}
@@ -188,22 +177,12 @@ func (r *FailoverReconciler) enqueue(ctx context.Context,
 				if apierrors.IsNotFound(err) {
 					return false
 				}
-				continue
-			}
-			if !isForce {
-				if isDisableFailover(workload) || workload.CreationTimestamp.After(fault.CreationTimestamp.Time) {
-					return false
-				}
-			} else {
-				patch := client.MergeFrom(workload.DeepCopy())
-				metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.WorkloadForcedFoAnnotation, "")
-				if err = r.Patch(context.Background(), workload, patch); err != nil {
-					continue
-				}
-			}
-			if r.addFailoverCondition(workload, message) == nil {
+			} else if isDisableFailover(workload) || workload.CreationTimestamp.After(fault.CreationTimestamp.Time) {
+				return false
+			} else if r.addFailoverCondition(workload, message) == nil {
 				break
 			}
+			time.Sleep(waitTime)
 		}
 		return true
 	}
@@ -228,7 +207,7 @@ func (r *FailoverReconciler) addFailoverCondition(workload *v1.Workload, message
 	return nil
 }
 
-func (r *FailoverReconciler) getAllWorkloadsOfNode(ctx context.Context,
+func (r *FailoverReconciler) getWorkloadsOfK8sNode(ctx context.Context,
 	clusterInformer *syncer.ClusterInformer, adminNodeName, k8sNodeName string) ([]string, error) {
 	adminNode := &v1.Node{}
 	if err := r.Get(ctx, client.ObjectKey{Name: adminNodeName}, adminNode); err != nil {
@@ -246,7 +225,7 @@ func (r *FailoverReconciler) getAllWorkloadsOfNode(ctx context.Context,
 	return workloadNames, nil
 }
 
-func (r *FailoverReconciler) enqueueRequestByConfigmap() handler.EventHandler {
+func (r *FailoverReconciler) updateConfig() handler.EventHandler {
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
 			cm, ok := evt.Object.(*corev1.ConfigMap)
@@ -298,7 +277,7 @@ func (r *FailoverReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 		}
 		return ctrlruntime.Result{}, err
 	}
-	if isDisableFailover(workload) {
+	if !workload.GetDeletionTimestamp().IsZero() {
 		return ctrlruntime.Result{}, nil
 	}
 	return r.handle(ctx, workload)
@@ -307,23 +286,12 @@ func (r *FailoverReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 func (r *FailoverReconciler) handle(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
 	clusterInformer, _ := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))
 	if clusterInformer == nil {
-		return ctrlruntime.Result{RequeueAfter: time.Second * 1}, nil
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 	clientSet := clusterInformer.ClientFactory()
 	if err := jobutils.DeleteObject(ctx, clientSet.DynamicClient(), clientSet.Mapper(), adminWorkload); err != nil {
-		if apierrors.IsNotFound(err) {
-			err = nil
-		} else {
-			klog.ErrorS(err, "failed to delete k8s workload", "name", adminWorkload.GetName())
-		}
+		klog.ErrorS(err, "failed to delete k8s object", "name", adminWorkload.GetName())
 		return ctrlruntime.Result{}, err
-	}
-	if v1.IsWorkloadForcedFailover(adminWorkload) {
-		patch := client.MergeFrom(adminWorkload.DeepCopy())
-		delete(adminWorkload.Annotations, v1.WorkloadForcedFoAnnotation)
-		if err := r.Patch(context.Background(), adminWorkload, patch); err != nil {
-			return ctrlruntime.Result{}, err
-		}
 	}
 	message := "the workload does the failover"
 	if err := r.addFailoverCondition(adminWorkload, message); err != nil {
