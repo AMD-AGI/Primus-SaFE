@@ -288,8 +288,8 @@ func (r *FailoverReconciler) handle(ctx context.Context, adminWorkload *v1.Workl
 	if clusterInformer == nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	clientSet := clusterInformer.ClientFactory()
-	if err := jobutils.DeleteObject(ctx, clientSet.DynamicClient(), clientSet.Mapper(), adminWorkload); err != nil {
+	k8sClients := clusterInformer.ClientFactory()
+	if err := jobutils.DeleteObject(ctx, k8sClients.DynamicClient(), k8sClients.Mapper(), adminWorkload); err != nil {
 		klog.ErrorS(err, "failed to delete k8s object", "name", adminWorkload.GetName())
 		return ctrlruntime.Result{}, err
 	}

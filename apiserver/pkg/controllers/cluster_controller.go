@@ -75,8 +75,8 @@ func (r *ClusterReconciler) addClientFactory(ctx context.Context, c *v1.Cluster)
 	if !c.IsReady() {
 		return fmt.Errorf("cluster %s is not ready", c.Name)
 	}
-	mgr := commonutils.NewObjectManagerSingleton()
-	if mgr == nil {
+	clientManager := commonutils.NewObjectManagerSingleton()
+	if clientManager == nil {
 		return fmt.Errorf("failed to new clients manager")
 	}
 	controlPlane := &c.Status.ControlPlaneStatus
@@ -90,6 +90,6 @@ func (r *ClusterReconciler) addClientFactory(ctx context.Context, c *v1.Cluster)
 	if err != nil {
 		return err
 	}
-	mgr.AddOrReplace(c.Name, k8sClientFactory)
+	clientManager.AddOrReplace(c.Name, k8sClientFactory)
 	return nil
 }

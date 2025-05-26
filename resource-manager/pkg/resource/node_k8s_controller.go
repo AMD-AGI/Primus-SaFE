@@ -132,31 +132,31 @@ func (r *NodeK8sReconciler) addClientFactory(cluster *v1.Cluster) error {
 	if err != nil {
 		return err
 	}
-	k8sClientFactory, err := commonclient.NewClientFactory(context.Background(), cluster.Name, endpoint,
+	k8sClients, err := commonclient.NewClientFactory(context.Background(), cluster.Name, endpoint,
 		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, commonclient.EnableInformer)
 	if err != nil {
 		return err
 	}
 
-	nodeInformer := k8sClientFactory.SharedInformerFactory().Core().V1().Nodes().Informer()
-	if _, err = nodeInformer.AddEventHandler(r.nodeEventHandler(k8sClientFactory)); err != nil {
+	nodeInformer := k8sClients.SharedInformerFactory().Core().V1().Nodes().Informer()
+	if _, err = nodeInformer.AddEventHandler(r.nodeEventHandler(k8sClients)); err != nil {
 		klog.ErrorS(err, "failed to add event handler", "name", cluster.Name)
 		return err
 	}
-	if err = nodeInformer.SetWatchErrorHandler(watchErrorHandler(k8sClientFactory)); err != nil {
+	if err = nodeInformer.SetWatchErrorHandler(watchErrorHandler(k8sClients)); err != nil {
 		klog.ErrorS(err, "failed to set error handler", "name", cluster.Name)
 		return err
 	}
-	r.clientManager.AddOrReplace(cluster.Name, k8sClientFactory)
-	k8sClientFactory.StartInformer()
-	k8sClientFactory.WaitForCacheSync()
+	r.clientManager.AddOrReplace(cluster.Name, k8sClients)
+	k8sClients.StartInformer()
+	k8sClients.WaitForCacheSync()
 	return nil
 }
 
-func (r *NodeK8sReconciler) nodeEventHandler(k8sClientFactory *commonclient.ClientFactory) cache.ResourceEventHandler {
+func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFactory) cache.ResourceEventHandler {
 	check := func() {
-		if !k8sClientFactory.IsValid() {
-			k8sClientFactory.SetValid(true, "")
+		if !k8sClients.IsValid() {
+			k8sClients.SetValid(true, "")
 		}
 	}
 	enqueue := func(oldNode, newNode *corev1.Node, action NodeAction) {
@@ -167,7 +167,7 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClientFactory *commonclient.Clie
 		item := &nodeQueueMessage{
 			k8sNodeName:   node.Name,
 			adminNodeName: v1.GetNodeId(node),
-			clusterName:   k8sClientFactory.Name(),
+			clusterName:   k8sClients.Name(),
 			action:        action,
 		}
 		if oldNode != nil {
@@ -181,11 +181,11 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClientFactory *commonclient.Clie
 		AddFunc: func(obj interface{}) {
 			check()
 			node, ok := obj.(*corev1.Node)
-			if !ok || !node.GetDeletionTimestamp().IsZero() || v1.GetClusterId(node) != k8sClientFactory.Name() {
+			if !ok || !node.GetDeletionTimestamp().IsZero() || v1.GetClusterId(node) != k8sClients.Name() {
 				return
 			}
 			klog.Infof("cluster: %s watch add-event of node: %s, workspace: %s",
-				k8sClientFactory.Name(), node.Name, v1.GetWorkspaceId(node))
+				k8sClients.Name(), node.Name, v1.GetWorkspaceId(node))
 			enqueue(nil, node, NodeAdd)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
@@ -198,36 +198,36 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClientFactory *commonclient.Clie
 			oldClusterId := v1.GetClusterId(oldNode)
 			newClusterId := v1.GetClusterId(newNode)
 			switch {
-			case oldClusterId == k8sClientFactory.Name() && newClusterId != k8sClientFactory.Name():
+			case oldClusterId == k8sClients.Name() && newClusterId != k8sClients.Name():
 				klog.Infof("cluster: %s watch node unmanaged: %s, workspace: %s",
-					k8sClientFactory.Name(), oldNode.Name, v1.GetWorkspaceId(oldNode))
+					k8sClients.Name(), oldNode.Name, v1.GetWorkspaceId(oldNode))
 				enqueue(oldNode, newNode, NodeUnmanaged)
-			case oldClusterId != k8sClientFactory.Name() && newClusterId == k8sClientFactory.Name():
+			case oldClusterId != k8sClients.Name() && newClusterId == k8sClients.Name():
 				klog.Infof("cluster: %s watch node managed: %s, workspace: %s",
-					k8sClientFactory.Name(), newNode.Name, v1.GetWorkspaceId(newNode))
+					k8sClients.Name(), newNode.Name, v1.GetWorkspaceId(newNode))
 				enqueue(oldNode, newNode, NodeManaged)
-			case newClusterId == k8sClientFactory.Name() && r.isNodeCaredFieldChanged(oldNode, newNode):
+			case newClusterId == k8sClients.Name() && r.isNodeCaredFieldChanged(oldNode, newNode):
 				enqueue(oldNode, newNode, NodeUpdate)
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
 			check()
 			node, ok := obj.(*corev1.Node)
-			if !ok || v1.GetClusterId(node) != k8sClientFactory.Name() {
+			if !ok || v1.GetClusterId(node) != k8sClients.Name() {
 				return
 			}
 			klog.Infof("cluster: %s watch delete-event of node: %s, workspace: %s",
-				k8sClientFactory.Name(), node.Name, v1.GetWorkspaceId(node))
+				k8sClients.Name(), node.Name, v1.GetWorkspaceId(node))
 			enqueue(node, nil, NodeDelete)
 		},
 	}
 }
 
-func watchErrorHandler(k8sClientFactory *commonclient.ClientFactory) cache.WatchErrorHandler {
+func watchErrorHandler(k8sClients *commonclient.ClientFactory) cache.WatchErrorHandler {
 	return func(reflector *cache.Reflector, err error) {
 		cache.DefaultWatchErrorHandler(context.Background(), reflector, err)
-		klog.Warningf("set clients: %s invalid", k8sClientFactory.Name())
-		k8sClientFactory.SetValid(false, err.Error())
+		klog.Warningf("set clients: %s invalid", k8sClients.Name())
+		k8sClients.SetValid(false, err.Error())
 	}
 }
 
