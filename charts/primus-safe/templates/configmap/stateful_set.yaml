@@ -1,12 +1,16 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: stateful-set-template
-  namespace: primus-safe
+  name: amd-stateful-set-template
+  namespace: {{ .Release.Namespace }}
   labels:
+    group: apps
+    version: v1
     kind: StatefulSet
+  annotations:
+    primus-safe.gpu.resource.name: "amd.com/gpu"
     # The main container name should match the configuration defined in the template below
-    mainContainer: main
+    primus-safe.main.container: main
 data:
  template: |
    apiVersion: apps/v1
@@ -18,7 +22,7 @@ data:
          dnsPolicy: ClusterFirstWithHostNet
          initContainers:
            - name: preprocess
-             image: docker.io/primussafe/preprocess:latest
+             image: {{ .Values.repository }}/preprocess:latest
              imagePullPolicy: IfNotPresent
              command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
              securityContext:
@@ -79,3 +83,5 @@ data:
          terminationGracePeriodSeconds: 10
          schedulerName: default-scheduler
          restartPolicy: Always
+         imagePullSecrets:
+           - name: {{ .Release.Name }}-image

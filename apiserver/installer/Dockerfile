@@ -23,7 +23,7 @@ ENV GOBIN="/usr/local/go/bin"
 ENV CGO_ENABLED=0
 ENV GOPATH="/workspace/primus-safe/go"
 
-COPY dockerfile2 /workspace/primus-safe
+COPY . /workspace/primus-safe
 WORKDIR /workspace/primus-safe
 RUN mkdir dist && mkdir dist/config && mkdir dist/logss
 RUN GOOS=linux GOARCH=amd64  go build -o dist/apiserver ./apiserver/cmd/main.go
