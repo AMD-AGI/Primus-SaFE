@@ -13,6 +13,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -68,18 +69,24 @@ func GetWorkloadsOfK8sNode(ctx context.Context, k8sClient kubernetes.Interface, 
 	return results, nil
 }
 
-func GetTemplateConfig(ctx context.Context, cli client.Client, kind string) (*corev1.ConfigMap, error) {
-	selector := labels.SelectorFromSet(map[string]string{v1.KindLabel: kind})
+func GetWorkloadTemplate(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind, resourceName string) (*corev1.ConfigMap, error) {
+	selector := labels.SelectorFromSet(map[string]string{"group": gvk.Group, "version": gvk.Version, "kind": gvk.Kind})
 	listOptions := &client.ListOptions{LabelSelector: selector, Namespace: common.PrimusSafeNamespace}
 	configmapList := &corev1.ConfigMapList{}
 	if err := cli.List(ctx, configmapList, listOptions); err != nil {
 		return nil, err
 	}
-	if len(configmapList.Items) > 0 {
+	if resourceName != "" {
+		for i, item := range configmapList.Items {
+			if v1.GetGpuResourceName(&item) == resourceName {
+				return &configmapList.Items[i], nil
+			}
+		}
+	} else if len(configmapList.Items) > 0 {
 		return &configmapList.Items[0], nil
 	}
 	return nil, commonerrors.NewInternalError(
-		fmt.Sprintf("failed to find configmap. kind: %s", kind))
+		fmt.Sprintf("failed to find configmap. gvk: %s, resourceName: %s", gvk.String(), resourceName))
 }
 
 // Statistics of the resources requested by a workload on each node
@@ -172,7 +179,7 @@ func GetPodResources(w *v1.Workload) (corev1.ResourceList, error) {
 }
 
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
-	switch w.Spec.Kind {
+	switch w.Spec.GroupVersionKind.Kind {
 	case common.PytorchJobKind:
 		return v1.TrainScope
 	case common.DeploymentKind, common.StatefulSetKind:
@@ -183,14 +190,15 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 }
 
 func IsApplication(w *v1.Workload) bool {
-	if w.Spec.Kind == common.DeploymentKind || w.Spec.Kind == common.StatefulSetKind {
+	if w.Spec.GroupVersionKind.Kind == common.DeploymentKind ||
+		w.Spec.GroupVersionKind.Kind == common.StatefulSetKind {
 		return true
 	}
 	return false
 }
 
 func IsJob(w *v1.Workload) bool {
-	if w.Spec.Kind == common.PytorchJobKind {
+	if w.Spec.GroupVersionKind.Kind == common.PytorchJobKind {
 		return true
 	}
 	return false

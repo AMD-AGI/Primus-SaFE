@@ -25,17 +25,17 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
-func GetResourceTemplate(ctx context.Context, cli client.Client, kind string) (*v1.ResourceTemplate, error) {
+func GetResourceTemplate(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind) (*v1.ResourceTemplate, error) {
 	rtl := &v1.ResourceTemplateList{}
 	if err := cli.List(ctx, rtl); err != nil {
 		return nil, err
 	}
 	for i := range rtl.Items {
-		if rtl.Items[i].Spec.GroupVersionKind.Kind == kind {
+		if rtl.Items[i].Spec.GroupVersionKind == gvk {
 			return &rtl.Items[i], nil
 		}
 	}
-	return nil, fmt.Errorf("the resource template is not found, kind: %s", kind)
+	return nil, fmt.Errorf("the resource template is not found, gvk: %s", gvk.String())
 }
 
 func CreateObject(ctx context.Context,
@@ -104,8 +104,7 @@ func ListObjects(informer informers.GenericInformer,
 
 func DeleteObject(ctx context.Context, dynamicClient *dynamic.DynamicClient,
 	mapper meta.RESTMapper, adminWorkload *v1.Workload) error {
-	gvk := adminWorkload.ResourceGVK()
-	gvr, err := CvtToGVR(mapper, gvk)
+	gvr, err := CvtToGVR(mapper, adminWorkload.Spec.GroupVersionKind)
 	if err != nil {
 		return err
 	}

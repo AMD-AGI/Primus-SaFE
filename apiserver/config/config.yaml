@@ -1,3 +1,5 @@
+global:
+  enable_crypto: true
 server:
   port: 8088
 health_check:

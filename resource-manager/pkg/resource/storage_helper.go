@@ -136,7 +136,7 @@ var nvmeResources = corev1.ResourceRequirements{
 
 type GetQueue func() v1.RequestWorkQueue
 
-func newStorageCluster(cluster *v1.Cluster, queue v1.RequestWorkQueue, stopCh chan struct{}) (*storageCluster, error) {
+func newStorageCluster(ctx context.Context, cluster *v1.Cluster, queue v1.RequestWorkQueue, stopCh chan struct{}) (*storageCluster, error) {
 	if queue == nil {
 		return nil, fmt.Errorf("queue is nil")
 	}
@@ -155,7 +155,7 @@ func newStorageCluster(cluster *v1.Cluster, queue v1.RequestWorkQueue, stopCh ch
 	if err != nil {
 		return nil, err
 	}
-	_, err = rClient.CephV1().CephClusters("").List(context.Background(), metav1.ListOptions{})
+	_, err = rClient.CephV1().CephClusters("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}

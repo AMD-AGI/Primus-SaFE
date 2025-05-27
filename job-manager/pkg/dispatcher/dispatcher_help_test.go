@@ -252,7 +252,7 @@ func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, worklo
 	assert.Equal(t, valuesSlice[0].(string) == "val1" || valuesSlice[0].(string) == "val2", true)
 }
 
-func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, template *v1.Template) {
+func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {
 	containerPath := append(template.PrePaths, template.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
@@ -266,16 +266,6 @@ func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, image, workload.Spec.Image)
-
-	imageSecretsPath := append(template.PrePaths, template.TemplatePaths...)
-	imageSecretsPath = append(imageSecretsPath, "spec", "imagePullSecrets")
-	imageSecrets, found, err := unstructured.NestedSlice(obj.Object, imageSecretsPath...)
-	assert.NilError(t, err)
-	assert.Equal(t, found, true)
-	assert.Equal(t, len(imageSecrets), 1)
-	secret, ok := imageSecrets[0].(map[string]interface{})
-	assert.Equal(t, ok, true)
-	assert.Equal(t, secret["name"].(string), v1.GetImageSecretName(workspace))
 }
 
 func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {

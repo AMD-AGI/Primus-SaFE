@@ -13,10 +13,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/scheme"
 )
 
-const (
-	KindLabel = "kind"
-)
-
 var (
 	// GroupVersion is group version used to register these objects.
 	SchemeGroupVersion = schema.GroupVersion{Group: "amd.com", Version: "v1"}

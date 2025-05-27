@@ -6,13 +6,14 @@
 package controllers
 
 import (
+	"context"
 	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-func SetupControllers(mgr manager.Manager) error {
-	if err := SetupClusterController(mgr); err != nil {
+func SetupControllers(ctx context.Context, mgr manager.Manager) error {
+	if err := SetupClusterController(ctx, mgr); err != nil {
 		return fmt.Errorf("failed to set up cluster controller: %+v", err)
 	}
 	return nil

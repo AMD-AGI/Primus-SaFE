@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: primus-safe-resource-manager
-  namespace: primus-safe
+  name: {{ .Release.Name }}-resource-manager
+  namespace: {{ .Release.Namespace }}
   labels:
     app: primus-safe-resource-manager
 spec:
-  replicas: 2
+  replicas: {{ .Values.resource_manager.replicas }}
   selector:
     matchLabels:
       app: primus-safe-resource-manager
@@ -30,10 +30,10 @@ spec:
                     operator: NotIn
                     values:
                       - "true"
-      serviceAccountName: primus-safe-manager
+      serviceAccountName: {{ .Release.Name }}-manager
       containers:
         - name: primus-safe-resource-manager
-          image: docker.io/primussafe/resource-manager:latest
+          image: {{ .Values.repository }}/resource-manager:{{ .Values.resource_manager.tag }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/resource-manager/run.sh"]
           terminationMessagePath: /dev/termination-log
@@ -42,8 +42,10 @@ spec:
             - name: crypto_file
               value: /etc/secrets/key
           volumeMounts:
-            - name: primus-safe-crypto
+            - name: primus-safe-secret
               mountPath: /etc/secrets
+            - name: primus-safe-config
+              mountPath: /opt/primus-safe/resource-manager/config
           ports:
             - containerPort: 8081
           livenessProbe:
@@ -65,12 +67,15 @@ spec:
             requests:
               cpu: "8000m"
               memory: 16Gi
-      volumes:
-        - name: primus-safe-crypto
-          secret:
-            secretName: primus-safe-crypto
       imagePullSecrets:
-        - name: primus-safe-image
+      - name: {{ .Release.Name }}-image
+      volumes:
+        - name: primus-safe-secret
+          secret:
+            secretName: {{ .Release.Name }}
+        - name: primus-safe-config
+          configMap:
+            name: {{ .Release.Name }}-resource-manager
       terminationGracePeriodSeconds: 10
       priorityClassName: system-cluster-critical
       restartPolicy: Always

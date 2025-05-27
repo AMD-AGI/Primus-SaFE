@@ -285,7 +285,7 @@ func (r *StorageClusterController) getStorageClusterByName(ctx context.Context, 
 	if r.queue == nil {
 		return nil, fmt.Errorf("queue is nil")
 	}
-	sc, err = newStorageCluster(cluster, r.queue, make(chan struct{}))
+	sc, err = newStorageCluster(ctx, cluster, r.queue, make(chan struct{}))
 	if err != nil {
 		return nil, err
 	}
@@ -343,7 +343,7 @@ func (r *StorageClusterController) getStorageCluster(ctx context.Context, sc *v1
 				if ok {
 					return scluster, nil
 				}
-				scluster, err := newStorageCluster(&cluster, r.queue, make(chan struct{}))
+				scluster, err := newStorageCluster(ctx, &cluster, r.queue, make(chan struct{}))
 				if err != nil {
 					return nil, fmt.Errorf("error getting default storage cluster: %v", err)
 				}

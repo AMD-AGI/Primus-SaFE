@@ -24,12 +24,14 @@ import (
 )
 
 type ClusterReconciler struct {
+	ctx context.Context
 	client.Client
 }
 
-func SetupClusterController(mgr manager.Manager) error {
+func SetupClusterController(ctx context.Context, mgr manager.Manager) error {
 	r := &ClusterReconciler{
 		Client: mgr.GetClient(),
+		ctx:    ctx,
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Cluster{}, builder.WithPredicates(r.CaredPredicate())).
@@ -51,7 +53,7 @@ func (r *ClusterReconciler) CaredPredicate() predicate.Predicate {
 			if !oldCluster.IsReady() && newCluster.IsReady() ||
 				!oldCluster.IsControlPlaneCertEqual(newCluster.Status.ControlPlaneStatus) ||
 				!oldCluster.IsControlPlaneEndpointEqual(newCluster.Status.ControlPlaneStatus.Endpoints) {
-				if err := r.addClientFactory(context.Background(), newCluster); err != nil {
+				if err := r.addClientFactory(r.ctx, newCluster); err != nil {
 					klog.Errorf("failed to add cluster, err: %v", err)
 				}
 			} else if oldCluster.IsReady() &&

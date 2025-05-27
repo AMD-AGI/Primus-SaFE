@@ -14,7 +14,6 @@ import (
 // with apply.
 type WorkloadPodApplyConfiguration struct {
 	PodId         *string                             `json:"podId,omitempty"`
-	Role          *string                             `json:"role,omitempty"`
 	K8sNodeName   *string                             `json:"k8sNodeName,omitempty"`
 	AdminNodeName *string                             `json:"adminNodeName,omitempty"`
 	Phase         *corev1.PodPhase                    `json:"phase,omitempty"`
@@ -35,14 +34,6 @@ func WorkloadPod() *WorkloadPodApplyConfiguration {
 // If called multiple times, the PodId field is set to the value of the last call.
 func (b *WorkloadPodApplyConfiguration) WithPodId(value string) *WorkloadPodApplyConfiguration {
 	b.PodId = &value
-	return b
-}
-
-// WithRole sets the Role field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Role field is set to the value of the last call.
-func (b *WorkloadPodApplyConfiguration) WithRole(value string) *WorkloadPodApplyConfiguration {
-	b.Role = &value
 	return b
 }
 
