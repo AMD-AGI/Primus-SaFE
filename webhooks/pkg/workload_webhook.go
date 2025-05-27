@@ -426,19 +426,7 @@ func (v *WorkloadValidator) validateRequiredParams(w *v1.Workload) error {
 		errs = append(errs, fmt.Errorf("the entryPoint is empty"))
 	}
 	if w.Spec.GroupVersionKind.Empty() {
-		errs = append(errs, fmt.Errorf("the gvk is empty"+
-			""+
-			""+
-			""+
-			""+
-			""+
-			""+
-			""+
-			""+
-			""+
-			""+
-			""+
-			""))
+		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
