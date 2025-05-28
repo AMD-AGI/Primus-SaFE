@@ -3,6 +3,7 @@ data:
   config.yaml: |
     global:
       enable_crypto: {{ .Values.crypto.enable }}
+      crypto_key: {{ .Values.crypto.path }}/key
     health_check:
       enable: true
       port: 8081

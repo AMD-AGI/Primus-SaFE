@@ -1,8 +1,9 @@
 global:
   enable_crypto: true
+  crypto_key: /etc/secrets/key
 health_check:
   enable: true
-  port: 8083
+  port: 8081
 leader_election:
   enable: true
   lock_namespace: primus-safe
@@ -10,6 +11,3 @@ workspace:
   mem_reserve_percent: 0.02
   cpu_reserve_percent: 0.06
   ephemeral_store_reserve_percent: 0.1
-workload:
-  enable_failover: true
-  hangcheck_second: 1200

@@ -38,12 +38,9 @@ spec:
           command: ["/bin/sh", "/opt/primus-safe/resource-manager/run.sh"]
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
-          env:
-            - name: crypto_file
-              value: /etc/secrets/key
           volumeMounts:
             - name: server-secret
-              mountPath: /etc/secrets
+              mountPath: {{ .Values.crypto.path }}
             - name: server-config
               mountPath: /opt/primus-safe/resource-manager/config
           ports:

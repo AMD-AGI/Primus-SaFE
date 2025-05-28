@@ -326,7 +326,7 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 		return nil
 	}
 	c := client.MergeFrom(cluster.DeepCopy())
-	cry := crypto.Instance()
+	cry := crypto.NewCrypto()
 	cluster.Status.ControlPlaneStatus.CertData, err = cry.Encrypt([]byte(base64.StdEncoding.EncodeToString(conf.CertData)))
 	if err != nil {
 		return fmt.Errorf("cert  encrypt error %+v", err)

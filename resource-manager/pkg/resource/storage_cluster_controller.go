@@ -453,7 +453,7 @@ func (r *StorageClusterController) getStorageCluster(ctx context.Context, sc *v1
 func updateStorageStatus(kc *v1.Cluster, s v1.StorageStatus) {
 	for i, stats := range kc.Status.StorageStatus {
 		if stats.Name == s.Name {
-			crypto := crypto.Instance()
+			crypto := crypto.NewCrypto()
 			sk, _ := crypto.Decrypt(stats.SecretKey)
 			if sk == s.SecretKey {
 				s.SecretKey = kc.Status.StorageStatus[i].SecretKey

@@ -1,6 +1,7 @@
 crypto:
   enable: true
   key: UHJpbXVzU2FmZTEyMzQ1Ngo=
+  path: /etc/secrets
 workspace:
   mem_reserve_percent: 0.02
   cpu_reserve_percent: 0.06

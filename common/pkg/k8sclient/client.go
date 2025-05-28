@@ -10,7 +10,6 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -37,18 +36,6 @@ func NewClientSet(endpoint, certData, keyData, caData string,
 	return cli, restConfig, err
 }
 
-func NewClientSetWithConfig(kubeconfig string) (kubernetes.Interface, *rest.Config, error) {
-	if kubeconfig == "" {
-		return nil, nil, fmt.Errorf("the kubconfig is empty")
-	}
-	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
-	if err != nil {
-		return nil, nil, err
-	}
-	cli, err := NewClientSetWithRestConfig(restConfig)
-	return cli, restConfig, err
-}
-
 func NewClientSetWithRestConfig(cfg *rest.Config) (kubernetes.Interface, error) {
 	client, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
@@ -58,7 +45,7 @@ func NewClientSetWithRestConfig(cfg *rest.Config) (kubernetes.Interface, error) 
 }
 
 func GetRestConfig(endpoint, certData, keyData, caData string, insecure bool) (*rest.Config, error) {
-	inst := crypto.Instance()
+	inst := crypto.NewCrypto()
 	if inst == nil {
 		return nil, fmt.Errorf("failed to new crypto instance")
 	}

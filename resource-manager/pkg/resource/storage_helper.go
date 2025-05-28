@@ -553,7 +553,7 @@ func (s *storageCluster) getCephCluster(ctx context.Context, cluster *v1.Storage
 	}
 	cluster.Status.CephClusterStatus.Monitors = endpoints
 
-	crypto := crypto.Instance()
+	crypto := crypto.NewCrypto()
 	sk := ""
 	if cluster.Status.CephClusterStatus.SecretKey != "" {
 		sk, err = crypto.Decrypt(cluster.Status.CephClusterStatus.SecretKey)
@@ -904,7 +904,7 @@ func (s *storageCluster) getObjectStore(ctx context.Context, cluster *v1.Storage
 
 func (s *storageCluster) getRBD(ctx context.Context, cluster *v1.StorageCluster, name string, storage v1.Storage) (*v1.StorageStatus, error) {
 	namespace := cluster.Name
-	crypto := crypto.Instance()
+	crypto := crypto.NewCrypto()
 	sk := ""
 	var err error
 	if cluster.Status.CephClusterStatus.SecretKey != "" {
@@ -1014,7 +1014,7 @@ func (s *storageCluster) getRBD(ctx context.Context, cluster *v1.StorageCluster,
 
 func (s *storageCluster) getFileSystem(ctx context.Context, cluster *v1.StorageCluster, name string, storage v1.Storage) (*v1.StorageStatus, error) {
 	namespace := cluster.Name
-	crypto := crypto.Instance()
+	crypto := crypto.NewCrypto()
 	sk := ""
 	var err error
 	if cluster.Status.CephClusterStatus.SecretKey != "" {
