@@ -15,10 +15,10 @@ const (
 )
 
 type ResourceTemplateSpec struct {
-	GroupVersionKind GroupVersionKind `json:"groupVersionKind"`
-	Templates        []Template       `json:"templates,omitempty"`
-	EndState         EndState         `json:"endState,omitempty"`
-	ActiveState      ActiveState      `json:"activeState,omitempty"`
+	GroupVersionKind schema.GroupVersionKind `json:"groupVersionKind"`
+	Templates        []Template              `json:"templates,omitempty"`
+	EndState         EndState                `json:"endState,omitempty"`
+	ActiveState      ActiveState             `json:"activeState,omitempty"`
 }
 
 type Template struct {
@@ -38,16 +38,6 @@ func (t *Template) GetTemplatePath() []string {
 	}
 	path := append(t.PrePaths, t.TemplatePaths...)
 	return path
-}
-
-type GroupVersionKind struct {
-	Group   string `json:"group,omitempty"`
-	Version string `json:"version,omitempty"`
-	Kind    string `json:"kind,omitempty"`
-}
-
-func (gvk GroupVersionKind) String() string {
-	return gvk.Group + "/" + gvk.Version + ", Kind=" + gvk.Kind
 }
 
 type EndState struct {
@@ -97,16 +87,4 @@ type ResourceTemplateList struct {
 
 func init() {
 	SchemeBuilder.Register(&ResourceTemplate{}, &ResourceTemplateList{})
-}
-
-func (rt *ResourceTemplate) ResourceGVK() schema.GroupVersionKind {
-	return schema.GroupVersionKind{
-		Group:   rt.Spec.GroupVersionKind.Group,
-		Version: rt.Spec.GroupVersionKind.Version,
-		Kind:    rt.Spec.GroupVersionKind.Kind,
-	}
-}
-
-func (rt *ResourceTemplate) ResourceApiVersion() string {
-	return rt.Spec.GroupVersionKind.Group + "/" + rt.Spec.GroupVersionKind.Version
 }

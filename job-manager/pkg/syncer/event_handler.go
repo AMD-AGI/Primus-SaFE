@@ -79,7 +79,7 @@ func (r *SyncerReconciler) getAdminWorkloadByEvent(ctx context.Context,
 	if workloadId == "" {
 		return nil, nil
 	}
-	return r.getAdminWorkload(workloadId)
+	return r.getAdminWorkload(ctx, workloadId)
 }
 
 func (r *SyncerReconciler) updatePendingMessage(ctx context.Context, adminWorkload *v1.Workload, eventObj *unstructured.Unstructured) error {

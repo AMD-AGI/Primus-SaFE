@@ -1,12 +1,16 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: pytorch-job-template
-  namespace: primus-safe
+  name: amd-pytorch-job-template
+  namespace: {{ .Release.Namespace }}
   labels:
+    group: kubeflow.org
+    version: v1
     kind: PyTorchJob
+  annotations:
+    primus-safe.gpu.resource.name: "amd.com/gpu"
     # The main container name should match the configuration defined in the template below
-    mainContainer: pytorch
+    primus-safe.main.container: pytorch
 data:
  template: |
     apiVersion: kubeflow.org/v1
@@ -20,7 +24,7 @@ data:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
                 - name: preprocess
-                  image: docker.io/primussafe/preprocess:latest
+                  image: {{ .Values.repository }}/preprocess:latest
                   imagePullPolicy: IfNotPresent
                   command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                   securityContext:
@@ -104,6 +108,8 @@ data:
                       fieldRef:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 5
+              imagePullSecrets:
+                - name: {{ .Release.Name }}-image
         Worker:
           restartPolicy: Never
           template:
@@ -111,7 +117,7 @@ data:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
                 - name: preprocess
-                  image: docker.io/primussafe/preprocess:latest
+                  image: {{ .Values.repository }}/preprocess:latest
                   imagePullPolicy: IfNotPresent
                   command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                   securityContext:
@@ -195,3 +201,5 @@ data:
                       fieldRef:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 5
+              imagePullSecrets:
+                - name: {{ .Release.Name }}-image

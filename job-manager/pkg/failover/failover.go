@@ -164,8 +164,7 @@ func (r *FailoverReconciler) enqueue(ctx context.Context, fault *v1.Fault, q v1.
 		return
 	}
 
-	faultNode := fault.Spec.Node
-	workloadNames, err := r.getWorkloadsOfK8sNode(ctx, clusterInformer, faultNode.AdminName, faultNode.K8sName)
+	workloadNames, err := r.getWorkloadsByFault(ctx, clusterInformer, fault)
 	if err != nil {
 		return
 	}
@@ -173,13 +172,14 @@ func (r *FailoverReconciler) enqueue(ctx context.Context, fault *v1.Fault, q v1.
 	f := func(name string) bool {
 		for i := 0; i < maxRetry; i++ {
 			workload := &v1.Workload{}
-			if err = r.Get(context.Background(), client.ObjectKey{Name: name}, workload); err != nil {
+			if err = r.Get(ctx, client.ObjectKey{Name: name}, workload); err != nil {
 				if apierrors.IsNotFound(err) {
 					return false
 				}
-			} else if isDisableFailover(workload) || workload.CreationTimestamp.After(fault.CreationTimestamp.Time) {
+			} else if isDisableFailover(workload) ||
+				workload.CreationTimestamp.After(fault.CreationTimestamp.Time) {
 				return false
-			} else if r.addFailoverCondition(workload, message) == nil {
+			} else if r.addFailoverCondition(ctx, workload, message) == nil {
 				break
 			}
 			time.Sleep(waitTime)
@@ -193,33 +193,33 @@ func (r *FailoverReconciler) enqueue(ctx context.Context, fault *v1.Fault, q v1.
 	}
 }
 
-func (r *FailoverReconciler) addFailoverCondition(workload *v1.Workload, message string) error {
+func (r *FailoverReconciler) addFailoverCondition(ctx context.Context, workload *v1.Workload, message string) error {
 	reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload))
 	cond := jobutils.NewCondition(string(v1.AdminFailover), message, reason)
 	if jobutils.FindCondition(workload, cond) != nil {
 		return nil
 	}
 	workload.Status.Conditions = append(workload.Status.Conditions, *cond)
-	if err := r.Status().Update(context.Background(), workload); err != nil {
+	if err := r.Status().Update(ctx, workload); err != nil {
 		klog.ErrorS(err, "failed to update workload status")
 		return err
 	}
 	return nil
 }
 
-func (r *FailoverReconciler) getWorkloadsOfK8sNode(ctx context.Context,
-	clusterInformer *syncer.ClusterInformer, adminNodeName, k8sNodeName string) ([]string, error) {
+func (r *FailoverReconciler) getWorkloadsByFault(ctx context.Context,
+	clusterInformer *syncer.ClusterInformer, fault *v1.Fault) ([]string, error) {
 	adminNode := &v1.Node{}
-	if err := r.Get(ctx, client.ObjectKey{Name: adminNodeName}, adminNode); err != nil {
-		klog.ErrorS(err, "failed to get node", "name", adminNodeName)
+	if err := r.Get(ctx, client.ObjectKey{Name: fault.Spec.Node.AdminName}, adminNode); err != nil {
+		klog.ErrorS(err, "failed to get node", "name", fault.Spec.Node.AdminName)
 		return nil, err
 	}
 
 	workloadNames, err := commonworkload.GetWorkloadsOfK8sNode(ctx,
-		clusterInformer.ClientFactory().ClientSet(), k8sNodeName, v1.GetWorkspaceId(adminNode))
+		clusterInformer.ClientFactory().ClientSet(), fault.Spec.Node.K8sName, v1.GetWorkspaceId(adminNode))
 	if err != nil {
 		klog.ErrorS(err, "failed to get workload of node",
-			"name", k8sNodeName, "workspace", v1.GetWorkspaceId(adminNode))
+			"name", fault.Spec.Node.K8sName, "workspace", v1.GetWorkspaceId(adminNode))
 		return nil, err
 	}
 	return workloadNames, nil
@@ -294,7 +294,7 @@ func (r *FailoverReconciler) handle(ctx context.Context, adminWorkload *v1.Workl
 		return ctrlruntime.Result{}, err
 	}
 	message := "the workload does the failover"
-	if err := r.addFailoverCondition(adminWorkload, message); err != nil {
+	if err := r.addFailoverCondition(ctx, adminWorkload, message); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	klog.Infof("do failover, workload: %s", adminWorkload.Name)

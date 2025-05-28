@@ -28,7 +28,7 @@ import (
 )
 
 func (r *SyncerReconciler) handleJob(ctx context.Context, msg *resourceMessage, informer *ClusterInformer) (controller.Result, error) {
-	adminWorkload, err := r.getAdminWorkload(msg.workloadId)
+	adminWorkload, err := r.getAdminWorkload(ctx, msg.workloadId)
 	if adminWorkload == nil {
 		return controller.Result{}, err
 	}
@@ -102,7 +102,7 @@ func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, msg *resour
 		klog.ErrorS(err, "failed to get k8s object", "name", msg.name, "namespace", msg.namespace)
 		return nil, err
 	}
-	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, msg.gvk.Kind)
+	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, msg.gvk)
 	if err != nil {
 		klog.ErrorS(err, "failed to get resource template", "name", msg.name, "kind", msg.gvk.Kind)
 		return nil, err

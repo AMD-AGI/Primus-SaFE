@@ -111,9 +111,6 @@ func (m *WorkspaceMutator) mutateMeta(ctx context.Context, w *v1.Workspace) {
 				}
 			}
 			metav1.SetMetaDataLabel(&w.ObjectMeta, v1.ClusterIdLabel, w.Spec.Cluster)
-			if cl.Spec.ControlPlane.ImageSecret != nil {
-				metav1.SetMetaDataAnnotation(&w.ObjectMeta, v1.ImageSecretNameAnnotation, cl.Spec.ControlPlane.ImageSecret.Name)
-			}
 		}
 	}
 	metav1.SetMetaDataLabel(&w.ObjectMeta, v1.WorkspaceIdLabel, w.Name)
@@ -347,8 +344,8 @@ func (v *WorkspaceValidator) validateVolumes(newObj, oldObj *v1.Workspace) error
 		if vol.StorageType != v1.RBD && vol.StorageType != v1.FS && vol.StorageType != v1.OBS {
 			return fmt.Errorf("invalid volume storage type")
 		}
-		if vol.StorageClass == "" {
-			return fmt.Errorf("the storageClass of volume is empty")
+		if vol.StorageClass == "" && vol.PersistentVolumeName == "" {
+			return fmt.Errorf("the storageClass or persistentVolumeName is empty")
 		}
 		if vol.Capacity == "" {
 			return fmt.Errorf("the capacity of volume is empty")

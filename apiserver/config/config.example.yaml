@@ -1,8 +1,11 @@
+global:
+  enable_crypto: true
+  crypto_key: /etc/secrets/key
 server:
-  port: 8084
-leader_election:
+  port: 8088
+health_check:
   enable: true
-  lock_namespace: "default"
+  port: 8082
 workspace:
   mem_reserve_percent: 0.02
   cpu_reserve_percent: 0.06

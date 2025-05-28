@@ -13,12 +13,8 @@ import (
 
 	"k8s.io/klog/v2"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/crypto"
-)
-
-const (
-	CryptoFileName = "crypto_file"
 )
 
 type Crypto struct {
@@ -30,10 +26,10 @@ var (
 	instance *Crypto
 )
 
-func Instance() *Crypto {
+func NewCrypto() *Crypto {
 	once.Do(func() {
 		key := ""
-		if config.IsCryptoEnable() {
+		if commonconfig.IsCryptoEnable() {
 			var err error
 			key, err = getCryptoKey()
 			if err != nil {
@@ -49,7 +45,7 @@ func Instance() *Crypto {
 }
 
 func (c *Crypto) Encrypt(plainText []byte) (string, error) {
-	if !config.IsCryptoEnable() {
+	if !commonconfig.IsCryptoEnable() {
 		return string(plainText), nil
 	}
 	if c.key == "" {
@@ -59,7 +55,7 @@ func (c *Crypto) Encrypt(plainText []byte) (string, error) {
 }
 
 func (c *Crypto) Decrypt(ciphertext string) (string, error) {
-	if !config.IsCryptoEnable() {
+	if !commonconfig.IsCryptoEnable() {
 		return ciphertext, nil
 	}
 	if c.key == "" {
@@ -74,13 +70,9 @@ func (c *Crypto) Decrypt(ciphertext string) (string, error) {
 
 // The crypto_file is created during deployment and acts as the global key for the entire system
 func getCryptoKey() (string, error) {
-	value := os.Getenv("Crypto")
-	if value != "" {
-		return value, nil
-	}
-	keyFile := os.Getenv(CryptoFileName)
+	keyFile := commonconfig.GetCryptoKey()
 	if keyFile == "" {
-		return "", fmt.Errorf("%s of environment is not set", CryptoFileName)
+		return "", fmt.Errorf("global.crypto_key of config is not set")
 	}
 	f, err := os.Open(keyFile)
 	if err != nil {

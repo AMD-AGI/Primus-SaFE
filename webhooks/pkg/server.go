@@ -17,6 +17,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -133,6 +134,13 @@ func (s *Server) newCtrlManager() error {
 	if commonconfig.GetServerPort() <= 0 {
 		return fmt.Errorf("the server port is not defined")
 	}
+	healthProbeAddress := ""
+	if commonconfig.IsHealthCheckEnabled() {
+		if commonconfig.GetHealthCheckPort() <= 0 {
+			return fmt.Errorf("the healthcheck port is not defined")
+		}
+		healthProbeAddress = fmt.Sprintf("%s:%d", localIp, commonconfig.GetHealthCheckPort())
+	}
 	opts := manager.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
@@ -142,6 +150,7 @@ func (s *Server) newCtrlManager() error {
 		LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
 		LeaderElectionNamespace:    commonconfig.GetLeaderElectionLock(),
 		LeaderElectionID:           "primus-safe-webhooks",
+		HealthProbeBindAddress:     healthProbeAddress,
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Host:     localIp,
 			Port:     commonconfig.GetServerPort(),
@@ -153,6 +162,14 @@ func (s *Server) newCtrlManager() error {
 	s.ctrlManager, err = manager.New(cfg, opts)
 	if err != nil {
 		return err
+	}
+	if commonconfig.IsHealthCheckEnabled() {
+		if err = s.ctrlManager.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+			return fmt.Errorf("failed to set up health check: %v", err)
+		}
+		if err = s.ctrlManager.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+			return fmt.Errorf("failed to set up ready check: %v", err)
+		}
 	}
 	return nil
 }

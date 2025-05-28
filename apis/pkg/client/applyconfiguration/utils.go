@@ -58,8 +58,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.FaultStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("GpuChip"):
 		return &amdv1.GpuChipApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("GroupVersionKind"):
-		return &amdv1.GroupVersionKindApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("HealthCheck"):
 		return &amdv1.HealthCheckApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("HybridStorageSpec"):

@@ -52,6 +52,7 @@ type WorkspaceSpec struct {
 }
 
 type WorkspaceVolume struct {
+	// The storage type, which is also used as the PVC name
 	StorageType StorageUseType `json:"storageType"`
 	// Mount path to be used, equivalent to 'mountPath' in Kubernetes volume mounts. Required field.
 	MountPath string `json:"mountPath"`
@@ -61,7 +62,10 @@ type WorkspaceVolume struct {
 	HostPath string `json:"hostPath,omitempty"`
 	// Capacity size, such as 100Gi. This is a required parameter when creating a PVC (PersistentVolumeClaim).
 	Capacity string `json:"capacity,omitempty"`
-	// This is a required parameter when creating a PVC
+	// volumeName specifies the name of an existing PersistentVolume. It cannot be used together with storageClassName.
+	// If both are set, the volumeName takes priority
+	PersistentVolumeName string `json:"PersistentVolumeName,omitempty"`
+	// Responsible for automatic PV creation
 	StorageClass string `json:"storageClass,omitempty"`
 	// access mode，default: ReadWriteMany
 	AccessMode corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`

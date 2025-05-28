@@ -13,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 const (
@@ -389,7 +390,7 @@ var (
 			Name: "pytorch-job",
 		},
 		Spec: v1.ResourceTemplateSpec{
-			GroupVersionKind: v1.GroupVersionKind{
+			GroupVersionKind: schema.GroupVersionKind{
 				Group:   "kubeflow.org",
 				Version: "v1",
 				Kind:    "PyTorchJob",
@@ -446,7 +447,7 @@ var (
 			Name: "job",
 		},
 		Spec: v1.ResourceTemplateSpec{
-			GroupVersionKind: v1.GroupVersionKind{
+			GroupVersionKind: schema.GroupVersionKind{
 				Group:   "batch",
 				Version: "v1",
 				Kind:    "Job",
@@ -486,7 +487,7 @@ var (
 			Name: "deployment",
 		},
 		Spec: v1.ResourceTemplateSpec{
-			GroupVersionKind: v1.GroupVersionKind{
+			GroupVersionKind: schema.GroupVersionKind{
 				Group:   "apps",
 				Version: "v1",
 				Kind:    "Deployment",
@@ -533,7 +534,7 @@ var (
 			Name: "pod",
 		},
 		Spec: v1.ResourceTemplateSpec{
-			GroupVersionKind: v1.GroupVersionKind{
+			GroupVersionKind: schema.GroupVersionKind{
 				Group:   "",
 				Version: "v1",
 				Kind:    "Pod",
@@ -546,7 +547,7 @@ var (
 			Name: "statefulset",
 		},
 		Spec: v1.ResourceTemplateSpec{
-			GroupVersionKind: v1.GroupVersionKind{
+			GroupVersionKind: schema.GroupVersionKind{
 				Group:   "apps",
 				Version: "v1",
 				Kind:    "StatefulSet",
@@ -573,9 +574,6 @@ var (
 			Labels: map[string]string{
 				v1.DisplayNameLabel: "test-workspace",
 				v1.ClusterIdLabel:   "test-cluster",
-			},
-			Annotations: map[string]string{
-				v1.ImageSecretNameAnnotation: "test-secret",
 			},
 		},
 		Spec: v1.WorkspaceSpec{
@@ -612,9 +610,6 @@ var (
 			Labels: map[string]string{
 				v1.ClusterIdLabel: "test-cluster",
 			},
-			Annotations: map[string]string{
-				v1.WorkloadMainContainer: "pytorch",
-			},
 			CreationTimestamp: metav1.NewTime(time.Now()),
 		},
 		Spec: v1.WorkloadSpec{
@@ -622,7 +617,7 @@ var (
 			MaxRetry:   2,
 			Image:      "test-image",
 			EntryPoint: "sh -c test.sh",
-			GroupVersionKind: v1.GroupVersionKind{
+			GroupVersionKind: schema.GroupVersionKind{
 				Group:   "kubeflow.org",
 				Version: "v1",
 				Kind:    "PyTorchJob",

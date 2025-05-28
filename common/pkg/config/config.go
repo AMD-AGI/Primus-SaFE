@@ -68,6 +68,10 @@ func IsCryptoEnable() bool {
 	return getBool(cryptoEnable, true)
 }
 
+func GetCryptoKey() string {
+	return getString(cryptoKey, "")
+}
+
 func IsHealthCheckEnabled() bool {
 	return getBool(healthCheckEnable, true)
 }
