@@ -13,7 +13,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -69,7 +68,7 @@ func GetWorkloadsOfK8sNode(ctx context.Context, k8sClient kubernetes.Interface, 
 	return results, nil
 }
 
-func GetWorkloadTemplate(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind, resourceName string) (*corev1.ConfigMap, error) {
+func GetWorkloadTemplate(ctx context.Context, cli client.Client, gvk v1.GroupVersionKind, resourceName string) (*corev1.ConfigMap, error) {
 	selector := labels.SelectorFromSet(map[string]string{"group": gvk.Group, "version": gvk.Version, "kind": gvk.Kind})
 	listOptions := &client.ListOptions{LabelSelector: selector, Namespace: common.PrimusSafeNamespace}
 	configmapList := &corev1.ConfigMapList{}

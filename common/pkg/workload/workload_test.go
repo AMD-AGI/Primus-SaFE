@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -36,7 +35,7 @@ func genMockWorkload(clusterName, workspace string) *v1.Workload {
 		},
 		Spec: v1.WorkloadSpec{
 			Workspace: workspace,
-			GroupVersionKind: schema.GroupVersionKind{
+			GroupVersionKind: v1.GroupVersionKind{
 				Group:   "kubeflow.org",
 				Kind:    common.PytorchJobKind,
 				Version: "v1",
@@ -169,7 +168,7 @@ func TestGetTemplateConfig(t *testing.T) {
 	}
 	cli := fake.NewClientBuilder().WithObjects(configmap1, configmap2).WithScheme(mockScheme).Build()
 	resp, err := GetWorkloadTemplate(context.Background(), cli,
-		schema.GroupVersionKind{Group: "", Version: "v1", Kind: "kind2"}, "")
+		v1.GroupVersionKind{Group: "", Version: "v1", Kind: "kind2"}, "")
 	assert.NilError(t, err)
 	assert.Equal(t, resp.Name, configmap2.Name)
 }

@@ -121,7 +121,7 @@ func TestCreateDeployment(t *testing.T) {
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Workspace = workspace.Name
-	workload.Spec.GroupVersionKind = schema.GroupVersionKind{
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
 		Group:   "apps",
 		Version: "v1",
 		Kind:    "Deployment",
