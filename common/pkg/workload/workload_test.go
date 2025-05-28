@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -35,8 +36,10 @@ func genMockWorkload(clusterName, workspace string) *v1.Workload {
 		},
 		Spec: v1.WorkloadSpec{
 			Workspace: workspace,
-			GroupVersionKind: v1.GroupVersionKind{
-				Kind: common.PytorchJobKind,
+			GroupVersionKind: schema.GroupVersionKind{
+				Group:   "kubeflow.org",
+				Kind:    common.PytorchJobKind,
+				Version: "v1",
 			},
 			Resource: v1.WorkloadResource{
 				Replica: 2,
@@ -154,18 +157,19 @@ func TestGetTemplateConfig(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "configmap1",
 			Namespace: common.PrimusSafeNamespace,
-			Labels:    map[string]string{v1.KindLabel: "kind1"},
+			Labels:    map[string]string{"group": "", "version": "v1", "kind": "kind1"},
 		},
 	}
 	configmap2 := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "configmap2",
 			Namespace: common.PrimusSafeNamespace,
-			Labels:    map[string]string{v1.KindLabel: "kind2"},
+			Labels:    map[string]string{"group": "", "version": "v1", "kind": "kind2"},
 		},
 	}
 	cli := fake.NewClientBuilder().WithObjects(configmap1, configmap2).WithScheme(mockScheme).Build()
-	resp, err := GetTemplateConfig(context.Background(), cli, "kind2")
+	resp, err := GetWorkloadTemplate(context.Background(), cli,
+		schema.GroupVersionKind{Group: "", Version: "v1", Kind: "kind2"}, "")
 	assert.NilError(t, err)
 	assert.Equal(t, resp.Name, configmap2.Name)
 }

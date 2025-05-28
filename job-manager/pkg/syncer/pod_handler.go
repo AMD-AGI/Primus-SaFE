@@ -16,7 +16,6 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
@@ -88,7 +87,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		klog.Infof("pod(%s) is failed. reason: %s, message: %s, container: %s",
 			pod.Name, pod.Status.Reason, pod.Status.Message, string(jsonutils.MarshalSilently(pod.Status.ContainerStatuses)))
 	}
-	adminWorkload, err := r.getAdminWorkload(workloadId)
+	adminWorkload, err := r.getAdminWorkload(ctx, workloadId)
 	if adminWorkload == nil {
 		return controller.Result{}, err
 	}
@@ -127,9 +126,6 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	if !pod.Status.StartTime.IsZero() {
 		workloadPod.StartTime = timeutil.FormatRFC3339(&pod.Status.StartTime.Time)
 	}
-	if adminWorkload.Spec.Kind == common.PytorchJobKind {
-		workloadPod.Role = pod.Labels["training.kubeflow.org/replica-type"]
-	}
 	buildPodTerminatedInfo(pod, &workloadPod)
 	if workloadPod.Message != nil {
 		klog.Infof("pod(%s) exited abnormally. message: %s",
@@ -157,7 +153,7 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, msg *resourceM
 	if msg.workloadId == "" {
 		return nil
 	}
-	adminWorkload, err := r.getAdminWorkload(msg.workloadId)
+	adminWorkload, err := r.getAdminWorkload(ctx, msg.workloadId)
 	if adminWorkload == nil {
 		return err
 	}

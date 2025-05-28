@@ -61,6 +61,7 @@ type nodeQueueMessage struct {
 }
 
 type NodeK8sReconciler struct {
+	ctx context.Context
 	*ClusterBaseReconciler
 	clientManager *commonutils.ObjectManager
 	queue         NodeQueue
@@ -69,6 +70,7 @@ type NodeK8sReconciler struct {
 
 func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 	r := &NodeK8sReconciler{
+		ctx: ctx,
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: mgr.GetClient(),
 		},
@@ -128,11 +130,11 @@ func (r *NodeK8sReconciler) CaredPredicate() predicate.Predicate {
 
 func (r *NodeK8sReconciler) addClientFactory(cluster *v1.Cluster) error {
 	controlPlane := &cluster.Status.ControlPlaneStatus
-	endpoint, err := commoncluster.GetEndpoint(context.Background(), r.Client, cluster.Name, controlPlane.Endpoints)
+	endpoint, err := commoncluster.GetEndpoint(r.ctx, r.Client, cluster.Name, controlPlane.Endpoints)
 	if err != nil {
 		return err
 	}
-	k8sClients, err := commonclient.NewClientFactory(context.Background(), cluster.Name, endpoint,
+	k8sClients, err := commonclient.NewClientFactory(r.ctx, cluster.Name, endpoint,
 		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, commonclient.EnableInformer)
 	if err != nil {
 		return err
@@ -143,7 +145,7 @@ func (r *NodeK8sReconciler) addClientFactory(cluster *v1.Cluster) error {
 		klog.ErrorS(err, "failed to add event handler", "name", cluster.Name)
 		return err
 	}
-	if err = nodeInformer.SetWatchErrorHandler(watchErrorHandler(k8sClients)); err != nil {
+	if err = nodeInformer.SetWatchErrorHandler(watchErrorHandler(r.ctx, k8sClients)); err != nil {
 		klog.ErrorS(err, "failed to set error handler", "name", cluster.Name)
 		return err
 	}
@@ -223,9 +225,9 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 	}
 }
 
-func watchErrorHandler(k8sClients *commonclient.ClientFactory) cache.WatchErrorHandler {
+func watchErrorHandler(ctx context.Context, k8sClients *commonclient.ClientFactory) cache.WatchErrorHandler {
 	return func(reflector *cache.Reflector, err error) {
-		cache.DefaultWatchErrorHandler(context.Background(), reflector, err)
+		cache.DefaultWatchErrorHandler(ctx, reflector, err)
 		klog.Warningf("set clients: %s invalid", k8sClients.Name())
 		k8sClients.SetValid(false, err.Error())
 	}

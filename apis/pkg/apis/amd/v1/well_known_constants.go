@@ -24,10 +24,10 @@ const (
 	// the label for Control-plane node
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 	// total number of failures (used for internal retries)
-	FailedCountAnnotation     = PrimusSafePrefix + "failed.count"
-	DescriptionAnnotation     = PrimusSafePrefix + "description"
-	ProtectLabel              = PrimusSafePrefix + "protect"
-	ImageSecretNameAnnotation = PrimusSafePrefix + "image.secret"
+	FailedCountAnnotation   = PrimusSafePrefix + "failed.count"
+	DescriptionAnnotation   = PrimusSafePrefix + "description"
+	ProtectLabel            = PrimusSafePrefix + "protect"
+	MainContainerAnnotation = PrimusSafePrefix + "main.container"
 
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."
@@ -75,18 +75,18 @@ const (
 	FaultFinalizer = FaultPrefix + "finalizer"
 
 	// workload
-	WorkloadPrefix                    = PrimusSafePrefix + "workload."
-	WorkloadFinalizer                 = WorkloadPrefix + "finalizer"
-	WorkloadIdLabel                   = WorkloadPrefix + "id"
-	WorkloadDispatchedAnnotation      = WorkloadPrefix + "dispatched"
-	WorkloadScheduledAnnotation       = WorkloadPrefix + "scheduled"
-	WorkloadMainContainer             = WorkloadPrefix + "main.container"
+	WorkloadPrefix               = PrimusSafePrefix + "workload."
+	WorkloadFinalizer            = WorkloadPrefix + "finalizer"
+	WorkloadIdLabel              = WorkloadPrefix + "id"
+	WorkloadDispatchedAnnotation = WorkloadPrefix + "dispatched"
+	WorkloadScheduledAnnotation  = WorkloadPrefix + "scheduled"
+
 	EnableHostNetworkAnnotation       = WorkloadPrefix + "enable.host.network"
 	WorkloadKindLabel                 = WorkloadPrefix + "kind"
 	WorkloadDispatchCntLabel          = WorkloadPrefix + "dispatch.count"
 	WorkloadReScheduledAnnotation     = WorkloadPrefix + "rescheduled"
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
-	
+
 	// user
 	UserPrefix         = PrimusSafePrefix + "user."
 	UserNameAnnotation = UserPrefix + "name"

@@ -54,10 +54,6 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 	if err = modifyHostNetWork(obj, adminWorkload, path); err != nil {
 		return err
 	}
-	path = append(templatePath, "spec", "imagePullSecrets")
-	if err = modifyImageSecret(obj, workspace, path); err != nil {
-		return err
-	}
 	if commonworkload.IsApplication(adminWorkload) {
 		path = []string{"spec", "strategy"}
 		if err = modifyStrategy(obj, adminWorkload, path); err != nil {
@@ -115,7 +111,7 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 	if !found || len(containers) == 0 {
 		return fmt.Errorf("fail to find container with path: %v", path)
 	}
-	mainContainer, err := getMainContainer(containers, v1.GetWorkloadMainContainer(adminWorkload))
+	mainContainer, err := getMainContainer(containers, v1.GetMainContainer(adminWorkload))
 	if err != nil {
 		return err
 	}
@@ -174,7 +170,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 			continue
 		}
 		volumeSets.Insert(volumeName)
-		volume := buildPvcVolume(volumeName, volumeName)
+		volume := buildPvcVolume(volumeName)
 		volumes = append(volumes, volume)
 	}
 	if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
@@ -191,22 +187,8 @@ func modifyHostNetWork(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 	return nil
 }
 
-func modifyImageSecret(obj *unstructured.Unstructured, workspace *v1.Workspace, path []string) error {
-	if v1.GetImageSecretName(workspace) == "" {
-		return nil
-	}
-	var imageSecrets []interface{}
-	imageSecrets = append(imageSecrets, map[string]interface{}{
-		"name": v1.GetImageSecretName(workspace),
-	})
-	if err := unstructured.SetNestedSlice(obj.Object, imageSecrets, path...); err != nil {
-		return err
-	}
-	return nil
-}
-
 func modifyStrategy(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
-	if adminWorkload.Spec.Kind != common.DeploymentKind {
+	if adminWorkload.Spec.GroupVersionKind.Kind != common.DeploymentKind {
 		return nil
 	}
 	rollingUpdate := buildStrategy(adminWorkload)
@@ -365,10 +347,10 @@ func buildVolumeMounts(vol v1.WorkspaceVolume, volumeName string) []interface{} 
 	return result
 }
 
-func buildPvcVolume(volumeName, claimName string) interface{} {
+func buildPvcVolume(volumeName string) interface{} {
 	return map[string]interface{}{
 		"persistentVolumeClaim": map[string]interface{}{
-			"claimName": claimName,
+			"claimName": volumeName,
 		},
 		"name": volumeName,
 	}

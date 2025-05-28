@@ -122,7 +122,7 @@ func (r *DispatcherReconciler) handle(ctx context.Context, workload *v1.Workload
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	resourceInformer, err := clusterInformer.GetResourceInformer(ctx, workload.ResourceGVK())
+	resourceInformer, err := clusterInformer.GetResourceInformer(ctx, workload.Spec.GroupVersionKind)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -160,7 +160,7 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 	k8sObject, err := r.createK8sObject(ctx, adminWorkload)
 	if err != nil {
 		klog.ErrorS(err, "failed to create k8s unstructured object. ",
-			"name", adminWorkload.Name, "kind", adminWorkload.Spec.Kind)
+			"name", adminWorkload.Name, "gvk", adminWorkload.Spec.GroupVersionKind)
 		return err
 	}
 	if err = jobutils.CreateObject(ctx, clusterInformer.ClientFactory().DynamicClient(),
@@ -208,9 +208,9 @@ func (r *DispatcherReconciler) createK8sObject(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.Spec.Kind)
+	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.Spec.GroupVersionKind)
 	if err != nil {
-		klog.ErrorS(err, "", "kind", adminWorkload.Spec.Kind)
+		klog.ErrorS(err, "", "gvk", adminWorkload.Spec.GroupVersionKind)
 		return nil, err
 	}
 
@@ -238,7 +238,8 @@ func (r *DispatcherReconciler) createK8sObject(ctx context.Context,
 }
 
 func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
-	templateConfig, err := commonworkload.GetTemplateConfig(ctx, r.Client, adminWorkload.Spec.Kind)
+	templateConfig, err := commonworkload.GetWorkloadTemplate(ctx,
+		r.Client, adminWorkload.Spec.GroupVersionKind, adminWorkload.Spec.Resource.GPUName)
 	if err != nil {
 		return nil, err
 	}
@@ -279,9 +280,9 @@ func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1
 
 func (r *DispatcherReconciler) updateK8sObject(ctx context.Context, adminWorkload *v1.Workload,
 	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) error {
-	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.Spec.Kind)
+	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.Spec.GroupVersionKind)
 	if err != nil {
-		klog.ErrorS(err, "", "kind", adminWorkload.Spec.Kind)
+		klog.ErrorS(err, "", "gvk", adminWorkload.Spec.GroupVersionKind)
 		return err
 	}
 	if len(rt.Spec.Templates) == 0 {
@@ -315,7 +316,7 @@ func (r *DispatcherReconciler) updateK8sObject(ctx context.Context, adminWorkloa
 
 func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
 	replicaList, resourceList, err := jobutils.GetResources(obj, rt,
-		v1.GetWorkloadMainContainer(adminWorkload), adminWorkload.Spec.Resource.GPUName)
+		v1.GetMainContainer(adminWorkload), adminWorkload.Spec.Resource.GPUName)
 	if err != nil || len(resourceList) == 0 {
 		klog.ErrorS(err, "failed to get resource", "rt", rt.Name, "obj", obj.GetName())
 		return false
@@ -339,7 +340,7 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 }
 
 func isImageChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	image, err := jobutils.GetImage(obj, rt, v1.GetWorkloadMainContainer(adminWorkload))
+	image, err := jobutils.GetImage(obj, rt, v1.GetMainContainer(adminWorkload))
 	if err != nil {
 		klog.ErrorS(err, "failed to get image", "obj", obj.GetName())
 		return false
@@ -348,7 +349,7 @@ func isImageChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, 
 }
 
 func isEntryPointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	commands, err := jobutils.GetCommand(obj, rt, v1.GetWorkloadMainContainer(adminWorkload))
+	commands, err := jobutils.GetCommand(obj, rt, v1.GetMainContainer(adminWorkload))
 	if err != nil {
 		klog.ErrorS(err, "failed to get command", "obj", obj.GetName())
 		return false
@@ -361,7 +362,7 @@ func isEntryPointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructu
 }
 
 func isEnvChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	mainContainerName := v1.GetWorkloadMainContainer(adminWorkload)
+	mainContainerName := v1.GetMainContainer(adminWorkload)
 	currentEnvs, err := jobutils.GetEnv(obj, rt, mainContainerName)
 	if err != nil {
 		klog.ErrorS(err, "failed to get env", "obj", obj.GetName())
@@ -432,7 +433,7 @@ func updateMainContainer(adminWorkload *v1.Workload,
 		return fmt.Errorf("failed to find container with path: %v", path)
 	}
 
-	mainContainer, err := getMainContainer(containers, v1.GetWorkloadMainContainer(adminWorkload))
+	mainContainer, err := getMainContainer(containers, v1.GetMainContainer(adminWorkload))
 	if err != nil {
 		return err
 	}

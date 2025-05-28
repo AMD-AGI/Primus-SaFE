@@ -10,6 +10,7 @@ import (
 
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	admissionv1 "k8s.io/api/admission/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -86,16 +87,16 @@ func (v *ResourceTemplateValidator) validateTemplate(rt *v1.ResourceTemplate) er
 	return nil
 }
 
-func getResourceTemplate(ctx context.Context, cli client.Client, kind string) (*v1.ResourceTemplate, error) {
+func getResourceTemplate(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind) (*v1.ResourceTemplate, error) {
 	rtl := &v1.ResourceTemplateList{}
 	err := cli.List(ctx, rtl)
 	if err != nil {
 		return nil, err
 	}
 	for _, rt := range rtl.Items {
-		if rt.Spec.GroupVersionKind.Kind == kind {
+		if rt.Spec.GroupVersionKind == gvk {
 			return &rt, nil
 		}
 	}
-	return nil, commonerrors.NewNotFound(v1.ResourceTemplateKind, kind)
+	return nil, commonerrors.NewNotFound(v1.ResourceTemplateKind, gvk.String())
 }

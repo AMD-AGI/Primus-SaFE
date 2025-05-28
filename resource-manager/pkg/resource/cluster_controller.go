@@ -138,7 +138,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 }
 
 func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) error {
-	if err := r.resetNodesOfCluster(cluster.Name); err != nil {
+	if err := r.resetNodesOfCluster(ctx, cluster.Name); err != nil {
 		return err
 	}
 	if err := removeFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer); err != nil {
@@ -147,11 +147,11 @@ func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) err
 	return nil
 }
 
-func (r *ClusterReconciler) resetNodesOfCluster(clusterName string) error {
+func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, clusterName string) error {
 	req, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{clusterName})
 	labelSelector := labels.NewSelector().Add(*req)
 	nodeList := &v1.NodeList{}
-	if err := r.List(context.Background(), nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+	if err := r.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		klog.ErrorS(err, "failed to list nodes")
 		return err
 	}
@@ -159,13 +159,13 @@ func (r *ClusterReconciler) resetNodesOfCluster(clusterName string) error {
 		deleteConcernedMeta(&n)
 		n.Spec.Cluster = nil
 		n.Spec.Workspace = nil
-		if err := r.Update(context.Background(), &n); err != nil {
+		if err := r.Update(ctx, &n); err != nil {
 			klog.ErrorS(err, "failed to update node")
 			return err
 		}
 
 		n.Status = v1.NodeStatus{}
-		if err := r.Status().Update(context.Background(), &n); err != nil {
+		if err := r.Status().Update(ctx, &n); err != nil {
 			klog.ErrorS(err, "failed to update node status")
 			return err
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func genMockWorkload(clusterId, workspaceId string) *v1.Workload {
@@ -23,7 +24,7 @@ func genMockWorkload(clusterId, workspaceId string) *v1.Workload {
 				v1.ClusterIdLabel:   clusterId,
 			},
 			Annotations: map[string]string{
-				v1.WorkloadMainContainer:        "main",
+				v1.MainContainerAnnotation:      "main",
 				v1.WorkloadDispatchedAnnotation: "",
 			},
 			CreationTimestamp: metav1.NewTime(time.Now()),
@@ -35,7 +36,7 @@ func genMockWorkload(clusterId, workspaceId string) *v1.Workload {
 			IsSSHEnabled: true,
 			Image:        "image",
 			EntryPoint:   "sh -c test.sh",
-			GroupVersionKind: v1.GroupVersionKind{
+			GroupVersionKind: schema.GroupVersionKind{
 				Group:   "kubeflow.org",
 				Version: "v1",
 				Kind:    "PyTorchJob",

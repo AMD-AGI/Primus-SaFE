@@ -78,7 +78,7 @@ func (s *Server) init() error {
 	if s.ctrlManager, err = newCtrlManager(); err != nil {
 		return fmt.Errorf("failed to new manager. %s", err.Error())
 	}
-	if err = controllers.SetupControllers(s.ctrlManager); err != nil {
+	if err = controllers.SetupControllers(s.ctx, s.ctrlManager); err != nil {
 		return fmt.Errorf("failed to setup controller. %s", err.Error())
 	}
 	s.isInited = true
@@ -115,7 +115,7 @@ func (s *Server) Start() {
 }
 
 func (s *Server) Stop() {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		klog.Error(gerrors.Wrap(err, "api-server is stopped"))

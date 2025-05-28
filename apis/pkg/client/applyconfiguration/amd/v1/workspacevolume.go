@@ -14,13 +14,14 @@ import (
 // WorkspaceVolumeApplyConfiguration represents a declarative configuration of the WorkspaceVolume type for use
 // with apply.
 type WorkspaceVolumeApplyConfiguration struct {
-	StorageType  *amdv1.StorageUseType              `json:"storageType,omitempty"`
-	MountPath    *string                            `json:"mountPath,omitempty"`
-	SubPath      *string                            `json:"subPath,omitempty"`
-	HostPath     *string                            `json:"hostPath,omitempty"`
-	Capacity     *string                            `json:"capacity,omitempty"`
-	StorageClass *string                            `json:"storageClass,omitempty"`
-	AccessMode   *corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
+	StorageType          *amdv1.StorageUseType              `json:"storageType,omitempty"`
+	MountPath            *string                            `json:"mountPath,omitempty"`
+	SubPath              *string                            `json:"subPath,omitempty"`
+	HostPath             *string                            `json:"hostPath,omitempty"`
+	Capacity             *string                            `json:"capacity,omitempty"`
+	PersistentVolumeName *string                            `json:"PersistentVolumeName,omitempty"`
+	StorageClass         *string                            `json:"storageClass,omitempty"`
+	AccessMode           *corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
 }
 
 // WorkspaceVolumeApplyConfiguration constructs a declarative configuration of the WorkspaceVolume type for use with
@@ -66,6 +67,14 @@ func (b *WorkspaceVolumeApplyConfiguration) WithHostPath(value string) *Workspac
 // If called multiple times, the Capacity field is set to the value of the last call.
 func (b *WorkspaceVolumeApplyConfiguration) WithCapacity(value string) *WorkspaceVolumeApplyConfiguration {
 	b.Capacity = &value
+	return b
+}
+
+// WithPersistentVolumeName sets the PersistentVolumeName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PersistentVolumeName field is set to the value of the last call.
+func (b *WorkspaceVolumeApplyConfiguration) WithPersistentVolumeName(value string) *WorkspaceVolumeApplyConfiguration {
+	b.PersistentVolumeName = &value
 	return b
 }
 

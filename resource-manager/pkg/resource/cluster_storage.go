@@ -170,7 +170,7 @@ func (r *ClusterReconciler) guaranteeOBS(ctx context.Context, client kubernetes.
 			return fmt.Errorf("get obs %s secret failed %+v", name, err)
 		}
 
-		cry := crypto.Instance()
+		cry := crypto.NewCrypto()
 		sk, err := cry.Decrypt(storage.SecretKey)
 		if err != nil {
 			return fmt.Errorf("Decrypt obs %s access key failed %+v", name, err)
@@ -307,7 +307,7 @@ func (r *ClusterReconciler) guaranteeRBD(ctx context.Context, client kubernetes.
 		if !apierrors.IsNotFound(err) {
 			return fmt.Errorf("get storage secret %s failed %+v", name, err)
 		}
-		cry := crypto.Instance()
+		cry := crypto.NewCrypto()
 		sk, err := cry.Decrypt(storage.SecretKey)
 		if err != nil {
 			return fmt.Errorf("decrypt storage secret %s failed %+v", name, err)
@@ -478,7 +478,7 @@ func (r *ClusterReconciler) guaranteeFileSystem(ctx context.Context, client kube
 		if !apierrors.IsNotFound(err) {
 			return fmt.Errorf("get storage secret %s failed %+v", name, err)
 		}
-		cry := crypto.Instance()
+		cry := crypto.NewCrypto()
 		sk, err := cry.Decrypt(storage.SecretKey)
 		if err != nil {
 			return fmt.Errorf("decrypt storage secret %s failed %+v", name, err)

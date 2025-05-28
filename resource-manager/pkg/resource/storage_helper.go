@@ -136,7 +136,7 @@ var nvmeResources = corev1.ResourceRequirements{
 
 type GetQueue func() v1.RequestWorkQueue
 
-func newStorageCluster(cluster *v1.Cluster, queue v1.RequestWorkQueue, stopCh chan struct{}) (*storageCluster, error) {
+func newStorageCluster(ctx context.Context, cluster *v1.Cluster, queue v1.RequestWorkQueue, stopCh chan struct{}) (*storageCluster, error) {
 	if queue == nil {
 		return nil, fmt.Errorf("queue is nil")
 	}
@@ -155,7 +155,7 @@ func newStorageCluster(cluster *v1.Cluster, queue v1.RequestWorkQueue, stopCh ch
 	if err != nil {
 		return nil, err
 	}
-	_, err = rClient.CephV1().CephClusters("").List(context.Background(), metav1.ListOptions{})
+	_, err = rClient.CephV1().CephClusters("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -553,7 +553,7 @@ func (s *storageCluster) getCephCluster(ctx context.Context, cluster *v1.Storage
 	}
 	cluster.Status.CephClusterStatus.Monitors = endpoints
 
-	crypto := crypto.Instance()
+	crypto := crypto.NewCrypto()
 	sk := ""
 	if cluster.Status.CephClusterStatus.SecretKey != "" {
 		sk, err = crypto.Decrypt(cluster.Status.CephClusterStatus.SecretKey)
@@ -904,7 +904,7 @@ func (s *storageCluster) getObjectStore(ctx context.Context, cluster *v1.Storage
 
 func (s *storageCluster) getRBD(ctx context.Context, cluster *v1.StorageCluster, name string, storage v1.Storage) (*v1.StorageStatus, error) {
 	namespace := cluster.Name
-	crypto := crypto.Instance()
+	crypto := crypto.NewCrypto()
 	sk := ""
 	var err error
 	if cluster.Status.CephClusterStatus.SecretKey != "" {
@@ -1014,7 +1014,7 @@ func (s *storageCluster) getRBD(ctx context.Context, cluster *v1.StorageCluster,
 
 func (s *storageCluster) getFileSystem(ctx context.Context, cluster *v1.StorageCluster, name string, storage v1.Storage) (*v1.StorageStatus, error) {
 	namespace := cluster.Name
-	crypto := crypto.Instance()
+	crypto := crypto.NewCrypto()
 	sk := ""
 	var err error
 	if cluster.Status.CephClusterStatus.SecretKey != "" {

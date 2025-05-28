@@ -24,7 +24,6 @@ const (
 	StatefulSetKind     = "StatefulSet"
 	JobPortName         = "job-port"
 	SSHPortName         = "ssh-port"
-	MainContainer       = "mainContainer"
 	Rdma                = "rdma/hca"
 
 	DefaultBurst   = 1000
