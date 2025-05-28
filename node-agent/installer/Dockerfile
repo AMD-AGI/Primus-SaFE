@@ -12,7 +12,7 @@ ENV GOPATH="/workspace/primus-safe/go"
 
 COPY . /workspace/primus-safe
 WORKDIR /workspace/primus-safe
-RUN mkdir dist && mkdir dist/logss
+RUN mkdir dist && mkdir dist/logs
 RUN GOOS=linux GOARCH=amd64  go build -o dist/node_agent ./node-agent/cmd/main.go
 
 FROM ${REGISTRY}/library/ubuntu:22.04
