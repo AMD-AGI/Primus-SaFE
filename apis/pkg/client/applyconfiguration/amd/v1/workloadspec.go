@@ -6,29 +6,25 @@ Copyright The AMD Authors.
 
 package v1
 
-import (
-	schema "k8s.io/apimachinery/pkg/runtime/schema"
-)
-
 // WorkloadSpecApplyConfiguration represents a declarative configuration of the WorkloadSpec type for use
 // with apply.
 type WorkloadSpecApplyConfiguration struct {
-	Resource                *WorkloadResourceApplyConfiguration `json:"resource,omitempty"`
-	Workspace               *string                             `json:"workspace,omitempty"`
-	Image                   *string                             `json:"image,omitempty"`
-	EntryPoint              *string                             `json:"entryPoint,omitempty"`
-	Env                     map[string]string                   `json:"env,omitempty"`
-	IsSSHEnabled            *bool                               `json:"isSSHEnabled,omitempty"`
-	IsSupervised            *bool                               `json:"isSupervised,omitempty"`
-	GroupVersionKind        *schema.GroupVersionKind            `json:"gvk,omitempty"`
-	MaxRetry                *int                                `json:"maxRetry,omitempty"`
-	Priority                *int                                `json:"priority,omitempty"`
-	TTLSecondsAfterFinished *int                                `json:"ttlSecondsAfterFinished,omitempty"`
-	Timeout                 *int                                `json:"timeout,omitempty"`
-	CustomerLabels          map[string]string                   `json:"customerLabels,omitempty"`
-	Liveness                *HealthCheckApplyConfiguration      `json:"liveness,omitempty"`
-	Readiness               *HealthCheckApplyConfiguration      `json:"readiness,omitempty"`
-	Service                 *ServiceApplyConfiguration          `json:"service,omitempty"`
+	Resource                            *WorkloadResourceApplyConfiguration `json:"resource,omitempty"`
+	Workspace                           *string                             `json:"workspace,omitempty"`
+	Image                               *string                             `json:"image,omitempty"`
+	EntryPoint                          *string                             `json:"entryPoint,omitempty"`
+	Env                                 map[string]string                   `json:"env,omitempty"`
+	IsSSHEnabled                        *bool                               `json:"isSSHEnabled,omitempty"`
+	IsSupervised                        *bool                               `json:"isSupervised,omitempty"`
+	*GroupVersionKindApplyConfiguration `json:"groupVersionKind,omitempty"`
+	MaxRetry                            *int                           `json:"maxRetry,omitempty"`
+	Priority                            *int                           `json:"priority,omitempty"`
+	TTLSecondsAfterFinished             *int                           `json:"ttlSecondsAfterFinished,omitempty"`
+	Timeout                             *int                           `json:"timeout,omitempty"`
+	CustomerLabels                      map[string]string              `json:"customerLabels,omitempty"`
+	Liveness                            *HealthCheckApplyConfiguration `json:"liveness,omitempty"`
+	Readiness                           *HealthCheckApplyConfiguration `json:"readiness,omitempty"`
+	Service                             *ServiceApplyConfiguration     `json:"service,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
@@ -99,12 +95,37 @@ func (b *WorkloadSpecApplyConfiguration) WithIsSupervised(value bool) *WorkloadS
 	return b
 }
 
-// WithGroupVersionKind sets the GroupVersionKind field in the declarative configuration to the given value
+// WithGroup sets the Group field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the GroupVersionKind field is set to the value of the last call.
-func (b *WorkloadSpecApplyConfiguration) WithGroupVersionKind(value schema.GroupVersionKind) *WorkloadSpecApplyConfiguration {
-	b.GroupVersionKind = &value
+// If called multiple times, the Group field is set to the value of the last call.
+func (b *WorkloadSpecApplyConfiguration) WithGroup(value string) *WorkloadSpecApplyConfiguration {
+	b.ensureGroupVersionKindApplyConfigurationExists()
+	b.GroupVersionKindApplyConfiguration.Group = &value
 	return b
+}
+
+// WithVersion sets the Version field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Version field is set to the value of the last call.
+func (b *WorkloadSpecApplyConfiguration) WithVersion(value string) *WorkloadSpecApplyConfiguration {
+	b.ensureGroupVersionKindApplyConfigurationExists()
+	b.GroupVersionKindApplyConfiguration.Version = &value
+	return b
+}
+
+// WithKind sets the Kind field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Kind field is set to the value of the last call.
+func (b *WorkloadSpecApplyConfiguration) WithKind(value string) *WorkloadSpecApplyConfiguration {
+	b.ensureGroupVersionKindApplyConfigurationExists()
+	b.GroupVersionKindApplyConfiguration.Kind = &value
+	return b
+}
+
+func (b *WorkloadSpecApplyConfiguration) ensureGroupVersionKindApplyConfigurationExists() {
+	if b.GroupVersionKindApplyConfiguration == nil {
+		b.GroupVersionKindApplyConfiguration = &GroupVersionKindApplyConfiguration{}
+	}
 }
 
 // WithMaxRetry sets the MaxRetry field in the declarative configuration to the given value

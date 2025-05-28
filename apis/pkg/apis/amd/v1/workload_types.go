@@ -117,7 +117,7 @@ type WorkloadSpec struct {
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised,omitempty"`
 	// workload define
-	GroupVersionKind schema.GroupVersionKind `json:"gvk"`
+	GroupVersionKind `json:"groupVersionKind"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`
 	// workload scheduling priority. Defaults to 0; valid range: 0–2
@@ -297,4 +297,8 @@ func IsPodRunning(p *WorkloadPod) bool {
 	return corev1.PodSucceeded != p.Phase &&
 		corev1.PodFailed != p.Phase &&
 		p.K8sNodeName != ""
+}
+
+func (w *Workload) ToSchemaGVK() schema.GroupVersionKind {
+	return w.Spec.GroupVersionKind.ToSchema()
 }
