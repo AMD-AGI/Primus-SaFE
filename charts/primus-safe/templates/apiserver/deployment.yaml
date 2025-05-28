@@ -4,16 +4,16 @@ metadata:
   name: {{ .Release.Name }}-apiserver
   namespace: {{ .Release.Namespace }}
   labels:
-    app: primus-safe-apiserver
+    app: {{ .Release.Name }}-apiserver
 spec:
   replicas: {{ .Values.apiserver.replicas }}
   selector:
     matchLabels:
-      app: primus-safe-apiserver
+      app: {{ .Release.Name }}-apiserver
   template:
     metadata:
       labels:
-        app: primus-safe-apiserver
+        app: {{ .Release.Name }}-apiserver
     spec:
       affinity:
         nodeAffinity:
@@ -32,7 +32,7 @@ spec:
                       - "true"
       serviceAccountName: {{ .Release.Name }}-manager
       containers:
-        - name: primus-safe-apiserver
+        - name: {{ .Release.Name }}-apiserver
           image: {{ .Values.repository }}/apiserver:{{ .Values.apiserver.tag }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/apiserver/run.sh"]
@@ -42,9 +42,9 @@ spec:
             - name: crypto_file
               value: /etc/secrets/key
           volumeMounts:
-            - name: primus-safe-secret
+            - name: server-secret
               mountPath: /etc/secrets
-            - name: primus-safe-config
+            - name: server-config
               mountPath: /opt/primus-safe/apiserver/config
           ports:
             - containerPort: 8088
@@ -68,10 +68,10 @@ spec:
               cpu: "8000m"
               memory: 16Gi
       volumes:
-        - name: primus-safe-secret
+        - name: server-secret
           secret:
             secretName: {{ .Release.Name }}
-        - name: primus-safe-config
+        - name: server-config
           configMap:
             name: {{ .Release.Name }}-apiserver
       imagePullSecrets:

@@ -4,16 +4,16 @@ metadata:
   name: {{ .Release.Name }}-resource-manager
   namespace: {{ .Release.Namespace }}
   labels:
-    app: primus-safe-resource-manager
+    app: {{ .Release.Name }}-resource-manager
 spec:
   replicas: {{ .Values.resource_manager.replicas }}
   selector:
     matchLabels:
-      app: primus-safe-resource-manager
+      app: {{ .Release.Name }}-resource-manager
   template:
     metadata:
       labels:
-        app: primus-safe-resource-manager
+        app: {{ .Release.Name }}-resource-manager
     spec:
       affinity:
         nodeAffinity:
@@ -32,7 +32,7 @@ spec:
                       - "true"
       serviceAccountName: {{ .Release.Name }}-manager
       containers:
-        - name: primus-safe-resource-manager
+        - name: {{ .Release.Name }}-resource-manager
           image: {{ .Values.repository }}/resource-manager:{{ .Values.resource_manager.tag }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/resource-manager/run.sh"]
@@ -42,9 +42,9 @@ spec:
             - name: crypto_file
               value: /etc/secrets/key
           volumeMounts:
-            - name: primus-safe-secret
+            - name: server-secret
               mountPath: /etc/secrets
-            - name: primus-safe-config
+            - name: server-config
               mountPath: /opt/primus-safe/resource-manager/config
           ports:
             - containerPort: 8081
@@ -70,10 +70,10 @@ spec:
       imagePullSecrets:
       - name: {{ .Release.Name }}-image
       volumes:
-        - name: primus-safe-secret
+        - name: server-secret
           secret:
             secretName: {{ .Release.Name }}
-        - name: primus-safe-config
+        - name: server-config
           configMap:
             name: {{ .Release.Name }}-resource-manager
       terminationGracePeriodSeconds: 10

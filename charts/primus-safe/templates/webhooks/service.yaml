@@ -5,7 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   selector:
-    app: primus-safe-webhooks
+    app: {{ .Release.Name }}-webhooks
   ports:
     - protocol: TCP
       port: 443

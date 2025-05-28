@@ -4,16 +4,16 @@ metadata:
   name: {{ .Release.Name }}-job-manager
   namespace: {{ .Release.Namespace }}
   labels:
-    app: primus-safe-job-manager
+    app: {{ .Release.Name }}-job-manager
 spec:
   replicas: {{ .Values.job_manager.replicas }}
   selector:
     matchLabels:
-      app: primus-safe-job-manager
+      app: {{ .Release.Name }}-job-manager
   template:
     metadata:
       labels:
-        app: primus-safe-job-manager
+        app: {{ .Release.Name }}-job-manager
     spec:
       affinity:
         nodeAffinity:
@@ -32,7 +32,7 @@ spec:
                       - "true"
       serviceAccountName: {{ .Release.Name }}-manager
       containers:
-        - name: primus-safe-job-manager
+        - name: {{ .Release.Name }}-job-manager
           image: {{ .Values.repository }}/job-manager:{{ .Values.job_manager.tag }}
           imagePullPolicy: Always
           terminationMessagePath: /dev/termination-log
@@ -42,9 +42,9 @@ spec:
             - name: crypto_file
               value: /etc/secrets/key
           volumeMounts:
-            - name: primus-safe-secret
+            - name: server-secret
               mountPath: /etc/secrets
-            - name: primus-safe-config
+            - name: server-config
               mountPath: /opt/primus-safe/job-manager/config
           ports:
             - containerPort: 8083
@@ -68,10 +68,10 @@ spec:
               cpu: "8000m"
               memory: 16Gi
       volumes:
-        - name: primus-safe-secret
+        - name: server-secret
           secret:
             secretName: {{ .Release.Name }}
-        - name: primus-safe-config
+        - name: server-config
           configMap:
             name: {{ .Release.Name }}-job-manager
       imagePullSecrets:

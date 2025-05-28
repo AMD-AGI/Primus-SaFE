@@ -5,7 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   selector:
-    app: primus-safe-apiserver
+    app: {{ .Release.Name }}-apiserver
   ports:
     - protocol: TCP
       port: 8088

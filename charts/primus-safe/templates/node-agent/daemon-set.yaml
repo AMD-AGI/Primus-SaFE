@@ -78,7 +78,7 @@ spec:
                   fieldPath: spec.nodeName
           image: {{ .Values.repository }}/node-agent:{{ .Values.node_agent.tag }}
           imagePullPolicy: Always
-          name: node-agent
+          name: {{ .Release.Name }}-node-agent
           command: ["/bin/sh", "/opt/primus-safe/node-agent/run.sh"]
           resources:
             limits:

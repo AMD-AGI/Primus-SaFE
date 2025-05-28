@@ -4,16 +4,16 @@ metadata:
   name: {{ .Release.Name }}-webhooks
   namespace: {{ .Release.Namespace }}
   labels:
-    app: primus-safe-webhooks
+    app: {{ .Release.Name }}-webhooks
 spec:
   replicas: {{ .Values.webhooks.replicas }}
   selector:
     matchLabels:
-      app: primus-safe-webhooks
+      app: {{ .Release.Name }}-webhooks
   template:
     metadata:
       labels:
-        app: primus-safe-webhooks
+        app: {{ .Release.Name }}-webhooks
     spec:
       affinity:
         nodeAffinity:
@@ -32,15 +32,13 @@ spec:
                       - "true"
       serviceAccountName: {{ .Release.Name }}-manager
       containers:
-        - name: primus-safe-webhooks
+        - name: {{ .Release.Name }}-webhooks
           image: {{ .Values.repository }}/webhooks:{{ .Values.webhooks.tag }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/webhooks/run.sh"]
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
           env:
-            - name: CERT_DIR
-              value: "/opt/primus-safe/webhooks/cert"
             - name: KEY_NAME
               value: "tls.key"
             - name: CERT_NAME
@@ -48,9 +46,9 @@ spec:
             - name: CA_NAME
               value: "ca.crt"
           volumeMounts:
-            - name: primus-safe-cert
+            - name: server-cert
               mountPath: "/opt/primus-safe/webhooks/cert"
-            - name: primus-safe-config
+            - name: server-config
               mountPath: /opt/primus-safe/webhooks/config
           ports:
             - containerPort: 8084
@@ -77,10 +75,10 @@ spec:
       imagePullSecrets:
       - name: {{ .Release.Name }}-image
       volumes:
-        - name: primus-safe-config
+        - name: server-config
           configMap:
             name: {{ .Release.Name }}-webhooks
-        - name: primus-safe-cert
+        - name: server-cert
           secret:
             secretName: {{ .Release.Name }}-webhooks-cert
       terminationGracePeriodSeconds: 10
