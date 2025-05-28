@@ -14,11 +14,33 @@ const (
 	ResourceTemplateKind = "ResourceTemplate"
 )
 
+type GroupVersionKind struct {
+	Group   string `json:"group,omitempty"`
+	Version string `json:"version,omitempty"`
+	Kind    string `json:"kind,omitempty"`
+}
+
+func (gvk GroupVersionKind) ToSchema() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   gvk.Group,
+		Version: gvk.Version,
+		Kind:    gvk.Kind,
+	}
+}
+
+func (gvk GroupVersionKind) String() string {
+	return gvk.ToSchema().String()
+}
+
+func (gvk GroupVersionKind) Empty() bool {
+	return gvk.Group == "" && gvk.Version == "" && gvk.Kind == ""
+}
+
 type ResourceTemplateSpec struct {
-	GroupVersionKind schema.GroupVersionKind `json:"groupVersionKind"`
-	Templates        []Template              `json:"templates,omitempty"`
-	EndState         EndState                `json:"endState,omitempty"`
-	ActiveState      ActiveState             `json:"activeState,omitempty"`
+	GroupVersionKind GroupVersionKind `json:"groupVersionKind"`
+	Templates        []Template       `json:"templates,omitempty"`
+	EndState         EndState         `json:"endState,omitempty"`
+	ActiveState      ActiveState      `json:"activeState,omitempty"`
 }
 
 type Template struct {
@@ -87,4 +109,8 @@ type ResourceTemplateList struct {
 
 func init() {
 	SchemeBuilder.Register(&ResourceTemplate{}, &ResourceTemplateList{})
+}
+
+func (rt *ResourceTemplate) ToSchemaGVK() schema.GroupVersionKind {
+	return rt.Spec.GroupVersionKind.ToSchema()
 }

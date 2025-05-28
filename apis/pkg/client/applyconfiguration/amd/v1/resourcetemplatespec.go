@@ -6,17 +6,13 @@ Copyright The AMD Authors.
 
 package v1
 
-import (
-	schema "k8s.io/apimachinery/pkg/runtime/schema"
-)
-
 // ResourceTemplateSpecApplyConfiguration represents a declarative configuration of the ResourceTemplateSpec type for use
 // with apply.
 type ResourceTemplateSpecApplyConfiguration struct {
-	GroupVersionKind *schema.GroupVersionKind       `json:"groupVersionKind,omitempty"`
-	Templates        []TemplateApplyConfiguration   `json:"templates,omitempty"`
-	EndState         *EndStateApplyConfiguration    `json:"endState,omitempty"`
-	ActiveState      *ActiveStateApplyConfiguration `json:"activeState,omitempty"`
+	GroupVersionKind *GroupVersionKindApplyConfiguration `json:"groupVersionKind,omitempty"`
+	Templates        []TemplateApplyConfiguration        `json:"templates,omitempty"`
+	EndState         *EndStateApplyConfiguration         `json:"endState,omitempty"`
+	ActiveState      *ActiveStateApplyConfiguration      `json:"activeState,omitempty"`
 }
 
 // ResourceTemplateSpecApplyConfiguration constructs a declarative configuration of the ResourceTemplateSpec type for use with
@@ -28,8 +24,8 @@ func ResourceTemplateSpec() *ResourceTemplateSpecApplyConfiguration {
 // WithGroupVersionKind sets the GroupVersionKind field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the GroupVersionKind field is set to the value of the last call.
-func (b *ResourceTemplateSpecApplyConfiguration) WithGroupVersionKind(value schema.GroupVersionKind) *ResourceTemplateSpecApplyConfiguration {
-	b.GroupVersionKind = &value
+func (b *ResourceTemplateSpecApplyConfiguration) WithGroupVersionKind(value *GroupVersionKindApplyConfiguration) *ResourceTemplateSpecApplyConfiguration {
+	b.GroupVersionKind = value
 	return b
 }
 

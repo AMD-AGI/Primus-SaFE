@@ -122,7 +122,7 @@ func (r *DispatcherReconciler) handle(ctx context.Context, workload *v1.Workload
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	resourceInformer, err := clusterInformer.GetResourceInformer(ctx, workload.Spec.GroupVersionKind)
+	resourceInformer, err := clusterInformer.GetResourceInformer(ctx, workload.ToSchemaGVK())
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -208,7 +208,7 @@ func (r *DispatcherReconciler) createK8sObject(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.Spec.GroupVersionKind)
+	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
 	if err != nil {
 		klog.ErrorS(err, "", "gvk", adminWorkload.Spec.GroupVersionKind)
 		return nil, err
@@ -280,7 +280,7 @@ func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1
 
 func (r *DispatcherReconciler) updateK8sObject(ctx context.Context, adminWorkload *v1.Workload,
 	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) error {
-	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.Spec.GroupVersionKind)
+	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
 	if err != nil {
 		klog.ErrorS(err, "", "gvk", adminWorkload.Spec.GroupVersionKind)
 		return err
