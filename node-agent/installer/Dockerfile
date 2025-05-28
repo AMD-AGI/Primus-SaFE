@@ -1,50 +1,33 @@
 ARG REGISTRY=docker.io
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG GOPROXY='https://goproxy.cn,direct'
+ARG GO_VERSION=1.24.2
 
-FROM ${REGISTRY}/library/ubuntu:22.04
-
-ENV http_proxy=${HTTP_PROXY}
-ENV https_proxy=${HTTPS_PROXY}
-ENV HTTP_PROXY=${HTTP_PROXY}
-ENV HTTPS_PROXY=${HTTPS_PROXY}
-ENV GO_VERSION=1.24.2
-ENV PATH=$PATH:/usr/local/go/bin
-
-RUN apt-get update && apt-get install -y wget \
-    && wget https://golang.org/dl/go${GO_VERSION}.linux-amd64.tar.gz --no-check-certificate \
-    && tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz \
-    && rm go${GO_VERSION}.linux-amd64.tar.gz
-RUN go version
-
-RUN apt-get install -y sed
-RUN apt-get install -y jq
-RUN apt-get install -y bc
+FROM --platform=linux/amd64 golang:${GO_VERSION} as builder
 
 ENV LANG="en_US.UTF-8"
 ENV GOOS="linux"
-ENV GOPROXY=$GOPROXY
+ENV GOARCH="amd64"
 ENV GO111MODULE="on"
+ENV GOPROXY="https://goproxy.cn,direct"
 ENV GOROOT="/usr/local/go"
 ENV GOBIN="/usr/local/go/bin"
 ENV CGO_ENABLED=0
 ENV GOPATH="/workspace/primus-safe/go"
+ENV APP_HOME=/opt/primus-safe/node-agent
 
 COPY . /workspace/primus-safe
 WORKDIR /workspace/primus-safe
+RUN mkdir dist && mkdir dist/logss
+RUN GOOS=linux GOARCH=amd64  go build -o dist/node_agent ./node-agent/cmd/main.go
 
-ENV BASE_HOME=/opt/primus-safe
-ENV APP_HOME=/opt/primus-safe/node-agent
-RUN mkdir -p ${BASE_HOME} && chmod 750 ${BASE_HOME}
-RUN mkdir ${APP_HOME} && chmod 750 ${APP_HOME}
-RUN mkdir ${APP_HOME}/logs && chmod 750 ${APP_HOME}/logs
-RUN cd ./node-agent/cmd && go build -o ${APP_HOME}/node_agent main.go \
-  && go clean --modcache --cache && cd ../..
+FROM --platform=linux/amd64 ${REGISTRY}/library/ubuntu:22.04
+RUN apt-get update
+RUN apt-get install -y sed
+RUN apt-get install -y jq
+RUN apt-get install -y bc
+COPY --from=builder /workspace/primus-safe/dist ${APP_HOME}
+COPY ./node-agent/installer/run.sh  ${APP_HOME}
 
-COPY ./node-agent/installer/dockerfile/run.sh ${APP_HOME}/
-
-RUN  \
+RUN  ls  -l ${APP_HOME} && \
   echo 'umask 0027' | tee -a /etc/bashrc && \
   echo "export HISTSIZE=100" >> /etc/bashrc && \
   echo "export HISTSIZE=100" >> /etc/profile

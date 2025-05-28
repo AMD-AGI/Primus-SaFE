@@ -79,7 +79,6 @@ spec:
           image: {{ .Values.repository }}/node-agent:{{ .Values.node_agent.tag }}
           imagePullPolicy: Always
           name: {{ .Release.Name }}-node-agent
-          command: ["/bin/sh", "/opt/primus-safe/node-agent/run.sh"]
           resources:
             limits:
               cpu: "1500m"

@@ -1,50 +1,37 @@
 ARG REGISTRY=docker.io
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG GOPROXY='https://goproxy.cn,direct'
 ARG GO_VERSION=1.24.2
 
 FROM --platform=linux/amd64 golang:${GO_VERSION} as builder
-
-RUN echo ${HTTP_PROXY}
-RUN echo ${HTTPS_PROXY}
-ENV http_proxy=${HTTP_PROXY}
-ENV https_proxy=${HTTPS_PROXY}
-ENV HTTP_PROXY=${HTTP_PROXY}
-ENV HTTPS_PROXY=${HTTPS_PROXY}
 
 ENV LANG="en_US.UTF-8"
 ENV GOOS="linux"
 ENV GOARCH="amd64"
 ENV GO111MODULE="on"
-ENV GOPROXY=$GOPROXY
+ENV GOPROXY="https://goproxy.cn,direct"
 ENV GOROOT="/usr/local/go"
 ENV GOBIN="/usr/local/go/bin"
 ENV CGO_ENABLED=0
 ENV GOPATH="/workspace/primus-safe/go"
+ENV APP_HOME=/opt/primus-safe/apiserver
 
 COPY . /workspace/primus-safe
 WORKDIR /workspace/primus-safe
-RUN mkdir dist && mkdir dist/config && mkdir dist/logss
+RUN mkdir dist && mkdir dist/logss
 RUN GOOS=linux GOARCH=amd64  go build -o dist/apiserver ./apiserver/cmd/main.go
 
-
 FROM --platform=linux/amd64 ${REGISTRY}/library/ubuntu:22.04
-
+RUN apt-get update
 RUN apt-get install -y sed
-
-ENV BASE_HOME=/opt/primus-safe
-ENV APP_HOME=/opt/primus-safe/apiserver
-
 COPY --from=builder /workspace/primus-safe/dist ${APP_HOME}
-COPY ./apiserver/installer/dockerfile/run.sh  ${APP_HOME}
-COPY ./apiserver/config/config.yaml  ${APP_HOME}/config
+COPY ./apiserver/installer/run.sh  ${APP_HOME}
 
 RUN  ls  -l ${APP_HOME} && \
   echo 'umask 0027' | tee -a /etc/bashrc && \
   echo "export HISTSIZE=100" >> /etc/bashrc && \
   echo "export HISTSIZE=100" >> /etc/profile
 
+RUN rm -rf /workspace/primus-safe
+
 EXPOSE 8082
-WORKDIR /opt/primus-safe/apiserver
+WORKDIR ${APP_HOME}
 CMD ["/bin/sh", "run.sh"]
