@@ -31,7 +31,7 @@ func GetResourceTemplate(ctx context.Context, cli client.Client, gvk schema.Grou
 		return nil, err
 	}
 	for i := range rtl.Items {
-		if rtl.Items[i].Spec.GroupVersionKind == gvk {
+		if rtl.Items[i].ToSchemaGVK() == gvk {
 			return &rtl.Items[i], nil
 		}
 	}
@@ -104,7 +104,7 @@ func ListObjects(informer informers.GenericInformer,
 
 func DeleteObject(ctx context.Context, dynamicClient *dynamic.DynamicClient,
 	mapper meta.RESTMapper, adminWorkload *v1.Workload) error {
-	gvr, err := CvtToGVR(mapper, adminWorkload.Spec.GroupVersionKind)
+	gvr, err := CvtToGVR(mapper, adminWorkload.ToSchemaGVK())
 	if err != nil {
 		return err
 	}
