@@ -1,25 +1,22 @@
 ARG REGISTRY=docker.io
 ARG GO_VERSION=1.24.2
-
-FROM --platform=linux/amd64 golang:${GO_VERSION} as builder
+FROM golang:${GO_VERSION} AS builder
 
 ENV LANG="en_US.UTF-8"
-ENV GOOS="linux"
-ENV GOARCH="amd64"
 ENV GO111MODULE="on"
 ENV GOPROXY="https://goproxy.cn,direct"
 ENV GOROOT="/usr/local/go"
 ENV GOBIN="/usr/local/go/bin"
 ENV CGO_ENABLED=0
 ENV GOPATH="/workspace/primus-safe/go"
-ENV APP_HOME=/opt/primus-safe/webhooks
 
 COPY . /workspace/primus-safe
 WORKDIR /workspace/primus-safe
 RUN mkdir dist && mkdir dist/logss
 RUN GOOS=linux GOARCH=amd64  go build -o dist/webhooks ./webhooks/cmd/main.go
 
-FROM --platform=linux/amd64 ${REGISTRY}/library/ubuntu:22.04
+FROM ${REGISTRY}/library/ubuntu:22.04
+ARG APP_HOME=/opt/primus-safe/webhooks
 RUN apt-get update
 RUN apt-get install -y sed
 COPY --from=builder /workspace/primus-safe/dist ${APP_HOME}
