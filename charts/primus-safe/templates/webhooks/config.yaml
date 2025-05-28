@@ -1,12 +1,11 @@
 apiVersion: v1
 data:
   config.yaml: |
-    global:
-      enable_crypto: {{ .Values.crypto.enable }}
-      crypto_key: {{ .Values.crypto.path }}/key
+    server:
+      port: 8084
     health_check:
       enable: true
-      port: 8081
+      port: 8085
     leader_election:
       enable: true
       lock_namespace: "{{ .Release.Namespace }}"
@@ -14,7 +13,9 @@ data:
       mem_reserve_percent: {{ .Values.workspace.mem_reserve_percent }}
       cpu_reserve_percent:  {{ .Values.workspace.cpu_reserve_percent }}
       ephemeral_store_reserve_percent: {{ .Values.workspace.ephemeral_store_reserve_percent }}
+    workload:
+      max_ephemeral_store_percent: {{ .Values.workload.max_ephemeral_store_percent }}
 kind: ConfigMap
 metadata:
-  name: {{ .Release.Name }}-resource-manager
-  namespace: {{ .Release.Namespace }} 
+  name: {{ .Release.Name }}-webhooks
+  namespace: {{ .Release.Namespace }}

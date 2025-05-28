@@ -1,10 +1,8 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: primus-safe-fault
-  labels:
-    kind: fault
-  namespace: primus-safe
+  name: {{ .Release.Name }}-fault
+  namespace: {{ .Release.Namespace }}
 data:
   gpu_module_001: '{"id":"001","action":"taint","toggle":"on"}'
   gpu_ecc_002: '{"id":"002","toggle":"on"}'

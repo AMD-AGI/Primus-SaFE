@@ -25,5 +25,5 @@ Dockerfile.cross
 *.tgz
 charts/bin/*
 charts/primus-safe/crds
-charts/primus-safe/templates/webhooks
+charts/primus-safe/templates/webhooks/manifests.yaml
 charts/primus-safe/templates/rbac/role.yaml

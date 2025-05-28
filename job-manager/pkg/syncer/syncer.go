@@ -105,7 +105,7 @@ func (r *SyncerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reques
 	if quit := r.observe(c); quit {
 		return ctrlruntime.Result{}, nil
 	}
-	if err := r.handle(c); err != nil {
+	if err := r.handle(ctx, c); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	return ctrlruntime.Result{}, nil
@@ -116,14 +116,14 @@ func (r *SyncerReconciler) observe(c *v1.Cluster) bool {
 	return ok
 }
 
-func (r *SyncerReconciler) handle(cluster *v1.Cluster) error {
+func (r *SyncerReconciler) handle(ctx context.Context, cluster *v1.Cluster) error {
 	informer, err := newClusterInformer(r.ctx, cluster.Name, &cluster.Status.ControlPlaneStatus, r.Client, r.Add)
 	if err != nil {
 		klog.ErrorS(err, "fail to new cluster informer", "cluster.name", cluster.Name)
 		return err
 	}
 	rtList := &v1.ResourceTemplateList{}
-	if err = r.List(context.Background(), rtList); err != nil {
+	if err = r.List(ctx, rtList); err != nil {
 		klog.ErrorS(err, "fail to list ResourceTemplateList")
 		return err
 	}
@@ -172,9 +172,9 @@ func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (co
 	return result, err
 }
 
-func (r *SyncerReconciler) getAdminWorkload(workloadId string) (*v1.Workload, error) {
+func (r *SyncerReconciler) getAdminWorkload(ctx context.Context, workloadId string) (*v1.Workload, error) {
 	adminWorkload := &v1.Workload{}
-	if err := r.Client.Get(context.Background(), client.ObjectKey{Name: workloadId}, adminWorkload); err != nil {
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: workloadId}, adminWorkload); err != nil {
 		if apierrors.IsNotFound(err) {
 			err = nil
 		} else {

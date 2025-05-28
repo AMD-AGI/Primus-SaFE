@@ -106,9 +106,8 @@ func (m *WorkloadMutator) mutateCreate(ctx context.Context, workload *v1.Workloa
 	}
 
 	m.mutateMeta(ctx, workload, workspace)
-	m.mutateGvk(ctx, workload)
 
-	switch workload.Spec.Kind {
+	switch workload.Spec.GroupVersionKind.Kind {
 	case common.DeploymentKind:
 		m.mutateDeployment(workload)
 	case common.StatefulSetKind:
@@ -154,16 +153,16 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	if v1.GetWorkspaceId(workload) == "" {
 		metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	}
-	metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkloadKindLabel, workload.Spec.Kind)
+	metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkloadKindLabel, workload.Spec.GroupVersionKind.Kind)
 	metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkloadIdLabel, workload.Name)
 	metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
 	if v1.GetUserName(workload) != "" {
 		metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	}
-	if v1.GetWorkloadMainContainer(workload) == "" {
-		cm, err := commonworkload.GetTemplateConfig(ctx, m.Client, workload.Spec.Kind)
+	if v1.GetMainContainer(workload) == "" {
+		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, workload.Spec.GroupVersionKind, workload.Spec.Resource.GPUName)
 		if err == nil {
-			metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.WorkloadMainContainer, cm.Labels[common.MainContainer])
+			metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(cm))
 		}
 	}
 	if workload.Annotations[v1.EnableHostNetworkAnnotation] == "" {
@@ -171,23 +170,6 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 			v1.EnableHostNetworkAnnotation, strconv.FormatBool(m.canUseHostNetwork(ctx, workload, workspace)))
 	}
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
-}
-
-func (m *WorkloadMutator) mutateGvk(ctx context.Context, workload *v1.Workload) {
-	if workload.Spec.Kind == "" {
-		workload.Spec.Kind = common.PytorchJobKind
-	}
-	if workload.Spec.Group == "" || workload.Spec.Version == "" {
-		rt, _ := getResourceTemplate(ctx, m.Client, workload.Spec.Kind)
-		if rt != nil {
-			if workload.Spec.Group == "" {
-				workload.Spec.Group = rt.Spec.GroupVersionKind.Group
-			}
-			if workload.Spec.Version == "" {
-				workload.Spec.Version = rt.Spec.GroupVersionKind.Version
-			}
-		}
-	}
 }
 
 func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
@@ -417,7 +399,7 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, w *v1.Workload) 
 	if err := v.validateResourceEnough(ctx, w); err != nil {
 		return err
 	}
-	if _, err := getResourceTemplate(ctx, v.Client, w.Spec.Kind); err != nil {
+	if err := v.validateTemplate(ctx, w); err != nil {
 		return err
 	}
 	if err := v.validateDisplayName(w); err != nil {
@@ -443,7 +425,7 @@ func (v *WorkloadValidator) validateRequiredParams(w *v1.Workload) error {
 	if w.Spec.EntryPoint == "" {
 		errs = append(errs, fmt.Errorf("the entryPoint is empty"))
 	}
-	if w.Spec.Group == "" || w.Spec.Version == "" || w.Spec.Kind == "" {
+	if w.Spec.GroupVersionKind.Empty() {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
@@ -576,6 +558,18 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, w *v1.Wo
 	return nil
 }
 
+func (v *WorkloadValidator) validateTemplate(ctx context.Context, w *v1.Workload) error {
+	if _, err := getResourceTemplate(ctx, v.Client, w.Spec.GroupVersionKind); err != nil {
+		return err
+	}
+	_, err := commonworkload.GetWorkloadTemplate(ctx,
+		v.Client, w.Spec.GroupVersionKind, w.Spec.Resource.GPUName)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (v *WorkloadValidator) validateDisplayName(w *v1.Workload) error {
 	l := len(v1.GetDisplayName(w))
 	if l > commonutils.MaxDisplayNameLen {
@@ -625,7 +619,7 @@ func (v *WorkloadValidator) validateSpecChanged(newObj, oldObj *v1.Workload) err
 func (v *WorkloadValidator) validateScope(ctx context.Context, w *v1.Workload) error {
 	scope := commonworkload.GetScope(w)
 	if scope == "" {
-		return commonerrors.NewBadRequest(fmt.Sprintf("unknown workload kind, %s", w.Spec.Kind))
+		return commonerrors.NewBadRequest(fmt.Sprintf("unknown workload kind, %s", w.Spec.GroupVersionKind.Kind))
 	}
 	workspace, err := getWorkspace(ctx, v.Client, w.Spec.Workspace)
 	if err != nil {

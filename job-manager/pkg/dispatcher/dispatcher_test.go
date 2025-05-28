@@ -7,8 +7,6 @@ package dispatcher
 
 import (
 	"context"
-	"fmt"
-	"io/ioutil"
 	"strings"
 	"testing"
 
@@ -18,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -61,14 +60,10 @@ func genMockScheme() (*runtime.Scheme, error) {
 	return result, nil
 }
 
-func loadConfigmap(configmapName string) (*corev1.ConfigMap, error) {
-	data, err := ioutil.ReadFile(fmt.Sprintf("../../config/%s", configmapName))
-	if err != nil {
-		return nil, err
-	}
-	decoder := yamlutil.NewYAMLOrJSONDecoder(strings.NewReader(string(data)), 100)
+func parseConfigmap(content string) (*corev1.ConfigMap, error) {
+	decoder := yamlutil.NewYAMLOrJSONDecoder(strings.NewReader(content), 100)
 	var configMap corev1.ConfigMap
-	if err = decoder.Decode(&configMap); err != nil {
+	if err := decoder.Decode(&configMap); err != nil {
 		return nil, err
 	}
 	return &configMap, nil
@@ -81,8 +76,9 @@ func TestCreatePytorchJob(t *testing.T) {
 	workload.Spec.IsSSHEnabled = true
 	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 
-	configmap, err := loadConfigmap("pytorch_job.template")
+	configmap, err := parseConfigmap(TestPytorchJobTemplateConfig)
 	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
 	scheme, err := genMockScheme()
 	assert.NilError(t, err)
 	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestPytorchResourceTemplate, workspace).WithScheme(scheme).Build()
@@ -98,7 +94,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0])
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkImage(t, obj, workload, workspace, &templates[0])
+	checkImage(t, obj, workload, &templates[0])
 	checkLabels(t, obj, workload, &templates[0])
 	checkHostNetwork(t, obj, workload, &templates[0])
 	_, found, err := unstructured.NestedSlice(obj.Object, templates[1].PrePaths...)
@@ -115,7 +111,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkVolumeMounts(t, obj, &templates[1])
 	checkVolumes(t, obj, workload, &templates[1])
 	checkNodeSelectorTerms(t, obj, workload, &templates[1])
-	checkImage(t, obj, workload, workspace, &templates[1])
+	checkImage(t, obj, workload, &templates[1])
 	checkLabels(t, obj, workload, &templates[1])
 	checkHostNetwork(t, obj, workload, &templates[1])
 	// fmt.Println(unstructuredutils.ToString(obj))
@@ -125,7 +121,7 @@ func TestCreateDeployment(t *testing.T) {
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Workspace = workspace.Name
-	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
+	workload.Spec.GroupVersionKind = schema.GroupVersionKind{
 		Group:   "apps",
 		Version: "v1",
 		Kind:    "Deployment",
@@ -138,10 +134,10 @@ func TestCreateDeployment(t *testing.T) {
 			"maxUnavailable": "25%",
 		},
 	}
-	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.WorkloadMainContainer, "main")
 
-	configmap, err := loadConfigmap("deployment.template")
+	configmap, err := parseConfigmap(TestDeploymentTemplateConfig)
 	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
 	scheme, err := genMockScheme()
 	assert.NilError(t, err)
 	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestDeploymentTemplate, workspace).WithScheme(scheme).Build()
@@ -157,7 +153,7 @@ func TestCreateDeployment(t *testing.T) {
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0])
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkImage(t, obj, workload, workspace, &templates[0])
+	checkImage(t, obj, workload, &templates[0])
 	checkLabels(t, obj, workload, &templates[0])
 	checkHostNetwork(t, obj, workload, &templates[0])
 	checkSelector(t, obj, workload)
@@ -169,7 +165,7 @@ func TestUpdateDeployment(t *testing.T) {
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
-	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "test")
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
 	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
@@ -209,7 +205,7 @@ func TestUpdatePytorchJob(t *testing.T) {
 		ShareMemory:      "512Gi",
 		EphemeralStorage: "100Gi",
 	}
-	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "pytorch")
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
 	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
 
@@ -245,7 +241,7 @@ func TestUpdatePytorchJobMaster(t *testing.T) {
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
-	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "pytorch")
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
 	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
 
@@ -270,7 +266,7 @@ func TestIsImageChanged(t *testing.T) {
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
-	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "test")
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
 	adminWorkload.Spec.Image = "test-image:latest"
 	ok := isImageChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
@@ -285,7 +281,7 @@ func TestIsEntryPointChanged(t *testing.T) {
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
-	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "test")
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
 	adminWorkload.Spec.EntryPoint = "abcd"
 	ok := isEntryPointChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
@@ -314,7 +310,7 @@ func TestIsEnvChanged(t *testing.T) {
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
-	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "test")
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
 	ok := isEnvChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
 	assert.Equal(t, ok, true)
@@ -332,7 +328,7 @@ func TestIsEnvChanged(t *testing.T) {
 	assert.Equal(t, ok, true)
 
 	adminWorkload = jobutils.TestWorkloadData.DeepCopy()
-	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "test")
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 	adminWorkload.Spec.Env = map[string]string{
 		"NCCL_SOCKET_IFNAME": "eth0",
 		"GLOO_SOCKET_IFNAME": "",
@@ -353,7 +349,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
-	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.WorkloadMainContainer, "test")
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
 	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)

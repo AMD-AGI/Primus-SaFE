@@ -117,7 +117,7 @@ type WorkloadSpec struct {
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised,omitempty"`
 	// workload define
-	GroupVersionKind `json:"gvk,omitempty"`
+	GroupVersionKind schema.GroupVersionKind `json:"gvk"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`
 	// workload scheduling priority. Defaults to 0; valid range: 0–2
@@ -159,8 +159,6 @@ type WorkloadStatus struct {
 type WorkloadPod struct {
 	// podId
 	PodId string `json:"podId"`
-	// role，master/worker
-	Role string `json:"role,omitempty"`
 	// the Kubernetes node that the Pod is scheduled on
 	K8sNodeName string `json:"k8sNodeName,omitempty"`
 	// the admin node that the Pod is scheduled on
@@ -270,18 +268,6 @@ func (w *Workload) CostTime() int64 {
 		costTime = time.Now().UTC().Sub(w.CreationTimestamp.Time)
 	}
 	return int64(costTime.Seconds())
-}
-
-func (w *Workload) ResourceGVK() schema.GroupVersionKind {
-	return schema.GroupVersionKind{
-		Group:   w.Spec.Group,
-		Version: w.Spec.Version,
-		Kind:    w.Spec.Kind,
-	}
-}
-
-func (w *Workload) ResourceApiVersion() string {
-	return w.Spec.Group + "/" + w.Spec.Version
 }
 
 func (w *Workload) IsTimeout() bool {

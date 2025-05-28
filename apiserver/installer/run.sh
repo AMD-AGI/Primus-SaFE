@@ -7,4 +7,4 @@ WORK_PATH=/opt/primus-safe/apiserver
 cd ${WORK_PATH}
 find ${WORK_PATH} -type f -name "*.sh" -exec chmod 700 {} +
 
-./apiserver --config=${WORK_PATH}/config/config.toml --log_file_path=${WORK_PATH}/logs/apiserver.log
+./apiserver --config=${WORK_PATH}/config/config.yaml --log_file_path=${WORK_PATH}/logs/apiserver.log

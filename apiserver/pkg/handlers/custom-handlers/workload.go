@@ -175,7 +175,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 	}
 	podName := strings.TrimSpace(c.Param(types.PodId))
 	podLogs, err := h.getPodLog(c, k8sClients.ClientSet(),
-		workload.Spec.Workspace, podName, v1.GetWorkloadMainContainer(workload))
+		workload.Spec.Workspace, podName, v1.GetMainContainer(workload))
 	if err != nil {
 		return nil, err
 	}

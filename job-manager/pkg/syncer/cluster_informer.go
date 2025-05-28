@@ -103,7 +103,7 @@ func (r *ClusterInformer) GetResourceInformer(ctx context.Context, gvk schema.Gr
 	if informer != nil {
 		return informer.GenericInformer, nil
 	}
-	if _, err := jobutils.GetResourceTemplate(ctx, r.adminClient, gvk.Kind); err != nil {
+	if _, err := jobutils.GetResourceTemplate(ctx, r.adminClient, gvk); err != nil {
 		return nil, err
 	}
 	return nil, fmt.Errorf("failed to find informer, gvk: %v", gvk)
@@ -122,7 +122,7 @@ func (r *ClusterInformer) getResourceInformer(gvk schema.GroupVersionKind) *reso
 }
 
 func (r *ClusterInformer) addResourceTemplate(rt *v1.ResourceTemplate) error {
-	gvk := rt.ResourceGVK()
+	gvk := rt.Spec.GroupVersionKind
 	mapper, err := r.adminClient.RESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		klog.ErrorS(err, "failed to do mapping", "gvk", gvk)
@@ -218,7 +218,7 @@ func (r *ClusterInformer) checkNamespace(ctx context.Context, namespace string) 
 }
 
 func (r *ClusterInformer) delResourceTemplate(rt *v1.ResourceTemplate) {
-	gvk := rt.ResourceGVK().String()
+	gvk := rt.Spec.GroupVersionKind.String()
 	if err := r.resourceInformers.Delete(gvk); err != nil {
 		klog.ErrorS(err, "failed to delete resource informer", "gvk", gvk)
 	}

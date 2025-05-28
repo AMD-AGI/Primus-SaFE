@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: primus-safe-webhooks
-  namespace: primus-safe
+  name: {{ .Release.Name }}-webhooks
+  namespace: {{ .Release.Namespace }}
   labels:
-    app: primus-safe-webhooks
+    app: {{ .Release.Name }}-webhooks
 spec:
-  replicas: 2
+  replicas: {{ .Values.webhooks.replicas }}
   selector:
     matchLabels:
-      app: primus-safe-webhooks
+      app: {{ .Release.Name }}-webhooks
   template:
     metadata:
       labels:
-        app: primus-safe-webhooks
+        app: {{ .Release.Name }}-webhooks
     spec:
       affinity:
         nodeAffinity:
@@ -30,17 +30,15 @@ spec:
                     operator: NotIn
                     values:
                       - "true"
-      serviceAccountName: primus-safe-manager
+      serviceAccountName: {{ .Release.Name }}-manager
       containers:
-        - name: primus-safe-webhooks
-          image: docker.io/primussafe/webhooks:latest
+        - name: {{ .Release.Name }}-webhooks
+          image: {{ .Values.repository }}/webhooks:{{ .Values.webhooks.tag }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/webhooks/run.sh"]
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
           env:
-            - name: CERT_DIR
-              value: "/opt/primus-safe/webhooks/cert"
             - name: KEY_NAME
               value: "tls.key"
             - name: CERT_NAME
@@ -48,11 +46,25 @@ spec:
             - name: CA_NAME
               value: "ca.crt"
           volumeMounts:
-            - name: primus-safe-webhooks-cert
+            - name: server-cert
               mountPath: "/opt/primus-safe/webhooks/cert"
+            - name: server-config
+              mountPath: /opt/primus-safe/webhooks/config
           ports:
             - containerPort: 8084
               protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8085
+            initialDelaySeconds: 20
+            periodSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8085
+            initialDelaySeconds: 20
+            periodSeconds: 2
           resources:
             limits:
               cpu: "4000m"
@@ -60,12 +72,15 @@ spec:
             requests:
               cpu: "4000m"
               memory: 8Gi
-      volumes:
-        - name: primus-safe-webhooks-cert
-          secret:
-            secretName: primus-safe-webhooks-cert
       imagePullSecrets:
-        - name: primus-safe-image
+      - name: {{ .Release.Name }}-image
+      volumes:
+        - name: server-config
+          configMap:
+            name: {{ .Release.Name }}-webhooks
+        - name: server-cert
+          secret:
+            secretName: {{ .Release.Name }}-webhooks-cert
       terminationGracePeriodSeconds: 10
       priorityClassName: system-cluster-critical
       restartPolicy: Always

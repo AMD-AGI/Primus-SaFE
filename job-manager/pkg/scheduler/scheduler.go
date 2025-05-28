@@ -233,7 +233,12 @@ func (r *SchedulerReconciler) generatePVC(volume *v1.WorkspaceVolume,
 	pvc := &corev1.PersistentVolumeClaim{}
 	pvc.SetName(string(volume.StorageType))
 	pvc.SetNamespace(workspace.Name)
-	pvc.Spec.StorageClassName = pointer.String(volume.StorageClass)
+	if volume.PersistentVolumeName != "" {
+		pvc.Spec.VolumeName = volume.PersistentVolumeName
+	} else {
+		pvc.Spec.StorageClassName = pointer.String(volume.StorageClass)
+	}
+
 	storeQuantity, err := resource.ParseQuantity(volume.Capacity)
 	if err != nil {
 		return nil, err

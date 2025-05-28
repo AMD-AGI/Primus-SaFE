@@ -1,16 +1,20 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: stateful-set-template
-  namespace: primus-safe
+  name: amd-deployment-template
+  namespace: {{ .Release.Namespace }}
   labels:
-    kind: StatefulSet
+    group: apps
+    version: v1
+    kind: Deployment
+  annotations:
+    primus-safe.gpu.resource.name: "amd.com/gpu"
     # The main container name should match the configuration defined in the template below
-    mainContainer: main
+    primus-safe.main.container: main
 data:
  template: |
    apiVersion: apps/v1
-   kind: StatefulSet
+   kind: Deployment
    spec:
      progressDeadlineSeconds: 10800
      template:
@@ -18,7 +22,7 @@ data:
          dnsPolicy: ClusterFirstWithHostNet
          initContainers:
            - name: preprocess
-             image: docker.io/primussafe/preprocess:latest
+             image: {{ .Values.repository }}/preprocess:latest
              imagePullPolicy: IfNotPresent
              command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
              securityContext:
@@ -60,7 +64,6 @@ data:
                    fieldRef:
                      fieldPath: status.podIP
              securityContext:
-               runAsUser: 0
                capabilities:
                  add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
              volumeMounts:
@@ -76,6 +79,8 @@ data:
                path: /var/log
            - name: shared-data
              emptyDir: {}
+         imagePullSecrets:
+           - name: {{ .Release.Name }}-image
          terminationGracePeriodSeconds: 10
-         schedulerName: default-scheduler
          restartPolicy: Always
+         schedulerName: default-scheduler

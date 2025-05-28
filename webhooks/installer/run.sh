@@ -5,12 +5,12 @@
 # See LICENSE for license information.
 #
 
-WORK_PATH=/opt/primus-safe/node-agent
+WORK_PATH=/opt/primus-safe/webhooks
 
 . /etc/bashrc
 
 cd ${WORK_PATH}
 find ${WORK_PATH} -type f -name "*.sh" -exec chmod 700 {} +
 
-./node_agent --node-name=${NODE_NAME} --log_file_path=${WORK_PATH}/logs/node-agent.log \
-  --configmap_path=${NODE_CONFIGMAP_PATH}
+./webhooks --config=${WORK_PATH}/config/config.yaml \
+--log_file_path=${WORK_PATH}/logs/webhooks.log --cert_dir=/opt/primus-safe/webhooks/cert

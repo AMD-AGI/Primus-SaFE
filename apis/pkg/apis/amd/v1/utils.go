@@ -191,8 +191,8 @@ func GetDescription(obj metav1.Object) string {
 	return GetAnnotation(obj, DescriptionAnnotation)
 }
 
-func GetWorkloadMainContainer(obj metav1.Object) string {
-	return GetAnnotation(obj, WorkloadMainContainer)
+func GetMainContainer(obj metav1.Object) string {
+	return GetAnnotation(obj, MainContainerAnnotation)
 }
 
 func GetWorkloadId(obj metav1.Object) string {
@@ -209,10 +209,6 @@ func IsWorkloadReScheduled(obj metav1.Object) bool {
 
 func IsEnableHostNetwork(obj metav1.Object) bool {
 	return GetAnnotation(obj, EnableHostNetworkAnnotation) == "true"
-}
-
-func GetImageSecretName(obj metav1.Object) string {
-	return GetAnnotation(obj, ImageSecretNameAnnotation)
 }
 
 func atoi(str string) int {
