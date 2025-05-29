@@ -91,6 +91,7 @@ type ResourceTemplateStatus struct {
 // +kubebuilder:webhook:path=/validate-amd-primus-safe-v1-resourcetemplate,mutating=false,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=resourcetemplates,verbs=create;update,versions=v1,name=vresourcetemplate.kb.io,admissionReviewVersions={v1}
 // +kubebuilder:rbac:groups=amd.com,resources=resourcetemplates,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=amd.com,resources=resourcetemplates/status,verbs=get;update;patch
+
 type ResourceTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

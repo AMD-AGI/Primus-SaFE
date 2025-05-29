@@ -35,6 +35,7 @@ spec:
         - name: {{ .Release.Name }}-job-manager
           image: {{ .Values.repository }}/job-manager:{{ .Values.job_manager.tag }}
           imagePullPolicy: Always
+          command: ["/bin/sh", "/opt/primus-safe/job-manager/run.sh"]
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
           volumeMounts:

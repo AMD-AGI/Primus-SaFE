@@ -198,6 +198,7 @@ type PodFailedMessage struct {
 // +kubebuilder:webhook:path=/validate-amd-primus-safe-v1-workload,mutating=false,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=workloads,verbs=create;update,versions=v1,name=vworkload.kb.io,admissionReviewVersions={v1,v1beta1}
 // +kubebuilder:rbac:groups=amd.com,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=amd.com,resources=workloads/status,verbs=get;update;patch
+
 type Workload struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
