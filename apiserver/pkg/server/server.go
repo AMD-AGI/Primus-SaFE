@@ -20,7 +20,9 @@ import (
 	clientscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
 	"k8s.io/klog/v2/klogr"
+	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -180,6 +182,9 @@ func newCtrlManager() (ctrlruntime.Manager, error) {
 		HealthProbeBindAddress: healthProbeAddress,
 		Metrics: metricsserver.Options{
 			BindAddress: "0",
+		},
+		Controller: config.Controller{
+			SkipNameValidation: ptr.To(true),
 		},
 	}
 	cfg, err := commonclient.GetRestConfigInCluster()
