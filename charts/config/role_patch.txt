@@ -27,7 +27,7 @@
   - events
   verbs:
   - '*'
- - apiGroups:
+- apiGroups:
   - coordination.k8s.io
   resources:
   - leases
