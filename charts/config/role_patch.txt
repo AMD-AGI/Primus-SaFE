@@ -1,0 +1,35 @@
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - '*'
+- apiGroups:
+  - apps
+  resources:
+  - '*'
+  verbs:
+  - '*'
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  - services
+  - pods
+  - pods/log
+  - nodes
+  - serviceaccounts
+  - deployments
+  - statefulsets
+  - priorityclasses
+  - endpoints
+  - events
+  verbs:
+  - '*'
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - '*'

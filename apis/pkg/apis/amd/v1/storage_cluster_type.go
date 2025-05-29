@@ -66,6 +66,8 @@ type ReadAffinity struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
+// +kubebuilder:rbac:groups=amd.com,resources=storageclusters,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=amd.com,resources=storageclusters/status,verbs=get;update;patch
 
 type StorageCluster struct {
 	metav1.TypeMeta   `json:",inline"`
