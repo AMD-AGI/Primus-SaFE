@@ -122,7 +122,7 @@ func (r *ClusterInformer) getResourceInformer(gvk schema.GroupVersionKind) *reso
 }
 
 func (r *ClusterInformer) addResourceTemplate(rt *v1.ResourceTemplate) error {
-	gvk := rt.GroupVersionKind()
+	gvk := rt.ToSchemaGVK()
 	mapper, err := r.adminClient.RESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		klog.ErrorS(err, "failed to do mapping", "gvk", gvk)

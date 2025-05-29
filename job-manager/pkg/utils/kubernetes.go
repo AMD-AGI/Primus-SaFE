@@ -121,7 +121,7 @@ func DeleteObject(ctx context.Context, dynamicClient *dynamic.DynamicClient,
 }
 
 func CvtToGVR(mapper meta.RESTMapper, gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
-	m, err := mapper.RESTMapping(schema.GroupKind{Group: gvk.Group, Kind: gvk.Kind}, gvk.Version)
+	m, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		klog.ErrorS(err, "failed to RESTMapping")
 		return schema.GroupVersionResource{}, err
