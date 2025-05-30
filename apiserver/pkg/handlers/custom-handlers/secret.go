@@ -49,13 +49,16 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 
 	secret, err := generateSecret(req)
 	if err != nil {
+		klog.ErrorS(err, "failed to generate secret")
 		return nil, err
 	}
 
 	if secret, err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Create(
 		c.Request.Context(), secret, metav1.CreateOptions{}); err != nil {
-		return nil, client.IgnoreAlreadyExists(err)
+		klog.ErrorS(err, "failed to create secret")
+		return nil, err
 	}
+	klog.Infof("created secret %s", secret.Name)
 	return &types.CreateSecretResponse{
 		SecretId: secret.Name,
 	}, nil
@@ -90,12 +93,12 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the secretId is not found")
 	}
-	err := h.clientSet.CoreV1().Secrets(common.PrimusCryptoSecret).Delete(
+	err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
 		c.Request.Context(), name, metav1.DeleteOptions{})
 	if err != nil {
 		return nil, err
 	}
-	klog.Infof("delete secret: %s", name)
+	klog.Infof("delete secret %s", name)
 	return nil, nil
 }
 
@@ -134,7 +137,7 @@ func generateSecret(req *types.CreateSecretRequest) (*corev1.Secret, error) {
 func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) error {
 	name := ""
 	var secretType corev1.SecretType
-	data := make(map[string][]byte)
+	params := make(map[string][]byte)
 
 	switch req.Type {
 	case types.SecretCrypto:
@@ -146,12 +149,12 @@ func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) erro
 			req.DisplayName = name
 		}
 		secretType = corev1.SecretTypeOpaque
-		data[types.PasswordParam] = []byte(req.Params[types.PasswordParam])
+		params[string(types.PasswordParam)] = []byte(req.Params[types.PasswordParam])
 	case types.SecretImage:
-		params := []string{types.PasswordParam, types.UserNameParam, types.ServerParam}
-		for _, p := range params {
-			if !req.HasParam(p) {
-				return fmt.Errorf("the %s is empty", p)
+		keys := []types.SecretParam{types.PasswordParam, types.UserNameParam, types.ServerParam}
+		for _, key := range keys {
+			if !req.HasParam(key) {
+				return fmt.Errorf("the %s is empty", key)
 			}
 		}
 		name = common.PrimusImageSecret
@@ -170,7 +173,7 @@ func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) erro
 				},
 			},
 		}
-		data[types.DockerConfigJson] = jsonutils.MarshalSilently(dockerConf)
+		params[types.DockerConfigJson] = jsonutils.MarshalSilently(dockerConf)
 	case types.SecretSSH:
 		if !req.HasParam(types.UserNameParam) {
 			return fmt.Errorf("the %s is empty", types.UserNameParam)
@@ -180,17 +183,17 @@ func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) erro
 		}
 		name = commonutils.GenerateName(req.DisplayName)
 		secretType = corev1.SecretTypeOpaque
-		data[types.UserNameParam] = []byte(req.Params[types.UserNameParam])
+		params[string(types.UserNameParam)] = []byte(req.Params[types.UserNameParam])
 		if req.HasParam(types.PasswordParam) {
-			data[types.PasswordParam] = []byte(req.Params[types.PasswordParam])
+			params[string(types.PasswordParam)] = []byte(req.Params[types.PasswordParam])
 		} else if req.HasParam(types.PublicKeyParam) && req.HasParam(types.PrivateKeyParam) {
-			data[types.SSHAuthKey] = []byte(stringutil.Base64Decode(req.Params[types.PrivateKeyParam]))
-			data[types.SSHAuthPubKey] = []byte(stringutil.Base64Decode(req.Params[types.PublicKeyParam]))
+			params[types.SSHAuthKey] = []byte(stringutil.Base64Decode(req.Params[types.PrivateKeyParam]))
+			params[types.SSHAuthPubKey] = []byte(stringutil.Base64Decode(req.Params[types.PublicKeyParam]))
 		} else {
 			return fmt.Errorf("the password or keypair is empty")
 		}
 	}
-	secret.Data = data
+	secret.Data = params
 	secret.Name = name
 	secret.Type = secretType
 	return nil

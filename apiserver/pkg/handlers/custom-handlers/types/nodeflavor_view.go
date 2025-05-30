@@ -32,7 +32,7 @@ type CreateNodeFlavorRequest struct {
 	// gpu card, e.g. 8
 	GPU int64 `json:"gpu,omitempty"`
 	// gpu resource name of k8s node, e.g. amd.com/gpu
-	GPUName string `json:"gpuType,omitempty"`
+	GPUName string `json:"gpuName,omitempty"`
 	// the product name of gpu. e.g. AMD MI300X
 	GPUProduct string `json:"gpuProduct,omitempty"`
 	// memory size, e.g. 1073741824

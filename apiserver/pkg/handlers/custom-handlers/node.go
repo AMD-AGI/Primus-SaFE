@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	corev1 "k8s.io/api/core/v1"
@@ -21,6 +20,8 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
@@ -67,11 +68,14 @@ func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
 	}
 	node, err := h.generateNode(c, req, body)
 	if err != nil {
+		klog.ErrorS(err, "failed to generate node")
 		return nil, err
 	}
 	if err = h.Create(c.Request.Context(), node); err != nil {
+		klog.ErrorS(err, "failed to create node")
 		return nil, err
 	}
+	klog.Infof("created node %s", node.Name)
 	return &types.CreateNodeResponse{
 		NodeId: node.Name,
 	}, nil
@@ -187,7 +191,7 @@ func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to delete node")
 		return nil, err
 	}
-	klog.Infof("delete node, name: %s", node.Name)
+	klog.Infof("delete node %s", node.Name)
 	return nil, nil
 }
 

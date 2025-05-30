@@ -80,6 +80,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.patchPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
+		klog.ErrorS(err, "failed to patch workload phase")
 		return nil, err
 	}
 
@@ -133,12 +134,14 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 		Message: "the workload is deleted",
 	}
 	if err = h.patchPhase(c.Request.Context(), workload, v1.WorkloadStopped, cond); err != nil {
+		klog.ErrorS(err, "failed to patch workload phase")
 		return nil, err
 	}
 	if err = h.Delete(c.Request.Context(), workload); err != nil {
+		klog.ErrorS(err, "failed to delete workload")
 		return nil, err
 	}
-	klog.Infof("delete workload, workload.id: %s", workload.Name)
+	klog.Infof("delete workload %s", workload.Name)
 	return nil, nil
 }
 

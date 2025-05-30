@@ -6,17 +6,18 @@
 package types
 
 type SecretType string
+type SecretParam string
 
 const (
 	SecretCrypto SecretType = "crypto"
 	SecretImage  SecretType = "image"
 	SecretSSH    SecretType = "ssh"
 
-	PasswordParam   = "password"
-	PrivateKeyParam = "privateKey"
-	PublicKeyParam  = "publicKey"
-	UserNameParam   = "username"
-	ServerParam     = "server"
+	PasswordParam   SecretParam = "password"
+	PrivateKeyParam SecretParam = "privateKey"
+	PublicKeyParam  SecretParam = "publicKey"
+	UserNameParam   SecretParam = "username"
+	ServerParam     SecretParam = "server"
 
 	DockerConfigJson = ".dockerconfigjson"
 	SSHAuthKey       = "authorize"
@@ -28,8 +29,9 @@ type CreateSecretRequest struct {
 	DisplayName string `json:"displayName,omitempty"`
 	// secret type. crypto/image/ssh
 	Type SecretType `json:"type"`
-	// Parameters required for creating the secret, including username, password, private/public key.
-	Params map[string]string `json:"params"`
+	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
+	// Both the private key and public key need to be Base64 encoded
+	Params map[SecretParam]string `json:"params"`
 }
 
 type CreateSecretResponse struct {
@@ -61,7 +63,7 @@ type DockerConfig struct {
 	Auth map[string]DockerConfigItem `json:"auths"`
 }
 
-func (req *CreateSecretRequest) HasParam(key string) bool {
+func (req *CreateSecretRequest) HasParam(key SecretParam) bool {
 	val, _ := req.Params[key]
 	return val != ""
 }
