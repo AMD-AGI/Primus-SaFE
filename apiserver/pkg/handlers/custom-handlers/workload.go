@@ -141,7 +141,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to delete workload")
 		return nil, err
 	}
-	klog.Infof("delete workload, workload.id: %s", workload.Name)
+	klog.Infof("delete workload %s", workload.Name)
 	return nil, nil
 }
 

@@ -279,7 +279,7 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to delete cluster")
 		return nil, err
 	}
-	klog.Infof("deleted cluster: %s", cluster.Name)
+	klog.Infof("deleted cluster %s", cluster.Name)
 	return nil, nil
 }
 

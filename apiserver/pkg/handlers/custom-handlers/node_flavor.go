@@ -111,7 +111,7 @@ func (h *Handler) deleteNodeFlavor(c *gin.Context) (interface{}, error) {
 	if err = h.Delete(c.Request.Context(), nf); err != nil {
 		return nil, err
 	}
-	klog.Infof("delete nodeFlavor", "nodeFlavor", nf.Name)
+	klog.Infof("delete nodeFlavor %s", nf.Name)
 	return nil, nil
 }
 

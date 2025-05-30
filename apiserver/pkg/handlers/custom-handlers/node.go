@@ -191,7 +191,7 @@ func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to delete node")
 		return nil, err
 	}
-	klog.Infof("delete node, name: %s", node.Name)
+	klog.Infof("delete node %s", node.Name)
 	return nil, nil
 }
 
