@@ -3,7 +3,7 @@
  * See LICENSE for license information.
  */
 
-package log
+package klog
 
 import (
 	"flag"

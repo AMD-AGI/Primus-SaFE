@@ -69,3 +69,10 @@ func ParseCronStandard(scheduleStr string) (cron.Schedule, float64, error) {
 	interval := nextTime.Sub(today).Seconds()
 	return schedule, interval, nil
 }
+
+func CvtMilliSecToTime(milliseconds int64) time.Time {
+	seconds := milliseconds / 1000
+	nanoseconds := (milliseconds % 1000) * 1000000
+	return time.Unix(seconds, nanoseconds).UTC()
+}
+

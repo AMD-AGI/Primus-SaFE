@@ -138,25 +138,6 @@ func BuildAction(action string, keys ...string) string {
 	return string(jsonutils.MarshalSilently(result))
 }
 
-func GetAllUsedNodes(ctx context.Context, cli client.Client, clusterName string) (sets.Set, error) {
-	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterName})
-	workloadList := &v1.WorkloadList{}
-	err := cli.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector})
-	if err != nil {
-		return nil, err
-	}
-	result := sets.NewSet()
-	for _, w := range workloadList.Items {
-		if w.IsEnd() {
-			continue
-		}
-		for _, p := range w.Status.Pods {
-			result.Insert(p.AdminNodeName)
-		}
-	}
-	return result, nil
-}
-
 // returns nodes that are eligible for scale-down.
 // Only idle nodes (with no running pods) are considered.
 // Faulty nodes are prioritized in the result.
