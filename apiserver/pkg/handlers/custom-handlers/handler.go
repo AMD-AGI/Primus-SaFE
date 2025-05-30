@@ -19,6 +19,7 @@ import (
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -33,6 +34,7 @@ type Handler struct {
 	client.Client
 	clientSet     *kubernetes.Clientset
 	httpClient    httpclient.Interface
+	logClient     *commonsearch.LogClient
 	clientManager *commonutils.ObjectManager
 }
 
@@ -45,7 +47,8 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 	h := &Handler{
 		Client:        mgr.GetClient(),
 		clientSet:     clientSet,
-		httpClient:    httpclient.Instance(),
+		httpClient:    httpclient.NewHttpClient(),
+		logClient:     commonsearch.NewLogClient(),
 		clientManager: commonutils.NewObjectManagerSingleton(),
 	}
 	return h, nil

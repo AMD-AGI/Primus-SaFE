@@ -18,7 +18,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/log"
+	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/options"
 )
 
@@ -86,7 +86,7 @@ func (s *Server) Stop() {
 }
 
 func (s *Server) initLogs() error {
-	if err := log.Init(s.opts.LogfilePath, s.opts.LogFileSize); err != nil {
+	if err := commonklog.Init(s.opts.LogfilePath, s.opts.LogFileSize); err != nil {
 		return err
 	}
 	ctrlruntime.SetLogger(klogr.NewWithOptions())

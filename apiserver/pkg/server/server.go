@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 
-	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"github.com/gin-gonic/gin"
 	gerrors "github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,7 +30,8 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/controllers"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/routers"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/log"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/options"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 )
@@ -127,7 +127,7 @@ func (s *Server) Stop() {
 }
 
 func (s *Server) initLogs() error {
-	if err := log.Init(s.opts.LogfilePath, s.opts.LogFileSize); err != nil {
+	if err := commonklog.Init(s.opts.LogfilePath, s.opts.LogFileSize); err != nil {
 		return err
 	}
 	ctrlruntime.SetLogger(klogr.NewWithOptions())
@@ -155,7 +155,7 @@ func (s *Server) startHttpServer() error {
 	}
 	address := fmt.Sprintf(":%d", commonconfig.GetServerPort())
 	s.httpServer = &http.Server{Addr: address, Handler: router}
-	klog.Infof("api-server listen http://%s", s.httpServer.Addr)
+	klog.Infof("api-server listen port: %d", commonconfig.GetServerPort())
 	if err = s.httpServer.ListenAndServe(); err != nil {
 		klog.ErrorS(err, "failed to ListenAndServe")
 		return err
