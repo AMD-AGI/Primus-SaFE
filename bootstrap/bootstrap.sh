@@ -7,7 +7,7 @@ STORAGE=rook-ceph
 KUBE_CONFIG=/etc/kubernetes/admin.conf
 AUTHORIZE=${HOME}/.ssh/id_rsa
 
-KUBE_VERSION=v1.30.2
+KUBE_VERSION=1.32.5
 KUBE=${HOME}/.kube
 KUBE_CONTROL_HOSTS=3
 HOST_PREFIX=xcloud-
@@ -28,7 +28,7 @@ then
     exit
   fi
   cd kubespray
-  sudo git checkout -b release-2.27 remotes/origin/release-2.27 
+  sudo git checkout -b release-2.28 remotes/origin/release-2.28 
   cd ..
 fi
 
@@ -78,6 +78,29 @@ then
     ./get_helm.sh
 fi
 
+helm repo add rocm https://rocm.github.io/gpu-operator
+
+helm repo add exporter https://rocm.github.io/device-metrics-exporter
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo add vm https://victoriametrics.github.io/helm-charts/
+helm repo add coreweave https://charts.coreweave.com
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm install prometheus prometheus-community/kube-prometheus-stack \ 
+      -n prometheus --create-namespace --set installCRDs=true
+
+helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+
+helm repo add rook-release https://charts.rook.io/release
+helm repo add ceph-csi https://ceph.github.io/csi-charts
+helm repo add pingcap https://charts.pingcap.org/
+helm repo add juicefs https://juicedata.github.io/charts/
+
+
+helm install amd-gpu-operator -n kube-amd-gpu rocm/gpu-operator-charts --create-namespace
+helm install vmoperator -n monitoring vm/victoria-metrics-operator --create-namespace
+helm install tidb-operator -n=tidb-admin pingcap/tidb-operator --version=v1.6.1 --create-namespace 
+
 helm repo add jetstack https://charts.jetstack.io --force-update
 
 helm install \
@@ -91,4 +114,9 @@ helm repo add higress.io https://higress.io/helm-charts
 helm install higress higress.io/higress -n higress-system --create-namespace --set higress-core.gateway.hostNetwork=true
 
 
-helm install primus-safe oci://registry-1.docker.io/primussafe/primus-safe --version 0.1.0 -n primus-safe --create-namespace
+
+
+
+helm registry login registry-1.docker.io -u primus-safe@outlook.com -p 'AmDYeS!@#'
+helm install primus-safe oci://registry-1.docker.io/primussafe/primus-safe --version 0.2.0 -n primus-safe --create-namespace
+
