@@ -196,7 +196,7 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 			if !ok || !node.GetDeletionTimestamp().IsZero() || v1.GetClusterId(node) != k8sClients.Name() {
 				return
 			}
-			klog.Infof("cluster: %s watch add-event of node: %s, workspace: %s",
+			klog.Infof("cluster %s watch add-event of node %s, workspace %s",
 				k8sClients.Name(), node.Name, v1.GetWorkspaceId(node))
 			enqueue(nil, node, NodeAdd)
 		},
@@ -211,11 +211,11 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 			newClusterId := v1.GetClusterId(newNode)
 			switch {
 			case oldClusterId == k8sClients.Name() && newClusterId != k8sClients.Name():
-				klog.Infof("cluster: %s watch node unmanaged: %s, workspace: %s",
+				klog.Infof("cluster %s watch node %s unmanaged, workspace %s",
 					k8sClients.Name(), oldNode.Name, v1.GetWorkspaceId(oldNode))
 				enqueue(oldNode, newNode, NodeUnmanaged)
 			case oldClusterId != k8sClients.Name() && newClusterId == k8sClients.Name():
-				klog.Infof("cluster: %s watch node managed: %s, workspace: %s",
+				klog.Infof("cluster %s watch node %s managed, workspace %s",
 					k8sClients.Name(), newNode.Name, v1.GetWorkspaceId(newNode))
 				enqueue(oldNode, newNode, NodeManaged)
 			case newClusterId == k8sClients.Name() && r.isNodeCaredFieldChanged(oldNode, newNode):
@@ -228,7 +228,7 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 			if !ok || v1.GetClusterId(node) != k8sClients.Name() {
 				return
 			}
-			klog.Infof("cluster: %s watch delete-event of node: %s, workspace: %s",
+			klog.Infof("cluster %s watch delete-event of node %s, workspace %s",
 				k8sClients.Name(), node.Name, v1.GetWorkspaceId(node))
 			enqueue(node, nil, NodeDelete)
 		},
@@ -298,17 +298,7 @@ func (r *NodeK8sReconciler) handleNodeUnmanaged(ctx context.Context, message *no
 		klog.ErrorS(err, "failed to update node")
 		return err
 	}
-
-	patch := client.MergeFrom(adminNode.DeepCopy())
-	adminNode.Status = v1.NodeStatus{
-		ClusterStatus: v1.NodeClusterStatus{
-			Phase: v1.NodeUnmanaged,
-		},
-	}
-	if err := r.Status().Patch(ctx, adminNode, patch); err != nil {
-		return err
-	}
-	klog.Infof("reset adminNode metadata and status, name: %s, cluster: %s, workspace: %s",
+	klog.Infof("reset adminNode metadata, name: %s, cluster: %s, workspace: %s",
 		adminNode.Name, clusterName, workspaceId)
 	return nil
 }
@@ -364,7 +354,6 @@ func (r *NodeK8sReconciler) syncK8sMetadata(ctx context.Context, adminNode *v1.N
 		return nil
 	}
 	if err := r.Update(ctx, adminNode); err != nil {
-		klog.ErrorS(err, "failed to update node", "name", adminNode.Name)
 		return err
 	}
 	return nil
