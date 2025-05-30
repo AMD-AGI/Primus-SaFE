@@ -95,6 +95,16 @@ func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 
 func (r *NodeK8sReconciler) CaredPredicate() predicate.Predicate {
 	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			cluster, ok := e.Object.(*v1.Cluster)
+			if !ok || !cluster.IsReady() {
+				return false
+			}
+			if err := r.addClientFactory(cluster); err != nil {
+				klog.Errorf("failed to add cluster clients, err: %v", err)
+			}
+			return false
+		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldCluster, ok1 := e.ObjectOld.(*v1.Cluster)
 			newCluster, ok2 := e.ObjectNew.(*v1.Cluster)
