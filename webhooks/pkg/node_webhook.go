@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,6 +22,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -343,11 +344,6 @@ func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error
 	if oldNode.GetSpecWorkspace() != "" && newNode.GetSpecWorkspace() != "" &&
 		oldNode.GetSpecWorkspace() != newNode.GetSpecWorkspace() {
 		return field.Forbidden(field.NewPath("spec").Key("workspace"), "immutable")
-	}
-	if newNode.Spec.SSHSecret == nil ||
-		oldNode.Spec.SSHSecret.Name != newNode.Spec.SSHSecret.Name ||
-		oldNode.Spec.SSHSecret.Namespace != newNode.Spec.SSHSecret.Namespace {
-		return field.Forbidden(field.NewPath("spec").Key("sshSecret"), "immutable")
 	}
 	return nil
 }
