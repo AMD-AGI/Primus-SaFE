@@ -80,7 +80,7 @@ spec:
             name: {{ .Release.Name }}-webhooks
         - name: server-cert
           secret:
-            secretName: {{ .Release.Name }}-webhooks-cert
+            secretName: {{ .Release.Name }}-cert
       terminationGracePeriodSeconds: 10
       priorityClassName: system-cluster-critical
       restartPolicy: Always

@@ -36,14 +36,14 @@ func (r *ClusterReconciler) guaranteeClusterControlePlane(ctx context.Context, c
 	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
 		return nil
 	}
+	if err := r.patchKubeControlPlanNodes(ctx, cluster); err != nil {
+		return err
+	}
 	if err := r.fetchProvisionedClusterKubeConfig(ctx, cluster); err != nil {
 		return err
 	}
 
 	if guaranteeControllerPlane(cluster) {
-		if err := r.patchKubeControlPlanNodes(ctx, cluster); err != nil {
-			return err
-		}
 		hostsContent, err := r.generateHosts(ctx, cluster, nil)
 		if err != nil {
 			if !cluster.DeletionTimestamp.IsZero() {
@@ -163,12 +163,6 @@ func (r *ClusterReconciler) getUsername(ctx context.Context, cluster *v1.Cluster
 }
 
 func (r *ClusterReconciler) guaranteeCreateWorkerPodCreated(ctx context.Context, cluster *v1.Cluster, hostsContent *HostTemplateContent) (*corev1.Pod, error) {
-	// labelSelector := client.MatchingLabels{v1.ClusterManageActionLabel: string(v1.ClusterCreateAction), v1.ClusterManageClusterLabel: cluster.Name}
-	// list := new(corev1.PodList)
-	// err := r.List(ctx, list, client.InNamespace(common.PrimusSafeNamespace), labelSelector)
-	// if err != nil {
-	// 	return nil, err
-	// }
 	pod := new(corev1.Pod)
 	err := r.Get(ctx, types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: fmt.Sprintf("%s-%s", cluster.Name, v1.ClusterCreateAction)}, pod)
 	if err != nil && !errors.IsNotFound(err) {
