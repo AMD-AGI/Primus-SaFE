@@ -321,6 +321,7 @@ func getSHHConfig(secret *corev1.Secret) (*ssh.ClientConfig, error) {
 }
 
 func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, username, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
+	name := cluster.Name + "-" + string(action)
 	hostsAlias := make([]corev1.HostAlias, 0, len(hostsContent.PodHostsAlias))
 	for hostname, ip := range hostsContent.PodHostsAlias {
 		hostsAlias = append(hostsAlias, corev1.HostAlias{
@@ -442,6 +443,11 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 
 func generateScaleWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, node *v1.Node, usename, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
 	pod := generateWorkerPod(action, cluster, usename, cmd, image, config, hostsContent)
+	name := fmt.Sprintf("%s-%s-%s", cluster.Name, node.Name, action)
+	if len(name) > 58 {
+		name = name[:58]
+	}
+	pod.Name = name
 	pod.Labels[v1.ClusterManageNodeLabel] = node.Name
 	pod.OwnerReferences = append(pod.OwnerReferences, metav1.OwnerReference{
 		APIVersion: node.APIVersion,
