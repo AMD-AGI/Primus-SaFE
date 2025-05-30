@@ -49,13 +49,16 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 
 	secret, err := generateSecret(req)
 	if err != nil {
+		klog.ErrorS(err, "failed to generate secret")
 		return nil, err
 	}
 
 	if secret, err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Create(
 		c.Request.Context(), secret, metav1.CreateOptions{}); err != nil {
-		return nil, client.IgnoreAlreadyExists(err)
+		klog.ErrorS(err, "failed to create secret")
+		return nil, err
 	}
+	klog.Infof("created secret %s", secret.Name)
 	return &types.CreateSecretResponse{
 		SecretId: secret.Name,
 	}, nil

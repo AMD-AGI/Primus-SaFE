@@ -581,7 +581,6 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 			labels[k] = v
 		}
 	}
-
 	v, _ := k8sNode.Labels[v1.ClusterIdLabel]
 	if v != adminNode.GetSpecCluster() {
 		labels[v1.ClusterIdLabel] = adminNode.GetSpecCluster()
