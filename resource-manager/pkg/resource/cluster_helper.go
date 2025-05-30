@@ -18,7 +18,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/apiserver/pkg/storage/names"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -134,7 +133,7 @@ func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.C
 		if err != nil {
 			return nil, err
 		}
-		nodeAndIp := fmt.Sprintf("%s ansible_host=%s ip=%s ansible_ssh_user=%s", hostname, publicIP, machine.Spec.PrivateIP, username)
+		nodeAndIp := fmt.Sprintf("%s ansible_host=%s ip=%s ansible_ssh_user=%s main_access_ip=%s", hostname, publicIP, machine.Spec.PrivateIP, username, machine.Spec.PrivateIP)
 		hostsContent.MasterName = append(hostsContent.MasterName, hostname)
 		hostsContent.EtcdNodeName = append(hostsContent.EtcdNodeName, hostname)
 		hostsContent.NodeAndIP = append(hostsContent.NodeAndIP, nodeAndIp)
@@ -322,8 +321,6 @@ func getSHHConfig(secret *corev1.Secret) (*ssh.ClientConfig, error) {
 }
 
 func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, username, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
-	// basePodName := cluster.Name + "-" + string(action)
-	name := cluster.Name + "-" + string(action) // names.SimpleNameGenerator.GenerateName(basePodName + "-")
 	hostsAlias := make([]corev1.HostAlias, 0, len(hostsContent.PodHostsAlias))
 	for hostname, ip := range hostsContent.PodHostsAlias {
 		hostsAlias = append(hostsAlias, corev1.HostAlias{
@@ -445,12 +442,6 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 
 func generateScaleWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, node *v1.Node, usename, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
 	pod := generateWorkerPod(action, cluster, usename, cmd, image, config, hostsContent)
-	name := fmt.Sprintf("%s-%s", cluster.Name, node.Name)
-	// if len(name) > 58 {
-	// 	name = name[:58]
-	// }
-	// name = fmt.Sprintf("%s-%s", name, action)
-	pod.Name = names.SimpleNameGenerator.GenerateName(name + "-")
 	pod.Labels[v1.ClusterManageNodeLabel] = node.Name
 	pod.OwnerReferences = append(pod.OwnerReferences, metav1.OwnerReference{
 		APIVersion: node.APIVersion,

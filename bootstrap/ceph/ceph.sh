@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 helm repo add rook-release https://charts.rook.io/release
-helm install --create-namespace --namespace rook-ceph rook-ceph rook-release/rook-ceph -f values/ceph-values.yaml
+helm install --create-namespace --namespace rook-ceph rook-ceph rook-release/rook-ceph
 
 kubectl wait crd cephclusters.ceph.rook.io --for=condition=Established
 kubectl apply -f cephcluster.yaml
@@ -30,16 +30,16 @@ then
   MONITORS=$(echo $(kubectl get cm -n rook-ceph rook-ceph-mon-endpoints -o jsonpath='{.data.data}')| sed 's/[a-z0-9_-]\+=//g')
   MONITORS=$(echo $MONITORS | sed 's/\([^,]*\)/"\1"/g')
   SECRET=$(kubectl get secret -n rook-ceph rook-ceph-mon -o jsonpath='{.data.ceph-secret}')
-  sed -e "s/CLUSTERID/${CLUSTERID}/g" ceph-csi.template > temp
+  sed -e "s/CLUSTERID/${CLUSTERID}/g" csi.template > temp
   sed -e "s/MONITORS/${MONITORS}/g" temp > ceph-csi.json
   index=$(sed -n "/config.json:/=" ceph-csi-config.yaml)
   sed -e "${index}r ceph-csi.json" ceph-csi-config.yaml > temp && mv temp ceph-csi-config.yaml
   sed -e "s/config.json: .*$/config.json: |/g"  ceph-csi-config.yaml > temp && mv temp ceph-csi-config.yaml
   kubectl replace -f ceph-csi-config.yaml
-  sed -e "s/clusterID:.*$/clusterID: {{${CLUSTERID}}}/g" values/storageclass.yaml > temp && mv temp storageclass.yaml
-  sed -e "s/userKey:.*$/userKey: {{${SECRET}}}/g" values/storageclass.yaml > temp && mv temp storageclass.yaml
+  sed -e "s/clusterID:.*$/clusterID: ${CLUSTERID}/g" storageclass.yaml > temp && mv temp storageclass.yaml
+  sed -e "s/userKey:.*$/userKey: ${SECRET}/g" storageclass.yaml > temp && mv temp storageclass.yaml
   kubectl delete sc storage-rbd
-  kubectl apply -f values/storageclass.yaml
+  kubectl apply -f storageclass.yaml
 fi
 rm ceph-csi-config.yaml
 
