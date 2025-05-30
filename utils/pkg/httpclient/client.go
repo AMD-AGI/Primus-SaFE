@@ -31,29 +31,25 @@ var (
 	instance *client
 )
 
-func Instance() Interface {
+func NewHttpClient() Interface {
 	once.Do(func() {
-		instance = NewClient(DefaultTimeout)
+		instance =  &client{
+			Client: &http.Client{
+				Timeout: DefaultTimeout,
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{
+						InsecureSkipVerify: true,
+					},
+					TLSHandshakeTimeout:   10 * time.Second,
+					MaxIdleConns:          128,
+					MaxConnsPerHost:       64,
+					IdleConnTimeout:       1 * time.Minute,
+					ExpectContinueTimeout: 10 * time.Second,
+				},
+			},
+		}
 	})
 	return instance
-}
-
-func NewClient(reqTimeout time.Duration) *client {
-	return &client{
-		Client: &http.Client{
-			Timeout: reqTimeout,
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-				TLSHandshakeTimeout:   10 * time.Second,
-				MaxIdleConns:          128,
-				MaxConnsPerHost:       64,
-				IdleConnTimeout:       1 * time.Minute,
-				ExpectContinueTimeout: 10 * time.Second,
-			},
-		},
-	}
 }
 
 func (c *client) Get(url string, headers ...string) (*Result, error) {

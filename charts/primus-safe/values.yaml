@@ -10,16 +10,16 @@ workload:
   max_ephemeral_store_percent: 0.6
 repository: "docker.io/primussafe"
 resource_manager:
-  replicas: 1
+  replicas: 2
   tag: "latest"
 apiserver:
-  replicas: 1
+  replicas: 2
   tag: "latest"
 job_manager:
-  replicas: 1
+  replicas: 2
   tag: "latest"
 webhooks:
-  replicas: 1
+  replicas: 2
   tag: "latest"
 node_agent:
   tag: "latest"
