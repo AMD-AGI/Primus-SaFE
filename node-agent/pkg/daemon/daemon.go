@@ -13,7 +13,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/log"
+	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/exporters"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/monitors"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/node"
@@ -42,7 +42,7 @@ func NewDaemon() (*Daemon, error) {
 	if err = d.opts.Init(); err != nil {
 		return nil, fmt.Errorf("failed to parse options, err: %s", err.Error())
 	}
-	if err = log.Init(d.opts.LogfilePath, d.opts.LogFileSize); err != nil {
+	if err = commonklog.Init(d.opts.LogfilePath, d.opts.LogFileSize); err != nil {
 		return nil, fmt.Errorf("failed to init logs. %s", err.Error())
 	}
 	if d.node, err = node.NewNode(d.opts); err != nil {

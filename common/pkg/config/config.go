@@ -115,3 +115,27 @@ func GetWorkloadHangCheckSecond() int {
 func IsWorkloadFailoverEnable() bool {
 	return getBool(workloadEnableFailover, true)
 }
+
+func IsLogEnable() bool {
+	return getBool(logEnable, false)
+}
+
+func GetLogServiceHost() string {
+	return getString(logServiceHost, "")
+}
+
+func GetLogServicePort() int {
+	return getInt(logServicePort, 9200)
+}
+
+func GetLogServiceUser() string {
+	return getString(logServiceUser, "")
+}
+
+func GetLogServicePasswd() string {
+	return getString(logServicePasswd, "")
+}
+
+func GetLogServicePrefix() string {
+	return getString(logServicePrefix, "")
+}

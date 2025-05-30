@@ -38,4 +38,13 @@ const (
 	maxEphemeralStorePercent = workloadPrefix + "max_ephemeral_store_percent"
 	workloadHangCheckSecond  = workloadPrefix + "hangcheck_second"
 	workloadEnableFailover   = workloadPrefix + "enable_failover"
+
+	// log
+	logPrefix        = "log."
+	logEnable        = logPrefix + "enable"
+	logServiceHost   = logPrefix + "host"
+	logServicePort   = logPrefix + "port"
+	logServicePrefix = logPrefix + "prefix"
+	logServiceUser   = logPrefix + "user"
+	logServicePasswd = logPrefix + "password"
 )

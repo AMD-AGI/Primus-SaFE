@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/log"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/options"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientscheme "k8s.io/client-go/kubernetes/scheme"
@@ -20,6 +18,8 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/options"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 )
 
@@ -91,7 +91,7 @@ func (s *Server) Stop() {
 }
 
 func (s *Server) initLogs() error {
-	if err := log.Init(s.opts.LogfilePath, s.opts.LogFileSize); err != nil {
+	if err := commonklog.Init(s.opts.LogfilePath, s.opts.LogFileSize); err != nil {
 		return err
 	}
 	ctrlruntime.SetLogger(klogr.NewWithOptions())
