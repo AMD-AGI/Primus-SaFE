@@ -170,7 +170,7 @@ func MultiResource(inputs corev1.ResourceList, replica int64) corev1.ResourceLis
 	return result
 }
 
-func CvtToResourceList(cpu, memory, gpu, gpuType, ephemeralStore string, replica int64) (corev1.ResourceList, error) {
+func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore string, replica int64) (corev1.ResourceList, error) {
 	if replica <= 0 {
 		return nil, nil
 	}
@@ -197,7 +197,7 @@ func CvtToResourceList(cpu, memory, gpu, gpuType, ephemeralStore string, replica
 		result[corev1.ResourceMemory] = memQuantity
 	}
 
-	if gpu != "" && gpuType != "" {
+	if gpu != "" && gpuName != "" {
 		gpuQuantity, err := resource.ParseQuantity(gpu)
 		if err != nil {
 			return nil, err
@@ -205,7 +205,7 @@ func CvtToResourceList(cpu, memory, gpu, gpuType, ephemeralStore string, replica
 		if gpuQuantity.Value() <= 0 {
 			return nil, fmt.Errorf("invalid gpu")
 		}
-		result[corev1.ResourceName(gpuType)] = gpuQuantity
+		result[corev1.ResourceName(gpuName)] = gpuQuantity
 	}
 
 	if ephemeralStore != "" {

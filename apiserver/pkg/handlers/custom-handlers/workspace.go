@@ -142,7 +142,7 @@ func (h *Handler) deleteWorkspace(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to delete workspace")
 		return nil, err
 	}
-	klog.Infof("delete workspace, name: %s", workspace.Name)
+	klog.Infof("delete workspace %s", workspace.Name)
 	return nil, nil
 }
 
