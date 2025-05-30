@@ -53,11 +53,11 @@ type OpenSearchDoc struct {
 		Kubernetes struct {
 			PodName string `json:"pod_name,omitempty"`
 			Labels  struct {
-				DispatchCount string `json:"xcs_workload_dispatch_count,omitempty"`
+				DispatchCount string `json:"primus-safe_workload_dispatch_count,omitempty"`
 				ReplicaIndex  string `json:"training_kubeflow_org/replica-index,omitempty"`
 				ReplicaType   string `json:"training_kubeflow_org/replica-type,omitempty"`
 				JobName       string `json:"training_kubeflow_org/job-name,omitempty"`
-				WorkloadId    string `json:"xcs_workload_id,omitempty"`
+				WorkloadId    string `json:"primus-safe_workload_id,omitempty"`
 			} `json:"labels,omitempty"`
 			Host          string `json:"host,omitempty"`
 			ContainerName string `json:"container_name,omitempty"`
