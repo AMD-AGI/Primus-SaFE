@@ -60,8 +60,10 @@ func (h *Handler) createNodeFlavor(c *gin.Context) (interface{}, error) {
 	}
 
 	if err = h.Create(c.Request.Context(), nodeFlavor); err != nil {
+		klog.ErrorS(err, "failed to create nodeFlavor")
 		return nil, err
 	}
+	klog.InfoS("created nodeFlavor", "nodeFlavor", nodeFlavor.Name)
 	return &types.CreateNodeFlavorResponse{
 		FlavorId: nodeFlavor.Name,
 	}, nil
@@ -106,7 +108,11 @@ func (h *Handler) deleteNodeFlavor(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return nil, h.Delete(c.Request.Context(), nf)
+	if err = h.Delete(c.Request.Context(), nf); err != nil {
+		return nil, err
+	}
+	klog.Infof("delete nodeFlavor %s", nf.Name)
+	return nil, nil
 }
 
 func (h *Handler) getAdminNodeFlavor(ctx context.Context, name string) (*v1.NodeFlavor, error) {

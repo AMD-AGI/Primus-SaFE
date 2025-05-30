@@ -78,8 +78,10 @@ func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
 	}
 
 	if err = h.Create(c.Request.Context(), cluster); err != nil {
+		klog.ErrorS(err, "failed to create cluster")
 		return nil, err
 	}
+	klog.Infof("created cluster %s", cluster.Name)
 	return &types.CreateClusterResponse{
 		ClusterId: cluster.Name,
 	}, nil
@@ -262,6 +264,7 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if v1.IsProtected(cluster) {
+		klog.Errorf("failed to delete cluster %s, because the cluster is protected", cluster.Name)
 		return nil, commonerrors.NewForbidden("the cluster is protected, it can not be deleted")
 	}
 	workloads, err := h.getRunningWorkloads(c.Request.Context(), cluster.Name, nil)
@@ -269,9 +272,15 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if len(workloads) > 0 {
+		klog.Errorf("failed to delete cluster %s, due to running workloads", cluster.Name)
 		return nil, commonerrors.NewForbidden("some workloads are still in progress. Please terminate them first.")
 	}
-	return nil, h.Delete(c.Request.Context(), cluster)
+	if err = h.Delete(c.Request.Context(), cluster); err != nil {
+		klog.ErrorS(err, "failed to delete cluster")
+		return nil, err
+	}
+	klog.Infof("deleted cluster %s", cluster.Name)
+	return nil, nil
 }
 
 func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {

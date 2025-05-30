@@ -193,6 +193,9 @@ func isK8sNodeReady(node *corev1.Node) bool {
 }
 
 func isControlPlaneNode(node *v1.Node) bool {
+	if v1.IsControlPlane(node) {
+		return true
+	}
 	// only k8s master node has cluster owner
 	for _, owner := range node.OwnerReferences {
 		if owner.Kind == v1.ClusterKind {

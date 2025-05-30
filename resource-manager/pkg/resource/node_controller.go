@@ -526,7 +526,7 @@ func (r *NodeReconciler) authorizeClusterAccess(ctx context.Context, node *v1.No
 
 func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	if isControlPlaneNode(adminNode) {
-		return ctrlruntime.Result{}, r.syncControlPlaneNodeStatus(ctx, adminNode, k8sNode)
+		return r.syncControlPlaneNodeStatus(ctx, adminNode, k8sNode)
 	}
 	// if the Kubernetes node is already present, it means the node has been successfully managed.
 	if k8sNode != nil {
@@ -545,24 +545,31 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 
 // Synchronize the status of control plane nodes in Kubernetes
 func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context,
-	adminNode *v1.Node, k8sNode *corev1.Node) error {
+	adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	if k8sNode != nil {
+		k8sClients, err := getK8sClientFactory(r.clientManager, adminNode.GetSpecCluster())
+		if err != nil || !k8sClients.IsValid() {
+			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+		}
+		if err = r.syncLabelsToK8sNode(ctx, k8sClients.ClientSet(), adminNode, k8sNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
-		return nil
+		return ctrlruntime.Result{}, nil
 	}
 	labelSelector := client.MatchingLabels{
 		v1.ClusterManageActionLabel:  string(v1.ClusterCreateAction),
 		v1.ClusterManageClusterLabel: adminNode.GetSpecCluster()}
 	pod, err := r.getPod(ctx, labelSelector)
 	if err != nil {
-		return err
+		return ctrlruntime.Result{}, err
 	}
 	if pod != nil && pod.Status.Phase == corev1.PodFailed {
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManagedFailed
 	} else {
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaging
 	}
-	return nil
+	return ctrlruntime.Result{}, nil
 }
 
 // Synchronize the labels of admin node to k8s node
@@ -574,7 +581,6 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 			labels[k] = v
 		}
 	}
-
 	v, _ := k8sNode.Labels[v1.ClusterIdLabel]
 	if v != adminNode.GetSpecCluster() {
 		labels[v1.ClusterIdLabel] = adminNode.GetSpecCluster()
