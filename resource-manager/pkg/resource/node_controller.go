@@ -82,6 +82,7 @@ func (r *NodeReconciler) CaredPredicate() predicate.Predicate {
 
 func (r *NodeReconciler) isNodeCaredFieldChanged(oldNode, newNode *v1.Node) bool {
 	if v1.GetClusterId(oldNode) != v1.GetClusterId(newNode) ||
+		newNode.GetSpecCluster() != v1.GetClusterId(newNode) ||
 		v1.GetWorkspaceId(oldNode) != v1.GetWorkspaceId(newNode) ||
 		oldNode.Status.MachineStatus.Phase != newNode.Status.MachineStatus.Phase ||
 		oldNode.Status.ClusterStatus.Phase != newNode.Status.ClusterStatus.Phase ||
@@ -140,6 +141,9 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request)
 	}
 	k8sNode, result, err := r.getK8sNode(ctx, adminNode)
 	if client.IgnoreNotFound(err) != nil || result.RequeueAfter > 0 {
+		if client.IgnoreNotFound(err) != nil {
+			klog.ErrorS(err, "failed to get k8s node")
+		}
 		return result, err
 	}
 	if quit, err := r.observe(adminNode, k8sNode); quit || err != nil {
@@ -160,6 +164,7 @@ func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*c
 	}
 	k8sClients, err := getK8sClientFactory(r.clientManager, clusterName)
 	if err != nil || !k8sClients.IsValid() {
+		klog.Warningf("failed to get k8s clients, Wait for one second and retry")
 		return nil, ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 	k8sNode, err := getNodeByInformer(ctx, k8sClients, k8sNodeName)
@@ -226,6 +231,9 @@ func (r *NodeReconciler) handle(ctx context.Context, adminNode *v1.Node, k8sNode
 		return r.syncMachineStatus(ctx, adminNode)
 	}
 	if result, err := r.updateK8sNode(ctx, adminNode, k8sNode); err != nil || result.RequeueAfter > 0 {
+		if err != nil {
+			klog.ErrorS(err, "failed to update k8s node")
+		}
 		return result, err
 	}
 	return r.updateAdminNode(ctx, adminNode, k8sNode)
@@ -238,6 +246,7 @@ func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) (
 		klog.ErrorS(err, "failed to get client for ssh")
 		node.Status.MachineStatus.Phase = v1.NodeSSHFailed
 		if err = r.Status().Patch(ctx, node, n); err != nil {
+			klog.ErrorS(err, "failed to patch status", "node", node.Name)
 			return ctrlruntime.Result{}, err
 		}
 		return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
@@ -247,6 +256,7 @@ func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) (
 		klog.ErrorS(err, "failed to sync hostname", "node", node.Name)
 		node.Status.MachineStatus.Phase = v1.NodeHostnameFailed
 		if err = r.Status().Patch(ctx, node, n); err != nil {
+			klog.ErrorS(err, "failed to patch status", "node", node.Name)
 			return ctrlruntime.Result{}, err
 		}
 		return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
@@ -254,8 +264,10 @@ func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) (
 	node.Status.MachineStatus.HostName = hostname
 	node.Status.MachineStatus.Phase = v1.NodeReady
 	if err = r.Status().Patch(ctx, node, n); err != nil {
+		klog.ErrorS(err, "failed to patch status", "node", node.Name)
 		return ctrlruntime.Result{}, err
 	}
+	klog.Infof("the node %s is ready", hostname)
 	return ctrlruntime.Result{}, nil
 }
 
@@ -395,7 +407,6 @@ func (r *NodeReconciler) updateK8sNodeByAction(adminNode *v1.Node, k8sNode *core
 	strAction string, getLabels func(obj metav1.Object) map[string]string) bool {
 	actionMap := make(map[string]string)
 	if err := json.Unmarshal([]byte(strAction), &actionMap); err != nil {
-		klog.ErrorS(err, "failed to Unmarshal", "data", strAction)
 		return false
 	}
 	k8sNodeLabels := getLabels(k8sNode)
@@ -451,6 +462,9 @@ func (r *NodeReconciler) updateAdminNode(ctx context.Context, adminNode *v1.Node
 	}
 
 	if err != nil || result.RequeueAfter > 0 {
+		if err != nil {
+			klog.ErrorS(err, "failed to handle node", "node", adminNode.Name)
+		}
 		return result, err
 	}
 	return ctrlruntime.Result{}, r.Status().Patch(ctx, adminNode, n)
@@ -469,6 +483,7 @@ func (r *NodeReconciler) syncClusterStatus(ctx context.Context, node *v1.Node) e
 				setCommandStatus(node.Status.ClusterStatus.CommandStatus, Authorize, v1.CommandFailed)
 			return err
 		}
+		klog.Infof("node %s is Authorized", node.Name)
 		node.Status.ClusterStatus.CommandStatus =
 			setCommandStatus(node.Status.ClusterStatus.CommandStatus, Authorize, v1.CommandSucceeded)
 	}
@@ -520,7 +535,6 @@ func (r *NodeReconciler) authorizeClusterAccess(ctx context.Context, node *v1.No
 	if err = session.Run(cmd); err != nil {
 		return fmt.Errorf("failed %s: %v", cmd, err)
 	}
-	klog.Infof("authorize successfully. node: %s, cmd: %s", node.Name, cmd)
 	return nil
 }
 
@@ -643,6 +657,8 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 		if err = r.Create(ctx, pod); err != nil {
 			return err
 		}
+		klog.Infof("kubernetes cluster %s scale up %s, pod: %s",
+			cluster.Name, adminNode.Name, pod.Name)
 	} else {
 		switch pod.Status.Phase {
 		case corev1.PodSucceeded:
