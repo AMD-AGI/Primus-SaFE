@@ -82,12 +82,12 @@ func (r *NodeReconciler) CaredPredicate() predicate.Predicate {
 
 func (r *NodeReconciler) isNodeCaredFieldChanged(oldNode, newNode *v1.Node) bool {
 	if v1.GetClusterId(oldNode) != v1.GetClusterId(newNode) ||
-		newNode.GetSpecCluster() != v1.GetClusterId(newNode) ||
 		v1.GetWorkspaceId(oldNode) != v1.GetWorkspaceId(newNode) ||
 		oldNode.Status.MachineStatus.Phase != newNode.Status.MachineStatus.Phase ||
 		oldNode.Status.ClusterStatus.Phase != newNode.Status.ClusterStatus.Phase ||
 		(v1.GetNodeLabelAction(oldNode) == "" && v1.GetNodeLabelAction(newNode) != "") ||
 		(v1.GetNodeAnnotationAction(oldNode) == "" && v1.GetNodeAnnotationAction(newNode) != "") ||
+		oldNode.GetDeletionTimestamp().IsZero() && !newNode.GetDeletionTimestamp().IsZero() ||
 		(len(oldNode.Status.Taints) != 0 && len(newNode.Status.Taints) == 0) {
 		return true
 	}
@@ -219,10 +219,16 @@ func (r *NodeReconciler) observeWorkspace(adminNode *v1.Node) (bool, error) {
 }
 
 func (r *NodeReconciler) observeCluster(adminNode *v1.Node) (bool, error) {
-	if adminNode.GetSpecCluster() == v1.GetClusterId(adminNode) {
-		return true, nil
+	if adminNode.GetSpecCluster() != v1.GetClusterId(adminNode) {
+		return false, nil
 	}
-	return false, nil
+	if adminNode.GetSpecCluster() != "" && !adminNode.IsManaged() {
+		return false, nil
+	}
+	if adminNode.GetSpecCluster() == "" && adminNode.IsManaged() {
+		return false, nil
+	}
+	return true, nil
 }
 
 func (r *NodeReconciler) handle(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {

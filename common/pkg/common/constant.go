@@ -22,7 +22,7 @@ const (
 	EventKind           = "Event"
 	DeploymentKind      = "Deployment"
 	StatefulSetKind     = "StatefulSet"
-	JobPortName         = "job-port"
+	PytorchJobPortName  = "pytorchjob-port"
 	SSHPortName         = "ssh-port"
 	Rdma                = "rdma/hca"
 

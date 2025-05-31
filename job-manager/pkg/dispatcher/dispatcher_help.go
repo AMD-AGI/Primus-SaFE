@@ -304,7 +304,7 @@ func buildPorts(adminWorkload *v1.Workload) []interface{} {
 	jobPort := map[string]interface{}{
 		"containerPort": int64(adminWorkload.Spec.Resource.JobPort),
 		"protocol":      "TCP",
-		"name":          common.JobPortName,
+		"name":          common.PytorchJobPortName,
 	}
 	result := []interface{}{jobPort}
 	if adminWorkload.Spec.IsSSHEnabled {
