@@ -230,7 +230,7 @@ func buildEntryPoint(entryPoint string) string {
 	if !stringutil.IsBase64(entryPoint) {
 		entryPoint = stringutil.Base64Encode(entryPoint)
 	}
-	entryPoint = "/bin/bash /shared-data/launcher.sh '" + entryPoint + "'"
+	entryPoint = "/bin/sh /shared-data/launcher.sh '" + entryPoint + "'"
 	return entryPoint
 }
 
