@@ -694,8 +694,7 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 				Phase: v1.NodeUnmanaged,
 			},
 		}
-		r.
-			rebootNode(ctx, adminNode)
+		r.rebootNode(ctx, adminNode)
 		// The node will be rebooted. Need to retry getting the node status later
 		return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
 	}

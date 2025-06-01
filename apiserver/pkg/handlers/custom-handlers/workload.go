@@ -156,7 +156,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	patch := client.MergeFrom(workload)
+	patch := client.MergeFrom(workload.DeepCopy())
 	updateWorkload(workload, req)
 	if err = h.Patch(c.Request.Context(), workload, patch); err != nil {
 		klog.ErrorS(err, "failed to patch workload")

@@ -298,7 +298,17 @@ func (r *NodeK8sReconciler) handleNodeUnmanaged(ctx context.Context, message *no
 		klog.ErrorS(err, "failed to update node")
 		return err
 	}
-	klog.Infof("reset adminNode metadata, name: %s, cluster: %s, workspace: %s",
+
+	patch := client.MergeFrom(adminNode.DeepCopy())
+	adminNode.Status.Taints = nil
+	adminNode.Status.Resources = nil
+	adminNode.Status.Conditions = nil
+	adminNode.Status.Unschedulable = true
+	if err := r.Status().Patch(ctx, adminNode, patch); err != nil {
+		klog.ErrorS(err, "failed to update node status")
+		return err
+	}
+	klog.Infof("reset adminNode metadata and status, name: %s, cluster: %s, workspace: %s",
 		adminNode.Name, clusterName, workspaceId)
 	return nil
 }
