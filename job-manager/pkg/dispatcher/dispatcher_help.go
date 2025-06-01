@@ -18,7 +18,6 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 const (
@@ -227,10 +226,7 @@ func buildCommands(entryPoint string) []interface{} {
 }
 
 func buildEntryPoint(entryPoint string) string {
-	if !stringutil.IsBase64(entryPoint) {
-		entryPoint = stringutil.Base64Encode(entryPoint)
-	}
-	entryPoint = "/bin/sh /shared-data/launcher.sh '" + entryPoint + "'"
+	entryPoint = "chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh '" + entryPoint + "'"
 	return entryPoint
 }
 

@@ -402,6 +402,7 @@ func cvtToWorkloadResponse(w *v1.Workload, isNeedDetail bool) types.GetWorkloadR
 
 func buildWorkloadDetail(w *v1.Workload, result *types.GetWorkloadResponseItem) {
 	result.WorkloadSpec = w.Spec
+	result.EntryPoint = stringutil.Base64Decode(result.EntryPoint)
 	result.Conditions = string(jsonutils.MarshalSilently(w.Status.Conditions))
 	result.Pods = string(jsonutils.MarshalSilently(w.Status.Pods))
 	result.Nodes = string(jsonutils.MarshalSilently(w.Status.Nodes))
