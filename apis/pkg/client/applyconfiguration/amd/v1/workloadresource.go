@@ -12,6 +12,7 @@ type WorkloadResourceApplyConfiguration struct {
 	Replica          *int    `json:"replica,omitempty"`
 	CPU              *string `json:"cpu,omitempty"`
 	GPU              *string `json:"gpu,omitempty"`
+	GPUName          *string `json:"gpuName,omitempty"`
 	Memory           *string `json:"memory,omitempty"`
 	ShareMemory      *string `json:"shareMemory,omitempty"`
 	EphemeralStorage *string `json:"ephemeralStorage,omitempty"`
@@ -46,6 +47,14 @@ func (b *WorkloadResourceApplyConfiguration) WithCPU(value string) *WorkloadReso
 // If called multiple times, the GPU field is set to the value of the last call.
 func (b *WorkloadResourceApplyConfiguration) WithGPU(value string) *WorkloadResourceApplyConfiguration {
 	b.GPU = &value
+	return b
+}
+
+// WithGPUName sets the GPUName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GPUName field is set to the value of the last call.
+func (b *WorkloadResourceApplyConfiguration) WithGPUName(value string) *WorkloadResourceApplyConfiguration {
+	b.GPUName = &value
 	return b
 }
 
