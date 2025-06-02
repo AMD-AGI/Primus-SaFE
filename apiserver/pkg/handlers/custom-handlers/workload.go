@@ -156,7 +156,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	patch := client.MergeFrom(workload)
+	patch := client.MergeFrom(workload.DeepCopy())
 	updateWorkload(workload, req)
 	if err = h.Patch(c.Request.Context(), workload, patch); err != nil {
 		klog.ErrorS(err, "failed to patch workload")
@@ -402,6 +402,7 @@ func cvtToWorkloadResponse(w *v1.Workload, isNeedDetail bool) types.GetWorkloadR
 
 func buildWorkloadDetail(w *v1.Workload, result *types.GetWorkloadResponseItem) {
 	result.WorkloadSpec = w.Spec
+	result.EntryPoint = stringutil.Base64Decode(result.EntryPoint)
 	result.Conditions = string(jsonutils.MarshalSilently(w.Status.Conditions))
 	result.Pods = string(jsonutils.MarshalSilently(w.Status.Pods))
 	result.Nodes = string(jsonutils.MarshalSilently(w.Status.Nodes))

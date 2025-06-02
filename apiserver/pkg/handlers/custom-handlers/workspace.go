@@ -174,8 +174,8 @@ func updateWorkspace(workspace *v1.Workspace, req *types.PatchWorkspaceRequest) 
 	if req.NodeFlavor != nil {
 		workspace.Spec.NodeFlavor = *req.NodeFlavor
 	}
-	if req.TotalNodes != nil {
-		workspace.Spec.Replica = *req.TotalNodes
+	if req.Replica != nil {
+		workspace.Spec.Replica = *req.Replica
 	}
 	if req.QueuePolicy != nil {
 		workspace.Spec.QueuePolicy = *req.QueuePolicy

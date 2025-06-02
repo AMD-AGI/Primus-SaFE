@@ -12,7 +12,7 @@ type WorkloadResourceApplyConfiguration struct {
 	Replica          *int    `json:"replica,omitempty"`
 	CPU              *string `json:"cpu,omitempty"`
 	GPU              *string `json:"gpu,omitempty"`
-	GPUName          *string `json:"-,omitempty"`
+	GPUName          *string `json:"gpuName,omitempty"`
 	Memory           *string `json:"memory,omitempty"`
 	ShareMemory      *string `json:"shareMemory,omitempty"`
 	EphemeralStorage *string `json:"ephemeralStorage,omitempty"`
