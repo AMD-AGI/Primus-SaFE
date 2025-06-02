@@ -16,7 +16,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -184,7 +183,7 @@ func TestUpdateDeployment(t *testing.T) {
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Image, "test-image")
 
 	assert.Equal(t, len(deployment.Spec.Template.Spec.Containers[0].Command), 3)
-	cmd := "/bin/bash /shared-data/launcher.sh 'c2ggLWMgdGVzdC5zaA=='"
+	cmd := buildEntryPoint("sh -c test.sh")
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Command[2], cmd)
 
 	shareMemorySize, err := jobutils.GetShareMemorySize(workloadObj, jobutils.TestDeploymentTemplate)

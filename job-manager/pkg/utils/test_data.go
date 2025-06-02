@@ -8,11 +8,12 @@ package utils
 import (
 	"time"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
 const (
@@ -220,7 +221,7 @@ spec:
         - command:
             - sh
             - c
-            - /bin/bash /shared-data/launcher.sh 'abcd'
+            - chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh 'abcd'
           env:
             - name: NCCL_SOCKET_IFNAME
               value: eth0
@@ -298,7 +299,7 @@ spec:
       - command:
         - /bin/sh
         - -c
-        - /bin/bash /shared-data/launcher.sh 'abcd'
+        - chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh 'abcd'
         env:
         - name: NCCL_SOCKET_IFNAME
           value: eth0

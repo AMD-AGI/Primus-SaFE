@@ -103,9 +103,9 @@ func TestReconcile(t *testing.T) {
 	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 2)
 	workspace.Status.Phase = v1.WorkspaceAbnormal
 	adminNode1 := genMockAdminNode("node1", clusterName, nodeFlavor)
-	adminNode1.Status.ClusterStatus.Phase = v1.NodeManaged
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
 	adminNode2 := genMockAdminNode("node2", clusterName, nodeFlavor)
+	adminNode2.Status.Unschedulable = true
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
 
 	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace).
@@ -220,7 +220,6 @@ func TestSyncWorkspace(t *testing.T) {
 	clusterName := "cluster"
 	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 1)
 	adminNode1 := genMockAdminNode("node1", clusterName, nodeFlavor)
-	adminNode1.Status.ClusterStatus.Phase = v1.NodeManaged
 	metav1.SetMetaDataLabel(&adminNode1.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
 	adminNode1.Status.Resources = corev1.ResourceList{
 		corev1.ResourceCPU:    resource.MustParse("8"),
@@ -231,6 +230,7 @@ func TestSyncWorkspace(t *testing.T) {
 		corev1.ResourceCPU:    resource.MustParse("4"),
 		corev1.ResourceMemory: resource.MustParse("8Gi"),
 	}
+	adminNode2.Status.Unschedulable = true
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
 
 	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace).

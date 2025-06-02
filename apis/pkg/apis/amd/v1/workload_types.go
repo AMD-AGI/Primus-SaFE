@@ -60,7 +60,7 @@ type WorkloadResource struct {
 	// Requested GPU card count (e.g., 8)
 	GPU string `json:"gpu,omitempty"`
 	// This field is set internally to match the resource supported by the workspace. e.g. amd.com/gpu
-	GPUName string `json:"-,omitempty"`
+	GPUName string `json:"gpuName,omitempty"`
 	// Requested Memory size (e.g., 128Gi)
 	Memory string `json:"memory"`
 	// Requested Share Memory size (e.g., 128Gi). default: Memory/2

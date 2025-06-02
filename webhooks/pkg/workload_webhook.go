@@ -135,6 +135,7 @@ func (m *WorkloadMutator) mutateUpdate(oldObj, newObj *v1.Workload) bool {
 func (m *WorkloadMutator) mutateCommon(obj *v1.Workload) bool {
 	m.mutatePriority(obj)
 	m.mutateImage(obj)
+	m.mutateEntryPoint(obj)
 	return true
 }
 
@@ -318,6 +319,12 @@ func (m *WorkloadMutator) mutateUpdateEnv(oldObj, newObj *v1.Workload) {
 func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 	if workload.Spec.TTLSecondsAfterFinished == nil {
 		workload.Spec.TTLSecondsAfterFinished = ptr.To(DefaultWorkloadTTL)
+	}
+}
+
+func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
+	if !stringutil.IsBase64(workload.Spec.EntryPoint) {
+		workload.Spec.EntryPoint = stringutil.Base64Encode(workload.Spec.EntryPoint)
 	}
 }
 

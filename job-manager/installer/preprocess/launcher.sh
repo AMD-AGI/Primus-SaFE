@@ -1,22 +1,45 @@
-#!/bin/bash
+#!/bin/sh
+
+#
+# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
 
 ulimit -n 65536
-ulimit -u 8192
 
 if [ -n "$SSH_PORT" ] && [ "$SSH_PORT" -gt 0 ]; then
-    /bin/bash /shared-data/build_ssh.sh
+    chmod +x "/shared-data/build_ssh.sh"
+    /bin/sh /shared-data/build_ssh.sh
 fi
 
 echo "$1" |base64 -d > .run.sh
+chmod +x .run.sh
 /bin/sh .run.sh &
 pid1=$!
 
-if [ "${ENABLE_SUPERVISE}" == "true" ]; then
-    /bin/bash /shared-data/run_scripts.sh &
+if [ "${ENABLE_SUPERVISE}" = "true" ]; then
+    chmod +x "/shared-data/run_check.sh"
+    /bin/sh /shared-data/run_check.sh &
     pid2=$!
-    wait -n $pid2 $pid1
-else
-    wait -n $pid1
-fi
+    
+    while true; do
+        kill -0 $pid1 2>/dev/null
+        if [ $? -ne 0 ]; then
+            wait $pid1
+            exit $?
+        fi
 
-exit $?
+        kill -0 $pid2 2>/dev/null
+        if [ $? -ne 0 ]; then
+            wait $pid2
+            exit_code=$?
+            if [ $exit_code -ne 0 ]; then
+                exit $exit_code
+            fi
+        fi
+        sleep 1
+    done
+else
+    wait $pid1
+    exit $?
+fi

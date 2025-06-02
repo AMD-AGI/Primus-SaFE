@@ -131,9 +131,6 @@ func (v *ClusterValidator) validateControlPlane(ctx context.Context, c *v1.Clust
 	if c.Spec.ControlPlane.KubeServiceAddress == nil || *c.Spec.ControlPlane.KubeServiceAddress == "" {
 		return fmt.Errorf("the KubeServiceAddress of spec is empty")
 	}
-	if c.Spec.ControlPlane.KubeNetworkNodePrefix == nil {
-		return fmt.Errorf("the KubeNetworkNodePrefix of spec is empty")
-	}
 	if c.Spec.ControlPlane.NodeLocalDNSIP == nil || *c.Spec.ControlPlane.NodeLocalDNSIP == "" {
 		return fmt.Errorf("the NodeLocalDNSIP of spec is empty")
 	}
