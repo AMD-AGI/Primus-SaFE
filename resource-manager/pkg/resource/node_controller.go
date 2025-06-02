@@ -82,12 +82,12 @@ func (r *NodeReconciler) CaredPredicate() predicate.Predicate {
 
 func (r *NodeReconciler) isNodeCaredFieldChanged(oldNode, newNode *v1.Node) bool {
 	if v1.GetClusterId(oldNode) != v1.GetClusterId(newNode) ||
-		newNode.GetSpecCluster() != v1.GetClusterId(newNode) ||
 		v1.GetWorkspaceId(oldNode) != v1.GetWorkspaceId(newNode) ||
 		oldNode.Status.MachineStatus.Phase != newNode.Status.MachineStatus.Phase ||
 		oldNode.Status.ClusterStatus.Phase != newNode.Status.ClusterStatus.Phase ||
 		(v1.GetNodeLabelAction(oldNode) == "" && v1.GetNodeLabelAction(newNode) != "") ||
 		(v1.GetNodeAnnotationAction(oldNode) == "" && v1.GetNodeAnnotationAction(newNode) != "") ||
+		oldNode.GetDeletionTimestamp().IsZero() && !newNode.GetDeletionTimestamp().IsZero() ||
 		(len(oldNode.Status.Taints) != 0 && len(newNode.Status.Taints) == 0) {
 		return true
 	}
@@ -164,7 +164,6 @@ func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*c
 	}
 	k8sClients, err := getK8sClientFactory(r.clientManager, clusterName)
 	if err != nil || !k8sClients.IsValid() {
-		klog.Warningf("failed to get k8s clients, Wait for one second and retry")
 		return nil, ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 	k8sNode, err := getNodeByInformer(ctx, k8sClients, k8sNodeName)
@@ -220,10 +219,16 @@ func (r *NodeReconciler) observeWorkspace(adminNode *v1.Node) (bool, error) {
 }
 
 func (r *NodeReconciler) observeCluster(adminNode *v1.Node) (bool, error) {
-	if adminNode.GetSpecCluster() == v1.GetClusterId(adminNode) {
-		return true, nil
+	if adminNode.GetSpecCluster() != v1.GetClusterId(adminNode) {
+		return false, nil
 	}
-	return false, nil
+	if adminNode.GetSpecCluster() != "" && !adminNode.IsManaged() {
+		return false, nil
+	}
+	if adminNode.GetSpecCluster() == "" && adminNode.IsManaged() {
+		return false, nil
+	}
+	return true, nil
 }
 
 func (r *NodeReconciler) handle(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
@@ -460,14 +465,15 @@ func (r *NodeReconciler) updateAdminNode(ctx context.Context, adminNode *v1.Node
 	} else {
 		return ctrlruntime.Result{}, nil
 	}
-
-	if err != nil || result.RequeueAfter > 0 {
-		if err != nil {
-			klog.ErrorS(err, "failed to handle node", "node", adminNode.Name)
-		}
-		return result, err
+	if err != nil {
+		klog.ErrorS(err, "failed to handle node", "node", adminNode.Name)
+		return ctrlruntime.Result{}, err
 	}
-	return ctrlruntime.Result{}, r.Status().Patch(ctx, adminNode, n)
+	if err = r.Status().Patch(ctx, adminNode, n); err != nil {
+		klog.ErrorS(err, "failed to update node status", "node", adminNode.Name)
+		return ctrlruntime.Result{}, err
+	}
+	return result, nil
 }
 
 func (r *NodeReconciler) syncClusterStatus(ctx context.Context, node *v1.Node) error {
@@ -683,11 +689,14 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 	}
 
 	if k8sNode == nil {
-		adminNode.Status.ClusterStatus.Cluster = nil
-		adminNode.Status.ClusterStatus.CommandStatus = nil
-		adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanaged
+		adminNode.Status = v1.NodeStatus{
+			ClusterStatus: v1.NodeClusterStatus{
+				Phase: v1.NodeUnmanaged,
+			},
+		}
 		r.rebootNode(ctx, adminNode)
-		return ctrlruntime.Result{}, nil
+		// The node will be rebooted. Need to retry getting the node status later
+		return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
 	}
 
 	// delete all scaleup pod when do scaledown
@@ -713,18 +722,19 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
 	sshClient, err := getSSHClient(ctx, r.Client, node)
 	if err != nil {
-		klog.Errorf("machine node %s %+v", node.Name, err)
+		klog.ErrorS(err, "fail to get ssh client", "node", node.Name)
 		return
 	}
 	session, err := sshClient.NewSession()
 	if err != nil {
-		klog.Errorf("machine node %s new session failed %+v", node.Name, err)
+		klog.ErrorS(err, "fail to new session", "node", node.Name)
 		return
 	}
 	if err = session.Run("sudo reboot"); err != nil {
-		klog.Errorf("machine node %s unmanaged exec reboot failed %+v", node.Name, err)
+		klog.ErrorS(err, "failed to reboot node", "node", node.Name)
+	} else {
+		klog.Infof("machine node %s reboot", node.Name)
 	}
-	node.Status.MachineStatus = v1.MachineStatus{}
 }
 
 func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,

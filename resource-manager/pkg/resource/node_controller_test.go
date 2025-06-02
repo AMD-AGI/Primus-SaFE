@@ -63,7 +63,7 @@ func genMockCluster() *v1.Cluster {
 }
 
 func genMockAdminNode(name, clusterName string, nf *v1.NodeFlavor) *v1.Node {
-	return &v1.Node{
+	n := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
@@ -84,6 +84,13 @@ func genMockAdminNode(name, clusterName string, nf *v1.NodeFlavor) *v1.Node {
 			},
 		},
 	}
+	if clusterName != "" {
+		n.Status.ClusterStatus = v1.NodeClusterStatus{
+			Phase:   v1.NodeManaged,
+			Cluster: pointer.String(clusterName),
+		}
+	}
+	return n
 }
 
 func genMockNodeFlavor() *v1.NodeFlavor {
@@ -416,7 +423,7 @@ func TestRemoveNodeCondition(t *testing.T) {
 func TestManageNodeSuccessfully(t *testing.T) {
 	nodeFlavor := genMockNodeFlavor()
 	cluster := genMockCluster()
-	adminNode := genMockAdminNode("node1", cluster.Name, nodeFlavor)
+	adminNode := genMockAdminNode("node1", "", nodeFlavor)
 	secret := genMockSecret()
 	secret.Name = cluster.Name
 	adminNode.Spec.SSHSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
@@ -468,7 +475,7 @@ func TestManageNodeSuccessfully(t *testing.T) {
 func TestManagingNode(t *testing.T) {
 	nodeFlavor := genMockNodeFlavor()
 	cluster := genMockCluster()
-	adminNode := genMockAdminNode("node1", cluster.Name, nodeFlavor)
+	adminNode := genMockAdminNode("node1", "", nodeFlavor)
 	secret := genMockSecret()
 	secret.Name = cluster.Name
 	adminNode.Spec.SSHSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
@@ -496,7 +503,7 @@ func TestManagingNode(t *testing.T) {
 func TestManagingControlPlaneNode(t *testing.T) {
 	nodeFlavor := genMockNodeFlavor()
 	cluster := genMockCluster()
-	adminNode := genMockAdminNode("node1", cluster.Name, nodeFlavor)
+	adminNode := genMockAdminNode("node1", "", nodeFlavor)
 	adminNode.OwnerReferences = addOwnerReferences(adminNode.OwnerReferences, cluster)
 	adminNode.Spec.Cluster = ptr.To(cluster.Name)
 	adminNode.Status.ClusterStatus.CommandStatus = []v1.CommandStatus{{

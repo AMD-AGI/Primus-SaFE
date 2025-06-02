@@ -31,8 +31,8 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 )
 
-func (r *ClusterReconciler) guaranteeClusterControlePlane(ctx context.Context, cluster *v1.Cluster) error {
-	klog.Infof("cluster name %s controller plane phase %s", cluster.Name, cluster.Status.ControlPlaneStatus.Phase)
+func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cluster *v1.Cluster) error {
+	klog.Infof("cluster %s, phase %s", cluster.Name, cluster.Status.ControlPlaneStatus.Phase)
 	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
 		return nil
 	}
@@ -456,7 +456,7 @@ func (r *ClusterReconciler) podClear(ctx context.Context, cluster *v1.Cluster) e
 		return err
 	}
 	for _, pod := range list.Items {
-		klog.Info(pod.Name, pod.Status.Phase)
+		klog.Infof("pod: %s, phase: %s", pod.Name, pod.Status.Phase)
 		if pod.Status.Phase != corev1.PodSucceeded {
 			continue
 		}

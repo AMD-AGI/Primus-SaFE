@@ -80,7 +80,7 @@ type PatchWorkspaceRequest struct {
 	// node flavor id
 	NodeFlavor *string `json:"nodeFlavor,omitempty"`
 	// total node count
-	TotalNodes *int `json:"totalNodes,omitempty"`
+	Replica *int `json:"replica,omitempty"`
 	// Queuing policy for tasks submitted in this workspace. fifo/balance
 	QueuePolicy *v1.WorkspaceQueuePolicy `json:"queuePolicy,omitempty"`
 	// support service module: Train/Infer/Authoring, No limitation if not specified

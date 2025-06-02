@@ -9,7 +9,6 @@ import (
 	"context"
 	"time"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
@@ -23,6 +22,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
 type ClusterReconciler struct {
@@ -127,7 +128,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	if !cluster.DeletionTimestamp.IsZero() {
 		return ctrlruntime.Result{}, r.delete(ctx, cluster)
 	}
-	if err := r.guaranteeClusterControlePlane(ctx, cluster); err != nil {
+	if err := r.guaranteeClusterControlPlane(ctx, cluster); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 

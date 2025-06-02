@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 
@@ -335,15 +334,7 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 	if req.IsProtected {
 		metav1.SetMetaDataLabel(&cluster.ObjectMeta, v1.ProtectLabel, "")
 	}
-
-	if cluster.Spec.ControlPlane.KubeNetworkNodePrefix == nil {
-		var networkPrefix uint32 = 24
-		if req.MaxPodCount > 0 && req.MaxPodCount < 256 {
-			networkPrefix = 32 - uint32(math.Log2(float64(req.MaxPodCount)))
-		}
-		cluster.Spec.ControlPlane.KubeNetworkNodePrefix = pointer.Uint32(networkPrefix)
-	}
-
+	
 	if cluster.Spec.ControlPlane.ImageSecret == nil {
 		imageSecret, err := h.getSecret(c.Request.Context(), common.PrimusImageSecret)
 		if err != nil {
