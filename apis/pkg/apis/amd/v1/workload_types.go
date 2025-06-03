@@ -48,8 +48,6 @@ const (
 	AdminFailed     WorkloadConditionType = "AdminFailed"
 	AdminStopped    WorkloadConditionType = "AdminStopped"
 	AdminStopping   WorkloadConditionType = "AdminStopping"
-	AdminStart      WorkloadConditionType = "AdminStart"
-	AdminRestart    WorkloadConditionType = "AdminRestart"
 )
 
 type WorkloadResource struct {
@@ -112,8 +110,6 @@ type WorkloadSpec struct {
 	EntryPoint string `json:"entryPoint,omitempty"`
 	// environment variable for workload
 	Env map[string]string `json:"env,omitempty"`
-	// whether ssh is enabled
-	IsSSHEnabled bool `json:"isSSHEnabled,omitempty"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised,omitempty"`
 	// workload define

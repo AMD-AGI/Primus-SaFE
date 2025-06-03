@@ -18,6 +18,7 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 const (
@@ -115,7 +116,7 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 		return err
 	}
 	env := buildEnvironment(adminWorkload)
-	modifyEnv(mainContainer, env)
+	modifyEnv(mainContainer, env, v1.IsEnableHostNetwork(adminWorkload))
 
 	modifyVolumeMounts(mainContainer, workspace)
 	mainContainer["ports"] = buildPorts(adminWorkload)
@@ -131,12 +132,27 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 	return nil
 }
 
-func modifyEnv(mainContainer map[string]interface{}, env []interface{}) {
-	if len(env) == 0 {
+func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNetwork bool) {
+	if len(env) == 0 && isHostNetwork {
 		return
 	}
 	currentEnv := mainContainer["env"].([]interface{})
-	currentEnv = append(currentEnv, env...)
+	if !isHostNetwork {
+		for i := range currentEnv {
+			envObj := currentEnv[i].(map[string]interface{})
+			name, ok := envObj["name"]
+			if !ok {
+				continue
+			}
+			if stringutil.StrCaseEqual(name.(string), "NCCL_SOCKET_IFNAME") ||
+				stringutil.StrCaseEqual(name.(string), "GLOO_SOCKET_IFNAME") {
+				envObj["value"] = "eth0"
+			}
+		}
+	}
+	if len(env) > 0 {
+		currentEnv = append(currentEnv, env...)
+	}
 	mainContainer["env"] = currentEnv
 }
 
@@ -254,12 +270,6 @@ func buildResources(adminWorkload *v1.Workload) map[string]interface{} {
 
 func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 	var result []interface{}
-	if adminWorkload.Spec.IsSSHEnabled {
-		result = append(result, map[string]interface{}{
-			"name":  "SSH_PORT",
-			"value": strconv.Itoa(adminWorkload.Spec.Resource.SSHPort),
-		})
-	}
 	if adminWorkload.Spec.IsSupervised {
 		result = append(result, map[string]interface{}{
 			"name":  "ENABLE_SUPERVISE",
@@ -302,15 +312,7 @@ func buildPorts(adminWorkload *v1.Workload) []interface{} {
 		"protocol":      "TCP",
 		"name":          common.PytorchJobPortName,
 	}
-	result := []interface{}{jobPort}
-	if adminWorkload.Spec.IsSSHEnabled {
-		result = append(result, map[string]interface{}{
-			"containerPort": int64(adminWorkload.Spec.Resource.SSHPort),
-			"name":          common.SSHPortName,
-			"protocol":      "TCP",
-		})
-	}
-	return result
+	return []interface{}{jobPort}
 }
 
 func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {

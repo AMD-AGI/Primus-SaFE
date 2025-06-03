@@ -52,11 +52,11 @@ data:
                       readOnly: true
                   env:
                     - name: NCCL_SOCKET_IFNAME
-                      value: "benic7p1"
+                      value: "{{ .Values.net.nccl_socket_ifname }}"
                     - name: GLOO_SOCKET_IFNAME
-                      value: "benic7p1"
+                      value: "{{ .Values.net.nccl_socket_ifname }}"
                     - name: NCCL_IB_HCA
-                      value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
+                      value: "{{ .Values.net.nccl_ib_hca }}"
                     - name: NCCL_DEBUG
                       value: "INFO"
                     - name: NCCL_IB_DISABLE
@@ -135,11 +135,11 @@ data:
                   imagePullPolicy: IfNotPresent
                   env:
                     - name: NCCL_SOCKET_IFNAME
-                      value: "benic7p1"
+                      value: "{{ .Values.net.nccl_socket_ifname }}"
                     - name: GLOO_SOCKET_IFNAME
-                      value: "benic7p1"
+                      value: "{{ .Values.net.nccl_socket_ifname }}"
                     - name: NCCL_IB_HCA
-                      value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
+                      value: "{{ .Values.net.nccl_ib_hca }}"
                     - name: NCCL_DEBUG
                       value: "INFO"
                     - name: NCCL_IB_DISABLE

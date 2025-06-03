@@ -153,7 +153,8 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 
 	switch {
 	case adminWorkload.IsPending():
-		if status.Phase != string(v1.K8sDeleted) && originWorkload.IsPending() {
+		if status.Phase != string(v1.K8sDeleted) &&
+			status.Phase != string(v1.K8sFailed) && originWorkload.IsPending() {
 			return originWorkload, false, nil
 		}
 	case adminWorkload.IsRunning():
@@ -195,6 +196,8 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	case v1.K8sFailed, v1.K8sDeleted:
 		if isWorkloadEnd(adminWorkload, status, msg.dispatchCount) {
 			adminWorkload.Status.Phase = v1.WorkloadFailed
+		} else if adminWorkload.IsRunning() && commonworkload.IsApplication(adminWorkload) {
+			adminWorkload.Status.Phase = v1.WorkloadNotReady
 		}
 	case v1.K8sRunning:
 		if !adminWorkload.IsStopping() {

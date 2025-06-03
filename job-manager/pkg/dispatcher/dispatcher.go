@@ -192,9 +192,6 @@ func (r *DispatcherReconciler) buildPort(ctx context.Context, workload *v1.Workl
 		}
 	}
 	workload.Spec.Resource.JobPort = buildRandPort(ports)
-	if workload.Spec.IsSSHEnabled {
-		workload.Spec.Resource.SSHPort = buildRandPort(ports)
-	}
 	if err := r.Update(ctx, workload); err != nil {
 		return err
 	}

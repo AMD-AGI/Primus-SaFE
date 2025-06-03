@@ -56,11 +56,7 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 
 	ports, found, err := unstructured.NestedSlice(obj2, []string{"ports"}...)
 	assert.NilError(t, err)
-	if workload.Spec.IsSSHEnabled {
-		assert.Equal(t, len(ports), 2)
-	} else {
-		assert.Equal(t, len(ports), 1)
-	}
+	assert.Equal(t, len(ports), 1)
 
 	port := ports[0].(map[string]interface{})
 	name, ok := port["name"]
@@ -69,16 +65,6 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	val, ok := port["containerPort"]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, val, int64(workload.Spec.Resource.JobPort))
-
-	if workload.Spec.IsSSHEnabled {
-		port = ports[1].(map[string]interface{})
-		name, ok = port["name"]
-		assert.Equal(t, ok, true)
-		assert.Equal(t, name, common.SSHPortName)
-		val, ok = port["containerPort"]
-		assert.Equal(t, ok, true)
-		assert.Equal(t, val, int64(workload.Spec.Resource.SSHPort))
-	}
 }
 
 func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {
@@ -106,14 +92,17 @@ func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Worklo
 		ok = findEnv(envs, "NUM_HOSTS", strconv.Itoa(workload.Spec.Resource.Replica))
 		assert.Equal(t, ok, true)
 	}
-	if workload.Spec.IsSSHEnabled {
-		ok := findEnv(envs, "SSH_PORT", strconv.Itoa(workload.Spec.Resource.SSHPort))
-		assert.Equal(t, ok, true)
-	}
 	ok := findEnv(envs, "HANG_CHECK_INTERVAL", "")
 	assert.Equal(t, ok, false)
 	ok = findEnv(envs, "DISPATCH_COUNT", "1")
 	assert.Equal(t, ok, true)
+	if v1.IsEnableHostNetwork(workload) {
+		ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "ens51f0")
+		assert.Equal(t, ok, true)
+	} else {
+		ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "eth0")
+		assert.Equal(t, ok, true)
+	}
 }
 
 func findEnv(envs []interface{}, name, val string) bool {
