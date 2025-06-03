@@ -106,6 +106,7 @@ func (m *WorkloadMutator) mutateCreate(ctx context.Context, workload *v1.Workloa
 	}
 
 	m.mutateMeta(ctx, workload, workspace)
+	m.mutateGvk(ctx, workload)
 
 	switch workload.Spec.GroupVersionKind.Kind {
 	case common.DeploymentKind:
@@ -171,6 +172,30 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 			v1.EnableHostNetworkAnnotation, strconv.FormatBool(m.canUseHostNetwork(ctx, workload, workspace)))
 	}
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
+}
+
+func (m *WorkloadMutator) mutateGvk(ctx context.Context, workload *v1.Workload) {
+	if workload.Spec.Kind == "" {
+		workload.Spec.Kind = common.PytorchJobKind
+	}
+	if workload.Spec.Group == "" || workload.Spec.Version == "" {
+		rtl := &v1.ResourceTemplateList{}
+		err := m.List(ctx, rtl)
+		if err != nil {
+			return
+		}
+		for _, rt := range rtl.Items {
+			if rt.Spec.GroupVersionKind.Kind != workload.Spec.Kind {
+				continue
+			}
+			if workload.Spec.Group == "" {
+				workload.Spec.Group = rt.Spec.GroupVersionKind.Group
+			}
+			if workload.Spec.Version == "" {
+				workload.Spec.Version = rt.Spec.GroupVersionKind.Version
+			}
+		}
+	}
 }
 
 func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {

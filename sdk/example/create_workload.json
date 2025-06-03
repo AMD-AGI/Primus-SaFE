@@ -1,11 +1,6 @@
 {
   "workspace": "safe-cluster-dev",
   "displayName": "test-primus",
-  "groupVersionKind": {
-    "kind": "PyTorchJob",
-    "group": "kubeflow.org",
-    "version": "v1"
-  },
   "description": "test primus",
   "userName": "weilei",
   "entryPoint":"cd /public/Primus;pip install -r requirements.txt; EXP=examples/megatron/configs/llama2_7B-pretrain.yaml bash ./examples/megatron/run_pretrain.sh",
