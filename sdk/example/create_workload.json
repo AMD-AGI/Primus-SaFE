@@ -20,6 +20,6 @@
     "ephemeralStorage": "100Gi"
   },
   "env": {
-    "HF_TOKEN": "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"
+    "HF_TOKEN": "xxxxxx"
   }
 }
