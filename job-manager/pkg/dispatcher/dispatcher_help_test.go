@@ -114,6 +114,13 @@ func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Worklo
 	assert.Equal(t, ok, false)
 	ok = findEnv(envs, "DISPATCH_COUNT", "1")
 	assert.Equal(t, ok, true)
+	if v1.IsEnableHostNetwork(workload) {
+		ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "ens51f0")
+		assert.Equal(t, ok, true)
+	} else {
+		ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "eth0")
+		assert.Equal(t, ok, true)
+	}
 }
 
 func findEnv(envs []interface{}, name, val string) bool {

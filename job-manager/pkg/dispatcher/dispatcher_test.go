@@ -102,6 +102,7 @@ func TestCreatePytorchJob(t *testing.T) {
 
 	// enable worker
 	workload.Spec.Resource.Replica = 3
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 	obj, err = r.createK8sObject(context.Background(), workload)
 	assert.NilError(t, err)
 	checkResources(t, obj, workload, &templates[1], 2)
