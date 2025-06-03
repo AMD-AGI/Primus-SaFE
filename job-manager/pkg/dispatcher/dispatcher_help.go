@@ -270,12 +270,6 @@ func buildResources(adminWorkload *v1.Workload) map[string]interface{} {
 
 func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 	var result []interface{}
-	if adminWorkload.Spec.IsSSHEnabled {
-		result = append(result, map[string]interface{}{
-			"name":  "SSH_PORT",
-			"value": strconv.Itoa(adminWorkload.Spec.Resource.SSHPort),
-		})
-	}
 	if adminWorkload.Spec.IsSupervised {
 		result = append(result, map[string]interface{}{
 			"name":  "ENABLE_SUPERVISE",
@@ -318,15 +312,7 @@ func buildPorts(adminWorkload *v1.Workload) []interface{} {
 		"protocol":      "TCP",
 		"name":          common.PytorchJobPortName,
 	}
-	result := []interface{}{jobPort}
-	if adminWorkload.Spec.IsSSHEnabled {
-		result = append(result, map[string]interface{}{
-			"containerPort": int64(adminWorkload.Spec.Resource.SSHPort),
-			"name":          common.SSHPortName,
-			"protocol":      "TCP",
-		})
-	}
-	return result
+	return []interface{}{jobPort}
 }
 
 func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {

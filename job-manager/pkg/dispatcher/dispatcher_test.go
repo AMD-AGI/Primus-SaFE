@@ -72,7 +72,6 @@ func TestCreatePytorchJob(t *testing.T) {
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Workspace = workspace.Name
-	workload.Spec.IsSSHEnabled = true
 	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 
 	configmap, err := parseConfigmap(TestPytorchJobTemplateConfig)

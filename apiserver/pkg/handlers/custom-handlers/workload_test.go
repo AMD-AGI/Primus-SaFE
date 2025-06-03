@@ -8,10 +8,11 @@ package custom_handlers
 import (
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func genMockWorkload(clusterId, workspaceId string) *v1.Workload {
@@ -29,12 +30,11 @@ func genMockWorkload(clusterId, workspaceId string) *v1.Workload {
 			CreationTimestamp: metav1.NewTime(time.Now()),
 		},
 		Spec: v1.WorkloadSpec{
-			Workspace:    workspaceId,
-			MaxRetry:     3,
-			Priority:     1,
-			IsSSHEnabled: true,
-			Image:        "image",
-			EntryPoint:   "sh -c test.sh",
+			Workspace:  workspaceId,
+			MaxRetry:   3,
+			Priority:   1,
+			Image:      "image",
+			EntryPoint: "sh -c test.sh",
 			GroupVersionKind: v1.GroupVersionKind{
 				Group:   "kubeflow.org",
 				Version: "v1",
