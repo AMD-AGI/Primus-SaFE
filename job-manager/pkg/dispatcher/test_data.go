@@ -49,9 +49,9 @@ data:
              imagePullPolicy: IfNotPresent
              env:
                - name: NCCL_SOCKET_IFNAME
-                 value: "benic7p1"
+                 value: "ens51f0"
                - name: GLOO_SOCKET_IFNAME
-                 value: "benic7p1"
+                 value: "ens51f0"
                - name: NCCL_IB_HCA
                  value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
                - name: NCCL_DEBUG
@@ -147,9 +147,9 @@ data:
                       readOnly: true
                   env:
                     - name: NCCL_SOCKET_IFNAME
-                      value: "benic7p1"
+                      value: "ens51f0"
                     - name: GLOO_SOCKET_IFNAME
-                      value: "benic7p1"
+                      value: "ens51f0"
                     - name: NCCL_IB_HCA
                       value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
                     - name: NCCL_DEBUG
@@ -228,9 +228,9 @@ data:
                   imagePullPolicy: IfNotPresent
                   env:
                     - name: NCCL_SOCKET_IFNAME
-                      value: "benic7p1"
+                      value: "ens51f0"
                     - name: GLOO_SOCKET_IFNAME
-                      value: "benic7p1"
+                      value: "ens51f0"
                     - name: NCCL_IB_HCA
                       value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
                     - name: NCCL_DEBUG
