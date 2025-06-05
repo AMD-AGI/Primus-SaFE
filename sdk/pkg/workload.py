@@ -1,9 +1,10 @@
 #  Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
 #  See LICENSE for license information.
-
+import getpass
 import json
 import requests
 import argparse
+import os
 
 class WorkloadSDK:
     def __init__(self, base_url):
@@ -12,6 +13,14 @@ class WorkloadSDK:
         self.session.headers.update({
             'Content-Type': 'application/json'
         })
+        self.user_name_key = 'userName'
+
+    def _handle_response(self, response):
+        try:
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            raise Exception(f"API Error: {e}, Response: {response.text}")
 
     def create_workload_from_file(self, file_path):
         """
@@ -20,8 +29,29 @@ class WorkloadSDK:
         :param file_path: Path to the JSON file
         :return: Response content
         """
-        with open(file_path, 'r') as f:
-            payload = json.load(f)
+        if not os.path.isfile(file_path):
+            raise FileNotFoundError(f"JSON file not found: {file_path}")
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                payload: Dict[str, Any] = json.load(f)  # type: ignore[arg-type]
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON content in {file_path}: {e}") from e
+        if not isinstance(payload, dict):
+            raise ValueError("JSON root must be an object (dictionary)")
+
+        user_name = payload.get(self.user_name_key)
+        if not isinstance(user_name, str) or not user_name.strip():
+            try:
+                user_name = getpass.getuser()
+            except Exception as e:  # pragma: no cover — system‑specific edge
+                raise ValueError(f"Could not retrieve system username: {e}") from e
+
+        if not user_name:
+            raise ValueError("userName cannot be determined or is empty")
+
+        payload[self.user_name_key] = user_name  # ensure key is present and valid
+
         url = f"{self.base_url}/api/v1/workloads"
         response = self.session.post(url, json=payload)
         return self._handle_response(response)
@@ -46,12 +76,7 @@ class WorkloadSDK:
         response = self.session.delete(url)
         return self._handle_response(response)
 
-    def _handle_response(self, response):
-        try:
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            raise Exception(f"API Error: {e}, Response: {response.text}")
+
 
 def main():
     parser = argparse.ArgumentParser(description="CLI tool for managing workloads via API")
