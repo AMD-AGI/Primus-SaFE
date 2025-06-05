@@ -2,7 +2,6 @@
   "workspace": "safe-cluster-dev",
   "displayName": "test-primus",
   "description": "test primus",
-  "userName": "weilei",
   "entryPoint":"cd /public/Primus;pip install -r requirements.txt; EXP=examples/megatron/configs/llama2_7B-pretrain.yaml bash ./examples/megatron/run_pretrain.sh",
   "isSupervised": false,
   "image": "docker.io/rocm/megatron-lm:v25.5_py310",
@@ -15,6 +14,6 @@
     "ephemeralStorage": "100Gi"
   },
   "env": {
-    "HF_TOKEN": "xxxxxx"
+    "HF_TOKEN": "xxx_replace_your_own_hf_token_xxx"
   }
 }
