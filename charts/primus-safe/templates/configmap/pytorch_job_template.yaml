@@ -94,7 +94,7 @@ data:
                   securityContext:
                     capabilities:
                       add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
-              schedulerName: default-scheduler
+              schedulerName: kube-scheduler-plugins
               volumes:
                 - name: shared-data
                   emptyDir: {}
@@ -187,7 +187,7 @@ data:
                     - name: podinfo
                       mountPath: /etc/podinfo
                       readOnly: true
-              schedulerName: default-scheduler
+              schedulerName: kube-scheduler-plugins
               volumes:
                 - name: shared-data
                   emptyDir: {}

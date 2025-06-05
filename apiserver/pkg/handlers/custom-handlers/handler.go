@@ -9,14 +9,18 @@ import (
 	"fmt"
 	"net/http"
 
+	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
@@ -36,6 +40,7 @@ type Handler struct {
 	httpClient    httpclient.Interface
 	logClient     *commonsearch.LogClient
 	clientManager *commonutils.ObjectManager
+	dbClient      dbclient.Interface
 }
 
 func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
@@ -43,12 +48,19 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	var dbClient *dbclient.Client
+	if commonconfig.IsDBEnable() {
+		if dbClient = dbclient.NewClient(); dbClient == nil {
+			return nil, fmt.Errorf("failed to new db client")
+		}
+	}
 
 	h := &Handler{
 		Client:        mgr.GetClient(),
 		clientSet:     clientSet,
 		httpClient:    httpclient.NewHttpClient(),
 		logClient:     commonsearch.NewLogClient(),
+		dbClient:      dbClient,
 		clientManager: commonutils.NewObjectManagerSingleton(),
 	}
 	return h, nil
@@ -120,4 +132,13 @@ func cvtToResourceList(resourceList corev1.ResourceList) types.ResourceList {
 		}
 	}
 	return result
+}
+
+func cvtToSqlStr(sql sqrl.Sqlizer) string {
+	sqlStr, args, err := sql.ToSql()
+	if err != nil {
+		klog.Errorf("failed to convert sql, err: %v", err)
+		return ""
+	}
+	return sqlStr + " " + string(jsonutils.MarshalSilently(args))
 }

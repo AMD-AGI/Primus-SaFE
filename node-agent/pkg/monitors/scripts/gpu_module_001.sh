@@ -10,3 +10,18 @@ if [ $? -ne 0 ]; then
     echo "Error: unable to find amdgpu module"
     exit 1
 fi
+
+nsenter --target 1 --mount --uts --ipc --net --pid -- ls /usr/bin/rocm-smi > /dev/null
+if [ $? -ne 0 ]; then
+    exit 2
+fi
+
+nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi > /tmp/rocm-smi.tmp
+ret=$?
+if [ $ret -ne 0 ]; then
+    echo "failed to execute rocm-smi. $ret"
+    rm -f /tmp/rocm-smi.tmp
+    exit 1
+fi
+mv /tmp/rocm-smi.tmp /tmp/rocm-smi
+exit 0

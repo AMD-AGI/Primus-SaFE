@@ -96,6 +96,10 @@ const (
 	SecretPrefix    = PrimusSafePrefix + "secret."
 	SecretTypeLabel = SecretPrefix + "type"
 	SecretMd5Label  = SecretPrefix + "md5"
+
+	// exporter
+	ExporterPrefix    = PrimusSafePrefix + "exporter."
+	ExporterFinalizer = ExporterPrefix + "finalizer"
 )
 
 const (

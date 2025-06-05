@@ -81,7 +81,7 @@ data:
            - name: shared-data
              emptyDir: {}
          terminationGracePeriodSeconds: 10
-         schedulerName: default-scheduler
+         schedulerName: kube-scheduler-plugins
          restartPolicy: Always
          imagePullSecrets:
            - name: {{ .Release.Name }}-image

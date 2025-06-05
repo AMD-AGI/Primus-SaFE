@@ -8,17 +8,17 @@ package custom_handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 
+	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,12 +26,15 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
@@ -52,6 +55,10 @@ func (h *Handler) GetWorkload(c *gin.Context) {
 
 func (h *Handler) DeleteWorkload(c *gin.Context) {
 	handle(c, h.deleteWorkload)
+}
+
+func (h *Handler) StopWorkload(c *gin.Context) {
+	handle(c, h.stopWorkload)
 }
 
 func (h *Handler) PatchWorkload(c *gin.Context) {
@@ -90,64 +97,142 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
+	if !commonconfig.IsDBEnable() {
+		return nil, commonerrors.NewInternalError("the database is disabled")
+	}
+
 	query, err := parseListWorkloadQuery(c)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse query")
 		return nil, err
 	}
-	labelSelector := buildWorkloadLabelSelector(query)
-	workloadList := &v1.WorkloadList{}
-	if err = h.List(c.Request.Context(), workloadList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+	dbSql, orderBy, err := h.cvtToListWorkloadSql(c.Request.Context(), query)
+	if err != nil {
 		return nil, err
 	}
-	if len(workloadList.Items) > 0 {
-		sort.Sort(types.WorkloadSlice(workloadList.Items))
+
+	workloads, err := h.dbClient.SelectWorkloads(c.Request.Context(),
+		dbSql, orderBy, query.Limit, query.Offset)
+	if err != nil {
+		return nil, err
 	}
 
 	result := &types.GetWorkloadResponse{}
-	for _, w := range workloadList.Items {
-		if query.Phase != "" && !stringutil.StrCaseEqual(query.Phase, string(w.Status.Phase)) {
-			continue
-		}
-		result.Items = append(result.Items, cvtToWorkloadResponse(&w, false))
+	if result.TotalCount, err = h.dbClient.CountWorkloads(c.Request.Context(), dbSql); err != nil {
+		return nil, err
 	}
-	result.TotalCount = len(result.Items)
+
+	for _, w := range workloads {
+		workload := h.cvtToWorkloadResponse(c.Request.Context(), w, false)
+		result.Items = append(result.Items, workload)
+	}
 	return result, nil
 }
 
 func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
-	workload, err := h.getAdminWorkload(c.Request.Context(), c.GetString(types.Name))
+	if !commonconfig.IsDBEnable() {
+		return nil, commonerrors.NewInternalError("the database is disabled")
+	}
+	workload, err := h.getWorkloadFromDb(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
-	return cvtToWorkloadResponse(workload, true), nil
+	return h.cvtToWorkloadResponse(c.Request.Context(), workload, true), nil
+}
+
+func (h *Handler) getWorkloadFromDb(ctx context.Context, workloadId string) (*dbclient.Workload, error) {
+	if !commonconfig.IsDBEnable() {
+		return nil, commonerrors.NewInternalError("the database is disabled")
+	}
+	dbTags := dbclient.GetWorkloadFieldTags()
+	dbSql := sqrl.And{
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "WorkloadId"): workloadId},
+	}
+	workloads, err := h.dbClient.SelectWorkloads(ctx, dbSql, nil, 1, 0)
+	if err != nil {
+		klog.ErrorS(err, "failed to select workload", "sql", cvtToSqlStr(dbSql))
+		return nil, err
+	}
+	if len(workloads) == 0 {
+		return nil, commonerrors.NewNotFound(v1.WorkloadKind, workloadId)
+	}
+	return workloads[0], nil
 }
 
 func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
-	workload, err := h.getAdminWorkload(c.Request.Context(), c.GetString(types.Name))
-	if err != nil {
-		return nil, err
+	name := c.GetString(types.Name)
+	if name == "" {
+		return nil, commonerrors.NewBadRequest("workloadId is empty")
 	}
+	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, err
+		}
+	} else {
+		if err = h.deleteAdminWorkload(c, adminWorkload); err != nil {
+			return nil, err
+		}
+	}
+	if h.dbClient != nil {
+		if err = h.dbClient.SetWorkloadDeleted(c.Request.Context(), name); err != nil {
+			return nil, err
+		}
+	}
+	klog.Infof("delete workload %s", name)
+	return nil, nil
+}
+
+func (h *Handler) deleteAdminWorkload(c *gin.Context, adminWorkload *v1.Workload) error {
 	cond := &metav1.Condition{
 		Type:    string(v1.AdminStopped),
 		Status:  metav1.ConditionTrue,
 		Message: "the workload is deleted",
 	}
-	if err = h.patchPhase(c.Request.Context(), workload, v1.WorkloadStopped, cond); err != nil {
+	if err := h.patchPhase(c.Request.Context(), adminWorkload, v1.WorkloadStopped, cond); err != nil {
 		klog.ErrorS(err, "failed to patch workload phase")
-		return nil, err
+		return err
 	}
-	if err = h.Delete(c.Request.Context(), workload); err != nil {
+	if err := h.Delete(c.Request.Context(), adminWorkload); err != nil {
 		klog.ErrorS(err, "failed to delete workload")
-		return nil, err
+		return err
 	}
-	klog.Infof("delete workload %s", workload.Name)
+	return nil
+}
+
+func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
+	name := c.GetString(types.Name)
+	if name == "" {
+		return nil, commonerrors.NewBadRequest("workloadId is empty")
+	}
+	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, err
+		}
+		if h.dbClient != nil {
+			if err = h.dbClient.SetWorkloadStopped(c.Request.Context(), name); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		if err = h.deleteAdminWorkload(c, adminWorkload); err != nil {
+			return nil, err
+		}
+	}
+	klog.Infof("stop workload %s", name)
 	return nil, nil
 }
 
 func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
-	workload, err := h.getAdminWorkload(c.Request.Context(), c.GetString(types.Name))
-	if err != nil {
+	name := c.GetString(types.Name)
+	if name == "" {
+		return nil, commonerrors.NewBadRequest("workloadId is empty")
+	}
+
+	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
+	if client.IgnoreNotFound(err) != nil {
 		return nil, err
 	}
 	req := &types.PatchWorkloadRequest{}
@@ -156,13 +241,22 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	patch := client.MergeFrom(workload.DeepCopy())
-	updateWorkload(workload, req)
-	if err = h.Patch(c.Request.Context(), workload, patch); err != nil {
-		klog.ErrorS(err, "failed to patch workload")
-		return nil, err
+	if adminWorkload != nil {
+		patch := client.MergeFrom(adminWorkload.DeepCopy())
+		updateWorkload(adminWorkload, req)
+		if err = h.Patch(c.Request.Context(), adminWorkload, patch); err != nil {
+			klog.ErrorS(err, "failed to patch workload")
+			return nil, err
+		}
+	} else {
+		if req.Description == nil || *req.Description == "" {
+			return nil, fmt.Errorf("The terminated workload can only modify the description")
+		}
+		if err = h.dbClient.SetWorkloadDescription(c.Request.Context(), name, *req.Description); err != nil {
+			return nil, err
+		}
 	}
-	klog.Infof("patch workload, name: %s, request: %s", workload.Name, string(jsonutils.MarshalSilently(*req)))
+	klog.Infof("patch workload, name: %s, request: %s", name, string(jsonutils.MarshalSilently(*req)))
 	return nil, nil
 }
 
@@ -284,6 +378,17 @@ func parseListWorkloadQuery(c *gin.Context) (*types.GetWorkloadRequest, error) {
 			query.UserName = nameUnescape
 		}
 	}
+	if query.Limit <= 0 {
+		query.Limit = types.DefaultQueryLimit
+	}
+	if query.Order == "" {
+		query.Order = dbclient.DESC
+	}
+	if query.Description != "" {
+		if desUnescape, err := url.QueryUnescape(query.Description); err == nil {
+			query.Description = desUnescape
+		}
+	}
 	return query, nil
 }
 
@@ -302,26 +407,93 @@ func parseGetPodLogQuery(c *gin.Context, mainContainerName string) (*types.GetPo
 	return query, nil
 }
 
-func buildWorkloadLabelSelector(query *types.GetWorkloadRequest) labels.Selector {
-	var labelSelector = labels.NewSelector()
-	if query.WorkspaceId != "" {
-		req, _ := labels.NewRequirement(v1.WorkspaceIdLabel, selection.Equals, []string{query.WorkspaceId})
-		labelSelector = labelSelector.Add(*req)
+func (h *Handler) cvtToListWorkloadSql(ctx context.Context,
+	query *types.GetWorkloadRequest) (sqrl.Sqlizer, []string, error) {
+	dbTags := dbclient.GetWorkloadFieldTags()
+	dbSql := sqrl.And{
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
 	}
-	if query.ClusterId != "" {
-		req, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{query.ClusterId})
-		labelSelector = labelSelector.Add(*req)
+	if clusterId := strings.TrimSpace(query.ClusterId); clusterId != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Cluster"): clusterId})
 	}
-	if query.UserName != "" {
-		nameMd5 := stringutil.MD5(query.UserName)
-		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.Equals, []string{nameMd5})
-		labelSelector = labelSelector.Add(*req)
+	if workspaceId := strings.TrimSpace(query.WorkspaceId); workspaceId != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Workspace"): workspaceId})
 	}
-	if query.Kind != "" {
-		req, _ := labels.NewRequirement(v1.WorkloadKindLabel, selection.Equals, []string{query.Kind})
-		labelSelector = labelSelector.Add(*req)
+	if query.Phase != "" {
+		values := strings.Split(query.Phase, ",")
+		var sqlList []sqrl.Sqlizer
+		for _, val := range values {
+			sqlList = append(sqlList, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Phase"): val})
+		}
+		dbSql = append(dbSql, sqrl.Or(sqlList))
 	}
-	return labelSelector
+	if workloadId := strings.TrimSpace(query.WorkloadId); workloadId != "" {
+		dbSql = append(dbSql, sqrl.Like{
+			dbclient.GetFieldTag(dbTags, "WorkloadId"): fmt.Sprintf("%%%s%%", workloadId)})
+	}
+	if description := strings.TrimSpace(query.Description); description != "" {
+		dbSql = append(dbSql,
+			sqrl.Like{dbclient.GetFieldTag(dbTags, "Description"): fmt.Sprintf("%%%s%%", description)})
+	}
+	if userName := strings.TrimSpace(query.UserName); userName != "" {
+		dbSql = append(dbSql, sqrl.Like{
+			dbclient.GetFieldTag(dbTags, "UserName"): fmt.Sprintf("%%%s%%", userName)})
+	}
+	if kind := strings.TrimSpace(query.Kind); kind != "" {
+		values := strings.Split(query.Kind, ",")
+		var sqlList []sqrl.Sqlizer
+		for _, val := range values {
+			rf, err := h.getResourceTemplate(ctx, val)
+			if err != nil {
+				return nil, nil, err
+			}
+			gvk := string(jsonutils.MarshalSilently(rf.Spec.GroupVersionKind))
+			sqlList = append(sqlList, sqrl.Eq{dbclient.GetFieldTag(dbTags, "GVK"): gvk})
+		}
+		dbSql = append(dbSql, sqrl.Or(sqlList))
+	}
+	orderBy := buildListWorkloadOrderBy(query, dbTags)
+	return dbSql, orderBy, nil
+}
+
+func buildListWorkloadOrderBy(query *types.GetWorkloadRequest, dbTags map[string]string) []string {
+	var nullOrder string
+	if query.Order == dbclient.DESC {
+		nullOrder = "NULLS FIRST"
+	} else {
+		nullOrder = "NULLS LAST"
+	}
+	createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
+
+	var orderBy []string
+	hasOrderByCreatedTime := false
+	if query.SortBy != "" {
+		sortBy := strings.TrimSpace(query.SortBy)
+		sortBy = dbclient.GetFieldTag(dbTags, sortBy)
+		if sortBy != "" {
+			if stringutil.StrCaseEqual(query.SortBy, createTime) {
+				hasOrderByCreatedTime = true
+			}
+			orderBy = append(orderBy, fmt.Sprintf("%s %s %s", sortBy, query.Order, nullOrder))
+		}
+	}
+	if !hasOrderByCreatedTime {
+		orderBy = append(orderBy, fmt.Sprintf("%s %s", createTime, dbclient.DESC))
+	}
+	return orderBy
+}
+
+func (h *Handler) getResourceTemplate(ctx context.Context, kind string) (*v1.ResourceTemplate, error) {
+	rfList := &v1.ResourceTemplateList{}
+	if err := h.List(ctx, rfList); err != nil {
+		return nil, err
+	}
+	for i, rf := range rfList.Items {
+		if rf.Spec.GroupVersionKind.Kind == kind {
+			return &rfList.Items[i], nil
+		}
+	}
+	return nil, commonerrors.NewNotFound(v1.ResourceTemplateKind, kind)
 }
 
 func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest) {
@@ -365,34 +537,44 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	}
 }
 
-func cvtToWorkloadResponse(w *v1.Workload, isNeedDetail bool) types.GetWorkloadResponseItem {
+func (h *Handler) cvtToWorkloadResponse(ctx context.Context,
+	w *dbclient.Workload, isNeedDetail bool) types.GetWorkloadResponseItem {
 	result := types.GetWorkloadResponseItem{
-		WorkloadId:     w.Name,
-		Cluster:        v1.GetClusterId(w),
-		UserName:       v1.GetUserName(w),
-		Phase:          string(w.Status.Phase),
-		CreatedTime:    timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
-		SchedulerOrder: w.Status.SchedulerOrder,
-		DispatchCount:  v1.GetWorkloadDispatchCnt(w),
+		WorkloadId:     w.WorkloadId,
+		Cluster:        w.Cluster,
+		Phase:          dbutils.ParseNullString(w.Phase),
+		CreationTime:   dbutils.ParseNullTimeToString(w.CreateTime),
+		StartTime:      dbutils.ParseNullTimeToString(w.StartTime),
+		EndTime:        dbutils.ParseNullTimeToString(w.EndTime),
+		DeletionTime:   dbutils.ParseNullTimeToString(w.DeleteTime),
+		SchedulerOrder: w.SchedulerOrder,
+		DispatchCount:  w.DispatchCount,
 		CreateWorkloadRequest: types.CreateWorkloadRequest{
-			DisplayName: v1.GetDisplayName(w),
-			Description: v1.GetDescription(w),
-			UserName:    v1.GetUserName(w),
+			DisplayName: w.DisplayName,
+			Description: dbutils.ParseNullString(w.Description),
+			UserName:    dbutils.ParseNullString(w.UserName),
 			WorkloadSpec: v1.WorkloadSpec{
-				Priority:  w.Spec.Priority,
-				Workspace: w.Spec.Workspace,
-				Timeout:   w.Spec.Timeout,
+				Priority:  w.Priority,
+				Workspace: w.Workspace,
+				Timeout:   pointer.Int(w.Timeout),
 			},
 		},
 	}
-	if !w.Status.StartTime.IsZero() {
-		result.StartTime = timeutil.FormatRFC3339(&w.Status.StartTime.Time)
+	if w.Timeout > 0 {
+		if t := dbutils.ParseNullTime(w.StartTime); !t.IsZero() {
+			result.SecondsUntilTimeout = t.Unix() + int64(3600*w.Timeout) - time.Now().Unix()
+			if result.SecondsUntilTimeout < 0 {
+				result.SecondsUntilTimeout = 0
+			}
+		}
 	}
-	if !w.Status.EndTime.IsZero() {
-		result.EndTime = timeutil.FormatRFC3339(&w.Status.EndTime.Time)
-	}
+	json.Unmarshal([]byte(w.Resource), &result.Resource)
+	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
 	if result.Phase == string(v1.WorkloadPending) {
-		result.Message = w.Status.Message
+		adminWorkload, err := h.getAdminWorkload(ctx, result.WorkloadId)
+		if err == nil {
+			result.Message = adminWorkload.Status.Message
+		}
 	}
 	if isNeedDetail {
 		buildWorkloadDetail(w, &result)
@@ -400,19 +582,48 @@ func cvtToWorkloadResponse(w *v1.Workload, isNeedDetail bool) types.GetWorkloadR
 	return result
 }
 
-func buildWorkloadDetail(w *v1.Workload, result *types.GetWorkloadResponseItem) {
-	result.WorkloadSpec = w.Spec
-	result.EntryPoint = stringutil.Base64Decode(result.EntryPoint)
-	result.Conditions = string(jsonutils.MarshalSilently(w.Status.Conditions))
-	result.Pods = string(jsonutils.MarshalSilently(w.Status.Pods))
-	result.Nodes = string(jsonutils.MarshalSilently(w.Status.Nodes))
-	if len(w.Spec.CustomerLabels) > 0 {
-		result.CustomerLabels = make(map[string]string)
-		for key, val := range w.Spec.CustomerLabels {
-			if strings.HasPrefix(key, common.CustomerLabelPrefix) {
-				key = key[len(common.CustomerLabelPrefix):]
+func buildWorkloadDetail(w *dbclient.Workload, result *types.GetWorkloadResponseItem) {
+	result.Image = w.Image
+
+	result.IsSupervised = w.IsSupervised
+	result.MaxRetry = w.MaxRetry
+	result.TTLSecondsAfterFinished = pointer.Int(w.TTLSecond)
+	if str := dbutils.ParseNullString(w.Conditions); str != "" {
+		json.Unmarshal([]byte(str), &result.Conditions)
+	}
+	if str := dbutils.ParseNullString(w.Pods); str != "" {
+		json.Unmarshal([]byte(str), &result.Pods)
+	}
+	if str := dbutils.ParseNullString(w.Nodes); str != "" {
+		json.Unmarshal([]byte(str), &result.Nodes)
+	}
+	if str := dbutils.ParseNullString(w.CustomerLabels); str != "" {
+		var customerLabels map[string]string
+		json.Unmarshal([]byte(str), &customerLabels)
+		if len(customerLabels) > 0 {
+			result.CustomerLabels = make(map[string]string)
+			for key, val := range customerLabels {
+				if strings.HasPrefix(key, common.CustomerLabelPrefix) {
+					key = key[len(common.CustomerLabelPrefix):]
+				}
+				result.CustomerLabels[key] = val
 			}
-			result.CustomerLabels[key] = val
 		}
+	}
+	if str := dbutils.ParseNullString(w.Liveness); str != "" {
+		json.Unmarshal([]byte(str), &result.Liveness)
+	}
+	if str := dbutils.ParseNullString(w.Readiness); str != "" {
+		json.Unmarshal([]byte(str), &result.Readiness)
+	}
+	if str := dbutils.ParseNullString(w.Service); str != "" {
+		json.Unmarshal([]byte(str), &result.Service)
+	}
+	if str := dbutils.ParseNullString(w.Env); str != "" {
+		json.Unmarshal([]byte(str), &result.Env)
+		result.Env = maps.RemoveValue(result.Env, "")
+	}
+	if w.EntryPoint != "" {
+		result.EntryPoint = stringutil.Base64Decode(w.EntryPoint)
 	}
 }

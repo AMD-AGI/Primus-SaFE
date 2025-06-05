@@ -24,12 +24,16 @@ if [ "${ENABLE_SUPERVISE}" = "true" ]; then
             exit $?
         fi
 
-        kill -0 $pid2 2>/dev/null
-        if [ $? -ne 0 ]; then
-            wait $pid2
-            exit_code=$?
-            if [ $exit_code -ne 0 ]; then
-                exit $exit_code
+        if [ -n "$pid2" ]; then
+            kill -0 $pid2 2>/dev/null
+            if [ $? -ne 0 ]; then
+                wait $pid2
+                exit_code=$?
+                if [ $exit_code -ne 0 ]; then
+                    exit $exit_code
+                else
+                    pid2=""
+                fi
             fi
         fi
         sleep 1

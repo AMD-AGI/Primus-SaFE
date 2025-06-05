@@ -15,6 +15,16 @@ data:
       ephemeral_store_reserve_percent: {{ .Values.workspace.ephemeral_store_reserve_percent }}
     workload:
       max_ephemeral_store_percent: {{ .Values.workload.max_ephemeral_store_percent }}
+    db:
+      enable: {{ .Values.db.enable }}
+      config_path: {{ .Values.db.mount_path }}
+      ssl_mode: {{ .Values.db.ssl_mode }}
+      max_open_conns: {{ .Values.db.max_open_conns }}
+      max_idle_conns: {{ .Values.db.max_idle_conns }}
+      max_life_time_second: {{ .Values.db.max_life_time_second }}
+      max_idle_time_second: {{ .Values.db.max_idle_time_second }}
+      connect_timeout_second:  {{ .Values.db.connect_timeout_second }}
+      request_timeout_second: {{ .Values.db.request_timeout_second }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

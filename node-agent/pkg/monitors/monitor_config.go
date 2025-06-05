@@ -12,9 +12,9 @@ import (
 
 const (
 	DefaultTimeout  = 300
-	MonitorIdRule   = "^[a-z][-a-z0-9\\.]{0,61}[a-z0-9]$"
+	MonitorIdRule   = "^[a-z0-9][-a-z0-9\\.]{0,61}[a-z0-9]$"
 	MonitorIdPrompt = "the name must consist of 1 to 63 lower case alphanumeric characters or '-' or '.'" +
-		", start with an alphabetic character, and end with an alphanumeric character"
+		", start with an alphanumeric character, and end with an alphanumeric character"
 )
 
 var (
