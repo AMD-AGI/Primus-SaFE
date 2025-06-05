@@ -146,7 +146,7 @@ func (h *Handler) parseWorkloadLogQuery(c *gin.Context) (*types.GetLogRequest, *
 	query.Filters = map[string]string{
 		v1.WorkloadIdLabel: name,
 	}
-	if query.DispatchCount > 0 && query.DispatchCount <= workload.DispatchCount {
+	if query.DispatchCount > 0 {
 		query.Filters[v1.WorkloadDispatchCntLabel] = strconv.Itoa(query.DispatchCount)
 	}
 	return query, workload, nil
