@@ -14,6 +14,6 @@
     "ephemeralStorage": "100Gi"
   },
   "env": {
-    "HF_TOKEN": "REMOVED_LEAKED_SECRET"
+    "HF_TOKEN": "xxx_replace_your_own_hf_token_xxx"
   }
 }
