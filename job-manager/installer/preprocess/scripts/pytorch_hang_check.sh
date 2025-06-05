@@ -1,5 +1,10 @@
 #!/bin/sh
 
+#
+# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 if [ -z "${HANG_CHECK_INTERVAL}" ] || [ "${JOB_KIND}" != "PytorchJob" ]; then
   exit 0
 fi
@@ -46,3 +51,5 @@ while true; do
 
   sleep 60
 done
+
+exit 0

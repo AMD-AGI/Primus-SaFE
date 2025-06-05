@@ -9,7 +9,6 @@ require (
 	golang.org/x/crypto v0.38.0
 	k8s.io/api v0.33.1
 	k8s.io/apimachinery v0.33.1
-	k8s.io/apiserver v0.33.1
 	k8s.io/client-go v0.33.1
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/utils v0.0.0-20250321185631-1f6e0b77f77e
@@ -17,6 +16,8 @@ require (
 	github.com/rook/rook v1.17.2
 	github.com/rook/rook/pkg/apis v0.0.0-20241216163035-3170ac6a0c58
 	github.com/agiledragon/gomonkey/v2 v2.13.0
+	github.com/onsi/ginkgo/v2 v2.23.4
+	github.com/onsi/gomega v1.37.0
 )
 
 require (

@@ -668,7 +668,6 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 	} else {
 		switch pod.Status.Phase {
 		case corev1.PodSucceeded:
-			adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
 			return r.Delete(ctx, pod)
 		case corev1.PodFailed:
 			adminNode.Status.ClusterStatus.Phase = v1.NodeManagedFailed

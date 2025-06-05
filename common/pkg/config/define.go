@@ -47,4 +47,16 @@ const (
 	logServicePrefix = logPrefix + "prefix"
 	logServiceUser   = logPrefix + "user"
 	logServicePasswd = logPrefix + "password"
+
+	// db
+	dbPrefix               = "db."
+	dbEnable               = dbPrefix + "enable"
+	dbConfigPath           = dbPrefix + "config_path"
+	dbSslMode              = dbPrefix + "ssl_mode"
+	dbMaxOpenConns         = dbPrefix + "max_open_conns"
+	dbMaxIdleConns         = dbPrefix + "max_idle_conns"
+	dbMaxLifetime          = dbPrefix + "max_life_time_second"
+	dbMaxIdleTimeSecond    = dbPrefix + "max_idle_time_second"
+	dbConnectTimeoutSecond = dbPrefix + "connect_timeout_second"
+	dbRequestTimeoutSecond = dbPrefix + "request_timeout_second"
 )

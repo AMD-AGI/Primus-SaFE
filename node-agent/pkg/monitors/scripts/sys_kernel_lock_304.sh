@@ -6,8 +6,8 @@
 #
 
 if [ "$#" -lt 1 ]; then
-  echo 'Error: Missing parameter interval. example: 43200'
-  exit 2
+    echo 'Error: Missing parameter interval. example: 43200'
+    exit 2
 fi
 
 current_time=$(date +%s)
@@ -33,15 +33,15 @@ fi
 
 msg=`grep -i "bug: soft lockup" $tmpfile`
 if [ $? -eq 0 ]; then
-  echo "$msg"
-  rm -f $tmpfile
-  exit 1
+    echo "$msg"
+    rm -f $tmpfile
+    exit 1
 fi
 
 msg=`grep -i "bug: hard lockup" $tmpfile`
 if [ $? -eq 0 ]; then
-  echo "$msg"
-  rm -f $tmpfile
-  exit 1
+    echo "$msg"
+    rm -f $tmpfile
+    exit 1
 fi
 rm -f $tmpfile

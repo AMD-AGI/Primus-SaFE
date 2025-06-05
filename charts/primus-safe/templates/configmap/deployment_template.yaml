@@ -83,4 +83,4 @@ data:
            - name: {{ .Release.Name }}-image
          terminationGracePeriodSeconds: 10
          restartPolicy: Always
-         schedulerName: default-scheduler
+         schedulerName: kube-scheduler-plugins
