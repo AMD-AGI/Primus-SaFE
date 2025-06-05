@@ -20,6 +20,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/options"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/exporter"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 )
 
@@ -65,6 +66,9 @@ func (s *Server) init() error {
 	}
 	if err = resource.SetupControllers(s.ctrlManager.ctx, s.ctrlManager.ctrlManager); err != nil {
 		return fmt.Errorf("failed to setup resource controllers. %s", err.Error())
+	}
+	if err = exporter.SetupExporters(s.ctrlManager.ctx, s.ctrlManager.ctrlManager); err != nil {
+		return fmt.Errorf("failed to setup exporters. %s", err.Error())
 	}
 	s.isInited = true
 	return nil

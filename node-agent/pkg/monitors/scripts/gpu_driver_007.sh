@@ -5,13 +5,12 @@
 # See LICENSE for license information.
 #
 
+if [ ! -f "/tmp/rocm-smi" ]; then
+    exit 0
+fi
+
 EXPECT_MAJOR=$1
 EXPECT_MINOR=$2
-
-nsenter --target 1 --mount --uts --ipc --net --pid -- ls /usr/bin/rocm-smi > /dev/null
-if [ $? -ne 0 ]; then
-    exit 2
-fi
 
 version=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi --showdriverversion |grep "^Driver version:"`
 if [ $? -ne 0 ]; then

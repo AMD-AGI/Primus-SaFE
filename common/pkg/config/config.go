@@ -6,6 +6,9 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -138,4 +141,70 @@ func GetLogServicePasswd() string {
 
 func GetLogServicePrefix() string {
 	return getString(logServicePrefix, "")
+}
+
+func IsDBEnable() bool {
+	return getBool(dbEnable, false)
+}
+
+func GetDBHost() string {
+	return readDBItem("host")
+}
+
+func GetDBPort() int {
+	data := readDBItem("port")
+	n, err := strconv.Atoi(data)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func GetDBName() string {
+	return readDBItem("dbname")
+}
+
+func GetDBUser() string {
+	return readDBItem("user")
+}
+
+func GetDBPassword() string {
+	return readDBItem("password")
+}
+
+func GetDBSslMode() string {
+	return getString(dbSslMode, "require")
+}
+
+func GetDBMaxOpenConns() int {
+	return getInt(dbMaxOpenConns, 100)
+}
+
+func GetDBMaxIdleConns() int {
+	return getInt(dbMaxIdleConns, 10)
+}
+
+func GetDBMaxLifetimeSecond() int {
+	return getInt(dbMaxLifetime, 600)
+}
+
+func GetDBMaxIdleTimeSecond() int {
+	return getInt(dbMaxIdleTimeSecond, 60)
+}
+
+func GetDBConnectTimeoutSecond() int {
+	return getInt(dbConnectTimeoutSecond, 10)
+}
+
+func GetDBRequestTimeoutSecond() int {
+	return getInt(dbRequestTimeoutSecond, 20)
+}
+
+func readDBItem(item string) string {
+	path := getString(dbConfigPath, "")
+	data, err := os.ReadFile(filepath.Join(path, item))
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }

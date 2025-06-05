@@ -8,6 +8,8 @@ package types
 const (
 	Name  = "name"
 	PodId = "podId"
+
+	DefaultQueryLimit = 100
 )
 
 type ResourceList map[string]int64

@@ -6,6 +6,8 @@
 package types
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
@@ -32,8 +34,20 @@ type GetWorkloadRequest struct {
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
 	// Deployment/PyTorchJob/StatefulSet
 	Kind string `form:"kind" binding:"omitempty"`
-	// workload submitter
+	// workload submitter, Supports fuzzy matching
 	UserName string `form:"userName" binding:"omitempty"`
+	// description, Supports fuzzy matching
+	Description string `form:"description" binding:"omitempty"`
+	// workload id, Supports fuzzy matching
+	WorkloadId string `form:"workloadId" binding:"omitempty"`
+	// Starting offset for the results. dfault is 0
+	Offset int `form:"offset" binding:"omitempty,min=0"`
+	// Limit the number of returned results. default is 100
+	Limit int `form:"limit" binding:"omitempty,min=1"`
+	// Sort results by the specified field. default is create_time
+	SortBy string `form:"sortBy" binding:"omitempty"`
+	// default is desc
+	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
 }
 
 type GetWorkloadResponseItem struct {
@@ -42,28 +56,30 @@ type GetWorkloadResponseItem struct {
 	CreateWorkloadRequest
 	// cluster to which the workload belongs
 	Cluster string `json:"cluster,omitempty"`
-	// workload submitter
-	UserName string `json:"userName,omitempty"`
 	// status of workload
 	Phase string `json:"phase,omitempty"`
 	// Shows the reason if the workload is in pending status.
 	Message string `json:"message,omitempty"`
 	// detailed processing workflow of the workload
-	Conditions string `json:"conditions,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// Pod info related to the workload
+	Pods []v1.WorkloadPod `json:"pods,omitempty"`
+	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
+	Nodes [][]string `json:"nodes,omitempty"`
 	// workload creation time
-	CreatedTime string `json:"createdTime,omitempty"`
+	CreationTime string `json:"creationTime,omitempty"`
 	// workload start time
 	StartTime string `json:"startTime,omitempty"`
 	// workload end time
 	EndTime string `json:"endTime,omitempty"`
+	// workload deletion time
+	DeletionTime string `json:"deletionTime,omitempty"`
+	// Seconds remaining before task timeout. Only applicable if a timeout is set.
+	SecondsUntilTimeout int64 `json:"secondsUntilTimeout,omitempty"`
 	// show the queue position of the workload if it is pending.
 	SchedulerOrder int `json:"schedulerOrder,omitempty"`
 	// total dispatch count
 	DispatchCount int `json:"dispatchCount,omitempty"`
-	// the pods information related to the workload
-	Pods string `json:"pods,omitempty"`
-	// node assigned to the task for each run
-	Nodes string `json:"nodes,omitempty"`
 }
 
 type GetWorkloadResponse struct {
@@ -113,24 +129,4 @@ type GetWorkloadPodLogResponse struct {
 	Namespace string `json:"namespace,omitempty"`
 	// An array of log lines, returned in the same order as they appear in the original logs
 	Logs []string `json:"logs,omitempty"`
-}
-
-type WorkloadSlice []v1.Workload
-
-func (ws WorkloadSlice) Len() int {
-	return len(ws)
-}
-
-func (ws WorkloadSlice) Swap(i, j int) {
-	ws[i], ws[j] = ws[j], ws[i]
-}
-
-func (ws WorkloadSlice) Less(i, j int) bool {
-	if ws[i].CreationTimestamp.Time.Before(ws[j].CreationTimestamp.Time) {
-		return true
-	}
-	if ws[i].CreationTimestamp.Time.Equal(ws[j].CreationTimestamp.Time) && ws[i].Name < ws[j].Name {
-		return true
-	}
-	return false
 }

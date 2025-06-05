@@ -1,5 +1,5 @@
 crypto:
-  enable: true
+  enable: false
   key: UHJpbXVzU2FmZTEyMzQ1Ngo=
   path: /etc/secrets
 workspace:
@@ -26,3 +26,14 @@ webhooks:
   tag: "latest"
 node_agent:
   tag: "latest"
+db:
+  enable: true
+  secret: "primus-safe-pguser-primus-safe"
+  mount_path: "/etc/secrets/db"
+  ssl_mode: "require"
+  max_open_conns: 100
+  max_idle_conns: 10
+  max_life_time_second: 600
+  max_idle_time_second: 100
+  connect_timeout_second: 10
+  request_timeout_second: 20
