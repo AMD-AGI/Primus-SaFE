@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 	"github.com/robfig/cron/v3"
 	"k8s.io/klog/v2"
 
@@ -21,6 +20,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/channel"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 var (

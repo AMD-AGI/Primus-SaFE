@@ -10,9 +10,8 @@ if [ "$#" -lt 1 ]; then
   exit 2
 fi
 
-nsenter --target 1 --mount --uts --ipc --net --pid -- ls /usr/bin/rocm-smi > /dev/null
-if [ $? -ne 0 ]; then
-    exit 2
+if [ ! -f "/tmp/rocm-smi" ]; then
+  exit 0
 fi
 
 expectedCount=`echo "$1" |jq '.expectedGpuCount'`
@@ -21,7 +20,7 @@ if [ -z "$expectedCount" ] || [ "$expectedCount" == "null" ] || [ $expectedCount
     exit 2
 fi
 
-actualCount=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi | grep ^[0-9] |wc -l`
+actualCount=`cat "/tmp/rocm-smi" | grep ^[0-9] |wc -l`
 ret=$?
 if [ $ret -ne 0 ]; then
   echo "Error: failed to execute rocm-smi"

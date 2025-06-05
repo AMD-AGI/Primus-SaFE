@@ -22,6 +22,7 @@ func initCustomRouters(e *gin.Engine, h *customhandler.Handler) {
 		group.GET("workloads", h.ListWorkload)
 		group.GET(fmt.Sprintf("workloads/:%s", types.Name), h.GetWorkload)
 		group.DELETE(fmt.Sprintf("workloads/:%s", types.Name), h.DeleteWorkload)
+		group.POST(fmt.Sprintf("workloads/:%s/stop", types.Name), h.StopWorkload)
 		group.PATCH(fmt.Sprintf("workloads/:%s", types.Name), h.PatchWorkload)
 		group.GET(fmt.Sprintf("workloads/:%s/service", types.Name), h.GetWorkloadService)
 		group.GET(fmt.Sprintf("workloads/:%s/pods/:%s/logs", types.Name, types.PodId), h.GetWorkloadPodLog)

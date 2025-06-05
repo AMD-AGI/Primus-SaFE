@@ -48,8 +48,10 @@ spec:
           volumeMounts:
             - name: server-cert
               mountPath: "/opt/primus-safe/webhooks/cert"
+              readOnly: true
             - name: server-config
               mountPath: /opt/primus-safe/webhooks/config
+              readOnly: true
           ports:
             - containerPort: 8084
               protocol: TCP
