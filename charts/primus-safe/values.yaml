@@ -37,3 +37,9 @@ db:
   max_idle_time_second: 100
   connect_timeout_second: 10
   request_timeout_second: 20
+log:
+  enable: true
+  secret: "primus-safe-logs-admin-password"
+  mount_path: "/etc/secrets/log"
+  endpoint: "logs-nodes.primus-safe.svc.cluster.local"
+  prefix: "node-"

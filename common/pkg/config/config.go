@@ -123,20 +123,16 @@ func IsLogEnable() bool {
 	return getBool(logEnable, false)
 }
 
-func GetLogServiceHost() string {
-	return getString(logServiceHost, "")
-}
-
-func GetLogServicePort() int {
-	return getInt(logServicePort, 9200)
+func GetLogServiceEndpoint() string {
+	return getString(logEndpoint, "")
 }
 
 func GetLogServiceUser() string {
-	return getString(logServiceUser, "")
+	return getFromFile(logConfigPath, "username")
 }
 
 func GetLogServicePasswd() string {
-	return getString(logServicePasswd, "")
+	return getFromFile(logConfigPath, "password")
 }
 
 func GetLogServicePrefix() string {
@@ -148,11 +144,11 @@ func IsDBEnable() bool {
 }
 
 func GetDBHost() string {
-	return readDBItem("host")
+	return getFromFile(dbConfigPath, "host")
 }
 
 func GetDBPort() int {
-	data := readDBItem("port")
+	data := getFromFile(dbConfigPath, "port")
 	n, err := strconv.Atoi(data)
 	if err != nil {
 		return 0
@@ -161,15 +157,15 @@ func GetDBPort() int {
 }
 
 func GetDBName() string {
-	return readDBItem("dbname")
+	return getFromFile(dbConfigPath, "dbname")
 }
 
 func GetDBUser() string {
-	return readDBItem("user")
+	return getFromFile(dbConfigPath, "user")
 }
 
 func GetDBPassword() string {
-	return readDBItem("password")
+	return getFromFile(dbConfigPath, "password")
 }
 
 func GetDBSslMode() string {
@@ -200,8 +196,8 @@ func GetDBRequestTimeoutSecond() int {
 	return getInt(dbRequestTimeoutSecond, 20)
 }
 
-func readDBItem(item string) string {
-	path := getString(dbConfigPath, "")
+func getFromFile(configPath, item string) string {
+	path := getString(configPath, "")
 	data, err := os.ReadFile(filepath.Join(path, item))
 	if err != nil {
 		return ""

@@ -47,9 +47,11 @@ spec:
             - name: server-config
               mountPath: /opt/primus-safe/resource-manager/config
               readOnly: true
+            {{- if .Values.db.enable }}
             - name: db-secret
               mountPath: {{ .Values.db.mount_path }}
               readOnly: true
+            {{- end }}
           ports:
             - containerPort: 8081
           livenessProbe:
@@ -79,9 +81,11 @@ spec:
           secret:
             secretName: {{ .Release.Name }}
         {{- end }}
+        {{- if .Values.db.enable }}
         - name: db-secret
           secret:
             secretName: {{ .Values.db.secret }}
+        {{- end }}
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-resource-manager

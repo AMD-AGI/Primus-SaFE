@@ -42,11 +42,9 @@ const (
 	// log
 	logPrefix        = "log."
 	logEnable        = logPrefix + "enable"
-	logServiceHost   = logPrefix + "host"
-	logServicePort   = logPrefix + "port"
+	logConfigPath    = logPrefix + "config_path"
+	logEndpoint      = logPrefix + "endpoint"
 	logServicePrefix = logPrefix + "prefix"
-	logServiceUser   = logPrefix + "user"
-	logServicePasswd = logPrefix + "password"
 
 	// db
 	dbPrefix               = "db."
