@@ -15,18 +15,20 @@ net:
 repository: "docker.io/primussafe"
 resource_manager:
   replicas: 2
-  tag: "latest"
+  tag: "202506061523"
 apiserver:
   replicas: 2
-  tag: "latest"
+  tag: "202506061523"
 job_manager:
   replicas: 2
-  tag: "latest"
+  tag: "202506061523"
+preprocess:
+  tag: "202506061523"
 webhooks:
   replicas: 2
-  tag: "latest"
+  tag: "202506061523"
 node_agent:
-  tag: "latest"
+  tag: "202506051416"
 db:
   enable: true
   secret: "primus-safe-pguser-primus-safe"
