@@ -36,6 +36,7 @@ type Workload struct {
 	EndTime        pq.NullTime    `db:"end_time"`
 	DeleteTime     pq.NullTime    `db:"delete_time"`
 	IsSupervised   bool           `db:"is_supervised"`
+	IsTolerateAll  bool           `db:"is_tolerate_all"`
 	IsDeleted      bool           `db:"is_deleted"`
 	Priority       int            `db:"priority"`
 	MaxRetry       int            `db:"max_retry"`

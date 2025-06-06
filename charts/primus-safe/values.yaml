@@ -11,6 +11,7 @@ workload:
 net:
   nccl_socket_ifname: "ens51f0"
   nccl_ib_hca: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
+  rdma_name: "rdma/hca"
 repository: "docker.io/primussafe"
 resource_manager:
   replicas: 2

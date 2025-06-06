@@ -24,7 +24,6 @@ const (
 	StatefulSetKind     = "StatefulSet"
 	PytorchJobPortName  = "pytorchjob-port"
 	SSHPortName         = "ssh-port"
-	Rdma                = "rdma/hca"
 
 	DefaultBurst   = 1000
 	DefaultQPS     = 1000

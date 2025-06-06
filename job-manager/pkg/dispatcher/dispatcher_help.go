@@ -54,6 +54,10 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 	if err = modifyHostNetWork(obj, adminWorkload, path); err != nil {
 		return err
 	}
+	path = append(templatePath, "spec", "tolerations")
+	if err = modifyTolerations(obj, adminWorkload, path); err != nil {
+		return err
+	}
 	if commonworkload.IsApplication(adminWorkload) {
 		path = []string{"spec", "strategy"}
 		if err = modifyStrategy(obj, adminWorkload, path); err != nil {
@@ -221,6 +225,21 @@ func modifySelector(obj *unstructured.Unstructured, adminWorkload *v1.Workload, 
 	return nil
 }
 
+func modifyTolerations(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
+	if !adminWorkload.Spec.IsTolerateAll {
+		return nil
+	}
+	tolerations := []interface{}{
+		map[string]interface{}{
+			"operator": "Exists",
+		},
+	}
+	if err := unstructured.SetNestedSlice(obj.Object, tolerations, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
 func getMainContainer(containers []interface{}, mainContainerName string) (map[string]interface{}, error) {
 	var mainContainer map[string]interface{}
 	for i := range containers {
@@ -261,8 +280,8 @@ func buildResources(adminWorkload *v1.Workload) map[string]interface{} {
 	}
 	if adminWorkload.Spec.Resource.GPU != "" {
 		result[adminWorkload.Spec.Resource.GPUName] = adminWorkload.Spec.Resource.GPU
-		if adminWorkload.Spec.Resource.Replica > 1 {
-			result[common.Rdma] = "1"
+		if adminWorkload.Spec.Resource.Replica > 1 && commonconfig.GetRdmaName() != "" {
+			result[commonconfig.GetRdmaName()] = "1"
 		}
 	}
 	return result
@@ -295,7 +314,7 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 			"value": adminWorkload.Spec.Resource.GPU,
 		})
 		result = append(result, map[string]interface{}{
-			"name":  "NUM_HOSTS",
+			"name":  "NNODES",
 			"value": strconv.Itoa(adminWorkload.Spec.Resource.Replica),
 		})
 	}

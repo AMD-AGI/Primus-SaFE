@@ -10,6 +10,7 @@ const (
 	globalPrefix = "global."
 	cryptoEnable = globalPrefix + "enable_crypto"
 	cryptoKey    = globalPrefix + "crypto_key"
+	rdmaName     = globalPrefix + "rdma_name"
 
 	// server
 	serverPrefix = "server."

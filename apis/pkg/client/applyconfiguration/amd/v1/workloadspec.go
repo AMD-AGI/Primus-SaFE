@@ -24,6 +24,7 @@ type WorkloadSpecApplyConfiguration struct {
 	Liveness                            *HealthCheckApplyConfiguration `json:"liveness,omitempty"`
 	Readiness                           *HealthCheckApplyConfiguration `json:"readiness,omitempty"`
 	Service                             *ServiceApplyConfiguration     `json:"service,omitempty"`
+	IsTolerateAll                       *bool                          `json:"isTolerateAll,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
@@ -186,5 +187,13 @@ func (b *WorkloadSpecApplyConfiguration) WithReadiness(value *HealthCheckApplyCo
 // If called multiple times, the Service field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithService(value *ServiceApplyConfiguration) *WorkloadSpecApplyConfiguration {
 	b.Service = value
+	return b
+}
+
+// WithIsTolerateAll sets the IsTolerateAll field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the IsTolerateAll field is set to the value of the last call.
+func (b *WorkloadSpecApplyConfiguration) WithIsTolerateAll(value bool) *WorkloadSpecApplyConfiguration {
+	b.IsTolerateAll = &value
 	return b
 }

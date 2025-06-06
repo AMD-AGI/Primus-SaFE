@@ -131,6 +131,8 @@ type WorkloadSpec struct {
 	Readiness *HealthCheck `json:"readiness,omitempty"`
 	// service configuration. used for deployment/statefulSet
 	Service *Service `json:"service,omitempty"`
+	// Indicates whether the workload tolerates node taints
+	IsTolerateAll bool `json:"isTolerateAll,omitempty"`
 }
 
 type WorkloadStatus struct {
@@ -265,6 +267,13 @@ func (w *Workload) CostTime() int64 {
 		costTime = time.Now().UTC().Sub(w.CreationTimestamp.Time)
 	}
 	return int64(costTime.Seconds())
+}
+
+func (w *Workload) EndTime() time.Time {
+	if w.Status.EndTime == nil || w.Status.EndTime.IsZero() {
+		return time.Time{}
+	}
+	return w.Status.EndTime.Time
 }
 
 func (w *Workload) IsTimeout() bool {

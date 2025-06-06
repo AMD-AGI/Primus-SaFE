@@ -10,9 +10,10 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -33,8 +34,14 @@ type NodeWrapper struct {
 func getAvailableResourcesPerNode(ctx context.Context, cli client.Client,
 	requestWorkload *v1.Workload, runningWorkloads []*v1.Workload) ([]NodeWrapper, error) {
 	filterFunc := func(n v1.Node) bool {
-		if !n.IsAvailable() {
-			return true
+		if requestWorkload.Spec.IsTolerateAll {
+			if !n.IsAvailableIgnoreTaint() {
+				return true
+			}
+		} else {
+			if !n.IsAvailable() {
+				return true
+			}
 		}
 		if len(requestWorkload.Spec.CustomerLabels) > 0 && !isMatchNodeLabel(&n, requestWorkload) {
 			return true

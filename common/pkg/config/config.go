@@ -204,3 +204,7 @@ func getFromFile(configPath, item string) string {
 	}
 	return string(data)
 }
+
+func GetRdmaName() string {
+	return getString(rdmaName, "")
+}

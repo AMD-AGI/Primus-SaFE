@@ -4,6 +4,7 @@ data:
     global:
       enable_crypto: {{ .Values.crypto.enable }}
       crypto_key: {{ .Values.crypto.path }}/key
+      rdma_name: {{ .Values.net.rdma_name }}
     health_check:
       enable: true
       port: 8083
