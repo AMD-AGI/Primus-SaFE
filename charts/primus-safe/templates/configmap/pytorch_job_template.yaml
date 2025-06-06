@@ -24,7 +24,7 @@ data:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
                 - name: preprocess
-                  image: {{ .Values.repository }}/preprocess:latest
+                  image: {{ .Values.repository }}/preprocess:{{ .Values.preprocess.tag }}
                   imagePullPolicy: IfNotPresent
                   command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                   securityContext:
@@ -117,7 +117,7 @@ data:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
                 - name: preprocess
-                  image: {{ .Values.repository }}/preprocess:latest
+                  image: {{ .Values.repository }}/preprocess:{{ .Values.preprocess.tag }}
                   imagePullPolicy: IfNotPresent
                   command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                   securityContext:

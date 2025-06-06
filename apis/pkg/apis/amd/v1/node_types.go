@@ -122,6 +122,16 @@ func init() {
 }
 
 func (n *Node) IsAvailable() bool {
+	if !n.IsAvailableIgnoreTaint() {
+		return false
+	}
+	if len(n.Status.Taints) > 0 {
+		return false
+	}
+	return true
+}
+
+func (n *Node) IsAvailableIgnoreTaint() bool {
 	if n == nil {
 		return false
 	}
@@ -134,7 +144,7 @@ func (n *Node) IsAvailable() bool {
 	if !n.GetDeletionTimestamp().IsZero() {
 		return false
 	}
-	if len(n.Status.Taints) > 0 || n.Status.Unschedulable {
+	if n.Status.Unschedulable {
 		return false
 	}
 	return true

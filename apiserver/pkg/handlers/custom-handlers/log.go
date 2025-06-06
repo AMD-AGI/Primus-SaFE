@@ -6,6 +6,7 @@
 package custom_handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,21 +16,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
-)
-
-const (
-	DESC = "desc"
-	ASC  = "asc"
 )
 
 func (h *Handler) ListWorkloadLog(c *gin.Context) {
@@ -52,7 +49,8 @@ func (h *Handler) listWorkloadLog(c *gin.Context) (interface{}, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the workloadId is empty")
 	}
-	query, _, err := h.parseWorkloadLogQuery(c.Request, name)
+
+	query, _, err := h.parseWorkloadLogQuery(c, name)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +64,7 @@ func (h *Handler) listServiceLog(c *gin.Context) (interface{}, error) {
 
 	name := c.GetString(types.Name)
 	if name == "" {
-		return nil, commonerrors.NewBadRequest("failed to find service name")
+		return nil, commonerrors.NewBadRequest("the service name is empty")
 	}
 	query, err := parseSearchLogQuery(c.Request, time.Time{}, time.Time{})
 	if err != nil {
@@ -93,13 +91,13 @@ func (h *Handler) listWorkloadLogContext(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("the workloadId is empty")
 	}
 
-	query, workload, err := h.parseWorkloadLogQuery(c.Request, name)
+	query, startTime, err := h.parseWorkloadLogQuery(c, name)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse workload log query")
 		return nil, err
 	}
 	limit := query.Limit
-	queryWrappers, err := buildContextQuery(query, workload)
+	queryWrappers, err := genListContextQuery(query, startTime)
 	if err != nil {
 		klog.ErrorS(err, "failed to build query for context search")
 		return nil, err
@@ -134,23 +132,16 @@ func (h *Handler) listWorkloadLogContext(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
-func (h *Handler) parseWorkloadLogQuery(req *http.Request, name string) (*types.GetLogRequest, *v1.Workload, error) {
-	workload, err := h.getAdminWorkload(req.Context(), name)
-	if client.IgnoreNotFound(err) != nil {
-		return nil, nil, err
+func (h *Handler) parseWorkloadLogQuery(c *gin.Context, name string) (*types.GetLogRequest, time.Time, error) {
+	startTime, endTime, err := h.getWorkloadStartEndTime(c.Request.Context(), name)
+	if err != nil {
+		return nil, time.Time{}, err
 	}
-	beginTime := time.Time{}
-	endTime := time.Time{}
-	if workload != nil {
-		beginTime = workload.CreationTimestamp.Time
-		if workload.Status.EndTime != nil {
-			endTime = workload.Status.EndTime.Time
-		}
-	}
-	query, err := parseSearchLogQuery(req, beginTime, endTime)
+
+	query, err := parseSearchLogQuery(c.Request, startTime, endTime)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse log query")
-		return nil, nil, err
+		return nil, startTime, err
 	}
 	query.Filters = map[string]string{
 		v1.WorkloadIdLabel: name,
@@ -158,7 +149,25 @@ func (h *Handler) parseWorkloadLogQuery(req *http.Request, name string) (*types.
 	if query.DispatchCount > 0 {
 		query.Filters[v1.WorkloadDispatchCntLabel] = strconv.Itoa(query.DispatchCount)
 	}
-	return query, workload, nil
+	return query, startTime, nil
+}
+
+func (h *Handler) getWorkloadStartEndTime(ctx context.Context, workloadId string) (time.Time, time.Time, error) {
+	if commonconfig.IsDBEnable() {
+		workload, err := h.getWorkloadFromDb(ctx, workloadId)
+		if err != nil {
+			return time.Time{}, time.Time{}, err
+		}
+		startTime := dbutils.ParseNullTime(workload.CreateTime)
+		endTime := dbutils.ParseNullTime(workload.EndTime)
+		return startTime, endTime, nil
+	} else {
+		adminWorkload, err := h.getAdminWorkload(ctx, workloadId)
+		if err != nil {
+			return time.Time{}, time.Time{}, err
+		}
+		return adminWorkload.CreationTimestamp.Time, adminWorkload.EndTime(), nil
+	}
 }
 
 func (h *Handler) searchLog(query *types.GetLogRequest, workloadId string) ([]byte, error) {
@@ -177,7 +186,7 @@ func buildSearchBody(query *types.GetLogRequest, workloadId string) []byte {
 			}},
 		},
 	}
-	
+
 	req.Query.Bool.Must = []commonsearch.OpenSearchField{{
 		"range": map[string]interface{}{
 			commonsearch.TimeField: map[string]string{
@@ -294,7 +303,7 @@ func buildOutput(req *commonsearch.OpenSearchRequest, query *types.GetLogRequest
 	}
 }
 
-func buildContextQuery(query *types.GetLogRequest, workload *v1.Workload) ([]types.GetLogRequestWrapper, error) {
+func genListContextQuery(query *types.GetLogRequest, startTime time.Time) ([]types.GetLogRequestWrapper, error) {
 	if query.Since == "" && query.SinceMilliSecond <= 0 {
 		return nil, commonerrors.NewBadRequest("the since or sinceMilliSecond parameter is empty")
 	}
@@ -308,19 +317,15 @@ func buildContextQuery(query *types.GetLogRequest, workload *v1.Workload) ([]typ
 
 	query2 := new(types.GetLogRequest)
 	*query2 = *query
-	query.Order = ASC
+	query.Order = dbclient.ASC
 	result = append(result, types.GetLogRequestWrapper{
 		Query: query,
 		Id:    0,
 	})
 
-	query2.Order = DESC
+	query2.Order = dbclient.DESC
 	query2.UntilTime = query.SinceTime
-	if workload != nil {
-		query2.SinceTime = workload.CreationTimestamp.Time
-	} else {
-		query2.SinceTime = query2.UntilTime.Add(-time.Hour * 168).UTC()
-	}
+	query2.SinceTime = startTime
 
 	result = append(result, types.GetLogRequestWrapper{
 		Query: query2,
@@ -371,10 +376,10 @@ func parseSearchLogQuery(req *http.Request, beginTime, endTime time.Time) (*type
 		query.Limit = 10000
 	}
 	if query.Order == "" {
-		query.Order = ASC
-	} else if query.Order != ASC && query.Order != DESC {
+		query.Order = dbclient.ASC
+	} else if query.Order != dbclient.ASC && query.Order != dbclient.DESC {
 		return nil, commonerrors.NewBadRequest(
-			fmt.Sprintf("the order parameter only supports %s and %s", ASC, DESC))
+			fmt.Sprintf("the order parameter only supports %s and %s", dbclient.ASC, dbclient.DESC))
 	}
 	if query.SinceTime, err = parseTime(query.Since, query.SinceMilliSecond); err != nil {
 		return nil, err

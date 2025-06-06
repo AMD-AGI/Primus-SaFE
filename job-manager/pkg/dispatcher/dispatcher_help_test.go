@@ -15,6 +15,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
@@ -38,7 +39,7 @@ func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.W
 	if workload.Spec.Resource.GPU != "" {
 		assert.Equal(t, limits[common.AmdGpu], workload.Spec.Resource.GPU)
 		if replica > 1 {
-			assert.Equal(t, limits[common.Rdma], "1")
+			assert.Equal(t, limits[commonconfig.GetRdmaName()], "1")
 		}
 	}
 }
@@ -89,7 +90,7 @@ func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Worklo
 	if gpu != "" {
 		ok := findEnv(envs, "GPUS_PER_NODE", gpu)
 		assert.Equal(t, ok, true)
-		ok = findEnv(envs, "NUM_HOSTS", strconv.Itoa(workload.Spec.Resource.Replica))
+		ok = findEnv(envs, "NNODES", strconv.Itoa(workload.Spec.Resource.Replica))
 		assert.Equal(t, ok, true)
 	}
 	ok := findEnv(envs, "HANG_CHECK_INTERVAL", "")
@@ -293,4 +294,23 @@ func checkStrategy(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wo
 	assert.Equal(t, found, true)
 	assert.Equal(t, labels["maxSurge"].(string), workload.Spec.Service.Extends["maxSurge"])
 	assert.Equal(t, labels["maxUnavailable"].(string), workload.Spec.Service.Extends["maxUnavailable"])
+}
+
+func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {
+	path := append(template.PrePaths, template.TemplatePaths...)
+	path = append(path, "spec", "tolerations")
+
+	tolerations, found, err := unstructured.NestedSlice(obj.Object, path...)
+	assert.NilError(t, err)
+	if workload.Spec.IsTolerateAll {
+		assert.Equal(t, found, true)
+		assert.Equal(t, len(tolerations), 1)
+		toleration := tolerations[0].(map[string]interface{})
+		assert.Equal(t, len(toleration), 1)
+		op, ok := toleration["operator"]
+		assert.Equal(t, ok, true)
+		assert.Equal(t, op, "Exists")
+	} else {
+		assert.Equal(t, found, false)
+	}
 }

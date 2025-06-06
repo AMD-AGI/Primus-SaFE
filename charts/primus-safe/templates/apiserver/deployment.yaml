@@ -47,9 +47,16 @@ spec:
             - name: server-config
               mountPath: /opt/primus-safe/apiserver/config
               readOnly: true
+            {{- if .Values.db.enable }}
             - name: db-secret
               mountPath: {{ .Values.db.mount_path }}
               readOnly: true
+            {{- end }}
+            {{- if .Values.log.enable }}
+            - name: log-secret
+              mountPath: {{ .Values.log.mount_path }}
+              readOnly: true
+            {{- end }}
           ports:
             - containerPort: 8088
           livenessProbe:
@@ -66,20 +73,27 @@ spec:
             periodSeconds: 2
           resources:
             limits:
-              cpu: "8000m"
-              memory: 16Gi
+              cpu: "1000m"
+              memory: 2Gi
             requests:
-              cpu: "8000m"
-              memory: 16Gi
+              cpu: "1000m"
+              memory: 2Gi
       volumes:
         {{- if .Values.crypto.enable }}
         - name: server-secret
           secret:
             secretName: {{ .Release.Name }}
         {{- end }}
+        {{- if .Values.db.enable }}
         - name: db-secret
           secret:
             secretName: {{ .Values.db.secret }}
+        {{- end }}
+        {{- if .Values.log.enable }}
+        - name: log-secret
+          secret:
+            secretName: {{ .Values.log.secret }}
+        {{- end }}
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-apiserver

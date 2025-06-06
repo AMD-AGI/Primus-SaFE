@@ -47,9 +47,11 @@ spec:
             - name: server-config
               mountPath: /opt/primus-safe/resource-manager/config
               readOnly: true
+            {{- if .Values.db.enable }}
             - name: db-secret
               mountPath: {{ .Values.db.mount_path }}
               readOnly: true
+            {{- end }}
           ports:
             - containerPort: 8081
           livenessProbe:
@@ -66,11 +68,11 @@ spec:
             periodSeconds: 2
           resources:
             limits:
-              cpu: "8000m"
-              memory: 16Gi
+              cpu: "2000m"
+              memory: 4Gi
             requests:
-              cpu: "8000m"
-              memory: 16Gi
+              cpu: "2000m"
+              memory: 4Gi
       imagePullSecrets:
       - name: {{ .Release.Name }}-image
       volumes:
@@ -79,9 +81,11 @@ spec:
           secret:
             secretName: {{ .Release.Name }}
         {{- end }}
+        {{- if .Values.db.enable }}
         - name: db-secret
           secret:
             secretName: {{ .Values.db.secret }}
+        {{- end }}
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-resource-manager

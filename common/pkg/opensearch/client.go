@@ -7,7 +7,6 @@ package opensearch
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,8 +29,7 @@ var (
 type LogClient struct {
 	username   string
 	password   string
-	host       string
-	port       int
+	endpoint   string
 	prefix     string
 	httpClient httpclient.Interface
 }
@@ -39,8 +37,7 @@ type LogClient struct {
 func NewLogClient() *LogClient {
 	once.Do(func() {
 		instance = &LogClient{
-			host:       commonconfig.GetLogServiceHost(),
-			port:       commonconfig.GetLogServicePort(),
+			endpoint:   commonconfig.GetLogServiceEndpoint(),
 			prefix:     commonconfig.GetLogServicePrefix(),
 			username:   commonconfig.GetLogServiceUser(),
 			password:   commonconfig.GetLogServicePasswd(),
@@ -63,11 +60,10 @@ func (c *LogClient) RequestByTimeRange(sinceTime, untilTime time.Time,
 }
 
 func (c *LogClient) Request(uri, httpMethod string, body []byte) ([]byte, error) {
-	endpoint := c.host + ":" + strconv.Itoa(c.port)
 	if !strings.HasPrefix(uri, "/") {
 		uri = "/" + uri
 	}
-	url := endpoint + uri
+	url := c.endpoint + uri
 	klog.Infof("request to openSearch, url: %s, body: %s", url, body)
 	req, err := httpclient.BuildRequest(url, httpMethod, body)
 	if err != nil {

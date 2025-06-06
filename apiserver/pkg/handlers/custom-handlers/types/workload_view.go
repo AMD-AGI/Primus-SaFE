@@ -130,3 +130,23 @@ type GetWorkloadPodLogResponse struct {
 	// An array of log lines, returned in the same order as they appear in the original logs
 	Logs []string `json:"logs,omitempty"`
 }
+
+type WorkloadSlice []v1.Workload
+
+func (ws WorkloadSlice) Len() int {
+	return len(ws)
+}
+
+func (ws WorkloadSlice) Swap(i, j int) {
+	ws[i], ws[j] = ws[j], ws[i]
+}
+
+func (ws WorkloadSlice) Less(i, j int) bool {
+	if ws[i].CreationTimestamp.Time.Before(ws[j].CreationTimestamp.Time) {
+		return true
+	}
+	if ws[i].CreationTimestamp.Time.Equal(ws[j].CreationTimestamp.Time) && ws[i].Name < ws[j].Name {
+		return true
+	}
+	return false
+}
