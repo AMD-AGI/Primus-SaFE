@@ -17,6 +17,7 @@ create table if not exists workload
     delete_time TIMESTAMP,
     is_supervised boolean,
     is_deleted boolean,
+    is_tolerate_all boolean,
     priority INT,
     max_retry INT,
     scheduler_order INT,

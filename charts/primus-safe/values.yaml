@@ -11,21 +11,24 @@ workload:
 net:
   nccl_socket_ifname: "ens51f0"
   nccl_ib_hca: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
+  rdma_name: "rdma/hca"
 repository: "docker.io/primussafe"
 resource_manager:
   replicas: 2
-  tag: "latest"
+  tag: "202506061523"
 apiserver:
   replicas: 2
-  tag: "latest"
+  tag: "202506061523"
 job_manager:
   replicas: 2
-  tag: "latest"
+  tag: "202506061523"
+preprocess:
+  tag: "202506061523"
 webhooks:
   replicas: 2
-  tag: "latest"
+  tag: "202506061523"
 node_agent:
-  tag: "latest"
+  tag: "202506051416"
 db:
   enable: true
   secret: "primus-safe-pguser-primus-safe"
@@ -37,3 +40,9 @@ db:
   max_idle_time_second: 100
   connect_timeout_second: 10
   request_timeout_second: 20
+log:
+  enable: true
+  secret: "primus-safe-logs-admin-password"
+  mount_path: "/etc/secrets/log"
+  endpoint: "logs-nodes.primus-safe.svc.cluster.local:9200"
+  prefix: "node-"

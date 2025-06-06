@@ -314,7 +314,7 @@ func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage)
 	if err != nil || len(schedulingWorkloads) == 0 {
 		return controller.Result{}, err
 	}
-	totalAvailResources, err := r.getTotalAvailResources(ctx, workspace, runningWorkloads)
+	leftAvailResources, leftTotalResources, err := r.getLeftTotalResources(ctx, workspace, runningWorkloads)
 	if err != nil {
 		return controller.Result{}, err
 	}
@@ -323,8 +323,13 @@ func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage)
 	unScheduledReasons := make(map[string]string)
 	for i, w := range schedulingWorkloads {
 		requestResources, _ := commonworkload.CvtToResourceList(w)
-		reason := ""
-		ok, key := quantity.IsSubResource(requestResources, totalAvailResources)
+		var reason, key string
+		var ok bool
+		if w.Spec.IsTolerateAll {
+			ok, key = quantity.IsSubResource(requestResources, leftTotalResources)
+		} else {
+			ok, key = quantity.IsSubResource(requestResources, leftAvailResources)
+		}
 		if !ok {
 			reason = fmt.Sprintf("Insufficient total %s resources", formatResourceName(key))
 		} else {
@@ -333,8 +338,11 @@ func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage)
 			}
 		}
 		if !ok {
-			klog.Infof("the workload(%s) is not scheduled, reason: %s, request.resource: %s, available.resource: %s",
-				w.Name, reason, string(jsonutils.MarshalSilently(requestResources)), string(jsonutils.MarshalSilently(totalAvailResources)))
+			klog.Infof("the workload(%s) is not scheduled, reason: %s,"+
+				" request.resource: %s, available.resource: %s, total.resource: %s",
+				w.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
+				string(jsonutils.MarshalSilently(leftAvailResources)),
+				string(jsonutils.MarshalSilently(leftTotalResources)))
 			unScheduledReasons[w.Name] = reason
 			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads,
 			// then break out of the queue directly and continue waiting.
@@ -351,7 +359,8 @@ func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage)
 		}
 		klog.Infof("the workload is scheduled, name: %s, dispatch count: %d",
 			w.Name, v1.GetWorkloadDispatchCnt(w)+1)
-		totalAvailResources = quantity.SubResource(totalAvailResources, requestResources)
+		leftAvailResources = quantity.SubResource(leftAvailResources, requestResources)
+		leftTotalResources = quantity.SubResource(leftTotalResources, requestResources)
 		runningWorkloads = append(runningWorkloads, schedulingWorkloads[i])
 		scheduledCount++
 	}
@@ -461,9 +470,9 @@ func (r *SchedulerReconciler) getUnfinishedWorkloads(ctx context.Context, worksp
 	return schedulingWorkloads, runningWorkloads, nil
 }
 
-// Retrieve the total amount of available resources. The system usually reserves a certain amount of CPU, memory, and other resources.
-func (r *SchedulerReconciler) getTotalAvailResources(ctx context.Context,
-	workspace *v1.Workspace, runningWorkloads []*v1.Workload) (corev1.ResourceList, error) {
+// Retrieve the total amount of left resources. The system usually reserves a certain amount of CPU, memory, and other resources.
+func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
+	workspace *v1.Workspace, runningWorkloads []*v1.Workload) (corev1.ResourceList, corev1.ResourceList, error) {
 	filterFunc := func(nodeName string) bool {
 		n := &v1.Node{}
 		if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, n); err != nil {
@@ -481,14 +490,16 @@ func (r *SchedulerReconciler) getTotalAvailResources(ctx context.Context,
 			resourceList, err = commonworkload.GetActiveResources(w, filterFunc)
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		usedResource = quantity.AddResource(usedResource, resourceList)
 	}
 
 	availResource := quantity.GetAvailableResource(workspace.Status.AvailableResources)
 	leftAvailResource := quantity.SubResource(availResource, usedResource)
-	return leftAvailResource, nil
+	totalResource := quantity.GetAvailableResource(workspace.Status.TotalResources)
+	leftTotalResource := quantity.SubResource(totalResource, usedResource)
+	return leftAvailResource, leftTotalResource, nil
 }
 
 func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.Workload) error {
