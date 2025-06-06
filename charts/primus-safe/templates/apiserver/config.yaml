@@ -25,6 +25,11 @@ data:
       max_idle_time_second: {{ .Values.db.max_idle_time_second }}
       connect_timeout_second:  {{ .Values.db.connect_timeout_second }}
       request_timeout_second: {{ .Values.db.request_timeout_second }}
+    log:
+      enable: {{ .Values.log.enable }}
+      config_path: {{ .Values.log.mount_path }}
+      endpoint: {{ .Values.log.endpoint }}
+      prefix: {{ .Values.log.prefix }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

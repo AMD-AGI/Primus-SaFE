@@ -465,13 +465,14 @@ func updateContainerEnv(adminWorkload *v1.Workload, mainContainer map[string]int
 		if !ok {
 			continue
 		}
+		nameStr := name.(string)
+		currentEnvSet.Insert(nameStr)
 		value, ok := env["value"]
 		if !ok {
+			newEnv = append(newEnv, currentEnv[i])
 			continue
 		}
-		name2 := name.(string)
-		currentEnvSet.Insert(name2)
-		specValue, ok := adminWorkload.Spec.Env[name2]
+		specValue, ok := adminWorkload.Spec.Env[nameStr]
 		if ok && specValue != value.(string) {
 			isChanged = true
 			// A empty value means the field should be deleted.
@@ -479,7 +480,7 @@ func updateContainerEnv(adminWorkload *v1.Workload, mainContainer map[string]int
 				continue
 			}
 			currentEnv[i] = map[string]interface{}{
-				"name":  name2,
+				"name":  nameStr,
 				"value": specValue,
 			}
 		}

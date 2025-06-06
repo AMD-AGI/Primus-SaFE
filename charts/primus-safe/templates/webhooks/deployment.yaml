@@ -69,11 +69,11 @@ spec:
             periodSeconds: 2
           resources:
             limits:
-              cpu: "4000m"
-              memory: 8Gi
+              cpu: "1000m"
+              memory: 2Gi
             requests:
-              cpu: "4000m"
-              memory: 8Gi
+              cpu: "1000m"
+              memory: 2Gi
       imagePullSecrets:
       - name: {{ .Release.Name }}-image
       volumes:

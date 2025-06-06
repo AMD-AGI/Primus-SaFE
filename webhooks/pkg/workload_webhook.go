@@ -534,7 +534,7 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, w *v1.Workloa
 	if err != nil {
 		return commonerrors.NewNotFound(v1.WorkspaceKind, w.Spec.Workspace)
 	}
-	if workspace.IsAbnormal() {
+	if workspace.IsAbnormal() && !w.Spec.IsTolerateAll {
 		return commonerrors.NewInternalError(fmt.Sprintf("workspace %s is abnormal", workspace.Name))
 	}
 	if w.Spec.Resource.Replica > workspace.Spec.Replica {

@@ -21,6 +21,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
@@ -69,6 +70,8 @@ func parseConfigmap(content string) (*corev1.ConfigMap, error) {
 }
 
 func TestCreatePytorchJob(t *testing.T) {
+	commonconfig.SetValue("global.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("global.rdma_name", "")
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Workspace = workspace.Name
@@ -95,12 +98,14 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkImage(t, obj, workload, &templates[0])
 	checkLabels(t, obj, workload, &templates[0])
 	checkHostNetwork(t, obj, workload, &templates[0])
+	checkTolerations(t, obj, workload, &templates[0])
 	_, found, err := unstructured.NestedSlice(obj.Object, templates[1].PrePaths...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, false)
 
 	// enable worker
 	workload.Spec.Resource.Replica = 3
+	workload.Spec.IsTolerateAll = true
 	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 	obj, err = r.createK8sObject(context.Background(), workload)
 	assert.NilError(t, err)
@@ -113,10 +118,13 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkImage(t, obj, workload, &templates[1])
 	checkLabels(t, obj, workload, &templates[1])
 	checkHostNetwork(t, obj, workload, &templates[1])
+	checkTolerations(t, obj, workload, &templates[1])
 	// fmt.Println(unstructuredutils.ToString(obj))
 }
 
 func TestCreateDeployment(t *testing.T) {
+	commonconfig.SetValue("global.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("global.rdma_name", "")
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Workspace = workspace.Name
@@ -192,6 +200,9 @@ func TestUpdateDeployment(t *testing.T) {
 }
 
 func TestUpdatePytorchJob(t *testing.T) {
+	commonconfig.SetValue("global.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("global.rdma_name", "")
+
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
@@ -219,7 +230,7 @@ func TestUpdatePytorchJob(t *testing.T) {
 	gpuQuantity, ok := template.Spec.Containers[0].Resources.Limits[common.AmdGpu]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, gpuQuantity.Value(), int64(8))
-	rdmaQuantity, ok := template.Spec.Containers[0].Resources.Limits[common.Rdma]
+	rdmaQuantity, ok := template.Spec.Containers[0].Resources.Limits[corev1.ResourceName(commonconfig.GetRdmaName())]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, rdmaQuantity.Value(), int64(1))
 
@@ -231,12 +242,15 @@ func TestUpdatePytorchJob(t *testing.T) {
 	gpuQuantity, ok = template.Spec.Containers[0].Resources.Limits[common.AmdGpu]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, gpuQuantity.Value(), int64(8))
-	rdmaQuantity, ok = template.Spec.Containers[0].Resources.Limits[common.Rdma]
+	rdmaQuantity, ok = template.Spec.Containers[0].Resources.Limits[corev1.ResourceName(commonconfig.GetRdmaName())]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, rdmaQuantity.Value(), int64(1))
 }
 
 func TestUpdatePytorchJobMaster(t *testing.T) {
+	commonconfig.SetValue("global.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("global.rdma_name", "")
+
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
@@ -255,7 +269,7 @@ func TestUpdatePytorchJobMaster(t *testing.T) {
 	gpuQuantity, ok := template.Spec.Containers[0].Resources.Limits[common.AmdGpu]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, gpuQuantity.Value(), int64(4))
-	_, ok = template.Spec.Containers[0].Resources.Limits[common.Rdma]
+	_, ok = template.Spec.Containers[0].Resources.Limits[corev1.ResourceName(commonconfig.GetRdmaName())]
 	assert.Equal(t, ok, false)
 
 	assert.Equal(t, pytorchJob.Spec.PytorchReplicaSpecs.Worker.Replicas, 0)

@@ -10,6 +10,7 @@ const (
 	globalPrefix = "global."
 	cryptoEnable = globalPrefix + "enable_crypto"
 	cryptoKey    = globalPrefix + "crypto_key"
+	rdmaName     = globalPrefix + "rdma_name"
 
 	// server
 	serverPrefix = "server."
@@ -42,11 +43,9 @@ const (
 	// log
 	logPrefix        = "log."
 	logEnable        = logPrefix + "enable"
-	logServiceHost   = logPrefix + "host"
-	logServicePort   = logPrefix + "port"
+	logConfigPath    = logPrefix + "config_path"
+	logEndpoint      = logPrefix + "endpoint"
 	logServicePrefix = logPrefix + "prefix"
-	logServiceUser   = logPrefix + "user"
-	logServicePasswd = logPrefix + "password"
 
 	// db
 	dbPrefix               = "db."

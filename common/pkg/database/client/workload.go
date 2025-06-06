@@ -45,6 +45,7 @@ var (
 		    dispatch_count = :dispatch_count,
 		    nodes = :nodes,
 		    is_supervised = :is_supervised,
+		    is_tolerate_all = :is_tolerate_all,
 		    timeout = :timeout 
 		WHERE workload_id = :workload_id`, TWorkload)
 )
