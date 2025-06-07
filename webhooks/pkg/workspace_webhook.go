@@ -15,7 +15,6 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -97,6 +96,9 @@ func (m *WorkspaceMutator) mutateUpdate(ctx context.Context, oldObj, newObj *v1.
 	} else if err := m.mutateScaleDown(ctx, oldObj, newObj); err != nil {
 		return err
 	}
+	if oldObj.Spec.EnablePreempt != newObj.Spec.EnablePreempt {
+		m.mutatePreempt(ctx, newObj)
+	}
 	return nil
 }
 
@@ -110,10 +112,10 @@ func (m *WorkspaceMutator) mutateMeta(ctx context.Context, w *v1.Workspace) {
 					klog.ErrorS(err, "failed to SetControllerReference")
 				}
 			}
-			metav1.SetMetaDataLabel(&w.ObjectMeta, v1.ClusterIdLabel, w.Spec.Cluster)
+			v1.SetLabel(w, v1.ClusterIdLabel, w.Spec.Cluster)
 		}
 	}
-	metav1.SetMetaDataLabel(&w.ObjectMeta, v1.WorkspaceIdLabel, w.Name)
+	v1.SetLabel(w, v1.WorkspaceIdLabel, w.Name)
 	controllerutil.AddFinalizer(w, v1.WorkspaceFinalizer)
 }
 
@@ -182,8 +184,8 @@ func (m *WorkspaceMutator) mutateCommon(ctx context.Context, w *v1.Workspace) {
 	} else if v1.GetGpuResourceName(w) == "" {
 		nf, _ := getNodeFlavor(ctx, m.Client, w.Spec.NodeFlavor)
 		if nf != nil && nf.HasGpu() {
-			metav1.SetMetaDataAnnotation(&w.ObjectMeta, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName)
-			metav1.SetMetaDataAnnotation(&w.ObjectMeta, v1.GpuProductNameAnnotation, nf.Spec.Gpu.Product)
+			v1.SetAnnotation(w, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName)
+			v1.SetAnnotation(w, v1.GpuProductNameAnnotation, nf.Spec.Gpu.Product)
 		}
 	}
 }
@@ -208,7 +210,39 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldObj, newObj *
 		nodeNames = append(nodeNames, n.Name)
 	}
 	action := commonnodes.BuildAction(v1.NodeActionRemove, nodeNames...)
-	metav1.SetMetaDataAnnotation(&newObj.ObjectMeta, v1.WorkspaceNodesAction, action)
+	v1.SetAnnotation(newObj, v1.WorkspaceNodesAction, action)
+	return nil
+}
+
+func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Workspace) error {
+	filterFunc := func(w *v1.Workload) bool {
+		if w.IsEnd() {
+			return true
+		}
+		return false
+	}
+	workloads, err := commonworkload.GetWorkloadsOfWorkspace(ctx, m.Client,
+		workspace.Spec.Cluster, []string{workspace.Name}, filterFunc)
+	if err != nil {
+		return err
+	}
+	for _, w := range workloads {
+		patch := client.MergeFrom(w.DeepCopy())
+		if workspace.Spec.EnablePreempt {
+			if v1.IsWorkloadEnablePreempt(w) {
+				continue
+			}
+			v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, "")
+		} else {
+			if !v1.IsWorkloadEnablePreempt(w) {
+				continue
+			}
+			v1.RemoveAnnotation(w, v1.WorkloadEnablePreemptAnnotation)
+		}
+		if err = m.Patch(ctx, w, patch); err != nil {
+			klog.ErrorS(err, "failed to patch workload")
+		}
+	}
 	return nil
 }
 

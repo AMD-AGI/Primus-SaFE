@@ -54,19 +54,13 @@ func removeFinalizer(ctx context.Context, cli client.Client, obj client.Object, 
 	return nil
 }
 
-func incFailedTimes(ctx context.Context, cli client.Client, obj client.Object) (int, error) {
-	count := 1
-	annotations := obj.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
-	} else if strCount, ok := annotations[v1.FailedCountAnnotation]; ok {
-		if oldCount, err := strconv.Atoi(strCount); err == nil {
-			count += oldCount
-		}
+func incRetryCount(ctx context.Context, cli client.Client, obj client.Object, maxCount int) (int, error) {
+	count := v1.GetRetryCount(obj) + 1
+	if count > maxCount {
+		return count, nil
 	}
 	patch := client.MergeFrom(obj.DeepCopyObject().(client.Object))
-	annotations[v1.FailedCountAnnotation] = strconv.Itoa(count)
-	obj.SetAnnotations(annotations)
+	v1.SetAnnotation(obj, v1.RetryCountAnnotation, strconv.Itoa(count))
 	if err := cli.Patch(ctx, obj, patch); err != nil {
 		return 0, client.IgnoreNotFound(err)
 	}

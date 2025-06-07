@@ -103,9 +103,7 @@ func (m *NodeMutator) mutateSpec(_ context.Context, n *v1.Node) {
 
 func (m *NodeMutator) mutateMeta(_ context.Context, n *v1.Node) {
 	n.Name = stringutil.NormalizeName(n.GetSpecHostName())
-	if v1.GetDisplayName(n) == "" {
-		metav1.SetMetaDataLabel(&n.ObjectMeta, v1.DisplayNameLabel, n.GetSpecHostName())
-	}
+	v1.SetLabel(n, v1.DisplayNameLabel, n.GetSpecHostName())
 	controllerutil.AddFinalizer(n, v1.NodeFinalizer)
 }
 

@@ -178,7 +178,7 @@ func GetPodResources(w *v1.Workload) (corev1.ResourceList, error) {
 }
 
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
-	switch w.Spec.GroupVersionKind.Kind {
+	switch w.SpecKind() {
 	case common.PytorchJobKind:
 		return v1.TrainScope
 	case common.DeploymentKind, common.StatefulSetKind:
@@ -189,15 +189,15 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 }
 
 func IsApplication(w *v1.Workload) bool {
-	if w.Spec.GroupVersionKind.Kind == common.DeploymentKind ||
-		w.Spec.GroupVersionKind.Kind == common.StatefulSetKind {
+	if w.SpecKind() == common.DeploymentKind ||
+		w.SpecKind() == common.StatefulSetKind {
 		return true
 	}
 	return false
 }
 
 func IsJob(w *v1.Workload) bool {
-	if w.Spec.GroupVersionKind.Kind == common.PytorchJobKind {
+	if w.SpecKind() == common.PytorchJobKind {
 		return true
 	}
 	return false

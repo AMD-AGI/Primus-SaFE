@@ -339,11 +339,11 @@ func (r *NodeK8sReconciler) syncK8sMetadata(ctx context.Context, adminNode *v1.N
 	for _, k := range concernedK8sLabelKeys {
 		if v, ok := k8sNode.Labels[k]; ok {
 			if adminNode.Labels[k] != v {
-				metav1.SetMetaDataLabel(&adminNode.ObjectMeta, k, v)
+				v1.SetLabel(adminNode, k, v)
 				isShouldUpdate = true
 			}
 		} else {
-			delete(adminNode.Labels, k)
+			v1.RemoveLabel(adminNode, k)
 			isShouldUpdate = true
 		}
 	}
@@ -351,11 +351,11 @@ func (r *NodeK8sReconciler) syncK8sMetadata(ctx context.Context, adminNode *v1.N
 	for _, k := range concernedK8sAnnotationKeys {
 		if v, ok := k8sNode.Annotations[k]; ok {
 			if adminNode.Annotations[k] != v {
-				metav1.SetMetaDataAnnotation(&adminNode.ObjectMeta, k, v)
+				v1.SetAnnotation(adminNode, k, v)
 				isShouldUpdate = true
 			}
 		} else {
-			delete(adminNode.Annotations, k)
+			v1.RemoveAnnotation(adminNode, k)
 			isShouldUpdate = true
 		}
 	}
@@ -438,6 +438,7 @@ func deleteConcernedMeta(adminNode *v1.Node) {
 	for _, k := range concernedK8sAnnotationKeys {
 		delete(adminNode.Annotations, k)
 	}
+	delete(adminNode.Annotations, v1.RetryCountAnnotation)
 }
 
 func isConcernedLabelsEqual(obj1, obj2 metav1.Object) bool {

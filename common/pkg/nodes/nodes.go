@@ -203,16 +203,10 @@ func (ns NodeSlice) Swap(i, j int) {
 
 func (ns NodeSlice) Less(i, j int) bool {
 	ni, nj := ns[i], ns[j]
-	if !ni.GetDeletionTimestamp().IsZero() && nj.GetDeletionTimestamp().IsZero() {
+	if !ni.IsAvailable(false) && nj.IsAvailable(false) {
 		return true
 	}
-	if !nj.GetDeletionTimestamp().IsZero() && ni.GetDeletionTimestamp().IsZero() {
-		return false
-	}
-	if !ni.IsAvailable() && nj.IsAvailable() {
-		return true
-	}
-	if !nj.IsAvailable() && ni.IsAvailable() {
+	if !nj.IsAvailable(false) && ni.IsAvailable(false) {
 		return false
 	}
 	return !ni.ObjectMeta.CreationTimestamp.Before(&nj.ObjectMeta.CreationTimestamp)

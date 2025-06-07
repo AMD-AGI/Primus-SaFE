@@ -11,7 +11,6 @@ import (
 	"fmt"
 
 	admissionv1 "k8s.io/api/admission/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -62,7 +61,7 @@ func (m *FaultMutator) Handle(ctx context.Context, req admission.Request) admiss
 
 func (m *FaultMutator) mutate(ctx context.Context, f *v1.Fault) {
 	f.Name = stringutil.NormalizeName(f.Name)
-	metav1.SetMetaDataLabel(&f.ObjectMeta, v1.ClusterIdLabel, f.Spec.Node.ClusterName)
+	v1.SetLabel(f, v1.ClusterIdLabel, f.Spec.Node.ClusterName)
 	controllerutil.AddFinalizer(f, v1.FaultFinalizer)
 
 	if f.Spec.Node != nil {
@@ -71,7 +70,7 @@ func (m *FaultMutator) mutate(ctx context.Context, f *v1.Fault) {
 		if node == nil {
 			return
 		}
-		metav1.SetMetaDataLabel(&node.ObjectMeta, v1.NodeIdLabel, adminNodeName)
+		v1.SetLabel(node, v1.NodeIdLabel, adminNodeName)
 		if !hasOwnerReferences(f, adminNodeName) {
 			if err := controllerutil.SetControllerReference(node, f, m.Client.Scheme()); err != nil {
 				klog.ErrorS(err, "failed to SetControllerReference")

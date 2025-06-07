@@ -14,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -29,6 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
@@ -108,7 +109,7 @@ func (r *WorkspaceReconciler) enqueueRequestByWorkspace() predicate.Predicate {
 func (r *WorkspaceReconciler) enqueueRequestByNode() handler.EventHandler {
 	isCaredFieldChanged := func(oldNode, newNode *v1.Node) bool {
 		if !reflect.DeepEqual(oldNode.Status.Resources, newNode.Status.Resources) ||
-			oldNode.IsAvailable() != newNode.IsAvailable() ||
+			oldNode.IsAvailable(false) != newNode.IsAvailable(false) ||
 			v1.GetClusterId(oldNode) != v1.GetClusterId(newNode) ||
 			oldNode.GetSpecCluster() != "" && newNode.GetSpecCluster() == "" ||
 			(oldNode.GetDeletionTimestamp().IsZero() && !newNode.GetDeletionTimestamp().IsZero()) {
@@ -412,7 +413,7 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 		if v1.GetNodeFlavorId(&node) != workspace.Spec.NodeFlavor {
 			continue
 		}
-		if node.IsAvailable() {
+		if node.IsAvailable(false) {
 			availResources = quantity.AddResource(availResources, node.Status.Resources)
 			availReplica++
 		} else {

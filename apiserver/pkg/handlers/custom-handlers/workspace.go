@@ -169,7 +169,7 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 
 func updateWorkspace(workspace *v1.Workspace, req *types.PatchWorkspaceRequest) {
 	if req.Description != nil {
-		metav1.SetMetaDataAnnotation(&workspace.ObjectMeta, v1.DescriptionAnnotation, *req.Description)
+		v1.SetAnnotation(workspace, v1.DescriptionAnnotation, *req.Description)
 	}
 	if req.NodeFlavor != nil {
 		workspace.Spec.NodeFlavor = *req.NodeFlavor
@@ -265,7 +265,7 @@ func (h *Handler) buildWorkspaceDetail(ctx context.Context, workspace *v1.Worksp
 		if err != nil {
 			return true
 		}
-		if !n.IsAvailable() {
+		if !n.IsAvailable(false) {
 			return true
 		}
 		return false

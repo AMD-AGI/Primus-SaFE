@@ -211,6 +211,18 @@ func IsEnableHostNetwork(obj metav1.Object) bool {
 	return GetAnnotation(obj, EnableHostNetworkAnnotation) == "true"
 }
 
+func IsWorkloadEnablePreempt(obj metav1.Object) bool {
+	return HasAnnotation(obj, WorkloadEnablePreemptAnnotation)
+}
+
+func IsWorkloadPreempted(obj metav1.Object) bool {
+	return HasAnnotation(obj, WorkloadPreemptedAnnotation)
+}
+
+func GetRetryCount(obj metav1.Object) int {
+	return atoi(GetAnnotation(obj, RetryCountAnnotation))
+}
+
 func atoi(str string) int {
 	if str == "" {
 		return 0

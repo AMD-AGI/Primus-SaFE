@@ -525,7 +525,7 @@ func (h *Handler) getResourceTemplate(ctx context.Context, kind string) (*v1.Res
 		return nil, err
 	}
 	for i, rf := range rfList.Items {
-		if rf.Spec.GroupVersionKind.Kind == kind {
+		if rf.SpeckKind() == kind {
 			return &rfList.Items[i], nil
 		}
 	}
@@ -561,7 +561,7 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 		adminWorkload.Spec.EntryPoint = *req.EntryPoint
 	}
 	if req.Description != nil {
-		metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.DescriptionAnnotation, *req.Description)
+		v1.SetAnnotation(adminWorkload, v1.DescriptionAnnotation, *req.Description)
 	}
 	if req.Timeout != nil {
 		adminWorkload.Spec.Timeout = pointer.Int(*req.Timeout)

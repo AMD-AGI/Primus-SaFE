@@ -102,7 +102,7 @@ func (r *SchedulerReconciler) handleByWorkspace() handler.EventHandler {
 				return r.createDataPlaneResources(ctx, workspace)
 			}
 			if err := backoff.Retry(op, maxWaitTime, waitTime); err != nil {
-				klog.Errorf(err.Error())
+				klog.Error(err.Error())
 			}
 		},
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
@@ -116,7 +116,7 @@ func (r *SchedulerReconciler) handleByWorkspace() handler.EventHandler {
 					return r.updateDataPlanePvc(ctx, oldWorkspace, newWorkspace)
 				}
 				if err := backoff.Retry(op, maxWaitTime, waitTime); err != nil {
-					klog.Errorf(err.Error())
+					klog.Error(err.Error())
 				}
 			}
 			// Since workspace resource updates may impact scheduling decisions, a rescheduling reconciliation is triggered.
@@ -136,7 +136,7 @@ func (r *SchedulerReconciler) handleByWorkspace() handler.EventHandler {
 				return r.deleteDataPlaneResources(ctx, workspace.Spec.Cluster, workspace.Name, workspace.Spec.Volumes)
 			}
 			if err := backoff.Retry(op, maxWaitTime, waitTime); err != nil {
-				klog.Errorf(err.Error())
+				klog.Error(err.Error())
 			}
 		},
 	}
@@ -163,7 +163,7 @@ func (r *SchedulerReconciler) createDataPlaneResources(ctx context.Context, work
 	for _, vol := range workspace.Spec.Volumes {
 		pvc, err := r.generatePVC(&vol, workspace)
 		if err != nil {
-			klog.Errorf(err.Error())
+			klog.Error(err.Error())
 			continue
 		}
 		if err = jobutils.CreatePVC(ctx, pvc, clientSet); err != nil {
@@ -193,7 +193,7 @@ func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspa
 		}
 		pvc, err := r.generatePVC(&vol, newWorkspace)
 		if err != nil {
-			klog.Errorf(err.Error())
+			klog.Error(err.Error())
 			continue
 		}
 		if err = jobutils.CreatePVC(ctx, pvc, clientSet); err != nil {
@@ -323,26 +323,17 @@ func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage)
 	unScheduledReasons := make(map[string]string)
 	for i, w := range schedulingWorkloads {
 		requestResources, _ := commonworkload.CvtToResourceList(w)
-		var reason, key string
-		var ok bool
+		var leftResources *corev1.ResourceList
 		if w.Spec.IsTolerateAll {
-			ok, key = quantity.IsSubResource(requestResources, leftTotalResources)
+			leftResources = &leftTotalResources
 		} else {
-			ok, key = quantity.IsSubResource(requestResources, leftAvailResources)
+			leftResources = &leftAvailResources
+		}
+		ok, reason, err := r.isCanSchedule(ctx, w, runningWorkloads, requestResources, *leftResources)
+		if err != nil {
+			return controller.Result{}, err
 		}
 		if !ok {
-			reason = fmt.Sprintf("Insufficient total %s resources", formatResourceName(key))
-		} else {
-			if ok, reason, err = r.checkNodeResources(ctx, w, runningWorkloads); err != nil {
-				return controller.Result{}, err
-			}
-		}
-		if !ok {
-			klog.Infof("the workload(%s) is not scheduled, reason: %s,"+
-				" request.resource: %s, available.resource: %s, total.resource: %s",
-				w.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
-				string(jsonutils.MarshalSilently(leftAvailResources)),
-				string(jsonutils.MarshalSilently(leftTotalResources)))
 			unScheduledReasons[w.Name] = reason
 			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads,
 			// then break out of the queue directly and continue waiting.
@@ -353,7 +344,6 @@ func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage)
 				continue
 			}
 		}
-
 		if err = r.updateScheduled(ctx, schedulingWorkloads[i]); err != nil {
 			return controller.Result{}, err
 		}
@@ -368,6 +358,30 @@ func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage)
 		r.updateUnScheduled(ctx, schedulingWorkloads, unScheduledReasons)
 	}
 	return controller.Result{}, nil
+}
+
+func (r *SchedulerReconciler) isCanSchedule(ctx context.Context, requestWorkload *v1.Workload,
+	runningWorkloads []*v1.Workload, requestResources, leftResources corev1.ResourceList) (bool, string, error) {
+	ok, key := quantity.IsSubResource(requestResources, leftResources)
+	var reason string
+	var err error
+	if !ok {
+		if ok, err = r.preempt(ctx, requestWorkload, runningWorkloads, leftResources); err != nil {
+			return false, "", err
+		} else if !ok {
+			reason = fmt.Sprintf("Insufficient total %s resources", formatResourceName(key))
+		}
+	} else {
+		if ok, reason, err = r.checkNodeResources(ctx, requestWorkload, runningWorkloads); err != nil {
+			return false, "", err
+		}
+	}
+	if !ok {
+		klog.Infof("the workload(%s) is not scheduled, reason: %s, request.resource: %s, left.resource: %s",
+			requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
+			string(jsonutils.MarshalSilently(leftResources)))
+	}
+	return ok, reason, nil
 }
 
 // Check if each node's available resources satisfy the workload's resource requests.
@@ -417,7 +431,7 @@ func (r *SchedulerReconciler) getWorkspace(ctx context.Context, clusterId, works
 	if err := r.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err != nil {
 		if apierrors.IsNotFound(err) {
 			if err = r.deleteDataPlaneResources(ctx, clusterId, workspaceId, nil); err != nil {
-				klog.Errorf(err.Error())
+				klog.Error(err.Error())
 			}
 			err = nil
 		}
@@ -478,16 +492,16 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 		if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, n); err != nil {
 			return true
 		}
-		return !n.IsAvailable()
+		return !n.IsAvailable(false)
 	}
 	usedResource := make(corev1.ResourceList)
 	for _, w := range runningWorkloads {
 		var resourceList corev1.ResourceList
 		var err error
-		if w.IsPending() {
-			resourceList, err = commonworkload.CvtToResourceList(w)
-		} else {
+		if w.IsRunning() {
 			resourceList, err = commonworkload.GetActiveResources(w, filterFunc)
+		} else {
+			resourceList, err = commonworkload.CvtToResourceList(w)
 		}
 		if err != nil {
 			return nil, nil, err

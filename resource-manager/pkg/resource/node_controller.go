@@ -33,6 +33,10 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
+const (
+	MaxRretyCount = 3
+)
+
 type NodeReconciler struct {
 	*ClusterBaseReconciler
 	clientManager *commonutils.ObjectManager
@@ -440,9 +444,9 @@ func (r *NodeReconciler) updateK8sNodeWorkspace(adminNode *v1.Node, k8sNode *cor
 	}
 
 	if workspace == "" {
-		delete(k8sNode.GetLabels(), v1.WorkspaceIdLabel)
+		v1.RemoveLabel(k8sNode, v1.WorkspaceIdLabel)
 	} else {
-		metav1.SetMetaDataLabel(&k8sNode.ObjectMeta, v1.WorkspaceIdLabel, workspace)
+		v1.SetLabel(k8sNode, v1.WorkspaceIdLabel, workspace)
 	}
 	klog.Infof("update node workspace, node-name: %s, workspace-name: %s", k8sNode.Name, workspace)
 	return true
@@ -550,6 +554,9 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 	}
 	// if the Kubernetes node is already present, it means the node has been successfully managed.
 	if k8sNode != nil {
+		if err := r.removeRetryCount(ctx, adminNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
 		k8sClients, err := getK8sClientFactory(r.clientManager, adminNode.GetSpecCluster())
 		if err != nil || !k8sClients.IsValid() {
 			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
@@ -567,6 +574,9 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context,
 	adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	if k8sNode != nil {
+		if err := r.removeRetryCount(ctx, adminNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
 		k8sClients, err := getK8sClientFactory(r.clientManager, adminNode.GetSpecCluster())
 		if err != nil || !k8sClients.IsValid() {
 			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
@@ -640,6 +650,16 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 		return err
 	}
 	if pod == nil {
+		// A retry limit is set when deleting a Pod. If the k8s node operation fails, scale-up will be retried.
+		// After exceeding the max retry count, it will fail directly to avoid infinite loops
+		count, err := incRetryCount(ctx, r.Client, adminNode, MaxRretyCount)
+		if err != nil {
+			return err
+		}
+		if count > MaxRretyCount {
+			adminNode.Status.ClusterStatus.Phase = v1.NodeManagedFailed
+			return nil
+		}
 		cluster, err := r.getCluster(ctx, adminNode.GetSpecCluster())
 		if err != nil || cluster == nil {
 			return err
@@ -668,7 +688,9 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 	} else {
 		switch pod.Status.Phase {
 		case corev1.PodSucceeded:
-			return r.Delete(ctx, pod)
+			if err = r.Delete(ctx, pod); err != nil {
+				return err
+			}
 		case corev1.PodFailed:
 			adminNode.Status.ClusterStatus.Phase = v1.NodeManagedFailed
 		default:
@@ -752,6 +774,17 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 
 	adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanaging
 	if pod == nil {
+		// A retry limit is set when deleting a Pod. If the k8s node operation fails, scale-down will be retried.
+		// After exceeding the max retry count, it will fail directly to avoid infinite loops
+		count, err := incRetryCount(ctx, r.Client, adminNode, MaxRretyCount)
+		if err != nil {
+			return err
+		}
+		if count > MaxRretyCount {
+			adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanagedFailed
+			return nil
+		}
+
 		username, err := r.getUsername(ctx, adminNode, cluster)
 		if err != nil {
 			return err
@@ -775,10 +808,10 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 	} else {
 		switch pod.Status.Phase {
 		case corev1.PodSucceeded:
-			adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanaged
 			if err = r.Delete(ctx, pod); err != nil {
 				return err
 			}
+
 		case corev1.PodFailed:
 			if !isK8sNodeReady(k8sNode) {
 				if err = clientSet.CoreV1().Nodes().Delete(ctx, k8sNode.Name, metav1.DeleteOptions{}); err != nil {
@@ -787,12 +820,22 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 				if err = r.Delete(ctx, pod); err != nil {
 					return err
 				}
-				adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanaged
 			} else {
 				adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanagedFailed
 			}
 		default:
 		}
+	}
+	return nil
+}
+
+func (r *NodeReconciler) removeRetryCount(ctx context.Context, adminNode *v1.Node) error {
+	n := client.MergeFrom(adminNode.DeepCopy())
+	if !v1.RemoveAnnotation(adminNode, v1.RetryCountAnnotation) {
+		return nil
+	}
+	if err := r.Patch(ctx, adminNode, n); err != nil {
+		return client.IgnoreNotFound(err)
 	}
 	return nil
 }

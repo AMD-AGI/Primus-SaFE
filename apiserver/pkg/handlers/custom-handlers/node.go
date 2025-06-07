@@ -406,14 +406,14 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 				isShouldUpdate = true
 			} else if val != val2 {
 				nodesLabelAction[key] = v1.NodeActionAdd
-				metav1.SetMetaDataLabel(&node.ObjectMeta, key, val2)
+				v1.SetLabel(node, key, val2)
 				isShouldUpdate = true
 			}
 		}
 		for key, val := range reqLabels {
 			if _, ok := currentLabels[key]; !ok {
 				nodesLabelAction[key] = v1.NodeActionAdd
-				metav1.SetMetaDataLabel(&node.ObjectMeta, key, val)
+				v1.SetLabel(node, key, val)
 				isShouldUpdate = true
 			}
 		}
@@ -438,8 +438,7 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 		isShouldUpdate = true
 	}
 	if len(nodesLabelAction) > 0 {
-		metav1.SetMetaDataAnnotation(&node.ObjectMeta,
-			v1.NodeLabelAction, string(jsonutils.MarshalSilently(nodesLabelAction)))
+		v1.SetAnnotation(node, v1.NodeLabelAction, string(jsonutils.MarshalSilently(nodesLabelAction)))
 	}
 	return isShouldUpdate, nil
 }
@@ -453,7 +452,7 @@ func cvtToGetNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.GetN
 		Phase:          string(n.Status.MachineStatus.Phase),
 		InternalIP:     n.Status.MachineStatus.PrivateIP,
 		NodeFlavor:     v1.GetNodeFlavorId(n),
-		Unschedulable:  n.IsAvailable(),
+		Unschedulable:  n.IsAvailable(false),
 		Taints:         getPrimusTaints(n.Status.Taints),
 		TotalResources: cvtToResourceList(n.Status.Resources),
 		CustomerLabels: getCustomerLabels(n.Labels, true),

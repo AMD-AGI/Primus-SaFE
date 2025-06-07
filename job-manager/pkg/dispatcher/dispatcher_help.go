@@ -207,7 +207,7 @@ func modifyHostNetWork(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 }
 
 func modifyStrategy(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
-	if adminWorkload.Spec.GroupVersionKind.Kind != common.DeploymentKind {
+	if adminWorkload.SpecKind() != common.DeploymentKind {
 		return nil
 	}
 	rollingUpdate := buildStrategy(adminWorkload)
@@ -313,11 +313,11 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 			"name":  "GPUS_PER_NODE",
 			"value": adminWorkload.Spec.Resource.GPU,
 		})
-		result = append(result, map[string]interface{}{
-			"name":  "NNODES",
-			"value": strconv.Itoa(adminWorkload.Spec.Resource.Replica),
-		})
 	}
+	result = append(result, map[string]interface{}{
+		"name":  "NNODES",
+		"value": strconv.Itoa(adminWorkload.Spec.Resource.Replica),
+	})
 	result = append(result, map[string]interface{}{
 		"name":  "DISPATCH_COUNT",
 		"value": buildDispatchCount(adminWorkload),

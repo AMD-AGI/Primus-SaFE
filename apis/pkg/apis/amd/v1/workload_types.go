@@ -308,3 +308,7 @@ func IsPodRunning(p *WorkloadPod) bool {
 func (w *Workload) ToSchemaGVK() schema.GroupVersionKind {
 	return w.Spec.GroupVersionKind.ToSchema()
 }
+
+func (w *Workload) SpecKind() string {
+	return w.Spec.GroupVersionKind.Kind
+}

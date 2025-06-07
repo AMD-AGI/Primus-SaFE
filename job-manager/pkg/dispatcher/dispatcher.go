@@ -265,8 +265,9 @@ func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1
 
 	if !v1.IsWorkloadDispatched(workload) {
 		patch := client.MergeFrom(workload.DeepCopy())
-		metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.WorkloadDispatchedAnnotation, time.Now().UTC().Format(time.RFC3339))
-		metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkloadDispatchCntLabel, buildDispatchCount(workload))
+		v1.SetAnnotation(workload, v1.WorkloadDispatchedAnnotation, time.Now().UTC().Format(time.RFC3339))
+		v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, buildDispatchCount(workload))
+		v1.RemoveAnnotation(workload, v1.WorkloadPreemptedAnnotation)
 		if err := r.Patch(ctx, workload, patch); err != nil {
 			klog.ErrorS(err, "failed to patch workload", "name", workload.Name)
 			return err
