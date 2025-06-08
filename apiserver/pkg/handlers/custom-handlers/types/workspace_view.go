@@ -89,9 +89,8 @@ type PatchWorkspaceRequest struct {
 	Volumes *[]v1.WorkspaceVolume `json:"volumes,omitempty"`
 	// description
 	Description *string `json:"description,omitempty"`
-	// If the balance strategy is selected, set the scheduling timeout duration (in seconds).
-	// Traversal will only be performed after the timeout. Default is 0 seconds.
-	QueueBalanceTimeout *int `json:"queue.balance.timeout,omitempty"`
+	// EnablePreempt
+	EnablePreempt *bool `json:"enablePreempt,omitempty"`
 }
 
 type WorkspaceSlice []v1.Workspace

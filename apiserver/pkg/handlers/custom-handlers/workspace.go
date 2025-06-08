@@ -186,6 +186,9 @@ func updateWorkspace(workspace *v1.Workspace, req *types.PatchWorkspaceRequest) 
 	if req.Volumes != nil {
 		workspace.Spec.Volumes = *req.Volumes
 	}
+	if req.EnablePreempt != nil {
+		workspace.Spec.EnablePreempt = *req.EnablePreempt
+	}
 }
 
 func (h *Handler) getAdminWorkspace(ctx context.Context, name string) (*v1.Workspace, error) {
