@@ -211,7 +211,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 			return nil, err
 		}
 	}
-	if h.dbClient != nil {
+	if commonconfig.IsDBEnable() {
 		if err = h.dbClient.SetWorkloadDeleted(c.Request.Context(), name); err != nil {
 			return nil, err
 		}
@@ -247,7 +247,7 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 		if !apierrors.IsNotFound(err) {
 			return nil, err
 		}
-		if h.dbClient != nil {
+		if commonconfig.IsDBEnable() {
 			if err = h.dbClient.SetWorkloadStopped(c.Request.Context(), name); err != nil {
 				return nil, err
 			}
@@ -284,7 +284,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 			klog.ErrorS(err, "failed to patch workload")
 			return nil, err
 		}
-	} else if h.dbClient != nil {
+	} else if commonconfig.IsDBEnable() {
 		if req.Description == nil || *req.Description == "" {
 			return nil, fmt.Errorf("The terminated workload can only modify the description")
 		}

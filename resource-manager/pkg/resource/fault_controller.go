@@ -249,7 +249,7 @@ func (r *FaultReconciler) retry(ctx context.Context, fault *v1.Fault) (ctrlrunti
 		klog.ErrorS(err, "failed to incRetryCount", "name", fault.Name)
 		return ctrlruntime.Result{}, err
 	}
-	if count <= r.opt.maxRetryCount {
+	if count < r.opt.maxRetryCount {
 		// The maximum number of retries has not been reached, try again later
 		klog.Infof("fault %s will retry %d times after %v",
 			fault.Name, count, r.opt.processWait)

@@ -143,18 +143,19 @@ type ControlPlane struct {
 	// 控制节点
 	Nodes []string `json:"nodes"`
 	// SSH 登录节点证书
-	SSHSecret              *corev1.ObjectReference `json:"secret,omitempty"`
-	KubeSprayImage         *string                 `json:"kubeSprayImage,omitempty"`
-	ImageSecret            *corev1.ObjectReference `json:"imageSecret,omitempty"`
-	KubePodsSubnet         *string                 `json:"kubePodsSubnet,omitempty"`
-	KubeServiceAddress     *string                 `json:"kubeServiceAddress,omitempty"`
-	KubeNetworkNodePrefix  *uint32                 `json:"kubeNetworkNodePrefix,omitempty"`
-	KubeNetworkPlugin      *string                 `json:"kubeNetworkPlugin,omitempty"`
-	KubeVersion            *string                 `json:"kubernetesVersion,omitempty"`
-	KubeProxyMode          *string                 `json:"kubeProxyMode,omitempty"`
-	NodeLocalDNSIP         *string                 `json:"nodeLocalDNSIP,omitempty"`
-	KubeApiServerArgs      map[string]string       `json:"kubeApiServerArgs,omitempty"`
-	KubeletLogFilesMaxSize *resource.Quantity      `json:"kubeletLogFilesMaxSize,omitempty"`
+	SSHSecret             *corev1.ObjectReference `json:"secret,omitempty"`
+	KubeSprayImage        *string                 `json:"kubeSprayImage,omitempty"`
+	ImageSecret           *corev1.ObjectReference `json:"imageSecret,omitempty"`
+	KubePodsSubnet        *string                 `json:"kubePodsSubnet,omitempty"`
+	KubeServiceAddress    *string                 `json:"kubeServiceAddress,omitempty"`
+	KubeNetworkNodePrefix *uint32                 `json:"kubeNetworkNodePrefix,omitempty"`
+	// default is cilium
+	KubeNetworkPlugin      *string            `json:"kubeNetworkPlugin,omitempty"`
+	KubeVersion            *string            `json:"kubernetesVersion,omitempty"`
+	KubeProxyMode          *string            `json:"kubeProxyMode,omitempty"`
+	NodeLocalDNSIP         *string            `json:"nodeLocalDNSIP,omitempty"`
+	KubeApiServerArgs      map[string]string  `json:"kubeApiServerArgs,omitempty"`
+	KubeletLogFilesMaxSize *resource.Quantity `json:"kubeletLogFilesMaxSize,omitempty"`
 }
 
 type ControlPlaneStatus struct {

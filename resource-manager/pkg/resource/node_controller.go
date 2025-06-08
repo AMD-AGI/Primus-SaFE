@@ -688,9 +688,7 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 	} else {
 		switch pod.Status.Phase {
 		case corev1.PodSucceeded:
-			if err = r.Delete(ctx, pod); err != nil {
-				return err
-			}
+			return r.Delete(ctx, pod)
 		case corev1.PodFailed:
 			adminNode.Status.ClusterStatus.Phase = v1.NodeManagedFailed
 		default:
@@ -808,10 +806,7 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 	} else {
 		switch pod.Status.Phase {
 		case corev1.PodSucceeded:
-			if err = r.Delete(ctx, pod); err != nil {
-				return err
-			}
-
+			return r.Delete(ctx, pod)
 		case corev1.PodFailed:
 			if !isK8sNodeReady(k8sNode) {
 				if err = clientSet.CoreV1().Nodes().Delete(ctx, k8sNode.Name, metav1.DeleteOptions{}); err != nil {

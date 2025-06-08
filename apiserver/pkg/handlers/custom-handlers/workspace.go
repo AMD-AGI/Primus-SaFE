@@ -235,6 +235,7 @@ func (h *Handler) cvtToWorkspaceResItem(ctx context.Context,
 		QueuePolicy:   w.Spec.QueuePolicy,
 		Scopes:        w.Spec.Scopes,
 		Volumes:       w.Spec.Volumes,
+		EnablePreempt: w.Spec.EnablePreempt,
 	}
 	if isNeedDetail {
 		if err := h.buildWorkspaceDetail(ctx, w, result); err != nil {

@@ -69,6 +69,8 @@ type GetWorkspaceResponseItem struct {
 	Scopes []v1.WorkspaceScope `json:"scopes"`
 	// the store volumes used by workspace
 	Volumes []v1.WorkspaceVolume `json:"volumes,omitempty"`
+	// Is preemption enabled
+	EnablePreempt bool `json:"enablePreempt,omitempty"`
 }
 
 type GetWorkspaceResponse struct {
