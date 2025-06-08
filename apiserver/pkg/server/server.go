@@ -57,6 +57,7 @@ type Server struct {
 func NewServer() (*Server, error) {
 	s := &Server{
 		opts: &options.Options{},
+		ctx:  ctrlruntime.SetupSignalHandler(),
 	}
 	if err := s.init(); err != nil {
 		klog.ErrorS(err, "failed to init server")
@@ -93,7 +94,6 @@ func (s *Server) Start() {
 		return
 	}
 	gin.EnableJsonDecoderDisallowUnknownFields()
-	s.ctx = ctrlruntime.SetupSignalHandler()
 
 	klog.Infof("starting api-server")
 	go func() {

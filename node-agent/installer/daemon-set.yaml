@@ -1,4 +1,9 @@
 apiVersion: v1
+kind: Namespace
+metadata:
+  name: primus-safe
+---
+apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: primus-safe-node-agent

@@ -12,6 +12,7 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -69,6 +70,9 @@ func (m *ClusterMutator) Handle(ctx context.Context, req admission.Request) admi
 func (m *ClusterMutator) mutateCreate(_ context.Context, c *v1.Cluster) bool {
 	c.Name = stringutil.NormalizeName(c.Name)
 	controllerutil.AddFinalizer(c, v1.ClusterFinalizer)
+	if c.Spec.ControlPlane.KubeNetworkPlugin == nil || *c.Spec.ControlPlane.KubeNetworkPlugin == "" {
+		c.Spec.ControlPlane.KubeNetworkPlugin = pointer.String(v1.CiliumNetworkPlugin)
+	}
 	return true
 }
 

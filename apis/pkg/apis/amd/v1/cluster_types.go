@@ -14,6 +14,8 @@ import (
 
 const (
 	ClusterKind = "Cluster"
+
+	CiliumNetworkPlugin = "cilium"
 )
 
 type (
