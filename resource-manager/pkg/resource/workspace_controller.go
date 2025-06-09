@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -29,12 +30,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
@@ -62,6 +62,9 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 		clientManager: commonutils.NewObjectManagerSingleton(),
 		expectations:  make(map[string]sets.Set),
 		opt:           opt,
+	}
+	if r.clientManager == nil {
+		return fmt.Errorf("failed to new clientManager")
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workspace{}, builder.WithPredicates(predicate.Or(

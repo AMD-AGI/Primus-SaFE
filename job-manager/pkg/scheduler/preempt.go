@@ -64,12 +64,7 @@ func (r *SchedulerReconciler) preemptLowPriorityWorkloads(ctx context.Context, r
 		return nil, nil
 	}
 
-	var totalResources corev1.ResourceList
-	if len(leftResources) == 0 {
-		totalResources = make(corev1.ResourceList)
-	} else {
-		totalResources = leftResources.DeepCopy()
-	}
+	totalResources := quantity.Copy(leftResources)
 	requestResources, _ := commonworkload.CvtToResourceList(requestWorkload)
 	result := make([]*v1.Workload, 0, len(sortedRunningWorkloads))
 	for i := range sortedRunningWorkloads {
@@ -89,6 +84,18 @@ func (r *SchedulerReconciler) preemptLowPriorityWorkloads(ctx context.Context, r
 		}
 	}
 	return nil, nil
+}
+
+func (r *SchedulerReconciler) isCanPreempt(requestWorkload *v1.Workload, runningWorkloads []*v1.Workload) bool {
+	if !v1.IsWorkloadEnablePreempt(requestWorkload) {
+		return false
+	}
+	for _, w := range runningWorkloads {
+		if requestWorkload.Spec.Priority > w.Spec.Priority {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *SchedulerReconciler) sortRunningWorkloads(ctx context.Context,

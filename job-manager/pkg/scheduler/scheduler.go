@@ -362,26 +362,29 @@ func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage)
 
 func (r *SchedulerReconciler) isCanSchedule(ctx context.Context, requestWorkload *v1.Workload,
 	runningWorkloads []*v1.Workload, requestResources, leftResources corev1.ResourceList) (bool, string, error) {
-	ok, key := quantity.IsSubResource(requestResources, leftResources)
+	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
 	var reason string
 	var err error
-	if !ok {
-		if ok, err = r.preempt(ctx, requestWorkload, runningWorkloads, leftResources); err != nil {
-			return false, "", err
-		} else if !ok {
-			reason = fmt.Sprintf("Insufficient total %s resources", formatResourceName(key))
-		}
+	isPreemptable := false
+	if !hasEnoughQuota {
+		reason = fmt.Sprintf("Insufficient total %s resources", formatResourceName(key))
+		isPreemptable, err = r.preempt(ctx, requestWorkload, runningWorkloads, leftResources)
 	} else {
-		if ok, reason, err = r.checkNodeResources(ctx, requestWorkload, runningWorkloads); err != nil {
-			return false, "", err
+		hasEnoughQuota, reason, err = r.checkNodeResources(ctx, requestWorkload, runningWorkloads)
+		if !hasEnoughQuota {
+			isPreemptable = r.isCanPreempt(requestWorkload, runningWorkloads)
 		}
 	}
-	if !ok {
+	if err != nil {
+		return false, "", err
+	}
+	if !hasEnoughQuota && !isPreemptable {
 		klog.Infof("the workload(%s) is not scheduled, reason: %s, request.resource: %s, left.resource: %s",
 			requestWorkload.Name, reason, string(jsonutils.MarshalSilently(requestResources)),
 			string(jsonutils.MarshalSilently(leftResources)))
+		return false, reason, nil
 	}
-	return ok, reason, nil
+	return true, "", nil
 }
 
 // Check if each node's available resources satisfy the workload's resource requests.
@@ -517,18 +520,17 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 }
 
 func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.Workload) error {
-	reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload) + 1)
-	cond := jobutils.NewCondition(string(v1.AdminScheduled), "the workload is scheduled", reason)
-	if jobutils.FindCondition(workload, cond) != nil {
-		klog.Infof("the workload is already scheduled. name: %s, reason: %s", workload.Name, reason)
-		return nil
-	}
-	workload.Status.Conditions = append(workload.Status.Conditions, *cond)
-	workload.Status.SchedulerOrder = 0
-	if workload.Status.Phase == "" {
-		workload.Status.Phase = v1.WorkloadPending
-	}
-	if err := r.Status().Update(ctx, workload); err != nil {
+	maxRetry := 3
+	if err := backoff.ConflictRetry(func() error {
+		err := r.updateStatus(ctx, workload)
+		if err == nil {
+			return nil
+		}
+		if apierrors.IsConflict(err) {
+			r.Get(ctx, client.ObjectKey{Namespace: workload.Namespace, Name: workload.Name}, workload)
+		}
+		return err
+	}, maxRetry, time.Millisecond*100); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err
 	}
@@ -543,6 +545,23 @@ func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.
 	workload.SetAnnotations(annotations)
 	if err := r.Patch(ctx, workload, patch); err != nil {
 		klog.ErrorS(err, "failed to patch workload", "name", workload.Name)
+		return err
+	}
+	return nil
+}
+
+func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Workload) error {
+	reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload) + 1)
+	cond := jobutils.NewCondition(string(v1.AdminScheduled), "the workload is scheduled", reason)
+	if jobutils.FindCondition(workload, cond) != nil {
+		return nil
+	}
+	workload.Status.Conditions = append(workload.Status.Conditions, *cond)
+	workload.Status.SchedulerOrder = 0
+	if workload.Status.Phase == "" {
+		workload.Status.Phase = v1.WorkloadPending
+	}
+	if err := r.Status().Update(ctx, workload); err != nil {
 		return err
 	}
 	return nil

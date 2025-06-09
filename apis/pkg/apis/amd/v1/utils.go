@@ -90,7 +90,7 @@ func SetLabel(obj metav1.Object, key, val string) bool {
 	if obj.GetLabels() == nil {
 		obj.SetLabels(make(map[string]string))
 	}
-	if currentVal, _ := obj.GetLabels()[key]; currentVal == val {
+	if currentVal, ok := obj.GetLabels()[key]; ok && currentVal == val {
 		return false
 	}
 	obj.GetLabels()[key] = val
@@ -104,7 +104,7 @@ func SetAnnotation(obj metav1.Object, key, val string) bool {
 	if obj.GetAnnotations() == nil {
 		obj.SetAnnotations(make(map[string]string))
 	}
-	if currentVal, _ := obj.GetAnnotations()[key]; currentVal == val {
+	if currentVal, ok := obj.GetAnnotations()[key]; ok && currentVal == val {
 		return false
 	}
 	obj.GetAnnotations()[key] = val
@@ -212,7 +212,7 @@ func IsEnableHostNetwork(obj metav1.Object) bool {
 }
 
 func IsWorkloadEnablePreempt(obj metav1.Object) bool {
-	return HasAnnotation(obj, WorkloadEnablePreemptAnnotation)
+	return GetAnnotation(obj, WorkloadEnablePreemptAnnotation) == "true"
 }
 
 func IsWorkloadPreempted(obj metav1.Object) bool {

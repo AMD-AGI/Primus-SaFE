@@ -94,17 +94,3 @@ type PatchWorkspaceRequest struct {
 	// EnablePreempt
 	EnablePreempt *bool `json:"enablePreempt,omitempty"`
 }
-
-type WorkspaceSlice []v1.Workspace
-
-func (ws WorkspaceSlice) Len() int {
-	return len(ws)
-}
-
-func (ws WorkspaceSlice) Swap(i, j int) {
-	ws[i], ws[j] = ws[j], ws[i]
-}
-
-func (ws WorkspaceSlice) Less(i, j int) bool {
-	return ws[i].Name < ws[j].Name
-}

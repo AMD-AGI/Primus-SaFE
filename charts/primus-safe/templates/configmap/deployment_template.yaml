@@ -45,20 +45,10 @@ data:
                  value: "{{ .Values.net.nccl_socket_ifname }}"
                - name: NCCL_IB_HCA
                  value: "{{ .Values.net.nccl_ib_hca }}"
-               - name: NCCL_DEBUG
-                 value: "INFO"
-               - name: NCCL_IB_DISABLE
-                 value: "0"
                - name: NCCL_IB_TIMEOUT
                  value: "22"
-               - name: NCCL_IB_QPS_PER_CONNECTION
-                 value: "8"
                - name: NCCL_IB_RETRY_CNT
                  value: "12"
-               - name: NCCL_NVLS_ENABLE
-                 value: "0"
-               - name: NCCL_SOCKET_FAMILY
-                 value: "AF_INET"
                - name: POD_IP
                  valueFrom:
                    fieldRef:

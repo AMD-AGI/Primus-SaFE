@@ -7,10 +7,12 @@ package resource
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
@@ -24,10 +26,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 type ClusterReconciler struct {
 	*ClusterBaseReconciler
+	clientManager *commonutils.ObjectManager
 }
 
 func SetupClusterController(mgr manager.Manager) error {
@@ -35,9 +42,14 @@ func SetupClusterController(mgr manager.Manager) error {
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: mgr.GetClient(),
 		},
+		clientManager: commonutils.NewObjectManagerSingleton(),
+	}
+	if r.clientManager == nil {
+		return fmt.Errorf("failed to new clientManager")
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
-		For(&v1.Cluster{}, builder.WithPredicates(predicate.ResourceVersionChangedPredicate{})).
+		For(&v1.Cluster{}, builder.WithPredicates(predicate.Or(
+			predicate.ResourceVersionChangedPredicate{}, r.CaredPredicate()))).
 		Watches(&corev1.Pod{}, r.enqueueRequestByWorkerPod()).
 		Watches(&v1.Node{}, r.enqueueRequestByNode()).
 		Complete(r)
@@ -46,6 +58,39 @@ func SetupClusterController(mgr manager.Manager) error {
 	}
 	klog.Infof("Setup Cluster Controller successfully")
 	return nil
+}
+
+func (r *ClusterReconciler) CaredPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			cluster, ok := e.Object.(*v1.Cluster)
+			if !ok || !cluster.IsReady() {
+				return false
+			}
+			return true
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldCluster, ok1 := e.ObjectOld.(*v1.Cluster)
+			newCluster, ok2 := e.ObjectNew.(*v1.Cluster)
+			if !ok1 || !ok2 {
+				return false
+			}
+			if !oldCluster.IsReady() && newCluster.IsReady() {
+				return true
+			}
+			return false
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			cluster, ok := e.Object.(*v1.Cluster)
+			if !ok {
+				return false
+			}
+			if err := r.clientManager.Delete(cluster.Name); err != nil {
+				klog.Errorf("failed to delete cluster clients, err: %v", err)
+			}
+			return false
+		},
+	}
 }
 
 func (r *ClusterReconciler) enqueueRequestByNode() handler.EventHandler {
@@ -115,37 +160,42 @@ func (r *ClusterReconciler) enqueueRequestByWorkerPod() handler.EventHandler {
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	startTime := time.Now().UTC()
 	defer func() {
-		klog.V(4).Infof("Finished node reconcile %s cost (%v)", req.Name, time.Since(startTime))
+		klog.V(4).Infof("Finished reconcile %s cost (%v)", req.Name, time.Since(startTime))
 	}()
 	cluster := new(v1.Cluster)
 	err := r.Get(ctx, req.NamespacedName, cluster)
 	if err != nil {
-		if errors.IsNotFound(err) {
-			return ctrlruntime.Result{}, nil
-		}
-		return ctrlruntime.Result{}, err
+		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if !cluster.DeletionTimestamp.IsZero() {
-		return ctrlruntime.Result{}, r.delete(ctx, cluster)
+		return r.delete(ctx, cluster)
 	}
-	if err := r.guaranteeClusterControlPlane(ctx, cluster); err != nil {
+	if err = r.guaranteeClusterControlPlane(ctx, cluster); err != nil {
 		return ctrlruntime.Result{}, err
 	}
-
-	if err := r.guaranteeStorage(ctx, cluster); err != nil {
+	if err = r.guaranteeClientFactory(ctx, cluster); err != nil {
 		return ctrlruntime.Result{}, err
+	}
+	if result, err := r.guaranteeStorage(ctx, cluster); err != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
+	if result, err := r.guaranteePriorityClass(ctx, cluster); err != nil || result.RequeueAfter > 0 {
+		return result, err
 	}
 	return ctrlruntime.Result{}, nil
 }
 
-func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) error {
+func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) (ctrlruntime.Result, error) {
 	if err := r.resetNodesOfCluster(ctx, cluster.Name); err != nil {
-		return err
+		return ctrlruntime.Result{}, err
+	}
+	if result, err := r.deletePriorityClass(ctx, cluster.Name); err != nil || result.RequeueAfter > 0 {
+		return result, err
 	}
 	if err := removeFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer); err != nil {
-		return err
+		return ctrlruntime.Result{}, err
 	}
-	return nil
+	return ctrlruntime.Result{}, nil
 }
 
 func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, clusterName string) error {
@@ -173,4 +223,74 @@ func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, clusterName
 		klog.Infof("reset the node(%s) after the cluster(%s) is deleted.", n.Name, clusterName)
 	}
 	return nil
+}
+
+func (r *ClusterReconciler) guaranteeClientFactory(ctx context.Context, cluster *v1.Cluster) error {
+	if !cluster.IsReady() || r.clientManager.Has(cluster.Name) {
+		return nil
+	}
+	controlPlane := &cluster.Status.ControlPlaneStatus
+	endpoint, err := commoncluster.GetEndpoint(ctx, r.Client, cluster.Name, controlPlane.Endpoints)
+	if err != nil {
+		return err
+	}
+	k8sClients, err := commonclient.NewClientFactory(ctx, cluster.Name, endpoint,
+		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, commonclient.EnableInformer)
+	if err != nil {
+		return err
+	}
+	r.clientManager.AddOrReplace(cluster.Name, k8sClients)
+	return nil
+}
+
+func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster *v1.Cluster) (ctrlruntime.Result, error) {
+	if !cluster.IsReady() {
+		return ctrlruntime.Result{}, nil
+	}
+	k8sClients, err := getK8sClientFactory(r.clientManager, cluster.Name)
+	if err != nil {
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+	}
+	clientSet := k8sClients.ClientSet()
+	allPriorityClass := genAllPriorityClass(cluster.Name)
+	for _, pc := range allPriorityClass {
+		_, err = clientSet.SchedulingV1().PriorityClasses().Get(ctx, pc.name, metav1.GetOptions{})
+		if err == nil {
+			continue
+		}
+		if apierrors.IsNotFound(err) {
+			desc := "This priority class should be used for primus job only."
+			err = createPriorityClass(ctx, clientSet, pc.name, desc, pc.value)
+		}
+		return ctrlruntime.Result{}, err
+	}
+	return ctrlruntime.Result{}, nil
+}
+
+func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, clusterId string) (ctrlruntime.Result, error) {
+	k8sClients, err := getK8sClientFactory(r.clientManager, clusterId)
+	if err != nil {
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+	}
+	clientSet := k8sClients.ClientSet()
+	allPriorityClass := genAllPriorityClass(clusterId)
+	for _, pc := range allPriorityClass {
+		if err = deletePriorityClass(ctx, clientSet, pc.name); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+	}
+	return ctrlruntime.Result{}, nil
+}
+
+type PriorityClass struct {
+	name  string
+	value int32
+}
+
+func genAllPriorityClass(clusterId string) []PriorityClass {
+	return []PriorityClass{
+		{name: commonutils.GeneratePriorityClass(clusterId, common.HighPriority), value: 10000},
+		{name: commonutils.GeneratePriorityClass(clusterId, common.MedPriority), value: -1},
+		{name: commonutils.GeneratePriorityClass(clusterId, common.LowPriority), value: -10000},
+	}
 }

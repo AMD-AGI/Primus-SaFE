@@ -232,7 +232,7 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 			if v1.IsWorkloadEnablePreempt(w) {
 				continue
 			}
-			v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, "")
+			v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, "true")
 		} else {
 			if !v1.IsWorkloadEnablePreempt(w) {
 				continue

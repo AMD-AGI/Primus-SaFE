@@ -21,6 +21,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 )
 
@@ -220,4 +221,16 @@ func IsResourceEqual(workload1, workload2 *v1.Workload) bool {
 
 func GenerateDispatchReason(count int) string {
 	return "run_" + strconv.Itoa(count) + "_times"
+}
+
+func GeneratePriorityClass(workload *v1.Workload) string {
+	clusterId := v1.GetClusterId(workload)
+	switch workload.Spec.Priority {
+	case common.HighPriorityInt:
+		return commonutils.GeneratePriorityClass(clusterId, common.HighPriority)
+	case common.MedPriorityInt:
+		return commonutils.GeneratePriorityClass(clusterId, common.MedPriority)
+	default:
+		return commonutils.GeneratePriorityClass(clusterId, common.LowPriority)
+	}
 }

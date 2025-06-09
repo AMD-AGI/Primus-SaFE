@@ -84,7 +84,7 @@ func (m *WorkloadMutator) Handle(ctx context.Context, req admission.Request) adm
 	case admissionv1.Update:
 		oldObj := &v1.Workload{}
 		if m.decoder.DecodeRaw(req.OldObject, oldObj) == nil {
-			isChanged = m.mutateUpdate(oldObj, obj)
+			isChanged = m.mutateUpdate(ctx, oldObj, obj)
 		}
 	}
 	if !isChanged {
@@ -121,21 +121,25 @@ func (m *WorkloadMutator) mutateCreate(ctx context.Context, workload *v1.Workloa
 	m.mutateMaxRetry(workload)
 	m.mutateCreateEnv(workload)
 	m.mutateTTLSeconds(workload)
-	m.mutateCommon(workload)
+	m.mutateCommon(ctx, workload, workspace)
 	return true
 }
 
-func (m *WorkloadMutator) mutateUpdate(oldObj, newObj *v1.Workload) bool {
-	m.mutateResource(newObj, nil)
-	m.mutateUpdateEnv(oldObj, newObj)
-	m.mutateCommon(newObj)
+func (m *WorkloadMutator) mutateUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) bool {
+	m.mutateResource(newWorkload, nil)
+	m.mutateUpdateEnv(oldWorkload, newWorkload)
+	workspace, err := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
+	if err == nil {
+		m.mutateCommon(ctx, newWorkload, workspace)
+	}
 	return true
 }
 
-func (m *WorkloadMutator) mutateCommon(obj *v1.Workload) bool {
-	m.mutatePriority(obj)
-	m.mutateImage(obj)
-	m.mutateEntryPoint(obj)
+func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
+	m.mutatePriority(workload)
+	m.mutateImage(workload)
+	m.mutateEntryPoint(workload)
+	m.mutateHostNetwork(ctx, workload, workspace)
 	return true
 }
 
@@ -161,12 +165,8 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 			v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(cm))
 		}
 	}
-	if workload.Annotations[v1.EnableHostNetworkAnnotation] == "" {
-		isEnableHostNetWork := m.canUseHostNetwork(ctx, workload, workspace)
-		v1.SetAnnotation(workload, v1.EnableHostNetworkAnnotation, strconv.FormatBool(isEnableHostNetWork))
-	}
 	if workspace.Spec.EnablePreempt {
-		v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, "")
+		v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, "true")
 	}
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
@@ -197,11 +197,11 @@ func (m *WorkloadMutator) mutateGvk(ctx context.Context, workload *v1.Workload) 
 
 func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
 	isChanged := false
-	if workload.Spec.Priority > v1.MaxPriority {
-		workload.Spec.Priority = v1.MaxPriority
+	if workload.Spec.Priority > common.HighPriorityInt {
+		workload.Spec.Priority = common.HighPriorityInt
 		isChanged = true
-	} else if workload.Spec.Priority < v1.MinPriority {
-		workload.Spec.Priority = v1.MinPriority
+	} else if workload.Spec.Priority < common.LowPriorityInt {
+		workload.Spec.Priority = common.LowPriorityInt
 		isChanged = true
 	}
 	return isChanged
@@ -348,6 +348,11 @@ func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
 	if !stringutil.IsBase64(workload.Spec.EntryPoint) {
 		workload.Spec.EntryPoint = stringutil.Base64Encode(workload.Spec.EntryPoint)
 	}
+}
+
+func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
+	isEnableHostNetWork := m.canUseHostNetwork(ctx, workload, workspace)
+	v1.SetAnnotation(workload, v1.EnableHostNetworkAnnotation, strconv.FormatBool(isEnableHostNetWork))
 }
 
 type WorkloadValidator struct {

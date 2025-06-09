@@ -10,10 +10,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"time"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -22,21 +20,22 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 )
 
-func (r *ClusterReconciler) guaranteeStorage(ctx context.Context, cluster *v1.Cluster) error {
-	// if cluster.IsNotReady() {
-	// 	return nil
-	// }
-	status := cluster.Status.DeepCopy()
-	stat := cluster.Status.ControlPlaneStatus
-	client, _, err := k8sclient.NewClientSet(fmt.Sprintf("https://%s.%s.svc", cluster.Name, common.PrimusSafeNamespace),
-		stat.CertData, stat.KeyData, stat.CAData, true)
-	if err != nil {
-		return err
+func (r *ClusterReconciler) guaranteeStorage(ctx context.Context, cluster *v1.Cluster) (ctrlruntime.Result, error) {
+	if !cluster.IsReady() {
+		return ctrlruntime.Result{}, nil
 	}
+	status := cluster.Status.DeepCopy()
+	k8sClients, err := getK8sClientFactory(r.clientManager, cluster.Name)
+	if err != nil {
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+	}
+	client := k8sClients.ClientSet()
 	for i, storage := range cluster.Status.StorageStatus {
 		switch storage.Type {
 		case v1.OBS:
@@ -54,16 +53,16 @@ func (r *ClusterReconciler) guaranteeStorage(ctx context.Context, cluster *v1.Cl
 		}
 	}
 	if err != nil {
-		return err
+		return ctrlruntime.Result{}, err
 	}
 	if reflect.DeepEqual(status.StorageStatus, cluster.Status.StorageStatus) {
-		return nil
+		return ctrlruntime.Result{}, nil
 	}
 	err = r.Status().Update(ctx, cluster)
 	if err != nil {
-		return fmt.Errorf("update cluster status failed %+v", err)
+		return ctrlruntime.Result{}, fmt.Errorf("update cluster status failed %+v", err)
 	}
-	return nil
+	return ctrlruntime.Result{}, nil
 }
 
 func (r *ClusterReconciler) guaranteeOBS(ctx context.Context, client kubernetes.Interface, cluster *v1.Cluster, index int) error {

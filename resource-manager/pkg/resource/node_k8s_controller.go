@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,13 +25,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
@@ -79,6 +80,9 @@ func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 			workqueue.DefaultTypedControllerRateLimiter[*nodeQueueMessage](),
 			workqueue.TypedRateLimitingQueueConfig[*nodeQueueMessage]{Name: "node"}),
 	}
+	if r.clientManager == nil {
+		return fmt.Errorf("failed to new clientManager")
+	}
 	r.Controller = commonctrl.NewControllerWithQueue[*nodeQueueMessage](r, r.queue, 1)
 	if err := r.start(ctx); err != nil {
 		return err
@@ -100,8 +104,8 @@ func (r *NodeK8sReconciler) CaredPredicate() predicate.Predicate {
 			if !ok || !cluster.IsReady() {
 				return false
 			}
-			if err := r.addClientFactory(cluster); err != nil {
-				klog.Errorf("failed to add cluster clients, err: %v", err)
+			if err := r.startNodeInformer(cluster); err != nil {
+				klog.Errorf("failed to start node informer, err: %v", err)
 			}
 			return false
 		},
@@ -111,58 +115,40 @@ func (r *NodeK8sReconciler) CaredPredicate() predicate.Predicate {
 			if !ok1 || !ok2 {
 				return false
 			}
-			if !oldCluster.IsReady() && newCluster.IsReady() ||
-				!oldCluster.IsControlPlaneCertEqual(newCluster.Status.ControlPlaneStatus) ||
-				!oldCluster.IsControlPlaneEndpointEqual(newCluster.Status.ControlPlaneStatus.Endpoints) {
-				if err := r.addClientFactory(newCluster); err != nil {
-					klog.Errorf("failed to add cluster clients, err: %v", err)
+			if !oldCluster.IsReady() && newCluster.IsReady() {
+				if err := r.startNodeInformer(newCluster); err != nil {
+					klog.Errorf("failed to start node informer, err: %v", err)
 				}
-			} else if oldCluster.IsReady() &&
-				(!newCluster.IsReady() || !newCluster.GetDeletionTimestamp().IsZero()) {
-				if err := r.clientManager.Delete(oldCluster.Name); err != nil {
-					klog.Errorf("failed to delete cluster clients, err: %v", err)
-				}
-			}
-			return false
-		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			cluster, ok := e.Object.(*v1.Cluster)
-			if !ok {
-				return false
-			}
-			if err := r.clientManager.Delete(cluster.Name); err != nil {
-				klog.Errorf("failed to delete cluster clients, err: %v", err)
 			}
 			return false
 		},
 	}
 }
 
-func (r *NodeK8sReconciler) addClientFactory(cluster *v1.Cluster) error {
-	controlPlane := &cluster.Status.ControlPlaneStatus
-	endpoint, err := commoncluster.GetEndpoint(r.ctx, r.Client, cluster.Name, controlPlane.Endpoints)
-	if err != nil {
-		return err
-	}
-	k8sClients, err := commonclient.NewClientFactory(r.ctx, cluster.Name, endpoint,
-		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, commonclient.EnableInformer)
-	if err != nil {
-		return err
-	}
+func (r *NodeK8sReconciler) startNodeInformer(cluster *v1.Cluster) error {
+	const maxRetry = 100
+	waitTime := time.Millisecond * 200
+	maxWaitTime := waitTime * maxRetry
 
-	nodeInformer := k8sClients.SharedInformerFactory().Core().V1().Nodes().Informer()
-	if _, err = nodeInformer.AddEventHandler(r.nodeEventHandler(k8sClients)); err != nil {
-		klog.ErrorS(err, "failed to add event handler", "name", cluster.Name)
-		return err
-	}
-	if err = nodeInformer.SetWatchErrorHandler(watchErrorHandler(r.ctx, k8sClients)); err != nil {
-		klog.ErrorS(err, "failed to set error handler", "name", cluster.Name)
-		return err
-	}
-	r.clientManager.AddOrReplace(cluster.Name, k8sClients)
-	k8sClients.StartInformer()
-	k8sClients.WaitForCacheSync()
-	return nil
+	err := backoff.Retry(func() error {
+		k8sClients, err := getK8sClientFactory(r.clientManager, cluster.Name)
+		if err != nil {
+			return err
+		}
+		nodeInformer := k8sClients.SharedInformerFactory().Core().V1().Nodes().Informer()
+		if _, err = nodeInformer.AddEventHandler(r.nodeEventHandler(k8sClients)); err != nil {
+			klog.ErrorS(err, "failed to add event handler", "name", cluster.Name)
+			return err
+		}
+		if err = nodeInformer.SetWatchErrorHandler(watchErrorHandler(r.ctx, k8sClients)); err != nil {
+			klog.ErrorS(err, "failed to set error handler", "name", cluster.Name)
+			return err
+		}
+		k8sClients.StartInformer()
+		k8sClients.WaitForCacheSync()
+		return nil
+	}, maxWaitTime, waitTime)
+	return err
 }
 
 func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFactory) cache.ResourceEventHandler {

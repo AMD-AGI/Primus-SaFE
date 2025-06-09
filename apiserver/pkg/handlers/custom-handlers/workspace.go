@@ -107,7 +107,9 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 	if err = h.List(c.Request.Context(), workspaceList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return nil, err
 	}
-	sort.Sort(types.WorkspaceSlice(workspaceList.Items))
+	sort.Slice(workspaceList.Items, func(i, j int) bool {
+		return workspaceList.Items[i].Name < workspaceList.Items[j].Name
+	})
 
 	result := &types.GetWorkspaceResponse{}
 	for _, w := range workspaceList.Items {

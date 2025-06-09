@@ -49,6 +49,9 @@ func SetupNodeController(mgr manager.Manager) error {
 		},
 		clientManager: commonutils.NewObjectManagerSingleton(),
 	}
+	if r.clientManager == nil {
+		return fmt.Errorf("failed to new clientManager")
+	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Node{}, builder.WithPredicates(predicate.Or(
 			predicate.GenerationChangedPredicate{}, r.CaredPredicate()))).

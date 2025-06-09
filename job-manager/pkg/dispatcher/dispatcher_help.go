@@ -50,6 +50,10 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 	if err = modifyVolumes(obj, workspace, path); err != nil {
 		return err
 	}
+	path = append(templatePath, "spec", "priorityClassName")
+	if err = modifyPriorityClass(obj, adminWorkload, path); err != nil {
+		return err
+	}
 	path = append(templatePath, "spec", "hostNetwork")
 	if err = modifyHostNetWork(obj, adminWorkload, path); err != nil {
 		return err
@@ -198,6 +202,14 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 	return nil
 }
 
+func modifyPriorityClass(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
+	priorityClass := commonworkload.GeneratePriorityClass(adminWorkload)
+	if err := unstructured.SetNestedField(obj.Object, priorityClass, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
 func modifyHostNetWork(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
 	isEnableHostNetWork := v1.IsEnableHostNetwork(adminWorkload)
 	if err := unstructured.SetNestedField(obj.Object, isEnableHostNetWork, path...); err != nil {
@@ -294,10 +306,10 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 			"name":  "ENABLE_SUPERVISE",
 			"value": "true",
 		})
-		if commonconfig.GetWorkloadHangCheckSecond() > 0 {
+		if commonconfig.GetWorkloadHangCheckInterval() > 0 {
 			result = append(result, map[string]interface{}{
 				"name":  "HANG_CHECK_INTERVAL",
-				"value": strconv.Itoa(commonconfig.GetWorkloadHangCheckSecond()),
+				"value": strconv.Itoa(commonconfig.GetWorkloadHangCheckInterval()),
 			})
 		}
 	}
@@ -307,6 +319,11 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 				"name":  "NVIDIA_VISIBLE_DEVICES",
 				"value": "void",
 			})
+		} else if adminWorkload.Spec.Resource.GPUName == common.AmdGpu {
+			result = append(result, map[string]interface{}{
+				"name":  "ROCR_VISIBLE_DEVICES",
+				"value": "",
+			})
 		}
 	} else {
 		result = append(result, map[string]interface{}{
@@ -314,14 +331,6 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 			"value": adminWorkload.Spec.Resource.GPU,
 		})
 	}
-	result = append(result, map[string]interface{}{
-		"name":  "NNODES",
-		"value": strconv.Itoa(adminWorkload.Spec.Resource.Replica),
-	})
-	result = append(result, map[string]interface{}{
-		"name":  "DISPATCH_COUNT",
-		"value": buildDispatchCount(adminWorkload),
-	})
 	return result
 }
 

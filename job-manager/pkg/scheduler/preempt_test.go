@@ -34,7 +34,7 @@ func TestPreemptLowPriority(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "test-workload",
 			Labels:      map[string]string{v1.NodeFlavorIdLabel: nf.Name},
-			Annotations: map[string]string{v1.WorkloadEnablePreemptAnnotation: ""},
+			Annotations: map[string]string{v1.WorkloadEnablePreemptAnnotation: "true"},
 		},
 		Spec: v1.WorkloadSpec{
 			Resource: v1.WorkloadResource{
@@ -175,31 +175,34 @@ func TestPreemptLowPriority(t *testing.T) {
 func TestSortWorkloadWrapper(t *testing.T) {
 	workload1 := utils.TestWorkloadData.DeepCopy()
 	workload1.Name = "w1"
-	w1 := &WorkloadWrapper{
-		workload:      workload1,
-		resourceScore: 1.0,
-	}
 	workload2 := utils.TestWorkloadData.DeepCopy()
 	workload2.Name = "w2"
-	w2 := &WorkloadWrapper{
-		workload:      workload2,
-		resourceScore: 2.0,
+	runningWorkloads := []*v1.Workload{workload1, workload2}
+
+	var workloadWrappers []*WorkloadWrapper
+	for i := range runningWorkloads {
+		workloadWrappers = append(workloadWrappers, &WorkloadWrapper{
+			workload:      runningWorkloads[i],
+			resourceScore: float64(i),
+		})
 	}
-	workloads := []*WorkloadWrapper{w1, w2}
-	sort.Sort(WorkloadWrapperSlice(workloads))
-	assert.Equal(t, workloads[0].workload.Name, "w2")
-	assert.Equal(t, workloads[1].workload.Name, "w1")
 
-	workloads[0].resourceScore = workloads[1].resourceScore
-	workloads[0].workload.Spec.Priority = 3
-	sort.Sort(WorkloadWrapperSlice(workloads))
-	assert.Equal(t, workloads[0].workload.Name, "w1")
-	assert.Equal(t, workloads[1].workload.Name, "w2")
+	sort.Sort(WorkloadWrapperSlice(workloadWrappers))
+	assert.Equal(t, workloadWrappers[0].workload.Name, "w2")
+	assert.Equal(t, workloadWrappers[1].workload.Name, "w1")
+	assert.Equal(t, runningWorkloads[0].Name, "w1")
+	assert.Equal(t, runningWorkloads[1].Name, "w2")
 
-	workloads[0].resourceScore = workloads[1].resourceScore
-	workloads[0].workload.Spec.Priority = workloads[1].workload.Spec.Priority
-	workloads[0].workload.CreationTimestamp = metav1.NewTime(time.Now().Add(-time.Hour))
-	sort.Sort(WorkloadWrapperSlice(workloads))
-	assert.Equal(t, workloads[0].workload.Name, "w2")
-	assert.Equal(t, workloads[1].workload.Name, "w1")
+	workloadWrappers[0].resourceScore = workloadWrappers[1].resourceScore
+	workloadWrappers[0].workload.Spec.Priority = 3
+	sort.Sort(WorkloadWrapperSlice(workloadWrappers))
+	assert.Equal(t, workloadWrappers[0].workload.Name, "w1")
+	assert.Equal(t, workloadWrappers[1].workload.Name, "w2")
+
+	workloadWrappers[0].resourceScore = workloadWrappers[1].resourceScore
+	workloadWrappers[0].workload.Spec.Priority = workloadWrappers[1].workload.Spec.Priority
+	workloadWrappers[0].workload.CreationTimestamp = metav1.NewTime(time.Now().Add(-time.Hour))
+	sort.Sort(WorkloadWrapperSlice(workloadWrappers))
+	assert.Equal(t, workloadWrappers[0].workload.Name, "w2")
+	assert.Equal(t, workloadWrappers[1].workload.Name, "w1")
 }

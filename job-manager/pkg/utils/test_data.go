@@ -46,6 +46,7 @@ spec:
                   amd.com/gpu: "8"
           dnsPolicy: ClusterFirstWithHostNet
           hostNetwork: true
+          priorityClassName: "test-med-priority"
           schedulerName: default-scheduler
           volumes:
             - hostPath:
@@ -84,6 +85,7 @@ spec:
           dnsPolicy: ClusterFirstWithHostNet
           hostNetwork: true
           schedulerName: default-scheduler
+          priorityClassName: "test-med-priority"
           volumes:
             - hostPath:
                 path: /pfs
@@ -632,7 +634,6 @@ var (
 				ShareMemory:      "32Gi",
 				EphemeralStorage: "20Gi",
 				JobPort:          12345,
-				SSHPort:          23456,
 			},
 			Env: map[string]string{
 				"key": "value",

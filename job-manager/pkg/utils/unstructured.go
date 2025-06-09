@@ -393,6 +393,25 @@ func GetActiveReplica(unstructuredObj *unstructured.Unstructured, rt *v1.Resourc
 	return getReplica(unstructuredObj, rt.Spec.ActiveState.PrePaths, rt.Spec.ActiveState.Active)
 }
 
+// Retrieve the priorityClassName
+func GetPriorityClassName(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (string, error) {
+	for _, t := range rt.Spec.Templates {
+		path := t.PrePaths
+		path = append(path, t.TemplatePaths...)
+		path = append(path, "spec", "priorityClassName")
+		name, found, err := unstructured.NestedString(unstructuredObj.Object, path...)
+		if err != nil {
+			klog.ErrorS(err, "fail to find priorityClassName", "path", path)
+			return "", err
+		}
+		if !found {
+			continue
+		}
+		return name, nil
+	}
+	return "", fmt.Errorf("no priorityClassName found")
+}
+
 func getReplica(unstructuredObj *unstructured.Unstructured, prePaths []string, name string) (int, error) {
 	m, found, err := unstructured.NestedFieldNoCopy(unstructuredObj.Object, prePaths...)
 	if !found || err != nil {

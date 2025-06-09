@@ -9,7 +9,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/strings/slices"
 )
 
 const (
@@ -187,22 +186,6 @@ func init() {
 
 func (c *Cluster) IsReady() bool {
 	if c != nil && c.Status.ControlPlaneStatus.Phase == ReadyPhase {
-		return true
-	}
-	return false
-}
-
-func (c *Cluster) IsControlPlaneCertEqual(input ControlPlaneStatus) bool {
-	if c.Status.ControlPlaneStatus.CAData == input.CAData &&
-		c.Status.ControlPlaneStatus.CertData == input.CertData &&
-		c.Status.ControlPlaneStatus.KeyData == input.KeyData {
-		return true
-	}
-	return false
-}
-
-func (c *Cluster) IsControlPlaneEndpointEqual(endpoints []string) bool {
-	if slices.Equal(c.Status.ControlPlaneStatus.Endpoints, endpoints) {
 		return true
 	}
 	return false
