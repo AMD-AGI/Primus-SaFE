@@ -15,18 +15,18 @@ net:
 repository: "docker.io/primussafe"
 resource_manager:
   replicas: 2
-  tag: "2025061030"
+  tag: "202506092330"
 apiserver:
   replicas: 2
-  tag: "2025061030"
+  tag: "202506092020"
 job_manager:
   replicas: 2
-  tag: "202506061523"
+  tag: "202506092020"
 preprocess:
   tag: "202506090945"
 webhooks:
   replicas: 2
-  tag: "202506061523"
+  tag: "202506092020"
 node_agent:
   tag: "202506051416"
 db:
