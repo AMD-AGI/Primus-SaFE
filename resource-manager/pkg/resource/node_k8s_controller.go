@@ -146,6 +146,7 @@ func (r *NodeK8sReconciler) startNodeInformer(cluster *v1.Cluster) error {
 		}
 		k8sClients.StartInformer()
 		k8sClients.WaitForCacheSync()
+		klog.Infof("add k8s node informer successfully. cluster: %s", cluster.Name)
 		return nil
 	}, maxWaitTime, waitTime)
 	return err

@@ -88,6 +88,7 @@ func (r *ClusterReconciler) CaredPredicate() predicate.Predicate {
 			if err := r.clientManager.Delete(cluster.Name); err != nil {
 				klog.Errorf("failed to delete cluster clients, err: %v", err)
 			}
+			klog.Infof("delete cluster clients successfully. cluster: %s", cluster.Name)
 			return false
 		},
 	}
@@ -257,12 +258,13 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 		_, err = clientSet.SchedulingV1().PriorityClasses().Get(ctx, pc.name, metav1.GetOptions{})
 		if err == nil {
 			continue
+		} else if !apierrors.IsNotFound(err) {
+			return ctrlruntime.Result{}, err
 		}
-		if apierrors.IsNotFound(err) {
-			desc := "This priority class should be used for primus job only."
-			err = createPriorityClass(ctx, clientSet, pc.name, desc, pc.value)
+		desc := "This priority class should be used for primus-safe job only."
+		if err = createPriorityClass(ctx, clientSet, pc.name, desc, pc.value); err != nil {
+			return ctrlruntime.Result{}, err
 		}
-		return ctrlruntime.Result{}, err
 	}
 	return ctrlruntime.Result{}, nil
 }
