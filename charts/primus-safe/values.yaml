@@ -15,7 +15,7 @@ net:
 repository: "docker.io/primussafe"
 resource_manager:
   replicas: 2
-  tag: "202506092330"
+  tag: "202506100927"
 apiserver:
   replicas: 2
   tag: "202506092020"
