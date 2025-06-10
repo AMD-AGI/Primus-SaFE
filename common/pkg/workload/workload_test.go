@@ -270,7 +270,7 @@ func TestGetActiveResource(t *testing.T) {
 			context.Background(), client.ObjectKey{Name: nodeName}, n); err != nil {
 			return true
 		}
-		if !n.IsAvailable() {
+		if !n.IsAvailable(false) {
 			return true
 		}
 		return false

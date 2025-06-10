@@ -5,8 +5,6 @@
 
 package common
 
-import "time"
-
 const (
 	PrimusSafeNamespace        = "primus-safe"
 	PrimusFault                = "primus-safe-fault"
@@ -23,11 +21,16 @@ const (
 	DeploymentKind      = "Deployment"
 	StatefulSetKind     = "StatefulSet"
 	PytorchJobPortName  = "pytorchjob-port"
-	SSHPortName         = "ssh-port"
 
-	DefaultBurst   = 1000
-	DefaultQPS     = 1000
-	DefaultTimeout = time.Second * 30
+	DefaultBurst = 1000
+	DefaultQPS   = 1000
+
+	HighPriority    = "high-priority"
+	MedPriority     = "med-priority"
+	LowPriority     = "low-priority"
+	HighPriorityInt = 2
+	MedPriorityInt  = 1
+	LowPriorityInt  = 0
 
 	NvidiaGpu            = "nvidia.com/gpu"
 	NvidiaIdentification = "nvidia.com/gpu.present"

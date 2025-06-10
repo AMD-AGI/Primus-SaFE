@@ -10,18 +10,14 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
 func GetEndpoint(ctx context.Context, cli client.Client, clusterName string, endpoints []string) (string, error) {
-	service := new(corev1.Service)
-	err := cli.Get(ctx, types.NamespacedName{
-		Name:      clusterName,
-		Namespace: common.PrimusSafeNamespace,
-	}, service)
+	service := &corev1.Service{}
+	err := cli.Get(ctx, client.ObjectKey{Name: clusterName, Namespace: common.PrimusSafeNamespace}, service)
 	result := ""
 	if err == nil {
 		result = fmt.Sprintf("https://%s.%s.svc", clusterName, common.PrimusSafeNamespace)

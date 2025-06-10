@@ -22,7 +22,7 @@ data:
   gpu_card_check_004: '{"script":"gpu_card_check_004.sh","id":"004","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["$Node"]}'
   gpu_device_plugin_005: '{"script":"gpu_device_plugin_005.sh","id":"005","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["$Node"]}'
   gpu_temperature_006: '{"script":"gpu_temperature_006.sh","id":"006","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
-  gpu_driver_007: '{"script":"gpu_driver_007.sh","id":"007","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  gpu_driver_007: '{"script":"gpu_driver_007.sh","id":"007","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["6","12"]}'
   gpu_ras_008: '{"script":"gpu_ras_008.sh","id":"008","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   gpu_link_009: '{"script":"gpu_link_009.sh","id":"009","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   gpu_xgmi_link_010: '{"script":"gpu_xgmi_link_010.sh","id":"010","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'

@@ -16,7 +16,6 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -85,7 +84,7 @@ func (m *WorkloadMutator) Handle(ctx context.Context, req admission.Request) adm
 	case admissionv1.Update:
 		oldObj := &v1.Workload{}
 		if m.decoder.DecodeRaw(req.OldObject, oldObj) == nil {
-			isChanged = m.mutateUpdate(oldObj, obj)
+			isChanged = m.mutateUpdate(ctx, oldObj, obj)
 		}
 	}
 	if !isChanged {
@@ -108,7 +107,7 @@ func (m *WorkloadMutator) mutateCreate(ctx context.Context, workload *v1.Workloa
 	m.mutateMeta(ctx, workload, workspace)
 	m.mutateGvk(ctx, workload)
 
-	switch workload.Spec.GroupVersionKind.Kind {
+	switch workload.SpecKind() {
 	case common.DeploymentKind:
 		m.mutateDeployment(workload)
 	case common.StatefulSetKind:
@@ -122,21 +121,23 @@ func (m *WorkloadMutator) mutateCreate(ctx context.Context, workload *v1.Workloa
 	m.mutateMaxRetry(workload)
 	m.mutateCreateEnv(workload)
 	m.mutateTTLSeconds(workload)
-	m.mutateCommon(workload)
+	m.mutateCommon(ctx, workload, workspace)
 	return true
 }
 
-func (m *WorkloadMutator) mutateUpdate(oldObj, newObj *v1.Workload) bool {
-	m.mutateResource(newObj, nil)
-	m.mutateUpdateEnv(oldObj, newObj)
-	m.mutateCommon(newObj)
+func (m *WorkloadMutator) mutateUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) bool {
+	m.mutateResource(newWorkload, nil)
+	m.mutateUpdateEnv(oldWorkload, newWorkload)
+	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
+	m.mutateCommon(ctx, newWorkload, workspace)
 	return true
 }
 
-func (m *WorkloadMutator) mutateCommon(obj *v1.Workload) bool {
-	m.mutatePriority(obj)
-	m.mutateImage(obj)
-	m.mutateEntryPoint(obj)
+func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
+	m.mutatePriority(workload)
+	m.mutateImage(workload)
+	m.mutateEntryPoint(workload)
+	m.mutateHostNetwork(ctx, workload, workspace)
 	return true
 }
 
@@ -149,27 +150,21 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 			klog.ErrorS(err, "fail to SetControllerReference")
 		}
 	}
-	if v1.GetClusterId(workload) == "" {
-		metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.ClusterIdLabel, workspace.Spec.Cluster)
-	}
-	if v1.GetWorkspaceId(workload) == "" {
-		metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkspaceIdLabel, workload.Spec.Workspace)
-	}
-	metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkloadKindLabel, workload.Spec.GroupVersionKind.Kind)
-	metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkloadIdLabel, workload.Name)
-	metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
-	if v1.GetUserName(workload) != "" {
-		metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
-	}
+	v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)
+	v1.SetLabel(workload, v1.WorkspaceIdLabel, workload.Spec.Workspace)
+	v1.SetLabel(workload, v1.WorkloadKindLabel, workload.SpecKind())
+	v1.SetLabel(workload, v1.WorkloadIdLabel, workload.Name)
+	v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
+	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
+
 	if v1.GetMainContainer(workload) == "" {
 		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, workload.Spec.GroupVersionKind, workload.Spec.Resource.GPUName)
 		if err == nil {
-			metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(cm))
+			v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(cm))
 		}
 	}
-	if workload.Annotations[v1.EnableHostNetworkAnnotation] == "" {
-		metav1.SetMetaDataAnnotation(&workload.ObjectMeta,
-			v1.EnableHostNetworkAnnotation, strconv.FormatBool(m.canUseHostNetwork(ctx, workload, workspace)))
+	if workspace.Spec.EnablePreempt {
+		v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, "true")
 	}
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
@@ -185,7 +180,7 @@ func (m *WorkloadMutator) mutateGvk(ctx context.Context, workload *v1.Workload) 
 			return
 		}
 		for _, rt := range rtl.Items {
-			if rt.Spec.GroupVersionKind.Kind != workload.Spec.Kind {
+			if rt.SpeckKind() != workload.Spec.Kind {
 				continue
 			}
 			if workload.Spec.Group == "" {
@@ -200,11 +195,11 @@ func (m *WorkloadMutator) mutateGvk(ctx context.Context, workload *v1.Workload) 
 
 func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
 	isChanged := false
-	if workload.Spec.Priority > v1.MaxPriority {
-		workload.Spec.Priority = v1.MaxPriority
+	if workload.Spec.Priority > common.HighPriorityInt {
+		workload.Spec.Priority = common.HighPriorityInt
 		isChanged = true
-	} else if workload.Spec.Priority < v1.MinPriority {
-		workload.Spec.Priority = v1.MinPriority
+	} else if workload.Spec.Priority < common.LowPriorityInt {
+		workload.Spec.Priority = common.LowPriorityInt
 		isChanged = true
 	}
 	return isChanged
@@ -351,6 +346,14 @@ func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
 	if !stringutil.IsBase64(workload.Spec.EntryPoint) {
 		workload.Spec.EntryPoint = stringutil.Base64Encode(workload.Spec.EntryPoint)
 	}
+}
+
+func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
+	if workspace == nil {
+		return
+	}
+	isEnableHostNetWork := m.canUseHostNetwork(ctx, workload, workspace)
+	v1.SetAnnotation(workload, v1.EnableHostNetworkAnnotation, strconv.FormatBool(isEnableHostNetWork))
 }
 
 type WorkloadValidator struct {
@@ -651,7 +654,7 @@ func (v *WorkloadValidator) validateSpecChanged(newObj, oldObj *v1.Workload) err
 func (v *WorkloadValidator) validateScope(ctx context.Context, w *v1.Workload) error {
 	scope := commonworkload.GetScope(w)
 	if scope == "" {
-		return commonerrors.NewBadRequest(fmt.Sprintf("unknown workload kind, %s", w.Spec.GroupVersionKind.Kind))
+		return commonerrors.NewBadRequest(fmt.Sprintf("unknown workload kind, %s", w.SpecKind()))
 	}
 	workspace, err := getWorkspace(ctx, v.Client, w.Spec.Workspace)
 	if err != nil {

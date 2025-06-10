@@ -237,7 +237,7 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 		annotations := workload.GetAnnotations()
 		delete(annotations, v1.WorkloadDispatchedAnnotation)
 		delete(annotations, v1.WorkloadScheduledAnnotation)
-		// Upon rescheduling, the task is enqueued with top priority
+		// Upon rescheduling, the task is enqueued with high priority
 		annotations[v1.WorkloadReScheduledAnnotation] = ""
 		workload.SetAnnotations(annotations)
 		if err := r.Patch(ctx, workload, patch); err != nil {
@@ -319,7 +319,7 @@ func buildWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sReso
 }
 
 func isWorkloadEnd(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, count int) bool {
-	if commonworkload.IsApplication(adminWorkload) {
+	if commonworkload.IsApplication(adminWorkload) || v1.IsWorkloadPreempted(adminWorkload) {
 		return false
 	}
 	switch v1.WorkloadConditionType(status.Phase) {

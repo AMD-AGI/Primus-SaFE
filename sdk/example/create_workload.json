@@ -2,7 +2,7 @@
   "workspace": "safe-cluster-dev",
   "displayName": "test-primus",
   "description": "test primus",
-  "entryPoint":"cd /public/Primus;pip install -r requirements.txt; EXP=examples/megatron/configs/llama2_7B-pretrain.yaml bash ./examples/megatron/run_pretrain.sh",
+  "entryPoint":"cd /public/Primus;pip install -r requirements.txt; NODE_RANK=$PET_NODE_RANK NNODES=$PET_NNODES EXP=examples/megatron/configs/llama2_7B-pretrain.yaml bash ./examples/megatron/run_pretrain.sh",
   "isSupervised": false,
   "image": "docker.io/rocm/megatron-lm:v25.5_py310",
   "maxRetry": 10,

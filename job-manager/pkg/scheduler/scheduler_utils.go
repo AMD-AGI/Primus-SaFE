@@ -34,14 +34,8 @@ type NodeWrapper struct {
 func getAvailableResourcesPerNode(ctx context.Context, cli client.Client,
 	requestWorkload *v1.Workload, runningWorkloads []*v1.Workload) ([]NodeWrapper, error) {
 	filterFunc := func(n v1.Node) bool {
-		if requestWorkload.Spec.IsTolerateAll {
-			if !n.IsAvailableIgnoreTaint() {
-				return true
-			}
-		} else {
-			if !n.IsAvailable() {
-				return true
-			}
+		if !n.IsAvailable(requestWorkload.Spec.IsTolerateAll) {
+			return true
 		}
 		if len(requestWorkload.Spec.CustomerLabels) > 0 && !isMatchNodeLabel(&n, requestWorkload) {
 			return true
@@ -136,12 +130,12 @@ func buildResourceWeight(workload *v1.Workload, resources corev1.ResourceList, n
 	}
 	if workload.Spec.Resource.Memory != "" && nf != nil && !nf.Spec.Memory.IsZero() {
 		if memoryQuantity := resources.Memory(); memoryQuantity != nil {
-			weight += float64(memoryQuantity.Value() / nf.Spec.Memory.Value())
+			weight += float64(memoryQuantity.Value()) / float64(nf.Spec.Memory.Value())
 		}
 	}
 	if workload.Spec.Resource.CPU != "" && nf != nil && !nf.Spec.Cpu.Quantity.IsZero() {
 		if cpuQuantity := resources.Cpu(); cpuQuantity != nil {
-			weight += float64(cpuQuantity.Value() / nf.Spec.Cpu.Quantity.Value())
+			weight += float64(cpuQuantity.Value()) / float64(nf.Spec.Cpu.Quantity.Value())
 		}
 	}
 	return weight
@@ -158,9 +152,9 @@ func (ws WorkloadList) Swap(i, j int) {
 }
 
 func (ws WorkloadList) Less(i, j int) bool {
-	if v1.IsWorkloadReScheduled(ws[i]) && !v1.IsWorkloadReScheduled(ws[j]) {
+	if isReScheduledDueToFailover(ws[i]) && !isReScheduledDueToFailover(ws[j]) {
 		return true
-	} else if !v1.IsWorkloadReScheduled(ws[i]) && v1.IsWorkloadReScheduled(ws[j]) {
+	} else if !isReScheduledDueToFailover(ws[i]) && isReScheduledDueToFailover(ws[j]) {
 		return false
 	}
 	if ws[i].Spec.Priority > ws[j].Spec.Priority {
@@ -172,6 +166,13 @@ func (ws WorkloadList) Less(i, j int) bool {
 		return true
 	}
 	if ws[i].CreationTimestamp.Time.Equal(ws[j].CreationTimestamp.Time) && ws[i].Name < ws[j].Name {
+		return true
+	}
+	return false
+}
+
+func isReScheduledDueToFailover(workload *v1.Workload) bool {
+	if v1.IsWorkloadReScheduled(workload) && !v1.IsWorkloadPreempted(workload) {
 		return true
 	}
 	return false
