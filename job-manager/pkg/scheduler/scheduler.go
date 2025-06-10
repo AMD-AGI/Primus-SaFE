@@ -161,7 +161,7 @@ func (r *SchedulerReconciler) createDataPlaneResources(ctx context.Context, work
 	}
 	// create pvc for data plane
 	for _, vol := range workspace.Spec.Volumes {
-		if vol.StorageType == v1.NFS {
+		if vol.StorageType == v1.HOSTPATH {
 			continue
 		}
 		pvc, err := r.generatePVC(&vol, workspace)
@@ -184,7 +184,7 @@ func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspa
 
 	oldPvcSets := sets.NewSet()
 	for _, vol := range oldWorkspace.Spec.Volumes {
-		if vol.StorageType == v1.NFS {
+		if vol.StorageType == v1.HOSTPATH {
 			continue
 		}
 		oldPvcSets.Insert(string(vol.StorageType))
@@ -192,7 +192,7 @@ func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspa
 	newPvcSets := sets.NewSet()
 	clientSet := informer.ClientFactory().ClientSet()
 	for _, vol := range newWorkspace.Spec.Volumes {
-		if vol.StorageType == v1.NFS {
+		if vol.StorageType == v1.HOSTPATH {
 			continue
 		}
 		storageType := string(vol.StorageType)
@@ -210,7 +210,7 @@ func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspa
 		}
 	}
 	for _, vol := range oldWorkspace.Spec.Volumes {
-		if vol.StorageType == v1.NFS {
+		if vol.StorageType == v1.HOSTPATH {
 			continue
 		}
 		if newPvcSets.Has(string(vol.StorageType)) {
@@ -230,7 +230,7 @@ func (r *SchedulerReconciler) deleteDataPlaneResources(ctx context.Context, clus
 	}
 	clientSet := informer.ClientFactory().ClientSet()
 	for _, vol := range volumes {
-		if vol.StorageType == v1.NFS {
+		if vol.StorageType == v1.HOSTPATH {
 			continue
 		}
 		if err = jobutils.DeletePVC(ctx, string(vol.StorageType), workspaceId, clientSet); err != nil {

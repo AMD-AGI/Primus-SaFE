@@ -45,10 +45,10 @@ const (
 )
 
 const (
-	RBD StorageUseType = "rbd"
-	OBS StorageUseType = "obs"
-	FS  StorageUseType = "cephfs"
-	NFS StorageUseType = "nfs"
+	RBD      StorageUseType = "rbd"
+	OBS      StorageUseType = "obs"
+	FS       StorageUseType = "cephfs"
+	HOSTPATH StorageUseType = "hostpath"
 )
 
 // ErasureCodedSpec represents the spec for erasure code in a pool

@@ -172,7 +172,7 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Work
 	id := 0
 	for _, vol := range workspace.Spec.Volumes {
 		volumeName := string(vol.StorageType)
-		if vol.StorageType == v1.NFS {
+		if vol.StorageType == v1.HOSTPATH {
 			volumeName = generateVolumeName(volumeName, id)
 			id++
 		}
@@ -196,7 +196,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 	for _, vol := range workspace.Spec.Volumes {
 		volumeName := string(vol.StorageType)
 		var volume interface{}
-		if vol.StorageType == v1.NFS {
+		if vol.StorageType == v1.HOSTPATH {
 			volume = buildNfsVolume(generateVolumeName(volumeName, id), vol.HostPath)
 			id++
 		} else {

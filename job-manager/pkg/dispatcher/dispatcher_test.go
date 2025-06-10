@@ -7,7 +7,6 @@ package dispatcher
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -123,7 +122,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkHostNetwork(t, obj, workload, &templates[1])
 	checkTolerations(t, obj, workload, &templates[1])
 	checkPriorityClass(t, obj, workload, &templates[1])
-	fmt.Println(unstructuredutils.ToString(obj))
+	// fmt.Println(unstructuredutils.ToString(obj))
 }
 
 func TestCreateDeployment(t *testing.T) {

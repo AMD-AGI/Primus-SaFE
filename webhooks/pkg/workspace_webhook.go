@@ -371,7 +371,7 @@ func (v *WorkspaceValidator) validateVolumes(newObj, oldObj *v1.Workspace) error
 			oldCapacityMap[string(vol.StorageType)] = vol.Capacity
 		}
 	}
-	supportedStorageType := []v1.StorageUseType{v1.RBD, v1.FS, v1.OBS, v1.NFS}
+	supportedStorageType := []v1.StorageUseType{v1.RBD, v1.FS, v1.OBS, v1.HOSTPATH}
 	supportedAccessMode := []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce,
 		corev1.ReadWriteMany, corev1.ReadOnlyMany, corev1.ReadWriteOncePod}
 
@@ -382,9 +382,9 @@ func (v *WorkspaceValidator) validateVolumes(newObj, oldObj *v1.Workspace) error
 		if !sliceutil.Contains(supportedStorageType, vol.StorageType) {
 			return fmt.Errorf("invalid volume storage type. only %v supported", supportedStorageType)
 		}
-		if vol.StorageType == v1.NFS {
+		if vol.StorageType == v1.HOSTPATH {
 			if vol.HostPath == "" {
-				return fmt.Errorf("the hostPath of volume is required for nfs")
+				return fmt.Errorf("the hostPath of volume is required for hostpath storage")
 			}
 			continue
 		}
@@ -439,7 +439,7 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newObj, 
 	}
 	newPvcSets := sets.NewSet()
 	for _, vol := range newObj.Spec.Volumes {
-		if vol.StorageType == v1.NFS {
+		if vol.StorageType == v1.HOSTPATH {
 			continue
 		}
 		newPvcSets.Insert(string(vol.StorageType))
@@ -451,7 +451,7 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newObj, 
 		return false
 	}
 	for _, vol := range oldObj.Spec.Volumes {
-		if vol.StorageType == v1.NFS {
+		if vol.StorageType == v1.HOSTPATH {
 			continue
 		}
 		if newPvcSets.Has(string(vol.StorageType)) {

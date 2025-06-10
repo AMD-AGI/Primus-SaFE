@@ -60,7 +60,7 @@ type WorkspaceVolume struct {
 	MountPath string `json:"mountPath"`
 	// equivalent to 'subPath' in Kubernetes volume mounts
 	SubPath string `json:"subPath,omitempty"`
-	// Path on the host to mount. Required when storage type is nfs/gpfs
+	// Path on the host to mount. Required when storage type is hostpath
 	HostPath string `json:"hostPath,omitempty"`
 
 	// The following parameters are used for PVC creation. If using hostPath mounting, they are not required.
