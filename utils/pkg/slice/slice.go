@@ -9,15 +9,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
-func ContainsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
-}
-
 func ContainsStrings(slice1, slice2 []string) bool {
 	if len(slice1) == 0 {
 		return false
@@ -26,8 +17,7 @@ func ContainsStrings(slice1, slice2 []string) bool {
 	case 0:
 		return false
 	case 1:
-		// 通常长度是1，这里做特别优化
-		return ContainsString(slice1, slice2[0])
+		return Contains(slice1, slice2[0])
 	default:
 	}
 
@@ -176,4 +166,13 @@ func Difference(slice1, slice2 []string) []string {
 		}
 	}
 	return result
+}
+
+func Contains[T comparable](s []T, v T) bool {
+	for _, elem := range s {
+		if elem == v {
+			return true
+		}
+	}
+	return false
 }

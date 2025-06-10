@@ -587,6 +587,10 @@ var (
 				MountPath:    "/ceph",
 				StorageClass: "storage-cephfs",
 				Capacity:     "100Gi",
+			}, {
+				StorageType: v1.HOSTPATH,
+				MountPath:   "/data",
+				HostPath:    "/apps",
 			}},
 		},
 		Status: v1.WorkspaceStatus{
