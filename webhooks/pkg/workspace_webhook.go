@@ -31,6 +31,7 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -370,14 +371,24 @@ func (v *WorkspaceValidator) validateVolumes(newObj, oldObj *v1.Workspace) error
 			oldCapacityMap[string(vol.StorageType)] = vol.Capacity
 		}
 	}
+	supportedStorageType := []v1.StorageUseType{v1.RBD, v1.FS, v1.OBS, v1.NFS}
+	supportedAccessMode := []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce,
+		corev1.ReadWriteMany, corev1.ReadOnlyMany, corev1.ReadWriteOncePod}
 
 	for _, vol := range newObj.Spec.Volumes {
 		if vol.MountPath == "" {
-			return fmt.Errorf("the mountPath of volume is empty")
+			return fmt.Errorf("the mountPath of volume is required")
 		}
-		if vol.StorageType != v1.RBD && vol.StorageType != v1.FS && vol.StorageType != v1.OBS {
-			return fmt.Errorf("invalid volume storage type")
+		if !sliceutil.Contains(supportedStorageType, vol.StorageType) {
+			return fmt.Errorf("invalid volume storage type. only %v supported", supportedStorageType)
 		}
+		if vol.StorageType == v1.NFS {
+			if vol.HostPath == "" {
+				return fmt.Errorf("the hostPath of volume is required for nfs")
+			}
+			continue
+		}
+
 		if vol.StorageClass == "" && vol.PersistentVolumeName == "" {
 			return fmt.Errorf("the storageClass or persistentVolumeName is empty")
 		}
@@ -403,10 +414,8 @@ func (v *WorkspaceValidator) validateVolumes(newObj, oldObj *v1.Workspace) error
 		} else {
 			newCapacityMap[storageType] = vol.Capacity
 		}
-
-		if vol.AccessMode != corev1.ReadWriteOnce && vol.AccessMode != corev1.ReadWriteMany &&
-			vol.AccessMode != corev1.ReadOnlyMany && vol.AccessMode != corev1.ReadWriteOncePod {
-			return fmt.Errorf("The accessMode(%s) of volume(%s) is invalid", vol.AccessMode, storageType)
+		if !sliceutil.Contains(supportedAccessMode, vol.AccessMode) {
+			return fmt.Errorf("invalid volume access mode. only %v supported", supportedAccessMode)
 		}
 	}
 	return nil
@@ -430,6 +439,9 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newObj, 
 	}
 	newPvcSets := sets.NewSet()
 	for _, vol := range newObj.Spec.Volumes {
+		if vol.StorageType == v1.NFS {
+			continue
+		}
 		newPvcSets.Insert(string(vol.StorageType))
 	}
 	filterFunc := func(w *v1.Workload) bool {
@@ -439,10 +451,12 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newObj, 
 		return false
 	}
 	for _, vol := range oldObj.Spec.Volumes {
+		if vol.StorageType == v1.NFS {
+			continue
+		}
 		if newPvcSets.Has(string(vol.StorageType)) {
 			continue
 		}
-
 		runningWorkloads, _ := commonworkload.GetWorkloadsOfWorkspace(ctx, v.Client,
 			v1.GetClusterId(newObj), []string{newObj.Name}, filterFunc)
 		if len(runningWorkloads) > 0 {

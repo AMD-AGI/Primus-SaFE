@@ -169,8 +169,13 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Work
 	if len(workspace.Spec.Volumes) == 0 {
 		return
 	}
+	id := 0
 	for _, vol := range workspace.Spec.Volumes {
 		volumeName := string(vol.StorageType)
+		if vol.StorageType == v1.NFS {
+			volumeName = generateVolumeName(volumeName, id)
+			id++
+		}
 		mounts := buildVolumeMounts(vol, volumeName)
 		currentMounts = append(currentMounts, mounts...)
 	}
@@ -187,13 +192,20 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 	}
 
 	volumeSets := sets.NewSet()
+	id := 0
 	for _, vol := range workspace.Spec.Volumes {
 		volumeName := string(vol.StorageType)
-		if volumeSets.Has(volumeName) {
-			continue
+		var volume interface{}
+		if vol.StorageType == v1.NFS {
+			volume = buildNfsVolume(generateVolumeName(volumeName, id), vol.HostPath)
+			id++
+		} else {
+			if volumeSets.Has(volumeName) {
+				continue
+			}
+			volumeSets.Insert(volumeName)
+			volume = buildPvcVolume(volumeName)
 		}
-		volumeSets.Insert(volumeName)
-		volume := buildPvcVolume(volumeName)
 		volumes = append(volumes, volume)
 	}
 	if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
@@ -373,6 +385,15 @@ func buildVolumeMounts(vol v1.WorkspaceVolume, volumeName string) []interface{} 
 	return result
 }
 
+func buildNfsVolume(volumeName, hostPath string) interface{} {
+	return map[string]interface{}{
+		"hostPath": map[string]interface{}{
+			"path": hostPath,
+		},
+		"name": volumeName,
+	}
+}
+
 func buildPvcVolume(volumeName string) interface{} {
 	return map[string]interface{}{
 		"persistentVolumeClaim": map[string]interface{}{
@@ -457,4 +478,8 @@ func convertEnvsToStringMap(envs []interface{}) map[string]string {
 		result[name.(string)] = value.(string)
 	}
 	return result
+}
+
+func generateVolumeName(storageType string, id int) string {
+	return fmt.Sprintf("%s-%d", storageType, id)
 }
