@@ -86,9 +86,10 @@ func (r *ClusterReconciler) CaredPredicate() predicate.Predicate {
 				return false
 			}
 			if err := r.clientManager.Delete(cluster.Name); err != nil {
-				klog.Errorf("failed to delete cluster clients, err: %v", err)
+				klog.ErrorS(err, "failed to delete cluster clients", "cluster", cluster.Name)
+			} else {
+				klog.Infof("delete cluster clients successfully. cluster: %s", cluster.Name)
 			}
-			klog.Infof("delete cluster clients successfully. cluster: %s", cluster.Name)
 			return false
 		},
 	}

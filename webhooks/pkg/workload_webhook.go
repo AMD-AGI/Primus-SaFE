@@ -128,10 +128,8 @@ func (m *WorkloadMutator) mutateCreate(ctx context.Context, workload *v1.Workloa
 func (m *WorkloadMutator) mutateUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) bool {
 	m.mutateResource(newWorkload, nil)
 	m.mutateUpdateEnv(oldWorkload, newWorkload)
-	workspace, err := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
-	if err == nil {
-		m.mutateCommon(ctx, newWorkload, workspace)
-	}
+	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
+	m.mutateCommon(ctx, newWorkload, workspace)
 	return true
 }
 
@@ -351,6 +349,9 @@ func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
 }
 
 func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
+	if workspace == nil {
+		return
+	}
 	isEnableHostNetWork := m.canUseHostNetwork(ctx, workload, workspace)
 	v1.SetAnnotation(workload, v1.EnableHostNetworkAnnotation, strconv.FormatBool(isEnableHostNetWork))
 }
