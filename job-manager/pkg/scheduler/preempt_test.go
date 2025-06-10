@@ -165,7 +165,7 @@ func TestPreemptLowPriority(t *testing.T) {
 					names = append(names, test.currentWorkloads[id].Name)
 				}
 				for _, w := range workloads {
-					assert.Equal(t, slice.ContainsString(names, w.Name), true)
+					assert.Equal(t, slice.Contains(names, w.Name), true)
 				}
 			}
 		})
