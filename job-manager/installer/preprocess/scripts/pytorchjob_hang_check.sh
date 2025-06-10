@@ -5,7 +5,7 @@
 # See LICENSE for license information.
 #
 
-if [ -z "${HANG_CHECK_INTERVAL}" ] || [ "${JOB_KIND}" != "PytorchJob" ]; then
+if [ -z "${HANG_CHECK_INTERVAL}" ]; then
   exit 0
 fi
 

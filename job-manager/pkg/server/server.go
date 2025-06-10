@@ -68,7 +68,7 @@ func (s *Server) init() error {
 
 func (s *Server) Start() {
 	if !s.isInited {
-		klog.Errorf("pls init job manager first!")
+		klog.Error("pls init job manager first!")
 		return
 	}
 	klog.Infof("starting job manager")

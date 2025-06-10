@@ -36,9 +36,9 @@ const (
 	workloadPrefix = "workload."
 	// The maximum percentage of total local storage that a single task can allocate
 	// No configuration or a value of 0 indicates no limit.
-	maxEphemeralStorePercent = workloadPrefix + "max_ephemeral_store_percent"
-	workloadHangCheckSecond  = workloadPrefix + "hangcheck_second"
-	workloadEnableFailover   = workloadPrefix + "enable_failover"
+	maxEphemeralStorePercent  = workloadPrefix + "max_ephemeral_store_percent"
+	workloadHangCheckInterval = workloadPrefix + "hang_check_interval"
+	workloadEnableFailover    = workloadPrefix + "enable_failover"
 
 	// log
 	logPrefix        = "log."

@@ -21,6 +21,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 )
 
@@ -178,7 +179,7 @@ func GetPodResources(w *v1.Workload) (corev1.ResourceList, error) {
 }
 
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
-	switch w.Spec.GroupVersionKind.Kind {
+	switch w.SpecKind() {
 	case common.PytorchJobKind:
 		return v1.TrainScope
 	case common.DeploymentKind, common.StatefulSetKind:
@@ -189,15 +190,15 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 }
 
 func IsApplication(w *v1.Workload) bool {
-	if w.Spec.GroupVersionKind.Kind == common.DeploymentKind ||
-		w.Spec.GroupVersionKind.Kind == common.StatefulSetKind {
+	if w.SpecKind() == common.DeploymentKind ||
+		w.SpecKind() == common.StatefulSetKind {
 		return true
 	}
 	return false
 }
 
 func IsJob(w *v1.Workload) bool {
-	if w.Spec.GroupVersionKind.Kind == common.PytorchJobKind {
+	if w.SpecKind() == common.PytorchJobKind {
 		return true
 	}
 	return false
@@ -220,4 +221,18 @@ func IsResourceEqual(workload1, workload2 *v1.Workload) bool {
 
 func GenerateDispatchReason(count int) string {
 	return "run_" + strconv.Itoa(count) + "_times"
+}
+
+func GeneratePriorityClass(workload *v1.Workload) string {
+	clusterId := v1.GetClusterId(workload)
+	strPriority := ""
+	switch workload.Spec.Priority {
+	case common.HighPriorityInt:
+		strPriority = common.HighPriority
+	case common.MedPriorityInt:
+		strPriority = common.MedPriority
+	default:
+		strPriority = common.LowPriority
+	}
+	return commonutils.GeneratePriorityClass(clusterId, strPriority)
 }

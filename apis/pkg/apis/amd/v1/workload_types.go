@@ -18,9 +18,6 @@ type WorkloadPhase string
 const (
 	WorkloadKind = "Workload"
 
-	MaxPriority = 2
-	MinPriority = 0
-
 	WorkloadSucceeded WorkloadPhase = "Succeeded"
 	WorkloadFailed    WorkloadPhase = "Failed"
 	WorkloadPending   WorkloadPhase = "Pending"
@@ -67,8 +64,6 @@ type WorkloadResource struct {
 	EphemeralStorage string `json:"ephemeralStorage,omitempty"`
 	// the port for job
 	JobPort int `json:"jobPort,omitempty"`
-	// the port for ssh
-	SSHPort int `json:"SSHPort,omitempty"`
 }
 
 type HealthCheck struct {
@@ -307,4 +302,8 @@ func IsPodRunning(p *WorkloadPod) bool {
 
 func (w *Workload) ToSchemaGVK() schema.GroupVersionKind {
 	return w.Spec.GroupVersionKind.ToSchema()
+}
+
+func (w *Workload) SpecKind() string {
+	return w.Spec.GroupVersionKind.Kind
 }

@@ -44,24 +44,37 @@ func SetupClusterController(ctx context.Context, mgr manager.Manager) error {
 
 func (r *ClusterReconciler) CaredPredicate() predicate.Predicate {
 	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			cluster, ok := e.Object.(*v1.Cluster)
+			if !ok || !cluster.IsReady() {
+				return false
+			}
+			if err := r.addClientFactory(r.ctx, cluster); err != nil {
+				klog.Errorf("failed to add cluster clients, err: %v", err)
+			}
+			return false
+		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldCluster, ok1 := e.ObjectOld.(*v1.Cluster)
 			newCluster, ok2 := e.ObjectNew.(*v1.Cluster)
 			if !ok1 || !ok2 {
 				return false
 			}
-			if !oldCluster.IsReady() && newCluster.IsReady() ||
-				!oldCluster.IsControlPlaneCertEqual(newCluster.Status.ControlPlaneStatus) ||
-				!oldCluster.IsControlPlaneEndpointEqual(newCluster.Status.ControlPlaneStatus.Endpoints) {
+			if !oldCluster.IsReady() && newCluster.IsReady() {
 				if err := r.addClientFactory(r.ctx, newCluster); err != nil {
-					klog.Errorf("failed to add cluster, err: %v", err)
+					klog.Errorf("failed to add cluster clients, err: %v", err)
 				}
-			} else if oldCluster.IsReady() &&
-				(!newCluster.IsReady() || !newCluster.GetDeletionTimestamp().IsZero()) {
-				if mgr := commonutils.NewObjectManagerSingleton(); mgr != nil {
-					if err := mgr.Delete(newCluster.Name); err != nil {
-						klog.Errorf("failed to delete cluster clients, err: %v", err)
-					}
+			}
+			return false
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			cluster, ok := e.Object.(*v1.Cluster)
+			if !ok {
+				return false
+			}
+			if mgr := commonutils.NewObjectManagerSingleton(); mgr != nil {
+				if err := mgr.Delete(cluster.Name); err != nil {
+					klog.Errorf("failed to delete cluster clients, err: %v", err)
 				}
 			}
 			return false
@@ -73,25 +86,25 @@ func (r *ClusterReconciler) Reconcile(_ context.Context, _ ctrlruntime.Request) 
 	return ctrlruntime.Result{}, nil
 }
 
-func (r *ClusterReconciler) addClientFactory(ctx context.Context, c *v1.Cluster) error {
-	if !c.IsReady() {
-		return fmt.Errorf("cluster %s is not ready", c.Name)
-	}
+func (r *ClusterReconciler) addClientFactory(ctx context.Context, cluster *v1.Cluster) error {
 	clientManager := commonutils.NewObjectManagerSingleton()
 	if clientManager == nil {
 		return fmt.Errorf("failed to new clients manager")
 	}
-	controlPlane := &c.Status.ControlPlaneStatus
-	endpoint, err := commoncluster.GetEndpoint(ctx, r.Client, c.Name, controlPlane.Endpoints)
+	if clientManager.Has(cluster.Name) {
+		return nil
+	}
+	controlPlane := &cluster.Status.ControlPlaneStatus
+	endpoint, err := commoncluster.GetEndpoint(ctx, r.Client, cluster.Name, controlPlane.Endpoints)
 	if err != nil {
 		return err
 	}
 
-	k8sClientFactory, err := commonclient.NewClientFactory(ctx, c.Name, endpoint,
+	k8sClientFactory, err := commonclient.NewClientFactory(ctx, cluster.Name, endpoint,
 		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, commonclient.DisableInformer)
 	if err != nil {
 		return err
 	}
-	clientManager.AddOrReplace(c.Name, k8sClientFactory)
+	clientManager.AddOrReplace(cluster.Name, k8sClientFactory)
 	return nil
 }

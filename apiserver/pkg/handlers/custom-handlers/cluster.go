@@ -161,7 +161,7 @@ func (h *Handler) removeNodesFromWorkspace(ctx context.Context, allNodeIds []str
 			if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err != nil {
 				return client.IgnoreNotFound(err)
 			}
-			metav1.SetMetaDataAnnotation(&workspace.ObjectMeta, v1.WorkspaceNodesAction, nodeAction)
+			v1.SetAnnotation(workspace, v1.WorkspaceNodesAction, nodeAction)
 			if err := h.Update(ctx, workspace); err != nil {
 				return err
 			}
@@ -211,6 +211,7 @@ func (h *Handler) handleClusterNodes(c *gin.Context,
 				klog.Infof("the control plane node(%s) can not be changed", adminNode.Name)
 				return nil
 			}
+			v1.RemoveAnnotation(adminNode, v1.RetryCountAnnotation)
 			adminNode.Spec.Cluster = pointer.String(specCluster)
 			if err := h.Update(ctx, adminNode); err != nil {
 				return err
@@ -298,9 +299,9 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 	isChanged := false
 	if req.IsProtected != nil && *req.IsProtected != v1.IsProtected(cluster) {
 		if *req.IsProtected {
-			metav1.SetMetaDataLabel(&cluster.ObjectMeta, v1.ProtectLabel, "")
+			v1.SetLabel(cluster, v1.ProtectLabel, "")
 		} else {
-			delete(cluster.Labels, v1.ProtectLabel)
+			v1.RemoveLabel(cluster, v1.ProtectLabel)
 		}
 		isChanged = true
 	}
@@ -326,15 +327,15 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 		if key == "" {
 			continue
 		}
-		metav1.SetMetaDataLabel(&cluster.ObjectMeta, key, val)
+		v1.SetLabel(cluster, key, val)
 	}
 	if req.Description != "" {
-		metav1.SetMetaDataAnnotation(&cluster.ObjectMeta, v1.DescriptionAnnotation, req.Description)
+		v1.SetAnnotation(cluster, v1.DescriptionAnnotation, req.Description)
 	}
 	if req.IsProtected {
-		metav1.SetMetaDataLabel(&cluster.ObjectMeta, v1.ProtectLabel, "")
+		v1.SetLabel(cluster, v1.ProtectLabel, "")
 	}
-	
+
 	if cluster.Spec.ControlPlane.ImageSecret == nil {
 		imageSecret, err := h.getSecret(c.Request.Context(), common.PrimusImageSecret)
 		if err != nil {

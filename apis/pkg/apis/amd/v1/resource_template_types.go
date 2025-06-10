@@ -115,3 +115,7 @@ func init() {
 func (rt *ResourceTemplate) ToSchemaGVK() schema.GroupVersionKind {
 	return rt.Spec.GroupVersionKind.ToSchema()
 }
+
+func (rt *ResourceTemplate) SpeckKind() string {
+	return rt.Spec.GroupVersionKind.Kind
+}

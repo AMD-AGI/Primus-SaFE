@@ -17,7 +17,10 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
+)
+
+const (
+	MaxTTLHour = 48
 )
 
 func SetupExporters(ctx context.Context, mgr manager.Manager) error {
@@ -42,8 +45,8 @@ func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 					return nil
 				}
 				if err := dbClient.UpsertWorkload(ctx, dbWorkload); err != nil {
-					delTime := dbutils.ParseNullTime(dbWorkload.DeleteTime)
-					if !delTime.IsZero() && time.Now().UTC().Sub(delTime).Hours() > 72 {
+					if !obj.GetDeletionTimestamp().IsZero() &&
+						time.Now().UTC().Sub(obj.GetDeletionTimestamp().Time).Hours() > MaxTTLHour {
 						return nil
 					}
 					return err

@@ -300,3 +300,13 @@ func TestGetDeploymentEnv(t *testing.T) {
 	assert.Equal(t, env["name"].(string), "GLOO_SOCKET_IFNAME")
 	assert.Equal(t, env["value"].(string), "eth0")
 }
+
+func TestGetPytorchJobPriorityClass(t *testing.T) {
+	pytorchJob, err := jsonutils.ParseYamlToJson(TestPytorchData)
+	assert.NilError(t, err)
+	rt := TestPytorchResourceTemplate.DeepCopy()
+
+	name, err := GetPriorityClassName(pytorchJob, rt)
+	assert.NilError(t, err)
+	assert.Equal(t, name, "test-med-priority")
+}
