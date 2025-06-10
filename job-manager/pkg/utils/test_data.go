@@ -46,6 +46,7 @@ spec:
                   amd.com/gpu: "8"
           dnsPolicy: ClusterFirstWithHostNet
           hostNetwork: true
+          priorityClassName: "test-med-priority"
           schedulerName: default-scheduler
           volumes:
             - hostPath:
@@ -84,6 +85,7 @@ spec:
           dnsPolicy: ClusterFirstWithHostNet
           hostNetwork: true
           schedulerName: default-scheduler
+          priorityClassName: "test-med-priority"
           volumes:
             - hostPath:
                 path: /pfs
@@ -615,6 +617,7 @@ var (
 		Spec: v1.WorkloadSpec{
 			Workspace:  "test-workspace",
 			MaxRetry:   2,
+			Priority:   2,
 			Image:      "test-image",
 			EntryPoint: "sh -c test.sh",
 			GroupVersionKind: v1.GroupVersionKind{
@@ -631,7 +634,6 @@ var (
 				ShareMemory:      "32Gi",
 				EphemeralStorage: "20Gi",
 				JobPort:          12345,
-				SSHPort:          23456,
 			},
 			Env: map[string]string{
 				"key": "value",
@@ -639,6 +641,22 @@ var (
 			CustomerLabels: map[string]string{
 				"key1": "val1",
 				"key2": "val2",
+			},
+		},
+	}
+
+	TestNodeFlavorData = &v1.NodeFlavor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "nodeflavor",
+		},
+		Spec: v1.NodeFlavorSpec{
+			Cpu: v1.CpuChip{
+				Quantity: *resource.NewQuantity(64, resource.DecimalSI),
+			},
+			Memory: *resource.NewQuantity(1024*1024*1024, resource.BinarySI),
+			Gpu: &v1.GpuChip{
+				ResourceName: common.AmdGpu,
+				Quantity:     *resource.NewQuantity(8, resource.DecimalSI),
 			},
 		},
 	}

@@ -91,6 +91,9 @@ func isNeedFailover(workload *v1.Workload) bool {
 	if isDisableFailover(workload) {
 		return false
 	}
+	if v1.IsWorkloadPreempted(workload) {
+		return true
+	}
 	cond := &metav1.Condition{
 		Type:   string(v1.K8sFailed),
 		Reason: commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload)),
@@ -107,6 +110,9 @@ func isDisableFailover(w *v1.Workload) bool {
 	}
 	if !v1.IsWorkloadDispatched(w) || w.IsEnd() {
 		return true
+	}
+	if v1.IsWorkloadPreempted(w) {
+		return false
 	}
 	if w.Spec.MaxRetry <= 0 || v1.GetWorkloadDispatchCnt(w) > w.Spec.MaxRetry {
 		return true
@@ -293,7 +299,12 @@ func (r *FailoverReconciler) handle(ctx context.Context, adminWorkload *v1.Workl
 		klog.ErrorS(err, "failed to delete k8s object", "name", adminWorkload.GetName())
 		return ctrlruntime.Result{}, err
 	}
-	message := "the workload does the failover"
+	message := ""
+	if v1.IsWorkloadPreempted(adminWorkload) {
+		message = "the workload is preempted"
+	} else {
+		message = "the workload does the failover"
+	}
 	if err := r.addFailoverCondition(ctx, adminWorkload, message); err != nil {
 		return ctrlruntime.Result{}, err
 	}

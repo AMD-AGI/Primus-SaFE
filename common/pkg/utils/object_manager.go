@@ -101,6 +101,13 @@ func (om *ObjectManager) Get(id string) (Object, bool) {
 	return obj, exists
 }
 
+func (om *ObjectManager) Has(id string) bool {
+	om.mu.RLock()
+	defer om.mu.RUnlock()
+	_, exists := om.objects[id]
+	return exists
+}
+
 // Objects retrieves all Objects and keys
 func (om *ObjectManager) GetAll() ([]string, []Object) {
 	om.mu.RLock()

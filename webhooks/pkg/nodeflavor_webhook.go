@@ -12,7 +12,6 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -67,9 +66,7 @@ func (m *NodeFlavorMutator) mutate(nf *v1.NodeFlavor) {
 	if nf.Spec.Gpu != nil && nf.Spec.Gpu.Quantity.IsZero() {
 		nf.Spec.Gpu = nil
 	}
-	if v1.GetDisplayName(nf) == "" {
-		metav1.SetMetaDataLabel(&nf.ObjectMeta, v1.DisplayNameLabel, nf.Name)
-	}
+	v1.SetLabel(nf, v1.DisplayNameLabel, nf.Name)
 }
 
 type NodeFlavorValidator struct {

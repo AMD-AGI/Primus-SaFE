@@ -9,11 +9,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/strings/slices"
 )
 
 const (
 	ClusterKind = "Cluster"
+
+	CiliumNetworkPlugin = "cilium"
 )
 
 type (
@@ -141,18 +142,19 @@ type ControlPlane struct {
 	// 控制节点
 	Nodes []string `json:"nodes"`
 	// SSH 登录节点证书
-	SSHSecret              *corev1.ObjectReference `json:"secret,omitempty"`
-	KubeSprayImage         *string                 `json:"kubeSprayImage,omitempty"`
-	ImageSecret            *corev1.ObjectReference `json:"imageSecret,omitempty"`
-	KubePodsSubnet         *string                 `json:"kubePodsSubnet,omitempty"`
-	KubeServiceAddress     *string                 `json:"kubeServiceAddress,omitempty"`
-	KubeNetworkNodePrefix  *uint32                 `json:"kubeNetworkNodePrefix,omitempty"`
-	KubeNetworkPlugin      *string                 `json:"kubeNetworkPlugin,omitempty"`
-	KubeVersion            *string                 `json:"kubernetesVersion,omitempty"`
-	KubeProxyMode          *string                 `json:"kubeProxyMode,omitempty"`
-	NodeLocalDNSIP         *string                 `json:"nodeLocalDNSIP,omitempty"`
-	KubeApiServerArgs      map[string]string       `json:"kubeApiServerArgs,omitempty"`
-	KubeletLogFilesMaxSize *resource.Quantity      `json:"kubeletLogFilesMaxSize,omitempty"`
+	SSHSecret             *corev1.ObjectReference `json:"secret,omitempty"`
+	KubeSprayImage        *string                 `json:"kubeSprayImage,omitempty"`
+	ImageSecret           *corev1.ObjectReference `json:"imageSecret,omitempty"`
+	KubePodsSubnet        *string                 `json:"kubePodsSubnet,omitempty"`
+	KubeServiceAddress    *string                 `json:"kubeServiceAddress,omitempty"`
+	KubeNetworkNodePrefix *uint32                 `json:"kubeNetworkNodePrefix,omitempty"`
+	// default is cilium
+	KubeNetworkPlugin      *string            `json:"kubeNetworkPlugin,omitempty"`
+	KubeVersion            *string            `json:"kubernetesVersion,omitempty"`
+	KubeProxyMode          *string            `json:"kubeProxyMode,omitempty"`
+	NodeLocalDNSIP         *string            `json:"nodeLocalDNSIP,omitempty"`
+	KubeApiServerArgs      map[string]string  `json:"kubeApiServerArgs,omitempty"`
+	KubeletLogFilesMaxSize *resource.Quantity `json:"kubeletLogFilesMaxSize,omitempty"`
 }
 
 type ControlPlaneStatus struct {
@@ -184,22 +186,6 @@ func init() {
 
 func (c *Cluster) IsReady() bool {
 	if c != nil && c.Status.ControlPlaneStatus.Phase == ReadyPhase {
-		return true
-	}
-	return false
-}
-
-func (c *Cluster) IsControlPlaneCertEqual(input ControlPlaneStatus) bool {
-	if c.Status.ControlPlaneStatus.CAData == input.CAData &&
-		c.Status.ControlPlaneStatus.CertData == input.CertData &&
-		c.Status.ControlPlaneStatus.KeyData == input.KeyData {
-		return true
-	}
-	return false
-}
-
-func (c *Cluster) IsControlPlaneEndpointEqual(endpoints []string) bool {
-	if slices.Equal(c.Status.ControlPlaneStatus.Endpoints, endpoints) {
 		return true
 	}
 	return false

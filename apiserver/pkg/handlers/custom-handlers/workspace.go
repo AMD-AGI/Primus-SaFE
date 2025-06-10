@@ -107,7 +107,9 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 	if err = h.List(c.Request.Context(), workspaceList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return nil, err
 	}
-	sort.Sort(types.WorkspaceSlice(workspaceList.Items))
+	sort.Slice(workspaceList.Items, func(i, j int) bool {
+		return workspaceList.Items[i].Name < workspaceList.Items[j].Name
+	})
 
 	result := &types.GetWorkspaceResponse{}
 	for _, w := range workspaceList.Items {
@@ -169,7 +171,7 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 
 func updateWorkspace(workspace *v1.Workspace, req *types.PatchWorkspaceRequest) {
 	if req.Description != nil {
-		metav1.SetMetaDataAnnotation(&workspace.ObjectMeta, v1.DescriptionAnnotation, *req.Description)
+		v1.SetAnnotation(workspace, v1.DescriptionAnnotation, *req.Description)
 	}
 	if req.NodeFlavor != nil {
 		workspace.Spec.NodeFlavor = *req.NodeFlavor
@@ -185,6 +187,9 @@ func updateWorkspace(workspace *v1.Workspace, req *types.PatchWorkspaceRequest) 
 	}
 	if req.Volumes != nil {
 		workspace.Spec.Volumes = *req.Volumes
+	}
+	if req.EnablePreempt != nil {
+		workspace.Spec.EnablePreempt = *req.EnablePreempt
 	}
 }
 
@@ -232,6 +237,7 @@ func (h *Handler) cvtToWorkspaceResItem(ctx context.Context,
 		QueuePolicy:   w.Spec.QueuePolicy,
 		Scopes:        w.Spec.Scopes,
 		Volumes:       w.Spec.Volumes,
+		EnablePreempt: w.Spec.EnablePreempt,
 	}
 	if isNeedDetail {
 		if err := h.buildWorkspaceDetail(ctx, w, result); err != nil {
@@ -265,7 +271,7 @@ func (h *Handler) buildWorkspaceDetail(ctx context.Context, workspace *v1.Worksp
 		if err != nil {
 			return true
 		}
-		if !n.IsAvailable() {
+		if !n.IsAvailable(false) {
 			return true
 		}
 		return false

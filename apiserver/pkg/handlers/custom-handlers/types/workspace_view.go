@@ -69,6 +69,8 @@ type GetWorkspaceResponseItem struct {
 	Scopes []v1.WorkspaceScope `json:"scopes"`
 	// the store volumes used by workspace
 	Volumes []v1.WorkspaceVolume `json:"volumes,omitempty"`
+	// Is preemption enabled
+	EnablePreempt bool `json:"enablePreempt,omitempty"`
 }
 
 type GetWorkspaceResponse struct {
@@ -89,21 +91,6 @@ type PatchWorkspaceRequest struct {
 	Volumes *[]v1.WorkspaceVolume `json:"volumes,omitempty"`
 	// description
 	Description *string `json:"description,omitempty"`
-	// If the balance strategy is selected, set the scheduling timeout duration (in seconds).
-	// Traversal will only be performed after the timeout. Default is 0 seconds.
-	QueueBalanceTimeout *int `json:"queue.balance.timeout,omitempty"`
-}
-
-type WorkspaceSlice []v1.Workspace
-
-func (ws WorkspaceSlice) Len() int {
-	return len(ws)
-}
-
-func (ws WorkspaceSlice) Swap(i, j int) {
-	ws[i], ws[j] = ws[j], ws[i]
-}
-
-func (ws WorkspaceSlice) Less(i, j int) bool {
-	return ws[i].Name < ws[j].Name
+	// EnablePreempt
+	EnablePreempt *bool `json:"enablePreempt,omitempty"`
 }

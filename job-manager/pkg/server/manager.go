@@ -124,7 +124,7 @@ func (jm *JobManager) Start() error {
 		}
 	}()
 	if !jm.CtrlManager.GetCache().WaitForCacheSync(jm.Context) {
-		klog.Errorf("failed to WaitForCacheSync")
+		klog.Error("failed to WaitForCacheSync")
 		os.Exit(-1)
 	}
 	return nil

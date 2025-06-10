@@ -43,12 +43,14 @@ type WorkspaceSpec struct {
 	// node count
 	Replica int `json:"replica,omitempty"`
 	// Queuing policy for tasks submitted in this workspace.
-	// All tasks currently share the same policy (no per-task customization). Default: fifo.
+	// All tasks currently share the same policy (no per-task customization). default is fifo.
 	QueuePolicy WorkspaceQueuePolicy `json:"queuePolicy,omitempty"`
 	// Service modules available in this space. No limitation if not specified.
 	Scopes []WorkspaceScope `json:"scopes,omitempty"`
 	// volumes used in this space
 	Volumes []WorkspaceVolume `json:"volumes,omitempty"`
+	// Is preemption enabled. default is false
+	EnablePreempt bool `json:"enablePreempt,omitempty"`
 }
 
 type WorkspaceVolume struct {

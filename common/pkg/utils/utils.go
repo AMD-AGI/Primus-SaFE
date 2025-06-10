@@ -47,3 +47,7 @@ func GenObjectReference(typeMeta metav1.TypeMeta, objMeta metav1.ObjectMeta) *co
 		ResourceVersion: objMeta.GetResourceVersion(),
 	}
 }
+
+func GeneratePriorityClass(clusterId, priorityClass string) string {
+	return clusterId + "-" + priorityClass
+}

@@ -46,7 +46,6 @@ var (
 				ShareMemory:      "32Gi",
 				EphemeralStorage: "20Gi",
 				JobPort:          12345,
-				SSHPort:          23456,
 			},
 		},
 	}

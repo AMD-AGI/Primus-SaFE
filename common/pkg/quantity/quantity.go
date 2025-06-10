@@ -9,10 +9,11 @@ import (
 	"fmt"
 	"math"
 
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
@@ -101,6 +102,13 @@ func IsNegative(rl corev1.ResourceList) bool {
 		}
 	}
 	return false
+}
+
+func Copy(rl corev1.ResourceList) corev1.ResourceList {
+	if len(rl) == 0 {
+		return make(corev1.ResourceList)
+	}
+	return rl.DeepCopy()
 }
 
 func GetConcernedResources(res corev1.ResourceList) corev1.ResourceList {

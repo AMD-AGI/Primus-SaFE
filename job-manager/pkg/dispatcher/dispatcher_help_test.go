@@ -6,7 +6,6 @@
 package dispatcher
 
 import (
-	"strconv"
 	"testing"
 
 	"gotest.tools/assert"
@@ -16,6 +15,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
@@ -90,13 +90,9 @@ func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Worklo
 	if gpu != "" {
 		ok := findEnv(envs, "GPUS_PER_NODE", gpu)
 		assert.Equal(t, ok, true)
-		ok = findEnv(envs, "NNODES", strconv.Itoa(workload.Spec.Resource.Replica))
-		assert.Equal(t, ok, true)
 	}
 	ok := findEnv(envs, "HANG_CHECK_INTERVAL", "")
 	assert.Equal(t, ok, false)
-	ok = findEnv(envs, "DISPATCH_COUNT", "1")
-	assert.Equal(t, ok, true)
 	if v1.IsEnableHostNetwork(workload) {
 		ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "ens51f0")
 		assert.Equal(t, ok, true)
@@ -313,4 +309,13 @@ func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1
 	} else {
 		assert.Equal(t, found, false)
 	}
+}
+
+func checkPriorityClass(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {
+	path := append(template.PrePaths, template.TemplatePaths...)
+	path = append(path, "spec", "priorityClassName")
+	priorityClassName, found, err := unstructured.NestedString(obj.Object, path...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, priorityClassName, commonworkload.GeneratePriorityClass(workload))
 }

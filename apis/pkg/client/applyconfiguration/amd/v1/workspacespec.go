@@ -13,12 +13,13 @@ import (
 // WorkspaceSpecApplyConfiguration represents a declarative configuration of the WorkspaceSpec type for use
 // with apply.
 type WorkspaceSpecApplyConfiguration struct {
-	Cluster     *string                             `json:"cluster,omitempty"`
-	NodeFlavor  *string                             `json:"nodeFlavor,omitempty"`
-	Replica     *int                                `json:"replica,omitempty"`
-	QueuePolicy *amdv1.WorkspaceQueuePolicy         `json:"queuePolicy,omitempty"`
-	Scopes      []amdv1.WorkspaceScope              `json:"scopes,omitempty"`
-	Volumes     []WorkspaceVolumeApplyConfiguration `json:"volumes,omitempty"`
+	Cluster       *string                             `json:"cluster,omitempty"`
+	NodeFlavor    *string                             `json:"nodeFlavor,omitempty"`
+	Replica       *int                                `json:"replica,omitempty"`
+	QueuePolicy   *amdv1.WorkspaceQueuePolicy         `json:"queuePolicy,omitempty"`
+	Scopes        []amdv1.WorkspaceScope              `json:"scopes,omitempty"`
+	Volumes       []WorkspaceVolumeApplyConfiguration `json:"volumes,omitempty"`
+	EnablePreempt *bool                               `json:"enablePreempt,omitempty"`
 }
 
 // WorkspaceSpecApplyConfiguration constructs a declarative configuration of the WorkspaceSpec type for use with
@@ -79,5 +80,13 @@ func (b *WorkspaceSpecApplyConfiguration) WithVolumes(values ...*WorkspaceVolume
 		}
 		b.Volumes = append(b.Volumes, *values[i])
 	}
+	return b
+}
+
+// WithEnablePreempt sets the EnablePreempt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the EnablePreempt field is set to the value of the last call.
+func (b *WorkspaceSpecApplyConfiguration) WithEnablePreempt(value bool) *WorkspaceSpecApplyConfiguration {
+	b.EnablePreempt = &value
 	return b
 }

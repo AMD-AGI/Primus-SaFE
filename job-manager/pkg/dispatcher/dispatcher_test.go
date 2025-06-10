@@ -22,6 +22,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
@@ -99,6 +100,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkLabels(t, obj, workload, &templates[0])
 	checkHostNetwork(t, obj, workload, &templates[0])
 	checkTolerations(t, obj, workload, &templates[0])
+	checkPriorityClass(t, obj, workload, &templates[0])
 	_, found, err := unstructured.NestedSlice(obj.Object, templates[1].PrePaths...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, false)
@@ -119,6 +121,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkLabels(t, obj, workload, &templates[1])
 	checkHostNetwork(t, obj, workload, &templates[1])
 	checkTolerations(t, obj, workload, &templates[1])
+	checkPriorityClass(t, obj, workload, &templates[1])
 	// fmt.Println(unstructuredutils.ToString(obj))
 }
 
@@ -189,7 +192,7 @@ func TestUpdateDeployment(t *testing.T) {
 	assert.Equal(t, gpuQuantity.Value(), int64(4))
 
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Image, "test-image")
-
+	assert.Equal(t, deployment.Spec.Template.Spec.PriorityClassName, commonworkload.GeneratePriorityClass(adminWorkload))
 	assert.Equal(t, len(deployment.Spec.Template.Spec.Containers[0].Command), 3)
 	cmd := buildEntryPoint("sh -c test.sh")
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Command[2], cmd)
@@ -233,6 +236,8 @@ func TestUpdatePytorchJob(t *testing.T) {
 	rdmaQuantity, ok := template.Spec.Containers[0].Resources.Limits[corev1.ResourceName(commonconfig.GetRdmaName())]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, rdmaQuantity.Value(), int64(1))
+	assert.Equal(t, pytorchJob.Spec.PytorchReplicaSpecs.Master.Template.Spec.PriorityClassName,
+		commonworkload.GeneratePriorityClass(adminWorkload))
 
 	assert.Equal(t, pytorchJob.Spec.PytorchReplicaSpecs.Worker.Replicas, 2)
 	template = pytorchJob.Spec.PytorchReplicaSpecs.Worker.Template
@@ -287,6 +292,20 @@ func TestIsImageChanged(t *testing.T) {
 
 	adminWorkload.Spec.Image = "test-image:1234"
 	ok = isImageChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	assert.Equal(t, ok, true)
+}
+
+func TestIsPriorityClassChanged(t *testing.T) {
+	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
+	assert.NilError(t, err)
+	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+	adminWorkload.Spec.Priority = common.MedPriorityInt
+	v1.SetLabel(adminWorkload, v1.ClusterIdLabel, "test")
+	ok := isPriorityClassChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
+	assert.Equal(t, ok, false)
+
+	adminWorkload.Spec.Priority = common.HighPriorityInt
+	ok = isPriorityClassChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
 	assert.Equal(t, ok, true)
 }
 

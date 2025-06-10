@@ -18,7 +18,7 @@ data:
     workload:
       max_ephemeral_store_percent: {{ .Values.workload.max_ephemeral_store_percent }}
       enable_failover: true
-      hangcheck_second: 1200
+      hang_check_interval: 1200
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-job-manager

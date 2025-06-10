@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"strconv"
 
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -54,19 +56,13 @@ func removeFinalizer(ctx context.Context, cli client.Client, obj client.Object, 
 	return nil
 }
 
-func incFailedTimes(ctx context.Context, cli client.Client, obj client.Object) (int, error) {
-	count := 1
-	annotations := obj.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
-	} else if strCount, ok := annotations[v1.FailedCountAnnotation]; ok {
-		if oldCount, err := strconv.Atoi(strCount); err == nil {
-			count += oldCount
-		}
+func incRetryCount(ctx context.Context, cli client.Client, obj client.Object, maxCount int) (int, error) {
+	count := v1.GetRetryCount(obj) + 1
+	if count > maxCount {
+		return count, nil
 	}
 	patch := client.MergeFrom(obj.DeepCopyObject().(client.Object))
-	annotations[v1.FailedCountAnnotation] = strconv.Itoa(count)
-	obj.SetAnnotations(annotations)
+	v1.SetAnnotation(obj, v1.RetryCountAnnotation, strconv.Itoa(count))
 	if err := cli.Patch(ctx, obj, patch); err != nil {
 		return 0, client.IgnoreNotFound(err)
 	}
@@ -88,6 +84,9 @@ func ignoreError(err error) error {
 }
 
 func getK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
+	if clientManager == nil {
+		return nil, commonerrors.NewInternalError("client manager is emtpy")
+	}
 	obj, _ := clientManager.Get(clusterId)
 	if obj == nil {
 		err := fmt.Errorf("the client of cluster %s is not found. pls retry later", clusterId)
@@ -98,4 +97,28 @@ func getK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId str
 		return nil, commonerrors.NewInternalError("failed to correctly build the k8s client")
 	}
 	return k8sClients, nil
+}
+
+func createPriorityClass(ctx context.Context, clientSet kubernetes.Interface, name, description string, value int32) error {
+	priorityClass := &schedulingv1.PriorityClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Value:       value,
+		Description: description,
+	}
+	if _, err := clientSet.SchedulingV1().PriorityClasses().Create(
+		ctx, priorityClass, metav1.CreateOptions{}); err != nil {
+		return client.IgnoreAlreadyExists(err)
+	}
+	klog.Infof("create PriorityClass, name: %s, value: %d", name, value)
+	return nil
+}
+
+func deletePriorityClass(ctx context.Context, clientSet kubernetes.Interface, name string) error {
+	if err := clientSet.SchedulingV1().PriorityClasses().Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	klog.Infof("delete PriorityClass, name: %s", name)
+	return nil
 }

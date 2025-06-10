@@ -17,7 +17,6 @@ type WorkloadResourceApplyConfiguration struct {
 	ShareMemory      *string `json:"shareMemory,omitempty"`
 	EphemeralStorage *string `json:"ephemeralStorage,omitempty"`
 	JobPort          *int    `json:"jobPort,omitempty"`
-	SSHPort          *int    `json:"SSHPort,omitempty"`
 }
 
 // WorkloadResourceApplyConfiguration constructs a declarative configuration of the WorkloadResource type for use with
@@ -87,13 +86,5 @@ func (b *WorkloadResourceApplyConfiguration) WithEphemeralStorage(value string) 
 // If called multiple times, the JobPort field is set to the value of the last call.
 func (b *WorkloadResourceApplyConfiguration) WithJobPort(value int) *WorkloadResourceApplyConfiguration {
 	b.JobPort = &value
-	return b
-}
-
-// WithSSHPort sets the SSHPort field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the SSHPort field is set to the value of the last call.
-func (b *WorkloadResourceApplyConfiguration) WithSSHPort(value int) *WorkloadResourceApplyConfiguration {
-	b.SSHPort = &value
 	return b
 }

@@ -8,13 +8,13 @@ package resource
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -34,6 +34,7 @@ import (
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
@@ -61,6 +62,9 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 		clientManager: commonutils.NewObjectManagerSingleton(),
 		expectations:  make(map[string]sets.Set),
 		opt:           opt,
+	}
+	if r.clientManager == nil {
+		return fmt.Errorf("failed to new clientManager")
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workspace{}, builder.WithPredicates(predicate.Or(
@@ -108,7 +112,7 @@ func (r *WorkspaceReconciler) enqueueRequestByWorkspace() predicate.Predicate {
 func (r *WorkspaceReconciler) enqueueRequestByNode() handler.EventHandler {
 	isCaredFieldChanged := func(oldNode, newNode *v1.Node) bool {
 		if !reflect.DeepEqual(oldNode.Status.Resources, newNode.Status.Resources) ||
-			oldNode.IsAvailable() != newNode.IsAvailable() ||
+			oldNode.IsAvailable(false) != newNode.IsAvailable(false) ||
 			v1.GetClusterId(oldNode) != v1.GetClusterId(newNode) ||
 			oldNode.GetSpecCluster() != "" && newNode.GetSpecCluster() == "" ||
 			(oldNode.GetDeletionTimestamp().IsZero() && !newNode.GetDeletionTimestamp().IsZero()) {
@@ -412,7 +416,7 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 		if v1.GetNodeFlavorId(&node) != workspace.Spec.NodeFlavor {
 			continue
 		}
-		if node.IsAvailable() {
+		if node.IsAvailable(false) {
 			availResources = quantity.AddResource(availResources, node.Status.Resources)
 			availReplica++
 		} else {

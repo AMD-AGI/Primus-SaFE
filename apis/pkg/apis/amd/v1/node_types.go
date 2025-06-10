@@ -121,17 +121,7 @@ func init() {
 	SchemeBuilder.Register(&Node{}, &NodeList{})
 }
 
-func (n *Node) IsAvailable() bool {
-	if !n.IsAvailableIgnoreTaint() {
-		return false
-	}
-	if len(n.Status.Taints) > 0 {
-		return false
-	}
-	return true
-}
-
-func (n *Node) IsAvailableIgnoreTaint() bool {
+func (n *Node) IsAvailable(ignoreTaint bool) bool {
 	if n == nil {
 		return false
 	}
@@ -145,6 +135,9 @@ func (n *Node) IsAvailableIgnoreTaint() bool {
 		return false
 	}
 	if n.Status.Unschedulable {
+		return false
+	}
+	if !ignoreTaint && len(n.Status.Taints) > 0 {
 		return false
 	}
 	return true

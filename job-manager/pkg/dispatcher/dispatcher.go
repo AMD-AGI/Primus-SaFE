@@ -187,7 +187,6 @@ func (r *DispatcherReconciler) buildPort(ctx context.Context, workload *v1.Workl
 			if !v1.IsEnableHostNetwork(&item) {
 				continue
 			}
-			ports[item.Spec.Resource.SSHPort] = true
 			ports[item.Spec.Resource.JobPort] = true
 		}
 	}
@@ -265,8 +264,9 @@ func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1
 
 	if !v1.IsWorkloadDispatched(workload) {
 		patch := client.MergeFrom(workload.DeepCopy())
-		metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.WorkloadDispatchedAnnotation, time.Now().UTC().Format(time.RFC3339))
-		metav1.SetMetaDataLabel(&workload.ObjectMeta, v1.WorkloadDispatchCntLabel, buildDispatchCount(workload))
+		v1.SetAnnotation(workload, v1.WorkloadDispatchedAnnotation, time.Now().UTC().Format(time.RFC3339))
+		v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, buildDispatchCount(workload))
+		v1.RemoveAnnotation(workload, v1.WorkloadPreemptedAnnotation)
 		if err := r.Patch(ctx, workload, patch); err != nil {
 			klog.ErrorS(err, "failed to patch workload", "name", workload.Name)
 			return err
@@ -287,7 +287,7 @@ func (r *DispatcherReconciler) updateK8sObject(ctx context.Context, adminWorkloa
 	}
 
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
-		isResourceChanged, isImageChanged, isEntryPointChanged, isShareMemoryChanged, isEnvChanged,
+		isResourceChanged, isImageChanged, isEntryPointChanged, isShareMemoryChanged, isEnvChanged, isPriorityClassChanged,
 	}
 	isChanged := false
 	for _, f := range functions {
@@ -380,6 +380,14 @@ func isShareMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruct
 	return shareMemory != adminWorkload.Spec.Resource.ShareMemory
 }
 
+func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
+	priorityClassName, err := jobutils.GetPriorityClassName(obj, rt)
+	if err != nil {
+		return true
+	}
+	return commonworkload.GeneratePriorityClass(adminWorkload) != priorityClassName
+}
+
 func updateUnstructuredObj(obj *unstructured.Unstructured, adminWorkload *v1.Workload, rt *v1.ResourceTemplate) error {
 	var preAllocatedReplica int64 = 0
 	for _, t := range rt.Spec.Templates {
@@ -396,6 +404,9 @@ func updateUnstructuredObj(obj *unstructured.Unstructured, adminWorkload *v1.Wor
 			unstructured.RemoveNestedField(obj.Object, t.PrePaths...)
 			continue
 		}
+		if err := udpateHostNetwork(adminWorkload, obj, t); err != nil {
+			return err
+		}
 		if err := updateReplica(obj, t, replica); err != nil {
 			return err
 		}
@@ -403,6 +414,9 @@ func updateUnstructuredObj(obj *unstructured.Unstructured, adminWorkload *v1.Wor
 			return err
 		}
 		if err := updateShareMemory(adminWorkload, obj, t); err != nil {
+			return err
+		}
+		if err := udpatePriorityClass(adminWorkload, obj, t); err != nil {
 			return err
 		}
 	}
@@ -535,6 +549,20 @@ func updateShareMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 		}
 	}
 	return nil
+}
+
+func udpateHostNetwork(adminWorkload *v1.Workload,
+	obj *unstructured.Unstructured, template v1.Template) error {
+	templatePath := template.GetTemplatePath()
+	path := append(templatePath, "spec", "hostNetwork")
+	return modifyHostNetWork(obj, adminWorkload, path)
+}
+
+func udpatePriorityClass(adminWorkload *v1.Workload,
+	obj *unstructured.Unstructured, template v1.Template) error {
+	templatePath := template.GetTemplatePath()
+	path := append(templatePath, "spec", "priorityClassName")
+	return modifyPriorityClass(obj, adminWorkload, path)
 }
 
 func (r *DispatcherReconciler) createService(ctx context.Context,
