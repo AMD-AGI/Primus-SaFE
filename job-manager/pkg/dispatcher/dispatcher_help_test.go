@@ -147,6 +147,14 @@ func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, template *v
 	assert.Equal(t, path, "/ceph")
 	_, ok = volumeMount["subPath"]
 	assert.Equal(t, ok, false)
+
+	volumeMount = findVolumeMount(volumeMounts, generateVolumeName(string(v1.HOSTPATH), 0))
+	assert.Equal(t, volumeMount != nil, true)
+	path, ok = volumeMount["mountPath"]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, path, "/data")
+	_, ok = volumeMount["subPath"]
+	assert.Equal(t, ok, false)
 }
 
 func findVolumeMount(volumeMounts []interface{}, name string) map[string]interface{} {
@@ -181,11 +189,19 @@ func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 
 	volume = findVolume(volumes, string(v1.FS))
 	assert.Equal(t, volume != nil, true)
-	persistentVolumeClaim, ok := volume["persistentVolumeClaim"]
+	persistentVolumeObj, ok := volume["persistentVolumeClaim"]
 	assert.Equal(t, ok, true)
-	claimName, ok := persistentVolumeClaim.(map[string]interface{})["claimName"]
+	claimName, ok := persistentVolumeObj.(map[string]interface{})["claimName"]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, claimName.(string), string(v1.FS))
+
+	volume = findVolume(volumes, generateVolumeName(string(v1.HOSTPATH), 0))
+	assert.Equal(t, volume != nil, true)
+	hostPathObj, ok := volume["hostPath"]
+	assert.Equal(t, ok, true)
+	path, ok := hostPathObj.(map[string]interface{})["path"]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, path.(string), "/apps")
 }
 
 func findVolume(volumes []interface{}, name string) map[string]interface{} {

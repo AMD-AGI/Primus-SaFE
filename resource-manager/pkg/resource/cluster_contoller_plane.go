@@ -349,7 +349,7 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 }
 
 func (r *ClusterReconciler) addFinalizer(ctx context.Context, cluster *v1.Cluster) error {
-	if slice.ContainsString(cluster.Finalizers, v1.ClusterFinalizer) {
+	if slice.Contains(cluster.Finalizers, v1.ClusterFinalizer) {
 		return nil
 	}
 	cluster.Finalizers = append(cluster.Finalizers, v1.ClusterFinalizer)
