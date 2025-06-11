@@ -21,6 +21,7 @@ const (
 	DeploymentKind      = "Deployment"
 	StatefulSetKind     = "StatefulSet"
 	PytorchJobPortName  = "pytorchjob-port"
+	SSHPortName         = "ssh-port"
 
 	DefaultBurst = 1000
 	DefaultQPS   = 1000

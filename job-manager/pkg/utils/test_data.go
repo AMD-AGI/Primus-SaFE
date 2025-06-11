@@ -619,11 +619,12 @@ var (
 			CreationTimestamp: metav1.NewTime(time.Now()),
 		},
 		Spec: v1.WorkloadSpec{
-			Workspace:  "test-workspace",
-			MaxRetry:   2,
-			Priority:   2,
-			Image:      "test-image",
-			EntryPoint: "sh -c test.sh",
+			Workspace:    "test-workspace",
+			MaxRetry:     2,
+			Priority:     2,
+			Image:        "test-image",
+			IsSSHEnabled: true,
+			EntryPoint:   "sh -c test.sh",
 			GroupVersionKind: v1.GroupVersionKind{
 				Group:   "kubeflow.org",
 				Version: "v1",
@@ -638,6 +639,7 @@ var (
 				ShareMemory:      "32Gi",
 				EphemeralStorage: "20Gi",
 				JobPort:          12345,
+				SSHPort:          23456,
 			},
 			Env: map[string]string{
 				"key": "value",

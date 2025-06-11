@@ -613,6 +613,9 @@ func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
 			result.Message = adminWorkload.Status.Message
 		}
 	}
+	if result.Resource.SSHPort > 0 {
+		result.CreateWorkloadRequest.IsSSHEnabled = true
+	}
 	if isNeedDetail {
 		buildWorkloadDetail(w, &result)
 	}

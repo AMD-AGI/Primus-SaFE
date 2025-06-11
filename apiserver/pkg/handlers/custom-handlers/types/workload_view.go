@@ -28,11 +28,12 @@ type CreateWorkloadResponse struct {
 type GetWorkloadRequest struct {
 	// workspace id
 	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`
-	// Succeeded/Failed/Pending/Running/Stopped/Updating/NotReady
+	// Valid values include: Succeeded,Failed,Pending,Running,Stopped
+	// If specifying multiple phase queries, separate them with commas
 	Phase string `form:"phase" binding:"omitempty"`
 	// cluster id
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
-	// Deployment/PyTorchJob/StatefulSet
+	// Valid values include: Deployment/PyTorchJob/StatefulSet
 	Kind string `form:"kind" binding:"omitempty"`
 	// workload submitter, Supports fuzzy matching
 	UserName string `form:"userName" binding:"omitempty"`

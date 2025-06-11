@@ -179,10 +179,6 @@ func GetUserName(obj metav1.Object) string {
 	return GetAnnotation(obj, UserNameAnnotation)
 }
 
-func GetUserNameMd5(obj metav1.Object) string {
-	return GetLabel(obj, UserNameMd5Label)
-}
-
 func GetWorkloadDispatchCnt(obj metav1.Object) int {
 	return atoi(GetLabel(obj, WorkloadDispatchCntLabel))
 }

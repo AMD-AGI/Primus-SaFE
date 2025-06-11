@@ -26,6 +26,7 @@ func initCustomRouters(e *gin.Engine, h *customhandler.Handler) {
 		group.PATCH(fmt.Sprintf("workloads/:%s", types.Name), h.PatchWorkload)
 		group.GET(fmt.Sprintf("workloads/:%s/service", types.Name), h.GetWorkloadService)
 		group.GET(fmt.Sprintf("workloads/:%s/pods/:%s/logs", types.Name, types.PodId), h.GetWorkloadPodLog)
+		group.GET(fmt.Sprintf("workloads/:%s/pods/:%s/ssh", types.Name, types.PodId), h.SSHPod)
 
 		group.POST("secrets", h.CreateSecret)
 		group.GET("secrets", h.ListSecret)
