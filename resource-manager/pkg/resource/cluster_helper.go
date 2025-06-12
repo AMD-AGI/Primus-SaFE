@@ -278,7 +278,12 @@ const (
 	HostsYaml                 = "hosts.yaml"
 	Authorize                 = "authorize"
 	AuthorizePub              = "authorize.pub"
+	HarborCA                  = "HarborCa"
 )
+
+var DefaultKubeletConfigArgs = map[string]string{
+	"node-status-update-frequency": "60s",
+}
 
 type HostTemplateContent struct {
 	NodeAndIP     []string
@@ -331,19 +336,28 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 			},
 		})
 	}
-	// root 0400 other 0644
-	mode := pointer.Int32(0644)
-	if username == Root {
-		mode = pointer.Int32(0400)
-	}
+	mode := pointer.Int32(0400)
 
-	if cluster.Spec.ControlPlane.KubeApiServerArgs != nil && len(cluster.Spec.ControlPlane.KubeApiServerArgs) > 0 {
+	if len(cluster.Spec.ControlPlane.KubeApiServerArgs) > 0 {
 		replace := "kube_kubeadm_apiserver_extra_args:"
 		for k, v := range cluster.Spec.ControlPlane.KubeApiServerArgs {
 			replace = fmt.Sprintf("%s \n  %s: %s", replace, k, v)
 		}
 		cmd = fmt.Sprintf("sed -i \"/^kube_kubeadm_apiserver_extra_args: /d\" roles/kubernetes/control-plane/defaults/main/main.yml && echo \"%s\" >> roles/kubernetes/control-plane/defaults/main/main.yml && %s", replace, cmd)
 	}
+
+	kubeletArgs := "kubelet_config_extra_args:"
+	for k, v := range DefaultKubeletConfigArgs {
+		if _, ok := cluster.Spec.ControlPlane.KubeletConfigArgs[k]; ok {
+			continue
+		}
+		kubeletArgs = fmt.Sprintf("%s \n  %s: %s", kubeletArgs, k, v)
+	}
+
+	for k, v := range cluster.Spec.ControlPlane.KubeletConfigArgs {
+		kubeletArgs = fmt.Sprintf("%s \n  %s: %s", kubeletArgs, k, v)
+	}
+	cmd = fmt.Sprintf("sed -i \"/^kubelet_config_extra_args: /d\" roles/kubernetes/node/defaults/main.yml && echo \"%s\" >> roles/kubernetes/node/defaults/main.yml && %s", kubeletArgs, cmd)
 
 	sshSecretName := cluster.Name
 	if cluster.Spec.ControlPlane.SSHSecret != nil {
@@ -458,12 +472,7 @@ func generateScaleWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, 
 	return pod
 }
 func getKubeSprayCreateCMD(user, env string) string {
-	cmd := fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s cluster.yml --become-user=root %s -b -vvv", Authorize, env)
-	if user == "" || user == "root" {
-		return cmd
-	}
-	return fmt.Sprintf("groupadd -r kubespray && useradd -r -g kubespray %s && mkdir -p /home/%s && chmod -R 777 /home/%s && su %s -c '%s'",
-		user, user, user, user, cmd)
+	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s cluster.yml --become-user=root %s -b -vvv", Authorize, env)
 }
 
 func getKubeSprayHostsCMD(user string) string {
@@ -503,16 +512,12 @@ func getKubeSprayEnv(cluster *v1.Cluster) string {
 		cmd = fmt.Sprintf("%s -e kube_network_node_prefix=%d", cmd, *cluster.Spec.ControlPlane.KubeNetworkNodePrefix)
 	}
 	cmd = fmt.Sprintf("%s -e auto_renew_certificates=true -e nginx_image_repo=public.ecr.aws/docker/library/nginx", cmd)
+	cmd = fmt.Sprintf("%s -e kube_controller_node_monitor_grace_period=5m -e kube_apiserver_pod_eviction_not_ready_timeout_seconds=60 -e kube_apiserver_pod_eviction_unreachable_timeout_seconds=60", cmd)
 	return cmd
 }
 
 func getKubeSprayResetCMD(user, env string) string {
-	cmd := fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s reset.yml -e reset_confirmation=yes %s --become-user=root -b -vvv", Authorize, env)
-	if user == "" || user == "root" {
-		return cmd
-	}
-	return fmt.Sprintf("groupadd -r kubespray && useradd -r -g kubespray %s && mkdir -p /home/%s && chmod -R 777 /home/%s && su %s -c '%s'",
-		user, user, user, user, cmd)
+	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s reset.yml -e reset_confirmation=yes %s --become-user=root -b -vvv", Authorize, env)
 }
 
 func getKubesprayImage(cluster *v1.Cluster) string {

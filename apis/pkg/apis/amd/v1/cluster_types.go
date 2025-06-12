@@ -156,6 +156,7 @@ type ControlPlane struct {
 	NodeLocalDNSIP         *string            `json:"nodeLocalDNSIP,omitempty"`
 	KubeApiServerArgs      map[string]string  `json:"kubeApiServerArgs,omitempty"`
 	KubeletLogFilesMaxSize *resource.Quantity `json:"kubeletLogFilesMaxSize,omitempty"`
+	KubeletConfigArgs      map[string]string  `json:"kubeletConfigArgs"`
 }
 
 type ControlPlaneStatus struct {
