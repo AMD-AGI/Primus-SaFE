@@ -117,21 +117,11 @@ func getSSHConfig(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.C
 }
 
 func getKubeSprayScaleUpCMD(user, node, env string) string {
-	cmd := fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s scale.yml --limit=%s %s --become-user=root -b -vvv", Authorize, node, env)
-	if user == "" || user == "root" {
-		return cmd
-	}
-	return fmt.Sprintf("groupadd -r kubespray && useradd -r -g kubespray %s && mkdir -p /home/%s && chmod -R 777 /home/%s && su %s -c '%s'",
-		user, user, user, user, cmd)
+	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s scale.yml --limit=%s %s --become-user=root -b -vvv", Authorize, node, env)
 }
 
 func getKubeSprayScaleDownCMD(user, node, env string) string {
-	cmd := fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s remove-node.yml -e node=%s -e skip_confirmation=yes -e reset_nodes=true -e allow_ungraceful_removal=false %s --become-user=root -b -vvv", Authorize, node, env)
-	if user == "" || user == "root" {
-		return cmd
-	}
-	return fmt.Sprintf("groupadd -r kubespray && useradd -r -g kubespray %s && mkdir -p /home/%s && chmod -R 777 /home/%s && su %s -c '%s'",
-		user, user, user, user, cmd)
+	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s remove-node.yml -e node=%s -e skip_confirmation=yes -e reset_nodes=true -e allow_ungraceful_removal=false %s --become-user=root -b -vvv", Authorize, node, env)
 }
 
 func getHostname(conn *ssh.Client) (string, error) {
