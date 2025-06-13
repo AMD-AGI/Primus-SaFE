@@ -15,7 +15,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -500,6 +502,21 @@ func (r *NodeReconciler) syncClusterStatus(ctx context.Context, node *v1.Node) e
 		node.Status.ClusterStatus.CommandStatus =
 			setCommandStatus(node.Status.ClusterStatus.CommandStatus, Authorize, v1.CommandSucceeded)
 	}
+	if !isCommandSuccessful(node.Status.ClusterStatus.CommandStatus, HarborCA) {
+		sshClient, err := getSSHClient(ctx, r.Client, node)
+		if err != nil {
+			klog.ErrorS(err, "failed to get client for ssh")
+			return err
+		}
+		if err := r.harborCA(ctx, sshClient); err != nil {
+			klog.ErrorS(err, "failed to harbor ca ", "node", node.Name)
+			node.Status.ClusterStatus.CommandStatus =
+				setCommandStatus(node.Status.ClusterStatus.CommandStatus, HarborCA, v1.CommandFailed)
+			return err
+		}
+		node.Status.ClusterStatus.CommandStatus =
+			setCommandStatus(node.Status.ClusterStatus.CommandStatus, HarborCA, v1.CommandSucceeded)
+	}
 	node.Status.ClusterStatus.Cluster = node.Spec.Cluster
 	if node.IsReady() {
 		node.Status.ClusterStatus.Phase = v1.NodeReady
@@ -844,4 +861,35 @@ func getClusterId(adminNode *v1.Node) string {
 		clusterId = v1.GetClusterId(adminNode)
 	}
 	return clusterId
+}
+
+func (r *NodeReconciler) harborCA(ctx context.Context, sshClient *ssh.Client) error {
+	secret := new(corev1.Secret)
+	err := r.Get(ctx, types.NamespacedName{
+		Namespace: "harbor",
+		Name:      "harbor-ingress",
+	}, secret)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	ca, ok := secret.Data["ca.crt"]
+	if !ok {
+		return nil
+	}
+	file := "/usr/local/share/ca-certificates/harbor-ca.crt"
+	ubuntu := fmt.Sprintf("sudo touch %s && sudo chmod -R 666 %s && sudo echo \"%s\" > %s && sudo update-ca-certificates", file, file, string(ca), file)
+	file = "/etc/pki/ca-trust/source/anchors/harbor-ca.crt"
+	centos := fmt.Sprintf("sudo touch %s && sudo chmod -R 666 %s && sudo echo \"%s\" > %s && sudo update-ca-trust", file, file, string(ca), file)
+	cmd := fmt.Sprintf("command -v update-ca-certificates >/dev/null 2>&1 && (%s) || (%s)", ubuntu, centos)
+	session, err := sshClient.NewSession()
+	if err != nil {
+		return err
+	}
+	if err := session.Run(cmd); err != nil {
+		return fmt.Errorf("failed %s: %v", cmd, err)
+	}
+	return nil
 }
