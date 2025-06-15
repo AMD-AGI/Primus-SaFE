@@ -3,20 +3,19 @@
  * See LICENSE for license information.
  */
 
-package routers
+package custom_handlers
 
 import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
 
-	customhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
-func initCustomRouters(e *gin.Engine, h *customhandler.Handler) {
-	group := e.Group(common.PrimusRouterCustomRootPath, customhandler.Prepare())
+func InitCustomRouters(e *gin.Engine, h *Handler) {
+	group := e.Group(common.PrimusRouterCustomRootPath, Prepare())
 	{
 		group.POST("workloads", h.CreateWorkload)
 		group.GET("workloads", h.ListWorkload)
@@ -26,7 +25,6 @@ func initCustomRouters(e *gin.Engine, h *customhandler.Handler) {
 		group.PATCH(fmt.Sprintf("workloads/:%s", types.Name), h.PatchWorkload)
 		group.GET(fmt.Sprintf("workloads/:%s/service", types.Name), h.GetWorkloadService)
 		group.GET(fmt.Sprintf("workloads/:%s/pods/:%s/logs", types.Name, types.PodId), h.GetWorkloadPodLog)
-		group.GET(fmt.Sprintf("workloads/:%s/pods/:%s/ssh", types.Name, types.PodId), h.SSHPod)
 
 		group.POST("secrets", h.CreateSecret)
 		group.GET("secrets", h.ListSecret)

@@ -153,7 +153,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request)
 		}
 		return result, err
 	}
-	if quit, err := r.observe(adminNode, k8sNode); quit || err != nil {
+	if quit, err := r.observe(ctx, adminNode, k8sNode); quit || err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	return r.handle(ctx, adminNode, k8sNode)
@@ -177,16 +177,16 @@ func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*c
 	return k8sNode, ctrlruntime.Result{}, err
 }
 
-func (r *NodeReconciler) observe(adminNode *v1.Node, k8sNode *corev1.Node) (bool, error) {
+func (r *NodeReconciler) observe(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (bool, error) {
 	if !adminNode.IsReady() || k8sNode == nil {
 		return false, nil
 	}
 	// Observe whether the node has changed. If no changes are detected (ultimately returning true), exit NodeReconciler directly.
-	functions := []func(*v1.Node) (bool, error){
+	functions := []func(context.Context, *v1.Node) (bool, error){
 		r.observeTaints, r.observeLabelAction, r.observeAnnotationAction, r.observeWorkspace, r.observeCluster,
 	}
 	for _, f := range functions {
-		ok, err := f(adminNode)
+		ok, err := f(ctx, adminNode)
 		if !ok || err != nil {
 			return false, err
 		}
@@ -194,38 +194,38 @@ func (r *NodeReconciler) observe(adminNode *v1.Node, k8sNode *corev1.Node) (bool
 	return true, nil
 }
 
-func (r *NodeReconciler) observeTaints(adminNode *v1.Node) (bool, error) {
-	var taints []corev1.Taint
+func (r *NodeReconciler) observeTaints(_ context.Context, adminNode *v1.Node) (bool, error) {
+	var statusTaints []corev1.Taint
 	for i, t := range adminNode.Status.Taints {
 		if strings.HasPrefix(t.Key, v1.PrimusSafePrefix) {
-			taints = append(taints, adminNode.Status.Taints[i])
+			statusTaints = append(statusTaints, adminNode.Status.Taints[i])
 		}
 	}
-	return faults.IsTaintsEqualIgnoreOrder(adminNode.Spec.Taints, taints), nil
+	return faults.IsTaintsEqualIgnoreOrder(adminNode.Spec.Taints, statusTaints), nil
 }
 
-func (r *NodeReconciler) observeLabelAction(adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeLabelAction(_ context.Context, adminNode *v1.Node) (bool, error) {
 	if v1.GetNodeLabelAction(adminNode) == "" {
 		return true, nil
 	}
 	return false, nil
 }
 
-func (r *NodeReconciler) observeAnnotationAction(adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeAnnotationAction(_ context.Context, adminNode *v1.Node) (bool, error) {
 	if v1.GetNodeAnnotationAction(adminNode) == "" {
 		return true, nil
 	}
 	return false, nil
 }
 
-func (r *NodeReconciler) observeWorkspace(adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeWorkspace(_ context.Context, adminNode *v1.Node) (bool, error) {
 	if adminNode.GetSpecWorkspace() == v1.GetWorkspaceId(adminNode) {
 		return true, nil
 	}
 	return false, nil
 }
 
-func (r *NodeReconciler) observeCluster(adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node) (bool, error) {
 	if adminNode.GetSpecCluster() != v1.GetClusterId(adminNode) {
 		return false, nil
 	}

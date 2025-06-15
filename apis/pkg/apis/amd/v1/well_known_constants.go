@@ -73,6 +73,7 @@ const (
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
 	FaultFinalizer = FaultPrefix + "finalizer"
+	FaultId        = FaultPrefix + "id"
 
 	// workload
 	WorkloadPrefix                    = PrimusSafePrefix + "workload."

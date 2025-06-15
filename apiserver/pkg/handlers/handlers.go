@@ -3,20 +3,21 @@
  * See LICENSE for license information.
  */
 
-package routers
+package handlers
 
 import (
 	"context"
 
-	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/gin-gonic/gin"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	customhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers"
+	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
-func InitRouters(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, error) {
+func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, error) {
 	engine := gin.New()
 	engine.Use(apiutils.Logger(), gin.Recovery())
 	engine.NoRoute(func(c *gin.Context) {
@@ -27,7 +28,10 @@ func InitRouters(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, error
 	if err != nil {
 		return nil, err
 	}
-	initCustomRouters(engine, customHandler)
-
+	customhandler.InitCustomRouters(engine, customHandler)
 	return engine, nil
+}
+
+func InitSshHandlers(ctx context.Context, mgr ctrlruntime.Manager) (*sshhandler.SshHandler, error) {
+	return sshhandler.NewSshHandler(ctx, mgr)
 }

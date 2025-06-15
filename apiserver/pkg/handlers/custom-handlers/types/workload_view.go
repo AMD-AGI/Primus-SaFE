@@ -51,6 +51,11 @@ type GetWorkloadRequest struct {
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
 }
 
+type WorkloadPodWrapper struct {
+	v1.WorkloadPod
+	SSHAddr string `json:"sshAddr,omitempty"`
+}
+
 type GetWorkloadResponseItem struct {
 	// workload id
 	WorkloadId string `json:"workloadId"`
@@ -64,7 +69,7 @@ type GetWorkloadResponseItem struct {
 	// detailed processing workflow of the workload
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// Pod info related to the workload
-	Pods []v1.WorkloadPod `json:"pods,omitempty"`
+	Pods []WorkloadPodWrapper `json:"pods,omitempty"`
 	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
 	Nodes [][]string `json:"nodes,omitempty"`
 	// workload creation time

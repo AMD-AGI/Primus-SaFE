@@ -28,6 +28,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -37,6 +38,7 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -302,7 +304,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	k8sClients, err := h.getK8sClientFactory(v1.GetClusterId(workload))
+	k8sClients, err := apiutils.GetK8sClientFactory(h.clientManager, v1.GetClusterId(workload))
 	if err != nil {
 		return nil, err
 	}
@@ -613,9 +615,6 @@ func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
 			result.Message = adminWorkload.Status.Message
 		}
 	}
-	if result.Resource.SSHPort > 0 {
-		result.CreateWorkloadRequest.IsSSHEnabled = true
-	}
 	if isNeedDetail {
 		buildWorkloadDetail(w, &result)
 	}
@@ -633,6 +632,11 @@ func buildWorkloadDetail(w *dbclient.Workload, result *types.GetWorkloadResponse
 	}
 	if str := dbutils.ParseNullString(w.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
+		localIp, _ := netutil.GetLocalIp()
+		for i := range result.Pods {
+			result.Pods[i].SSHAddr = buildSSHAddress(localIp,
+				result.UserName, result.Pods[i].PodId, result.Workspace)
+		}
 	}
 	if str := dbutils.ParseNullString(w.Nodes); str != "" {
 		json.Unmarshal([]byte(str), &result.Nodes)
@@ -723,7 +727,13 @@ func cvtAdminWorkloadToResponse(w *v1.Workload, isNeedDetail bool) types.GetWork
 		result.WorkloadSpec = w.Spec
 		result.EntryPoint = stringutil.Base64Decode(result.EntryPoint)
 		result.Conditions = w.Status.Conditions
-		result.Pods = w.Status.Pods
+		result.Pods = make([]types.WorkloadPodWrapper, len(w.Status.Pods))
+		localIp, _ := netutil.GetLocalIp()
+		for i := range w.Status.Pods {
+			result.Pods[i].WorkloadPod = w.Status.Pods[i]
+			result.Pods[i].SSHAddr = buildSSHAddress(localIp,
+				result.UserName, w.Status.Pods[i].PodId, result.Workspace)
+		}
 		result.Nodes = w.Status.Nodes
 		if len(w.Spec.CustomerLabels) > 0 {
 			result.CustomerLabels = make(map[string]string)
@@ -736,4 +746,15 @@ func cvtAdminWorkloadToResponse(w *v1.Workload, isNeedDetail bool) types.GetWork
 		}
 	}
 	return result
+}
+
+func buildSSHAddress(localIp, userName, podName, workspace string) string {
+	if !commonconfig.IsSSHEnable() {
+		return ""
+	}
+	if userName == "" {
+		userName = "none"
+	}
+	return fmt.Sprintf("ssh -p %d %s.%s.%s@%s",
+		commonconfig.GetSSHServerPort(), userName, podName, workspace, localIp)
 }

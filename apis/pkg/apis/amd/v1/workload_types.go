@@ -44,7 +44,6 @@ const (
 	AdminFailover   WorkloadConditionType = "AdminFailover"
 	AdminFailed     WorkloadConditionType = "AdminFailed"
 	AdminStopped    WorkloadConditionType = "AdminStopped"
-	AdminStopping   WorkloadConditionType = "AdminStopping"
 )
 
 type WorkloadResource struct {
@@ -64,8 +63,6 @@ type WorkloadResource struct {
 	EphemeralStorage string `json:"ephemeralStorage,omitempty"`
 	// the port for job
 	JobPort int `json:"jobPort,omitempty"`
-	// for ssh
-	SSHPort int `json:"SSHPort,omitempty"`
 }
 
 type HealthCheck struct {
@@ -109,8 +106,6 @@ type WorkloadSpec struct {
 	Env map[string]string `json:"env,omitempty"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised,omitempty"`
-	// Check if SSH is enabled. If so, you can access the specified Pod using either WebShell or an SSH client
-	IsSSHEnabled bool `json:"isSSHEnabled,omitempty"`
 	// default: kubeflow.org/v1, PyTorchJob
 	GroupVersionKind `json:"groupVersionKind"`
 	// Failure retry limit. default: 0

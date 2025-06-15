@@ -7,10 +7,6 @@
 
 ulimit -n 65536
 
-if [ -n "$SSH_PORT" ] && [ "$SSH_PORT" -gt 0 ]; then
-    /bin/bash /shared-data/build_ssh.sh
-fi
-
 echo "$1" |base64 -d > .run.sh
 chmod +x .run.sh
 /bin/sh .run.sh &

@@ -59,18 +59,26 @@ func (c *FaultConfig) isAutoRepairEnabled() bool {
 	return *c.IsAutoRepairEnabled
 }
 
+func (c *FaultConfig) isEnable() bool {
+	return c.Toggle == "on"
+}
+
 // retrieves the fault configuration from a ConfigMap.
 // The key is fault.id, and the value is the fault config.
 func getFaultConfigmap(ctx context.Context, cli client.Client) (map[string]*FaultConfig, error) {
 	configMap := &corev1.ConfigMap{}
 	err := cli.Get(ctx, client.ObjectKey{Name: common.PrimusFault, Namespace: common.PrimusSafeNamespace}, configMap)
 	if err != nil {
-		return nil, err
+		return make(map[string]*FaultConfig), client.IgnoreNotFound(err)
 	}
+	return parseFaultConfig(configMap), nil
+}
+
+func parseFaultConfig(configMap *corev1.ConfigMap) map[string]*FaultConfig {
 	result := make(map[string]*FaultConfig)
 	for _, val := range configMap.Data {
 		conf := &FaultConfig{}
-		if err = json.Unmarshal([]byte(val), conf); err != nil {
+		if err := json.Unmarshal([]byte(val), conf); err != nil {
 			continue
 		}
 		if conf.Toggle != "on" {
@@ -81,7 +89,7 @@ func getFaultConfigmap(ctx context.Context, cli client.Client) (map[string]*Faul
 		}
 		result[conf.Id] = conf
 	}
-	return result, nil
+	return result
 }
 
 func isShouldCreateFault(cond corev1.NodeCondition) bool {
@@ -109,8 +117,7 @@ func isK8sCondition(condType corev1.NodeConditionType) bool {
 	return ok
 }
 
-func listFaultsByNode(ctx context.Context, cli client.Client, adminNodeId string) ([]v1.Fault, error) {
-	labelSelector := labels.SelectorFromSet(map[string]string{v1.NodeIdLabel: adminNodeId})
+func listFaults(ctx context.Context, cli client.Client, labelSelector labels.Selector) ([]v1.Fault, error) {
 	faultList := &v1.FaultList{}
 	err := cli.List(ctx, faultList, &client.ListOptions{LabelSelector: labelSelector})
 	if err != nil || len(faultList.Items) == 0 {

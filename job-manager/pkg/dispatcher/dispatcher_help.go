@@ -347,12 +347,6 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 		"name":  "WORKLOAD_ID",
 		"value": adminWorkload.Name,
 	})
-	if adminWorkload.Spec.IsSSHEnabled {
-		result = append(result, map[string]interface{}{
-			"name":  "SSH_PORT",
-			"value": strconv.Itoa(adminWorkload.Spec.Resource.SSHPort),
-		})
-	}
 	return result
 }
 
@@ -364,15 +358,7 @@ func buildPorts(adminWorkload *v1.Workload) []interface{} {
 	if adminWorkload.SpecKind() == common.PytorchJobKind {
 		jobPort["name"] = common.PytorchJobPortName
 	}
-	result := []interface{}{jobPort}
-	if adminWorkload.Spec.IsSSHEnabled {
-		result = append(result, map[string]interface{}{
-			"containerPort": int64(adminWorkload.Spec.Resource.SSHPort),
-			"name":          common.SSHPortName,
-			"protocol":      "TCP",
-		})
-	}
-	return result
+	return []interface{}{jobPort}
 }
 
 func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {

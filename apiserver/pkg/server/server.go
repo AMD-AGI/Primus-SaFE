@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
-	gerrors "github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientscheme "k8s.io/client-go/kubernetes/scheme"
@@ -28,7 +27,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/controllers"
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/routers"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
@@ -49,6 +48,7 @@ func init() {
 type Server struct {
 	opts        *options.Options
 	httpServer  *http.Server
+	sshServer   *SshServer
 	ctrlManager ctrlruntime.Manager
 	ctx         context.Context
 	isInited    bool
@@ -107,10 +107,19 @@ func (s *Server) Start() {
 		os.Exit(-1)
 	}
 
-	if err := s.startHttpServer(); err != nil {
-		klog.ErrorS(err, "failed to start httpserver")
-		os.Exit(-1)
-	}
+	go func() {
+		if err := s.startHttpServer(); err != nil {
+			klog.ErrorS(err, "failed to start http-server")
+			os.Exit(-1)
+		}
+	}()
+
+	go func() {
+		if err := s.startSSHServer(); err != nil {
+			klog.ErrorS(err, "failed to start ssh-server")
+			os.Exit(-1)
+		}
+	}()
 
 	<-s.ctx.Done()
 	s.Stop()
@@ -120,7 +129,12 @@ func (s *Server) Stop() {
 	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
 	if err := s.httpServer.Shutdown(ctx); err != nil {
-		klog.Error(gerrors.Wrap(err, "api-server is stopped"))
+		klog.ErrorS(err, "failed to shutdown httpserver")
+	}
+	if s.sshServer != nil {
+		if err := s.sshServer.Shutdown(); err != nil {
+			klog.ErrorS(err, "failed to shutdown ssh-server")
+		}
 	}
 	klog.Info("api-server is stopped")
 	klog.Flush()
@@ -149,15 +163,36 @@ func (s *Server) startHttpServer() error {
 	if commonconfig.GetServerPort() <= 0 {
 		return fmt.Errorf("the apiserver port is not defined")
 	}
-	router, err := routers.InitRouters(s.ctx, s.ctrlManager)
+	handler, err := handlers.InitHttpHandlers(s.ctx, s.ctrlManager)
 	if err != nil {
 		return err
 	}
-	address := fmt.Sprintf(":%d", commonconfig.GetServerPort())
-	s.httpServer = &http.Server{Addr: address, Handler: router}
-	klog.Infof("api-server listen port: %d", commonconfig.GetServerPort())
+	addr := fmt.Sprintf(":%d", commonconfig.GetServerPort())
+	s.httpServer = &http.Server{Addr: addr, Handler: handler}
+	klog.Infof("http-server listen port: %d", commonconfig.GetServerPort())
 	if err = s.httpServer.ListenAndServe(); err != nil {
-		klog.ErrorS(err, "failed to ListenAndServe")
+		klog.ErrorS(err, "failed to start http server")
+		return err
+	}
+	return nil
+}
+
+func (s *Server) startSSHServer() error {
+	if !commonconfig.IsSSHEnable() {
+		return nil
+	}
+	if commonconfig.GetSSHServerPort() <= 0 {
+		return fmt.Errorf("the ssh port is not defined")
+	}
+	handler, err := handlers.InitSshHandlers(s.ctx, s.ctrlManager)
+	if err != nil {
+		return err
+	}
+	addr := fmt.Sprintf(":%d", commonconfig.GetSSHServerPort())
+	s.sshServer = &SshServer{Addr: addr, Handler: handler}
+	klog.Infof("ssh-server listen port: %d", commonconfig.GetSSHServerPort())
+	if err = s.sshServer.ListenAndServe(s.ctx); err != nil {
+		klog.ErrorS(err, "failed to start ssh server")
 		return err
 	}
 	return nil

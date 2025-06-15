@@ -69,11 +69,11 @@ spec:
             periodSeconds: 2
           resources:
             limits:
-              cpu: "1000m"
-              memory: 2Gi
+              cpu: {{ .Values.webhooks.cpu }}
+              memory: {{ .Values.webhooks.memory }}
             requests:
-              cpu: "1000m"
-              memory: 2Gi
+              cpu: {{ .Values.webhooks.cpu }}
+              memory: {{ .Values.webhooks.memory }}
       imagePullSecrets:
       - name: {{ .Release.Name }}-image
       volumes:

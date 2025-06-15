@@ -15,7 +15,6 @@ type WorkloadSpecApplyConfiguration struct {
 	EntryPoint                          *string                             `json:"entryPoint,omitempty"`
 	Env                                 map[string]string                   `json:"env,omitempty"`
 	IsSupervised                        *bool                               `json:"isSupervised,omitempty"`
-	IsSSHEnabled                        *bool                               `json:"isSSHEnabled,omitempty"`
 	*GroupVersionKindApplyConfiguration `json:"groupVersionKind,omitempty"`
 	MaxRetry                            *int                           `json:"maxRetry,omitempty"`
 	Priority                            *int                           `json:"priority,omitempty"`
@@ -85,14 +84,6 @@ func (b *WorkloadSpecApplyConfiguration) WithEnv(entries map[string]string) *Wor
 // If called multiple times, the IsSupervised field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithIsSupervised(value bool) *WorkloadSpecApplyConfiguration {
 	b.IsSupervised = &value
-	return b
-}
-
-// WithIsSSHEnabled sets the IsSSHEnabled field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the IsSSHEnabled field is set to the value of the last call.
-func (b *WorkloadSpecApplyConfiguration) WithIsSSHEnabled(value bool) *WorkloadSpecApplyConfiguration {
-	b.IsSSHEnabled = &value
 	return b
 }
 
