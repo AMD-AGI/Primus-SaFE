@@ -122,6 +122,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		AdminNodeName: v1.GetNodeId(k8sNode),
 		Phase:         pod.Status.Phase,
 		HostIp:        pod.Status.HostIP,
+		PodIp:         pod.Status.PodIP,
 	}
 	if !pod.Status.StartTime.IsZero() {
 		workloadPod.StartTime = timeutil.FormatRFC3339(&pod.Status.StartTime.Time)
@@ -137,6 +138,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		adminWorkload.Status.Pods[id].AdminNodeName = workloadPod.AdminNodeName
 		adminWorkload.Status.Pods[id].Phase = workloadPod.Phase
 		adminWorkload.Status.Pods[id].HostIp = workloadPod.HostIp
+		adminWorkload.Status.Pods[id].PodIp = workloadPod.PodIp
 		adminWorkload.Status.Pods[id].StartTime = workloadPod.StartTime
 		adminWorkload.Status.Pods[id].EndTime = workloadPod.EndTime
 		adminWorkload.Status.Pods[id].Message = workloadPod.Message

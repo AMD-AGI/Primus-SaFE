@@ -16,6 +16,12 @@ const (
 	serverPrefix = "server."
 	serverPort   = serverPrefix + "port"
 
+	// ssh
+	sshPrefix     = "ssh."
+	sshEnable     = sshPrefix + "enable"
+	sshServerPort = sshPrefix + "server_port"
+	sshKeyPath    = sshPrefix + "config_path"
+
 	// health_check
 	healthCheckPrefix = "health_check."
 	healthCheckEnable = healthCheckPrefix + "enable"

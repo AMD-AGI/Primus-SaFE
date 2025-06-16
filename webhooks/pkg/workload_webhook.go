@@ -422,13 +422,13 @@ func (v *WorkloadValidator) validateUpdate(ctx context.Context, newObj, oldObj *
 }
 
 func (v *WorkloadValidator) validateCommon(ctx context.Context, w *v1.Workload) error {
+	if err := v.validateWorkspace(ctx, w); err != nil {
+		return err
+	}
 	if err := v.validateRequiredParams(w); err != nil {
 		return err
 	}
 	if err := v.validateApplication(w); err != nil {
-		return err
-	}
-	if err := v.validateWorkspace(ctx, w); err != nil {
 		return err
 	}
 	if err := v.validateResourceEnough(ctx, w); err != nil {
@@ -637,16 +637,16 @@ func (v *WorkloadValidator) validateSpecChanged(newObj, oldObj *v1.Workload) err
 		return nil
 	}
 	if oldObj.Spec.EntryPoint != newObj.Spec.EntryPoint {
-		return commonerrors.NewForbidden("EntryPoint cannot be changed when the workload has been scheduled")
+		return commonerrors.NewForbidden("EntryPoint cannot be changed once the workload has been scheduled")
 	}
 	if oldObj.Spec.Image != newObj.Spec.Image {
-		return commonerrors.NewForbidden("Image cannot be changed when the workload has been scheduled")
+		return commonerrors.NewForbidden("Image cannot be changed once the workload has been scheduled")
 	}
 	if !commonworkload.IsResourceEqual(oldObj, newObj) {
-		return commonerrors.NewForbidden("Resources cannot be changed when the workload has been scheduled")
+		return commonerrors.NewForbidden("Resources cannot be changed once the workload has been scheduled")
 	}
 	if !maps.EqualIgnoreOrder(oldObj.Spec.Env, newObj.Spec.Env) {
-		return commonerrors.NewForbidden("Env cannot be changed when the workload has been scheduled")
+		return commonerrors.NewForbidden("Env cannot be changed once the workload has been scheduled")
 	}
 	return nil
 }

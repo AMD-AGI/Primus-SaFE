@@ -3,7 +3,7 @@ data:
   config.yaml: |
     global:
       enable_crypto: {{ .Values.crypto.enable }}
-      crypto_key: {{ .Values.crypto.path }}/key
+      crypto_key: {{ .Values.crypto.mount_path }}/key
     server:
       port: 8088
     health_check:
@@ -30,6 +30,10 @@ data:
       config_path: {{ .Values.log.mount_path }}
       endpoint: {{ .Values.log.endpoint }}
       prefix: {{ .Values.log.prefix }}
+    ssh:
+      server_port: {{ .Values.ssh.port }}
+      enable: {{ .Values.ssh.enable }}
+      config_path: {{ .Values.ssh.mount_path }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

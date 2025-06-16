@@ -10,6 +10,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/node"
@@ -65,6 +66,7 @@ func genAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.No
 		LastTransitionTime: metav1.NewTime(time.Now().UTC()),
 		Message:            msg.Value,
 	})
+	klog.Infof("add condition. key: %s, message: %s", key, msg.Value)
 	results = append(results, conditions...)
 	return results, true
 }
@@ -75,6 +77,8 @@ func genDeleteConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1
 	for i, cond := range node.Status.Conditions {
 		if string(cond.Type) != key {
 			results = append(results, node.Status.Conditions[i])
+		} else {
+			klog.Infof("deleting condition. key: %s, message: %s", cond.Type, cond.Message)
 		}
 	}
 	if len(results) == len(node.Status.Conditions) {

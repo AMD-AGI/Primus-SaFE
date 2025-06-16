@@ -197,7 +197,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 		volumeName := string(vol.StorageType)
 		var volume interface{}
 		if vol.StorageType == v1.HOSTPATH {
-			volume = buildNfsVolume(generateVolumeName(volumeName, id), vol.HostPath)
+			volume = buildHostpathVolume(generateVolumeName(volumeName, id), vol.HostPath)
 			id++
 		} else {
 			if volumeSets.Has(volumeName) {
@@ -343,6 +343,10 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 			"value": adminWorkload.Spec.Resource.GPU,
 		})
 	}
+	result = append(result, map[string]interface{}{
+		"name":  "WORKLOAD_ID",
+		"value": adminWorkload.Name,
+	})
 	return result
 }
 
@@ -350,7 +354,9 @@ func buildPorts(adminWorkload *v1.Workload) []interface{} {
 	jobPort := map[string]interface{}{
 		"containerPort": int64(adminWorkload.Spec.Resource.JobPort),
 		"protocol":      "TCP",
-		"name":          common.PytorchJobPortName,
+	}
+	if adminWorkload.SpecKind() == common.PytorchJobKind {
+		jobPort["name"] = common.PytorchJobPortName
 	}
 	return []interface{}{jobPort}
 }
@@ -385,7 +391,7 @@ func buildVolumeMounts(vol v1.WorkspaceVolume, volumeName string) []interface{} 
 	return result
 }
 
-func buildNfsVolume(volumeName, hostPath string) interface{} {
+func buildHostpathVolume(volumeName, hostPath string) interface{} {
 	return map[string]interface{}{
 		"hostPath": map[string]interface{}{
 			"path": hostPath,

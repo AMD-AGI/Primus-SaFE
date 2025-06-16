@@ -1,7 +1,6 @@
 crypto:
   enable: false
-  key: UHJpbXVzU2FmZTEyMzQ1Ngo=
-  path: /etc/secrets
+  mount_path: /etc/secrets
 workspace:
   mem_reserve_percent: 0.02
   cpu_reserve_percent: 0.06
@@ -14,21 +13,27 @@ net:
   rdma_name: "rdma/hca"
 repository: "docker.io/primussafe"
 resource_manager:
-  replicas: 2
-  tag: "202506100927"
+  replicas: 1
+  tag: "202506152300"
+  cpu: "1000m"
+  memory: 2Gi
 apiserver:
-  replicas: 2
-  tag: "202506092020"
+  replicas: 1
+  tag: "202506152300"
+  cpu: "1000m"
+  memory: 2Gi
 job_manager:
-  replicas: 2
-  tag: "202506100927"
-preprocess:
-  tag: "202506090945"
+  replicas: 1
+  tag: "202506130900"
+  cpu: "1000m"
+  memory: 2Gi
 webhooks:
-  replicas: 2
-  tag: "202506100927"
-node_agent:
-  tag: "202506051416"
+  replicas: 1
+  tag: "202506161010"
+  cpu: "1000m"
+  memory: 2Gi
+preprocess:
+  tag: "202506152300"
 db:
   enable: false
   secret: "primus-safe-pguser-primus-safe"
@@ -46,3 +51,7 @@ log:
   mount_path: "/etc/secrets/log"
   endpoint: "logs-nodes.primus-safe.svc.cluster.local:9200"
   prefix: "node-"
+ssh:
+  port: 2222
+  enable: true
+  mount_path: "/etc/secrets/ssh"

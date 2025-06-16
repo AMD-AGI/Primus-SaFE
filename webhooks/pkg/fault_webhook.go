@@ -62,6 +62,7 @@ func (m *FaultMutator) Handle(ctx context.Context, req admission.Request) admiss
 func (m *FaultMutator) mutate(ctx context.Context, f *v1.Fault) {
 	f.Name = stringutil.NormalizeName(f.Name)
 	v1.SetLabel(f, v1.ClusterIdLabel, f.Spec.Node.ClusterName)
+	v1.SetLabel(f, v1.FaultId, f.Spec.Id)
 	controllerutil.AddFinalizer(f, v1.FaultFinalizer)
 
 	if f.Spec.Node != nil {

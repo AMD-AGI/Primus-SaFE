@@ -40,8 +40,8 @@ spec:
           terminationMessagePolicy: File
           volumeMounts:
             {{- if .Values.crypto.enable }}
-            - name: server-secret
-              mountPath: {{ .Values.crypto.path }}
+            - name: crypto-secret
+              mountPath: {{ .Values.crypto.mount_path }}
               readOnly: true
             {{- end }}
             - name: server-config
@@ -55,6 +55,11 @@ spec:
             {{- if .Values.log.enable }}
             - name: log-secret
               mountPath: {{ .Values.log.mount_path }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.ssh.enable }}
+            - name: ssh-proxy
+              mountPath: {{ .Values.ssh.mount_path }}
               readOnly: true
             {{- end }}
           ports:
@@ -73,16 +78,16 @@ spec:
             periodSeconds: 2
           resources:
             limits:
-              cpu: "1000m"
-              memory: 2Gi
+              cpu: {{ .Values.apiserver.cpu }}
+              memory: {{ .Values.apiserver.memory }}
             requests:
-              cpu: "1000m"
-              memory: 2Gi
+              cpu: {{ .Values.apiserver.cpu }}
+              memory: {{ .Values.apiserver.memory }}
       volumes:
         {{- if .Values.crypto.enable }}
-        - name: server-secret
+        - name: crypto-secret
           secret:
-            secretName: {{ .Release.Name }}
+            secretName: {{ .Release.Name }}-crypto
         {{- end }}
         {{- if .Values.db.enable }}
         - name: db-secret
@@ -93,6 +98,11 @@ spec:
         - name: log-secret
           secret:
             secretName: {{ .Values.log.secret }}
+        {{- end }}
+        {{- if .Values.ssh.enable }}
+        - name: ssh-proxy
+          secret:
+            secretName: {{ .Release.Name }}-ssh-proxy
         {{- end }}
         - name: server-config
           configMap:

@@ -25,7 +25,6 @@ import (
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/channel"
 )
 
 const (
@@ -37,29 +36,27 @@ var (
 )
 
 type Node struct {
+	ctx       context.Context
 	k8sNode   *corev1.Node
 	k8sClient typedcorev1.CoreV1Interface
-	tomb      *channel.Tomb
-	isExited  bool
 }
 
-func NewNode(opts *types.Options) (*Node, error) {
+func NewNode(ctx context.Context, opts *types.Options) (*Node, error) {
 	k8sClientSet, _, err := commonclient.NewClientSetInCluster()
 	if err != nil {
 		klog.ErrorS(err, "failed to new ClientSet in cluster")
 		return nil, err
 	}
-	return NewNodeWithClientSet(opts, k8sClientSet)
+	return NewNodeWithClientSet(ctx, opts, k8sClientSet)
 }
 
-func NewNodeWithClientSet(opts *types.Options, k8sClientSet kubernetes.Interface) (*Node, error) {
+func NewNodeWithClientSet(ctx context.Context, opts *types.Options, k8sClientSet kubernetes.Interface) (*Node, error) {
 	n := &Node{
-		tomb:     channel.NewTomb(),
-		isExited: true,
+		ctx: ctx,
 	}
 	n.k8sClient = k8sClientSet.CoreV1()
 	var err error
-	n.k8sNode, err = n.k8sClient.Nodes().Get(context.Background(), opts.NodeName, metav1.GetOptions{})
+	n.k8sNode, err = n.k8sClient.Nodes().Get(ctx, opts.NodeName, metav1.GetOptions{})
 	if err != nil {
 		klog.ErrorS(err, "failed to get node")
 		return nil, err
@@ -76,31 +73,19 @@ func (n *Node) Start() error {
 		klog.ErrorS(err, "failed to update start time")
 	}
 	go n.update()
-	n.isExited = false
 	return nil
 }
 
-func (n *Node) Stop() {
-	if !n.IsExited() && n.tomb != nil {
-		n.tomb.Stop()
-		if n.k8sNode != nil {
-			klog.Infof("the node watcher is stopped: %s", n.k8sNode.Name)
-		}
-	}
-	n.isExited = true
-}
-
 func (n *Node) update() {
-	defer func() {
-		n.tomb.Done()
-	}()
-
 	for {
 		select {
-		case <-n.tomb.Stopping():
+		case <-n.ctx.Done():
+			if n.k8sNode != nil {
+				klog.Infof("stop node watcher: %s", n.k8sNode.Name)
+			}
 			return
 		default:
-			k8sNode, err := n.k8sClient.Nodes().Get(context.Background(), n.GetK8sNode().Name, metav1.GetOptions{})
+			k8sNode, err := n.k8sClient.Nodes().Get(n.ctx, n.GetK8sNode().Name, metav1.GetOptions{})
 			if err != nil {
 				klog.ErrorS(err, "failed to get node")
 			} else {
@@ -144,10 +129,6 @@ func (n *Node) IsMatchChip(chip string) bool {
 	}
 }
 
-func (n *Node) IsExited() bool {
-	return n.isExited
-}
-
 func (n *Node) FindCondition(conditionType string) *corev1.NodeCondition {
 	if n.k8sNode == nil {
 		return nil
@@ -162,7 +143,7 @@ func (n *Node) FindCondition(conditionType string) *corev1.NodeCondition {
 
 func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
 	n.k8sNode.Status.Conditions = conditions
-	node, err := n.k8sClient.Nodes().UpdateStatus(context.Background(), n.k8sNode, metav1.UpdateOptions{})
+	node, err := n.k8sClient.Nodes().UpdateStatus(n.ctx, n.k8sNode, metav1.UpdateOptions{})
 	if err != nil {
 		return err
 	}
@@ -176,7 +157,7 @@ func (n *Node) updateNodeStartTime(startTime time.Time) error {
 		return nil
 	}
 	data := fmt.Sprintf(`{"metadata":{"labels":{"%s": "%s"}}}`, v1.NodeStartupTimeLabel, startTimeStr)
-	k8sNode, err := n.k8sClient.Nodes().Patch(context.Background(),
+	k8sNode, err := n.k8sClient.Nodes().Patch(n.ctx,
 		n.k8sNode.Name, apitypes.MergePatchType, []byte(data), metav1.PatchOptions{})
 	if err != nil {
 		return client.IgnoreNotFound(err)

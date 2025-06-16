@@ -28,11 +28,12 @@ type CreateWorkloadResponse struct {
 type GetWorkloadRequest struct {
 	// workspace id
 	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`
-	// Succeeded/Failed/Pending/Running/Stopped/Updating/NotReady
+	// Valid values include: Succeeded,Failed,Pending,Running,Stopped
+	// If specifying multiple phase queries, separate them with commas
 	Phase string `form:"phase" binding:"omitempty"`
 	// cluster id
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
-	// Deployment/PyTorchJob/StatefulSet
+	// Valid values include: Deployment/PyTorchJob/StatefulSet
 	Kind string `form:"kind" binding:"omitempty"`
 	// workload submitter, Supports fuzzy matching
 	UserName string `form:"userName" binding:"omitempty"`
@@ -50,6 +51,11 @@ type GetWorkloadRequest struct {
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
 }
 
+type WorkloadPodWrapper struct {
+	v1.WorkloadPod
+	SSHAddr string `json:"sshAddr,omitempty"`
+}
+
 type GetWorkloadResponseItem struct {
 	// workload id
 	WorkloadId string `json:"workloadId"`
@@ -63,7 +69,7 @@ type GetWorkloadResponseItem struct {
 	// detailed processing workflow of the workload
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// Pod info related to the workload
-	Pods []v1.WorkloadPod `json:"pods,omitempty"`
+	Pods []WorkloadPodWrapper `json:"pods,omitempty"`
 	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
 	Nodes [][]string `json:"nodes,omitempty"`
 	// workload creation time

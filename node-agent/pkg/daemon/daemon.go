@@ -6,6 +6,7 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -27,6 +28,7 @@ type Daemon struct {
 	node      *node.Node
 	exporters *exporters.ExporterManager
 	logfile   *os.File
+	ctx       context.Context
 	isInited  bool
 }
 
@@ -36,6 +38,7 @@ func NewDaemon() (*Daemon, error) {
 		queue: workqueue.NewTypedRateLimitingQueueWithConfig(
 			workqueue.DefaultTypedControllerRateLimiter[*types.MonitorMessage](),
 			workqueue.TypedRateLimitingQueueConfig[*types.MonitorMessage]{Name: "daemon"}),
+		ctx: apiserver.SetupSignalContext(),
 	}
 
 	var err error
@@ -45,7 +48,7 @@ func NewDaemon() (*Daemon, error) {
 	if err = commonklog.Init(d.opts.LogfilePath, d.opts.LogFileSize); err != nil {
 		return nil, fmt.Errorf("failed to init logs. %s", err.Error())
 	}
-	if d.node, err = node.NewNode(d.opts); err != nil {
+	if d.node, err = node.NewNode(d.ctx, d.opts); err != nil {
 		return nil, fmt.Errorf("failed to init node. %s", err.Error())
 	}
 	d.monitors = monitors.NewMonitorManager(&d.queue, d.opts, d.node)
@@ -59,7 +62,7 @@ func (d *Daemon) Start() {
 		klog.Errorf("Please initialize the daemon first")
 		return
 	}
-	ctx := apiserver.SetupSignalContext()
+
 	klog.Infof("start node-agent daemon")
 	defer d.Stop()
 	if err := d.node.Start(); err != nil {
@@ -71,14 +74,11 @@ func (d *Daemon) Start() {
 		return
 	}
 	d.exporters.Start()
-	<-ctx.Done()
+	<-d.ctx.Done()
 	klog.Infof("node-agent daemon stopped")
 }
 
 func (d *Daemon) Stop() {
-	if d.node != nil {
-		d.node.Stop()
-	}
 	if d.monitors != nil {
 		d.monitors.Stop()
 	}

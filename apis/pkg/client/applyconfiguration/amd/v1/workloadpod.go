@@ -18,6 +18,7 @@ type WorkloadPodApplyConfiguration struct {
 	AdminNodeName *string                             `json:"adminNodeName,omitempty"`
 	Phase         *corev1.PodPhase                    `json:"phase,omitempty"`
 	HostIp        *string                             `json:"hostIP,omitempty"`
+	PodIp         *string                             `json:"podIP,omitempty"`
 	StartTime     *string                             `json:"startTime,omitempty"`
 	EndTime       *string                             `json:"endTime,omitempty"`
 	Message       *PodFailedMessageApplyConfiguration `json:"message,omitempty"`
@@ -66,6 +67,14 @@ func (b *WorkloadPodApplyConfiguration) WithPhase(value corev1.PodPhase) *Worklo
 // If called multiple times, the HostIp field is set to the value of the last call.
 func (b *WorkloadPodApplyConfiguration) WithHostIp(value string) *WorkloadPodApplyConfiguration {
 	b.HostIp = &value
+	return b
+}
+
+// WithPodIp sets the PodIp field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PodIp field is set to the value of the last call.
+func (b *WorkloadPodApplyConfiguration) WithPodIp(value string) *WorkloadPodApplyConfiguration {
+	b.PodIp = &value
 	return b
 }
 

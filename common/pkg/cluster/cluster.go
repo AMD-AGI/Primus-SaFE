@@ -20,7 +20,8 @@ func GetEndpoint(ctx context.Context, cli client.Client, clusterName string, end
 	err := cli.Get(ctx, client.ObjectKey{Name: clusterName, Namespace: common.PrimusSafeNamespace}, service)
 	result := ""
 	if err == nil {
-		result = fmt.Sprintf("https://%s.%s.svc", clusterName, common.PrimusSafeNamespace)
+		// result = fmt.Sprintf("https://%s.%s.svc", clusterName, common.PrimusSafeNamespace)
+		result = fmt.Sprintf("%s:%d", service.Spec.ClusterIP, service.Spec.Ports[0].Port)
 	} else {
 		if len(endpoints) == 0 {
 			return "", fmt.Errorf("either the Service address or the Endpoint is empty")
