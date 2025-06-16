@@ -167,11 +167,12 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		}
 		r.updateAdminWorkloadNodes(adminWorkload, msg)
 	}
-
 	if adminWorkload.Status.StartTime == nil {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
 	}
-	adminWorkload.Status.Message = ""
+	if status.Phase != string(v1.K8sPending) && status.Phase != "" {
+		adminWorkload.Status.Message = ""
+	}
 	buildWorkloadCondition(adminWorkload, status, msg.dispatchCount)
 	if reflect.DeepEqual(adminWorkload.Status, originWorkload.Status) {
 		return originWorkload, false, nil

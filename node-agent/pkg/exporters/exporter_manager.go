@@ -80,6 +80,8 @@ func (m *ExporterManager) Dispatch() bool {
 		if err := m.exporters[i].Handle(message); err != nil {
 			klog.ErrorS(err, "failed to handle message",
 				"exporter", m.exporters[i].Name(), "message", message)
+			(*m.queue).AddRateLimited(message)
+			return false
 		}
 	}
 	(*m.queue).Forget(message)

@@ -6,6 +6,7 @@
 package exporters
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -29,7 +30,7 @@ func newNode(t *testing.T) *node.Node {
 	opts := &types.Options{
 		NodeName: testNode.Name,
 	}
-	n, err := node.NewNodeWithClientSet(opts, fakeClientSet)
+	n, err := node.NewNodeWithClientSet(context.Background(), opts, fakeClientSet)
 	assert.NilError(t, err)
 	return n
 }

@@ -3,20 +3,19 @@
  * See LICENSE for license information.
  */
 
-package routers
+package custom_handlers
 
 import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
 
-	customhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
-func initCustomRouters(e *gin.Engine, h *customhandler.Handler) {
-	group := e.Group(common.PrimusRouterCustomRootPath, customhandler.Prepare())
+func InitCustomRouters(e *gin.Engine, h *Handler) {
+	group := e.Group(common.PrimusRouterCustomRootPath, Prepare())
 	{
 		group.POST("workloads", h.CreateWorkload)
 		group.GET("workloads", h.ListWorkload)

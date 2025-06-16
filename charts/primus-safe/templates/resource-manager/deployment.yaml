@@ -40,8 +40,8 @@ spec:
           terminationMessagePolicy: File
           volumeMounts:
             {{- if .Values.crypto.enable }}
-            - name: server-secret
-              mountPath: {{ .Values.crypto.path }}
+            - name: crypto-secret
+              mountPath: {{ .Values.crypto.mount_path }}
               readOnly: true
             {{- end }}
             - name: server-config
@@ -68,18 +68,18 @@ spec:
             periodSeconds: 2
           resources:
             limits:
-              cpu: "2000m"
-              memory: 4Gi
+              cpu: {{ .Values.resource_manager.cpu }}
+              memory: {{ .Values.resource_manager.memory }}
             requests:
-              cpu: "2000m"
-              memory: 4Gi
+              cpu: {{ .Values.resource_manager.cpu }}
+              memory: {{ .Values.resource_manager.memory }}
       imagePullSecrets:
       - name: {{ .Release.Name }}-image
       volumes:
         {{- if .Values.crypto.enable }}
-        - name: server-secret
+        - name: crypto-secret
           secret:
-            secretName: {{ .Release.Name }}
+            secretName: {{ .Release.Name }}-crypto
         {{- end }}
         {{- if .Values.db.enable }}
         - name: db-secret
