@@ -29,7 +29,7 @@ job_manager:
   memory: 2Gi
 webhooks:
   replicas: 1
-  tag: "202506130900"
+  tag: "202506161010"
   cpu: "1000m"
   memory: 2Gi
 preprocess:
