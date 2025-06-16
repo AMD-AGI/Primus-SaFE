@@ -422,13 +422,13 @@ func (v *WorkloadValidator) validateUpdate(ctx context.Context, newObj, oldObj *
 }
 
 func (v *WorkloadValidator) validateCommon(ctx context.Context, w *v1.Workload) error {
+	if err := v.validateWorkspace(ctx, w); err != nil {
+		return err
+	}
 	if err := v.validateRequiredParams(w); err != nil {
 		return err
 	}
 	if err := v.validateApplication(w); err != nil {
-		return err
-	}
-	if err := v.validateWorkspace(ctx, w); err != nil {
 		return err
 	}
 	if err := v.validateResourceEnough(ctx, w); err != nil {
