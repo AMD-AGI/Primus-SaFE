@@ -95,6 +95,22 @@ func GetServerPort() int {
 	return getInt(serverPort, 0)
 }
 
+func IsSSHEnable() bool {
+	return getBool(sshEnable, false)
+}
+
+func GetSSHServerPort() int {
+	return getInt(sshServerPort, 0)
+}
+
+func GetSSHRsaPublic() string {
+	return getFromFile(sshKeyPath, "id_rsa.pub")
+}
+
+func GetSSHRsaPrivate() string {
+	return getFromFile(sshKeyPath, "id_rsa")
+}
+
 func GetMemoryReservePercent() float64 {
 	return getFloat(memoryReservePercent, 0)
 }

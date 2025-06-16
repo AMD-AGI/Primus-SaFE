@@ -13,6 +13,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -25,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 )
@@ -49,6 +51,7 @@ func SetupFaultController(mgr manager.Manager, opt *FaultReconcilerOption) error
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Fault{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&v1.Node{}, r.enqueueRequestByNode()).
+		Watches(&corev1.ConfigMap{}, r.enqueueRequestByConfigmap()).
 		Complete(r)
 	if err != nil {
 		return err
@@ -67,12 +70,14 @@ func (r *FaultReconciler) enqueueRequestByNode() handler.EventHandler {
 			}
 			// delete all faults when unmanaging node
 			if oldNode.GetSpecCluster() != "" && newNode.GetSpecCluster() == "" {
-				if err := r.deleteAllFaults(ctx, newNode); err != nil {
+				labelSelector := labels.SelectorFromSet(map[string]string{v1.NodeIdLabel: newNode.Name})
+				if err := r.deleteFaults(ctx, labelSelector); err != nil {
 					klog.ErrorS(err, "failed to delete faults with node", "node", newNode.Name)
 				}
 			}
 			if !reflect.DeepEqual(oldNode.Status.Taints, newNode.Status.Taints) {
-				faultList, _ := listFaultsByNode(ctx, r.Client, newNode.Name)
+				labelSelector := labels.SelectorFromSet(map[string]string{v1.NodeIdLabel: newNode.Name})
+				faultList, _ := listFaults(ctx, r.Client, labelSelector)
 				for _, f := range faultList {
 					q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: f.Name}})
 				}
@@ -81,9 +86,65 @@ func (r *FaultReconciler) enqueueRequestByNode() handler.EventHandler {
 	}
 }
 
-func (r *FaultReconciler) deleteAllFaults(ctx context.Context, node *v1.Node) error {
+func (r *FaultReconciler) enqueueRequestByConfigmap() handler.EventHandler {
+	return handler.Funcs{
+		CreateFunc: func(ctx context.Context, e event.CreateEvent, q v1.RequestWorkQueue) {
+			configmap, ok := e.Object.(*corev1.ConfigMap)
+			if !ok || configmap.Name != common.PrimusFault {
+				return
+			}
+			configs := parseFaultConfig(configmap)
+			faultList, _ := listFaults(ctx, r.Client, labels.Everything())
+			for _, f := range faultList {
+				conf, ok := configs[f.Spec.Id]
+				if !ok || !conf.isEnable() {
+					if err := r.Delete(ctx, &f); err != nil {
+						klog.ErrorS(err, "failed to delete fault")
+					}
+				}
+			}
+		},
+		UpdateFunc: func(ctx context.Context, e event.UpdateEvent, q v1.RequestWorkQueue) {
+			oldConfigmap, ok1 := e.ObjectOld.(*corev1.ConfigMap)
+			newConfigmap, ok2 := e.ObjectNew.(*corev1.ConfigMap)
+			if !ok1 || !ok2 {
+				return
+			}
+			if newConfigmap.Name != common.PrimusFault {
+				return
+			}
+			oldConfigs := parseFaultConfig(oldConfigmap)
+			newConfigs := parseFaultConfig(newConfigmap)
+			for key, oldConf := range oldConfigs {
+				newConf, ok := newConfigs[key]
+				labelSelector := labels.SelectorFromSet(map[string]string{v1.FaultId: newConf.Id})
+				if !ok || (oldConf.isEnable() && !newConf.isEnable()) {
+					if err := r.deleteFaults(ctx, labelSelector); err != nil {
+						klog.ErrorS(err, "failed to delete faults")
+					}
+				} else if oldConf.Action != newConf.Action {
+					faultList, _ := listFaults(ctx, r.Client, labelSelector)
+					for _, f := range faultList {
+						q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: f.Name}})
+					}
+				}
+			}
+		},
+		DeleteFunc: func(ctx context.Context, e event.DeleteEvent, q v1.RequestWorkQueue) {
+			configmap, ok := e.Object.(*corev1.ConfigMap)
+			if !ok || configmap.Name != common.PrimusFault {
+				return
+			}
+			if err := r.deleteFaults(ctx, labels.Everything()); err != nil {
+				klog.ErrorS(err, "failed to delete faults")
+			}
+		},
+	}
+}
+
+func (r *FaultReconciler) deleteFaults(ctx context.Context, labelSelector labels.Selector) error {
 	op := func() error {
-		faultList, err := listFaultsByNode(ctx, r.Client, node.Name)
+		faultList, err := listFaults(ctx, r.Client, labelSelector)
 		if err != nil {
 			return err
 		}
@@ -112,10 +173,6 @@ func (r *FaultReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request
 	if !fault.GetDeletionTimestamp().IsZero() {
 		return r.delete(ctx, fault)
 	}
-
-	if quit := r.observe(fault); quit {
-		return ctrlruntime.Result{}, nil
-	}
 	return r.handle(ctx, fault)
 }
 
@@ -129,25 +186,21 @@ func (r *FaultReconciler) delete(ctx context.Context, fault *v1.Fault) (ctrlrunt
 	return ctrlruntime.Result{}, removeFinalizer(ctx, r.Client, fault, v1.FaultFinalizer)
 }
 
-func (r *FaultReconciler) observe(fault *v1.Fault) bool {
-	if fault.IsEnd() {
-		return true
-	}
-	return false
-}
-
 func (r *FaultReconciler) handle(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
 	var err error
-	actions := strings.Split(fault.Spec.Action, ",")
-	for _, action := range actions {
-		switch action {
-		case string(TaintAction):
-			err = r.taintNode(ctx, fault)
-		default:
-			continue
-		}
-		if err != nil {
-			break
+	if fault.Spec.Action == "" {
+		err = r.removeNodeTaint(ctx, fault)
+	} else {
+		actions := strings.Split(fault.Spec.Action, ",")
+		for _, action := range actions {
+			switch action {
+			case string(TaintAction):
+				err = r.taintNode(ctx, fault)
+			default:
+			}
+			if err != nil {
+				break
+			}
 		}
 	}
 

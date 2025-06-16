@@ -33,6 +33,7 @@ type ClientFactory struct {
 	// the name of factory. It typically refers to the cluster name
 	name          string
 	clientSet     kubernetes.Interface
+	restConfig    *rest.Config
 	dynamicClient *dynamic.DynamicClient
 	// it is used by dynamicSharedInformerFactory
 	mapper meta.RESTMapper
@@ -61,6 +62,7 @@ func NewClientFactory(ctx context.Context, name, endpoint, certData,
 		ctx:           ctx,
 		name:          name,
 		clientSet:     clientSet,
+		restConfig:    restCfg,
 		dynamicClient: dynamicClient,
 		informerType:  informerType,
 		valid:         true,
@@ -119,6 +121,10 @@ func (f *ClientFactory) SetValid(valid bool, msg string) {
 
 func (f *ClientFactory) ClientSet() kubernetes.Interface {
 	return f.clientSet
+}
+
+func (f *ClientFactory) RestConfig() *rest.Config {
+	return f.restConfig
 }
 
 func (f *ClientFactory) DynamicClient() *dynamic.DynamicClient {

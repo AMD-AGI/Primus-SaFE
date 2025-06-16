@@ -44,7 +44,6 @@ const (
 	AdminFailover   WorkloadConditionType = "AdminFailover"
 	AdminFailed     WorkloadConditionType = "AdminFailed"
 	AdminStopped    WorkloadConditionType = "AdminStopped"
-	AdminStopping   WorkloadConditionType = "AdminStopping"
 )
 
 type WorkloadResource struct {
@@ -160,6 +159,8 @@ type WorkloadPod struct {
 	Phase corev1.PodPhase `json:"phase,omitempty"`
 	// The node's IP address where the Pod is running
 	HostIp string `json:"hostIP,omitempty"`
+	// The pod's IP address where the Pod is running
+	PodIp string `json:"podIP,omitempty"`
 	// pod start time
 	StartTime string `json:"startTime,omitempty"`
 	// pod end time

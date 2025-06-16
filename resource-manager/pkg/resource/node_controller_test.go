@@ -179,7 +179,7 @@ func TestObserveNode(t *testing.T) {
 	k8sNode := genMockK8sNode(adminNode.Name, clusterName, nodeFlavor.Name, "")
 
 	r := newMockNodeReconciler(nil)
-	resp, err := r.observe(adminNode, k8sNode)
+	resp, err := r.observe(context.Background(), adminNode, k8sNode)
 	assert.NilError(t, err)
 	assert.Equal(t, resp, true)
 }
@@ -195,7 +195,7 @@ func TestObserveNodeTaints(t *testing.T) {
 		Key: commonfaults.GenerateTaintKey("001"),
 	}}
 	r := newMockNodeReconciler(nil)
-	resp, err := r.observeTaints(adminNode)
+	resp, err := r.observeTaints(context.Background(), adminNode)
 	assert.NilError(t, err)
 	assert.Equal(t, resp, true)
 
@@ -206,7 +206,7 @@ func TestObserveNodeTaints(t *testing.T) {
 		Key: "001",
 	}}
 	adminNode.Status.Taints = []corev1.Taint{}
-	resp, err = r.observeTaints(adminNode)
+	resp, err = r.observeTaints(context.Background(), adminNode)
 	assert.NilError(t, err)
 	assert.Equal(t, resp, false)
 }
@@ -217,16 +217,16 @@ func TestObserveNodeAction(t *testing.T) {
 	adminNode := genMockAdminNode("node1", clusterName, nodeFlavor)
 
 	r := newMockNodeReconciler(nil)
-	resp, _ := r.observeLabelAction(adminNode)
+	resp, _ := r.observeLabelAction(context.Background(), adminNode)
 	assert.Equal(t, resp, true)
-	resp, _ = r.observeAnnotationAction(adminNode)
+	resp, _ = r.observeAnnotationAction(context.Background(), adminNode)
 	assert.Equal(t, resp, true)
 
 	metav1.SetMetaDataAnnotation(&adminNode.ObjectMeta, v1.NodeLabelAction,
 		string(jsonutils.MarshalSilently(map[string]string{"test.key": v1.NodeActionRemove})))
-	resp, _ = r.observeLabelAction(adminNode)
+	resp, _ = r.observeLabelAction(context.Background(), adminNode)
 	assert.Equal(t, resp, false)
-	resp, _ = r.observeAnnotationAction(adminNode)
+	resp, _ = r.observeAnnotationAction(context.Background(), adminNode)
 	assert.Equal(t, resp, true)
 }
 
@@ -236,10 +236,10 @@ func TestObserveNodeCluster(t *testing.T) {
 	adminNode := genMockAdminNode("node1", clusterName, nodeFlavor)
 
 	r := newMockNodeReconciler(nil)
-	resp, _ := r.observeCluster(adminNode)
+	resp, _ := r.observeCluster(context.Background(), adminNode)
 	assert.Equal(t, resp, true)
 	adminNode.Spec.Cluster = nil
-	resp, _ = r.observeCluster(adminNode)
+	resp, _ = r.observeCluster(context.Background(), adminNode)
 	assert.Equal(t, resp, false)
 }
 
@@ -249,10 +249,10 @@ func TestObserveNodeWorkspace(t *testing.T) {
 	adminNode := genMockAdminNode("node1", clusterName, nodeFlavor)
 
 	r := newMockNodeReconciler(nil)
-	resp, _ := r.observeWorkspace(adminNode)
+	resp, _ := r.observeWorkspace(context.Background(), adminNode)
 	assert.Equal(t, resp, true)
 	adminNode.Spec.Workspace = ptr.To("workspace")
-	resp, _ = r.observeWorkspace(adminNode)
+	resp, _ = r.observeWorkspace(context.Background(), adminNode)
 	assert.Equal(t, resp, false)
 }
 

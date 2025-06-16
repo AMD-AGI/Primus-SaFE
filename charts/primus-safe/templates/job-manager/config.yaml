@@ -3,7 +3,7 @@ data:
   config.yaml: |
     global:
       enable_crypto: {{ .Values.crypto.enable }}
-      crypto_key: {{ .Values.crypto.path }}/key
+      crypto_key: {{ .Values.crypto.mount_path }}/key
       rdma_name: {{ .Values.net.rdma_name }}
     health_check:
       enable: true
@@ -19,6 +19,9 @@ data:
       max_ephemeral_store_percent: {{ .Values.workload.max_ephemeral_store_percent }}
       enable_failover: true
       hang_check_interval: 1200
+    ssh:
+      enable: {{ .Values.ssh.enable }}
+      config_path: {{ .Values.ssh.mount_path }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-job-manager

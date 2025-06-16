@@ -11,6 +11,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
@@ -29,7 +30,7 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	}
 	workspace := adminWorkload.Spec.Workspace
 
-	k8sClients, err := h.getK8sClientFactory(v1.GetClusterId(adminWorkload))
+	k8sClients, err := apiutils.GetK8sClientFactory(h.clientManager, v1.GetClusterId(adminWorkload))
 	if err != nil {
 		return nil, err
 	}
