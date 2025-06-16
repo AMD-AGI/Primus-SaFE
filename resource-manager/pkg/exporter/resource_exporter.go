@@ -129,7 +129,7 @@ func (r *ResourceExporter) Do(ctx context.Context, obj *unstructured.Unstructure
 	if obj.GetDeletionTimestamp().IsZero() && !ctrlutil.ContainsFinalizer(obj, v1.ExporterFinalizer) {
 		patch := client.MergeFrom(obj.DeepCopy())
 		ctrlutil.AddFinalizer(obj, v1.ExporterFinalizer)
-		if err = r.Patch(context.Background(), obj, patch); err != nil {
+		if err = r.Patch(ctx, obj, patch); err != nil {
 			return commonctrl.Result{}, err
 		}
 	}
@@ -144,7 +144,7 @@ func (r *ResourceExporter) Do(ctx context.Context, obj *unstructured.Unstructure
 	if !obj.GetDeletionTimestamp().IsZero() && ctrlutil.ContainsFinalizer(obj, v1.ExporterFinalizer) {
 		patch := client.MergeFrom(obj.DeepCopy())
 		ctrlutil.RemoveFinalizer(obj, v1.ExporterFinalizer)
-		if err = r.Patch(context.Background(), obj, patch); err != nil {
+		if err = r.Patch(ctx, obj, patch); err != nil {
 			return commonctrl.Result{}, err
 		}
 	}

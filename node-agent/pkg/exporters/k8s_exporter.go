@@ -66,7 +66,7 @@ func genAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.No
 		LastTransitionTime: metav1.NewTime(time.Now().UTC()),
 		Message:            msg.Value,
 	})
-	klog.Info("add condition. key: %s, message: %s", key, msg.Value)
+	klog.Infof("add condition. key: %s, message: %s", key, msg.Value)
 	results = append(results, conditions...)
 	return results, true
 }
@@ -78,7 +78,7 @@ func genDeleteConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1
 		if string(cond.Type) != key {
 			results = append(results, node.Status.Conditions[i])
 		} else {
-			klog.Info("deleting condition. key: %s, message: %s", cond.Type, cond.Message)
+			klog.Infof("deleting condition. key: %s, message: %s", cond.Type, cond.Message)
 		}
 	}
 	if len(results) == len(node.Status.Conditions) {

@@ -71,7 +71,7 @@ func (r *FaultReconciler) enqueueRequestByNode() handler.EventHandler {
 			// delete all faults when unmanaging node
 			if oldNode.GetSpecCluster() != "" && newNode.GetSpecCluster() == "" {
 				labelSelector := labels.SelectorFromSet(map[string]string{v1.NodeIdLabel: newNode.Name})
-				if err := r.deleteFaultsBySelector(ctx, labelSelector); err != nil {
+				if err := r.deleteFaults(ctx, labelSelector); err != nil {
 					klog.ErrorS(err, "failed to delete faults with node", "node", newNode.Name)
 				}
 			}
@@ -98,7 +98,7 @@ func (r *FaultReconciler) enqueueRequestByConfigmap() handler.EventHandler {
 			for _, f := range faultList {
 				conf, ok := configs[f.Spec.Id]
 				if !ok || !conf.isEnable() {
-					if err := r.Delete(context.Background(), &f); err != nil {
+					if err := r.Delete(ctx, &f); err != nil {
 						klog.ErrorS(err, "failed to delete fault")
 					}
 				}
@@ -119,7 +119,7 @@ func (r *FaultReconciler) enqueueRequestByConfigmap() handler.EventHandler {
 				newConf, ok := newConfigs[key]
 				labelSelector := labels.SelectorFromSet(map[string]string{v1.FaultId: newConf.Id})
 				if !ok || (oldConf.isEnable() && !newConf.isEnable()) {
-					if err := r.deleteFaultsBySelector(ctx, labelSelector); err != nil {
+					if err := r.deleteFaults(ctx, labelSelector); err != nil {
 						klog.ErrorS(err, "failed to delete faults")
 					}
 				} else if oldConf.Action != newConf.Action {
@@ -135,14 +135,14 @@ func (r *FaultReconciler) enqueueRequestByConfigmap() handler.EventHandler {
 			if !ok || configmap.Name != common.PrimusFault {
 				return
 			}
-			if err := r.deleteFaultsBySelector(ctx, labels.Everything()); err != nil {
+			if err := r.deleteFaults(ctx, labels.Everything()); err != nil {
 				klog.ErrorS(err, "failed to delete faults")
 			}
 		},
 	}
 }
 
-func (r *FaultReconciler) deleteFaultsBySelector(ctx context.Context, labelSelector labels.Selector) error {
+func (r *FaultReconciler) deleteFaults(ctx context.Context, labelSelector labels.Selector) error {
 	op := func() error {
 		faultList, err := listFaults(ctx, r.Client, labelSelector)
 		if err != nil {

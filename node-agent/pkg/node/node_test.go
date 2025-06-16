@@ -48,7 +48,7 @@ func newNode(t *testing.T) (*Node, *fake.Clientset) {
 		NodeName: testNode.Name,
 	}
 	sleepTime = time.Millisecond * 100
-	n, err := NewNodeWithClientSet(opts, fakeClientSet)
+	n, err := NewNodeWithClientSet(context.Background(), opts, fakeClientSet)
 	assert.NilError(t, err)
 	return n, fakeClientSet
 }
@@ -72,9 +72,6 @@ func TestWatchNode(t *testing.T) {
 	time.Sleep(time.Millisecond * 200)
 	val, _ := n.GetK8sNode().Labels["test.key"]
 	assert.Equal(t, val, "test.val")
-	n.Stop()
-
-	assert.Equal(t, n.IsExited(), true)
 }
 
 func TestGetGpuQuantity(t *testing.T) {
