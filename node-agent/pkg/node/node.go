@@ -80,7 +80,9 @@ func (n *Node) update() {
 	for {
 		select {
 		case <-n.ctx.Done():
-			klog.Infof("stop node watcher: %s", n.k8sNode.Name)
+			if n.k8sNode != nil {
+				klog.Infof("stop node watcher: %s", n.k8sNode.Name)
+			}
 			return
 		default:
 			k8sNode, err := n.k8sClient.Nodes().Get(n.ctx, n.GetK8sNode().Name, metav1.GetOptions{})
