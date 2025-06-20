@@ -47,25 +47,25 @@ type FaultConfig struct {
 	// on/off. default "off"
 	Toggle string `json:"toggle,omitempty"`
 	// whether the fault is auto repaired or not. default true
-	IsAutoRepairEnabled *bool `json:"isAutoRepairEnabled,omitempty"`
+	IsAutoRepair *bool `json:"isAutoRepair,omitempty"`
 	// is the fault unrelated to any specific node? default false
 	IsUnrelatedNode bool `json:"IsUnrelatedNode,omitempty"`
 }
 
-func (c *FaultConfig) isAutoRepairEnabled() bool {
-	if c.IsAutoRepairEnabled == nil {
+func (c *FaultConfig) IsAutoRepairEnabled() bool {
+	if c.IsAutoRepair == nil {
 		return false
 	}
-	return *c.IsAutoRepairEnabled
+	return *c.IsAutoRepair
 }
 
-func (c *FaultConfig) isEnable() bool {
+func (c *FaultConfig) IsEnable() bool {
 	return c.Toggle == "on"
 }
 
 // retrieves the fault configuration from a ConfigMap.
 // The key is fault.id, and the value is the fault config.
-func getFaultConfigmap(ctx context.Context, cli client.Client) (map[string]*FaultConfig, error) {
+func GetFaultConfigmap(ctx context.Context, cli client.Client) (map[string]*FaultConfig, error) {
 	configMap := &corev1.ConfigMap{}
 	err := cli.Get(ctx, client.ObjectKey{Name: common.PrimusFault, Namespace: common.PrimusSafeNamespace}, configMap)
 	if err != nil {
@@ -84,8 +84,8 @@ func parseFaultConfig(configMap *corev1.ConfigMap) map[string]*FaultConfig {
 		if conf.Toggle != "on" {
 			continue
 		}
-		if conf.IsAutoRepairEnabled == nil {
-			conf.IsAutoRepairEnabled = pointer.Bool(true)
+		if conf.IsAutoRepair == nil {
+			conf.IsAutoRepair = pointer.Bool(true)
 		}
 		result[conf.Id] = conf
 	}
@@ -167,7 +167,7 @@ func generateFaultOnCreation(node *v1.FaultNode,
 			Id:                  id,
 			Message:             cond.Message,
 			Action:              string(conf.Action),
-			IsAutoRepairEnabled: conf.isAutoRepairEnabled(),
+			IsAutoRepairEnabled: conf.IsAutoRepairEnabled(),
 			Node:                node,
 		},
 	}
@@ -179,7 +179,7 @@ func generateFaultOnDeletion(node *v1.FaultNode,
 		return nil
 	}
 	id := getIdByConditionType(cond.Type)
-	if conf, ok := faultConfigMap[id]; ok && !conf.isAutoRepairEnabled() {
+	if conf, ok := faultConfigMap[id]; ok && !conf.IsAutoRepairEnabled() {
 		return nil
 	}
 	return &v1.Fault{

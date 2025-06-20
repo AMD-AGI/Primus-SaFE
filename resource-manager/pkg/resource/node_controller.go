@@ -32,6 +32,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
@@ -56,8 +57,8 @@ func SetupNodeController(mgr manager.Manager) error {
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Node{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, r.CaredPredicate()))).
-		Watches(&corev1.Pod{}, r.enqueueRequestByWorkerPod()).
+			predicate.GenerationChangedPredicate{}, r.caredChangePredicate()))).
+		Watches(&corev1.Pod{}, r.handlePodEvent()).
 		Complete(r)
 	if err != nil {
 		return err
@@ -66,7 +67,7 @@ func SetupNodeController(mgr manager.Manager) error {
 	return nil
 }
 
-func (r *NodeReconciler) CaredPredicate() predicate.Predicate {
+func (r *NodeReconciler) caredChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			_, ok := e.Object.(*v1.Node)
@@ -103,7 +104,7 @@ func (r *NodeReconciler) isNodeCaredFieldChanged(oldNode, newNode *v1.Node) bool
 	return false
 }
 
-func (r *NodeReconciler) enqueueRequestByWorkerPod() handler.EventHandler {
+func (r *NodeReconciler) handlePodEvent() handler.EventHandler {
 	enqueue := func(pod *corev1.Pod, q v1.RequestWorkQueue) {
 		for _, owner := range pod.OwnerReferences {
 			if owner.APIVersion == v1.SchemeGroupVersion.String() && owner.Kind == v1.NodeKind {
@@ -162,7 +163,7 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request)
 }
 
 func (r *NodeReconciler) delete(ctx context.Context, adminNode *v1.Node) error {
-	return removeFinalizer(ctx, r.Client, adminNode, v1.NodeFinalizer)
+	return utils.RemoveFinalizer(ctx, r.Client, adminNode, v1.NodeFinalizer)
 }
 
 func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*corev1.Node, ctrlruntime.Result, error) {
@@ -171,7 +172,7 @@ func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*c
 	if clusterName == "" || k8sNodeName == "" {
 		return nil, ctrlruntime.Result{}, nil
 	}
-	k8sClients, err := getK8sClientFactory(r.clientManager, clusterName)
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterName)
 	if err != nil || !k8sClients.IsValid() {
 		return nil, ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
@@ -310,7 +311,7 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 	if k8sNode == nil || clusterName == "" {
 		return ctrlruntime.Result{}, nil
 	}
-	k8sClients, err := getK8sClientFactory(r.clientManager, clusterName)
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterName)
 	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
@@ -577,7 +578,7 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		if err := r.removeRetryCount(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		k8sClients, err := getK8sClientFactory(r.clientManager, adminNode.GetSpecCluster())
+		k8sClients, err := utils.GetK8sClientFactory(r.clientManager, adminNode.GetSpecCluster())
 		if err != nil || !k8sClients.IsValid() {
 			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 		}
@@ -597,7 +598,7 @@ func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context,
 		if err := r.removeRetryCount(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		k8sClients, err := getK8sClientFactory(r.clientManager, adminNode.GetSpecCluster())
+		k8sClients, err := utils.GetK8sClientFactory(r.clientManager, adminNode.GetSpecCluster())
 		if err != nil || !k8sClients.IsValid() {
 			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 		}
@@ -672,7 +673,7 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 	if pod == nil {
 		// A retry limit is set when deleting a Pod. If the k8s node operation fails, scale-up will be retried.
 		// After exceeding the max retry count, it will fail directly to avoid infinite loops
-		count, err := incRetryCount(ctx, r.Client, adminNode, MaxRretyCount)
+		count, err := utils.IncRetryCount(ctx, r.Client, adminNode, MaxRretyCount)
 		if err != nil {
 			return err
 		}
@@ -751,7 +752,7 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 			return ctrlruntime.Result{}, err
 		}
 	}
-	k8sClients, err := getK8sClientFactory(r.clientManager, clusterName)
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterName)
 	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
@@ -794,7 +795,7 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 	if pod == nil {
 		// A retry limit is set when deleting a Pod. If the k8s node operation fails, scale-down will be retried.
 		// After exceeding the max retry count, it will fail directly to avoid infinite loops
-		count, err := incRetryCount(ctx, r.Client, adminNode, MaxRretyCount)
+		count, err := utils.IncRetryCount(ctx, r.Client, adminNode, MaxRretyCount)
 		if err != nil {
 			return err
 		}

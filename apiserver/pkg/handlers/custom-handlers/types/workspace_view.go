@@ -60,7 +60,7 @@ type GetWorkspaceResponseItem struct {
 	// the status of workspace
 	Phase string `json:"phase,omitempty"`
 	// creation time
-	CreatedTime string `json:"createdTime"`
+	CreateTime string `json:"createTime"`
 	// description of workspace
 	Description string `json:"description,omitempty"`
 	// Queuing policy for tasks submitted in this workspace.

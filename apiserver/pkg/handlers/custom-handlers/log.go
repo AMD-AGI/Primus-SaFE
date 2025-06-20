@@ -304,8 +304,8 @@ func buildOutput(req *commonsearch.OpenSearchRequest, query *types.GetLogRequest
 }
 
 func genListContextQuery(query *types.GetLogRequest, startTime time.Time) ([]types.GetLogRequestWrapper, error) {
-	if query.Since == "" && query.SinceMilliSecond <= 0 {
-		return nil, commonerrors.NewBadRequest("the since or sinceMilliSecond parameter is empty")
+	if query.Since == "" {
+		return nil, commonerrors.NewBadRequest("the since parameter is empty")
 	}
 
 	result := make([]types.GetLogRequestWrapper, 0, 2)
@@ -381,10 +381,11 @@ func parseSearchLogQuery(req *http.Request, beginTime, endTime time.Time) (*type
 		return nil, commonerrors.NewBadRequest(
 			fmt.Sprintf("the order parameter only supports %s and %s", dbclient.ASC, dbclient.DESC))
 	}
-	if query.SinceTime, err = parseTime(query.Since, query.SinceMilliSecond); err != nil {
+
+	if query.SinceTime, err = timeutil.CvtStrToRFC3339Milli(query.Since); err != nil {
 		return nil, err
 	}
-	if query.UntilTime, err = parseTime(query.Until, query.UntilMilliSecond); err != nil {
+	if query.UntilTime, err = timeutil.CvtStrToRFC3339Milli(query.Until); err != nil {
 		return nil, err
 	}
 

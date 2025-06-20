@@ -302,7 +302,7 @@ func (mm *MonitorManager) getMonitorConfigs(configPath string) ([]*MonitorConfig
 			continue
 		}
 		if !conf.IsEnable() || !mm.node.IsMatchChip(conf.Chip) {
-			if mm.node.FindCondition(conf.Id) != nil {
+			if mm.node.FindConditionByType(conf.Id) != nil {
 				mm.addDisableMessage(conf.Id)
 			}
 			continue

@@ -1,0 +1,105 @@
+/*
+ * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
+package types
+
+import (
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+)
+
+type CreateJobRequest struct {
+	// the resource objects to be processed. e.g. {{"name": "node", "value": "node.id"}}
+	Inputs []v1.Parameter `json:"inputs"`
+	// valid values include: addon
+	Type v1.JobType `json:"type"`
+	// the cluster which the job belongs to
+	Cluster string `json:"cluster"`
+	// job Timeout (in seconds), Less than or equal to 0 means no timeout
+	TimeoutSecond int `json:"timeoutSecond,omitempty"`
+	// the number of nodes to process simultaneously during the addon upgrade
+	BatchCount int `json:"batchCount,omitempty"`
+	// When enabled, the operation will wait until the node is idle
+	SecurityUpgrade bool `json:"securityUpgrade,omitempty"`
+	// job submitter
+	UserName string `json:"userName,omitempty"`
+
+	// for internal user
+	JobName   string `json:"-"`
+	Workspace string `json:"-"`
+}
+
+type CreateJobResponse struct {
+	JobId string `json:"jobId"`
+}
+
+type GetJobRequest struct {
+	// Starting offset for the results. dfault is 0
+	Offset int `form:"offset" binding:"omitempty,min=0"`
+	// Limit the number of returned results. default is 100
+	Limit int `form:"limit" binding:"omitempty,min=1"`
+	// Sort results by the specified field. default is create_time
+	SortBy string `form:"sortBy" binding:"omitempty"`
+	// default is desc
+	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
+	// Query the start time of the job, based on the job's creation time.
+	// e.g. '2006-01-02T15:04:05.000Z'. default is until - 720h
+	Since string `form:"since" binding:"omitempty"`
+	// Query the end time of the job, similar to since. default is now
+	Until string `form:"until" binding:"omitempty"`
+	// the cluster which the job belongs to
+	Cluster string `form:"cluster" binding:"omitempty,max=64"`
+	// job submitter
+	UserName string `json:"userName,omitempty"`
+	// job phase
+	Phase v1.JobPhase `form:"phase" binding:"omitempty"`
+	// job type
+	Type v1.JobType `form:"type" binding:"omitempty"`
+
+	// for internal use
+	SinceTime time.Time
+	UntilTime time.Time
+}
+
+type GetJobResponseItem struct {
+	// job id
+	JobId string `json:"jobId"`
+	// job name
+	JobName string `json:"jobName"`
+	// the cluster which the job belongs to
+	Cluster string `json:"cluster"`
+	// the workspace which the job belongs to
+	Workspace string `json:"workspace,omitempty"`
+	// job submitter
+	UserName string `json:"userName"`
+	// job type
+	Type v1.JobType `json:"type"`
+	// job phase: Succeeded/Failed/Running
+	Phase v1.JobPhase `json:"phase"`
+	// job execution flow
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// job creation time
+	CreateTime string `json:"createTime"`
+	// job start time
+	StartTime string `json:"startTime,omitempty"`
+	// job end time
+	EndTime string `json:"endTime,omitempty"`
+	// job deletion time
+	DeleteTime string `json:"deleteTime,omitempty"`
+	// error message
+	Message string `json:"message,omitempty"`
+	// job inputs
+	Inputs []v1.Parameter `json:"inputs"`
+	// job outputs
+	Outputs []v1.Parameter `json:"outputs,omitempty"`
+}
+
+type GetJobResponse struct {
+	TotalCount int                  `json:"totalCount"`
+	Items      []GetJobResponseItem `json:"items,omitempty"`
+}

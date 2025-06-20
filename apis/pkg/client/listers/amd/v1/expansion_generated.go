@@ -6,6 +6,14 @@ Copyright The AMD Authors.
 
 package v1
 
+// AddonTemplateListerExpansion allows custom methods to be added to
+// AddonTemplateLister.
+type AddonTemplateListerExpansion interface{}
+
+// AddonTemplateNamespaceListerExpansion allows custom methods to be added to
+// AddonTemplateNamespaceLister.
+type AddonTemplateNamespaceListerExpansion interface{}
+
 // ClusterListerExpansion allows custom methods to be added to
 // ClusterLister.
 type ClusterListerExpansion interface{}
@@ -22,6 +30,14 @@ type FaultListerExpansion interface{}
 // FaultNamespaceLister.
 type FaultNamespaceListerExpansion interface{}
 
+// JobListerExpansion allows custom methods to be added to
+// JobLister.
+type JobListerExpansion interface{}
+
+// JobNamespaceListerExpansion allows custom methods to be added to
+// JobNamespaceLister.
+type JobNamespaceListerExpansion interface{}
+
 // NodeListerExpansion allows custom methods to be added to
 // NodeLister.
 type NodeListerExpansion interface{}
@@ -37,6 +53,14 @@ type NodeFlavorListerExpansion interface{}
 // NodeFlavorNamespaceListerExpansion allows custom methods to be added to
 // NodeFlavorNamespaceLister.
 type NodeFlavorNamespaceListerExpansion interface{}
+
+// NodeTemplateListerExpansion allows custom methods to be added to
+// NodeTemplateLister.
+type NodeTemplateListerExpansion interface{}
+
+// NodeTemplateNamespaceListerExpansion allows custom methods to be added to
+// NodeTemplateNamespaceLister.
+type NodeTemplateNamespaceListerExpansion interface{}
 
 // ResourceTemplateListerExpansion allows custom methods to be added to
 // ResourceTemplateLister.

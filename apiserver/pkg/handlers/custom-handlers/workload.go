@@ -149,10 +149,23 @@ func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
 	if len(workloadList.Items) > 0 {
 		sort.Sort(types.WorkloadSlice(workloadList.Items))
 	}
-
+	sinceTime, err := timeutil.CvtStrToRFC3339Milli(query.Since)
+	if err != nil {
+		return nil, err
+	}
+	untilTime, err := timeutil.CvtStrToRFC3339Milli(query.Until)
+	if err != nil {
+		return nil, err
+	}
 	result := &types.GetWorkloadResponse{}
 	for _, w := range workloadList.Items {
 		if query.Phase != "" && !stringutil.StrCaseEqual(query.Phase, string(w.Status.Phase)) {
+			continue
+		}
+		if !sinceTime.IsZero() && w.CreationTimestamp.Time.Before(sinceTime) {
+			continue
+		}
+		if !untilTime.IsZero() && w.CreationTimestamp.Time.After(untilTime) {
 			continue
 		}
 		result.Items = append(result.Items, cvtAdminWorkloadToResponse(&w, false))
@@ -401,7 +414,7 @@ func generateWorkload(req *types.CreateWorkloadRequest, body []byte) (*v1.Worklo
 		workload.Spec.CustomerLabels = customerLabels
 	}
 	if workload.Name == "" {
-		workload.Name = commonutils.GenerateNameWithPrefix(req.DisplayName)
+		workload.Name = commonutils.GenerateName(req.DisplayName)
 	}
 	return workload, nil
 }
@@ -476,6 +489,16 @@ func (h *Handler) cvtToListWorkloadSql(ctx context.Context,
 	if userName := strings.TrimSpace(query.UserName); userName != "" {
 		dbSql = append(dbSql, sqrl.Like{
 			dbclient.GetFieldTag(dbTags, "UserName"): fmt.Sprintf("%%%s%%", userName)})
+	}
+	if sinceTime := strings.TrimSpace(query.Since); sinceTime != "" {
+		if t, err := timeutil.CvtStrToRFC3339Milli(sinceTime); err == nil {
+			dbSql = append(dbSql, sqrl.GtOrEq{dbclient.GetFieldTag(dbTags, "CreateTime"): t})
+		}
+	}
+	if untilTime := strings.TrimSpace(query.Until); untilTime != "" {
+		if t, err := timeutil.CvtStrToRFC3339Milli(untilTime); err == nil {
+			dbSql = append(dbSql, sqrl.LtOrEq{dbclient.GetFieldTag(dbTags, "CreateTime"): t})
+		}
 	}
 	if kind := strings.TrimSpace(query.Kind); kind != "" {
 		values := strings.Split(query.Kind, ",")
@@ -755,6 +778,10 @@ func buildSSHAddress(localIp, userName, podName, workspace string) string {
 	if userName == "" {
 		userName = "none"
 	}
+	ingress_ip := commonconfig.GetSSHIngressIp()
+	if ingress_ip == "" {
+		ingress_ip = localIp
+	}
 	return fmt.Sprintf("ssh -p %d %s.%s.%s@%s",
-		commonconfig.GetSSHServerPort(), userName, podName, workspace, localIp)
+		commonconfig.GetSSHServerPort(), userName, podName, workspace, ingress_ip)
 }

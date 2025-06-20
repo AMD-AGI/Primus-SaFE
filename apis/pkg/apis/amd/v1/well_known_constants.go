@@ -39,6 +39,8 @@ const (
 	NodeLabelAction      = NodePrefix + "label.action"
 	NodeAnnotationAction = NodePrefix + "annotation.action"
 	NodeIdLabel          = NodePrefix + "id"
+	// the job on node
+	NodeJobInputAnnotation = NodePrefix + "job.input"
 
 	NodeActionAdd    = "add"
 	NodeActionRemove = "remove"
@@ -102,6 +104,16 @@ const (
 	// exporter
 	ExporterPrefix    = PrimusSafePrefix + "exporter."
 	ExporterFinalizer = ExporterPrefix + "finalizer"
+
+	// job
+	JobPrefix                    = PrimusSafePrefix + "job."
+	JobDispatchTimeAnnotation    = JobPrefix + "dispatch.time"
+	JobIdLabel                   = JobPrefix + "id"
+	JobTypeLabel                 = JobPrefix + "type"
+	JobUserAnnotation            = JobPrefix + "user"
+	JobSecurityUpgradeAnnotation = JobPrefix + "security.upgrade"
+	JobBatchCountAnnotation      = JobPrefix + "batch.count"
+	JobFinalizer                 = JobPrefix + "finalizer"
 )
 
 const (

@@ -69,36 +69,36 @@ func (m *WorkloadMutator) Handle(ctx context.Context, req admission.Request) adm
 	if req.Operation == admissionv1.Delete {
 		return admission.Allowed("")
 	}
-	obj := &v1.Workload{}
-	if err := m.decoder.Decode(req, obj); err != nil {
+	workload := &v1.Workload{}
+	if err := m.decoder.Decode(req, workload); err != nil {
 		return handleError(v1.WorkloadKind, err)
 	}
-	if !obj.GetDeletionTimestamp().IsZero() {
+	if !workload.GetDeletionTimestamp().IsZero() {
 		return admission.Allowed("")
 	}
 
 	isChanged := false
 	switch req.Operation {
 	case admissionv1.Create:
-		isChanged = m.mutateCreate(ctx, obj)
+		isChanged = m.mutateOnCreation(ctx, workload)
 	case admissionv1.Update:
 		oldObj := &v1.Workload{}
 		if m.decoder.DecodeRaw(req.OldObject, oldObj) == nil {
-			isChanged = m.mutateUpdate(ctx, oldObj, obj)
+			isChanged = m.mutateOnUpdate(ctx, oldObj, workload)
 		}
 	}
 	if !isChanged {
 		return admission.Allowed("")
 	}
 
-	marshaledResult, err := json.Marshal(obj)
+	data, err := json.Marshal(workload)
 	if err != nil {
 		return handleError(v1.WorkloadKind, err)
 	}
-	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledResult)
+	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
-func (m *WorkloadMutator) mutateCreate(ctx context.Context, workload *v1.Workload) bool {
+func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Workload) bool {
 	workspace, err := getWorkspace(ctx, m.Client, workload.Spec.Workspace)
 	if err != nil {
 		return false
@@ -125,7 +125,7 @@ func (m *WorkloadMutator) mutateCreate(ctx context.Context, workload *v1.Workloa
 	return true
 }
 
-func (m *WorkloadMutator) mutateUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) bool {
+func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) bool {
 	m.mutateResource(newWorkload, nil)
 	m.mutateUpdateEnv(oldWorkload, newWorkload)
 	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
@@ -326,12 +326,12 @@ func (m *WorkloadMutator) mutateCreateEnv(workload *v1.Workload) {
 	workload.Spec.Env = maps.RemoveValue(workload.Spec.Env, "")
 }
 
-func (m *WorkloadMutator) mutateUpdateEnv(oldObj, newObj *v1.Workload) {
-	newObj.Spec.Env = maps.RemoveValue(newObj.Spec.Env, "")
+func (m *WorkloadMutator) mutateUpdateEnv(oldWorkload, newWorkload *v1.Workload) {
+	newWorkload.Spec.Env = maps.RemoveValue(newWorkload.Spec.Env, "")
 	// A null or empty value means the field should be removed.
-	for key := range oldObj.Spec.Env {
-		if _, ok := newObj.Spec.Env[key]; !ok {
-			newObj.Spec.Env[key] = ""
+	for key := range oldWorkload.Spec.Env {
+		if _, ok := newWorkload.Spec.Env[key]; !ok {
+			newWorkload.Spec.Env[key] = ""
 		}
 	}
 }
@@ -362,27 +362,27 @@ type WorkloadValidator struct {
 }
 
 func (v *WorkloadValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	obj := &v1.Workload{}
+	workload := &v1.Workload{}
 	var err error
 	switch req.Operation {
 	case admissionv1.Create:
-		if err = v.decoder.Decode(req, obj); err != nil {
+		if err = v.decoder.Decode(req, workload); err != nil {
 			break
 		}
-		if !obj.GetDeletionTimestamp().IsZero() {
+		if !workload.GetDeletionTimestamp().IsZero() {
 			break
 		}
-		err = v.validateCreate(ctx, obj)
+		err = v.validateOnCreation(ctx, workload)
 	case admissionv1.Update:
-		if err = v.decoder.Decode(req, obj); err != nil {
+		if err = v.decoder.Decode(req, workload); err != nil {
 			break
 		}
-		if !obj.GetDeletionTimestamp().IsZero() {
+		if !workload.GetDeletionTimestamp().IsZero() {
 			break
 		}
-		oldObj := &v1.Workload{}
-		if err = v.decoder.DecodeRaw(req.OldObject, oldObj); err == nil {
-			err = v.validateUpdate(ctx, obj, oldObj)
+		oldWorkload := &v1.Workload{}
+		if err = v.decoder.DecodeRaw(req.OldObject, oldWorkload); err == nil {
+			err = v.validateOnUpdate(ctx, workload, oldWorkload)
 		}
 	default:
 	}
@@ -392,75 +392,75 @@ func (v *WorkloadValidator) Handle(ctx context.Context, req admission.Request) a
 	return admission.Allowed("")
 }
 
-func (v *WorkloadValidator) validateCreate(ctx context.Context, w *v1.Workload) error {
-	if err := v.validateCommon(ctx, w); err != nil {
+func (v *WorkloadValidator) validateOnCreation(ctx context.Context, workload *v1.Workload) error {
+	if err := v.validateCommon(ctx, workload); err != nil {
 		return err
 	}
-	if err := validateDNSName(v1.GetDisplayName(w)); err != nil {
+	if err := validateDNSName(v1.GetDisplayName(workload)); err != nil {
 		return err
 	}
-	if err := v.validateResourceValid(w); err != nil {
+	if err := v.validateResourceValid(workload); err != nil {
 		return err
 	}
-	if err := v.validateScope(ctx, w); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (v *WorkloadValidator) validateUpdate(ctx context.Context, newObj, oldObj *v1.Workload) error {
-	if err := v.validateImmutableFields(newObj, oldObj); err != nil {
-		return err
-	}
-	if err := v.validateCommon(ctx, newObj); err != nil {
-		return err
-	}
-	if err := v.validateSpecChanged(newObj, oldObj); err != nil {
+	if err := v.validateScope(ctx, workload); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *WorkloadValidator) validateCommon(ctx context.Context, w *v1.Workload) error {
-	if err := v.validateWorkspace(ctx, w); err != nil {
+func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, oldWorkload *v1.Workload) error {
+	if err := v.validateImmutableFields(newWorkload, oldWorkload); err != nil {
 		return err
 	}
-	if err := v.validateRequiredParams(w); err != nil {
+	if err := v.validateCommon(ctx, newWorkload); err != nil {
 		return err
 	}
-	if err := v.validateApplication(w); err != nil {
-		return err
-	}
-	if err := v.validateResourceEnough(ctx, w); err != nil {
-		return err
-	}
-	if err := v.validateTemplate(ctx, w); err != nil {
-		return err
-	}
-	if err := v.validateDisplayName(w); err != nil {
+	if err := v.validateSpecChanged(newWorkload, oldWorkload); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *WorkloadValidator) validateRequiredParams(w *v1.Workload) error {
+func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Workload) error {
+	if err := v.validateWorkspace(ctx, workload); err != nil {
+		return err
+	}
+	if err := v.validateRequiredParams(workload); err != nil {
+		return err
+	}
+	if err := v.validateApplication(workload); err != nil {
+		return err
+	}
+	if err := v.validateResourceEnough(ctx, workload); err != nil {
+		return err
+	}
+	if err := v.validateTemplate(ctx, workload); err != nil {
+		return err
+	}
+	if err := v.validateDisplayName(workload); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error {
 	var errs []error
-	if v1.GetDisplayName(w) == "" {
+	if v1.GetDisplayName(workload) == "" {
 		errs = append(errs, fmt.Errorf("the displayName is empty"))
 	}
-	if v1.GetClusterId(w) == "" {
+	if v1.GetClusterId(workload) == "" {
 		errs = append(errs, fmt.Errorf("the cluster is empty"))
 	}
-	if w.Spec.Workspace == "" {
+	if workload.Spec.Workspace == "" {
 		errs = append(errs, fmt.Errorf("the workspace is empty"))
 	}
-	if w.Spec.Image == "" {
+	if workload.Spec.Image == "" {
 		errs = append(errs, fmt.Errorf("the image is empty"))
 	}
-	if w.Spec.EntryPoint == "" {
+	if workload.Spec.EntryPoint == "" {
 		errs = append(errs, fmt.Errorf("the entryPoint is empty"))
 	}
-	if w.Spec.GroupVersionKind.Empty() {
+	if workload.Spec.GroupVersionKind.Empty() {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
@@ -469,60 +469,60 @@ func (v *WorkloadValidator) validateRequiredParams(w *v1.Workload) error {
 	return nil
 }
 
-func (v *WorkloadValidator) validateApplication(w *v1.Workload) error {
-	if !commonworkload.IsApplication(w) {
+func (v *WorkloadValidator) validateApplication(workload *v1.Workload) error {
+	if !commonworkload.IsApplication(workload) {
 		return nil
 	}
-	if w.Spec.Service != nil {
-		if err := validatePort("service", w.Spec.Service.Port); err != nil {
+	if workload.Spec.Service != nil {
+		if err := validatePort("service", workload.Spec.Service.Port); err != nil {
 			return err
 		}
-		if err := validatePort("service/target", w.Spec.Service.TargetPort); err != nil {
+		if err := validatePort("service/target", workload.Spec.Service.TargetPort); err != nil {
 			return err
 		}
-		if w.Spec.Service.NodePort > 0 {
-			if err := validatePort("service/node", w.Spec.Service.NodePort); err != nil {
+		if workload.Spec.Service.NodePort > 0 {
+			if err := validatePort("service/node", workload.Spec.Service.NodePort); err != nil {
 				return err
 			}
 		}
-		if w.Spec.Service.Protocol != corev1.ProtocolTCP && w.Spec.Service.Protocol != corev1.ProtocolUDP {
+		if workload.Spec.Service.Protocol != corev1.ProtocolTCP && workload.Spec.Service.Protocol != corev1.ProtocolUDP {
 			return fmt.Errorf("the service protocol only supports %s and %s",
 				corev1.ProtocolTCP, corev1.ProtocolUDP)
 		}
-		if w.Spec.Service.ServiceType != corev1.ServiceTypeClusterIP &&
-			w.Spec.Service.ServiceType != corev1.ServiceTypeNodePort {
+		if workload.Spec.Service.ServiceType != corev1.ServiceTypeClusterIP &&
+			workload.Spec.Service.ServiceType != corev1.ServiceTypeNodePort {
 			return fmt.Errorf("the service type only supports %s and %s",
 				corev1.ServiceTypeClusterIP, corev1.ServiceTypeNodePort)
 		}
 	}
-	if w.Spec.Liveness != nil {
-		if w.Spec.Liveness.Path == "" {
+	if workload.Spec.Liveness != nil {
+		if workload.Spec.Liveness.Path == "" {
 			return fmt.Errorf("the path for liveness is not found")
 		}
-		if err := validatePort("liveness", w.Spec.Liveness.Port); err != nil {
+		if err := validatePort("liveness", workload.Spec.Liveness.Port); err != nil {
 			return err
 		}
 	}
-	if w.Spec.Readiness != nil {
-		if w.Spec.Readiness.Path == "" {
+	if workload.Spec.Readiness != nil {
+		if workload.Spec.Readiness.Path == "" {
 			return fmt.Errorf("the path for readiness is not found")
 		}
-		if err := validatePort("readiness", w.Spec.Readiness.Port); err != nil {
+		if err := validatePort("readiness", workload.Spec.Readiness.Port); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (v *WorkloadValidator) validateResourceValid(w *v1.Workload) error {
+func (v *WorkloadValidator) validateResourceValid(workload *v1.Workload) error {
 	var errs []error
-	if w.Spec.Resource.Replica <= 0 {
+	if workload.Spec.Resource.Replica <= 0 {
 		errs = append(errs, fmt.Errorf("the replica is zero"))
 	}
-	if w.Spec.Resource.CPU == "" {
+	if workload.Spec.Resource.CPU == "" {
 		errs = append(errs, fmt.Errorf("the cpu is empty"))
 	}
-	if w.Spec.Resource.Memory == "" {
+	if workload.Spec.Resource.Memory == "" {
 		errs = append(errs, fmt.Errorf("the memory is empty"))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
@@ -531,28 +531,28 @@ func (v *WorkloadValidator) validateResourceValid(w *v1.Workload) error {
 	return nil
 }
 
-func (v *WorkloadValidator) validateWorkspace(ctx context.Context, w *v1.Workload) error {
+func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.Workload) error {
 	// workspace must exist
-	workspace, err := getWorkspace(ctx, v.Client, w.Spec.Workspace)
+	workspace, err := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
 	if err != nil {
-		return commonerrors.NewNotFound(v1.WorkspaceKind, w.Spec.Workspace)
+		return commonerrors.NewNotFound(v1.WorkspaceKind, workload.Spec.Workspace)
 	}
-	if workspace.IsAbnormal() && !w.Spec.IsTolerateAll {
+	if workspace.IsAbnormal() && !workload.Spec.IsTolerateAll {
 		return commonerrors.NewInternalError(fmt.Sprintf("workspace %s is abnormal", workspace.Name))
 	}
-	if w.Spec.Resource.Replica > workspace.Spec.Replica {
+	if workload.Spec.Resource.Replica > workspace.Spec.Replica {
 		return commonerrors.NewQuotaInsufficient(
 			fmt.Sprintf("Insufficient resource: request.replica: %d, total.replica: %d",
-				w.Spec.Resource.Replica, workspace.Spec.Replica))
+				workload.Spec.Resource.Replica, workspace.Spec.Replica))
 	}
 	return nil
 }
 
-func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, w *v1.Workload) error {
-	if w.Spec.Resource.Replica <= 0 {
+func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload *v1.Workload) error {
+	if workload.Spec.Resource.Replica <= 0 {
 		return nil
 	}
-	nf, err := getNodeFlavor(ctx, v.Client, v1.GetNodeFlavorId(w))
+	nf, err := getNodeFlavor(ctx, v.Client, v1.GetNodeFlavorId(workload))
 	if nf == nil {
 		return err
 	}
@@ -560,7 +560,7 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, w *v1.Wo
 	availNodeResources := quantity.GetAvailableResource(nodeResources)
 
 	// Validate if the workload's resource requests exceed the per-node resource limits
-	podResources, err := commonworkload.GetPodResources(w)
+	podResources, err := commonworkload.GetPodResources(workload)
 	if err != nil {
 		return err
 	}
@@ -571,7 +571,7 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, w *v1.Wo
 	}
 
 	// Validate if the workload's share memory requests exceed the memory
-	shareMemQuantity, err := resource.ParseQuantity(w.Spec.Resource.ShareMemory)
+	shareMemQuantity, err := resource.ParseQuantity(workload.Spec.Resource.ShareMemory)
 	if err != nil {
 		return err
 	}
@@ -593,38 +593,38 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, w *v1.Wo
 	return nil
 }
 
-func (v *WorkloadValidator) validateTemplate(ctx context.Context, w *v1.Workload) error {
-	if _, err := getResourceTemplate(ctx, v.Client, w.Spec.GroupVersionKind); err != nil {
+func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.Workload) error {
+	if _, err := getResourceTemplate(ctx, v.Client, workload.Spec.GroupVersionKind); err != nil {
 		return err
 	}
 	_, err := commonworkload.GetWorkloadTemplate(ctx,
-		v.Client, w.Spec.GroupVersionKind, w.Spec.Resource.GPUName)
+		v.Client, workload.Spec.GroupVersionKind, workload.Spec.Resource.GPUName)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *WorkloadValidator) validateDisplayName(w *v1.Workload) error {
-	l := len(v1.GetDisplayName(w))
+func (v *WorkloadValidator) validateDisplayName(workload *v1.Workload) error {
+	l := len(v1.GetDisplayName(workload))
 	if l > commonutils.MaxDisplayNameLen {
 		return fmt.Errorf("the maximum length of the workload name [%s] is %d",
-			v1.GetDisplayName(w), commonutils.MaxDisplayNameLen)
+			v1.GetDisplayName(workload), commonutils.MaxDisplayNameLen)
 	} else if l == 0 {
 		return fmt.Errorf("the display name is empty")
 	}
 	return nil
 }
 
-func (v *WorkloadValidator) validateImmutableFields(newObj, oldObj *v1.Workload) error {
-	if newObj.Spec.Workspace != oldObj.Spec.Workspace {
+func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1.Workload) error {
+	if newWorkload.Spec.Workspace != oldWorkload.Spec.Workspace {
 		return field.Forbidden(field.NewPath("spec").Key("workspace"), "immutable")
 	}
-	if newObj.Spec.GroupVersionKind != oldObj.Spec.GroupVersionKind {
+	if newWorkload.Spec.GroupVersionKind != oldWorkload.Spec.GroupVersionKind {
 		return field.Forbidden(field.NewPath("spec").Key("gvk"), "immutable")
 	}
-	if oldObj.Spec.Service != nil && (newObj.Spec.Service == nil ||
-		!reflect.DeepEqual(*oldObj.Spec.Service, *newObj.Spec.Service)) {
+	if oldWorkload.Spec.Service != nil && (newWorkload.Spec.Service == nil ||
+		!reflect.DeepEqual(*oldWorkload.Spec.Service, *newWorkload.Spec.Service)) {
 		return field.Forbidden(
 			field.NewPath("spec", "service"), "immutable")
 	}
@@ -632,31 +632,31 @@ func (v *WorkloadValidator) validateImmutableFields(newObj, oldObj *v1.Workload)
 }
 
 // Changes to the PyTorchJob are only allowed when the job is queued.
-func (v *WorkloadValidator) validateSpecChanged(newObj, oldObj *v1.Workload) error {
-	if commonworkload.IsApplication(newObj) || !v1.IsWorkloadScheduled(newObj) {
+func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Workload) error {
+	if commonworkload.IsApplication(newWorkload) || !v1.IsWorkloadScheduled(newWorkload) {
 		return nil
 	}
-	if oldObj.Spec.EntryPoint != newObj.Spec.EntryPoint {
+	if oldWorkload.Spec.EntryPoint != newWorkload.Spec.EntryPoint {
 		return commonerrors.NewForbidden("EntryPoint cannot be changed once the workload has been scheduled")
 	}
-	if oldObj.Spec.Image != newObj.Spec.Image {
+	if oldWorkload.Spec.Image != newWorkload.Spec.Image {
 		return commonerrors.NewForbidden("Image cannot be changed once the workload has been scheduled")
 	}
-	if !commonworkload.IsResourceEqual(oldObj, newObj) {
+	if !commonworkload.IsResourceEqual(oldWorkload, newWorkload) {
 		return commonerrors.NewForbidden("Resources cannot be changed once the workload has been scheduled")
 	}
-	if !maps.EqualIgnoreOrder(oldObj.Spec.Env, newObj.Spec.Env) {
+	if !maps.EqualIgnoreOrder(oldWorkload.Spec.Env, newWorkload.Spec.Env) {
 		return commonerrors.NewForbidden("Env cannot be changed once the workload has been scheduled")
 	}
 	return nil
 }
 
-func (v *WorkloadValidator) validateScope(ctx context.Context, w *v1.Workload) error {
-	scope := commonworkload.GetScope(w)
+func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Workload) error {
+	scope := commonworkload.GetScope(workload)
 	if scope == "" {
-		return commonerrors.NewBadRequest(fmt.Sprintf("unknown workload kind, %s", w.SpecKind()))
+		return commonerrors.NewBadRequest(fmt.Sprintf("unknown workload kind, %s", workload.SpecKind()))
 	}
-	workspace, err := getWorkspace(ctx, v.Client, w.Spec.Workspace)
+	workspace, err := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
 	if err != nil {
 		return err
 	}
@@ -671,8 +671,8 @@ func (v *WorkloadValidator) validateScope(ctx context.Context, w *v1.Workload) e
 		}
 	}
 	if !hasFound {
-		return commonerrors.NewForbidden(fmt.Sprintf("The workspace only supports %v and does not suuport %s",
-			workspace.Spec.Scopes, scope))
+		return commonerrors.NewForbidden(
+			fmt.Sprintf("The workspace only supports %v and does not suuport %s", workspace.Spec.Scopes, scope))
 	}
 	return nil
 }

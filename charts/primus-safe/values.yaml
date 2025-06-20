@@ -12,24 +12,33 @@ net:
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
   rdma_name: "rdma/hca"
 repository: "docker.io/primussafe"
-resource_manager:
-  replicas: 1
+k8s:
+  enable_health_check: true
+  enable_leader_election: true
+apiserver:
+  port: 8088
+  health_port: 8082
   tag: "202506152300"
+  replicas: 1
   cpu: "1000m"
   memory: 2Gi
-apiserver:
-  replicas: 1
+resource_manager:
+  health_port: 8081
   tag: "202506152300"
+  replicas: 1
   cpu: "1000m"
   memory: 2Gi
 job_manager:
+  health_port: 8083
+  tag: "202506161010"
   replicas: 1
-  tag: "202506130900"
   cpu: "1000m"
   memory: 2Gi
 webhooks:
-  replicas: 1
+  port: 8084
+  health_port: 8085
   tag: "202506161010"
+  replicas: 1
   cpu: "1000m"
   memory: 2Gi
 preprocess:
@@ -54,4 +63,12 @@ log:
 ssh:
   port: 2222
   enable: true
+  ingress_ip: 10.235.192.64
   mount_path: "/etc/secrets/ssh"
+job:
+  ttl_second: 300
+  timeout_second: 3600
+  batch_count: 1
+  available_ratio: 0.98
+fault:
+  addon_id: "501"

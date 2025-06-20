@@ -5,10 +5,10 @@ data:
       enable_crypto: {{ .Values.crypto.enable }}
       crypto_key: {{ .Values.crypto.mount_path }}/key
     health_check:
-      enable: true
-      port: 8081
+      enable: {{ .Values.k8s.enable_health_check }}
+      port: {{ .Values.resource_manager.health_port }}
     leader_election:
-      enable: true
+      enable: {{ .Values.k8s.enable_leader_election }}
       lock_namespace: "{{ .Release.Namespace }}"
     workspace:
       mem_reserve_percent: {{ .Values.workspace.mem_reserve_percent }}
@@ -24,6 +24,13 @@ data:
       max_idle_time_second: {{ .Values.db.max_idle_time_second }}
       connect_timeout_second:  {{ .Values.db.connect_timeout_second }}
       request_timeout_second: {{ .Values.db.request_timeout_second }}
+    job:
+      ttl_second: {{ .Values.job.ttl_second }}
+      timeout_second: {{ .Values.job.timeout_second }}
+      batch_count: {{ .Values.job.batch_count }}
+      available_ratio: {{ .Values.job.available_ratio }}
+    fault:
+      addon_id: {{ .Values.fault.addon_id }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-resource-manager

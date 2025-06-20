@@ -28,6 +28,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 )
 
@@ -50,8 +51,8 @@ func SetupFaultController(mgr manager.Manager, opt *FaultReconcilerOption) error
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Fault{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Watches(&v1.Node{}, r.enqueueRequestByNode()).
-		Watches(&corev1.ConfigMap{}, r.enqueueRequestByConfigmap()).
+		Watches(&v1.Node{}, r.handleNodeEvent()).
+		Watches(&corev1.ConfigMap{}, r.handleConfigmapEvent()).
 		Complete(r)
 	if err != nil {
 		return err
@@ -60,7 +61,7 @@ func SetupFaultController(mgr manager.Manager, opt *FaultReconcilerOption) error
 	return nil
 }
 
-func (r *FaultReconciler) enqueueRequestByNode() handler.EventHandler {
+func (r *FaultReconciler) handleNodeEvent() handler.EventHandler {
 	return handler.Funcs{
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
 			oldNode, ok1 := evt.ObjectOld.(*v1.Node)
@@ -86,7 +87,7 @@ func (r *FaultReconciler) enqueueRequestByNode() handler.EventHandler {
 	}
 }
 
-func (r *FaultReconciler) enqueueRequestByConfigmap() handler.EventHandler {
+func (r *FaultReconciler) handleConfigmapEvent() handler.EventHandler {
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, e event.CreateEvent, q v1.RequestWorkQueue) {
 			configmap, ok := e.Object.(*corev1.ConfigMap)
@@ -97,7 +98,7 @@ func (r *FaultReconciler) enqueueRequestByConfigmap() handler.EventHandler {
 			faultList, _ := listFaults(ctx, r.Client, labels.Everything())
 			for _, f := range faultList {
 				conf, ok := configs[f.Spec.Id]
-				if !ok || !conf.isEnable() {
+				if !ok || !conf.IsEnable() {
 					if err := r.Delete(ctx, &f); err != nil {
 						klog.ErrorS(err, "failed to delete fault")
 					}
@@ -118,7 +119,7 @@ func (r *FaultReconciler) enqueueRequestByConfigmap() handler.EventHandler {
 			for key, oldConf := range oldConfigs {
 				newConf, ok := newConfigs[key]
 				labelSelector := labels.SelectorFromSet(map[string]string{v1.FaultId: newConf.Id})
-				if !ok || (oldConf.isEnable() && !newConf.isEnable()) {
+				if !ok || (oldConf.IsEnable() && !newConf.IsEnable()) {
 					if err := r.deleteFaults(ctx, labelSelector); err != nil {
 						klog.ErrorS(err, "failed to delete faults")
 					}
@@ -178,12 +179,12 @@ func (r *FaultReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request
 
 func (r *FaultReconciler) delete(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
 	err := r.removeNodeTaint(ctx, fault)
-	if ignoreError(err) != nil {
+	if utils.IgnoreError(err) != nil {
 		if result, err := r.retry(ctx, fault); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
 	}
-	return ctrlruntime.Result{}, removeFinalizer(ctx, r.Client, fault, v1.FaultFinalizer)
+	return ctrlruntime.Result{}, utils.RemoveFinalizer(ctx, r.Client, fault, v1.FaultFinalizer)
 }
 
 func (r *FaultReconciler) handle(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
@@ -209,7 +210,7 @@ func (r *FaultReconciler) handle(ctx context.Context, fault *v1.Fault) (ctrlrunt
 		phase = v1.FaultPhaseSucceeded
 	} else {
 		klog.ErrorS(err, "failed to handle fault")
-		if ignoreError(err) != nil {
+		if utils.IgnoreError(err) != nil {
 			// Stop after exceeding the maximum retry limit.
 			if result, err := r.retry(ctx, fault); err != nil || result.RequeueAfter > 0 {
 				return result, err
@@ -297,7 +298,7 @@ func (r *FaultReconciler) retry(ctx context.Context, fault *v1.Fault) (ctrlrunti
 	if fault == nil {
 		return ctrlruntime.Result{}, nil
 	}
-	count, err := incRetryCount(ctx, r.Client, fault, r.opt.maxRetryCount)
+	count, err := utils.IncRetryCount(ctx, r.Client, fault, r.opt.maxRetryCount)
 	if err != nil {
 		klog.ErrorS(err, "failed to incRetryCount", "name", fault.Name)
 		return ctrlruntime.Result{}, err

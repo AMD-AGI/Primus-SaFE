@@ -2,12 +2,12 @@ apiVersion: v1
 data:
   config.yaml: |
     server:
-      port: 8084
+      port:  {{ .Values.webhooks.port }}
     health_check:
-      enable: true
-      port: 8085
+      enable: {{ .Values.k8s.enable_health_check }}
+      port: {{ .Values.webhooks.health_port }}
     leader_election:
-      enable: true
+      enable: {{ .Values.k8s.enable_leader_election }}
       lock_namespace: "{{ .Release.Namespace }}"
     workspace:
       mem_reserve_percent: {{ .Values.workspace.mem_reserve_percent }}
@@ -17,6 +17,9 @@ data:
       max_ephemeral_store_percent: {{ .Values.workload.max_ephemeral_store_percent }}
     ssh:
       enable: {{ .Values.ssh.enable }}
+    job:
+      ttl_second: {{ .Values.job.ttl_second }}
+      timeout_second: {{ .Values.job.timeout_second }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-webhooks

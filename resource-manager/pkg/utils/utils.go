@@ -3,18 +3,16 @@
  * See LICENSE for license information.
  */
 
-package resource
+package utils
 
 import (
 	"context"
 	"fmt"
 	"strconv"
 
-	schedulingv1 "k8s.io/api/scheduling/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -25,7 +23,7 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
-func removeOwnerReferences(references []metav1.OwnerReference, uid types.UID) []metav1.OwnerReference {
+func RemoveOwnerReferences(references []metav1.OwnerReference, uid types.UID) []metav1.OwnerReference {
 	newReferences := make([]metav1.OwnerReference, 0, len(references))
 	for k, r := range references {
 		if r.UID != uid {
@@ -35,7 +33,7 @@ func removeOwnerReferences(references []metav1.OwnerReference, uid types.UID) []
 	return newReferences
 }
 
-func removeFinalizer(ctx context.Context, cli client.Client, obj client.Object, finalizer ...string) error {
+func RemoveFinalizer(ctx context.Context, cli client.Client, obj client.Object, finalizer ...string) error {
 	var found bool
 	for _, val := range finalizer {
 		if found = controllerutil.ContainsFinalizer(obj, val); found {
@@ -56,7 +54,7 @@ func removeFinalizer(ctx context.Context, cli client.Client, obj client.Object, 
 	return nil
 }
 
-func incRetryCount(ctx context.Context, cli client.Client, obj client.Object, maxCount int) (int, error) {
+func IncRetryCount(ctx context.Context, cli client.Client, obj client.Object, maxCount int) (int, error) {
 	count := v1.GetRetryCount(obj) + 1
 	if count > maxCount {
 		return count, nil
@@ -70,7 +68,7 @@ func incRetryCount(ctx context.Context, cli client.Client, obj client.Object, ma
 }
 
 // Ignore errors that cannot be fixed or are tolerable.
-func ignoreError(err error) error {
+func IgnoreError(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -83,7 +81,7 @@ func ignoreError(err error) error {
 	return err
 }
 
-func getK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
+func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
 	if clientManager == nil {
 		return nil, commonerrors.NewInternalError("client manager is emtpy")
 	}
@@ -97,28 +95,4 @@ func getK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId str
 		return nil, commonerrors.NewInternalError("failed to correctly build the k8s client")
 	}
 	return k8sClients, nil
-}
-
-func createPriorityClass(ctx context.Context, clientSet kubernetes.Interface, name, description string, value int32) error {
-	priorityClass := &schedulingv1.PriorityClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-		Value:       value,
-		Description: description,
-	}
-	if _, err := clientSet.SchedulingV1().PriorityClasses().Create(
-		ctx, priorityClass, metav1.CreateOptions{}); err != nil {
-		return client.IgnoreAlreadyExists(err)
-	}
-	klog.Infof("create PriorityClass, name: %s, value: %d", name, value)
-	return nil
-}
-
-func deletePriorityClass(ctx context.Context, clientSet kubernetes.Interface, name string) error {
-	if err := clientSet.SchedulingV1().PriorityClasses().Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	klog.Infof("delete PriorityClass, name: %s", name)
-	return nil
 }

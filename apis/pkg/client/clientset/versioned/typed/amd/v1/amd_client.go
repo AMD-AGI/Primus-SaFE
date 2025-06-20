@@ -16,10 +16,13 @@ import (
 
 type AmdV1Interface interface {
 	RESTClient() rest.Interface
+	AddonTemplatesGetter
 	ClustersGetter
 	FaultsGetter
+	JobsGetter
 	NodesGetter
 	NodeFlavorsGetter
+	NodeTemplatesGetter
 	ResourceTemplatesGetter
 	StorageClustersGetter
 	WorkloadsGetter
@@ -31,6 +34,10 @@ type AmdV1Client struct {
 	restClient rest.Interface
 }
 
+func (c *AmdV1Client) AddonTemplates(namespace string) AddonTemplateInterface {
+	return newAddonTemplates(c, namespace)
+}
+
 func (c *AmdV1Client) Clusters(namespace string) ClusterInterface {
 	return newClusters(c, namespace)
 }
@@ -39,12 +46,20 @@ func (c *AmdV1Client) Faults(namespace string) FaultInterface {
 	return newFaults(c, namespace)
 }
 
+func (c *AmdV1Client) Jobs(namespace string) JobInterface {
+	return newJobs(c, namespace)
+}
+
 func (c *AmdV1Client) Nodes(namespace string) NodeInterface {
 	return newNodes(c, namespace)
 }
 
 func (c *AmdV1Client) NodeFlavors(namespace string) NodeFlavorInterface {
 	return newNodeFlavors(c, namespace)
+}
+
+func (c *AmdV1Client) NodeTemplates(namespace string) NodeTemplateInterface {
+	return newNodeTemplates(c, namespace)
 }
 
 func (c *AmdV1Client) ResourceTemplates(namespace string) ResourceTemplateInterface {

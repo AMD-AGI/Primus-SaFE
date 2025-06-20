@@ -7,6 +7,7 @@ package monitors
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -21,6 +22,10 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/node"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
+)
+
+const (
+	TestScriptPath = "test.sh"
 )
 
 func newNode(t *testing.T) *node.Node {
@@ -64,12 +69,14 @@ func newMonitor(t *testing.T, id, script string) *Monitor {
 		workqueue.DefaultTypedControllerRateLimiter[*types.MonitorMessage](),
 		workqueue.TypedRateLimitingQueueConfig[*types.MonitorMessage]{Name: "monitor"})
 	n := newNode(t)
-	return NewMonitorWithScript(newMonitorConfig(id, "test.sh"), &queue, n, []byte(script))
+	err := os.WriteFile(TestScriptPath, []byte(script), 0777)
+	assert.NilError(t, err)
+	return NewMonitor(newMonitorConfig(id, TestScriptPath), &queue, n, ".")
 }
 
 func TestRunWithStatusOk(t *testing.T) {
-	TmpPath = "."
 	monitor := newMonitor(t, "test.id", "echo hello;exit 0")
+	defer os.Remove(TestScriptPath)
 	assert.Equal(t, monitor != nil, true)
 	monitor.Start()
 	time.Sleep(time.Millisecond * 1100)
@@ -79,8 +86,8 @@ func TestRunWithStatusOk(t *testing.T) {
 }
 
 func TestRunWithStatusError(t *testing.T) {
-	TmpPath = "."
 	monitor := newMonitor(t, "test.id", "echo hello;exit 1")
+	defer os.Remove(TestScriptPath)
 	assert.Equal(t, monitor != nil, true)
 
 	monitor.Start()
@@ -96,8 +103,8 @@ func TestRunWithStatusError(t *testing.T) {
 }
 
 func TestRunWithStatusUnknown(t *testing.T) {
-	TmpPath = "."
 	monitor := newMonitor(t, "test.id", "echo hello;exit 2")
+	defer os.Remove(TestScriptPath)
 	assert.Equal(t, monitor != nil, true)
 	monitor.Start()
 	time.Sleep(time.Millisecond * 1100)
@@ -107,8 +114,8 @@ func TestRunWithStatusUnknown(t *testing.T) {
 }
 
 func TestNewNodeInfo(t *testing.T) {
-	TmpPath = "."
 	monitor := newMonitor(t, "test.id", "echo hello;exit 0")
+	defer os.Remove(TestScriptPath)
 
 	nodeInfo := monitor.genNodeInfo()
 	assert.Equal(t, nodeInfo != nil, true)

@@ -21,8 +21,10 @@ RUN apt-get update
 RUN apt-get install -y sed
 RUN apt-get install -y jq
 RUN apt-get install -y bc
+RUN mkdir ${APP_HOME}/scripts
 COPY --from=builder /workspace/primus-safe/dist ${APP_HOME}
 COPY ./node-agent/installer/run.sh  ${APP_HOME}
+COPY ./node-agent/pkg/monitors/scripts/*  ${APP_HOME}/scripts
 
 RUN  ls  -l ${APP_HOME} && \
   echo 'umask 0027' | tee -a /etc/bashrc && \

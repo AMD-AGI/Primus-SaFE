@@ -55,78 +55,76 @@ func (m *WorkspaceMutator) Handle(ctx context.Context, req admission.Request) ad
 	if req.Operation == admissionv1.Delete {
 		return admission.Allowed("")
 	}
-	obj := &v1.Workspace{}
-	if err := m.decoder.Decode(req, obj); err != nil {
+	workspace := &v1.Workspace{}
+	if err := m.decoder.Decode(req, workspace); err != nil {
 		return handleError(v1.WorkspaceKind, err)
 	}
-	if !obj.GetDeletionTimestamp().IsZero() {
+	if !workspace.GetDeletionTimestamp().IsZero() {
 		return admission.Allowed("")
 	}
 
 	switch req.Operation {
 	case admissionv1.Create:
-		m.mutateCreate(ctx, obj)
+		m.mutateOnCreation(ctx, workspace)
 	case admissionv1.Update:
-		oldObj := &v1.Workspace{}
-		if m.decoder.DecodeRaw(req.OldObject, oldObj) == nil {
-			if err := m.mutateUpdate(ctx, oldObj, obj); err != nil {
-				return handleError(v1.WorkspaceKind, err)
-			}
+		oldWorkspace := &v1.Workspace{}
+		if m.decoder.DecodeRaw(req.OldObject, oldWorkspace) == nil {
+			m.mutateOnUpdate(ctx, oldWorkspace, workspace)
 		}
 	}
-	marshaledResult, err := json.Marshal(obj)
+	data, err := json.Marshal(workspace)
 	if err != nil {
 		return handleError(v1.WorkspaceKind, err)
 	}
-	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledResult)
+	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
-func (m *WorkspaceMutator) mutateCreate(ctx context.Context, w *v1.Workspace) {
-	m.mutateMeta(ctx, w)
-	m.mutateSpec(w)
-	m.mutateCommon(ctx, w)
-	m.mutateVolumes(w)
+func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.Workspace) {
+	m.mutateMeta(ctx, workspace)
+	m.mutateSpec(workspace)
+	m.mutateCommon(ctx, workspace)
+	m.mutateVolumes(workspace)
 }
 
-func (m *WorkspaceMutator) mutateUpdate(ctx context.Context, oldObj, newObj *v1.Workspace) error {
-	m.mutateCommon(ctx, newObj)
-	if v1.GetWorkspaceNodesAction(oldObj) != v1.GetWorkspaceNodesAction(newObj) {
-		if err := m.mutateNodesAction(ctx, oldObj, newObj); err != nil {
+func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
+	m.mutateCommon(ctx, newWorkspace)
+	if v1.GetWorkspaceNodesAction(oldWorkspace) != v1.GetWorkspaceNodesAction(newWorkspace) {
+		if err := m.mutateNodesAction(ctx, oldWorkspace, newWorkspace); err != nil {
 			return err
 		}
-	} else if err := m.mutateScaleDown(ctx, oldObj, newObj); err != nil {
+	} else if err := m.mutateScaleDown(ctx, oldWorkspace, newWorkspace); err != nil {
 		return err
 	}
-	if oldObj.Spec.EnablePreempt != newObj.Spec.EnablePreempt {
-		m.mutatePreempt(ctx, newObj)
+	if oldWorkspace.Spec.EnablePreempt != newWorkspace.Spec.EnablePreempt {
+		m.mutatePreempt(ctx, newWorkspace)
 	}
 	return nil
 }
 
-func (m *WorkspaceMutator) mutateMeta(ctx context.Context, w *v1.Workspace) {
-	w.Name = stringutil.NormalizeName(w.Name)
-	if w.Spec.Cluster != "" {
-		cl, _ := getCluster(ctx, m.Client, w.Spec.Cluster)
+func (m *WorkspaceMutator) mutateMeta(ctx context.Context, workspace *v1.Workspace) {
+	workspace.Name = stringutil.NormalizeName(workspace.Name)
+	if workspace.Spec.Cluster != "" {
+		cl, _ := getCluster(ctx, m.Client, workspace.Spec.Cluster)
 		if cl != nil {
-			if !hasOwnerReferences(w, cl.Name) {
-				if err := controllerutil.SetControllerReference(cl, w, m.Client.Scheme()); err != nil {
+			if !hasOwnerReferences(workspace, cl.Name) {
+				if err := controllerutil.SetControllerReference(cl, workspace, m.Client.Scheme()); err != nil {
 					klog.ErrorS(err, "failed to SetControllerReference")
 				}
 			}
-			v1.SetLabel(w, v1.ClusterIdLabel, w.Spec.Cluster)
+			v1.SetLabel(workspace, v1.ClusterIdLabel, workspace.Spec.Cluster)
 		}
 	}
-	v1.SetLabel(w, v1.WorkspaceIdLabel, w.Name)
-	controllerutil.AddFinalizer(w, v1.WorkspaceFinalizer)
+	v1.SetLabel(workspace, v1.WorkspaceIdLabel, workspace.Name)
+	controllerutil.AddFinalizer(workspace, v1.WorkspaceFinalizer)
 }
 
-func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldObj, newObj *v1.Workspace) error {
-	if oldObj.Spec.Replica != newObj.Spec.Replica {
+func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
+	if oldWorkspace.Spec.Replica != newWorkspace.Spec.Replica {
 		return fmt.Errorf("the operation of specifying nodes and the modification of " +
 			"workspace replica cannot be performed simultaneously")
 	}
 
-	actions, err := parseNodesAction(newObj)
+	actions, err := parseNodesAction(newWorkspace)
 	if err != nil {
 		return err
 	}
@@ -136,70 +134,70 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldObj, newObj
 			klog.ErrorS(err, "failed to get node")
 			return commonerrors.NewNotFound(v1.NodeKind, key)
 		}
-		if v1.GetClusterId(n) != newObj.Spec.Cluster {
-			err = fmt.Errorf("The cluster(%s) of the operation and the workspace's cluster do not match.", v1.GetClusterId(n))
+		if v1.GetClusterId(n) != newWorkspace.Spec.Cluster {
+			err = fmt.Errorf("The cluster(%s) of the operation and the workspace's cluster do not match", v1.GetClusterId(n))
 			return err
 		}
-		if newObj.Spec.Replica == 0 {
+		if newWorkspace.Spec.Replica == 0 {
 			if val == v1.NodeActionAdd {
-				newObj.Spec.NodeFlavor = v1.GetNodeFlavorId(n)
-				newObj.Spec.Replica = 1
+				newWorkspace.Spec.NodeFlavor = v1.GetNodeFlavorId(n)
+				newWorkspace.Spec.Replica = 1
 			}
 		} else {
-			if v1.GetNodeFlavorId(n) != newObj.Spec.NodeFlavor {
-				err = fmt.Errorf("The flavor(%s) of the operation and the workspace's flavor do not match.", v1.GetNodeFlavorId(n))
+			if v1.GetNodeFlavorId(n) != newWorkspace.Spec.NodeFlavor {
+				err = fmt.Errorf("The flavor(%s) of the operation and the workspace's flavor do not match", v1.GetNodeFlavorId(n))
 				return err
 			}
 			if val == v1.NodeActionAdd {
-				newObj.Spec.Replica++
+				newWorkspace.Spec.Replica++
 			} else if val == v1.NodeActionRemove {
-				newObj.Spec.Replica--
+				newWorkspace.Spec.Replica--
 			}
 		}
 	}
 	return nil
 }
 
-func (m *WorkspaceMutator) mutateSpec(w *v1.Workspace) {
-	if w.Spec.QueuePolicy == "" {
-		w.Spec.QueuePolicy = v1.QueueFifoPolicy
+func (m *WorkspaceMutator) mutateSpec(workspace *v1.Workspace) {
+	if workspace.Spec.QueuePolicy == "" {
+		workspace.Spec.QueuePolicy = v1.QueueFifoPolicy
 	}
 }
 
-func (m *WorkspaceMutator) mutateVolumes(w *v1.Workspace) {
-	for i := range w.Spec.Volumes {
-		if w.Spec.Volumes[i].MountPath == "" && w.Spec.Volumes[i].HostPath != "" {
-			w.Spec.Volumes[i].MountPath = w.Spec.Volumes[i].HostPath
+func (m *WorkspaceMutator) mutateVolumes(workspace *v1.Workspace) {
+	for i := range workspace.Spec.Volumes {
+		if workspace.Spec.Volumes[i].MountPath == "" && workspace.Spec.Volumes[i].HostPath != "" {
+			workspace.Spec.Volumes[i].MountPath = workspace.Spec.Volumes[i].HostPath
 		}
-		w.Spec.Volumes[i].MountPath = strings.TrimSuffix(w.Spec.Volumes[i].MountPath, "/")
-		w.Spec.Volumes[i].SubPath = strings.Trim(w.Spec.Volumes[i].SubPath, "/")
-		if w.Spec.Volumes[i].AccessMode == "" {
-			w.Spec.Volumes[i].AccessMode = corev1.ReadWriteMany
+		workspace.Spec.Volumes[i].MountPath = strings.TrimSuffix(workspace.Spec.Volumes[i].MountPath, "/")
+		workspace.Spec.Volumes[i].SubPath = strings.Trim(workspace.Spec.Volumes[i].SubPath, "/")
+		if workspace.Spec.Volumes[i].AccessMode == "" {
+			workspace.Spec.Volumes[i].AccessMode = corev1.ReadWriteMany
 		}
 	}
 }
 
-func (m *WorkspaceMutator) mutateCommon(ctx context.Context, w *v1.Workspace) {
-	if w.Spec.NodeFlavor == "" {
-		w.Spec.Replica = 0
-	} else if v1.GetGpuResourceName(w) == "" {
-		nf, _ := getNodeFlavor(ctx, m.Client, w.Spec.NodeFlavor)
+func (m *WorkspaceMutator) mutateCommon(ctx context.Context, workspace *v1.Workspace) {
+	if workspace.Spec.NodeFlavor == "" {
+		workspace.Spec.Replica = 0
+	} else if v1.GetGpuResourceName(workspace) == "" {
+		nf, _ := getNodeFlavor(ctx, m.Client, workspace.Spec.NodeFlavor)
 		if nf != nil && nf.HasGpu() {
-			v1.SetAnnotation(w, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName)
-			v1.SetAnnotation(w, v1.GpuProductNameAnnotation, nf.Spec.Gpu.Product)
+			v1.SetAnnotation(workspace, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName)
+			v1.SetAnnotation(workspace, v1.GpuProductNameAnnotation, nf.Spec.Gpu.Product)
 		}
 	}
 }
 
 // A scale-down operation is performed by deleting specific nodes via nodeAction.
-func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldObj, newObj *v1.Workspace) error {
-	oldCount := oldObj.Spec.Replica
-	newCount := newObj.Spec.Replica
+func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
+	oldCount := oldWorkspace.Spec.Replica
+	newCount := newWorkspace.Spec.Replica
 	if oldCount <= newCount {
 		return nil
 	}
 	count := oldCount - newCount
-	nodes, err := commonnodes.GetNodesForScalingDown(ctx, m.Client, newObj.Name, count)
+	nodes, err := commonnodes.GetNodesForScalingDown(ctx, m.Client, newWorkspace.Name, count)
 	if err != nil {
 		return err
 	}
@@ -211,7 +209,7 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldObj, newObj *
 		nodeNames = append(nodeNames, n.Name)
 	}
 	action := commonnodes.BuildAction(v1.NodeActionRemove, nodeNames...)
-	v1.SetAnnotation(newObj, v1.WorkspaceNodesAction, action)
+	v1.SetAnnotation(newWorkspace, v1.WorkspaceNodesAction, action)
 	return nil
 }
 
@@ -253,24 +251,24 @@ type WorkspaceValidator struct {
 }
 
 func (v *WorkspaceValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	obj := &v1.Workspace{}
+	workspace := &v1.Workspace{}
 	var err error
 	switch req.Operation {
 	case admissionv1.Create:
-		if err = v.decoder.Decode(req, obj); err != nil {
+		if err = v.decoder.Decode(req, workspace); err != nil {
 			break
 		}
-		err = v.validateCreate(ctx, obj)
+		err = v.validateOnCreation(ctx, workspace)
 	case admissionv1.Update:
-		if err = v.decoder.Decode(req, obj); err != nil {
+		if err = v.decoder.Decode(req, workspace); err != nil {
 			break
 		}
-		if !obj.GetDeletionTimestamp().IsZero() {
+		if !workspace.GetDeletionTimestamp().IsZero() {
 			break
 		}
-		oldObj := &v1.Workspace{}
-		if err = v.decoder.DecodeRaw(req.OldObject, oldObj); err == nil {
-			err = v.validateUpdate(ctx, obj, oldObj)
+		oldWorkspace := &v1.Workspace{}
+		if err = v.decoder.DecodeRaw(req.OldObject, oldWorkspace); err == nil {
+			err = v.validateOnUpdate(ctx, workspace, oldWorkspace)
 		}
 	default:
 	}
@@ -280,65 +278,65 @@ func (v *WorkspaceValidator) Handle(ctx context.Context, req admission.Request) 
 	return admission.Allowed("")
 }
 
-func (v *WorkspaceValidator) validateCreate(ctx context.Context, w *v1.Workspace) error {
-	if err := v.validateCommon(ctx, w, nil); err != nil {
+func (v *WorkspaceValidator) validateOnCreation(ctx context.Context, workspace *v1.Workspace) error {
+	if err := v.validateCommon(ctx, workspace, nil); err != nil {
 		return err
 	}
-	if err := validateDisplayName(v1.GetDisplayName(w)); err != nil {
+	if err := validateDisplayName(v1.GetDisplayName(workspace)); err != nil {
 		return err
 	}
-	if err := v.validateResource(ctx, w); err != nil {
+	if err := v.validateResource(ctx, workspace); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *WorkspaceValidator) validateUpdate(ctx context.Context, newObj, oldObj *v1.Workspace) error {
-	if err := v.validateImmutableFields(newObj, oldObj); err != nil {
+func (v *WorkspaceValidator) validateOnUpdate(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
+	if err := v.validateImmutableFields(newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
-	if err := v.validateCommon(ctx, newObj, oldObj); err != nil {
+	if err := v.validateCommon(ctx, newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
-	if err := v.validateNodesAction(ctx, newObj, oldObj); err != nil {
+	if err := v.validateNodesAction(ctx, newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
-	if newObj.Spec.Replica > oldObj.Spec.Replica {
-		if err := v.validateResource(ctx, newObj); err != nil {
+	if newWorkspace.Spec.Replica > oldWorkspace.Spec.Replica {
+		if err := v.validateResource(ctx, newWorkspace); err != nil {
 			return err
 		}
 	}
-	if err := v.validateVolumeRemoved(ctx, newObj, oldObj); err != nil {
+	if err := v.validateVolumeRemoved(ctx, newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *WorkspaceValidator) validateCommon(_ context.Context, newObj, oldObj *v1.Workspace) error {
-	if err := v.validateRequiredParams(newObj); err != nil {
+func (v *WorkspaceValidator) validateCommon(_ context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
+	if err := v.validateRequiredParams(newWorkspace); err != nil {
 		return err
 	}
-	if err := v.validateVolumes(newObj, oldObj); err != nil {
+	if err := v.validateVolumes(newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *WorkspaceValidator) validateRequiredParams(w *v1.Workspace) error {
+func (v *WorkspaceValidator) validateRequiredParams(workspace *v1.Workspace) error {
 	var errs []error
-	if w.Spec.Cluster == "" || v1.GetClusterId(w) == "" {
+	if workspace.Spec.Cluster == "" || v1.GetClusterId(workspace) == "" {
 		errs = append(errs, fmt.Errorf("the cluster is empty"))
 	}
-	if w.Spec.QueuePolicy != v1.QueueFifoPolicy && w.Spec.QueuePolicy != v1.QueueBalancePolicy {
+	if workspace.Spec.QueuePolicy != v1.QueueFifoPolicy && workspace.Spec.QueuePolicy != v1.QueueBalancePolicy {
 		errs = append(errs, fmt.Errorf("invalid queue policy. unsupported: %s, supported: [%s, %s]",
-			w.Spec.QueuePolicy, v1.QueueFifoPolicy, v1.QueueBalancePolicy))
+			workspace.Spec.QueuePolicy, v1.QueueFifoPolicy, v1.QueueBalancePolicy))
 	}
-	if w.Name == corev1.NamespaceDefault ||
-		w.Name == common.KubePublicNamespace || w.Name == common.KubeSystemNamespace {
+	if workspace.Name == corev1.NamespaceDefault ||
+		workspace.Name == common.KubePublicNamespace || workspace.Name == common.KubeSystemNamespace {
 		errs = append(errs,
 			fmt.Errorf("the name of workspace is invalid. It cannot be reserved words"))
 	}
-	if v1.GetDisplayName(w) == "" {
+	if v1.GetDisplayName(workspace) == "" {
 		errs = append(errs, fmt.Errorf("the displayName is empty"))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
@@ -347,27 +345,27 @@ func (v *WorkspaceValidator) validateRequiredParams(w *v1.Workspace) error {
 	return nil
 }
 
-func (v *WorkspaceValidator) validateResource(ctx context.Context, w *v1.Workspace) error {
-	if w.Spec.Replica <= 0 || w.Spec.NodeFlavor == "" {
+func (v *WorkspaceValidator) validateResource(ctx context.Context, workspace *v1.Workspace) error {
+	if workspace.Spec.Replica <= 0 || workspace.Spec.NodeFlavor == "" {
 		return nil
 	}
-	nf, _ := getNodeFlavor(ctx, v.Client, w.Spec.NodeFlavor)
+	nf, _ := getNodeFlavor(ctx, v.Client, workspace.Spec.NodeFlavor)
 	if nf == nil {
-		return commonerrors.NewNotFound(v1.NodeFlavorKind, w.Spec.NodeFlavor)
+		return commonerrors.NewNotFound(v1.NodeFlavorKind, workspace.Spec.NodeFlavor)
 	}
-	cl, _ := getCluster(ctx, v.Client, w.Spec.Cluster)
+	cl, _ := getCluster(ctx, v.Client, workspace.Spec.Cluster)
 	if cl == nil {
-		return commonerrors.NewNotFound(v1.ClusterKind, w.Spec.Cluster)
+		return commonerrors.NewNotFound(v1.ClusterKind, workspace.Spec.Cluster)
 	}
 	return nil
 }
 
-func (v *WorkspaceValidator) validateVolumes(newObj, oldObj *v1.Workspace) error {
+func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Workspace) error {
 	newCapacityMap := make(map[string]string)
 	var oldCapacityMap map[string]string
-	if oldObj != nil {
+	if oldWorkspace != nil {
 		oldCapacityMap = make(map[string]string)
-		for _, vol := range oldObj.Spec.Volumes {
+		for _, vol := range oldWorkspace.Spec.Volumes {
 			oldCapacityMap[string(vol.StorageType)] = vol.Capacity
 		}
 	}
@@ -375,7 +373,7 @@ func (v *WorkspaceValidator) validateVolumes(newObj, oldObj *v1.Workspace) error
 	supportedAccessMode := []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce,
 		corev1.ReadWriteMany, corev1.ReadOnlyMany, corev1.ReadWriteOncePod}
 
-	for _, vol := range newObj.Spec.Volumes {
+	for _, vol := range newWorkspace.Spec.Volumes {
 		if vol.MountPath == "" {
 			return fmt.Errorf("the mountPath of volume is required")
 		}
@@ -421,24 +419,24 @@ func (v *WorkspaceValidator) validateVolumes(newObj, oldObj *v1.Workspace) error
 	return nil
 }
 
-func (v *WorkspaceValidator) validateImmutableFields(newObj, oldObj *v1.Workspace) error {
-	if newObj.Spec.Cluster != "" && newObj.Spec.Cluster != oldObj.Spec.Cluster {
+func (v *WorkspaceValidator) validateImmutableFields(newWorkspace, oldWorkspace *v1.Workspace) error {
+	if newWorkspace.Spec.Cluster != "" && newWorkspace.Spec.Cluster != oldWorkspace.Spec.Cluster {
 		return field.Forbidden(field.NewPath("spec").Key("cluster"), "immutable")
 	}
-	if oldObj.Spec.NodeFlavor != "" && newObj.Spec.NodeFlavor != "" {
-		if newObj.Spec.NodeFlavor != oldObj.Spec.NodeFlavor {
+	if oldWorkspace.Spec.NodeFlavor != "" && newWorkspace.Spec.NodeFlavor != "" {
+		if newWorkspace.Spec.NodeFlavor != oldWorkspace.Spec.NodeFlavor {
 			return field.Forbidden(field.NewPath("spec").Key("nodeFlavor"), "immutable")
 		}
 	}
 	return nil
 }
 
-func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newObj, oldObj *v1.Workspace) error {
-	if reflect.DeepEqual(oldObj.Spec.Volumes, newObj.Spec.Volumes) {
+func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
+	if reflect.DeepEqual(oldWorkspace.Spec.Volumes, newWorkspace.Spec.Volumes) {
 		return nil
 	}
 	newPvcSets := sets.NewSet()
-	for _, vol := range newObj.Spec.Volumes {
+	for _, vol := range newWorkspace.Spec.Volumes {
 		if vol.StorageType == v1.HOSTPATH {
 			continue
 		}
@@ -450,7 +448,7 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newObj, 
 		}
 		return false
 	}
-	for _, vol := range oldObj.Spec.Volumes {
+	for _, vol := range oldWorkspace.Spec.Volumes {
 		if vol.StorageType == v1.HOSTPATH {
 			continue
 		}
@@ -458,7 +456,7 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newObj, 
 			continue
 		}
 		runningWorkloads, _ := commonworkload.GetWorkloadsOfWorkspace(ctx, v.Client,
-			v1.GetClusterId(newObj), []string{newObj.Name}, filterFunc)
+			v1.GetClusterId(newWorkspace), []string{newWorkspace.Name}, filterFunc)
 		if len(runningWorkloads) > 0 {
 			return commonerrors.NewForbidden(fmt.Sprintf("the pvc(%s) is used by workload(%s), "+
 				"it can not be removed", vol.StorageType, runningWorkloads[0].Name))
@@ -467,15 +465,15 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newObj, 
 	return nil
 }
 
-func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newObj, oldObj *v1.Workspace) error {
-	oldActions, _ := parseNodesAction(oldObj)
-	newActions, err := parseNodesAction(newObj)
+func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
+	oldActions, _ := parseNodesAction(oldWorkspace)
+	newActions, err := parseNodesAction(newWorkspace)
 	if err != nil {
 		return err
 	}
 	if len(oldActions) > 0 && len(newActions) > 0 && !maps.EqualIgnoreOrder(oldActions, newActions) {
 		return commonerrors.NewResourceProcessing(
-			fmt.Sprintf("%s is processing", v1.GetWorkspaceNodesAction(oldObj)))
+			fmt.Sprintf("%s is processing", v1.GetWorkspaceNodesAction(oldWorkspace)))
 	}
 	var toRemoveNodes []string
 	for key, val := range newActions {
@@ -483,8 +481,8 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newObj, ol
 		if n == nil {
 			return commonerrors.NewNotFound(v1.NodeKind, key)
 		}
-		if v1.GetClusterId(n) != newObj.Spec.Cluster {
-			return fmt.Errorf("the node %s and workspace %s are not in the same cluster", n.Name, newObj.Name)
+		if v1.GetClusterId(n) != newWorkspace.Spec.Cluster {
+			return fmt.Errorf("the node %s and workspace %s are not in the same cluster", n.Name, newWorkspace.Name)
 		}
 		if val == v1.NodeActionAdd {
 			if v1.GetWorkspaceId(n) != "" {
@@ -492,14 +490,14 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newObj, ol
 					key, v1.GetWorkspaceId(n))
 			}
 		} else if val == v1.NodeActionRemove {
-			if v1.GetWorkspaceId(n) != newObj.Name {
+			if v1.GetWorkspaceId(n) != newWorkspace.Name {
 				return fmt.Errorf("the node(%s) belongs to workspace(%s). it can't be removed",
 					key, v1.GetWorkspaceId(n))
 			}
 			toRemoveNodes = append(toRemoveNodes, key)
 		}
 	}
-	if err = v.validateNodesRemoved(ctx, newObj, toRemoveNodes); err != nil {
+	if err = v.validateNodesRemoved(ctx, newWorkspace, toRemoveNodes); err != nil {
 		return err
 	}
 	return nil

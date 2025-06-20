@@ -41,14 +41,20 @@ func (f *genericInformer) Lister() cache.GenericLister {
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
 	// Group=amd.com, Version=v1
+	case v1.SchemeGroupVersion.WithResource("addontemplates"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Amd().V1().AddonTemplates().Informer()}, nil
 	case v1.SchemeGroupVersion.WithResource("clusters"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Amd().V1().Clusters().Informer()}, nil
 	case v1.SchemeGroupVersion.WithResource("faults"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Amd().V1().Faults().Informer()}, nil
+	case v1.SchemeGroupVersion.WithResource("jobs"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Amd().V1().Jobs().Informer()}, nil
 	case v1.SchemeGroupVersion.WithResource("nodes"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Amd().V1().Nodes().Informer()}, nil
 	case v1.SchemeGroupVersion.WithResource("nodeflavors"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Amd().V1().NodeFlavors().Informer()}, nil
+	case v1.SchemeGroupVersion.WithResource("nodetemplates"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Amd().V1().NodeTemplates().Informer()}, nil
 	case v1.SchemeGroupVersion.WithResource("resourcetemplates"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Amd().V1().ResourceTemplates().Informer()}, nil
 	case v1.SchemeGroupVersion.WithResource("storageclusters"):

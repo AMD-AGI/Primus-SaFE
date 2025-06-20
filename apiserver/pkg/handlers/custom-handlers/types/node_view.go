@@ -87,7 +87,7 @@ type GetNodeResponseItem struct {
 	// available resource of node
 	AvailResources ResourceList `json:"availResources,omitempty"`
 	// Creation timestamp of the node
-	CreatedTime string `json:"createdTime,omitempty"`
+	CreateTime string `json:"createTime,omitempty"`
 	// Running workloads information on the node
 	Workloads []WorkloadInfo `json:"workloads,omitempty"`
 	// the labels by customer

@@ -50,18 +50,15 @@ func (m *NodeFlavorMutator) Handle(_ context.Context, req admission.Request) adm
 	if err := m.decoder.Decode(req, nf); err != nil {
 		return handleError(v1.NodeFlavorKind, err)
 	}
-	if !nf.GetDeletionTimestamp().IsZero() {
-		return admission.Allowed("")
-	}
-	m.mutate(nf)
-	if data, err := json.Marshal(nf); err != nil {
+	m.mutateOnCreation(nf)
+	data, err := json.Marshal(nf)
+	if err != nil {
 		return handleError(v1.NodeFlavorKind, err)
-	} else {
-		return admission.PatchResponseFromRaw(req.Object.Raw, data)
 	}
+	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
-func (m *NodeFlavorMutator) mutate(nf *v1.NodeFlavor) {
+func (m *NodeFlavorMutator) mutateOnCreation(nf *v1.NodeFlavor) {
 	nf.Name = stringutil.NormalizeName(nf.Name)
 	if nf.Spec.Gpu != nil && nf.Spec.Gpu.Quantity.IsZero() {
 		nf.Spec.Gpu = nil

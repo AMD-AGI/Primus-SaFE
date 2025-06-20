@@ -1,0 +1,13 @@
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: disable-os-upgrade
+  labels:
+    primus-safe.display.name: "disable-os-upgrade"
+spec:
+  type: config
+  category: System
+  description: Disable the operating system's automatic update feature. only for Ubuntu
+  extensions:
+    observe: Y2F0IC9ldGMvYXB0L2FwdC5jb25mLmQvMjBhdXRvLXVwZ3JhZGVzIHxncmVwIFVuYXR0ZW5kZWQtVXBncmFkZXxhd2sgIntwcmludCBzdWJzdHIoXCQyLCAyLCAxKX0ifGdyZXAgMApleGl0ICQ/Cg==
+    action: YXB0LW1hcmsgaG9sZCB1bmF0dGVuZGVkLXVwZ3JhZGVzICYmIGFwdC1nZXQgdXBkYXRlICYmIHNlZCAtaSAtZSAicy9uYXR0ZW5kZWQtVXBncmFkZSBcIjFcIi9uYXR0ZW5kZWQtVXBncmFkZSBcIjBcIi9nIiAvZXRjL2FwdC9hcHQuY29uZi5kLzIwYXV0by11cGdyYWRlcwo=

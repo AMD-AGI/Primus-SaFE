@@ -51,6 +51,21 @@ func (mr *MockInterfaceMockRecorder) CountFaults(ctx, query interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountFaults", reflect.TypeOf((*MockInterface)(nil).CountFaults), ctx, query)
 }
 
+// CountJobs mocks base method.
+func (m *MockInterface) CountJobs(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountJobs", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountJobs indicates an expected call of CountJobs.
+func (mr *MockInterfaceMockRecorder) CountJobs(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountJobs", reflect.TypeOf((*MockInterface)(nil).CountJobs), ctx, query)
+}
+
 // CountWorkloads mocks base method.
 func (m *MockInterface) CountWorkloads(ctx context.Context, query squirrel.Sqlizer) (int, error) {
 	m.ctrl.T.Helper()
@@ -79,6 +94,21 @@ func (m *MockInterface) SelectFaults(ctx context.Context, query squirrel.Sqlizer
 func (mr *MockInterfaceMockRecorder) SelectFaults(ctx, query, sortBy, order, limit, offset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectFaults", reflect.TypeOf((*MockInterface)(nil).SelectFaults), ctx, query, sortBy, order, limit, offset)
+}
+
+// SelectJobs mocks base method.
+func (m *MockInterface) SelectJobs(ctx context.Context, query squirrel.Sqlizer, sortBy, order string, limit, offset int) ([]*client.Job, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectJobs", ctx, query, sortBy, order, limit, offset)
+	ret0, _ := ret[0].([]*client.Job)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectJobs indicates an expected call of SelectJobs.
+func (mr *MockInterfaceMockRecorder) SelectJobs(ctx, query, sortBy, order, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectJobs", reflect.TypeOf((*MockInterface)(nil).SelectJobs), ctx, query, sortBy, order, limit, offset)
 }
 
 // SelectWorkloads mocks base method.
@@ -150,6 +180,20 @@ func (m *MockInterface) UpsertFault(ctx context.Context, fault *client.Fault) er
 func (mr *MockInterfaceMockRecorder) UpsertFault(ctx, fault interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertFault", reflect.TypeOf((*MockInterface)(nil).UpsertFault), ctx, fault)
+}
+
+// UpsertJob mocks base method.
+func (m *MockInterface) UpsertJob(ctx context.Context, job *client.Job) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertJob", ctx, job)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertJob indicates an expected call of UpsertJob.
+func (mr *MockInterfaceMockRecorder) UpsertJob(ctx, job interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertJob", reflect.TypeOf((*MockInterface)(nil).UpsertJob), ctx, job)
 }
 
 // UpsertWorkload mocks base method.
@@ -340,4 +384,71 @@ func (m *MockFaultInterface) UpsertFault(ctx context.Context, fault *client.Faul
 func (mr *MockFaultInterfaceMockRecorder) UpsertFault(ctx, fault interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertFault", reflect.TypeOf((*MockFaultInterface)(nil).UpsertFault), ctx, fault)
+}
+
+// MockJobInterface is a mock of JobInterface interface.
+type MockJobInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockJobInterfaceMockRecorder
+}
+
+// MockJobInterfaceMockRecorder is the mock recorder for MockJobInterface.
+type MockJobInterfaceMockRecorder struct {
+	mock *MockJobInterface
+}
+
+// NewMockJobInterface creates a new mock instance.
+func NewMockJobInterface(ctrl *gomock.Controller) *MockJobInterface {
+	mock := &MockJobInterface{ctrl: ctrl}
+	mock.recorder = &MockJobInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockJobInterface) EXPECT() *MockJobInterfaceMockRecorder {
+	return m.recorder
+}
+
+// CountJobs mocks base method.
+func (m *MockJobInterface) CountJobs(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountJobs", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountJobs indicates an expected call of CountJobs.
+func (mr *MockJobInterfaceMockRecorder) CountJobs(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountJobs", reflect.TypeOf((*MockJobInterface)(nil).CountJobs), ctx, query)
+}
+
+// SelectJobs mocks base method.
+func (m *MockJobInterface) SelectJobs(ctx context.Context, query squirrel.Sqlizer, sortBy, order string, limit, offset int) ([]*client.Job, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectJobs", ctx, query, sortBy, order, limit, offset)
+	ret0, _ := ret[0].([]*client.Job)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectJobs indicates an expected call of SelectJobs.
+func (mr *MockJobInterfaceMockRecorder) SelectJobs(ctx, query, sortBy, order, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectJobs", reflect.TypeOf((*MockJobInterface)(nil).SelectJobs), ctx, query, sortBy, order, limit, offset)
+}
+
+// UpsertJob mocks base method.
+func (m *MockJobInterface) UpsertJob(ctx context.Context, job *client.Job) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertJob", ctx, job)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertJob indicates an expected call of UpsertJob.
+func (mr *MockJobInterfaceMockRecorder) UpsertJob(ctx, job interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertJob", reflect.TypeOf((*MockJobInterface)(nil).UpsertJob), ctx, job)
 }

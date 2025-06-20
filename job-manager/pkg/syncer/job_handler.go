@@ -39,7 +39,7 @@ func (r *SyncerReconciler) handleJob(ctx context.Context, msg *resourceMessage, 
 		return controller.Result{RequeueAfter: time.Second}, nil
 	}
 
-	result, err := r._handleJob(ctx, msg, adminWorkload, informer)
+	result, err := r.handleJobImpl(ctx, msg, adminWorkload, informer)
 	if jobutils.IsUnRecoverableError(err) {
 		// Errors defined internally are fatal and lead to a terminal state without retry
 		err = jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, err.Error())
@@ -47,7 +47,7 @@ func (r *SyncerReconciler) handleJob(ctx context.Context, msg *resourceMessage, 
 	return result, err
 }
 
-func (r *SyncerReconciler) _handleJob(ctx context.Context, msg *resourceMessage,
+func (r *SyncerReconciler) handleJobImpl(ctx context.Context, msg *resourceMessage,
 	adminWorkload *v1.Workload, informer *ClusterInformer) (controller.Result, error) {
 	if msg.action == ResourceDel {
 		klog.Infof("delete resource. name: %s/%s, kind: %s, dispatchCount: %d",

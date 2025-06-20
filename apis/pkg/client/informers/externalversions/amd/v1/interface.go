@@ -12,14 +12,20 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
+	// AddonTemplates returns a AddonTemplateInformer.
+	AddonTemplates() AddonTemplateInformer
 	// Clusters returns a ClusterInformer.
 	Clusters() ClusterInformer
 	// Faults returns a FaultInformer.
 	Faults() FaultInformer
+	// Jobs returns a JobInformer.
+	Jobs() JobInformer
 	// Nodes returns a NodeInformer.
 	Nodes() NodeInformer
 	// NodeFlavors returns a NodeFlavorInformer.
 	NodeFlavors() NodeFlavorInformer
+	// NodeTemplates returns a NodeTemplateInformer.
+	NodeTemplates() NodeTemplateInformer
 	// ResourceTemplates returns a ResourceTemplateInformer.
 	ResourceTemplates() ResourceTemplateInformer
 	// StorageClusters returns a StorageClusterInformer.
@@ -41,6 +47,11 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
+// AddonTemplates returns a AddonTemplateInformer.
+func (v *version) AddonTemplates() AddonTemplateInformer {
+	return &addonTemplateInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
 // Clusters returns a ClusterInformer.
 func (v *version) Clusters() ClusterInformer {
 	return &clusterInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
@@ -51,6 +62,11 @@ func (v *version) Faults() FaultInformer {
 	return &faultInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
+// Jobs returns a JobInformer.
+func (v *version) Jobs() JobInformer {
+	return &jobInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
 // Nodes returns a NodeInformer.
 func (v *version) Nodes() NodeInformer {
 	return &nodeInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
@@ -59,6 +75,11 @@ func (v *version) Nodes() NodeInformer {
 // NodeFlavors returns a NodeFlavorInformer.
 func (v *version) NodeFlavors() NodeFlavorInformer {
 	return &nodeFlavorInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// NodeTemplates returns a NodeTemplateInformer.
+func (v *version) NodeTemplates() NodeTemplateInformer {
+	return &nodeTemplateInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // ResourceTemplates returns a ResourceTemplateInformer.

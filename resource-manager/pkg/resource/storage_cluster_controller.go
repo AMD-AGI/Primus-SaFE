@@ -12,8 +12,6 @@ import (
 	"reflect"
 	"time"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	rookv1 "github.com/rook/rook/pkg/apis/ceph.rook.io/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,6 +24,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 )
 
 type StorageClusterController struct {
@@ -43,7 +44,7 @@ func SetupStorageClusterController(mgr manager.Manager) error {
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.StorageCluster{}, builder.WithPredicates(predicate.ResourceVersionChangedPredicate{})).
-		Watches(&v1.Cluster{}, r.enqueueRequestByCluster()).
+		Watches(&v1.Cluster{}, r.handleClusterEvent()).
 		Complete(r)
 	if err != nil {
 		return err
@@ -52,7 +53,7 @@ func SetupStorageClusterController(mgr manager.Manager) error {
 	return nil
 }
 
-func (r *StorageClusterController) enqueueRequestByCluster() handler.EventHandler {
+func (r *StorageClusterController) handleClusterEvent() handler.EventHandler {
 	enqueue := func(kc *v1.Cluster, queue v1.RequestWorkQueue) {
 		added := map[string]struct{}{}
 		for _, s := range kc.Spec.Storages {

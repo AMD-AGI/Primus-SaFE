@@ -22,6 +22,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 	// Group=amd.com, Version=v1
 	case v1.SchemeGroupVersion.WithKind("ActiveState"):
 		return &amdv1.ActiveStateApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("AddonTemplate"):
+		return &amdv1.AddonTemplateApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("AddonTemplateSpec"):
+		return &amdv1.AddonTemplateSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("AddonTemplateStatus"):
+		return &amdv1.AddonTemplateStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Capacity"):
 		return &amdv1.CapacityApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("CephClusterStatus"):
@@ -62,8 +68,16 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.GroupVersionKindApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("HealthCheck"):
 		return &amdv1.HealthCheckApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("HelmStatus"):
+		return &amdv1.HelmStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("HybridStorageSpec"):
 		return &amdv1.HybridStorageSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("Job"):
+		return &amdv1.JobApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("JobSpec"):
+		return &amdv1.JobSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("JobStatus"):
+		return &amdv1.JobStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("MachineStatus"):
 		return &amdv1.MachineStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Node"):
@@ -78,6 +92,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.NodeSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("NodeStatus"):
 		return &amdv1.NodeStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("NodeTemplate"):
+		return &amdv1.NodeTemplateApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("NodeTemplateSpec"):
+		return &amdv1.NodeTemplateSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("Parameter"):
+		return &amdv1.ParameterApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("PodFailedMessage"):
 		return &amdv1.PodFailedMessageApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ReplicatedSpec"):

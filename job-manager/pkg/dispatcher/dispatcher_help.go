@@ -304,7 +304,7 @@ func buildResources(adminWorkload *v1.Workload) map[string]interface{} {
 	}
 	if adminWorkload.Spec.Resource.GPU != "" {
 		result[adminWorkload.Spec.Resource.GPUName] = adminWorkload.Spec.Resource.GPU
-		if adminWorkload.Spec.Resource.Replica > 1 && commonconfig.GetRdmaName() != "" {
+		if v1.IsEnableHostNetwork(adminWorkload) && commonconfig.GetRdmaName() != "" {
 			result[commonconfig.GetRdmaName()] = "1"
 		}
 	}
@@ -346,6 +346,10 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 	result = append(result, map[string]interface{}{
 		"name":  "WORKLOAD_ID",
 		"value": adminWorkload.Name,
+	})
+	result = append(result, map[string]interface{}{
+		"name":  "DISPATCH_COUNT",
+		"value": strconv.Itoa(v1.GetWorkloadDispatchCnt(adminWorkload)),
 	})
 	return result
 }

@@ -133,19 +133,6 @@ func Copy(slice []string, n int) []string {
 	return result
 }
 
-func Intersection(slice1, slice2 []string) (result []string) {
-	slice1Set := sets.NewSet()
-	for _, str := range slice1 {
-		slice1Set.Insert(str)
-	}
-	for _, str := range slice2 {
-		if slice1Set.Has(str) {
-			result = append(result, str)
-		}
-	}
-	return
-}
-
 // Difference returns a list of objects that are not in s1 and s2
 func Difference(slice1, slice2 []string) []string {
 	slice2Set := sets.NewSet()

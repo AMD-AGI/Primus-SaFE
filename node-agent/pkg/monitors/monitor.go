@@ -6,8 +6,6 @@
 package monitors
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -23,21 +21,17 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-var (
-	TmpPath = "/tmp"
-)
-
 type Monitor struct {
 	config *MonitorConfig
 	queue  *types.MonitorQueue
+	// the full path of script
+	scriptPath string
 	// it can control whether to exit this monitor
 	tomb *channel.Tomb
 	// The node where the agent is currently running
 	node *node.Node
 	// The exit code obtained when running the script last time
 	lastStatusCode int
-	// The script content of the current monitor
-	scriptContent string
 	// The monitor result will be reported only when it remains the same for max consecutive times(as specified by the configuration)
 	// It is only effective when the operation fails
 	consecutiveCount int
@@ -56,43 +50,31 @@ type NodeInfo struct {
 
 func NewMonitor(config *MonitorConfig,
 	queue *types.MonitorQueue, node *node.Node, scriptPath string) *Monitor {
-	var scriptContent []byte
 	var err error
-	if scriptPath != "" {
-		// read file from the specified path
-		fullPath := filepath.Join(scriptPath, config.Script)
-		scriptContent, err = os.ReadFile(fullPath)
-	} else {
-		// read file from the scripts directory using the embedded file system
-		fullPath := filepath.Join(ScriptsPackagePath, config.Script)
-		scriptContent, err = ScriptsFS.ReadFile(fullPath)
-	}
-	if err != nil {
+	// read file from the specified path
+	fullPath := filepath.Join(scriptPath, config.Script)
+	if !utils.IsFileExist(fullPath) {
 		klog.ErrorS(err, "failed to load script")
 		return nil
 	}
-	return NewMonitorWithScript(config, queue, node, scriptContent)
-}
 
-func NewMonitorWithScript(config *MonitorConfig,
-	queue *types.MonitorQueue, node *node.Node, scriptContent []byte) *Monitor {
 	inst := &Monitor{
 		config:         config,
 		queue:          queue,
+		scriptPath:     fullPath,
 		tomb:           channel.NewTomb(),
 		node:           node,
 		lastStatusCode: types.StatusOk,
-		scriptContent:  string(scriptContent),
 		isExited:       true,
 	}
-	if node != nil && node.FindCondition(config.Id) != nil {
+	if node != nil && node.FindConditionByType(config.Id) != nil {
 		inst.lastStatusCode = types.StatusError
 	}
 	return inst
 }
 
 func (m *Monitor) Start() {
-	if m == nil || !m.config.IsEnable() || len(m.scriptContent) == 0 {
+	if m == nil || !m.config.IsEnable() {
 		return
 	}
 	go m.startCronJob()
@@ -134,18 +116,7 @@ func (m *Monitor) startCronJob() {
 }
 
 func (m *Monitor) Run() {
-	scriptPath := fmt.Sprintf("%s/.%s.sh", TmpPath, m.config.Id)
-	if err := utils.WriteFile(scriptPath, m.scriptContent, 0755); err != nil {
-		klog.ErrorS(err, "failed to write script")
-		return
-	}
-	defer func() {
-		if err := os.Remove(scriptPath); err != nil {
-			klog.ErrorS(err, "failed to remove script")
-		}
-	}()
-
-	args := []string{scriptPath}
+	args := []string{m.scriptPath}
 	for _, arg := range m.config.Arguments {
 		if arg = m.convertReservedWord(arg); arg != "" {
 			args = append(args, arg)
@@ -153,7 +124,7 @@ func (m *Monitor) Run() {
 	}
 
 	timeout := time.Second * time.Duration(m.config.TimeoutSecond)
-	statusCode, value := utils.ExecuteScript(args, timeout)
+	statusCode, output := utils.ExecuteScript(args, timeout)
 	// If the result is unknown, ignore it
 	if statusCode != types.StatusOk && statusCode != types.StatusError {
 		return
@@ -162,7 +133,7 @@ func (m *Monitor) Run() {
 	msg := &types.MonitorMessage{
 		Id:         m.config.Id,
 		StatusCode: statusCode,
-		Value:      value,
+		Value:      output,
 	}
 
 	if statusCode == types.StatusOk {

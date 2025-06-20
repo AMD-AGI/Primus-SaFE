@@ -184,6 +184,25 @@ func GetIdleNodesOfWorkspace(ctx context.Context, cli client.Client, name string
 	return GetNodesOfWorkspaces(ctx, cli, []string{name}, filterFunc)
 }
 
+func GetUsingNodesOfCluster(ctx context.Context, cli client.Client, clusterId string) (sets.Set, error) {
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterId})
+	workloadList := &v1.WorkloadList{}
+	err := cli.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		return nil, err
+	}
+	result := sets.NewSet()
+	for _, w := range workloadList.Items {
+		if w.IsEnd() {
+			continue
+		}
+		for _, p := range w.Status.Pods {
+			result.Insert(p.AdminNodeName)
+		}
+	}
+	return result, nil
+}
+
 func Nodes2PointerSlice(nodes []v1.Node) (result []*v1.Node) {
 	for i := range nodes {
 		result = append(result, &nodes[i])

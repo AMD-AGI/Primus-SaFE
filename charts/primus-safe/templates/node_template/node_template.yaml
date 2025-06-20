@@ -1,0 +1,8 @@
+apiVersion: amd.com/v1
+kind: NodeTemplate
+metadata:
+  name: node-template
+spec:
+  addOnTemplates:
+    - id: disable-os-upgrade
+    - id: amdgpu-module

@@ -76,3 +76,13 @@ func CvtMilliSecToTime(milliseconds int64) time.Time {
 	return time.Unix(seconds, nanoseconds).UTC()
 }
 
+func CvtStrToRFC3339Milli(timeStr string) (time.Time, error) {
+	if timeStr == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(TimeRFC3339Milli, timeStr)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return t.UTC(), nil
+}

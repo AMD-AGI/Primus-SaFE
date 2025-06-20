@@ -31,6 +31,7 @@ import (
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -88,7 +89,7 @@ func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 		return err
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
-		For(&v1.Cluster{}, builder.WithPredicates(r.CaredPredicate())).
+		For(&v1.Cluster{}, builder.WithPredicates(r.caredChangePredicate())).
 		Complete(r)
 	if err != nil {
 		return err
@@ -97,7 +98,7 @@ func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 	return nil
 }
 
-func (r *NodeK8sReconciler) CaredPredicate() predicate.Predicate {
+func (r *NodeK8sReconciler) caredChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			cluster, ok := e.Object.(*v1.Cluster)
@@ -131,7 +132,7 @@ func (r *NodeK8sReconciler) startNodeInformer(cluster *v1.Cluster) error {
 	maxWaitTime := waitTime * maxRetry
 
 	err := backoff.Retry(func() error {
-		k8sClients, err := getK8sClientFactory(r.clientManager, cluster.Name)
+		k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 		if err != nil {
 			return err
 		}
@@ -272,7 +273,7 @@ func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (
 	if err != nil {
 		klog.ErrorS(err, "failed to handle message", "clusterName", message.clusterName,
 			"k8sNodeName", message.k8sNodeName, "action", message.action)
-		return commonctrl.Result{}, ignoreError(err)
+		return commonctrl.Result{}, utils.IgnoreError(err)
 	}
 	return commonctrl.Result{}, nil
 }
@@ -301,7 +302,7 @@ func (r *NodeK8sReconciler) handleNodeUnmanaged(ctx context.Context, message *no
 }
 
 func (r *NodeK8sReconciler) handleNodeUpdate(ctx context.Context, message *nodeQueueMessage, adminNode *v1.Node) error {
-	k8sClients, err := getK8sClientFactory(r.clientManager, message.clusterName)
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, message.clusterName)
 	if err != nil || !k8sClients.IsValid() {
 		return fmt.Errorf("the cluster(%s) clients is not ready", message.clusterName)
 	}
@@ -375,7 +376,7 @@ func (r *NodeK8sReconciler) syncK8sStatus(ctx context.Context, adminNode *v1.Nod
 }
 
 func (r *NodeK8sReconciler) handleFault(ctx context.Context, adminNode *v1.Node, message *nodeQueueMessage) error {
-	faultConfigMap, err := getFaultConfigmap(ctx, r.Client)
+	faultConfigMap, err := GetFaultConfigmap(ctx, r.Client)
 	if err != nil || len(faultConfigMap) == 0 {
 		return err
 	}

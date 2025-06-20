@@ -60,7 +60,7 @@ func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
 
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workload{}, builder.WithPredicates(predicate.Or(
-			r.CaredPredicate(), predicate.GenerationChangedPredicate{}))).
+			r.caredChangePredicate(), predicate.GenerationChangedPredicate{}))).
 		Watches(&v1.Workspace{}, r.handleByWorkspace()).
 		Complete(r)
 	if err != nil {
@@ -70,7 +70,7 @@ func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
 	return nil
 }
 
-func (r *SchedulerReconciler) CaredPredicate() predicate.Predicate {
+func (r *SchedulerReconciler) caredChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldWorkload, ok1 := e.ObjectOld.(*v1.Workload)

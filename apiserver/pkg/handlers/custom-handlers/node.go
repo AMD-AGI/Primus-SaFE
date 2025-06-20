@@ -455,7 +455,7 @@ func cvtToGetNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.GetN
 		Taints:         getPrimusTaints(n.Status.Taints),
 		TotalResources: cvtToResourceList(n.Status.Resources),
 		CustomerLabels: getCustomerLabels(n.Labels, true),
-		CreatedTime:    timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
+		CreateTime:     timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
 		IsControlPlane: v1.IsControlPlane(n),
 	}
 	var availResource corev1.ResourceList

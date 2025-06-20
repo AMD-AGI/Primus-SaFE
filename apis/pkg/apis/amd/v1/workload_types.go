@@ -155,7 +155,7 @@ type WorkloadPod struct {
 	K8sNodeName string `json:"k8sNodeName,omitempty"`
 	// the admin node that the Pod is scheduled on
 	AdminNodeName string `json:"adminNodeName,omitempty"`
-	// pod status：Pending, Running, Succeeded, Failed, Unknown
+	// pod status: Pending, Running, Succeeded, Failed, Unknown
 	Phase corev1.PodPhase `json:"phase,omitempty"`
 	// The node's IP address where the Pod is running
 	HostIp string `json:"hostIP,omitempty"`

@@ -111,6 +111,10 @@ func GetSSHRsaPrivate() string {
 	return getFromFile(sshKeyPath, "id_rsa")
 }
 
+func GetSSHIngressIp() string {
+	return getString(sshIngressIp, "")
+}
+
 func GetMemoryReservePercent() float64 {
 	return getFloat(memoryReservePercent, 0)
 }
@@ -210,6 +214,26 @@ func GetDBConnectTimeoutSecond() int {
 
 func GetDBRequestTimeoutSecond() int {
 	return getInt(dbRequestTimeoutSecond, 20)
+}
+
+func GetJobTTLSecond() int {
+	return getInt(jobTTLSecond, 60)
+}
+
+func GetJobTimeoutSecond() int {
+	return getInt(jobTimeoutSecond, 0)
+}
+
+func GetJobAvailableRatio() float64 {
+	return getFloat(jobAvailableRatio, 1)
+}
+
+func GetJobBatchCount() int {
+	return getInt(jobBatchCount, 0)
+}
+
+func GetAddonFaultId() string {
+	return getString(addonFaultId, "")
 }
 
 func getFromFile(configPath, item string) string {

@@ -63,6 +63,14 @@ func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 			},
 			filter: faultFilter,
 		},
+		{
+			gvk: v1.SchemeGroupVersion.WithKind(v1.JobKind),
+			handler: func(ctx context.Context, obj *unstructured.Unstructured) error {
+				dbClient.UpsertJob(ctx, jobMapper(obj))
+				return nil
+			},
+			filter: nil,
+		},
 	} {
 		if err := addExporter(ctx, mgr, toRegister.gvk, toRegister.handler, toRegister.filter); err != nil {
 			return err

@@ -21,6 +21,7 @@ const (
 	sshEnable     = sshPrefix + "enable"
 	sshServerPort = sshPrefix + "server_port"
 	sshKeyPath    = sshPrefix + "config_path"
+	sshIngressIp  = sshPrefix + "ingress_ip"
 
 	// health_check
 	healthCheckPrefix = "health_check."
@@ -64,4 +65,18 @@ const (
 	dbMaxIdleTimeSecond    = dbPrefix + "max_idle_time_second"
 	dbConnectTimeoutSecond = dbPrefix + "connect_timeout_second"
 	dbRequestTimeoutSecond = dbPrefix + "request_timeout_second"
+
+	// job
+	jobPrefix        = "job."
+	jobTTLSecond     = jobPrefix + "ttl_second"
+	jobTimeoutSecond = jobPrefix + "timeout_second"
+	// Job Success Ratio: A percentage value used during plugin upgrades.
+	// The job is marked as successful if the number of successfully upgraded nodes exceeds total nodes * ratio.
+	jobAvailableRatio = jobPrefix + "available_ratio"
+	// Job Batch Size: The number of nodes to process simultaneously during a plugin upgrade
+	jobBatchCount = jobPrefix + "batch_count"
+
+	// fault
+	faultPrefix  = "fault."
+	addonFaultId = faultPrefix + "addon_id"
 )

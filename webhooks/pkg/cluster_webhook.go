@@ -47,31 +47,23 @@ func (m *ClusterMutator) Handle(ctx context.Context, req admission.Request) admi
 		return admission.Allowed("")
 	}
 
-	obj := &v1.Cluster{}
-	if m.decoder.Decode(req, obj) != nil || !obj.GetDeletionTimestamp().IsZero() {
-		return admission.Allowed("")
+	cluster := &v1.Cluster{}
+	if err := m.decoder.Decode(req, cluster); err != nil {
+		return handleError(v1.ClusterKind, err)
 	}
-
-	isChanged := false
-	switch req.Operation {
-	case admissionv1.Create:
-		isChanged = m.mutateCreate(ctx, obj)
-	}
-	if !isChanged {
-		return admission.Allowed("")
-	}
-	marshaledResult, err := json.Marshal(obj)
+	m.mutateOnCreation(ctx, cluster)
+	data, err := json.Marshal(cluster)
 	if err != nil {
 		return handleError(v1.ClusterKind, err)
 	}
-	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledResult)
+	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
-func (m *ClusterMutator) mutateCreate(_ context.Context, c *v1.Cluster) bool {
-	c.Name = stringutil.NormalizeName(c.Name)
-	controllerutil.AddFinalizer(c, v1.ClusterFinalizer)
-	if c.Spec.ControlPlane.KubeNetworkPlugin == nil || *c.Spec.ControlPlane.KubeNetworkPlugin == "" {
-		c.Spec.ControlPlane.KubeNetworkPlugin = pointer.String(v1.CiliumNetworkPlugin)
+func (m *ClusterMutator) mutateOnCreation(_ context.Context, cluster *v1.Cluster) bool {
+	cluster.Name = stringutil.NormalizeName(cluster.Name)
+	controllerutil.AddFinalizer(cluster, v1.ClusterFinalizer)
+	if cluster.Spec.ControlPlane.KubeNetworkPlugin == nil || *cluster.Spec.ControlPlane.KubeNetworkPlugin == "" {
+		cluster.Spec.ControlPlane.KubeNetworkPlugin = pointer.String(v1.CiliumNetworkPlugin)
 	}
 	return true
 }
@@ -82,27 +74,27 @@ type ClusterValidator struct {
 }
 
 func (v *ClusterValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	obj := &v1.Cluster{}
+	cluster := &v1.Cluster{}
 	var err error
 	switch req.Operation {
 	case admissionv1.Create:
-		if err = v.decoder.Decode(req, obj); err != nil {
+		if err = v.decoder.Decode(req, cluster); err != nil {
 			break
 		}
-		if !obj.GetDeletionTimestamp().IsZero() {
+		if !cluster.GetDeletionTimestamp().IsZero() {
 			return admission.Allowed("")
 		}
-		err = v.validateCreate(ctx, obj)
+		err = v.validateOnCreation(ctx, cluster)
 	case admissionv1.Update:
-		if err = v.decoder.Decode(req, obj); err != nil {
+		if err = v.decoder.Decode(req, cluster); err != nil {
 			break
 		}
-		if !obj.GetDeletionTimestamp().IsZero() {
+		if !cluster.GetDeletionTimestamp().IsZero() {
 			return admission.Allowed("")
 		}
-		oldObj := &v1.Cluster{}
-		if err = v.decoder.DecodeRaw(req.OldObject, oldObj); err == nil {
-			err = v.validateUpdate(obj, oldObj)
+		oldCluster := &v1.Cluster{}
+		if err = v.decoder.DecodeRaw(req.OldObject, oldCluster); err == nil {
+			err = v.validateOnUpdate(cluster, oldCluster)
 		}
 	default:
 	}
@@ -112,39 +104,39 @@ func (v *ClusterValidator) Handle(ctx context.Context, req admission.Request) ad
 	return admission.Allowed("")
 }
 
-func (v *ClusterValidator) validateCreate(ctx context.Context, c *v1.Cluster) error {
-	if err := validateDisplayName(v1.GetDisplayName(c)); err != nil {
+func (v *ClusterValidator) validateOnCreation(ctx context.Context, cluster *v1.Cluster) error {
+	if err := validateDisplayName(v1.GetDisplayName(cluster)); err != nil {
 		return err
 	}
-	if err := v.validateControlPlane(ctx, c); err != nil {
+	if err := v.validateControlPlane(ctx, cluster); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *ClusterValidator) validateControlPlane(ctx context.Context, c *v1.Cluster) error {
-	if len(c.Spec.ControlPlane.Nodes) == 0 {
+func (v *ClusterValidator) validateControlPlane(ctx context.Context, cluster *v1.Cluster) error {
+	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
 		return fmt.Errorf("the KubeControlPlane nodes of spec are empty")
 	}
-	if err := v.validateNodesInUse(ctx, c); err != nil {
+	if err := v.validateNodesInUse(ctx, cluster); err != nil {
 		return err
 	}
-	if c.Spec.ControlPlane.KubePodsSubnet == nil || *c.Spec.ControlPlane.KubePodsSubnet == "" {
+	if cluster.Spec.ControlPlane.KubePodsSubnet == nil || *cluster.Spec.ControlPlane.KubePodsSubnet == "" {
 		return fmt.Errorf("the KubePodsSubnet of spec is empty")
 	}
-	if c.Spec.ControlPlane.KubeServiceAddress == nil || *c.Spec.ControlPlane.KubeServiceAddress == "" {
+	if cluster.Spec.ControlPlane.KubeServiceAddress == nil || *cluster.Spec.ControlPlane.KubeServiceAddress == "" {
 		return fmt.Errorf("the KubeServiceAddress of spec is empty")
 	}
-	if c.Spec.ControlPlane.NodeLocalDNSIP == nil || *c.Spec.ControlPlane.NodeLocalDNSIP == "" {
+	if cluster.Spec.ControlPlane.NodeLocalDNSIP == nil || *cluster.Spec.ControlPlane.NodeLocalDNSIP == "" {
 		return fmt.Errorf("the NodeLocalDNSIP of spec is empty")
 	}
-	if c.Spec.ControlPlane.KubeSprayImage == nil || *c.Spec.ControlPlane.KubeSprayImage == "" {
+	if cluster.Spec.ControlPlane.KubeSprayImage == nil || *cluster.Spec.ControlPlane.KubeSprayImage == "" {
 		return fmt.Errorf("the KubeSprayImage of spec is empty")
 	}
 	return nil
 }
 
-func (v *ClusterValidator) validateNodesInUse(ctx context.Context, c *v1.Cluster) error {
+func (v *ClusterValidator) validateNodesInUse(ctx context.Context, cluster *v1.Cluster) error {
 	clusterList := &v1.ClusterList{}
 	if v.List(ctx, clusterList) == nil {
 		currentNodesSet := sets.NewSet()
@@ -153,7 +145,7 @@ func (v *ClusterValidator) validateNodesInUse(ctx context.Context, c *v1.Cluster
 				currentNodesSet.Insert(n)
 			}
 		}
-		for _, n := range c.Spec.ControlPlane.Nodes {
+		for _, n := range cluster.Spec.ControlPlane.Nodes {
 			if currentNodesSet.Has(n) {
 				return commonerrors.NewAlreadyExist(fmt.Sprintf("the node(%s) is already in use", n))
 			}
@@ -162,7 +154,7 @@ func (v *ClusterValidator) validateNodesInUse(ctx context.Context, c *v1.Cluster
 	return nil
 }
 
-func (v *ClusterValidator) validateUpdate(newCluster, oldCluster *v1.Cluster) error {
+func (v *ClusterValidator) validateOnUpdate(newCluster, oldCluster *v1.Cluster) error {
 	if err := v.validateImmutableFields(newCluster, oldCluster); err != nil {
 		return err
 	}

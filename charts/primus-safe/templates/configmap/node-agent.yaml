@@ -21,7 +21,7 @@ data:
   gpu_bad_pages_003: '{"script":"gpu_bad_pages_003.sh","id":"003","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   gpu_card_check_004: '{"script":"gpu_card_check_004.sh","id":"004","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["$Node"]}'
   gpu_device_plugin_005: '{"script":"gpu_device_plugin_005.sh","id":"005","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["$Node"]}'
-  gpu_temperature_006: '{"script":"gpu_temperature_006.sh","id":"006","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  gpu_temperature_006: '{"script":"gpu_temperature_006.sh","id":"006","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on", "arguments":["100"]}'
   gpu_driver_007: '{"script":"gpu_driver_007.sh","id":"007","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["6","12"]}'
   gpu_ras_008: '{"script":"gpu_ras_008.sh","id":"008","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   gpu_link_009: '{"script":"gpu_link_009.sh","id":"009","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
@@ -36,3 +36,5 @@ data:
   sys_containerd_303: '{"script":"sys_containerd_303.sh","id":"303","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   sys_kernel_lock_304: '{"script":"sys_kernel_lock_304.sh","id":"304","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   sys_acsctl_305: '{"script":"sys_acsctl_305.sh","id":"305","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  # Disk: 4XX
+  disk_check_exist_401: '{"script":"disk_check_exist_401.sh","id":"401","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on", "arguments":["/home/amd/cache"]}'
