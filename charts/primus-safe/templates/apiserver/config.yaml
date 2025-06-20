@@ -34,6 +34,7 @@ data:
       server_port: {{ .Values.ssh.port }}
       enable: {{ .Values.ssh.enable }}
       config_path: {{ .Values.ssh.mount_path }}
+      ingress_ip: {{ .Values.ssh.ingress_ip }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

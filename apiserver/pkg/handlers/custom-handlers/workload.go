@@ -809,5 +809,5 @@ func (h *Handler) buildSSHAddress(ctx context.Context, userName, podName, worksp
 		return ""
 	}
 	return fmt.Sprintf("ssh -p %d %s.%s.%s@%s",
-		commonconfig.GetSSHServerPort(), userName, podName, workspace, localIp)
+		commonconfig.GetSSHServerPort(), userName, podName, workspace, ingress_ip)
 }
