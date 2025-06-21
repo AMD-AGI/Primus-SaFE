@@ -34,6 +34,7 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
@@ -575,6 +576,9 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 	}
 	// if the Kubernetes node is already present, it means the node has been successfully managed.
 	if k8sNode != nil {
+		if err := r.addNodeTemplate(ctx, adminNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
 		if err := r.removeRetryCount(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
@@ -595,6 +599,9 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context,
 	adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	if k8sNode != nil {
+		if err := r.addNodeTemplate(ctx, adminNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
 		if err := r.removeRetryCount(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
@@ -892,5 +899,37 @@ func (r *NodeReconciler) harborCA(ctx context.Context, sshClient *ssh.Client) er
 	if err := session.Run(cmd); err != nil {
 		return fmt.Errorf("failed %s: %v", cmd, err)
 	}
+	return nil
+}
+
+func (r *NodeReconciler) addNodeTemplate(ctx context.Context, adminNode *v1.Node) error {
+	if adminNode.Spec.NodeTemplate == nil {
+		return nil
+	}
+	nowTime := time.Now()
+	job := &v1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: adminNode.Name + "-" + adminNode.Spec.NodeTemplate.Name,
+			Annotations: map[string]string{
+				v1.UserNameAnnotation:        "system",
+				v1.JobDispatchTimeAnnotation: timeutil.FormatRFC3339(&nowTime),
+			},
+		},
+		Spec: v1.JobSpec{
+			Type:    v1.JobAddonType,
+			Cluster: adminNode.GetSpecCluster(),
+			Inputs: []v1.Parameter{{
+				Name:  v1.ParameterNode,
+				Value: adminNode.Name,
+			}, {
+				Name:  v1.ParameterNodeTemplate,
+				Value: adminNode.Spec.NodeTemplate.Name,
+			}},
+		},
+	}
+	if err := r.Create(ctx, job); err != nil {
+		return client.IgnoreAlreadyExists(err)
+	}
+	klog.Infof("create addon job(%s), node.name: %s", job.Name, adminNode.Name)
 	return nil
 }

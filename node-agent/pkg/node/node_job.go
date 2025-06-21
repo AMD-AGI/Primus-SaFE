@@ -30,7 +30,7 @@ const (
 	systemdStart   = "systemctl enable %s && systemctl start %s"
 	systemdRestart = "systemctl reload %s && systemctl restart %s"
 
-	defaultTimeoutSecond = 60
+	defaultTimeoutSecond = 1800
 	maxMessageLen        = 1024
 )
 

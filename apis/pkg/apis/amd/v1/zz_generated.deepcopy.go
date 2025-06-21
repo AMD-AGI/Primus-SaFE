@@ -1137,6 +1137,11 @@ func (in *NodeSpec) DeepCopyInto(out *NodeSpec) {
 		*out = new(corev1.ObjectReference)
 		**out = **in
 	}
+	if in.NodeTemplate != nil {
+		in, out := &in.NodeTemplate, &out.NodeTemplate
+		*out = new(corev1.ObjectReference)
+		**out = **in
+	}
 	if in.Hostname != nil {
 		in, out := &in.Hostname, &out.Hostname
 		*out = new(string)

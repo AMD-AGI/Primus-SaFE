@@ -167,10 +167,10 @@ func getFaultConfig(ctx context.Context, cli client.Client, faultId string) (*re
 	return config, nil
 }
 
-func findCondition(conds []corev1.NodeCondition, condType corev1.NodeConditionType, reason string) *corev1.NodeCondition {
-	for i, cond := range conds {
+func findCondition(conditions []corev1.NodeCondition, condType corev1.NodeConditionType, reason string) *corev1.NodeCondition {
+	for i, cond := range conditions {
 		if cond.Type == condType && cond.Reason == reason {
-			return &conds[i]
+			return &conditions[i]
 		}
 	}
 	return nil

@@ -1,18 +1,3 @@
-/*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
- * See LICENSE for license information.
- */
-
-/*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
- * See LICENSE for license information.
- */
-
-/*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
- * See LICENSE for license information.
- */
-
 create table if not exists workload
 (
     id SERIAL PRIMARY KEY,
@@ -109,7 +94,7 @@ create table if not exists job
     timeout int,
     user_name VARCHAR(128),
     job_name VARCHAR(64),
-    workspace VARCHAR(64)
+    workspace VARCHAR(64),
     create_time TIMESTAMP,
     start_time TIMESTAMP,
     end_time TIMESTAMP,
@@ -122,7 +107,7 @@ create table if not exists job
 
 create
     index T_JOB_ID_INDEX
-    on job (jobid);
+    on job (job_id);
 
 create
     index T_JOB_CREATE_TIME_INDEX
@@ -137,5 +122,3 @@ create
     on job (inputs);
 
 alter table job OWNER TO "primus-safe";
-
-

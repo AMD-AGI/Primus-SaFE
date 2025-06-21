@@ -41,9 +41,8 @@ const (
 	NodeIdLabel          = NodePrefix + "id"
 	// the job on node
 	NodeJobInputAnnotation = NodePrefix + "job.input"
-
-	NodeActionAdd    = "add"
-	NodeActionRemove = "remove"
+	NodeActionAdd          = "add"
+	NodeActionRemove       = "remove"
 
 	// Cluster lables
 	ClusterPrefix                 = PrimusSafePrefix + "cluster."
@@ -110,7 +109,6 @@ const (
 	JobDispatchTimeAnnotation    = JobPrefix + "dispatch.time"
 	JobIdLabel                   = JobPrefix + "id"
 	JobTypeLabel                 = JobPrefix + "type"
-	JobUserAnnotation            = JobPrefix + "user"
 	JobSecurityUpgradeAnnotation = JobPrefix + "security.upgrade"
 	JobBatchCountAnnotation      = JobPrefix + "batch.count"
 	JobFinalizer                 = JobPrefix + "finalizer"
