@@ -40,8 +40,15 @@ const (
 	NodeLabelAction      = NodePrefix + "label.action"
 	NodeAnnotationAction = NodePrefix + "annotation.action"
 	NodeIdLabel          = NodePrefix + "id"
+<<<<<<< HEAD
 	NodeActionAdd        = "add"
 	NodeActionRemove     = "remove"
+=======
+	// the job on node
+	NodeJobInputAnnotation = NodePrefix + "job.input"
+	NodeActionAdd          = "add"
+	NodeActionRemove       = "remove"
+>>>>>>> 3c2e868 (auto install node-template when managed)
 
 	// Cluster lables
 	ClusterPrefix                 = PrimusSafePrefix + "cluster."
@@ -112,15 +119,6 @@ const (
 	// the job on node
 	OpsJobInputAnnotation = OpsJobPrefix + "input"
 	OpsJobFinalizer       = PrimusSafeDomain + "ops.job.finalizer"
-)
-
-const (
-	AuthoringKind   = "Authoring"
-	PytorchJobKind  = "PyTorchJob"
-	DeploymentKind  = "Deployment"
-	StatefulSetKind = "StatefulSet"
-	PodKind         = "Pod"
-	EventKind       = "Event"
 )
 
 const (

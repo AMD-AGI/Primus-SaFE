@@ -144,11 +144,10 @@ func generateAddonJob(req *types.CreateJobRequest) (*v1.Job, error) {
 func generateJob(req *types.CreateJobRequest) *v1.Job {
 	job := &v1.Job{
 		Spec: v1.JobSpec{
-			Cluster:                 req.Cluster,
-			Type:                    req.Type,
-			Inputs:                  req.Inputs,
-			TTLSecondsAfterFinished: commonconfig.GetJobTTLSecond(),
-			TimeoutSecond:           req.TimeoutSecond,
+			Cluster:       req.Cluster,
+			Type:          req.Type,
+			Inputs:        req.Inputs,
+			TimeoutSecond: req.TimeoutSecond,
 		},
 	}
 	v1.SetAnnotation(job, v1.UserNameAnnotation, req.JobName)

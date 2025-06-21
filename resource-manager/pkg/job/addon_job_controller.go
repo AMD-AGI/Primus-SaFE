@@ -201,11 +201,11 @@ func (r *AddonJobReconciler) updateJobConditionByNode(ctx context.Context,
 }
 
 func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {
-	enqueue := func(q v1.RequestWorkQueue, clusterId string) {
+	enqueue := func(ctx context.Context, q v1.RequestWorkQueue, clusterId string) {
 		labelSelector := labels.SelectorFromSet(map[string]string{
 			v1.JobTypeLabel: string(v1.JobAddonType), v1.ClusterIdLabel: clusterId})
 		jobList := &v1.JobList{}
-		if r.List(context.Background(), jobList, &client.ListOptions{LabelSelector: labelSelector}) != nil {
+		if r.List(ctx, jobList, &client.ListOptions{LabelSelector: labelSelector}) != nil {
 			return
 		}
 		for _, job := range jobList.Items {
@@ -222,7 +222,7 @@ func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {
 				return
 			}
 			if !oldWorkload.IsEnd() && newWorkload.IsEnd() {
-				enqueue(q, v1.GetClusterId(newWorkload))
+				enqueue(ctx, q, v1.GetClusterId(newWorkload))
 			}
 		},
 	}
@@ -322,7 +322,7 @@ func (r *AddonJobReconciler) handle(ctx context.Context, job *v1.Job) (ctrlrunti
 		patch := client.MergeFrom(job.DeepCopy())
 		job.Status.Phase = v1.JobRunning
 		result := ctrlruntime.Result{}
-		if err := r.Status().Patch(context.Background(), job, patch); err != nil {
+		if err := r.Status().Patch(ctx, job, patch); err != nil {
 			return result, err
 		}
 		// ensure that job will be reconciled when it is timeout
@@ -382,7 +382,7 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.Job, nodeJo
 
 	if _, err = getFault(ctx, r.Client, adminNode.Name, commonconfig.GetAddonFaultId()); apierrors.IsNotFound(err) {
 		fault := r.generateAddonFault(job, adminNode)
-		if err = r.Create(context.Background(), fault); err != nil {
+		if err = r.Create(ctx, fault); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 	}
@@ -401,7 +401,7 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.Job, nodeJo
 		v1.NodeJobInputAnnotation, string(jsonutils.MarshalSilently(*nodeJob.jobInput)))
 	nodeAnnotationAction := commonnodes.BuildAction(v1.NodeActionAdd, v1.NodeJobInputAnnotation)
 	v1.SetAnnotation(adminNode, v1.NodeAnnotationAction, nodeAnnotationAction)
-	if err = r.Patch(context.Background(), adminNode, patch); err != nil {
+	if err = r.Patch(ctx, adminNode, patch); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	r.setNodeJobPhase(job.Name, adminNode.Name, NodeJobRunning)
@@ -419,12 +419,20 @@ func (r *AddonJobReconciler) addJob(job *v1.Job, inputNodes []*v1.Node) error {
 	addonJob := AddonJob{
 		nodePhases: nodePhases,
 	}
-	failRatio := 1 - commonconfig.GetJobAvailableRatio()
-	if addonJob.maxFailCount = int(float64(len(nodePhases)) * failRatio); addonJob.maxFailCount <= 0 {
+	if len(nodePhases) == 1 {
 		addonJob.maxFailCount = 1
-	}
-	if addonJob.batchCount = v1.GetJobBatchCount(job); addonJob.batchCount == 0 {
-		addonJob.batchCount = addonJob.maxFailCount
+		addonJob.batchCount = 1
+	} else {
+		failRatio := 1 - commonconfig.GetJobAvailableRatio()
+		if addonJob.maxFailCount = int(float64(len(nodePhases)) * failRatio); addonJob.maxFailCount <= 0 {
+			addonJob.maxFailCount = 1
+		}
+		if addonJob.batchCount = v1.GetJobBatchCount(job); addonJob.batchCount == 0 {
+			addonJob.batchCount = addonJob.maxFailCount
+		}
+		if addonJob.batchCount > len(nodePhases) {
+			addonJob.batchCount = len(nodePhases)
+		}
 	}
 	r.Lock()
 	defer r.Unlock()
@@ -504,7 +512,7 @@ func (r *AddonJobReconciler) getInputNodes(ctx context.Context, job *v1.Job) ([]
 	// If not specified the nodes, apply to all nodes in the cluster, except for the master.
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: job.Spec.Cluster})
 	nodeList := &v1.NodeList{}
-	if err := r.List(context.Background(), nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+	if err := r.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return nil, err
 	}
 	for i := range nodeList.Items {
@@ -548,7 +556,7 @@ func (r *AddonJobReconciler) generateAddonFault(job *v1.Job, adminNode *v1.Node)
 				v1.JobIdLabel:     job.Name,
 			},
 			Annotations: map[string]string{
-				v1.JobUserAnnotation: v1.GetUserName(job),
+				v1.UserNameAnnotation: v1.GetUserName(job),
 			},
 		},
 		Spec: v1.FaultSpec{

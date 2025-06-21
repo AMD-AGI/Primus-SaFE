@@ -41,7 +41,7 @@ type Parameter struct {
 }
 
 type JobSpec struct {
-	// the type of job
+	// the type of job, valid values include: addon
 	Type JobType `json:"type"`
 	// the cluster which the job belongs to
 	Cluster string `json:"cluster"`
