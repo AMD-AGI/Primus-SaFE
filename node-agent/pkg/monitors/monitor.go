@@ -13,6 +13,7 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/node"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/utils"
@@ -67,7 +68,8 @@ func NewMonitor(config *MonitorConfig,
 		lastStatusCode: types.StatusOk,
 		isExited:       true,
 	}
-	if node != nil && node.FindConditionByType(config.Id) != nil {
+	key := commonfaults.GenerateTaintKey(config.Id)
+	if node != nil && node.FindConditionByType(key) != nil {
 		inst.lastStatusCode = types.StatusError
 	}
 	return inst

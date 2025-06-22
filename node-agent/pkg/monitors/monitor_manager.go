@@ -18,6 +18,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"k8s.io/klog/v2"
 
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/node"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/utils"
@@ -302,7 +303,8 @@ func (mm *MonitorManager) getMonitorConfigs(configPath string) ([]*MonitorConfig
 			continue
 		}
 		if !conf.IsEnable() || !mm.node.IsMatchChip(conf.Chip) {
-			if mm.node.FindConditionByType(conf.Id) != nil {
+			key := commonfaults.GenerateTaintKey(conf.Id)
+			if mm.node.FindConditionByType(key) != nil {
 				mm.addDisableMessage(conf.Id)
 			}
 			continue
