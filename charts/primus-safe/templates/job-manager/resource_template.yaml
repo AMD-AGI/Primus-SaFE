@@ -2,6 +2,8 @@ apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
   name: pytorch-job
+  labels:
+    app.kubernetes.io/managed-by: Helm
 spec:
   groupVersionKind:
     group: kubeflow.org
@@ -60,6 +62,8 @@ apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
   name: pod
+  labels:
+    app.kubernetes.io/managed-by: Helm
 spec:
   groupVersionKind:
     group: ""
@@ -70,6 +74,8 @@ apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
   name: event
+  labels:
+    app.kubernetes.io/managed-by: Helm
 spec:
   groupVersionKind:
     group: ""
@@ -80,6 +86,8 @@ apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
   name: deployment
+  labels:
+    app.kubernetes.io/managed-by: Helm
 spec:
   groupVersionKind:
     group: apps
@@ -123,6 +131,8 @@ apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
   name: stateful-set
+  labels:
+    app.kubernetes.io/managed-by: Helm
 spec:
   groupVersionKind:
     group: apps

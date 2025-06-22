@@ -4,6 +4,7 @@ metadata:
   name: load-amdgpu-module
   labels:
     primus-safe.display.name: "load-amdgpu-module"
+    app.kubernetes.io/managed-by: Helm
 spec:
   type: systemd
   category: GPU

@@ -4,6 +4,7 @@ metadata:
   name: disable-os-upgrade
   labels:
     primus-safe.display.name: "disable-os-upgrade"
+    app.kubernetes.io/managed-by: Helm
 spec:
   type: config
   category: System

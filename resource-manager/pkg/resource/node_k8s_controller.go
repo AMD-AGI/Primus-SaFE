@@ -273,7 +273,10 @@ func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (
 	if err != nil {
 		klog.ErrorS(err, "failed to handle message", "clusterName", message.clusterName,
 			"k8sNodeName", message.k8sNodeName, "action", message.action)
-		return commonctrl.Result{}, utils.IgnoreError(err)
+		if utils.IsNonRetryableError(err) {
+			err = nil
+		}
+		return commonctrl.Result{}, err
 	}
 	return commonctrl.Result{}, nil
 }

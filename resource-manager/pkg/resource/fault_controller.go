@@ -179,7 +179,7 @@ func (r *FaultReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request
 
 func (r *FaultReconciler) delete(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
 	err := r.removeNodeTaint(ctx, fault)
-	if utils.IgnoreError(err) != nil {
+	if err != nil && !utils.IsNonRetryableError(err) {
 		if result, err := r.retry(ctx, fault); err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
@@ -210,7 +210,7 @@ func (r *FaultReconciler) handle(ctx context.Context, fault *v1.Fault) (ctrlrunt
 		phase = v1.FaultPhaseSucceeded
 	} else {
 		klog.ErrorS(err, "failed to handle fault")
-		if utils.IgnoreError(err) != nil {
+		if !utils.IsNonRetryableError(err) {
 			// Stop after exceeding the maximum retry limit.
 			if result, err := r.retry(ctx, fault); err != nil || result.RequeueAfter > 0 {
 				return result, err

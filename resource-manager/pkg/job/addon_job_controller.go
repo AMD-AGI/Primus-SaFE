@@ -32,7 +32,7 @@ import (
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/job"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
-	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -63,8 +63,6 @@ type AddonJobReconciler struct {
 	sync.RWMutex
 	// key is job id
 	allJobs map[string]*AddonJob
-	// related fault config
-	addonFaultConfig *resource.FaultConfig
 }
 
 func SetupAddonJobController(ctx context.Context, mgr manager.Manager) error {
@@ -72,15 +70,7 @@ func SetupAddonJobController(ctx context.Context, mgr manager.Manager) error {
 		Client:  mgr.GetClient(),
 		allJobs: make(map[string]*AddonJob),
 	}
-	var err error
-	r.addonFaultConfig, err = getFaultConfig(ctx, r.Client, commonconfig.GetAddonFaultId())
-	if err != nil {
-		return err
-	}
-	if !r.addonFaultConfig.IsEnable() {
-		return fmt.Errorf("the addon fault is disabled")
-	}
-	err = ctrlruntime.NewControllerManagedBy(mgr).
+	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Job{}, builder.WithPredicates(predicate.Or(
 			predicate.GenerationChangedPredicate{}, r.caredChangePredicate()))).
 		Watches(&v1.Node{}, r.handleNodeEvent()).
@@ -352,7 +342,11 @@ func (r *AddonJobReconciler) handleImpl(ctx context.Context, job *v1.Job) (ctrlr
 	}
 	for _, n := range targetNodes {
 		nodeJob := NodeJob{nodeName: n, isNodeInUse: allUsingNodes.Has(n), jobInput: nodeJobInput}
-		if result, err := r.handleNode(ctx, job, nodeJob); err != nil && result.RequeueAfter > 0 {
+		if result, err := r.handleNode(ctx, job, nodeJob); err != nil || result.RequeueAfter > 0 {
+			if utils.IsNonRetryableError(err) {
+				r.setNodeJobPhase(job.Name, nodeJob.nodeName, NodeJobFailed)
+				continue
+			}
 			return result, err
 		}
 	}
@@ -368,9 +362,6 @@ type NodeJob struct {
 func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.Job, nodeJob NodeJob) (ctrlruntime.Result, error) {
 	adminNode, err := getAdminNode(ctx, r.Client, nodeJob.nodeName)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			r.setNodeJobPhase(job.Name, nodeJob.nodeName, NodeJobFailed)
-		}
 		return ctrlruntime.Result{}, err
 	}
 	if v1.GetJobId(adminNode) == job.Name {
@@ -380,11 +371,8 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.Job, nodeJo
 		return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
 	}
 
-	if _, err = getFault(ctx, r.Client, adminNode.Name, commonconfig.GetAddonFaultId()); apierrors.IsNotFound(err) {
-		fault := r.generateAddonFault(job, adminNode)
-		if err = r.Create(ctx, fault); err != nil {
-			return ctrlruntime.Result{}, err
-		}
+	if err = r.createNodeFault(ctx, job, adminNode); err != nil {
+		return ctrlruntime.Result{}, err
 	}
 
 	// This node is currently being used by another workload. Please retry later, but first apply a taint.
@@ -406,6 +394,45 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.Job, nodeJo
 	}
 	r.setNodeJobPhase(job.Name, adminNode.Name, NodeJobRunning)
 	return ctrlruntime.Result{}, nil
+}
+
+func (r *AddonJobReconciler) createNodeFault(ctx context.Context, job *v1.Job, adminNode *v1.Node) error {
+	_, err := getFault(ctx, r.Client, adminNode.Name, commonconfig.GetAddonFaultId())
+	if err == nil || !apierrors.IsNotFound(err) {
+		return nil
+	}
+	config, err := getFaultConfig(ctx, r.Client, commonconfig.GetAddonFaultId())
+	if err != nil {
+		return err
+	}
+	fault := &v1.Fault{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: commonfaults.GenerateFaultName(adminNode.Name, config.Id),
+			Labels: map[string]string{
+				v1.ClusterIdLabel: v1.GetClusterId(job),
+				v1.NodeIdLabel:    adminNode.Name,
+				v1.JobIdLabel:     job.Name,
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: v1.GetUserName(job),
+			},
+		},
+		Spec: v1.FaultSpec{
+			Id:                  config.Id,
+			Message:             "upgrade Addon",
+			Action:              string(config.Action),
+			IsAutoRepairEnabled: config.IsAutoRepairEnabled(),
+			Node: &v1.FaultNode{
+				ClusterName: v1.GetClusterId(job),
+				AdminName:   adminNode.Name,
+				K8sName:     adminNode.GetK8sNodeName(),
+			},
+		},
+	}
+	if err = r.Create(ctx, fault); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *AddonJobReconciler) addJob(job *v1.Job, inputNodes []*v1.Node) error {
@@ -544,33 +571,6 @@ func (r *AddonJobReconciler) buildNodeJobInput(ctx context.Context, job *v1.Job)
 		nodeJob.Commands = append(nodeJob.Commands, cmd)
 	}
 	return nodeJob, nil
-}
-
-func (r *AddonJobReconciler) generateAddonFault(job *v1.Job, adminNode *v1.Node) *v1.Fault {
-	return &v1.Fault{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: commonfaults.GenerateFaultName(adminNode.Name, r.addonFaultConfig.Id),
-			Labels: map[string]string{
-				v1.ClusterIdLabel: v1.GetClusterId(job),
-				v1.NodeIdLabel:    adminNode.Name,
-				v1.JobIdLabel:     job.Name,
-			},
-			Annotations: map[string]string{
-				v1.UserNameAnnotation: v1.GetUserName(job),
-			},
-		},
-		Spec: v1.FaultSpec{
-			Id:                  r.addonFaultConfig.Id,
-			Message:             "upgrade Addon",
-			Action:              string(r.addonFaultConfig.Action),
-			IsAutoRepairEnabled: r.addonFaultConfig.IsAutoRepairEnabled(),
-			Node: &v1.FaultNode{
-				ClusterName: v1.GetClusterId(job),
-				AdminName:   adminNode.Name,
-				K8sName:     adminNode.GetK8sNodeName(),
-			},
-		},
-	}
 }
 
 func getNodeJobPhase(node *v1.Node) (NodeJobPhase, string) {

@@ -67,18 +67,18 @@ func IncRetryCount(ctx context.Context, cli client.Client, obj client.Object, ma
 	return count, nil
 }
 
-// Ignore errors that cannot be fixed or are tolerable.
-func IgnoreError(err error) error {
+// Ignore errors that cannot be fixed
+func IsNonRetryableError(err error) bool {
 	if err == nil {
-		return nil
+		return false
 	}
-	if commonerrors.IsPrimus(err) {
-		return nil
+	if commonerrors.IsBadRequest(err) || commonerrors.IsInternal(err) || commonerrors.IsNotFound(err) {
+		return true
 	}
 	if apierrors.IsNotFound(err) {
-		return nil
+		return true
 	}
-	return err
+	return false
 }
 
 func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
