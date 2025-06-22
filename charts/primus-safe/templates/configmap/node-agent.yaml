@@ -29,7 +29,7 @@ data:
   # Network: 2XX
   net_ib_status_201: '{"script":"net_ib_status_201.sh","id":"201","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   net_ethtool_202: '{"script":"net_ethtool_202.sh","id":"202","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
-  net_ethernet_id_203: '{"script":"net_ethernet_id_203.sh","id":"203","cronjob":"@every 3600s","timeoutSecond":300,"toggle":"on","arguments":["{{ .Values.net.nccl_socket_ifname }}"]}'
+  net_ethernet_id_203: '{"script":"net_ethernet_id_203.sh","id":"203","cronjob":"@every 360s","timeoutSecond":300,"toggle":"on","arguments":["{{ .Values.net.nccl_socket_ifname }}"]}'
   # System: 3XX
   sys_timezone_301: '{"script":"sys_timezone_301.sh","id":"301","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   sys_hostname_302: '{"script":"sys_hostname_302.sh","id":"302","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
