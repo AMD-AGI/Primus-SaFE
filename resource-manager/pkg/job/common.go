@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
@@ -158,11 +159,16 @@ func getFault(ctx context.Context, cli client.Client, adminNodeName, errorCode s
 func getFaultConfig(ctx context.Context, cli client.Client, faultId string) (*resource.FaultConfig, error) {
 	configs, err := resource.GetFaultConfigmap(ctx, cli)
 	if err != nil {
+		klog.ErrorS(err, "failed to get fault configmap")
 		return nil, err
 	}
 	config, ok := configs[faultId]
 	if !ok {
-		return nil, fmt.Errorf("no such addon fault %s", faultId)
+		return nil, commonerrors.NewNotFoundWithMessage(
+			fmt.Sprintf("fault config is not found: %s", faultId))
+	}
+	if !config.IsEnable() {
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("fault config is disabled: %s", faultId))
 	}
 	return config, nil
 }
