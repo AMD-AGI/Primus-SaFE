@@ -396,6 +396,7 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.Job, nodeJo
 	return ctrlruntime.Result{}, nil
 }
 
+// Create an addon fault to block workload scheduling on the node for upgrade purposes
 func (r *AddonJobReconciler) createAddonFault(ctx context.Context, job *v1.Job, adminNode *v1.Node) error {
 	faultId := commonconfig.GetAddonFaultId()
 	if _, err := getFault(ctx, r.Client, adminNode.Name, faultId); err == nil || !apierrors.IsNotFound(err) {
