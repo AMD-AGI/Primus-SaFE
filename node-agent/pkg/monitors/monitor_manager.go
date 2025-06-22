@@ -175,8 +175,7 @@ func (mm *MonitorManager) reloadMonitors() error {
 		switch {
 		case currentMonitor == nil:
 			mm.addMonitor(newConf)
-		case currentMonitor.config.Cronjob != newConf.Cronjob ||
-			!reflect.DeepEqual(currentMonitor.config.Arguments, newConf.Arguments):
+		case currentMonitor.config.Cronjob != newConf.Cronjob:
 			// If the key configuration of monitor is changed, restart it
 			mm.removeMonitor(newConf.Id)
 			mm.addMonitor(newConf)
