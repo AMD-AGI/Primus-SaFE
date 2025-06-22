@@ -371,7 +371,7 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.Job, nodeJo
 		return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
 	}
 
-	if err = r.createNodeFault(ctx, job, adminNode); err != nil {
+	if err = r.createAddonFault(ctx, job, adminNode); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 
@@ -396,32 +396,28 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.Job, nodeJo
 	return ctrlruntime.Result{}, nil
 }
 
-func (r *AddonJobReconciler) createNodeFault(ctx context.Context, job *v1.Job, adminNode *v1.Node) error {
-	_, err := getFault(ctx, r.Client, adminNode.Name, commonconfig.GetAddonFaultId())
-	if err == nil || !apierrors.IsNotFound(err) {
+func (r *AddonJobReconciler) createAddonFault(ctx context.Context, job *v1.Job, adminNode *v1.Node) error {
+	faultId := commonconfig.GetAddonFaultId()
+	if _, err := getFault(ctx, r.Client, adminNode.Name, faultId); err == nil || !apierrors.IsNotFound(err) {
 		return nil
 	}
-	config, err := getFaultConfig(ctx, r.Client, commonconfig.GetAddonFaultId())
+	config, err := getFaultConfig(ctx, r.Client, faultId)
 	if err != nil {
 		return err
 	}
 	fault := &v1.Fault{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: commonfaults.GenerateFaultName(adminNode.Name, config.Id),
+			Name: commonfaults.GenerateFaultName(adminNode.Name, faultId),
 			Labels: map[string]string{
 				v1.ClusterIdLabel: v1.GetClusterId(job),
 				v1.NodeIdLabel:    adminNode.Name,
 				v1.JobIdLabel:     job.Name,
 			},
-			Annotations: map[string]string{
-				v1.UserNameAnnotation: v1.GetUserName(job),
-			},
 		},
 		Spec: v1.FaultSpec{
-			Id:                  config.Id,
-			Message:             "upgrade Addon",
-			Action:              string(config.Action),
-			IsAutoRepairEnabled: config.IsAutoRepairEnabled(),
+			Id:      faultId,
+			Message: "upgrade Addon",
+			Action:  string(config.Action),
 			Node: &v1.FaultNode{
 				ClusterName: v1.GetClusterId(job),
 				AdminName:   adminNode.Name,
