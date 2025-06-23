@@ -81,7 +81,7 @@ func GetFaultFieldTags() map[string]string {
 	return getFieldTags(f)
 }
 
-type Job struct {
+type OpsJob struct {
 	Id         int64          `db:"id"`
 	JobId      string         `db:"job_id"`
 	Cluster    string         `db:"cluster"`
@@ -101,8 +101,8 @@ type Job struct {
 	Outputs    sql.NullString `db:"outputs"`
 }
 
-func GetJobFieldTags() map[string]string {
-	job := Job{}
+func GetOpsJobFieldTags() map[string]string {
+	job := OpsJob{}
 	return getFieldTags(job)
 }
 

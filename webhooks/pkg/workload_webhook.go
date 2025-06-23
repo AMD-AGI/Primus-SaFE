@@ -108,11 +108,12 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateGvk(ctx, workload)
 
 	switch workload.SpecKind() {
-	case common.DeploymentKind:
+	case v1.DeploymentKind:
 		m.mutateDeployment(workload)
-	case common.StatefulSetKind:
+	case v1.StatefulSetKind:
 		m.mutateStatefulSet(workload)
-	case common.PytorchJobKind:
+	case v1.AuthoringKind:
+		m.mutateAuthoring(workload)
 	}
 
 	m.mutateResource(workload, workspace)
@@ -170,8 +171,11 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 }
 
 func (m *WorkloadMutator) mutateGvk(ctx context.Context, workload *v1.Workload) {
+	if v1.IsAuthoring(workload) {
+		return
+	}
 	if workload.Spec.Kind == "" {
-		workload.Spec.Kind = common.PytorchJobKind
+		workload.Spec.Kind = v1.PytorchJobKind
 	}
 	if workload.Spec.Group == "" || workload.Spec.Version == "" {
 		rtl := &v1.ResourceTemplateList{}
@@ -303,6 +307,14 @@ func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 func (m *WorkloadMutator) mutateStatefulSet(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
+}
+
+func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
+	workload.Spec.IsSupervised = false
+	workload.Spec.MaxRetry = 0
+	workload.Spec.Resource.Replica = 1
+	workload.Spec.Timeout = nil
+	workload.Spec.EntryPoint = stringutil.Base64Encode("sleep infinite")
 }
 
 func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {

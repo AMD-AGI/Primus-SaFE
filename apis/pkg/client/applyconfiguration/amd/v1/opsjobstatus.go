@@ -12,27 +12,27 @@ import (
 	applyconfigurationsmetav1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// JobStatusApplyConfiguration represents a declarative configuration of the JobStatus type for use
+// OpsJobStatusApplyConfiguration represents a declarative configuration of the OpsJobStatus type for use
 // with apply.
-type JobStatusApplyConfiguration struct {
+type OpsJobStatusApplyConfiguration struct {
 	StartedAt  *metav1.Time                                            `json:"startedAt,omitempty"`
 	FinishedAt *metav1.Time                                            `json:"finishedAt,omitempty"`
 	Conditions []applyconfigurationsmetav1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	Phase      *amdv1.JobPhase                                         `json:"phase,omitempty"`
+	Phase      *amdv1.OpsJobPhase                                      `json:"phase,omitempty"`
 	Message    *string                                                 `json:"message,omitempty"`
 	Outputs    []ParameterApplyConfiguration                           `json:"outputs,omitempty"`
 }
 
-// JobStatusApplyConfiguration constructs a declarative configuration of the JobStatus type for use with
+// OpsJobStatusApplyConfiguration constructs a declarative configuration of the OpsJobStatus type for use with
 // apply.
-func JobStatus() *JobStatusApplyConfiguration {
-	return &JobStatusApplyConfiguration{}
+func OpsJobStatus() *OpsJobStatusApplyConfiguration {
+	return &OpsJobStatusApplyConfiguration{}
 }
 
 // WithStartedAt sets the StartedAt field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the StartedAt field is set to the value of the last call.
-func (b *JobStatusApplyConfiguration) WithStartedAt(value metav1.Time) *JobStatusApplyConfiguration {
+func (b *OpsJobStatusApplyConfiguration) WithStartedAt(value metav1.Time) *OpsJobStatusApplyConfiguration {
 	b.StartedAt = &value
 	return b
 }
@@ -40,7 +40,7 @@ func (b *JobStatusApplyConfiguration) WithStartedAt(value metav1.Time) *JobStatu
 // WithFinishedAt sets the FinishedAt field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the FinishedAt field is set to the value of the last call.
-func (b *JobStatusApplyConfiguration) WithFinishedAt(value metav1.Time) *JobStatusApplyConfiguration {
+func (b *OpsJobStatusApplyConfiguration) WithFinishedAt(value metav1.Time) *OpsJobStatusApplyConfiguration {
 	b.FinishedAt = &value
 	return b
 }
@@ -48,7 +48,7 @@ func (b *JobStatusApplyConfiguration) WithFinishedAt(value metav1.Time) *JobStat
 // WithConditions adds the given value to the Conditions field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Conditions field.
-func (b *JobStatusApplyConfiguration) WithConditions(values ...*applyconfigurationsmetav1.ConditionApplyConfiguration) *JobStatusApplyConfiguration {
+func (b *OpsJobStatusApplyConfiguration) WithConditions(values ...*applyconfigurationsmetav1.ConditionApplyConfiguration) *OpsJobStatusApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
 			panic("nil value passed to WithConditions")
@@ -61,7 +61,7 @@ func (b *JobStatusApplyConfiguration) WithConditions(values ...*applyconfigurati
 // WithPhase sets the Phase field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Phase field is set to the value of the last call.
-func (b *JobStatusApplyConfiguration) WithPhase(value amdv1.JobPhase) *JobStatusApplyConfiguration {
+func (b *OpsJobStatusApplyConfiguration) WithPhase(value amdv1.OpsJobPhase) *OpsJobStatusApplyConfiguration {
 	b.Phase = &value
 	return b
 }
@@ -69,7 +69,7 @@ func (b *JobStatusApplyConfiguration) WithPhase(value amdv1.JobPhase) *JobStatus
 // WithMessage sets the Message field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Message field is set to the value of the last call.
-func (b *JobStatusApplyConfiguration) WithMessage(value string) *JobStatusApplyConfiguration {
+func (b *OpsJobStatusApplyConfiguration) WithMessage(value string) *OpsJobStatusApplyConfiguration {
 	b.Message = &value
 	return b
 }
@@ -77,7 +77,7 @@ func (b *JobStatusApplyConfiguration) WithMessage(value string) *JobStatusApplyC
 // WithOutputs adds the given value to the Outputs field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Outputs field.
-func (b *JobStatusApplyConfiguration) WithOutputs(values ...*ParameterApplyConfiguration) *JobStatusApplyConfiguration {
+func (b *OpsJobStatusApplyConfiguration) WithOutputs(values ...*ParameterApplyConfiguration) *OpsJobStatusApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
 			panic("nil value passed to WithOutputs")

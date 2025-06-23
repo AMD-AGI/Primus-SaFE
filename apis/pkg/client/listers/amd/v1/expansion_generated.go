@@ -30,14 +30,6 @@ type FaultListerExpansion interface{}
 // FaultNamespaceLister.
 type FaultNamespaceListerExpansion interface{}
 
-// JobListerExpansion allows custom methods to be added to
-// JobLister.
-type JobListerExpansion interface{}
-
-// JobNamespaceListerExpansion allows custom methods to be added to
-// JobNamespaceLister.
-type JobNamespaceListerExpansion interface{}
-
 // NodeListerExpansion allows custom methods to be added to
 // NodeLister.
 type NodeListerExpansion interface{}
@@ -61,6 +53,14 @@ type NodeTemplateListerExpansion interface{}
 // NodeTemplateNamespaceListerExpansion allows custom methods to be added to
 // NodeTemplateNamespaceLister.
 type NodeTemplateNamespaceListerExpansion interface{}
+
+// OpsJobListerExpansion allows custom methods to be added to
+// OpsJobLister.
+type OpsJobListerExpansion interface{}
+
+// OpsJobNamespaceListerExpansion allows custom methods to be added to
+// OpsJobNamespaceLister.
+type OpsJobNamespaceListerExpansion interface{}
 
 // ResourceTemplateListerExpansion allows custom methods to be added to
 // ResourceTemplateLister.

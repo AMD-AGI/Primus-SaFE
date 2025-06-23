@@ -97,10 +97,10 @@ func (mr *MockInterfaceMockRecorder) SelectFaults(ctx, query, sortBy, order, lim
 }
 
 // SelectJobs mocks base method.
-func (m *MockInterface) SelectJobs(ctx context.Context, query squirrel.Sqlizer, sortBy, order string, limit, offset int) ([]*client.Job, error) {
+func (m *MockInterface) SelectJobs(ctx context.Context, query squirrel.Sqlizer, sortBy, order string, limit, offset int) ([]*client.OpsJob, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SelectJobs", ctx, query, sortBy, order, limit, offset)
-	ret0, _ := ret[0].([]*client.Job)
+	ret0, _ := ret[0].([]*client.OpsJob)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -183,7 +183,7 @@ func (mr *MockInterfaceMockRecorder) UpsertFault(ctx, fault interface{}) *gomock
 }
 
 // UpsertJob mocks base method.
-func (m *MockInterface) UpsertJob(ctx context.Context, job *client.Job) error {
+func (m *MockInterface) UpsertJob(ctx context.Context, job *client.OpsJob) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpsertJob", ctx, job)
 	ret0, _ := ret[0].(error)
@@ -425,10 +425,10 @@ func (mr *MockJobInterfaceMockRecorder) CountJobs(ctx, query interface{}) *gomoc
 }
 
 // SelectJobs mocks base method.
-func (m *MockJobInterface) SelectJobs(ctx context.Context, query squirrel.Sqlizer, sortBy, order string, limit, offset int) ([]*client.Job, error) {
+func (m *MockJobInterface) SelectJobs(ctx context.Context, query squirrel.Sqlizer, sortBy, order string, limit, offset int) ([]*client.OpsJob, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SelectJobs", ctx, query, sortBy, order, limit, offset)
-	ret0, _ := ret[0].([]*client.Job)
+	ret0, _ := ret[0].([]*client.OpsJob)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -440,7 +440,7 @@ func (mr *MockJobInterfaceMockRecorder) SelectJobs(ctx, query, sortBy, order, li
 }
 
 // UpsertJob mocks base method.
-func (m *MockJobInterface) UpsertJob(ctx context.Context, job *client.Job) error {
+func (m *MockJobInterface) UpsertJob(ctx context.Context, job *client.OpsJob) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpsertJob", ctx, job)
 	ret0, _ := ret[0].(error)

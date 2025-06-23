@@ -8,6 +8,5 @@ use (
 	./resource-manager
 	./job-manager
 	./webhooks
-	./tools/crypto
 	./utils
 )

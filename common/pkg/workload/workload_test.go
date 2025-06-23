@@ -37,7 +37,7 @@ func genMockWorkload(clusterName, workspace string) *v1.Workload {
 			Workspace: workspace,
 			GroupVersionKind: v1.GroupVersionKind{
 				Group:   "kubeflow.org",
-				Kind:    common.PytorchJobKind,
+				Kind:    v1.PytorchJobKind,
 				Version: "v1",
 			},
 			Resource: v1.WorkloadResource{

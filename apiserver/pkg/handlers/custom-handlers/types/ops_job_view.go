@@ -13,11 +13,11 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
-type CreateJobRequest struct {
+type CreateOpsJobRequest struct {
 	// the resource objects to be processed. e.g. {{"name": "node", "value": "node.id"}}
 	Inputs []v1.Parameter `json:"inputs"`
 	// valid values include: addon
-	Type v1.JobType `json:"type"`
+	Type v1.OpsJobType `json:"type"`
 	// the cluster which the job belongs to
 	Cluster string `json:"cluster"`
 	// job Timeout (in seconds), Less than or equal to 0 means no timeout
@@ -34,11 +34,11 @@ type CreateJobRequest struct {
 	Workspace string `json:"-"`
 }
 
-type CreateJobResponse struct {
+type CreateOpsJobResponse struct {
 	JobId string `json:"jobId"`
 }
 
-type GetJobRequest struct {
+type GetOpsJobRequest struct {
 	// Starting offset for the results. dfault is 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
 	// Limit the number of returned results. default is 100
@@ -57,16 +57,16 @@ type GetJobRequest struct {
 	// job submitter
 	UserName string `json:"userName,omitempty"`
 	// job phase
-	Phase v1.JobPhase `form:"phase" binding:"omitempty"`
+	Phase v1.OpsJobPhase `form:"phase" binding:"omitempty"`
 	// job type
-	Type v1.JobType `form:"type" binding:"omitempty"`
+	Type v1.OpsJobType `form:"type" binding:"omitempty"`
 
 	// for internal use
 	SinceTime time.Time
 	UntilTime time.Time
 }
 
-type GetJobResponseItem struct {
+type GetOpsJobResponseItem struct {
 	// job id
 	JobId string `json:"jobId"`
 	// job name
@@ -78,9 +78,9 @@ type GetJobResponseItem struct {
 	// job submitter
 	UserName string `json:"userName"`
 	// job type
-	Type v1.JobType `json:"type"`
+	Type v1.OpsJobType `json:"type"`
 	// job phase: Succeeded/Failed/Running
-	Phase v1.JobPhase `json:"phase"`
+	Phase v1.OpsJobPhase `json:"phase"`
 	// job execution flow
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// job creation time
@@ -99,7 +99,7 @@ type GetJobResponseItem struct {
 	Outputs []v1.Parameter `json:"outputs,omitempty"`
 }
 
-type GetJobResponse struct {
-	TotalCount int                  `json:"totalCount"`
-	Items      []GetJobResponseItem `json:"items,omitempty"`
+type GetOpsJobResponse struct {
+	TotalCount int                     `json:"totalCount"`
+	Items      []GetOpsJobResponseItem `json:"items,omitempty"`
 }

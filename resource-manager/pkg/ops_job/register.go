@@ -3,7 +3,7 @@
  * See LICENSE for license information.
  */
 
-package job
+package ops_job
 
 import (
 	"context"
@@ -12,11 +12,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-func SetupJobs(ctx context.Context, mgr manager.Manager) error {
+func SetupOpsJobs(_ context.Context, mgr manager.Manager) error {
 	if err := SetupJobTTLController(mgr); err != nil {
 		return fmt.Errorf("failed to set up job-ttl controller: %+v", err)
 	}
-	if err := SetupAddonJobController(ctx, mgr); err != nil {
+	if err := SetupAddonJobController(mgr); err != nil {
 		return fmt.Errorf("failed to set up addon-job controller: %+v", err)
 	}
 	return nil

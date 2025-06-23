@@ -18,14 +18,14 @@ type Interface interface {
 	Clusters() ClusterInformer
 	// Faults returns a FaultInformer.
 	Faults() FaultInformer
-	// Jobs returns a JobInformer.
-	Jobs() JobInformer
 	// Nodes returns a NodeInformer.
 	Nodes() NodeInformer
 	// NodeFlavors returns a NodeFlavorInformer.
 	NodeFlavors() NodeFlavorInformer
 	// NodeTemplates returns a NodeTemplateInformer.
 	NodeTemplates() NodeTemplateInformer
+	// OpsJobs returns a OpsJobInformer.
+	OpsJobs() OpsJobInformer
 	// ResourceTemplates returns a ResourceTemplateInformer.
 	ResourceTemplates() ResourceTemplateInformer
 	// StorageClusters returns a StorageClusterInformer.
@@ -62,11 +62,6 @@ func (v *version) Faults() FaultInformer {
 	return &faultInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
-// Jobs returns a JobInformer.
-func (v *version) Jobs() JobInformer {
-	return &jobInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
-}
-
 // Nodes returns a NodeInformer.
 func (v *version) Nodes() NodeInformer {
 	return &nodeInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
@@ -80,6 +75,11 @@ func (v *version) NodeFlavors() NodeFlavorInformer {
 // NodeTemplates returns a NodeTemplateInformer.
 func (v *version) NodeTemplates() NodeTemplateInformer {
 	return &nodeTemplateInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// OpsJobs returns a OpsJobInformer.
+func (v *version) OpsJobs() OpsJobInformer {
+	return &opsJobInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // ResourceTemplates returns a ResourceTemplateInformer.

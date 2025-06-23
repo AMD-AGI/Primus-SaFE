@@ -33,7 +33,7 @@ type FaultInterface interface {
 }
 
 type JobInterface interface {
-	UpsertJob(ctx context.Context, job *Job) error
-	SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*Job, error)
+	UpsertJob(ctx context.Context, job *OpsJob) error
+	SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*OpsJob, error)
 	CountJobs(ctx context.Context, query sqrl.Sqlizer) (int, error)
 }

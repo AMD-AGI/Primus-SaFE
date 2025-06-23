@@ -28,52 +28,52 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
-func AddJobWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
-	(*server).Register(generateMutatePath(v1.JobKind), &webhook.Admission{Handler: &JobMutator{
+func AddOpsJobWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
+	(*server).Register(generateMutatePath(v1.OpsJobKind), &webhook.Admission{Handler: &OpsJobMutator{
 		Client:  mgr.GetClient(),
 		decoder: decoder,
 	}})
-	(*server).Register(generateValidatePath(v1.JobKind), &webhook.Admission{Handler: &JobValidator{
+	(*server).Register(generateValidatePath(v1.OpsJobKind), &webhook.Admission{Handler: &OpsJobValidator{
 		Client:  mgr.GetClient(),
 		decoder: decoder,
 	}})
 }
 
-type JobMutator struct {
+type OpsJobMutator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
-func (m *JobMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
+func (m *OpsJobMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	if req.Operation != admissionv1.Create {
 		return admission.Allowed("")
 	}
 
-	job := &v1.Job{}
+	job := &v1.OpsJob{}
 	if err := m.decoder.Decode(req, job); err != nil {
-		return handleError(v1.JobKind, err)
+		return handleError(v1.OpsJobKind, err)
 	}
 	m.mutateOnCreation(ctx, job)
 	data, err := json.Marshal(job)
 	if err != nil {
-		return handleError(v1.JobKind, err)
+		return handleError(v1.OpsJobKind, err)
 	}
 	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
-func (m *JobMutator) mutateOnCreation(ctx context.Context, job *v1.Job) bool {
+func (m *OpsJobMutator) mutateOnCreation(ctx context.Context, job *v1.OpsJob) bool {
 	m.mutateMeta(ctx, job)
 	m.mutateJobSpec(job)
 	m.mutateJobInputs(ctx, job)
 	return true
 }
 
-func (m *JobMutator) mutateMeta(ctx context.Context, job *v1.Job) bool {
+func (m *OpsJobMutator) mutateMeta(ctx context.Context, job *v1.OpsJob) bool {
 	if job.Name != "" {
 		job.Name = stringutil.NormalizeName(job.Name)
 	}
 	v1.SetLabel(job, v1.ClusterIdLabel, job.Spec.Cluster)
-	v1.SetLabel(job, v1.JobTypeLabel, string(job.Spec.Type))
+	v1.SetLabel(job, v1.OpsJobTypeLabel, string(job.Spec.Type))
 	if v1.GetLabel(job, v1.DisplayNameLabel) == "" {
 		v1.SetLabel(job, v1.DisplayNameLabel, job.Name)
 	}
@@ -87,11 +87,11 @@ func (m *JobMutator) mutateMeta(ctx context.Context, job *v1.Job) bool {
 			}
 		}
 	}
-	controllerutil.AddFinalizer(job, v1.JobFinalizer)
+	controllerutil.AddFinalizer(job, v1.OpsJobFinalizer)
 	return true
 }
 
-func (m *JobMutator) mutateJobSpec(job *v1.Job) {
+func (m *OpsJobMutator) mutateJobSpec(job *v1.OpsJob) {
 	if job.Spec.TTLSecondsAfterFinished <= 0 {
 		job.Spec.TTLSecondsAfterFinished = commonconfig.GetJobTTLSecond()
 	}
@@ -103,7 +103,7 @@ func (m *JobMutator) mutateJobSpec(job *v1.Job) {
 	}
 }
 
-func (m *JobMutator) mutateJobInputs(ctx context.Context, job *v1.Job) {
+func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) {
 	param := job.GetParameter(v1.ParameterNodeTemplate)
 	if param == nil {
 		return
@@ -129,13 +129,13 @@ func (m *JobMutator) mutateJobInputs(ctx context.Context, job *v1.Job) {
 	}
 }
 
-type JobValidator struct {
+type OpsJobValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
-func (v *JobValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
-	job := &v1.Job{}
+func (v *OpsJobValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
+	job := &v1.OpsJob{}
 	var err error
 	switch req.Operation {
 	case admissionv1.Create:
@@ -150,23 +150,23 @@ func (v *JobValidator) Handle(ctx context.Context, req admission.Request) admiss
 		if !job.GetDeletionTimestamp().IsZero() {
 			break
 		}
-		oldJob := &v1.Job{}
+		oldJob := &v1.OpsJob{}
 		if err = v.decoder.DecodeRaw(req.OldObject, oldJob); err == nil {
 			err = v.validateOnUpdate(ctx, job, oldJob)
 		}
 	default:
 	}
 	if err != nil {
-		return handleError(v1.JobKind, err)
+		return handleError(v1.OpsJobKind, err)
 	}
 	return admission.Allowed("")
 }
 
-func (v *JobValidator) validateOnCreation(ctx context.Context, job *v1.Job) error {
+func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob) error {
 	if err := v.validateRequiredParams(ctx, job); err != nil {
 		return err
 	}
-	if job.Spec.Type == v1.JobAddonType {
+	if job.Spec.Type == v1.OpsJobAddonType {
 		if err := v.validateNodeInputDuplicated(ctx, job); err != nil {
 			return err
 		}
@@ -177,7 +177,7 @@ func (v *JobValidator) validateOnCreation(ctx context.Context, job *v1.Job) erro
 	return nil
 }
 
-func (v *JobValidator) validateOnUpdate(ctx context.Context, newJob, oldJob *v1.Job) error {
+func (v *OpsJobValidator) validateOnUpdate(ctx context.Context, newJob, oldJob *v1.OpsJob) error {
 	if err := v.validateRequiredParams(ctx, newJob); err != nil {
 		return err
 	}
@@ -187,20 +187,20 @@ func (v *JobValidator) validateOnUpdate(ctx context.Context, newJob, oldJob *v1.
 	return nil
 }
 
-func (v *JobValidator) validateRequiredParams(ctx context.Context, job *v1.Job) error {
+func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.OpsJob) error {
 	var errs []error
 	if job.Spec.Type == "" {
-		errs = append(errs, fmt.Errorf("the type of job is empty"))
+		errs = append(errs, fmt.Errorf("the type of ops job is empty"))
 	}
 	if job.Spec.Cluster == "" {
-		errs = append(errs, fmt.Errorf("the cluster of job is empty"))
+		errs = append(errs, fmt.Errorf("the cluster of ops job is empty"))
 	}
 	cl := &v1.Cluster{}
 	if err := v.Get(ctx, client.ObjectKey{Name: job.Spec.Cluster}, cl); err != nil {
 		errs = append(errs, err)
 	}
 	if len(job.Spec.Inputs) == 0 {
-		errs = append(errs, fmt.Errorf("the inputs of job are empty"))
+		errs = append(errs, fmt.Errorf("the inputs of ops job are empty"))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
@@ -208,11 +208,11 @@ func (v *JobValidator) validateRequiredParams(ctx context.Context, job *v1.Job) 
 	return nil
 }
 
-func (v *JobValidator) validateNodeInputDuplicated(ctx context.Context, job *v1.Job) error {
+func (v *OpsJobValidator) validateNodeInputDuplicated(ctx context.Context, job *v1.OpsJob) error {
 	labelSelector := labels.SelectorFromSet(map[string]string{
-		v1.ClusterIdLabel: job.Spec.Cluster,
-		v1.JobTypeLabel:   string(job.Spec.Type)})
-	jobList := &v1.JobList{}
+		v1.ClusterIdLabel:  job.Spec.Cluster,
+		v1.OpsJobTypeLabel: string(job.Spec.Type)})
+	jobList := &v1.OpsJobList{}
 	if err := v.List(ctx, jobList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return client.IgnoreNotFound(err)
 	}
@@ -222,13 +222,13 @@ func (v *JobValidator) validateNodeInputDuplicated(ctx context.Context, job *v1.
 		}
 		if v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterNode) {
 			return commonerrors.NewResourceProcessing(
-				fmt.Sprintf("another job (%s) is running, job.type: %s", currentJob.Name, currentJob.Spec.Type))
+				fmt.Sprintf("another ops job (%s) is running, job.type: %s", currentJob.Name, currentJob.Spec.Type))
 		}
 	}
 	return nil
 }
 
-func (v *JobValidator) validateAddonTemplate(ctx context.Context, job *v1.Job) error {
+func (v *OpsJobValidator) validateAddonTemplate(ctx context.Context, job *v1.OpsJob) error {
 	for _, p := range job.Spec.Inputs {
 		if p.Name != v1.ParameterAddonTemplate {
 			continue
@@ -245,7 +245,7 @@ func (v *JobValidator) validateAddonTemplate(ctx context.Context, job *v1.Job) e
 	return nil
 }
 
-func (v *JobValidator) validateImmutableFields(newJob, oldJob *v1.Job) error {
+func (v *OpsJobValidator) validateImmutableFields(newJob, oldJob *v1.OpsJob) error {
 	if newJob.Spec.Cluster != oldJob.Spec.Cluster {
 		return field.Forbidden(field.NewPath("spec").Key("cluster"), "immutable")
 	}
@@ -255,7 +255,7 @@ func (v *JobValidator) validateImmutableFields(newJob, oldJob *v1.Job) error {
 	return nil
 }
 
-func (v *JobValidator) hasDuplicateInput(params1, params2 []v1.Parameter, paramName string) bool {
+func (v *OpsJobValidator) hasDuplicateInput(params1, params2 []v1.Parameter, paramName string) bool {
 	params1Map := make(map[string]string)
 	for _, p := range params1 {
 		if paramName == p.Name {

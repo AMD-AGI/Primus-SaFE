@@ -84,7 +84,7 @@ create
 
 alter table fault OWNER TO "primus-safe";
 
-create table if not exists job
+create table if not exists ops_job
 (
     id SERIAL PRIMARY KEY,
     job_id VARCHAR(64) not null,
@@ -107,18 +107,18 @@ create table if not exists job
 
 create
     index T_JOB_ID_INDEX
-    on job (job_id);
+    on ops_job (job_id);
 
 create
     index T_JOB_CREATE_TIME_INDEX
-    on job (create_time);
+    on ops_job (create_time);
 
 create
     index T_JOB_PHASE_INDEX
-    on job (phase);
+    on ops_job (phase);
 
 create
     index T_JOB_PARAMS_INDEX
-    on job (inputs);
+    on ops_job (inputs);
 
-alter table job OWNER TO "primus-safe";
+alter table ops_job OWNER TO "primus-safe";

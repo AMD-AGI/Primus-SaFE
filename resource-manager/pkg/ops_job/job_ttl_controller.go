@@ -3,7 +3,7 @@
  * See LICENSE for license information.
  */
 
-package job
+package ops_job
 
 import (
 	"context"
@@ -29,13 +29,13 @@ func SetupJobTTLController(mgr manager.Manager) error {
 		Client: mgr.GetClient(),
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
-		For(&v1.Job{}, builder.WithPredicates(predicate.Or(
+		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
 			predicate.GenerationChangedPredicate{}, caredChangePredicate{}))).
 		Complete(r)
 	if err != nil {
 		return err
 	}
-	klog.Infof("Setup Job TTL Controller successfully")
+	klog.Infof("Setup OpsJob TTL Controller successfully")
 	return nil
 }
 
@@ -44,8 +44,8 @@ type caredChangePredicate struct {
 }
 
 func (caredChangePredicate) Update(e event.UpdateEvent) bool {
-	oldJob, ok1 := e.ObjectOld.(*v1.Job)
-	newJob, ok2 := e.ObjectNew.(*v1.Job)
+	oldJob, ok1 := e.ObjectOld.(*v1.OpsJob)
+	newJob, ok2 := e.ObjectNew.(*v1.OpsJob)
 	if !ok1 || !ok2 {
 		return false
 	}
@@ -61,7 +61,7 @@ func (r *JobTTLController) Reconcile(ctx context.Context, req ctrlruntime.Reques
 		klog.V(4).Infof("Finished reconcile job-ttl %s cost (%v)", req.Name, time.Since(startTime))
 	}()
 
-	job := new(v1.Job)
+	job := new(v1.OpsJob)
 	if err := r.Get(ctx, req.NamespacedName, job); err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
@@ -74,7 +74,7 @@ func (r *JobTTLController) Reconcile(ctx context.Context, req ctrlruntime.Reques
 	return r.handle(ctx, job)
 }
 
-func (r *JobTTLController) handle(ctx context.Context, job *v1.Job) (ctrlruntime.Result, error) {
+func (r *JobTTLController) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	nowTime := time.Now().Unix()
 	costTime := nowTime - job.Status.FinishedAt.Unix()
 	var err error

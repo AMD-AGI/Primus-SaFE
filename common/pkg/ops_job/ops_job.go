@@ -3,7 +3,7 @@
  * See LICENSE for license information.
  */
 
-package job
+package ops_job
 
 import (
 	"encoding/json"
@@ -13,12 +13,12 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
-type NodeJobInput struct {
-	Commands     []NodeJobCommand `json:"commands"`
-	DispatchTime int64            `json:"dispatchTime"`
+type OpsJobInput struct {
+	Commands     []OpsJobCommand `json:"commands"`
+	DispatchTime int64           `json:"dispatchTime"`
 }
 
-type NodeJobCommand struct {
+type OpsJobCommand struct {
 	// the addon name
 	Addon string `json:"addon"`
 	// the command to be executed by nodeAgent (base64-encoded).
@@ -33,12 +33,12 @@ type NodeJobCommand struct {
 	Chip v1.ChipType `json:"chip,omitempty"`
 }
 
-func GetNodeJobInput(obj metav1.Object) *NodeJobInput {
-	val := v1.GetNodeJobInput(obj)
+func GetOpsJobInput(obj metav1.Object) *OpsJobInput {
+	val := v1.GetOpsJobInput(obj)
 	if val == "" {
 		return nil
 	}
-	var jobInput NodeJobInput
+	var jobInput OpsJobInput
 	if err := json.Unmarshal([]byte(val), &jobInput); err != nil {
 		return nil
 	}

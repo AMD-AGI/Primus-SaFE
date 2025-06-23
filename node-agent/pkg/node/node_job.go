@@ -16,7 +16,7 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/job"
+	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -39,7 +39,7 @@ func (job *NodeJob) Reconcile(n *Node) error {
 	if quit || err != nil {
 		return err
 	}
-	jobId := v1.GetJobId(n.k8sNode)
+	jobId := v1.GetOpsJobId(n.k8sNode)
 	if err = job.handle(n); err != nil {
 		klog.ErrorS(err, "failed to handle node job", "job.id", jobId)
 		job.addCondition(n, jobId, err.Error(), corev1.ConditionFalse)
@@ -67,12 +67,12 @@ func (job *NodeJob) observe(n *Node) (bool, error) {
 }
 
 func (job *NodeJob) observeJobInvalidity(n *Node) (bool, error) {
-	if v1.GetJobId(n.k8sNode) == "" ||
-		v1.GetJobType(n.k8sNode) == "" || v1.GetNodeJobInput(n.k8sNode) == "" {
+	if v1.GetOpsJobId(n.k8sNode) == "" ||
+		v1.GetOpsJobType(n.k8sNode) == "" || v1.GetOpsJobInput(n.k8sNode) == "" {
 		return true, nil
 	}
 	// Addon jobs must wait until the required taint is created
-	if v1.GetJobType(n.k8sNode) == string(v1.JobAddonType) {
+	if v1.GetOpsJobType(n.k8sNode) == string(v1.OpsJobAddonType) {
 		if len(n.k8sNode.Spec.Taints) == 0 {
 			return true, nil
 		}
@@ -88,8 +88,8 @@ func (job *NodeJob) observeJobProcessed(n *Node) (bool, error) {
 		return false
 	}
 	cond := &corev1.NodeCondition{
-		Type:   v1.NodeJob,
-		Reason: v1.GetJobId(n.k8sNode),
+		Type:   v1.OpsJobKind,
+		Reason: v1.GetOpsJobId(n.k8sNode),
 	}
 	cond = n.FindCondition(cond, isConditionEqual)
 	if cond != nil && !cond.LastTransitionTime.IsZero() {
@@ -103,14 +103,14 @@ func (job *NodeJob) observeJobProcessed(n *Node) (bool, error) {
 func (job *NodeJob) handle(n *Node) error {
 	jobInput := getJobInput(n.k8sNode)
 	if jobInput == nil {
-		return fmt.Errorf("invalid job input")
+		return fmt.Errorf("invalid ops job input")
 	}
 	var err error
 	hasHandled := false
-	jobId := v1.GetJobId(n.k8sNode)
+	jobId := v1.GetOpsJobId(n.k8sNode)
 	for i, cmd := range jobInput.Commands {
 		if !n.IsMatchChip(string(cmd.Chip)) {
-			klog.Infof("skipping Job %s: chip %s is not match.", jobId, string(cmd.Chip))
+			klog.Infof("skipping OpsJob %s: chip %s is not match.", jobId, string(cmd.Chip))
 			continue
 		}
 		if jobInput.Commands[i].IsSystemd {
@@ -133,7 +133,7 @@ func (job *NodeJob) handle(n *Node) error {
 	return nil
 }
 
-func (job *NodeJob) executeCommand(jobId string, jobCmd commonjob.NodeJobCommand) error {
+func (job *NodeJob) executeCommand(jobId string, jobCmd commonjob.OpsJobCommand) error {
 	// Verify if the expectation is already satisfied. If yes, return without taking any action.
 	if jobCmd.Observe != "" {
 		if statusCode, _ := job.execute(jobCmd.Observe); statusCode == types.StatusOk {
@@ -146,7 +146,7 @@ func (job *NodeJob) executeCommand(jobId string, jobCmd commonjob.NodeJobCommand
 		if statusCode, output := job.execute(jobCmd.Action); statusCode != types.StatusOk {
 			return fmt.Errorf("%s", output)
 		}
-		klog.Infof("job(%s) do action successfully", jobId)
+		klog.Infof("ops job(%s) do action successfully", jobId)
 	}
 
 	if jobCmd.Observe == "" {
@@ -155,7 +155,7 @@ func (job *NodeJob) executeCommand(jobId string, jobCmd commonjob.NodeJobCommand
 	statusCode, _ := job.execute(jobCmd.Observe)
 	switch statusCode {
 	case types.StatusOk:
-		klog.Infof("job(%s) observe successfully", jobId)
+		klog.Infof("ops job(%s) observe successfully", jobId)
 		return nil
 	case types.StatusError:
 		return fmt.Errorf("the observation result does not meet expectation")
@@ -164,7 +164,7 @@ func (job *NodeJob) executeCommand(jobId string, jobCmd commonjob.NodeJobCommand
 	}
 }
 
-func (job *NodeJob) executeSystemd(jobId string, jobCmd commonjob.NodeJobCommand) error {
+func (job *NodeJob) executeSystemd(jobId string, jobCmd commonjob.OpsJobCommand) error {
 	content := "#!/bin/bash\n" + jobCmd.Action
 	scriptFullPath := fmt.Sprintf("%s/%s.sh", systemdPath, jobCmd.Addon)
 	if err := utils.WriteFile(scriptFullPath, content, 0770); err != nil {
@@ -186,7 +186,7 @@ func (job *NodeJob) executeSystemd(jobId string, jobCmd commonjob.NodeJobCommand
 	if statusCode, output := job.execute(command); statusCode != types.StatusOk {
 		return fmt.Errorf("%s", output)
 	}
-	klog.Infof("job(%s) execute systemd successfully", jobId)
+	klog.Infof("ops job(%s) execute systemd successfully", jobId)
 	return nil
 }
 
@@ -203,7 +203,7 @@ func (job *NodeJob) execute(cmd string) (int, string) {
 
 func (job *NodeJob) addCondition(n *Node, jobId, message string, status corev1.ConditionStatus) error {
 	cond := corev1.NodeCondition{
-		Type:               v1.NodeJob,
+		Type:               v1.OpsJobKind,
 		Status:             status,
 		Reason:             jobId,
 		Message:            message,
@@ -215,8 +215,8 @@ func (job *NodeJob) addCondition(n *Node, jobId, message string, status corev1.C
 	return nil
 }
 
-func getJobInput(node *corev1.Node) *commonjob.NodeJobInput {
-	jobInput := commonjob.GetNodeJobInput(node)
+func getJobInput(node *corev1.Node) *commonjob.OpsJobInput {
+	jobInput := commonjob.GetOpsJobInput(node)
 	if jobInput == nil || len(jobInput.Commands) == 0 {
 		return nil
 	}
@@ -228,7 +228,7 @@ func getJobInput(node *corev1.Node) *commonjob.NodeJobInput {
 }
 
 func getJobDispatchTime(node *corev1.Node) int64 {
-	jobInput := commonjob.GetNodeJobInput(node)
+	jobInput := commonjob.GetOpsJobInput(node)
 	if jobInput == nil {
 		return 0
 	}

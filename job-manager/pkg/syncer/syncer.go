@@ -20,7 +20,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
@@ -159,11 +158,11 @@ func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (co
 
 	var result controller.Result
 	switch message.gvk.Kind {
-	case common.PytorchJobKind, common.DeploymentKind, common.StatefulSetKind:
+	case v1.PytorchJobKind, v1.DeploymentKind, v1.StatefulSetKind:
 		result, err = r.handleJob(ctx, message, informer)
-	case common.PodKind:
+	case v1.PodKind:
 		result, err = r.handlePod(ctx, message, informer)
-	case common.EventKind:
+	case v1.EventKind:
 		result, err = r.handleEvent(ctx, message, informer)
 	}
 	if jobutils.IsUnRecoverableError(err) {

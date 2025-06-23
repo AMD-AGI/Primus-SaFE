@@ -3,7 +3,7 @@
  * See LICENSE for license information.
  */
 
-package job
+package ops_job
 
 import (
 	"context"
@@ -24,19 +24,20 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
-const (
-	JobCompleted = "JobCompleted"
-	JobSucceed   = "JobSucceed"
-	JobFailed    = "JobFailed"
+type OpsJobReason string
 
-	InternalError = "InternalError"
+const (
+	JobSucceed       OpsJobReason = "JobSucceed"
+	JobFailed        OpsJobReason = "JobFailed"
+	JobInternalError OpsJobReason = "InternalError"
+	JobTimeout       OpsJobReason = "Timeout"
 )
 
-type FilterFunc func(ctx context.Context, job *v1.Job) bool
-type ObserveFunc func(ctx context.Context, job *v1.Job) (bool, error)
-type TimeoutFunc func(ctx context.Context, job *v1.Job) error
-type HandleFunc func(ctx context.Context, job *v1.Job) (ctrlruntime.Result, error)
-type ClearFunc func(ctx context.Context, job *v1.Job) error
+type FilterFunc func(ctx context.Context, job *v1.OpsJob) bool
+type ObserveFunc func(ctx context.Context, job *v1.OpsJob) (bool, error)
+type TimeoutFunc func(ctx context.Context, job *v1.OpsJob) error
+type HandleFunc func(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error)
+type ClearFunc func(ctx context.Context, job *v1.OpsJob) error
 
 func doReconcile(ctx context.Context, cli client.Client, req ctrlruntime.Request,
 	filter FilterFunc, observe ObserveFunc, timeout TimeoutFunc, handle HandleFunc, clears ...ClearFunc) (ctrlruntime.Result, error) {
@@ -46,7 +47,7 @@ func doReconcile(ctx context.Context, cli client.Client, req ctrlruntime.Request
 		klog.V(4).Infof("Finished reconcile job %s cost (%v)", req.Name, time.Since(startTime))
 	}()
 
-	job := new(v1.Job)
+	job := new(v1.OpsJob)
 	if err := cli.Get(ctx, req.NamespacedName, job); err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
@@ -72,19 +73,19 @@ func doReconcile(ctx context.Context, cli client.Client, req ctrlruntime.Request
 	return handle(ctx, job)
 }
 
-func doTimeout(ctx context.Context, cli client.Client, job *v1.Job, callBack TimeoutFunc) error {
+func doTimeout(ctx context.Context, cli client.Client, job *v1.OpsJob, callBack TimeoutFunc) error {
 	if callBack != nil {
 		if err := callBack(ctx, job); err != nil {
 			return err
 		}
 	}
 	message := fmt.Sprintf("The job is timeout, timeoutSecond: %d", job.Spec.TimeoutSecond)
-	return setJobCompleted(ctx, cli, job, v1.JobFailed, string(v1.JobTimeout), message)
+	return setJobCompleted(ctx, cli, job, v1.OpsJobFailed, JobTimeout, message)
 }
 
-func doDelete(ctx context.Context, cli client.Client, job *v1.Job, clearFuncs ...ClearFunc) error {
+func doDelete(ctx context.Context, cli client.Client, job *v1.OpsJob, clearFuncs ...ClearFunc) error {
 	if !job.IsFinished() {
-		if err := setJobCompleted(ctx, cli, job, v1.JobFailed, "JobStopped", "The job is stopped"); err != nil {
+		if err := setJobCompleted(ctx, cli, job, v1.OpsJobFailed, "JobStopped", "The job is stopped"); err != nil {
 			return err
 		}
 	}
@@ -94,10 +95,11 @@ func doDelete(ctx context.Context, cli client.Client, job *v1.Job, clearFuncs ..
 			return err
 		}
 	}
-	return utils.RemoveFinalizer(ctx, cli, job, v1.JobFinalizer)
+	return utils.RemoveFinalizer(ctx, cli, job, v1.OpsJobFinalizer)
 }
 
-func setJobCompleted(ctx context.Context, cli client.Client, job *v1.Job, phase v1.JobPhase, reason, message string) error {
+func setJobCompleted(ctx context.Context, cli client.Client, job *v1.OpsJob,
+	phase v1.OpsJobPhase, reason OpsJobReason, message string) error {
 	if job.IsEnd() {
 		return nil
 	}
@@ -107,12 +109,12 @@ func setJobCompleted(ctx context.Context, cli client.Client, job *v1.Job, phase 
 	}
 	job.Status.Phase = phase
 	cond := metav1.Condition{
-		Type:    JobCompleted,
+		Type:    "JobCompleted",
 		Status:  metav1.ConditionTrue,
-		Reason:  reason,
+		Reason:  string(reason),
 		Message: message,
 	}
-	if phase == v1.JobFailed {
+	if phase == v1.OpsJobFailed {
 		job.Status.Message = message
 		cond.Status = metav1.ConditionFalse
 	}
@@ -125,7 +127,7 @@ func setJobCompleted(ctx context.Context, cli client.Client, job *v1.Job, phase 
 	return nil
 }
 
-func updateJobCondition(ctx context.Context, cli client.Client, job *v1.Job, cond *metav1.Condition) error {
+func updateJobCondition(ctx context.Context, cli client.Client, job *v1.OpsJob, cond *metav1.Condition) error {
 	changed := meta.SetStatusCondition(&job.Status.Conditions, *cond)
 	if !changed {
 		return nil
@@ -146,8 +148,8 @@ func getAdminNode(ctx context.Context, cli client.Client, name string) (*v1.Node
 	return node, nil
 }
 
-func getFault(ctx context.Context, cli client.Client, adminNodeName, errorCode string) (*v1.Fault, error) {
-	faultName := commonfaults.GenerateFaultName(adminNodeName, errorCode)
+func getFault(ctx context.Context, cli client.Client, adminNodeName, faultId string) (*v1.Fault, error) {
+	faultName := commonfaults.GenerateFaultName(adminNodeName, faultId)
 	fault := &v1.Fault{}
 	err := cli.Get(ctx, client.ObjectKey{Name: faultName}, fault)
 	if err != nil {

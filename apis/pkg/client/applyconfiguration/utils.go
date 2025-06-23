@@ -72,12 +72,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.HelmStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("HybridStorageSpec"):
 		return &amdv1.HybridStorageSpecApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("Job"):
-		return &amdv1.JobApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("JobSpec"):
-		return &amdv1.JobSpecApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("JobStatus"):
-		return &amdv1.JobStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("MachineStatus"):
 		return &amdv1.MachineStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Node"):
@@ -96,6 +90,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.NodeTemplateApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("NodeTemplateSpec"):
 		return &amdv1.NodeTemplateSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("OpsJob"):
+		return &amdv1.OpsJobApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("OpsJobSpec"):
+		return &amdv1.OpsJobSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("OpsJobStatus"):
+		return &amdv1.OpsJobStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Parameter"):
 		return &amdv1.ParameterApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("PodFailedMessage"):

@@ -26,56 +26,56 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-func (h *Handler) CreateJob(c *gin.Context) {
-	handle(c, h.createJob)
+func (h *Handler) CreateOpsJob(c *gin.Context) {
+	handle(c, h.createOpsJob)
 }
 
-func (h *Handler) ListJob(c *gin.Context) {
-	handle(c, h.listJob)
+func (h *Handler) ListOpsJob(c *gin.Context) {
+	handle(c, h.listOpsJob)
 }
 
-func (h *Handler) GetJob(c *gin.Context) {
-	handle(c, h.getJob)
+func (h *Handler) GetOpsJob(c *gin.Context) {
+	handle(c, h.getOpsJob)
 }
 
-func (h *Handler) createJob(c *gin.Context) (interface{}, error) {
-	req := &types.CreateJobRequest{}
+func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
+	req := &types.CreateOpsJobRequest{}
 	body, err := getBodyFromRequest(c.Request, req)
 	if err != nil {
-		klog.ErrorS(err, "failed to parse job request", "body", string(body))
+		klog.ErrorS(err, "failed to parse ops job request", "body", string(body))
 		return nil, err
 	}
 
-	var job *v1.Job
+	var job *v1.OpsJob
 	switch req.Type {
-	case v1.JobAddonType:
+	case v1.OpsJobAddonType:
 		job, err = generateAddonJob(req)
 	default:
-		err = fmt.Errorf("unsupported job type")
+		err = fmt.Errorf("unsupported ops job type")
 	}
 	if err != nil || job == nil {
 		return nil, err
 	}
 	if err = h.Create(c.Request.Context(), job); err != nil {
-		klog.ErrorS(err, "failed to create job")
+		klog.ErrorS(err, "failed to create ops job")
 		return nil, err
 	}
-	klog.Infof("create job: %s, type: %s, params: %v, user: %s",
+	klog.Infof("create ops job: %s, type: %s, params: %v, user: %s",
 		job.Name, job.Spec.Type, job.Spec.Inputs, req.UserName)
-	return &types.CreateJobResponse{JobId: job.Name}, nil
+	return &types.CreateOpsJobResponse{JobId: job.Name}, nil
 }
 
-func (h *Handler) listJob(c *gin.Context) (interface{}, error) {
+func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
-	query, err := parseListJobQuery(c)
+	query, err := parseListOpsJobQuery(c)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse query")
 		return nil, err
 	}
 
-	dbSql := cvtToListJobSql(query)
+	dbSql := cvtToListOpsJobSql(query)
 	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, query.SortBy, query.Order, query.Limit, query.Offset)
 	if err != nil {
 		return nil, err
@@ -84,16 +84,16 @@ func (h *Handler) listJob(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := &types.GetJobResponse{
+	result := &types.GetOpsJobResponse{
 		TotalCount: count,
 	}
 	for _, job := range jobs {
-		result.Items = append(result.Items, cvtToJobResponse(job))
+		result.Items = append(result.Items, cvtToOpsJobResponse(job))
 	}
 	return result, nil
 }
 
-func (h *Handler) getJob(c *gin.Context) (interface{}, error) {
+func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
@@ -102,7 +102,7 @@ func (h *Handler) getJob(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("the jobId is empty")
 	}
 
-	dbSql := cvtToGetJobSql(jobId)
+	dbSql := cvtToGetOpsJobSql(jobId)
 	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, "", "", 1, 0)
 	if err != nil {
 		return nil, err
@@ -110,11 +110,11 @@ func (h *Handler) getJob(c *gin.Context) (interface{}, error) {
 	if len(jobs) == 0 {
 		return nil, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("job %s is not found", jobId))
 	}
-	return cvtToJobResponse(jobs[0]), nil
+	return cvtToOpsJobResponse(jobs[0]), nil
 }
 
-func generateAddonJob(req *types.CreateJobRequest) (*v1.Job, error) {
-	job := generateJob(req)
+func generateAddonJob(req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+	job := generateOpsJob(req)
 	jobName := ""
 	if p := job.GetParameter(v1.ParameterNodeTemplate); p != nil {
 		jobName = p.Value
@@ -131,19 +131,19 @@ func generateAddonJob(req *types.CreateJobRequest) (*v1.Job, error) {
 
 	job.Name = jobName
 	if req.SecurityUpgrade {
-		v1.SetAnnotation(job, v1.JobSecurityUpgradeAnnotation, "")
+		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
 	}
 	batchCount := req.BatchCount
 	if batchCount == 0 {
 		batchCount = commonconfig.GetJobBatchCount()
 	}
-	v1.SetAnnotation(job, v1.JobBatchCountAnnotation, strconv.Itoa(batchCount))
+	v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(batchCount))
 	return job, nil
 }
 
-func generateJob(req *types.CreateJobRequest) *v1.Job {
-	job := &v1.Job{
-		Spec: v1.JobSpec{
+func generateOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {
+	job := &v1.OpsJob{
+		Spec: v1.OpsJobSpec{
 			Cluster:       req.Cluster,
 			Type:          req.Type,
 			Inputs:        req.Inputs,
@@ -152,12 +152,12 @@ func generateJob(req *types.CreateJobRequest) *v1.Job {
 	}
 	v1.SetAnnotation(job, v1.UserNameAnnotation, req.JobName)
 	nowTime := time.Now()
-	v1.SetAnnotation(job, v1.JobDispatchTimeAnnotation, timeutil.FormatRFC3339(&nowTime))
+	v1.SetAnnotation(job, v1.OpsJobDispatchTimeAnnotation, timeutil.FormatRFC3339(&nowTime))
 	return job
 }
 
-func parseListJobQuery(c *gin.Context) (*types.GetJobRequest, error) {
-	query := &types.GetJobRequest{}
+func parseListOpsJobQuery(c *gin.Context) (*types.GetOpsJobRequest, error) {
+	query := &types.GetOpsJobRequest{}
 	err := c.ShouldBindWith(&query, binding.Query)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
@@ -169,7 +169,7 @@ func parseListJobQuery(c *gin.Context) (*types.GetJobRequest, error) {
 		query.Order = dbclient.DESC
 	}
 	if query.SortBy == "" {
-		dbTags := dbclient.GetJobFieldTags()
+		dbTags := dbclient.GetOpsJobFieldTags()
 		query.SortBy = dbclient.GetFieldTag(dbTags, "CreateTime")
 	} else {
 		query.SortBy = strings.ToLower(query.SortBy)
@@ -197,8 +197,8 @@ func parseListJobQuery(c *gin.Context) (*types.GetJobRequest, error) {
 	return query, nil
 }
 
-func cvtToListJobSql(query *types.GetJobRequest) sqrl.Sqlizer {
-	dbTags := dbclient.GetJobFieldTags()
+func cvtToListOpsJobSql(query *types.GetOpsJobRequest) sqrl.Sqlizer {
+	dbTags := dbclient.GetOpsJobFieldTags()
 	createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
 	dbSql := sqrl.And{
 		sqrl.GtOrEq{createTime: query.SinceTime},
@@ -220,23 +220,23 @@ func cvtToListJobSql(query *types.GetJobRequest) sqrl.Sqlizer {
 	return dbSql
 }
 
-func cvtToGetJobSql(jobId string) sqrl.Sqlizer {
-	dbTags := dbclient.GetJobFieldTags()
+func cvtToGetOpsJobSql(jobId string) sqrl.Sqlizer {
+	dbTags := dbclient.GetOpsJobFieldTags()
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "JobId"): jobId},
 	}
 	return dbSql
 }
 
-func cvtToJobResponse(job *dbclient.Job) types.GetJobResponseItem {
-	result := types.GetJobResponseItem{
+func cvtToOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponseItem {
+	result := types.GetOpsJobResponseItem{
 		JobId:      job.JobId,
 		JobName:    dbutils.ParseNullString(job.JobName),
 		Cluster:    job.Cluster,
 		Workspace:  dbutils.ParseNullString(job.Workspace),
-		Type:       v1.JobType(job.Type),
+		Type:       v1.OpsJobType(job.Type),
 		UserName:   dbutils.ParseNullString(job.UserName),
-		Phase:      v1.JobPhase(dbutils.ParseNullString(job.Phase)),
+		Phase:      v1.OpsJobPhase(dbutils.ParseNullString(job.Phase)),
 		CreateTime: dbutils.ParseNullTimeToString(job.CreateTime),
 		StartTime:  dbutils.ParseNullTimeToString(job.StartTime),
 		EndTime:    dbutils.ParseNullTimeToString(job.EndTime),
@@ -244,7 +244,7 @@ func cvtToJobResponse(job *dbclient.Job) types.GetJobResponseItem {
 		Message:    dbutils.ParseNullString(job.Message),
 	}
 	if result.Phase == "" {
-		result.Phase = v1.JobPending
+		result.Phase = v1.OpsJobPending
 	}
 	result.Inputs = deserializeParams(string(job.Inputs))
 	result.Outputs = deserializeParams(dbutils.ParseNullString(job.Outputs))

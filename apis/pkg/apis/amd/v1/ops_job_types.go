@@ -13,26 +13,24 @@ import (
 )
 
 const (
-	JobKind = "Job"
+	OpsJobKind = "OpsJob"
 )
 
-type JobPhase string
-type JobType string
+type OpsJobPhase string
+type OpsJobType string
 
 const (
-	JobSucceeded JobPhase = "Succeeded"
-	JobFailed    JobPhase = "Failed"
-	JobRunning   JobPhase = "Running"
-	JobTimeout   JobPhase = "Timeout"
-	JobPending   JobPhase = "Pending"
+	OpsJobSucceeded OpsJobPhase = "Succeeded"
+	OpsJobFailed    OpsJobPhase = "Failed"
+	OpsJobRunning   OpsJobPhase = "Running"
+	OpsJobTimeout   OpsJobPhase = "Timeout"
+	OpsJobPending   OpsJobPhase = "Pending"
 
-	JobAddonType JobType = "addon"
+	OpsJobAddonType OpsJobType = "addon"
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"
 	ParameterAddonTemplate = "addon.template"
-
-	NodeJob = "NodeJob"
 )
 
 type Parameter struct {
@@ -40,31 +38,31 @@ type Parameter struct {
 	Value string `json:"value"`
 }
 
-type JobSpec struct {
-	// the type of job, valid values include: addon
-	Type JobType `json:"type"`
-	// the cluster which the job belongs to
+type OpsJobSpec struct {
+	// the type of ops job, valid values include: addon
+	Type OpsJobType `json:"type"`
+	// the cluster which the ops job belongs to
 	Cluster string `json:"cluster"`
 	// The resource objects to be processed, e.g., node. Multiple entries will be processed sequentially.
 	Inputs []Parameter `json:"inputs"`
-	// the lifecycle of job
+	// the lifecycle of ops job
 	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
-	// job Timeout (in seconds), Less than or equal to 0 means no timeout
+	// ops job Timeout (in seconds), Less than or equal to 0 means no timeout
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
 }
 
-type JobStatus struct {
-	// job's start time
+type OpsJobStatus struct {
+	// ops job's start time
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
-	// job's end time
+	// ops job's end time
 	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
-	// job's conditions
+	// ops job's conditions
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// job's phase
-	Phase JobPhase `json:"phase,omitempty"`
+	// ops job's phase
+	Phase OpsJobPhase `json:"phase,omitempty"`
 	// error message
 	Message string `json:"message,omitempty"`
-	// job's output
+	// ops job's output
 	Outputs []Parameter `json:"outputs,omitempty"`
 }
 
@@ -73,33 +71,33 @@ type JobStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
-// +kubebuilder:webhook:path=/mutate-amd-primus-safe-v1-job,mutating=true,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=jobs,verbs=create;update,versions=v1,name=mjob.kb.io,admissionReviewVersions={v1,v1beta1}
-// +kubebuilder:webhook:path=/validate-amd-primus-safe-v1-job,mutating=false,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=jobs,verbs=create;update,versions=v1,name=vjob.kb.io,admissionReviewVersions={v1,v1beta1}
-// +kubebuilder:rbac:groups=amd.com,resources=jobs,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=amd.com,resources=jobs/status,verbs=get;update;patch
+// +kubebuilder:webhook:path=/mutate-amd-primus-safe-v1-opsjob,mutating=true,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=opsjobs,verbs=create;update,versions=v1,name=mopsjob.kb.io,admissionReviewVersions={v1,v1beta1}
+// +kubebuilder:webhook:path=/validate-amd-primus-safe-v1-opsjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=amd.com,resources=opsjobs,verbs=create;update,versions=v1,name=vopsjob.kb.io,admissionReviewVersions={v1,v1beta1}
+// +kubebuilder:rbac:groups=amd.com,resources=opsjobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=amd.com,resources=opsjobs/status,verbs=get;update;patch
 
-type Job struct {
+type OpsJob struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   JobSpec   `json:"spec,omitempty"`
-	Status JobStatus `json:"status,omitempty"`
+	Spec   OpsJobSpec   `json:"spec,omitempty"`
+	Status OpsJobStatus `json:"status,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 
-type JobList struct {
+type OpsJobList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Job `json:"items"`
+	Items           []OpsJob `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Job{}, &JobList{})
+	SchemeBuilder.Register(&OpsJob{}, &OpsJobList{})
 }
 
-func (job *Job) IsEnd() bool {
+func (job *OpsJob) IsEnd() bool {
 	if job.IsFinished() {
 		return true
 	}
@@ -109,14 +107,14 @@ func (job *Job) IsEnd() bool {
 	return false
 }
 
-func (job *Job) IsPending() bool {
-	if job.Status.Phase == JobPending || job.Status.Phase == "" {
+func (job *OpsJob) IsPending() bool {
+	if job.Status.Phase == OpsJobPending || job.Status.Phase == "" {
 		return true
 	}
 	return false
 }
 
-func (job *Job) IsTimeout() bool {
+func (job *OpsJob) IsTimeout() bool {
 	if job.Spec.TimeoutSecond <= 0 {
 		return false
 	}
@@ -124,14 +122,14 @@ func (job *Job) IsTimeout() bool {
 	return int(costTime) >= job.Spec.TimeoutSecond
 }
 
-func (job *Job) IsFinished() bool {
+func (job *OpsJob) IsFinished() bool {
 	if job.Status.FinishedAt != nil {
 		return true
 	}
 	return false
 }
 
-func (job *Job) GetParameter(name string) *Parameter {
+func (job *OpsJob) GetParameter(name string) *Parameter {
 	for i, param := range job.Spec.Inputs {
 		if param.Name == name {
 			return &job.Spec.Inputs[i]
@@ -140,7 +138,7 @@ func (job *Job) GetParameter(name string) *Parameter {
 	return nil
 }
 
-func (job *Job) GetParameters(name string) []*Parameter {
+func (job *OpsJob) GetParameters(name string) []*Parameter {
 	var result []*Parameter
 	for i, param := range job.Spec.Inputs {
 		if param.Name == name {

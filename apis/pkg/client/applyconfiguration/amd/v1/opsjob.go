@@ -12,22 +12,22 @@ import (
 	metav1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// JobApplyConfiguration represents a declarative configuration of the Job type for use
+// OpsJobApplyConfiguration represents a declarative configuration of the OpsJob type for use
 // with apply.
-type JobApplyConfiguration struct {
+type OpsJobApplyConfiguration struct {
 	metav1.TypeMetaApplyConfiguration    `json:",inline"`
 	*metav1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                                 *JobSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                               *JobStatusApplyConfiguration `json:"status,omitempty"`
+	Spec                                 *OpsJobSpecApplyConfiguration   `json:"spec,omitempty"`
+	Status                               *OpsJobStatusApplyConfiguration `json:"status,omitempty"`
 }
 
-// Job constructs a declarative configuration of the Job type for use with
+// OpsJob constructs a declarative configuration of the OpsJob type for use with
 // apply.
-func Job(name, namespace string) *JobApplyConfiguration {
-	b := &JobApplyConfiguration{}
+func OpsJob(name, namespace string) *OpsJobApplyConfiguration {
+	b := &OpsJobApplyConfiguration{}
 	b.WithName(name)
 	b.WithNamespace(namespace)
-	b.WithKind("Job")
+	b.WithKind("OpsJob")
 	b.WithAPIVersion("amd.com/v1")
 	return b
 }
@@ -35,7 +35,7 @@ func Job(name, namespace string) *JobApplyConfiguration {
 // WithKind sets the Kind field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Kind field is set to the value of the last call.
-func (b *JobApplyConfiguration) WithKind(value string) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithKind(value string) *OpsJobApplyConfiguration {
 	b.TypeMetaApplyConfiguration.Kind = &value
 	return b
 }
@@ -43,7 +43,7 @@ func (b *JobApplyConfiguration) WithKind(value string) *JobApplyConfiguration {
 // WithAPIVersion sets the APIVersion field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the APIVersion field is set to the value of the last call.
-func (b *JobApplyConfiguration) WithAPIVersion(value string) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithAPIVersion(value string) *OpsJobApplyConfiguration {
 	b.TypeMetaApplyConfiguration.APIVersion = &value
 	return b
 }
@@ -51,7 +51,7 @@ func (b *JobApplyConfiguration) WithAPIVersion(value string) *JobApplyConfigurat
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *JobApplyConfiguration) WithName(value string) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithName(value string) *OpsJobApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Name = &value
 	return b
@@ -60,7 +60,7 @@ func (b *JobApplyConfiguration) WithName(value string) *JobApplyConfiguration {
 // WithGenerateName sets the GenerateName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the GenerateName field is set to the value of the last call.
-func (b *JobApplyConfiguration) WithGenerateName(value string) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithGenerateName(value string) *OpsJobApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.GenerateName = &value
 	return b
@@ -69,7 +69,7 @@ func (b *JobApplyConfiguration) WithGenerateName(value string) *JobApplyConfigur
 // WithNamespace sets the Namespace field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Namespace field is set to the value of the last call.
-func (b *JobApplyConfiguration) WithNamespace(value string) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithNamespace(value string) *OpsJobApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Namespace = &value
 	return b
@@ -78,7 +78,7 @@ func (b *JobApplyConfiguration) WithNamespace(value string) *JobApplyConfigurati
 // WithUID sets the UID field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the UID field is set to the value of the last call.
-func (b *JobApplyConfiguration) WithUID(value types.UID) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithUID(value types.UID) *OpsJobApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.UID = &value
 	return b
@@ -87,7 +87,7 @@ func (b *JobApplyConfiguration) WithUID(value types.UID) *JobApplyConfiguration 
 // WithResourceVersion sets the ResourceVersion field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ResourceVersion field is set to the value of the last call.
-func (b *JobApplyConfiguration) WithResourceVersion(value string) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithResourceVersion(value string) *OpsJobApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.ResourceVersion = &value
 	return b
@@ -96,7 +96,7 @@ func (b *JobApplyConfiguration) WithResourceVersion(value string) *JobApplyConfi
 // WithGeneration sets the Generation field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Generation field is set to the value of the last call.
-func (b *JobApplyConfiguration) WithGeneration(value int64) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithGeneration(value int64) *OpsJobApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Generation = &value
 	return b
@@ -105,7 +105,7 @@ func (b *JobApplyConfiguration) WithGeneration(value int64) *JobApplyConfigurati
 // WithCreationTimestamp sets the CreationTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the CreationTimestamp field is set to the value of the last call.
-func (b *JobApplyConfiguration) WithCreationTimestamp(value apismetav1.Time) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithCreationTimestamp(value apismetav1.Time) *OpsJobApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.CreationTimestamp = &value
 	return b
@@ -114,7 +114,7 @@ func (b *JobApplyConfiguration) WithCreationTimestamp(value apismetav1.Time) *Jo
 // WithDeletionTimestamp sets the DeletionTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionTimestamp field is set to the value of the last call.
-func (b *JobApplyConfiguration) WithDeletionTimestamp(value apismetav1.Time) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithDeletionTimestamp(value apismetav1.Time) *OpsJobApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.DeletionTimestamp = &value
 	return b
@@ -123,7 +123,7 @@ func (b *JobApplyConfiguration) WithDeletionTimestamp(value apismetav1.Time) *Jo
 // WithDeletionGracePeriodSeconds sets the DeletionGracePeriodSeconds field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionGracePeriodSeconds field is set to the value of the last call.
-func (b *JobApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *OpsJobApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.DeletionGracePeriodSeconds = &value
 	return b
@@ -133,7 +133,7 @@ func (b *JobApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *Job
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Labels field,
 // overwriting an existing map entries in Labels field with the same key.
-func (b *JobApplyConfiguration) WithLabels(entries map[string]string) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithLabels(entries map[string]string) *OpsJobApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.ObjectMetaApplyConfiguration.Labels == nil && len(entries) > 0 {
 		b.ObjectMetaApplyConfiguration.Labels = make(map[string]string, len(entries))
@@ -148,7 +148,7 @@ func (b *JobApplyConfiguration) WithLabels(entries map[string]string) *JobApplyC
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Annotations field,
 // overwriting an existing map entries in Annotations field with the same key.
-func (b *JobApplyConfiguration) WithAnnotations(entries map[string]string) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithAnnotations(entries map[string]string) *OpsJobApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.ObjectMetaApplyConfiguration.Annotations == nil && len(entries) > 0 {
 		b.ObjectMetaApplyConfiguration.Annotations = make(map[string]string, len(entries))
@@ -162,7 +162,7 @@ func (b *JobApplyConfiguration) WithAnnotations(entries map[string]string) *JobA
 // WithOwnerReferences adds the given value to the OwnerReferences field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the OwnerReferences field.
-func (b *JobApplyConfiguration) WithOwnerReferences(values ...*metav1.OwnerReferenceApplyConfiguration) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithOwnerReferences(values ...*metav1.OwnerReferenceApplyConfiguration) *OpsJobApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		if values[i] == nil {
@@ -176,7 +176,7 @@ func (b *JobApplyConfiguration) WithOwnerReferences(values ...*metav1.OwnerRefer
 // WithFinalizers adds the given value to the Finalizers field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Finalizers field.
-func (b *JobApplyConfiguration) WithFinalizers(values ...string) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithFinalizers(values ...string) *OpsJobApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		b.ObjectMetaApplyConfiguration.Finalizers = append(b.ObjectMetaApplyConfiguration.Finalizers, values[i])
@@ -184,7 +184,7 @@ func (b *JobApplyConfiguration) WithFinalizers(values ...string) *JobApplyConfig
 	return b
 }
 
-func (b *JobApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
+func (b *OpsJobApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
 	if b.ObjectMetaApplyConfiguration == nil {
 		b.ObjectMetaApplyConfiguration = &metav1.ObjectMetaApplyConfiguration{}
 	}
@@ -193,7 +193,7 @@ func (b *JobApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
 // WithSpec sets the Spec field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Spec field is set to the value of the last call.
-func (b *JobApplyConfiguration) WithSpec(value *JobSpecApplyConfiguration) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithSpec(value *OpsJobSpecApplyConfiguration) *OpsJobApplyConfiguration {
 	b.Spec = value
 	return b
 }
@@ -201,13 +201,13 @@ func (b *JobApplyConfiguration) WithSpec(value *JobSpecApplyConfiguration) *JobA
 // WithStatus sets the Status field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Status field is set to the value of the last call.
-func (b *JobApplyConfiguration) WithStatus(value *JobStatusApplyConfiguration) *JobApplyConfiguration {
+func (b *OpsJobApplyConfiguration) WithStatus(value *OpsJobStatusApplyConfiguration) *OpsJobApplyConfiguration {
 	b.Status = value
 	return b
 }
 
 // GetName retrieves the value of the Name field in the declarative configuration.
-func (b *JobApplyConfiguration) GetName() *string {
+func (b *OpsJobApplyConfiguration) GetName() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
 	return b.ObjectMetaApplyConfiguration.Name
 }

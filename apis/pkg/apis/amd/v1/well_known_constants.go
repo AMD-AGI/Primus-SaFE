@@ -39,10 +39,8 @@ const (
 	NodeLabelAction      = NodePrefix + "label.action"
 	NodeAnnotationAction = NodePrefix + "annotation.action"
 	NodeIdLabel          = NodePrefix + "id"
-	// the job on node
-	NodeJobInputAnnotation = NodePrefix + "job.input"
-	NodeActionAdd          = "add"
-	NodeActionRemove       = "remove"
+	NodeActionAdd        = "add"
+	NodeActionRemove     = "remove"
 
 	// Cluster lables
 	ClusterPrefix                 = PrimusSafePrefix + "cluster."
@@ -105,13 +103,24 @@ const (
 	ExporterFinalizer = ExporterPrefix + "finalizer"
 
 	// job
-	JobPrefix                    = PrimusSafePrefix + "job."
-	JobDispatchTimeAnnotation    = JobPrefix + "dispatch.time"
-	JobIdLabel                   = JobPrefix + "id"
-	JobTypeLabel                 = JobPrefix + "type"
-	JobSecurityUpgradeAnnotation = JobPrefix + "security.upgrade"
-	JobBatchCountAnnotation      = JobPrefix + "batch.count"
-	JobFinalizer                 = JobPrefix + "finalizer"
+	OpsJobPrefix                    = PrimusSafePrefix + "ops.job."
+	OpsJobDispatchTimeAnnotation    = OpsJobPrefix + "dispatch.time"
+	OpsJobIdLabel                   = OpsJobPrefix + "id"
+	OpsJobTypeLabel                 = OpsJobPrefix + "type"
+	OpsJobSecurityUpgradeAnnotation = OpsJobPrefix + "security.upgrade"
+	OpsJobBatchCountAnnotation      = OpsJobPrefix + "batch.count"
+	// the job on node
+	OpsJobInputAnnotation = OpsJobPrefix + "input"
+	OpsJobFinalizer       = OpsJobPrefix + "finalizer"
+)
+
+const (
+	AuthoringKind   = "Authoring"
+	PytorchJobKind  = "PyTorchJob"
+	DeploymentKind  = "Deployment"
+	StatefulSetKind = "StatefulSet"
+	PodKind         = "Pod"
+	EventKind       = "Event"
 )
 
 const (

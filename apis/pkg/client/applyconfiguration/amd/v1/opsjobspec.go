@@ -10,26 +10,26 @@ import (
 	amdv1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
-// JobSpecApplyConfiguration represents a declarative configuration of the JobSpec type for use
+// OpsJobSpecApplyConfiguration represents a declarative configuration of the OpsJobSpec type for use
 // with apply.
-type JobSpecApplyConfiguration struct {
-	Type                    *amdv1.JobType                `json:"type,omitempty"`
+type OpsJobSpecApplyConfiguration struct {
+	Type                    *amdv1.OpsJobType             `json:"type,omitempty"`
 	Cluster                 *string                       `json:"cluster,omitempty"`
 	Inputs                  []ParameterApplyConfiguration `json:"inputs,omitempty"`
 	TTLSecondsAfterFinished *int                          `json:"ttlSecondsAfterFinished,omitempty"`
 	TimeoutSecond           *int                          `json:"timeoutSecond,omitempty"`
 }
 
-// JobSpecApplyConfiguration constructs a declarative configuration of the JobSpec type for use with
+// OpsJobSpecApplyConfiguration constructs a declarative configuration of the OpsJobSpec type for use with
 // apply.
-func JobSpec() *JobSpecApplyConfiguration {
-	return &JobSpecApplyConfiguration{}
+func OpsJobSpec() *OpsJobSpecApplyConfiguration {
+	return &OpsJobSpecApplyConfiguration{}
 }
 
 // WithType sets the Type field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Type field is set to the value of the last call.
-func (b *JobSpecApplyConfiguration) WithType(value amdv1.JobType) *JobSpecApplyConfiguration {
+func (b *OpsJobSpecApplyConfiguration) WithType(value amdv1.OpsJobType) *OpsJobSpecApplyConfiguration {
 	b.Type = &value
 	return b
 }
@@ -37,7 +37,7 @@ func (b *JobSpecApplyConfiguration) WithType(value amdv1.JobType) *JobSpecApplyC
 // WithCluster sets the Cluster field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Cluster field is set to the value of the last call.
-func (b *JobSpecApplyConfiguration) WithCluster(value string) *JobSpecApplyConfiguration {
+func (b *OpsJobSpecApplyConfiguration) WithCluster(value string) *OpsJobSpecApplyConfiguration {
 	b.Cluster = &value
 	return b
 }
@@ -45,7 +45,7 @@ func (b *JobSpecApplyConfiguration) WithCluster(value string) *JobSpecApplyConfi
 // WithInputs adds the given value to the Inputs field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Inputs field.
-func (b *JobSpecApplyConfiguration) WithInputs(values ...*ParameterApplyConfiguration) *JobSpecApplyConfiguration {
+func (b *OpsJobSpecApplyConfiguration) WithInputs(values ...*ParameterApplyConfiguration) *OpsJobSpecApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
 			panic("nil value passed to WithInputs")
@@ -58,7 +58,7 @@ func (b *JobSpecApplyConfiguration) WithInputs(values ...*ParameterApplyConfigur
 // WithTTLSecondsAfterFinished sets the TTLSecondsAfterFinished field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the TTLSecondsAfterFinished field is set to the value of the last call.
-func (b *JobSpecApplyConfiguration) WithTTLSecondsAfterFinished(value int) *JobSpecApplyConfiguration {
+func (b *OpsJobSpecApplyConfiguration) WithTTLSecondsAfterFinished(value int) *OpsJobSpecApplyConfiguration {
 	b.TTLSecondsAfterFinished = &value
 	return b
 }
@@ -66,7 +66,7 @@ func (b *JobSpecApplyConfiguration) WithTTLSecondsAfterFinished(value int) *JobS
 // WithTimeoutSecond sets the TimeoutSecond field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the TimeoutSecond field is set to the value of the last call.
-func (b *JobSpecApplyConfiguration) WithTimeoutSecond(value int) *JobSpecApplyConfiguration {
+func (b *OpsJobSpecApplyConfiguration) WithTimeoutSecond(value int) *OpsJobSpecApplyConfiguration {
 	b.TimeoutSecond = &value
 	return b
 }

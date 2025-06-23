@@ -64,9 +64,9 @@ func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 			filter: faultFilter,
 		},
 		{
-			gvk: v1.SchemeGroupVersion.WithKind(v1.JobKind),
+			gvk: v1.SchemeGroupVersion.WithKind(v1.OpsJobKind),
 			handler: func(ctx context.Context, obj *unstructured.Unstructured) error {
-				dbClient.UpsertJob(ctx, jobMapper(obj))
+				dbClient.UpsertJob(ctx, opsJobMapper(obj))
 				return nil
 			},
 			filter: nil,

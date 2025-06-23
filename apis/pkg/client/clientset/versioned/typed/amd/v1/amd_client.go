@@ -19,10 +19,10 @@ type AmdV1Interface interface {
 	AddonTemplatesGetter
 	ClustersGetter
 	FaultsGetter
-	JobsGetter
 	NodesGetter
 	NodeFlavorsGetter
 	NodeTemplatesGetter
+	OpsJobsGetter
 	ResourceTemplatesGetter
 	StorageClustersGetter
 	WorkloadsGetter
@@ -46,10 +46,6 @@ func (c *AmdV1Client) Faults(namespace string) FaultInterface {
 	return newFaults(c, namespace)
 }
 
-func (c *AmdV1Client) Jobs(namespace string) JobInterface {
-	return newJobs(c, namespace)
-}
-
 func (c *AmdV1Client) Nodes(namespace string) NodeInterface {
 	return newNodes(c, namespace)
 }
@@ -60,6 +56,10 @@ func (c *AmdV1Client) NodeFlavors(namespace string) NodeFlavorInterface {
 
 func (c *AmdV1Client) NodeTemplates(namespace string) NodeTemplateInterface {
 	return newNodeTemplates(c, namespace)
+}
+
+func (c *AmdV1Client) OpsJobs(namespace string) OpsJobInterface {
+	return newOpsJobs(c, namespace)
 }
 
 func (c *AmdV1Client) ResourceTemplates(namespace string) ResourceTemplateInterface {

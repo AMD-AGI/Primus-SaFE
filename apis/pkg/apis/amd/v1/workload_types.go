@@ -119,9 +119,9 @@ type WorkloadSpec struct {
 	// The workload will run on nodes with the user-specified labels.
 	// If multiple labels are specified, all of them must be satisfied.
 	CustomerLabels map[string]string `json:"customerLabels,omitempty"`
-	// k8s liveness check
+	// k8s liveness check. used for deployment/statefulSet
 	Liveness *HealthCheck `json:"liveness,omitempty"`
-	// k8s readiness check
+	// k8s readiness check. used for deployment/statefulSet
 	Readiness *HealthCheck `json:"readiness,omitempty"`
 	// service configuration. used for deployment/statefulSet
 	Service *Service `json:"service,omitempty"`

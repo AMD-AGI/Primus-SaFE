@@ -231,7 +231,7 @@ func modifyHostNetWork(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 }
 
 func modifyStrategy(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
-	if adminWorkload.SpecKind() != common.DeploymentKind {
+	if adminWorkload.SpecKind() != v1.DeploymentKind {
 		return nil
 	}
 	rollingUpdate := buildStrategy(adminWorkload)
@@ -359,7 +359,7 @@ func buildPorts(adminWorkload *v1.Workload) []interface{} {
 		"containerPort": int64(adminWorkload.Spec.Resource.JobPort),
 		"protocol":      "TCP",
 	}
-	if adminWorkload.SpecKind() == common.PytorchJobKind {
+	if adminWorkload.SpecKind() == v1.PytorchJobKind {
 		jobPort["name"] = common.PytorchJobPortName
 	}
 	return []interface{}{jobPort}

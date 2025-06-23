@@ -15,11 +15,6 @@ const (
 	NodeNameSelector    = "spec.nodeName="
 	KubeSystemNamespace = "kube-system"
 	KubePublicNamespace = "kube-public"
-	PytorchJobKind      = "PyTorchJob"
-	PodKind             = "Pod"
-	EventKind           = "Event"
-	DeploymentKind      = "Deployment"
-	StatefulSetKind     = "StatefulSet"
 	PytorchJobPortName  = "pytorchjob-port"
 
 	DefaultBurst = 1000

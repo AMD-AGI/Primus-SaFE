@@ -907,16 +907,16 @@ func (r *NodeReconciler) addNodeTemplate(ctx context.Context, adminNode *v1.Node
 		return nil
 	}
 	nowTime := time.Now()
-	job := &v1.Job{
+	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: adminNode.Name + "-" + adminNode.Spec.NodeTemplate.Name,
 			Annotations: map[string]string{
-				v1.UserNameAnnotation:        "system",
-				v1.JobDispatchTimeAnnotation: timeutil.FormatRFC3339(&nowTime),
+				v1.UserNameAnnotation:           "system",
+				v1.OpsJobDispatchTimeAnnotation: timeutil.FormatRFC3339(&nowTime),
 			},
 		},
-		Spec: v1.JobSpec{
-			Type:    v1.JobAddonType,
+		Spec: v1.OpsJobSpec{
+			Type:    v1.OpsJobAddonType,
 			Cluster: adminNode.GetSpecCluster(),
 			Inputs: []v1.Parameter{{
 				Name:  v1.ParameterNode,

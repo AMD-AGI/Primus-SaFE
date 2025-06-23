@@ -186,8 +186,8 @@ func faultFilter(oldObj, newObj *unstructured.Unstructured) bool {
 	return false
 }
 
-func jobMapper(obj *unstructured.Unstructured) *dbclient.Job {
-	job := &v1.Job{}
+func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
+	job := &v1.OpsJob{}
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, job)
 	if err != nil {
 		klog.ErrorS(err, "failed to convert object to job", "data", obj)
@@ -199,7 +199,7 @@ func jobMapper(obj *unstructured.Unstructured) *dbclient.Job {
 		inputs = append(inputs, v1.CvtParamToString(&p))
 	}
 	strInputs := fmt.Sprintf("{%s}", fmt.Sprintf("\"%s\"", strings.Join(inputs, "\",\"")))
-	result := &dbclient.Job{
+	result := &dbclient.OpsJob{
 		JobId:      job.Name,
 		Cluster:    v1.GetClusterId(job),
 		Inputs:     []byte(strInputs),
@@ -224,8 +224,8 @@ func jobMapper(obj *unstructured.Unstructured) *dbclient.Job {
 			string(jsonutils.MarshalSilently(job.Status.Outputs)))
 	}
 	if !job.GetDeletionTimestamp().IsZero() {
-		if job.Status.Phase == v1.JobRunning || job.Status.Phase == "" {
-			job.Status.Phase = v1.JobFailed
+		if job.Status.Phase == v1.OpsJobRunning || job.Status.Phase == "" {
+			job.Status.Phase = v1.OpsJobFailed
 		}
 	}
 	return result

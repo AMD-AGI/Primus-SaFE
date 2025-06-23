@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	TJob = "job"
+	TJob = "ops_job"
 )
 
 var (
@@ -36,12 +36,12 @@ var (
 		WHERE job_id = :job_id`, TJob)
 )
 
-func (c *Client) UpsertJob(ctx context.Context, job *Job) error {
+func (c *Client) UpsertJob(ctx context.Context, job *OpsJob) error {
 	if job == nil {
 		return nil
 	}
 	db := c.db.Unsafe()
-	jobs := []*Job{}
+	jobs := []*OpsJob{}
 	var err error
 	if err = db.SelectContext(ctx, &jobs, getJobCmd, job.JobId); err != nil {
 		return err
@@ -61,7 +61,7 @@ func (c *Client) UpsertJob(ctx context.Context, job *Job) error {
 	return nil
 }
 
-func (c *Client) SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*Job, error) {
+func (c *Client) SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*OpsJob, error) {
 	if c.db == nil {
 		return nil, commonerrors.NewInternalError("The client of db has not been initialized")
 	}
@@ -88,7 +88,7 @@ func (c *Client) SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, ord
 		return nil, err
 	}
 
-	var jobs []*Job
+	var jobs []*OpsJob
 	ctx2, cancel := context.WithTimeout(ctx, time.Duration(commonconfig.GetDBRequestTimeoutSecond())*time.Second)
 	defer cancel()
 	err = db.SelectContext(ctx2, &jobs, sql, args...)

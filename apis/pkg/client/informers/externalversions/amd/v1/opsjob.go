@@ -20,71 +20,71 @@ import (
 	cache "k8s.io/client-go/tools/cache"
 )
 
-// JobInformer provides access to a shared informer and lister for
-// Jobs.
-type JobInformer interface {
+// OpsJobInformer provides access to a shared informer and lister for
+// OpsJobs.
+type OpsJobInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() amdv1.JobLister
+	Lister() amdv1.OpsJobLister
 }
 
-type jobInformer struct {
+type opsJobInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
 	namespace        string
 }
 
-// NewJobInformer constructs a new informer for Job type.
+// NewOpsJobInformer constructs a new informer for OpsJob type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewJobInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredJobInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewOpsJobInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredOpsJobInformer(client, namespace, resyncPeriod, indexers, nil)
 }
 
-// NewFilteredJobInformer constructs a new informer for Job type.
+// NewFilteredOpsJobInformer constructs a new informer for OpsJob type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredJobInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredOpsJobInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.AmdV1().Jobs(namespace).List(context.Background(), options)
+				return client.AmdV1().OpsJobs(namespace).List(context.Background(), options)
 			},
 			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.AmdV1().Jobs(namespace).Watch(context.Background(), options)
+				return client.AmdV1().OpsJobs(namespace).Watch(context.Background(), options)
 			},
 			ListWithContextFunc: func(ctx context.Context, options metav1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.AmdV1().Jobs(namespace).List(ctx, options)
+				return client.AmdV1().OpsJobs(namespace).List(ctx, options)
 			},
 			WatchFuncWithContext: func(ctx context.Context, options metav1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.AmdV1().Jobs(namespace).Watch(ctx, options)
+				return client.AmdV1().OpsJobs(namespace).Watch(ctx, options)
 			},
 		},
-		&apisamdv1.Job{},
+		&apisamdv1.OpsJob{},
 		resyncPeriod,
 		indexers,
 	)
 }
 
-func (f *jobInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredJobInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+func (f *opsJobInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	return NewFilteredOpsJobInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
-func (f *jobInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apisamdv1.Job{}, f.defaultInformer)
+func (f *opsJobInformer) Informer() cache.SharedIndexInformer {
+	return f.factory.InformerFor(&apisamdv1.OpsJob{}, f.defaultInformer)
 }
 
-func (f *jobInformer) Lister() amdv1.JobLister {
-	return amdv1.NewJobLister(f.Informer().GetIndexer())
+func (f *opsJobInformer) Lister() amdv1.OpsJobLister {
+	return amdv1.NewOpsJobLister(f.Informer().GetIndexer())
 }
