@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -77,6 +78,9 @@ func (m *OpsJobMutator) mutateMeta(ctx context.Context, job *v1.OpsJob) bool {
 	if v1.GetLabel(job, v1.DisplayNameLabel) == "" {
 		v1.SetLabel(job, v1.DisplayNameLabel, job.Name)
 	}
+	if v1.GetAnnotation(job, v1.OpsJobBatchCountAnnotation) == "" && commonconfig.GetOpsJobBatchCount() > 0 {
+		v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(commonconfig.GetOpsJobBatchCount()))
+	}
 	if job.Spec.Cluster != "" {
 		cl := &v1.Cluster{}
 		if err := m.Get(ctx, client.ObjectKey{Name: job.Spec.Cluster}, cl); err == nil {
@@ -93,10 +97,10 @@ func (m *OpsJobMutator) mutateMeta(ctx context.Context, job *v1.OpsJob) bool {
 
 func (m *OpsJobMutator) mutateJobSpec(job *v1.OpsJob) {
 	if job.Spec.TTLSecondsAfterFinished <= 0 {
-		job.Spec.TTLSecondsAfterFinished = commonconfig.GetJobTTLSecond()
+		job.Spec.TTLSecondsAfterFinished = commonconfig.GetOpsJobTTLSecond()
 	}
 	if job.Spec.TimeoutSecond == 0 {
-		job.Spec.TimeoutSecond = commonconfig.GetJobTimeoutSecond()
+		job.Spec.TimeoutSecond = commonconfig.GetOpsJobTimeoutSecond()
 	}
 	for i := range job.Spec.Inputs {
 		job.Spec.Inputs[i].Name = stringutil.NormalizeName(job.Spec.Inputs[i].Name)

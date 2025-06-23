@@ -65,7 +65,7 @@ ssh:
   enable: true
   ingress_ip: 10.235.192.64
   mount_path: "/etc/secrets/ssh"
-job:
+ops_job:
   ttl_second: 300
   timeout_second: 3600
   batch_count: 1

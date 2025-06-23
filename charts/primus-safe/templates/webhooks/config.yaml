@@ -17,9 +17,11 @@ data:
       max_ephemeral_store_percent: {{ .Values.workload.max_ephemeral_store_percent }}
     ssh:
       enable: {{ .Values.ssh.enable }}
-    job:
-      ttl_second: {{ .Values.job.ttl_second }}
-      timeout_second: {{ .Values.job.timeout_second }}
+    ops_job:
+      ttl_second: {{ .Values.ops_job.ttl_second }}
+      timeout_second: {{ .Values.ops_job.timeout_second }}
+      batch_count: {{ .Values.ops_job.batch_count }}
+      available_ratio: {{ .Values.ops_job.available_ratio }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-webhooks

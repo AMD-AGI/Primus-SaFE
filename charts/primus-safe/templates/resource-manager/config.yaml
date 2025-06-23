@@ -24,11 +24,11 @@ data:
       max_idle_time_second: {{ .Values.db.max_idle_time_second }}
       connect_timeout_second:  {{ .Values.db.connect_timeout_second }}
       request_timeout_second: {{ .Values.db.request_timeout_second }}
-    job:
-      ttl_second: {{ .Values.job.ttl_second }}
-      timeout_second: {{ .Values.job.timeout_second }}
-      batch_count: {{ .Values.job.batch_count }}
-      available_ratio: {{ .Values.job.available_ratio }}
+    ops_job:
+      ttl_second: {{ .Values.ops_job.ttl_second }}
+      timeout_second: {{ .Values.ops_job.timeout_second }}
+      batch_count: {{ .Values.ops_job.batch_count }}
+      available_ratio: {{ .Values.ops_job.available_ratio }}
     fault:
       addon_id: {{ .Values.fault.addon_id }}
 kind: ConfigMap

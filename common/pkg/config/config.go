@@ -216,20 +216,20 @@ func GetDBRequestTimeoutSecond() int {
 	return getInt(dbRequestTimeoutSecond, 20)
 }
 
-func GetJobTTLSecond() int {
-	return getInt(jobTTLSecond, 60)
+func GetOpsJobTTLSecond() int {
+	return getInt(opsJobTTLSecond, 60)
 }
 
-func GetJobTimeoutSecond() int {
-	return getInt(jobTimeoutSecond, 0)
+func GetOpsJobTimeoutSecond() int {
+	return getInt(opsJobTimeoutSecond, 0)
 }
 
-func GetJobAvailableRatio() float64 {
-	return getFloat(jobAvailableRatio, 1)
+func GetOpsJobAvailableRatio() float64 {
+	return getFloat(opsJobAvailableRatio, 1)
 }
 
-func GetJobBatchCount() int {
-	return getInt(jobBatchCount, 0)
+func GetOpsJobBatchCount() int {
+	return getInt(opsJobBatchCount, 0)
 }
 
 func GetAddonFaultId() string {

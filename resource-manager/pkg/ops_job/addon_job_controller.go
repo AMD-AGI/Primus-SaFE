@@ -438,14 +438,14 @@ func (r *AddonJobReconciler) addJob(job *v1.OpsJob, inputNodes []*v1.Node) error
 		addonJob.maxFailCount = 1
 		addonJob.batchCount = 1
 	} else {
-		failRatio := 1 - commonconfig.GetJobAvailableRatio()
+		failRatio := 1 - commonconfig.GetOpsJobAvailableRatio()
 		if addonJob.maxFailCount = int(float64(len(nodePhases)) * failRatio); addonJob.maxFailCount <= 0 {
 			addonJob.maxFailCount = 1
 		}
-		if addonJob.batchCount = v1.GetOpsJobBatchCount(job); addonJob.batchCount == 0 {
-			addonJob.batchCount = addonJob.maxFailCount
-		}
-		if addonJob.batchCount > len(nodePhases) {
+		addonJob.batchCount = v1.GetOpsJobBatchCount(job)
+		if addonJob.batchCount == 0 {
+			addonJob.batchCount = 1
+		} else if addonJob.batchCount > len(nodePhases) {
 			addonJob.batchCount = len(nodePhases)
 		}
 	}

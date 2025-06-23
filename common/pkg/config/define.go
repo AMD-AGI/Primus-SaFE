@@ -66,15 +66,15 @@ const (
 	dbConnectTimeoutSecond = dbPrefix + "connect_timeout_second"
 	dbRequestTimeoutSecond = dbPrefix + "request_timeout_second"
 
-	// job
-	jobPrefix        = "job."
-	jobTTLSecond     = jobPrefix + "ttl_second"
-	jobTimeoutSecond = jobPrefix + "timeout_second"
+	// ops_job
+	opsJobPrefix        = "ops_job."
+	opsJobTTLSecond     = opsJobPrefix + "ttl_second"
+	opsJobTimeoutSecond = opsJobPrefix + "timeout_second"
 	// Job Success Ratio: A percentage value used during plugin upgrades.
 	// The job is marked as successful if the number of successfully upgraded nodes exceeds total nodes * ratio.
-	jobAvailableRatio = jobPrefix + "available_ratio"
+	opsJobAvailableRatio = opsJobPrefix + "available_ratio"
 	// Job Batch Size: The number of nodes to process simultaneously during a plugin upgrade
-	jobBatchCount = jobPrefix + "batch_count"
+	opsJobBatchCount = opsJobPrefix + "batch_count"
 
 	// fault
 	faultPrefix  = "fault."

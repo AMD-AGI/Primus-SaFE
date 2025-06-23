@@ -133,11 +133,9 @@ func generateAddonJob(req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
 	}
-	batchCount := req.BatchCount
-	if batchCount == 0 {
-		batchCount = commonconfig.GetJobBatchCount()
+	if req.BatchCount > 0 {
+		v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(req.BatchCount))
 	}
-	v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(batchCount))
 	return job, nil
 }
 
