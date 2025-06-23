@@ -72,12 +72,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.HelmStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("HybridStorageSpec"):
 		return &amdv1.HybridStorageSpecApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("Job"):
-		return &amdv1.JobApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("JobSpec"):
-		return &amdv1.JobSpecApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("JobStatus"):
-		return &amdv1.JobStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("MachineStatus"):
 		return &amdv1.MachineStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Node"):

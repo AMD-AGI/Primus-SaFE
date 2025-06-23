@@ -12,8 +12,6 @@ type ClusterExpansion interface{}
 
 type FaultExpansion interface{}
 
-type JobExpansion interface{}
-
 type NodeExpansion interface{}
 
 type NodeFlavorExpansion interface{}

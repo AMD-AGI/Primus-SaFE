@@ -28,10 +28,6 @@ func (c *FakeAmdV1) Faults(namespace string) v1.FaultInterface {
 	return newFakeFaults(c, namespace)
 }
 
-func (c *FakeAmdV1) Jobs(namespace string) v1.JobInterface {
-	return newFakeJobs(c, namespace)
-}
-
 func (c *FakeAmdV1) Nodes(namespace string) v1.NodeInterface {
 	return newFakeNodes(c, namespace)
 }
