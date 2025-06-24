@@ -215,11 +215,11 @@ func (r *DispatcherReconciler) createK8sObject(ctx context.Context,
 		return nil, err
 	}
 	if err = updateUnstructuredObj(result, adminWorkload, rt); err != nil {
-		return nil, err
+		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	for _, t := range rt.Spec.Templates {
 		if err = modifyObjectOnCreation(result, adminWorkload, workspace, &t); err != nil {
-			return nil, err
+			return nil, commonerrors.NewInternalError(err.Error())
 		}
 	}
 	result.SetName(adminWorkload.Name)

@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
 func GetResourceTemplate(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind) (*v1.ResourceTemplate, error) {
@@ -35,7 +36,8 @@ func GetResourceTemplate(ctx context.Context, cli client.Client, gvk schema.Grou
 			return &rtl.Items[i], nil
 		}
 	}
-	return nil, fmt.Errorf("the resource template is not found, gvk: %s", gvk.String())
+	return nil, commonerrors.NewBadRequest(
+		fmt.Sprintf("the resource template is not found, gvk: %s", gvk.String()))
 }
 
 func CreateObject(ctx context.Context,
