@@ -88,7 +88,6 @@ const (
 	WorkloadReScheduledAnnotation     = WorkloadPrefix + "rescheduled"
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
-	WorkloadAuthoringLabel            = WorkloadPrefix + "authoring"
 
 	// user
 	UserPrefix         = PrimusSafePrefix + "user."

@@ -359,7 +359,7 @@ func buildPorts(adminWorkload *v1.Workload) []interface{} {
 		"containerPort": int64(adminWorkload.Spec.Resource.JobPort),
 		"protocol":      "TCP",
 	}
-	if adminWorkload.SpecKind() == common.PytorchJobKind {
+	if adminWorkload.SpecKind() == common.PytorchJobKind || adminWorkload.SpecKind() == common.AuthoringKind {
 		jobPort["name"] = common.PytorchJobPortName
 	}
 	return []interface{}{jobPort}

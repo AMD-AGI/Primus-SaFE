@@ -122,6 +122,9 @@ func (r *ClusterInformer) getResourceInformer(gvk schema.GroupVersionKind) *reso
 }
 
 func (r *ClusterInformer) addResourceTemplate(rt *v1.ResourceTemplate) error {
+	if rt.SpecKind() == common.AuthoringKind {
+		return nil
+	}
 	gvk := rt.ToSchemaGVK()
 	mapper, err := r.adminClient.RESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {

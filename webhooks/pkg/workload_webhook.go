@@ -111,10 +111,8 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 		m.mutateDeployment(workload)
 	case common.StatefulSetKind:
 		m.mutateStatefulSet(workload)
-	case common.PytorchJobKind:
-		if v1.IsAuthoring(workload) {
-			m.mutateAuthoring(workload)
-		}
+	case common.AuthoringKind:
+		m.mutateAuthoring(workload)
 	}
 
 	m.mutateResource(workload, workspace)
@@ -172,8 +170,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 }
 
 func (m *WorkloadMutator) mutateGvk(ctx context.Context, workload *v1.Workload) {
-	// Currently using PyTorchJob to implement authoring machine functionality.
-	if v1.IsAuthoring(workload) || workload.Spec.Kind == "" {
+	if workload.Spec.Kind == "" {
 		workload.Spec.Kind = common.PytorchJobKind
 	}
 	if workload.Spec.Group == "" || workload.Spec.Version == "" {
@@ -183,7 +180,7 @@ func (m *WorkloadMutator) mutateGvk(ctx context.Context, workload *v1.Workload) 
 			return
 		}
 		for _, rt := range rtl.Items {
-			if rt.SpeckKind() != workload.Spec.Kind {
+			if rt.SpecKind() != workload.Spec.Kind {
 				continue
 			}
 			if workload.Spec.Group == "" {
@@ -348,7 +345,7 @@ func (m *WorkloadMutator) mutateUpdateEnv(oldWorkload, newWorkload *v1.Workload)
 }
 
 func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
-	if v1.IsAuthoring(workload) {
+	if commonworkload.IsAuthoring(workload) {
 		return
 	}
 	if workload.Spec.TTLSecondsAfterFinished == nil {
@@ -357,7 +354,7 @@ func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 }
 
 func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
-	if v1.IsAuthoring(workload) {
+	if commonworkload.IsAuthoring(workload) {
 		return
 	}
 	if !stringutil.IsBase64(workload.Spec.EntryPoint) {
@@ -636,9 +633,6 @@ func (v *WorkloadValidator) validateDisplayName(workload *v1.Workload) error {
 func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1.Workload) error {
 	if newWorkload.Spec.Workspace != oldWorkload.Spec.Workspace {
 		return field.Forbidden(field.NewPath("spec").Key("workspace"), "immutable")
-	}
-	if v1.HasLabel(oldWorkload, v1.WorkloadAuthoringLabel) && v1.IsAuthoring(newWorkload) != v1.IsAuthoring(oldWorkload) {
-		return field.Forbidden(field.NewPath("metadata").Key("labels").Key(v1.WorkloadAuthoringLabel), "immutable")
 	}
 	if newWorkload.Spec.GroupVersionKind != oldWorkload.Spec.GroupVersionKind {
 		return field.Forbidden(field.NewPath("spec").Key("gvk"), "immutable")

@@ -375,9 +375,6 @@ func generateWorkload(req *types.CreateWorkloadRequest, body []byte) (*v1.Worklo
 	if workload.Name == "" {
 		workload.Name = commonutils.GenerateName(req.DisplayName)
 	}
-	if workload.Spec.Kind == common.AuthoringKind {
-		v1.SetLabel(workload, v1.WorkloadAuthoringLabel, "true")
-	}
 	return workload, nil
 }
 
@@ -512,7 +509,7 @@ func (h *Handler) getResourceTemplate(ctx context.Context, kind string) (*v1.Res
 		return nil, err
 	}
 	for i, rf := range rfList.Items {
-		if rf.SpeckKind() == kind {
+		if rf.SpecKind() == kind {
 			return &rfList.Items[i], nil
 		}
 	}
@@ -707,11 +704,8 @@ func (h *Handler) cvtAdminWorkloadToResponse(ctx context.Context, w *v1.Workload
 			}
 		}
 	}
-	if v1.IsAuthoring(w) {
+	if commonworkload.IsAuthoring(w) {
 		result.EntryPoint = ""
-		result.GroupVersionKind = v1.GroupVersionKind{Kind: common.AuthoringKind}
-	} else {
-		result.GroupVersionKind = w.Spec.GroupVersionKind
 	}
 	return result
 }

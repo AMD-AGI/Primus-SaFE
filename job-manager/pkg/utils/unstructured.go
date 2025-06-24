@@ -38,7 +38,7 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 	if result.ActiveReplica, err = GetActiveReplica(unstructuredObj, rt); err != nil {
 		return nil, err
 	}
-	if rt.SpeckKind() == common.StatefulSetKind {
+	if rt.SpecKind() == common.StatefulSetKind {
 		getStatefulSetStatus(unstructuredObj.Object, result)
 		return result, nil
 	}

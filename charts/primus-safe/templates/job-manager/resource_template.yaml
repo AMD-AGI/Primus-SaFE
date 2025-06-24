@@ -81,6 +81,46 @@ spec:
     group: ""
     version: ""
     kind: Authoring
+  templates:
+    - prePaths:
+        - spec
+        - pytorchReplicaSpecs
+        - Master
+      templatePaths:
+        - template
+      replicasPaths:
+        - replicas
+      replica: 1
+  endState:
+    prePaths:
+      - status
+      - conditions
+    messagePaths:
+      - message
+    reasonPaths:
+      - reason
+    phases:
+      - matchExpressions:
+          status: 'True'
+          type: Succeeded
+        phase: K8sSucceeded
+      - matchExpressions:
+          status: 'True'
+          type: Failed
+        phase: K8sFailed
+      - matchExpressions:
+          status: 'True'
+          type: FailedValidation
+        phase: K8sFailed
+      - matchExpressions:
+          status: 'True'
+          type: Running
+        phase: K8sRunning
+  activeState:
+    prePaths:
+      - status
+      - replicaStatuses
+    active: active
 ---
 apiVersion: amd.com/v1
 kind: ResourceTemplate
