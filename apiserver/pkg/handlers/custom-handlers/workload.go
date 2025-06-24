@@ -169,6 +169,15 @@ func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
 		if !untilTime.IsZero() && w.CreationTimestamp.Time.After(untilTime) {
 			continue
 		}
+		if query.Kind != "" {
+			if query.Kind == common.AuthoringKind {
+				if !v1.IsAuthoring(&w) {
+					continue
+				}
+			} else if query.Kind != w.SpecKind() {
+				continue
+			}
+		}
 		result.Items = append(result.Items, h.cvtAdminWorkloadToResponse(c.Request.Context(), &w, false))
 	}
 	result.TotalCount = len(result.Items)
@@ -508,12 +517,16 @@ func (h *Handler) cvtToListWorkloadSql(ctx context.Context,
 		values := strings.Split(query.Kind, ",")
 		var sqlList []sqrl.Sqlizer
 		for _, val := range values {
-			rf, err := h.getResourceTemplate(ctx, val)
-			if err != nil {
-				return nil, nil, err
+			if val == common.AuthoringKind {
+				sqlList = append(sqlList, sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsAuthoring"): true})
+			} else {
+				rf, err := h.getResourceTemplate(ctx, val)
+				if err != nil {
+					return nil, nil, err
+				}
+				gvk := string(jsonutils.MarshalSilently(rf.Spec.GroupVersionKind))
+				sqlList = append(sqlList, sqrl.Eq{dbclient.GetFieldTag(dbTags, "GVK"): gvk})
 			}
-			gvk := string(jsonutils.MarshalSilently(rf.Spec.GroupVersionKind))
-			sqlList = append(sqlList, sqrl.Eq{dbclient.GetFieldTag(dbTags, "GVK"): gvk})
 		}
 		dbSql = append(dbSql, sqrl.Or(sqlList))
 	}
@@ -716,10 +729,6 @@ func buildWorkloadLabelSelector(query *types.GetWorkloadRequest) labels.Selector
 	if query.UserName != "" {
 		nameMd5 := stringutil.MD5(query.UserName)
 		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.Equals, []string{nameMd5})
-		labelSelector = labelSelector.Add(*req)
-	}
-	if query.Kind != "" {
-		req, _ := labels.NewRequirement(v1.WorkloadKindLabel, selection.Equals, []string{query.Kind})
 		labelSelector = labelSelector.Add(*req)
 	}
 	return labelSelector

@@ -33,7 +33,7 @@ type GetWorkloadRequest struct {
 	Phase string `form:"phase" binding:"omitempty"`
 	// cluster id
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
-	// Valid values include: Deployment/PyTorchJob/StatefulSet
+	// Valid values include: Deployment/PyTorchJob/StatefulSet/Authoring
 	Kind string `form:"kind" binding:"omitempty"`
 	// workload submitter, Supports fuzzy matching
 	UserName string `form:"userName" binding:"omitempty"`
