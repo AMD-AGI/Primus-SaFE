@@ -1,0 +1,8 @@
+- hosts: all
+  tasks:
+  - name: copy harbor.crt
+    copy:
+      src: harbor-ca.crt
+      dest: /usr/local/share/ca-certificates
+  - name: update-ca-certificates
+    shell: update-ca-certificates
