@@ -18,7 +18,7 @@ k8s:
 apiserver:
   port: 8088
   health_port: 8082
-  tag: "202506241000"
+  tag: "202506241415"
   replicas: 1
   cpu: "1000m"
   memory: 2Gi
@@ -63,7 +63,6 @@ log:
 ssh:
   port: 2222
   enable: true
-  ingress_ip: 10.235.192.64
   mount_path: "/etc/secrets/ssh"
 ops_job:
   ttl_second: 300

@@ -12,6 +12,10 @@ const (
 	PrimusCryptoSecret         = "primus-safe-crypto"
 	PrimusRouterCustomRootPath = "api/v1"
 
+	HigressNamespace = "higress-system"
+	HigressGateway   = "higress-gateway"
+	HigressSSHPort   = 22
+
 	NodeNameSelector    = "spec.nodeName="
 	KubeSystemNamespace = "kube-system"
 	KubePublicNamespace = "kube-public"
