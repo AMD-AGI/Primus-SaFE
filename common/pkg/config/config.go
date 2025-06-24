@@ -111,10 +111,6 @@ func GetSSHRsaPrivate() string {
 	return getFromFile(sshKeyPath, "id_rsa")
 }
 
-func GetSSHIngressIp() string {
-	return getString(sshIngressIp, "")
-}
-
 func GetMemoryReservePercent() float64 {
 	return getFloat(memoryReservePercent, 0)
 }

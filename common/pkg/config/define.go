@@ -21,7 +21,6 @@ const (
 	sshEnable     = sshPrefix + "enable"
 	sshServerPort = sshPrefix + "server_port"
 	sshKeyPath    = sshPrefix + "config_path"
-	sshIngressIp  = sshPrefix + "ingress_ip"
 
 	// health_check
 	healthCheckPrefix = "health_check."
