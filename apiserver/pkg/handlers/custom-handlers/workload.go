@@ -607,6 +607,9 @@ func (h *Handler) buildWorkloadDetail(ctx context.Context, w *dbclient.Workload,
 	result.Image = w.Image
 	result.IsSupervised = w.IsSupervised
 	result.MaxRetry = w.MaxRetry
+	if w.TTLSecond > 0 {
+		result.TTLSecondsAfterFinished = pointer.Int(w.TTLSecond)
+	}
 	if str := dbutils.ParseNullString(w.Conditions); str != "" {
 		json.Unmarshal([]byte(str), &result.Conditions)
 	}
@@ -646,11 +649,8 @@ func (h *Handler) buildWorkloadDetail(ctx context.Context, w *dbclient.Workload,
 		json.Unmarshal([]byte(str), &result.Env)
 		result.Env = maps.RemoveValue(result.Env, "")
 	}
-	if result.GroupVersionKind.Kind != common.AuthoringKind {
-		if w.EntryPoint != "" {
-			result.EntryPoint = stringutil.Base64Decode(w.EntryPoint)
-		}
-		result.TTLSecondsAfterFinished = pointer.Int(w.TTLSecond)
+	if result.GroupVersionKind.Kind != common.AuthoringKind && w.EntryPoint != "" {
+		result.EntryPoint = stringutil.Base64Decode(w.EntryPoint)
 	}
 }
 
