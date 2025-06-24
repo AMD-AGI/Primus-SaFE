@@ -103,9 +103,8 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	if err != nil {
 		return false
 	}
-
-	m.mutateMeta(ctx, workload, workspace)
 	m.mutateGvk(ctx, workload)
+	m.mutateMeta(ctx, workload, workspace)
 
 	switch workload.SpecKind() {
 	case common.DeploymentKind:
@@ -150,7 +149,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	}
 	if !hasOwnerReferences(workload, workspace.Name) {
 		if err := controllerutil.SetControllerReference(workspace, workload, m.Client.Scheme()); err != nil {
-			klog.ErrorS(err, "fail to SetControllerReference")
+			klog.ErrorS(err, "failed to SetControllerReference")
 		}
 	}
 	v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)

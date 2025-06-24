@@ -147,7 +147,7 @@ func (r *ClusterInformer) addResourceTemplate(rt *v1.ResourceTemplate) error {
 		},
 	})
 	if err != nil {
-		klog.ErrorS(err, "fail to add event handler for resource informer",
+		klog.ErrorS(err, "failed to add event handler for resource informer",
 			"cluster", r.name, "gvk", gvk)
 		return err
 	}
@@ -242,11 +242,11 @@ func (r *resourceInformer) Release() error {
 func GetClusterInformer(clusterInformers *commonutils.ObjectManager, name string) (*ClusterInformer, error) {
 	obj, ok := clusterInformers.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("fail to get cluster informer, name: %s", name)
+		return nil, fmt.Errorf("failed to get cluster informer, name: %s", name)
 	}
 	informer, ok := obj.(*ClusterInformer)
 	if !ok {
-		return nil, fmt.Errorf("fail to get cluster informer, name: %s", name)
+		return nil, fmt.Errorf("failed to get cluster informer, name: %s", name)
 	}
 	return informer, nil
 }

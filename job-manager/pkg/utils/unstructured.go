@@ -190,7 +190,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 		path = append(path, t.ReplicasPaths...)
 		replica, found, err := unstructured.NestedInt64(unstructuredObj.Object, path...)
 		if err != nil {
-			klog.ErrorS(err, "fail to find replica", "path", path)
+			klog.ErrorS(err, "failed to find replica", "path", path)
 			return nil, nil, err
 		}
 		if !found {
@@ -202,7 +202,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 		path = append(path, "spec", "containers")
 		containers, found, err := unstructured.NestedSlice(unstructuredObj.Object, path...)
 		if err != nil {
-			klog.ErrorS(err, "fail to find containers", "path", path)
+			klog.ErrorS(err, "failed to find containers", "path", path)
 			return nil, nil, err
 		}
 		if !found {
@@ -220,7 +220,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 			path = []string{"resources", "limits"}
 			limits, found, err := unstructured.NestedMap(obj, path...)
 			if err != nil || !found {
-				klog.ErrorS(err, "fail to find limits", "path", path)
+				klog.ErrorS(err, "failed to find limits", "path", path)
 				return nil, nil, err
 			}
 			rl, err := quantity.CvtToResourceList(GetUnstructuredString(limits, []string{string(corev1.ResourceCPU)}),
@@ -250,11 +250,11 @@ func GetCommand(unstructuredObj *unstructured.Unstructured,
 		path = append(path, "spec", "containers")
 		containers, found, err := unstructured.NestedSlice(unstructuredObj.Object, path...)
 		if err != nil {
-			klog.ErrorS(err, "fail to find containers", "path", path)
+			klog.ErrorS(err, "failed to find containers", "path", path)
 			return nil, err
 		}
 		if !found {
-			return nil, fmt.Errorf("fail to find containers, path: %s", path)
+			return nil, fmt.Errorf("failed to find containers, path: %s", path)
 		}
 		for _, c := range containers {
 			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&c)
@@ -267,11 +267,11 @@ func GetCommand(unstructuredObj *unstructured.Unstructured,
 			}
 			commands, ok := obj["command"]
 			if !ok {
-				return nil, fmt.Errorf("fail to find container command, path: %s", path)
+				return nil, fmt.Errorf("failed to find container command, path: %s", path)
 			}
 			objs, ok := commands.([]interface{})
 			if !ok {
-				return nil, fmt.Errorf("fail to find container command, path: %s", path)
+				return nil, fmt.Errorf("failed to find container command, path: %s", path)
 			}
 			result := make([]string, 0, len(objs))
 			for i := range objs {
@@ -292,11 +292,11 @@ func GetImage(unstructuredObj *unstructured.Unstructured,
 		path = append(path, "spec", "containers")
 		containers, found, err := unstructured.NestedSlice(unstructuredObj.Object, path...)
 		if err != nil {
-			klog.ErrorS(err, "fail to find containers", "path", path)
+			klog.ErrorS(err, "failed to find containers", "path", path)
 			return "", err
 		}
 		if !found {
-			return "", fmt.Errorf("fail to find containers, path: %s", path)
+			return "", fmt.Errorf("failed to find containers, path: %s", path)
 		}
 		for _, c := range containers {
 			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&c)
@@ -309,7 +309,7 @@ func GetImage(unstructuredObj *unstructured.Unstructured,
 			}
 			image, ok := obj["image"]
 			if !ok {
-				return "", fmt.Errorf("fail to find container image, path: %s", path)
+				return "", fmt.Errorf("failed to find container image, path: %s", path)
 			}
 			return image.(string), nil
 		}
@@ -324,11 +324,11 @@ func GetShareMemorySize(unstructuredObj *unstructured.Unstructured, rt *v1.Resou
 		path = append(path, "spec", "volumes")
 		volumes, found, err := unstructured.NestedSlice(unstructuredObj.Object, path...)
 		if err != nil {
-			klog.ErrorS(err, "fail to find volumes", "path", path)
+			klog.ErrorS(err, "failed to find volumes", "path", path)
 			return "", err
 		}
 		if !found {
-			return "", fmt.Errorf("fail to find volumes, path: %s", path)
+			return "", fmt.Errorf("failed to find volumes, path: %s", path)
 		}
 
 		shareMemory := GetShareMemoryVolume(volumes)
@@ -401,7 +401,7 @@ func GetPriorityClassName(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 		path = append(path, "spec", "priorityClassName")
 		name, found, err := unstructured.NestedString(unstructuredObj.Object, path...)
 		if err != nil {
-			klog.ErrorS(err, "fail to find priorityClassName", "path", path)
+			klog.ErrorS(err, "failed to find priorityClassName", "path", path)
 			return "", err
 		}
 		if !found {
@@ -430,7 +430,7 @@ func getReplica(unstructuredObj *unstructured.Unstructured, prePaths []string, n
 			objects = append(objects, obj)
 		}
 	default:
-		return 0, fmt.Errorf("fail to get replica, path: %v, name: %s", prePaths, name)
+		return 0, fmt.Errorf("failed to get replica, path: %v, name: %s", prePaths, name)
 	}
 
 	var result int64 = 0
@@ -470,11 +470,11 @@ func GetEnv(unstructuredObj *unstructured.Unstructured,
 		path := append(templatePath, "spec", "containers")
 		containers, found, err := unstructured.NestedSlice(unstructuredObj.Object, path...)
 		if err != nil {
-			klog.ErrorS(err, "fail to find containers", "path", path)
+			klog.ErrorS(err, "failed to find containers", "path", path)
 			return nil, err
 		}
 		if !found {
-			return nil, fmt.Errorf("fail to find containers, path: %s", path)
+			return nil, fmt.Errorf("failed to find containers, path: %s", path)
 		}
 		for _, c := range containers {
 			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&c)

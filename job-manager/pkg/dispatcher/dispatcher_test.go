@@ -218,6 +218,7 @@ func TestUpdatePytorchJob(t *testing.T) {
 		ShareMemory:      "512Gi",
 		EphemeralStorage: "100Gi",
 	}
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
 	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)

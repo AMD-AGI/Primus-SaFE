@@ -119,17 +119,17 @@ func (r *SyncerReconciler) observe(c *v1.Cluster) bool {
 func (r *SyncerReconciler) handle(ctx context.Context, cluster *v1.Cluster) error {
 	informer, err := newClusterInformer(r.ctx, cluster.Name, &cluster.Status.ControlPlaneStatus, r.Client, r.Add)
 	if err != nil {
-		klog.ErrorS(err, "fail to new cluster informer", "cluster.name", cluster.Name)
+		klog.ErrorS(err, "failed to new cluster informer", "cluster.name", cluster.Name)
 		return err
 	}
 	rtList := &v1.ResourceTemplateList{}
 	if err = r.List(ctx, rtList); err != nil {
-		klog.ErrorS(err, "fail to list ResourceTemplateList")
+		klog.ErrorS(err, "failed to list ResourceTemplateList")
 		return err
 	}
 	for _, rt := range rtList.Items {
 		if err = informer.addResourceTemplate(&rt); err != nil {
-			klog.ErrorS(err, "fail to add resource template", "cluster", cluster.Name, "rt", rt)
+			klog.ErrorS(err, "failed to add resource template", "cluster", cluster.Name, "rt", rt)
 		}
 	}
 	r.clusterInformers.AddOrReplace(cluster.Name, informer)

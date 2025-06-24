@@ -139,7 +139,7 @@ func faultMapper(obj *unstructured.Unstructured) *dbclient.Fault {
 	fault := &v1.Fault{}
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, fault)
 	if err != nil {
-		klog.ErrorS(err, "fail to convert object to fault", "data", obj)
+		klog.ErrorS(err, "failed to convert object to fault", "data", obj)
 		return nil
 	}
 

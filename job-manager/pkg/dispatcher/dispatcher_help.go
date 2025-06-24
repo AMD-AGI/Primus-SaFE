@@ -117,7 +117,7 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 		return err
 	}
 	if !found || len(containers) == 0 {
-		return fmt.Errorf("fail to find container with path: %v", path)
+		return fmt.Errorf("failed to find container with path: %v", path)
 	}
 	mainContainer, err := getMainContainer(containers, v1.GetMainContainer(adminWorkload))
 	if err != nil {
@@ -275,7 +275,7 @@ func getMainContainer(containers []interface{}, mainContainerName string) (map[s
 		}
 	}
 	if mainContainer == nil {
-		return nil, fmt.Errorf("fail to find main container, name: %s", mainContainerName)
+		return nil, fmt.Errorf("failed to find main container, name: %s", mainContainerName)
 	}
 	return mainContainer, nil
 }
