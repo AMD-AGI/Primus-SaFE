@@ -231,7 +231,7 @@ func modifyHostNetWork(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 }
 
 func modifyStrategy(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
-	if adminWorkload.SpecKind() != common.DeploymentKind {
+	if adminWorkload.SpecKind() != v1.DeploymentKind {
 		return nil
 	}
 	rollingUpdate := buildStrategy(adminWorkload)
@@ -304,7 +304,7 @@ func buildResources(adminWorkload *v1.Workload) map[string]interface{} {
 	}
 	if adminWorkload.Spec.Resource.GPU != "" {
 		result[adminWorkload.Spec.Resource.GPUName] = adminWorkload.Spec.Resource.GPU
-		if adminWorkload.Spec.Resource.Replica > 1 && commonconfig.GetRdmaName() != "" {
+		if v1.IsEnableHostNetwork(adminWorkload) && commonconfig.GetRdmaName() != "" {
 			result[commonconfig.GetRdmaName()] = "1"
 		}
 	}
@@ -347,6 +347,10 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 		"name":  "WORKLOAD_ID",
 		"value": adminWorkload.Name,
 	})
+	result = append(result, map[string]interface{}{
+		"name":  "DISPATCH_COUNT",
+		"value": strconv.Itoa(v1.GetWorkloadDispatchCnt(adminWorkload)),
+	})
 	return result
 }
 
@@ -355,7 +359,7 @@ func buildPorts(adminWorkload *v1.Workload) []interface{} {
 		"containerPort": int64(adminWorkload.Spec.Resource.JobPort),
 		"protocol":      "TCP",
 	}
-	if adminWorkload.SpecKind() == common.PytorchJobKind {
+	if adminWorkload.SpecKind() == v1.PytorchJobKind {
 		jobPort["name"] = common.PytorchJobPortName
 	}
 	return []interface{}{jobPort}

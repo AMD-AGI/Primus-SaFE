@@ -11,11 +11,13 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -30,6 +32,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
 type ClusterReconciler struct {
@@ -49,9 +52,9 @@ func SetupClusterController(mgr manager.Manager) error {
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Cluster{}, builder.WithPredicates(predicate.Or(
-			predicate.ResourceVersionChangedPredicate{}, r.CaredPredicate()))).
-		Watches(&corev1.Pod{}, r.enqueueRequestByWorkerPod()).
-		Watches(&v1.Node{}, r.enqueueRequestByNode()).
+			predicate.ResourceVersionChangedPredicate{}, r.caredChangePredicate()))).
+		Watches(&corev1.Pod{}, r.handlePodEvent()).
+		Watches(&v1.Node{}, r.handleNodeEvent()).
 		Complete(r)
 	if err != nil {
 		return err
@@ -60,7 +63,7 @@ func SetupClusterController(mgr manager.Manager) error {
 	return nil
 }
 
-func (r *ClusterReconciler) CaredPredicate() predicate.Predicate {
+func (r *ClusterReconciler) caredChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			cluster, ok := e.Object.(*v1.Cluster)
@@ -95,7 +98,7 @@ func (r *ClusterReconciler) CaredPredicate() predicate.Predicate {
 	}
 }
 
-func (r *ClusterReconciler) enqueueRequestByNode() handler.EventHandler {
+func (r *ClusterReconciler) handleNodeEvent() handler.EventHandler {
 	enqueue := func(node *v1.Node, q v1.RequestWorkQueue) {
 		for _, owner := range node.OwnerReferences {
 			if owner.APIVersion == v1.SchemeGroupVersion.String() && owner.Kind == v1.ClusterKind {
@@ -127,7 +130,7 @@ func (r *ClusterReconciler) enqueueRequestByNode() handler.EventHandler {
 	}
 }
 
-func (r *ClusterReconciler) enqueueRequestByWorkerPod() handler.EventHandler {
+func (r *ClusterReconciler) handlePodEvent() handler.EventHandler {
 	enqueue := func(pod *corev1.Pod, q v1.RequestWorkQueue) {
 		for _, owner := range pod.OwnerReferences {
 			if owner.APIVersion == v1.SchemeGroupVersion.String() && owner.Kind == v1.ClusterKind {
@@ -194,7 +197,7 @@ func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) (ct
 	if result, err := r.deletePriorityClass(ctx, cluster.Name); err != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
-	if err := removeFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer); err != nil {
+	if err := utils.RemoveFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	return ctrlruntime.Result{}, nil
@@ -249,7 +252,7 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 	if !cluster.IsReady() {
 		return ctrlruntime.Result{}, nil
 	}
-	k8sClients, err := getK8sClientFactory(r.clientManager, cluster.Name)
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
@@ -271,7 +274,7 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 }
 
 func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, clusterId string) (ctrlruntime.Result, error) {
-	k8sClients, err := getK8sClientFactory(r.clientManager, clusterId)
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterId)
 	if err != nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
@@ -283,6 +286,30 @@ func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, clusterId s
 		}
 	}
 	return ctrlruntime.Result{}, nil
+}
+
+func createPriorityClass(ctx context.Context, clientSet kubernetes.Interface, name, description string, value int32) error {
+	priorityClass := &schedulingv1.PriorityClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Value:       value,
+		Description: description,
+	}
+	if _, err := clientSet.SchedulingV1().PriorityClasses().Create(
+		ctx, priorityClass, metav1.CreateOptions{}); err != nil {
+		return client.IgnoreAlreadyExists(err)
+	}
+	klog.Infof("create PriorityClass, name: %s, value: %d", name, value)
+	return nil
+}
+
+func deletePriorityClass(ctx context.Context, clientSet kubernetes.Interface, name string) error {
+	if err := clientSet.SchedulingV1().PriorityClasses().Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	klog.Infof("delete PriorityClass, name: %s", name)
+	return nil
 }
 
 type PriorityClass struct {

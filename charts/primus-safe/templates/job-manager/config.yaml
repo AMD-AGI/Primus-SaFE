@@ -6,10 +6,10 @@ data:
       crypto_key: {{ .Values.crypto.mount_path }}/key
       rdma_name: {{ .Values.net.rdma_name }}
     health_check:
-      enable: true
-      port: 8083
+      enable: {{ .Values.k8s.enable_health_check }}
+      port: {{ .Values.job_manager.health_port }}
     leader_election:
-      enable: true
+      enable: {{ .Values.k8s.enable_leader_election }}
       lock_namespace: "{{ .Release.Namespace }}"
     workspace:
       mem_reserve_percent: {{ .Values.workspace.mem_reserve_percent }}

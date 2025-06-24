@@ -53,20 +53,23 @@ spec:
               mountPath: /opt/primus-safe/webhooks/config
               readOnly: true
           ports:
-            - containerPort: 8084
+            - containerPort: {{ .Values.webhooks.port }}
               protocol: TCP
+              name: http-port
+          {{- if .Values.k8s.enable_health_check }}
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8085
+              port: {{ .Values.webhooks.health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 8085
+              port: {{ .Values.webhooks.health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
+          {{- end }}
           resources:
             limits:
               cpu: {{ .Values.webhooks.cpu }}

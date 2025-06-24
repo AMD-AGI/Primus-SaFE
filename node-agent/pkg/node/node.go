@@ -27,7 +27,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/utils"
 )
 
-const (
+var (
 	nsenter = "nsenter --target 1 --mount --uts --ipc --net --pid --"
 )
 
@@ -77,6 +77,7 @@ func (n *Node) Start() error {
 }
 
 func (n *Node) update() {
+	var job NodeJob
 	for {
 		select {
 		case <-n.ctx.Done():
@@ -90,6 +91,7 @@ func (n *Node) update() {
 				klog.ErrorS(err, "failed to get node")
 			} else {
 				n.k8sNode = k8sNode
+				job.Reconcile(n)
 			}
 			time.Sleep(sleepTime)
 		}
@@ -118,9 +120,9 @@ func (n *Node) updateStartTime() error {
 
 func (n *Node) IsMatchChip(chip string) bool {
 	switch chip {
-	case types.AmdGpuChip:
+	case string(v1.AmdGpuChip):
 		return n.isAmdGpu()
-	case types.NvidiaGpuChip:
+	case string(v1.NvidiaGpuChip):
 		return n.isNvGpu()
 	case "":
 		return true
@@ -129,12 +131,24 @@ func (n *Node) IsMatchChip(chip string) bool {
 	}
 }
 
-func (n *Node) FindCondition(conditionType string) *corev1.NodeCondition {
+func (n *Node) FindConditionByType(conditionType string) *corev1.NodeCondition {
 	if n.k8sNode == nil {
 		return nil
 	}
-	for i, cond := range n.k8sNode.Status.Conditions {
-		if string(cond.Type) == conditionType {
+	for i, currentCond := range n.k8sNode.Status.Conditions {
+		if conditionType == string(currentCond.Type) {
+			return &n.k8sNode.Status.Conditions[i]
+		}
+	}
+	return nil
+}
+
+func (n *Node) FindCondition(cond *corev1.NodeCondition, isCondEqual func(cond1, cond2 *corev1.NodeCondition) bool) *corev1.NodeCondition {
+	if n.k8sNode == nil {
+		return nil
+	}
+	for i, currentCond := range n.k8sNode.Status.Conditions {
+		if isCondEqual(&currentCond, cond) {
 			return &n.k8sNode.Status.Conditions[i]
 		}
 	}
@@ -142,6 +156,9 @@ func (n *Node) FindCondition(conditionType string) *corev1.NodeCondition {
 }
 
 func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
+	if n.k8sNode == nil {
+		return fmt.Errorf("please initialize node first")
+	}
 	n.k8sNode.Status.Conditions = conditions
 	node, err := n.k8sClient.Nodes().UpdateStatus(n.ctx, n.k8sNode, metav1.UpdateOptions{})
 	if err != nil {
@@ -149,6 +166,29 @@ func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
 	}
 	n.k8sNode = node
 	return nil
+}
+
+func (n *Node) AddConditions(cond corev1.NodeCondition) error {
+	if n.k8sNode == nil {
+		return fmt.Errorf("please initialize node first")
+	}
+	hasFound := false
+	for i, currentCond := range n.k8sNode.Status.Conditions {
+		if cond.Type == currentCond.Type {
+			if cond.Status == currentCond.Status &&
+				cond.Message == currentCond.Message && cond.Reason == currentCond.Reason {
+				return nil
+			} else {
+				n.k8sNode.Status.Conditions[i] = cond
+			}
+			hasFound = true
+			break
+		}
+	}
+	if !hasFound {
+		n.k8sNode.Status.Conditions = append(n.k8sNode.Status.Conditions, cond)
+	}
+	return n.UpdateConditions(n.k8sNode.Status.Conditions)
 }
 
 func (n *Node) updateNodeStartTime(startTime time.Time) error {
@@ -203,11 +243,11 @@ func (n *Node) isAmdGpu() bool {
 
 func getLocation() (*time.Location, error) {
 	cmd := fmt.Sprintf(`%s timedatectl |grep "Time zone" |awk -F" " '{print $3}'`, nsenter)
-	statusCode, resp := utils.ExecuteCommand(cmd, 0)
+	statusCode, output := utils.ExecuteCommand(cmd, 0)
 	if statusCode != types.StatusOk {
-		return nil, fmt.Errorf("failed to execute command, resp: %s", resp)
+		return nil, fmt.Errorf("failed to execute command, output: %s", output)
 	}
-	timezone := resp
+	timezone := output
 	if timezone == "" {
 		timezone = "UTC"
 	}
@@ -223,11 +263,11 @@ func getLocation() (*time.Location, error) {
 
 func getUptime(loc *time.Location) (time.Time, error) {
 	cmd := fmt.Sprintf("%s uptime -s", nsenter)
-	statusCode, resp := utils.ExecuteCommand(cmd, 0)
+	statusCode, output := utils.ExecuteCommand(cmd, 0)
 	if statusCode != types.StatusOk {
-		return time.Time{}, fmt.Errorf("failed to do 'uptime -s', resp: %s", resp)
+		return time.Time{}, fmt.Errorf("failed to do 'uptime -s', output: %s", output)
 	}
-	startTime, err := time.ParseInLocation(time.DateTime, resp, loc)
+	startTime, err := time.ParseInLocation(time.DateTime, output, loc)
 	if err != nil {
 		return time.Time{}, err
 	}

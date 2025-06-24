@@ -45,3 +45,12 @@ func IsTaintsEqualIgnoreOrder(taints1, taints2 []corev1.Taint) bool {
 	}
 	return true
 }
+
+func HasTaintKey(taints []corev1.Taint, key string) bool {
+	for _, t := range taints {
+		if t.Key == key {
+			return true
+		}
+	}
+	return false
+}

@@ -12,9 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 	"gotest.tools/assert"
 	"k8s.io/client-go/util/workqueue"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 )
 
 var (
@@ -65,7 +67,6 @@ func newMonitorManager(t *testing.T) *MonitorManager {
 }
 
 func TestMain(m *testing.M) {
-	TmpPath = "."
 	scripts := []string{"test1.sh", "test2.sh"}
 	for _, script := range scripts {
 		fullPath := filepath.Join(".", script)
@@ -225,7 +226,7 @@ func TestMonitorChipChanged(t *testing.T) {
 	assert.Equal(t, monitor.config.Chip, "")
 
 	config := newMonitorConfig("safe.0", "test1.sh")
-	config.Chip = types.AmdGpuChip
+	config.Chip = string(v1.AmdGpuChip)
 	addFakeConfig(t, config)
 	time.Sleep(time.Millisecond * 200)
 
@@ -233,7 +234,7 @@ func TestMonitorChipChanged(t *testing.T) {
 	monitor2 := manager.getMonitor("safe.0")
 	assert.Equal(t, monitor, monitor2)
 	assert.Equal(t, monitor2.IsExited(), false)
-	assert.Equal(t, monitor2.config.Chip, types.AmdGpuChip)
+	assert.Equal(t, monitor2.config.Chip, string(v1.AmdGpuChip))
 }
 
 func getMonitorsCount(manager *MonitorManager) int {

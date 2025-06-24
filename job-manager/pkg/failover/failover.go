@@ -49,8 +49,8 @@ func SetupFailoverController(mgr manager.Manager) error {
 		clusterInformers: commonutils.NewObjectManagerSingleton(),
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
-		For(&v1.Workload{}, builder.WithPredicates(CaredChangePredicate{})).
-		Watches(&v1.Fault{}, r.enqueueRequestByFault()).
+		For(&v1.Workload{}, builder.WithPredicates(caredChangePredicate{})).
+		Watches(&v1.Fault{}, r.handleFaultEvent()).
 		Watches(&corev1.ConfigMap{}, r.updateConfig()).
 		Complete(r)
 	if err != nil {
@@ -60,11 +60,11 @@ func SetupFailoverController(mgr manager.Manager) error {
 	return nil
 }
 
-type CaredChangePredicate struct {
+type caredChangePredicate struct {
 	predicate.Funcs
 }
 
-func (CaredChangePredicate) Create(e event.CreateEvent) bool {
+func (caredChangePredicate) Create(e event.CreateEvent) bool {
 	w, ok := e.Object.(*v1.Workload)
 	if !ok {
 		return false
@@ -75,7 +75,7 @@ func (CaredChangePredicate) Create(e event.CreateEvent) bool {
 	return false
 }
 
-func (CaredChangePredicate) Update(e event.UpdateEvent) bool {
+func (caredChangePredicate) Update(e event.UpdateEvent) bool {
 	oldWorkload, ok1 := e.ObjectOld.(*v1.Workload)
 	newWorkload, ok2 := e.ObjectNew.(*v1.Workload)
 	if !ok1 || !ok2 {
@@ -120,7 +120,7 @@ func isDisableFailover(w *v1.Workload) bool {
 	return false
 }
 
-func (r *FailoverReconciler) enqueueRequestByFault() handler.EventHandler {
+func (r *FailoverReconciler) handleFaultEvent() handler.EventHandler {
 	check := func(fault *v1.Fault) bool {
 		if fault.Status.Phase != v1.FaultPhaseSucceeded || fault.Spec.Node == nil {
 			return false
@@ -137,19 +137,19 @@ func (r *FailoverReconciler) enqueueRequestByFault() handler.EventHandler {
 			if !ok || !check(fault) {
 				return
 			}
-			r.enqueue(ctx, fault, q)
+			r.handleFaultEventImpl(ctx, fault, q)
 		},
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
 			fault, ok := evt.ObjectNew.(*v1.Fault)
 			if !ok || !check(fault) {
 				return
 			}
-			r.enqueue(ctx, fault, q)
+			r.handleFaultEventImpl(ctx, fault, q)
 		},
 	}
 }
 
-func (r *FailoverReconciler) enqueue(ctx context.Context, fault *v1.Fault, q v1.RequestWorkQueue) {
+func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1.Fault, q v1.RequestWorkQueue) {
 	message := fmt.Sprintf("the node %s has fault %s, detail: %s", fault.Spec.Node.K8sName,
 		commonfaults.GenerateTaintKey(fault.Spec.Id), fault.Spec.Message)
 	klog.Infof("%s, try to do failover", message)

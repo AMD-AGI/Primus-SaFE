@@ -35,6 +35,7 @@ import (
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
@@ -68,8 +69,8 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workspace{}, builder.WithPredicates(predicate.Or(
-			r.enqueueRequestByWorkspace(), predicate.GenerationChangedPredicate{}))).
-		Watches(&v1.Node{}, r.enqueueRequestByNode()).
+			r.caredChangePredicate(), predicate.GenerationChangedPredicate{}))).
+		Watches(&v1.Node{}, r.handleNodeEvent()).
 		Complete(r)
 	if err != nil {
 		return err
@@ -78,7 +79,7 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 	return nil
 }
 
-func (r *WorkspaceReconciler) enqueueRequestByWorkspace() predicate.Predicate {
+func (r *WorkspaceReconciler) caredChangePredicate() predicate.Predicate {
 	isCaredFieldChanged := func(oldWorkspace, newWorkspace *v1.Workspace) bool {
 		if oldWorkspace.Spec.Replica != newWorkspace.Spec.Replica ||
 			v1.GetWorkspaceNodesAction(oldWorkspace) == "" && v1.GetWorkspaceNodesAction(newWorkspace) != "" ||
@@ -109,7 +110,7 @@ func (r *WorkspaceReconciler) enqueueRequestByWorkspace() predicate.Predicate {
 	}
 }
 
-func (r *WorkspaceReconciler) enqueueRequestByNode() handler.EventHandler {
+func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 	isCaredFieldChanged := func(oldNode, newNode *v1.Node) bool {
 		if !reflect.DeepEqual(oldNode.Status.Resources, newNode.Status.Resources) ||
 			oldNode.IsAvailable(false) != newNode.IsAvailable(false) ||
@@ -196,7 +197,7 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 		klog.ErrorS(err, "failed to update phase for workspace")
 		return err
 	}
-	return removeFinalizer(ctx, r.Client, workspace, v1.WorkspaceFinalizer)
+	return utils.RemoveFinalizer(ctx, r.Client, workspace, v1.WorkspaceFinalizer)
 }
 
 func (r *WorkspaceReconciler) updatePhase(ctx context.Context, workspace *v1.Workspace, phase v1.WorkspacePhase) error {
@@ -246,7 +247,7 @@ func (r *WorkspaceReconciler) handle(ctx context.Context, workspace *v1.Workspac
 	if !r.meetExpectations(workspace.Name) {
 		return ctrlruntime.Result{}, nil
 	}
-	k8sClients, err := getK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
 	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}

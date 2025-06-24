@@ -5,10 +5,10 @@ data:
       enable_crypto: {{ .Values.crypto.enable }}
       crypto_key: {{ .Values.crypto.mount_path }}/key
     server:
-      port: 8088
+      port:  {{ .Values.apiserver.port }}
     health_check:
-      enable: true
-      port: 8082
+      enable: {{ .Values.k8s.enable_health_check }}
+      port:  {{ .Values.apiserver.health_port }}
     workspace:
       mem_reserve_percent: {{ .Values.workspace.mem_reserve_percent }}
       cpu_reserve_percent:  {{ .Values.workspace.cpu_reserve_percent }}

@@ -58,6 +58,10 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.GET(fmt.Sprintf("nodeflavors/:%s", types.Name), h.GetNodeFlavor)
 		group.GET(fmt.Sprintf("nodeflavors/:%s/avail", types.Name), h.GetNodeFlavorAvail)
 
+		group.POST("opsjobs", h.CreateOpsJob)
+		group.GET("opsjobs", h.ListOpsJob)
+		group.GET("opsjobs/:name", h.GetOpsJob)
+
 		group.POST(fmt.Sprintf("service/:%s/logs", types.Name), h.ListServiceLog)
 		group.POST(fmt.Sprintf("workloads/:%s/logs", types.Name), h.ListWorkloadLog)
 		group.POST(fmt.Sprintf("workloads/:%s/logs/:%s/context", types.Name, types.LogId), h.ListWorkloadLogContext)

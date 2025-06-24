@@ -50,7 +50,7 @@ func SetupDispatcherController(mgr manager.Manager) error {
 		clusterInformers: commonutils.NewObjectManagerSingleton(),
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
-		For(&v1.Workload{}, builder.WithPredicates(CaredChangePredicate{})).
+		For(&v1.Workload{}, builder.WithPredicates(caredChangePredicate{})).
 		Complete(r)
 	if err != nil {
 		return err
@@ -59,11 +59,11 @@ func SetupDispatcherController(mgr manager.Manager) error {
 	return nil
 }
 
-type CaredChangePredicate struct {
+type caredChangePredicate struct {
 	predicate.Funcs
 }
 
-func (CaredChangePredicate) Create(e event.CreateEvent) bool {
+func (caredChangePredicate) Create(e event.CreateEvent) bool {
 	w, ok := e.Object.(*v1.Workload)
 	if !ok {
 		return false
@@ -74,7 +74,7 @@ func (CaredChangePredicate) Create(e event.CreateEvent) bool {
 	return false
 }
 
-func (CaredChangePredicate) Update(e event.UpdateEvent) bool {
+func (caredChangePredicate) Update(e event.UpdateEvent) bool {
 	oldWorkload, ok1 := e.ObjectOld.(*v1.Workload)
 	newWorkload, ok2 := e.ObjectNew.(*v1.Workload)
 	if !ok1 || !ok2 {

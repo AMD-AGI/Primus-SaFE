@@ -23,12 +23,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
-
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 const (
@@ -57,6 +56,10 @@ type NodeMutator struct {
 }
 
 func (m *NodeMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
+	if req.Operation == admissionv1.Delete {
+		return admission.Allowed("")
+	}
+
 	node := &v1.Node{}
 	if err := m.decoder.Decode(req, node); err != nil {
 		return handleError(v1.NodeKind, err)
@@ -74,111 +77,111 @@ func (m *NodeMutator) Handle(ctx context.Context, req admission.Request) admissi
 	if !isChanged {
 		return admission.Allowed("")
 	}
-	if data, err := json.Marshal(node); err != nil {
+	data, err := json.Marshal(node)
+	if err != nil {
 		return handleError(v1.NodeKind, err)
-	} else {
-		return admission.PatchResponseFromRaw(req.Object.Raw, data)
 	}
+	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
-func (m *NodeMutator) mutateOnCreation(ctx context.Context, n *v1.Node) bool {
-	m.mutateSpec(ctx, n)
-	m.mutateMeta(ctx, n)
-	m.mutateCommon(ctx, n)
+func (m *NodeMutator) mutateOnCreation(ctx context.Context, node *v1.Node) bool {
+	m.mutateSpec(ctx, node)
+	m.mutateMeta(ctx, node)
+	m.mutateCommon(ctx, node)
 	return true
 }
 
-func (m *NodeMutator) mutateOnUpdate(ctx context.Context, n *v1.Node) bool {
-	return m.mutateCommon(ctx, n)
+func (m *NodeMutator) mutateOnUpdate(ctx context.Context, node *v1.Node) bool {
+	return m.mutateCommon(ctx, node)
 }
 
-func (m *NodeMutator) mutateSpec(_ context.Context, n *v1.Node) {
-	if n.GetSpecHostName() == "" {
-		n.Spec.Hostname = ptr.To(n.Spec.PrivateIP)
+func (m *NodeMutator) mutateSpec(_ context.Context, node *v1.Node) {
+	if node.GetSpecHostName() == "" {
+		node.Spec.Hostname = ptr.To(node.Spec.PrivateIP)
 	}
-	if n.Spec.Port == nil {
-		n.Spec.Port = pointer.Int32(DefaultPort)
+	if node.Spec.Port == nil {
+		node.Spec.Port = pointer.Int32(DefaultPort)
 	}
 }
 
-func (m *NodeMutator) mutateMeta(_ context.Context, n *v1.Node) {
-	n.Name = stringutil.NormalizeName(n.GetSpecHostName())
-	v1.SetLabel(n, v1.DisplayNameLabel, n.GetSpecHostName())
-	controllerutil.AddFinalizer(n, v1.NodeFinalizer)
+func (m *NodeMutator) mutateMeta(_ context.Context, node *v1.Node) {
+	node.Name = stringutil.NormalizeName(node.GetSpecHostName())
+	v1.SetLabel(node, v1.DisplayNameLabel, node.GetSpecHostName())
+	controllerutil.AddFinalizer(node, v1.NodeFinalizer)
 }
 
-func (m *NodeMutator) mutateCommon(ctx context.Context, n *v1.Node) bool {
+func (m *NodeMutator) mutateCommon(ctx context.Context, node *v1.Node) bool {
 	isChanged := false
-	if m.mutateLabels(n) {
+	if m.mutateLabels(node) {
 		isChanged = true
 	}
-	if m.mutateByNodeFlavor(ctx, n) {
+	if m.mutateByNodeFlavor(ctx, node) {
 		isChanged = true
 	}
-	if m.mutateTaints(n) {
+	if m.mutateTaints(node) {
 		isChanged = true
 	}
 	return isChanged
 }
 
-func (m *NodeMutator) mutateLabels(n *v1.Node) bool {
+func (m *NodeMutator) mutateLabels(node *v1.Node) bool {
 	isChanged := false
-	if n.Spec.NodeFlavor != nil {
-		if v1.SetLabel(n, v1.NodeFlavorIdLabel, n.Spec.NodeFlavor.Name) {
+	if node.Spec.NodeFlavor != nil {
+		if v1.SetLabel(node, v1.NodeFlavorIdLabel, node.Spec.NodeFlavor.Name) {
 			isChanged = true
 		}
 	}
-	if v1.RemoveEmptyLabel(n, v1.WorkspaceIdLabel) {
+	if v1.RemoveEmptyLabel(node, v1.WorkspaceIdLabel) {
 		isChanged = true
 	}
-	if v1.RemoveEmptyLabel(n, v1.ClusterIdLabel) {
+	if v1.RemoveEmptyLabel(node, v1.ClusterIdLabel) {
 		isChanged = true
 	}
 	return isChanged
 }
 
-func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, n *v1.Node) bool {
-	nf, _ := getNodeFlavor(ctx, m.Client, v1.GetNodeFlavorId(n))
+func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, node *v1.Node) bool {
+	nf, _ := getNodeFlavor(ctx, m.Client, v1.GetNodeFlavorId(node))
 	if nf == nil {
 		return false
 	}
 	isChanged := false
 	if nf.HasGpu() {
-		if v1.SetAnnotation(n, v1.GpuProductNameAnnotation, nf.Spec.Gpu.Product) {
+		if v1.SetAnnotation(node, v1.GpuProductNameAnnotation, nf.Spec.Gpu.Product) {
 			isChanged = true
 		}
-		if v1.SetAnnotation(n, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName) {
+		if v1.SetAnnotation(node, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName) {
 			isChanged = true
 		}
-		if v1.SetLabel(n, v1.NodeGpuCountLabel, nf.Spec.Gpu.Quantity.String()) {
+		if v1.SetLabel(node, v1.NodeGpuCountLabel, nf.Spec.Gpu.Quantity.String()) {
 			isChanged = true
 		}
 	} else {
-		if v1.RemoveAnnotation(n, v1.GpuProductNameAnnotation) {
+		if v1.RemoveAnnotation(node, v1.GpuProductNameAnnotation) {
 			isChanged = true
 		}
-		if v1.RemoveAnnotation(n, v1.GpuResourceNameAnnotation) {
+		if v1.RemoveAnnotation(node, v1.GpuResourceNameAnnotation) {
 			isChanged = true
 		}
-		if v1.RemoveLabel(n, v1.NodeGpuCountLabel) {
+		if v1.RemoveLabel(node, v1.NodeGpuCountLabel) {
 			isChanged = true
 		}
 	}
 	return isChanged
 }
 
-func (m *NodeMutator) mutateTaints(n *v1.Node) bool {
+func (m *NodeMutator) mutateTaints(node *v1.Node) bool {
 	isChanged := false
-	if n.GetSpecCluster() == "" {
+	if node.GetSpecCluster() == "" {
 		// clear all taints when unmanaging node
-		if len(n.Spec.Taints) > 0 {
-			n.Spec.Taints = nil
+		if len(node.Spec.Taints) > 0 {
+			node.Spec.Taints = nil
 			isChanged = true
 		}
 	} else {
-		for i := range n.Spec.Taints {
-			if n.Spec.Taints[i].TimeAdded == nil {
-				n.Spec.Taints[i].TimeAdded = &metav1.Time{Time: time.Now().UTC()}
+		for i := range node.Spec.Taints {
+			if node.Spec.Taints[i].TimeAdded == nil {
+				node.Spec.Taints[i].TimeAdded = &metav1.Time{Time: time.Now().UTC()}
 				isChanged = true
 			}
 		}

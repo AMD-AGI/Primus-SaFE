@@ -81,6 +81,7 @@ func IsBadRequest(err error) bool {
 func IsInternal(err error) bool {
 	return apierrors.ReasonForError(err) == InternalError
 }
+
 func IsNotFound(err error) bool {
 	reason := apierrors.ReasonForError(err)
 	if reason == NotFound || reason == WorkloadNotFound ||

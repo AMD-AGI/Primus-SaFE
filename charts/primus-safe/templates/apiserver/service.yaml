@@ -8,6 +8,13 @@ spec:
     app: {{ .Release.Name }}-apiserver
   ports:
     - protocol: TCP
-      port: 8088
-      targetPort: 8088
+      port: {{ .Values.apiserver.port }}
+      targetPort: {{ .Values.apiserver.port }}
+      name: http-port
+    {{- if .Values.ssh.enable }}
+    - protocol: TCP
+      port: {{ .Values.ssh.port }}
+      targetPort: {{ .Values.ssh.port }}
+      name: ssh-port
+    {{- end }}
   type: ClusterIP

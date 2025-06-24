@@ -13,15 +13,16 @@ import (
 // NodeSpecApplyConfiguration represents a declarative configuration of the NodeSpec type for use
 // with apply.
 type NodeSpecApplyConfiguration struct {
-	Cluster    *string                 `json:"cluster,omitempty"`
-	Workspace  *string                 `json:"workspace,omitempty"`
-	NodeFlavor *corev1.ObjectReference `json:"nodeFlavor,omitempty"`
-	Hostname   *string                 `json:"hostname,omitempty"`
-	PrivateIP  *string                 `json:"privateIP,omitempty"`
-	PublicIP   *string                 `json:"publicIP,omitempty"`
-	Port       *int32                  `json:"port,omitempty"`
-	Taints     []corev1.Taint          `json:"taints,omitempty"`
-	SSHSecret  *corev1.ObjectReference `json:"secret,omitempty"`
+	Cluster      *string                 `json:"cluster,omitempty"`
+	Workspace    *string                 `json:"workspace,omitempty"`
+	NodeFlavor   *corev1.ObjectReference `json:"nodeFlavor,omitempty"`
+	NodeTemplate *corev1.ObjectReference `json:"nodeTemplate,omitempty"`
+	Hostname     *string                 `json:"hostname,omitempty"`
+	PrivateIP    *string                 `json:"privateIP,omitempty"`
+	PublicIP     *string                 `json:"publicIP,omitempty"`
+	Port         *int32                  `json:"port,omitempty"`
+	Taints       []corev1.Taint          `json:"taints,omitempty"`
+	SSHSecret    *corev1.ObjectReference `json:"secret,omitempty"`
 }
 
 // NodeSpecApplyConfiguration constructs a declarative configuration of the NodeSpec type for use with
@@ -51,6 +52,14 @@ func (b *NodeSpecApplyConfiguration) WithWorkspace(value string) *NodeSpecApplyC
 // If called multiple times, the NodeFlavor field is set to the value of the last call.
 func (b *NodeSpecApplyConfiguration) WithNodeFlavor(value corev1.ObjectReference) *NodeSpecApplyConfiguration {
 	b.NodeFlavor = &value
+	return b
+}
+
+// WithNodeTemplate sets the NodeTemplate field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the NodeTemplate field is set to the value of the last call.
+func (b *NodeSpecApplyConfiguration) WithNodeTemplate(value corev1.ObjectReference) *NodeSpecApplyConfiguration {
+	b.NodeTemplate = &value
 	return b
 }
 

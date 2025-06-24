@@ -27,6 +27,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/secure"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 )
@@ -394,7 +395,7 @@ func (r *ClusterReconciler) patchMachineNode(ctx context.Context, cluster *v1.Cl
 		node.OwnerReferences = addOwnerReferences(node.OwnerReferences, cluster)
 	} else if cluster.Status.ControlPlaneStatus.Phase == v1.DeletedPhase {
 		node.Spec.Cluster = nil
-		node.OwnerReferences = removeOwnerReferences(node.OwnerReferences, cluster.UID)
+		node.OwnerReferences = utils.RemoveOwnerReferences(node.OwnerReferences, cluster.UID)
 		klog.Infof("nodes %s remove  owner references", node.Name)
 	} else {
 		return nil

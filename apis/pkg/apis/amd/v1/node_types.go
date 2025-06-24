@@ -46,8 +46,10 @@ type NodeSpec struct {
 	Cluster *string `json:"cluster,omitempty"`
 	// The name of the workspace that the node belongs to
 	Workspace *string `json:"workspace,omitempty"`
-	// node flavor id
+	// node flavor reference
 	NodeFlavor *corev1.ObjectReference `json:"nodeFlavor"`
+	// node template reference
+	NodeTemplate *corev1.ObjectReference `json:"nodeTemplate"`
 	// node hostname
 	Hostname  *string `json:"hostname,omitempty"`
 	PrivateIP string  `json:"privateIP,omitempty"`
