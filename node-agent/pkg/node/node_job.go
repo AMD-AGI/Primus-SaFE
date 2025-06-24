@@ -34,6 +34,10 @@ const (
 	maxMessageLen        = 1024
 )
 
+var (
+	nsenterSh = "nsenter --target 1 --mount --uts --ipc --net --pid -- sh -c "
+)
+
 func (job *NodeJob) Reconcile(n *Node) error {
 	quit, err := job.observe(n)
 	if quit || err != nil {
@@ -41,7 +45,6 @@ func (job *NodeJob) Reconcile(n *Node) error {
 	}
 	jobId := v1.GetOpsJobId(n.k8sNode)
 	if err = job.handle(n); err != nil {
-		klog.ErrorS(err, "failed to handle node job", "job.id", jobId)
 		job.addCondition(n, jobId, err.Error(), corev1.ConditionFalse)
 		return err
 	}
@@ -103,7 +106,9 @@ func (job *NodeJob) observeJobProcessed(n *Node) (bool, error) {
 func (job *NodeJob) handle(n *Node) error {
 	jobInput := getJobInput(n.k8sNode)
 	if jobInput == nil {
-		return fmt.Errorf("invalid ops job input")
+		err := fmt.Errorf("invalid ops job input")
+		klog.Error(err.Error())
+		return err
 	}
 	var err error
 	hasHandled := false
@@ -115,10 +120,12 @@ func (job *NodeJob) handle(n *Node) error {
 		}
 		if jobInput.Commands[i].IsSystemd {
 			if err2 := job.executeSystemd(jobId, cmd); err2 != nil {
+				klog.ErrorS(err2, "failed to execute systemd, jobid: %s, addon: %s", jobId, cmd.Addon)
 				err = err2
 			}
 		} else {
 			if err2 := job.executeCommand(jobId, cmd); err2 != nil {
+				klog.ErrorS(err2, "failed to execute command, jobid: %s, addon: %s", jobId, cmd.Addon)
 				err = err2
 			}
 		}
@@ -128,7 +135,9 @@ func (job *NodeJob) handle(n *Node) error {
 		return err
 	}
 	if !hasHandled {
-		return fmt.Errorf("chip mismatched")
+		err = fmt.Errorf("chip mismatched")
+		klog.Error(err.Error())
+		return err
 	}
 	return nil
 }
@@ -137,7 +146,7 @@ func (job *NodeJob) executeCommand(jobId string, jobCmd commonjob.OpsJobCommand)
 	// Verify if the expectation is already satisfied. If yes, return without taking any action.
 	if jobCmd.Observe != "" {
 		if statusCode, _ := job.execute(jobCmd.Observe); statusCode == types.StatusOk {
-			klog.Infof("job(%s) already satisfies expectations", jobId)
+			klog.Infof("job(%s) already satisfies expectations, addon: %s", jobId, jobCmd.Addon)
 			return nil
 		}
 	}
@@ -146,7 +155,7 @@ func (job *NodeJob) executeCommand(jobId string, jobCmd commonjob.OpsJobCommand)
 		if statusCode, output := job.execute(jobCmd.Action); statusCode != types.StatusOk {
 			return fmt.Errorf("%s", output)
 		}
-		klog.Infof("ops job(%s) do action successfully", jobId)
+		klog.Infof("ops job(%s) do action successfully, addon: %s", jobId, jobCmd.Addon)
 	}
 
 	if jobCmd.Observe == "" {
@@ -155,7 +164,7 @@ func (job *NodeJob) executeCommand(jobId string, jobCmd commonjob.OpsJobCommand)
 	statusCode, _ := job.execute(jobCmd.Observe)
 	switch statusCode {
 	case types.StatusOk:
-		klog.Infof("ops job(%s) observe successfully", jobId)
+		klog.Infof("ops job(%s) observe successfully, addon: %s", jobId, jobCmd.Addon)
 		return nil
 	case types.StatusError:
 		return fmt.Errorf("the observation result does not meet expectation")
@@ -175,6 +184,9 @@ func (job *NodeJob) executeSystemd(jobId string, jobCmd commonjob.OpsJobCommand)
 	serviceFullPath := fmt.Sprintf("%s/%s", systemdPath, serviceName)
 	command := ""
 	if utils.IsFileExist(serviceFullPath) {
+		if jobCmd.IsOneShotService {
+			return nil
+		}
 		command = fmt.Sprintf(systemdRestart, serviceName, serviceName)
 	} else {
 		content = genSystemdService(scriptFullPath)
@@ -186,13 +198,13 @@ func (job *NodeJob) executeSystemd(jobId string, jobCmd commonjob.OpsJobCommand)
 	if statusCode, output := job.execute(command); statusCode != types.StatusOk {
 		return fmt.Errorf("%s", output)
 	}
-	klog.Infof("ops job(%s) execute systemd successfully", jobId)
+	klog.Infof("ops job(%s) execute systemd successfully, addon: %s", jobId, jobCmd.Addon)
 	return nil
 }
 
 func (job *NodeJob) execute(cmd string) (int, string) {
-	if nsenter != "" {
-		cmd = nsenter + "'" + cmd + "'"
+	if nsenterSh != "" {
+		cmd = nsenterSh + "'" + cmd + "'"
 	}
 	statusCode, output := utils.ExecuteCommand(cmd, time.Second*defaultTimeoutSecond)
 	if statusCode != types.StatusOk {
@@ -236,7 +248,7 @@ func getJobDispatchTime(node *corev1.Node) int64 {
 }
 
 func genSystemdService(scriptPath string) string {
-	content := "[Unit]\nDescription=Xcs Init\nAfter=network.target\n\n" +
+	content := "[Unit]\nDescription=PrimusSafe Init\nAfter=network.target\n\n" +
 		"[Service]\nExecStart=sudo sh " + scriptPath + "\n\n" +
 		"[Install]\nWantedBy=multi-user.target\n"
 	return content

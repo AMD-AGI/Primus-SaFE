@@ -29,9 +29,11 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -50,8 +52,8 @@ const (
 )
 
 type AddonJob struct {
-	// store the processing status for each node. key is the node name
-	nodePhases map[string]AddonNodePhase
+	// store the processing status for each node. key is the admin node name
+	allNodes map[string]AddonNodePhase
 	// the maximum number of node failures that the system can tolerate during job execution.
 	maxFailCount int
 	// the number of nodes to process simultaneously during the addon execution
@@ -155,7 +157,9 @@ func (r *AddonJobReconciler) handleNodeEventImpl(ctx context.Context,
 		r.addFailedNodeToCondition(ctx, jobId, n.Name, message)
 	case AddonNodeSucceeded:
 		if fault, _ := getFault(ctx, r.Client, n.Name, commonconfig.GetAddonFaultId()); fault != nil {
-			r.Delete(ctx, fault)
+			if r.Delete(ctx, fault) == nil {
+				klog.Infof("delete addon fault, id: %s", fault.Name)
+			}
 		}
 	}
 	q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: jobId}})
@@ -247,7 +251,7 @@ func (r *AddonJobReconciler) getNodesToProcess(job *v1.OpsJob) []string {
 	}
 	runningCount := 0
 	var allPendingNodes []string
-	for key, val := range addonJob.nodePhases {
+	for key, val := range addonJob.allNodes {
 		if val == AddonNodeRunning {
 			runningCount++
 			if runningCount >= addonJob.batchCount {
@@ -266,7 +270,7 @@ func (r *AddonJobReconciler) removeJobLabelOfNodes(ctx context.Context, job *v1.
 	if !ok {
 		return nil
 	}
-	for nodeName := range addonJob.nodePhases {
+	for nodeName := range addonJob.allNodes {
 		adminNode, err := getAdminNode(ctx, r.Client, nodeName)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return err
@@ -331,15 +335,22 @@ func (r *AddonJobReconciler) handleImpl(ctx context.Context, job *v1.OpsJob) (ct
 			return ctrlruntime.Result{}, err
 		}
 	}
+
+	hasFailedNode := false
 	for _, n := range targetNodes {
 		nodeInput := NodeInput{nodeName: n, allUsingNodes: allUsingNodes, opsJobInput: opsJobInput}
 		if result, err := r.handleNode(ctx, job, nodeInput); err != nil || result.RequeueAfter > 0 {
+			klog.ErrorS(err, "failed to handle node", "nodeName", n)
 			if utils.IsNonRetryableError(err) {
 				r.setAddonNodePhase(job.Name, n, AddonNodeFailed)
+				hasFailedNode = true
 				continue
 			}
 			return result, err
 		}
+	}
+	if hasFailedNode {
+		return ctrlruntime.Result{Requeue: true}, nil
 	}
 	return ctrlruntime.Result{}, nil
 }
@@ -354,6 +365,10 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.OpsJob, nod
 	adminNode, err := getAdminNode(ctx, r.Client, nodeInput.nodeName)
 	if err != nil {
 		return ctrlruntime.Result{}, err
+	}
+	key := commonfaults.GenerateTaintKey(resource.NodeNotReady)
+	if !adminNode.IsAvailable(true) || commonfaults.HasTaintKey(adminNode.Status.Taints, key) {
+		return ctrlruntime.Result{}, commonerrors.NewInternalError("the node is unavailable")
 	}
 	if v1.GetOpsJobId(adminNode) == job.Name {
 		return ctrlruntime.Result{}, nil
@@ -420,6 +435,7 @@ func (r *AddonJobReconciler) createAddonFault(ctx context.Context, job *v1.OpsJo
 	if err = r.Create(ctx, fault); err != nil {
 		return err
 	}
+	klog.Infof("create addon fault, id: %s", fault.Name)
 	return nil
 }
 
@@ -432,7 +448,7 @@ func (r *AddonJobReconciler) addJob(job *v1.OpsJob, inputNodes []*v1.Node) error
 		nodePhases[n.Name] = AddonNodePending
 	}
 	addonJob := AddonJob{
-		nodePhases: nodePhases,
+		allNodes: nodePhases,
 	}
 	if len(nodePhases) == 1 {
 		addonJob.maxFailCount = 1
@@ -470,13 +486,14 @@ func (r *AddonJobReconciler) hasJob(jobId string) bool {
 }
 
 func (r *AddonJobReconciler) setAddonNodePhase(jobId, nodeName string, phase AddonNodePhase) {
+	klog.Infof("update addon node status, job: %s, node: %s, phase: %d", jobId, nodeName, phase)
 	r.Lock()
 	defer r.Unlock()
 	addonJob, ok := r.allJobs[jobId]
 	if !ok {
 		return
 	}
-	addonJob.nodePhases[nodeName] = phase
+	addonJob.allNodes[nodeName] = phase
 }
 
 func (r *AddonJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, string) {
@@ -488,7 +505,7 @@ func (r *AddonJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, string) 
 	}
 	totalFailCount := 0
 	totalSuccessCount := 0
-	for _, p := range job.nodePhases {
+	for _, p := range job.allNodes {
 		if p == AddonNodeFailed {
 			totalFailCount++
 		} else if p == AddonNodeSucceeded {
@@ -497,7 +514,7 @@ func (r *AddonJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, string) 
 	}
 	if totalFailCount >= job.maxFailCount {
 		return v1.OpsJobFailed, fmt.Sprintf("The number of failures has reached the threshold(%d)", job.maxFailCount)
-	} else if totalFailCount+totalSuccessCount >= len(job.nodePhases) {
+	} else if totalFailCount+totalSuccessCount >= len(job.allNodes) {
 		return v1.OpsJobSucceeded, fmt.Sprintf("success: %d, fail: %d", totalSuccessCount, totalFailCount)
 	}
 	return v1.OpsJobRunning, ""
@@ -548,10 +565,11 @@ func (r *AddonJobReconciler) buildOpsJobInput(ctx context.Context, job *v1.OpsJo
 			return nil, err
 		}
 		cmd := commonjob.OpsJobCommand{
-			Addon:   params[i].Value,
-			Action:  addonTemplate.Spec.Extensions[v1.AddOnAction],
-			Observe: addonTemplate.Spec.Extensions[v1.AddOnObserve],
-			Chip:    addonTemplate.Spec.Chip,
+			Addon:            params[i].Value,
+			Action:           addonTemplate.Spec.Extensions[v1.AddOnAction],
+			Observe:          addonTemplate.Spec.Extensions[v1.AddOnObserve],
+			Chip:             addonTemplate.Spec.Chip,
+			IsOneShotService: addonTemplate.Spec.IsOneShotService,
 		}
 		if addonTemplate.Spec.Type == v1.AddonTemplateSystemd {
 			cmd.IsSystemd = true

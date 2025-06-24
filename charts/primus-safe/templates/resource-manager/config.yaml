@@ -30,7 +30,7 @@ data:
       batch_count: {{ .Values.ops_job.batch_count }}
       available_ratio: {{ .Values.ops_job.available_ratio }}
     fault:
-      addon_id: {{ .Values.fault.addon_id }}
+      addon_id: "{{ .Values.fault.addon_id }}"
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-resource-manager

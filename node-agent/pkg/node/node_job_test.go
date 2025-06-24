@@ -21,7 +21,7 @@ import (
 )
 
 func prepareForNodeJob(t *testing.T, jobType string) *Node {
-	nsenter = ""
+	nsenterSh = ""
 	node, _ := newNode(t)
 	v1.SetLabel(node.k8sNode, v1.OpsJobTypeLabel, jobType)
 	v1.SetLabel(node.k8sNode, v1.OpsJobIdLabel, "test-job")

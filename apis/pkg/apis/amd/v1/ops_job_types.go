@@ -23,7 +23,6 @@ const (
 	OpsJobSucceeded OpsJobPhase = "Succeeded"
 	OpsJobFailed    OpsJobPhase = "Failed"
 	OpsJobRunning   OpsJobPhase = "Running"
-	OpsJobTimeout   OpsJobPhase = "Timeout"
 	OpsJobPending   OpsJobPhase = "Pending"
 
 	OpsJobAddonType OpsJobType = "addon"

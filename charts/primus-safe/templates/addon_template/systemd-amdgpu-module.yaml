@@ -8,7 +8,8 @@ metadata:
 spec:
   type: systemd
   category: GPU
-  chip: amd-gpu
+  chip: amd
+  isOneShotService: true
   description: Load the AMD GPU module on a Linux system
   extensions:
     action: bW9kcHJvYmUgYW1kZ3B1Cg==

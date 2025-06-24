@@ -29,6 +29,8 @@ type OpsJobCommand struct {
 	Observe string `json:"observe,omitempty"`
 	// Determines whether the command should be registered as a service in systemd
 	IsSystemd bool `json:"isSystemd,omitempty"`
+	// If it is a One-shot Service, the reload operation is not applicable.
+	IsOneShotService bool `json:"isOneShotService,omitempty"`
 	// target chip， If left empty, it applies to all chip.
 	Chip v1.ChipType `json:"chip,omitempty"`
 }

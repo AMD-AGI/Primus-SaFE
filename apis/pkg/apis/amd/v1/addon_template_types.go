@@ -61,6 +61,8 @@ type AddonTemplateSpec struct {
 	Icon string `json:"icon,omitempty"`
 	// target chip， If left empty, it applies to all chip.
 	Chip ChipType `json:"chip,omitempty"`
+	// If it is a One-shot Service, the reload operation is not applicable.
+	IsOneShotService bool `json:"isOneShotService,omitempty"`
 	// the default value for helm install
 	HelmDefaultValues    string `json:"helmDefaultValues,omitempty"`
 	HelmDefaultNamespace string `json:"helmDefaultNamespace,omitempty"`

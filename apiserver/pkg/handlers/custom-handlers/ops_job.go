@@ -23,6 +23,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -115,21 +116,12 @@ func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 
 func generateAddonJob(req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
 	job := generateOpsJob(req)
-	jobName := ""
-	if p := job.GetParameter(v1.ParameterNodeTemplate); p != nil {
-		jobName = p.Value
-	} else if p = job.GetParameter(v1.ParameterAddonTemplate); p != nil {
-		jobName = p.Value
-	} else {
+	if job.GetParameter(v1.ParameterNodeTemplate) == nil && job.GetParameter(v1.ParameterAddonTemplate) == nil {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("either %s or %s must be specified in the job.",
 			v1.ParameterAddonTemplate, v1.ParameterNodeTemplate))
 	}
-
-	if p := job.GetParameter(v1.ParameterNode); p != nil {
-		jobName = p.Value + "-" + jobName
-	}
-
-	job.Name = jobName
+	jobName := v1.OpsJobKind + "-" + string(v1.OpsJobAddonType)
+	job.Name = commonutils.GenerateName(strings.ToLower(jobName))
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
 	}

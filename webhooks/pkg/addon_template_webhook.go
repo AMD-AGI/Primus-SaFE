@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -55,6 +56,9 @@ func (m *AddOnTemplateMutator) Handle(_ context.Context, req admission.Request) 
 
 func (m *AddOnTemplateMutator) mutateOnCreation(addon *v1.AddonTemplate) {
 	addon.Name = stringutil.NormalizeName(addon.Name)
+	for key, val := range addon.Spec.Extensions {
+		addon.Spec.Extensions[key] = strings.Trim(val, " ")
+	}
 }
 
 type AddOnTemplateValidator struct {

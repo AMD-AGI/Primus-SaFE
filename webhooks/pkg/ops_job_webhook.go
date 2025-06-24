@@ -224,7 +224,9 @@ func (v *OpsJobValidator) validateNodeInputDuplicated(ctx context.Context, job *
 		if currentJob.IsEnd() {
 			continue
 		}
-		if v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterNode) {
+		// If the node parameter is empty, it indicates all nodes.
+		if job.GetParameter(v1.ParameterNode) == nil || currentJob.GetParameter(v1.ParameterNode) == nil ||
+			v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterNode) {
 			return commonerrors.NewResourceProcessing(
 				fmt.Sprintf("another ops job (%s) is running, job.type: %s", currentJob.Name, currentJob.Spec.Type))
 		}

@@ -48,8 +48,6 @@ type FaultConfig struct {
 	Toggle string `json:"toggle,omitempty"`
 	// whether the fault is auto repaired or not. default true
 	IsAutoRepair *bool `json:"isAutoRepair,omitempty"`
-	// is the fault unrelated to any specific node? default false
-	IsUnrelatedNode bool `json:"IsUnrelatedNode,omitempty"`
 }
 
 func (c *FaultConfig) IsAutoRepairEnabled() bool {
@@ -81,7 +79,7 @@ func parseFaultConfig(configMap *corev1.ConfigMap) map[string]*FaultConfig {
 		if err := json.Unmarshal([]byte(val), conf); err != nil {
 			continue
 		}
-		if conf.Toggle != "on" {
+		if conf.Toggle != "on" || conf.Id == "" {
 			continue
 		}
 		if conf.IsAutoRepair == nil {

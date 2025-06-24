@@ -14,6 +14,7 @@ type RequestWorkQueue = workqueue.TypedRateLimitingInterface[reconcile.Request]
 
 const (
 	PrimusSafePrefix = "primus-safe."
+	PrimusSafeDomain = "primus-safe/"
 
 	// general
 	DisplayNameLabel = PrimusSafePrefix + "display.name"
@@ -31,7 +32,7 @@ const (
 
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."
-	NodeFinalizer = NodePrefix + "finalizer"
+	NodeFinalizer = PrimusSafeDomain + "node.finalizer"
 	// The expected GPU count for the node, it should be annotated as a label
 	NodeGpuCountLabel = NodePrefix + "gpu.count"
 	// The node's last startup time
@@ -44,7 +45,7 @@ const (
 
 	// Cluster lables
 	ClusterPrefix                 = PrimusSafePrefix + "cluster."
-	ClusterFinalizer              = ClusterPrefix + "finalizer"
+	ClusterFinalizer              = PrimusSafeDomain + "cluster.finalizer"
 	ClusterManagePrefix           = ClusterPrefix + "manage."
 	ClusterManageActionLabel      = ClusterManagePrefix + "action"
 	ClusterManageClusterLabel     = ClusterManagePrefix + "cluster"
@@ -55,7 +56,7 @@ const (
 
 	// storage
 	StoragePrefix              = PrimusSafePrefix + "storage."
-	StorageFinalizer           = StoragePrefix + "finalizer"
+	StorageFinalizer           = PrimusSafeDomain + "storage.finalizer"
 	StorageDefaultClusterLabel = StoragePrefix + "default.cluster"
 	StorageClusterNameLabel    = StoragePrefix + "cluster.name"
 
@@ -65,18 +66,18 @@ const (
 
 	// workspace
 	WorkspacePrefix      = PrimusSafePrefix + "workspace."
-	WorkspaceFinalizer   = WorkspacePrefix + "finalizer"
+	WorkspaceFinalizer   = PrimusSafeDomain + "workspace.finalizer"
 	WorkspaceIdLabel     = WorkspacePrefix + "id"
 	WorkspaceNodesAction = WorkspacePrefix + "nodes.action"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
-	FaultFinalizer = FaultPrefix + "finalizer"
+	FaultFinalizer = PrimusSafeDomain + "fault.finalizer"
 	FaultId        = FaultPrefix + "id"
 
 	// workload
 	WorkloadPrefix                    = PrimusSafePrefix + "workload."
-	WorkloadFinalizer                 = WorkloadPrefix + "finalizer"
+	WorkloadFinalizer                 = PrimusSafeDomain + "workload.finalizer"
 	WorkloadIdLabel                   = WorkloadPrefix + "id"
 	WorkloadDispatchedAnnotation      = WorkloadPrefix + "dispatched"
 	WorkloadScheduledAnnotation       = WorkloadPrefix + "scheduled"
@@ -99,8 +100,7 @@ const (
 	SecretMd5Label  = SecretPrefix + "md5"
 
 	// exporter
-	ExporterPrefix    = PrimusSafePrefix + "exporter."
-	ExporterFinalizer = ExporterPrefix + "finalizer"
+	ExporterFinalizer = PrimusSafeDomain + "exporter.finalizer"
 
 	// job
 	OpsJobPrefix                    = PrimusSafePrefix + "ops.job."
@@ -111,7 +111,7 @@ const (
 	OpsJobBatchCountAnnotation      = OpsJobPrefix + "batch.count"
 	// the job on node
 	OpsJobInputAnnotation = OpsJobPrefix + "input"
-	OpsJobFinalizer       = OpsJobPrefix + "finalizer"
+	OpsJobFinalizer       = PrimusSafeDomain + "ops.job.finalizer"
 )
 
 const (
