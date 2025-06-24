@@ -1,2 +1,3 @@
-# SAFE
-SAFE: Scalable AI Fault-tolerant Engine   
+# Primus-SaFE
+Primus-SaFE is a cloud-native Stability-as-First Enhancement framework for large-scale foundation-model training and inference. Built on Kubernetes, container networking, elastic storage, and service meshes, it delivers elastic scheduling, fast failure recovery, and automatic health checks—minimising downtime from node loss, network jitter, or checkpoint overhead and boosting overall goodput (the share of compute that truly advances the model).
+SaFE weaves Megatron, ROCm-optimised components, and proprietary fault-tolerance logic directly into the training stack, transparently handling parameter re-sharding, micro-batch replay, and asynchronous gradient sync to keep goodput above 90 % even on thousand-GPU, multi-day runs. It supports pre-training, post-training (SFT/LoRA), and reinforcement-learning workflows, offers multi-tenant isolation and observability, and lets model teams focus on algorithmic progress while SaFE owns stability and efficiency.
