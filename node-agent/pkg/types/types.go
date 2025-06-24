@@ -10,9 +10,6 @@ import (
 )
 
 const (
-	NvidiaGpuChip = "nvidia"
-	AmdGpuChip    = "amd"
-
 	StatusOk      = 0
 	StatusError   = 1
 	StatusUnknown = 2

@@ -333,12 +333,33 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 	}
 	node.Spec.NodeFlavor = commonutils.GenObjectReference(nf.TypeMeta, nf.ObjectMeta)
 
+	if req.TemplateName != "" {
+		nt, err := h.getAdminNodeTemplate(c.Request.Context(), req.TemplateName)
+		if err != nil {
+			return nil, err
+		}
+		node.Spec.NodeTemplate = commonutils.GenObjectReference(nt.TypeMeta, nt.ObjectMeta)
+	}
+
 	secret, err := h.getSecret(c.Request.Context(), req.SSHSecretName)
 	if err != nil {
 		return nil, err
 	}
 	node.Spec.SSHSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
 	return node, nil
+}
+
+func (h *Handler) getAdminNodeTemplate(ctx context.Context, name string) (*v1.NodeTemplate, error) {
+	if name == "" {
+		return nil, commonerrors.NewBadRequest("the nodeTemplateId is empty")
+	}
+	nt := &v1.NodeTemplate{}
+	err := h.Get(ctx, client.ObjectKey{Name: name}, nt)
+	if err != nil {
+		klog.ErrorS(err, "failed to get node template")
+		return nil, err
+	}
+	return nt.DeepCopy(), nil
 }
 
 func validateCreateNodeRequest(req *types.CreateNodeRequest) error {
@@ -436,6 +457,15 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 		nodesLabelAction[v1.NodeFlavorIdLabel] = v1.NodeActionAdd
 		isShouldUpdate = true
 	}
+	if req.NodeTemplate != nil && *req.NodeTemplate != "" &&
+		(node.Spec.NodeTemplate == nil || *req.NodeTemplate != node.Spec.NodeTemplate.Name) {
+		nt, err := h.getAdminNodeTemplate(ctx, *req.NodeTemplate)
+		if err != nil {
+			return false, err
+		}
+		node.Spec.NodeTemplate = commonutils.GenObjectReference(nt.TypeMeta, nt.ObjectMeta)
+		isShouldUpdate = true
+	}
 	if len(nodesLabelAction) > 0 {
 		v1.SetAnnotation(node, v1.NodeLabelAction, string(jsonutils.MarshalSilently(nodesLabelAction)))
 	}
@@ -455,8 +485,11 @@ func cvtToGetNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.GetN
 		Taints:         getPrimusTaints(n.Status.Taints),
 		TotalResources: cvtToResourceList(n.Status.Resources),
 		CustomerLabels: getCustomerLabels(n.Labels, true),
-		CreatedTime:    timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
+		CreateTime:     timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
 		IsControlPlane: v1.IsControlPlane(n),
+	}
+	if n.Spec.NodeTemplate != nil {
+		result.NodeTemplate = n.Spec.NodeTemplate.Name
 	}
 	var availResource corev1.ResourceList
 	if usedResource != nil && len(usedResource.resource) > 0 {

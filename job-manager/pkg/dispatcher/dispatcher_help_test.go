@@ -61,7 +61,7 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 
 	port := ports[0].(map[string]interface{})
 	name, ok := port["name"]
-	if workload.SpecKind() == common.PytorchJobKind {
+	if workload.SpecKind() == v1.PytorchJobKind {
 		assert.Equal(t, ok, true)
 		assert.Equal(t, name, common.PytorchJobPortName)
 	}

@@ -33,10 +33,6 @@ type SshHandler struct {
 func NewSshHandler(ctx context.Context, mgr ctrlruntime.Manager) (*SshHandler, error) {
 	config := &ssh.ServerConfig{
 		NoClientAuth: true,
-		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-			klog.Infof("User %q authenticated with public key\n", conn.User())
-			return nil, nil
-		},
 	}
 	privateData := commonconfig.GetSSHRsaPrivate()
 	if len(privateData) == 0 {
@@ -100,6 +96,7 @@ func (h *SshHandler) startSessionHandler(ctx context.Context, conn *ssh.ServerCo
 		klog.ErrorS(err, "failed to accept channel")
 		return
 	}
+	fmt.Fprintf(ch, "\r\x1b[93mConnecting ...\x1b[0m\r\n")
 	s := &session{
 		ctx:     ctx,
 		Channel: ch,

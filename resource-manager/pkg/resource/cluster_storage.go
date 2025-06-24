@@ -24,6 +24,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
 func (r *ClusterReconciler) guaranteeStorage(ctx context.Context, cluster *v1.Cluster) (ctrlruntime.Result, error) {
@@ -31,7 +32,7 @@ func (r *ClusterReconciler) guaranteeStorage(ctx context.Context, cluster *v1.Cl
 		return ctrlruntime.Result{}, nil
 	}
 	status := cluster.Status.DeepCopy()
-	k8sClients, err := getK8sClientFactory(r.clientManager, cluster.Name)
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}

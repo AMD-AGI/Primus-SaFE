@@ -78,8 +78,8 @@ func TestGetGpuQuantity(t *testing.T) {
 	n, _ := newNode(t)
 	quantity := n.GetGpuQuantity()
 	assert.Equal(t, quantity.Value(), int64(8))
-	assert.Equal(t, n.IsMatchChip(types.AmdGpuChip), true)
-	assert.Equal(t, n.IsMatchChip(types.NvidiaGpuChip), false)
+	assert.Equal(t, n.IsMatchChip(string(v1.AmdGpuChip)), true)
+	assert.Equal(t, n.IsMatchChip(string(v1.NvidiaGpuChip)), false)
 }
 
 func TestUpdateCondition(t *testing.T) {
@@ -88,11 +88,11 @@ func TestUpdateCondition(t *testing.T) {
 		Type:   "safe.101",
 		Status: "True",
 	}
-	resp := n.FindCondition(string(condition.Type))
+	resp := n.FindConditionByType(string(condition.Type))
 	assert.Equal(t, resp != nil, false)
 	err := n.UpdateConditions([]corev1.NodeCondition{condition})
 	assert.NilError(t, err)
-	resp = n.FindCondition(string(condition.Type))
+	resp = n.FindConditionByType(string(condition.Type))
 	assert.Equal(t, resp != nil, true)
 }
 

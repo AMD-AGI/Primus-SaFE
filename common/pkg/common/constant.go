@@ -12,14 +12,13 @@ const (
 	PrimusCryptoSecret         = "primus-safe-crypto"
 	PrimusRouterCustomRootPath = "api/v1"
 
+	HigressNamespace = "higress-system"
+	HigressGateway   = "higress-gateway"
+	HigressSSHPort   = 22
+
 	NodeNameSelector    = "spec.nodeName="
 	KubeSystemNamespace = "kube-system"
 	KubePublicNamespace = "kube-public"
-	PytorchJobKind      = "PyTorchJob"
-	PodKind             = "Pod"
-	EventKind           = "Event"
-	DeploymentKind      = "Deployment"
-	StatefulSetKind     = "StatefulSet"
 	PytorchJobPortName  = "pytorchjob-port"
 
 	DefaultBurst = 1000

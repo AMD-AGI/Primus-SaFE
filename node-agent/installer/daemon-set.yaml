@@ -104,7 +104,6 @@ spec:
               readOnly: true
             - mountPath: /var/log
               name: log
-              readOnly: true
             - mountPath: /dev/kmsg
               name: kmsg
               readOnly: true

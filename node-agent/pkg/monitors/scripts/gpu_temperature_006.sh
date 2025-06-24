@@ -9,13 +9,18 @@ if [ ! -f "/tmp/rocm-smi" ]; then
     exit 0
 fi
 
+if [ "$#" -lt 1 ]; then
+    echo 'Error: Missing parameter temperature. example: ./gpu_temperature_006.sh 100'
+    exit 2
+fi
+
 data=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi -t |grep Temperature |grep GPU`
 if [ $? -ne 0 ]; then
     echo "Error: failed to execute rocm-smi -t"
     exit 2
 fi
 
-threshold=100
+threshold=$1
 while read -r line; do
     temp=$(echo "$line" | awk '{print $NF}')
     temp=$(echo "$temp / 1" | bc)

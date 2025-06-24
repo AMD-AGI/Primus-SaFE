@@ -16,10 +16,13 @@ import (
 
 type AmdV1Interface interface {
 	RESTClient() rest.Interface
+	AddonTemplatesGetter
 	ClustersGetter
 	FaultsGetter
 	NodesGetter
 	NodeFlavorsGetter
+	NodeTemplatesGetter
+	OpsJobsGetter
 	ResourceTemplatesGetter
 	StorageClustersGetter
 	WorkloadsGetter
@@ -29,6 +32,10 @@ type AmdV1Interface interface {
 // AmdV1Client is used to interact with features provided by the amd.com group.
 type AmdV1Client struct {
 	restClient rest.Interface
+}
+
+func (c *AmdV1Client) AddonTemplates(namespace string) AddonTemplateInterface {
+	return newAddonTemplates(c, namespace)
 }
 
 func (c *AmdV1Client) Clusters(namespace string) ClusterInterface {
@@ -45,6 +52,14 @@ func (c *AmdV1Client) Nodes(namespace string) NodeInterface {
 
 func (c *AmdV1Client) NodeFlavors(namespace string) NodeFlavorInterface {
 	return newNodeFlavors(c, namespace)
+}
+
+func (c *AmdV1Client) NodeTemplates(namespace string) NodeTemplateInterface {
+	return newNodeTemplates(c, namespace)
+}
+
+func (c *AmdV1Client) OpsJobs(namespace string) OpsJobInterface {
+	return newOpsJobs(c, namespace)
 }
 
 func (c *AmdV1Client) ResourceTemplates(namespace string) ResourceTemplateInterface {

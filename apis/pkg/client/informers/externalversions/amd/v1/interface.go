@@ -12,6 +12,8 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
+	// AddonTemplates returns a AddonTemplateInformer.
+	AddonTemplates() AddonTemplateInformer
 	// Clusters returns a ClusterInformer.
 	Clusters() ClusterInformer
 	// Faults returns a FaultInformer.
@@ -20,6 +22,10 @@ type Interface interface {
 	Nodes() NodeInformer
 	// NodeFlavors returns a NodeFlavorInformer.
 	NodeFlavors() NodeFlavorInformer
+	// NodeTemplates returns a NodeTemplateInformer.
+	NodeTemplates() NodeTemplateInformer
+	// OpsJobs returns a OpsJobInformer.
+	OpsJobs() OpsJobInformer
 	// ResourceTemplates returns a ResourceTemplateInformer.
 	ResourceTemplates() ResourceTemplateInformer
 	// StorageClusters returns a StorageClusterInformer.
@@ -41,6 +47,11 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
+// AddonTemplates returns a AddonTemplateInformer.
+func (v *version) AddonTemplates() AddonTemplateInformer {
+	return &addonTemplateInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
 // Clusters returns a ClusterInformer.
 func (v *version) Clusters() ClusterInformer {
 	return &clusterInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
@@ -59,6 +70,16 @@ func (v *version) Nodes() NodeInformer {
 // NodeFlavors returns a NodeFlavorInformer.
 func (v *version) NodeFlavors() NodeFlavorInformer {
 	return &nodeFlavorInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// NodeTemplates returns a NodeTemplateInformer.
+func (v *version) NodeTemplates() NodeTemplateInformer {
+	return &nodeTemplateInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// OpsJobs returns a OpsJobInformer.
+func (v *version) OpsJobs() OpsJobInformer {
+	return &opsJobInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // ResourceTemplates returns a ResourceTemplateInformer.

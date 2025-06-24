@@ -18,6 +18,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"k8s.io/klog/v2"
 
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/node"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/utils"
@@ -47,30 +48,30 @@ func NewMonitorManager(queue *types.MonitorQueue, opts *types.Options, node *nod
 	return mgr
 }
 
-func (mm *MonitorManager) Start() error {
-	if err := mm.startMonitors(); err != nil {
+func (mgr *MonitorManager) Start() error {
+	if err := mgr.startMonitors(); err != nil {
 		return err
 	}
-	go mm.updateConfig()
-	mm.isExited = false
+	go mgr.updateConfig()
+	mgr.isExited = false
 	return nil
 }
 
-func (mm *MonitorManager) Stop() {
-	if !mm.isExited && mm.tomb != nil {
-		mm.tomb.Stop()
-		mm.stopMonitors()
+func (mgr *MonitorManager) Stop() {
+	if !mgr.isExited && mgr.tomb != nil {
+		mgr.tomb.Stop()
+		mgr.stopMonitors()
 	}
-	mm.isExited = true
+	mgr.isExited = true
 	return
 }
 
-func (mm *MonitorManager) startMonitors() error {
-	if err := mm.loadMonitors(); err != nil {
+func (mgr *MonitorManager) startMonitors() error {
+	if err := mgr.loadMonitors(); err != nil {
 		return err
 	}
 	count := 0
-	mm.monitors.Range(func(key, value interface{}) bool {
+	mgr.monitors.Range(func(key, value interface{}) bool {
 		if inst, ok := value.(*Monitor); ok {
 			inst.Start()
 			count++
@@ -81,9 +82,9 @@ func (mm *MonitorManager) startMonitors() error {
 	return nil
 }
 
-func (mm *MonitorManager) stopMonitors() {
+func (mgr *MonitorManager) stopMonitors() {
 	count := 0
-	mm.monitors.Range(func(key, value interface{}) bool {
+	mgr.monitors.Range(func(key, value interface{}) bool {
 		inst, ok := value.(*Monitor)
 		if !ok {
 			return true
@@ -95,26 +96,26 @@ func (mm *MonitorManager) stopMonitors() {
 	klog.Infof("stop all monitors, total count: %d", count)
 }
 
-func (mm *MonitorManager) updateConfig() {
-	defer mm.tomb.Done()
+func (mgr *MonitorManager) updateConfig() {
+	defer mgr.tomb.Done()
 
 	for {
 		select {
-		case <-mm.tomb.Stopping():
-			klog.Infof("stop to watch dir: %s", mm.configPath)
+		case <-mgr.tomb.Stopping():
+			klog.Infof("stop to watch dir: %s", mgr.configPath)
 			return
 		default:
-			if err := mm.watchConfig(); err != nil {
+			if err := mgr.watchConfig(); err != nil {
 				time.Sleep(time.Second)
 			}
 		}
 	}
 }
 
-func (mm *MonitorManager) watchConfig() error {
-	watcher, err := utils.GetDirWatcher(mm.configPath)
+func (mgr *MonitorManager) watchConfig() error {
+	watcher, err := utils.GetDirWatcher(mgr.configPath)
 	if err != nil {
-		klog.ErrorS(err, "failed to get watcher", "path", mm.configPath)
+		klog.ErrorS(err, "failed to get watcher", "path", mgr.configPath)
 		return err
 	}
 	defer func() {
@@ -123,14 +124,14 @@ func (mm *MonitorManager) watchConfig() error {
 		}
 	}()
 
-	klog.Infof("start to watch dir(%s) to update config", mm.configPath)
+	klog.Infof("start to watch dir(%s) to update config", mgr.configPath)
 	for {
 		select {
-		case <-mm.tomb.Stopping():
+		case <-mgr.tomb.Stopping():
 			return nil
 		case ev, ok := <-watcher.Events:
 			if ok && (ev.Op == fsnotify.Create || ev.Op == fsnotify.Write || ev.Op == fsnotify.Remove) {
-				if err = mm.reloadMonitors(); err != nil {
+				if err = mgr.reloadMonitors(); err != nil {
 					klog.ErrorS(err, "failed to reload monitors")
 				}
 			}
@@ -144,41 +145,41 @@ func (mm *MonitorManager) watchConfig() error {
 	}
 }
 
-func (mm *MonitorManager) loadMonitors() error {
-	allConfigs, err := mm.getMonitorConfigs(mm.configPath)
+func (mgr *MonitorManager) loadMonitors() error {
+	allConfigs, err := mgr.getMonitorConfigs(mgr.configPath)
 	if err != nil {
 		return err
 	}
 	for i, conf := range allConfigs {
-		monitor := NewMonitor(allConfigs[i], mm.queue, mm.node, mm.scriptPath)
+		monitor := NewMonitor(allConfigs[i], mgr.queue, mgr.node, mgr.scriptPath)
 		if monitor != nil {
 			klog.Infof("load monitor. id: %s", conf.Id)
-			mm.monitors.Store(conf.Id, monitor)
+			mgr.monitors.Store(conf.Id, monitor)
 		}
 	}
 	return nil
 }
 
-func (mm *MonitorManager) reloadMonitors() error {
-	newMonitorConfigs, err := mm.getMonitorConfigs(mm.configPath)
+func (mgr *MonitorManager) reloadMonitors() error {
+	newMonitorConfigs, err := mgr.getMonitorConfigs(mgr.configPath)
 	if err != nil {
 		return err
 	}
-	if !mm.isMonitorsChanged(newMonitorConfigs) {
+	if !mgr.isMonitorsChanged(newMonitorConfigs) {
 		return nil
 	}
-	mm.removeNonExistMonitor(newMonitorConfigs)
+	mgr.removeNonExistMonitor(newMonitorConfigs)
 
 	// Add a new monitor or process the existing monitor
 	for _, newConf := range newMonitorConfigs {
-		currentMonitor := mm.getMonitor(newConf.Id)
+		currentMonitor := mgr.getMonitor(newConf.Id)
 		switch {
 		case currentMonitor == nil:
-			mm.addMonitor(newConf)
+			mgr.addMonitor(newConf)
 		case currentMonitor.config.Cronjob != newConf.Cronjob:
 			// If the key configuration of monitor is changed, restart it
-			mm.removeMonitor(newConf.Id)
-			mm.addMonitor(newConf)
+			mgr.removeMonitor(newConf.Id)
+			mgr.addMonitor(newConf)
 		default:
 			*currentMonitor.config = *newConf
 			if currentMonitor.IsExited() {
@@ -189,7 +190,7 @@ func (mm *MonitorManager) reloadMonitors() error {
 	return nil
 }
 
-func (mm *MonitorManager) isMonitorsChanged(newConfigs []*MonitorConfig) bool {
+func (mgr *MonitorManager) isMonitorsChanged(newConfigs []*MonitorConfig) bool {
 	newConfigsMap := make(map[string]*MonitorConfig)
 	for i := range newConfigs {
 		newConfigsMap[newConfigs[i].Id] = newConfigs[i]
@@ -197,7 +198,7 @@ func (mm *MonitorManager) isMonitorsChanged(newConfigs []*MonitorConfig) bool {
 
 	count := 0
 	isChanged := false
-	mm.monitors.Range(func(key, value interface{}) bool {
+	mgr.monitors.Range(func(key, value interface{}) bool {
 		id, ok := key.(string)
 		if !ok {
 			return true
@@ -224,13 +225,13 @@ func (mm *MonitorManager) isMonitorsChanged(newConfigs []*MonitorConfig) bool {
 	return false
 }
 
-func (mm *MonitorManager) removeNonExistMonitor(newConfigs []*MonitorConfig) {
+func (mgr *MonitorManager) removeNonExistMonitor(newConfigs []*MonitorConfig) {
 	newConfigsSet := sets.NewSet()
 	for _, c := range newConfigs {
 		newConfigsSet.Insert(c.Id)
 	}
 	var toDelKeys []string
-	mm.monitors.Range(func(key, value interface{}) bool {
+	mgr.monitors.Range(func(key, value interface{}) bool {
 		id, ok := key.(string)
 		if !ok {
 			return true
@@ -241,34 +242,34 @@ func (mm *MonitorManager) removeNonExistMonitor(newConfigs []*MonitorConfig) {
 		return true
 	})
 	for _, key := range toDelKeys {
-		m := mm.getMonitor(key)
+		m := mgr.getMonitor(key)
 		if m != nil {
-			mm.addDisableMessage(m.config.Id)
+			mgr.addDisableMessage(m.config.Id)
 			m.Stop()
 		}
-		mm.monitors.Delete(key)
+		mgr.monitors.Delete(key)
 	}
 }
 
-func (mm *MonitorManager) addMonitor(conf *MonitorConfig) {
-	monitor := NewMonitor(conf, mm.queue, mm.node, mm.scriptPath)
+func (mgr *MonitorManager) addMonitor(conf *MonitorConfig) {
+	monitor := NewMonitor(conf, mgr.queue, mgr.node, mgr.scriptPath)
 	if monitor == nil {
 		return
 	}
-	mm.monitors.Store(conf.Id, monitor)
+	mgr.monitors.Store(conf.Id, monitor)
 	monitor.Start()
 }
 
-func (mm *MonitorManager) removeMonitor(key string) {
-	monitor := mm.getMonitor(key)
+func (mgr *MonitorManager) removeMonitor(key string) {
+	monitor := mgr.getMonitor(key)
 	if monitor != nil {
 		monitor.Stop()
 	}
-	mm.monitors.Delete(key)
+	mgr.monitors.Delete(key)
 }
 
-func (mm *MonitorManager) getMonitor(key string) *Monitor {
-	val, ok := mm.monitors.Load(key)
+func (mgr *MonitorManager) getMonitor(key string) *Monitor {
+	val, ok := mgr.monitors.Load(key)
 	if !ok {
 		return nil
 	}
@@ -279,7 +280,7 @@ func (mm *MonitorManager) getMonitor(key string) *Monitor {
 	return monitor
 }
 
-func (mm *MonitorManager) getMonitorConfigs(configPath string) ([]*MonitorConfig, error) {
+func (mgr *MonitorManager) getMonitorConfigs(configPath string) ([]*MonitorConfig, error) {
 	var results []*MonitorConfig
 	files, err := os.ReadDir(configPath)
 	if err != nil {
@@ -301,9 +302,10 @@ func (mm *MonitorManager) getMonitorConfigs(configPath string) ([]*MonitorConfig
 			klog.ErrorS(err, "failed to unmarshal json", "data", string(data))
 			continue
 		}
-		if !conf.IsEnable() || !mm.node.IsMatchChip(conf.Chip) {
-			if mm.node.FindCondition(conf.Id) != nil {
-				mm.addDisableMessage(conf.Id)
+		if !conf.IsEnable() || !mgr.node.IsMatchChip(conf.Chip) {
+			key := commonfaults.GenerateTaintKey(conf.Id)
+			if mgr.node.FindConditionByType(key) != nil {
+				mgr.addDisableMessage(conf.Id)
 			}
 			continue
 		}
@@ -317,10 +319,10 @@ func (mm *MonitorManager) getMonitorConfigs(configPath string) ([]*MonitorConfig
 	return results, nil
 }
 
-func (mm *MonitorManager) addDisableMessage(id string) {
+func (mgr *MonitorManager) addDisableMessage(id string) {
 	item := &types.MonitorMessage{
 		Id:         id,
 		StatusCode: types.StatusDisable,
 	}
-	(*mm.queue).Add(item)
+	(*mgr.queue).Add(item)
 }

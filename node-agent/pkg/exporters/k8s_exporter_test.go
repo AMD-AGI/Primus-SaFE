@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/util/workqueue"
 
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/node"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 )
@@ -57,7 +58,8 @@ func TestAddCondition(t *testing.T) {
 
 	k8sNode := n.GetK8sNode()
 	assert.Equal(t, len(k8sNode.Status.Conditions), 1)
-	assert.Equal(t, k8sNode.Status.Conditions[0].Type, corev1.NodeConditionType("safe.001"))
+	assert.Equal(t, k8sNode.Status.Conditions[0].Type,
+		corev1.NodeConditionType(commonfaults.GenerateTaintKey("safe.001")))
 	assert.Equal(t, k8sNode.Status.Conditions[0].Status, corev1.ConditionTrue)
 	assert.Equal(t, k8sNode.Status.Conditions[0].Message, "error001")
 
@@ -68,15 +70,16 @@ func TestAddCondition(t *testing.T) {
 
 func TestDeleteCondition(t *testing.T) {
 	manager, n := newExporterManager(t)
+	key := commonfaults.GenerateTaintKey("safe.001")
 	err := n.UpdateConditions([]corev1.NodeCondition{{
-		Type:   "safe.001",
+		Type:   corev1.NodeConditionType(key),
 		Status: corev1.ConditionTrue,
 	}})
 	assert.NilError(t, err)
 
 	k8sNode := n.GetK8sNode()
 	assert.Equal(t, len(k8sNode.Status.Conditions), 1)
-	assert.Equal(t, k8sNode.Status.Conditions[0].Type, corev1.NodeConditionType("safe.001"))
+	assert.Equal(t, k8sNode.Status.Conditions[0].Type, corev1.NodeConditionType(key))
 	assert.Equal(t, k8sNode.Status.Conditions[0].Status, corev1.ConditionTrue)
 
 	msg := &types.MonitorMessage{

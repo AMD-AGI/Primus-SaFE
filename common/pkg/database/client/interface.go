@@ -14,6 +14,7 @@ import (
 type Interface interface {
 	WorkloadInterface
 	FaultInterface
+	JobInterface
 }
 
 type WorkloadInterface interface {
@@ -29,4 +30,10 @@ type FaultInterface interface {
 	UpsertFault(ctx context.Context, fault *Fault) error
 	SelectFaults(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*Fault, error)
 	CountFaults(ctx context.Context, query sqrl.Sqlizer) (int, error)
+}
+
+type JobInterface interface {
+	UpsertJob(ctx context.Context, job *OpsJob) error
+	SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*OpsJob, error)
+	CountJobs(ctx context.Context, query sqrl.Sqlizer) (int, error)
 }

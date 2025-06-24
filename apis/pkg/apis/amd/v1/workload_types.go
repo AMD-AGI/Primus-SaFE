@@ -119,9 +119,9 @@ type WorkloadSpec struct {
 	// The workload will run on nodes with the user-specified labels.
 	// If multiple labels are specified, all of them must be satisfied.
 	CustomerLabels map[string]string `json:"customerLabels,omitempty"`
-	// k8s liveness check
+	// k8s liveness check. used for deployment/statefulSet
 	Liveness *HealthCheck `json:"liveness,omitempty"`
-	// k8s readiness check
+	// k8s readiness check. used for deployment/statefulSet
 	Readiness *HealthCheck `json:"readiness,omitempty"`
 	// service configuration. used for deployment/statefulSet
 	Service *Service `json:"service,omitempty"`
@@ -155,7 +155,7 @@ type WorkloadPod struct {
 	K8sNodeName string `json:"k8sNodeName,omitempty"`
 	// the admin node that the Pod is scheduled on
 	AdminNodeName string `json:"adminNodeName,omitempty"`
-	// pod status：Pending, Running, Succeeded, Failed, Unknown
+	// pod status: Pending, Running, Succeeded, Failed, Unknown
 	Phase corev1.PodPhase `json:"phase,omitempty"`
 	// The node's IP address where the Pod is running
 	HostIp string `json:"hostIP,omitempty"`

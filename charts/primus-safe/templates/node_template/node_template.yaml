@@ -1,0 +1,10 @@
+apiVersion: amd.com/v1
+kind: NodeTemplate
+metadata:
+  name: node-template
+  labels:
+    app.kubernetes.io/managed-by: Helm
+spec:
+  addOnTemplates:
+    - disable-os-upgrade
+    - load-amdgpu-module

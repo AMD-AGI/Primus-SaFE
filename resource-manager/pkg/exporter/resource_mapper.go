@@ -6,7 +6,9 @@
 package exporter
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
@@ -182,4 +184,49 @@ func faultFilter(oldObj, newObj *unstructured.Unstructured) bool {
 		return true
 	}
 	return false
+}
+
+func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
+	job := &v1.OpsJob{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, job)
+	if err != nil {
+		klog.ErrorS(err, "failed to convert object to job", "data", obj)
+		return nil
+	}
+
+	var inputs []string
+	for _, p := range job.Spec.Inputs {
+		inputs = append(inputs, v1.CvtParamToString(&p))
+	}
+	strInputs := fmt.Sprintf("{%s}", fmt.Sprintf("\"%s\"", strings.Join(inputs, "\",\"")))
+	result := &dbclient.OpsJob{
+		JobId:      job.Name,
+		Cluster:    v1.GetClusterId(job),
+		Inputs:     []byte(strInputs),
+		Type:       string(job.Spec.Type),
+		Timeout:    job.Spec.TimeoutSecond,
+		UserName:   dbutils.NullString(v1.GetUserName(job)),
+		JobName:    dbutils.NullString(v1.GetDisplayName(job)),
+		Workspace:  dbutils.NullString(v1.GetWorkspaceId(job)),
+		CreateTime: dbutils.NullMetaV1Time(&job.CreationTimestamp),
+		StartTime:  dbutils.NullMetaV1Time(job.Status.StartedAt),
+		EndTime:    dbutils.NullMetaV1Time(job.Status.FinishedAt),
+		DeleteTime: dbutils.NullMetaV1Time(job.GetDeletionTimestamp()),
+		Phase:      dbutils.NullString(string(job.Status.Phase)),
+		Message:    dbutils.NullString(job.Status.Message),
+	}
+	if len(job.Status.Conditions) > 0 {
+		result.Conditions = dbutils.NullString(
+			string(jsonutils.MarshalSilently(job.Status.Conditions)))
+	}
+	if len(job.Status.Outputs) > 0 {
+		result.Outputs = dbutils.NullString(
+			string(jsonutils.MarshalSilently(job.Status.Outputs)))
+	}
+	if !job.GetDeletionTimestamp().IsZero() {
+		if job.Status.Phase == v1.OpsJobRunning || job.Status.Phase == "" {
+			job.Status.Phase = v1.OpsJobFailed
+		}
+	}
+	return result
 }

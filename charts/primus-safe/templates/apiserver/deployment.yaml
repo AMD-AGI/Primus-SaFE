@@ -63,19 +63,27 @@ spec:
               readOnly: true
             {{- end }}
           ports:
-            - containerPort: 8088
+            - containerPort: {{ .Values.apiserver.port }}
+              name: http-port
+            {{- if .Values.ssh.enable }}
+            - containerPort: {{ .Values.ssh.port }}
+              name: ssh-port
+              protocol: TCP
+            {{- end }}
+          {{- if .Values.k8s.enable_health_check }}
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8082
+              port: {{ .Values.apiserver.health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 8082
+              port: {{ .Values.apiserver.health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
+          {{- end }}
           resources:
             limits:
               cpu: {{ .Values.apiserver.cpu }}

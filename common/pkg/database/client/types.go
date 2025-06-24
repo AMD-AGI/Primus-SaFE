@@ -81,6 +81,31 @@ func GetFaultFieldTags() map[string]string {
 	return getFieldTags(f)
 }
 
+type OpsJob struct {
+	Id         int64          `db:"id"`
+	JobId      string         `db:"job_id"`
+	Cluster    string         `db:"cluster"`
+	Inputs     []byte         `db:"inputs"`
+	Type       string         `db:"type"`
+	Timeout    int            `db:"timeout"`
+	UserName   sql.NullString `db:"user_name"`
+	JobName    sql.NullString `db:"job_name"`
+	Workspace  sql.NullString `db:"workspace"`
+	CreateTime pq.NullTime    `db:"create_time"`
+	StartTime  pq.NullTime    `db:"start_time"`
+	EndTime    pq.NullTime    `db:"end_time"`
+	DeleteTime pq.NullTime    `db:"delete_time"`
+	Phase      sql.NullString `db:"phase"`
+	Conditions sql.NullString `db:"conditions"`
+	Message    sql.NullString `db:"message"`
+	Outputs    sql.NullString `db:"outputs"`
+}
+
+func GetOpsJobFieldTags() map[string]string {
+	job := OpsJob{}
+	return getFieldTags(job)
+}
+
 func getFieldTags(obj interface{}) map[string]string {
 	result := make(map[string]string)
 	t := reflect.TypeOf(obj)

@@ -212,6 +212,26 @@ func GetDBRequestTimeoutSecond() int {
 	return getInt(dbRequestTimeoutSecond, 20)
 }
 
+func GetOpsJobTTLSecond() int {
+	return getInt(opsJobTTLSecond, 60)
+}
+
+func GetOpsJobTimeoutSecond() int {
+	return getInt(opsJobTimeoutSecond, 0)
+}
+
+func GetOpsJobAvailableRatio() float64 {
+	return getFloat(opsJobAvailableRatio, 1)
+}
+
+func GetOpsJobBatchCount() int {
+	return getInt(opsJobBatchCount, 0)
+}
+
+func GetAddonFaultId() string {
+	return getString(addonFaultId, "")
+}
+
 func getFromFile(configPath, item string) string {
 	path := getString(configPath, "")
 	data, err := os.ReadFile(filepath.Join(path, item))

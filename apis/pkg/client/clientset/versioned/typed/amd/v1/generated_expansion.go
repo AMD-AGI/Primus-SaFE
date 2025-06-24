@@ -6,6 +6,8 @@ Copyright The AMD Authors.
 
 package v1
 
+type AddonTemplateExpansion interface{}
+
 type ClusterExpansion interface{}
 
 type FaultExpansion interface{}
@@ -13,6 +15,10 @@ type FaultExpansion interface{}
 type NodeExpansion interface{}
 
 type NodeFlavorExpansion interface{}
+
+type NodeTemplateExpansion interface{}
+
+type OpsJobExpansion interface{}
 
 type ResourceTemplateExpansion interface{}
 

@@ -34,7 +34,7 @@ func SetupClusterController(ctx context.Context, mgr manager.Manager) error {
 		ctx:    ctx,
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
-		For(&v1.Cluster{}, builder.WithPredicates(r.CaredPredicate())).
+		For(&v1.Cluster{}, builder.WithPredicates(r.caredChangePredicate())).
 		Complete(r)
 	if err != nil {
 		return err
@@ -42,7 +42,7 @@ func SetupClusterController(ctx context.Context, mgr manager.Manager) error {
 	return nil
 }
 
-func (r *ClusterReconciler) CaredPredicate() predicate.Predicate {
+func (r *ClusterReconciler) caredChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			cluster, ok := e.Object.(*v1.Cluster)
