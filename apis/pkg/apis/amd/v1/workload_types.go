@@ -94,36 +94,37 @@ type Service struct {
 }
 
 type WorkloadSpec struct {
-	// workload resource requirements
+	// Workload resource requirements
 	Resource WorkloadResource `json:"resource"`
-	// requested workspace
+	// Requested workspace
 	Workspace string `json:"workspace"`
-	// workload image address
+	// Workload image address
 	Image string `json:"image"`
 	// workload entryPoint, required in base64 encoding
 	EntryPoint string `json:"entryPoint"`
-	// environment variable for workload
+	// Environment variable for workload
 	Env map[string]string `json:"env,omitempty"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised,omitempty"`
-	// default: kubeflow.org/v1, PyTorchJob
+	// Valid kind includes: PyTorchJob/Deployment/StatefulSet/Authoring, default: PyTorchJob
+	// The group and version fields are optional.
 	GroupVersionKind `json:"groupVersionKind"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`
-	// workload scheduling priority. Defaults to 0; valid range: 0–2
+	// Workload scheduling priority. Defaults to 0; valid range: 0–2
 	Priority int `json:"priority,omitempty"`
 	// The lifecycle of the workload after completion, in seconds. Default to 60.
 	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished,omitempty"`
-	// workload timeout in hours. Default is 0 (no timeout).
+	// Workload timeout in hours. Default is 0 (no timeout).
 	Timeout *int `json:"timeout,omitempty"`
 	// The workload will run on nodes with the user-specified labels.
 	// If multiple labels are specified, all of them must be satisfied.
 	CustomerLabels map[string]string `json:"customerLabels,omitempty"`
-	// k8s liveness check. used for deployment/statefulSet
+	// K8s liveness check. used for deployment/statefulSet
 	Liveness *HealthCheck `json:"liveness,omitempty"`
-	// k8s readiness check. used for deployment/statefulSet
+	// K8s readiness check. used for deployment/statefulSet
 	Readiness *HealthCheck `json:"readiness,omitempty"`
-	// service configuration. used for deployment/statefulSet
+	// Service configuration. used for deployment/statefulSet
 	Service *Service `json:"service,omitempty"`
 	// Indicates whether the workload tolerates node taints
 	IsTolerateAll bool `json:"isTolerateAll,omitempty"`

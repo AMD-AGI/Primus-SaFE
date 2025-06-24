@@ -1,0 +1,14 @@
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: load-rdma-module
+  labels:
+    primus-safe.display.name: "load-rdma-module"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: systemd
+  category: Net
+  isOneShotService: true
+  description: Load the RDMA module on a Linux system
+  extensions:
+    action: bW9kcHJvYmUgaWJfdW1hZAo=

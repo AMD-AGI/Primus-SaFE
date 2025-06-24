@@ -417,6 +417,9 @@ func generateWorkload(req *types.CreateWorkloadRequest, body []byte) (*v1.Worklo
 	if workload.Name == "" {
 		workload.Name = commonutils.GenerateName(req.DisplayName)
 	}
+	if workload.Spec.Kind == common.AuthoringKind {
+		v1.SetLabel(workload, v1.WorkloadAuthoringLabel, "true")
+	}
 	return workload, nil
 }
 
@@ -632,7 +635,11 @@ func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
 		}
 	}
 	json.Unmarshal([]byte(w.Resource), &result.Resource)
-	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
+	if w.IsAuthoring {
+		result.GroupVersionKind = v1.GroupVersionKind{Kind: common.AuthoringKind}
+	} else {
+		json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
+	}
 	if result.Phase == string(v1.WorkloadPending) {
 		adminWorkload, err := h.getAdminWorkload(ctx, result.WorkloadId)
 		if err == nil {
@@ -736,6 +743,11 @@ func (h *Handler) cvtAdminWorkloadToResponse(ctx context.Context, w *v1.Workload
 				IsTolerateAll: w.Spec.IsTolerateAll,
 			},
 		},
+	}
+	if v1.IsAuthoring(w) {
+		result.GroupVersionKind = v1.GroupVersionKind{Kind: common.AuthoringKind}
+	} else {
+		result.GroupVersionKind = w.Spec.GroupVersionKind
 	}
 	if !w.Status.StartTime.IsZero() {
 		result.StartTime = timeutil.FormatRFC3339(&w.Status.StartTime.Time)

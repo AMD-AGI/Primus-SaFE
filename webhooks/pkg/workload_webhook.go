@@ -108,12 +108,14 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateGvk(ctx, workload)
 
 	switch workload.SpecKind() {
-	case v1.DeploymentKind:
+	case common.DeploymentKind:
 		m.mutateDeployment(workload)
-	case v1.StatefulSetKind:
+	case common.StatefulSetKind:
 		m.mutateStatefulSet(workload)
-	case v1.AuthoringKind:
-		m.mutateAuthoring(workload)
+	case common.PytorchJobKind:
+		if v1.IsAuthoring(workload) {
+			m.mutateAuthoring(workload)
+		}
 	}
 
 	m.mutateResource(workload, workspace)
@@ -171,11 +173,9 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 }
 
 func (m *WorkloadMutator) mutateGvk(ctx context.Context, workload *v1.Workload) {
-	if v1.IsAuthoring(workload) {
-		return
-	}
-	if workload.Spec.Kind == "" {
-		workload.Spec.Kind = v1.PytorchJobKind
+	// Currently using PyTorchJob to implement authoring machine functionality.
+	if v1.IsAuthoring(workload) || workload.Spec.Kind == "" {
+		workload.Spec.Kind = common.PytorchJobKind
 	}
 	if workload.Spec.Group == "" || workload.Spec.Version == "" {
 		rtl := &v1.ResourceTemplateList{}
@@ -631,6 +631,9 @@ func (v *WorkloadValidator) validateDisplayName(workload *v1.Workload) error {
 func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1.Workload) error {
 	if newWorkload.Spec.Workspace != oldWorkload.Spec.Workspace {
 		return field.Forbidden(field.NewPath("spec").Key("workspace"), "immutable")
+	}
+	if v1.HasLabel(oldWorkload, v1.WorkloadAuthoringLabel) && v1.IsAuthoring(newWorkload) != v1.IsAuthoring(oldWorkload) {
+		return field.Forbidden(field.NewPath("metadata").Key("labels").Key(v1.WorkloadAuthoringLabel), "immutable")
 	}
 	if newWorkload.Spec.GroupVersionKind != oldWorkload.Spec.GroupVersionKind {
 		return field.Forbidden(field.NewPath("spec").Key("gvk"), "immutable")

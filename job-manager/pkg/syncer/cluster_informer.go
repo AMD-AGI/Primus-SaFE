@@ -20,6 +20,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -176,7 +177,7 @@ func (r *ClusterInformer) handleResource(ctx context.Context, oldObj, newObj int
 		action:        action,
 		dispatchCount: 0,
 	}
-	if newUnstructured.GetKind() == v1.EventKind {
+	if newUnstructured.GetKind() == common.EventKind {
 		if isCaredPodEvent(newUnstructured) {
 			r.handler(msg)
 		}

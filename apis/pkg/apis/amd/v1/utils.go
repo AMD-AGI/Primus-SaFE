@@ -240,7 +240,7 @@ func GetOpsJobBatchCount(obj metav1.Object) int {
 }
 
 func IsAuthoring(obj metav1.Object) bool {
-	return GetLabel(obj, WorkloadKindLabel) == AuthoringKind
+	return GetLabel(obj, WorkloadAuthoringLabel) == "true"
 }
 
 func atoi(str string) int {

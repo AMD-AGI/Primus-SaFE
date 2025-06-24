@@ -88,6 +88,7 @@ const (
 	WorkloadReScheduledAnnotation     = WorkloadPrefix + "rescheduled"
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
+	WorkloadAuthoringLabel            = WorkloadPrefix + "authoring"
 
 	// user
 	UserPrefix         = PrimusSafePrefix + "user."
@@ -112,15 +113,6 @@ const (
 	// the job on node
 	OpsJobInputAnnotation = OpsJobPrefix + "input"
 	OpsJobFinalizer       = PrimusSafeDomain + "ops.job.finalizer"
-)
-
-const (
-	AuthoringKind   = "Authoring"
-	PytorchJobKind  = "PyTorchJob"
-	DeploymentKind  = "Deployment"
-	StatefulSetKind = "StatefulSet"
-	PodKind         = "Pod"
-	EventKind       = "Event"
 )
 
 const (

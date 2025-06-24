@@ -15,6 +15,7 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -37,7 +38,7 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 	if result.ActiveReplica, err = GetActiveReplica(unstructuredObj, rt); err != nil {
 		return nil, err
 	}
-	if rt.SpeckKind() == v1.StatefulSetKind {
+	if rt.SpeckKind() == common.StatefulSetKind {
 		getStatefulSetStatus(unstructuredObj.Object, result)
 		return result, nil
 	}
