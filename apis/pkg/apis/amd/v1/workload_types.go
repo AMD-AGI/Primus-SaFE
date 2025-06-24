@@ -101,7 +101,7 @@ type WorkloadSpec struct {
 	// Workload image address
 	Image string `json:"image"`
 	// workload entryPoint, required in base64 encoding
-	EntryPoint string `json:"entryPoint"`
+	EntryPoint string `json:"entryPoint,omitempty"`
 	// Environment variable for workload
 	Env map[string]string `json:"env,omitempty"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection

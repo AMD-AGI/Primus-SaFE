@@ -349,12 +349,18 @@ func (m *WorkloadMutator) mutateUpdateEnv(oldWorkload, newWorkload *v1.Workload)
 }
 
 func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
+	if v1.IsAuthoring(workload) {
+		return
+	}
 	if workload.Spec.TTLSecondsAfterFinished == nil {
 		workload.Spec.TTLSecondsAfterFinished = ptr.To(DefaultWorkloadTTL)
 	}
 }
 
 func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
+	if v1.IsAuthoring(workload) {
+		return
+	}
 	if !stringutil.IsBase64(workload.Spec.EntryPoint) {
 		workload.Spec.EntryPoint = stringutil.Base64Encode(workload.Spec.EntryPoint)
 	}

@@ -621,12 +621,17 @@ func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
 			WorkloadSpec: v1.WorkloadSpec{
 				Priority:      w.Priority,
 				Workspace:     w.Workspace,
-				Timeout:       pointer.Int(w.Timeout),
 				IsTolerateAll: w.IsTolerateAll,
 			},
 		},
 	}
+	if w.IsAuthoring {
+		result.GroupVersionKind = v1.GroupVersionKind{Kind: common.AuthoringKind}
+	} else {
+		json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
+	}
 	if w.Timeout > 0 {
+		result.Timeout = pointer.Int(w.Timeout)
 		if t := dbutils.ParseNullTime(w.StartTime); !t.IsZero() {
 			result.SecondsUntilTimeout = t.Unix() + int64(3600*w.Timeout) - time.Now().Unix()
 			if result.SecondsUntilTimeout < 0 {
@@ -635,11 +640,6 @@ func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
 		}
 	}
 	json.Unmarshal([]byte(w.Resource), &result.Resource)
-	if w.IsAuthoring {
-		result.GroupVersionKind = v1.GroupVersionKind{Kind: common.AuthoringKind}
-	} else {
-		json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
-	}
 	if result.Phase == string(v1.WorkloadPending) {
 		adminWorkload, err := h.getAdminWorkload(ctx, result.WorkloadId)
 		if err == nil {
@@ -654,10 +654,8 @@ func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
 
 func (h *Handler) buildWorkloadDetail(ctx context.Context, w *dbclient.Workload, result *types.GetWorkloadResponseItem) {
 	result.Image = w.Image
-
 	result.IsSupervised = w.IsSupervised
 	result.MaxRetry = w.MaxRetry
-	result.TTLSecondsAfterFinished = pointer.Int(w.TTLSecond)
 	if str := dbutils.ParseNullString(w.Conditions); str != "" {
 		json.Unmarshal([]byte(str), &result.Conditions)
 	}
@@ -697,8 +695,11 @@ func (h *Handler) buildWorkloadDetail(ctx context.Context, w *dbclient.Workload,
 		json.Unmarshal([]byte(str), &result.Env)
 		result.Env = maps.RemoveValue(result.Env, "")
 	}
-	if w.EntryPoint != "" {
-		result.EntryPoint = stringutil.Base64Decode(w.EntryPoint)
+	if !w.IsAuthoring {
+		if w.EntryPoint != "" {
+			result.EntryPoint = stringutil.Base64Decode(w.EntryPoint)
+		}
+		result.TTLSecondsAfterFinished = pointer.Int(w.TTLSecond)
 	}
 }
 
@@ -744,11 +745,6 @@ func (h *Handler) cvtAdminWorkloadToResponse(ctx context.Context, w *v1.Workload
 			},
 		},
 	}
-	if v1.IsAuthoring(w) {
-		result.GroupVersionKind = v1.GroupVersionKind{Kind: common.AuthoringKind}
-	} else {
-		result.GroupVersionKind = w.Spec.GroupVersionKind
-	}
 	if !w.Status.StartTime.IsZero() {
 		result.StartTime = timeutil.FormatRFC3339(&w.Status.StartTime.Time)
 	}
@@ -778,6 +774,12 @@ func (h *Handler) cvtAdminWorkloadToResponse(ctx context.Context, w *v1.Workload
 				result.CustomerLabels[key] = val
 			}
 		}
+	}
+	if v1.IsAuthoring(w) {
+		result.EntryPoint = ""
+		result.GroupVersionKind = v1.GroupVersionKind{Kind: common.AuthoringKind}
+	} else {
+		result.GroupVersionKind = w.Spec.GroupVersionKind
 	}
 	return result
 }
