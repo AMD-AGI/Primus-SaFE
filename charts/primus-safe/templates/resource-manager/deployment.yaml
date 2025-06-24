@@ -52,20 +52,22 @@ spec:
               mountPath: {{ .Values.db.mount_path }}
               readOnly: true
             {{- end }}
+          {{- if .Values.k8s.enable_health_check }}
           ports:
-            - containerPort: 8081
+            - containerPort: {{ .Values.resource_manager.health_port }}
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8081
+              port: {{ .Values.resource_manager.health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 8081
+              port: {{ .Values.resource_manager.health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
+          {{- end }}
           resources:
             limits:
               cpu: {{ .Values.resource_manager.cpu }}

@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 	"gotest.tools/assert"
+
+	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 )
 
 func TestExecScript(t *testing.T) {
@@ -33,9 +34,9 @@ func TestExecScriptFailed(t *testing.T) {
 	defer os.Remove(path)
 
 	args := []string{path}
-	statusCode, resp := ExecuteScript(args, 0)
+	statusCode, output := ExecuteScript(args, 0)
 	assert.Equal(t, statusCode, types.StatusError)
-	assert.Equal(t, resp, "error")
+	assert.Equal(t, output, "error")
 }
 
 func TestExecScriptWithParams(t *testing.T) {
@@ -48,22 +49,22 @@ func TestExecScriptWithParams(t *testing.T) {
 	args := []string{path}
 	args = append(args, params...)
 
-	statusCode, resp := ExecuteScript(args, 0)
+	statusCode, output := ExecuteScript(args, 0)
 	assert.Equal(t, statusCode, types.StatusOk)
-	assert.Equal(t, strings.TrimSpace(resp), "arg1=val1,arg2=val2")
+	assert.Equal(t, strings.TrimSpace(output), "arg1=val1,arg2=val2")
 }
 
 func TestExecCommand(t *testing.T) {
-	cmd := "echo hi\nexit 0"
-	statusCode, resp := ExecuteCommand(cmd, 0)
+	cmd := "echo hi\nexit $?"
+	statusCode, output := ExecuteCommand(cmd, 0)
 	assert.Equal(t, statusCode, types.StatusOk)
-	assert.Equal(t, strings.TrimSpace(resp), "hi")
+	assert.Equal(t, strings.TrimSpace(output), "hi")
 }
 
 func TestExecCommandWithTimeout(t *testing.T) {
 	cmd := "sleep 1\necho hi\nexit 0"
 	timeout := 300 * time.Millisecond
-	statusCode, resp := ExecuteCommand(cmd, timeout)
+	statusCode, output := ExecuteCommand(cmd, timeout)
 	assert.Equal(t, statusCode, -1)
-	assert.Equal(t, strings.TrimSpace(resp), "signal: killed")
+	assert.Equal(t, strings.TrimSpace(output), "signal: killed")
 }

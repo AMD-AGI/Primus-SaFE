@@ -180,25 +180,27 @@ func GetPodResources(w *v1.Workload) (corev1.ResourceList, error) {
 
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
-	case common.PytorchJobKind:
+	case v1.PytorchJobKind:
 		return v1.TrainScope
-	case common.DeploymentKind, common.StatefulSetKind:
+	case v1.DeploymentKind, v1.StatefulSetKind:
 		return v1.InferScope
+	case v1.AuthoringKind:
+		return v1.AuthoringScope
 	default:
 		return ""
 	}
 }
 
 func IsApplication(w *v1.Workload) bool {
-	if w.SpecKind() == common.DeploymentKind ||
-		w.SpecKind() == common.StatefulSetKind {
+	if w.SpecKind() == v1.DeploymentKind ||
+		w.SpecKind() == v1.StatefulSetKind {
 		return true
 	}
 	return false
 }
 
 func IsJob(w *v1.Workload) bool {
-	if w.SpecKind() == common.PytorchJobKind {
+	if w.SpecKind() == v1.PytorchJobKind {
 		return true
 	}
 	return false

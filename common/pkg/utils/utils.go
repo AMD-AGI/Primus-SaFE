@@ -14,12 +14,11 @@ import (
 )
 
 const (
-	Primus                 = "primus-"
 	MaxNameLength          = 63
 	randomLength           = 5
 	MaxGeneratedNameLength = MaxNameLength - randomLength - 1
 	// 12 is the fixed suffix length of pytorchjob.
-	MaxDisplayNameLen = MaxGeneratedNameLength - len(Primus) - 12
+	MaxDisplayNameLen = MaxGeneratedNameLength - 12
 )
 
 func GenerateName(base string) string {
@@ -30,11 +29,6 @@ func GenerateName(base string) string {
 		base = base[0:MaxGeneratedNameLength]
 	}
 	return fmt.Sprintf("%s-%s", base, utilrand.String(randomLength))
-}
-
-func GenerateNameWithPrefix(base string) string {
-	name := Primus + base
-	return GenerateName(name)
 }
 
 func GenObjectReference(typeMeta metav1.TypeMeta, objMeta metav1.ObjectMeta) *corev1.ObjectReference {

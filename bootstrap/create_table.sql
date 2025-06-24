@@ -84,3 +84,41 @@ create
 
 alter table fault OWNER TO "primus-safe";
 
+create table if not exists ops_job
+(
+    id SERIAL PRIMARY KEY,
+    job_id VARCHAR(64) not null,
+    cluster VARCHAR(128) not null,
+    inputs TEXT[],
+    type VARCHAR(32) not null,
+    timeout int,
+    user_name VARCHAR(128),
+    job_name VARCHAR(64),
+    workspace VARCHAR(64),
+    create_time TIMESTAMP,
+    start_time TIMESTAMP,
+    end_time TIMESTAMP,
+    delete_time TIMESTAMP,
+    phase VARCHAR(64),
+    conditions TEXT,
+    message TEXT,
+    outputs TEXT
+);
+
+create
+    index T_JOB_ID_INDEX
+    on ops_job (job_id);
+
+create
+    index T_JOB_CREATE_TIME_INDEX
+    on ops_job (create_time);
+
+create
+    index T_JOB_PHASE_INDEX
+    on ops_job (phase);
+
+create
+    index T_JOB_PARAMS_INDEX
+    on ops_job (inputs);
+
+alter table ops_job OWNER TO "primus-safe";

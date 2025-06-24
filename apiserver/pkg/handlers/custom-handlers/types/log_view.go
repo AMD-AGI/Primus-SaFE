@@ -18,9 +18,6 @@ type GetLogRequest struct {
 	Since string `json:"since,omitempty"`
 	// End timestamp of the query, defaults to current time.
 	Until string `json:"until,omitempty"`
-	// Similar to 'since' above, but in milliseconds
-	SinceMilliSecond int64 `json:"sinceMilliSecond,omitempty"`
-	UntilMilliSecond int64 `json:"untilMilliSecond,omitempty"`
 	// Starting offset for the results
 	Offset int `json:"offset,omitempty"`
 	// Limit the number of returned results

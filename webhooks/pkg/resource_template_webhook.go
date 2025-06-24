@@ -7,8 +7,8 @@ package webhooks
 
 import (
 	"context"
+	"encoding/json"
 
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	admissionv1 "k8s.io/api/admission/v1"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -16,6 +16,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 func AddResourceTemplateWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
@@ -35,7 +37,23 @@ type ResourceTemplateMutator struct {
 }
 
 func (m *ResourceTemplateMutator) Handle(_ context.Context, req admission.Request) admission.Response {
-	return admission.Allowed("")
+	if req.Operation != admissionv1.Create {
+		return admission.Allowed("")
+	}
+	rt := &v1.ResourceTemplate{}
+	if err := m.decoder.Decode(req, rt); err != nil {
+		return handleError(v1.ResourceTemplateKind, err)
+	}
+	m.mutateOnCreation(rt)
+	data, err := json.Marshal(rt)
+	if err != nil {
+		return handleError(v1.ResourceTemplateKind, err)
+	}
+	return admission.PatchResponseFromRaw(req.Object.Raw, data)
+}
+
+func (m *ResourceTemplateMutator) mutateOnCreation(rt *v1.ResourceTemplate) {
+	rt.Name = stringutil.NormalizeName(rt.Name)
 }
 
 type ResourceTemplateValidator struct {

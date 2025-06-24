@@ -26,6 +26,8 @@ type CreateNodeRequest struct {
 	Labels map[string]string `json:"labels,omitempty"`
 	// the name of node flavor
 	FlavorName string `json:"flavorName"`
+	// the name of node template
+	TemplateName string `json:"templateName"`
 	// the name of ssh secret
 	SSHSecretName string `json:"sshSecretName,omitempty"`
 }
@@ -77,7 +79,9 @@ type GetNodeResponseItem struct {
 	// the internal ip of k8s cluster
 	InternalIP string `json:"internalIP,omitempty"`
 	// the nodes' flavor
-	NodeFlavor string `json:"nodeFlavor,omitempty"`
+	NodeFlavor string `json:"nodeFlavor"`
+	// the nodes' template
+	NodeTemplate string `json:"nodeTemplate,omitempty"`
 	// Indicates whether the node can be scheduled in the Kubernetes cluster.
 	Unschedulable bool `json:"unschedulable,omitempty"`
 	// the taints on node
@@ -87,7 +91,7 @@ type GetNodeResponseItem struct {
 	// available resource of node
 	AvailResources ResourceList `json:"availResources,omitempty"`
 	// Creation timestamp of the node
-	CreatedTime string `json:"createdTime,omitempty"`
+	CreateTime string `json:"createTime,omitempty"`
 	// Running workloads information on the node
 	Workloads []WorkloadInfo `json:"workloads,omitempty"`
 	// the labels by customer
@@ -104,9 +108,10 @@ type GetNodeResponse struct {
 }
 
 type PatchNodeRequest struct {
-	Taints     *[]corev1.Taint    `json:"taints,omitempty"`
-	Labels     *map[string]string `json:"labels,omitempty"`
-	NodeFlavor *string            `json:"nodeFlavor,omitempty"`
+	Taints       *[]corev1.Taint    `json:"taints,omitempty"`
+	Labels       *map[string]string `json:"labels,omitempty"`
+	NodeFlavor   *string            `json:"nodeFlavor,omitempty"`
+	NodeTemplate *string            `json:"nodeTemplate,omitempty"`
 }
 
 type GetNodePodLogResponse struct {

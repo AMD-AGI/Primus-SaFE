@@ -16,6 +16,10 @@ type FakeAmdV1 struct {
 	*testing.Fake
 }
 
+func (c *FakeAmdV1) AddonTemplates(namespace string) v1.AddonTemplateInterface {
+	return newFakeAddonTemplates(c, namespace)
+}
+
 func (c *FakeAmdV1) Clusters(namespace string) v1.ClusterInterface {
 	return newFakeClusters(c, namespace)
 }
@@ -30,6 +34,14 @@ func (c *FakeAmdV1) Nodes(namespace string) v1.NodeInterface {
 
 func (c *FakeAmdV1) NodeFlavors(namespace string) v1.NodeFlavorInterface {
 	return newFakeNodeFlavors(c, namespace)
+}
+
+func (c *FakeAmdV1) NodeTemplates(namespace string) v1.NodeTemplateInterface {
+	return newFakeNodeTemplates(c, namespace)
+}
+
+func (c *FakeAmdV1) OpsJobs(namespace string) v1.OpsJobInterface {
+	return newFakeOpsJobs(c, namespace)
 }
 
 func (c *FakeAmdV1) ResourceTemplates(namespace string) v1.ResourceTemplateInterface {

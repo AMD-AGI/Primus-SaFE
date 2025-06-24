@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
 func TestValidate(t *testing.T) {
@@ -19,7 +19,7 @@ func TestValidate(t *testing.T) {
 		Script:        "test.sh",
 		Cronjob:       "@every 30s",
 		TimeoutSecond: 25,
-		Chip:          types.AmdGpuChip,
+		Chip:          string(v1.AmdGpuChip),
 		Toggle:        "on",
 	}
 	conf.SetDefaults()

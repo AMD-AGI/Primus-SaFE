@@ -27,6 +27,7 @@ type ControlPlaneApplyConfiguration struct {
 	NodeLocalDNSIP         *string                 `json:"nodeLocalDNSIP,omitempty"`
 	KubeApiServerArgs      map[string]string       `json:"kubeApiServerArgs,omitempty"`
 	KubeletLogFilesMaxSize *resource.Quantity      `json:"kubeletLogFilesMaxSize,omitempty"`
+	KubeletConfigArgs      map[string]string       `json:"kubeletConfigArgs,omitempty"`
 }
 
 // ControlPlaneApplyConfiguration constructs a declarative configuration of the ControlPlane type for use with
@@ -144,5 +145,19 @@ func (b *ControlPlaneApplyConfiguration) WithKubeApiServerArgs(entries map[strin
 // If called multiple times, the KubeletLogFilesMaxSize field is set to the value of the last call.
 func (b *ControlPlaneApplyConfiguration) WithKubeletLogFilesMaxSize(value resource.Quantity) *ControlPlaneApplyConfiguration {
 	b.KubeletLogFilesMaxSize = &value
+	return b
+}
+
+// WithKubeletConfigArgs puts the entries into the KubeletConfigArgs field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the KubeletConfigArgs field,
+// overwriting an existing map entries in KubeletConfigArgs field with the same key.
+func (b *ControlPlaneApplyConfiguration) WithKubeletConfigArgs(entries map[string]string) *ControlPlaneApplyConfiguration {
+	if b.KubeletConfigArgs == nil && len(entries) > 0 {
+		b.KubeletConfigArgs = make(map[string]string, len(entries))
+	}
+	for k, v := range entries {
+		b.KubeletConfigArgs[k] = v
+	}
 	return b
 }

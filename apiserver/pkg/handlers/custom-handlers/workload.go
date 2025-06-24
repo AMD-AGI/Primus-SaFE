@@ -17,6 +17,7 @@ import (
 	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -149,13 +150,26 @@ func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
 	if len(workloadList.Items) > 0 {
 		sort.Sort(types.WorkloadSlice(workloadList.Items))
 	}
-
+	sinceTime, err := timeutil.CvtStrToRFC3339Milli(query.Since)
+	if err != nil {
+		return nil, err
+	}
+	untilTime, err := timeutil.CvtStrToRFC3339Milli(query.Until)
+	if err != nil {
+		return nil, err
+	}
 	result := &types.GetWorkloadResponse{}
 	for _, w := range workloadList.Items {
 		if query.Phase != "" && !stringutil.StrCaseEqual(query.Phase, string(w.Status.Phase)) {
 			continue
 		}
-		result.Items = append(result.Items, cvtAdminWorkloadToResponse(&w, false))
+		if !sinceTime.IsZero() && w.CreationTimestamp.Time.Before(sinceTime) {
+			continue
+		}
+		if !untilTime.IsZero() && w.CreationTimestamp.Time.After(untilTime) {
+			continue
+		}
+		result.Items = append(result.Items, h.cvtAdminWorkloadToResponse(c.Request.Context(), &w, false))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
@@ -177,7 +191,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
-		return cvtAdminWorkloadToResponse(adminWorkload, true), nil
+		return h.cvtAdminWorkloadToResponse(c.Request.Context(), adminWorkload, true), nil
 	}
 }
 
@@ -401,7 +415,7 @@ func generateWorkload(req *types.CreateWorkloadRequest, body []byte) (*v1.Worklo
 		workload.Spec.CustomerLabels = customerLabels
 	}
 	if workload.Name == "" {
-		workload.Name = commonutils.GenerateNameWithPrefix(req.DisplayName)
+		workload.Name = commonutils.GenerateName(req.DisplayName)
 	}
 	return workload, nil
 }
@@ -476,6 +490,16 @@ func (h *Handler) cvtToListWorkloadSql(ctx context.Context,
 	if userName := strings.TrimSpace(query.UserName); userName != "" {
 		dbSql = append(dbSql, sqrl.Like{
 			dbclient.GetFieldTag(dbTags, "UserName"): fmt.Sprintf("%%%s%%", userName)})
+	}
+	if sinceTime := strings.TrimSpace(query.Since); sinceTime != "" {
+		if t, err := timeutil.CvtStrToRFC3339Milli(sinceTime); err == nil {
+			dbSql = append(dbSql, sqrl.GtOrEq{dbclient.GetFieldTag(dbTags, "CreateTime"): t})
+		}
+	}
+	if untilTime := strings.TrimSpace(query.Until); untilTime != "" {
+		if t, err := timeutil.CvtStrToRFC3339Milli(untilTime); err == nil {
+			dbSql = append(dbSql, sqrl.LtOrEq{dbclient.GetFieldTag(dbTags, "CreateTime"): t})
+		}
 	}
 	if kind := strings.TrimSpace(query.Kind); kind != "" {
 		values := strings.Split(query.Kind, ",")
@@ -616,12 +640,12 @@ func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
 		}
 	}
 	if isNeedDetail {
-		buildWorkloadDetail(w, &result)
+		h.buildWorkloadDetail(ctx, w, &result)
 	}
 	return result
 }
 
-func buildWorkloadDetail(w *dbclient.Workload, result *types.GetWorkloadResponseItem) {
+func (h *Handler) buildWorkloadDetail(ctx context.Context, w *dbclient.Workload, result *types.GetWorkloadResponseItem) {
 	result.Image = w.Image
 
 	result.IsSupervised = w.IsSupervised
@@ -632,9 +656,8 @@ func buildWorkloadDetail(w *dbclient.Workload, result *types.GetWorkloadResponse
 	}
 	if str := dbutils.ParseNullString(w.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
-		localIp, _ := netutil.GetLocalIp()
 		for i := range result.Pods {
-			result.Pods[i].SSHAddr = buildSSHAddress(localIp,
+			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx,
 				result.UserName, result.Pods[i].PodId, result.Workspace)
 		}
 	}
@@ -694,7 +717,7 @@ func buildWorkloadLabelSelector(query *types.GetWorkloadRequest) labels.Selector
 	return labelSelector
 }
 
-func cvtAdminWorkloadToResponse(w *v1.Workload, isNeedDetail bool) types.GetWorkloadResponseItem {
+func (h *Handler) cvtAdminWorkloadToResponse(ctx context.Context, w *v1.Workload, isNeedDetail bool) types.GetWorkloadResponseItem {
 	result := types.GetWorkloadResponseItem{
 		WorkloadId:     w.Name,
 		Cluster:        v1.GetClusterId(w),
@@ -728,10 +751,9 @@ func cvtAdminWorkloadToResponse(w *v1.Workload, isNeedDetail bool) types.GetWork
 		result.EntryPoint = stringutil.Base64Decode(result.EntryPoint)
 		result.Conditions = w.Status.Conditions
 		result.Pods = make([]types.WorkloadPodWrapper, len(w.Status.Pods))
-		localIp, _ := netutil.GetLocalIp()
 		for i := range w.Status.Pods {
 			result.Pods[i].WorkloadPod = w.Status.Pods[i]
-			result.Pods[i].SSHAddr = buildSSHAddress(localIp,
+			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx,
 				result.UserName, w.Status.Pods[i].PodId, result.Workspace)
 		}
 		result.Nodes = w.Status.Nodes
@@ -748,12 +770,43 @@ func cvtAdminWorkloadToResponse(w *v1.Workload, isNeedDetail bool) types.GetWork
 	return result
 }
 
-func buildSSHAddress(localIp, userName, podName, workspace string) string {
+func (h *Handler) buildSSHAddress(ctx context.Context, userName, podName, workspace string) string {
 	if !commonconfig.IsSSHEnable() {
 		return ""
 	}
 	if userName == "" {
 		userName = "none"
+	}
+	ep, err := h.clientSet.CoreV1().Endpoints(common.HigressNamespace).Get(ctx, common.HigressGateway, metav1.GetOptions{})
+	if err != nil {
+		klog.ErrorS(err, "Failed to get higress gateway")
+		return ""
+	}
+
+	gatewayIp := ""
+	for _, sub := range ep.Subsets {
+		isMatch := false
+		for _, p := range sub.Ports {
+			if p.Port == common.HigressSSHPort && p.Protocol == corev1.ProtocolTCP {
+				isMatch = true
+				break
+			}
+		}
+		if !isMatch {
+			continue
+		}
+		if len(sub.Addresses) > 0 {
+			gatewayIp = sub.Addresses[0].IP
+			break
+		}
+	}
+	if gatewayIp != "" {
+		return fmt.Sprintf("ssh %s.%s.%s@%s", userName, podName, workspace, gatewayIp)
+	}
+
+	localIp, _ := netutil.GetLocalIp()
+	if localIp == "" {
+		return ""
 	}
 	return fmt.Sprintf("ssh -p %d %s.%s.%s@%s",
 		commonconfig.GetSSHServerPort(), userName, podName, workspace, localIp)

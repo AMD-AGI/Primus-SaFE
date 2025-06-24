@@ -219,6 +219,30 @@ func GetRetryCount(obj metav1.Object) int {
 	return atoi(GetAnnotation(obj, RetryCountAnnotation))
 }
 
+func GetOpsJobId(obj metav1.Object) string {
+	return GetLabel(obj, OpsJobIdLabel)
+}
+
+func GetOpsJobType(obj metav1.Object) string {
+	return GetLabel(obj, OpsJobTypeLabel)
+}
+
+func GetOpsJobInput(obj metav1.Object) string {
+	return GetAnnotation(obj, OpsJobInputAnnotation)
+}
+
+func IsSecurityUpgrade(obj metav1.Object) bool {
+	return HasAnnotation(obj, OpsJobSecurityUpgradeAnnotation)
+}
+
+func GetOpsJobBatchCount(obj metav1.Object) int {
+	return atoi(GetAnnotation(obj, OpsJobBatchCountAnnotation))
+}
+
+func IsAuthoring(obj metav1.Object) bool {
+	return GetLabel(obj, WorkloadKindLabel) == AuthoringKind
+}
+
 func atoi(str string) int {
 	if str == "" {
 		return 0

@@ -44,36 +44,33 @@ func (m *FaultMutator) Handle(ctx context.Context, req admission.Request) admiss
 		return admission.Allowed("")
 	}
 
-	obj := &v1.Fault{}
-	if err := m.decoder.Decode(req, obj); err != nil {
+	fault := &v1.Fault{}
+	if err := m.decoder.Decode(req, fault); err != nil {
 		return handleError(v1.FaultKind, err)
 	}
-	if !obj.GetDeletionTimestamp().IsZero() {
-		return admission.Allowed("")
-	}
-	m.mutate(ctx, obj)
-	marshaledResult, err := json.Marshal(obj)
+	m.mutateOnCreation(ctx, fault)
+	data, err := json.Marshal(fault)
 	if err != nil {
 		return handleError(v1.FaultKind, err)
 	}
-	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledResult)
+	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
-func (m *FaultMutator) mutate(ctx context.Context, f *v1.Fault) {
-	f.Name = stringutil.NormalizeName(f.Name)
-	v1.SetLabel(f, v1.ClusterIdLabel, f.Spec.Node.ClusterName)
-	v1.SetLabel(f, v1.FaultId, f.Spec.Id)
-	controllerutil.AddFinalizer(f, v1.FaultFinalizer)
+func (m *FaultMutator) mutateOnCreation(ctx context.Context, fault *v1.Fault) {
+	fault.Name = stringutil.NormalizeName(fault.Name)
+	v1.SetLabel(fault, v1.ClusterIdLabel, fault.Spec.Node.ClusterName)
+	v1.SetLabel(fault, v1.FaultId, fault.Spec.Id)
+	controllerutil.AddFinalizer(fault, v1.FaultFinalizer)
 
-	if f.Spec.Node != nil {
-		adminNodeName := f.Spec.Node.AdminName
+	if fault.Spec.Node != nil {
+		adminNodeName := fault.Spec.Node.AdminName
 		node, _ := getNode(ctx, m.Client, adminNodeName)
 		if node == nil {
 			return
 		}
 		v1.SetLabel(node, v1.NodeIdLabel, adminNodeName)
-		if !hasOwnerReferences(f, adminNodeName) {
-			if err := controllerutil.SetControllerReference(node, f, m.Client.Scheme()); err != nil {
+		if !hasOwnerReferences(fault, adminNodeName) {
+			if err := controllerutil.SetControllerReference(node, fault, m.Client.Scheme()); err != nil {
 				klog.ErrorS(err, "failed to SetControllerReference")
 			}
 		}
@@ -86,85 +83,85 @@ type FaultValidator struct {
 }
 
 func (v *FaultValidator) Handle(_ context.Context, req admission.Request) admission.Response {
-	obj := &v1.Fault{}
+	fault := &v1.Fault{}
 	var err error
 	switch req.Operation {
 	case admissionv1.Create:
-		if err = v.decoder.Decode(req, obj); err != nil {
+		if err = v.decoder.Decode(req, fault); err != nil {
 			break
 		}
-		err = v.validateCreate(obj)
+		err = v.validateOnCreation(fault)
 	case admissionv1.Update:
-		if err = v.decoder.Decode(req, obj); err != nil {
+		if err = v.decoder.Decode(req, fault); err != nil {
 			break
 		}
-		if !obj.GetDeletionTimestamp().IsZero() {
+		if !fault.GetDeletionTimestamp().IsZero() {
 			break
 		}
-		oldObj := &v1.Fault{}
-		if err = v.decoder.DecodeRaw(req.OldObject, oldObj); err == nil {
-			err = v.validateUpdate(obj, oldObj)
+		oldFault := &v1.Fault{}
+		if err = v.decoder.DecodeRaw(req.OldObject, oldFault); err == nil {
+			err = v.validateOnUpdate(fault, oldFault)
 		}
 	default:
 	}
 	if err != nil {
-		return handleError("fault", err)
+		return handleError(v1.FaultKind, err)
 	}
 	return admission.Allowed("")
 }
 
-func (v *FaultValidator) validateCreate(obj *v1.Fault) error {
-	if err := v.validateFaultSpec(obj); err != nil {
+func (v *FaultValidator) validateOnCreation(fault *v1.Fault) error {
+	if err := v.validateFaultSpec(fault); err != nil {
 		return err
 	}
-	if err := validateDisplayName(v1.GetDisplayName(obj)); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (v *FaultValidator) validateUpdate(newObj, oldObj *v1.Fault) error {
-	if err := v.validateImmutableFields(newObj, oldObj); err != nil {
-		return err
-	}
-	if err := v.validateFaultSpec(newObj); err != nil {
+	if err := validateDisplayName(v1.GetDisplayName(fault)); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *FaultValidator) validateFaultSpec(obj *v1.Fault) error {
-	if obj.Spec.Id == "" {
+func (v *FaultValidator) validateOnUpdate(newFault, oldFault *v1.Fault) error {
+	if err := v.validateImmutableFields(newFault, oldFault); err != nil {
+		return err
+	}
+	if err := v.validateFaultSpec(newFault); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *FaultValidator) validateFaultSpec(fault *v1.Fault) error {
+	if fault.Spec.Id == "" {
 		return fmt.Errorf("the id of spec is empty")
 	}
-	if obj.Spec.Node != nil {
-		if obj.Spec.Node.ClusterName == "" || v1.GetClusterId(obj) == "" {
+	if fault.Spec.Node != nil {
+		if fault.Spec.Node.ClusterName == "" || v1.GetClusterId(fault) == "" {
 			return fmt.Errorf("the cluster of spec is empty")
 		}
-		if obj.Spec.Node.AdminName == "" {
+		if fault.Spec.Node.AdminName == "" {
 			return fmt.Errorf("the admin node of spec is empty")
 		}
-		if obj.Spec.Node.K8sName == "" {
+		if fault.Spec.Node.K8sName == "" {
 			return fmt.Errorf("the k8s node of spec is empty")
 		}
 	}
 	return nil
 }
 
-func (v *FaultValidator) validateImmutableFields(newObj, oldObj *v1.Fault) error {
-	if v1.GetClusterId(newObj) != v1.GetClusterId(oldObj) {
+func (v *FaultValidator) validateImmutableFields(newFault, oldFault *v1.Fault) error {
+	if v1.GetClusterId(newFault) != v1.GetClusterId(oldFault) {
 		return field.Forbidden(field.NewPath("metadata", "labels").Key(v1.ClusterIdLabel), "immutable")
 	}
-	if newObj.Spec.Node.ClusterName != oldObj.Spec.Node.ClusterName {
+	if newFault.Spec.Node.ClusterName != oldFault.Spec.Node.ClusterName {
 		return field.Forbidden(field.NewPath("spec", "node").Key("cluster"), "immutable")
 	}
-	if newObj.Spec.Id != oldObj.Spec.Id {
+	if newFault.Spec.Id != oldFault.Spec.Id {
 		return field.Forbidden(field.NewPath("spec").Key("id"), "immutable")
 	}
-	if newObj.Spec.Action != oldObj.Spec.Action {
+	if newFault.Spec.Action != oldFault.Spec.Action {
 		return field.Forbidden(field.NewPath("spec").Key("action"), "immutable")
 	}
-	if newObj.Spec.Node != nil && oldObj.Spec.Node != nil && newObj.Spec.Node.K8sName != oldObj.Spec.Node.K8sName {
+	if newFault.Spec.Node != nil && oldFault.Spec.Node != nil && newFault.Spec.Node.K8sName != oldFault.Spec.Node.K8sName {
 		return field.Forbidden(field.NewPath("spec", "node").Key("name"), "immutable")
 	}
 	return nil
