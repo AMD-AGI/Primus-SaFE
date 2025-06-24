@@ -18,7 +18,6 @@ create table if not exists workload
     is_supervised boolean,
     is_deleted boolean,
     is_tolerate_all boolean,
-    is_authoring boolean,
     priority INT,
     max_retry INT,
     scheduler_order INT,

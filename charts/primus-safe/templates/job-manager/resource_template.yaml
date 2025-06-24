@@ -73,6 +73,18 @@ spec:
 apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
+  name: authoring-job
+  labels:
+    app.kubernetes.io/managed-by: Helm
+spec:
+  groupVersionKind:
+    group: ""
+    version: ""
+    kind: Authoring
+---
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
   name: event
   labels:
     app.kubernetes.io/managed-by: Helm

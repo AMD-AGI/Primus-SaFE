@@ -37,7 +37,6 @@ type Workload struct {
 	DeleteTime     pq.NullTime    `db:"delete_time"`
 	IsSupervised   bool           `db:"is_supervised"`
 	IsTolerateAll  bool           `db:"is_tolerate_all"`
-	IsAuthoring    bool           `db:"is_authoring"`
 	IsDeleted      bool           `db:"is_deleted"`
 	Priority       int            `db:"priority"`
 	MaxRetry       int            `db:"max_retry"`

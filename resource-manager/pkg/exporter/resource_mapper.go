@@ -17,6 +17,7 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -45,6 +46,16 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 			workload.Status.Phase = v1.WorkloadStopped
 		}
 	}
+
+	var gvk v1.GroupVersionKind
+	if v1.IsAuthoring(workload) {
+		gvk = v1.GroupVersionKind{
+			Kind: common.AuthoringKind,
+		}
+	} else {
+		gvk = workload.Spec.GroupVersionKind
+	}
+
 	result := &dbclient.Workload{
 		WorkloadId:     workload.Name,
 		DisplayName:    v1.GetDisplayName(workload),
@@ -53,7 +64,7 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		Resource:       string(jsonutils.MarshalSilently(workload.Spec.Resource)),
 		Image:          workload.Spec.Image,
 		EntryPoint:     workload.Spec.EntryPoint,
-		GVK:            string(jsonutils.MarshalSilently(workload.Spec.GroupVersionKind)),
+		GVK:            string(jsonutils.MarshalSilently(gvk)),
 		Phase:          dbutils.NullString(string(workload.Status.Phase)),
 		UserName:       dbutils.NullString(v1.GetUserName(workload)),
 		CreateTime:     dbutils.NullMetaV1Time(&workload.CreationTimestamp),
@@ -62,7 +73,6 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		DeleteTime:     dbutils.NullMetaV1Time(workload.GetDeletionTimestamp()),
 		IsSupervised:   workload.Spec.IsSupervised,
 		IsTolerateAll:  workload.Spec.IsTolerateAll,
-		IsAuthoring:    v1.IsAuthoring(workload),
 		Priority:       workload.Spec.Priority,
 		MaxRetry:       workload.Spec.MaxRetry,
 		SchedulerOrder: workload.Status.SchedulerOrder,

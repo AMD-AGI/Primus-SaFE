@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 
@@ -21,8 +20,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -105,7 +102,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
-		return h.listAdminWorkloads(c)
+		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
 
 	query, err := parseListWorkloadQuery(c)
@@ -133,54 +130,6 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 		workload := h.cvtDBWorkloadToResponse(c.Request.Context(), w, false)
 		result.Items = append(result.Items, workload)
 	}
-	return result, nil
-}
-
-func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
-	query, err := parseListWorkloadQuery(c)
-	if err != nil {
-		klog.ErrorS(err, "failed to parse query")
-		return nil, err
-	}
-	labelSelector := buildWorkloadLabelSelector(query)
-	workloadList := &v1.WorkloadList{}
-	if err = h.List(c.Request.Context(), workloadList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
-		return nil, err
-	}
-	if len(workloadList.Items) > 0 {
-		sort.Sort(types.WorkloadSlice(workloadList.Items))
-	}
-	sinceTime, err := timeutil.CvtStrToRFC3339Milli(query.Since)
-	if err != nil {
-		return nil, err
-	}
-	untilTime, err := timeutil.CvtStrToRFC3339Milli(query.Until)
-	if err != nil {
-		return nil, err
-	}
-	result := &types.GetWorkloadResponse{}
-	for _, w := range workloadList.Items {
-		if query.Phase != "" && !stringutil.StrCaseEqual(query.Phase, string(w.Status.Phase)) {
-			continue
-		}
-		if !sinceTime.IsZero() && w.CreationTimestamp.Time.Before(sinceTime) {
-			continue
-		}
-		if !untilTime.IsZero() && w.CreationTimestamp.Time.After(untilTime) {
-			continue
-		}
-		if query.Kind != "" {
-			if query.Kind == common.AuthoringKind {
-				if !v1.IsAuthoring(&w) {
-					continue
-				}
-			} else if query.Kind != w.SpecKind() {
-				continue
-			}
-		}
-		result.Items = append(result.Items, h.cvtAdminWorkloadToResponse(c.Request.Context(), &w, false))
-	}
-	result.TotalCount = len(result.Items)
 	return result, nil
 }
 
@@ -517,16 +466,12 @@ func (h *Handler) cvtToListWorkloadSql(ctx context.Context,
 		values := strings.Split(query.Kind, ",")
 		var sqlList []sqrl.Sqlizer
 		for _, val := range values {
-			if val == common.AuthoringKind {
-				sqlList = append(sqlList, sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsAuthoring"): true})
-			} else {
-				rf, err := h.getResourceTemplate(ctx, val)
-				if err != nil {
-					return nil, nil, err
-				}
-				gvk := string(jsonutils.MarshalSilently(rf.Spec.GroupVersionKind))
-				sqlList = append(sqlList, sqrl.Eq{dbclient.GetFieldTag(dbTags, "GVK"): gvk})
+			rf, err := h.getResourceTemplate(ctx, val)
+			if err != nil {
+				return nil, nil, err
 			}
+			gvk := string(jsonutils.MarshalSilently(rf.Spec.GroupVersionKind))
+			sqlList = append(sqlList, sqrl.Eq{dbclient.GetFieldTag(dbTags, "GVK"): gvk})
 		}
 		dbSql = append(dbSql, sqrl.Or(sqlList))
 	}
@@ -638,11 +583,8 @@ func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
 			},
 		},
 	}
-	if w.IsAuthoring {
-		result.GroupVersionKind = v1.GroupVersionKind{Kind: common.AuthoringKind}
-	} else {
-		json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
-	}
+	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
+	json.Unmarshal([]byte(w.Resource), &result.Resource)
 	if w.Timeout > 0 {
 		result.Timeout = pointer.Int(w.Timeout)
 		if t := dbutils.ParseNullTime(w.StartTime); !t.IsZero() {
@@ -652,7 +594,6 @@ func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
 			}
 		}
 	}
-	json.Unmarshal([]byte(w.Resource), &result.Resource)
 	if result.Phase == string(v1.WorkloadPending) {
 		adminWorkload, err := h.getAdminWorkload(ctx, result.WorkloadId)
 		if err == nil {
@@ -708,30 +649,12 @@ func (h *Handler) buildWorkloadDetail(ctx context.Context, w *dbclient.Workload,
 		json.Unmarshal([]byte(str), &result.Env)
 		result.Env = maps.RemoveValue(result.Env, "")
 	}
-	if !w.IsAuthoring {
+	if result.GroupVersionKind.Kind != common.AuthoringKind {
 		if w.EntryPoint != "" {
 			result.EntryPoint = stringutil.Base64Decode(w.EntryPoint)
 		}
 		result.TTLSecondsAfterFinished = pointer.Int(w.TTLSecond)
 	}
-}
-
-func buildWorkloadLabelSelector(query *types.GetWorkloadRequest) labels.Selector {
-	var labelSelector = labels.NewSelector()
-	if query.WorkspaceId != "" {
-		req, _ := labels.NewRequirement(v1.WorkspaceIdLabel, selection.Equals, []string{query.WorkspaceId})
-		labelSelector = labelSelector.Add(*req)
-	}
-	if query.ClusterId != "" {
-		req, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{query.ClusterId})
-		labelSelector = labelSelector.Add(*req)
-	}
-	if query.UserName != "" {
-		nameMd5 := stringutil.MD5(query.UserName)
-		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.Equals, []string{nameMd5})
-		labelSelector = labelSelector.Add(*req)
-	}
-	return labelSelector
 }
 
 func (h *Handler) cvtAdminWorkloadToResponse(ctx context.Context, w *v1.Workload, isNeedDetail bool) types.GetWorkloadResponseItem {
