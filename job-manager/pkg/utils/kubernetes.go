@@ -82,7 +82,7 @@ func GetObject(informer informers.GenericInformer,
 	}
 	objUnstructured, ok := obj.(*unstructured.Unstructured)
 	if !ok {
-		return nil, fmt.Errorf("the object is invalid")
+		return nil, commonerrors.NewInternalError("the object is invalid")
 	}
 	return objUnstructured.DeepCopy(), nil
 }

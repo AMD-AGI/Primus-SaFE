@@ -33,6 +33,7 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -320,6 +321,14 @@ func (r *SchedulerReconciler) start(ctx context.Context) {
 }
 
 func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage) (controller.Result, error) {
+	result, err := r.do(ctx, message)
+	if utils.IsNonRetryableError(err) {
+		err = nil
+	}
+	return result, err
+}
+
+func (r *SchedulerReconciler) do(ctx context.Context, message *SchedulerMessage) (controller.Result, error) {
 	workspace, err := r.getWorkspace(ctx, message.ClusterId, message.WorkspaceId)
 	if workspace == nil {
 		return controller.Result{}, err

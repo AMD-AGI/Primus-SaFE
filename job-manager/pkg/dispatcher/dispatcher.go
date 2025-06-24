@@ -110,7 +110,7 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	result, err := r.handle(ctx, workload)
 	if err != nil {
 		klog.ErrorS(err, "failed to dispatch workload", "name", workload.Name)
-		if jobutils.IsUnRecoverableError(err) {
+		if jobutils.IsNonRetryableError(err) {
 			err = jobutils.SetWorkloadFailed(ctx, r.Client, workload, err.Error())
 		}
 	}

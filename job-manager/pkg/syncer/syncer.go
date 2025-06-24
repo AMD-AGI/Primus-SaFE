@@ -166,7 +166,7 @@ func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (co
 	case common.EventKind:
 		result, err = r.handleEvent(ctx, message, informer)
 	}
-	if jobutils.IsUnRecoverableError(err) {
+	if jobutils.IsNonRetryableError(err) {
 		err = nil
 	}
 	return result, err

@@ -168,14 +168,22 @@ func GetActiveResources(workload *v1.Workload, filterNode func(nodeName string) 
 
 func CvtToResourceList(w *v1.Workload) (corev1.ResourceList, error) {
 	res := &w.Spec.Resource
-	return quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
+	result, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
 		res.GPUName, res.EphemeralStorage, int64(res.Replica))
+	if err != nil {
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	return result, nil
 }
 
 func GetPodResources(w *v1.Workload) (corev1.ResourceList, error) {
 	res := &w.Spec.Resource
-	return quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
+	result, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
 		res.GPUName, res.EphemeralStorage, 1)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	return result, nil
 }
 
 func GetScope(w *v1.Workload) v1.WorkspaceScope {

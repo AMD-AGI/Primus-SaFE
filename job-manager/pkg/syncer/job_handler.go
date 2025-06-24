@@ -40,7 +40,7 @@ func (r *SyncerReconciler) handleJob(ctx context.Context, msg *resourceMessage, 
 	}
 
 	result, err := r.handleJobImpl(ctx, msg, adminWorkload, informer)
-	if jobutils.IsUnRecoverableError(err) {
+	if jobutils.IsNonRetryableError(err) {
 		// Errors defined internally are fatal and lead to a terminal state without retry
 		err = jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, err.Error())
 	}
