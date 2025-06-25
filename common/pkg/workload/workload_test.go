@@ -37,7 +37,7 @@ func genMockWorkload(clusterName, workspace string) *v1.Workload {
 			Workspace: workspace,
 			GroupVersionKind: v1.GroupVersionKind{
 				Group:   "kubeflow.org",
-				Kind:    v1.PytorchJobKind,
+				Kind:    common.PytorchJobKind,
 				Version: "v1",
 			},
 			Resource: v1.WorkloadResource{
@@ -145,7 +145,7 @@ func TestCvtToResourceList(t *testing.T) {
 	}
 }
 
-func TestGetTemplateConfig(t *testing.T) {
+func TestGetWorkloadTemplate(t *testing.T) {
 	mockScheme := runtime.NewScheme()
 	err := v1.AddToScheme(mockScheme)
 	assert.NilError(t, err)
@@ -156,19 +156,26 @@ func TestGetTemplateConfig(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "configmap1",
 			Namespace: common.PrimusSafeNamespace,
-			Labels:    map[string]string{"group": "", "version": "v1", "kind": "kind1"},
+			Labels:    map[string]string{v1.WorkloadVersionLabel: "v1", v1.WorkloadKindLabel: "kind1"},
 		},
 	}
 	configmap2 := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "configmap2",
 			Namespace: common.PrimusSafeNamespace,
-			Labels:    map[string]string{"group": "", "version": "v1", "kind": "kind2"},
+			Labels:    map[string]string{v1.WorkloadVersionLabel: "v1", v1.WorkloadKindLabel: "kind2"},
 		},
 	}
 	cli := fake.NewClientBuilder().WithObjects(configmap1, configmap2).WithScheme(mockScheme).Build()
-	resp, err := GetWorkloadTemplate(context.Background(), cli,
-		v1.GroupVersionKind{Group: "", Version: "v1", Kind: "kind2"}, "")
+	workload := &v1.Workload{
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Kind:    "kind2",
+				Version: "v1",
+			},
+		},
+	}
+	resp, err := GetWorkloadTemplate(context.Background(), cli, workload)
 	assert.NilError(t, err)
 	assert.Equal(t, resp.Name, configmap2.Name)
 }

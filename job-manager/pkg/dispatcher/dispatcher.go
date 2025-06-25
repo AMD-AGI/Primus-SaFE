@@ -110,7 +110,7 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	result, err := r.handle(ctx, workload)
 	if err != nil {
 		klog.ErrorS(err, "failed to dispatch workload", "name", workload.Name)
-		if jobutils.IsUnRecoverableError(err) {
+		if jobutils.IsNonRetryableError(err) {
 			err = jobutils.SetWorkloadFailed(ctx, r.Client, workload, err.Error())
 		}
 	}
@@ -122,7 +122,11 @@ func (r *DispatcherReconciler) handle(ctx context.Context, workload *v1.Workload
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	resourceInformer, err := clusterInformer.GetResourceInformer(ctx, workload.ToSchemaGVK())
+	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, workload.ToSchemaGVK())
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	resourceInformer, err := clusterInformer.GetResourceInformer(ctx, rt.ToSchemaGVK())
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -163,8 +167,7 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 			"name", adminWorkload.Name, "gvk", adminWorkload.Spec.GroupVersionKind)
 		return err
 	}
-	if err = jobutils.CreateObject(ctx, clusterInformer.ClientFactory().DynamicClient(),
-		clusterInformer.ClientFactory().Mapper(), k8sObject); err != nil {
+	if err = jobutils.CreateObject(ctx, clusterInformer.ClientFactory(), k8sObject); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
 			klog.ErrorS(err, "failed to create k8s unstructured object")
 		} else {
@@ -215,11 +218,11 @@ func (r *DispatcherReconciler) createK8sObject(ctx context.Context,
 		return nil, err
 	}
 	if err = updateUnstructuredObj(result, adminWorkload, rt); err != nil {
-		return nil, err
+		return nil, commonerrors.NewInternalError(err.Error())
 	}
-	for _, t := range rt.Spec.Templates {
+	for _, t := range rt.Spec.ResourceSpecs {
 		if err = modifyObjectOnCreation(result, adminWorkload, workspace, &t); err != nil {
-			return nil, err
+			return nil, commonerrors.NewInternalError(err.Error())
 		}
 	}
 	result.SetName(adminWorkload.Name)
@@ -234,8 +237,7 @@ func (r *DispatcherReconciler) createK8sObject(ctx context.Context,
 }
 
 func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
-	templateConfig, err := commonworkload.GetWorkloadTemplate(ctx,
-		r.Client, adminWorkload.Spec.GroupVersionKind, adminWorkload.Spec.Resource.GPUName)
+	templateConfig, err := commonworkload.GetWorkloadTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +284,7 @@ func (r *DispatcherReconciler) updateK8sObject(ctx context.Context, adminWorkloa
 		klog.ErrorS(err, "", "gvk", adminWorkload.Spec.GroupVersionKind)
 		return err
 	}
-	if len(rt.Spec.Templates) == 0 {
+	if len(rt.Spec.ResourceSpecs) == 0 {
 		return nil
 	}
 
@@ -303,8 +305,7 @@ func (r *DispatcherReconciler) updateK8sObject(ctx context.Context, adminWorkloa
 		return commonerrors.NewBadRequest(err.Error())
 	}
 
-	if err = jobutils.UpdateObject(ctx, clusterInformer.ClientFactory().DynamicClient(),
-		clusterInformer.ClientFactory().Mapper(), obj); err != nil {
+	if err = jobutils.UpdateObject(ctx, clusterInformer.ClientFactory(), obj); err != nil {
 		klog.ErrorS(err, "failed to update k8s unstructured object")
 		return err
 	}
@@ -390,11 +391,11 @@ func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstru
 
 func updateUnstructuredObj(obj *unstructured.Unstructured, adminWorkload *v1.Workload, rt *v1.ResourceTemplate) error {
 	var preAllocatedReplica int64 = 0
-	for _, t := range rt.Spec.Templates {
+	for _, t := range rt.Spec.ResourceSpecs {
 		preAllocatedReplica += t.Replica
 	}
 
-	for _, t := range rt.Spec.Templates {
+	for _, t := range rt.Spec.ResourceSpecs {
 		replica := t.Replica
 		// A webhook validation was previously to ensure that only one template could have replica=0
 		if replica == 0 {
@@ -423,9 +424,9 @@ func updateUnstructuredObj(obj *unstructured.Unstructured, adminWorkload *v1.Wor
 	return nil
 }
 
-func updateReplica(obj *unstructured.Unstructured, template v1.Template, replica int64) error {
-	path := template.PrePaths
-	path = append(path, template.ReplicasPaths...)
+func updateReplica(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
+	path := resourceSpec.PrePaths
+	path = append(path, resourceSpec.ReplicasPaths...)
 	if err := unstructured.SetNestedField(obj.Object, replica, path...); err != nil {
 		return err
 	}
@@ -433,8 +434,8 @@ func updateReplica(obj *unstructured.Unstructured, template v1.Template, replica
 }
 
 func updateMainContainer(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, template v1.Template) error {
-	templatePath := template.GetTemplatePath()
+	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
+	templatePath := resourceSpec.GetTemplatePath()
 	path := append(templatePath, "spec", "containers")
 	containers, found, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
@@ -519,9 +520,9 @@ func updateContainerEnv(adminWorkload *v1.Workload, mainContainer map[string]int
 	mainContainer["env"] = newEnv
 }
 
-func updateShareMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, template v1.Template) error {
-	path := template.PrePaths
-	path = append(path, template.TemplatePaths...)
+func updateShareMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
+	path := resourceSpec.PrePaths
+	path = append(path, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "volumes")
 	volumes, found, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
@@ -552,15 +553,15 @@ func updateShareMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 }
 
 func udpateHostNetwork(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, template v1.Template) error {
-	templatePath := template.GetTemplatePath()
+	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
+	templatePath := resourceSpec.GetTemplatePath()
 	path := append(templatePath, "spec", "hostNetwork")
 	return modifyHostNetWork(obj, adminWorkload, path)
 }
 
 func udpatePriorityClass(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, template v1.Template) error {
-	templatePath := template.GetTemplatePath()
+	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
+	templatePath := resourceSpec.GetTemplatePath()
 	path := append(templatePath, "spec", "priorityClassName")
 	return modifyPriorityClass(obj, adminWorkload, path)
 }
@@ -570,10 +571,10 @@ func (r *DispatcherReconciler) createService(ctx context.Context,
 	if adminWorkload.Spec.Service == nil {
 		return nil
 	}
-	clientSet := clusterInformer.ClientFactory().ClientSet().CoreV1()
+	k8sClientSet := clusterInformer.ClientFactory().ClientSet()
 	namespace := adminWorkload.Spec.Workspace
 	var err error
-	if _, err = clientSet.Services(namespace).Get(ctx, adminWorkload.Name, metav1.GetOptions{}); err == nil {
+	if _, err = k8sClientSet.CoreV1().Services(namespace).Get(ctx, adminWorkload.Name, metav1.GetOptions{}); err == nil {
 		return nil
 	}
 	specService := adminWorkload.Spec.Service
@@ -606,7 +607,7 @@ func (r *DispatcherReconciler) createService(ctx context.Context,
 		service.Spec.Ports[0].NodePort = int32(specService.NodePort)
 	}
 
-	if service, err = clientSet.Services(namespace).Create(ctx,
+	if service, err = k8sClientSet.CoreV1().Services(namespace).Create(ctx,
 		service, metav1.CreateOptions{}); client.IgnoreAlreadyExists(err) != nil {
 		klog.ErrorS(err, "failed to create service", "name", adminWorkload.Name)
 		if specService.NodePort > 0 {

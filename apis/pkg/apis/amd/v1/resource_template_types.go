@@ -32,29 +32,39 @@ func (gvk GroupVersionKind) String() string {
 	return gvk.ToSchema().String()
 }
 
+func (gvk GroupVersionKind) VersionKind() string {
+	return gvk.Kind + "/" + gvk.Version
+}
+
 func (gvk GroupVersionKind) Empty() bool {
 	return gvk.Group == "" && gvk.Version == "" && gvk.Kind == ""
 }
 
 type ResourceTemplateSpec struct {
+	// Specifies the Group, Version, and Kind (GVK) for a Kubernetes object
+	// This GVK is not the same as the workload's GVK, which is defined in the label selector.
 	GroupVersionKind GroupVersionKind `json:"groupVersionKind"`
-	Templates        []Template       `json:"templates,omitempty"`
-	EndState         EndState         `json:"endState,omitempty"`
-	ActiveState      ActiveState      `json:"activeState,omitempty"`
+	// Definition used to retrieve the spec of a Kubernetes object
+	ResourceSpecs []ResourceSpec `json:"resourceSpecs,omitempty"`
+	// Definition used to retrieve the status of a Kubernetes object
+	ResourceStatus ResourceStatus `json:"resourceStatus,omitempty"`
+	// Definition used to retrieve the active replica count of a Kubernetes object
+	ActiveReplica ActiveReplica `json:"activeReplica,omitempty"`
 }
 
-type Template struct {
-	// Pre-paths to template & replicas
+type ResourceSpec struct {
+	// Pre-path to k8s object's spec
 	PrePaths []string `json:"prePaths,omitempty"`
-	// PodTemplateSpec
+	// The relative path of pod template
 	TemplatePaths []string `json:"templatePaths,omitempty"`
+	// The relative path of pod replica
 	ReplicasPaths []string `json:"replicasPaths,omitempty"`
 	// If the replica count is set to a non-zero value, it will be used as a fixed allocation when the task is submitted
 	// This applies only to the master role of a PyTorchJob (or similar structures).
 	Replica int64 `json:"replica,omitempty"`
 }
 
-func (t *Template) GetTemplatePath() []string {
+func (t *ResourceSpec) GetTemplatePath() []string {
 	if t == nil {
 		return nil
 	}
@@ -62,21 +72,25 @@ func (t *Template) GetTemplatePath() []string {
 	return path
 }
 
-type EndState struct {
-	PrePaths     []string        `json:"prePaths,omitempty"`
-	MessagePaths []string        `json:"messagePaths,omitempty"`
-	ReasonPaths  []string        `json:"reasonPaths,omitempty"`
-	Phases       []TemplatePhase `json:"phases,omitempty"`
+type ResourceStatus struct {
+	// Prefix path for retrieving the object's phase, commonly referencing the status condition.
+	PrePaths []string `json:"prePaths,omitempty"`
+	// The relative path of message
+	MessagePaths []string `json:"messagePaths,omitempty"`
+	// The relative path of reason
+	ReasonPaths []string `json:"reasonPaths,omitempty"`
+	// Expression for retrieving the phase value.
+	Phases []PhaseExpression `json:"phases,omitempty"`
 }
 
-type TemplatePhase struct {
+type PhaseExpression struct {
 	MatchExpressions map[string]string `json:"matchExpressions"`
 	Phase            string            `json:"phase"`
 }
 
-type ActiveState struct {
-	PrePaths []string `json:"prePaths,omitempty"`
-	Active   string   `json:"active,omitempty"`
+type ActiveReplica struct {
+	PrePaths    []string `json:"prePaths,omitempty"`
+	ReplicaPath string   `json:"replicaPath,omitempty"`
 }
 
 type ResourceTemplateStatus struct {
@@ -116,6 +130,6 @@ func (rt *ResourceTemplate) ToSchemaGVK() schema.GroupVersionKind {
 	return rt.Spec.GroupVersionKind.ToSchema()
 }
 
-func (rt *ResourceTemplate) SpeckKind() string {
+func (rt *ResourceTemplate) SpecKind() string {
 	return rt.Spec.GroupVersionKind.Kind
 }

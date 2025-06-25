@@ -12,6 +12,14 @@ const (
 	PrimusCryptoSecret         = "primus-safe-crypto"
 	PrimusRouterCustomRootPath = "api/v1"
 
+	AuthoringKind   = "Authoring"
+	PytorchJobKind  = "PyTorchJob"
+	DeploymentKind  = "Deployment"
+	StatefulSetKind = "StatefulSet"
+	PodKind         = "Pod"
+	EventKind       = "Event"
+	DefaultVersion  = "v1"
+
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"
 	HigressSSHPort   = 22

@@ -4,9 +4,8 @@ metadata:
   name: amd-deployment-template
   namespace: {{ .Release.Namespace }}
   labels:
-    group: apps
-    version: v1
-    kind: Deployment
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: Deployment
   annotations:
     primus-safe.gpu.resource.name: "amd.com/gpu"
     # The main container name should match the configuration defined in the template below

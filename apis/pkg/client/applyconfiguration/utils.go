@@ -20,8 +20,8 @@ import (
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
 	// Group=amd.com, Version=v1
-	case v1.SchemeGroupVersion.WithKind("ActiveState"):
-		return &amdv1.ActiveStateApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ActiveReplica"):
+		return &amdv1.ActiveReplicaApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("AddonTemplate"):
 		return &amdv1.AddonTemplateApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("AddonTemplateSpec"):
@@ -50,8 +50,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.CpuChipApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("DiskFlavor"):
 		return &amdv1.DiskFlavorApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("EndState"):
-		return &amdv1.EndStateApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ErasureCodedSpec"):
 		return &amdv1.ErasureCodedSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Fault"):
@@ -98,10 +96,16 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.OpsJobStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Parameter"):
 		return &amdv1.ParameterApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("PhaseExpression"):
+		return &amdv1.PhaseExpressionApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("PodFailedMessage"):
 		return &amdv1.PodFailedMessageApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ReplicatedSpec"):
 		return &amdv1.ReplicatedSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ResourceSpec"):
+		return &amdv1.ResourceSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ResourceStatus"):
+		return &amdv1.ResourceStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ResourceTemplate"):
 		return &amdv1.ResourceTemplateApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ResourceTemplateSpec"):
@@ -118,10 +122,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.StorageClusterStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("StorageStatus"):
 		return &amdv1.StorageStatusApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("Template"):
-		return &amdv1.TemplateApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("TemplatePhase"):
-		return &amdv1.TemplatePhaseApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Workload"):
 		return &amdv1.WorkloadApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("WorkloadPod"):

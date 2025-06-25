@@ -84,6 +84,7 @@ const (
 	WorkloadPreemptedAnnotation       = WorkloadPrefix + "preempted"
 	EnableHostNetworkAnnotation       = WorkloadPrefix + "enable.host.network"
 	WorkloadKindLabel                 = WorkloadPrefix + "kind"
+	WorkloadVersionLabel              = WorkloadPrefix + "version"
 	WorkloadDispatchCntLabel          = WorkloadPrefix + "dispatch.count"
 	WorkloadReScheduledAnnotation     = WorkloadPrefix + "rescheduled"
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
@@ -92,7 +93,6 @@ const (
 	// user
 	UserPrefix         = PrimusSafePrefix + "user."
 	UserNameAnnotation = UserPrefix + "name"
-	UserNameMd5Label   = UserPrefix + "name.md5"
 
 	// secret
 	SecretPrefix    = PrimusSafePrefix + "secret."
@@ -112,15 +112,6 @@ const (
 	// the job on node
 	OpsJobInputAnnotation = OpsJobPrefix + "input"
 	OpsJobFinalizer       = PrimusSafeDomain + "ops.job.finalizer"
-)
-
-const (
-	AuthoringKind   = "Authoring"
-	PytorchJobKind  = "PyTorchJob"
-	DeploymentKind  = "Deployment"
-	StatefulSetKind = "StatefulSet"
-	PodKind         = "Pod"
-	EventKind       = "Event"
 )
 
 const (

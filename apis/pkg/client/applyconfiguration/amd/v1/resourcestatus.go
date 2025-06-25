@@ -6,25 +6,25 @@ Copyright The AMD Authors.
 
 package v1
 
-// EndStateApplyConfiguration represents a declarative configuration of the EndState type for use
+// ResourceStatusApplyConfiguration represents a declarative configuration of the ResourceStatus type for use
 // with apply.
-type EndStateApplyConfiguration struct {
-	PrePaths     []string                          `json:"prePaths,omitempty"`
-	MessagePaths []string                          `json:"messagePaths,omitempty"`
-	ReasonPaths  []string                          `json:"reasonPaths,omitempty"`
-	Phases       []TemplatePhaseApplyConfiguration `json:"phases,omitempty"`
+type ResourceStatusApplyConfiguration struct {
+	PrePaths     []string                            `json:"prePaths,omitempty"`
+	MessagePaths []string                            `json:"messagePaths,omitempty"`
+	ReasonPaths  []string                            `json:"reasonPaths,omitempty"`
+	Phases       []PhaseExpressionApplyConfiguration `json:"phases,omitempty"`
 }
 
-// EndStateApplyConfiguration constructs a declarative configuration of the EndState type for use with
+// ResourceStatusApplyConfiguration constructs a declarative configuration of the ResourceStatus type for use with
 // apply.
-func EndState() *EndStateApplyConfiguration {
-	return &EndStateApplyConfiguration{}
+func ResourceStatus() *ResourceStatusApplyConfiguration {
+	return &ResourceStatusApplyConfiguration{}
 }
 
 // WithPrePaths adds the given value to the PrePaths field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the PrePaths field.
-func (b *EndStateApplyConfiguration) WithPrePaths(values ...string) *EndStateApplyConfiguration {
+func (b *ResourceStatusApplyConfiguration) WithPrePaths(values ...string) *ResourceStatusApplyConfiguration {
 	for i := range values {
 		b.PrePaths = append(b.PrePaths, values[i])
 	}
@@ -34,7 +34,7 @@ func (b *EndStateApplyConfiguration) WithPrePaths(values ...string) *EndStateApp
 // WithMessagePaths adds the given value to the MessagePaths field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the MessagePaths field.
-func (b *EndStateApplyConfiguration) WithMessagePaths(values ...string) *EndStateApplyConfiguration {
+func (b *ResourceStatusApplyConfiguration) WithMessagePaths(values ...string) *ResourceStatusApplyConfiguration {
 	for i := range values {
 		b.MessagePaths = append(b.MessagePaths, values[i])
 	}
@@ -44,7 +44,7 @@ func (b *EndStateApplyConfiguration) WithMessagePaths(values ...string) *EndStat
 // WithReasonPaths adds the given value to the ReasonPaths field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the ReasonPaths field.
-func (b *EndStateApplyConfiguration) WithReasonPaths(values ...string) *EndStateApplyConfiguration {
+func (b *ResourceStatusApplyConfiguration) WithReasonPaths(values ...string) *ResourceStatusApplyConfiguration {
 	for i := range values {
 		b.ReasonPaths = append(b.ReasonPaths, values[i])
 	}
@@ -54,7 +54,7 @@ func (b *EndStateApplyConfiguration) WithReasonPaths(values ...string) *EndState
 // WithPhases adds the given value to the Phases field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Phases field.
-func (b *EndStateApplyConfiguration) WithPhases(values ...*TemplatePhaseApplyConfiguration) *EndStateApplyConfiguration {
+func (b *ResourceStatusApplyConfiguration) WithPhases(values ...*PhaseExpressionApplyConfiguration) *ResourceStatusApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
 			panic("nil value passed to WithPhases")

@@ -23,15 +23,16 @@ import (
 
 const (
 	ShareMemoryVolumeName = "sugaku-volume"
+	Launcher              = "chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh"
 )
 
 func modifyObjectOnCreation(obj *unstructured.Unstructured,
-	adminWorkload *v1.Workload, workspace *v1.Workspace, template *v1.Template) error {
-	_, found, err := unstructured.NestedFieldNoCopy(obj.Object, template.PrePaths...)
+	adminWorkload *v1.Workload, workspace *v1.Workspace, resourceSpec *v1.ResourceSpec) error {
+	_, found, err := unstructured.NestedFieldNoCopy(obj.Object, resourceSpec.PrePaths...)
 	if err != nil || !found {
 		return nil
 	}
-	templatePath := template.GetTemplatePath()
+	templatePath := resourceSpec.GetTemplatePath()
 
 	path := append(templatePath, "metadata", "labels")
 	if err = modifyLabels(obj, adminWorkload, path); err != nil {
@@ -117,7 +118,7 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 		return err
 	}
 	if !found || len(containers) == 0 {
-		return fmt.Errorf("fail to find container with path: %v", path)
+		return fmt.Errorf("failed to find container with path: %v", path)
 	}
 	mainContainer, err := getMainContainer(containers, v1.GetMainContainer(adminWorkload))
 	if err != nil {
@@ -231,7 +232,7 @@ func modifyHostNetWork(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 }
 
 func modifyStrategy(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
-	if adminWorkload.SpecKind() != v1.DeploymentKind {
+	if adminWorkload.SpecKind() != common.DeploymentKind {
 		return nil
 	}
 	rollingUpdate := buildStrategy(adminWorkload)
@@ -275,7 +276,7 @@ func getMainContainer(containers []interface{}, mainContainerName string) (map[s
 		}
 	}
 	if mainContainer == nil {
-		return nil, fmt.Errorf("fail to find main container, name: %s", mainContainerName)
+		return nil, fmt.Errorf("failed to find main container, name: %s", mainContainerName)
 	}
 	return mainContainer, nil
 }
@@ -285,7 +286,7 @@ func buildCommands(entryPoint string) []interface{} {
 }
 
 func buildEntryPoint(entryPoint string) string {
-	entryPoint = "chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh '" + entryPoint + "'"
+	entryPoint = Launcher + " '" + entryPoint + "'"
 	return entryPoint
 }
 
@@ -349,7 +350,7 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 	})
 	result = append(result, map[string]interface{}{
 		"name":  "DISPATCH_COUNT",
-		"value": strconv.Itoa(v1.GetWorkloadDispatchCnt(adminWorkload)),
+		"value": strconv.Itoa(v1.GetWorkloadDispatchCnt(adminWorkload) + 1),
 	})
 	return result
 }
@@ -359,7 +360,7 @@ func buildPorts(adminWorkload *v1.Workload) []interface{} {
 		"containerPort": int64(adminWorkload.Spec.Resource.JobPort),
 		"protocol":      "TCP",
 	}
-	if adminWorkload.SpecKind() == v1.PytorchJobKind {
+	if adminWorkload.SpecKind() == common.PytorchJobKind || adminWorkload.SpecKind() == common.AuthoringKind {
 		jobPort["name"] = common.PytorchJobPortName
 	}
 	return []interface{}{jobPort}

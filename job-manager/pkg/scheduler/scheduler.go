@@ -33,6 +33,7 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -147,15 +148,15 @@ func (r *SchedulerReconciler) createDataPlaneResources(ctx context.Context, work
 	if err != nil {
 		return err
 	}
-	clientSet := clusterInformer.ClientFactory().ClientSet()
+	k8sClientSet := clusterInformer.ClientFactory().ClientSet()
 	// create namespace for data plane
-	if err = jobutils.CreateNamespace(ctx, workspace.Name, clientSet); err != nil {
+	if err = jobutils.CreateNamespace(ctx, workspace.Name, k8sClientSet); err != nil {
 		return err
 	}
 	// copy image secret from admin plane to data plane
 	imageSecret, _ := r.getImageSecret(ctx, workspace.Spec.Cluster)
 	if imageSecret != nil {
-		if err = jobutils.CopySecret(ctx, imageSecret, workspace.Name, clientSet); err != nil {
+		if err = jobutils.CopySecret(ctx, imageSecret, workspace.Name, k8sClientSet); err != nil {
 			return err
 		}
 	}
@@ -169,7 +170,7 @@ func (r *SchedulerReconciler) createDataPlaneResources(ctx context.Context, work
 			klog.Error(err.Error())
 			continue
 		}
-		if err = jobutils.CreatePVC(ctx, pvc, clientSet); err != nil {
+		if err = jobutils.CreatePVC(ctx, pvc, k8sClientSet); err != nil {
 			return err
 		}
 	}
@@ -190,7 +191,7 @@ func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspa
 		oldPvcSets.Insert(string(vol.StorageType))
 	}
 	newPvcSets := sets.NewSet()
-	clientSet := informer.ClientFactory().ClientSet()
+	k8sClientSet := informer.ClientFactory().ClientSet()
 	for _, vol := range newWorkspace.Spec.Volumes {
 		if vol.StorageType == v1.HOSTPATH {
 			continue
@@ -205,7 +206,7 @@ func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspa
 			klog.Error(err.Error())
 			continue
 		}
-		if err = jobutils.CreatePVC(ctx, pvc, clientSet); err != nil {
+		if err = jobutils.CreatePVC(ctx, pvc, k8sClientSet); err != nil {
 			return err
 		}
 	}
@@ -216,7 +217,7 @@ func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspa
 		if newPvcSets.Has(string(vol.StorageType)) {
 			continue
 		}
-		if err = jobutils.DeletePVC(ctx, string(vol.StorageType), newWorkspace.Name, clientSet); err != nil {
+		if err = jobutils.DeletePVC(ctx, string(vol.StorageType), newWorkspace.Name, k8sClientSet); err != nil {
 			return err
 		}
 	}
@@ -228,16 +229,16 @@ func (r *SchedulerReconciler) deleteDataPlaneResources(ctx context.Context, clus
 	if err != nil {
 		return err
 	}
-	clientSet := informer.ClientFactory().ClientSet()
+	k8sClientSet := informer.ClientFactory().ClientSet()
 	for _, vol := range volumes {
 		if vol.StorageType == v1.HOSTPATH {
 			continue
 		}
-		if err = jobutils.DeletePVC(ctx, string(vol.StorageType), workspaceId, clientSet); err != nil {
+		if err = jobutils.DeletePVC(ctx, string(vol.StorageType), workspaceId, k8sClientSet); err != nil {
 			return err
 		}
 	}
-	if err = jobutils.DeleteNamespace(ctx, workspaceId, clientSet); err != nil {
+	if err = jobutils.DeleteNamespace(ctx, workspaceId, k8sClientSet); err != nil {
 		return err
 	}
 	return nil
@@ -289,20 +290,22 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 }
 
 func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
-	informer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))
+	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))
 	if err != nil {
-		klog.Errorf("failed to get cluster informer, clusterId: %s, workspaceId: %s",
-			v1.GetClusterId(adminWorkload), adminWorkload.Spec.Workspace)
+		klog.Errorf("failed to get cluster informer, clusterId: %s, workspaceId: %s, workloadId: %s",
+			v1.GetClusterId(adminWorkload), adminWorkload.Spec.Workspace, adminWorkload.Name)
 		return ctrlruntime.Result{}, err
 	}
-
+	// generate the related resource reference
+	obj, err := jobutils.GenObjectReference(ctx, r.Client, adminWorkload)
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
 	// delete the related resource in data plane
-	if err = jobutils.DeleteObject(ctx, informer.ClientFactory().DynamicClient(),
-		informer.ClientFactory().Mapper(), adminWorkload); err != nil {
+	if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), obj); err != nil {
 		klog.ErrorS(err, "failed to delete k8s object")
 		return ctrlruntime.Result{}, err
 	}
-
 	if controllerutil.RemoveFinalizer(adminWorkload, v1.WorkloadFinalizer) {
 		if err = r.Update(ctx, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
@@ -320,6 +323,14 @@ func (r *SchedulerReconciler) start(ctx context.Context) {
 }
 
 func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage) (controller.Result, error) {
+	result, err := r.do(ctx, message)
+	if utils.IsNonRetryableError(err) {
+		err = nil
+	}
+	return result, err
+}
+
+func (r *SchedulerReconciler) do(ctx context.Context, message *SchedulerMessage) (controller.Result, error) {
 	workspace, err := r.getWorkspace(ctx, message.ClusterId, message.WorkspaceId)
 	if workspace == nil {
 		return controller.Result{}, err
