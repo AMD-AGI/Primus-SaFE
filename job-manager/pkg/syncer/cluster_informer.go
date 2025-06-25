@@ -99,6 +99,8 @@ func (r *ClusterInformer) ClientFactory() *commonclient.ClientFactory {
 }
 
 // Get the resource informer, and if an error occurs, retrieve the detailed error reason.
+// The GVK is used to describe a Kubernetes object.
+// it can be obtained by looking up the mapping in resource_template based on the workload's GVK
 func (r *ClusterInformer) GetResourceInformer(ctx context.Context, gvk schema.GroupVersionKind) (informers.GenericInformer, error) {
 	informer := r.getResourceInformer(gvk)
 	if informer != nil {

@@ -297,7 +297,7 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 		return ctrlruntime.Result{}, err
 	}
 	// generate the related resource reference
-	obj, err := jobutils.GenUnstructuredByWorkload(ctx, r.Client, adminWorkload)
+	obj, err := jobutils.GenObjectReference(ctx, r.Client, adminWorkload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}

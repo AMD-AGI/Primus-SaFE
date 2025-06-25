@@ -70,8 +70,8 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	assert.Equal(t, val, int64(workload.Spec.Resource.JobPort))
 }
 
-func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
-	containerPath := append(template.PrePaths, template.TemplatePaths...)
+func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
 	values, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
@@ -126,8 +126,8 @@ func findEnv(envs []interface{}, name, val string) bool {
 	return false
 }
 
-func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, template *v1.ResourceSpec) {
-	containerPath := append(template.PrePaths, template.TemplatePaths...)
+func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, resourceSpec *v1.ResourceSpec) {
+	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
 	values, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
@@ -173,8 +173,8 @@ func findVolumeMount(volumeMounts []interface{}, name string) map[string]interfa
 	return nil
 }
 
-func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
-	volumesPath := append(template.PrePaths, template.TemplatePaths...)
+func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+	volumesPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	volumesPath = append(volumesPath, "spec", "volumes")
 
 	volumes, found, err := unstructured.NestedSlice(obj.Object, volumesPath...)
@@ -220,8 +220,8 @@ func findVolume(volumes []interface{}, name string) map[string]interface{} {
 	return nil
 }
 
-func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
-	nodeSelectorPath := append(template.PrePaths, template.TemplatePaths...)
+func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+	nodeSelectorPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	nodeSelectorPath = append(nodeSelectorPath, "spec", "affinity", "nodeAffinity",
 		"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 
@@ -256,8 +256,8 @@ func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, worklo
 	assert.Equal(t, valuesSlice[0].(string) == "val1" || valuesSlice[0].(string) == "val2", true)
 }
 
-func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
-	containerPath := append(template.PrePaths, template.TemplatePaths...)
+func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
 	values, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
@@ -272,8 +272,8 @@ func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	assert.Equal(t, image, workload.Spec.Image)
 }
 
-func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
-	path := append(template.PrePaths, template.TemplatePaths...)
+func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "hostNetwork")
 
 	isHostNetWork, found, err := unstructured.NestedBool(obj.Object, path...)
@@ -282,8 +282,8 @@ func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1
 	assert.Equal(t, isHostNetWork, v1.IsEnableHostNetwork(workload))
 }
 
-func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
-	path := append(template.PrePaths, template.TemplatePaths...)
+func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path = append(path, "metadata", "labels")
 
 	labels, found, err := unstructured.NestedMap(obj.Object, path...)
@@ -310,8 +310,8 @@ func checkStrategy(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wo
 	assert.Equal(t, labels["maxUnavailable"].(string), workload.Spec.Service.Extends["maxUnavailable"])
 }
 
-func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
-	path := append(template.PrePaths, template.TemplatePaths...)
+func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "tolerations")
 
 	tolerations, found, err := unstructured.NestedSlice(obj.Object, path...)
@@ -329,8 +329,8 @@ func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1
 	}
 }
 
-func checkPriorityClass(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
-	path := append(template.PrePaths, template.TemplatePaths...)
+func checkPriorityClass(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "priorityClassName")
 	priorityClassName, found, err := unstructured.NestedString(obj.Object, path...)
 	assert.NilError(t, err)

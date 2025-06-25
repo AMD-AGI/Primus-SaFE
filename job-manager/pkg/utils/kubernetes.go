@@ -26,6 +26,8 @@ import (
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
+// Retrieve the corresponding resource_template based on the workload's GVK.
+// Multiple workloads may map to the same type of resource-template
 func GetResourceTemplate(ctx context.Context, adminClient client.Client, gvk schema.GroupVersionKind) (*v1.ResourceTemplate, error) {
 	rtl := &v1.ResourceTemplateList{}
 	labelSelector := labels.SelectorFromSet(map[string]string{
@@ -40,7 +42,8 @@ func GetResourceTemplate(ctx context.Context, adminClient client.Client, gvk sch
 	return &rtl.Items[0], nil
 }
 
-func GenUnstructuredByWorkload(ctx context.Context, adminClient client.Client, workload *v1.Workload) (*unstructured.Unstructured, error) {
+// Construct a reference object pointing to a k8s object based on the workload.
+func GenObjectReference(ctx context.Context, adminClient client.Client, workload *v1.Workload) (*unstructured.Unstructured, error) {
 	rt, err := GetResourceTemplate(ctx, adminClient, workload.ToSchemaGVK())
 	if err != nil {
 		return nil, err

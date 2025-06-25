@@ -18,26 +18,26 @@ k8s:
 apiserver:
   port: 8088
   health_port: 8082
-  tag: "202506242200"
+  tag: "202506251600"
   replicas: 1
   cpu: "1000m"
   memory: 2Gi
 resource_manager:
   health_port: 8081
-  tag: "202506242200"
+  tag: "202506251600"
   replicas: 1
   cpu: "1000m"
   memory: 2Gi
 job_manager:
   health_port: 8083
-  tag: "202506242200"
+  tag: "202506251600"
   replicas: 1
   cpu: "1000m"
   memory: 2Gi
 webhooks:
   port: 8084
   health_port: 8085
-  tag: "202506242200"
+  tag: "202506251600"
   replicas: 1
   cpu: "1000m"
   memory: 2Gi

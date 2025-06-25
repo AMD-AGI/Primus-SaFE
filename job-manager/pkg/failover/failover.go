@@ -294,7 +294,7 @@ func (r *FailoverReconciler) handle(ctx context.Context, adminWorkload *v1.Workl
 	if clusterInformer == nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	obj, err := jobutils.GenUnstructuredByWorkload(ctx, r.Client, adminWorkload)
+	obj, err := jobutils.GenObjectReference(ctx, r.Client, adminWorkload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
