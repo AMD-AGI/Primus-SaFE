@@ -4,12 +4,17 @@ metadata:
   name: pytorch-job
   labels:
     app.kubernetes.io/managed-by: Helm
+    primus-safe.workload.kind: PyTorchJob
+    primus-safe.workload.version: v1
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
     group: kubeflow.org
     version: v1
     kind: PyTorchJob
-  templates:
+  resourceSpecs:
     - prePaths:
         - spec
         - pytorchReplicaSpecs
@@ -27,7 +32,7 @@ spec:
         - template
       replicasPaths:
         - replicas
-  endState:
+  resourceStatus:
     prePaths:
       - status
       - conditions
@@ -52,11 +57,11 @@ spec:
           status: 'True'
           type: Running
         phase: K8sRunning
-  activeState:
+  activeReplica:
     prePaths:
       - status
       - replicaStatuses
-    active: active
+    replicaPath: active
 ---
 apiVersion: amd.com/v1
 kind: ResourceTemplate
@@ -64,6 +69,9 @@ metadata:
   name: pod
   labels:
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
     group: ""
@@ -73,9 +81,69 @@ spec:
 apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
+  name: authoring
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.workload.kind: Authoring
+    primus-safe.workload.version: v1
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  groupVersionKind:
+    group: kubeflow.org
+    version: v1
+    kind: PyTorchJob
+  resourceSpecs:
+    - prePaths:
+        - spec
+        - pytorchReplicaSpecs
+        - Master
+      templatePaths:
+        - template
+      replicasPaths:
+        - replicas
+      replica: 1
+  resourceStatus:
+    prePaths:
+      - status
+      - conditions
+    messagePaths:
+      - message
+    reasonPaths:
+      - reason
+    phases:
+      - matchExpressions:
+          status: 'True'
+          type: Succeeded
+        phase: K8sSucceeded
+      - matchExpressions:
+          status: 'True'
+          type: Failed
+        phase: K8sFailed
+      - matchExpressions:
+          status: 'True'
+          type: FailedValidation
+        phase: K8sFailed
+      - matchExpressions:
+          status: 'True'
+          type: Running
+        phase: K8sRunning
+  activeReplica:
+    prePaths:
+      - status
+      - replicaStatuses
+    replicaPath: active
+---
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
   name: event
   labels:
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
     group: ""
@@ -88,19 +156,24 @@ metadata:
   name: deployment
   labels:
     app.kubernetes.io/managed-by: Helm
+    primus-safe.workload.kind: Deployment
+    primus-safe.workload.version: v1
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
     group: apps
     version: v1
     kind: Deployment
-  templates:
+  resourceSpecs:
     - prePaths:
         - spec
       templatePaths:
         - template
       replicasPaths:
         - replicas
-  endState:
+  resourceStatus:
     prePaths:
       - status
       - conditions
@@ -122,10 +195,10 @@ spec:
           status: 'True'
           type: Available
         phase: K8sRunning
-  activeState:
+  activeReplica:
     prePaths:
       - status
-    active: availableReplicas
+    replicaPath: availableReplicas
 ---
 apiVersion: amd.com/v1
 kind: ResourceTemplate
@@ -133,19 +206,24 @@ metadata:
   name: stateful-set
   labels:
     app.kubernetes.io/managed-by: Helm
+    primus-safe.workload.kind: StatefulSet
+    primus-safe.workload.version: v1
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
     group: apps
     version: v1
     kind: StatefulSet
-  templates:
+  resourceSpecs:
     - prePaths:
         - spec
       templatePaths:
         - template
       replicasPaths:
         - replicas
-  endState:
+  resourceStatus:
     prePaths:
       - status
       - conditions
@@ -153,7 +231,7 @@ spec:
       - message
     reasonPaths:
       - reason
-  activeState:
+  activeReplica:
     prePaths:
       - status
-    active: availableReplicas
+    replicaPath: availableReplicas

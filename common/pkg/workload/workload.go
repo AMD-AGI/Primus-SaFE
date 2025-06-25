@@ -69,16 +69,18 @@ func GetWorkloadsOfK8sNode(ctx context.Context, k8sClient kubernetes.Interface, 
 	return results, nil
 }
 
-func GetWorkloadTemplate(ctx context.Context, cli client.Client, gvk v1.GroupVersionKind, resourceName string) (*corev1.ConfigMap, error) {
-	selector := labels.SelectorFromSet(map[string]string{"group": gvk.Group, "version": gvk.Version, "kind": gvk.Kind})
+func GetWorkloadTemplate(ctx context.Context, cli client.Client, workload *v1.Workload) (*corev1.ConfigMap, error) {
+	selector := labels.SelectorFromSet(map[string]string{
+		v1.WorkloadVersionLabel: workload.SpecVersion(), v1.WorkloadKindLabel: workload.SpecKind()})
 	listOptions := &client.ListOptions{LabelSelector: selector, Namespace: common.PrimusSafeNamespace}
 	configmapList := &corev1.ConfigMapList{}
 	if err := cli.List(ctx, configmapList, listOptions); err != nil {
 		return nil, err
 	}
-	if resourceName != "" {
+
+	if workload.Spec.Resource.GPUName != "" {
 		for i, item := range configmapList.Items {
-			if v1.GetGpuResourceName(&item) == resourceName {
+			if v1.GetGpuResourceName(&item) == workload.Spec.Resource.GPUName {
 				return &configmapList.Items[i], nil
 			}
 		}
@@ -86,7 +88,8 @@ func GetWorkloadTemplate(ctx context.Context, cli client.Client, gvk v1.GroupVer
 		return &configmapList.Items[0], nil
 	}
 	return nil, commonerrors.NewInternalError(
-		fmt.Sprintf("failed to find configmap. gvk: %s, resourceName: %s", gvk.String(), resourceName))
+		fmt.Sprintf("failed to find configmap. gvk: %s, resourceName: %s",
+			workload.Spec.GroupVersionKind.VersionKind(), workload.Spec.Resource.GPUName))
 }
 
 // Statistics of the resources requested by a workload on each node
@@ -168,23 +171,31 @@ func GetActiveResources(workload *v1.Workload, filterNode func(nodeName string) 
 
 func CvtToResourceList(w *v1.Workload) (corev1.ResourceList, error) {
 	res := &w.Spec.Resource
-	return quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
+	result, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
 		res.GPUName, res.EphemeralStorage, int64(res.Replica))
+	if err != nil {
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	return result, nil
 }
 
 func GetPodResources(w *v1.Workload) (corev1.ResourceList, error) {
 	res := &w.Spec.Resource
-	return quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
+	result, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
 		res.GPUName, res.EphemeralStorage, 1)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	return result, nil
 }
 
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
-	case v1.PytorchJobKind:
+	case common.PytorchJobKind:
 		return v1.TrainScope
-	case v1.DeploymentKind, v1.StatefulSetKind:
+	case common.DeploymentKind, common.StatefulSetKind:
 		return v1.InferScope
-	case v1.AuthoringKind:
+	case common.AuthoringKind:
 		return v1.AuthoringScope
 	default:
 		return ""
@@ -192,15 +203,22 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 }
 
 func IsApplication(w *v1.Workload) bool {
-	if w.SpecKind() == v1.DeploymentKind ||
-		w.SpecKind() == v1.StatefulSetKind {
+	if w.SpecKind() == common.DeploymentKind ||
+		w.SpecKind() == common.StatefulSetKind {
 		return true
 	}
 	return false
 }
 
 func IsJob(w *v1.Workload) bool {
-	if w.SpecKind() == v1.PytorchJobKind {
+	if w.SpecKind() == common.PytorchJobKind || w.SpecKind() == common.AuthoringKind {
+		return true
+	}
+	return false
+}
+
+func IsAuthoring(w *v1.Workload) bool {
+	if w.SpecKind() == common.AuthoringKind {
 		return true
 	}
 	return false

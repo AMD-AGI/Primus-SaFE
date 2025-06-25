@@ -294,8 +294,11 @@ func (r *FailoverReconciler) handle(ctx context.Context, adminWorkload *v1.Workl
 	if clusterInformer == nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	k8sClients := clusterInformer.ClientFactory()
-	if err := jobutils.DeleteObject(ctx, k8sClients.DynamicClient(), k8sClients.Mapper(), adminWorkload); err != nil {
+	obj, err := jobutils.GenObjectReference(ctx, r.Client, adminWorkload)
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), obj); err != nil {
 		klog.ErrorS(err, "failed to delete k8s object", "name", adminWorkload.GetName())
 		return ctrlruntime.Result{}, err
 	}
@@ -305,7 +308,7 @@ func (r *FailoverReconciler) handle(ctx context.Context, adminWorkload *v1.Workl
 	} else {
 		message = "the workload does the failover"
 	}
-	if err := r.addFailoverCondition(ctx, adminWorkload, message); err != nil {
+	if err = r.addFailoverCondition(ctx, adminWorkload, message); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	klog.Infof("do failover, workload: %s", adminWorkload.Name)

@@ -21,6 +21,7 @@ type AddonTemplateSpecApplyConfiguration struct {
 	Extensions           map[string]string        `json:"extensions,omitempty"`
 	Icon                 *string                  `json:"icon,omitempty"`
 	Chip                 *amdv1.ChipType          `json:"chip,omitempty"`
+	IsOneShotService     *bool                    `json:"isOneShotService,omitempty"`
 	HelmDefaultValues    *string                  `json:"helmDefaultValues,omitempty"`
 	HelmDefaultNamespace *string                  `json:"helmDefaultNamespace,omitempty"`
 }
@@ -98,6 +99,14 @@ func (b *AddonTemplateSpecApplyConfiguration) WithIcon(value string) *AddonTempl
 // If called multiple times, the Chip field is set to the value of the last call.
 func (b *AddonTemplateSpecApplyConfiguration) WithChip(value amdv1.ChipType) *AddonTemplateSpecApplyConfiguration {
 	b.Chip = &value
+	return b
+}
+
+// WithIsOneShotService sets the IsOneShotService field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the IsOneShotService field is set to the value of the last call.
+func (b *AddonTemplateSpecApplyConfiguration) WithIsOneShotService(value bool) *AddonTemplateSpecApplyConfiguration {
+	b.IsOneShotService = &value
 	return b
 }
 

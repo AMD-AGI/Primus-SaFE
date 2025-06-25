@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: amd-pytorch-job-template
+  name: amd-authoring-template
   namespace: {{ .Release.Namespace }}
   labels:
     primus-safe.workload.version: v1
-    primus-safe.workload.kind: PyTorchJob
+    primus-safe.workload.kind: Authoring
   annotations:
     primus-safe.gpu.resource.name: "amd.com/gpu"
     # The main container name should match the configuration defined in the template below
@@ -81,87 +81,6 @@ data:
                   securityContext:
                     capabilities:
                       add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
-              schedulerName: kube-scheduler-plugins
-              volumes:
-                - name: shared-data
-                  emptyDir: {}
-                - name: varlog
-                  hostPath:
-                    path: /var/log
-                - name: podinfo
-                  downwardAPI:
-                    items:
-                    - path: "labels"
-                      fieldRef:
-                        fieldPath: metadata.labels
-              terminationGracePeriodSeconds: 5
-              imagePullSecrets:
-                - name: {{ .Release.Name }}-image
-        Worker:
-          restartPolicy: Never
-          template:
-            spec:
-              dnsPolicy: ClusterFirstWithHostNet
-              initContainers:
-                - name: preprocess
-                  image: {{ .Values.repository }}/preprocess:{{ .Values.preprocess.tag }}
-                  imagePullPolicy: IfNotPresent
-                  command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
-                  securityContext:
-                    capabilities:
-                      add: [ "IPC_LOCK" ]
-                  resources:
-                    limits:
-                      cpu: 1000m
-                      memory: 128Mi
-                  volumeMounts:
-                  - name: shared-data
-                    mountPath: /shared-data
-              containers:
-                - name: pytorch
-                  imagePullPolicy: IfNotPresent
-                  env:
-                    - name: NCCL_SOCKET_IFNAME
-                      value: "{{ .Values.net.nccl_socket_ifname }}"
-                    - name: GLOO_SOCKET_IFNAME
-                      value: "{{ .Values.net.nccl_socket_ifname }}"
-                    - name: NCCL_IB_HCA
-                      value: "{{ .Values.net.nccl_ib_hca }}"
-                    - name: NCCL_IB_TIMEOUT
-                      value: "22"
-                    - name: NCCL_IB_RETRY_CNT
-                      value: "12"
-                    - name: MAIN_CONTAINER_NAME
-                      value: "pytorch"
-                    - name: POD_NAME
-                      valueFrom:
-                        fieldRef:
-                          fieldPath: metadata.name
-                    - name: POD_UID
-                      valueFrom:
-                        fieldRef:
-                          fieldPath: metadata.uid
-                    - name: POD_IP
-                      valueFrom:
-                        fieldRef:
-                          fieldPath: status.podIP
-                    - name: POD_NAMESPACE
-                      valueFrom:
-                        fieldRef:
-                          fieldPath: metadata.namespace
-                  securityContext:
-                    capabilities:
-                      add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
-                  volumeMounts:
-                    - name: sugaku-volume
-                      mountPath: /dev/shm
-                    - name: shared-data
-                      mountPath: /shared-data
-                    - name: varlog
-                      mountPath: /var/log
-                    - name: podinfo
-                      mountPath: /etc/podinfo
-                      readOnly: true
               schedulerName: kube-scheduler-plugins
               volumes:
                 - name: shared-data

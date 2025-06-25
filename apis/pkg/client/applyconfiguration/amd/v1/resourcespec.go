@@ -6,25 +6,25 @@ Copyright The AMD Authors.
 
 package v1
 
-// TemplateApplyConfiguration represents a declarative configuration of the Template type for use
+// ResourceSpecApplyConfiguration represents a declarative configuration of the ResourceSpec type for use
 // with apply.
-type TemplateApplyConfiguration struct {
+type ResourceSpecApplyConfiguration struct {
 	PrePaths      []string `json:"prePaths,omitempty"`
 	TemplatePaths []string `json:"templatePaths,omitempty"`
 	ReplicasPaths []string `json:"replicasPaths,omitempty"`
 	Replica       *int64   `json:"replica,omitempty"`
 }
 
-// TemplateApplyConfiguration constructs a declarative configuration of the Template type for use with
+// ResourceSpecApplyConfiguration constructs a declarative configuration of the ResourceSpec type for use with
 // apply.
-func Template() *TemplateApplyConfiguration {
-	return &TemplateApplyConfiguration{}
+func ResourceSpec() *ResourceSpecApplyConfiguration {
+	return &ResourceSpecApplyConfiguration{}
 }
 
 // WithPrePaths adds the given value to the PrePaths field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the PrePaths field.
-func (b *TemplateApplyConfiguration) WithPrePaths(values ...string) *TemplateApplyConfiguration {
+func (b *ResourceSpecApplyConfiguration) WithPrePaths(values ...string) *ResourceSpecApplyConfiguration {
 	for i := range values {
 		b.PrePaths = append(b.PrePaths, values[i])
 	}
@@ -34,7 +34,7 @@ func (b *TemplateApplyConfiguration) WithPrePaths(values ...string) *TemplateApp
 // WithTemplatePaths adds the given value to the TemplatePaths field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the TemplatePaths field.
-func (b *TemplateApplyConfiguration) WithTemplatePaths(values ...string) *TemplateApplyConfiguration {
+func (b *ResourceSpecApplyConfiguration) WithTemplatePaths(values ...string) *ResourceSpecApplyConfiguration {
 	for i := range values {
 		b.TemplatePaths = append(b.TemplatePaths, values[i])
 	}
@@ -44,7 +44,7 @@ func (b *TemplateApplyConfiguration) WithTemplatePaths(values ...string) *Templa
 // WithReplicasPaths adds the given value to the ReplicasPaths field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the ReplicasPaths field.
-func (b *TemplateApplyConfiguration) WithReplicasPaths(values ...string) *TemplateApplyConfiguration {
+func (b *ResourceSpecApplyConfiguration) WithReplicasPaths(values ...string) *ResourceSpecApplyConfiguration {
 	for i := range values {
 		b.ReplicasPaths = append(b.ReplicasPaths, values[i])
 	}
@@ -54,7 +54,7 @@ func (b *TemplateApplyConfiguration) WithReplicasPaths(values ...string) *Templa
 // WithReplica sets the Replica field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Replica field is set to the value of the last call.
-func (b *TemplateApplyConfiguration) WithReplica(value int64) *TemplateApplyConfiguration {
+func (b *ResourceSpecApplyConfiguration) WithReplica(value int64) *ResourceSpecApplyConfiguration {
 	b.Replica = &value
 	return b
 }

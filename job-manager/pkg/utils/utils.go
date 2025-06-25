@@ -19,14 +19,14 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
-func IsUnRecoverableError(err error) bool {
+func IsNonRetryableError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if commonerrors.IsBadRequest(err) || commonerrors.IsInternal(err) {
+	if commonerrors.IsBadRequest(err) || commonerrors.IsInternal(err) || commonerrors.IsNotFound(err) {
 		return true
 	}
-	if apierrors.IsForbidden(err) {
+	if apierrors.IsForbidden(err) || apierrors.IsNotFound(err) {
 		return true
 	}
 	return false

@@ -769,12 +769,12 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
 	sshClient, err := getSSHClient(ctx, r.Client, node)
 	if err != nil {
-		klog.ErrorS(err, "fail to get ssh client", "node", node.Name)
+		klog.ErrorS(err, "failed to get ssh client", "node", node.Name)
 		return
 	}
 	session, err := sshClient.NewSession()
 	if err != nil {
-		klog.ErrorS(err, "fail to new session", "node", node.Name)
+		klog.ErrorS(err, "failed to new session", "node", node.Name)
 		return
 	}
 	if err = session.Run("sudo reboot"); err != nil {

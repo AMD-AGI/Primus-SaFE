@@ -6,24 +6,24 @@ Copyright The AMD Authors.
 
 package v1
 
-// TemplatePhaseApplyConfiguration represents a declarative configuration of the TemplatePhase type for use
+// PhaseExpressionApplyConfiguration represents a declarative configuration of the PhaseExpression type for use
 // with apply.
-type TemplatePhaseApplyConfiguration struct {
+type PhaseExpressionApplyConfiguration struct {
 	MatchExpressions map[string]string `json:"matchExpressions,omitempty"`
 	Phase            *string           `json:"phase,omitempty"`
 }
 
-// TemplatePhaseApplyConfiguration constructs a declarative configuration of the TemplatePhase type for use with
+// PhaseExpressionApplyConfiguration constructs a declarative configuration of the PhaseExpression type for use with
 // apply.
-func TemplatePhase() *TemplatePhaseApplyConfiguration {
-	return &TemplatePhaseApplyConfiguration{}
+func PhaseExpression() *PhaseExpressionApplyConfiguration {
+	return &PhaseExpressionApplyConfiguration{}
 }
 
 // WithMatchExpressions puts the entries into the MatchExpressions field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the MatchExpressions field,
 // overwriting an existing map entries in MatchExpressions field with the same key.
-func (b *TemplatePhaseApplyConfiguration) WithMatchExpressions(entries map[string]string) *TemplatePhaseApplyConfiguration {
+func (b *PhaseExpressionApplyConfiguration) WithMatchExpressions(entries map[string]string) *PhaseExpressionApplyConfiguration {
 	if b.MatchExpressions == nil && len(entries) > 0 {
 		b.MatchExpressions = make(map[string]string, len(entries))
 	}
@@ -36,7 +36,7 @@ func (b *TemplatePhaseApplyConfiguration) WithMatchExpressions(entries map[strin
 // WithPhase sets the Phase field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Phase field is set to the value of the last call.
-func (b *TemplatePhaseApplyConfiguration) WithPhase(value string) *TemplatePhaseApplyConfiguration {
+func (b *PhaseExpressionApplyConfiguration) WithPhase(value string) *PhaseExpressionApplyConfiguration {
 	b.Phase = &value
 	return b
 }

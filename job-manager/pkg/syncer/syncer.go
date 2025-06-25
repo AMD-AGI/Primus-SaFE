@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
@@ -66,11 +67,11 @@ func (r *SyncerReconciler) resourceTemplateHandler() handler.EventHandler {
 				continue
 			}
 			if doAdd {
-				if err := informer.addResourceTemplate(rt); err != nil {
+				if err := informer.addResourceTemplate(rt.ToSchemaGVK()); err != nil {
 					klog.ErrorS(err, "failed to add resource template", "cluster", key, "rt", rt)
 				}
 			} else {
-				informer.delResourceTemplate(rt)
+				informer.delResourceTemplate(rt.ToSchemaGVK())
 			}
 		}
 	}
@@ -118,17 +119,17 @@ func (r *SyncerReconciler) observe(c *v1.Cluster) bool {
 func (r *SyncerReconciler) handle(ctx context.Context, cluster *v1.Cluster) error {
 	informer, err := newClusterInformer(r.ctx, cluster.Name, &cluster.Status.ControlPlaneStatus, r.Client, r.Add)
 	if err != nil {
-		klog.ErrorS(err, "fail to new cluster informer", "cluster.name", cluster.Name)
+		klog.ErrorS(err, "failed to new cluster informer", "cluster.name", cluster.Name)
 		return err
 	}
 	rtList := &v1.ResourceTemplateList{}
 	if err = r.List(ctx, rtList); err != nil {
-		klog.ErrorS(err, "fail to list ResourceTemplateList")
+		klog.ErrorS(err, "failed to list ResourceTemplateList")
 		return err
 	}
 	for _, rt := range rtList.Items {
-		if err = informer.addResourceTemplate(&rt); err != nil {
-			klog.ErrorS(err, "fail to add resource template", "cluster", cluster.Name, "rt", rt)
+		if err = informer.addResourceTemplate(rt.ToSchemaGVK()); err != nil {
+			klog.ErrorS(err, "failed to add resource template", "cluster", cluster.Name, "rt", rt)
 		}
 	}
 	r.clusterInformers.AddOrReplace(cluster.Name, informer)
@@ -158,14 +159,14 @@ func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (co
 
 	var result controller.Result
 	switch message.gvk.Kind {
-	case v1.PytorchJobKind, v1.DeploymentKind, v1.StatefulSetKind:
+	case common.PytorchJobKind, common.DeploymentKind, common.StatefulSetKind:
 		result, err = r.handleJob(ctx, message, informer)
-	case v1.PodKind:
+	case common.PodKind:
 		result, err = r.handlePod(ctx, message, informer)
-	case v1.EventKind:
+	case common.EventKind:
 		result, err = r.handleEvent(ctx, message, informer)
 	}
-	if jobutils.IsUnRecoverableError(err) {
+	if jobutils.IsNonRetryableError(err) {
 		err = nil
 	}
 	return result, err
