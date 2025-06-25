@@ -67,11 +67,11 @@ func (r *SyncerReconciler) resourceTemplateHandler() handler.EventHandler {
 				continue
 			}
 			if doAdd {
-				if err := informer.addResourceTemplate(rt); err != nil {
+				if err := informer.addResourceTemplate(rt.ToSchemaGVK()); err != nil {
 					klog.ErrorS(err, "failed to add resource template", "cluster", key, "rt", rt)
 				}
 			} else {
-				informer.delResourceTemplate(rt)
+				informer.delResourceTemplate(rt.ToSchemaGVK())
 			}
 		}
 	}
@@ -128,7 +128,7 @@ func (r *SyncerReconciler) handle(ctx context.Context, cluster *v1.Cluster) erro
 		return err
 	}
 	for _, rt := range rtList.Items {
-		if err = informer.addResourceTemplate(&rt); err != nil {
+		if err = informer.addResourceTemplate(rt.ToSchemaGVK()); err != nil {
 			klog.ErrorS(err, "failed to add resource template", "cluster", cluster.Name, "rt", rt)
 		}
 	}

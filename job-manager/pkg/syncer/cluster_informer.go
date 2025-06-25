@@ -122,8 +122,7 @@ func (r *ClusterInformer) getResourceInformer(gvk schema.GroupVersionKind) *reso
 	return informer
 }
 
-func (r *ClusterInformer) addResourceTemplate(rt *v1.ResourceTemplate) error {
-	gvk := rt.ToSchemaGVK()
+func (r *ClusterInformer) addResourceTemplate(gvk schema.GroupVersionKind) error {
 	if r.resourceInformers.Has(gvk.String()) {
 		return nil
 	}
@@ -221,8 +220,7 @@ func (r *ClusterInformer) checkNamespace(ctx context.Context, namespace string) 
 	return true
 }
 
-func (r *ClusterInformer) delResourceTemplate(rt *v1.ResourceTemplate) {
-	gvk := rt.ToSchemaGVK()
+func (r *ClusterInformer) delResourceTemplate(gvk schema.GroupVersionKind) {
 	if err := r.resourceInformers.Delete(gvk.String()); err != nil {
 		klog.ErrorS(err, "failed to delete resource informer", "gvk", gvk)
 	}
