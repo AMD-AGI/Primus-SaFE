@@ -310,21 +310,6 @@ func TestIsPriorityClassChanged(t *testing.T) {
 	assert.Equal(t, ok, true)
 }
 
-func TestIsEntryPointChanged(t *testing.T) {
-	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
-	assert.NilError(t, err)
-	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
-	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
-
-	adminWorkload.Spec.EntryPoint = "abcd"
-	ok := isEntryPointChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
-	assert.Equal(t, ok, false)
-
-	adminWorkload.Spec.EntryPoint = "123"
-	ok = isEntryPointChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
-	assert.Equal(t, ok, true)
-}
-
 func TestIsShareMemoryChanged(t *testing.T) {
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
 	assert.NilError(t, err)

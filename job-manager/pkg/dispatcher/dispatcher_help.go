@@ -23,6 +23,7 @@ import (
 
 const (
 	ShareMemoryVolumeName = "sugaku-volume"
+	Launcher              = "chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh"
 )
 
 func modifyObjectOnCreation(obj *unstructured.Unstructured,
@@ -285,7 +286,7 @@ func buildCommands(entryPoint string) []interface{} {
 }
 
 func buildEntryPoint(entryPoint string) string {
-	entryPoint = "chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh '" + entryPoint + "'"
+	entryPoint = Launcher + " '" + entryPoint + "'"
 	return entryPoint
 }
 

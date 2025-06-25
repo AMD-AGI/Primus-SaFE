@@ -237,8 +237,7 @@ func (r *DispatcherReconciler) createK8sObject(ctx context.Context,
 }
 
 func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
-	templateConfig, err := commonworkload.GetWorkloadTemplate(ctx, r.Client,
-		adminWorkload.ToSchemaGVK(), adminWorkload.Spec.Resource.GPUName)
+	templateConfig, err := commonworkload.GetWorkloadTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
 		return nil, err
 	}

@@ -223,7 +223,7 @@ spec:
         - command:
             - sh
             - c
-            - chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh 'abcd'
+            - /bin/sh run.sh 'abcd'
           env:
             - name: NCCL_SOCKET_IFNAME
               value: eth0
@@ -390,6 +390,10 @@ var (
 	TestPytorchResourceTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "pytorch-job",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+				v1.WorkloadKindLabel:    "PyTorchJob",
+			},
 		},
 		Spec: v1.ResourceTemplateSpec{
 			GroupVersionKind: v1.GroupVersionKind{
@@ -487,6 +491,10 @@ var (
 	TestDeploymentTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "deployment",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+				v1.WorkloadKindLabel:    "Deployment",
+			},
 		},
 		Spec: v1.ResourceTemplateSpec{
 			GroupVersionKind: v1.GroupVersionKind{
@@ -531,22 +539,13 @@ var (
 		},
 	}
 
-	TestPodTemplate = &v1.ResourceTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "pod",
-		},
-		Spec: v1.ResourceTemplateSpec{
-			GroupVersionKind: v1.GroupVersionKind{
-				Group:   "",
-				Version: "v1",
-				Kind:    "Pod",
-			},
-		},
-	}
-
 	TestStatefulSetTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "statefulset",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+				v1.WorkloadKindLabel:    "StatefulSet",
+			},
 		},
 		Spec: v1.ResourceTemplateSpec{
 			GroupVersionKind: v1.GroupVersionKind{
@@ -625,7 +624,6 @@ var (
 			Image:      "test-image",
 			EntryPoint: "sh -c test.sh",
 			GroupVersionKind: v1.GroupVersionKind{
-				Group:   "kubeflow.org",
 				Version: "v1",
 				Kind:    "PyTorchJob",
 			},

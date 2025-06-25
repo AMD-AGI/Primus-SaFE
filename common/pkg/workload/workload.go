@@ -12,7 +12,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -70,17 +69,18 @@ func GetWorkloadsOfK8sNode(ctx context.Context, k8sClient kubernetes.Interface, 
 	return results, nil
 }
 
-func GetWorkloadTemplate(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind, resourceName string) (*corev1.ConfigMap, error) {
+func GetWorkloadTemplate(ctx context.Context, cli client.Client, workload *v1.Workload) (*corev1.ConfigMap, error) {
 	selector := labels.SelectorFromSet(map[string]string{
-		v1.WorkloadVersionLabel: gvk.Version, v1.WorkloadKindLabel: gvk.Kind})
+		v1.WorkloadVersionLabel: workload.SpecVersion(), v1.WorkloadKindLabel: workload.SpecKind()})
 	listOptions := &client.ListOptions{LabelSelector: selector, Namespace: common.PrimusSafeNamespace}
 	configmapList := &corev1.ConfigMapList{}
 	if err := cli.List(ctx, configmapList, listOptions); err != nil {
 		return nil, err
 	}
-	if resourceName != "" {
+
+	if workload.Spec.Resource.GPUName != "" {
 		for i, item := range configmapList.Items {
-			if v1.GetGpuResourceName(&item) == resourceName {
+			if v1.GetGpuResourceName(&item) == workload.Spec.Resource.GPUName {
 				return &configmapList.Items[i], nil
 			}
 		}
@@ -88,7 +88,8 @@ func GetWorkloadTemplate(ctx context.Context, cli client.Client, gvk schema.Grou
 		return &configmapList.Items[0], nil
 	}
 	return nil, commonerrors.NewInternalError(
-		fmt.Sprintf("failed to find configmap. gvk: %s, resourceName: %s", gvk.String(), resourceName))
+		fmt.Sprintf("failed to find configmap. gvk: %s, resourceName: %s",
+			workload.Spec.GroupVersionKind.VersionKind(), workload.Spec.Resource.GPUName))
 }
 
 // Statistics of the resources requested by a workload on each node

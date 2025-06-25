@@ -13,9 +13,8 @@ metadata:
   name: deployment-template
   namespace: primus-safe
   labels:
-    group: apps
-    version: v1
-    kind: Deployment
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: Deployment
   annotations:
     primus-safe.gpu.resource.name: "amd.com/gpu"
     # The main container name should match the configuration defined in the template below
@@ -99,9 +98,8 @@ metadata:
   name: pytorch-job-template
   namespace: primus-safe
   labels:
-    group: kubeflow.org
-    version: v1
-    kind: PyTorchJob
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: PyTorchJob
   annotations:
     primus-safe.gpu.resource.name: "amd.com/gpu"
     # The main container name should match the configuration defined in the template below

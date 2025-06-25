@@ -156,8 +156,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
 
 	if v1.GetMainContainer(workload) == "" {
-		gvk := workload.ToSchemaGVK()
-		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, gvk, workload.Spec.Resource.GPUName)
+		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, workload)
 		if err == nil {
 			v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(cm))
 		}
@@ -434,7 +433,7 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 	if err := v.validateResourceEnough(ctx, workload); err != nil {
 		return err
 	}
-	if err := v.validateResourceTemplate(ctx, workload); err != nil {
+	if err := v.validateTemplate(ctx, workload); err != nil {
 		return err
 	}
 	if err := v.validateDisplayName(workload); err != nil {
@@ -593,12 +592,11 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload
 	return nil
 }
 
-func (v *WorkloadValidator) validateResourceTemplate(ctx context.Context, workload *v1.Workload) error {
-	gvk := workload.Spec.GroupVersionKind
-	if _, err := getResourceTemplate(ctx, v.Client, gvk); err != nil {
+func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.Workload) error {
+	if _, err := getResourceTemplate(ctx, v.Client, workload.Spec.GroupVersionKind); err != nil {
 		return err
 	}
-	_, err := commonworkload.GetWorkloadTemplate(ctx, v.Client, gvk.ToSchema(), workload.Spec.Resource.GPUName)
+	_, err := commonworkload.GetWorkloadTemplate(ctx, v.Client, workload)
 	if err != nil {
 		return err
 	}
