@@ -8,3 +8,4 @@ spec:
   addOnTemplates:
     - disable-os-upgrade
     - load-amdgpu-module
+    - load-rdma-module

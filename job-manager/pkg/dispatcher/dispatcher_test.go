@@ -88,7 +88,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.createK8sObject(context.Background(), workload)
 	assert.NilError(t, err)
-	templates := jobutils.TestPytorchResourceTemplate.Spec.Templates
+	templates := jobutils.TestPytorchResourceTemplate.Spec.ResourceSpecs
 
 	checkResources(t, obj, workload, &templates[0], 1)
 	checkPorts(t, obj, workload, &templates[0])
@@ -155,7 +155,7 @@ func TestCreateDeployment(t *testing.T) {
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.createK8sObject(context.Background(), workload)
 	assert.NilError(t, err)
-	templates := jobutils.TestDeploymentTemplate.Spec.Templates
+	templates := jobutils.TestDeploymentTemplate.Spec.ResourceSpecs
 
 	checkResources(t, obj, workload, &templates[0], 1)
 	checkPorts(t, obj, workload, &templates[0])
@@ -218,6 +218,7 @@ func TestUpdatePytorchJob(t *testing.T) {
 		ShareMemory:      "512Gi",
 		EphemeralStorage: "100Gi",
 	}
+	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
 	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
@@ -306,21 +307,6 @@ func TestIsPriorityClassChanged(t *testing.T) {
 
 	adminWorkload.Spec.Priority = common.HighPriorityInt
 	ok = isPriorityClassChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
-	assert.Equal(t, ok, true)
-}
-
-func TestIsEntryPointChanged(t *testing.T) {
-	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestDeploymentData)
-	assert.NilError(t, err)
-	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
-	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
-
-	adminWorkload.Spec.EntryPoint = "abcd"
-	ok := isEntryPointChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
-	assert.Equal(t, ok, false)
-
-	adminWorkload.Spec.EntryPoint = "123"
-	ok = isEntryPointChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
 	assert.Equal(t, ok, true)
 }
 

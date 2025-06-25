@@ -10,9 +10,9 @@ package v1
 // with apply.
 type ResourceTemplateSpecApplyConfiguration struct {
 	GroupVersionKind *GroupVersionKindApplyConfiguration `json:"groupVersionKind,omitempty"`
-	Templates        []TemplateApplyConfiguration        `json:"templates,omitempty"`
-	EndState         *EndStateApplyConfiguration         `json:"endState,omitempty"`
-	ActiveState      *ActiveStateApplyConfiguration      `json:"activeState,omitempty"`
+	ResourceSpecs    []ResourceSpecApplyConfiguration    `json:"resourceSpecs,omitempty"`
+	ResourceStatus   *ResourceStatusApplyConfiguration   `json:"resourceStatus,omitempty"`
+	ActiveReplica    *ActiveReplicaApplyConfiguration    `json:"activeReplica,omitempty"`
 }
 
 // ResourceTemplateSpecApplyConfiguration constructs a declarative configuration of the ResourceTemplateSpec type for use with
@@ -29,31 +29,31 @@ func (b *ResourceTemplateSpecApplyConfiguration) WithGroupVersionKind(value *Gro
 	return b
 }
 
-// WithTemplates adds the given value to the Templates field in the declarative configuration
+// WithResourceSpecs adds the given value to the ResourceSpecs field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the Templates field.
-func (b *ResourceTemplateSpecApplyConfiguration) WithTemplates(values ...*TemplateApplyConfiguration) *ResourceTemplateSpecApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the ResourceSpecs field.
+func (b *ResourceTemplateSpecApplyConfiguration) WithResourceSpecs(values ...*ResourceSpecApplyConfiguration) *ResourceTemplateSpecApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
-			panic("nil value passed to WithTemplates")
+			panic("nil value passed to WithResourceSpecs")
 		}
-		b.Templates = append(b.Templates, *values[i])
+		b.ResourceSpecs = append(b.ResourceSpecs, *values[i])
 	}
 	return b
 }
 
-// WithEndState sets the EndState field in the declarative configuration to the given value
+// WithResourceStatus sets the ResourceStatus field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the EndState field is set to the value of the last call.
-func (b *ResourceTemplateSpecApplyConfiguration) WithEndState(value *EndStateApplyConfiguration) *ResourceTemplateSpecApplyConfiguration {
-	b.EndState = value
+// If called multiple times, the ResourceStatus field is set to the value of the last call.
+func (b *ResourceTemplateSpecApplyConfiguration) WithResourceStatus(value *ResourceStatusApplyConfiguration) *ResourceTemplateSpecApplyConfiguration {
+	b.ResourceStatus = value
 	return b
 }
 
-// WithActiveState sets the ActiveState field in the declarative configuration to the given value
+// WithActiveReplica sets the ActiveReplica field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ActiveState field is set to the value of the last call.
-func (b *ResourceTemplateSpecApplyConfiguration) WithActiveState(value *ActiveStateApplyConfiguration) *ResourceTemplateSpecApplyConfiguration {
-	b.ActiveState = value
+// If called multiple times, the ActiveReplica field is set to the value of the last call.
+func (b *ResourceTemplateSpecApplyConfiguration) WithActiveReplica(value *ActiveReplicaApplyConfiguration) *ResourceTemplateSpecApplyConfiguration {
+	b.ActiveReplica = value
 	return b
 }

@@ -198,7 +198,7 @@ func TestGetDeploymentCommand(t *testing.T) {
 	assert.Equal(t, len(commands), 3)
 	assert.Equal(t, commands[0], "sh")
 	assert.Equal(t, commands[1], "c")
-	assert.Equal(t, commands[2], "/bin/bash /shared-data/launcher.sh 'abcd'")
+	assert.Equal(t, commands[2], "/bin/sh run.sh 'abcd'")
 }
 
 func TestGetDeploymentShareMemorySize(t *testing.T) {

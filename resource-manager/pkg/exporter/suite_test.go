@@ -81,12 +81,12 @@ var _ = BeforeSuite(func() {
 	defer GinkgoRecover()
 	go func() {
 		if err := mgr.Start(ctx); err != nil {
-			klog.ErrorS(err, "fail to start controller manager")
+			klog.ErrorS(err, "failed to start controller manager")
 			os.Exit(-1)
 		}
 	}()
 	if !mgr.GetCache().WaitForCacheSync(ctx) {
-		klog.Errorf("fail to WaitForCacheSync")
+		klog.Errorf("failed to WaitForCacheSync")
 		os.Exit(-1)
 	}
 })

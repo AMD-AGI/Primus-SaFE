@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
@@ -66,7 +67,7 @@ func (r *SyncerReconciler) getAdminWorkloadByEvent(ctx context.Context,
 	if podNamespace == "" {
 		return nil, nil
 	}
-	podInformer, err := informer.GetResourceInformer(ctx, corev1.SchemeGroupVersion.WithKind(v1.PodKind))
+	podInformer, err := informer.GetResourceInformer(ctx, corev1.SchemeGroupVersion.WithKind(common.PodKind))
 	if err != nil {
 		return nil, nil
 	}
@@ -113,7 +114,7 @@ func (r *SyncerReconciler) updatePendingMessage(ctx context.Context, adminWorklo
 
 func isCaredPodEvent(obj *unstructured.Unstructured) bool {
 	eventInvolvedKind := jobutils.GetUnstructuredString(obj.Object, eventInvolvedKindPath)
-	if eventInvolvedKind != v1.PodKind {
+	if eventInvolvedKind != common.PodKind {
 		return false
 	}
 

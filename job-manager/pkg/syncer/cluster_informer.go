@@ -20,6 +20,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -52,8 +53,9 @@ type ClusterInformer struct {
 
 type resourceInformer struct {
 	informers.GenericInformer
-	context context.Context
-	cancel  context.CancelFunc
+	context  context.Context
+	cancel   context.CancelFunc
+	isExited bool
 }
 
 type resourceMessage struct {
@@ -97,6 +99,8 @@ func (r *ClusterInformer) ClientFactory() *commonclient.ClientFactory {
 }
 
 // Get the resource informer, and if an error occurs, retrieve the detailed error reason.
+// The GVK is used to describe a Kubernetes object.
+// it can be obtained by looking up the mapping in resource_template based on the workload's GVK
 func (r *ClusterInformer) GetResourceInformer(ctx context.Context, gvk schema.GroupVersionKind) (informers.GenericInformer, error) {
 	informer := r.getResourceInformer(gvk)
 	if informer != nil {
@@ -120,8 +124,10 @@ func (r *ClusterInformer) getResourceInformer(gvk schema.GroupVersionKind) *reso
 	return informer
 }
 
-func (r *ClusterInformer) addResourceTemplate(rt *v1.ResourceTemplate) error {
-	gvk := rt.ToSchemaGVK()
+func (r *ClusterInformer) addResourceTemplate(gvk schema.GroupVersionKind) error {
+	if r.resourceInformers.Has(gvk.String()) {
+		return nil
+	}
 	mapper, err := r.adminClient.RESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		klog.ErrorS(err, "failed to do mapping", "gvk", gvk)
@@ -146,7 +152,7 @@ func (r *ClusterInformer) addResourceTemplate(rt *v1.ResourceTemplate) error {
 		},
 	})
 	if err != nil {
-		klog.ErrorS(err, "fail to add event handler for resource informer",
+		klog.ErrorS(err, "failed to add event handler for resource informer",
 			"cluster", r.name, "gvk", gvk)
 		return err
 	}
@@ -176,7 +182,7 @@ func (r *ClusterInformer) handleResource(ctx context.Context, oldObj, newObj int
 		action:        action,
 		dispatchCount: 0,
 	}
-	if newUnstructured.GetKind() == v1.EventKind {
+	if newUnstructured.GetKind() == common.EventKind {
 		if isCaredPodEvent(newUnstructured) {
 			r.handler(msg)
 		}
@@ -216,12 +222,11 @@ func (r *ClusterInformer) checkNamespace(ctx context.Context, namespace string) 
 	return true
 }
 
-func (r *ClusterInformer) delResourceTemplate(rt *v1.ResourceTemplate) {
-	gvk := rt.ToSchemaGVK()
+func (r *ClusterInformer) delResourceTemplate(gvk schema.GroupVersionKind) {
 	if err := r.resourceInformers.Delete(gvk.String()); err != nil {
 		klog.ErrorS(err, "failed to delete resource informer", "gvk", gvk)
 	}
-	klog.Infof("delete resource informer, cluster: %s, gvk :%s", r.name, gvk)
+	klog.Infof("delete resource informer, cluster: %s, gvk: %s", r.name, gvk.String())
 }
 
 func (r *ClusterInformer) Release() error {
@@ -234,18 +239,22 @@ func (r *resourceInformer) start() {
 }
 
 func (r *resourceInformer) Release() error {
+	if r.isExited {
+		return nil
+	}
 	r.cancel()
+	r.isExited = true
 	return nil
 }
 
 func GetClusterInformer(clusterInformers *commonutils.ObjectManager, name string) (*ClusterInformer, error) {
 	obj, ok := clusterInformers.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("fail to get cluster informer, name: %s", name)
+		return nil, fmt.Errorf("failed to get cluster informer, name: %s", name)
 	}
 	informer, ok := obj.(*ClusterInformer)
 	if !ok {
-		return nil, fmt.Errorf("fail to get cluster informer, name: %s", name)
+		return nil, fmt.Errorf("failed to get cluster informer, name: %s", name)
 	}
 	return informer, nil
 }

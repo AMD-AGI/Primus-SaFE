@@ -1,18 +1,17 @@
 apiVersion: amd.com/v1
 kind: AddonTemplate
 metadata:
-  name: load-amdgpu-module
+  name: load-rdma-module
   labels:
-    primus-safe.display.name: "load-amdgpu-module"
+    primus-safe.display.name: "load-rdma-module"
     app.kubernetes.io/managed-by: Helm
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   type: systemd
-  category: GPU
-  chip: amd
+  category: Net
   isOneShotService: true
-  description: Load the AMD GPU module on a Linux system
+  description: Load the RDMA module on a Linux system
   extensions:
-    action: bW9kcHJvYmUgYW1kZ3B1Cg==
+    action: bW9kcHJvYmUgaWJfdW1hZAo=

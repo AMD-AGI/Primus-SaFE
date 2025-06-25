@@ -103,16 +103,15 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	if err != nil {
 		return false
 	}
-
+	m.mutateGvk(workload)
 	m.mutateMeta(ctx, workload, workspace)
-	m.mutateGvk(ctx, workload)
 
 	switch workload.SpecKind() {
-	case v1.DeploymentKind:
+	case common.DeploymentKind:
 		m.mutateDeployment(workload)
-	case v1.StatefulSetKind:
+	case common.StatefulSetKind:
 		m.mutateStatefulSet(workload)
-	case v1.AuthoringKind:
+	case common.AuthoringKind:
 		m.mutateAuthoring(workload)
 	}
 
@@ -148,18 +147,16 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	}
 	if !hasOwnerReferences(workload, workspace.Name) {
 		if err := controllerutil.SetControllerReference(workspace, workload, m.Client.Scheme()); err != nil {
-			klog.ErrorS(err, "fail to SetControllerReference")
+			klog.ErrorS(err, "failed to SetControllerReference")
 		}
 	}
 	v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)
 	v1.SetLabel(workload, v1.WorkspaceIdLabel, workload.Spec.Workspace)
-	v1.SetLabel(workload, v1.WorkloadKindLabel, workload.SpecKind())
 	v1.SetLabel(workload, v1.WorkloadIdLabel, workload.Name)
 	v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
-	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 
 	if v1.GetMainContainer(workload) == "" {
-		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, workload.Spec.GroupVersionKind, workload.Spec.Resource.GPUName)
+		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, workload)
 		if err == nil {
 			v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(cm))
 		}
@@ -170,31 +167,15 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
 
-func (m *WorkloadMutator) mutateGvk(ctx context.Context, workload *v1.Workload) {
-	if v1.IsAuthoring(workload) {
-		return
-	}
+func (m *WorkloadMutator) mutateGvk(workload *v1.Workload) {
 	if workload.Spec.Kind == "" {
-		workload.Spec.Kind = v1.PytorchJobKind
+		workload.Spec.Kind = common.PytorchJobKind
 	}
-	if workload.Spec.Group == "" || workload.Spec.Version == "" {
-		rtl := &v1.ResourceTemplateList{}
-		err := m.List(ctx, rtl)
-		if err != nil {
-			return
-		}
-		for _, rt := range rtl.Items {
-			if rt.SpeckKind() != workload.Spec.Kind {
-				continue
-			}
-			if workload.Spec.Group == "" {
-				workload.Spec.Group = rt.Spec.GroupVersionKind.Group
-			}
-			if workload.Spec.Version == "" {
-				workload.Spec.Version = rt.Spec.GroupVersionKind.Version
-			}
-		}
+	if workload.Spec.Version == "" {
+		workload.Spec.Version = common.DefaultVersion
 	}
+	// the group is not currently in use
+	workload.Spec.Group = ""
 }
 
 func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
@@ -349,12 +330,18 @@ func (m *WorkloadMutator) mutateUpdateEnv(oldWorkload, newWorkload *v1.Workload)
 }
 
 func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
+	if commonworkload.IsAuthoring(workload) {
+		return
+	}
 	if workload.Spec.TTLSecondsAfterFinished == nil {
 		workload.Spec.TTLSecondsAfterFinished = ptr.To(DefaultWorkloadTTL)
 	}
 }
 
 func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
+	if commonworkload.IsAuthoring(workload) {
+		return
+	}
 	if !stringutil.IsBase64(workload.Spec.EntryPoint) {
 		workload.Spec.EntryPoint = stringutil.Base64Encode(workload.Spec.EntryPoint)
 	}
@@ -609,8 +596,7 @@ func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.W
 	if _, err := getResourceTemplate(ctx, v.Client, workload.Spec.GroupVersionKind); err != nil {
 		return err
 	}
-	_, err := commonworkload.GetWorkloadTemplate(ctx,
-		v.Client, workload.Spec.GroupVersionKind, workload.Spec.Resource.GPUName)
+	_, err := commonworkload.GetWorkloadTemplate(ctx, v.Client, workload)
 	if err != nil {
 		return err
 	}
