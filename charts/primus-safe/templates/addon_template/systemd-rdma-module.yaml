@@ -5,6 +5,9 @@ metadata:
   labels:
     primus-safe.display.name: "load-rdma-module"
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   type: systemd
   category: Net

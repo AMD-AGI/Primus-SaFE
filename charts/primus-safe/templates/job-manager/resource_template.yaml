@@ -6,6 +6,9 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     primus-safe.workload.kind: PyTorchJob
     primus-safe.workload.version: v1
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
     group: kubeflow.org
@@ -66,6 +69,9 @@ metadata:
   name: pod
   labels:
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
     group: ""
@@ -80,6 +86,9 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     primus-safe.workload.kind: Authoring
     primus-safe.workload.version: v1
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
     group: kubeflow.org
@@ -132,6 +141,9 @@ metadata:
   name: event
   labels:
     app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
     group: ""
@@ -146,6 +158,9 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     primus-safe.workload.kind: Deployment
     primus-safe.workload.version: v1
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
     group: apps
@@ -193,6 +208,9 @@ metadata:
     app.kubernetes.io/managed-by: Helm
     primus-safe.workload.kind: StatefulSet
     primus-safe.workload.version: v1
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
     group: apps

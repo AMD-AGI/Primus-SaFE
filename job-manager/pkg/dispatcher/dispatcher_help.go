@@ -350,7 +350,7 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 	})
 	result = append(result, map[string]interface{}{
 		"name":  "DISPATCH_COUNT",
-		"value": strconv.Itoa(v1.GetWorkloadDispatchCnt(adminWorkload)),
+		"value": strconv.Itoa(v1.GetWorkloadDispatchCnt(adminWorkload) + 1),
 	})
 	return result
 }

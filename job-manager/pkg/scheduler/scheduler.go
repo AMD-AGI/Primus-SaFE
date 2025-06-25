@@ -292,8 +292,8 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
 	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))
 	if err != nil {
-		klog.Errorf("failed to get cluster informer, clusterId: %s, workspaceId: %s",
-			v1.GetClusterId(adminWorkload), adminWorkload.Spec.Workspace)
+		klog.Errorf("failed to get cluster informer, clusterId: %s, workspaceId: %s, workloadId: %s",
+			v1.GetClusterId(adminWorkload), adminWorkload.Spec.Workspace, adminWorkload.Name)
 		return ctrlruntime.Result{}, err
 	}
 	// generate the related resource reference

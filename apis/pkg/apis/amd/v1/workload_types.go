@@ -99,7 +99,7 @@ type WorkloadSpec struct {
 	// Requested workspace
 	Workspace string `json:"workspace"`
 	// Workload image address
-	Image string `json:"image"`
+	Image string `json:"image,omitempty"`
 	// workload entryPoint, required in base64 encoding
 	EntryPoint string `json:"entryPoint,omitempty"`
 	// Environment variable for workload
