@@ -19,7 +19,7 @@ import (
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
-func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template, replica int) {
+func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, replica int) {
 	path := append(template.PrePaths, template.ReplicasPaths...)
 	objReplica := jobutils.GetUnstructuredInt(obj.Object, path)
 	assert.Equal(t, objReplica, int64(replica))
@@ -44,7 +44,7 @@ func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.W
 	}
 }
 
-func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {
+func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
 	containerPath := append(template.PrePaths, template.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
@@ -70,7 +70,7 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	assert.Equal(t, val, int64(workload.Spec.Resource.JobPort))
 }
 
-func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {
+func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
 	containerPath := append(template.PrePaths, template.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
@@ -126,7 +126,7 @@ func findEnv(envs []interface{}, name, val string) bool {
 	return false
 }
 
-func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, template *v1.Template) {
+func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, template *v1.ResourceSpec) {
 	containerPath := append(template.PrePaths, template.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
@@ -173,7 +173,7 @@ func findVolumeMount(volumeMounts []interface{}, name string) map[string]interfa
 	return nil
 }
 
-func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {
+func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
 	volumesPath := append(template.PrePaths, template.TemplatePaths...)
 	volumesPath = append(volumesPath, "spec", "volumes")
 
@@ -220,7 +220,7 @@ func findVolume(volumes []interface{}, name string) map[string]interface{} {
 	return nil
 }
 
-func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {
+func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
 	nodeSelectorPath := append(template.PrePaths, template.TemplatePaths...)
 	nodeSelectorPath = append(nodeSelectorPath, "spec", "affinity", "nodeAffinity",
 		"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
@@ -256,7 +256,7 @@ func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, worklo
 	assert.Equal(t, valuesSlice[0].(string) == "val1" || valuesSlice[0].(string) == "val2", true)
 }
 
-func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {
+func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
 	containerPath := append(template.PrePaths, template.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
@@ -272,7 +272,7 @@ func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	assert.Equal(t, image, workload.Spec.Image)
 }
 
-func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {
+func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
 	path := append(template.PrePaths, template.TemplatePaths...)
 	path = append(path, "spec", "hostNetwork")
 
@@ -282,7 +282,7 @@ func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1
 	assert.Equal(t, isHostNetWork, v1.IsEnableHostNetwork(workload))
 }
 
-func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {
+func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
 	path := append(template.PrePaths, template.TemplatePaths...)
 	path = append(path, "metadata", "labels")
 
@@ -310,7 +310,7 @@ func checkStrategy(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wo
 	assert.Equal(t, labels["maxUnavailable"].(string), workload.Spec.Service.Extends["maxUnavailable"])
 }
 
-func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {
+func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
 	path := append(template.PrePaths, template.TemplatePaths...)
 	path = append(path, "spec", "tolerations")
 
@@ -329,7 +329,7 @@ func checkTolerations(t *testing.T, obj *unstructured.Unstructured, workload *v1
 	}
 }
 
-func checkPriorityClass(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.Template) {
+func checkPriorityClass(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
 	path := append(template.PrePaths, template.TemplatePaths...)
 	path = append(path, "spec", "priorityClassName")
 	priorityClassName, found, err := unstructured.NestedString(obj.Object, path...)

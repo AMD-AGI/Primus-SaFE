@@ -397,7 +397,7 @@ var (
 				Version: "v1",
 				Kind:    "PyTorchJob",
 			},
-			Templates: []v1.Template{{
+			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec", "pytorchReplicaSpecs", "Master"},
 				TemplatePaths: []string{"template"},
 				ReplicasPaths: []string{"replicas"},
@@ -407,11 +407,11 @@ var (
 				TemplatePaths: []string{"template"},
 				ReplicasPaths: []string{"replicas"},
 			}},
-			EndState: v1.EndState{
+			ResourceStatus: v1.ResourceStatus{
 				PrePaths:     []string{"status", "conditions"},
 				MessagePaths: []string{"message"},
 				ReasonPaths:  []string{"reason"},
-				Phases: []v1.TemplatePhase{{
+				Phases: []v1.PhaseExpression{{
 					MatchExpressions: map[string]string{
 						"type":   "Succeeded",
 						"status": "True",
@@ -437,9 +437,9 @@ var (
 					Phase: "K8sRunning",
 				}},
 			},
-			ActiveState: v1.ActiveState{
-				PrePaths: []string{"status", "replicaStatuses"},
-				Active:   "active",
+			ActiveReplica: v1.ActiveReplica{
+				PrePaths:    []string{"status", "replicaStatuses"},
+				ReplicaPath: "active",
 			},
 		},
 	}
@@ -454,16 +454,16 @@ var (
 				Version: "v1",
 				Kind:    "Job",
 			},
-			Templates: []v1.Template{{
+			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"template"},
 				ReplicasPaths: []string{"replicas"},
 			}},
-			EndState: v1.EndState{
+			ResourceStatus: v1.ResourceStatus{
 				PrePaths:     []string{"status", "conditions"},
 				MessagePaths: []string{"message"},
 				ReasonPaths:  []string{"reason"},
-				Phases: []v1.TemplatePhase{{
+				Phases: []v1.PhaseExpression{{
 					MatchExpressions: map[string]string{
 						"type":   "Complete",
 						"status": "True",
@@ -477,9 +477,9 @@ var (
 					Phase: "K8sFailed",
 				}},
 			},
-			ActiveState: v1.ActiveState{
-				PrePaths: []string{"status"},
-				Active:   "active",
+			ActiveReplica: v1.ActiveReplica{
+				PrePaths:    []string{"status"},
+				ReplicaPath: "active",
 			},
 		},
 	}
@@ -494,16 +494,16 @@ var (
 				Version: "v1",
 				Kind:    "Deployment",
 			},
-			Templates: []v1.Template{{
+			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"template"},
 				ReplicasPaths: []string{"replicas"},
 			}},
-			EndState: v1.EndState{
+			ResourceStatus: v1.ResourceStatus{
 				PrePaths:     []string{"status", "conditions"},
 				MessagePaths: []string{"message"},
 				ReasonPaths:  []string{"reason"},
-				Phases: []v1.TemplatePhase{{
+				Phases: []v1.PhaseExpression{{
 					MatchExpressions: map[string]string{
 						"type":   "Available",
 						"status": "False",
@@ -524,9 +524,9 @@ var (
 					Phase: string(v1.K8sRunning),
 				}},
 			},
-			ActiveState: v1.ActiveState{
-				PrePaths: []string{"status"},
-				Active:   "availableReplicas",
+			ActiveReplica: v1.ActiveReplica{
+				PrePaths:    []string{"status"},
+				ReplicaPath: "availableReplicas",
 			},
 		},
 	}
@@ -554,14 +554,14 @@ var (
 				Version: "v1",
 				Kind:    "StatefulSet",
 			},
-			Templates: []v1.Template{{
+			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"template"},
 				ReplicasPaths: []string{"replicas"},
 			}},
-			ActiveState: v1.ActiveState{
-				PrePaths: []string{"status"},
-				Active:   "availableReplicas",
+			ActiveReplica: v1.ActiveReplica{
+				PrePaths:    []string{"status"},
+				ReplicaPath: "availableReplicas",
 			},
 		},
 	}

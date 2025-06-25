@@ -53,8 +53,9 @@ type ClusterInformer struct {
 
 type resourceInformer struct {
 	informers.GenericInformer
-	context context.Context
-	cancel  context.CancelFunc
+	context  context.Context
+	cancel   context.CancelFunc
+	isExited bool
 }
 
 type resourceMessage struct {
@@ -122,10 +123,10 @@ func (r *ClusterInformer) getResourceInformer(gvk schema.GroupVersionKind) *reso
 }
 
 func (r *ClusterInformer) addResourceTemplate(rt *v1.ResourceTemplate) error {
-	if rt.SpecKind() == common.AuthoringKind {
+	gvk := rt.ToSchemaGVK()
+	if r.resourceInformers.Has(gvk.String()) {
 		return nil
 	}
-	gvk := rt.ToSchemaGVK()
 	mapper, err := r.adminClient.RESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		klog.ErrorS(err, "failed to do mapping", "gvk", gvk)
@@ -225,7 +226,7 @@ func (r *ClusterInformer) delResourceTemplate(rt *v1.ResourceTemplate) {
 	if err := r.resourceInformers.Delete(gvk.String()); err != nil {
 		klog.ErrorS(err, "failed to delete resource informer", "gvk", gvk)
 	}
-	klog.Infof("delete resource informer, cluster: %s, gvk :%s", r.name, gvk)
+	klog.Infof("delete resource informer, cluster: %s, gvk: %s", r.name, gvk.String())
 }
 
 func (r *ClusterInformer) Release() error {
@@ -238,7 +239,11 @@ func (r *resourceInformer) start() {
 }
 
 func (r *resourceInformer) Release() error {
+	if r.isExited {
+		return nil
+	}
 	r.cancel()
+	r.isExited = true
 	return nil
 }
 

@@ -16,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -24,30 +23,41 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
-func GetResourceTemplate(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind) (*v1.ResourceTemplate, error) {
+func GetResourceTemplate(ctx context.Context, adminClient client.Client, gvk schema.GroupVersionKind) (*v1.ResourceTemplate, error) {
 	rtl := &v1.ResourceTemplateList{}
-	if err := cli.List(ctx, rtl); err != nil {
+	labelSelector := labels.SelectorFromSet(map[string]string{
+		v1.WorkloadKindLabel: gvk.Kind, v1.WorkloadVersionLabel: gvk.Version})
+	if err := adminClient.List(ctx, rtl, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return nil, err
 	}
-	for i := range rtl.Items {
-		if rtl.Items[i].ToSchemaGVK() == gvk {
-			return &rtl.Items[i], nil
-		}
+	if len(rtl.Items) == 0 {
+		return nil, commonerrors.NewBadRequest(
+			fmt.Sprintf("the resource template is not found, gvk: %s", gvk.String()))
 	}
-	return nil, commonerrors.NewBadRequest(
-		fmt.Sprintf("the resource template is not found, gvk: %s", gvk.String()))
+	return &rtl.Items[0], nil
 }
 
-func CreateObject(ctx context.Context,
-	dynamicClient *dynamic.DynamicClient, mapper meta.RESTMapper, obj *unstructured.Unstructured) error {
-	gvk := obj.GroupVersionKind()
-	gvr, err := CvtToGVR(mapper, gvk)
+func GenUnstructuredByWorkload(ctx context.Context, adminClient client.Client, workload *v1.Workload) (*unstructured.Unstructured, error) {
+	rt, err := GetResourceTemplate(ctx, adminClient, workload.ToSchemaGVK())
+	if err != nil {
+		return nil, err
+	}
+	obj := &unstructured.Unstructured{}
+	obj.SetName(workload.Name)
+	obj.SetNamespace(workload.Spec.Workspace)
+	obj.SetGroupVersionKind(rt.ToSchemaGVK())
+	return obj, nil
+}
+
+func CreateObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, obj *unstructured.Unstructured) error {
+	gvr, err := CvtToGVR(k8sClientFactory.Mapper(), obj.GroupVersionKind())
 	if err != nil {
 		return err
 	}
-	obj, err = dynamicClient.Resource(gvr).Namespace(obj.GetNamespace()).Create(
+	obj, err = k8sClientFactory.DynamicClient().Resource(gvr).Namespace(obj.GetNamespace()).Create(
 		ctx, obj, metav1.CreateOptions{})
 	if err != nil {
 		return client.IgnoreAlreadyExists(err)
@@ -57,14 +67,12 @@ func CreateObject(ctx context.Context,
 	return nil
 }
 
-func UpdateObject(ctx context.Context,
-	dynamicClient *dynamic.DynamicClient, mapper meta.RESTMapper, obj *unstructured.Unstructured) error {
-	gvk := obj.GroupVersionKind()
-	gvr, err := CvtToGVR(mapper, gvk)
+func UpdateObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, obj *unstructured.Unstructured) error {
+	gvr, err := CvtToGVR(k8sClientFactory.Mapper(), obj.GroupVersionKind())
 	if err != nil {
 		return err
 	}
-	obj, err = dynamicClient.Resource(gvr).Namespace(obj.GetNamespace()).Update(
+	obj, err = k8sClientFactory.DynamicClient().Resource(gvr).Namespace(obj.GetNamespace()).Update(
 		ctx, obj, metav1.UpdateOptions{})
 	if err != nil {
 		return client.IgnoreNotFound(err)
@@ -74,8 +82,7 @@ func UpdateObject(ctx context.Context,
 	return nil
 }
 
-func GetObject(informer informers.GenericInformer,
-	name, namespace string) (*unstructured.Unstructured, error) {
+func GetObject(informer informers.GenericInformer, name, namespace string) (*unstructured.Unstructured, error) {
 	obj, err := informer.Lister().ByNamespace(namespace).Get(name)
 	if err != nil {
 		return nil, err
@@ -87,38 +94,19 @@ func GetObject(informer informers.GenericInformer,
 	return objUnstructured.DeepCopy(), nil
 }
 
-func ListObjects(informer informers.GenericInformer,
-	labelSelector labels.Selector) ([]*unstructured.Unstructured, error) {
-	objs, err := informer.Lister().List(labelSelector)
-	if err != nil {
-		return nil, err
-	}
-	results := make([]*unstructured.Unstructured, 0, len(objs))
-	for _, obj := range objs {
-		objUnstructured, ok := obj.(*unstructured.Unstructured)
-		if !ok {
-			continue
-		}
-		results = append(results, objUnstructured.DeepCopy())
-	}
-	return results, nil
-}
-
-func DeleteObject(ctx context.Context, dynamicClient *dynamic.DynamicClient,
-	mapper meta.RESTMapper, adminWorkload *v1.Workload) error {
-	gvr, err := CvtToGVR(mapper, adminWorkload.ToSchemaGVK())
+func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, obj *unstructured.Unstructured) error {
+	gvr, err := CvtToGVR(k8sClientFactory.Mapper(), obj.GroupVersionKind())
 	if err != nil {
 		return err
 	}
 	gracePeriod := int64(300)
 	policy := metav1.DeletePropagationBackground
-	err = dynamicClient.Resource(gvr).Namespace(adminWorkload.Spec.Workspace).Delete(ctx, adminWorkload.Name,
+	err = k8sClientFactory.DynamicClient().Resource(gvr).Namespace(obj.GetNamespace()).Delete(ctx, obj.GetName(),
 		metav1.DeleteOptions{GracePeriodSeconds: &gracePeriod, PropagationPolicy: &policy})
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	klog.Infof("delete k8s object, name: %s, namespace: %s",
-		adminWorkload.Name, adminWorkload.Spec.Workspace)
+	klog.Infof("delete k8s object, name: %s, namespace: %s", obj.GetName(), obj.GetNamespace())
 	return nil
 }
 

@@ -43,10 +43,10 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 		return result, nil
 	}
 
-	if len(rt.Spec.EndState.PrePaths) == 0 {
+	if len(rt.Spec.ResourceStatus.PrePaths) == 0 {
 		return nil, nil
 	}
-	m, found, err := unstructured.NestedFieldNoCopy(unstructuredObj.Object, rt.Spec.EndState.PrePaths...)
+	m, found, err := unstructured.NestedFieldNoCopy(unstructuredObj.Object, rt.Spec.ResourceStatus.PrePaths...)
 	if !found || err != nil {
 		return nil, err
 	}
@@ -63,10 +63,10 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 			objects = append(objects, obj)
 		}
 	default:
-		return nil, fmt.Errorf("invalid path: %v", rt.Spec.EndState.Phases)
+		return nil, fmt.Errorf("invalid path: %v", rt.Spec.ResourceStatus.Phases)
 	}
-	for _, phase := range rt.Spec.EndState.Phases {
-		if getCommonObjStatus(objects, phase, rt.Spec.EndState.MessagePaths, rt.Spec.EndState.ReasonPaths, result) {
+	for _, phase := range rt.Spec.ResourceStatus.Phases {
+		if getCommonObjStatus(objects, phase, rt.Spec.ResourceStatus.MessagePaths, rt.Spec.ResourceStatus.ReasonPaths, result) {
 			return result, nil
 		}
 	}
@@ -91,8 +91,8 @@ func getStatefulSetStatus(obj map[string]interface{}, result *K8sResourceStatus)
 }
 
 func getCommonObjStatus(objects []map[string]interface{},
-	phase v1.TemplatePhase, messagePaths, reasonPaths []string, result *K8sResourceStatus) bool {
-	match := func(obj map[string]interface{}, phase v1.TemplatePhase) bool {
+	phase v1.PhaseExpression, messagePaths, reasonPaths []string, result *K8sResourceStatus) bool {
+	match := func(obj map[string]interface{}, phase v1.PhaseExpression) bool {
 		for key, val := range phase.MatchExpressions {
 			val2 := getUnstructuredToString(obj, []string{key})
 			if val != val2 {
@@ -185,7 +185,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer, gpuName string) ([]int64, []corev1.ResourceList, error) {
 	var replicaList []int64
 	var resourceList []corev1.ResourceList
-	for _, t := range rt.Spec.Templates {
+	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.ReplicasPaths...)
 		replica, found, err := unstructured.NestedInt64(unstructuredObj.Object, path...)
@@ -244,7 +244,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 // Retrieve the command of the main container
 func GetCommand(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) ([]string, error) {
-	for _, t := range rt.Spec.Templates {
+	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
 		path = append(path, "spec", "containers")
@@ -286,7 +286,7 @@ func GetCommand(unstructuredObj *unstructured.Unstructured,
 // Retrieve the image address of the main container
 func GetImage(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) (string, error) {
-	for _, t := range rt.Spec.Templates {
+	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
 		path = append(path, "spec", "containers")
@@ -318,7 +318,7 @@ func GetImage(unstructuredObj *unstructured.Unstructured,
 }
 
 func GetShareMemorySize(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (string, error) {
-	for _, t := range rt.Spec.Templates {
+	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
 		path = append(path, "spec", "volumes")
@@ -364,11 +364,11 @@ func GetShareMemoryVolume(volumes []interface{}) map[string]interface{} {
 }
 
 func GetSpecReplica(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (int, error) {
-	if len(rt.Spec.Templates) == 0 {
+	if len(rt.Spec.ResourceSpecs) == 0 {
 		return 0, nil
 	}
 	replica := 0
-	for _, t := range rt.Spec.Templates {
+	for _, t := range rt.Spec.ResourceSpecs {
 		l := len(t.ReplicasPaths)
 		if l == 0 {
 			continue
@@ -387,15 +387,15 @@ func GetSpecReplica(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceT
 }
 
 func GetActiveReplica(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (int, error) {
-	if len(rt.Spec.ActiveState.PrePaths) == 0 && rt.Spec.ActiveState.Active == "" {
+	if len(rt.Spec.ActiveReplica.PrePaths) == 0 && rt.Spec.ActiveReplica.ReplicaPath == "" {
 		return 0, nil
 	}
-	return getReplica(unstructuredObj, rt.Spec.ActiveState.PrePaths, rt.Spec.ActiveState.Active)
+	return getReplica(unstructuredObj, rt.Spec.ActiveReplica.PrePaths, rt.Spec.ActiveReplica.ReplicaPath)
 }
 
 // Retrieve the priorityClassName
 func GetPriorityClassName(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (string, error) {
-	for _, t := range rt.Spec.Templates {
+	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
 		path = append(path, "spec", "priorityClassName")
@@ -465,7 +465,7 @@ func getIntValueByName(objects map[string]interface{}, name string) (int64, bool
 // Retrieve the environment value of the main container
 func GetEnv(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) ([]interface{}, error) {
-	for _, t := range rt.Spec.Templates {
+	for _, t := range rt.Spec.ResourceSpecs {
 		templatePath := t.GetTemplatePath()
 		path := append(templatePath, "spec", "containers")
 		containers, found, err := unstructured.NestedSlice(unstructuredObj.Object, path...)

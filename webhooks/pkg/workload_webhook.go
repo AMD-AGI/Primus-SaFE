@@ -103,7 +103,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	if err != nil {
 		return false
 	}
-	m.mutateGvk(ctx, workload)
+	m.mutateGvk(workload)
 	m.mutateMeta(ctx, workload, workspace)
 
 	switch workload.SpecKind() {
@@ -152,13 +152,12 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	}
 	v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)
 	v1.SetLabel(workload, v1.WorkspaceIdLabel, workload.Spec.Workspace)
-	v1.SetLabel(workload, v1.WorkloadKindLabel, workload.SpecKind())
 	v1.SetLabel(workload, v1.WorkloadIdLabel, workload.Name)
 	v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
-	v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 
 	if v1.GetMainContainer(workload) == "" {
-		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, workload.Spec.GroupVersionKind, workload.Spec.Resource.GPUName)
+		gvk := workload.ToSchemaGVK()
+		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, gvk, workload.Spec.Resource.GPUName)
 		if err == nil {
 			v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(cm))
 		}
@@ -169,28 +168,15 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
 
-func (m *WorkloadMutator) mutateGvk(ctx context.Context, workload *v1.Workload) {
+func (m *WorkloadMutator) mutateGvk(workload *v1.Workload) {
 	if workload.Spec.Kind == "" {
 		workload.Spec.Kind = common.PytorchJobKind
 	}
-	if workload.Spec.Group == "" || workload.Spec.Version == "" {
-		rtl := &v1.ResourceTemplateList{}
-		err := m.List(ctx, rtl)
-		if err != nil {
-			return
-		}
-		for _, rt := range rtl.Items {
-			if rt.SpecKind() != workload.Spec.Kind {
-				continue
-			}
-			if workload.Spec.Group == "" {
-				workload.Spec.Group = rt.Spec.GroupVersionKind.Group
-			}
-			if workload.Spec.Version == "" {
-				workload.Spec.Version = rt.Spec.GroupVersionKind.Version
-			}
-		}
+	if workload.Spec.Version == "" {
+		workload.Spec.Version = common.DefaultVersion
 	}
+	// the group is not currently in use
+	workload.Spec.Group = ""
 }
 
 func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
@@ -448,7 +434,7 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 	if err := v.validateResourceEnough(ctx, workload); err != nil {
 		return err
 	}
-	if err := v.validateTemplate(ctx, workload); err != nil {
+	if err := v.validateResourceTemplate(ctx, workload); err != nil {
 		return err
 	}
 	if err := v.validateDisplayName(workload); err != nil {
@@ -607,12 +593,12 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload
 	return nil
 }
 
-func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.Workload) error {
-	if _, err := getResourceTemplate(ctx, v.Client, workload.Spec.GroupVersionKind); err != nil {
+func (v *WorkloadValidator) validateResourceTemplate(ctx context.Context, workload *v1.Workload) error {
+	gvk := workload.Spec.GroupVersionKind
+	if _, err := getResourceTemplate(ctx, v.Client, gvk); err != nil {
 		return err
 	}
-	_, err := commonworkload.GetWorkloadTemplate(ctx,
-		v.Client, workload.Spec.GroupVersionKind, workload.Spec.Resource.GPUName)
+	_, err := commonworkload.GetWorkloadTemplate(ctx, v.Client, gvk.ToSchema(), workload.Spec.Resource.GPUName)
 	if err != nil {
 		return err
 	}

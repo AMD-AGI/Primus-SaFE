@@ -26,12 +26,12 @@ const (
 )
 
 func modifyObjectOnCreation(obj *unstructured.Unstructured,
-	adminWorkload *v1.Workload, workspace *v1.Workspace, template *v1.Template) error {
-	_, found, err := unstructured.NestedFieldNoCopy(obj.Object, template.PrePaths...)
+	adminWorkload *v1.Workload, workspace *v1.Workspace, resourceSpec *v1.ResourceSpec) error {
+	_, found, err := unstructured.NestedFieldNoCopy(obj.Object, resourceSpec.PrePaths...)
 	if err != nil || !found {
 		return nil
 	}
-	templatePath := template.GetTemplatePath()
+	templatePath := resourceSpec.GetTemplatePath()
 
 	path := append(templatePath, "metadata", "labels")
 	if err = modifyLabels(obj, adminWorkload, path); err != nil {

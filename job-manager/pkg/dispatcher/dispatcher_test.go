@@ -88,7 +88,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.createK8sObject(context.Background(), workload)
 	assert.NilError(t, err)
-	templates := jobutils.TestPytorchResourceTemplate.Spec.Templates
+	templates := jobutils.TestPytorchResourceTemplate.Spec.ResourceSpecs
 
 	checkResources(t, obj, workload, &templates[0], 1)
 	checkPorts(t, obj, workload, &templates[0])
@@ -155,7 +155,7 @@ func TestCreateDeployment(t *testing.T) {
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.createK8sObject(context.Background(), workload)
 	assert.NilError(t, err)
-	templates := jobutils.TestDeploymentTemplate.Spec.Templates
+	templates := jobutils.TestDeploymentTemplate.Spec.ResourceSpecs
 
 	checkResources(t, obj, workload, &templates[0], 1)
 	checkPorts(t, obj, workload, &templates[0])

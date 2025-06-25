@@ -4,9 +4,8 @@ metadata:
   name: amd-pytorch-job-template
   namespace: {{ .Release.Namespace }}
   labels:
-    group: kubeflow.org
-    version: v1
-    kind: PyTorchJob
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: PyTorchJob
   annotations:
     primus-safe.gpu.resource.name: "amd.com/gpu"
     # The main container name should match the configuration defined in the template below

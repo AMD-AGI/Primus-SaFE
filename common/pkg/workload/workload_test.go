@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -156,19 +157,19 @@ func TestGetTemplateConfig(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "configmap1",
 			Namespace: common.PrimusSafeNamespace,
-			Labels:    map[string]string{"group": "", "version": "v1", "kind": "kind1"},
+			Labels:    map[string]string{v1.WorkloadVersionLabel: "v1", v1.WorkloadKindLabel: "kind1"},
 		},
 	}
 	configmap2 := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "configmap2",
 			Namespace: common.PrimusSafeNamespace,
-			Labels:    map[string]string{"group": "", "version": "v1", "kind": "kind2"},
+			Labels:    map[string]string{v1.WorkloadVersionLabel: "v1", v1.WorkloadKindLabel: "kind2"},
 		},
 	}
 	cli := fake.NewClientBuilder().WithObjects(configmap1, configmap2).WithScheme(mockScheme).Build()
 	resp, err := GetWorkloadTemplate(context.Background(), cli,
-		v1.GroupVersionKind{Group: "", Version: "v1", Kind: "kind2"}, "")
+		schema.GroupVersionKind{Group: "", Version: "v1", Kind: "kind2"}, "")
 	assert.NilError(t, err)
 	assert.Equal(t, resp.Name, configmap2.Name)
 }

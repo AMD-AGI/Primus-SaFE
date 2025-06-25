@@ -18,6 +18,7 @@ const (
 	StatefulSetKind = "StatefulSet"
 	PodKind         = "Pod"
 	EventKind       = "Event"
+	DefaultVersion  = "v1"
 
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"

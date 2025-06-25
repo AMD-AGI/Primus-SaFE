@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 
 	admissionv1 "k8s.io/api/admission/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -89,31 +90,31 @@ func (v *ResourceTemplateValidator) validate(rt *v1.ResourceTemplate) error {
 }
 
 func (v *ResourceTemplateValidator) validateTemplate(rt *v1.ResourceTemplate) error {
-	if len(rt.Spec.Templates) <= 1 {
+	if len(rt.Spec.ResourceSpecs) <= 1 {
 		return nil
 	}
 	count := 0
-	for _, template := range rt.Spec.Templates {
+	for _, template := range rt.Spec.ResourceSpecs {
 		if template.Replica > 0 {
 			count++
 		}
 	}
-	if count < len(rt.Spec.Templates)-1 {
+	if count < len(rt.Spec.ResourceSpecs)-1 {
 		return commonerrors.NewInternalError("If more than one template is defined, only one can have a empty replica field")
 	}
 	return nil
 }
 
 func getResourceTemplate(ctx context.Context, cli client.Client, gvk v1.GroupVersionKind) (*v1.ResourceTemplate, error) {
+	labelSelector := labels.SelectorFromSet(map[string]string{
+		v1.WorkloadKindLabel: gvk.Kind, v1.WorkloadVersionLabel: gvk.Version})
 	rtl := &v1.ResourceTemplateList{}
-	err := cli.List(ctx, rtl)
+	err := cli.List(ctx, rtl, &client.ListOptions{LabelSelector: labelSelector})
 	if err != nil {
 		return nil, err
 	}
-	for _, rt := range rtl.Items {
-		if rt.Spec.GroupVersionKind == gvk {
-			return &rt, nil
-		}
+	if len(rtl.Items) == 0 {
+		return nil, commonerrors.NewNotFound(v1.ResourceTemplateKind, gvk.VersionKind())
 	}
-	return nil, commonerrors.NewNotFound(v1.ResourceTemplateKind, gvk.String())
+	return &rtl.Items[0], nil
 }

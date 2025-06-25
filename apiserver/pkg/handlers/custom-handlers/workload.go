@@ -463,12 +463,9 @@ func (h *Handler) cvtToListWorkloadSql(ctx context.Context,
 		values := strings.Split(query.Kind, ",")
 		var sqlList []sqrl.Sqlizer
 		for _, val := range values {
-			rf, err := h.getResourceTemplate(ctx, val)
-			if err != nil {
-				return nil, nil, err
-			}
-			gvk := string(jsonutils.MarshalSilently(rf.Spec.GroupVersionKind))
-			sqlList = append(sqlList, sqrl.Eq{dbclient.GetFieldTag(dbTags, "GVK"): gvk})
+			gvk := v1.GroupVersionKind{Kind: val, Version: common.DefaultVersion}
+			gvkStr := string(jsonutils.MarshalSilently(gvk))
+			sqlList = append(sqlList, sqrl.Eq{dbclient.GetFieldTag(dbTags, "GVK"): gvkStr})
 		}
 		dbSql = append(dbSql, sqrl.Or(sqlList))
 	}
@@ -501,19 +498,6 @@ func buildListWorkloadOrderBy(query *types.GetWorkloadRequest, dbTags map[string
 		orderBy = append(orderBy, fmt.Sprintf("%s %s", createTime, dbclient.DESC))
 	}
 	return orderBy
-}
-
-func (h *Handler) getResourceTemplate(ctx context.Context, kind string) (*v1.ResourceTemplate, error) {
-	rfList := &v1.ResourceTemplateList{}
-	if err := h.List(ctx, rfList); err != nil {
-		return nil, err
-	}
-	for i, rf := range rfList.Items {
-		if rf.SpecKind() == kind {
-			return &rfList.Items[i], nil
-		}
-	}
-	return nil, commonerrors.NewNotFound(v1.ResourceTemplateKind, kind)
 }
 
 func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest) {

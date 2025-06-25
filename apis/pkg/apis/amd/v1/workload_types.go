@@ -106,8 +106,9 @@ type WorkloadSpec struct {
 	Env map[string]string `json:"env,omitempty"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised,omitempty"`
-	// Valid kind includes: PyTorchJob/Deployment/StatefulSet/Authoring, default: PyTorchJob
-	// The group and version fields are optional.
+	// Group: An extension field that is not currently in use
+	// Version: version of workload, default value is v1
+	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default value is PyTorchJob
 	GroupVersionKind `json:"groupVersionKind"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`
@@ -308,4 +309,8 @@ func (w *Workload) ToSchemaGVK() schema.GroupVersionKind {
 
 func (w *Workload) SpecKind() string {
 	return w.Spec.GroupVersionKind.Kind
+}
+
+func (w *Workload) SpecVersion() string {
+	return w.Spec.GroupVersionKind.Version
 }
