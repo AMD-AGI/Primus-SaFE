@@ -37,7 +37,7 @@ job_manager:
 webhooks:
   port: 8084
   health_port: 8085
-  tag: "202506251600"
+  tag: "202506261440"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi

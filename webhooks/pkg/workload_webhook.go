@@ -298,7 +298,7 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	workload.Spec.MaxRetry = 0
 	workload.Spec.Resource.Replica = 1
 	workload.Spec.Timeout = nil
-	workload.Spec.EntryPoint = stringutil.Base64Encode("sleep infinite")
+	workload.Spec.EntryPoint = stringutil.Base64Encode("sleep infinity")
 }
 
 func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {
