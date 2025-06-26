@@ -21,7 +21,7 @@ type WorkloadPodApplyConfiguration struct {
 	PodIp         *string                             `json:"podIP,omitempty"`
 	StartTime     *string                             `json:"startTime,omitempty"`
 	EndTime       *string                             `json:"endTime,omitempty"`
-	Message       *PodFailedMessageApplyConfiguration `json:"message,omitempty"`
+	FailedMessage *PodFailedMessageApplyConfiguration `json:"failedMessage,omitempty"`
 }
 
 // WorkloadPodApplyConfiguration constructs a declarative configuration of the WorkloadPod type for use with
@@ -94,10 +94,10 @@ func (b *WorkloadPodApplyConfiguration) WithEndTime(value string) *WorkloadPodAp
 	return b
 }
 
-// WithMessage sets the Message field in the declarative configuration to the given value
+// WithFailedMessage sets the FailedMessage field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Message field is set to the value of the last call.
-func (b *WorkloadPodApplyConfiguration) WithMessage(value *PodFailedMessageApplyConfiguration) *WorkloadPodApplyConfiguration {
-	b.Message = value
+// If called multiple times, the FailedMessage field is set to the value of the last call.
+func (b *WorkloadPodApplyConfiguration) WithFailedMessage(value *PodFailedMessageApplyConfiguration) *WorkloadPodApplyConfiguration {
+	b.FailedMessage = value
 	return b
 }

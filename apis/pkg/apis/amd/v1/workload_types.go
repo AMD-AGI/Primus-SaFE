@@ -113,7 +113,7 @@ type WorkloadSpec struct {
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`
 	// Workload scheduling priority. Defaults to 0; valid range: 0–2
-	Priority int `json:"priority,omitempty"`
+	Priority int `json:"priority"`
 	// The lifecycle of the workload after completion, in seconds. Default to 60.
 	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished,omitempty"`
 	// Workload timeout in hours. Default is 0 (no timeout).
@@ -168,7 +168,7 @@ type WorkloadPod struct {
 	// pod end time
 	EndTime string `json:"endTime,omitempty"`
 	// error message
-	Message *PodFailedMessage `json:"message,omitempty"`
+	FailedMessage *PodFailedMessage `json:"failedMessage,omitempty"`
 }
 
 type ContainerFailedMessage struct {

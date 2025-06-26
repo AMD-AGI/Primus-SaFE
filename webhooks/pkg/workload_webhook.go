@@ -154,6 +154,9 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	v1.SetLabel(workload, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	v1.SetLabel(workload, v1.WorkloadIdLabel, workload.Name)
 	v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
+	if v1.GetUserName(workload) != "" {
+		v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
+	}
 
 	if v1.GetMainContainer(workload) == "" {
 		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, workload)
@@ -295,7 +298,7 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	workload.Spec.MaxRetry = 0
 	workload.Spec.Resource.Replica = 1
 	workload.Spec.Timeout = nil
-	workload.Spec.EntryPoint = stringutil.Base64Encode("sleep infinite")
+	workload.Spec.EntryPoint = stringutil.Base64Encode("sleep infinity")
 }
 
 func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {
