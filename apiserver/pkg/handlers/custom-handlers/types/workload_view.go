@@ -34,13 +34,12 @@ type GetWorkloadRequest struct {
 	// cluster id
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
 	// Valid values include: Deployment/PyTorchJob/StatefulSet/Authoring
+	// If specifying multiple kind queries, separate them with commas
 	Kind string `form:"kind" binding:"omitempty"`
 	// workload submitter, Supports fuzzy matching
 	UserName string `form:"userName" binding:"omitempty"`
 	// description, Supports fuzzy matching
 	Description string `form:"description" binding:"omitempty"`
-	// workload id, Supports fuzzy matching
-	WorkloadId string `form:"workloadId" binding:"omitempty"`
 	// Starting offset for the results. dfault is 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
 	// Limit the number of returned results. default is 100
