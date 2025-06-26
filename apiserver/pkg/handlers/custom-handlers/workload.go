@@ -645,9 +645,8 @@ func (h *Handler) buildWorkloadDetail(ctx context.Context, w *dbclient.Workload,
 	}
 	if str := dbutils.ParseNullString(w.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
-		for i := range result.Pods {
-			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx,
-				result.UserName, result.Pods[i].PodId, result.Workspace)
+		for i, p := range result.Pods {
+			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p.WorkloadPod, result.UserName, result.Workspace)
 		}
 	}
 	if str := dbutils.ParseNullString(w.Nodes); str != "" {
@@ -718,10 +717,9 @@ func (h *Handler) cvtAdminWorkloadToResponse(ctx context.Context, w *v1.Workload
 		result.EntryPoint = stringutil.Base64Decode(result.EntryPoint)
 		result.Conditions = w.Status.Conditions
 		result.Pods = make([]types.WorkloadPodWrapper, len(w.Status.Pods))
-		for i := range w.Status.Pods {
+		for i, p := range w.Status.Pods {
 			result.Pods[i].WorkloadPod = w.Status.Pods[i]
-			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx,
-				result.UserName, w.Status.Pods[i].PodId, result.Workspace)
+			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p, result.UserName, result.Workspace)
 		}
 		result.Nodes = w.Status.Nodes
 		if len(w.Spec.CustomerLabels) > 0 {
@@ -740,8 +738,8 @@ func (h *Handler) cvtAdminWorkloadToResponse(ctx context.Context, w *v1.Workload
 	return result
 }
 
-func (h *Handler) buildSSHAddress(ctx context.Context, userName, podName, workspace string) string {
-	if !commonconfig.IsSSHEnable() {
+func (h *Handler) buildSSHAddress(ctx context.Context, pod *v1.WorkloadPod, userName, workspace string) string {
+	if !commonconfig.IsSSHEnable() || pod.Phase != corev1.PodRunning {
 		return ""
 	}
 	if userName == "" {
@@ -771,7 +769,7 @@ func (h *Handler) buildSSHAddress(ctx context.Context, userName, podName, worksp
 		}
 	}
 	if gatewayIp != "" {
-		return fmt.Sprintf("ssh %s.%s.%s@%s", userName, podName, workspace, gatewayIp)
+		return fmt.Sprintf("ssh %s.%s.%s@%s", userName, pod.PodId, workspace, gatewayIp)
 	}
 
 	localIp, _ := netutil.GetLocalIp()
@@ -779,7 +777,7 @@ func (h *Handler) buildSSHAddress(ctx context.Context, userName, podName, worksp
 		return ""
 	}
 	return fmt.Sprintf("ssh -p %d %s.%s.%s@%s",
-		commonconfig.GetSSHServerPort(), userName, podName, workspace, localIp)
+		commonconfig.GetSSHServerPort(), userName, pod.PodId, workspace, localIp)
 }
 
 func buildWorkloadLabelSelector(query *types.GetWorkloadRequest) labels.Selector {
