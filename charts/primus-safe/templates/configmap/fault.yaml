@@ -18,12 +18,14 @@ data:
   net_ib_status_201: '{"id":"201","action":"taint","toggle":"on"}'
   net_ethtool_202: '{"id":"202","action":"taint","toggle":"on"}'
   net_ethernet_id_203: '{"id":"203","action":"taint","toggle":"on"}'
+  net_bnxt_204: '{"id":"204","action":"taint","toggle":"on"}'
   # System: 3XX
   sys_timezone_301: '{"id":"301","toggle":"on"}'
   sys_hostname_302: '{"id":"302","action":"taint","toggle":"on"}'
   sys_containerd_303: '{"id":"303","action":"taint","toggle":"on"}'
   sys_kernel_lock_304: '{"id":"304","action":"taint","toggle":"on"}'
-  sys_acsctl_305: '{"id":"305","action":"taint","toggle":"on"}'
+  sys_acsctl_305: '{"id":"305","toggle":"on"}'
+  sys_iommu_306: '{"id":"306","toggle":"on"}'
   # Disk: 4XX
   disk_check_exist_401: '{"id":"401","toggle":"on"}'
   # primus system: 5XX, System reserved
