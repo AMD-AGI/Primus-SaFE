@@ -356,7 +356,7 @@ func getFailedPodInfo(workload *v1.Workload) string {
 		info := FailedPodInfo{
 			Pod:              pod.PodId,
 			Node:             pod.K8sNodeName,
-			PodFailedMessage: pod.Message,
+			PodFailedMessage: pod.FailedMessage,
 		}
 		result += "(" + strconv.Itoa(i) + ") " + string(jsonutils.MarshalSilently(&info))
 		if i >= 3 {

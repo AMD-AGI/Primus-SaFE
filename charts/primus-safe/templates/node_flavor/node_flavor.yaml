@@ -1,0 +1,31 @@
+# The parameters should be modified according to the actual cluster environment.
+apiVersion: amd.com/v1
+kind: NodeFlavor
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: amd-mi300x-192gb-hbm3
+spec:
+  cpu:
+    product: AMD_EPYC_9554
+    quantity: "256"
+  dataDisk:
+    count: 9
+    quantity: 7864Gi
+    type: nvme
+  extendedResources:
+    ephemeral-storage: 7440663780Ki
+    rdma/hca: 1k
+  flavorType: BareMetal
+  gpu:
+    product: AMD_Instinct_MI300X_OAM
+    quantity: "8"
+    resourceName: amd.com/gpu
+  memory: 1584921536Ki
+  rootDisk:
+    count: 1
+    quantity: 7864Gi
+    type: nvme

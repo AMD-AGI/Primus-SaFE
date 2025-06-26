@@ -128,9 +128,9 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		workloadPod.StartTime = timeutil.FormatRFC3339(&pod.Status.StartTime.Time)
 	}
 	buildPodTerminatedInfo(pod, &workloadPod)
-	if workloadPod.Message != nil {
+	if workloadPod.FailedMessage != nil {
 		klog.Infof("pod(%s) exited abnormally. message: %s",
-			pod.Name, string(jsonutils.MarshalSilently(workloadPod.Message)))
+			pod.Name, string(jsonutils.MarshalSilently(workloadPod.FailedMessage)))
 	}
 
 	if id >= 0 {
@@ -141,7 +141,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		adminWorkload.Status.Pods[id].PodIp = workloadPod.PodIp
 		adminWorkload.Status.Pods[id].StartTime = workloadPod.StartTime
 		adminWorkload.Status.Pods[id].EndTime = workloadPod.EndTime
-		adminWorkload.Status.Pods[id].Message = workloadPod.Message
+		adminWorkload.Status.Pods[id].FailedMessage = workloadPod.FailedMessage
 	} else {
 		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods, workloadPod)
 	}
@@ -182,27 +182,35 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, msg *resourceM
 	return nil
 }
 
-func buildPodTerminatedInfo(p *corev1.Pod, workloadPod *v1.WorkloadPod) {
-	if p.Status.Phase == corev1.PodFailed {
-		workloadPod.Message = new(v1.PodFailedMessage)
-		if p.Status.Message != "" {
-			workloadPod.Message.Message = p.Status.Message
+func buildPodTerminatedInfo(pod *corev1.Pod, workloadPod *v1.WorkloadPod) {
+	if pod.Status.Phase == corev1.PodFailed {
+		workloadPod.FailedMessage = new(v1.PodFailedMessage)
+		message := ""
+		if pod.Status.Message != "" {
+			message = pod.Status.Message
 		}
-	} else if p.Status.Phase != corev1.PodSucceeded {
+		if pod.Status.Reason != "" {
+			if message != "" {
+				message += ","
+			}
+			message += pod.Status.Reason
+		}
+		workloadPod.FailedMessage.Message = message
+	} else if pod.Status.Phase != corev1.PodSucceeded {
 		return
 	}
 
 	var finishedTime *metav1.Time
-	for i, container := range p.Status.ContainerStatuses {
+	for i, container := range pod.Status.ContainerStatuses {
 		terminated := container.State.Terminated
 		if terminated == nil {
 			continue
 		}
 		if finishedTime == nil || terminated.FinishedAt.After(finishedTime.Time) {
-			finishedTime = &p.Status.ContainerStatuses[i].State.Terminated.FinishedAt
+			finishedTime = &pod.Status.ContainerStatuses[i].State.Terminated.FinishedAt
 		}
 		exitCode := terminated.ExitCode
-		if exitCode == 0 || p.Status.Phase != corev1.PodFailed {
+		if exitCode == 0 || pod.Status.Phase != corev1.PodFailed {
 			continue
 		}
 		containerMsg := v1.ContainerFailedMessage{
@@ -212,7 +220,7 @@ func buildPodTerminatedInfo(p *corev1.Pod, workloadPod *v1.WorkloadPod) {
 			Signal:   terminated.Signal,
 			Message:  terminated.Message,
 		}
-		workloadPod.Message.Containers = append(workloadPod.Message.Containers, containerMsg)
+		workloadPod.FailedMessage.Containers = append(workloadPod.FailedMessage.Containers, containerMsg)
 	}
 	if finishedTime != nil && !finishedTime.IsZero() {
 		workloadPod.EndTime = timeutil.FormatRFC3339(&finishedTime.Time)

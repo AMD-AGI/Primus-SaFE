@@ -10,7 +10,7 @@ data:
   gpu_card_check_004: '{"id":"004","action":"taint","toggle":"on"}'
   gpu_device_plugin_005: '{id":"005","action":"taint","toggle":"on"}'
   gpu_temperature_006: '{"id":"006","toggle":"on"}'
-  gpu_driver_007: '{"id":"007","action":"taint","toggle":"on"}'
+  gpu_driver_007: '{"id":"007","action":"taint","toggle":"off"}'
   gpu_ras_008: '{"id":"008","toggle":"on"}'
   gpu_link_009: '{"id":"009","toggle":"on"}'
   gpu_xgmi_link_010: '{"id":"010","toggle":"on"}'
@@ -18,12 +18,14 @@ data:
   net_ib_status_201: '{"id":"201","action":"taint","toggle":"on"}'
   net_ethtool_202: '{"id":"202","action":"taint","toggle":"on"}'
   net_ethernet_id_203: '{"id":"203","action":"taint","toggle":"on"}'
+  net_bnxt_204: '{"id":"204","action":"taint","toggle":"on"}'
   # System: 3XX
   sys_timezone_301: '{"id":"301","toggle":"on"}'
   sys_hostname_302: '{"id":"302","action":"taint","toggle":"on"}'
   sys_containerd_303: '{"id":"303","action":"taint","toggle":"on"}'
   sys_kernel_lock_304: '{"id":"304","action":"taint","toggle":"on"}'
-  sys_acsctl_305: '{"id":"305","action":"taint","toggle":"on"}'
+  sys_acsctl_305: '{"id":"305","toggle":"on"}'
+  sys_iommu_306: '{"id":"306","toggle":"on"}'
   # Disk: 4XX
   disk_check_exist_401: '{"id":"401","toggle":"on"}'
   # primus system: 5XX, System reserved
