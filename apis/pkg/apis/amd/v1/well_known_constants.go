@@ -93,6 +93,7 @@ const (
 	// user
 	UserPrefix         = PrimusSafePrefix + "user."
 	UserNameAnnotation = UserPrefix + "name"
+	UserNameMd5Label   = UserPrefix + "name.md5"
 
 	// secret
 	SecretPrefix    = PrimusSafePrefix + "secret."

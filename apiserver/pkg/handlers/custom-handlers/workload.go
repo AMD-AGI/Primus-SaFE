@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,6 +21,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -37,6 +40,7 @@ import (
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -102,7 +106,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
-		return nil, commonerrors.NewInternalError("the database function is not enabled")
+		return h.listAdminWorkloads(c)
 	}
 
 	query, err := parseListWorkloadQuery(c)
@@ -319,6 +323,52 @@ func (h *Handler) patchPhase(ctx context.Context, workload *v1.Workload,
 	}
 	return nil
 }
+func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
+	query, err := parseListWorkloadQuery(c)
+	if err != nil {
+		klog.ErrorS(err, "failed to parse query")
+		return nil, err
+	}
+	labelSelector := buildWorkloadLabelSelector(query)
+	workloadList := &v1.WorkloadList{}
+	if err = h.List(c.Request.Context(), workloadList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		return nil, err
+	}
+	if len(workloadList.Items) > 0 {
+		sort.Sort(types.WorkloadSlice(workloadList.Items))
+	}
+	sinceTime, err := timeutil.CvtStrToRFC3339Milli(query.Since)
+	if err != nil {
+		return nil, err
+	}
+	untilTime, err := timeutil.CvtStrToRFC3339Milli(query.Until)
+	if err != nil {
+		return nil, err
+	}
+	result := &types.GetWorkloadResponse{}
+	for _, w := range workloadList.Items {
+		if query.Phase != "" {
+			values := strings.Split(query.Kind, ",")
+			if !slice.Contains(values, string(w.Status.Phase)) {
+				continue
+			}
+		}
+		if query.Description != "" {
+			if !strings.Contains(v1.GetDescription(&w), query.Description) {
+				continue
+			}
+		}
+		if !sinceTime.IsZero() && w.CreationTimestamp.Time.Before(sinceTime) {
+			continue
+		}
+		if !untilTime.IsZero() && w.CreationTimestamp.Time.After(untilTime) {
+			continue
+		}
+		result.Items = append(result.Items, h.cvtAdminWorkloadToResponse(c.Request.Context(), &w, false))
+	}
+	result.TotalCount = len(result.Items)
+	return result, nil
+}
 
 func (h *Handler) getAdminWorkload(ctx context.Context, name string) (*v1.Workload, error) {
 	if name == "" {
@@ -436,10 +486,6 @@ func (h *Handler) cvtToListWorkloadSql(ctx context.Context,
 			sqlList = append(sqlList, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Phase"): val})
 		}
 		dbSql = append(dbSql, sqrl.Or(sqlList))
-	}
-	if workloadId := strings.TrimSpace(query.WorkloadId); workloadId != "" {
-		dbSql = append(dbSql, sqrl.Like{
-			dbclient.GetFieldTag(dbTags, "WorkloadId"): fmt.Sprintf("%%%s%%", workloadId)})
 	}
 	if description := strings.TrimSpace(query.Description); description != "" {
 		dbSql = append(dbSql,
@@ -734,4 +780,27 @@ func (h *Handler) buildSSHAddress(ctx context.Context, userName, podName, worksp
 	}
 	return fmt.Sprintf("ssh -p %d %s.%s.%s@%s",
 		commonconfig.GetSSHServerPort(), userName, podName, workspace, localIp)
+}
+
+func buildWorkloadLabelSelector(query *types.GetWorkloadRequest) labels.Selector {
+	var labelSelector = labels.NewSelector()
+	if query.WorkspaceId != "" {
+		req, _ := labels.NewRequirement(v1.WorkspaceIdLabel, selection.Equals, []string{query.WorkspaceId})
+		labelSelector = labelSelector.Add(*req)
+	}
+	if query.ClusterId != "" {
+		req, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{query.ClusterId})
+		labelSelector = labelSelector.Add(*req)
+	}
+	if query.UserName != "" {
+		nameMd5 := stringutil.MD5(query.UserName)
+		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.Equals, []string{nameMd5})
+		labelSelector = labelSelector.Add(*req)
+	}
+	if query.Kind != "" {
+		values := strings.Split(query.Kind, ",")
+		req, _ := labels.NewRequirement(v1.WorkloadKindLabel, selection.In, values)
+		labelSelector = labelSelector.Add(*req)
+	}
+	return labelSelector
 }

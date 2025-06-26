@@ -20,27 +20,27 @@ apiserver:
   health_port: 8082
   tag: "202506251600"
   replicas: 1
-  cpu: "1000m"
-  memory: 2Gi
+  cpu: "2000m"
+  memory: 4Gi
 resource_manager:
   health_port: 8081
   tag: "202506251600"
   replicas: 1
-  cpu: "1000m"
-  memory: 2Gi
+  cpu: "2000m"
+  memory: 4Gi
 job_manager:
   health_port: 8083
   tag: "202506251600"
   replicas: 1
-  cpu: "1000m"
-  memory: 2Gi
+  cpu: "2000m"
+  memory: 4Gi
 webhooks:
   port: 8084
   health_port: 8085
   tag: "202506251600"
   replicas: 1
-  cpu: "1000m"
-  memory: 2Gi
+  cpu: "2000m"
+  memory: 4Gi
 preprocess:
   tag: "202506152300"
 db:
@@ -61,8 +61,8 @@ log:
   endpoint: "logs-nodes.primus-safe.svc.cluster.local:9200"
   prefix: "node-"
 ssh:
+  enable: false
   port: 2222
-  enable: true
   mount_path: "/etc/secrets/ssh"
 ops_job:
   ttl_second: 300
