@@ -12,10 +12,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
-
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
 func AddResource(resources ...corev1.ResourceList) corev1.ResourceList {
@@ -167,6 +166,9 @@ func IsConcernedResource(name corev1.ResourceName) bool {
 	if name == corev1.ResourceStorage || name == corev1.ResourceEphemeralStorage {
 		return true
 	}
+	if string(name) == commonconfig.GetRdmaName() {
+		return true
+	}
 	return false
 }
 
@@ -178,7 +180,7 @@ func MultiResource(inputs corev1.ResourceList, replica int64) corev1.ResourceLis
 	return result
 }
 
-func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore string, replica int64) (corev1.ResourceList, error) {
+func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore, rdmaResource string, replica int64) (corev1.ResourceList, error) {
 	if replica <= 0 {
 		return nil, nil
 	}
@@ -225,6 +227,17 @@ func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore string, replica
 			return nil, fmt.Errorf("invalid ephemeral store")
 		}
 		result[corev1.ResourceEphemeralStorage] = ephemeralStoreQuantity
+	}
+
+	if rdmaResource != "" && commonconfig.GetRdmaName() != "" {
+		rdmaQuantity, err := resource.ParseQuantity(rdmaResource)
+		if err != nil {
+			return nil, err
+		}
+		if rdmaQuantity.Value() <= 0 {
+			return nil, fmt.Errorf("invalid rdma resource")
+		}
+		result[corev1.ResourceName(commonconfig.GetRdmaName())] = rdmaQuantity
 	}
 	return MultiResource(result, replica), nil
 }

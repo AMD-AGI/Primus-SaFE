@@ -43,7 +43,7 @@ var (
 				GPU:              "4",
 				GPUName:          "amd.com/gpu",
 				Memory:           "256Gi",
-				ShareMemory:      "32Gi",
+				SharedMemory:     "32Gi",
 				EphemeralStorage: "20Gi",
 				JobPort:          12345,
 			},

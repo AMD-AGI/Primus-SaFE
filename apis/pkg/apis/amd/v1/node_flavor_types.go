@@ -95,7 +95,7 @@ func (nf *NodeFlavor) HasGpu() bool {
 	return false
 }
 
-func (nf *NodeFlavor) ToResourceList() corev1.ResourceList {
+func (nf *NodeFlavor) ToResourceList(rdmaName string) corev1.ResourceList {
 	if nf == nil {
 		return nil
 	}
@@ -105,6 +105,12 @@ func (nf *NodeFlavor) ToResourceList() corev1.ResourceList {
 	storage, ok := nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage]
 	if ok {
 		result[corev1.ResourceEphemeralStorage] = storage
+	}
+	if rdmaName != "" {
+		rdma, ok := nf.Spec.ExtendResources[corev1.ResourceName(rdmaName)]
+		if ok {
+			result[corev1.ResourceName(rdmaName)] = rdma
+		}
 	}
 	if nf.HasGpu() {
 		result[corev1.ResourceName(nf.Spec.Gpu.ResourceName)] = nf.Spec.Gpu.Quantity

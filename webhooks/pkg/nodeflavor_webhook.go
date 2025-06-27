@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -64,6 +66,19 @@ func (m *NodeFlavorMutator) mutateOnCreation(nf *v1.NodeFlavor) {
 		nf.Spec.Gpu = nil
 	}
 	v1.SetLabel(nf, v1.DisplayNameLabel, nf.Name)
+}
+
+func (m *NodeFlavorMutator) mutateExtendResources(nf *v1.NodeFlavor) {
+	extendResources := make(corev1.ResourceList)
+	for key, val := range nf.Spec.ExtendResources {
+		strKey := string(key)
+		strKey = strings.Trim(strKey, " ")
+		if strKey == "" {
+			continue
+		}
+		extendResources[corev1.ResourceName(strKey)] = val
+	}
+	nf.Spec.ExtendResources = extendResources
 }
 
 type NodeFlavorValidator struct {
@@ -119,6 +134,10 @@ func (v *NodeFlavorValidator) validate(nf *v1.NodeFlavor) error {
 	ephemeralStorage, ok := nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage]
 	if ok && ephemeralStorage.Value() <= 0 {
 		return fmt.Errorf("invalid %s: %v", corev1.ResourceEphemeralStorage, ephemeralStorage.String())
+	}
+	rdma, ok := nf.Spec.ExtendResources[corev1.ResourceName(commonconfig.GetRdmaName())]
+	if ok && rdma.Value() <= 0 {
+		return fmt.Errorf("invalid %s: %v", commonconfig.GetRdmaName(), rdma.String())
 	}
 	return nil
 }

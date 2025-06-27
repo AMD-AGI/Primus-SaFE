@@ -20,6 +20,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
@@ -256,7 +257,7 @@ func (h *Handler) buildWorkspaceDetail(ctx context.Context, workspace *v1.Worksp
 	if err != nil {
 		return err
 	}
-	nfResource := nf.ToResourceList()
+	nfResource := nf.ToResourceList(commonconfig.GetRdmaName())
 
 	totalQuota := quantity.MultiResource(nfResource, int64(result.AvailableReplica+result.AbnormalReplica))
 	availQuota := quantity.MultiResource(nfResource, int64(result.AvailableReplica))

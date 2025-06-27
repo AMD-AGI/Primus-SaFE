@@ -197,7 +197,7 @@ func TestUpdateDeployment(t *testing.T) {
 	cmd := buildEntryPoint("sh -c test.sh")
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Command[2], cmd)
 
-	shareMemorySize, err := jobutils.GetShareMemorySize(workloadObj, jobutils.TestDeploymentTemplate)
+	shareMemorySize, err := jobutils.GetMemoryStorageSize(workloadObj, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	assert.Equal(t, shareMemorySize, "32Gi")
 }
@@ -215,8 +215,9 @@ func TestUpdatePytorchJob(t *testing.T) {
 		GPU:              "8",
 		GPUName:          "amd.com/gpu",
 		Memory:           "512Gi",
-		ShareMemory:      "512Gi",
+		SharedMemory:     "512Gi",
 		EphemeralStorage: "100Gi",
+		RdmaResource:     "1k",
 	}
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
@@ -236,7 +237,7 @@ func TestUpdatePytorchJob(t *testing.T) {
 	assert.Equal(t, gpuQuantity.Value(), int64(8))
 	rdmaQuantity, ok := template.Spec.Containers[0].Resources.Limits[corev1.ResourceName(commonconfig.GetRdmaName())]
 	assert.Equal(t, ok, true)
-	assert.Equal(t, rdmaQuantity.Value(), int64(1))
+	assert.Equal(t, rdmaQuantity.Value(), int64(1000))
 	assert.Equal(t, pytorchJob.Spec.PytorchReplicaSpecs.Master.Template.Spec.PriorityClassName,
 		commonworkload.GeneratePriorityClass(adminWorkload))
 
@@ -250,7 +251,7 @@ func TestUpdatePytorchJob(t *testing.T) {
 	assert.Equal(t, gpuQuantity.Value(), int64(8))
 	rdmaQuantity, ok = template.Spec.Containers[0].Resources.Limits[corev1.ResourceName(commonconfig.GetRdmaName())]
 	assert.Equal(t, ok, true)
-	assert.Equal(t, rdmaQuantity.Value(), int64(1))
+	assert.Equal(t, rdmaQuantity.Value(), int64(1000))
 }
 
 func TestUpdatePytorchJobMaster(t *testing.T) {
@@ -260,6 +261,7 @@ func TestUpdatePytorchJobMaster(t *testing.T) {
 	workloadObj, err := jsonutils.ParseYamlToJson(jobutils.TestPytorchData)
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
+	adminWorkload.Spec.Resource.RdmaResource = ""
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
 	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
@@ -315,12 +317,12 @@ func TestIsShareMemoryChanged(t *testing.T) {
 	assert.NilError(t, err)
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 
-	adminWorkload.Spec.Resource.ShareMemory = "20Gi"
-	ok := isShareMemoryChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	adminWorkload.Spec.Resource.SharedMemory = "20Gi"
+	ok := isSharedMemoryChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
 	assert.Equal(t, ok, false)
 
-	adminWorkload.Spec.Resource.ShareMemory = "30Gi"
-	ok = isShareMemoryChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
+	adminWorkload.Spec.Resource.SharedMemory = "30Gi"
+	ok = isSharedMemoryChanged(adminWorkload, workloadObj, jobutils.TestDeploymentTemplate)
 	assert.Equal(t, ok, true)
 }
 

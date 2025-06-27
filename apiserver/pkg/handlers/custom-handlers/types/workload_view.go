@@ -110,8 +110,8 @@ type PatchWorkloadRequest struct {
 	Memory *string `json:"memory,omitempty"`
 	// pod storage size, e.g. 50Gi
 	EphemeralStorage *string `json:"ephemeralStorage,omitempty"`
-	// share memory, e.g. 20Gi
-	ShareMemory *string `json:"shareMemory,omitempty"`
+	// shared memory, e.g. 20Gi
+	SharedMemory *string `json:"sharedMemory,omitempty"`
 	// the image used by workload
 	Image *string `json:"image,omitempty"`
 	// workload entryPoint, required in base64 encoding

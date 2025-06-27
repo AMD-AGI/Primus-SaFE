@@ -16,6 +16,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -223,10 +224,12 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 				klog.ErrorS(err, "failed to find limits", "path", path)
 				return nil, nil, err
 			}
-			rl, err := quantity.CvtToResourceList(GetUnstructuredString(limits, []string{string(corev1.ResourceCPU)}),
+			rl, err := quantity.CvtToResourceList(
+				GetUnstructuredString(limits, []string{string(corev1.ResourceCPU)}),
 				GetUnstructuredString(limits, []string{string(corev1.ResourceMemory)}),
 				GetUnstructuredString(limits, []string{gpuName}), gpuName,
-				GetUnstructuredString(limits, []string{string(corev1.ResourceEphemeralStorage)}), 1)
+				GetUnstructuredString(limits, []string{string(corev1.ResourceEphemeralStorage)}),
+				GetUnstructuredString(limits, []string{commonconfig.GetRdmaName()}), 1)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -317,7 +320,7 @@ func GetImage(unstructuredObj *unstructured.Unstructured,
 	return "", fmt.Errorf("no image found")
 }
 
-func GetShareMemorySize(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (string, error) {
+func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (string, error) {
 	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
@@ -331,7 +334,7 @@ func GetShareMemorySize(unstructuredObj *unstructured.Unstructured, rt *v1.Resou
 			return "", fmt.Errorf("failed to find volumes, path: %s", path)
 		}
 
-		shareMemory := GetShareMemoryVolume(volumes)
+		shareMemory := GetMemoryStorageVolume(volumes)
 		if shareMemory == nil {
 			break
 		}
@@ -340,7 +343,7 @@ func GetShareMemorySize(unstructuredObj *unstructured.Unstructured, rt *v1.Resou
 	return "", fmt.Errorf("no share memory found")
 }
 
-func GetShareMemoryVolume(volumes []interface{}) map[string]interface{} {
+func GetMemoryStorageVolume(volumes []interface{}) map[string]interface{} {
 	for i := range volumes {
 		volume, ok := volumes[i].(map[string]interface{})
 		if !ok {

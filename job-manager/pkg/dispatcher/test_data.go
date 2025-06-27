@@ -75,8 +75,6 @@ data:
                capabilities:
                  add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
              volumeMounts:
-               - name: sugaku-volume
-                 mountPath: /dev/shm
                - name: varlog
                  mountPath: /var/log
                - name: shared-data
@@ -134,8 +132,6 @@ data:
                 - name: pytorch
                   imagePullPolicy: IfNotPresent
                   volumeMounts:
-                    - mountPath: /dev/shm
-                      name: sugaku-volume
                     - name: shared-data
                       mountPath: /shared-data
                     - name: varlog
@@ -269,8 +265,6 @@ data:
                     capabilities:
                       add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
                   volumeMounts:
-                    - name: sugaku-volume
-                      mountPath: /dev/shm
                     - name: shared-data
                       mountPath: /shared-data
                     - name: varlog
