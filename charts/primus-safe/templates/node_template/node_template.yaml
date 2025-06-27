@@ -12,3 +12,4 @@ spec:
     - disable-os-upgrade
     - load-amdgpu-module
     - load-rdma-module
+    - disable-numa-balancing
