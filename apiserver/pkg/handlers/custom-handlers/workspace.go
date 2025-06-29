@@ -231,7 +231,7 @@ func (h *Handler) cvtToWorkspaceResItem(ctx context.Context,
 		WorkspaceName: v1.GetDisplayName(w),
 		ClusterId:     w.Spec.Cluster,
 		NodeFlavor:    w.Spec.NodeFlavor,
-		TotalReplica:  w.Spec.Replica,
+		TotalNode:     w.Spec.Replica,
 		Phase:         string(w.Status.Phase),
 		CreateTime:    timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
 		Description:   v1.GetDescription(w),
@@ -250,8 +250,8 @@ func (h *Handler) cvtToWorkspaceResItem(ctx context.Context,
 }
 
 func (h *Handler) buildWorkspaceDetail(ctx context.Context, workspace *v1.Workspace, result *types.GetWorkspaceResponseItem) error {
-	result.AvailableReplica = workspace.Status.AvailableReplica
-	result.AbnormalReplica = workspace.Status.AbnormalReplica
+	availableReplica := workspace.Status.AvailableReplica
+	result.AbnormalNode = workspace.Status.AbnormalReplica
 
 	nf, err := h.getAdminNodeFlavor(ctx, workspace.Spec.NodeFlavor)
 	if err != nil {
@@ -259,14 +259,24 @@ func (h *Handler) buildWorkspaceDetail(ctx context.Context, workspace *v1.Worksp
 	}
 	nfResource := nf.ToResourceList(commonconfig.GetRdmaName())
 
-	totalQuota := quantity.MultiResource(nfResource, int64(result.AvailableReplica+result.AbnormalReplica))
-	availQuota := quantity.MultiResource(nfResource, int64(result.AvailableReplica))
-	availQuota = quantity.GetAvailableResource(availQuota)
-	abnormalQuota := quantity.MultiResource(nfResource, int64(result.AbnormalReplica))
+	totalQuota := quantity.MultiResource(nfResource, int64(availableReplica+result.AbnormalNode))
+	abnormalQuota := quantity.MultiResource(nfResource, int64(result.AbnormalNode))
 	result.TotalQuota = cvtToResourceList(totalQuota)
-	result.AvailQuota = cvtToResourceList(availQuota)
 	result.AbnormalQuota = cvtToResourceList(abnormalQuota)
 
+	usedQuota, err := h.getWorkspaceUsedQuota(ctx, workspace)
+	if err != nil {
+		return err
+	}
+	result.UsedQuota = cvtToResourceList(usedQuota)
+
+	availQuota := quantity.MultiResource(nfResource, int64(availableReplica))
+	availQuota = quantity.GetAvailableResource(availQuota)
+	result.AvailQuota = cvtToResourceList(quantity.SubResource(availQuota, usedQuota))
+	return nil
+}
+
+func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Workspace) (corev1.ResourceList, error) {
 	filterNode := func(nodeName string) bool {
 		n, err := h.getAdminNode(ctx, nodeName)
 		if err != nil {
@@ -281,18 +291,17 @@ func (h *Handler) buildWorkspaceDetail(ctx context.Context, workspace *v1.Worksp
 	workspaceNames := []string{workspace.Name}
 	workloads, err := h.getRunningWorkloads(ctx, workspace.Spec.Cluster, workspaceNames)
 	if err != nil || len(workloads) == 0 {
-		return err
+		return nil, err
 	}
 	var usedQuota corev1.ResourceList
 	for _, w := range workloads {
 		res, err := commonworkload.GetActiveResources(w, filterNode)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if res != nil {
 			usedQuota = quantity.AddResource(usedQuota, res)
 		}
 	}
-	result.UsedQuota = cvtToResourceList(usedQuota)
-	return nil
+	return usedQuota, nil
 }
