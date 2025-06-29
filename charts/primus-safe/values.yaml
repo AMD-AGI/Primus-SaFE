@@ -1,5 +1,5 @@
 crypto:
-  enable: false
+  enable: true
   mount_path: /etc/secrets
 workspace:
   mem_reserve_percent: 0.02
@@ -8,8 +8,8 @@ workspace:
 workload:
   max_ephemeral_store_percent: 0.6
 net:
-  nccl_socket_ifname: "eno0"
-  nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
+  nccl_socket_ifname: "ens51f0"
+  nccl_ib_hca: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
   rdma_name: "rdma/hca"
 repository: "docker.io/primussafe"
 k8s:
@@ -18,7 +18,7 @@ k8s:
 apiserver:
   port: 8088
   health_port: 8082
-  tag: "202506271700"
+  tag: "202506291800"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi
@@ -44,7 +44,7 @@ webhooks:
 preprocess:
   tag: "202506152300"
 db:
-  enable: false
+  enable: true
   secret: "primus-safe-pguser-primus-safe"
   mount_path: "/etc/secrets/db"
   ssl_mode: "require"
@@ -55,13 +55,13 @@ db:
   connect_timeout_second: 10
   request_timeout_second: 20
 log:
-  enable: false
+  enable: true
   secret: "primus-safe-logs-admin-password"
   mount_path: "/etc/secrets/log"
   endpoint: "logs-nodes.primus-safe.svc.cluster.local:9200"
   prefix: "node-"
 ssh:
-  enable: false
+  enable: true
   port: 2222
   mount_path: "/etc/secrets/ssh"
 ops_job:

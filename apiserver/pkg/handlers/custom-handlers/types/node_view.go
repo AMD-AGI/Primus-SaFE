@@ -83,7 +83,7 @@ type GetNodeResponseItem struct {
 	// the nodes' template
 	NodeTemplate string `json:"nodeTemplate,omitempty"`
 	// Indicates whether the node can be scheduled in the Kubernetes cluster.
-	Unschedulable bool `json:"unschedulable,omitempty"`
+	Available bool `json:"available"`
 	// the taints on node
 	Taints []corev1.Taint `json:"taints,omitempty"`
 	// total resource of node

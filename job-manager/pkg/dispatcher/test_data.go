@@ -93,7 +93,7 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: pytorch-job-template
+  name: amd-pytorch-job-template
   namespace: primus-safe
   labels:
     primus-safe.workload.version: v1
@@ -115,7 +115,7 @@ data:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
                 - name: preprocess
-                  image: docker.io/primussafe/preprocess:latest
+                  image: test-preprocess:latest
                   imagePullPolicy: IfNotPresent
                   command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                   securityContext:
@@ -146,24 +146,12 @@ data:
                       value: "ens51f0"
                     - name: NCCL_IB_HCA
                       value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
-                    - name: NCCL_DEBUG
-                      value: "INFO"
-                    - name: NCCL_IB_DISABLE
-                      value: "0"
                     - name: NCCL_IB_TIMEOUT
                       value: "22"
-                    - name: NCCL_IB_QPS_PER_CONNECTION
-                      value: "8"
                     - name: NCCL_IB_RETRY_CNT
                       value: "12"
-                    - name: NCCL_NVLS_ENABLE
-                      value: "0"
-                    - name: NCCL_SOCKET_FAMILY
-                      value: "AF_INET"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
-                    - name: JOB_KIND
-                      value: "PytorchJob"
                     - name: POD_NAME
                       valueFrom:
                         fieldRef:
@@ -183,7 +171,7 @@ data:
                   securityContext:
                     capabilities:
                       add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
-              schedulerName: default-scheduler
+              schedulerName: kube-scheduler-plugins
               volumes:
                 - name: shared-data
                   emptyDir: {}
@@ -197,6 +185,8 @@ data:
                       fieldRef:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 5
+              imagePullSecrets:
+                - name: test-image
         Worker:
           restartPolicy: Never
           template:
@@ -204,7 +194,7 @@ data:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
                 - name: preprocess
-                  image: docker.io/primussafe/preprocess:latest
+                  image: test-preprocess:latest
                   imagePullPolicy: IfNotPresent
                   command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                   securityContext:
@@ -227,24 +217,12 @@ data:
                       value: "ens51f0"
                     - name: NCCL_IB_HCA
                       value: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
-                    - name: NCCL_DEBUG
-                      value: "INFO"
-                    - name: NCCL_IB_DISABLE
-                      value: "0"
                     - name: NCCL_IB_TIMEOUT
                       value: "22"
-                    - name: NCCL_IB_QPS_PER_CONNECTION
-                      value: "8"
                     - name: NCCL_IB_RETRY_CNT
                       value: "12"
-                    - name: NCCL_NVLS_ENABLE
-                      value: "0"
-                    - name: NCCL_SOCKET_FAMILY
-                      value: "AF_INET"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
-                    - name: JOB_KIND
-                      value: "PytorchJob"
                     - name: POD_NAME
                       valueFrom:
                         fieldRef:
@@ -272,7 +250,7 @@ data:
                     - name: podinfo
                       mountPath: /etc/podinfo
                       readOnly: true
-              schedulerName: default-scheduler
+              schedulerName: kube-scheduler-plugins
               volumes:
                 - name: shared-data
                   emptyDir: {}
@@ -286,5 +264,7 @@ data:
                       fieldRef:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 5
+              imagePullSecrets:
+                - name: test-image
 `
 )
