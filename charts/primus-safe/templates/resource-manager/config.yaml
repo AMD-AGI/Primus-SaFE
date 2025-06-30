@@ -4,6 +4,7 @@ data:
     global:
       enable_crypto: {{ .Values.crypto.enable }}
       crypto_key: {{ .Values.crypto.mount_path }}/key
+      rdma_name: {{ .Values.net.rdma_name }}
     health_check:
       enable: {{ .Values.k8s.enable_health_check }}
       port: {{ .Values.resource_manager.health_port }}
@@ -12,7 +13,7 @@ data:
       lock_namespace: "{{ .Release.Namespace }}"
     workspace:
       mem_reserve_percent: {{ .Values.workspace.mem_reserve_percent }}
-      cpu_reserve_percent:  {{ .Values.workspace.cpu_reserve_percent }}
+      cpu_reserve_percent: {{ .Values.workspace.cpu_reserve_percent }}
       ephemeral_store_reserve_percent: {{ .Values.workspace.ephemeral_store_reserve_percent }}
     db:
       enable: {{ .Values.db.enable }}
@@ -22,7 +23,7 @@ data:
       max_idle_conns: {{ .Values.db.max_idle_conns }}
       max_life_time_second: {{ .Values.db.max_life_time_second }}
       max_idle_time_second: {{ .Values.db.max_idle_time_second }}
-      connect_timeout_second:  {{ .Values.db.connect_timeout_second }}
+      connect_timeout_second: {{ .Values.db.connect_timeout_second }}
       request_timeout_second: {{ .Values.db.request_timeout_second }}
     ops_job:
       ttl_second: {{ .Values.ops_job.ttl_second }}

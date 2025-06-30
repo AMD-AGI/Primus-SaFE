@@ -565,8 +565,8 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	if req.EphemeralStorage != nil {
 		adminWorkload.Spec.Resource.EphemeralStorage = *req.EphemeralStorage
 	}
-	if req.ShareMemory != nil {
-		adminWorkload.Spec.Resource.ShareMemory = *req.ShareMemory
+	if req.SharedMemory != nil {
+		adminWorkload.Spec.Resource.SharedMemory = *req.SharedMemory
 	}
 	if req.Image != nil && *req.Image != "" {
 		adminWorkload.Spec.Image = *req.Image

@@ -172,7 +172,7 @@ func GetActiveResources(workload *v1.Workload, filterNode func(nodeName string) 
 func CvtToResourceList(w *v1.Workload) (corev1.ResourceList, error) {
 	res := &w.Spec.Resource
 	result, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
-		res.GPUName, res.EphemeralStorage, int64(res.Replica))
+		res.GPUName, res.EphemeralStorage, res.RdmaResource, int64(res.Replica))
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
@@ -182,7 +182,7 @@ func CvtToResourceList(w *v1.Workload) (corev1.ResourceList, error) {
 func GetPodResources(w *v1.Workload) (corev1.ResourceList, error) {
 	res := &w.Spec.Resource
 	result, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
-		res.GPUName, res.EphemeralStorage, 1)
+		res.GPUName, res.EphemeralStorage, res.RdmaResource, 1)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}

@@ -39,7 +39,7 @@ func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.W
 	if workload.Spec.Resource.GPU != "" {
 		assert.Equal(t, limits[common.AmdGpu], workload.Spec.Resource.GPU)
 		if replica > 1 {
-			assert.Equal(t, limits[commonconfig.GetRdmaName()], "1")
+			assert.Equal(t, limits[commonconfig.GetRdmaName()], "1k")
 		}
 	}
 }
@@ -140,7 +140,7 @@ func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, resourceSpe
 	volumeMounts, found, err := unstructured.NestedSlice(obj2, []string{"volumeMounts"}...)
 	assert.NilError(t, err)
 
-	volumeMount := findVolumeMount(volumeMounts, ShareMemoryVolumeName)
+	volumeMount := findVolumeMount(volumeMounts, SharedMemoryVolume)
 	assert.Equal(t, volumeMount != nil, true)
 	volumeMount = findVolumeMount(volumeMounts, string(v1.FS))
 	assert.Equal(t, volumeMount != nil, true)
@@ -181,13 +181,13 @@ func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 
-	volume := findVolume(volumes, ShareMemoryVolumeName)
+	volume := findVolume(volumes, SharedMemoryVolume)
 	assert.Equal(t, volume != nil, true)
 	emptyDir, ok := volume["emptyDir"]
 	assert.Equal(t, ok, true)
 	sizeLimit, ok := emptyDir.(map[string]interface{})["sizeLimit"]
 	assert.Equal(t, ok, true)
-	assert.Equal(t, sizeLimit.(string), workload.Spec.Resource.ShareMemory)
+	assert.Equal(t, sizeLimit.(string), workload.Spec.Resource.SharedMemory)
 
 	volume = findVolume(volumes, string(v1.FS))
 	assert.Equal(t, volume != nil, true)

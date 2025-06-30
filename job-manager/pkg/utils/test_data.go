@@ -44,6 +44,11 @@ spec:
                   cpu: "48"
                   memory: 960Gi
                   amd.com/gpu: "8"
+              volumeMounts:
+                - mountPath: /pfs
+                  name: pfs
+                - name: shared-memory
+                  mountPath: /dev/shm
           dnsPolicy: ClusterFirstWithHostNet
           hostNetwork: true
           priorityClassName: "test-med-priority"
@@ -55,7 +60,7 @@ spec:
             - emptyDir:
                 medium: Memory
                 sizeLimit: 10Gi
-              name: sugaku-volume
+              name: shared-memory
     Worker:
       replicas: 63
       restartPolicy: Never
@@ -76,11 +81,11 @@ spec:
                   cpu: "48"
                   memory: 960Gi
                   amd.com/gpu: "8"
-                  rdma/hca: "1"
+                  rdma/hca: "1k"
               volumeMounts:
                 - mountPath: /pfs
                   name: pfs
-                - name: sugaku-volume
+                - name: shared-memory
                   mountPath: /dev/shm
           dnsPolicy: ClusterFirstWithHostNet
           hostNetwork: true
@@ -93,7 +98,7 @@ spec:
             - emptyDir:
                 medium: Memory
                 sizeLimit: 10Gi
-              name: sugaku-volume
+              name: shared-memory
 status:
   conditions:
     - lastTransitionTime: "2025-05-21T11:27:56Z"
@@ -242,11 +247,14 @@ spec:
               ephemeral-storage: 50Gi
               memory: 100Gi
               amd.com/gpu: "8"
+            volumeMounts:
+              - name: shared-memory
+                mountPath: /dev/shm
       volumes:
         - emptyDir:
             medium: Memory
             sizeLimit: 20Gi
-          name: sugaku-volume
+          name: shared-memory
         - name: shared-data
           emptyDir: {}
       terminationGracePeriodSeconds: 10
@@ -339,6 +347,8 @@ spec:
         volumeMounts:
         - mountPath: /shared-data
           name: shared-data
+        - name: shared-memory
+          mountPath: /dev/shm
       dnsPolicy: ClusterFirstWithHostNet
       imagePullSecrets:
       - name: primus-safe-image
@@ -368,7 +378,7 @@ spec:
       - emptyDir:
           medium: Memory
           sizeLimit: 16Gi
-        name: sugaku-volume
+        name: shared-memory
       - emptyDir: {}
         name: shared-data
   updateStrategy:
@@ -633,8 +643,9 @@ var (
 				GPU:              "4",
 				GPUName:          "amd.com/gpu",
 				Memory:           "256Gi",
-				ShareMemory:      "32Gi",
+				SharedMemory:     "32Gi",
 				EphemeralStorage: "20Gi",
+				RdmaResource:     "1k",
 				JobPort:          12345,
 			},
 			Env: map[string]string{

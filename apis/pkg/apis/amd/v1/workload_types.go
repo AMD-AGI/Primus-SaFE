@@ -57,10 +57,13 @@ type WorkloadResource struct {
 	GPUName string `json:"gpuName,omitempty"`
 	// Requested Memory size (e.g., 128Gi)
 	Memory string `json:"memory"`
-	// Requested Share Memory size (e.g., 128Gi). default: Memory/2
-	ShareMemory string `json:"shareMemory,omitempty"`
+	// Requested Shared Memory size (e.g., 128Gi). Used for sharing data between processes. default: Memory/2
+	SharedMemory string `json:"sharedMemory,omitempty"`
 	// ephemeral-storage for pod，default: 50Gi
 	EphemeralStorage string `json:"ephemeralStorage,omitempty"`
+	// RDMA resource is effective only with hostNetwork enabled (default: 1).
+	// This field is set internally
+	RdmaResource string `json:"rdmaResource,omitempty"`
 	// the port for job
 	JobPort int `json:"jobPort,omitempty"`
 }
