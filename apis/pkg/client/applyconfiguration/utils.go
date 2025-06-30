@@ -22,6 +22,16 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 	// Group=amd.com, Version=v1
 	case v1.SchemeGroupVersion.WithKind("ActiveReplica"):
 		return &amdv1.ActiveReplicaApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("Addon"):
+		return &amdv1.AddonApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("AddonSource"):
+		return &amdv1.AddonSourceApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("AddonSourceStatus"):
+		return &amdv1.AddonSourceStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("AddonSpec"):
+		return &amdv1.AddonSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("AddonStatus"):
+		return &amdv1.AddonStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("AddonTemplate"):
 		return &amdv1.AddonTemplateApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("AddonTemplateSpec"):
@@ -66,6 +76,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.GroupVersionKindApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("HealthCheck"):
 		return &amdv1.HealthCheckApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("HelmRepository"):
+		return &amdv1.HelmRepositoryApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("HelmRepositoryStatus"):
+		return &amdv1.HelmRepositoryStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("HelmStatus"):
 		return &amdv1.HelmStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("HybridStorageSpec"):

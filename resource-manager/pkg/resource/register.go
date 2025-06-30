@@ -43,5 +43,8 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupStorageClusterController(mgr); err != nil {
 		return fmt.Errorf("failed to set up storage cluster controller: %+v", err)
 	}
+	if err := SetupAddonController(mgr); err != nil {
+		return fmt.Errorf("failed to set up addon controller: %+v", err)
+	}
 	return nil
 }

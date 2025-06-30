@@ -6,6 +6,8 @@ Copyright The AMD Authors.
 
 package v1
 
+type AddonExpansion interface{}
+
 type AddonTemplateExpansion interface{}
 
 type ClusterExpansion interface{}
