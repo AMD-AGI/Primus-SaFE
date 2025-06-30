@@ -16,6 +16,7 @@ import (
 
 type AmdV1Interface interface {
 	RESTClient() rest.Interface
+	AddonsGetter
 	AddonTemplatesGetter
 	ClustersGetter
 	FaultsGetter
@@ -32,6 +33,10 @@ type AmdV1Interface interface {
 // AmdV1Client is used to interact with features provided by the amd.com group.
 type AmdV1Client struct {
 	restClient rest.Interface
+}
+
+func (c *AmdV1Client) Addons(namespace string) AddonInterface {
+	return newAddons(c, namespace)
 }
 
 func (c *AmdV1Client) AddonTemplates(namespace string) AddonTemplateInterface {

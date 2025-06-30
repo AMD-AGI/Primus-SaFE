@@ -18,6 +18,7 @@ require (
 	github.com/agiledragon/gomonkey/v2 v2.13.0
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.37.0
+	helm.sh/helm/v3 v3.17.3
 )
 
 require (

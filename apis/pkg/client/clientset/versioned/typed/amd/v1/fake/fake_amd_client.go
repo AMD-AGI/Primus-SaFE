@@ -16,6 +16,10 @@ type FakeAmdV1 struct {
 	*testing.Fake
 }
 
+func (c *FakeAmdV1) Addons(namespace string) v1.AddonInterface {
+	return newFakeAddons(c, namespace)
+}
+
 func (c *FakeAmdV1) AddonTemplates(namespace string) v1.AddonTemplateInterface {
 	return newFakeAddonTemplates(c, namespace)
 }

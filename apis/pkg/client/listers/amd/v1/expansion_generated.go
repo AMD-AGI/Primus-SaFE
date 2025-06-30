@@ -6,6 +6,14 @@ Copyright The AMD Authors.
 
 package v1
 
+// AddonListerExpansion allows custom methods to be added to
+// AddonLister.
+type AddonListerExpansion interface{}
+
+// AddonNamespaceListerExpansion allows custom methods to be added to
+// AddonNamespaceLister.
+type AddonNamespaceListerExpansion interface{}
+
 // AddonTemplateListerExpansion allows custom methods to be added to
 // AddonTemplateLister.
 type AddonTemplateListerExpansion interface{}
