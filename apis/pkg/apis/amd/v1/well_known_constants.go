@@ -113,6 +113,10 @@ const (
 	// the job on node
 	OpsJobInputAnnotation = OpsJobPrefix + "input"
 	OpsJobFinalizer       = PrimusSafeDomain + "ops.job.finalizer"
+
+	// addon
+	AddonPrefix    = PrimusSafePrefix + "addon."
+	AddonFinalizer = AddonPrefix + "finalizer"
 )
 
 const (
