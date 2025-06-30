@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: hollow-node
+  namespace: kubemark
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kubemark
+  template:
+    metadata:
+      labels:
+        app: kubemark
+    spec:
+      containers:
+        - name: hollow-node
+          image: primussafe/kubemark:202506261725
+          command:
+            - /usr/local/bin/kubemark
+            - --name=$(PODNAME)
+            - --morph=kubelet
+            - --kubeconfig=/etc/kubernetes/kubeconfig
+            - --kubelet-port=10250
+            - --max-pods=110
+          env:
+          - name: PODNAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          volumeMounts:
+            - name: kubeconfig
+              mountPath: /etc/kubernetes
+            - name: containerd          
+              mountPath: /run/containerd
+      volumes:
+        - name: kubeconfig
+          configMap:
+            name: kubemark-kubeconfig
+        - name: containerd
+          hostPath:
+            path: /run/containerd
