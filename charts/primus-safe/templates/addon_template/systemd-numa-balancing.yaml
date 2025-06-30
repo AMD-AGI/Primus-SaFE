@@ -1,0 +1,17 @@
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: disable-numa-balancing
+  labels:
+    primus-safe.display.name: "disable-numa-balancing"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  type: systemd
+  category: Kernel
+  isOneShotService: true
+  description: Disable NUMA Balancing in the Linux kernel
+  extensions:
+    action: c3lzY3RsIC13IGtlcm5lbC5udW1hX2JhbGFuY2luZz0wCg==

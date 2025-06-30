@@ -52,11 +52,9 @@ type GetWorkspaceResponseItem struct {
 	// node flavor id
 	NodeFlavor string `json:"nodeFlavor,omitempty"`
 	// total node count
-	TotalReplica int `json:"totalReplica,omitempty"`
-	// available node count
-	AvailableReplica int `json:"availableReplica,omitempty"`
+	TotalNode int `json:"totalNode,omitempty"`
 	// abnormal node count
-	AbnormalReplica int `json:"abnormalReplica,omitempty"`
+	AbnormalNode int `json:"abnormalNode,omitempty"`
 	// the status of workspace
 	Phase string `json:"phase,omitempty"`
 	// creation time

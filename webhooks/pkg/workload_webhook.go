@@ -198,12 +198,12 @@ func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Wo
 	if workload.Spec.Resource.GPU != "" && workspace != nil {
 		workload.Spec.Resource.GPUName = v1.GetGpuResourceName(workspace)
 	}
-	if workload.Spec.Resource.ShareMemory == "" && workload.Spec.Resource.Memory != "" {
+	if workload.Spec.Resource.SharedMemory == "" && workload.Spec.Resource.Memory != "" {
 		memQuantity, err := resource.ParseQuantity(workload.Spec.Resource.Memory)
 		if err == nil && memQuantity.Value() > 0 {
 			shareMemQuantity := resource.NewQuantity(memQuantity.Value()/2, memQuantity.Format)
 			if shareMemQuantity != nil {
-				workload.Spec.Resource.ShareMemory = shareMemQuantity.String()
+				workload.Spec.Resource.SharedMemory = shareMemQuantity.String()
 				isChanged = true
 			}
 		}
@@ -249,12 +249,8 @@ func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 	}
 }
 
-func (m *WorkloadMutator) canUseHostNetwork(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
+func (m *WorkloadMutator) isHostNetworkEnabled(workload *v1.Workload, nf *v1.NodeFlavor) bool {
 	if workload.Spec.Resource.Replica <= 1 {
-		return false
-	}
-	nf, _ := getNodeFlavor(ctx, m.Client, workspace.Spec.NodeFlavor)
-	if nf == nil {
 		return false
 	}
 	gpuCount := 0
@@ -354,8 +350,24 @@ func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Wo
 	if workspace == nil {
 		return
 	}
-	isEnableHostNetWork := m.canUseHostNetwork(ctx, workload, workspace)
+	nf, _ := getNodeFlavor(ctx, m.Client, workspace.Spec.NodeFlavor)
+	if nf == nil {
+		return
+	}
+	isEnableHostNetWork := m.isHostNetworkEnabled(workload, nf)
 	v1.SetAnnotation(workload, v1.EnableHostNetworkAnnotation, strconv.FormatBool(isEnableHostNetWork))
+
+	rdmaName := commonconfig.GetRdmaName()
+	if isEnableHostNetWork && rdmaName != "" {
+		rdmaQuantity, ok := nf.Spec.ExtendResources[corev1.ResourceName(rdmaName)]
+		if ok {
+			workload.Spec.Resource.RdmaResource = rdmaQuantity.String()
+		} else {
+			workload.Spec.Resource.RdmaResource = "1"
+		}
+	} else {
+		workload.Spec.Resource.RdmaResource = ""
+	}
 }
 
 type WorkloadValidator struct {
@@ -558,7 +570,7 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload
 	if nf == nil {
 		return err
 	}
-	nodeResources := nf.ToResourceList()
+	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
 	availNodeResources := quantity.GetAvailableResource(nodeResources)
 
 	// Validate if the workload's resource requests exceed the per-node resource limits
@@ -573,7 +585,7 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload
 	}
 
 	// Validate if the workload's share memory requests exceed the memory
-	shareMemQuantity, err := resource.ParseQuantity(workload.Spec.Resource.ShareMemory)
+	shareMemQuantity, err := resource.ParseQuantity(workload.Spec.Resource.SharedMemory)
 	if err != nil {
 		return err
 	}

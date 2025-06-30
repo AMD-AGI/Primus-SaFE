@@ -84,7 +84,7 @@ func (caredChangePredicate) Update(e event.UpdateEvent) bool {
 		return true
 	}
 	if !commonworkload.IsResourceEqual(oldWorkload, newWorkload) ||
-		oldWorkload.Spec.Resource.ShareMemory != newWorkload.Spec.Resource.ShareMemory {
+		oldWorkload.Spec.Resource.SharedMemory != newWorkload.Spec.Resource.SharedMemory {
 		return true
 	}
 	if oldWorkload.Spec.Image != newWorkload.Spec.Image {
@@ -160,7 +160,6 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 	if err := r.buildPort(ctx, adminWorkload); err != nil {
 		return err
 	}
-
 	k8sObject, err := r.createK8sObject(ctx, adminWorkload)
 	if err != nil {
 		klog.ErrorS(err, "failed to create k8s unstructured object. ",
@@ -289,7 +288,7 @@ func (r *DispatcherReconciler) updateK8sObject(ctx context.Context, adminWorkloa
 	}
 
 	functions := []func(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool{
-		isResourceChanged, isImageChanged, isEntryPointChanged, isShareMemoryChanged, isEnvChanged, isPriorityClassChanged,
+		isResourceChanged, isImageChanged, isEntryPointChanged, isSharedMemoryChanged, isEnvChanged, isPriorityClassChanged,
 	}
 	isChanged := false
 	for _, f := range functions {
@@ -370,15 +369,15 @@ func isEnvChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt
 	return !maps.Contain(currentEnvsMap, adminWorkload.Spec.Env)
 }
 
-func isShareMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	shareMemory, err := jobutils.GetShareMemorySize(obj, rt)
+func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
+	memoryStorageSize, err := jobutils.GetMemoryStorageSize(obj, rt)
 	if err != nil {
-		if adminWorkload.Spec.Resource.ShareMemory == "" {
+		if adminWorkload.Spec.Resource.SharedMemory == "" {
 			return false
 		}
 		return true
 	}
-	return shareMemory != adminWorkload.Spec.Resource.ShareMemory
+	return memoryStorageSize != adminWorkload.Spec.Resource.SharedMemory
 }
 
 func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
@@ -414,7 +413,7 @@ func updateUnstructuredObj(obj *unstructured.Unstructured, adminWorkload *v1.Wor
 		if err := updateMainContainer(adminWorkload, obj, t); err != nil {
 			return err
 		}
-		if err := updateShareMemory(adminWorkload, obj, t); err != nil {
+		if err := updateSharedMemory(adminWorkload, obj, t); err != nil {
 			return err
 		}
 		if err := udpatePriorityClass(adminWorkload, obj, t); err != nil {
@@ -520,7 +519,7 @@ func updateContainerEnv(adminWorkload *v1.Workload, mainContainer map[string]int
 	mainContainer["env"] = newEnv
 }
 
-func updateShareMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
+func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "volumes")
@@ -529,22 +528,22 @@ func updateShareMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 		return err
 	}
 	if !found {
-		shareMemoryVolume := buildShareMemory(adminWorkload.Spec.Resource.ShareMemory)
-		volumes = []interface{}{shareMemoryVolume}
+		sharedMemoryVolume := buildSharedMemoryVolume(adminWorkload.Spec.Resource.SharedMemory)
+		volumes = []interface{}{sharedMemoryVolume}
 		if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
 			return err
 		}
 		return nil
 	}
 
-	shareMemory := jobutils.GetShareMemoryVolume(volumes)
-	if shareMemory != nil {
-		shareMemory["sizeLimit"] = adminWorkload.Spec.Resource.ShareMemory
+	sharedMemory := jobutils.GetMemoryStorageVolume(volumes)
+	if sharedMemory != nil {
+		sharedMemory["sizeLimit"] = adminWorkload.Spec.Resource.SharedMemory
 		if err = unstructured.SetNestedField(obj.Object, volumes, path...); err != nil {
 			return err
 		}
 	} else {
-		volumes = append(volumes, buildShareMemory(adminWorkload.Spec.Resource.ShareMemory))
+		volumes = append(volumes, buildSharedMemoryVolume(adminWorkload.Spec.Resource.SharedMemory))
 		if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
 			return err
 		}

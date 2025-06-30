@@ -1,8 +1,10 @@
 apiVersion: v1
 data:
   config.yaml: |
+    global:
+      rdma_name: {{ .Values.net.rdma_name }}
     server:
-      port:  {{ .Values.webhooks.port }}
+      port: {{ .Values.webhooks.port }}
     health_check:
       enable: {{ .Values.k8s.enable_health_check }}
       port: {{ .Values.webhooks.health_port }}
@@ -11,7 +13,7 @@ data:
       lock_namespace: "{{ .Release.Namespace }}"
     workspace:
       mem_reserve_percent: {{ .Values.workspace.mem_reserve_percent }}
-      cpu_reserve_percent:  {{ .Values.workspace.cpu_reserve_percent }}
+      cpu_reserve_percent: {{ .Values.workspace.cpu_reserve_percent }}
       ephemeral_store_reserve_percent: {{ .Values.workspace.ephemeral_store_reserve_percent }}
     workload:
       max_ephemeral_store_percent: {{ .Values.workload.max_ephemeral_store_percent }}

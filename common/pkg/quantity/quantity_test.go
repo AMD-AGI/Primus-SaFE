@@ -13,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
 func TestAddResource(t *testing.T) {
@@ -150,13 +151,20 @@ func TestMultiResource(t *testing.T) {
 }
 
 func TestCvtToResourceList(t *testing.T) {
-	res, err := CvtToResourceList("1000m", "512", "8", common.NvidiaGpu, "", 2)
+	rdmaName := "global.rdma_name"
+	commonconfig.SetValue(rdmaName, "rdma/hca")
+	defer commonconfig.SetValue(rdmaName, "")
+
+	res, err := CvtToResourceList("1000m", "512", "8", common.NvidiaGpu, "", "1k", 2)
 	assert.NilError(t, err)
 	assert.Equal(t, res.Cpu().Value(), int64(2))
 	assert.Equal(t, res.Memory().Value(), int64(1024))
 	gpu, ok := res[common.NvidiaGpu]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, gpu.Value(), int64(16))
+	rdma, ok := res["rdma/hca"]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, rdma.Value(), int64(2000))
 }
 
 func TestParseFloatQuantity(t *testing.T) {

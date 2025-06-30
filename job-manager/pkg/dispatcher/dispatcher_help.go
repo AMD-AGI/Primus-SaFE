@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	ShareMemoryVolumeName = "sugaku-volume"
-	Launcher              = "chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh"
+	SharedMemoryVolume = "shared-memory"
+	Launcher           = "chmod +x /shared-data/launcher.sh; /bin/sh /shared-data/launcher.sh"
 )
 
 func modifyObjectOnCreation(obj *unstructured.Unstructured,
@@ -166,10 +166,9 @@ func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNe
 }
 
 func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Workspace) {
-	currentMounts := mainContainer["volumeMounts"].([]interface{})
-	if len(workspace.Spec.Volumes) == 0 {
-		return
-	}
+	volumeMounts := mainContainer["volumeMounts"].([]interface{})
+	volumeMount := buildSharedMemoryVolumeMount()
+	volumeMounts = append(volumeMounts, volumeMount...)
 	id := 0
 	for _, vol := range workspace.Spec.Volumes {
 		volumeName := string(vol.StorageType)
@@ -177,10 +176,10 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Work
 			volumeName = generateVolumeName(volumeName, id)
 			id++
 		}
-		mounts := buildVolumeMounts(vol, volumeName)
-		currentMounts = append(currentMounts, mounts...)
+		volumeMount = buildWorkspaceVolumeMount(vol, volumeName)
+		volumeMounts = append(volumeMounts, volumeMount...)
 	}
-	mainContainer["volumeMounts"] = currentMounts
+	mainContainer["volumeMounts"] = volumeMounts
 }
 
 func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path []string) error {
@@ -305,9 +304,9 @@ func buildResources(adminWorkload *v1.Workload) map[string]interface{} {
 	}
 	if adminWorkload.Spec.Resource.GPU != "" {
 		result[adminWorkload.Spec.Resource.GPUName] = adminWorkload.Spec.Resource.GPU
-		if v1.IsEnableHostNetwork(adminWorkload) && commonconfig.GetRdmaName() != "" {
-			result[commonconfig.GetRdmaName()] = "1"
-		}
+	}
+	if adminWorkload.Spec.Resource.RdmaResource != "" {
+		result[commonconfig.GetRdmaName()] = adminWorkload.Spec.Resource.RdmaResource
 	}
 	return result
 }
@@ -381,7 +380,7 @@ func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {
 	}
 }
 
-func buildVolumeMounts(vol v1.WorkspaceVolume, volumeName string) []interface{} {
+func buildWorkspaceVolumeMount(vol v1.WorkspaceVolume, volumeName string) []interface{} {
 	var result []interface{}
 	if vol.MountPath != "" {
 		volMount := map[string]interface{}{
@@ -393,6 +392,15 @@ func buildVolumeMounts(vol v1.WorkspaceVolume, volumeName string) []interface{} 
 		}
 		result = append(result, volMount)
 	}
+	return result
+}
+
+func buildSharedMemoryVolumeMount() []interface{} {
+	volMount := map[string]interface{}{
+		"mountPath": "/dev/shm",
+		"name":      SharedMemoryVolume,
+	}
+	result := []interface{}{volMount}
 	return result
 }
 
@@ -431,13 +439,13 @@ func buildMatchExpression(adminWorkload *v1.Workload) []interface{} {
 	return result
 }
 
-func buildShareMemory(sizeLimit string) interface{} {
+func buildSharedMemoryVolume(sizeLimit string) interface{} {
 	return map[string]interface{}{
 		"emptyDir": map[string]interface{}{
 			"medium":    string(corev1.StorageMediumMemory),
 			"sizeLimit": sizeLimit,
 		},
-		"name": ShareMemoryVolumeName,
+		"name": SharedMemoryVolume,
 	}
 }
 

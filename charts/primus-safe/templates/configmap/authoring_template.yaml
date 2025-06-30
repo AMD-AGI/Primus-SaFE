@@ -40,8 +40,6 @@ data:
                 - name: pytorch
                   imagePullPolicy: IfNotPresent
                   volumeMounts:
-                    - mountPath: /dev/shm
-                      name: sugaku-volume
                     - name: shared-data
                       mountPath: /shared-data
                     - name: varlog
