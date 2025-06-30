@@ -481,7 +481,7 @@ func cvtToGetNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.GetN
 		Phase:          string(n.Status.MachineStatus.Phase),
 		InternalIP:     n.Status.MachineStatus.PrivateIP,
 		NodeFlavor:     v1.GetNodeFlavorId(n),
-		Unschedulable:  n.IsAvailable(false),
+		Available:      n.IsAvailable(false),
 		Taints:         getPrimusTaints(n.Status.Taints),
 		TotalResources: cvtToResourceList(n.Status.Resources),
 		CustomerLabels: getCustomerLabels(n.Labels, true),

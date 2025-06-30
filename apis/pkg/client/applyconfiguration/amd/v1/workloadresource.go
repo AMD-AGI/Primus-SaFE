@@ -14,8 +14,9 @@ type WorkloadResourceApplyConfiguration struct {
 	GPU              *string `json:"gpu,omitempty"`
 	GPUName          *string `json:"gpuName,omitempty"`
 	Memory           *string `json:"memory,omitempty"`
-	ShareMemory      *string `json:"shareMemory,omitempty"`
+	SharedMemory     *string `json:"sharedMemory,omitempty"`
 	EphemeralStorage *string `json:"ephemeralStorage,omitempty"`
+	RdmaResource     *string `json:"rdmaResource,omitempty"`
 	JobPort          *int    `json:"jobPort,omitempty"`
 }
 
@@ -65,11 +66,11 @@ func (b *WorkloadResourceApplyConfiguration) WithMemory(value string) *WorkloadR
 	return b
 }
 
-// WithShareMemory sets the ShareMemory field in the declarative configuration to the given value
+// WithSharedMemory sets the SharedMemory field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ShareMemory field is set to the value of the last call.
-func (b *WorkloadResourceApplyConfiguration) WithShareMemory(value string) *WorkloadResourceApplyConfiguration {
-	b.ShareMemory = &value
+// If called multiple times, the SharedMemory field is set to the value of the last call.
+func (b *WorkloadResourceApplyConfiguration) WithSharedMemory(value string) *WorkloadResourceApplyConfiguration {
+	b.SharedMemory = &value
 	return b
 }
 
@@ -78,6 +79,14 @@ func (b *WorkloadResourceApplyConfiguration) WithShareMemory(value string) *Work
 // If called multiple times, the EphemeralStorage field is set to the value of the last call.
 func (b *WorkloadResourceApplyConfiguration) WithEphemeralStorage(value string) *WorkloadResourceApplyConfiguration {
 	b.EphemeralStorage = &value
+	return b
+}
+
+// WithRdmaResource sets the RdmaResource field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RdmaResource field is set to the value of the last call.
+func (b *WorkloadResourceApplyConfiguration) WithRdmaResource(value string) *WorkloadResourceApplyConfiguration {
+	b.RdmaResource = &value
 	return b
 }
 

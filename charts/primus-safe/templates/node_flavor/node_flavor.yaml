@@ -18,7 +18,7 @@ spec:
     type: nvme
   extendedResources:
     ephemeral-storage: 7440663780Ki
-    rdma/hca: 1k
+    {{ .Values.net.rdma_name }}: 1k
   flavorType: BareMetal
   gpu:
     product: AMD_Instinct_MI300X_OAM
