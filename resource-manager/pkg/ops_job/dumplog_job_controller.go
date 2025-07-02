@@ -103,7 +103,7 @@ func (r *DumpLogJobReconciler) observe(_ context.Context, _ *v1.OpsJob) (bool, e
 }
 
 func (r *DumpLogJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
-	return job.Spec.Type != v1.OpsJobDumplogType
+	return job.Spec.Type != v1.OpsJobDumpLogType
 }
 
 func (r *DumpLogJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
@@ -160,14 +160,19 @@ func (r *DumpLogJobReconciler) do(ctx context.Context, job *v1.OpsJob) (ctrlrunt
 	r.clearScroll(searchResult.ScrollId)
 
 	if err != nil {
-		r.s3Client.DeleteObject(ctx, workload.workloadId, 0)
+		if err2 := r.s3Client.DeleteObject(ctx, workload.workloadId, 0); err2 != nil {
+			klog.ErrorS(err2, "failed to delete object", "object", workload.workloadId)
+		}
 		return ctrlruntime.Result{}, commonerrors.NewInternalError(err.Error())
 	}
 
 	endpoint := strings.TrimSuffix(commonconfig.GetS3Endpoint(), "/") + "/" +
 		strings.TrimSuffix(commonconfig.GetS3Bucket(), "/") + "/" + workload.workloadId
 	outputs := []v1.Parameter{{Name: v1.ParameterEndpoint, Value: endpoint}}
-	r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, "", outputs)
+	err = r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, "", outputs)
+	if err != nil {
+		klog.ErrorS(err, "fail to set job status")
+	}
 	return ctrlruntime.Result{}, nil
 }
 
@@ -208,7 +213,10 @@ func (r *DumpLogJobReconciler) multiUpload(ctx context.Context, job *v1.OpsJob,
 
 	<-stopCh
 	if len(errCh) > 0 {
-		r.s3Client.AbortMultiPartUpload(ctx, param, 0)
+		err = r.s3Client.AbortMultiPartUpload(ctx, param, 0)
+		if err != nil {
+			klog.ErrorS(err, "failed to abort multi-part upload", "job", job.Name)
+		}
 		err = <-errCh
 		return err
 	}

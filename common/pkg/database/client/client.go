@@ -63,7 +63,10 @@ func NewClient() *Client {
 }
 
 func (c *Client) Close() {
-	c.db.Close()
+	err := c.db.Close()
+	if err != nil {
+		klog.ErrorS(err, "failed to close db connection")
+	}
 }
 
 func (c *Client) GetDB() *sqlx.DB {

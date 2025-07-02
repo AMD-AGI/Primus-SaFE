@@ -126,7 +126,7 @@ func (r *FailoverReconciler) handleFaultEvent() handler.EventHandler {
 			return false
 		}
 		conf := getFailoverConfig(r.failoverConfig, strings.ToLower(fault.Spec.Id))
-		if conf == nil || conf.Action != GLOBAL_RESTART {
+		if conf == nil || conf.Action != GlobalRestart {
 			return false
 		}
 		return true

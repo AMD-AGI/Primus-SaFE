@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+ulimit -n 65536
+
 WORK_PATH=/opt/primus-safe/webhooks
 
 . /etc/bashrc

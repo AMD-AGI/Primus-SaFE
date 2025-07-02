@@ -7,6 +7,7 @@ package s3
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -47,14 +48,27 @@ func GetConfig() (*Config, error) {
 		Region:           aws.String("us-east-1"),
 		S3ForcePathStyle: aws.Bool(true),
 	}
-	return &Config{
+
+	config := &Config{
 		Config:         s3Config,
-		Bucket:         pointer.String(commonconfig.GetS3Bucket()),
-		DefaultTimeout: int64(commonconfig.GetS3TimeoutSecond()),
+		DefaultTimeout: 60,
 		ExpireDay:      pointer.Int64(int64(commonconfig.GetS3ExpireDay())),
-	}, nil
+	}
+	config.setBucket()
+	return config, nil
 }
 
 func (c *Config) GetS3Config() *aws.Config {
 	return c.Config
+}
+
+func (c *Config) setBucket() {
+	bucket := ""
+	schemeIdx := strings.Index(commonconfig.GetS3Bucket(), "://")
+	if schemeIdx == -1 {
+		bucket = commonconfig.GetS3Bucket()
+	} else {
+		bucket = commonconfig.GetS3Bucket()[schemeIdx+3:]
+	}
+	c.Bucket = pointer.String(bucket)
 }

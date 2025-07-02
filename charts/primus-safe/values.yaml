@@ -18,31 +18,31 @@ k8s:
 apiserver:
   port: 8088
   health_port: 8082
-  tag: "202506291800"
+  image: "apiserver:202507021436"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi
 resource_manager:
   health_port: 8081
-  tag: "202506271700"
+  image: "resource-manager:202507021436"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi
 job_manager:
   health_port: 8083
-  tag: "202506271700"
+  image: "job-manager:202507021436"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi
 webhooks:
   port: 8084
   health_port: 8085
-  tag: "202506271700"
+  image: "webhooks:202507021436"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi
 preprocess:
-  tag: "202506152300"
+  image: "preprocess:202506152300"
 db:
   enable: true
   secret: "primus-safe-pguser-primus-safe"

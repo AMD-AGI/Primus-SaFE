@@ -16,13 +16,6 @@ import (
 	"testing"
 	"time"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/gin-gonic/gin"
 	"gotest.tools/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -31,6 +24,14 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 func genMockNodeFlavor() *v1.NodeFlavor {

@@ -25,6 +25,11 @@ data:
       max_idle_time_second: {{ .Values.db.max_idle_time_second }}
       connect_timeout_second: {{ .Values.db.connect_timeout_second }}
       request_timeout_second: {{ .Values.db.request_timeout_second }}
+    log:
+      enable: {{ .Values.log.enable }}
+      config_path: {{ .Values.log.mount_path }}
+      endpoint: {{ .Values.log.endpoint }}
+      prefix: {{ .Values.log.prefix }}
     ops_job:
       ttl_second: {{ .Values.ops_job.ttl_second }}
       timeout_second: {{ .Values.ops_job.timeout_second }}
@@ -37,7 +42,6 @@ data:
       config_path: {{ .Values.s3.mount_path }}
       endpoint: {{ .Values.s3.endpoint }}
       expire_day: 3
-      timeout_second: 120
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-resource-manager

@@ -178,7 +178,7 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 			break
 		}
 		err = v.validateNodeDuplicated(ctx, job)
-	case v1.OpsJobDumplogType:
+	case v1.OpsJobDumpLogType:
 		err = v.validateWorkloadDuplicated(ctx, job)
 	}
 	if err != nil {

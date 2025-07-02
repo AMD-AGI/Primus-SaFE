@@ -25,7 +25,6 @@ const (
 	NodeUnmanagedFailed NodePhase = "UnmanagedFailed"
 	NodeSSHFailed       NodePhase = "SSHFailed"
 	NodeHostnameFailed  NodePhase = "HostnameFailed"
-	NodeDeleting        NodePhase = "Deleting"
 )
 
 type CommandPhase string

@@ -40,7 +40,7 @@ func (c *Client) UpsertJob(ctx context.Context, job *OpsJob) error {
 		return nil
 	}
 	db := c.db.Unsafe()
-	jobs := []*OpsJob{}
+	var jobs []*OpsJob
 	var err error
 	if err = db.SelectContext(ctx, &jobs, getJobCmd, job.JobId); err != nil {
 		return err

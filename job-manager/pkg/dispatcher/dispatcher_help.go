@@ -197,7 +197,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 		volumeName := string(vol.StorageType)
 		var volume interface{}
 		if vol.StorageType == v1.HOSTPATH {
-			volume = buildHostpathVolume(generateVolumeName(volumeName, id), vol.HostPath)
+			volume = buildHostPathVolume(generateVolumeName(volumeName, id), vol.HostPath)
 			id++
 		} else {
 			if volumeSets.Has(volumeName) {
@@ -407,7 +407,7 @@ func buildSharedMemoryVolumeMount() []interface{} {
 	return result
 }
 
-func buildHostpathVolume(volumeName, hostPath string) interface{} {
+func buildHostPathVolume(volumeName, hostPath string) interface{} {
 	return map[string]interface{}{
 		"hostPath": map[string]interface{}{
 			"path": hostPath,

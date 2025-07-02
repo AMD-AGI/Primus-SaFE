@@ -33,7 +33,7 @@ spec:
       serviceAccountName: {{ .Release.Name }}-manager
       containers:
         - name: {{ .Release.Name }}-resource-manager
-          image: {{ .Values.repository }}/resource-manager:{{ .Values.resource_manager.tag }}
+          image: {{ .Values.repository }}/{{ .Values.resource_manager.image }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/resource-manager/run.sh"]
           terminationMessagePath: /dev/termination-log
@@ -55,6 +55,11 @@ spec:
             {{- if .Values.s3.enable }}
             - name: s3-secret
               mountPath: {{ .Values.s3.mount_path }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.log.enable }}
+            - name: log-secret
+              mountPath: {{ .Values.log.mount_path }}
               readOnly: true
             {{- end }}
           {{- if .Values.k8s.enable_health_check }}
@@ -97,6 +102,11 @@ spec:
         - name: s3-secret
           secret:
             secretName: {{ .Values.s3.secret }}
+        {{- end }}
+        {{- if .Values.log.enable }}
+        - name: log-secret
+          secret:
+            secretName: {{ .Values.log.secret }}
         {{- end }}
         - name: server-config
           configMap:

@@ -156,7 +156,7 @@ func (r *AddonJobReconciler) addFailedNodeToCondition(ctx context.Context, jobId
 		Reason:             "AddonFailed",
 		Message:            message,
 	}
-	backoff.Retry(func() error {
+	err := backoff.Retry(func() error {
 		job := &v1.OpsJob{}
 		if err := r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
 			return client.IgnoreNotFound(err)
@@ -166,6 +166,9 @@ func (r *AddonJobReconciler) addFailedNodeToCondition(ctx context.Context, jobId
 		}
 		return nil
 	}, 2*time.Second, 200*time.Millisecond)
+	if err != nil {
+		klog.ErrorS(err, "fail to update job condition", "jobId", jobId)
+	}
 }
 
 func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {

@@ -33,7 +33,7 @@ spec:
       serviceAccountName: {{ .Release.Name }}-manager
       containers:
         - name: {{ .Release.Name }}-webhooks
-          image: {{ .Values.repository }}/webhooks:{{ .Values.webhooks.tag }}
+          image: {{ .Values.repository }}/{{ .Values.webhooks.image }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/webhooks/run.sh"]
           terminationMessagePath: /dev/termination-log

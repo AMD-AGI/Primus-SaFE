@@ -103,7 +103,7 @@ func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cl
 	// if err := r.guaranteeService(ctx, cluster); err != nil {
 	// 	return err
 	// }
-	// if cluster.Status.ControlePlaneStatus.Phase == v1.ReadyPhase {
+	// if cluster.Status.ControlPlaneStatus.Phase == v1.ReadyPhase {
 	if err := r.podClear(ctx, cluster); err != nil {
 		return err
 	}

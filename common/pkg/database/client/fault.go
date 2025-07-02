@@ -37,7 +37,7 @@ func (c *Client) UpsertFault(ctx context.Context, fault *Fault) error {
 		return nil
 	}
 	db := c.db.Unsafe()
-	faults := []*Fault{}
+	var faults []*Fault
 	var err error
 	if err = db.SelectContext(ctx, &faults, getFaultCmd, fault.UUid); err != nil {
 		return err
@@ -82,7 +82,7 @@ func (c *Client) SelectFaults(ctx context.Context, query sqrl.Sqlizer, sortBy, o
 	if err != nil {
 		return nil, err
 	}
-	faults := []*Fault{}
+	var faults []*Fault
 	ctx2, cancel := context.WithTimeout(ctx, time.Duration(commonconfig.GetDBRequestTimeoutSecond())*time.Second)
 	defer cancel()
 	err = db.SelectContext(ctx2, &faults, sql, args...)

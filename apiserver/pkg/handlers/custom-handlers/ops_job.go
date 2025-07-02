@@ -52,8 +52,8 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 	switch req.Type {
 	case v1.OpsJobAddonType:
 		job, err = h.generateAddonJob(c.Request.Context(), req)
-	case v1.OpsJobDumplogType:
-		job, err = h.generateDumplogJob(c.Request.Context(), req)
+	case v1.OpsJobDumpLogType:
+		job, err = h.generateDumpLogJob(c.Request.Context(), req)
 	default:
 		err = fmt.Errorf("unsupported ops job type")
 	}
@@ -128,7 +128,7 @@ func (h *Handler) generateAddonJob(_ context.Context, req *types.CreateOpsJobReq
 	return job, nil
 }
 
-func (h *Handler) generateDumplogJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+func (h *Handler) generateDumpLogJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
 	if !commonconfig.IsLogEnable() {
 		return nil, commonerrors.NewStatusGone("The logging function is not enabled")
 	}

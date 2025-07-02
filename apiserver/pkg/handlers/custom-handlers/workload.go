@@ -114,7 +114,7 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse query")
 		return nil, err
 	}
-	dbSql, orderBy, err := h.cvtToListWorkloadSql(c.Request.Context(), query)
+	dbSql, orderBy, err := cvtToListWorkloadSql(query)
 	if err != nil {
 		return nil, err
 	}
@@ -448,8 +448,7 @@ func parseGetPodLogQuery(c *gin.Context, mainContainerName string) (*types.GetPo
 	return query, nil
 }
 
-func (h *Handler) cvtToListWorkloadSql(ctx context.Context,
-	query *types.GetWorkloadRequest) (sqrl.Sqlizer, []string, error) {
+func cvtToListWorkloadSql(query *types.GetWorkloadRequest) (sqrl.Sqlizer, []string, error) {
 	dbTags := dbclient.GetWorkloadFieldTags()
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},

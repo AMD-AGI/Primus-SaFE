@@ -6,9 +6,10 @@
 package custom_handlers
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func genMockWorkspace(clusterId, nodeFlavorId string) *v1.Workspace {

@@ -43,7 +43,7 @@ const (
 	NodeActionAdd        = "add"
 	NodeActionRemove     = "remove"
 
-	// Cluster lables
+	// cluster
 	ClusterPrefix                 = PrimusSafePrefix + "cluster."
 	ClusterFinalizer              = PrimusSafeDomain + "cluster.finalizer"
 	ClusterManagePrefix           = ClusterPrefix + "manage."

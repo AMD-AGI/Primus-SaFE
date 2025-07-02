@@ -411,20 +411,6 @@ func parseSearchLogQuery(req *http.Request, beginTime, endTime time.Time) (*type
 	return query, nil
 }
 
-func parseTime(timeStr string, timeMilliSecond int64) (time.Time, error) {
-	if timeMilliSecond > 0 {
-		return timeutil.CvtMilliSecToTime(timeMilliSecond), nil
-	}
-	if timeStr != "" {
-		t, err := time.Parse(timeutil.TimeRFC3339Milli, timeStr)
-		if err != nil {
-			return time.Time{}, err
-		}
-		return t.UTC(), nil
-	}
-	return time.Time{}, nil
-}
-
 func split(str, sep string) []string {
 	if len(str) == 0 {
 		return nil

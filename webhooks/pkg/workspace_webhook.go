@@ -69,7 +69,9 @@ func (m *WorkspaceMutator) Handle(ctx context.Context, req admission.Request) ad
 	case admissionv1.Update:
 		oldWorkspace := &v1.Workspace{}
 		if m.decoder.DecodeRaw(req.OldObject, oldWorkspace) == nil {
-			m.mutateOnUpdate(ctx, oldWorkspace, workspace)
+			if err := m.mutateOnUpdate(ctx, oldWorkspace, workspace); err != nil {
+				return handleError(v1.WorkspaceKind, err)
+			}
 		}
 	}
 	data, err := json.Marshal(workspace)
@@ -96,7 +98,9 @@ func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, new
 		return err
 	}
 	if oldWorkspace.Spec.EnablePreempt != newWorkspace.Spec.EnablePreempt {
-		m.mutatePreempt(ctx, newWorkspace)
+		if err := m.mutatePreempt(ctx, newWorkspace); err != nil {
+			return err
+		}
 	}
 	return nil
 }

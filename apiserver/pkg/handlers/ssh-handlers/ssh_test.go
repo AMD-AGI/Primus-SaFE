@@ -18,6 +18,6 @@ func TestParseSSHInfo(t *testing.T) {
 	ok, _ := restructure.Find(info, user)
 	assert.Equal(t, true, ok)
 	assert.Equal(t, "root", info.User)
-	assert.Equal(t, "primus-test-master-0", info.Name)
+	assert.Equal(t, "primus-test-master-0", info.Pod)
 	assert.Equal(t, "primus-safe-dev", info.Namespace)
 }

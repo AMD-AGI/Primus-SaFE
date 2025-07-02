@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	MaxRretyCount = 3
+	MaxRetryCount = 3
 )
 
 type NodeReconciler struct {
@@ -679,11 +679,11 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 	if pod == nil {
 		// A retry limit is set when deleting a Pod. If the k8s node operation fails, scale-up will be retried.
 		// After exceeding the max retry count, it will fail directly to avoid infinite loops
-		count, err := utils.IncRetryCount(ctx, r.Client, adminNode, MaxRretyCount)
+		count, err := utils.IncRetryCount(ctx, r.Client, adminNode, MaxRetryCount)
 		if err != nil {
 			return err
 		}
-		if count > MaxRretyCount {
+		if count > MaxRetryCount {
 			adminNode.Status.ClusterStatus.Phase = v1.NodeManagedFailed
 			return nil
 		}
@@ -801,11 +801,11 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 	if pod == nil {
 		// A retry limit is set when deleting a Pod. If the k8s node operation fails, scale-down will be retried.
 		// After exceeding the max retry count, it will fail directly to avoid infinite loops
-		count, err := utils.IncRetryCount(ctx, r.Client, adminNode, MaxRretyCount)
+		count, err := utils.IncRetryCount(ctx, r.Client, adminNode, MaxRetryCount)
 		if err != nil {
 			return err
 		}
-		if count > MaxRretyCount {
+		if count > MaxRetryCount {
 			adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanagedFailed
 			return nil
 		}

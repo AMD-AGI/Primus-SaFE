@@ -26,7 +26,7 @@ const (
 	OpsJobPending   OpsJobPhase = "Pending"
 
 	OpsJobAddonType   OpsJobType = "addon"
-	OpsJobDumplogType OpsJobType = "dumplog"
+	OpsJobDumpLogType OpsJobType = "dumplog"
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"
@@ -41,15 +41,15 @@ type Parameter struct {
 }
 
 type OpsJobSpec struct {
-	// the type of ops job, valid values include: addon
+	// the type of ops-job, valid values include: addon
 	Type OpsJobType `json:"type"`
-	// the cluster which the ops job belongs to
+	// the cluster which the ops-job belongs to
 	Cluster string `json:"cluster"`
 	// The resource objects to be processed, e.g., node. Multiple entries will be processed sequentially.
 	Inputs []Parameter `json:"inputs"`
-	// the lifecycle of ops job
+	// the lifecycle of ops-job
 	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
-	// ops job Timeout (in seconds), Less than or equal to 0 means no timeout
+	// ops-job Timeout (in seconds), Less than or equal to 0 means no timeout
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
 }
 

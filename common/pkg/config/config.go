@@ -252,10 +252,6 @@ func GetS3Endpoint() string {
 	return getString(s3Endpoint, "")
 }
 
-func GetS3TimeoutSecond() int {
-	return getInt(s3TimeoutSecond, 0)
-}
-
 func GetS3ExpireDay() int {
 	return getInt(s3ExpireDay, 3)
 }

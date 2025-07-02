@@ -455,8 +455,8 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 	return pod
 }
 
-func generateScaleWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, node *v1.Node, usename, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
-	pod := generateWorkerPod(action, cluster, usename, cmd, image, config, hostsContent)
+func generateScaleWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, node *v1.Node, useName, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
+	pod := generateWorkerPod(action, cluster, useName, cmd, image, config, hostsContent)
 	name := fmt.Sprintf("%s-%s-%s", cluster.Name, node.Name, action)
 	if len(name) > 58 {
 		name = name[:58]

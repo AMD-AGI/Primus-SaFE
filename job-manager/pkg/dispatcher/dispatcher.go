@@ -404,7 +404,7 @@ func updateUnstructuredObj(obj *unstructured.Unstructured, adminWorkload *v1.Wor
 			unstructured.RemoveNestedField(obj.Object, t.PrePaths...)
 			continue
 		}
-		if err := udpateHostNetwork(adminWorkload, obj, t); err != nil {
+		if err := updateHostNetwork(adminWorkload, obj, t); err != nil {
 			return err
 		}
 		if err := updateReplica(obj, t, replica); err != nil {
@@ -416,7 +416,7 @@ func updateUnstructuredObj(obj *unstructured.Unstructured, adminWorkload *v1.Wor
 		if err := updateSharedMemory(adminWorkload, obj, t); err != nil {
 			return err
 		}
-		if err := udpatePriorityClass(adminWorkload, obj, t); err != nil {
+		if err := updatePriorityClass(adminWorkload, obj, t); err != nil {
 			return err
 		}
 	}
@@ -551,14 +551,14 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 	return nil
 }
 
-func udpateHostNetwork(adminWorkload *v1.Workload,
+func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
 	templatePath := resourceSpec.GetTemplatePath()
 	path := append(templatePath, "spec", "hostNetwork")
 	return modifyHostNetWork(obj, adminWorkload, path)
 }
 
-func udpatePriorityClass(adminWorkload *v1.Workload,
+func updatePriorityClass(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
 	templatePath := resourceSpec.GetTemplatePath()
 	path := append(templatePath, "spec", "priorityClassName")

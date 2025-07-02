@@ -14,10 +14,6 @@ import (
 	"sync"
 	"time"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	rookv1 "github.com/rook/rook/pkg/apis/ceph.rook.io/v1"
 	rook "github.com/rook/rook/pkg/client/clientset/versioned"
 	rookexter "github.com/rook/rook/pkg/client/informers/externalversions"
@@ -32,7 +28,12 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
-	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
 const (
@@ -166,7 +167,7 @@ func newStorageCluster(ctx context.Context, cluster *v1.Cluster, queue v1.Reques
 			return
 		}
 		// klog.Infof("queueByCephCluster ResourceVersion %s CephCluster storage cluster  %s ", cc.ResourceVersion, cc.Name)
-		queue.Add(ctrlruntime.Request{types.NamespacedName{Name: cc.Name}})
+		queue.Add(reconcile.Request{types.NamespacedName{Name: cc.Name}})
 	}
 	_, err = informer.Ceph().V1().CephClusters().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
@@ -190,7 +191,7 @@ func newStorageCluster(ctx context.Context, cluster *v1.Cluster, queue v1.Reques
 		// klog.Infof("queueByCephObjectStore ResourceVersion %s", obs.ResourceVersion)
 		if name, ok := obs.Labels[v1.StorageClusterNameLabel]; ok {
 			// klog.Infof("CephObjectStore stroage cluster %s", name)
-			queue.Add(ctrlruntime.Request{types.NamespacedName{Name: name}})
+			queue.Add(reconcile.Request{types.NamespacedName{Name: name}})
 		}
 	}
 	_, err = informer.Ceph().V1().CephObjectStores().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -216,7 +217,7 @@ func newStorageCluster(ctx context.Context, cluster *v1.Cluster, queue v1.Reques
 		klog.Infof("queueByCephObjectStoreUser ResourceVersion %s", user.ResourceVersion)
 		if name, ok := user.Labels[v1.StorageClusterNameLabel]; ok {
 			klog.Infof("queueByCephObjectStoreUser storage cluster %s", name)
-			queue.Add(ctrlruntime.Request{types.NamespacedName{Name: name}})
+			queue.Add(reconcile.Request{types.NamespacedName{Name: name}})
 		}
 	}
 	_, err = informer.Ceph().V1().CephObjectStoreUsers().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -242,7 +243,7 @@ func newStorageCluster(ctx context.Context, cluster *v1.Cluster, queue v1.Reques
 		klog.Infof("queueByCephBlockPool CephBlockPool storage cluster %s ResourceVersion %s", pool.Name, pool.ResourceVersion)
 		if name, ok := pool.Labels[v1.StorageClusterNameLabel]; ok {
 			klog.Infof("queueByCephBlockPool storage cluster %s", name)
-			queue.Add(ctrlruntime.Request{types.NamespacedName{Name: name}})
+			queue.Add(reconcile.Request{types.NamespacedName{Name: name}})
 		}
 	}
 	_, err = informer.Ceph().V1().CephBlockPools().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -553,10 +554,10 @@ func (s *storageCluster) getCephCluster(ctx context.Context, cluster *v1.Storage
 	}
 	cluster.Status.CephClusterStatus.Monitors = endpoints
 
-	crypto := crypto.NewCrypto()
+	cryptoInstance := crypto.NewCrypto()
 	sk := ""
 	if cluster.Status.CephClusterStatus.SecretKey != "" {
-		sk, err = crypto.Decrypt(cluster.Status.CephClusterStatus.SecretKey)
+		sk, err = cryptoInstance.Decrypt(cluster.Status.CephClusterStatus.SecretKey)
 		if err != nil {
 			return nil, fmt.Errorf("storage cluster %s decrypt secret key %s failed", cluster.Name, cluster.Status.CephClusterStatus.SecretKey)
 		}
@@ -566,7 +567,7 @@ func (s *storageCluster) getCephCluster(ctx context.Context, cluster *v1.Storage
 		return nil, fmt.Errorf("get secret %s failed %+v", "rook-ceph-mon", err)
 	}
 	if string(secret.Data["ceph-secret"]) != sk {
-		cluster.Status.CephClusterStatus.SecretKey, err = crypto.Encrypt(secret.Data["ceph-secret"])
+		cluster.Status.CephClusterStatus.SecretKey, err = cryptoInstance.Encrypt(secret.Data["ceph-secret"])
 		if err != nil {
 			return nil, fmt.Errorf("storage cluster %s ecrypt secret failed", cluster.Name)
 		}
@@ -580,7 +581,7 @@ func (s *storageCluster) getCephNodes(ctx context.Context, count int, cluster, f
 	if err != nil {
 		return nil, err
 	}
-	cephNodes := []rookv1.Node{}
+	var cephNodes []rookv1.Node
 	for _, node := range nodes.Items {
 		if _, ok := node.Labels[v1.StorageClusterNameLabel]; ok {
 			cephNodes = append(cephNodes, rookv1.Node{
