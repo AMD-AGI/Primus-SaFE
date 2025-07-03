@@ -24,7 +24,6 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -143,7 +142,7 @@ func (h *Handler) generateDumpLogJob(ctx context.Context, req *types.CreateOpsJo
 			fmt.Sprintf("%s must be specified in the job.", v1.ParameterWorkload))
 	}
 	if commonconfig.IsDBEnable() {
-		workload, err := commonworkload.GetWorkloadFromDb(ctx, h.dbClient, workloadParam.Value)
+		workload, err := h.dbClient.GetWorkload(ctx, workloadParam.Value)
 		if err != nil {
 			return nil, err
 		}

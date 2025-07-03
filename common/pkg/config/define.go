@@ -84,5 +84,6 @@ const (
 	s3Enable     = s3Prefix + "enable"
 	s3ConfigPath = s3Prefix + "config_path"
 	s3Endpoint   = s3Prefix + "endpoint"
+	s3Bucket     = s3Prefix + "bucket"
 	s3ExpireDay  = s3Prefix + "expire_day"
 )

@@ -29,7 +29,6 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/channel"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -232,7 +231,7 @@ func (r *DumpLogJobReconciler) getInputWorkload(ctx context.Context, job *v1.Ops
 		workloadId: param.Value,
 	}
 	if commonconfig.IsDBEnable() {
-		workload, err := commonworkload.GetWorkloadFromDb(ctx, r.dbClient, param.Value)
+		workload, err := r.dbClient.GetWorkload(ctx, param.Value)
 		if err != nil {
 			return nil, err
 		}

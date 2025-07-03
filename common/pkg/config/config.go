@@ -245,7 +245,7 @@ func GetS3SecretKey() string {
 }
 
 func GetS3Bucket() string {
-	return getFromFile(s3ConfigPath, "bucket")
+	return getString(s3Bucket, "")
 }
 
 func GetS3Endpoint() string {

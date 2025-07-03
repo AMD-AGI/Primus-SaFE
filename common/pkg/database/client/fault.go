@@ -13,7 +13,6 @@ import (
 	sqrl "github.com/Masterminds/squirrel"
 	"k8s.io/klog/v2"
 
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
@@ -83,7 +82,7 @@ func (c *Client) SelectFaults(ctx context.Context, query sqrl.Sqlizer, sortBy, o
 		return nil, err
 	}
 	var faults []*Fault
-	ctx2, cancel := context.WithTimeout(ctx, time.Duration(commonconfig.GetDBRequestTimeoutSecond())*time.Second)
+	ctx2, cancel := context.WithTimeout(ctx, time.Duration(c.RequestTimeout)*time.Second)
 	defer cancel()
 	err = db.SelectContext(ctx2, &faults, sql, args...)
 	return faults, err

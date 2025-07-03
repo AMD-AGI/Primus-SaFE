@@ -143,7 +143,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("workloadId is empty")
 	}
 	if commonconfig.IsDBEnable() {
-		workload, err := commonworkload.GetWorkloadFromDb(c.Request.Context(), h.dbClient, name)
+		workload, err := h.dbClient.GetWorkload(c.Request.Context(), name)
 		if err != nil {
 			return nil, err
 		}

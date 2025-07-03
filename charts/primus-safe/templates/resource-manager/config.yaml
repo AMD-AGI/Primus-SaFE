@@ -41,6 +41,7 @@ data:
       enable: {{ .Values.s3.enable }}
       config_path: {{ .Values.s3.mount_path }}
       endpoint: {{ .Values.s3.endpoint }}
+      bucket: {{ .Values.s3.bucket }}
       expire_day: 3
 kind: ConfigMap
 metadata:

@@ -10,18 +10,14 @@ import (
 	"fmt"
 	"strconv"
 
-	sqrl "github.com/Masterminds/squirrel"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
@@ -259,24 +255,4 @@ func GeneratePriorityClass(workload *v1.Workload) string {
 		strPriority = common.LowPriority
 	}
 	return commonutils.GeneratePriorityClass(clusterId, strPriority)
-}
-
-func GetWorkloadFromDb(ctx context.Context, dbClient dbclient.Interface, workloadId string) (*dbclient.Workload, error) {
-	if dbClient == nil {
-		return nil, commonerrors.NewBadRequest("db-client is nil")
-	}
-	dbTags := dbclient.GetWorkloadFieldTags()
-	dbSql := sqrl.And{
-		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
-		sqrl.Eq{dbclient.GetFieldTag(dbTags, "WorkloadId"): workloadId},
-	}
-	workloads, err := dbClient.SelectWorkloads(ctx, dbSql, nil, 1, 0)
-	if err != nil {
-		klog.ErrorS(err, "failed to select workload", "sql", dbutils.CvtToSqlStr(dbSql))
-		return nil, err
-	}
-	if len(workloads) == 0 {
-		return nil, commonerrors.NewNotFound(v1.WorkloadKind, workloadId)
-	}
-	return workloads[0], nil
 }

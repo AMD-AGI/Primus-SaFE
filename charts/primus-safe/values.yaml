@@ -47,6 +47,7 @@ db:
   enable: true
   secret: "primus-safe-pguser-primus-safe"
   mount_path: "/etc/secrets/db"
+  storage_class: "juicefs"
   ssl_mode: "require"
   max_open_conns: 100
   max_idle_conns: 10
@@ -66,10 +67,11 @@ ssh:
   mount_path: "/etc/secrets/ssh"
 s3:
   enable: true
+  endpoint: "http://s3.safe.primus.ai/minio"
+  bucket: "juicefs"
   secret: "juicefs-secret"
   secret_namespace: "juicefs-csi"
   mount_path: "/etc/secrets/s3"
-  endpoint: "http://s3.safe.primus.ai/minio"
 ops_job:
   ttl_second: 300
   timeout_second: 3600

@@ -1,0 +1,34 @@
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: primus-safe
+  namespace: primus-safe
+spec:
+  backups:
+    pgbackrest:
+      repos:
+        - name: repo1
+          volume:
+            volumeClaimSpec:
+              storageClassName: {{ .Values.db.storage_class }}
+              accessModes:
+                - ReadWriteMany
+              resources:
+                requests:
+                  storage: 1024Gi
+  instances:
+    - dataVolumeClaimSpec:
+        storageClassName: {{ .Values.db.storage_class }}
+        accessModes:
+          - ReadWriteMany
+        resources:
+          requests:
+            storage: 500Gi
+      name: safe
+      replicas: 2
+  monitoring:
+    pgmonitor:
+      exporter:
+        image: ""
+  port: 5432
+  postgresVersion: 17

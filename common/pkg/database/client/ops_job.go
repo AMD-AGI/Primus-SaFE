@@ -13,7 +13,6 @@ import (
 	sqrl "github.com/Masterminds/squirrel"
 	"k8s.io/klog/v2"
 
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
@@ -88,7 +87,7 @@ func (c *Client) SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, ord
 	}
 
 	var jobs []*OpsJob
-	ctx2, cancel := context.WithTimeout(ctx, time.Duration(commonconfig.GetDBRequestTimeoutSecond())*time.Second)
+	ctx2, cancel := context.WithTimeout(ctx, time.Duration(c.RequestTimeout)*time.Second)
 	defer cancel()
 	err = db.SelectContext(ctx2, &jobs, sql, args...)
 	return jobs, err

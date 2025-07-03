@@ -32,7 +32,6 @@ type CommandPhase string
 const (
 	CommandSucceeded CommandPhase = "Succeeded"
 	CommandFailed    CommandPhase = "Failed"
-	CommandPending   CommandPhase = "Pending"
 )
 
 type CommandStatus struct {

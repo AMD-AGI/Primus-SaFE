@@ -905,11 +905,11 @@ func (s *storageCluster) getObjectStore(ctx context.Context, cluster *v1.Storage
 
 func (s *storageCluster) getRBD(ctx context.Context, cluster *v1.StorageCluster, name string, storage v1.Storage) (*v1.StorageStatus, error) {
 	namespace := cluster.Name
-	crypto := crypto.NewCrypto()
+	cryptoInstance := crypto.NewCrypto()
 	sk := ""
 	var err error
 	if cluster.Status.CephClusterStatus.SecretKey != "" {
-		sk, err = crypto.Decrypt(cluster.Status.CephClusterStatus.SecretKey)
+		sk, err = cryptoInstance.Decrypt(cluster.Status.CephClusterStatus.SecretKey)
 		if err != nil {
 			return nil, fmt.Errorf("storage cluster %s decrypt secret key %s failed", cluster.Name, cluster.Status.CephClusterStatus.SecretKey)
 		}
@@ -1015,11 +1015,11 @@ func (s *storageCluster) getRBD(ctx context.Context, cluster *v1.StorageCluster,
 
 func (s *storageCluster) getFileSystem(ctx context.Context, cluster *v1.StorageCluster, name string, storage v1.Storage) (*v1.StorageStatus, error) {
 	namespace := cluster.Name
-	crypto := crypto.NewCrypto()
+	cryptoInstance := crypto.NewCrypto()
 	sk := ""
 	var err error
 	if cluster.Status.CephClusterStatus.SecretKey != "" {
-		sk, err = crypto.Decrypt(cluster.Status.CephClusterStatus.SecretKey)
+		sk, err = cryptoInstance.Decrypt(cluster.Status.CephClusterStatus.SecretKey)
 		if err != nil {
 			return nil, fmt.Errorf("storage cluster %s decrypt secret key %s failed", cluster.Name, cluster.Status.CephClusterStatus.SecretKey)
 		}
