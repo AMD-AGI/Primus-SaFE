@@ -46,4 +46,9 @@ data:
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-resource-manager
-  namespace: {{ .Release.Namespace }} 
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}

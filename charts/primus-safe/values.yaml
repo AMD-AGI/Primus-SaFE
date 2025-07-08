@@ -18,26 +18,26 @@ k8s:
 apiserver:
   port: 8088
   health_port: 8082
-  image: "apiserver:202507021436"
+  image: "apiserver:202507031400"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi
 resource_manager:
   health_port: 8081
-  image: "resource-manager:202507021436"
+  image: "resource-manager:202507072200"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi
 job_manager:
   health_port: 8083
-  image: "job-manager:202507021436"
+  image: "job-manager:202507031400"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi
 webhooks:
   port: 8084
   health_port: 8085
-  image: "webhooks:202507021436"
+  image: "webhooks:20507061240"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi
@@ -45,9 +45,9 @@ preprocess:
   image: "preprocess:202506152300"
 db:
   enable: true
-  secret: "primus-safe-pguser-primus-safe"
-  mount_path: "/etc/secrets/db"
+  dbname: "primus-safe-db"
   storage_class: "juicefs"
+  mount_path: "/etc/secrets/db"
   ssl_mode: "require"
   max_open_conns: 100
   max_idle_conns: 10
@@ -57,16 +57,17 @@ db:
   request_timeout_second: 20
 log:
   enable: true
-  secret: "primus-safe-logs-admin-password"
+  secret: "primus-lens-logs-admin-password"
+  secret_namespace: "primus-lens"
   mount_path: "/etc/secrets/log"
-  endpoint: "logs-nodes.primus-safe.svc.cluster.local:9200"
+  endpoint: "primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200"
   prefix: "node-"
 ssh:
   enable: true
   port: 2222
   mount_path: "/etc/secrets/ssh"
 s3:
-  enable: true
+  enable: false
   endpoint: "http://s3.safe.primus.ai/minio"
   bucket: "juicefs"
   secret: "juicefs-secret"

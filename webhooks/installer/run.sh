@@ -4,8 +4,7 @@
 # Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
-
-ulimit -n 65536
+ulimit -n 65535
 
 WORK_PATH=/opt/primus-safe/webhooks
 

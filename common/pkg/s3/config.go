@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -48,10 +49,11 @@ func GetConfig() (*Config, error) {
 		Region:           aws.String("us-east-1"),
 		S3ForcePathStyle: aws.Bool(true),
 	}
+	klog.Infof("S3 Config, endpoint: %s, bucket: %s", commonconfig.GetS3Endpoint(), commonconfig.GetS3Bucket())
 
 	config := &Config{
 		Config:         s3Config,
-		DefaultTimeout: 60,
+		DefaultTimeout: 180,
 		ExpireDay:      pointer.Int64(int64(commonconfig.GetS3ExpireDay())),
 	}
 	config.setBucket()

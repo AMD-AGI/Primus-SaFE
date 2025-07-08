@@ -3,6 +3,11 @@ kind: Issuer
 metadata:
   name: {{ .Release.Name }}-selfsigned-issuer
   namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   selfSigned: {}
 ---
@@ -11,6 +16,11 @@ kind: Certificate
 metadata:
   name: {{ .Release.Name }}-ca
   namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   duration: 105192h0m0s
   isCA: true
@@ -29,6 +39,11 @@ kind: Issuer
 metadata:
   name: {{ .Release.Name }}-ca-issuer
   namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   ca:
     secretName: {{ .Release.Name }}-ca-secret
@@ -39,13 +54,18 @@ kind: Certificate
 metadata:
   name: {{ .Release.Name }}-cert
   namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   duration: 105192h0m0s
   secretName: {{ .Release.Name }}-cert
   isCA: false
   dnsNames:
-    - webhook-service
-    - webhook-service.{{ .Release.Namespace }}
-    - webhook-service.{{ .Release.Namespace }}.svc
+    - {{ .Release.Name }}-webhooks
+    - {{ .Release.Name }}-webhooks.{{ .Release.Namespace }}
+    - {{ .Release.Name }}-webhooks.{{ .Release.Namespace }}.svc
   issuerRef:
     name: {{ .Release.Name }}-ca-issuer

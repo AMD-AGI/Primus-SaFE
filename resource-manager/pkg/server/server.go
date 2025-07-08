@@ -54,25 +54,32 @@ func NewServer() (*Server, error) {
 func (s *Server) init() error {
 	var err error
 	if err = s.opts.InitFlags(); err != nil {
-		return fmt.Errorf("failed to parse options. %s", err.Error())
+		klog.ErrorS(err, "failed to parse options")
+		return err
 	}
 	if err = s.initLogs(); err != nil {
-		return fmt.Errorf("failed to init logs. %s", err.Error())
+		klog.ErrorS(err, "failed to initialize logs")
+		return err
 	}
 	if err = s.initConfig(); err != nil {
-		return fmt.Errorf("failed to init config. %s", err.Error())
+		klog.ErrorS(err, "failed to initialize config")
+		return err
 	}
 	if s.ctrlManager, err = NewControllerManager(scheme); err != nil {
-		return fmt.Errorf("failed to new controller manager. %s", err.Error())
+		klog.ErrorS(err, "failed to initialize controller manager")
+		return err
 	}
 	if err = resource.SetupControllers(s.ctrlManager.ctx, s.ctrlManager.ctrlManager); err != nil {
-		return fmt.Errorf("failed to setup resource controllers. %s", err.Error())
+		klog.ErrorS(err, "failed to setup resource controllers")
+		return err
 	}
 	if err = ops_job.SetupOpsJobs(s.ctrlManager.ctx, s.ctrlManager.ctrlManager); err != nil {
-		return fmt.Errorf("failed to setup job controllers. %s", err.Error())
+		klog.ErrorS(err, "failed to setup ops-job controllers")
+		return err
 	}
 	if err = exporter.SetupExporters(s.ctrlManager.ctx, s.ctrlManager.ctrlManager); err != nil {
-		return fmt.Errorf("failed to setup exporters. %s", err.Error())
+		klog.ErrorS(err, "failed to setup exporters")
+		return err
 	}
 	s.isInited = true
 	return nil

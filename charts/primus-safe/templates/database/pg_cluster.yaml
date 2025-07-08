@@ -1,9 +1,22 @@
 apiVersion: postgres-operator.crunchydata.com/v1beta1
 kind: PostgresCluster
 metadata:
-  name: primus-safe
-  namespace: primus-safe
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: "-3"
+    helm.sh/hook-delete-policy: before-hook-creation
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
+  users:
+    - name: postgres
+    - name: {{ .Release.Name }}
+      databases:
+        - {{ .Values.db.dbname }}
   backups:
     pgbackrest:
       repos:
@@ -24,7 +37,7 @@ spec:
         resources:
           requests:
             storage: 500Gi
-      name: safe
+      name: db
       replicas: 2
   monitoring:
     pgmonitor:

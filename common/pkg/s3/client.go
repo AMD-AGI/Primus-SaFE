@@ -47,14 +47,8 @@ func newClient(ctx context.Context) Interface {
 	cli := &Client{
 		Config: config,
 	}
-	if isExist, err := cli.IsBucketExisted(ctx, config.DefaultTimeout); err != nil {
+	if _, err = cli.IsBucketExisted(ctx, config.DefaultTimeout); err != nil {
 		klog.ErrorS(err, "failed to check bucket")
-		return nil
-	} else if !isExist {
-		if err = cli.CreateBucket(ctx, config.DefaultTimeout); err != nil {
-			klog.ErrorS(err, "failed to create bucket")
-		}
-		klog.Infof("created bucket %s successfully", *config.Bucket)
 		return nil
 	}
 	klog.Infof("init s3 client successfully, endpoint: %s", *cli.Endpoint)
@@ -231,6 +225,7 @@ func (c *Client) IsBucketExisted(ctx context.Context, timeout int64) (bool, erro
 	defer cancel()
 
 	if _, err = s3Client.HeadBucketWithContext(timeoutCtx, input); err != nil {
+		klog.ErrorS(err, "fail to head bucket", "bucket", *c.Bucket)
 		return false, nil
 	}
 	return true, nil

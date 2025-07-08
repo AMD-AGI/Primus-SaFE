@@ -5,6 +5,10 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: {{ .Release.Name }}-webhooks
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   replicas: {{ .Values.webhooks.replicas }}
   selector:
@@ -30,7 +34,7 @@ spec:
                     operator: NotIn
                     values:
                       - "true"
-      serviceAccountName: {{ .Release.Name }}-manager
+      serviceAccountName: {{ .Release.Name }}
       containers:
         - name: {{ .Release.Name }}-webhooks
           image: {{ .Values.repository }}/{{ .Values.webhooks.image }}

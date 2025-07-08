@@ -6,10 +6,13 @@ metadata:
   labels:
     primus-safe.workload.version: v1
     primus-safe.workload.kind: Deployment
+    app.kubernetes.io/managed-by: Helm
   annotations:
     primus-safe.gpu.resource.name: "amd.com/gpu"
     # The main container name should match the configuration defined in the template below
     primus-safe.main.container: main
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 data:
  template: |
    apiVersion: apps/v1

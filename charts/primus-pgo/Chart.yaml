@@ -1,6 +1,6 @@
 apiVersion: v2
-name: pgo
-description: Installer for PGO, the open source Postgres Operator from Crunchy Data
+name: primus-pgo
+description: Installer for PGO, which is an open-source software from Crunchy Data
 
 type: application
 # The version below should match the version on the PostgresCluster CRD

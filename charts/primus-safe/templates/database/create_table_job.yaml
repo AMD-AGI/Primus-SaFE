@@ -1,0 +1,118 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name:  db-create-table
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-1"
+    helm.sh/hook-delete-policy: "before-hook-creation,hook-succeeded"
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-for-service
+          image: postgres:latest
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until pg_isready -h ${PGHOST}.cluster.local; do
+                echo "Waiting for db to be ready...";
+                sleep 1;
+              done;
+              echo "The db is ready for connection"
+              sleep 10
+              exit 0
+          env:
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-pguser-{{ .Release.Name }}
+                  key: host
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-pguser-{{ .Release.Name }}
+                  key: port
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-pguser-{{ .Release.Name }}
+                  key: user
+      containers:
+        - name: create-table
+          image: "postgres:latest"
+          command:
+            - /bin/sh
+            - -c
+            - |
+              HOST=$(echo $PGHOST)
+              export PGHOST="${HOST}.cluster.local"
+
+              echo "Step 1: Use the postgres user to grant permissions on the public schema to {{ .Release.Name }}..."
+
+              PGPASSWORD=$POSTGRES_PASSWORD psql -U postgres -v ON_ERROR_STOP=1 <<EOF
+              GRANT CONNECT ON DATABASE "$PGDATABASE" TO "{{ .Release.Name }}";
+              GRANT USAGE ON SCHEMA public TO "{{ .Release.Name }}";
+              GRANT CREATE ON SCHEMA public TO "{{ .Release.Name }}";
+              GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO "{{ .Release.Name }}";
+              \dn+
+              EOF
+
+              if [ $? -ne 0 ]; then
+                echo "failed to grant"
+                exit 1
+              fi
+
+              echo "Step 2: Create table as normal user({{ .Release.Name }}) ..."
+              psql -f /home/{{ .Release.Name }}/create_table.sql -v ON_ERROR_STOP=1
+
+              echo "Step 3: Create table successfully, exit ..."
+              exit $?
+          env:
+            - name: PGSSLMODE
+              value: {{ .Values.db.ssl_mode }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-pguser-{{ .Release.Name }}
+                  key: password
+            - name: PGHOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-pguser-{{ .Release.Name }}
+                  key: host
+            - name: PGPORT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-pguser-{{ .Release.Name }}
+                  key: port
+            - name: PGDATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-pguser-{{ .Release.Name }}
+                  key: dbname
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-pguser-{{ .Release.Name }}
+                  key: user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-pguser-postgres
+                  key: password
+          volumeMounts:
+            - name: sql-scripts
+              mountPath: /home/{{ .Release.Name }}
+      volumes:
+        - name: sql-scripts
+          configMap:
+            name: db-create-table
+      restartPolicy: Never
+  backoffLimit: 0
