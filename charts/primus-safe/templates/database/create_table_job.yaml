@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name:  db-create-table
+  name:  create-db-table
   namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/managed-by: Helm
@@ -15,7 +15,7 @@ spec:
   template:
     spec:
       initContainers:
-        - name: wait-for-service
+        - name: wait-for-service-ready
           image: postgres:latest
           command:
             - /bin/sh
@@ -113,6 +113,6 @@ spec:
       volumes:
         - name: sql-scripts
           configMap:
-            name: db-create-table
+            name: create-db-table
       restartPolicy: Never
   backoffLimit: 0

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: db-create-table
+  name: create-db-table
   namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/managed-by: Helm

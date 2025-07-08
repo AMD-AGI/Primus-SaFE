@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   # The resources related to the hook need to be cleaned up, and they cannot be deleted directly.
-  name: "delete-pg-cluster"
+  name: "delete-db-cluster"
   annotations:
     "helm.sh/hook": pre-delete
     "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
@@ -24,4 +24,4 @@ spec:
                 kubectl delete PostgresCluster "$cluster" -n {{ .Release.Namespace }}
               done
 
-              kubectl delete ConfigMap "db-create-table" -n {{ .Release.Namespace }}
+              kubectl delete ConfigMap "create-db-table" -n {{ .Release.Namespace }}
