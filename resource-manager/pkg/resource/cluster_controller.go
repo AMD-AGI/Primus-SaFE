@@ -194,8 +194,8 @@ func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) (ct
 	if err := r.resetNodesOfCluster(ctx, cluster.Name); err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	if result, err := r.deletePriorityClass(ctx, cluster.Name); err != nil || result.RequeueAfter > 0 {
-		return result, err
+	if err := r.deletePriorityClass(ctx, cluster.Name); err != nil {
+		return ctrlruntime.Result{}, err
 	}
 	if err := utils.RemoveFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer); err != nil {
 		return ctrlruntime.Result{}, err
@@ -273,19 +273,19 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 	return ctrlruntime.Result{}, nil
 }
 
-func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, clusterId string) (ctrlruntime.Result, error) {
+func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, clusterId string) error {
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterId)
 	if err != nil {
-		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+		return nil
 	}
 	clientSet := k8sClients.ClientSet()
 	allPriorityClass := genAllPriorityClass(clusterId)
 	for _, pc := range allPriorityClass {
 		if err = deletePriorityClass(ctx, clientSet, pc.name); err != nil {
-			return ctrlruntime.Result{}, err
+			return err
 		}
 	}
-	return ctrlruntime.Result{}, nil
+	return nil
 }
 
 func createPriorityClass(ctx context.Context, clientSet kubernetes.Interface, name, description string, value int32) error {
