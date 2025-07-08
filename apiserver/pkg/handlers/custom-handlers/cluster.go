@@ -187,6 +187,7 @@ func (h *Handler) handleClusterNodes(c *gin.Context,
 
 	message := ""
 	for _, nodeId := range req.NodeIds {
+		nodeId = strings.TrimSpace(nodeId)
 		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			adminNode, err := h.getAdminNode(ctx, nodeId)
 			if err != nil {
