@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  # The resources related to the hook need to be cleaned up, and they cannot be deleted directly.
+  # The resources related to the hook need to be cleaned up, and they cannot be deleted directly by helm.
   name: "delete-db-cluster"
   annotations:
     "helm.sh/hook": pre-delete
