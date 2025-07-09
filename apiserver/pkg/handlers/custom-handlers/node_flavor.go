@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -144,14 +145,24 @@ func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
 }
 
 func generateNodeFlavor(req *types.CreateNodeFlavorRequest) (*v1.NodeFlavor, error) {
-	nf := &v1.NodeFlavor{}
-	nf.Name = req.Name
-	nf.Spec.FlavorType = v1.NodeFlavorType(req.FlavorType)
-	nf.Spec.Cpu = v1.CpuChip{
-		Product:  req.CPUProduct,
-		Quantity: *resource.NewQuantity(req.CPU, resource.DecimalSI),
+	nf := &v1.NodeFlavor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: req.Name,
+			Labels: map[string]string{
+				v1.DisplayNameLabel: req.Name,
+			},
+		},
+		Spec: v1.NodeFlavorSpec{
+			FlavorType: v1.NodeFlavorType(req.FlavorType),
+			Cpu: v1.CpuChip{
+				Product:  req.CPUProduct,
+				Quantity: *resource.NewQuantity(req.CPU, resource.DecimalSI),
+			},
+			Memory:          *resource.NewQuantity(req.Memory, resource.BinarySI),
+			ExtendResources: req.Extends,
+		},
 	}
-	nf.Spec.Memory = *resource.NewQuantity(req.Memory, resource.BinarySI)
+
 	if req.GPU > 0 {
 		if req.GPUName == "" {
 			return nil, commonerrors.NewBadRequest("the gpuName is empty")
@@ -162,7 +173,7 @@ func generateNodeFlavor(req *types.CreateNodeFlavorRequest) (*v1.NodeFlavor, err
 			Quantity:     *resource.NewQuantity(req.GPU, resource.DecimalSI),
 		}
 	}
-	nf.Spec.ExtendResources = req.Extends
+
 	var err error
 	if req.RootDisk != nil {
 		nf.Spec.RootDisk, err = buildDiskFlavor(req.RootDisk)

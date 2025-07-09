@@ -31,7 +31,6 @@ var (
 		    delete_time = :delete_time,
 		    phase = :phase,
 		    conditions = :conditions,
-		    message = :message,
 		    outputs = :outputs 
 		WHERE job_id = :job_id`, TJob)
 )

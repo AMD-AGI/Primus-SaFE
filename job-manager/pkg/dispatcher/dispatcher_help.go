@@ -63,11 +63,11 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 	if err = modifyTolerations(obj, adminWorkload, path); err != nil {
 		return err
 	}
-	if commonworkload.IsApplication(adminWorkload) {
-		path = []string{"spec", "strategy"}
-		if err = modifyStrategy(obj, adminWorkload, path); err != nil {
-			return err
-		}
+	path = []string{"spec", "strategy"}
+	if err = modifyStrategy(obj, adminWorkload, path); err != nil {
+		return err
+	}
+	if adminWorkload.Spec.Service != nil {
 		path = []string{"spec", "selector"}
 		if err = modifySelector(obj, adminWorkload, path); err != nil {
 			return err
@@ -235,6 +235,9 @@ func modifyStrategy(obj *unstructured.Unstructured, adminWorkload *v1.Workload, 
 		return nil
 	}
 	rollingUpdate := buildStrategy(adminWorkload)
+	if len(rollingUpdate) == 0 {
+		return nil
+	}
 	if err := unstructured.SetNestedMap(obj.Object, rollingUpdate, path...); err != nil {
 		return err
 	}
@@ -454,6 +457,9 @@ func buildStrategy(adminWorkload *v1.Workload) map[string]interface{} {
 	rollingUpdate := make(map[string]interface{})
 	for _, key := range keys {
 		rollingUpdate[key] = adminWorkload.Spec.Service.Extends[key]
+	}
+	if len(rollingUpdate) == 0 {
+		return nil
 	}
 	return map[string]interface{}{
 		"type":          "RollingUpdate",

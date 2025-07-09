@@ -27,7 +27,6 @@ const (
 	// only for deployment/statefulSet
 	WorkloadNotReady WorkloadPhase = "NotReady"
 	WorkloadStopped  WorkloadPhase = "Stopped"
-	WorkloadStopping WorkloadPhase = "Stopping"
 )
 
 type WorkloadConditionType string
@@ -128,7 +127,7 @@ type WorkloadSpec struct {
 	Liveness *HealthCheck `json:"liveness,omitempty"`
 	// K8s readiness check. used for deployment/statefulSet
 	Readiness *HealthCheck `json:"readiness,omitempty"`
-	// Service configuration. used for deployment/statefulSet
+	// Service configuration
 	Service *Service `json:"service,omitempty"`
 	// Indicates whether the workload tolerates node taints
 	IsTolerateAll bool `json:"isTolerateAll,omitempty"`
@@ -234,13 +233,6 @@ func (w *Workload) IsRunning() bool {
 
 func (w *Workload) IsStopped() bool {
 	if w.Status.Phase == WorkloadStopped {
-		return true
-	}
-	return false
-}
-
-func (w *Workload) IsStopping() bool {
-	if w.Status.Phase == WorkloadStopping {
 		return true
 	}
 	return false

@@ -61,7 +61,7 @@ type AddonJob struct {
 }
 
 type AddonJobReconciler struct {
-	client.Client
+	*OpsJobBaseReconciler
 	sync.RWMutex
 	// key is job id
 	allJobs map[string]*AddonJob
@@ -69,12 +69,14 @@ type AddonJobReconciler struct {
 
 func SetupAddonJobController(mgr manager.Manager) error {
 	r := &AddonJobReconciler{
-		Client:  mgr.GetClient(),
+		OpsJobBaseReconciler: &OpsJobBaseReconciler{
+			Client: mgr.GetClient(),
+		},
 		allJobs: make(map[string]*AddonJob),
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, r.caredChangePredicate()))).
+			predicate.GenerationChangedPredicate{}, jobPhaseChangedPredicate()))).
 		Watches(&v1.Node{}, r.handleNodeEvent()).
 		Watches(&v1.Workload{}, r.handleWorkloadEvent()).
 		Complete(r)
@@ -85,29 +87,10 @@ func SetupAddonJobController(mgr manager.Manager) error {
 	return nil
 }
 
-func (r *AddonJobReconciler) caredChangePredicate() predicate.Predicate {
-	return predicate.Funcs{
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldJob, ok1 := e.ObjectOld.(*v1.OpsJob)
-			newJob, ok2 := e.ObjectNew.(*v1.OpsJob)
-			if !ok1 || !ok2 {
-				return false
-			}
-			if oldJob.IsPending() && !newJob.IsPending() {
-				return true
-			}
-			return false
-		},
-	}
-}
-
-func (r *AddonJobReconciler) isConcernedJob(jobType string) bool {
-	return v1.OpsJobType(jobType) == v1.OpsJobAddonType
-}
-
 func (r *AddonJobReconciler) handleNodeEvent() handler.EventHandler {
 	filter := func(n *v1.Node) bool {
-		return v1.GetOpsJobId(n) == "" || !r.isConcernedJob(v1.GetOpsJobType(n))
+		return v1.GetOpsJobId(n) == "" ||
+			v1.OpsJobType(v1.GetOpsJobType(n)) != v1.OpsJobAddonType
 	}
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
@@ -156,7 +139,7 @@ func (r *AddonJobReconciler) handleNodeEventImpl(ctx context.Context,
 	case AddonNodeFailed:
 		r.addFailedNodeToCondition(ctx, jobId, n.Name, message)
 	case AddonNodeSucceeded:
-		if fault, _ := getFault(ctx, r.Client, n.Name, commonconfig.GetAddonFaultId()); fault != nil {
+		if fault, _ := r.getFault(ctx, n.Name, commonconfig.GetAddonFaultId()); fault != nil {
 			if r.Delete(ctx, fault) == nil {
 				klog.Infof("delete addon fault, id: %s", fault.Name)
 			}
@@ -178,7 +161,7 @@ func (r *AddonJobReconciler) addFailedNodeToCondition(ctx context.Context, jobId
 		if err := r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
 			return client.IgnoreNotFound(err)
 		}
-		if err := updateJobCondition(ctx, r.Client, job, cond); err != nil {
+		if err := r.updateJobCondition(ctx, job, cond); err != nil {
 			return err
 		}
 		return nil
@@ -214,11 +197,8 @@ func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {
 }
 
 func (r *AddonJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	filter := func(_ context.Context, job *v1.OpsJob) bool {
-		return !r.isConcernedJob(string(job.Spec.Type))
-	}
 	clearFuncs := []ClearFunc{r.removeJobLabelOfNodes, r.removeJob}
-	return doReconcile(ctx, r.Client, req, filter, r.observe, nil, r.handle, clearFuncs...)
+	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r, clearFuncs...)
 }
 
 // Observe the job status. Returns true if the expected state is met (no handling required), false otherwise.
@@ -231,15 +211,15 @@ func (r *AddonJobReconciler) observe(ctx context.Context, job *v1.OpsJob) (bool,
 		nodes := r.getNodesToProcess(job)
 		return len(nodes) == 0, nil
 	case v1.OpsJobFailed, v1.OpsJobSucceeded:
-		reason := JobFailed
-		if phase == v1.OpsJobSucceeded {
-			reason = JobSucceed
-		}
-		if err := setJobCompleted(ctx, r.Client, job, phase, reason, message); err != nil {
+		if err := r.setJobCompleted(ctx, job, phase, message, nil); err != nil {
 			return false, err
 		}
 	}
 	return true, nil
+}
+
+func (r *AddonJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
+	return job.Spec.Type != v1.OpsJobAddonType
 }
 
 func (r *AddonJobReconciler) getNodesToProcess(job *v1.OpsJob) []string {
@@ -271,7 +251,7 @@ func (r *AddonJobReconciler) removeJobLabelOfNodes(ctx context.Context, job *v1.
 		return nil
 	}
 	for nodeName := range addonJob.allNodes {
-		adminNode, err := getAdminNode(ctx, r.Client, nodeName)
+		adminNode, err := r.getAdminNode(ctx, nodeName)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
@@ -298,23 +278,13 @@ func (r *AddonJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlru
 			return ctrlruntime.Result{}, err
 		}
 		if err = r.addJob(job, inputNodes); err != nil {
-			err = setJobCompleted(ctx, r.Client, job, v1.OpsJobFailed, JobInternalError, err.Error())
+			err = r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
 			return ctrlruntime.Result{}, err
 		}
 	}
 
 	if job.IsPending() {
-		patch := client.MergeFrom(job.DeepCopy())
-		job.Status.Phase = v1.OpsJobRunning
-		result := ctrlruntime.Result{}
-		if err := r.Status().Patch(ctx, job, patch); err != nil {
-			return result, err
-		}
-		// ensure that job will be reconciled when it is timeout
-		if job.Spec.TimeoutSecond > 0 {
-			result.RequeueAfter = time.Second * time.Duration(job.Spec.TimeoutSecond)
-		}
-		return result, nil
+		return r.setJobRunning(ctx, job)
 	}
 
 	return r.handleImpl(ctx, job)
@@ -362,7 +332,7 @@ type NodeInput struct {
 }
 
 func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.OpsJob, nodeInput NodeInput) (ctrlruntime.Result, error) {
-	adminNode, err := getAdminNode(ctx, r.Client, nodeInput.nodeName)
+	adminNode, err := r.getAdminNode(ctx, nodeInput.nodeName)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -405,10 +375,10 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.OpsJob, nod
 // Create an addon fault to block workload scheduling on the node for upgrade purposes
 func (r *AddonJobReconciler) createAddonFault(ctx context.Context, job *v1.OpsJob, adminNode *v1.Node) error {
 	faultId := commonconfig.GetAddonFaultId()
-	if _, err := getFault(ctx, r.Client, adminNode.Name, faultId); err == nil || !apierrors.IsNotFound(err) {
+	if _, err := r.getFault(ctx, adminNode.Name, faultId); err == nil || !apierrors.IsNotFound(err) {
 		return nil
 	}
-	config, err := getFaultConfig(ctx, r.Client, faultId)
+	config, err := r.getFaultConfig(ctx, faultId)
 	if err != nil {
 		return err
 	}
@@ -528,7 +498,7 @@ func (r *AddonJobReconciler) getInputNodes(ctx context.Context, job *v1.OpsJob) 
 			continue
 		}
 		isNodeSpecified = true
-		node, err := getAdminNode(ctx, r.Client, p.Value)
+		node, err := r.getAdminNode(ctx, p.Value)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
 				return nil, err

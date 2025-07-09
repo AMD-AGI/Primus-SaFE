@@ -151,13 +151,13 @@ func (r *SyncerReconciler) start(ctx context.Context) error {
 	return nil
 }
 
-func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (controller.Result, error) {
+func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ctrlruntime.Result, error) {
 	informer, err := GetClusterInformer(r.clusterInformers, message.cluster)
 	if err != nil {
-		return controller.Result{RequeueAfter: time.Second}, nil
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
-	var result controller.Result
+	var result ctrlruntime.Result
 	switch message.gvk.Kind {
 	case common.PytorchJobKind, common.DeploymentKind, common.StatefulSetKind:
 		result, err = r.handleJob(ctx, message, informer)

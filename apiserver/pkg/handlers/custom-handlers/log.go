@@ -24,6 +24,7 @@ import (
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -154,7 +155,7 @@ func (h *Handler) parseWorkloadLogQuery(c *gin.Context, name string) (*types.Get
 
 func (h *Handler) getWorkloadStartEndTime(ctx context.Context, workloadId string) (time.Time, time.Time, error) {
 	if commonconfig.IsDBEnable() {
-		workload, err := h.getWorkloadFromDb(ctx, workloadId)
+		workload, err := commonworkload.GetWorkloadFromDb(ctx, h.dbClient, workloadId)
 		if err != nil {
 			return time.Time{}, time.Time{}, err
 		}
@@ -172,7 +173,7 @@ func (h *Handler) getWorkloadStartEndTime(ctx context.Context, workloadId string
 
 func (h *Handler) searchLog(query *types.GetLogRequest, workloadId string) ([]byte, error) {
 	body := buildSearchBody(query, workloadId)
-	return h.logClient.RequestByTimeRange(
+	return h.searchClient.RequestByTimeRange(
 		query.SinceTime, query.UntilTime, "/_search", http.MethodPost, body)
 }
 

@@ -143,7 +143,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("workloadId is empty")
 	}
 	if commonconfig.IsDBEnable() {
-		workload, err := h.getWorkloadFromDb(c.Request.Context(), name)
+		workload, err := commonworkload.GetWorkloadFromDb(c.Request.Context(), h.dbClient, name)
 		if err != nil {
 			return nil, err
 		}
@@ -155,23 +155,6 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 		}
 		return h.cvtAdminWorkloadToResponse(c.Request.Context(), adminWorkload, true), nil
 	}
-}
-
-func (h *Handler) getWorkloadFromDb(ctx context.Context, workloadId string) (*dbclient.Workload, error) {
-	dbTags := dbclient.GetWorkloadFieldTags()
-	dbSql := sqrl.And{
-		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
-		sqrl.Eq{dbclient.GetFieldTag(dbTags, "WorkloadId"): workloadId},
-	}
-	workloads, err := h.dbClient.SelectWorkloads(ctx, dbSql, nil, 1, 0)
-	if err != nil {
-		klog.ErrorS(err, "failed to select workload", "sql", cvtToSqlStr(dbSql))
-		return nil, err
-	}
-	if len(workloads) == 0 {
-		return nil, commonerrors.NewNotFound(v1.WorkloadKind, workloadId)
-	}
-	return workloads[0], nil
 }
 
 func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
@@ -395,6 +378,7 @@ func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, w
 func generateWorkload(req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
+			Name: commonutils.GenerateName(req.DisplayName),
 			Labels: map[string]string{
 				v1.DisplayNameLabel: req.DisplayName,
 			},
@@ -421,9 +405,6 @@ func generateWorkload(req *types.CreateWorkloadRequest, body []byte) (*v1.Worklo
 			customerLabels[key] = val
 		}
 		workload.Spec.CustomerLabels = customerLabels
-	}
-	if workload.Name == "" {
-		workload.Name = commonutils.GenerateName(req.DisplayName)
 	}
 	return workload, nil
 }

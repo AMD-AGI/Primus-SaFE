@@ -254,14 +254,14 @@ func (r *NodeK8sReconciler) start(ctx context.Context) error {
 	return nil
 }
 
-func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (commonctrl.Result, error) {
+func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (ctrlruntime.Result, error) {
 	adminNode := new(v1.Node)
 	err := r.Get(ctx, apitypes.NamespacedName{Name: message.adminNodeName}, adminNode)
 	if err != nil {
-		return commonctrl.Result{}, client.IgnoreNotFound(err)
+		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if !adminNode.GetDeletionTimestamp().IsZero() {
-		return commonctrl.Result{}, nil
+		return ctrlruntime.Result{}, nil
 	}
 
 	switch message.action {
@@ -276,9 +276,9 @@ func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (
 		if utils.IsNonRetryableError(err) {
 			err = nil
 		}
-		return commonctrl.Result{}, err
+		return ctrlruntime.Result{}, err
 	}
-	return commonctrl.Result{}, nil
+	return ctrlruntime.Result{}, nil
 }
 
 func (r *NodeK8sReconciler) handleNodeUnmanaged(ctx context.Context, message *nodeQueueMessage, adminNode *v1.Node) error {

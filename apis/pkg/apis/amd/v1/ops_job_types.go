@@ -25,11 +25,14 @@ const (
 	OpsJobRunning   OpsJobPhase = "Running"
 	OpsJobPending   OpsJobPhase = "Pending"
 
-	OpsJobAddonType OpsJobType = "addon"
+	OpsJobAddonType   OpsJobType = "addon"
+	OpsJobDumplogType OpsJobType = "dumplog"
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"
 	ParameterAddonTemplate = "addon.template"
+	ParameterWorkload      = "workload"
+	ParameterEndpoint      = "endpoint"
 )
 
 type Parameter struct {
@@ -59,8 +62,6 @@ type OpsJobStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ops job's phase
 	Phase OpsJobPhase `json:"phase,omitempty"`
-	// error message
-	Message string `json:"message,omitempty"`
 	// ops job's output
 	Outputs []Parameter `json:"outputs,omitempty"`
 }
@@ -119,6 +120,14 @@ func (job *OpsJob) IsTimeout() bool {
 	}
 	costTime := time.Now().Unix() - job.CreationTimestamp.Unix()
 	return int(costTime) >= job.Spec.TimeoutSecond
+}
+
+func (job *OpsJob) GetLeftTime() int64 {
+	if job.Spec.TimeoutSecond <= 0 {
+		return -1
+	}
+	leftTime := job.CreationTimestamp.Unix() + int64(job.Spec.TimeoutSecond) - time.Now().Unix()
+	return leftTime
 }
 
 func (job *OpsJob) IsFinished() bool {

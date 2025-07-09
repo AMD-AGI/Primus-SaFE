@@ -101,7 +101,6 @@ create table if not exists ops_job
     delete_time TIMESTAMP,
     phase VARCHAR(64),
     conditions TEXT,
-    message TEXT,
     outputs TEXT
 );
 

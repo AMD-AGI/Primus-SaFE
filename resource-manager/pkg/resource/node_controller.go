@@ -34,7 +34,6 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
@@ -906,13 +905,10 @@ func (r *NodeReconciler) addNodeTemplate(ctx context.Context, adminNode *v1.Node
 	if adminNode.Spec.NodeTemplate == nil {
 		return nil
 	}
-	nowTime := time.Now()
 	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: adminNode.Name + "-" + adminNode.Spec.NodeTemplate.Name,
 			Annotations: map[string]string{
-				v1.UserNameAnnotation:           "system",
-				v1.OpsJobDispatchTimeAnnotation: timeutil.FormatRFC3339(&nowTime),
+				v1.UserNameAnnotation: "system",
 			},
 		},
 		Spec: v1.OpsJobSpec{

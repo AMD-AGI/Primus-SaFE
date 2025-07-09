@@ -65,7 +65,6 @@ func (m *NodeFlavorMutator) mutateOnCreation(nf *v1.NodeFlavor) {
 	if nf.Spec.Gpu != nil && nf.Spec.Gpu.Quantity.IsZero() {
 		nf.Spec.Gpu = nil
 	}
-	v1.SetLabel(nf, v1.DisplayNameLabel, nf.Name)
 }
 
 func (m *NodeFlavorMutator) mutateExtendResources(nf *v1.NodeFlavor) {

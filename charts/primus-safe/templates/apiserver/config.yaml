@@ -35,6 +35,8 @@ data:
       server_port: {{ .Values.ssh.port }}
       enable: {{ .Values.ssh.enable }}
       config_path: {{ .Values.ssh.mount_path }}
+    s3:
+      enable: {{ .Values.s3.enable }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

@@ -105,7 +105,6 @@ const (
 
 	// job
 	OpsJobPrefix                    = PrimusSafePrefix + "ops.job."
-	OpsJobDispatchTimeAnnotation    = OpsJobPrefix + "dispatch.time"
 	OpsJobIdLabel                   = OpsJobPrefix + "id"
 	OpsJobTypeLabel                 = OpsJobPrefix + "type"
 	OpsJobSecurityUpgradeAnnotation = OpsJobPrefix + "security.upgrade"

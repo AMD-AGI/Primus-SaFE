@@ -52,6 +52,11 @@ spec:
               mountPath: {{ .Values.db.mount_path }}
               readOnly: true
             {{- end }}
+            {{- if .Values.s3.enable }}
+            - name: s3-secret
+              mountPath: {{ .Values.s3.mount_path }}
+              readOnly: true
+            {{- end }}
           {{- if .Values.k8s.enable_health_check }}
           ports:
             - containerPort: {{ .Values.resource_manager.health_port }}
@@ -87,6 +92,11 @@ spec:
         - name: db-secret
           secret:
             secretName: {{ .Values.db.secret }}
+        {{- end }}
+        {{- if .Values.s3.enable }}
+        - name: s3-secret
+          secret:
+            secretName: {{ .Values.s3.secret }}
         {{- end }}
         - name: server-config
           configMap:

@@ -10,9 +10,13 @@ import (
 	"fmt"
 	"time"
 
+	sqrl "github.com/Masterminds/squirrel"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
+
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 type DBDriver string
@@ -93,4 +97,13 @@ func NullMetaV1Time(t *metav1.Time) pq.NullTime {
 		Time:  t.Time,
 		Valid: true,
 	}
+}
+
+func CvtToSqlStr(sql sqrl.Sqlizer) string {
+	sqlStr, args, err := sql.ToSql()
+	if err != nil {
+		klog.Errorf("failed to convert sql, err: %v", err)
+		return ""
+	}
+	return sqlStr + " " + string(jsonutils.MarshalSilently(args))
 }

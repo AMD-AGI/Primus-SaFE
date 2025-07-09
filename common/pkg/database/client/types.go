@@ -97,7 +97,6 @@ type OpsJob struct {
 	DeleteTime pq.NullTime    `db:"delete_time"`
 	Phase      sql.NullString `db:"phase"`
 	Conditions sql.NullString `db:"conditions"`
-	Message    sql.NullString `db:"message"`
 	Outputs    sql.NullString `db:"outputs"`
 }
 
