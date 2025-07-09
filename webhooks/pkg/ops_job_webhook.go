@@ -9,7 +9,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
+	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -25,6 +27,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -70,18 +73,16 @@ func (m *OpsJobMutator) mutateOnCreation(ctx context.Context, job *v1.OpsJob) bo
 }
 
 func (m *OpsJobMutator) mutateMeta(ctx context.Context, job *v1.OpsJob) bool {
-	if job.Name != "" {
-		job.Name = stringutil.NormalizeName(job.Name)
-	}
-	v1.SetLabel(job, v1.ClusterIdLabel, job.Spec.Cluster)
+	jobName := v1.OpsJobKind + "-" + string(job.Spec.Type)
+	job.Name = commonutils.GenerateName(strings.ToLower(jobName))
+
 	v1.SetLabel(job, v1.OpsJobTypeLabel, string(job.Spec.Type))
-	if v1.GetLabel(job, v1.DisplayNameLabel) == "" {
-		v1.SetLabel(job, v1.DisplayNameLabel, job.Name)
-	}
 	if v1.GetAnnotation(job, v1.OpsJobBatchCountAnnotation) == "" && commonconfig.GetOpsJobBatchCount() > 0 {
 		v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(commonconfig.GetOpsJobBatchCount()))
 	}
+
 	if job.Spec.Cluster != "" {
+		v1.SetLabel(job, v1.ClusterIdLabel, job.Spec.Cluster)
 		cl := &v1.Cluster{}
 		if err := m.Get(ctx, client.ObjectKey{Name: job.Spec.Cluster}, cl); err == nil {
 			if !hasOwnerReferences(job, cl.Name) {
@@ -170,13 +171,18 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 	if err := v.validateRequiredParams(ctx, job); err != nil {
 		return err
 	}
-	if job.Spec.Type == v1.OpsJobAddonType {
-		if err := v.validateNodeInputDuplicated(ctx, job); err != nil {
-			return err
+	var err error
+	switch job.Spec.Type {
+	case v1.OpsJobAddonType:
+		if err = v.validateAddonTemplate(ctx, job); err != nil {
+			break
 		}
-		if err := v.validateAddonTemplate(ctx, job); err != nil {
-			return err
-		}
+		err = v.validateNodeDuplicated(ctx, job)
+	case v1.OpsJobDumpLogType:
+		err = v.validateWorkloadDuplicated(ctx, job)
+	}
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -212,18 +218,12 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 	return nil
 }
 
-func (v *OpsJobValidator) validateNodeInputDuplicated(ctx context.Context, job *v1.OpsJob) error {
-	labelSelector := labels.SelectorFromSet(map[string]string{
-		v1.ClusterIdLabel:  job.Spec.Cluster,
-		v1.OpsJobTypeLabel: string(job.Spec.Type)})
-	jobList := &v1.OpsJobList{}
-	if err := v.List(ctx, jobList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
-		return client.IgnoreNotFound(err)
+func (v *OpsJobValidator) validateNodeDuplicated(ctx context.Context, job *v1.OpsJob) error {
+	currentJobs, err := v.listRelatedRunningJobs(ctx, job)
+	if err != nil {
+		return err
 	}
-	for _, currentJob := range jobList.Items {
-		if currentJob.IsEnd() {
-			continue
-		}
+	for _, currentJob := range currentJobs {
 		// If the node parameter is empty, it indicates all nodes.
 		if job.GetParameter(v1.ParameterNode) == nil || currentJob.GetParameter(v1.ParameterNode) == nil ||
 			v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterNode) {
@@ -234,7 +234,22 @@ func (v *OpsJobValidator) validateNodeInputDuplicated(ctx context.Context, job *
 	return nil
 }
 
+func (v *OpsJobValidator) validateWorkloadDuplicated(ctx context.Context, job *v1.OpsJob) error {
+	currentJobs, err := v.listRelatedRunningJobs(ctx, job)
+	if err != nil {
+		return err
+	}
+	for _, currentJob := range currentJobs {
+		if v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterWorkload) {
+			return commonerrors.NewResourceProcessing(
+				fmt.Sprintf("another ops job (%s) is running, job.type: %s", currentJob.Name, currentJob.Spec.Type))
+		}
+	}
+	return nil
+}
+
 func (v *OpsJobValidator) validateAddonTemplate(ctx context.Context, job *v1.OpsJob) error {
+	hasFound := false
 	for _, p := range job.Spec.Inputs {
 		if p.Name != v1.ParameterAddonTemplate {
 			continue
@@ -247,6 +262,12 @@ func (v *OpsJobValidator) validateAddonTemplate(ctx context.Context, job *v1.Ops
 		if addonTemplate.Spec.Type == v1.AddonTemplateHelm {
 			return commonerrors.NewBadRequest("The addon job does not support Helm installation.")
 		}
+		hasFound = true
+	}
+	if !hasFound {
+		return commonerrors.NewBadRequest(
+			fmt.Sprintf("either %s or %s must be specified in the job.",
+				v1.ParameterAddonTemplate, v1.ParameterNodeTemplate))
 	}
 	return nil
 }
@@ -257,6 +278,9 @@ func (v *OpsJobValidator) validateImmutableFields(newJob, oldJob *v1.OpsJob) err
 	}
 	if newJob.Spec.Type != oldJob.Spec.Type {
 		return field.Forbidden(field.NewPath("spec").Key("type"), "immutable")
+	}
+	if !reflect.DeepEqual(newJob.Spec.Inputs, oldJob.Spec.Inputs) {
+		return field.Forbidden(field.NewPath("spec").Key("inputs"), "immutable")
 	}
 	return nil
 }
@@ -278,4 +302,21 @@ func (v *OpsJobValidator) hasDuplicateInput(params1, params2 []v1.Parameter, par
 		}
 	}
 	return false
+}
+
+func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, job *v1.OpsJob) ([]v1.OpsJob, error) {
+	labelSelector := labels.SelectorFromSet(map[string]string{
+		v1.ClusterIdLabel: job.Spec.Cluster, v1.OpsJobTypeLabel: string(job.Spec.Type)})
+	jobList := &v1.OpsJobList{}
+	if err := v.List(ctx, jobList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	result := make([]v1.OpsJob, 0, len(jobList.Items))
+	for i := range jobList.Items {
+		if jobList.Items[i].IsEnd() {
+			continue
+		}
+		result = append(result, jobList.Items[i])
+	}
+	return result, nil
 }

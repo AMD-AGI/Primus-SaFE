@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+#
+# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 KUBE_CONFIG=/etc/kubernetes/admin.conf
 AUTHORIZE=${HOME}/.ssh/id_rsa
 
@@ -76,7 +81,7 @@ helm repo add rocm https://rocm.github.io/gpu-operator
 helm upgrade --install amd-gpu-operator -n kube-amd-gpu rocm/gpu-operator-charts --create-namespace
 
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \ 
+helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
       -n prometheus --create-namespace --set installCRDs=true
 
 

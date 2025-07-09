@@ -5,6 +5,10 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: {{ .Release.Name }}-job-manager
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   replicas: {{ .Values.job_manager.replicas }}
   selector:
@@ -30,10 +34,10 @@ spec:
                     operator: NotIn
                     values:
                       - "true"
-      serviceAccountName: {{ .Release.Name }}-manager
+      serviceAccountName: {{ .Release.Name }}
       containers:
         - name: {{ .Release.Name }}-job-manager
-          image: {{ .Values.repository }}/job-manager:{{ .Values.job_manager.tag }}
+          image: {{ .Values.repository }}/{{ .Values.job_manager.image }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/job-manager/run.sh"]
           terminationMessagePath: /dev/termination-log

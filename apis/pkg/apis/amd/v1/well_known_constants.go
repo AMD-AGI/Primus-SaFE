@@ -43,7 +43,7 @@ const (
 	NodeActionAdd        = "add"
 	NodeActionRemove     = "remove"
 
-	// Cluster lables
+	// cluster
 	ClusterPrefix                 = PrimusSafePrefix + "cluster."
 	ClusterFinalizer              = PrimusSafeDomain + "cluster.finalizer"
 	ClusterManagePrefix           = ClusterPrefix + "manage."
@@ -105,7 +105,6 @@ const (
 
 	// job
 	OpsJobPrefix                    = PrimusSafePrefix + "ops.job."
-	OpsJobDispatchTimeAnnotation    = OpsJobPrefix + "dispatch.time"
 	OpsJobIdLabel                   = OpsJobPrefix + "id"
 	OpsJobTypeLabel                 = OpsJobPrefix + "type"
 	OpsJobSecurityUpgradeAnnotation = OpsJobPrefix + "security.upgrade"

@@ -30,7 +30,7 @@ func SetupJobTTLController(mgr manager.Manager) error {
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, caredChangePredicate{}))).
+			predicate.GenerationChangedPredicate{}, r.caredChangePredicate()))).
 		Complete(r)
 	if err != nil {
 		return err
@@ -39,20 +39,20 @@ func SetupJobTTLController(mgr manager.Manager) error {
 	return nil
 }
 
-type caredChangePredicate struct {
-	predicate.Funcs
-}
-
-func (caredChangePredicate) Update(e event.UpdateEvent) bool {
-	oldJob, ok1 := e.ObjectOld.(*v1.OpsJob)
-	newJob, ok2 := e.ObjectNew.(*v1.OpsJob)
-	if !ok1 || !ok2 {
-		return false
+func (r *JobTTLController) caredChangePredicate() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldJob, ok1 := e.ObjectOld.(*v1.OpsJob)
+			newJob, ok2 := e.ObjectNew.(*v1.OpsJob)
+			if !ok1 || !ok2 {
+				return false
+			}
+			if !oldJob.IsEnd() && newJob.IsEnd() && newJob.Spec.TTLSecondsAfterFinished != 0 {
+				return true
+			}
+			return false
+		},
 	}
-	if !oldJob.IsEnd() && newJob.IsEnd() && newJob.Spec.TTLSecondsAfterFinished != 0 {
-		return true
-	}
-	return false
 }
 
 func (r *JobTTLController) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {

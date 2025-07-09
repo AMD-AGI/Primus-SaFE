@@ -19,7 +19,6 @@ type OpsJobStatusApplyConfiguration struct {
 	FinishedAt *metav1.Time                                            `json:"finishedAt,omitempty"`
 	Conditions []applyconfigurationsmetav1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	Phase      *amdv1.OpsJobPhase                                      `json:"phase,omitempty"`
-	Message    *string                                                 `json:"message,omitempty"`
 	Outputs    []ParameterApplyConfiguration                           `json:"outputs,omitempty"`
 }
 
@@ -63,14 +62,6 @@ func (b *OpsJobStatusApplyConfiguration) WithConditions(values ...*applyconfigur
 // If called multiple times, the Phase field is set to the value of the last call.
 func (b *OpsJobStatusApplyConfiguration) WithPhase(value amdv1.OpsJobPhase) *OpsJobStatusApplyConfiguration {
 	b.Phase = &value
-	return b
-}
-
-// WithMessage sets the Message field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Message field is set to the value of the last call.
-func (b *OpsJobStatusApplyConfiguration) WithMessage(value string) *OpsJobStatusApplyConfiguration {
-	b.Message = &value
 	return b
 }
 

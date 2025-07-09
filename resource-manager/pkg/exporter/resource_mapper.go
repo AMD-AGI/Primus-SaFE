@@ -214,7 +214,6 @@ func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 		EndTime:    dbutils.NullMetaV1Time(job.Status.FinishedAt),
 		DeleteTime: dbutils.NullMetaV1Time(job.GetDeletionTimestamp()),
 		Phase:      dbutils.NullString(string(job.Status.Phase)),
-		Message:    dbutils.NullString(job.Status.Message),
 	}
 	if len(job.Status.Conditions) > 0 {
 		result.Conditions = dbutils.NullString(

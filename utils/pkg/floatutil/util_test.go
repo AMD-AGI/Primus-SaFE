@@ -13,7 +13,7 @@ import (
 
 func TestFloatEqual(t *testing.T) {
 	type Ratio struct {
-		ratio float64 `json:"targetRatio"`
+		ratio float64
 	}
 	r := Ratio{}
 	assert.Equal(t, FloatEqual(r.ratio, 0), true)

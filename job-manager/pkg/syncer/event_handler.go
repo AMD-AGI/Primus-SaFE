@@ -11,11 +11,11 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
@@ -38,23 +38,23 @@ var (
 	workloadIdPath = []string{"metadata", "labels", v1.WorkloadIdLabel}
 )
 
-func (r *SyncerReconciler) handleEvent(ctx context.Context, msg *resourceMessage, informer *ClusterInformer) (controller.Result, error) {
+func (r *SyncerReconciler) handleEvent(ctx context.Context, msg *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
 	eventInformer, err := informer.GetResourceInformer(ctx, msg.gvk)
 	if err != nil {
-		return controller.Result{}, err
+		return ctrlruntime.Result{}, err
 	}
 	eventObj, err := jobutils.GetObject(eventInformer, msg.name, msg.namespace)
 	if err != nil {
-		return controller.Result{}, err
+		return ctrlruntime.Result{}, err
 	}
 	adminWorkload, err := r.getAdminWorkloadByEvent(ctx, informer, eventObj)
 	if adminWorkload == nil {
-		return controller.Result{}, err
+		return ctrlruntime.Result{}, err
 	}
 	if err = r.updatePendingMessage(ctx, adminWorkload, eventObj); err != nil {
-		return controller.Result{}, err
+		return ctrlruntime.Result{}, err
 	}
-	return controller.Result{}, nil
+	return ctrlruntime.Result{}, nil
 }
 
 func (r *SyncerReconciler) getAdminWorkloadByEvent(ctx context.Context,

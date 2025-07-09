@@ -6,10 +6,13 @@ metadata:
   labels:
     primus-safe.workload.version: v1
     primus-safe.workload.kind: PyTorchJob
+    app.kubernetes.io/managed-by: Helm
   annotations:
     primus-safe.gpu.resource.name: "amd.com/gpu"
     # The main container name should match the configuration defined in the template below
     primus-safe.main.container: pytorch
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 data:
  template: |
     apiVersion: kubeflow.org/v1
@@ -23,7 +26,7 @@ data:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
                 - name: preprocess
-                  image: {{ .Values.repository }}/preprocess:{{ .Values.preprocess.tag }}
+                  image: {{ .Values.repository }}/{{ .Values.preprocess.image }}
                   imagePullPolicy: IfNotPresent
                   command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                   securityContext:
@@ -102,7 +105,7 @@ data:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
                 - name: preprocess
-                  image: {{ .Values.repository }}/preprocess:{{ .Values.preprocess.tag }}
+                  image: {{ .Values.repository }}/{{ .Values.preprocess.image }}
                   imagePullPolicy: IfNotPresent
                   command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                   securityContext:

@@ -117,7 +117,7 @@ func (r *SyncerReconciler) observe(c *v1.Cluster) bool {
 }
 
 func (r *SyncerReconciler) handle(ctx context.Context, cluster *v1.Cluster) error {
-	informer, err := newClusterInformer(r.ctx, cluster.Name, &cluster.Status.ControlPlaneStatus, r.Client, r.Add)
+	informer, err := newClusterInformer(r.ctx, cluster, r.Client, r.Add)
 	if err != nil {
 		klog.ErrorS(err, "failed to new cluster informer", "cluster.name", cluster.Name)
 		return err
@@ -151,13 +151,13 @@ func (r *SyncerReconciler) start(ctx context.Context) error {
 	return nil
 }
 
-func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (controller.Result, error) {
+func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ctrlruntime.Result, error) {
 	informer, err := GetClusterInformer(r.clusterInformers, message.cluster)
 	if err != nil {
-		return controller.Result{RequeueAfter: time.Second}, nil
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
-	var result controller.Result
+	var result ctrlruntime.Result
 	switch message.gvk.Kind {
 	case common.PytorchJobKind, common.DeploymentKind, common.StatefulSetKind:
 		result, err = r.handleJob(ctx, message, informer)

@@ -5,6 +5,10 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: {{ .Release.Name }}-resource-manager
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   replicas: {{ .Values.resource_manager.replicas }}
   selector:
@@ -30,10 +34,10 @@ spec:
                     operator: NotIn
                     values:
                       - "true"
-      serviceAccountName: {{ .Release.Name }}-manager
+      serviceAccountName: {{ .Release.Name }}
       containers:
         - name: {{ .Release.Name }}-resource-manager
-          image: {{ .Values.repository }}/resource-manager:{{ .Values.resource_manager.tag }}
+          image: {{ .Values.repository }}/{{ .Values.resource_manager.image }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/resource-manager/run.sh"]
           terminationMessagePath: /dev/termination-log
@@ -50,6 +54,16 @@ spec:
             {{- if .Values.db.enable }}
             - name: db-secret
               mountPath: {{ .Values.db.mount_path }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.s3.enable }}
+            - name: s3-secret
+              mountPath: {{ .Values.s3.mount_path }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.log.enable }}
+            - name: log-secret
+              mountPath: {{ .Values.log.mount_path }}
               readOnly: true
             {{- end }}
           {{- if .Values.k8s.enable_health_check }}
@@ -86,7 +100,17 @@ spec:
         {{- if .Values.db.enable }}
         - name: db-secret
           secret:
-            secretName: {{ .Values.db.secret }}
+            secretName: {{ .Release.Name }}-pguser-{{ .Release.Name }}
+        {{- end }}
+        {{- if .Values.s3.enable }}
+        - name: s3-secret
+          secret:
+            secretName: {{ .Values.s3.secret }}
+        {{- end }}
+        {{- if .Values.log.enable }}
+        - name: log-secret
+          secret:
+            secretName: {{ .Values.log.secret }}
         {{- end }}
         - name: server-config
           configMap:

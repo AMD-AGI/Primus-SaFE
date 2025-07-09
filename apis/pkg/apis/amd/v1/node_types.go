@@ -25,7 +25,6 @@ const (
 	NodeUnmanagedFailed NodePhase = "UnmanagedFailed"
 	NodeSSHFailed       NodePhase = "SSHFailed"
 	NodeHostnameFailed  NodePhase = "HostnameFailed"
-	NodeDeleting        NodePhase = "Deleting"
 )
 
 type CommandPhase string
@@ -33,7 +32,6 @@ type CommandPhase string
 const (
 	CommandSucceeded CommandPhase = "Succeeded"
 	CommandFailed    CommandPhase = "Failed"
-	CommandPending   CommandPhase = "Pending"
 )
 
 type CommandStatus struct {
@@ -172,6 +170,13 @@ func (n *Node) GetSpecHostName() string {
 		return ""
 	}
 	return *n.Spec.Hostname
+}
+
+func (n *Node) GetSpecPort() int32 {
+	if n == nil || n.Spec.Port == nil {
+		return 0
+	}
+	return *n.Spec.Port
 }
 
 func (n *Node) GetK8sNodeName() string {

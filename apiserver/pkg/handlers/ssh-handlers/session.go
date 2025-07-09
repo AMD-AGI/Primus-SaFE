@@ -98,7 +98,7 @@ type Session interface {
 	// sent in order on the channel immediately after registering.
 	Signals(c chan<- Signal)
 
-	// Break regisers a channel to receive notifications of break requests sent
+	// Break registers a channel to receive notifications of break requests sent
 	// from the client. The channel must handle break requests, or it will block
 	// the request handling loop. Registering nil will unregister the channel.
 	// During the time that no channel is registered, breaks are ignored.

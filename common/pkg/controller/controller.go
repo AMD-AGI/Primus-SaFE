@@ -11,6 +11,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 )
 
 type Controller[T comparable] struct {
@@ -19,15 +20,10 @@ type Controller[T comparable] struct {
 	MaxConcurrent int
 }
 
-type Result struct {
-	Requeue      bool
-	RequeueAfter time.Duration
-}
-
 type QueueHandler[T comparable] func(message T)
 
 type Handler[T comparable] interface {
-	Do(ctx context.Context, message T) (Result, error)
+	Do(ctx context.Context, message T) (ctrlruntime.Result, error)
 }
 
 func NewController[T comparable](h Handler[T], concurrent int) *Controller[T] {
@@ -64,18 +60,23 @@ func (c *Controller[T]) processNext(ctx context.Context) bool {
 		return false
 	}
 	defer c.queue.Done(req)
-	if result, err := c.handler.Do(ctx, req); err != nil {
+
+	result, err := c.handler.Do(ctx, req)
+	switch {
+	case err != nil:
 		c.queue.AddRateLimited(req)
-		return true
-	} else if result.RequeueAfter > 0 {
-		c.queue.Forget(req)
+	case result.RequeueAfter > 0:
 		c.queue.AddAfter(req, result.RequeueAfter)
-		return true
-	} else if result.Requeue {
+		if result.Requeue {
+			c.queue.AddRateLimited(req)
+		} else {
+			c.queue.Forget(req)
+		}
+	case result.Requeue:
 		c.queue.AddRateLimited(req)
-		return true
+	default:
+		c.queue.Forget(req)
 	}
-	c.queue.Forget(req)
 	return true
 }
 

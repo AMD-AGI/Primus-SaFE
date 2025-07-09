@@ -60,7 +60,6 @@ func NewServer() (*Server, error) {
 		ctx:  ctrlruntime.SetupSignalHandler(),
 	}
 	if err := s.init(); err != nil {
-		klog.ErrorS(err, "failed to init server")
 		return nil, err
 	}
 	return s, nil
@@ -70,19 +69,24 @@ func (s *Server) init() error {
 	gin.SetMode(gin.ReleaseMode)
 	var err error
 	if err = s.opts.InitFlags(); err != nil {
-		return fmt.Errorf("failed to parse flags. %s", err.Error())
+		klog.ErrorS(err, "failed to parse flags")
+		return err
 	}
 	if err = s.initLogs(); err != nil {
-		return fmt.Errorf("failed to init logs. %s", err.Error())
+		klog.ErrorS(err, "failed to init logs")
+		return err
 	}
 	if err = s.initConfig(); err != nil {
-		return fmt.Errorf("failed to init config. %s", err.Error())
+		klog.ErrorS(err, "failed to init config")
+		return err
 	}
 	if s.ctrlManager, err = newCtrlManager(); err != nil {
-		return fmt.Errorf("failed to new manager. %s", err.Error())
+		klog.ErrorS(err, "failed to init controller manager")
+		return err
 	}
 	if err = controllers.SetupControllers(s.ctx, s.ctrlManager); err != nil {
-		return fmt.Errorf("failed to setup controller. %s", err.Error())
+		klog.ErrorS(err, "failed to setup controllers")
+		return err
 	}
 	s.isInited = true
 	return nil

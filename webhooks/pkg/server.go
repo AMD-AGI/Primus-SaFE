@@ -59,16 +59,20 @@ func NewServer() (*Server, error) {
 func (s *Server) init() error {
 	var err error
 	if err = s.opts.InitFlags(); err != nil {
-		return fmt.Errorf("failed to parse flags. %s", err.Error())
+		klog.ErrorS(err, "failed to initialize flags")
+		return err
 	}
 	if err = s.initLogs(); err != nil {
-		return fmt.Errorf("failed to init logs. %s", err.Error())
+		klog.ErrorS(err, "failed to initialize logs")
+		return err
 	}
 	if err = s.initConfig(); err != nil {
-		return fmt.Errorf("failed to init config. %s", err.Error())
+		klog.ErrorS(err, "failed to initialize config")
+		return err
 	}
 	if err = s.newCtrlManager(); err != nil {
-		return fmt.Errorf("failed to new controller manager. %s", err.Error())
+		klog.ErrorS(err, "failed to initialize controller manager")
+		return err
 	}
 	setUpWebhooks(s.ctrlManager, s.ctrlManager.GetWebhookServer())
 	s.isInited = true

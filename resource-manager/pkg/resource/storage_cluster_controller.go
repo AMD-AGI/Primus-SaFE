@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
@@ -58,13 +59,13 @@ func (r *StorageClusterController) handleClusterEvent() handler.EventHandler {
 		added := map[string]struct{}{}
 		for _, s := range kc.Spec.Storages {
 			added[s.StorageCluster] = struct{}{}
-			queue.Add(ctrlruntime.Request{
+			queue.Add(reconcile.Request{
 				types.NamespacedName{Name: s.StorageCluster},
 			})
 		}
 		for _, s := range kc.Status.StorageStatus {
 			if _, ok := added[s.StorageCluster]; !ok {
-				queue.Add(ctrlruntime.Request{
+				queue.Add(reconcile.Request{
 					types.NamespacedName{Name: s.StorageCluster},
 				})
 			}
@@ -230,7 +231,7 @@ func (r *StorageClusterController) updateCephCsiConfig(ctx context.Context, clus
 	if err != nil {
 		return fmt.Errorf("get ceph csi configmap %s failed %+v", cephCSIRBDName, err)
 	}
-	infos := []ClusterInfo{}
+	var infos []ClusterInfo
 	if conf, ok := configMap.Data["config.json"]; ok {
 		err = json.Unmarshal([]byte(conf), &infos)
 		if err != nil {
@@ -306,7 +307,7 @@ func (r *StorageClusterController) addFinalizer(ctx context.Context, cluster *v1
 }
 
 func (r *StorageClusterController) removeFinalizer(ctx context.Context, cluster *v1.StorageCluster) error {
-	finalizers := []string{}
+	var finalizers []string
 	for _, v := range cluster.Finalizers {
 		if v != v1.StorageFinalizer {
 			finalizers = append(finalizers, v)
@@ -454,12 +455,12 @@ func (r *StorageClusterController) getStorageCluster(ctx context.Context, sc *v1
 func updateStorageStatus(kc *v1.Cluster, s v1.StorageStatus) {
 	for i, stats := range kc.Status.StorageStatus {
 		if stats.Name == s.Name {
-			crypto := crypto.NewCrypto()
-			sk, _ := crypto.Decrypt(stats.SecretKey)
+			cryptoInstance := crypto.NewCrypto()
+			sk, _ := cryptoInstance.Decrypt(stats.SecretKey)
 			if sk == s.SecretKey {
 				s.SecretKey = kc.Status.StorageStatus[i].SecretKey
 			} else {
-				s.SecretKey, _ = crypto.Encrypt([]byte(s.SecretKey))
+				s.SecretKey, _ = cryptoInstance.Encrypt([]byte(s.SecretKey))
 			}
 			kc.Status.StorageStatus[i] = s
 			return

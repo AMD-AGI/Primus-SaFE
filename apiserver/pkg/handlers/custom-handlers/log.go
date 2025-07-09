@@ -154,7 +154,7 @@ func (h *Handler) parseWorkloadLogQuery(c *gin.Context, name string) (*types.Get
 
 func (h *Handler) getWorkloadStartEndTime(ctx context.Context, workloadId string) (time.Time, time.Time, error) {
 	if commonconfig.IsDBEnable() {
-		workload, err := h.getWorkloadFromDb(ctx, workloadId)
+		workload, err := h.dbClient.GetWorkload(ctx, workloadId)
 		if err != nil {
 			return time.Time{}, time.Time{}, err
 		}
@@ -172,7 +172,7 @@ func (h *Handler) getWorkloadStartEndTime(ctx context.Context, workloadId string
 
 func (h *Handler) searchLog(query *types.GetLogRequest, workloadId string) ([]byte, error) {
 	body := buildSearchBody(query, workloadId)
-	return h.logClient.RequestByTimeRange(
+	return h.searchClient.RequestByTimeRange(
 		query.SinceTime, query.UntilTime, "/_search", http.MethodPost, body)
 }
 
@@ -408,20 +408,6 @@ func parseSearchLogQuery(req *http.Request, beginTime, endTime time.Time) (*type
 		return nil, commonerrors.NewBadRequest("the since time is later than until time")
 	}
 	return query, nil
-}
-
-func parseTime(timeStr string, timeMilliSecond int64) (time.Time, error) {
-	if timeMilliSecond > 0 {
-		return timeutil.CvtMilliSecToTime(timeMilliSecond), nil
-	}
-	if timeStr != "" {
-		t, err := time.Parse(timeutil.TimeRFC3339Milli, timeStr)
-		if err != nil {
-			return time.Time{}, err
-		}
-		return t.UTC(), nil
-	}
-	return time.Time{}, nil
 }
 
 func split(str, sep string) []string {

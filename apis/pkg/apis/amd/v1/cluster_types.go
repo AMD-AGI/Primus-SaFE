@@ -156,7 +156,7 @@ type ControlPlane struct {
 	NodeLocalDNSIP         *string            `json:"nodeLocalDNSIP,omitempty"`
 	KubeApiServerArgs      map[string]string  `json:"kubeApiServerArgs,omitempty"`
 	KubeletLogFilesMaxSize *resource.Quantity `json:"kubeletLogFilesMaxSize,omitempty"`
-	KubeletConfigArgs      map[string]string  `json:"kubeletConfigArgs"`
+	KubeletConfigArgs      map[string]string  `json:"kubeletConfigArgs,omitempty"`
 }
 
 type ControlPlaneStatus struct {
@@ -186,9 +186,29 @@ func init() {
 	SchemeBuilder.Register(&Cluster{}, &ClusterList{})
 }
 
-func (c *Cluster) IsReady() bool {
-	if c != nil && c.Status.ControlPlaneStatus.Phase == ReadyPhase {
+func (cluster *Cluster) IsReady() bool {
+	if cluster != nil && cluster.Status.ControlPlaneStatus.Phase == ReadyPhase {
 		return true
 	}
 	return false
+}
+
+func (cluster *Cluster) DeleteStorageStatus(name string) {
+	newStatus := make([]StorageStatus, 0, len(cluster.Spec.Storages))
+	for i, stats := range cluster.Status.StorageStatus {
+		if stats.Name == name && stats.Ref == nil {
+			continue
+		}
+		newStatus = append(newStatus, cluster.Status.StorageStatus[i])
+	}
+	cluster.Status.StorageStatus = newStatus
+}
+
+func (cluster *Cluster) GetStorage(name string) (Storage, bool) {
+	for i, storage := range cluster.Spec.Storages {
+		if storage.Name == name {
+			return cluster.Spec.Storages[i], true
+		}
+	}
+	return Storage{}, false
 }

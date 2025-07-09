@@ -16,7 +16,7 @@ import (
 type CreateOpsJobRequest struct {
 	// the resource objects to be processed. e.g. {{"name": "node", "value": "node.id"}}
 	Inputs []v1.Parameter `json:"inputs"`
-	// valid values include: addon
+	// valid values include: addon/dumplog
 	Type v1.OpsJobType `json:"type"`
 	// the cluster which the job belongs to
 	Cluster string `json:"cluster"`
@@ -24,14 +24,10 @@ type CreateOpsJobRequest struct {
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
 	// the number of nodes to process simultaneously during the addon upgrade
 	BatchCount int `json:"batchCount,omitempty"`
-	// When enabled, the operation will wait until the node is idle
+	// When enabled, the operation will wait until the node is idle, only to addon
 	SecurityUpgrade bool `json:"securityUpgrade,omitempty"`
 	// job submitter
 	UserName string `json:"userName,omitempty"`
-
-	// for internal user
-	JobName   string `json:"-"`
-	Workspace string `json:"-"`
 }
 
 type CreateOpsJobResponse struct {
@@ -91,8 +87,6 @@ type GetOpsJobResponseItem struct {
 	EndTime string `json:"endTime,omitempty"`
 	// job deletion time
 	DeleteTime string `json:"deleteTime,omitempty"`
-	// error message
-	Message string `json:"message,omitempty"`
 	// job inputs
 	Inputs []v1.Parameter `json:"inputs"`
 	// job outputs

@@ -15,7 +15,6 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
@@ -110,7 +109,7 @@ func (c *Client) SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderB
 		return nil, err
 	}
 	var workloads []*Workload
-	ctx2, cancel := context.WithTimeout(ctx, time.Duration(commonconfig.GetDBRequestTimeoutSecond())*time.Second)
+	ctx2, cancel := context.WithTimeout(ctx, time.Duration(c.RequestTimeout)*time.Second)
 	defer cancel()
 	err = db.SelectContext(ctx2, &workloads, sql, args...)
 	return workloads, err
@@ -163,4 +162,21 @@ func (c *Client) SetWorkloadDescription(ctx context.Context, workloadId, descrip
 		return err
 	}
 	return nil
+}
+
+func (c *Client) GetWorkload(ctx context.Context, workloadId string) (*Workload, error) {
+	dbTags := GetWorkloadFieldTags()
+	dbSql := sqrl.And{
+		sqrl.Eq{GetFieldTag(dbTags, "IsDeleted"): false},
+		sqrl.Eq{GetFieldTag(dbTags, "WorkloadId"): workloadId},
+	}
+	workloads, err := c.SelectWorkloads(ctx, dbSql, nil, 1, 0)
+	if err != nil {
+		klog.ErrorS(err, "failed to select workload", "sql", dbutils.CvtToSqlStr(dbSql))
+		return nil, err
+	}
+	if len(workloads) == 0 {
+		return nil, nil
+	}
+	return workloads[0], nil
 }

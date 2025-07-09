@@ -34,11 +34,10 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
-	MaxRretyCount = 3
+	MaxRetryCount = 3
 )
 
 type NodeReconciler struct {
@@ -288,7 +287,7 @@ func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) (
 }
 
 func (r *NodeReconciler) syncHostname(node *v1.Node, client *ssh.Client) (string, error) {
-	if node.Status.MachineStatus.HostName != "" {
+	if node.Status.MachineStatus.HostName != "" && node.Status.MachineStatus.HostName == node.GetSpecHostName() {
 		return node.Status.MachineStatus.HostName, nil
 	}
 	hostname, err := getHostname(client)
@@ -296,10 +295,10 @@ func (r *NodeReconciler) syncHostname(node *v1.Node, client *ssh.Client) (string
 		return "", err
 	}
 	if node.Spec.Hostname != nil && *node.Spec.Hostname != hostname {
-		hostname, err = setHostname(client, *node.Spec.Hostname)
-		if err != nil {
+		if err = setHostname(client, *node.Spec.Hostname); err != nil {
 			return "", err
 		}
+		hostname = *node.Spec.Hostname
 	}
 	if hostname == "" {
 		return "", fmt.Errorf("hostname not found for node %s", node.Name)
@@ -680,11 +679,11 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 	if pod == nil {
 		// A retry limit is set when deleting a Pod. If the k8s node operation fails, scale-up will be retried.
 		// After exceeding the max retry count, it will fail directly to avoid infinite loops
-		count, err := utils.IncRetryCount(ctx, r.Client, adminNode, MaxRretyCount)
+		count, err := utils.IncRetryCount(ctx, r.Client, adminNode, MaxRetryCount)
 		if err != nil {
 			return err
 		}
-		if count > MaxRretyCount {
+		if count > MaxRetryCount {
 			adminNode.Status.ClusterStatus.Phase = v1.NodeManagedFailed
 			return nil
 		}
@@ -802,11 +801,11 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 	if pod == nil {
 		// A retry limit is set when deleting a Pod. If the k8s node operation fails, scale-down will be retried.
 		// After exceeding the max retry count, it will fail directly to avoid infinite loops
-		count, err := utils.IncRetryCount(ctx, r.Client, adminNode, MaxRretyCount)
+		count, err := utils.IncRetryCount(ctx, r.Client, adminNode, MaxRetryCount)
 		if err != nil {
 			return err
 		}
-		if count > MaxRretyCount {
+		if count > MaxRetryCount {
 			adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanagedFailed
 			return nil
 		}
@@ -906,13 +905,10 @@ func (r *NodeReconciler) addNodeTemplate(ctx context.Context, adminNode *v1.Node
 	if adminNode.Spec.NodeTemplate == nil {
 		return nil
 	}
-	nowTime := time.Now()
 	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: adminNode.Name + "-" + adminNode.Spec.NodeTemplate.Name,
 			Annotations: map[string]string{
-				v1.UserNameAnnotation:           "system",
-				v1.OpsJobDispatchTimeAnnotation: timeutil.FormatRFC3339(&nowTime),
+				v1.UserNameAnnotation: "system",
 			},
 		},
 		Spec: v1.OpsJobSpec{

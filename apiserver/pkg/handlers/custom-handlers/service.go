@@ -24,7 +24,9 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the serviceId is not found")
 	}
-	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
+
+	ctx := c.Request.Context()
+	adminWorkload, err := h.getAdminWorkload(ctx, name)
 	if err != nil {
 		return nil, commonerrors.NewNotFoundWithMessage("the workload is not found")
 	}
@@ -34,8 +36,7 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	service, err := k8sClients.ClientSet().CoreV1().Services(workspace).Get(
-		c.Request.Context(), name, metav1.GetOptions{})
+	service, err := k8sClients.ClientSet().CoreV1().Services(workspace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}

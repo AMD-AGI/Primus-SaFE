@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # The resources related to the hook need to be cleaned up, and they cannot be deleted directly by helm.
+  name: "delete-db-cluster"
+  annotations:
+    "helm.sh/hook": pre-delete
+    "helm.sh/hook-delete-policy": "before-hook-creation,hook-succeeded"
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ .Release.Name }}
+      containers:
+        - name: main
+          image: {{ .Values.repository }}/kubectl:latest
+          command:
+            - sh
+            - -c
+            - |
+              CLUSTERS=$(kubectl get PostgresClusters -n "{{ .Release.Namespace }}" -o jsonpath='{.items[*].metadata.name}')
+              for cluster in $CLUSTERS; do
+                echo "Deleting PostgresCluster: $cluster"
+                kubectl delete PostgresCluster "$cluster" -n {{ .Release.Namespace }}
+              done
+
+              kubectl delete ConfigMap "create-db-table" -n {{ .Release.Namespace }}
