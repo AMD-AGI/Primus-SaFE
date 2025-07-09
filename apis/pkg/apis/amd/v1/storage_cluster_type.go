@@ -127,26 +127,6 @@ type Capacity struct {
 	LastUpdated    string `json:"lastUpdated,omitempty"`
 }
 
-func (kc *Cluster) DeleteStorageStatus(name string) {
-	newStatus := make([]StorageStatus, 0, len(kc.Spec.Storages))
-	for i, stats := range kc.Status.StorageStatus {
-		if stats.Name == name && stats.Ref == nil {
-			continue
-		}
-		newStatus = append(newStatus, kc.Status.StorageStatus[i])
-	}
-	kc.Status.StorageStatus = newStatus
-}
-
-func (kc *Cluster) GetStorage(name string) (Storage, bool) {
-	for i, storage := range kc.Spec.Storages {
-		if storage.Name == name {
-			return kc.Spec.Storages[i], true
-		}
-	}
-	return Storage{}, false
-}
-
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 

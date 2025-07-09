@@ -14,7 +14,7 @@ import (
 func main() {
 	s, err := apiserver.NewServer()
 	if err != nil {
-		fmt.Println("failed to new server, err: ", err.Error())
+		fmt.Println("failed to new server")
 		return
 	}
 	s.Start()

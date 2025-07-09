@@ -70,23 +70,24 @@ type resourceMessage struct {
 	dispatchCount int
 }
 
-func newClusterInformer(ctx context.Context, name string, controlPlane *v1.ControlPlaneStatus,
+func newClusterInformer(ctx context.Context, cluster *v1.Cluster,
 	adminClient client.Client, handler ResourceHandler) (*ClusterInformer, error) {
+	controlPlane := &cluster.Status.ControlPlaneStatus
 	if controlPlane == nil {
 		return nil, fmt.Errorf("controlPlane is empty")
 	}
-	endpoint, err := commoncluster.GetEndpoint(ctx, adminClient, name, controlPlane.Endpoints)
+	endpoint, err := commoncluster.GetEndpoint(ctx, adminClient, cluster)
 	if err != nil {
 		return nil, err
 	}
-	clientFactory, err := commonclient.NewClientFactory(ctx, name, endpoint,
+	clientFactory, err := commonclient.NewClientFactory(ctx, cluster.Name, endpoint,
 		controlPlane.CertData, controlPlane.KeyData, controlPlane.CAData, commonclient.EnableDynamicInformer)
 	if err != nil {
 		return nil, err
 	}
 	return &ClusterInformer{
 		ctx:               ctx,
-		name:              name,
+		name:              cluster.Name,
 		adminClient:       adminClient,
 		dataClientFactory: clientFactory,
 		handler:           handler,

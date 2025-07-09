@@ -104,8 +104,10 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	ctx := c.Request.Context()
 	workspaceList := &v1.WorkspaceList{}
-	if err = h.List(c.Request.Context(), workspaceList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+	if err = h.List(ctx, workspaceList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return nil, err
 	}
 	sort.Slice(workspaceList.Items, func(i, j int) bool {
@@ -114,7 +116,7 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 
 	result := &types.GetWorkspaceResponse{}
 	for _, w := range workspaceList.Items {
-		item, err := h.cvtToWorkspaceResItem(c.Request.Context(), &w, false)
+		item, err := h.cvtToWorkspaceResItem(ctx, &w, false)
 		if err != nil {
 			return nil, err
 		}
@@ -125,11 +127,12 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) getWorkspace(c *gin.Context) (interface{}, error) {
-	workspace, err := h.getAdminWorkspace(c.Request.Context(), c.GetString(types.Name))
+	ctx := c.Request.Context()
+	workspace, err := h.getAdminWorkspace(ctx, c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
-	result, err := h.cvtToWorkspaceResItem(c.Request.Context(), workspace, true)
+	result, err := h.cvtToWorkspaceResItem(ctx, workspace, true)
 	if err != nil {
 		return nil, err
 	}
@@ -137,11 +140,12 @@ func (h *Handler) getWorkspace(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) deleteWorkspace(c *gin.Context) (interface{}, error) {
-	workspace, err := h.getAdminWorkspace(c.Request.Context(), c.GetString(types.Name))
+	ctx := c.Request.Context()
+	workspace, err := h.getAdminWorkspace(ctx, c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
-	if err = h.Delete(c.Request.Context(), workspace); err != nil {
+	if err = h.Delete(ctx, workspace); err != nil {
 		klog.ErrorS(err, "failed to delete workspace")
 		return nil, err
 	}
@@ -150,7 +154,8 @@ func (h *Handler) deleteWorkspace(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
-	workspace, err := h.getAdminWorkspace(c.Request.Context(), c.GetString(types.Name))
+	ctx := c.Request.Context()
+	workspace, err := h.getAdminWorkspace(ctx, c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +167,7 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	}
 	patch := client.MergeFrom(workspace.DeepCopy())
 	updateWorkspace(workspace, req)
-	if err = h.Patch(c.Request.Context(), workspace, patch); err != nil {
+	if err = h.Patch(ctx, workspace, patch); err != nil {
 		klog.ErrorS(err, "failed to patch workspace", "data", string(body))
 		return nil, err
 	}

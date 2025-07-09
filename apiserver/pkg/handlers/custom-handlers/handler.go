@@ -9,11 +9,9 @@ import (
 	"fmt"
 	"net/http"
 
-	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -35,7 +33,7 @@ var (
 type Handler struct {
 	client.Client
 	clientSet     *kubernetes.Clientset
-	logClient     *commonsearch.LogClient
+	searchClient  *commonsearch.SearchClient
 	dbClient      dbclient.Interface
 	clientManager *commonutils.ObjectManager
 }
@@ -55,7 +53,7 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 	h := &Handler{
 		Client:        mgr.GetClient(),
 		clientSet:     clientSet,
-		logClient:     commonsearch.NewLogClient(),
+		searchClient:  commonsearch.NewClient(),
 		dbClient:      dbClient,
 		clientManager: commonutils.NewObjectManagerSingleton(),
 	}
@@ -115,13 +113,4 @@ func cvtToResourceList(resourceList corev1.ResourceList) types.ResourceList {
 		}
 	}
 	return result
-}
-
-func cvtToSqlStr(sql sqrl.Sqlizer) string {
-	sqlStr, args, err := sql.ToSql()
-	if err != nil {
-		klog.Errorf("failed to convert sql, err: %v", err)
-		return ""
-	}
-	return sqlStr + " " + string(jsonutils.MarshalSilently(args))
 }

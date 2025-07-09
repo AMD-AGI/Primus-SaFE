@@ -9,14 +9,15 @@ import (
 	"encoding/json"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
-	corev1 "k8s.io/api/core/v1"
 )
 
 const (
 	FailoverConfigmapName = "primus-safe-failover"
-	GLOBAL_RESTART        = "global_restart"
+	GlobalRestart         = "global_restart"
 )
 
 type FailoverConfig struct {

@@ -81,8 +81,8 @@ type AddonTemplateStatus struct {
 // +kubebuilder:object:root=true
 
 type AddonTemplateList struct {
-	metav1.TypeMeta `json:",inlineomite"`
-	metav1.ListMeta `json:"metadata,mpty"`
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []AddonTemplate `json:"items"`
 }
 

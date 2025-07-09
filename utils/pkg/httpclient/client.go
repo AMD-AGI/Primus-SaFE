@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -33,7 +34,7 @@ var (
 
 func NewHttpClient() Interface {
 	once.Do(func() {
-		instance =  &client{
+		instance = &client{
 			Client: &http.Client{
 				Timeout: DefaultTimeout,
 				Transport: &http.Transport{
@@ -85,6 +86,9 @@ func (c *client) Do(req *http.Request) (*Result, error) {
 		} else if i == DefaultMaxTry-1 {
 			return nil, err
 		}
+	}
+	if rsp == nil {
+		return nil, fmt.Errorf("no result")
 	}
 	data, err := ioutil.ReadAll(rsp.Body)
 	defer rsp.Body.Close()

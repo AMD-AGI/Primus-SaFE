@@ -29,7 +29,7 @@ func TestNodeDeleteSort(t *testing.T) {
 		result string
 	}{
 		{
-			name: "test deletetime",
+			name: "test deleteTime",
 			n1: v1.Node{
 				ObjectMeta: metav1.ObjectMeta{Name: "n1"},
 			},
@@ -152,8 +152,8 @@ func genPods() []*corev1.Pod {
 
 func TestGetNodesLoad(t *testing.T) {
 	podList := genPods()
-	clientset := fake.NewSimpleClientset(podList[0], podList[1], podList[2])
-	loads, err := GetPodResources(context.Background(), clientset, nil, corev1.NamespaceAll)
+	clientSet := fake.NewSimpleClientset(podList[0], podList[1], podList[2])
+	loads, err := GetPodResources(context.Background(), clientSet, nil, corev1.NamespaceAll)
 	assert.NilError(t, err)
 	assert.Equal(t, len(loads), 2)
 	q := loads["10.10.0.0"]

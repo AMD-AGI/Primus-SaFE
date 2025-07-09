@@ -14,6 +14,7 @@ import (
 	"k8s.io/klog/v2"
 
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 )
 
@@ -23,10 +24,10 @@ const (
 
 var (
 	once     sync.Once
-	instance *LogClient
+	instance *SearchClient
 )
 
-type LogClient struct {
+type SearchClient struct {
 	username   string
 	password   string
 	endpoint   string
@@ -34,9 +35,9 @@ type LogClient struct {
 	httpClient httpclient.Interface
 }
 
-func NewLogClient() *LogClient {
+func NewClient() *SearchClient {
 	once.Do(func() {
-		instance = &LogClient{
+		instance = &SearchClient{
 			endpoint:   commonconfig.GetLogServiceEndpoint(),
 			prefix:     commonconfig.GetLogServicePrefix(),
 			username:   commonconfig.GetLogServiceUser(),
@@ -47,7 +48,7 @@ func NewLogClient() *LogClient {
 	return instance
 }
 
-func (c *LogClient) RequestByTimeRange(sinceTime, untilTime time.Time,
+func (c *SearchClient) RequestByTimeRange(sinceTime, untilTime time.Time,
 	uri, httpMethod string, body []byte) ([]byte, error) {
 	index, err := c.getQueryIndex(sinceTime, untilTime)
 	if err != nil {
@@ -59,7 +60,7 @@ func (c *LogClient) RequestByTimeRange(sinceTime, untilTime time.Time,
 	return c.Request(index+uri, httpMethod, body)
 }
 
-func (c *LogClient) Request(uri, httpMethod string, body []byte) ([]byte, error) {
+func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, error) {
 	if !strings.HasPrefix(uri, "/") {
 		uri = "/" + uri
 	}
@@ -67,7 +68,7 @@ func (c *LogClient) Request(uri, httpMethod string, body []byte) ([]byte, error)
 	klog.Infof("request to openSearch, url: %s, body: %s", url, body)
 	req, err := httpclient.BuildRequest(url, httpMethod, body)
 	if err != nil {
-		return nil, err
+		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 	req.SetBasicAuth(c.username, c.password)
 	resp, err := c.httpClient.Do(req)
@@ -80,7 +81,7 @@ func (c *LogClient) Request(uri, httpMethod string, body []byte) ([]byte, error)
 	return resp.Body, nil
 }
 
-func (c *LogClient) getQueryIndex(sinceTime, untilTime time.Time) (string, error) {
+func (c *SearchClient) getQueryIndex(sinceTime, untilTime time.Time) (string, error) {
 	if sinceTime.Equal(untilTime) {
 		return c.prefix + sinceTime.Format(IndexDateFormat), nil
 	}

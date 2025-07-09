@@ -13,7 +13,6 @@ import (
 	sqrl "github.com/Masterminds/squirrel"
 	"k8s.io/klog/v2"
 
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
@@ -31,7 +30,6 @@ var (
 		    delete_time = :delete_time,
 		    phase = :phase,
 		    conditions = :conditions,
-		    message = :message,
 		    outputs = :outputs 
 		WHERE job_id = :job_id`, TJob)
 )
@@ -41,7 +39,7 @@ func (c *Client) UpsertJob(ctx context.Context, job *OpsJob) error {
 		return nil
 	}
 	db := c.db.Unsafe()
-	jobs := []*OpsJob{}
+	var jobs []*OpsJob
 	var err error
 	if err = db.SelectContext(ctx, &jobs, getJobCmd, job.JobId); err != nil {
 		return err
@@ -89,7 +87,7 @@ func (c *Client) SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, ord
 	}
 
 	var jobs []*OpsJob
-	ctx2, cancel := context.WithTimeout(ctx, time.Duration(commonconfig.GetDBRequestTimeoutSecond())*time.Second)
+	ctx2, cancel := context.WithTimeout(ctx, time.Duration(c.RequestTimeout)*time.Second)
 	defer cancel()
 	err = db.SelectContext(ctx2, &jobs, sql, args...)
 	return jobs, err

@@ -20,6 +20,7 @@ type Interface interface {
 type WorkloadInterface interface {
 	UpsertWorkload(ctx context.Context, workload *Workload) error
 	SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Workload, error)
+	GetWorkload(ctx context.Context, workloadId string) (*Workload, error)
 	CountWorkloads(ctx context.Context, query sqrl.Sqlizer) (int, error)
 	SetWorkloadDeleted(ctx context.Context, workloadId string) error
 	SetWorkloadStopped(ctx context.Context, workloadId string) error

@@ -322,27 +322,27 @@ func (r *SchedulerReconciler) start(ctx context.Context) {
 	}
 }
 
-func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage) (controller.Result, error) {
-	result, err := r.do(ctx, message)
+func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage) (ctrlruntime.Result, error) {
+	err := r.do(ctx, message)
 	if utils.IsNonRetryableError(err) {
 		err = nil
 	}
-	return result, err
+	return ctrlruntime.Result{}, err
 }
 
-func (r *SchedulerReconciler) do(ctx context.Context, message *SchedulerMessage) (controller.Result, error) {
+func (r *SchedulerReconciler) do(ctx context.Context, message *SchedulerMessage) error {
 	workspace, err := r.getWorkspace(ctx, message.ClusterId, message.WorkspaceId)
 	if workspace == nil {
-		return controller.Result{}, err
+		return err
 	}
 
 	schedulingWorkloads, runningWorkloads, err := r.getUnfinishedWorkloads(ctx, workspace)
 	if err != nil || len(schedulingWorkloads) == 0 {
-		return controller.Result{}, err
+		return err
 	}
 	leftAvailResources, leftTotalResources, err := r.getLeftTotalResources(ctx, workspace, runningWorkloads)
 	if err != nil {
-		return controller.Result{}, err
+		return err
 	}
 
 	scheduledCount := 0
@@ -357,7 +357,7 @@ func (r *SchedulerReconciler) do(ctx context.Context, message *SchedulerMessage)
 		}
 		ok, reason, err := r.isCanSchedule(ctx, w, runningWorkloads, requestResources, *leftResources)
 		if err != nil {
-			return controller.Result{}, err
+			return err
 		}
 		if !ok {
 			unScheduledReasons[w.Name] = reason
@@ -371,7 +371,7 @@ func (r *SchedulerReconciler) do(ctx context.Context, message *SchedulerMessage)
 			}
 		}
 		if err = r.updateScheduled(ctx, schedulingWorkloads[i]); err != nil {
-			return controller.Result{}, err
+			return err
 		}
 		klog.Infof("the workload is scheduled, name: %s, dispatch count: %d",
 			w.Name, v1.GetWorkloadDispatchCnt(w)+1)
@@ -383,7 +383,7 @@ func (r *SchedulerReconciler) do(ctx context.Context, message *SchedulerMessage)
 	if scheduledCount != len(schedulingWorkloads) {
 		r.updateUnScheduled(ctx, schedulingWorkloads, unScheduledReasons)
 	}
-	return controller.Result{}, nil
+	return nil
 }
 
 func (r *SchedulerReconciler) isCanSchedule(ctx context.Context, requestWorkload *v1.Workload,

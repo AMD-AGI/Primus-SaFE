@@ -137,17 +137,17 @@ func getHostname(conn *ssh.Client) (string, error) {
 	return strings.Replace(b.String(), "\n", "", -1), nil
 }
 
-func setHostname(conn *ssh.Client, hostname string) (string, error) {
+func setHostname(conn *ssh.Client, hostname string) error {
 	session, err := conn.NewSession()
 	if err != nil {
-		return "", err
+		return err
 	}
 	var b bytes.Buffer
 	session.Stdout = &b
-	if err := session.Run(fmt.Sprintf("sudo hostnamectl set-hostname %s && hostname", hostname)); err != nil {
-		return "", fmt.Errorf("failed get hostname: %v", err)
+	if err = session.Run(fmt.Sprintf("sudo hostnamectl set-hostname %s", hostname)); err != nil {
+		return fmt.Errorf("failed set hostname: %v", err)
 	}
-	return strings.Replace(b.String(), "\n", "", -1), nil
+	return nil
 }
 
 func isCommandSuccessful(status []v1.CommandStatus, name string) bool {

@@ -25,6 +25,7 @@ var (
 
 type Client struct {
 	db *sqlx.DB
+	utils.DBConfig
 }
 
 func NewClient() *Client {
@@ -41,6 +42,7 @@ func NewClient() *Client {
 			MaxLifetime:    time.Duration(commonconfig.GetDBMaxLifetimeSecond()) * time.Second,
 			MaxIdleTime:    time.Duration(commonconfig.GetDBMaxIdleTimeSecond()) * time.Second,
 			ConnectTimeout: commonconfig.GetDBConnectTimeoutSecond(),
+			RequestTimeout: commonconfig.GetDBRequestTimeoutSecond(),
 		}
 		if err := checkParams(cfg); err != nil {
 			klog.ErrorS(err, "failed to check db params")
@@ -63,7 +65,10 @@ func NewClient() *Client {
 }
 
 func (c *Client) Close() {
-	c.db.Close()
+	err := c.db.Close()
+	if err != nil {
+		klog.ErrorS(err, "failed to close db connection")
+	}
 }
 
 func (c *Client) GetDB() *sqlx.DB {

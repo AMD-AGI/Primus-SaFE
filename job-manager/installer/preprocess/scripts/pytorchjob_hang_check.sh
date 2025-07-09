@@ -25,15 +25,15 @@ if [ "$RANK" -ne "$LAST_RANK" ]; then
    exit 0
 fi
 
-logpath="/var/log/pods/${POD_NAMESPACE}_${POD_NAME}_${POD_UID}/${MAIN_CONTAINER_NAME}/0.log"
+log_path="/var/log/pods/${POD_NAMESPACE}_${POD_NAME}_${POD_UID}/${MAIN_CONTAINER_NAME}/0.log"
 previous_size=0
 previous_time=$(date +%s)
 
 # Monitor the file every 60 seconds. Terminate the process if the file remains unchanged beyond the specified duration.
 while true; do
   current_size=$previous_size
-  if [ -e "$logpath" ]; then
-    current_size=$(wc -c < "$logpath")
+  if [ -e "$log_path" ]; then
+    current_size=$(wc -c < "$log_path")
   fi
 
   current_time=$(date +%s)

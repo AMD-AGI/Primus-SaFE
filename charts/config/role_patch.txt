@@ -33,3 +33,16 @@
   - leases
   verbs:
   - '*'
+- apiGroups:
+  - "postgres-operator.crunchydata.com"
+  resources:
+  - "postgresclusters"
+  verbs:
+  - '*'
+- apiGroups:
+  - "rbac.authorization.k8s.io"
+  resources:
+  - "clusterrolebindings"
+  - "clusterroles"
+  verbs:
+  - '*'

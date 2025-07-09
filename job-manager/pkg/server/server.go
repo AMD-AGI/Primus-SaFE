@@ -51,16 +51,20 @@ func NewServer() (*Server, error) {
 func (s *Server) init() error {
 	var err error
 	if err = s.opts.InitFlags(); err != nil {
-		return fmt.Errorf("failed to parse flags. %s", err.Error())
+		klog.ErrorS(err, "failed to initialize flags")
+		return err
 	}
 	if err = s.initLogs(); err != nil {
-		return fmt.Errorf("failed to init logs. %s", err.Error())
+		klog.ErrorS(err, "failed to initialize logs")
+		return err
 	}
 	if err = s.initConfig(); err != nil {
-		return fmt.Errorf("failed to init config. %s", err.Error())
+		klog.ErrorS(err, "failed to initialize config")
+		return err
 	}
 	if s.jobManager, err = NewJobManager(scheme); err != nil {
-		return fmt.Errorf("failed to new manager. %s", err.Error())
+		klog.ErrorS(err, "failed to initialize job manager")
+		return err
 	}
 	s.isInited = true
 	return nil

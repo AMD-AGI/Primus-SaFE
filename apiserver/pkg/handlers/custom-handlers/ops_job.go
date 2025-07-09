@@ -6,6 +6,7 @@
 package custom_handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -23,7 +24,6 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -47,17 +47,20 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	ctx := c.Request.Context()
 	var job *v1.OpsJob
 	switch req.Type {
 	case v1.OpsJobAddonType:
-		job, err = generateAddonJob(req)
+		job, err = h.generateAddonJob(ctx, req)
+	case v1.OpsJobDumpLogType:
+		job, err = h.generateDumpLogJob(ctx, req)
 	default:
 		err = fmt.Errorf("unsupported ops job type")
 	}
 	if err != nil || job == nil {
 		return nil, err
 	}
-	if err = h.Create(c.Request.Context(), job); err != nil {
+	if err = h.Create(ctx, job); err != nil {
 		klog.ErrorS(err, "failed to create ops job")
 		return nil, err
 	}
@@ -76,12 +79,13 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	ctx := c.Request.Context()
 	dbSql := cvtToListOpsJobSql(query)
-	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, query.SortBy, query.Order, query.Limit, query.Offset)
+	jobs, err := h.dbClient.SelectJobs(ctx, dbSql, query.SortBy, query.Order, query.Limit, query.Offset)
 	if err != nil {
 		return nil, err
 	}
-	count, err := h.dbClient.CountJobs(c.Request.Context(), dbSql)
+	count, err := h.dbClient.CountJobs(ctx, dbSql)
 	if err != nil {
 		return nil, err
 	}
@@ -114,19 +118,43 @@ func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 	return cvtToOpsJobResponse(jobs[0]), nil
 }
 
-func generateAddonJob(req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+func (h *Handler) generateAddonJob(_ context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
 	job := generateOpsJob(req)
-	if job.GetParameter(v1.ParameterNodeTemplate) == nil && job.GetParameter(v1.ParameterAddonTemplate) == nil {
-		return nil, commonerrors.NewBadRequest(fmt.Sprintf("either %s or %s must be specified in the job.",
-			v1.ParameterAddonTemplate, v1.ParameterNodeTemplate))
-	}
-	jobName := v1.OpsJobKind + "-" + string(v1.OpsJobAddonType)
-	job.Name = commonutils.GenerateName(strings.ToLower(jobName))
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
 	}
 	if req.BatchCount > 0 {
 		v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(req.BatchCount))
+	}
+	return job, nil
+}
+
+func (h *Handler) generateDumpLogJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+	if !commonconfig.IsLogEnable() {
+		return nil, commonerrors.NewStatusGone("The logging function is not enabled")
+	}
+	if !commonconfig.IsS3Enable() {
+		return nil, commonerrors.NewStatusGone("The s3 function is not enabled")
+	}
+	job := generateOpsJob(req)
+
+	workloadParam := job.GetParameter(v1.ParameterWorkload)
+	if workloadParam == nil {
+		return nil, commonerrors.NewBadRequest(
+			fmt.Sprintf("%s must be specified in the job.", v1.ParameterWorkload))
+	}
+	if commonconfig.IsDBEnable() {
+		workload, err := h.dbClient.GetWorkload(ctx, workloadParam.Value)
+		if err != nil {
+			return nil, err
+		}
+		job.Spec.Cluster = workload.Cluster
+	} else {
+		workload, err := h.getAdminWorkload(ctx, workloadParam.Value)
+		if err != nil {
+			return nil, err
+		}
+		job.Spec.Cluster = v1.GetClusterId(workload)
 	}
 	return job, nil
 }
@@ -140,9 +168,9 @@ func generateOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {
 			TimeoutSecond: req.TimeoutSecond,
 		},
 	}
-	v1.SetAnnotation(job, v1.UserNameAnnotation, req.JobName)
-	nowTime := time.Now()
-	v1.SetAnnotation(job, v1.OpsJobDispatchTimeAnnotation, timeutil.FormatRFC3339(&nowTime))
+	if req.UserName != "" {
+		v1.SetAnnotation(job, v1.UserNameAnnotation, req.UserName)
+	}
 	return job
 }
 
@@ -231,7 +259,6 @@ func cvtToOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponseItem {
 		StartTime:  dbutils.ParseNullTimeToString(job.StartTime),
 		EndTime:    dbutils.ParseNullTimeToString(job.EndTime),
 		DeleteTime: dbutils.ParseNullTimeToString(job.DeleteTime),
-		Message:    dbutils.ParseNullString(job.Message),
 	}
 	if result.Phase == "" {
 		result.Phase = v1.OpsJobPending
