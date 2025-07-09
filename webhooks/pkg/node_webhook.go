@@ -267,10 +267,8 @@ func (v *NodeValidator) validateNodeSpec(ctx context.Context, node *v1.Node) err
 	if err := v.validateNodeSSH(ctx, node); err != nil {
 		return err
 	}
-	if node.Spec.Port != nil {
-		if err := validatePort(v1.NodeKind, int(*node.Spec.Port)); err != nil {
-			return err
-		}
+	if err := validatePort(v1.NodeKind, int(node.GetSpecPort())); err != nil {
+		return err
 	}
 	if node.Spec.PrivateIP == "" {
 		return commonerrors.NewBadRequest("privateIp is required")
@@ -336,9 +334,6 @@ func (v *NodeValidator) validateNodeTaints(node *v1.Node) error {
 func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error {
 	if oldNode.GetSpecHostName() != newNode.GetSpecHostName() {
 		return field.Forbidden(field.NewPath("spec").Key("hostname"), "immutable")
-	}
-	if newNode.Spec.Port == nil || *oldNode.Spec.Port != *newNode.Spec.Port {
-		return field.Forbidden(field.NewPath("spec").Key("port"), "immutable")
 	}
 	if oldNode.GetSpecCluster() != "" && newNode.GetSpecCluster() != "" &&
 		oldNode.GetSpecCluster() != newNode.GetSpecCluster() {

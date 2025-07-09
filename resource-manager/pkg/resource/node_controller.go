@@ -287,7 +287,7 @@ func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) (
 }
 
 func (r *NodeReconciler) syncHostname(node *v1.Node, client *ssh.Client) (string, error) {
-	if node.Status.MachineStatus.HostName != "" {
+	if node.Status.MachineStatus.HostName != "" && node.Status.MachineStatus.HostName == node.GetSpecHostName() {
 		return node.Status.MachineStatus.HostName, nil
 	}
 	hostname, err := getHostname(client)
@@ -295,10 +295,10 @@ func (r *NodeReconciler) syncHostname(node *v1.Node, client *ssh.Client) (string
 		return "", err
 	}
 	if node.Spec.Hostname != nil && *node.Spec.Hostname != hostname {
-		hostname, err = setHostname(client, *node.Spec.Hostname)
-		if err != nil {
+		if err = setHostname(client, *node.Spec.Hostname); err != nil {
 			return "", err
 		}
+		hostname = *node.Spec.Hostname
 	}
 	if hostname == "" {
 		return "", fmt.Errorf("hostname not found for node %s", node.Name)

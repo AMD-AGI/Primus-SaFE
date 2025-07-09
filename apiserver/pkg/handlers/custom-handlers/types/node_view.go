@@ -112,6 +112,7 @@ type PatchNodeRequest struct {
 	Labels       *map[string]string `json:"labels,omitempty"`
 	NodeFlavor   *string            `json:"nodeFlavor,omitempty"`
 	NodeTemplate *string            `json:"nodeTemplate,omitempty"`
+	Port         *int32             `json:"port,omitempty"`
 }
 
 type GetNodePodLogResponse struct {

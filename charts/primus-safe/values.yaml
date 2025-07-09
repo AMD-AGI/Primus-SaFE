@@ -18,13 +18,13 @@ k8s:
 apiserver:
   port: 8088
   health_port: 8082
-  image: "apiserver:202507031400"
+  image: "apiserver:202507091050"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi
 resource_manager:
   health_port: 8081
-  image: "resource-manager:202507081800"
+  image: "resource-manager:202507091050"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi
@@ -37,7 +37,7 @@ job_manager:
 webhooks:
   port: 8084
   health_port: 8085
-  image: "webhooks:20507061240"
+  image: "webhooks:202507091050"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi

@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -468,6 +469,10 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 			return false, err
 		}
 		node.Spec.NodeTemplate = commonutils.GenObjectReference(nt.TypeMeta, nt.ObjectMeta)
+		isShouldUpdate = true
+	}
+	if req.Port != nil && *req.Port > 0 && *req.Port != node.GetSpecPort() {
+		node.Spec.Port = pointer.Int32(*req.Port)
 		isShouldUpdate = true
 	}
 	if len(nodesLabelAction) > 0 {

@@ -172,6 +172,13 @@ func (n *Node) GetSpecHostName() string {
 	return *n.Spec.Hostname
 }
 
+func (n *Node) GetSpecPort() int32 {
+	if n == nil || n.Spec.Port == nil {
+		return 0
+	}
+	return *n.Spec.Port
+}
+
 func (n *Node) GetK8sNodeName() string {
 	if n == nil {
 		return ""
