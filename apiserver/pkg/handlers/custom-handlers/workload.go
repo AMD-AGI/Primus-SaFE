@@ -90,11 +90,12 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to generate workload")
 		return nil, err
 	}
-	if err = h.Create(c.Request.Context(), workload); err != nil {
+	ctx := c.Request.Context()
+	if err = h.Create(ctx, workload); err != nil {
 		klog.ErrorS(err, "failed to create workload")
 		return nil, err
 	}
-	if err = h.patchPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
+	if err = h.patchPhase(ctx, workload, v1.WorkloadPending, nil); err != nil {
 		klog.ErrorS(err, "failed to patch workload phase")
 		return nil, err
 	}
@@ -114,24 +115,23 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse query")
 		return nil, err
 	}
-	dbSql, orderBy, err := h.cvtToListWorkloadSql(c.Request.Context(), query)
+	dbSql, orderBy, err := cvtToListWorkloadSql(query)
 	if err != nil {
 		return nil, err
 	}
-
-	workloads, err := h.dbClient.SelectWorkloads(c.Request.Context(),
-		dbSql, orderBy, query.Limit, query.Offset)
+	ctx := c.Request.Context()
+	workloads, err := h.dbClient.SelectWorkloads(ctx, dbSql, orderBy, query.Limit, query.Offset)
 	if err != nil {
 		return nil, err
 	}
 
 	result := &types.GetWorkloadResponse{}
-	if result.TotalCount, err = h.dbClient.CountWorkloads(c.Request.Context(), dbSql); err != nil {
+	if result.TotalCount, err = h.dbClient.CountWorkloads(ctx, dbSql); err != nil {
 		return nil, err
 	}
 
 	for _, w := range workloads {
-		workload := h.cvtDBWorkloadToResponse(c.Request.Context(), w, false)
+		workload := h.cvtDBWorkloadToResponse(ctx, w, false)
 		result.Items = append(result.Items, workload)
 	}
 	return result, nil
@@ -142,36 +142,20 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("workloadId is empty")
 	}
+	ctx := c.Request.Context()
 	if commonconfig.IsDBEnable() {
-		workload, err := h.getWorkloadFromDb(c.Request.Context(), name)
+		workload, err := h.dbClient.GetWorkload(ctx, name)
 		if err != nil {
 			return nil, err
 		}
-		return h.cvtDBWorkloadToResponse(c.Request.Context(), workload, true), nil
+		return h.cvtDBWorkloadToResponse(ctx, workload, true), nil
 	} else {
-		adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
+		adminWorkload, err := h.getAdminWorkload(ctx, name)
 		if err != nil {
 			return nil, err
 		}
-		return h.cvtAdminWorkloadToResponse(c.Request.Context(), adminWorkload, true), nil
+		return h.cvtAdminWorkloadToResponse(ctx, adminWorkload, true), nil
 	}
-}
-
-func (h *Handler) getWorkloadFromDb(ctx context.Context, workloadId string) (*dbclient.Workload, error) {
-	dbTags := dbclient.GetWorkloadFieldTags()
-	dbSql := sqrl.And{
-		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
-		sqrl.Eq{dbclient.GetFieldTag(dbTags, "WorkloadId"): workloadId},
-	}
-	workloads, err := h.dbClient.SelectWorkloads(ctx, dbSql, nil, 1, 0)
-	if err != nil {
-		klog.ErrorS(err, "failed to select workload", "sql", cvtToSqlStr(dbSql))
-		return nil, err
-	}
-	if len(workloads) == 0 {
-		return nil, commonerrors.NewNotFound(v1.WorkloadKind, workloadId)
-	}
-	return workloads[0], nil
 }
 
 func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
@@ -179,7 +163,8 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("workloadId is empty")
 	}
-	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
+	ctx := c.Request.Context()
+	adminWorkload, err := h.getAdminWorkload(ctx, name)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, err
@@ -190,7 +175,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 		}
 	}
 	if commonconfig.IsDBEnable() {
-		if err = h.dbClient.SetWorkloadDeleted(c.Request.Context(), name); err != nil {
+		if err = h.dbClient.SetWorkloadDeleted(ctx, name); err != nil {
 			return nil, err
 		}
 	}
@@ -199,16 +184,18 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) deleteAdminWorkload(c *gin.Context, adminWorkload *v1.Workload) error {
+	ctx := c.Request.Context()
 	cond := &metav1.Condition{
 		Type:    string(v1.AdminStopped),
 		Status:  metav1.ConditionTrue,
 		Message: "the workload is deleted",
 	}
-	if err := h.patchPhase(c.Request.Context(), adminWorkload, v1.WorkloadStopped, cond); err != nil {
+
+	if err := h.patchPhase(ctx, adminWorkload, v1.WorkloadStopped, cond); err != nil {
 		klog.ErrorS(err, "failed to patch workload phase")
 		return err
 	}
-	if err := h.Delete(c.Request.Context(), adminWorkload); err != nil {
+	if err := h.Delete(ctx, adminWorkload); err != nil {
 		klog.ErrorS(err, "failed to delete workload")
 		return err
 	}
@@ -220,13 +207,14 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("workloadId is empty")
 	}
-	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
+	ctx := c.Request.Context()
+	adminWorkload, err := h.getAdminWorkload(ctx, name)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, err
 		}
 		if commonconfig.IsDBEnable() {
-			if err = h.dbClient.SetWorkloadStopped(c.Request.Context(), name); err != nil {
+			if err = h.dbClient.SetWorkloadStopped(ctx, name); err != nil {
 				return nil, err
 			}
 		}
@@ -245,7 +233,8 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("workloadId is empty")
 	}
 
-	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
+	ctx := c.Request.Context()
+	adminWorkload, err := h.getAdminWorkload(ctx, name)
 	if client.IgnoreNotFound(err) != nil {
 		return nil, err
 	}
@@ -258,7 +247,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	if adminWorkload != nil {
 		patch := client.MergeFrom(adminWorkload.DeepCopy())
 		updateWorkload(adminWorkload, req)
-		if err = h.Patch(c.Request.Context(), adminWorkload, patch); err != nil {
+		if err = h.Patch(ctx, adminWorkload, patch); err != nil {
 			klog.ErrorS(err, "failed to patch workload")
 			return nil, err
 		}
@@ -266,7 +255,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		if req.Description == nil || *req.Description == "" {
 			return nil, fmt.Errorf("The terminated workload can only modify the description")
 		}
-		if err = h.dbClient.SetWorkloadDescription(c.Request.Context(), name, *req.Description); err != nil {
+		if err = h.dbClient.SetWorkloadDescription(ctx, name, *req.Description); err != nil {
 			return nil, err
 		}
 	}
@@ -329,9 +318,11 @@ func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse query")
 		return nil, err
 	}
+
+	ctx := c.Request.Context()
 	labelSelector := buildWorkloadLabelSelector(query)
 	workloadList := &v1.WorkloadList{}
-	if err = h.List(c.Request.Context(), workloadList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+	if err = h.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return nil, err
 	}
 	if len(workloadList.Items) > 0 {
@@ -364,7 +355,7 @@ func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
 		if !untilTime.IsZero() && w.CreationTimestamp.Time.After(untilTime) {
 			continue
 		}
-		result.Items = append(result.Items, h.cvtAdminWorkloadToResponse(c.Request.Context(), &w, false))
+		result.Items = append(result.Items, h.cvtAdminWorkloadToResponse(ctx, &w, false))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
@@ -395,6 +386,7 @@ func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, w
 func generateWorkload(req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
+			Name: commonutils.GenerateName(req.DisplayName),
 			Labels: map[string]string{
 				v1.DisplayNameLabel: req.DisplayName,
 			},
@@ -421,9 +413,6 @@ func generateWorkload(req *types.CreateWorkloadRequest, body []byte) (*v1.Worklo
 			customerLabels[key] = val
 		}
 		workload.Spec.CustomerLabels = customerLabels
-	}
-	if workload.Name == "" {
-		workload.Name = commonutils.GenerateName(req.DisplayName)
 	}
 	return workload, nil
 }
@@ -467,8 +456,7 @@ func parseGetPodLogQuery(c *gin.Context, mainContainerName string) (*types.GetPo
 	return query, nil
 }
 
-func (h *Handler) cvtToListWorkloadSql(ctx context.Context,
-	query *types.GetWorkloadRequest) (sqrl.Sqlizer, []string, error) {
+func cvtToListWorkloadSql(query *types.GetWorkloadRequest) (sqrl.Sqlizer, []string, error) {
 	dbTags := dbclient.GetWorkloadFieldTags()
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},

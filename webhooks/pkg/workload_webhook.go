@@ -442,7 +442,10 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 	if err := v.validateRequiredParams(workload); err != nil {
 		return err
 	}
-	if err := v.validateApplication(workload); err != nil {
+	if err := v.validateService(workload); err != nil {
+		return err
+	}
+	if err := v.validateHealthCheck(workload); err != nil {
 		return err
 	}
 	if err := v.validateResourceEnough(ctx, workload); err != nil {
@@ -483,32 +486,34 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	return nil
 }
 
-func (v *WorkloadValidator) validateApplication(workload *v1.Workload) error {
-	if !commonworkload.IsApplication(workload) {
+func (v *WorkloadValidator) validateService(workload *v1.Workload) error {
+	if workload.Spec.Service == nil {
 		return nil
 	}
-	if workload.Spec.Service != nil {
-		if err := validatePort("service", workload.Spec.Service.Port); err != nil {
+	if err := validatePort("service", workload.Spec.Service.Port); err != nil {
+		return err
+	}
+	if err := validatePort("service/target", workload.Spec.Service.TargetPort); err != nil {
+		return err
+	}
+	if workload.Spec.Service.NodePort > 0 {
+		if err := validatePort("service/node", workload.Spec.Service.NodePort); err != nil {
 			return err
-		}
-		if err := validatePort("service/target", workload.Spec.Service.TargetPort); err != nil {
-			return err
-		}
-		if workload.Spec.Service.NodePort > 0 {
-			if err := validatePort("service/node", workload.Spec.Service.NodePort); err != nil {
-				return err
-			}
-		}
-		if workload.Spec.Service.Protocol != corev1.ProtocolTCP && workload.Spec.Service.Protocol != corev1.ProtocolUDP {
-			return fmt.Errorf("the service protocol only supports %s and %s",
-				corev1.ProtocolTCP, corev1.ProtocolUDP)
-		}
-		if workload.Spec.Service.ServiceType != corev1.ServiceTypeClusterIP &&
-			workload.Spec.Service.ServiceType != corev1.ServiceTypeNodePort {
-			return fmt.Errorf("the service type only supports %s and %s",
-				corev1.ServiceTypeClusterIP, corev1.ServiceTypeNodePort)
 		}
 	}
+	if workload.Spec.Service.Protocol != corev1.ProtocolTCP && workload.Spec.Service.Protocol != corev1.ProtocolUDP {
+		return fmt.Errorf("the service protocol only supports %s and %s",
+			corev1.ProtocolTCP, corev1.ProtocolUDP)
+	}
+	if workload.Spec.Service.ServiceType != corev1.ServiceTypeClusterIP &&
+		workload.Spec.Service.ServiceType != corev1.ServiceTypeNodePort {
+		return fmt.Errorf("the service type only supports %s and %s",
+			corev1.ServiceTypeClusterIP, corev1.ServiceTypeNodePort)
+	}
+	return nil
+}
+
+func (v *WorkloadValidator) validateHealthCheck(workload *v1.Workload) error {
 	if workload.Spec.Liveness != nil {
 		if workload.Spec.Liveness.Path == "" {
 			return fmt.Errorf("the path for liveness is not found")

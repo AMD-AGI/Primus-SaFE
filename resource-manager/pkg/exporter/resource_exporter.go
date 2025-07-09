@@ -33,7 +33,7 @@ type ResourceHandler func(ctx context.Context, object *unstructured.Unstructured
 type ResourceExporter struct {
 	ctx context.Context
 	client.Client
-	*commonctrl.Controller[*unstructured.Unstructured]
+	*commonctrl.Controller[types.NamespacedName]
 	gvk     schema.GroupVersionKind
 	handler ResourceHandler
 }
@@ -49,7 +49,7 @@ func addExporter(ctx context.Context, mgr manager.Manager, gvk schema.GroupVersi
 		gvk:     gvk,
 		handler: resourceHandler,
 	}
-	exporter.Controller = commonctrl.NewController[*unstructured.Unstructured](exporter, 1)
+	exporter.Controller = commonctrl.NewController[types.NamespacedName](exporter, 1)
 	if err := exporter.start(ctx); err != nil {
 		return err
 	}
@@ -94,12 +94,8 @@ func addExporter(ctx context.Context, mgr manager.Manager, gvk schema.GroupVersi
 	return nil
 }
 
-func (r *ResourceExporter) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	obj, err := r.getObject(ctx, req.NamespacedName)
-	if err != nil {
-		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
-	}
-	r.Controller.Add(obj)
+func (r *ResourceExporter) Reconcile(_ context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
+	r.Controller.Add(req.NamespacedName)
 	return ctrlruntime.Result{}, nil
 }
 
@@ -119,25 +115,24 @@ func (r *ResourceExporter) getObject(ctx context.Context, objKey types.Namespace
 	return obj, nil
 }
 
-func (r *ResourceExporter) Do(ctx context.Context, obj *unstructured.Unstructured) (commonctrl.Result, error) {
-	var err error
-	obj, err = r.getObject(ctx, types.NamespacedName{Name: obj.GetName(), Namespace: obj.GetNamespace()})
+func (r *ResourceExporter) Do(ctx context.Context, msg types.NamespacedName) (ctrlruntime.Result, error) {
+	obj, err := r.getObject(ctx, types.NamespacedName{Name: msg.Name, Namespace: msg.Namespace})
 	if err != nil {
-		return commonctrl.Result{}, client.IgnoreNotFound(err)
+		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if obj.GetDeletionTimestamp().IsZero() && !ctrlutil.ContainsFinalizer(obj, v1.ExporterFinalizer) {
 		patch := client.MergeFrom(obj.DeepCopy())
 		ctrlutil.AddFinalizer(obj, v1.ExporterFinalizer)
 		if err = r.Patch(ctx, obj, patch); err != nil {
-			return commonctrl.Result{}, err
+			return ctrlruntime.Result{}, err
 		}
 	}
 
 	if r.handler != nil {
 		if err = r.handler(r.ctx, obj); err != nil {
 			klog.ErrorS(err, "failed to handle resource")
-			return commonctrl.Result{}, err
+			return ctrlruntime.Result{}, err
 		}
 	}
 
@@ -145,8 +140,8 @@ func (r *ResourceExporter) Do(ctx context.Context, obj *unstructured.Unstructure
 		patch := client.MergeFrom(obj.DeepCopy())
 		ctrlutil.RemoveFinalizer(obj, v1.ExporterFinalizer)
 		if err = r.Patch(ctx, obj, patch); err != nil {
-			return commonctrl.Result{}, err
+			return ctrlruntime.Result{}, err
 		}
 	}
-	return commonctrl.Result{}, nil
+	return ctrlruntime.Result{}, nil
 }

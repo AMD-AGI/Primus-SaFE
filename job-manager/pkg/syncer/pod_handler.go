@@ -14,9 +14,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/klog/v2"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -24,21 +24,21 @@ import (
 	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
 )
 
-func (r *SyncerReconciler) handlePod(ctx context.Context, msg *resourceMessage, clusterInformer *ClusterInformer) (controller.Result, error) {
+func (r *SyncerReconciler) handlePod(ctx context.Context, msg *resourceMessage, clusterInformer *ClusterInformer) (ctrlruntime.Result, error) {
 	if msg.action == ResourceDel {
-		return controller.Result{}, r.removeWorkloadPod(ctx, msg)
+		return ctrlruntime.Result{}, r.removeWorkloadPod(ctx, msg)
 	}
 	informer, err := clusterInformer.GetResourceInformer(ctx, msg.gvk)
 	if err != nil {
-		return controller.Result{}, err
+		return ctrlruntime.Result{}, err
 	}
 	obj, err := jobutils.GetObject(informer, msg.name, msg.namespace)
 	if err != nil {
-		return controller.Result{}, err
+		return ctrlruntime.Result{}, err
 	}
 	if !obj.GetDeletionTimestamp().IsZero() {
 		if err = r.removeWorkloadPod(ctx, msg); err != nil {
-			return controller.Result{}, err
+			return ctrlruntime.Result{}, err
 		}
 		return r.deletePod(ctx, obj, clusterInformer)
 	}
@@ -46,10 +46,10 @@ func (r *SyncerReconciler) handlePod(ctx context.Context, msg *resourceMessage, 
 }
 
 func (r *SyncerReconciler) deletePod(ctx context.Context,
-	obj *unstructured.Unstructured, clusterInformer *ClusterInformer) (controller.Result, error) {
+	obj *unstructured.Unstructured, clusterInformer *ClusterInformer) (ctrlruntime.Result, error) {
 	nowTime := time.Now().Unix()
 	if nowTime-obj.GetDeletionTimestamp().Unix() < 20 {
-		return controller.Result{RequeueAfter: time.Second * 3}, nil
+		return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 	}
 
 	// Specify the delete options (force delete)
@@ -67,21 +67,21 @@ func (r *SyncerReconciler) deletePod(ctx context.Context,
 		} else {
 			err = nil
 		}
-		return controller.Result{}, err
+		return ctrlruntime.Result{}, err
 	}
 	klog.Infof("force to delete pod, namespace: %s, name: %s, generation: %d",
 		obj.GetNamespace(), obj.GetName(), obj.GetGeneration())
-	return controller.Result{}, nil
+	return ctrlruntime.Result{}, nil
 }
 
 func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructured.Unstructured,
-	clusterInformer *ClusterInformer, workloadId string) (controller.Result, error) {
+	clusterInformer *ClusterInformer, workloadId string) (ctrlruntime.Result, error) {
 	pod := &corev1.Pod{}
 	err := unstructuredutils.ConvertUnstructuredToObject(obj, pod)
 	if err != nil {
 		// This error cannot be resolved by retrying, so it is ignored by returning nil.
 		klog.ErrorS(err, "failed to convert object to pod", "data", obj)
-		return controller.Result{}, nil
+		return ctrlruntime.Result{}, nil
 	}
 	if pod.Status.Phase == corev1.PodFailed {
 		klog.Infof("pod(%s) is failed. reason: %s, message: %s, container: %s",
@@ -89,18 +89,18 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	}
 	adminWorkload, err := r.getAdminWorkload(ctx, workloadId)
 	if adminWorkload == nil {
-		return controller.Result{}, err
+		return ctrlruntime.Result{}, err
 	}
 
 	if !v1.IsWorkloadDispatched(adminWorkload) {
-		return controller.Result{RequeueAfter: time.Second}, nil
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 	k8sNode := &corev1.Node{}
 	if pod.Spec.NodeName != "" {
 		if k8sNode, err = clusterInformer.dataClientFactory.ClientSet().
 			CoreV1().Nodes().Get(ctx, pod.Spec.NodeName, metav1.GetOptions{}); err != nil {
 			klog.ErrorS(err, "failed to get k8s node")
-			return controller.Result{}, err
+			return ctrlruntime.Result{}, err
 		}
 	}
 
@@ -111,7 +111,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		}
 		id = i
 		if p.Phase == pod.Status.Phase && p.K8sNodeName == pod.Spec.NodeName && p.StartTime != "" {
-			return controller.Result{}, nil
+			return ctrlruntime.Result{}, nil
 		}
 		break
 	}
@@ -145,10 +145,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	} else {
 		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods, workloadPod)
 	}
-	if err = r.Status().Update(ctx, adminWorkload); err != nil {
-		return controller.Result{}, err
-	}
-	return controller.Result{}, nil
+	return ctrlruntime.Result{}, r.Status().Update(ctx, adminWorkload)
 }
 
 func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, msg *resourceMessage) error {

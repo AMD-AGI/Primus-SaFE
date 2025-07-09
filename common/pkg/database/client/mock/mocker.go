@@ -81,6 +81,21 @@ func (mr *MockInterfaceMockRecorder) CountWorkloads(ctx, query interface{}) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountWorkloads", reflect.TypeOf((*MockInterface)(nil).CountWorkloads), ctx, query)
 }
 
+// GetWorkload mocks base method.
+func (m *MockInterface) GetWorkload(ctx context.Context, workloadId string) (*client.Workload, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkload", ctx, workloadId)
+	ret0, _ := ret[0].(*client.Workload)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkload indicates an expected call of GetWorkload.
+func (mr *MockInterfaceMockRecorder) GetWorkload(ctx, workloadId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkload", reflect.TypeOf((*MockInterface)(nil).GetWorkload), ctx, workloadId)
+}
+
 // SelectFaults mocks base method.
 func (m *MockInterface) SelectFaults(ctx context.Context, query squirrel.Sqlizer, sortBy, order string, limit, offset int) ([]*client.Fault, error) {
 	m.ctrl.T.Helper()
@@ -246,6 +261,21 @@ func (m *MockWorkloadInterface) CountWorkloads(ctx context.Context, query squirr
 func (mr *MockWorkloadInterfaceMockRecorder) CountWorkloads(ctx, query interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountWorkloads", reflect.TypeOf((*MockWorkloadInterface)(nil).CountWorkloads), ctx, query)
+}
+
+// GetWorkload mocks base method.
+func (m *MockWorkloadInterface) GetWorkload(ctx context.Context, workloadId string) (*client.Workload, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkload", ctx, workloadId)
+	ret0, _ := ret[0].(*client.Workload)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkload indicates an expected call of GetWorkload.
+func (mr *MockWorkloadInterfaceMockRecorder) GetWorkload(ctx, workloadId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkload", reflect.TypeOf((*MockWorkloadInterface)(nil).GetWorkload), ctx, workloadId)
 }
 
 // SelectWorkloads mocks base method.

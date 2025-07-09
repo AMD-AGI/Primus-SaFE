@@ -5,8 +5,6 @@
 # See LICENSE for license information.
 #
 
-ulimit -n 65536
-
 echo "$1" |base64 -d > .run.sh
 chmod +x .run.sh
 /bin/sh .run.sh &

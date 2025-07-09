@@ -6,13 +6,10 @@
 package utils
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
-
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
@@ -22,20 +19,6 @@ import (
 const (
 	DefaultMaxRequestBodyBytes = int64(2 * 1024 * 1024)
 )
-
-func ReadBodyToUnstructured(req *http.Request) (unstructured.Unstructured, error) {
-	body, err := ReadBody(req)
-	if err != nil {
-		return unstructured.Unstructured{}, err
-	}
-	// 将 JSON 数据解析为 unstructured.Unstructured 对象
-	var unstructuredObj unstructured.Unstructured
-	err = json.Unmarshal(body, &unstructuredObj.Object)
-	if err != nil {
-		return unstructured.Unstructured{}, err
-	}
-	return unstructuredObj, nil
-}
 
 func ReadBody(req *http.Request) ([]byte, error) {
 	defer req.Body.Close()

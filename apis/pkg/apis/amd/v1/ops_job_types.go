@@ -25,11 +25,14 @@ const (
 	OpsJobRunning   OpsJobPhase = "Running"
 	OpsJobPending   OpsJobPhase = "Pending"
 
-	OpsJobAddonType OpsJobType = "addon"
+	OpsJobAddonType   OpsJobType = "addon"
+	OpsJobDumpLogType OpsJobType = "dumplog"
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"
 	ParameterAddonTemplate = "addon.template"
+	ParameterWorkload      = "workload"
+	ParameterEndpoint      = "endpoint"
 )
 
 type Parameter struct {
@@ -38,15 +41,15 @@ type Parameter struct {
 }
 
 type OpsJobSpec struct {
-	// the type of ops job, valid values include: addon
+	// the type of ops-job, valid values include: addon
 	Type OpsJobType `json:"type"`
-	// the cluster which the ops job belongs to
+	// the cluster which the ops-job belongs to
 	Cluster string `json:"cluster"`
 	// The resource objects to be processed, e.g., node. Multiple entries will be processed sequentially.
 	Inputs []Parameter `json:"inputs"`
-	// the lifecycle of ops job
+	// the lifecycle of ops-job
 	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
-	// ops job Timeout (in seconds), Less than or equal to 0 means no timeout
+	// ops-job Timeout (in seconds), Less than or equal to 0 means no timeout
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
 }
 
@@ -59,8 +62,6 @@ type OpsJobStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// ops job's phase
 	Phase OpsJobPhase `json:"phase,omitempty"`
-	// error message
-	Message string `json:"message,omitempty"`
 	// ops job's output
 	Outputs []Parameter `json:"outputs,omitempty"`
 }
@@ -119,6 +120,14 @@ func (job *OpsJob) IsTimeout() bool {
 	}
 	costTime := time.Now().Unix() - job.CreationTimestamp.Unix()
 	return int(costTime) >= job.Spec.TimeoutSecond
+}
+
+func (job *OpsJob) GetLeftTime() int64 {
+	if job.Spec.TimeoutSecond <= 0 {
+		return -1
+	}
+	leftTime := job.CreationTimestamp.Unix() + int64(job.Spec.TimeoutSecond) - time.Now().Unix()
+	return leftTime
 }
 
 func (job *OpsJob) IsFinished() bool {

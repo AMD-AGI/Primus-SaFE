@@ -16,10 +16,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
@@ -27,16 +27,16 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
-func (r *SyncerReconciler) handleJob(ctx context.Context, msg *resourceMessage, informer *ClusterInformer) (controller.Result, error) {
+func (r *SyncerReconciler) handleJob(ctx context.Context, msg *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
 	adminWorkload, err := r.getAdminWorkload(ctx, msg.workloadId)
 	if adminWorkload == nil {
-		return controller.Result{}, err
+		return ctrlruntime.Result{}, err
 	}
 	if !adminWorkload.GetDeletionTimestamp().IsZero() {
-		return controller.Result{}, nil
+		return ctrlruntime.Result{}, nil
 	}
 	if !v1.IsWorkloadDispatched(adminWorkload) {
-		return controller.Result{RequeueAfter: time.Second}, nil
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
 	result, err := r.handleJobImpl(ctx, msg, adminWorkload, informer)
@@ -48,38 +48,38 @@ func (r *SyncerReconciler) handleJob(ctx context.Context, msg *resourceMessage, 
 }
 
 func (r *SyncerReconciler) handleJobImpl(ctx context.Context, msg *resourceMessage,
-	adminWorkload *v1.Workload, informer *ClusterInformer) (controller.Result, error) {
+	adminWorkload *v1.Workload, informer *ClusterInformer) (ctrlruntime.Result, error) {
 	if msg.action == ResourceDel {
 		klog.Infof("delete resource. name: %s/%s, kind: %s, dispatchCount: %d",
 			msg.namespace, msg.name, msg.gvk.Kind, msg.dispatchCount)
 		// wait until all pods are deleted
 		if !r.waitAllPodsDeleted(ctx, msg, informer) {
-			return controller.Result{RequeueAfter: time.Second * 3}, nil
+			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		}
 	}
 
 	status, err := r.getK8sResourceStatus(ctx, msg, informer, adminWorkload)
 	if err != nil {
-		return controller.Result{}, err
+		return ctrlruntime.Result{}, err
 	}
 
 	var isNeedRetry bool
 	adminWorkload, isNeedRetry, err = r.updateAdminWorkloadStatus(ctx, adminWorkload, status, msg)
 	if isNeedRetry {
-		return controller.Result{RequeueAfter: time.Second}, nil
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 	if err != nil {
 		klog.ErrorS(err, "failed to update admin workload status")
-		return controller.Result{}, err
+		return ctrlruntime.Result{}, err
 	}
 
 	if msg.action == ResourceDel && !adminWorkload.IsEnd() {
 		if err = r.reSchedule(ctx, adminWorkload, msg.dispatchCount); err != nil {
 			klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
-			return controller.Result{}, err
+			return ctrlruntime.Result{}, err
 		}
 	}
-	return controller.Result{}, nil
+	return ctrlruntime.Result{}, nil
 }
 
 func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, msg *resourceMessage,
@@ -173,7 +173,7 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 	if status.Phase != string(v1.K8sPending) && status.Phase != "" {
 		adminWorkload.Status.Message = ""
 	}
-	buildWorkloadCondition(adminWorkload, status, msg.dispatchCount)
+	updateWorkloadCondition(adminWorkload, status, msg.dispatchCount)
 	if reflect.DeepEqual(adminWorkload.Status, originWorkload.Status) {
 		return originWorkload, false, nil
 	}
@@ -201,9 +201,7 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 			adminWorkload.Status.Phase = v1.WorkloadNotReady
 		}
 	case v1.K8sRunning:
-		if !adminWorkload.IsStopping() {
-			adminWorkload.Status.Phase = v1.WorkloadRunning
-		}
+		adminWorkload.Status.Phase = v1.WorkloadRunning
 	case v1.K8sUpdating:
 		// only for deployment/statefulSet
 		adminWorkload.Status.Phase = v1.WorkloadUpdating
@@ -291,31 +289,23 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 	})
 }
 
-func buildWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, dispatchCount int) {
-	if adminWorkload.IsStopping() {
+func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, dispatchCount int) {
+	cond := jobutils.NewCondition(status.Phase, status.Message, commonworkload.GenerateDispatchReason(dispatchCount))
+	lastCond := adminWorkload.GetLastCondition()
+	if lastCond != nil && cond.Type == lastCond.Type && cond.Reason == lastCond.Reason {
+		*lastCond = *cond
 		return
 	}
-	if commonworkload.IsApplication(adminWorkload) {
-		cond := jobutils.NewCondition(status.Phase, status.Message, commonworkload.GenerateDispatchReason(dispatchCount))
-		if cond2 := adminWorkload.GetLastCondition(); cond2 != nil && cond.Type == cond2.Type {
-			return
+	adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *cond)
+	// Only keep the latest 30 conditions
+	maxReserved := 30
+	if l := len(adminWorkload.Status.Conditions); l > maxReserved {
+		begin := l - maxReserved
+		conditions := make([]metav1.Condition, 0, maxReserved)
+		for i := begin; i < l; i++ {
+			conditions = append(conditions, adminWorkload.Status.Conditions[i])
 		}
-		adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *cond)
-		// Only keep the latest 30 conditions
-		maxReserved := 30
-		if l := len(adminWorkload.Status.Conditions); l > maxReserved {
-			begin := l - maxReserved
-			conditions := make([]metav1.Condition, 0, maxReserved)
-			for i := begin; i < l; i++ {
-				conditions = append(conditions, adminWorkload.Status.Conditions[i])
-			}
-			adminWorkload.Status.Conditions = conditions
-		}
-	} else {
-		cond := jobutils.NewCondition(status.Phase, status.Message, commonworkload.GenerateDispatchReason(dispatchCount))
-		if jobutils.FindCondition(adminWorkload, cond) == nil {
-			adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *cond)
-		}
+		adminWorkload.Status.Conditions = conditions
 	}
 }
 

@@ -232,6 +232,30 @@ func GetAddonFaultId() string {
 	return getString(addonFaultId, "")
 }
 
+func IsS3Enable() bool {
+	return getBool(s3Enable, false)
+}
+
+func GetS3AccessKey() string {
+	return getFromFile(s3ConfigPath, "access-key")
+}
+
+func GetS3SecretKey() string {
+	return getFromFile(s3ConfigPath, "secret-key")
+}
+
+func GetS3Bucket() string {
+	return getString(s3Bucket, "")
+}
+
+func GetS3Endpoint() string {
+	return getString(s3Endpoint, "")
+}
+
+func GetS3ExpireDay() int {
+	return getInt(s3ExpireDay, 3)
+}
+
 func getFromFile(configPath, item string) string {
 	path := getString(configPath, "")
 	data, err := os.ReadFile(filepath.Join(path, item))

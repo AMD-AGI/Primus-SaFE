@@ -67,51 +67,7 @@ func (e *Error) WithMessage(message string) *Error {
 	return e
 }
 
-func (e *Error) WithMessagef(message string, args ...interface{}) *Error {
-	e.Message = fmt.Sprintf(message, args...)
-	return e
-}
-
 func (e *Error) WithError(err error) *Error {
 	e.InnerError = err
 	return e
-}
-
-func NewError() *Error {
-	return newError(2)
-}
-
-func newError(callerSkip int) *Error {
-	return &Error{
-		Stack:      call(callerSkip),
-		InnerError: nil,
-		Code:       "",
-		Message:    "",
-	}
-}
-
-func WrapError(err error, message, code string) *Error {
-	return newError(2).WithCode(code).WithMessage(message).WithError(err)
-}
-
-func WrapMessage(message, code string) *Error {
-	return newError(2).WithCode(code).WithMessage(message)
-}
-
-func call(callerSkip int) []runtime.Frame {
-	rpc := make([]uintptr, 10)
-	result := []runtime.Frame{}
-	n := runtime.Callers(callerSkip+2, rpc)
-	if n < 1 {
-		return result
-	}
-	frames := runtime.CallersFrames(rpc)
-	if frames == nil {
-		return result
-	}
-	for frame, more := frames.Next(); more; {
-		result = append(result, frame)
-		frame, more = frames.Next()
-	}
-	return result
 }

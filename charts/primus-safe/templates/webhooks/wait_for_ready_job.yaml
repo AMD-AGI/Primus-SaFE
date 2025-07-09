@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: wait-for-webhooks-ready
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: "before-hook-creation,hook-succeeded"
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  template:
+    spec:
+      activeDeadlineSeconds: 300
+      restartPolicy: Never
+      containers:
+        - name: complete
+          image: busybox
+          command: ["sh", "-c", "echo webhook is ready."]
+      initContainers:
+        - name: wait
+          image: curlimages/curl:latest
+          command:
+            - sh
+            - -c
+            - |
+              until curl -k https://{{ .Release.Name }}-webhooks.{{ .Release.Namespace }}.svc:443/healthz; do
+                echo Waiting for webhook to be ready...
+                sleep 1
+              done

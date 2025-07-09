@@ -16,7 +16,7 @@ func TestQueryIndex(t *testing.T) {
 	endTime, err := time.Parse("2006-01-02T15:04:05", "2025-01-01T10:00:00")
 	assert.NilError(t, err)
 
-	client := &LogClient{
+	client := &SearchClient{
 		prefix: "node-",
 	}
 	tests := []struct {

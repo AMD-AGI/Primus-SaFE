@@ -254,14 +254,14 @@ func (r *NodeK8sReconciler) start(ctx context.Context) error {
 	return nil
 }
 
-func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (commonctrl.Result, error) {
+func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (ctrlruntime.Result, error) {
 	adminNode := new(v1.Node)
 	err := r.Get(ctx, apitypes.NamespacedName{Name: message.adminNodeName}, adminNode)
 	if err != nil {
-		return commonctrl.Result{}, client.IgnoreNotFound(err)
+		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if !adminNode.GetDeletionTimestamp().IsZero() {
-		return commonctrl.Result{}, nil
+		return ctrlruntime.Result{}, nil
 	}
 
 	switch message.action {
@@ -276,9 +276,9 @@ func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (
 		if utils.IsNonRetryableError(err) {
 			err = nil
 		}
-		return commonctrl.Result{}, err
+		return ctrlruntime.Result{}, err
 	}
-	return commonctrl.Result{}, nil
+	return ctrlruntime.Result{}, nil
 }
 
 func (r *NodeK8sReconciler) handleNodeUnmanaged(ctx context.Context, message *nodeQueueMessage, adminNode *v1.Node) error {
@@ -316,7 +316,7 @@ func (r *NodeK8sReconciler) handleNodeUpdate(ctx context.Context, message *nodeQ
 	if err = r.syncK8sMetadata(ctx, adminNode, k8sNode); err != nil {
 		return err
 	}
-	if err = r.syncK8sStatus(ctx, adminNode, k8sNode, message); err != nil {
+	if err = r.syncK8sStatus(ctx, adminNode, k8sNode); err != nil {
 		return err
 	}
 	if err = r.handleFault(ctx, adminNode, message); err != nil {
@@ -360,7 +360,7 @@ func (r *NodeK8sReconciler) syncK8sMetadata(ctx context.Context, adminNode *v1.N
 	return nil
 }
 
-func (r *NodeK8sReconciler) syncK8sStatus(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node, item *nodeQueueMessage) error {
+func (r *NodeK8sReconciler) syncK8sStatus(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) error {
 	originNode := adminNode.DeepCopy()
 	adminNode.Status.MachineStatus.PrivateIP = commonnodes.GetInternalIp(k8sNode)
 	adminNode.Status.Unschedulable = k8sNode.Spec.Unschedulable

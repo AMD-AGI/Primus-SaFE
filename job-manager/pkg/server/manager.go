@@ -97,21 +97,21 @@ func newCtrlManager(scheme *runtime.Scheme) (ctrlruntime.Manager, error) {
 
 func (jm *JobManager) SetupControllers() error {
 	if err := syncer.SetupSyncerController(jm.Context, jm.CtrlManager); err != nil {
-		return fmt.Errorf("failed to set up workload k8smgr: %v", err)
+		return fmt.Errorf("syncer controller: %v", err)
 	}
 	if err := scheduler.SetupSchedulerController(jm.Context, jm.CtrlManager); err != nil {
-		return fmt.Errorf("failed to set up workload scheduler: %v", err)
+		return fmt.Errorf("scheduler controller: %v", err)
 	}
 	if err := dispatcher.SetupDispatcherController(jm.CtrlManager); err != nil {
-		return fmt.Errorf("failed to set up workload dispatcher: %v", err)
+		return fmt.Errorf("dispatcher controller: %v", err)
 	}
 	if commonconfig.IsWorkloadFailoverEnable() {
 		if err := failover.SetupFailoverController(jm.CtrlManager); err != nil {
-			return fmt.Errorf("failed to set up failover controller: %v", err)
+			return fmt.Errorf("failover controller: %v", err)
 		}
 	}
 	if err := scheduler.SetupWorkloadTTLController(jm.CtrlManager); err != nil {
-		return fmt.Errorf("failed to set up workload ttol controller: %v", err)
+		return fmt.Errorf("workload ttl controller: %v", err)
 	}
 	return nil
 }

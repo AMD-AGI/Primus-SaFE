@@ -151,7 +151,6 @@ func generateFaultOnCreation(node *v1.FaultNode,
 	id := getIdByConditionType(cond.Type)
 	conf, ok := faultConfigMap[id]
 	if !ok || conf == nil {
-		klog.Errorf("the fault id %s is not found of config", id)
 		return nil
 	}
 	return &v1.Fault{

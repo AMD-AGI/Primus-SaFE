@@ -1,0 +1,15 @@
+FROM bitnami/kubectl:latest
+
+USER root
+
+RUN mkdir -p /var/lib/apt/lists/partial
+
+RUN apt-get update && \
+    apt-get install -y wget curl gnupg2 software-properties-common
+
+RUN wget https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_amd64.tar.gz -O - | \
+    tar xz && \
+    mv yq_linux_amd64 /usr/bin/yq && \
+    chmod +x /usr/bin/yq
+
+USER 1001

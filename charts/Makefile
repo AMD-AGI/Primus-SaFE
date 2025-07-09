@@ -15,7 +15,7 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	mkdir -p primus-safe/crds
-	$(CONTROLLER_GEN) rbac:roleName=primus-safe-manager crd webhook paths="../apis/pkg/apis/..." output:crd:artifacts:config=primus-safe/crds \
+	$(CONTROLLER_GEN) rbac:roleName=primus-safe crd webhook paths="../apis/pkg/apis/..." output:crd:artifacts:config=primus-safe/crds \
 	output:webhook:artifacts:config=primus-safe/templates/webhooks \
 	output:rbac:artifacts:config=primus-safe/templates/rbac
 	sed -i 's/\r//' hack/webhooks.sh

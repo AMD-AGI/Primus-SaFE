@@ -227,7 +227,7 @@ func (r *ClusterReconciler) updateCephCsiConfig(ctx context.Context, client kube
 		klog.ErrorS(err, "updateCephCsiConfig error")
 		return fmt.Errorf("get ceph csi configmap %s failed %+v", name, err)
 	}
-	infos := []v1.ClusterInfo{}
+	var infos []v1.ClusterInfo
 	if conf, ok := configMap.Data["config.json"]; ok {
 		err = json.Unmarshal([]byte(conf), &infos)
 		if err != nil {
