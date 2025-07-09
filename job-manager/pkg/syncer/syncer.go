@@ -117,7 +117,7 @@ func (r *SyncerReconciler) observe(c *v1.Cluster) bool {
 }
 
 func (r *SyncerReconciler) handle(ctx context.Context, cluster *v1.Cluster) error {
-	informer, err := newClusterInformer(r.ctx, cluster.Name, &cluster.Status.ControlPlaneStatus, r.Client, r.Add)
+	informer, err := newClusterInformer(r.ctx, cluster, r.Client, r.Add)
 	if err != nil {
 		klog.ErrorS(err, "failed to new cluster informer", "cluster.name", cluster.Name)
 		return err

@@ -47,19 +47,20 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	ctx := c.Request.Context()
 	var job *v1.OpsJob
 	switch req.Type {
 	case v1.OpsJobAddonType:
-		job, err = h.generateAddonJob(c.Request.Context(), req)
+		job, err = h.generateAddonJob(ctx, req)
 	case v1.OpsJobDumpLogType:
-		job, err = h.generateDumpLogJob(c.Request.Context(), req)
+		job, err = h.generateDumpLogJob(ctx, req)
 	default:
 		err = fmt.Errorf("unsupported ops job type")
 	}
 	if err != nil || job == nil {
 		return nil, err
 	}
-	if err = h.Create(c.Request.Context(), job); err != nil {
+	if err = h.Create(ctx, job); err != nil {
 		klog.ErrorS(err, "failed to create ops job")
 		return nil, err
 	}
@@ -78,12 +79,13 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	ctx := c.Request.Context()
 	dbSql := cvtToListOpsJobSql(query)
-	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, query.SortBy, query.Order, query.Limit, query.Offset)
+	jobs, err := h.dbClient.SelectJobs(ctx, dbSql, query.SortBy, query.Order, query.Limit, query.Offset)
 	if err != nil {
 		return nil, err
 	}
-	count, err := h.dbClient.CountJobs(c.Request.Context(), dbSql)
+	count, err := h.dbClient.CountJobs(ctx, dbSql)
 	if err != nil {
 		return nil, err
 	}

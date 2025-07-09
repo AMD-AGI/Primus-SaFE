@@ -24,6 +24,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
@@ -110,7 +111,8 @@ func (h *Handler) addClusterNodes(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) removeClusterNodes(c *gin.Context) (interface{}, error) {
-	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
+	ctx := c.Request.Context()
+	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +129,7 @@ func (h *Handler) removeClusterNodes(c *gin.Context) (interface{}, error) {
 	if len(req.NodeIds) == 0 {
 		return nil, commonerrors.NewBadRequest("no nodeIds provided")
 	}
-	if err = h.removeNodesFromWorkspace(c.Request.Context(), req.NodeIds); err != nil {
+	if err = h.removeNodesFromWorkspace(ctx, req.NodeIds); err != nil {
 		return nil, err
 	}
 	req.Action = types.ClusterNodeDel
@@ -232,8 +234,9 @@ func (h *Handler) handleClusterNodes(c *gin.Context,
 }
 
 func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
+	ctx := c.Request.Context()
 	clusterList := &v1.ClusterList{}
-	if err := h.List(c.Request.Context(), clusterList, &client.ListOptions{}); err != nil {
+	if err := h.List(ctx, clusterList, &client.ListOptions{}); err != nil {
 		return nil, err
 	}
 
@@ -244,22 +247,24 @@ func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 		})
 	}
 	for _, item := range clusterList.Items {
-		result.Items = append(result.Items, cvtToGetClusterResponseItem(&item, false))
+		result.Items = append(result.Items, h.cvtToGetClusterResponseItem(ctx, &item, false))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
 }
 
 func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
-	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
+	ctx := c.Request.Context()
+	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
-	return cvtToGetClusterResponseItem(cluster, true), nil
+	return h.cvtToGetClusterResponseItem(ctx, cluster, true), nil
 }
 
 func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
-	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
+	ctx := c.Request.Context()
+	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
 	if err != nil {
 		klog.ErrorS(err, "failed to get admin cluster")
 		return nil, err
@@ -268,7 +273,7 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 		klog.Errorf("failed to delete cluster %s, because the cluster is protected", cluster.Name)
 		return nil, commonerrors.NewForbidden("the cluster is protected, it can not be deleted")
 	}
-	workloads, err := h.getRunningWorkloads(c.Request.Context(), cluster.Name, nil)
+	workloads, err := h.getRunningWorkloads(ctx, cluster.Name, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +281,7 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 		klog.Errorf("failed to delete cluster %s, due to running workloads", cluster.Name)
 		return nil, commonerrors.NewForbidden("some workloads are still in progress. Please terminate them first.")
 	}
-	if err = h.Delete(c.Request.Context(), cluster); err != nil {
+	if err = h.Delete(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to delete cluster")
 		return nil, err
 	}
@@ -285,7 +290,8 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
-	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
+	ctx := c.Request.Context()
+	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
 	if err != nil {
 		klog.ErrorS(err, "failed to get admin cluster")
 		return nil, err
@@ -309,10 +315,11 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 	if !isChanged {
 		return nil, nil
 	}
-	return nil, h.Update(c.Request.Context(), cluster)
+	return nil, h.Update(ctx, cluster)
 }
 
 func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterRequest, body []byte) (*v1.Cluster, error) {
+	ctx := c.Request.Context()
 	cluster := &v1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: req.Name,
@@ -338,7 +345,7 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 	}
 
 	if cluster.Spec.ControlPlane.ImageSecret == nil {
-		imageSecret, err := h.getSecret(c.Request.Context(), common.PrimusImageSecret)
+		imageSecret, err := h.getSecret(ctx, common.PrimusImageSecret)
 		if err != nil {
 			return nil, err
 		}
@@ -346,7 +353,7 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 	}
 
 	if cluster.Spec.ControlPlane.SSHSecret == nil && req.SSHSecretName != "" {
-		sshSecret, err := h.getSecret(c.Request.Context(), req.SSHSecretName)
+		sshSecret, err := h.getSecret(ctx, req.SSHSecretName)
 		if err != nil {
 			return nil, err
 		}
@@ -428,17 +435,18 @@ func (h *Handler) getAdminCluster(ctx context.Context, name string) (*v1.Cluster
 	return cluster.DeepCopy(), nil
 }
 
-func cvtToGetClusterResponseItem(c *v1.Cluster, isNeedDetail bool) types.GetClusterResponseItem {
+func (h *Handler) cvtToGetClusterResponseItem(ctx context.Context, cluster *v1.Cluster, isNeedDetail bool) types.GetClusterResponseItem {
 	result := types.GetClusterResponseItem{
-		ClusterId:   c.Name,
-		Phase:       string(c.Status.ControlPlaneStatus.Phase),
-		IsProtected: v1.IsProtected(c),
+		ClusterId:   cluster.Name,
+		Phase:       string(cluster.Status.ControlPlaneStatus.Phase),
+		IsProtected: v1.IsProtected(cluster),
 	}
-	if !c.GetDeletionTimestamp().IsZero() {
+	if !cluster.GetDeletionTimestamp().IsZero() {
 		result.Phase = string(v1.DeletingPhase)
 	}
 	if isNeedDetail {
-		result.Storages = cvtBindingStorageView(c.Status.StorageStatus)
+		result.Endpoint, _ = commoncluster.GetEndpoint(ctx, h.Client, cluster)
+		result.Storages = cvtBindingStorageView(cluster.Status.StorageStatus)
 	}
 	return result
 }

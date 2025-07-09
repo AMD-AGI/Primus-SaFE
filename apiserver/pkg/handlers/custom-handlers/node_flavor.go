@@ -105,11 +105,12 @@ func (h *Handler) getNodeFlavor(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) deleteNodeFlavor(c *gin.Context) (interface{}, error) {
-	nf, err := h.getAdminNodeFlavor(c.Request.Context(), c.GetString(types.Name))
+	ctx := c.Request.Context()
+	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
-	if err = h.Delete(c.Request.Context(), nf); err != nil {
+	if err = h.Delete(ctx, nf); err != nil {
 		return nil, err
 	}
 	klog.Infof("delete nodeFlavor %s", nf.Name)

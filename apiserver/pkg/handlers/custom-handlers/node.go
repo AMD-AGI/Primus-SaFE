@@ -90,8 +90,9 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	ctx := c.Request.Context()
 	nodeList := &v1.NodeList{}
-	if err = h.List(c.Request.Context(), nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+	if err = h.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		klog.ErrorS(err, "failed to list admin nodes", "labelSelector", labelSelector)
 		return nil, err
 	}
@@ -100,7 +101,7 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 		return result, nil
 	}
 
-	allUsedResource, err := h.getAllUsedResourcePerNode(c.Request.Context(), query)
+	allUsedResource, err := h.getAllUsedResourcePerNode(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -137,11 +138,12 @@ func sortAdminNodes(nodes []v1.Node) []adminNodeWrapper {
 }
 
 func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
-	node, err := h.getAdminNode(c.Request.Context(), c.GetString(types.Name))
+	ctx := c.Request.Context()
+	node, err := h.getAdminNode(ctx, c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
-	usedResource, err := h.getUsedResource(c.Request.Context(), node)
+	usedResource, err := h.getUsedResource(ctx, node)
 	if err != nil {
 		klog.ErrorS(err, "failed to get used resource", "node", node.Name)
 		return nil, err
@@ -150,7 +152,8 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
-	node, err := h.getAdminNode(c.Request.Context(), c.GetString(types.Name))
+	ctx := c.Request.Context()
+	node, err := h.getAdminNode(ctx, c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -162,11 +165,11 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	patch := client.MergeFrom(node.DeepCopy())
-	isShouldUpdate, err := h.updateNode(c.Request.Context(), node, req)
+	isShouldUpdate, err := h.updateNode(ctx, node, req)
 	if err != nil || !isShouldUpdate {
 		return nil, err
 	}
-	if err = h.Patch(c.Request.Context(), node, patch); err != nil {
+	if err = h.Patch(ctx, node, patch); err != nil {
 		klog.ErrorS(err, "failed to patch node", "name", node.Name)
 		return nil, err
 	}
@@ -175,18 +178,19 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
-	node, err := h.getAdminNode(c.Request.Context(), c.GetString(types.Name))
+	ctx := c.Request.Context()
+	node, err := h.getAdminNode(ctx, c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
 	if v1.GetClusterId(node) != "" {
-		cluster, _ := h.getAdminCluster(c.Request.Context(), v1.GetClusterId(node))
+		cluster, _ := h.getAdminCluster(ctx, v1.GetClusterId(node))
 		if cluster != nil {
 			return nil, commonerrors.NewInternalError(
 				fmt.Sprintf("The node is bound to cluster %s and needs to be unmanaged first", v1.GetClusterId(node)))
 		}
 	}
-	if err = h.Delete(c.Request.Context(), node); err != nil {
+	if err = h.Delete(ctx, node); err != nil {
 		klog.ErrorS(err, "failed to delete node")
 		return nil, err
 	}
@@ -326,22 +330,22 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 	if err = validateCreateNodeRequest(req); err != nil {
 		return nil, err
 	}
-
-	nf, err := h.getAdminNodeFlavor(c.Request.Context(), req.FlavorName)
+	ctx := c.Request.Context()
+	nf, err := h.getAdminNodeFlavor(ctx, req.FlavorName)
 	if err != nil {
 		return nil, err
 	}
 	node.Spec.NodeFlavor = commonutils.GenObjectReference(nf.TypeMeta, nf.ObjectMeta)
 
 	if req.TemplateName != "" {
-		nt, err := h.getAdminNodeTemplate(c.Request.Context(), req.TemplateName)
+		nt, err := h.getAdminNodeTemplate(ctx, req.TemplateName)
 		if err != nil {
 			return nil, err
 		}
 		node.Spec.NodeTemplate = commonutils.GenObjectReference(nt.TypeMeta, nt.ObjectMeta)
 	}
 
-	secret, err := h.getSecret(c.Request.Context(), req.SSHSecretName)
+	secret, err := h.getSecret(ctx, req.SSHSecretName)
 	if err != nil {
 		return nil, err
 	}
