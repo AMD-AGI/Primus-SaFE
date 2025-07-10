@@ -108,10 +108,15 @@ func (c *Client) SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderB
 	if err != nil {
 		return nil, err
 	}
+
 	var workloads []*Workload
-	ctx2, cancel := context.WithTimeout(ctx, time.Duration(c.RequestTimeout)*time.Second)
-	defer cancel()
-	err = db.SelectContext(ctx2, &workloads, sql, args...)
+	if c.RequestTimeout > 0 {
+		ctx2, cancel := context.WithTimeout(ctx, time.Duration(c.RequestTimeout)*time.Second)
+		defer cancel()
+		err = db.SelectContext(ctx2, &workloads, sql, args...)
+	} else {
+		err = db.SelectContext(ctx, &workloads, sql, args...)
+	}
 	return workloads, err
 }
 

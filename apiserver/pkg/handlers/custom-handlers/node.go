@@ -351,6 +351,12 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 		return nil, err
 	}
 	node.Spec.SSHSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
+	if req.BMCIp != "" {
+		v1.SetAnnotation(node, v1.NodeBMCIpAnnotation, req.BMCIp)
+	}
+	if req.BMCPassword != "" {
+		v1.SetAnnotation(node, v1.NodeBMCPasswordAnnotation, req.BMCPassword)
+	}
 	return node, nil
 }
 
@@ -416,32 +422,9 @@ func parseListNodeQuery(c *gin.Context) (*types.ListNodeRequest, error) {
 
 func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest) (bool, error) {
 	isShouldUpdate := false
-	nodesLabelAction := make(map[string]string)
-	if req.Labels != nil {
-		reqLabels := make(map[string]string)
-		for key, val := range *req.Labels {
-			reqLabels[common.CustomerLabelPrefix+key] = val
-		}
-		currentLabels := getCustomerLabels(node.Labels, false)
-		for key, val := range currentLabels {
-			val2, ok := reqLabels[key]
-			if !ok {
-				nodesLabelAction[key] = v1.NodeActionRemove
-				delete(node.Labels, key)
-				isShouldUpdate = true
-			} else if val != val2 {
-				nodesLabelAction[key] = v1.NodeActionAdd
-				v1.SetLabel(node, key, val2)
-				isShouldUpdate = true
-			}
-		}
-		for key, val := range reqLabels {
-			if _, ok := currentLabels[key]; !ok {
-				nodesLabelAction[key] = v1.NodeActionAdd
-				v1.SetLabel(node, key, val)
-				isShouldUpdate = true
-			}
-		}
+	nodesLabelAction := genNodeLabelAction(node, req)
+	if len(nodesLabelAction) > 0 {
+		isShouldUpdate = true
 	}
 	if req.Taints != nil {
 		for i, t := range *req.Taints {
@@ -475,10 +458,44 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 		node.Spec.Port = pointer.Int32(*req.Port)
 		isShouldUpdate = true
 	}
+	if req.BMCIp != nil && v1.SetAnnotation(node, v1.NodeBMCIpAnnotation, *req.BMCIp) {
+		isShouldUpdate = true
+	}
+	if req.BMCPassword != nil && v1.SetAnnotation(node, v1.NodeBMCPasswordAnnotation, *req.BMCPassword) {
+		isShouldUpdate = true
+	}
 	if len(nodesLabelAction) > 0 {
 		v1.SetAnnotation(node, v1.NodeLabelAction, string(jsonutils.MarshalSilently(nodesLabelAction)))
 	}
 	return isShouldUpdate, nil
+}
+
+func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]string {
+	nodesLabelAction := make(map[string]string)
+	if req.Labels != nil {
+		reqLabels := make(map[string]string)
+		for key, val := range *req.Labels {
+			reqLabels[common.CustomerLabelPrefix+key] = val
+		}
+		currentLabels := getCustomerLabels(node.Labels, false)
+		for key, val := range currentLabels {
+			val2, ok := reqLabels[key]
+			if !ok {
+				nodesLabelAction[key] = v1.NodeActionRemove
+				delete(node.Labels, key)
+			} else if val != val2 {
+				nodesLabelAction[key] = v1.NodeActionAdd
+				v1.SetLabel(node, key, val2)
+			}
+		}
+		for key, val := range reqLabels {
+			if _, ok := currentLabels[key]; !ok {
+				nodesLabelAction[key] = v1.NodeActionAdd
+				v1.SetLabel(node, key, val)
+			}
+		}
+	}
+	return nodesLabelAction
 }
 
 func cvtToGetNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.GetNodeResponseItem {

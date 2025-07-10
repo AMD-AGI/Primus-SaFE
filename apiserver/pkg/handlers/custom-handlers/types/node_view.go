@@ -20,6 +20,10 @@ type CreateNodeRequest struct {
 	PrivateIP string `json:"privateIP"`
 	// optional
 	PublicIP string `json:"publicIP,omitempty"`
+	// optional, the ip of bmc
+	BMCIp string `json:"bmcIp,omitempty"`
+	// optional, the password of bmc
+	BMCPassword string `json:"bmcPassword,omitempty"`
 	// SSH port，default 22
 	Port *int32 `json:"port,omitempty"`
 	// node labels
@@ -113,6 +117,8 @@ type PatchNodeRequest struct {
 	NodeFlavor   *string            `json:"nodeFlavor,omitempty"`
 	NodeTemplate *string            `json:"nodeTemplate,omitempty"`
 	Port         *int32             `json:"port,omitempty"`
+	BMCIp        *string            `json:"bmcIp,omitempty"`
+	BMCPassword  *string            `json:"bmcPassword,omitempty"`
 }
 
 type GetNodePodLogResponse struct {
