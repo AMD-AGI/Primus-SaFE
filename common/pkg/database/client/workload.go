@@ -181,7 +181,7 @@ func (c *Client) GetWorkload(ctx context.Context, workloadId string) (*Workload,
 		return nil, err
 	}
 	if len(workloads) == 0 {
-		return nil, nil
+		return nil, commonerrors.NewNotFound(v1.WorkloadKind, workloadId)
 	}
 	return workloads[0], nil
 }

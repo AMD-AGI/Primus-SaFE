@@ -134,8 +134,8 @@ func NewForbidden(message string) *apierrors.StatusError {
 	}}
 }
 
-func NotFoundErrorCode(resource string) metav1.StatusReason {
-	switch strings.ToLower(resource) {
+func NotFoundErrorCode(kind string) metav1.StatusReason {
+	switch kind {
 	case v1.WorkloadKind:
 		return WorkloadNotFound
 	case v1.ResourceTemplateKind:
@@ -149,16 +149,16 @@ func NotFoundErrorCode(resource string) metav1.StatusReason {
 	}
 }
 
-func NewNotFound(resource, name string) *apierrors.StatusError {
+func NewNotFound(kind, name string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status: metav1.StatusFailure,
 		Code:   http.StatusNotFound,
-		Reason: NotFoundErrorCode(resource),
+		Reason: NotFoundErrorCode(kind),
 		Details: &metav1.StatusDetails{
-			Kind: resource,
+			Kind: kind,
 			Name: name,
 		},
-		Message: fmt.Sprintf("%s %s not found.", resource, name),
+		Message: fmt.Sprintf("%s %s not found.", kind, name),
 	}}
 }
 
