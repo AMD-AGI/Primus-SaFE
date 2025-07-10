@@ -1,7 +1,0 @@
-[
-	{
-		"op": "add",
-		"path": "/metadata/labels/new_key",
-		"value": "new_value"
-	}
-]
