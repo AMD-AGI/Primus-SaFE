@@ -131,10 +131,10 @@ func (h *Handler) generateAddonJob(_ context.Context, req *types.CreateOpsJobReq
 
 func (h *Handler) generateDumpLogJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
 	if !commonconfig.IsLogEnable() {
-		return nil, commonerrors.NewStatusGone("The logging function is not enabled")
+		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
 	if !commonconfig.IsS3Enable() {
-		return nil, commonerrors.NewStatusGone("The s3 function is not enabled")
+		return nil, commonerrors.NewInternalError("The s3 function is not enabled")
 	}
 	job := generateOpsJob(req)
 

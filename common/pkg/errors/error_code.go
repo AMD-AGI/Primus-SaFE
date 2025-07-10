@@ -39,10 +39,9 @@ const (
 	UnsupportedMediaType  = PrimusPrefix + "00007"
 	QuotaInsufficient     = PrimusPrefix + "00008"
 	Unauthorized          = PrimusPrefix + "00009"
-	StatusGone            = PrimusPrefix + "00010"
-	ResourceProcessing    = PrimusPrefix + "00011"
-	Timeout               = PrimusPrefix + "00012"
-	UserNotRegistered     = PrimusPrefix + "00013"
+	ResourceProcessing    = PrimusPrefix + "00010"
+	Timeout               = PrimusPrefix + "00011"
+	UserNotRegistered     = PrimusPrefix + "00012"
 )
 
 // workload: 01xxx
@@ -213,15 +212,6 @@ func NewUserNotRegistered() *apierrors.StatusError {
 		Code:    http.StatusUnauthorized,
 		Reason:  UserNotRegistered,
 		Message: "the user is not registered",
-	}}
-}
-
-func NewStatusGone(message string) *apierrors.StatusError {
-	return &apierrors.StatusError{ErrStatus: metav1.Status{
-		Status:  metav1.StatusFailure,
-		Code:    http.StatusGone,
-		Reason:  StatusGone,
-		Message: message,
 	}}
 }
 

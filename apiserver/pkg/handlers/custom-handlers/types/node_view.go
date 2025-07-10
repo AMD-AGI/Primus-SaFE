@@ -82,6 +82,8 @@ type GetNodeResponseItem struct {
 	Phase string `json:"phase,omitempty"`
 	// the internal ip of k8s cluster
 	InternalIP string `json:"internalIP,omitempty"`
+	// the bmc ip of node
+	BMCIP string `json:"bmcIP,omitempty"`
 	// the nodes' flavor
 	NodeFlavor string `json:"nodeFlavor"`
 	// the nodes' template

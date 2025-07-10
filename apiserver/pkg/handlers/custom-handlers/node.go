@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -25,14 +26,20 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
+)
+
+const (
+	RedfishUrl = "https://%s/redfish/v1/Systems/1/Actions/ComputerSystem.Reset"
 )
 
 func (h *Handler) CreateNode(c *gin.Context) {
@@ -57,6 +64,10 @@ func (h *Handler) DeleteNode(c *gin.Context) {
 
 func (h *Handler) GetNodePodLog(c *gin.Context) {
 	handle(c, h.getNodePodLog)
+}
+
+func (h *Handler) RestartNode(c *gin.Context) {
+	handle(c, h.restartNode)
 }
 
 func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
@@ -228,6 +239,37 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 		PodId:     podName,
 		Logs:      strings.Split(string(podLogs), "\n"),
 	}, nil
+}
+
+func (h *Handler) restartNode(c *gin.Context) (interface{}, error) {
+	if !commonconfig.IsNodeRestartEnable() {
+		return nil, commonerrors.NewInternalError("The restart function is not enabled")
+	}
+	node, err := h.getAdminNode(c.Request.Context(), c.GetString(types.Name))
+	if err != nil {
+		return nil, err
+	}
+	if v1.GetNodeBMCIp(node) == "" || v1.GetNodeBMCPassword(node) == "" {
+		return nil, commonerrors.NewInternalError("BMC IP or password is not found")
+	}
+
+	url := fmt.Sprintf(RedfishUrl, v1.GetNodeBMCIp(node))
+	body := []byte(`{"ResetType": "ForceOff"}`)
+	klog.Infof("restart node, url: %s, body: %s", url, string(body))
+	req, err := httpclient.BuildRequest(url, http.MethodPost, body)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	req.SetBasicAuth("ADMIN", v1.GetNodeBMCPassword(node))
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.IsSuccess() {
+		return nil, fmt.Errorf("%s", string(resp.Body))
+	}
+	return string(resp.Body), nil
 }
 
 func (h *Handler) getAdminNode(ctx context.Context, name string) (*v1.Node, error) {
@@ -506,6 +548,7 @@ func cvtToGetNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.GetN
 		Workspace:      v1.GetWorkspaceId(n),
 		Phase:          string(n.Status.MachineStatus.Phase),
 		InternalIP:     n.Status.MachineStatus.PrivateIP,
+		BMCIP:          v1.GetNodeBMCIp(n),
 		NodeFlavor:     v1.GetNodeFlavorId(n),
 		Available:      n.IsAvailable(false),
 		Taints:         getPrimusTaints(n.Status.Taints),

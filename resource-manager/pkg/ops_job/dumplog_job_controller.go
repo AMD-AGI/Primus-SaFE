@@ -94,7 +94,7 @@ func SetupDumpLogJobController(ctx context.Context, mgr manager.Manager) error {
 }
 
 func (r *DumpLogJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r, nil)
+	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r)
 }
 
 func (r *DumpLogJobReconciler) observe(_ context.Context, _ *v1.OpsJob) (bool, error) {
@@ -258,7 +258,7 @@ func (r *DumpLogJobReconciler) doSearch(job *v1.OpsJob, workload *workloadInfo) 
 	data, err := r.searchClient.RequestByTimeRange(workload.startTime, workload.endTime,
 		fmt.Sprintf("/_search?scroll=%s", contextTTL), http.MethodPost, body)
 	if err != nil {
-		return nil, err
+		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	result := &commonsearch.OpenSearchResponse{}
 	if err = json.Unmarshal(data, result); err != nil {
