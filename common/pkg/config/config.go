@@ -252,8 +252,9 @@ func GetS3Endpoint() string {
 	return getString(s3Endpoint, "")
 }
 
-func GetS3ExpireDay() int {
-	return getInt(s3ExpireDay, 3)
+func GetS3ExpireDay() int32 {
+	resp := getInt(s3ExpireDay, 0)
+	return int32(resp)
 }
 
 func getFromFile(configPath, item string) string {

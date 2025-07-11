@@ -89,7 +89,6 @@ type OpsJob struct {
 	Type       string         `db:"type"`
 	Timeout    int            `db:"timeout"`
 	UserName   sql.NullString `db:"user_name"`
-	JobName    sql.NullString `db:"job_name"`
 	Workspace  sql.NullString `db:"workspace"`
 	CreateTime pq.NullTime    `db:"create_time"`
 	StartTime  pq.NullTime    `db:"start_time"`

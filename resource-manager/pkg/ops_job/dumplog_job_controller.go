@@ -13,7 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -30,6 +31,7 @@ import (
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/channel"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -62,16 +64,19 @@ func SetupDumpLogJobController(ctx context.Context, mgr manager.Manager) error {
 	if !commonconfig.IsS3Enable() || !commonconfig.IsLogEnable() {
 		return nil
 	}
+	s3Client, err := commons3.NewClient(ctx, commons3.Option{
+		Subdir: "log", ExpireDay: commonconfig.GetS3ExpireDay()})
+	if err != nil {
+		return err
+	}
+
 	r := &DumpLogJobReconciler{
 		OpsJobBaseReconciler: &OpsJobBaseReconciler{
 			Client: mgr.GetClient(),
 		},
-		s3Client:     commons3.NewClient(ctx),
+		s3Client:     s3Client,
 		dbClient:     dbclient.NewClient(),
 		searchClient: commonsearch.NewClient(),
-	}
-	if r.s3Client == nil {
-		return fmt.Errorf("failed to new s3-client")
 	}
 	if r.dbClient == nil {
 		return fmt.Errorf("failed to new db-client")
@@ -82,7 +87,7 @@ func SetupDumpLogJobController(ctx context.Context, mgr manager.Manager) error {
 	r.Controller = controller.NewController[string](r, concurrent)
 	r.start(ctx)
 
-	err := ctrlruntime.NewControllerManagedBy(mgr).
+	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
 			predicate.GenerationChangedPredicate{}, jobPhaseChangedPredicate()))).
 		Complete(r)
@@ -162,29 +167,32 @@ func (r *DumpLogJobReconciler) do(ctx context.Context, job *v1.OpsJob) (ctrlrunt
 		if err2 := r.s3Client.DeleteObject(ctx, workload.workloadId, 0); err2 != nil {
 			klog.ErrorS(err2, "failed to delete object", "object", workload.workloadId)
 		}
+		klog.Infof("failed to upload %s log", workload.workloadId)
 		return ctrlruntime.Result{}, commonerrors.NewInternalError(err.Error())
 	}
 
-	endpoint := strings.TrimSuffix(commonconfig.GetS3Endpoint(), "/") + "/" +
-		strings.TrimSuffix(commonconfig.GetS3Bucket(), "/") + "/" + workload.workloadId
-	outputs := []v1.Parameter{{Name: v1.ParameterEndpoint, Value: endpoint}}
-	err = r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, "", outputs)
-	if err != nil {
-		klog.ErrorS(err, "fail to set job status")
+	if err = r.setOutput(ctx, job, workload.workloadId); err == nil {
+		return ctrlruntime.Result{}, nil
+	} else {
+		klog.Error(err, "failed to update job status")
+		return ctrlruntime.Result{}, commonerrors.NewInternalError(err.Error())
 	}
-	return ctrlruntime.Result{}, nil
 }
 
 func (r *DumpLogJobReconciler) singleUpload(ctx context.Context, job *v1.OpsJob,
 	workload *workloadInfo, searchResult *commonsearch.OpenSearchResponse) error {
 	content := serializeSearchResponse(searchResult)
-	err := r.s3Client.PutObject(ctx, workload.workloadId, content, int64(job.Spec.TimeoutSecond))
-	return err
+	_, err := r.s3Client.PutObject(ctx, workload.workloadId, content, int64(job.Spec.TimeoutSecond))
+	if err != nil {
+		return err
+	}
+	klog.Infof("uploaded %s log Successfully", workload.workloadId)
+	return nil
 }
 
 func (r *DumpLogJobReconciler) multiUpload(ctx context.Context, job *v1.OpsJob,
 	workload *workloadInfo, searchResult *commonsearch.OpenSearchResponse) error {
-	s3ClientInner, uploadId, err := r.s3Client.CreateMultiPartUpload(ctx, workload.workloadId, job.GetLeftTime())
+	uploadId, err := r.s3Client.CreateMultiPartUpload(ctx, workload.workloadId, job.GetLeftTime())
 	if err != nil {
 		return err
 	}
@@ -201,10 +209,9 @@ func (r *DumpLogJobReconciler) multiUpload(ctx context.Context, job *v1.OpsJob,
 	}()
 
 	param := &commons3.MultiUploadParam{
-		S3Client:       s3ClientInner,
 		Key:            workload.workloadId,
 		UploadId:       uploadId,
-		CompletedParts: make([]*s3.CompletedPart, 0, (searchResult.Hits.Total.Value/maxDocsPerQuery)+1),
+		CompletedParts: make([]types.CompletedPart, 0, (searchResult.Hits.Total.Value/maxDocsPerQuery)+1),
 	}
 	logCh <- searchResult
 	go r.scroll(job, searchResult.ScrollId, logCh, errCh)
@@ -219,7 +226,16 @@ func (r *DumpLogJobReconciler) multiUpload(ctx context.Context, job *v1.OpsJob,
 		err = <-errCh
 		return err
 	}
-	return r.s3Client.CompleteMultiPartUpload(ctx, param, job.GetLeftTime())
+	output, err := r.s3Client.CompleteMultiPartUpload(ctx, param, job.GetLeftTime())
+	if err != nil {
+		return err
+	}
+	location := ""
+	if output.Location != nil {
+		location = *output.Location
+	}
+	klog.Infof("uploaded %s log Successfully, output: %s", workload.workloadId, location)
+	return nil
 }
 
 func (r *DumpLogJobReconciler) getInputWorkload(ctx context.Context, job *v1.OpsJob) (*workloadInfo, error) {
@@ -382,7 +398,7 @@ func (r *DumpLogJobReconciler) dump(ctx context.Context, job *v1.OpsJob, param *
 		if len(param.Value) < minBatchSize {
 			continue
 		}
-		part, err := r.s3Client.MultiPartUpload(ctx, param, job.GetLeftTime())
+		err := r.s3Client.MultiPartUpload(ctx, param, job.GetLeftTime())
 		if err != nil {
 			klog.ErrorS(err, "failed to multi-upload", "partNumber", param.PartNumber)
 			errCh <- err
@@ -390,7 +406,6 @@ func (r *DumpLogJobReconciler) dump(ctx context.Context, job *v1.OpsJob, param *
 			break
 		}
 		param.Value = ""
-		param.CompletedParts = append(param.CompletedParts, part)
 		param.PartNumber++
 		if param.PartNumber >= maxBatchNum {
 			break
@@ -398,17 +413,15 @@ func (r *DumpLogJobReconciler) dump(ctx context.Context, job *v1.OpsJob, param *
 	}
 	if param.Value != "" && !hasError {
 		if param.PartNumber == 1 {
-			if err := r.s3Client.PutObject(ctx, param.Key, param.Value, job.GetLeftTime()); err != nil {
+			if _, err := r.s3Client.PutObject(ctx, param.Key, param.Value, job.GetLeftTime()); err != nil {
 				klog.ErrorS(err, "failed to put object")
 				errCh <- err
 			}
 		} else {
-			part, err := r.s3Client.MultiPartUpload(ctx, param, job.GetLeftTime())
+			err := r.s3Client.MultiPartUpload(ctx, param, job.GetLeftTime())
 			if err != nil {
 				klog.ErrorS(err, "failed to multi-upload", "partNumber", param.PartNumber)
 				errCh <- err
-			} else {
-				param.CompletedParts = append(param.CompletedParts, part)
 			}
 		}
 	}
@@ -423,6 +436,33 @@ func (r *DumpLogJobReconciler) clearScroll(scrollId string) {
 	if err != nil {
 		klog.ErrorS(err, "failed to clear scroll")
 	}
+}
+
+func (r *DumpLogJobReconciler) setOutput(ctx context.Context, job *v1.OpsJob, workloadId string) error {
+	var expireDay int32 = 1
+	if commonconfig.GetS3ExpireDay() > 0 && expireDay > commonconfig.GetS3ExpireDay() {
+		expireDay = commonconfig.GetS3ExpireDay()
+	}
+	endpoint, err := r.s3Client.GeneratePresignedURL(ctx, workloadId, expireDay)
+	if err != nil {
+		return err
+	}
+
+	outputs := []v1.Parameter{{Name: v1.ParameterEndpoint, Value: endpoint}}
+	maxRetry := 3
+	if err = backoff.ConflictRetry(func() error {
+		err = r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, "", outputs)
+		if err == nil {
+			return nil
+		}
+		if apierrors.IsConflict(err) {
+			r.Get(ctx, client.ObjectKey{Name: job.Name}, job)
+		}
+		return err
+	}, maxRetry, time.Millisecond*100); err != nil {
+		return err
+	}
+	return nil
 }
 
 func serializeSearchResponse(data *commonsearch.OpenSearchResponse) string {

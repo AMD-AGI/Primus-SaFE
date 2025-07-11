@@ -24,7 +24,7 @@ apiserver:
   memory: 4Gi
 resource_manager:
   health_port: 8081
-  image: "resource-manager:202507101130"
+  image: "resource-manager:202507101630"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi
