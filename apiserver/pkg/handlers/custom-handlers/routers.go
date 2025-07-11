@@ -62,6 +62,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.POST("opsjobs", h.CreateOpsJob)
 		group.GET("opsjobs", h.ListOpsJob)
 		group.GET("opsjobs/:name", h.GetOpsJob)
+		group.DELETE("opsjobs/:name", h.DeleteOpsJob)
 
 		group.POST(fmt.Sprintf("service/:%s/logs", types.Name), h.ListServiceLog)
 		group.POST(fmt.Sprintf("workloads/:%s/logs", types.Name), h.ListWorkloadLog)

@@ -200,7 +200,7 @@ func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {
 }
 
 func (r *AddonJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	clearFuncs := []ClearFunc{r.removeJobLabelOfNodes, r.removeJob}
+	clearFuncs := []ClearFunc{r.cleanupJobLabels, r.removeJob}
 	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r, clearFuncs...)
 }
 
@@ -248,30 +248,8 @@ func (r *AddonJobReconciler) getNodesToProcess(job *v1.OpsJob) []string {
 	return slice.Copy(allPendingNodes, addonJob.batchCount-runningCount)
 }
 
-func (r *AddonJobReconciler) removeJobLabelOfNodes(ctx context.Context, job *v1.OpsJob) error {
-	addonJob, ok := r.allJobs[job.Name]
-	if !ok {
-		return nil
-	}
-	for nodeName := range addonJob.allNodes {
-		adminNode, err := r.getAdminNode(ctx, nodeName)
-		if err != nil && !apierrors.IsNotFound(err) {
-			return err
-		}
-		if adminNode == nil || v1.GetOpsJobId(adminNode) != job.Name {
-			continue
-		}
-		patch := client.MergeFrom(adminNode.DeepCopy())
-		nodesLabelAction := commonnodes.BuildAction(v1.NodeActionRemove, v1.OpsJobIdLabel, v1.OpsJobTypeLabel)
-		nodesAnnotationAction := commonnodes.BuildAction(v1.NodeActionRemove, v1.OpsJobInputAnnotation)
-		metav1.SetMetaDataAnnotation(&adminNode.ObjectMeta, v1.NodeLabelAction, nodesLabelAction)
-		metav1.SetMetaDataAnnotation(&adminNode.ObjectMeta, v1.NodeAnnotationAction, nodesAnnotationAction)
-		if err = r.Patch(ctx, adminNode, patch); err != nil {
-			klog.ErrorS(err, "failed to patch node")
-			return err
-		}
-	}
-	return nil
+func (r *AddonJobReconciler) cleanupJobLabels(ctx context.Context, job *v1.OpsJob) error {
+	return commonnodes.CleanupOpsJobLabels(ctx, r.Client, job.Name)
 }
 
 func (r *AddonJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
@@ -298,6 +276,13 @@ func (r *AddonJobReconciler) handleImpl(ctx context.Context, job *v1.OpsJob) (ct
 	if len(targetNodes) == 0 {
 		return ctrlruntime.Result{}, nil
 	}
+	cond := metav1.Condition{Type: JobProcessingType, Status: metav1.ConditionTrue,
+		Reason: "Processing", Message: string(jsonutils.MarshalSilently(targetNodes)),
+	}
+	if err := r.updateJobCondition(ctx, job, &cond); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+
 	opsJobInput, err := r.buildOpsJobInput(ctx, job)
 	if err != nil {
 		return ctrlruntime.Result{}, err

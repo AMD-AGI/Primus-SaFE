@@ -92,7 +92,8 @@ data:
         delete_time TIMESTAMP,
         phase VARCHAR(64),
         conditions TEXT,
-        outputs TEXT
+        outputs TEXT,
+        is_deleted boolean
     );
 
     create index if not exists T_JOB_ID_INDEX on ops_job (job_id);

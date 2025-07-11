@@ -203,6 +203,26 @@ func GetUsingNodesOfCluster(ctx context.Context, cli client.Client, clusterId st
 	return result, nil
 }
 
+func CleanupOpsJobLabels(ctx context.Context, cli client.Client, opsJobId string) error {
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.OpsJobIdLabel: opsJobId})
+	nodeList := &v1.NodeList{}
+	if err := cli.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		return err
+	}
+	for _, adminNode := range nodeList.Items {
+		patch := client.MergeFrom(adminNode.DeepCopy())
+		nodesLabelAction := BuildAction(v1.NodeActionRemove, v1.OpsJobIdLabel, v1.OpsJobTypeLabel)
+		nodesAnnotationAction := BuildAction(v1.NodeActionRemove, v1.OpsJobInputAnnotation)
+		metav1.SetMetaDataAnnotation(&adminNode.ObjectMeta, v1.NodeLabelAction, nodesLabelAction)
+		metav1.SetMetaDataAnnotation(&adminNode.ObjectMeta, v1.NodeAnnotationAction, nodesAnnotationAction)
+		if err := cli.Patch(ctx, &adminNode, patch); err != nil {
+			klog.ErrorS(err, "failed to patch node")
+			return err
+		}
+	}
+	return nil
+}
+
 func Nodes2PointerSlice(nodes []v1.Node) (result []*v1.Node) {
 	for i := range nodes {
 		result = append(result, &nodes[i])

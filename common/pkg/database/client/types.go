@@ -97,6 +97,7 @@ type OpsJob struct {
 	Phase      sql.NullString `db:"phase"`
 	Conditions sql.NullString `db:"conditions"`
 	Outputs    sql.NullString `db:"outputs"`
+	IsDeleted  bool           `db:"is_deleted"`
 }
 
 func GetOpsJobFieldTags() map[string]string {

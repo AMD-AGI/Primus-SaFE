@@ -26,6 +26,11 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
+const (
+	JobProcessingType = "JobProcessing"
+	JobCompletedType  = "JobCompleted"
+)
+
 type ReconcilerComponent interface {
 	observe(ctx context.Context, job *v1.OpsJob) (bool, error)
 	filter(ctx context.Context, job *v1.OpsJob) bool
@@ -106,7 +111,7 @@ func (r *OpsJobBaseReconciler) setJobCompleted(ctx context.Context,
 	job.Status.Outputs = outputs
 
 	cond := metav1.Condition{
-		Type:    "JobCompleted",
+		Type:    JobCompletedType,
 		Message: message,
 	}
 	if phase == v1.OpsJobFailed {

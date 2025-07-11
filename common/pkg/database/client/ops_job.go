@@ -17,12 +17,12 @@ import (
 )
 
 const (
-	TJob = "ops_job"
+	TOpsJob = "ops_job"
 )
 
 var (
-	getJobCmd       = fmt.Sprintf(`SELECT * FROM %s WHERE job_id = $1 LIMIT 1`, TJob)
-	insertJobFormat = `INSERT INTO ` + TJob + ` (%s) VALUES (%s)`
+	getJobCmd       = fmt.Sprintf(`SELECT * FROM %s WHERE job_id = $1 LIMIT 1`, TOpsJob)
+	insertJobFormat = `INSERT INTO ` + TOpsJob + ` (%s) VALUES (%s)`
 	updateJobCmd    = fmt.Sprintf(`UPDATE %s 
 		SET inputs = :inputs,
 		    start_time = :start_time,
@@ -31,7 +31,7 @@ var (
 		    phase = :phase,
 		    conditions = :conditions,
 		    outputs = :outputs 
-		WHERE job_id = :job_id`, TJob)
+		WHERE job_id = :job_id`, TOpsJob)
 )
 
 func (c *Client) UpsertJob(ctx context.Context, job *OpsJob) error {
@@ -77,7 +77,7 @@ func (c *Client) SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, ord
 		return results
 	}()
 	sql, args, err := sqrl.Select("*").PlaceholderFormat(sqrl.Dollar).
-		From(TJob).
+		From(TOpsJob).
 		Where(query).
 		OrderBy(orderBy...).
 		Limit(uint64(limit)).
@@ -102,11 +102,22 @@ func (c *Client) CountJobs(ctx context.Context, query sqrl.Sqlizer) (int, error)
 		return 0, commonerrors.NewInternalError("The client of db has not been initialized")
 	}
 	db := c.db.Unsafe()
-	sql, args, err := sqrl.Select("COUNT(*)").PlaceholderFormat(sqrl.Dollar).From(TJob).Where(query).ToSql()
+	sql, args, err := sqrl.Select("COUNT(*)").PlaceholderFormat(sqrl.Dollar).From(TOpsJob).Where(query).ToSql()
 	if err != nil {
 		return 0, err
 	}
 	var cnt int
 	err = db.GetContext(ctx, &cnt, sql, args...)
 	return cnt, err
+}
+
+func (c *Client) SetOpsJobDeleted(ctx context.Context, opsJobId string) error {
+	db := c.db.Unsafe()
+	cmd := fmt.Sprintf(`UPDATE %s SET is_deleted=true WHERE job_id=$1`, TOpsJob)
+	_, err := db.ExecContext(ctx, cmd, opsJobId)
+	if err != nil {
+		klog.ErrorS(err, "failed to update opsjob db. ", "job_id", opsJobId)
+		return err
+	}
+	return nil
 }
