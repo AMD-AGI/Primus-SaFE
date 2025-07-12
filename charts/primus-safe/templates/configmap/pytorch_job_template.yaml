@@ -58,9 +58,25 @@ data:
                     - name: NCCL_IB_HCA
                       value: "{{ .Values.net.nccl_ib_hca }}"
                     - name: NCCL_IB_TIMEOUT
-                      value: "22"
+                      value: "23"
                     - name: NCCL_IB_RETRY_CNT
-                      value: "12"
+                      value: "11"
+                    - name: NCCL_IB_TC
+                      value: "41"
+                    - name: NCCL_P2P_DISABLE
+                      value: "0"
+                    - name: NCCL_MIN_NCHANNELS
+                      value: "32"
+                    - name: NCCL_MAX_NCHANNELS
+                      value: "32"
+                    - name: NCCL_IB_GID_INDEX
+                      value: "3"
+                    - name: NCCL_IB_SPLIT_DATA_ON_QPS
+                      value: "1"
+                    - name: NCCL_SHM_DISABLE
+                      value: "0"
+                    - name: NCCL_IB_QPS_PER_CONNECTION
+                      value: "4"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
                     - name: POD_NAME
@@ -129,9 +145,25 @@ data:
                     - name: NCCL_IB_HCA
                       value: "{{ .Values.net.nccl_ib_hca }}"
                     - name: NCCL_IB_TIMEOUT
-                      value: "22"
+                      value: "23"
                     - name: NCCL_IB_RETRY_CNT
-                      value: "12"
+                      value: "11"
+                    - name: NCCL_IB_TC
+                      value: "41"
+                    - name: NCCL_P2P_DISABLE
+                      value: "0"
+                    - name: NCCL_MIN_NCHANNELS
+                      value: "32"
+                    - name: NCCL_MAX_NCHANNELS
+                      value: "32"
+                    - name: NCCL_IB_GID_INDEX
+                      value: "3"
+                    - name: NCCL_IB_SPLIT_DATA_ON_QPS
+                      value: "1"
+                    - name: NCCL_SHM_DISABLE
+                      value: "0"
+                    - name: NCCL_IB_QPS_PER_CONNECTION
+                      value: "4"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
                     - name: POD_NAME

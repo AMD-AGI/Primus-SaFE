@@ -48,9 +48,9 @@ data:
                - name: NCCL_IB_HCA
                  value: "{{ .Values.net.nccl_ib_hca }}"
                - name: NCCL_IB_TIMEOUT
-                 value: "22"
+                 value: "23"
                - name: NCCL_IB_RETRY_CNT
-                 value: "12"
+                 value: "11"
                - name: POD_IP
                  valueFrom:
                    fieldRef:
