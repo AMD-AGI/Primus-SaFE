@@ -25,7 +25,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
+	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -136,7 +136,7 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 			return nil, err
 		}
 	}
-	if err := commonnodes.CleanupOpsJobLabels(ctx, h.Client, name); err != nil {
+	if err := commonjob.CleanupJobRelatedInfo(ctx, h.Client, name); err != nil {
 		klog.ErrorS(err, "failed to cleanup ops job labels")
 	}
 	if commonconfig.IsDBEnable() {

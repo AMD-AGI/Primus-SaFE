@@ -249,7 +249,7 @@ func (r *AddonJobReconciler) getNodesToProcess(job *v1.OpsJob) []string {
 }
 
 func (r *AddonJobReconciler) cleanupJobLabels(ctx context.Context, job *v1.OpsJob) error {
-	return commonnodes.CleanupOpsJobLabels(ctx, r.Client, job.Name)
+	return commonjob.CleanupJobRelatedInfo(ctx, r.Client, job.Name)
 }
 
 func (r *AddonJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
