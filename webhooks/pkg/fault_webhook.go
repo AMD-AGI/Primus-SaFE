@@ -59,7 +59,7 @@ func (m *FaultMutator) Handle(ctx context.Context, req admission.Request) admiss
 func (m *FaultMutator) mutateOnCreation(ctx context.Context, fault *v1.Fault) {
 	fault.Name = stringutil.NormalizeName(fault.Name)
 	v1.SetLabel(fault, v1.ClusterIdLabel, fault.Spec.Node.ClusterName)
-	v1.SetLabel(fault, v1.FaultId, fault.Spec.Id)
+	v1.SetLabel(fault, v1.FaultId, fault.Spec.MonitorId)
 	controllerutil.AddFinalizer(fault, v1.FaultFinalizer)
 
 	if fault.Spec.Node != nil {
@@ -131,7 +131,7 @@ func (v *FaultValidator) validateOnUpdate(newFault, oldFault *v1.Fault) error {
 }
 
 func (v *FaultValidator) validateFaultSpec(fault *v1.Fault) error {
-	if fault.Spec.Id == "" {
+	if fault.Spec.MonitorId == "" {
 		return fmt.Errorf("the id of spec is empty")
 	}
 	if fault.Spec.Node != nil {
@@ -155,7 +155,7 @@ func (v *FaultValidator) validateImmutableFields(newFault, oldFault *v1.Fault) e
 	if newFault.Spec.Node.ClusterName != oldFault.Spec.Node.ClusterName {
 		return field.Forbidden(field.NewPath("spec", "node").Key("cluster"), "immutable")
 	}
-	if newFault.Spec.Id != oldFault.Spec.Id {
+	if newFault.Spec.MonitorId != oldFault.Spec.MonitorId {
 		return field.Forbidden(field.NewPath("spec").Key("id"), "immutable")
 	}
 	if newFault.Spec.Action != oldFault.Spec.Action {

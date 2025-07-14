@@ -1,0 +1,52 @@
+/*
+ * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
+package types
+
+type GetFaultRequest struct {
+	// Starting offset for the results. dfault is 0
+	Offset int `form:"offset" binding:"omitempty,min=0"`
+	// Limit the number of returned results. default is 100
+	Limit int `form:"limit" binding:"omitempty,min=1"`
+	// Sort results by the specified field. default is create_time
+	SortBy string `form:"sortBy" binding:"omitempty"`
+	// default is desc
+	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
+	// the node id
+	NodeId string `form:"nodeId" binding:"omitempty,max=64"`
+	// the ID used by NodeAgent for monitoring
+	// If specifying multiple kind queries, separate them with commas
+	MonitorId string `form:"monitorId" binding:"omitempty"`
+	// the cluster id
+	Cluster string `form:"cluster" binding:"omitempty"`
+}
+
+type GetFaultResponseItem struct {
+	// the uniq id of response
+	ID string `json:"id"`
+	// the id of fault resource
+	FaultId string `json:"faultId"`
+	// the ID used by NodeAgent for monitoring.
+	MonitorId string `json:"monitorId"`
+	// fault message
+	Message string `json:"message,omitempty"`
+	// the node ID related to this fault
+	NodeId string `json:"nodeId,omitempty"`
+	// the action of fault. e.g. taint
+	Action string `json:"action,omitempty"`
+	// the status of fault, including Succeeded/Failed
+	Phase string `json:"phase,omitempty"`
+	// cluster id
+	Cluster string `json:"cluster,omitempty"`
+	// the creation time of fault
+	CreatedTime string `json:"createdTime,omitempty"`
+	// the deletion time of fault
+	DeleteTime string `json:"deleteTime,omitempty"`
+}
+
+type GetFaultResponse struct {
+	TotalCount int                    `json:"totalCount"`
+	Items      []GetFaultResponseItem `json:"items,omitempty"`
+}

@@ -167,8 +167,8 @@ func (r *OpsJobBaseReconciler) getAdminNode(ctx context.Context, name string) (*
 	return node, nil
 }
 
-func (r *OpsJobBaseReconciler) getFault(ctx context.Context, adminNodeName, faultId string) (*v1.Fault, error) {
-	faultName := commonfaults.GenerateFaultName(adminNodeName, faultId)
+func (r *OpsJobBaseReconciler) getFault(ctx context.Context, adminNodeName, monitorId string) (*v1.Fault, error) {
+	faultName := commonfaults.GenerateFaultName(adminNodeName, monitorId)
 	fault := &v1.Fault{}
 	err := r.Get(ctx, client.ObjectKey{Name: faultName}, fault)
 	if err != nil {
@@ -177,19 +177,19 @@ func (r *OpsJobBaseReconciler) getFault(ctx context.Context, adminNodeName, faul
 	return fault, nil
 }
 
-func (r *OpsJobBaseReconciler) getFaultConfig(ctx context.Context, faultId string) (*resource.FaultConfig, error) {
+func (r *OpsJobBaseReconciler) getFaultConfig(ctx context.Context, monitorId string) (*resource.FaultConfig, error) {
 	configs, err := resource.GetFaultConfigmap(ctx, r.Client)
 	if err != nil {
 		klog.ErrorS(err, "failed to get fault configmap")
 		return nil, err
 	}
-	config, ok := configs[faultId]
+	config, ok := configs[monitorId]
 	if !ok {
 		return nil, commonerrors.NewNotFoundWithMessage(
-			fmt.Sprintf("fault config is not found: %s", faultId))
+			fmt.Sprintf("fault config is not found: %s", monitorId))
 	}
 	if !config.IsEnable() {
-		return nil, commonerrors.NewInternalError(fmt.Sprintf("fault config is disabled: %s", faultId))
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("fault config is disabled: %s", monitorId))
 	}
 	return config, nil
 }

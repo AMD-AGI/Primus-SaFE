@@ -228,10 +228,6 @@ func GetOpsJobBatchCount() int {
 	return getInt(opsJobBatchCount, 0)
 }
 
-func GetAddonFaultId() string {
-	return getString(addonFaultId, "")
-}
-
 func IsS3Enable() bool {
 	return getBool(s3Enable, false)
 }

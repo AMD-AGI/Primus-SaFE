@@ -402,19 +402,6 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 	return node, nil
 }
 
-func (h *Handler) getAdminNodeTemplate(ctx context.Context, name string) (*v1.NodeTemplate, error) {
-	if name == "" {
-		return nil, commonerrors.NewBadRequest("the nodeTemplateId is empty")
-	}
-	nt := &v1.NodeTemplate{}
-	err := h.Get(ctx, client.ObjectKey{Name: name}, nt)
-	if err != nil {
-		klog.ErrorS(err, "failed to get node template")
-		return nil, err
-	}
-	return nt.DeepCopy(), nil
-}
-
 func validateCreateNodeRequest(req *types.CreateNodeRequest) error {
 	if req.FlavorName == "" {
 		return commonerrors.NewBadRequest("the flavorName of request is empty")

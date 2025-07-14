@@ -75,10 +75,6 @@ const (
 	// Job Batch Size: The number of nodes to process simultaneously during a plugin upgrade
 	opsJobBatchCount = opsJobPrefix + "batch_count"
 
-	// fault
-	faultPrefix  = "fault."
-	addonFaultId = faultPrefix + "addon_id"
-
 	// s3
 	s3Prefix     = "s3."
 	s3Enable     = s3Prefix + "enable"
