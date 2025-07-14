@@ -39,7 +39,7 @@ type CreateClusterResponse struct {
 type GetClusterResponseItem struct {
 	ClusterId   string                       `json:"clusterId"`
 	Phase       string                       `json:"phase"`
-	Endpoint    string                       `json:"endpoint"`
+	Endpoint    string                       `json:"endpoint,omitempty"`
 	Storages    []BindingStorageResponseItem `json:"storage,omitempty"`
 	IsProtected bool                         `json:"isProtected"`
 }

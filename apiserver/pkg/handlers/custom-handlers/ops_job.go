@@ -131,10 +131,10 @@ func (h *Handler) generateAddonJob(_ context.Context, req *types.CreateOpsJobReq
 
 func (h *Handler) generateDumpLogJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
 	if !commonconfig.IsLogEnable() {
-		return nil, commonerrors.NewStatusGone("The logging function is not enabled")
+		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
 	if !commonconfig.IsS3Enable() {
-		return nil, commonerrors.NewStatusGone("The s3 function is not enabled")
+		return nil, commonerrors.NewInternalError("The s3 function is not enabled")
 	}
 	job := generateOpsJob(req)
 
@@ -149,12 +149,14 @@ func (h *Handler) generateDumpLogJob(ctx context.Context, req *types.CreateOpsJo
 			return nil, err
 		}
 		job.Spec.Cluster = workload.Cluster
+		v1.SetLabel(job, v1.WorkspaceIdLabel, workload.Workspace)
 	} else {
 		workload, err := h.getAdminWorkload(ctx, workloadParam.Value)
 		if err != nil {
 			return nil, err
 		}
 		job.Spec.Cluster = v1.GetClusterId(workload)
+		v1.SetLabel(job, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	}
 	return job, nil
 }
@@ -249,7 +251,6 @@ func cvtToGetOpsJobSql(jobId string) sqrl.Sqlizer {
 func cvtToOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponseItem {
 	result := types.GetOpsJobResponseItem{
 		JobId:      job.JobId,
-		JobName:    dbutils.ParseNullString(job.JobName),
 		Cluster:    job.Cluster,
 		Workspace:  dbutils.ParseNullString(job.Workspace),
 		Type:       v1.OpsJobType(job.Type),
@@ -264,7 +265,9 @@ func cvtToOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponseItem {
 		result.Phase = v1.OpsJobPending
 	}
 	result.Inputs = deserializeParams(string(job.Inputs))
-	result.Outputs = deserializeParams(dbutils.ParseNullString(job.Outputs))
+	if outputs := dbutils.ParseNullString(job.Outputs); outputs != "" {
+		json.Unmarshal([]byte(outputs), &result.Outputs)
+	}
 	if conditions := dbutils.ParseNullString(job.Conditions); conditions != "" {
 		json.Unmarshal([]byte(conditions), &result.Conditions)
 	}

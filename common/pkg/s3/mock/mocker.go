@@ -9,7 +9,7 @@ import (
 	reflect "reflect"
 
 	s3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
-	s30 "github.com/aws/aws-sdk-go/service/s3"
+	s30 "github.com/aws/aws-sdk-go-v2/service/s3"
 	gomock "github.com/golang/mock/gomock"
 )
 
@@ -51,11 +51,12 @@ func (mr *MockInterfaceMockRecorder) AbortMultiPartUpload(ctx, param, timeout in
 }
 
 // CompleteMultiPartUpload mocks base method.
-func (m *MockInterface) CompleteMultiPartUpload(ctx context.Context, param *s3.MultiUploadParam, timeout int64) error {
+func (m *MockInterface) CompleteMultiPartUpload(ctx context.Context, param *s3.MultiUploadParam, timeout int64) (*s30.CompleteMultipartUploadOutput, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CompleteMultiPartUpload", ctx, param, timeout)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(*s30.CompleteMultipartUploadOutput)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // CompleteMultiPartUpload indicates an expected call of CompleteMultiPartUpload.
@@ -64,48 +65,19 @@ func (mr *MockInterfaceMockRecorder) CompleteMultiPartUpload(ctx, param, timeout
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteMultiPartUpload", reflect.TypeOf((*MockInterface)(nil).CompleteMultiPartUpload), ctx, param, timeout)
 }
 
-// CreateBucket mocks base method.
-func (m *MockInterface) CreateBucket(ctx context.Context, timeout int64) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateBucket", ctx, timeout)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// CreateBucket indicates an expected call of CreateBucket.
-func (mr *MockInterfaceMockRecorder) CreateBucket(ctx, timeout interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateBucket", reflect.TypeOf((*MockInterface)(nil).CreateBucket), ctx, timeout)
-}
-
 // CreateMultiPartUpload mocks base method.
-func (m *MockInterface) CreateMultiPartUpload(ctx context.Context, key string, timeout int64) (*s30.S3, string, error) {
+func (m *MockInterface) CreateMultiPartUpload(ctx context.Context, key string, timeout int64) (string, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateMultiPartUpload", ctx, key, timeout)
-	ret0, _ := ret[0].(*s30.S3)
-	ret1, _ := ret[1].(string)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // CreateMultiPartUpload indicates an expected call of CreateMultiPartUpload.
 func (mr *MockInterfaceMockRecorder) CreateMultiPartUpload(ctx, key, timeout interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateMultiPartUpload", reflect.TypeOf((*MockInterface)(nil).CreateMultiPartUpload), ctx, key, timeout)
-}
-
-// DeleteBucket mocks base method.
-func (m *MockInterface) DeleteBucket(ctx context.Context, timeout int64) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteBucket", ctx, timeout)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// DeleteBucket indicates an expected call of DeleteBucket.
-func (mr *MockInterfaceMockRecorder) DeleteBucket(ctx, timeout interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteBucket", reflect.TypeOf((*MockInterface)(nil).DeleteBucket), ctx, timeout)
 }
 
 // DeleteObject mocks base method.
@@ -122,72 +94,27 @@ func (mr *MockInterfaceMockRecorder) DeleteObject(ctx, key, timeout interface{})
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteObject", reflect.TypeOf((*MockInterface)(nil).DeleteObject), ctx, key, timeout)
 }
 
-// GetObject mocks base method.
-func (m *MockInterface) GetObject(ctx context.Context, key string, timeout int64) error {
+// GeneratePresignedURL mocks base method.
+func (m *MockInterface) GeneratePresignedURL(ctx context.Context, key string, expireDay int32) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetObject", ctx, key, timeout)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// GetObject indicates an expected call of GetObject.
-func (mr *MockInterfaceMockRecorder) GetObject(ctx, key, timeout interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetObject", reflect.TypeOf((*MockInterface)(nil).GetObject), ctx, key, timeout)
-}
-
-// IsBucketExisted mocks base method.
-func (m *MockInterface) IsBucketExisted(ctx context.Context, timeout int64) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsBucketExisted", ctx, timeout)
-	ret0, _ := ret[0].(bool)
+	ret := m.ctrl.Call(m, "GeneratePresignedURL", ctx, key, expireDay)
+	ret0, _ := ret[0].(string)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// IsBucketExisted indicates an expected call of IsBucketExisted.
-func (mr *MockInterfaceMockRecorder) IsBucketExisted(ctx, timeout interface{}) *gomock.Call {
+// GeneratePresignedURL indicates an expected call of GeneratePresignedURL.
+func (mr *MockInterfaceMockRecorder) GeneratePresignedURL(ctx, key, expireDay interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsBucketExisted", reflect.TypeOf((*MockInterface)(nil).IsBucketExisted), ctx, timeout)
-}
-
-// ListBucket mocks base method.
-func (m *MockInterface) ListBucket(ctx context.Context, timeout int64) (*s30.ListBucketsOutput, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListBucket", ctx, timeout)
-	ret0, _ := ret[0].(*s30.ListBucketsOutput)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListBucket indicates an expected call of ListBucket.
-func (mr *MockInterfaceMockRecorder) ListBucket(ctx, timeout interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBucket", reflect.TypeOf((*MockInterface)(nil).ListBucket), ctx, timeout)
-}
-
-// ListObject mocks base method.
-func (m *MockInterface) ListObject(ctx context.Context, timeout int64) (*s30.ListObjectsOutput, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListObject", ctx, timeout)
-	ret0, _ := ret[0].(*s30.ListObjectsOutput)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListObject indicates an expected call of ListObject.
-func (mr *MockInterfaceMockRecorder) ListObject(ctx, timeout interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListObject", reflect.TypeOf((*MockInterface)(nil).ListObject), ctx, timeout)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GeneratePresignedURL", reflect.TypeOf((*MockInterface)(nil).GeneratePresignedURL), ctx, key, expireDay)
 }
 
 // MultiPartUpload mocks base method.
-func (m *MockInterface) MultiPartUpload(ctx context.Context, param *s3.MultiUploadParam, timeout int64) (*s30.CompletedPart, error) {
+func (m *MockInterface) MultiPartUpload(ctx context.Context, param *s3.MultiUploadParam, timeout int64) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "MultiPartUpload", ctx, param, timeout)
-	ret0, _ := ret[0].(*s30.CompletedPart)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // MultiPartUpload indicates an expected call of MultiPartUpload.
@@ -197,11 +124,12 @@ func (mr *MockInterfaceMockRecorder) MultiPartUpload(ctx, param, timeout interfa
 }
 
 // PutObject mocks base method.
-func (m *MockInterface) PutObject(ctx context.Context, key, value string, timeout int64) error {
+func (m *MockInterface) PutObject(ctx context.Context, key, value string, timeout int64) (*s30.PutObjectOutput, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PutObject", ctx, key, value, timeout)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(*s30.PutObjectOutput)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // PutObject indicates an expected call of PutObject.

@@ -6,7 +6,9 @@ require (
 	github.com/AMD-AIG-AIMA/SAFE/apis v0.0.0
 	github.com/AMD-AIG-AIMA/SAFE/utils v0.0.0
 	github.com/Masterminds/squirrel v1.5.4
-	github.com/aws/aws-sdk-go v1.55.7
+	github.com/aws/aws-sdk-go-v2 v1.36.6-0.20250709183126-efd0a01e0017
+    github.com/aws/aws-sdk-go-v2/config v1.29.17
+    github.com/aws/aws-sdk-go-v2/service/s3 v1.83.0
 	github.com/golang/mock v1.6.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9

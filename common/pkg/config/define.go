@@ -86,4 +86,8 @@ const (
 	s3Endpoint   = s3Prefix + "endpoint"
 	s3Bucket     = s3Prefix + "bucket"
 	s3ExpireDay  = s3Prefix + "expire_day"
+
+	// node
+	nodePrefix        = "node."
+	nodeRestartEnable = nodePrefix + "enable_restart"
 )

@@ -43,7 +43,7 @@ func (h *Handler) ListWorkloadLogContext(c *gin.Context) {
 
 func (h *Handler) listWorkloadLog(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsLogEnable() {
-		return nil, commonerrors.NewStatusGone("The logging function is not enabled")
+		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
 	name := c.GetString(types.Name)
 	if name == "" {
@@ -59,7 +59,7 @@ func (h *Handler) listWorkloadLog(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) listServiceLog(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsLogEnable() {
-		return nil, commonerrors.NewStatusGone("The logging function is not enabled")
+		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
 
 	name := c.GetString(types.Name)
@@ -79,7 +79,7 @@ func (h *Handler) listServiceLog(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) listWorkloadLogContext(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsLogEnable() {
-		return nil, commonerrors.NewStatusGone("The logging function is not enabled")
+		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
 	startTime := time.Now().UTC()
 	logId := c.Param(types.LogId)

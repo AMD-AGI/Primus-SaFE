@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -25,14 +26,20 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
+)
+
+const (
+	RedfishUrl = "https://%s/redfish/v1/Systems/1/Actions/ComputerSystem.Reset"
 )
 
 func (h *Handler) CreateNode(c *gin.Context) {
@@ -57,6 +64,10 @@ func (h *Handler) DeleteNode(c *gin.Context) {
 
 func (h *Handler) GetNodePodLog(c *gin.Context) {
 	handle(c, h.getNodePodLog)
+}
+
+func (h *Handler) RestartNode(c *gin.Context) {
+	handle(c, h.restartNode)
 }
 
 func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
@@ -230,6 +241,37 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+func (h *Handler) restartNode(c *gin.Context) (interface{}, error) {
+	if !commonconfig.IsNodeRestartEnable() {
+		return nil, commonerrors.NewInternalError("The restart function is not enabled")
+	}
+	node, err := h.getAdminNode(c.Request.Context(), c.GetString(types.Name))
+	if err != nil {
+		return nil, err
+	}
+	if v1.GetNodeBMCIp(node) == "" || v1.GetNodeBMCPassword(node) == "" {
+		return nil, commonerrors.NewInternalError("BMC IP or password is not found")
+	}
+
+	url := fmt.Sprintf(RedfishUrl, v1.GetNodeBMCIp(node))
+	body := []byte(`{"ResetType": "ForceOff"}`)
+	klog.Infof("restart node, url: %s, body: %s", url, string(body))
+	req, err := httpclient.BuildRequest(url, http.MethodPost, body)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	req.SetBasicAuth("ADMIN", v1.GetNodeBMCPassword(node))
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if !resp.IsSuccess() {
+		return nil, fmt.Errorf("%s", string(resp.Body))
+	}
+	return string(resp.Body), nil
+}
+
 func (h *Handler) getAdminNode(ctx context.Context, name string) (*v1.Node, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the nodeId is empty")
@@ -351,6 +393,12 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 		return nil, err
 	}
 	node.Spec.SSHSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
+	if req.BMCIp != "" {
+		v1.SetAnnotation(node, v1.NodeBMCIpAnnotation, req.BMCIp)
+	}
+	if req.BMCPassword != "" {
+		v1.SetAnnotation(node, v1.NodeBMCPasswordAnnotation, req.BMCPassword)
+	}
 	return node, nil
 }
 
@@ -416,32 +464,9 @@ func parseListNodeQuery(c *gin.Context) (*types.ListNodeRequest, error) {
 
 func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest) (bool, error) {
 	isShouldUpdate := false
-	nodesLabelAction := make(map[string]string)
-	if req.Labels != nil {
-		reqLabels := make(map[string]string)
-		for key, val := range *req.Labels {
-			reqLabels[common.CustomerLabelPrefix+key] = val
-		}
-		currentLabels := getCustomerLabels(node.Labels, false)
-		for key, val := range currentLabels {
-			val2, ok := reqLabels[key]
-			if !ok {
-				nodesLabelAction[key] = v1.NodeActionRemove
-				delete(node.Labels, key)
-				isShouldUpdate = true
-			} else if val != val2 {
-				nodesLabelAction[key] = v1.NodeActionAdd
-				v1.SetLabel(node, key, val2)
-				isShouldUpdate = true
-			}
-		}
-		for key, val := range reqLabels {
-			if _, ok := currentLabels[key]; !ok {
-				nodesLabelAction[key] = v1.NodeActionAdd
-				v1.SetLabel(node, key, val)
-				isShouldUpdate = true
-			}
-		}
+	nodesLabelAction := genNodeLabelAction(node, req)
+	if len(nodesLabelAction) > 0 {
+		isShouldUpdate = true
 	}
 	if req.Taints != nil {
 		for i, t := range *req.Taints {
@@ -475,10 +500,44 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 		node.Spec.Port = pointer.Int32(*req.Port)
 		isShouldUpdate = true
 	}
+	if req.BMCIp != nil && v1.SetAnnotation(node, v1.NodeBMCIpAnnotation, *req.BMCIp) {
+		isShouldUpdate = true
+	}
+	if req.BMCPassword != nil && v1.SetAnnotation(node, v1.NodeBMCPasswordAnnotation, *req.BMCPassword) {
+		isShouldUpdate = true
+	}
 	if len(nodesLabelAction) > 0 {
 		v1.SetAnnotation(node, v1.NodeLabelAction, string(jsonutils.MarshalSilently(nodesLabelAction)))
 	}
 	return isShouldUpdate, nil
+}
+
+func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]string {
+	nodesLabelAction := make(map[string]string)
+	if req.Labels != nil {
+		reqLabels := make(map[string]string)
+		for key, val := range *req.Labels {
+			reqLabels[common.CustomerLabelPrefix+key] = val
+		}
+		currentLabels := getCustomerLabels(node.Labels, false)
+		for key, val := range currentLabels {
+			val2, ok := reqLabels[key]
+			if !ok {
+				nodesLabelAction[key] = v1.NodeActionRemove
+				delete(node.Labels, key)
+			} else if val != val2 {
+				nodesLabelAction[key] = v1.NodeActionAdd
+				v1.SetLabel(node, key, val2)
+			}
+		}
+		for key, val := range reqLabels {
+			if _, ok := currentLabels[key]; !ok {
+				nodesLabelAction[key] = v1.NodeActionAdd
+				v1.SetLabel(node, key, val)
+			}
+		}
+	}
+	return nodesLabelAction
 }
 
 func cvtToGetNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.GetNodeResponseItem {
@@ -489,6 +548,7 @@ func cvtToGetNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.GetN
 		Workspace:      v1.GetWorkspaceId(n),
 		Phase:          string(n.Status.MachineStatus.Phase),
 		InternalIP:     n.Status.MachineStatus.PrivateIP,
+		BMCIP:          v1.GetNodeBMCIp(n),
 		NodeFlavor:     v1.GetNodeFlavorId(n),
 		Available:      n.IsAvailable(false),
 		Taints:         getPrimusTaints(n.Status.Taints),
