@@ -97,7 +97,7 @@ func (r *FaultReconciler) handleConfigmapEvent() handler.EventHandler {
 			configs := parseFaultConfig(configmap)
 			faultList, _ := listFaults(ctx, r.Client, labels.Everything())
 			for _, f := range faultList {
-				conf, ok := configs[f.Spec.Id]
+				conf, ok := configs[f.Spec.MonitorId]
 				if !ok || !conf.IsEnable() {
 					if err := r.Delete(ctx, &f); err != nil {
 						klog.ErrorS(err, "failed to delete fault")
@@ -242,7 +242,7 @@ func (r *FaultReconciler) taintNode(ctx context.Context, fault *v1.Fault) error 
 	}
 
 	// Check if it has already been processed
-	taintKey := commonfaults.GenerateTaintKey(fault.Spec.Id)
+	taintKey := commonfaults.GenerateTaintKey(fault.Spec.MonitorId)
 	for _, t := range adminNode.Spec.Taints {
 		if t.Key == taintKey {
 			return nil
@@ -275,7 +275,7 @@ func (r *FaultReconciler) removeNodeTaint(ctx context.Context, fault *v1.Fault) 
 	}
 
 	isFound := false
-	taintKey := commonfaults.GenerateTaintKey(fault.Spec.Id)
+	taintKey := commonfaults.GenerateTaintKey(fault.Spec.MonitorId)
 	for i, taint := range adminNode.Spec.Taints {
 		if taint.Key == taintKey {
 			isFound = true

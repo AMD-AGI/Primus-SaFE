@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
@@ -24,6 +25,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -37,6 +39,10 @@ func (h *Handler) ListOpsJob(c *gin.Context) {
 
 func (h *Handler) GetOpsJob(c *gin.Context) {
 	handle(c, h.getOpsJob)
+}
+
+func (h *Handler) DeleteOpsJob(c *gin.Context) {
+	handle(c, h.deleteOpsJob)
 }
 
 func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
@@ -116,6 +122,30 @@ func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("job %s is not found", jobId))
 	}
 	return cvtToOpsJobResponse(jobs[0]), nil
+}
+
+func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
+	name := c.GetString(types.Name)
+	if name == "" {
+		return nil, commonerrors.NewBadRequest("opsJobId is empty")
+	}
+	ctx := c.Request.Context()
+	opsJob := &v1.OpsJob{}
+	if h.Get(ctx, client.ObjectKey{Name: name}, opsJob) == nil {
+		if err := h.Delete(ctx, opsJob); err != nil {
+			return nil, err
+		}
+	}
+	if err := commonjob.CleanupJobRelatedInfo(ctx, h.Client, name); err != nil {
+		klog.ErrorS(err, "failed to cleanup ops job labels")
+	}
+	if commonconfig.IsDBEnable() {
+		if err := h.dbClient.SetOpsJobDeleted(ctx, name); err != nil {
+			return nil, err
+		}
+	}
+	klog.Infof("delete opsJob %s", name)
+	return nil, nil
 }
 
 func (h *Handler) generateAddonJob(_ context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {

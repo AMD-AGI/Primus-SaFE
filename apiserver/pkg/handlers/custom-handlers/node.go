@@ -26,7 +26,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
@@ -242,9 +241,6 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) restartNode(c *gin.Context) (interface{}, error) {
-	if !commonconfig.IsNodeRestartEnable() {
-		return nil, commonerrors.NewInternalError("The restart function is not enabled")
-	}
 	node, err := h.getAdminNode(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
 		return nil, err
@@ -400,19 +396,6 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 		v1.SetAnnotation(node, v1.NodeBMCPasswordAnnotation, req.BMCPassword)
 	}
 	return node, nil
-}
-
-func (h *Handler) getAdminNodeTemplate(ctx context.Context, name string) (*v1.NodeTemplate, error) {
-	if name == "" {
-		return nil, commonerrors.NewBadRequest("the nodeTemplateId is empty")
-	}
-	nt := &v1.NodeTemplate{}
-	err := h.Get(ctx, client.ObjectKey{Name: name}, nt)
-	if err != nil {
-		klog.ErrorS(err, "failed to get node template")
-		return nil, err
-	}
-	return nt.DeepCopy(), nil
 }
 
 func validateCreateNodeRequest(req *types.CreateNodeRequest) error {

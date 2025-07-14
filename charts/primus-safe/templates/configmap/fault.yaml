@@ -34,7 +34,7 @@ data:
   # Disk: 4XX
   disk_check_exist_401: '{"id":"401","toggle":"on"}'
   # primus system: 5XX, System reserved
-  addon: '{"id": "{{ .Values.fault.addon_id }}","action":"taint","toggle":"on"}'
+  addon: '{"id": "501","action":"taint","toggle":"on"}'
   # k8s
   NotReady: '{"id":"NotReady","action":"taint","toggle":"on"}'
   DiskPressure: '{"id":"DiskPressure","action":"taint","toggle":"on"}'
