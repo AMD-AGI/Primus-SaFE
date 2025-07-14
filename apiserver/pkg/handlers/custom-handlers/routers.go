@@ -36,6 +36,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.GET("nodes", h.ListNode)
 		group.GET(fmt.Sprintf("nodes/:%s", types.Name), h.GetNode)
 		group.PATCH(fmt.Sprintf("nodes/:%s", types.Name), h.PatchNode)
+		group.POST(fmt.Sprintf("nodes/:%s/restart", types.Name), h.RestartNode)
 
 		group.POST("workspaces", h.CreateWorkspace)
 		group.DELETE(fmt.Sprintf("workspaces/:%s", types.Name), h.DeleteWorkspace)

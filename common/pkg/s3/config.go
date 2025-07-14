@@ -6,23 +6,19 @@
 package s3
 
 import (
+	"context"
 	"fmt"
-	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"k8s.io/klog/v2"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"k8s.io/utils/pointer"
 
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
 type Config struct {
-	*aws.Config
+	aws.Config
 	Bucket *string
-	// The unit is seconds
-	DefaultTimeout int64
-	ExpireDay      *int64
 }
 
 func GetConfig() (*Config, error) {
@@ -42,35 +38,38 @@ func GetConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to find bucket of s3")
 	}
 
-	s3Config := &aws.Config{
-		Credentials: credentials.NewStaticCredentials(
-			commonconfig.GetS3AccessKey(), commonconfig.GetS3SecretKey(), ""),
-		Endpoint:         pointer.String(commonconfig.GetS3Endpoint()),
-		Region:           aws.String("us-east-1"),
-		S3ForcePathStyle: aws.Bool(true),
-	}
-	klog.Infof("S3 Config, endpoint: %s, bucket: %s", commonconfig.GetS3Endpoint(), commonconfig.GetS3Bucket())
+	credProvider := aws.CredentialsProviderFunc(func(ctx context.Context) (aws.Credentials, error) {
+		return aws.Credentials{
+			AccessKeyID:     commonconfig.GetS3AccessKey(),
+			SecretAccessKey: commonconfig.GetS3SecretKey(),
+			SessionToken:    "",
+			Source:          "StaticCredentials",
+		}, nil
+	})
 
-	config := &Config{
-		Config:         s3Config,
-		DefaultTimeout: 180,
-		ExpireDay:      pointer.Int64(int64(commonconfig.GetS3ExpireDay())),
+	region := "us-east-1"
+	cfg, err := config.LoadDefaultConfig(context.TODO(),
+		config.WithRegion(region),
+		config.WithCredentialsProvider(credProvider),
+		config.WithEndpointResolverWithOptions(
+			aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+				return aws.Endpoint{
+					URL:           commonconfig.GetS3Endpoint(),
+					SigningRegion: region,
+				}, nil
+			}),
+		),
+	)
+	if err != nil {
+		return nil, err
 	}
-	config.setBucket()
+	config := &Config{
+		Config: cfg,
+		Bucket: pointer.String(commonconfig.GetS3Bucket()),
+	}
 	return config, nil
 }
 
-func (c *Config) GetS3Config() *aws.Config {
+func (c *Config) GetS3Config() aws.Config {
 	return c.Config
-}
-
-func (c *Config) setBucket() {
-	bucket := ""
-	schemeIdx := strings.Index(commonconfig.GetS3Bucket(), "://")
-	if schemeIdx == -1 {
-		bucket = commonconfig.GetS3Bucket()
-	} else {
-		bucket = commonconfig.GetS3Bucket()[schemeIdx+3:]
-	}
-	c.Bucket = pointer.String(bucket)
 }

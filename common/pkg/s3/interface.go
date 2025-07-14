@@ -8,31 +8,26 @@ package s3
 import (
 	"context"
 
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 type MultiUploadParam struct {
-	S3Client       *s3.S3
 	Key            string
 	Value          string
 	UploadId       string
-	PartNumber     int64
-	CompletedParts []*s3.CompletedPart
+	PartNumber     int32
+	CompletedParts []types.CompletedPart
 }
 
 type Interface interface {
-	CreateBucket(ctx context.Context, timeout int64) error
-	ListBucket(ctx context.Context, timeout int64) (*s3.ListBucketsOutput, error)
-	DeleteBucket(ctx context.Context, timeout int64) error
-	IsBucketExisted(ctx context.Context, timeout int64) (bool, error)
-
-	CreateMultiPartUpload(ctx context.Context, key string, timeout int64) (*s3.S3, string, error)
-	MultiPartUpload(ctx context.Context, param *MultiUploadParam, timeout int64) (*s3.CompletedPart, error)
-	CompleteMultiPartUpload(ctx context.Context, param *MultiUploadParam, timeout int64) error
+	CreateMultiPartUpload(ctx context.Context, key string, timeout int64) (string, error)
+	MultiPartUpload(ctx context.Context, param *MultiUploadParam, timeout int64) error
+	CompleteMultiPartUpload(ctx context.Context, param *MultiUploadParam, timeout int64) (*s3.CompleteMultipartUploadOutput, error)
 	AbortMultiPartUpload(ctx context.Context, param *MultiUploadParam, timeout int64) error
 
-	PutObject(ctx context.Context, key, value string, timeout int64) error
-	ListObject(ctx context.Context, timeout int64) (*s3.ListObjectsOutput, error)
-	GetObject(ctx context.Context, key string, timeout int64) error
+	PutObject(ctx context.Context, key, value string, timeout int64) (*s3.PutObjectOutput, error)
 	DeleteObject(ctx context.Context, key string, timeout int64) error
+
+	GeneratePresignedURL(ctx context.Context, key string, expireDay int32) (string, error)
 }

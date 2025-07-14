@@ -87,9 +87,13 @@ func (c *Client) SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, ord
 	}
 
 	var jobs []*OpsJob
-	ctx2, cancel := context.WithTimeout(ctx, time.Duration(c.RequestTimeout)*time.Second)
-	defer cancel()
-	err = db.SelectContext(ctx2, &jobs, sql, args...)
+	if c.RequestTimeout > 0 {
+		ctx2, cancel := context.WithTimeout(ctx, time.Duration(c.RequestTimeout)*time.Second)
+		defer cancel()
+		err = db.SelectContext(ctx2, &jobs, sql, args...)
+	} else {
+		err = db.SelectContext(ctx, &jobs, sql, args...)
+	}
 	return jobs, err
 }
 

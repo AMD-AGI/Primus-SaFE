@@ -135,6 +135,14 @@ func GetNodeFlavorId(obj metav1.Object) string {
 	return GetLabel(obj, NodeFlavorIdLabel)
 }
 
+func GetNodeBMCIp(obj metav1.Object) string {
+	return GetAnnotation(obj, NodeBMCIpAnnotation)
+}
+
+func GetNodeBMCPassword(obj metav1.Object) string {
+	return GetAnnotation(obj, NodeBMCPasswordAnnotation)
+}
+
 func GetDisplayName(obj metav1.Object) string {
 	return GetLabel(obj, DisplayNameLabel)
 }
