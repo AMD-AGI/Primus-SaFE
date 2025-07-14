@@ -40,7 +40,7 @@ data:
       config_path: {{ .Values.s3.mount_path }}
       endpoint: {{ .Values.s3.endpoint }}
       bucket: {{ .Values.s3.bucket }}
-      expire_day: 3
+      expire_day: 0
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-resource-manager
