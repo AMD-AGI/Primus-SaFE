@@ -9,13 +9,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
-type ClusterNodeAction string
-
-const (
-	ClusterNodeAdd ClusterNodeAction = "add"
-	ClusterNodeDel ClusterNodeAction = "del"
-)
-
 type CreateClusterRequest struct {
 	v1.ControlPlane
 	// The cluster name specified by the user
@@ -49,13 +42,13 @@ type GetClusterResponse struct {
 	Items      []GetClusterResponseItem `json:"items,omitempty"`
 }
 
-type ClusterNodesRequest struct {
+type ProcessNodesRequest struct {
 	NodeIds []string `json:"nodeIds"`
-	// internal use
-	Action ClusterNodeAction `json:"-"`
+	// add or remove
+	Action string `json:"action"`
 }
 
-type HandleNodesResponse struct {
+type ProcessNodesResponse struct {
 	TotalCount   int `json:"totalCount"`
 	SuccessCount int `json:"successCount"`
 }

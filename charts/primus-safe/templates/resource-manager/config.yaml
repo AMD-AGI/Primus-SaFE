@@ -35,14 +35,12 @@ data:
       timeout_second: {{ .Values.ops_job.timeout_second }}
       batch_count: {{ .Values.ops_job.batch_count }}
       available_ratio: {{ .Values.ops_job.available_ratio }}
-    fault:
-      addon_id: "{{ .Values.fault.addon_id }}"
     s3:
       enable: {{ .Values.s3.enable }}
       config_path: {{ .Values.s3.mount_path }}
       endpoint: {{ .Values.s3.endpoint }}
       bucket: {{ .Values.s3.bucket }}
-      expire_day: 3
+      expire_day: 0
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-resource-manager

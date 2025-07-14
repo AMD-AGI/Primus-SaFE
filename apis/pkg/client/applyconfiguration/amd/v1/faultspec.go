@@ -9,7 +9,7 @@ package v1
 // FaultSpecApplyConfiguration represents a declarative configuration of the FaultSpec type for use
 // with apply.
 type FaultSpecApplyConfiguration struct {
-	Id                  *string                      `json:"id,omitempty"`
+	MonitorId           *string                      `json:"monitorId,omitempty"`
 	Message             *string                      `json:"message,omitempty"`
 	Node                *FaultNodeApplyConfiguration `json:"node,omitempty"`
 	Action              *string                      `json:"action,omitempty"`
@@ -22,11 +22,11 @@ func FaultSpec() *FaultSpecApplyConfiguration {
 	return &FaultSpecApplyConfiguration{}
 }
 
-// WithId sets the Id field in the declarative configuration to the given value
+// WithMonitorId sets the MonitorId field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Id field is set to the value of the last call.
-func (b *FaultSpecApplyConfiguration) WithId(value string) *FaultSpecApplyConfiguration {
-	b.Id = &value
+// If called multiple times, the MonitorId field is set to the value of the last call.
+func (b *FaultSpecApplyConfiguration) WithMonitorId(value string) *FaultSpecApplyConfiguration {
+	b.MonitorId = &value
 	return b
 }
 

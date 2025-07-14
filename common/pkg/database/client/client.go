@@ -25,7 +25,7 @@ var (
 
 type Client struct {
 	db *sqlx.DB
-	utils.DBConfig
+	*utils.DBConfig
 }
 
 func NewClient() *Client {
@@ -42,7 +42,7 @@ func NewClient() *Client {
 			MaxLifetime:    time.Duration(commonconfig.GetDBMaxLifetimeSecond()) * time.Second,
 			MaxIdleTime:    time.Duration(commonconfig.GetDBMaxIdleTimeSecond()) * time.Second,
 			ConnectTimeout: commonconfig.GetDBConnectTimeoutSecond(),
-			RequestTimeout: commonconfig.GetDBRequestTimeoutSecond(),
+			RequestTimeout: time.Duration(commonconfig.GetDBRequestTimeoutSecond()) * time.Second,
 		}
 		if err := checkParams(cfg); err != nil {
 			klog.ErrorS(err, "failed to check db params")
@@ -58,7 +58,7 @@ func NewClient() *Client {
 			klog.ErrorS(err, "failed to ping db")
 			return
 		}
-		instance = &Client{db: db}
+		instance = &Client{db: db, DBConfig: cfg}
 		klog.Infof("init db-client successfully! conn-timeout: %d(s), request-timeout: %d(s)",
 			cfg.ConnectTimeout, cfg.RequestTimeout)
 	})

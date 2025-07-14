@@ -62,8 +62,7 @@ func GetWorkloadFieldTags() map[string]string {
 
 type Fault struct {
 	Id             int64          `db:"id"`
-	UUid           string         `db:"uuid"`
-	FaultId        string         `db:"fault_id"`
+	Uid            string         `db:"uid"`
 	MonitorId      string         `db:"monitor_id"`
 	Message        sql.NullString `db:"message"`
 	Node           sql.NullString `db:"node"`
@@ -97,6 +96,7 @@ type OpsJob struct {
 	Phase      sql.NullString `db:"phase"`
 	Conditions sql.NullString `db:"conditions"`
 	Outputs    sql.NullString `db:"outputs"`
+	IsDeleted  bool           `db:"is_deleted"`
 }
 
 func GetOpsJobFieldTags() map[string]string {

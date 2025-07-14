@@ -367,7 +367,7 @@ func (h *Handler) getAdminWorkload(ctx context.Context, name string) (*v1.Worklo
 	}
 	workload := &v1.Workload{}
 	if err := h.Get(ctx, client.ObjectKey{Name: name}, workload); err != nil {
-		klog.ErrorS(err, "failed to get admin workload", "workload", name)
+		klog.ErrorS(err, "failed to get admin workload", "name", name)
 		return nil, err
 	}
 	return workload.DeepCopy(), nil

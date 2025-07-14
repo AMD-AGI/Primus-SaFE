@@ -228,10 +228,6 @@ func GetOpsJobBatchCount() int {
 	return getInt(opsJobBatchCount, 0)
 }
 
-func GetAddonFaultId() string {
-	return getString(addonFaultId, "")
-}
-
 func IsS3Enable() bool {
 	return getBool(s3Enable, false)
 }
@@ -268,8 +264,4 @@ func getFromFile(configPath, item string) string {
 
 func GetRdmaName() string {
 	return getString(rdmaName, "")
-}
-
-func IsNodeRestartEnable() bool {
-	return getBool(nodeRestartEnable, false)
 }

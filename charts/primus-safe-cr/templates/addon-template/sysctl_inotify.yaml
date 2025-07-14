@@ -1,0 +1,16 @@
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: sysctl-inotify
+  labels:
+    primus-safe.display.name: "sysctl-inotify-1024"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  type: config
+  category: System
+  description: Set max inotify instances per user to 1024
+  extensions:
+    action: ZWNobyAiZnMuaW5vdGlmeS5tYXhfdXNlcl9pbnN0YW5jZXM9MTAyNCIgPiAvZXRjL3N5c2N0bC5kLzk5LWlub3RpZnkuY29uZiAmJiBzeXNjdGwgLS1zeXN0ZW0K

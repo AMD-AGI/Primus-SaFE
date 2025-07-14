@@ -13,3 +13,5 @@ spec:
     - load-amdgpu-module
     - load-rdma-module
     - disable-numa-balancing
+    - sysctl-ulimit
+    - sysctl-inotify

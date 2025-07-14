@@ -22,7 +22,7 @@ type DBConfig struct {
 	MaxIdleTime    time.Duration
 	MaxLifetime    time.Duration
 	ConnectTimeout int
-	RequestTimeout int
+	RequestTimeout time.Duration
 }
 
 func (c *DBConfig) SourceName() string {

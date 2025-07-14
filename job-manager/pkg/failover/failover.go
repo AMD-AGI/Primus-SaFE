@@ -125,7 +125,7 @@ func (r *FailoverReconciler) handleFaultEvent() handler.EventHandler {
 		if fault.Status.Phase != v1.FaultPhaseSucceeded || fault.Spec.Node == nil {
 			return false
 		}
-		conf := getFailoverConfig(r.failoverConfig, strings.ToLower(fault.Spec.Id))
+		conf := getFailoverConfig(r.failoverConfig, strings.ToLower(fault.Spec.MonitorId))
 		if conf == nil || conf.Action != GlobalRestart {
 			return false
 		}
@@ -151,7 +151,7 @@ func (r *FailoverReconciler) handleFaultEvent() handler.EventHandler {
 
 func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1.Fault, q v1.RequestWorkQueue) {
 	message := fmt.Sprintf("the node %s has fault %s, detail: %s", fault.Spec.Node.K8sName,
-		commonfaults.GenerateTaintKey(fault.Spec.Id), fault.Spec.Message)
+		commonfaults.GenerateTaintKey(fault.Spec.MonitorId), fault.Spec.Message)
 	klog.Infof("%s, try to do failover", message)
 	const maxRetry = 10
 	waitTime := time.Millisecond * 200

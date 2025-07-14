@@ -6,3 +6,4 @@ server:
 database:
   host: localhost
   users: user1,user2
+  request_timeout_second: 20

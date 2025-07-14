@@ -26,9 +26,9 @@ type FaultNode struct {
 }
 
 type FaultSpec struct {
-	// a unique fault ID that is consistent with the ID used by NodeAgent for monitoring.
-	Id string `json:"id"`
-	// error message
+	// the ID used by NodeAgent for monitoring.
+	MonitorId string `json:"monitorId"`
+	// fault message
 	Message string `json:"message,omitempty"`
 	// node information related to the fault
 	Node *FaultNode `json:"node,omitempty"`
