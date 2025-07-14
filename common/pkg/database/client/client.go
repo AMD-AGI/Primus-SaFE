@@ -42,7 +42,7 @@ func NewClient() *Client {
 			MaxLifetime:    time.Duration(commonconfig.GetDBMaxLifetimeSecond()) * time.Second,
 			MaxIdleTime:    time.Duration(commonconfig.GetDBMaxIdleTimeSecond()) * time.Second,
 			ConnectTimeout: commonconfig.GetDBConnectTimeoutSecond(),
-			RequestTimeout: commonconfig.GetDBRequestTimeoutSecond(),
+			RequestTimeout: time.Duration(commonconfig.GetDBRequestTimeoutSecond()) * time.Second,
 		}
 		if err := checkParams(cfg); err != nil {
 			klog.ErrorS(err, "failed to check db params")

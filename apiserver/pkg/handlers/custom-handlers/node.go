@@ -26,7 +26,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
@@ -242,9 +241,6 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) restartNode(c *gin.Context) (interface{}, error) {
-	if !commonconfig.IsNodeRestartEnable() {
-		return nil, commonerrors.NewInternalError("The restart function is not enabled")
-	}
 	node, err := h.getAdminNode(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
 		return nil, err

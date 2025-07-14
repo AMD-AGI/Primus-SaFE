@@ -8,7 +8,6 @@ package client
 import (
 	"context"
 	"fmt"
-	"time"
 
 	sqrl "github.com/Masterminds/squirrel"
 	"k8s.io/klog/v2"
@@ -84,7 +83,7 @@ func (c *Client) SelectFaults(ctx context.Context, query sqrl.Sqlizer, sortBy, o
 
 	var faults []*Fault
 	if c.RequestTimeout > 0 {
-		ctx2, cancel := context.WithTimeout(ctx, time.Duration(c.RequestTimeout)*time.Second)
+		ctx2, cancel := context.WithTimeout(ctx, c.RequestTimeout)
 		defer cancel()
 		err = db.SelectContext(ctx2, &faults, sql, args...)
 	} else {

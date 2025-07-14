@@ -37,8 +37,6 @@ data:
       config_path: {{ .Values.ssh.mount_path }}
     s3:
       enable: {{ .Values.s3.enable }}
-    node:
-      enable_restart: {{ .Values.node.enable_restart }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

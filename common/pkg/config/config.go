@@ -265,7 +265,3 @@ func getFromFile(configPath, item string) string {
 func GetRdmaName() string {
 	return getString(rdmaName, "")
 }
-
-func IsNodeRestartEnable() bool {
-	return getBool(nodeRestartEnable, false)
-}
