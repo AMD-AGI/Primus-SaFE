@@ -6,7 +6,8 @@
 #
 
 if [ "$#" -lt 1 ]; then
-  echo 'Error: Missing parameter node-info. example: {"expectedGpuCount": 8}'
+  echo "Usage: $0 <node-info>"
+  echo "Example: $0 {\"expectedGpuCount\": 8}"
   exit 2
 fi
 

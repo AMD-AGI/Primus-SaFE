@@ -10,7 +10,8 @@ if [ ! -f "/tmp/rocm-smi" ]; then
 fi
 
 if [ "$#" -lt 1 ]; then
-    echo 'Error: Missing parameter temperature. example: ./gpu_temperature_006.sh 100'
+    echo "Usage: $0 <temperature>"
+    echo "Example: $0 100"
     exit 2
 fi
 

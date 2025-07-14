@@ -6,7 +6,8 @@
 #
 
 if [ "$#" -lt 1 ]; then
-    echo 'Error: Missing parameter path. example: ./disk_check_exist_401.sh /nfs'
+    echo "Usage: $0 <path>"
+    echo "Example: $0 /nfs"
     exit 2
 fi
 

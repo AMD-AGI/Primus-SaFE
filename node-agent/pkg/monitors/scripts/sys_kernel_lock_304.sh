@@ -6,7 +6,8 @@
 #
 
 if [ "$#" -lt 1 ]; then
-    echo 'Error: Missing parameter interval. example: 43200'
+    echo "Usage: $0 <interval>"
+    echo "Example: $0 43200"
     exit 2
 fi
 

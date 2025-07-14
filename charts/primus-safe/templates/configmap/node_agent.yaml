@@ -43,5 +43,7 @@ data:
   sys_kernel_lock_304: '{"script":"sys_kernel_lock_304.sh","id":"304","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'
   sys_acsctl_305: '{"script":"sys_acsctl_305.sh","id":"305","cronjob":"@every 600s","timeoutSecond":300,"toggle":"on"}'
   sys_iommu_306: '{"script":"sys_iommu_306.sh","id":"306","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"on"}'
+  sys_pci_realloc_307: '{"script":"sys_pci_realloc_307.sh","id":"307","cronjob":"@every 600s","timeoutSecond":300,"toggle":"on"}'
+  sys_pcie_link_308: '{"script":"sys_pcie_link_308.sh","id":"308","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on","arguments":["1002:74a1","32GT/s","x16"]}'
   # Disk: 4XX
   disk_check_exist_401: '{"script":"disk_check_exist_401.sh","id":"401","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on", "arguments":["/apps"]}'
