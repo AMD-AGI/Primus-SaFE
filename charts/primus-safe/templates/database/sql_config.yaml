@@ -85,7 +85,6 @@ data:
         type VARCHAR(32) not null,
         timeout int,
         user_name VARCHAR(128),
-        job_name VARCHAR(64),
         workspace VARCHAR(64),
         create_time TIMESTAMP,
         start_time TIMESTAMP,

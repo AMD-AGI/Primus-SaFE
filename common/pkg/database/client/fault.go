@@ -81,10 +81,15 @@ func (c *Client) SelectFaults(ctx context.Context, query sqrl.Sqlizer, sortBy, o
 	if err != nil {
 		return nil, err
 	}
+
 	var faults []*Fault
-	ctx2, cancel := context.WithTimeout(ctx, time.Duration(c.RequestTimeout)*time.Second)
-	defer cancel()
-	err = db.SelectContext(ctx2, &faults, sql, args...)
+	if c.RequestTimeout > 0 {
+		ctx2, cancel := context.WithTimeout(ctx, time.Duration(c.RequestTimeout)*time.Second)
+		defer cancel()
+		err = db.SelectContext(ctx2, &faults, sql, args...)
+	} else {
+		err = db.SelectContext(ctx, &faults, sql, args...)
+	}
 	return faults, err
 }
 

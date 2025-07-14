@@ -207,7 +207,6 @@ func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 		Type:       string(job.Spec.Type),
 		Timeout:    job.Spec.TimeoutSecond,
 		UserName:   dbutils.NullString(v1.GetUserName(job)),
-		JobName:    dbutils.NullString(v1.GetDisplayName(job)),
 		Workspace:  dbutils.NullString(v1.GetWorkspaceId(job)),
 		CreateTime: dbutils.NullMetaV1Time(&job.CreationTimestamp),
 		StartTime:  dbutils.NullMetaV1Time(job.Status.StartedAt),

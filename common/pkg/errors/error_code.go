@@ -39,10 +39,9 @@ const (
 	UnsupportedMediaType  = PrimusPrefix + "00007"
 	QuotaInsufficient     = PrimusPrefix + "00008"
 	Unauthorized          = PrimusPrefix + "00009"
-	StatusGone            = PrimusPrefix + "00010"
-	ResourceProcessing    = PrimusPrefix + "00011"
-	Timeout               = PrimusPrefix + "00012"
-	UserNotRegistered     = PrimusPrefix + "00013"
+	ResourceProcessing    = PrimusPrefix + "00010"
+	Timeout               = PrimusPrefix + "00011"
+	UserNotRegistered     = PrimusPrefix + "00012"
 )
 
 // workload: 01xxx
@@ -134,8 +133,8 @@ func NewForbidden(message string) *apierrors.StatusError {
 	}}
 }
 
-func NotFoundErrorCode(resource string) metav1.StatusReason {
-	switch strings.ToLower(resource) {
+func NotFoundErrorCode(kind string) metav1.StatusReason {
+	switch kind {
 	case v1.WorkloadKind:
 		return WorkloadNotFound
 	case v1.ResourceTemplateKind:
@@ -149,16 +148,16 @@ func NotFoundErrorCode(resource string) metav1.StatusReason {
 	}
 }
 
-func NewNotFound(resource, name string) *apierrors.StatusError {
+func NewNotFound(kind, name string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status: metav1.StatusFailure,
 		Code:   http.StatusNotFound,
-		Reason: NotFoundErrorCode(resource),
+		Reason: NotFoundErrorCode(kind),
 		Details: &metav1.StatusDetails{
-			Kind: resource,
+			Kind: kind,
 			Name: name,
 		},
-		Message: fmt.Sprintf("%s %s not found.", resource, name),
+		Message: fmt.Sprintf("%s %s not found.", kind, name),
 	}}
 }
 
@@ -213,15 +212,6 @@ func NewUserNotRegistered() *apierrors.StatusError {
 		Code:    http.StatusUnauthorized,
 		Reason:  UserNotRegistered,
 		Message: "the user is not registered",
-	}}
-}
-
-func NewStatusGone(message string) *apierrors.StatusError {
-	return &apierrors.StatusError{ErrStatus: metav1.Status{
-		Status:  metav1.StatusFailure,
-		Code:    http.StatusGone,
-		Reason:  StatusGone,
-		Message: message,
 	}}
 }
 

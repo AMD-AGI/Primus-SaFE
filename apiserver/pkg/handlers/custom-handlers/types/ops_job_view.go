@@ -65,8 +65,6 @@ type GetOpsJobRequest struct {
 type GetOpsJobResponseItem struct {
 	// job id
 	JobId string `json:"jobId"`
-	// job name
-	JobName string `json:"jobName"`
 	// the cluster which the job belongs to
 	Cluster string `json:"cluster"`
 	// the workspace which the job belongs to

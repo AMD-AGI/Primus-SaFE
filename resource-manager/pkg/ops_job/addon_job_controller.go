@@ -167,7 +167,7 @@ func (r *AddonJobReconciler) addFailedNodeToCondition(ctx context.Context, jobId
 		return nil
 	}, 2*time.Second, 200*time.Millisecond)
 	if err != nil {
-		klog.ErrorS(err, "fail to update job condition", "jobId", jobId)
+		klog.ErrorS(err, "failed to update job condition", "jobId", jobId)
 	}
 }
 
