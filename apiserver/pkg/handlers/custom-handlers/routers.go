@@ -49,10 +49,10 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.PATCH(fmt.Sprintf("workspaces/:%s", types.Name), h.PatchWorkspace)
 		group.GET(fmt.Sprintf("workspaces/:%s", types.Name), h.GetWorkspace)
 		group.GET("workspaces", h.ListWorkspace)
+		group.POST(fmt.Sprintf("workspaces/:%s/nodes", types.Name), h.ProcessWorkspaceNodes)
 
 		group.POST("clusters", h.CreateCluster)
-		group.POST(fmt.Sprintf("clusters/:%s/nodes/add", types.Name), h.AddClusterNodes)
-		group.POST(fmt.Sprintf("clusters/:%s/nodes/remove", types.Name), h.RemoveClusterNodes)
+		group.POST(fmt.Sprintf("clusters/:%s/nodes", types.Name), h.ProcessClusterNodes)
 		group.DELETE(fmt.Sprintf("clusters/:%s", types.Name), h.DeleteCluster)
 		group.PATCH(fmt.Sprintf("clusters/:%s", types.Name), h.PatchCluster)
 		group.GET(fmt.Sprintf("clusters/:%s/logs", types.Name), h.GetClusterPodLog)
