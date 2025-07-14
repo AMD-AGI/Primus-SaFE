@@ -25,7 +25,7 @@ var (
 
 type Client struct {
 	db *sqlx.DB
-	utils.DBConfig
+	*utils.DBConfig
 }
 
 func NewClient() *Client {
@@ -58,7 +58,7 @@ func NewClient() *Client {
 			klog.ErrorS(err, "failed to ping db")
 			return
 		}
-		instance = &Client{db: db}
+		instance = &Client{db: db, DBConfig: cfg}
 		klog.Infof("init db-client successfully! conn-timeout: %d(s), request-timeout: %d(s)",
 			cfg.ConnectTimeout, cfg.RequestTimeout)
 	})

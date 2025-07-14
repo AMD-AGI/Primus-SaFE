@@ -25,15 +25,13 @@ type GetFaultRequest struct {
 
 type GetFaultResponseItem struct {
 	// the uniq id of response
-	ID string `json:"id"`
-	// the id of fault resource
-	FaultId string `json:"faultId"`
+	ID int64 `json:"id"`
+	// the node ID related to this fault
+	NodeId string `json:"nodeId,omitempty"`
 	// the ID used by NodeAgent for monitoring.
 	MonitorId string `json:"monitorId"`
 	// fault message
 	Message string `json:"message,omitempty"`
-	// the node ID related to this fault
-	NodeId string `json:"nodeId,omitempty"`
 	// the action of fault. e.g. taint
 	Action string `json:"action,omitempty"`
 	// the status of fault, including Succeeded/Failed

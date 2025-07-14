@@ -145,10 +145,9 @@ func faultMapper(obj *unstructured.Unstructured) *dbclient.Fault {
 
 	message := truncateString(fault.Spec.Message, 256)
 	result := &dbclient.Fault{
-		FaultId:        fault.Name,
+		Uid:            string(fault.UID),
 		MonitorId:      fault.Spec.MonitorId,
 		Message:        dbutils.NullString(message),
-		UUid:           string(fault.UID),
 		Action:         dbutils.NullString(fault.Spec.Action),
 		Phase:          dbutils.NullString(string(fault.Status.Phase)),
 		Cluster:        dbutils.NullString(v1.GetClusterId(fault)),

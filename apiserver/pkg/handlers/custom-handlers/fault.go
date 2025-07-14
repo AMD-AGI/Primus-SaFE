@@ -101,11 +101,10 @@ func cvtToListFaultSql(query *types.GetFaultRequest) sqrl.Sqlizer {
 
 func cvtToFaultResponse(f *dbclient.Fault) types.GetFaultResponseItem {
 	return types.GetFaultResponseItem{
-		ID:          f.UUid,
-		FaultId:     f.FaultId,
+		ID:          f.Id,
+		NodeId:      dbutils.ParseNullString(f.Node),
 		MonitorId:   f.MonitorId,
 		Message:     dbutils.ParseNullString(f.Message),
-		NodeId:      dbutils.ParseNullString(f.Node),
 		Action:      dbutils.ParseNullString(f.Action),
 		Phase:       dbutils.ParseNullString(f.Phase),
 		Cluster:     dbutils.ParseNullString(f.Cluster),
