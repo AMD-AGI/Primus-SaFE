@@ -13,8 +13,8 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
-func GenerateFaultName(adminNodeName, id string) string {
-	name := adminNodeName + "-" + id
+func GenerateFaultName(adminNodeName, monitorId string) string {
+	name := adminNodeName + "-" + monitorId
 	return stringutil.NormalizeName(name)
 }
 

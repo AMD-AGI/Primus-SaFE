@@ -32,6 +32,10 @@ const (
 	DefaultBurst = 1000
 	DefaultQPS   = 1000
 
+	AddonMonitorId      = "501"
+	PreflightMonitorId  = "502"
+	InspectionMonitorId = "503"
+
 	HighPriority    = "high-priority"
 	MedPriority     = "med-priority"
 	LowPriority     = "low-priority"

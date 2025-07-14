@@ -31,5 +31,6 @@ func TestConfig(t *testing.T) {
 
 	assert.Equal(t, getString("database.host", ""), "localhost")
 	assert.Equal(t, getInt("database.port", 8081), 8081)
+	assert.Equal(t, getInt("database.request_timeout_second", 0), 20)
 	assert.Equal(t, slices.Equal(getStrings("database.users"), []string{"user1", "user2"}), true)
 }

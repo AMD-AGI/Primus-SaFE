@@ -134,7 +134,7 @@ func createFault(ctx context.Context, cli client.Client, fault *v1.Fault) error 
 			return nil
 		}
 	}
-	klog.Infof("create fault, name: %s, id: %s", fault.Name, fault.Spec.Id)
+	klog.Infof("create fault, name: %s, id: %s", fault.Name, fault.Spec.MonitorId)
 	return nil
 }
 
@@ -142,7 +142,7 @@ func deleteFault(ctx context.Context, cli client.Client, fault *v1.Fault) error 
 	if err := cli.Delete(ctx, fault); err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	klog.Infof("delete fault, name: %s, id: %s", fault.Name, fault.Spec.Id)
+	klog.Infof("delete fault, name: %s, id: %s", fault.Name, fault.Spec.MonitorId)
 	return nil
 }
 
@@ -162,7 +162,7 @@ func generateFaultOnCreation(node *v1.FaultNode,
 			},
 		},
 		Spec: v1.FaultSpec{
-			Id:                  id,
+			MonitorId:           id,
 			Message:             cond.Message,
 			Action:              string(conf.Action),
 			IsAutoRepairEnabled: conf.IsAutoRepairEnabled(),
@@ -188,8 +188,8 @@ func generateFaultOnDeletion(node *v1.FaultNode,
 			},
 		},
 		Spec: v1.FaultSpec{
-			Id:   id,
-			Node: node,
+			MonitorId: id,
+			Node:      node,
 		},
 	}
 }

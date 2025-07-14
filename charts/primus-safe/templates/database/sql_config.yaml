@@ -59,8 +59,7 @@ data:
     create table if not exists fault
     (
         id SERIAL PRIMARY KEY,
-        uuid VARCHAR(36) not null,
-        fault_id VARCHAR(128) not null,
+        uid VARCHAR(36) not null,
         monitor_id VARCHAR(128) not null,
         message VARCHAR(1024),
         node VARCHAR(64),
@@ -74,7 +73,7 @@ data:
     );
 
     create index if not exists T_FAULT_CREATE_TIME_INDEX on fault (create_time);
-    create index if not exists T_FAULT_UUID_INDEX on fault (uuid);
+    create index if not exists T_FAULT_UUID_INDEX on fault (uid);
 
     create table if not exists ops_job
     (
@@ -92,7 +91,8 @@ data:
         delete_time TIMESTAMP,
         phase VARCHAR(64),
         conditions TEXT,
-        outputs TEXT
+        outputs TEXT,
+        is_deleted boolean
     );
 
     create index if not exists T_JOB_ID_INDEX on ops_job (job_id);

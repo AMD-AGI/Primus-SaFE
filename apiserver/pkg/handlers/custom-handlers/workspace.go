@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -46,6 +48,10 @@ func (h *Handler) DeleteWorkspace(c *gin.Context) {
 
 func (h *Handler) PatchWorkspace(c *gin.Context) {
 	handle(c, h.patchWorkspace)
+}
+
+func (h *Handler) ProcessWorkspaceNodes(c *gin.Context) {
+	handle(c, h.processWorkspaceNodes)
 }
 
 func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
@@ -210,6 +216,34 @@ func (h *Handler) getAdminWorkspace(ctx context.Context, name string) (*v1.Works
 		return nil, err
 	}
 	return workspace.DeepCopy(), nil
+}
+
+func (h *Handler) processWorkspaceNodes(c *gin.Context) (interface{}, error) {
+	req, err := parseProcessNodesRequest(c)
+	if err != nil {
+		return nil, err
+	}
+	return nil, h.updateWorkspaceNodesAction(c.Request.Context(),
+		c.GetString(types.Name), req.Action, req.NodeIds)
+}
+
+func (h *Handler) updateWorkspaceNodesAction(ctx context.Context, workspaceId, action string, nodeIds []string) error {
+	nodeAction := commonnodes.BuildAction(action, nodeIds...)
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		workspace := &v1.Workspace{}
+		if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err != nil {
+			return err
+		}
+		v1.SetAnnotation(workspace, v1.WorkspaceNodesAction, nodeAction)
+		if err := h.Update(ctx, workspace); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func parseListWorkspaceQuery(c *gin.Context) (*types.GetWorkspaceRequest, error) {

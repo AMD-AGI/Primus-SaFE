@@ -8,7 +8,6 @@ package client
 import (
 	"context"
 	"fmt"
-	"time"
 
 	sqrl "github.com/Masterminds/squirrel"
 	"k8s.io/klog/v2"
@@ -21,14 +20,14 @@ const (
 )
 
 var (
-	getFaultCmd       = fmt.Sprintf(`SELECT * FROM %s WHERE uuid = $1 LIMIT 1`, TFault)
+	getFaultCmd       = fmt.Sprintf(`SELECT * FROM %s WHERE uid = $1 LIMIT 1`, TFault)
 	insertFaultFormat = `INSERT INTO ` + TFault + ` (%s) VALUES (%s)`
 	updateFaultCmd    = fmt.Sprintf(`UPDATE %s 
 		SET phase = :phase,
 		    create_time = :create_time,
 		    update_time = :update_time,
 		    delete_time = :delete_time 
-		WHERE uuid = :uuid`, TFault)
+		WHERE uid = :uid`, TFault)
 )
 
 func (c *Client) UpsertFault(ctx context.Context, fault *Fault) error {
@@ -38,7 +37,7 @@ func (c *Client) UpsertFault(ctx context.Context, fault *Fault) error {
 	db := c.db.Unsafe()
 	var faults []*Fault
 	var err error
-	if err = db.SelectContext(ctx, &faults, getFaultCmd, fault.UUid); err != nil {
+	if err = db.SelectContext(ctx, &faults, getFaultCmd, fault.Uid); err != nil {
 		return err
 	}
 	if len(faults) > 0 && faults[0] != nil {
@@ -84,7 +83,7 @@ func (c *Client) SelectFaults(ctx context.Context, query sqrl.Sqlizer, sortBy, o
 
 	var faults []*Fault
 	if c.RequestTimeout > 0 {
-		ctx2, cancel := context.WithTimeout(ctx, time.Duration(c.RequestTimeout)*time.Second)
+		ctx2, cancel := context.WithTimeout(ctx, c.RequestTimeout)
 		defer cancel()
 		err = db.SelectContext(ctx2, &faults, sql, args...)
 	} else {

@@ -27,20 +27,11 @@ import (
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 func (h *Handler) CreateCluster(c *gin.Context) {
 	handle(c, h.createCluster)
-}
-
-func (h *Handler) AddClusterNodes(c *gin.Context) {
-	handle(c, h.addClusterNodes)
-}
-
-func (h *Handler) RemoveClusterNodes(c *gin.Context) {
-	handle(c, h.removeClusterNodes)
 }
 
 func (h *Handler) ListCluster(c *gin.Context) {
@@ -57,6 +48,10 @@ func (h *Handler) DeleteCluster(c *gin.Context) {
 
 func (h *Handler) PatchCluster(c *gin.Context) {
 	handle(c, h.patchCluster)
+}
+
+func (h *Handler) ProcessClusterNodes(c *gin.Context) {
+	handle(c, h.processClusterNodes)
 }
 
 func (h *Handler) GetClusterPodLog(c *gin.Context) {
@@ -87,7 +82,7 @@ func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
-func (h *Handler) addClusterNodes(c *gin.Context) (interface{}, error) {
+func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
 	adminCluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
 		return nil, err
@@ -96,44 +91,71 @@ func (h *Handler) addClusterNodes(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("the cluster is not ready")
 	}
 
-	req := &types.ClusterNodesRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	req, err := parseProcessNodesRequest(c)
 	if err != nil {
-		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
 	}
-	if len(req.NodeIds) == 0 {
-		return nil, commonerrors.NewBadRequest("no nodeIds provided")
+	ctx := c.Request.Context()
+	if req.Action == v1.NodeActionRemove {
+		if err = h.removeNodesFromWorkspace(ctx, req.NodeIds); err != nil {
+			return nil, err
+		}
 	}
 
-	req.Action = types.ClusterNodeAdd
-	return h.handleClusterNodes(c, req, adminCluster)
+	response := types.ProcessNodesResponse{
+		TotalCount: len(req.NodeIds),
+	}
+	message := ""
+	for _, nodeId := range req.NodeIds {
+		err = h.processClusterNode(ctx, adminCluster, nodeId, req.Action)
+		if err != nil {
+			klog.ErrorS(err, "failed to process node")
+			message = err.Error()
+		} else {
+			response.SuccessCount++
+		}
+	}
+	if response.SuccessCount == 0 {
+		return nil, fmt.Errorf("no nodes processed successfully, message: %s", message)
+	}
+	return &response, nil
 }
 
-func (h *Handler) removeClusterNodes(c *gin.Context) (interface{}, error) {
-	ctx := c.Request.Context()
-	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
-	if err != nil {
-		return nil, err
-	}
-	if !cluster.IsReady() {
-		return nil, commonerrors.NewInternalError("the cluster is not ready")
+func (h *Handler) processClusterNode(ctx context.Context, cluster *v1.Cluster, nodeId, action string) error {
+	specCluster := ""
+	if action == v1.NodeActionAdd {
+		specCluster = cluster.Name
 	}
 
-	req := &types.ClusterNodesRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
-	if err != nil {
-		klog.ErrorS(err, "failed to parse request", "body", string(body))
-		return nil, err
-	}
-	if len(req.NodeIds) == 0 {
-		return nil, commonerrors.NewBadRequest("no nodeIds provided")
-	}
-	if err = h.removeNodesFromWorkspace(ctx, req.NodeIds); err != nil {
-		return nil, err
-	}
-	req.Action = types.ClusterNodeDel
-	return h.handleClusterNodes(c, req, cluster)
+	nodeId = strings.TrimSpace(nodeId)
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		adminNode, err := h.getAdminNode(ctx, nodeId)
+		if err != nil {
+			return err
+		}
+		if action == v1.NodeActionRemove {
+			if v1.GetClusterId(adminNode) != cluster.Name {
+				return fmt.Errorf("The node does not belong to the specified cluster")
+			}
+		} else {
+			if adminNode.GetSpecCluster() != "" && adminNode.GetSpecCluster() != specCluster {
+				return fmt.Errorf("The node belongs to another cluster")
+			}
+		}
+		if adminNode.GetSpecCluster() == specCluster {
+			return nil
+		}
+		if v1.IsControlPlane(adminNode) {
+			return fmt.Errorf("the control plane node can not be changed")
+		}
+		v1.RemoveAnnotation(adminNode, v1.RetryCountAnnotation)
+		adminNode.Spec.Cluster = pointer.String(specCluster)
+		if err = h.Update(ctx, adminNode); err != nil {
+			return err
+		}
+		return nil
+	})
+	return err
 }
 
 func (h *Handler) removeNodesFromWorkspace(ctx context.Context, allNodeIds []string) error {
@@ -157,80 +179,11 @@ func (h *Handler) removeNodesFromWorkspace(ctx context.Context, allNodeIds []str
 	}
 
 	for workspaceId, nodeIds := range nodeIdMap {
-		nodeAction := commonnodes.BuildAction(v1.NodeActionRemove, *nodeIds...)
-		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			workspace := &v1.Workspace{}
-			if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err != nil {
-				return client.IgnoreNotFound(err)
-			}
-			v1.SetAnnotation(workspace, v1.WorkspaceNodesAction, nodeAction)
-			if err := h.Update(ctx, workspace); err != nil {
-				return err
-			}
-			return nil
-		})
-		if err != nil {
+		if err := h.updateWorkspaceNodesAction(ctx, workspaceId, v1.NodeActionRemove, *nodeIds); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func (h *Handler) handleClusterNodes(c *gin.Context,
-	req *types.ClusterNodesRequest, cluster *v1.Cluster) (*types.HandleNodesResponse, error) {
-	response := types.HandleNodesResponse{
-		TotalCount: len(req.NodeIds),
-	}
-	ctx := c.Request.Context()
-	specCluster := ""
-	if req.Action == types.ClusterNodeAdd {
-		specCluster = cluster.Name
-	}
-
-	message := ""
-	for _, nodeId := range req.NodeIds {
-		nodeId = strings.TrimSpace(nodeId)
-		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			adminNode, err := h.getAdminNode(ctx, nodeId)
-			if err != nil {
-				return err
-			}
-			if req.Action == types.ClusterNodeDel {
-				if v1.GetClusterId(adminNode) != cluster.Name {
-					return nil
-				}
-			} else {
-				if adminNode.GetSpecCluster() != "" && adminNode.GetSpecCluster() != specCluster {
-					klog.Errorf("the admin node(%s) is managed by another cluster: %s, pls unmanged first",
-						nodeId, adminNode.GetSpecCluster())
-					return nil
-				}
-			}
-			if adminNode.GetSpecCluster() == specCluster {
-				response.SuccessCount++
-				return nil
-			}
-			if v1.IsControlPlane(adminNode) {
-				klog.Infof("the control plane node(%s) can not be changed", adminNode.Name)
-				return nil
-			}
-			v1.RemoveAnnotation(adminNode, v1.RetryCountAnnotation)
-			adminNode.Spec.Cluster = pointer.String(specCluster)
-			if err := h.Update(ctx, adminNode); err != nil {
-				return err
-			}
-			response.SuccessCount++
-			return nil
-		})
-		if err != nil {
-			klog.ErrorS(err, "failed to update node")
-			message = err.Error()
-		}
-	}
-	if response.SuccessCount == 0 {
-		return nil, fmt.Errorf("no nodes processed successfully, message: %s", message)
-	}
-	return &response, nil
 }
 
 func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
@@ -433,6 +386,22 @@ func (h *Handler) getAdminCluster(ctx context.Context, name string) (*v1.Cluster
 		return nil, err
 	}
 	return cluster.DeepCopy(), nil
+}
+
+func parseProcessNodesRequest(c *gin.Context) (*types.ProcessNodesRequest, error) {
+	req := &types.ProcessNodesRequest{}
+	body, err := getBodyFromRequest(c.Request, req)
+	if err != nil {
+		klog.ErrorS(err, "failed to parse request", "body", string(body))
+		return nil, err
+	}
+	if len(req.NodeIds) == 0 {
+		return nil, commonerrors.NewBadRequest("no nodeIds provided")
+	}
+	if len(req.Action) == 0 {
+		return nil, commonerrors.NewBadRequest("no action provided")
+	}
+	return req, nil
 }
 
 func (h *Handler) cvtToGetClusterResponseItem(ctx context.Context, cluster *v1.Cluster, isNeedDetail bool) types.GetClusterResponseItem {
