@@ -11,5 +11,8 @@ spec:
   addOnTemplates:
     - rvs-gpu-property
     - rvs-gpu-memory
+    - rvs-pcie-quality
     - rvs-mi300x-performance
     - rvs-mi300x-power
+    - rvs-mi300x-pcie-bandwidth
+    - rvs-mi300x-p2p-throughput
