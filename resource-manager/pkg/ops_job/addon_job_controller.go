@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -91,7 +93,8 @@ func SetupAddonJobController(mgr manager.Manager) error {
 func (r *AddonJobReconciler) handleNodeEvent() handler.EventHandler {
 	filter := func(n *v1.Node) bool {
 		return v1.GetOpsJobId(n) == "" ||
-			v1.OpsJobType(v1.GetOpsJobType(n)) != v1.OpsJobAddonType
+			(v1.OpsJobType(v1.GetOpsJobType(n)) != v1.OpsJobAddonType &&
+				v1.OpsJobType(v1.GetOpsJobType(n)) != v1.OpsJobPreflightType)
 	}
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
@@ -174,8 +177,12 @@ func (r *AddonJobReconciler) addFailedNodeToCondition(ctx context.Context, jobId
 
 func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {
 	enqueue := func(ctx context.Context, q v1.RequestWorkQueue, clusterId string) {
-		labelSelector := labels.SelectorFromSet(map[string]string{
-			v1.OpsJobTypeLabel: string(v1.OpsJobAddonType), v1.ClusterIdLabel: clusterId})
+		var labelSelector = labels.NewSelector()
+		req1, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{clusterId})
+		labelSelector = labelSelector.Add(*req1)
+		req2, _ := labels.NewRequirement(v1.OpsJobTypeLabel, selection.In,
+			[]string{string(v1.OpsJobAddonType), string(v1.OpsJobPreflightType)})
+		labelSelector = labelSelector.Add(*req2)
 		jobList := &v1.OpsJobList{}
 		if r.List(ctx, jobList, &client.ListOptions{LabelSelector: labelSelector}) != nil {
 			return
@@ -201,7 +208,7 @@ func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {
 }
 
 func (r *AddonJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	clearFuncs := []ClearFunc{r.cleanupJobLabels, r.removeJob}
+	clearFuncs := []ClearFunc{r.cleanupJobRelatedInfo, r.removeJob}
 	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r, clearFuncs...)
 }
 
@@ -223,7 +230,7 @@ func (r *AddonJobReconciler) observe(ctx context.Context, job *v1.OpsJob) (bool,
 }
 
 func (r *AddonJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
-	return job.Spec.Type != v1.OpsJobAddonType
+	return (job.Spec.Type != v1.OpsJobAddonType && job.Spec.Type != v1.OpsJobPreflightType)
 }
 
 func (r *AddonJobReconciler) getNodesToProcess(job *v1.OpsJob) []string {
@@ -249,7 +256,7 @@ func (r *AddonJobReconciler) getNodesToProcess(job *v1.OpsJob) []string {
 	return slice.Copy(allPendingNodes, addonJob.batchCount-runningCount)
 }
 
-func (r *AddonJobReconciler) cleanupJobLabels(ctx context.Context, job *v1.OpsJob) error {
+func (r *AddonJobReconciler) cleanupJobRelatedInfo(ctx context.Context, job *v1.OpsJob) error {
 	return commonjob.CleanupJobRelatedInfo(ctx, r.Client, job.Name)
 }
 
@@ -527,7 +534,8 @@ func (r *AddonJobReconciler) buildOpsJobInput(ctx context.Context, job *v1.OpsJo
 			Addon:            params[i].Value,
 			Action:           addonTemplate.Spec.Extensions[v1.AddOnAction],
 			Observe:          addonTemplate.Spec.Extensions[v1.AddOnObserve],
-			Chip:             addonTemplate.Spec.Chip,
+			GpuChip:          v1.GpuChipType(strings.ToLower(string(addonTemplate.Spec.GpuChip))),
+			GpuProduct:       addonTemplate.Spec.GpuProduct,
 			IsOneShotService: addonTemplate.Spec.IsOneShotService,
 		}
 		if addonTemplate.Spec.Type == v1.AddonTemplateSystemd {

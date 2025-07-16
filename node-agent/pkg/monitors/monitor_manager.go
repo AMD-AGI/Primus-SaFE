@@ -302,7 +302,7 @@ func (mgr *MonitorManager) getMonitorConfigs(configPath string) ([]*MonitorConfi
 			klog.ErrorS(err, "failed to unmarshal json", "data", string(data))
 			continue
 		}
-		if !conf.IsEnable() || !mgr.node.IsMatchChip(conf.Chip) {
+		if !conf.IsEnable() || !mgr.node.IsMatchGpuChip(conf.Chip) {
 			key := commonfaults.GenerateTaintKey(conf.Id)
 			if mgr.node.FindConditionByType(key) != nil {
 				mgr.addDisableMessage(conf.Id)

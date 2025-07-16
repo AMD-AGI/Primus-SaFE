@@ -15,6 +15,7 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -171,15 +172,18 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 	if err := v.validateRequiredParams(ctx, job); err != nil {
 		return err
 	}
+	if err := v.validateNodes(ctx, job); err != nil {
+		return err
+	}
 	var err error
 	switch job.Spec.Type {
-	case v1.OpsJobAddonType:
+	case v1.OpsJobAddonType, v1.OpsJobPreflightType:
 		if err = v.validateAddonTemplate(ctx, job); err != nil {
 			break
 		}
 		err = v.validateNodeDuplicated(ctx, job)
 	case v1.OpsJobDumpLogType:
-		err = v.validateWorkloadDuplicated(ctx, job)
+		err = v.validateDumplogDuplicated(ctx, job)
 	}
 	if err != nil {
 		return err
@@ -219,7 +223,8 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 }
 
 func (v *OpsJobValidator) validateNodeDuplicated(ctx context.Context, job *v1.OpsJob) error {
-	currentJobs, err := v.listRelatedRunningJobs(ctx, job)
+	currentJobs, err := v.listRelatedRunningJobs(ctx, job.Spec.Cluster,
+		[]string{string(v1.OpsJobAddonType), string(v1.OpsJobPreflightType)})
 	if err != nil {
 		return err
 	}
@@ -234,8 +239,8 @@ func (v *OpsJobValidator) validateNodeDuplicated(ctx context.Context, job *v1.Op
 	return nil
 }
 
-func (v *OpsJobValidator) validateWorkloadDuplicated(ctx context.Context, job *v1.OpsJob) error {
-	currentJobs, err := v.listRelatedRunningJobs(ctx, job)
+func (v *OpsJobValidator) validateDumplogDuplicated(ctx context.Context, job *v1.OpsJob) error {
+	currentJobs, err := v.listRelatedRunningJobs(ctx, job.Spec.Cluster, []string{string(v1.OpsJobDumpLogType)})
 	if err != nil {
 		return err
 	}
@@ -304,9 +309,13 @@ func (v *OpsJobValidator) hasDuplicateInput(params1, params2 []v1.Parameter, par
 	return false
 }
 
-func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, job *v1.OpsJob) ([]v1.OpsJob, error) {
-	labelSelector := labels.SelectorFromSet(map[string]string{
-		v1.ClusterIdLabel: job.Spec.Cluster, v1.OpsJobTypeLabel: string(job.Spec.Type)})
+func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster string, jobTypes []string) ([]v1.OpsJob, error) {
+	var labelSelector = labels.NewSelector()
+	req1, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{cluster})
+	labelSelector = labelSelector.Add(*req1)
+	req2, _ := labels.NewRequirement(v1.OpsJobTypeLabel, selection.In, jobTypes)
+	labelSelector = labelSelector.Add(*req2)
+
 	jobList := &v1.OpsJobList{}
 	if err := v.List(ctx, jobList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return nil, client.IgnoreNotFound(err)
@@ -319,4 +328,21 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, job *v1.Op
 		result = append(result, jobList.Items[i])
 	}
 	return result, nil
+}
+
+func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
+	nodeParams := job.GetParameters(v1.ParameterNode)
+	cluster := ""
+	for _, param := range nodeParams {
+		adminNode, err := getNode(ctx, v.Client, param.Value)
+		if err != nil {
+			return err
+		}
+		if cluster == "" {
+			cluster = v1.GetClusterId(adminNode)
+		} else if cluster != v1.GetClusterId(adminNode) {
+			return fmt.Errorf("The nodes to be operated must belong to the same cluster.")
+		}
+	}
+	return nil
 }

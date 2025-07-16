@@ -9,14 +9,17 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -86,12 +89,8 @@ func (n *Node) update() {
 			}
 			return
 		default:
-			k8sNode, err := n.k8sClient.Nodes().Get(n.ctx, n.GetK8sNode().Name, metav1.GetOptions{})
-			if err != nil {
-				klog.ErrorS(err, "failed to get node")
-			} else {
-				n.k8sNode = k8sNode
-				job.Reconcile(n)
+			if n.syncK8sNode() == nil {
+				job.reconcile(n)
 			}
 			time.Sleep(sleepTime)
 		}
@@ -116,19 +115,6 @@ func (n *Node) updateStartTime() error {
 	}
 	klog.Infof("node start time: %s", uptime.Format(time.RFC3339))
 	return nil
-}
-
-func (n *Node) IsMatchChip(chip string) bool {
-	switch chip {
-	case string(v1.AmdGpuChip):
-		return n.isAmdGpu()
-	case string(v1.NvidiaGpuChip):
-		return n.isNvGpu()
-	case "":
-		return true
-	default:
-		return false
-	}
 }
 
 func (n *Node) FindConditionByType(conditionType string) *corev1.NodeCondition {
@@ -159,36 +145,19 @@ func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
 	if n.k8sNode == nil {
 		return fmt.Errorf("please initialize node first")
 	}
-	n.k8sNode.Status.Conditions = conditions
-	node, err := n.k8sClient.Nodes().UpdateStatus(n.ctx, n.k8sNode, metav1.UpdateOptions{})
-	if err != nil {
-		return err
-	}
-	n.k8sNode = node
-	return nil
-}
-
-func (n *Node) AddConditions(cond corev1.NodeCondition) error {
-	if n.k8sNode == nil {
-		return fmt.Errorf("please initialize node first")
-	}
-	hasFound := false
-	for i, currentCond := range n.k8sNode.Status.Conditions {
-		if cond.Type == currentCond.Type {
-			if cond.Status == currentCond.Status &&
-				cond.Message == currentCond.Message && cond.Reason == currentCond.Reason {
-				return nil
-			} else {
-				n.k8sNode.Status.Conditions[i] = cond
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		n.k8sNode.Status.Conditions = conditions
+		node, err := n.k8sClient.Nodes().UpdateStatus(n.ctx, n.k8sNode, metav1.UpdateOptions{})
+		if err != nil {
+			if apierrors.IsConflict(err) {
+				n.syncK8sNode()
 			}
-			hasFound = true
-			break
+		} else {
+			n.k8sNode = node
 		}
-	}
-	if !hasFound {
-		n.k8sNode.Status.Conditions = append(n.k8sNode.Status.Conditions, cond)
-	}
-	return n.UpdateConditions(n.k8sNode.Status.Conditions)
+		return err
+	})
+	return err
 }
 
 func (n *Node) updateNodeStartTime(startTime time.Time) error {
@@ -208,6 +177,27 @@ func (n *Node) updateNodeStartTime(startTime time.Time) error {
 
 func (n *Node) GetK8sNode() *corev1.Node {
 	return n.k8sNode
+}
+
+func (n *Node) IsMatchGpuChip(chip string) bool {
+	switch chip {
+	case string(v1.AmdGpuChip):
+		return n.isAmdGpu()
+	case string(v1.NvidiaGpuChip):
+		return n.isNvGpu()
+	case "":
+		return true
+	default:
+		return false
+	}
+}
+
+func (n *Node) IsMatchGpuProduct(product string) bool {
+	if product == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(v1.GetGpuProductName(n.k8sNode)),
+		strings.ToLower(product))
 }
 
 func (n *Node) GetGpuQuantity() resource.Quantity {
@@ -239,6 +229,16 @@ func (n *Node) isAmdGpu() bool {
 	}
 	val, ok := n.k8sNode.Labels[common.AMDGpuIdentification]
 	return ok && val == "true"
+}
+
+func (n *Node) syncK8sNode() error {
+	k8sNode, err := n.k8sClient.Nodes().Get(n.ctx, n.GetK8sNode().Name, metav1.GetOptions{})
+	if err != nil {
+		klog.ErrorS(err, "failed to get k8s node")
+		return err
+	}
+	n.k8sNode = k8sNode
+	return nil
 }
 
 func getLocation() (*time.Location, error) {

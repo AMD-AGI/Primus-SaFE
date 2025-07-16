@@ -21,7 +21,7 @@ if [ -z "$expectedCount" ] || [ "$expectedCount" == "null" ] || [ $expectedCount
     exit 2
 fi
 
-actualCount=`cat "/tmp/rocm-smi" | grep ^[0-9] |wc -l`
+actualCount=`cat "/tmp/rocm-smi" | grep '^[0-9]' |wc -l`
 ret=$?
 if [ $ret -ne 0 ]; then
   echo "Error: failed to execute rocm-smi"

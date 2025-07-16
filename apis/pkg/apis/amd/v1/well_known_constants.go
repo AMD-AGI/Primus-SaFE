@@ -18,8 +18,8 @@ const (
 
 	// general
 	DisplayNameLabel = PrimusSafePrefix + "display.name"
-	// Chip product name, mainly referring to the GPU chip here. e.g. AMD MI300X
-	GpuProductNameAnnotation = PrimusSafePrefix + "gpu.product.name"
+	// Chip product name, e.g. AMD MI300X
+	GpuProductNameLabel = PrimusSafePrefix + "gpu.product.name"
 	// Corresponding resource names in Kubernetes ResourceList, such as amd.com/gpu or nvidia.com/gpu
 	GpuResourceNameAnnotation = PrimusSafePrefix + "gpu.resource.name"
 	// the label for Control-plane node

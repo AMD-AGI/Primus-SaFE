@@ -36,8 +36,10 @@ type OpsJobCommand struct {
 	IsSystemd bool `json:"isSystemd,omitempty"`
 	// If it is a One-shot Service, the reload operation is not applicable.
 	IsOneShotService bool `json:"isOneShotService,omitempty"`
-	// target chip， If left empty, it applies to all chip.
-	Chip v1.ChipType `json:"chip,omitempty"`
+	// target gpu chip(amd or nvidia), If left empty, it applies to all chip.
+	GpuChip v1.GpuChipType `json:"gpuChip,omitempty"`
+	// target GPU product(case-sensitive), such as the MI300X, If left empty, it applies to all product.
+	GpuProduct v1.GpuChipProduct `json:"gpuProduct,omitempty"`
 }
 
 func GetOpsJobInput(obj metav1.Object) *OpsJobInput {

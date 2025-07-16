@@ -78,8 +78,8 @@ func TestGetGpuQuantity(t *testing.T) {
 	n, _ := newNode(t)
 	quantity := n.GetGpuQuantity()
 	assert.Equal(t, quantity.Value(), int64(8))
-	assert.Equal(t, n.IsMatchChip(string(v1.AmdGpuChip)), true)
-	assert.Equal(t, n.IsMatchChip(string(v1.NvidiaGpuChip)), false)
+	assert.Equal(t, n.IsMatchGpuChip(string(v1.AmdGpuChip)), true)
+	assert.Equal(t, n.IsMatchGpuChip(string(v1.NvidiaGpuChip)), false)
 }
 
 func TestUpdateCondition(t *testing.T) {

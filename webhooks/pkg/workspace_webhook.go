@@ -188,7 +188,7 @@ func (m *WorkspaceMutator) mutateCommon(ctx context.Context, workspace *v1.Works
 		nf, _ := getNodeFlavor(ctx, m.Client, workspace.Spec.NodeFlavor)
 		if nf != nil && nf.HasGpu() {
 			v1.SetAnnotation(workspace, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName)
-			v1.SetAnnotation(workspace, v1.GpuProductNameAnnotation, nf.Spec.Gpu.Product)
+			v1.SetLabel(workspace, v1.GpuProductNameLabel, nf.Spec.Gpu.Product)
 		}
 	}
 }

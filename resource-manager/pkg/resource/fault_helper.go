@@ -97,7 +97,7 @@ func isShouldCreateFault(cond corev1.NodeCondition) bool {
 			if cond.Status != corev1.ConditionTrue {
 				return true
 			}
-		} else if cond.Status == corev1.ConditionTrue {
+		} else if cond.Status != corev1.ConditionFalse {
 			return true
 		}
 	case isPrimusCondition(cond.Type):

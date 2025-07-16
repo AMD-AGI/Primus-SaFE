@@ -40,7 +40,7 @@ func (ke *K8sExporter) Name() string {
 }
 
 func genAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.NodeCondition, bool) {
-	var conditions []corev1.NodeCondition
+	results := make([]corev1.NodeCondition, 0, len(node.Status.Conditions)+1)
 	isFound := false
 	key := commonfaults.GenerateTaintKey(msg.Id)
 	for _, cond := range node.Status.Conditions {
@@ -53,26 +53,22 @@ func genAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.No
 			cond.LastTransitionTime = metav1.NewTime(time.Now().UTC())
 			isFound = true
 		}
-		conditions = append(conditions, cond)
+		results = append(results, cond)
 	}
-
-	if isFound {
-		return conditions, true
+	if !isFound {
+		results = append(results, corev1.NodeCondition{
+			Type:               corev1.NodeConditionType(key),
+			Status:             corev1.ConditionTrue,
+			LastTransitionTime: metav1.NewTime(time.Now().UTC()),
+			Message:            msg.Value,
+		})
 	}
-	results := make([]corev1.NodeCondition, 0, len(conditions)+1)
-	results = append(results, corev1.NodeCondition{
-		Type:               corev1.NodeConditionType(key),
-		Status:             corev1.ConditionTrue,
-		LastTransitionTime: metav1.NewTime(time.Now().UTC()),
-		Message:            msg.Value,
-	})
 	klog.Infof("add condition. key: %s, message: %s", key, msg.Value)
-	results = append(results, conditions...)
 	return results, true
 }
 
 func genDeleteConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.NodeCondition, bool) {
-	var results []corev1.NodeCondition
+	results := make([]corev1.NodeCondition, 0, len(node.Status.Conditions))
 	key := commonfaults.GenerateTaintKey(msg.Id)
 	for i, cond := range node.Status.Conditions {
 		if string(cond.Type) != key {

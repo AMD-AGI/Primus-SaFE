@@ -132,3 +132,10 @@ type GetNodePodLogResponse struct {
 	// An array of log lines, returned in the same order as they appear in the original logs
 	Logs []string `json:"logs,omitempty"`
 }
+
+type RebootNodeRequest struct {
+	// force: Boolean, optional, default is false.
+	// true: Force restart (e.g., power off and then power on)
+	// false: Graceful restart (attempt a clean shutdown before restarting)
+	Force *bool `json:"force,omitempty"`
+}

@@ -18,7 +18,7 @@ k8s:
 apiserver:
   port: 8088
   health_port: 8082
-  image: "apiserver:202507141340"
+  image: "apiserver:202507161012"
   replicas: 1
   cpu: "2000m"
   memory: 4Gi

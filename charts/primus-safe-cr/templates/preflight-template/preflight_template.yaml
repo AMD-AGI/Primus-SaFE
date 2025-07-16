@@ -1,0 +1,15 @@
+apiVersion: amd.com/v1
+kind: NodeTemplate
+metadata:
+  name: preflight-template
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  addOnTemplates:
+    - rvs-gpu-property
+    - rvs-gpu-memory
+    - rvs-mi300x-performance
+    - rvs-mi300x-power

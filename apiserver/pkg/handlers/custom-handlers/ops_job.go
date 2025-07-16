@@ -56,7 +56,7 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	var job *v1.OpsJob
 	switch req.Type {
-	case v1.OpsJobAddonType:
+	case v1.OpsJobAddonType, v1.OpsJobPreflightType:
 		job, err = h.generateAddonJob(ctx, req)
 	case v1.OpsJobDumpLogType:
 		job, err = h.generateDumpLogJob(ctx, req)
@@ -148,8 +148,17 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) generateAddonJob(_ context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+func (h *Handler) generateAddonJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
 	job := generateOpsJob(req)
+	if job.Spec.Cluster == "" {
+		if nodeParam := job.GetParameter(v1.ParameterNode); nodeParam != nil {
+			adminNode, err := h.getAdminNode(ctx, nodeParam.Value)
+			if err != nil {
+				return nil, err
+			}
+			job.Spec.Cluster = v1.GetClusterId(adminNode)
+		}
+	}
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
 	}
