@@ -24,3 +24,4 @@ spec:
     - rocblas-fp32-bench
     - rocblas-fp16-bench
     - rocblas-int8-bench
+    - babel-stream-memory
