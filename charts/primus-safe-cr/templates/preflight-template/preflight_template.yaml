@@ -9,6 +9,7 @@ metadata:
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   addOnTemplates:
+    - perf-cpu
     - rvs-gpu-property
     - rvs-gpu-memory
     - rvs-pcie-quality
@@ -16,3 +17,10 @@ spec:
     - rvs-mi300x-power
     - rvs-mi300x-pcie-bandwidth
     - rvs-mi300x-p2p-throughput
+    - transfer-bench-a2a
+    - transfer-bench-p2p
+    - transfer-bench-default
+    - rccl-all-reduce
+    - rocblas-fp32-bench
+    - rocblas-fp16-bench
+    - rocblas-int8-bench

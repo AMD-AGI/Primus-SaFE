@@ -51,6 +51,8 @@ const (
 	logEnable        = logPrefix + "enable"
 	logConfigPath    = logPrefix + "config_path"
 	logEndpoint      = logPrefix + "endpoint"
+	logUser          = logPrefix + "username"
+	logPassword      = logPrefix + "password"
 	logServicePrefix = logPrefix + "prefix"
 
 	// db
@@ -69,11 +71,6 @@ const (
 	opsJobPrefix        = "ops_job."
 	opsJobTTLSecond     = opsJobPrefix + "ttl_second"
 	opsJobTimeoutSecond = opsJobPrefix + "timeout_second"
-	// Job Success Ratio: A percentage value used during plugin upgrades.
-	// The job is marked as successful if the number of successfully upgraded nodes exceeds total nodes * ratio.
-	opsJobAvailableRatio = opsJobPrefix + "available_ratio"
-	// Job Batch Size: The number of nodes to process simultaneously during a plugin upgrade
-	opsJobBatchCount = opsJobPrefix + "batch_count"
 
 	// s3
 	s3Prefix     = "s3."
@@ -81,5 +78,7 @@ const (
 	s3ConfigPath = s3Prefix + "config_path"
 	s3Endpoint   = s3Prefix + "endpoint"
 	s3Bucket     = s3Prefix + "bucket"
+	s3AccessKey  = s3Prefix + "access-key"
+	s3SecretKey  = s3Prefix + "secret-key"
 	s3ExpireDay  = s3Prefix + "expire_day"
 )

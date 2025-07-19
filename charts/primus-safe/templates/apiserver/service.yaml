@@ -13,13 +13,13 @@ spec:
     app: {{ .Release.Name }}-apiserver
   ports:
     - protocol: TCP
-      port: {{ .Values.apiserver.port }}
-      targetPort: {{ .Values.apiserver.port }}
+      port: {{ default 8088 (default .Values.apiserver).port }}
+      targetPort: {{ default 8088 (default .Values.apiserver).port }}
       name: http-port
     {{- if .Values.ssh.enable }}
     - protocol: TCP
-      port: {{ .Values.ssh.port }}
-      targetPort: {{ .Values.ssh.port }}
+      port: {{ default 2222 (default .Values.ssh).port }}
+      targetPort:{{ default 2222 (default .Values.ssh).port }}
       name: ssh-port
     {{- end }}
   type: ClusterIP

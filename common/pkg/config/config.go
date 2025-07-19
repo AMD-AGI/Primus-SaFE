@@ -144,11 +144,17 @@ func GetLogServiceEndpoint() string {
 }
 
 func GetLogServiceUser() string {
-	return getFromFile(logConfigPath, "username")
+	if user := getString(logUser, ""); user != "" {
+		return user
+	}
+	return getFromFile(logConfigPath, logUser)
 }
 
 func GetLogServicePasswd() string {
-	return getFromFile(logConfigPath, "password")
+	if passwd := getString(logPassword, ""); passwd != "" {
+		return passwd
+	}
+	return getFromFile(logConfigPath, logPassword)
 }
 
 func GetLogServicePrefix() string {
@@ -220,24 +226,22 @@ func GetOpsJobTimeoutSecond() int {
 	return getInt(opsJobTimeoutSecond, 0)
 }
 
-func GetOpsJobAvailableRatio() float64 {
-	return getFloat(opsJobAvailableRatio, 1)
-}
-
-func GetOpsJobBatchCount() int {
-	return getInt(opsJobBatchCount, 0)
-}
-
 func IsS3Enable() bool {
 	return getBool(s3Enable, false)
 }
 
 func GetS3AccessKey() string {
-	return getFromFile(s3ConfigPath, "access-key")
+	if ak := getString(s3AccessKey, ""); ak != "" {
+		return ak
+	}
+	return getFromFile(s3ConfigPath, s3AccessKey)
 }
 
 func GetS3SecretKey() string {
-	return getFromFile(s3ConfigPath, "secret-key")
+	if sk := getString(s3SecretKey, ""); sk != "" {
+		return sk
+	}
+	return getFromFile(s3ConfigPath, s3SecretKey)
 }
 
 func GetS3Bucket() string {

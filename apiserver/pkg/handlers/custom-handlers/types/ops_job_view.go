@@ -22,8 +22,12 @@ type CreateOpsJobRequest struct {
 	Cluster string `json:"cluster"`
 	// job Timeout (in seconds), Less than or equal to 0 means no timeout
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
-	// the number of nodes to process simultaneously during the addon upgrade
+	// the number of nodes to process simultaneously during the addon upgrade. default 1
 	BatchCount int `json:"batchCount,omitempty"`
+	// Job Success Ratio: A percentage value used during the addon upgrade.
+	// The job is marked as successful if the number of successfully upgraded nodes exceeds total nodes * ratio.
+	// default: 1
+	AvailableRatio *float64 `json:"availableRatio,omitempty"`
 	// When enabled, the operation will wait until the node is idle, only to addon
 	SecurityUpgrade bool `json:"securityUpgrade,omitempty"`
 	// job submitter

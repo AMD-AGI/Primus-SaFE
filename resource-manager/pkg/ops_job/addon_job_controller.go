@@ -31,7 +31,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
@@ -343,7 +342,7 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.OpsJob, nod
 		return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
 	}
 
-	if err = r.createAddonFault(ctx, job, adminNode); err != nil {
+	if err = r.createFault(ctx, job, adminNode); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 
@@ -369,8 +368,14 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.OpsJob, nod
 }
 
 // Create an addon fault to block workload scheduling on the node for upgrade purposes
-func (r *AddonJobReconciler) createAddonFault(ctx context.Context, job *v1.OpsJob, adminNode *v1.Node) error {
+func (r *AddonJobReconciler) createFault(ctx context.Context, job *v1.OpsJob, adminNode *v1.Node) error {
 	monitorId := common.AddonMonitorId
+	message := "upgrade Addon"
+	if job.Spec.Type == v1.OpsJobPreflightType {
+		monitorId = common.PreflightMonitorId
+		message = "preflight check"
+	}
+
 	if _, err := r.getFault(ctx, adminNode.Name, monitorId); err == nil || !apierrors.IsNotFound(err) {
 		return nil
 	}
@@ -389,7 +394,7 @@ func (r *AddonJobReconciler) createAddonFault(ctx context.Context, job *v1.OpsJo
 		},
 		Spec: v1.FaultSpec{
 			MonitorId: monitorId,
-			Message:   "upgrade Addon",
+			Message:   message,
 			Action:    string(config.Action),
 			Node: &v1.FaultNode{
 				ClusterName: v1.GetClusterId(job),
@@ -401,7 +406,7 @@ func (r *AddonJobReconciler) createAddonFault(ctx context.Context, job *v1.OpsJo
 	if err = r.Create(ctx, fault); err != nil {
 		return err
 	}
-	klog.Infof("create addon fault, id: %s", fault.Name)
+	klog.Infof("create fault, id: %s", fault.Name)
 	return nil
 }
 
@@ -420,7 +425,7 @@ func (r *AddonJobReconciler) addJob(job *v1.OpsJob, inputNodes []*v1.Node) error
 		addonJob.maxFailCount = 1
 		addonJob.batchCount = 1
 	} else {
-		failRatio := 1 - commonconfig.GetOpsJobAvailableRatio()
+		failRatio := float64(1) - v1.GetOpsJobAvailRatio(job)
 		if addonJob.maxFailCount = int(float64(len(nodePhases)) * failRatio); addonJob.maxFailCount <= 0 {
 			addonJob.maxFailCount = 1
 		}

@@ -79,13 +79,6 @@ func (job *NodeJob) observeJobInvalidity(n *Node) (bool, error) {
 		v1.GetOpsJobType(n.k8sNode) == "" || v1.GetOpsJobInput(n.k8sNode) == "" {
 		return true, nil
 	}
-	// Addon jobs must wait until the required taint is created
-	if v1.GetOpsJobType(n.k8sNode) == string(v1.OpsJobAddonType) ||
-		v1.GetOpsJobType(n.k8sNode) == string(v1.OpsJobPreflightType) {
-		if len(n.k8sNode.Spec.Taints) == 0 {
-			return true, nil
-		}
-	}
 	return false, nil
 }
 

@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"strconv"
 	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -78,8 +77,11 @@ func (m *OpsJobMutator) mutateMeta(ctx context.Context, job *v1.OpsJob) bool {
 	job.Name = commonutils.GenerateName(strings.ToLower(jobName))
 
 	v1.SetLabel(job, v1.OpsJobTypeLabel, string(job.Spec.Type))
-	if v1.GetAnnotation(job, v1.OpsJobBatchCountAnnotation) == "" && commonconfig.GetOpsJobBatchCount() > 0 {
-		v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(commonconfig.GetOpsJobBatchCount()))
+	if v1.GetAnnotation(job, v1.OpsJobBatchCountAnnotation) == "" {
+		v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, "1")
+	}
+	if v1.GetAnnotation(job, v1.OpsJobAvailRatioAnnotation) == "" {
+		v1.SetAnnotation(job, v1.OpsJobAvailRatioAnnotation, "1.0")
 	}
 
 	if job.Spec.Cluster != "" {

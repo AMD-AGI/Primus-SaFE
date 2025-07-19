@@ -111,6 +111,7 @@ const (
 	OpsJobTypeLabel                 = OpsJobPrefix + "type"
 	OpsJobSecurityUpgradeAnnotation = OpsJobPrefix + "security.upgrade"
 	OpsJobBatchCountAnnotation      = OpsJobPrefix + "batch.count"
+	OpsJobAvailRatioAnnotation      = OpsJobPrefix + "avail.ratio"
 	// the job on node
 	OpsJobInputAnnotation = OpsJobPrefix + "input"
 	OpsJobFinalizer       = PrimusSafeDomain + "ops.job.finalizer"
