@@ -30,8 +30,8 @@ data:
       config_path: {{ default "/etc/secrets/log" (default .Values.log).mount_path }}
       endpoint: {{ default "primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200" (default .Values.log).endpoint }}
       prefix: "node-"
-      username: {{ default "" (default .Values.log).username }}
-      password: {{ default "" (default .Values.log).password }}
+      username: "{{ default "" (default .Values.log).username }}"
+      password: "{{ default "" (default .Values.log).password }}"
     ops_job:
       ttl_second: {{ default 300 (default .Values.ops_job).ttl_second }}
       timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
@@ -40,8 +40,8 @@ data:
       config_path: {{ default "/etc/secrets/s3" (default .Values.s3).mount_path }}
       endpoint: {{ .Values.s3.endpoint }}
       bucket: {{ .Values.s3.bucket }}
-      access-key: {{ default "" (default .Values.s3).access_key }}
-      secret-key: {{ default "" (default .Values.s3).secret_key }}
+      access-key: "{{ default "" (default .Values.s3).access_key }}"
+      secret-key: "{{ default "" (default .Values.s3).secret_key }}"
       expire_day: 0
 kind: ConfigMap
 metadata:

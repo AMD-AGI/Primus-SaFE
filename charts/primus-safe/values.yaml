@@ -3,16 +3,16 @@ net:
   nccl_ib_hca: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
   rdma_name: "rdma/hca"
 apiserver:
-  image: "apiserver:202507161012"
+  image: "apiserver:202507201700"
   replicas: 1
 resource_manager:
-  image: "resource-manager:202507141340"
+  image: "resource-manager:202507201700"
   replicas: 1
 job_manager:
   image: "job-manager:202507132300"
   replicas: 1
 webhooks:
-  image: "webhooks:202507132300"
+  image: "webhooks:202507201700"
   replicas: 1
 preprocess:
   image: "preprocess:202506152300"

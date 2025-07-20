@@ -31,8 +31,8 @@ data:
       config_path: {{ default "/etc/secrets/log" (default .Values.log).mount_path }}
       endpoint: {{ default "primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200" (default .Values.log).endpoint }}
       prefix: "node-"
-      username: {{ default "" (default .Values.log).username }}
-      password: {{ default "" (default .Values.log).password }}
+      username: "{{ default "" (default .Values.log).username }}"
+      password: "{{ default "" (default .Values.log).password }}"
     ssh:
       server_port: {{ default 2222 (default .Values.ssh).port }}
       enable: {{ .Values.ssh.enable }}
