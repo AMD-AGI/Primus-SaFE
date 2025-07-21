@@ -16,13 +16,15 @@ import (
 type CreateOpsJobRequest struct {
 	// the resource objects to be processed. e.g. {{"name": "node", "value": "node.id"}}
 	Inputs []v1.Parameter `json:"inputs"`
-	// valid values include: addon/dumplog
+	// valid values include: addon/dumplog/preflight
 	Type v1.OpsJobType `json:"type"`
 	// the cluster which the job belongs to
-	Cluster string `json:"cluster"`
+	// If the input refers to nodes in the cluster, this field may be left blank.
+	Cluster string `json:"cluster,omitempty"`
 	// job Timeout (in seconds), Less than or equal to 0 means no timeout
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
 	// the number of nodes to process simultaneously during the addon upgrade. default 1
+	// If the number exceeds the job's limit, it will be capped to the maximum available node count.
 	BatchCount int `json:"batchCount,omitempty"`
 	// Job Success Ratio: A percentage value used during the addon upgrade.
 	// The job is marked as successful if the number of successfully upgraded nodes exceeds total nodes * ratio.
