@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/spf13/viper"
-	"k8s.io/klog/v2"
 )
 
 func SetValue(key, value string) {
