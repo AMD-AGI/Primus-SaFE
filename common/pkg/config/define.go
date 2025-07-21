@@ -83,4 +83,8 @@ const (
 	s3AccessKey  = "access_key"
 	s3SecretKey  = "secret_key"
 	s3ExpireDay  = s3Prefix + "expire_day"
+
+	//addon
+	addonPrefix  = "addon."
+	addonDefault = addonPrefix + "default"
 )

@@ -6,6 +6,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -276,4 +277,16 @@ func getFromFile(configPath, item string) string {
 
 func GetRdmaName() string {
 	return getString(rdmaName, "")
+}
+
+func GetAddons(version *string) []string {
+	name := addonPrefix
+	if version != nil {
+		name = fmt.Sprintf("%s-%s", name, *version)
+	}
+	addons := getStrings(name)
+	if len(addons) > 0 {
+		return addons
+	}
+	return getStrings(addonDefault)
 }
