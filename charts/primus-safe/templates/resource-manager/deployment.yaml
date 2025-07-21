@@ -58,7 +58,12 @@ spec:
             {{- end }}
             {{- if and .Values.s3.enable (or (empty .Values.s3.access_key) (empty .Values.log.secret_key)) }}
             - name: s3-secret
-              mountPath: {{ default "/etc/secrets/s3" (default .Values.s3).mount_path }}
+              mountPath: {{ default "/etc/secrets/s3" (default .Values.s3).mount_path }}/access_key
+              subPath: "access-key"
+              readOnly: true
+            - name: s3-secret
+              mountPath: {{ default "/etc/secrets/s3" (default .Values.s3).mount_path }}/secret_key
+              subPath: "secret-key"
               readOnly: true
             {{- end }}
             {{- if and .Values.log.enable (or (empty .Values.log.username) (empty .Values.log.password)) }}

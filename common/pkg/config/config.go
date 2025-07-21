@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/spf13/viper"
+	"k8s.io/klog/v2"
 )
 
 func SetValue(key, value string) {
@@ -144,14 +145,14 @@ func GetLogServiceEndpoint() string {
 }
 
 func GetLogServiceUser() string {
-	if user := getString(logUser, ""); user != "" {
+	if user := getString(logPrefix+logUser, ""); len(user) > 0 {
 		return user
 	}
 	return getFromFile(logConfigPath, logUser)
 }
 
 func GetLogServicePasswd() string {
-	if passwd := getString(logPassword, ""); passwd != "" {
+	if passwd := getString(logPrefix+logPassword, ""); len(passwd) > 0 {
 		return passwd
 	}
 	return getFromFile(logConfigPath, logPassword)
@@ -231,14 +232,14 @@ func IsS3Enable() bool {
 }
 
 func GetS3AccessKey() string {
-	if ak := getString(s3AccessKey, ""); ak != "" {
+	if ak := getString(s3Prefix+s3AccessKey, ""); ak != "" {
 		return ak
 	}
 	return getFromFile(s3ConfigPath, s3AccessKey)
 }
 
 func GetS3SecretKey() string {
-	if sk := getString(s3SecretKey, ""); sk != "" {
+	if sk := getString(s3Prefix+s3SecretKey, ""); sk != "" {
 		return sk
 	}
 	return getFromFile(s3ConfigPath, s3SecretKey)
@@ -259,6 +260,7 @@ func GetS3ExpireDay() int32 {
 
 func getFromFile(configPath, item string) string {
 	path := getString(configPath, "")
+	klog.Infof("config: %s, access:%s", path, item)
 	data, err := os.ReadFile(filepath.Join(path, item))
 	if err != nil {
 		return ""

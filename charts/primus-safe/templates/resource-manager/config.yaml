@@ -40,8 +40,8 @@ data:
       config_path: {{ default "/etc/secrets/s3" (default .Values.s3).mount_path }}
       endpoint: {{ .Values.s3.endpoint }}
       bucket: {{ .Values.s3.bucket }}
-      access-key: "{{ default "" (default .Values.s3).access_key }}"
-      secret-key: "{{ default "" (default .Values.s3).secret_key }}"
+      access_key: "{{ default "" (default .Values.s3).access_key }}"
+      secret_key: "{{ default "" (default .Values.s3).secret_key }}"
       expire_day: 0
 kind: ConfigMap
 metadata:

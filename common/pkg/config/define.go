@@ -51,8 +51,8 @@ const (
 	logEnable        = logPrefix + "enable"
 	logConfigPath    = logPrefix + "config_path"
 	logEndpoint      = logPrefix + "endpoint"
-	logUser          = logPrefix + "username"
-	logPassword      = logPrefix + "password"
+	logUser          = "username"
+	logPassword      = "password"
 	logServicePrefix = logPrefix + "prefix"
 
 	// db
@@ -78,7 +78,7 @@ const (
 	s3ConfigPath = s3Prefix + "config_path"
 	s3Endpoint   = s3Prefix + "endpoint"
 	s3Bucket     = s3Prefix + "bucket"
-	s3AccessKey  = s3Prefix + "access-key"
-	s3SecretKey  = s3Prefix + "secret-key"
+	s3AccessKey  = "access_key"
+	s3SecretKey  = "secret_key"
 	s3ExpireDay  = s3Prefix + "expire_day"
 )
