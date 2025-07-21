@@ -260,7 +260,6 @@ func GetS3ExpireDay() int32 {
 
 func getFromFile(configPath, item string) string {
 	path := getString(configPath, "")
-	klog.Infof("config: %s, access:%s", path, item)
 	data, err := os.ReadFile(filepath.Join(path, item))
 	if err != nil {
 		return ""
