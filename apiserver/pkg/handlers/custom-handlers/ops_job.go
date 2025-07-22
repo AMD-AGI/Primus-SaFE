@@ -211,6 +211,9 @@ func generateOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
 	}
+	if req.GpuProduct != "" {
+		v1.SetLabel(job, v1.GpuProductNameLabel, strings.ToLower(req.GpuProduct))
+	}
 	return job
 }
 

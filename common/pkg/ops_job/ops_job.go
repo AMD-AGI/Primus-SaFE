@@ -73,13 +73,23 @@ func CleanupJobRelatedInfo(ctx context.Context, cli client.Client, opsJobId stri
 		}
 	}
 
+	workloadList := &v1.WorkloadList{}
+	if err := cli.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		return err
+	}
+	for _, workload := range workloadList.Items {
+		if err := cli.Delete(ctx, &workload); err != nil {
+			klog.ErrorS(err, "failed to delete workload")
+		}
+	}
+
 	faultList := &v1.FaultList{}
 	if err := cli.List(ctx, faultList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return err
 	}
 	for _, fault := range faultList.Items {
 		if err := cli.Delete(ctx, &fault); err != nil {
-			klog.Infof("delete addon fault, id: %s", fault.Name)
+			klog.ErrorS(err, "failed to delete fault")
 		}
 	}
 	return nil

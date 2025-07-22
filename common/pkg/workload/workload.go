@@ -77,14 +77,7 @@ func GetWorkloadTemplate(ctx context.Context, cli client.Client, workload *v1.Wo
 	if err := cli.List(ctx, configmapList, listOptions); err != nil {
 		return nil, err
 	}
-
-	if workload.Spec.Resource.GPUName != "" {
-		for i, item := range configmapList.Items {
-			if v1.GetGpuResourceName(&item) == workload.Spec.Resource.GPUName {
-				return &configmapList.Items[i], nil
-			}
-		}
-	} else if len(configmapList.Items) > 0 {
+	if len(configmapList.Items) > 0 {
 		return &configmapList.Items[0], nil
 	}
 	return nil, commonerrors.NewInternalError(
@@ -255,4 +248,26 @@ func GeneratePriorityClass(workload *v1.Workload) string {
 		strPriority = common.LowPriority
 	}
 	return commonutils.GeneratePriorityClass(clusterId, strPriority)
+}
+
+func GetFailedMessage(workload *v1.Workload) string {
+	switch workload.Status.Phase {
+	case v1.WorkloadFailed:
+		for _, pod := range workload.Status.Pods {
+			if pod.FailedMessage == nil {
+				continue
+			}
+			return pod.FailedMessage.Message
+		}
+		return "unknown failed reason"
+	case v1.WorkloadStopped:
+		return "workload is stopped"
+	case v1.WorkloadSucceeded:
+		return ""
+	default:
+		if !workload.GetDeletionTimestamp().IsZero() {
+			return "workload is stopped"
+		}
+		return ""
+	}
 }

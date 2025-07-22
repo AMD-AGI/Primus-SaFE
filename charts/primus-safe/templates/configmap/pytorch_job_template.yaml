@@ -8,7 +8,6 @@ metadata:
     primus-safe.workload.kind: PyTorchJob
     app.kubernetes.io/managed-by: Helm
   annotations:
-    primus-safe.gpu.resource.name: "amd.com/gpu"
     # The main container name should match the configuration defined in the template below
     primus-safe.main.container: pytorch
     meta.helm.sh/release-name: {{ .Release.Name }}

@@ -99,10 +99,7 @@ func (m *WorkloadMutator) Handle(ctx context.Context, req admission.Request) adm
 }
 
 func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Workload) bool {
-	workspace, err := getWorkspace(ctx, m.Client, workload.Spec.Workspace)
-	if err != nil {
-		return false
-	}
+	workspace, _ := getWorkspace(ctx, m.Client, workload.Spec.Workspace)
 	m.mutateGvk(workload)
 	m.mutateMeta(ctx, workload, workspace)
 
@@ -145,27 +142,29 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	if workload.Name != "" {
 		workload.Name = stringutil.NormalizeName(workload.Name)
 	}
-	if !hasOwnerReferences(workload, workspace.Name) {
-		if err := controllerutil.SetControllerReference(workspace, workload, m.Client.Scheme()); err != nil {
-			klog.ErrorS(err, "failed to SetControllerReference")
+	if workspace != nil {
+		if !hasOwnerReferences(workload, workspace.Name) {
+			if err := controllerutil.SetControllerReference(workspace, workload, m.Client.Scheme()); err != nil {
+				klog.ErrorS(err, "failed to SetControllerReference")
+			}
+		}
+		v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)
+		v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
+		if workspace.Spec.EnablePreempt {
+			v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, "true")
 		}
 	}
-	v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)
+
 	v1.SetLabel(workload, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	v1.SetLabel(workload, v1.WorkloadIdLabel, workload.Name)
-	v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
 	if v1.GetUserName(workload) != "" {
 		v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	}
-
 	if v1.GetMainContainer(workload) == "" {
 		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, workload)
 		if err == nil {
 			v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(cm))
 		}
-	}
-	if workspace.Spec.EnablePreempt {
-		v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, "true")
 	}
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
@@ -436,10 +435,10 @@ func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, o
 }
 
 func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Workload) error {
-	if err := v.validateWorkspace(ctx, workload); err != nil {
+	if err := v.validateRequiredParams(workload); err != nil {
 		return err
 	}
-	if err := v.validateRequiredParams(workload); err != nil {
+	if err := v.validateWorkspace(ctx, workload); err != nil {
 		return err
 	}
 	if err := v.validateService(workload); err != nil {
@@ -468,14 +467,14 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if v1.GetClusterId(workload) == "" {
 		errs = append(errs, fmt.Errorf("the cluster is empty"))
 	}
-	if workload.Spec.Workspace == "" {
+	if workload.Spec.Workspace == "" && !v1.IsSystemUser(workload) {
 		errs = append(errs, fmt.Errorf("the workspace is empty"))
-	}
-	if workload.Spec.Image == "" {
-		errs = append(errs, fmt.Errorf("the image is empty"))
 	}
 	if workload.Spec.EntryPoint == "" {
 		errs = append(errs, fmt.Errorf("the entryPoint is empty"))
+	}
+	if workload.Spec.Image == "" {
+		errs = append(errs, fmt.Errorf("the image is empty"))
 	}
 	if workload.Spec.GroupVersionKind.Empty() {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
@@ -551,6 +550,9 @@ func (v *WorkloadValidator) validateResourceValid(workload *v1.Workload) error {
 }
 
 func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.Workload) error {
+	if workload.Spec.Workspace == "" {
+		return nil
+	}
 	// workspace must exist
 	workspace, err := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
 	if err != nil {
@@ -670,6 +672,9 @@ func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Wor
 }
 
 func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Workload) error {
+	if v1.IsSystemUser(workload) {
+		return nil
+	}
 	scope := commonworkload.GetScope(workload)
 	if scope == "" {
 		return commonerrors.NewBadRequest(fmt.Sprintf("unknown workload kind, %s", workload.SpecKind()))

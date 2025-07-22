@@ -11,8 +11,10 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -192,6 +194,77 @@ func (r *OpsJobBaseReconciler) getFaultConfig(ctx context.Context, monitorId str
 		return nil, commonerrors.NewInternalError(fmt.Sprintf("fault config is disabled: %s", monitorId))
 	}
 	return config, nil
+}
+
+// Create a fault to block workload scheduling on the node for upgrade purposes
+func (r *OpsJobBaseReconciler) createFault(ctx context.Context,
+	job *v1.OpsJob, adminNode *v1.Node, monitorId, message string) error {
+	_, err := r.getFault(ctx, adminNode.Name, monitorId)
+	if err == nil || !apierrors.IsNotFound(err) {
+		return err
+	}
+	config, err := r.getFaultConfig(ctx, monitorId)
+	if err != nil {
+		return err
+	}
+	fault := &v1.Fault{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: commonfaults.GenerateFaultName(adminNode.Name, monitorId),
+			Labels: map[string]string{
+				v1.ClusterIdLabel: v1.GetClusterId(job),
+				v1.NodeIdLabel:    adminNode.Name,
+				v1.OpsJobIdLabel:  job.Name,
+			},
+		},
+		Spec: v1.FaultSpec{
+			MonitorId: monitorId,
+			Message:   message,
+			Action:    string(config.Action),
+			Node: &v1.FaultNode{
+				ClusterName: v1.GetClusterId(job),
+				AdminName:   adminNode.Name,
+				K8sName:     adminNode.GetK8sNodeName(),
+			},
+		},
+	}
+	if err = r.Create(ctx, fault); err != nil {
+		return err
+	}
+	klog.Infof("create fault, id: %s", fault.Name)
+	return nil
+}
+
+func (r *OpsJobBaseReconciler) getInputNodes(ctx context.Context, job *v1.OpsJob) ([]*v1.Node, error) {
+	var results []*v1.Node
+	isNodeSpecified := false
+	for _, p := range job.Spec.Inputs {
+		if p.Name != v1.ParameterNode {
+			continue
+		}
+		isNodeSpecified = true
+		node, err := r.getAdminNode(ctx, p.Value)
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				return nil, err
+			}
+		} else {
+			results = append(results, node)
+		}
+	}
+	if isNodeSpecified {
+		return results, nil
+	}
+
+	// If not specified the nodes, apply to all nodes in the cluster, except for the master.
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: job.Spec.Cluster})
+	nodeList := &v1.NodeList{}
+	if err := r.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		return nil, err
+	}
+	for i := range nodeList.Items {
+		results = append(results, &nodeList.Items[i])
+	}
+	return results, nil
 }
 
 func jobPhaseChangedPredicate() predicate.Predicate {

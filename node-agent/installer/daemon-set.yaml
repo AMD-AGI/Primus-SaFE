@@ -87,12 +87,12 @@ spec:
           name: primus-safe-node-agent
           resources:
             limits:
-              cpu: "1000m"
-              memory: 250Mi
+              cpu: "1500m"
+              memory: 300Mi
               ephemeral-storage: 2Gi
             requests:
-              cpu: "1000m"
-              memory: 250Mi
+              cpu: "1500m"
+              memory: 300Mi
               ephemeral-storage: 2Gi
           securityContext:
             privileged: true

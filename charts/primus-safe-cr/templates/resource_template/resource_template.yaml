@@ -235,3 +235,41 @@ spec:
     prePaths:
       - status
     replicaPath: availableReplicas
+---
+apiVersion: 01ai.xcs/v1
+kind: ResourceTemplate
+metadata:
+  name: job
+spec:
+  groupVersionKind:
+    group: batch
+    version: v1
+    kind: Job
+  resourceSpecs:
+    - prePaths:
+        - spec
+      templatePaths:
+        - template
+      replicasPaths:
+        - parallelism
+  resourceStatus:
+    prePaths:
+      - status
+      - conditions
+    messagePaths:
+      - message
+    reasonPaths:
+      - reason
+    phases:
+      - matchExpressions:
+          status: 'True'
+          type: Complete
+        phase: K8sSucceeded
+      - matchExpressions:
+          status: 'True'
+          type: Failed
+        phase: K8sFailed
+  activeReplica:
+    prePaths:
+      - status
+    replicaPath: active

@@ -202,9 +202,11 @@ func (r *DispatcherReconciler) buildPort(ctx context.Context, workload *v1.Workl
 func (r *DispatcherReconciler) createK8sObject(ctx context.Context,
 	adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
 	workspace := &v1.Workspace{}
-	err := r.Get(ctx, client.ObjectKey{Name: adminWorkload.Spec.Workspace}, workspace)
-	if err != nil {
-		return nil, err
+	if adminWorkload.Spec.Workspace != "" {
+		err := r.Get(ctx, client.ObjectKey{Name: adminWorkload.Spec.Workspace}, workspace)
+		if err != nil {
+			return nil, err
+		}
 	}
 	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
 	if err != nil {
@@ -257,6 +259,9 @@ func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1
 	cond := jobutils.NewCondition(string(v1.AdminDispatched), "the workload is dispatched", reason)
 	if jobutils.FindCondition(workload, cond) == nil {
 		workload.Status.Conditions = append(workload.Status.Conditions, *cond)
+		if workload.Status.Phase == "" {
+			workload.Status.Phase = v1.WorkloadPending
+		}
 		if err := r.Status().Update(ctx, workload); err != nil {
 			klog.ErrorS(err, "failed to update workload", "name", workload.Name)
 			return err

@@ -96,6 +96,7 @@ const (
 	UserPrefix         = PrimusSafePrefix + "user."
 	UserNameAnnotation = UserPrefix + "name"
 	UserNameMd5Label   = UserPrefix + "name.md5"
+	SystemUser         = "system"
 
 	// secret
 	SecretPrefix    = PrimusSafePrefix + "secret."

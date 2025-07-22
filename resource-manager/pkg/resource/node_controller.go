@@ -640,6 +640,9 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	clientSet kubernetes.Interface, adminNode *v1.Node, k8sNode *corev1.Node) error {
 	labels := map[string]string{}
 	for k, v := range adminNode.Labels {
+		if k == v1.DisplayNameLabel {
+			continue
+		}
 		if v != k8sNode.Labels[k] {
 			labels[k] = v
 		}
@@ -914,7 +917,7 @@ func (r *NodeReconciler) installAddonsOnNode(ctx context.Context, adminNode *v1.
 	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: "system",
+				v1.UserNameAnnotation: v1.SystemUser,
 			},
 		},
 		Spec: v1.OpsJobSpec{

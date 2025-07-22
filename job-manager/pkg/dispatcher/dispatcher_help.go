@@ -169,28 +169,29 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Work
 	volumeMounts := mainContainer["volumeMounts"].([]interface{})
 	volumeMount := buildSharedMemoryVolumeMount()
 	volumeMounts = append(volumeMounts, volumeMount...)
-	id := 0
-	for _, vol := range workspace.Spec.Volumes {
-		volumeName := string(vol.StorageType)
-		if vol.StorageType == v1.HOSTPATH {
-			volumeName = generateVolumeName(volumeName, id)
-			id++
+	if workspace != nil {
+		id := 0
+		for _, vol := range workspace.Spec.Volumes {
+			volumeName := string(vol.StorageType)
+			if vol.StorageType == v1.HOSTPATH {
+				volumeName = generateVolumeName(volumeName, id)
+				id++
+			}
+			volumeMount = buildWorkspaceVolumeMount(vol, volumeName)
+			volumeMounts = append(volumeMounts, volumeMount...)
 		}
-		volumeMount = buildWorkspaceVolumeMount(vol, volumeName)
-		volumeMounts = append(volumeMounts, volumeMount...)
 	}
 	mainContainer["volumeMounts"] = volumeMounts
 }
 
 func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path []string) error {
+	if workspace == nil || len(workspace.Spec.Volumes) == 0 {
+		return nil
+	}
 	volumes, _, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
 		return err
 	}
-	if len(workspace.Spec.Volumes) == 0 {
-		return nil
-	}
-
 	volumeSets := sets.NewSet()
 	id := 0
 	for _, vol := range workspace.Spec.Volumes {
@@ -427,11 +428,13 @@ func buildPvcVolume(volumeName string) interface{} {
 
 func buildMatchExpression(adminWorkload *v1.Workload) []interface{} {
 	var result []interface{}
-	result = append(result, map[string]interface{}{
-		"key":      v1.WorkspaceIdLabel,
-		"operator": "In",
-		"values":   []interface{}{adminWorkload.Spec.Workspace},
-	})
+	if adminWorkload.Spec.Workspace != "" {
+		result = append(result, map[string]interface{}{
+			"key":      v1.WorkspaceIdLabel,
+			"operator": "In",
+			"values":   []interface{}{adminWorkload.Spec.Workspace},
+		})
+	}
 	for key, val := range adminWorkload.Spec.CustomerLabels {
 		result = append(result, map[string]interface{}{
 			"key":      key,

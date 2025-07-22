@@ -35,7 +35,7 @@ var (
 )
 
 var (
-	sleepTime = 5 * time.Second
+	sleepTime = 3 * time.Second
 )
 
 type Node struct {

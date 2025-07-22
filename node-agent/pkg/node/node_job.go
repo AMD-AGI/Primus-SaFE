@@ -43,15 +43,19 @@ func (job *NodeJob) reconcile(n *Node) error {
 	if quit || err != nil {
 		return err
 	}
-	jobId := v1.GetOpsJobId(n.k8sNode)
 	if err = job.handle(n); err != nil {
-		klog.ErrorS(err, "failed to handle job", "jobid", jobId)
-		addJobCondition(n, jobId, err.Error(), corev1.ConditionFalse)
+		if jobId := v1.GetOpsJobId(n.k8sNode); jobId != "" {
+			klog.ErrorS(err, "failed to handle job", "jobid", jobId)
+			addJobCondition(n, jobId, err.Error(), corev1.ConditionFalse)
+		}
 		return err
 	}
+
 	// If adding the condition fails, the system will retry.
-	if addJobCondition(n, jobId, "", corev1.ConditionTrue) == nil {
-		klog.Infof("job(%s) process successfully.", jobId)
+	if jobId := v1.GetOpsJobId(n.k8sNode); jobId != "" {
+		if addJobCondition(n, jobId, "", corev1.ConditionTrue) == nil {
+			klog.Infof("job(%s) process successfully.", jobId)
+		}
 	}
 	return nil
 }
@@ -109,7 +113,6 @@ func (job *NodeJob) handle(n *Node) error {
 	if jobInput == nil || len(jobInput.Commands) == 0 {
 		return fmt.Errorf("invalid input")
 	}
-	jobId := v1.GetOpsJobId(n.k8sNode)
 	addonConditions := make([]corev1.NodeCondition, 0, len(jobInput.Commands))
 
 	for i, cmd := range jobInput.Commands {
@@ -121,10 +124,15 @@ func (job *NodeJob) handle(n *Node) error {
 		}
 		var err error
 		message := ""
+		jobId := v1.GetOpsJobId(n.k8sNode)
 		if jobInput.Commands[i].IsSystemd {
 			err = job.executeSystemd(jobId, cmd)
 		} else {
 			message, err = job.executeCommand(jobId, cmd)
+		}
+		// Check again — the task may be gone.
+		if v1.GetOpsJobId(n.k8sNode) == "" {
+			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("failed to execute %s, %s", cmd.Addon, err.Error())
@@ -141,7 +149,7 @@ func (job *NodeJob) handle(n *Node) error {
 		return fmt.Errorf("no addon is applicable to the node")
 	}
 	if err := addAddonConditions(n, addonConditions); err != nil {
-		klog.ErrorS(err, "failed to add addon condition", "job", jobId)
+		klog.ErrorS(err, "failed to add addon condition", "job", v1.GetOpsJobId(n.k8sNode))
 	}
 	return nil
 }
