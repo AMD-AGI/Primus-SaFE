@@ -210,7 +210,7 @@ func (r *DispatcherReconciler) createK8sObject(ctx context.Context,
 	}
 	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
 	if err != nil {
-		klog.ErrorS(err, "", "gvk", adminWorkload.Spec.GroupVersionKind)
+		klog.Error(err.Error())
 		return nil, err
 	}
 
@@ -470,7 +470,12 @@ func updateMainContainer(adminWorkload *v1.Workload,
 }
 
 func updateContainerEnv(adminWorkload *v1.Workload, mainContainer map[string]interface{}) {
-	currentEnv := mainContainer["env"].([]interface{})
+	var currentEnv []interface{}
+	envObjs, ok := mainContainer["env"]
+	if ok {
+		currentEnv = envObjs.([]interface{})
+	}
+
 	newEnv := make([]interface{}, 0, len(currentEnv))
 	currentEnvSet := sets.NewSet()
 	isChanged := false

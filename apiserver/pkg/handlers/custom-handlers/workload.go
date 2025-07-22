@@ -384,6 +384,9 @@ func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, w
 }
 
 func generateWorkload(req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
+	if req.UserName == v1.SystemUser {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf("The %s user is a reserved system account.", v1.SystemUser))
+	}
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName(req.DisplayName),

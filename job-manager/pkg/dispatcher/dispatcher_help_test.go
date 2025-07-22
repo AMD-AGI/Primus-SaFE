@@ -52,10 +52,10 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, len(values) == 0, false)
-	obj2, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
+	mainContainer, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
 	assert.NilError(t, err)
 
-	ports, found, err := unstructured.NestedSlice(obj2, []string{"ports"}...)
+	ports, found, err := unstructured.NestedSlice(mainContainer, []string{"ports"}...)
 	assert.NilError(t, err)
 	assert.Equal(t, len(ports) >= 1, true)
 
@@ -79,9 +79,9 @@ func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Worklo
 	assert.Equal(t, found, true)
 	assert.Equal(t, len(values) == 0, false)
 
-	obj2, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
+	mainContainer, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
 	assert.NilError(t, err)
-	envs, found, err := unstructured.NestedSlice(obj2, []string{"env"}...)
+	envs, found, err := unstructured.NestedSlice(mainContainer, []string{"env"}...)
 	assert.NilError(t, err)
 
 	for key, val := range workload.Spec.Env {
@@ -95,12 +95,15 @@ func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Worklo
 	}
 	ok := findEnv(envs, "HANG_CHECK_INTERVAL", "")
 	assert.Equal(t, ok, false)
-	if v1.IsEnableHostNetwork(workload) {
-		ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "ens51f0")
-		assert.Equal(t, ok, true)
-	} else {
-		ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "eth0")
-		assert.Equal(t, ok, true)
+
+	if workload.Spec.GroupVersionKind.Kind != common.JobKind {
+		if v1.IsEnableHostNetwork(workload) {
+			ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "ens51f0")
+			assert.Equal(t, ok, true)
+		} else {
+			ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "eth0")
+			assert.Equal(t, ok, true)
+		}
 	}
 }
 
@@ -134,10 +137,10 @@ func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, resourceSpe
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, len(values) == 0, false)
-	obj2, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
+	mainContainer, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
 	assert.NilError(t, err)
 
-	volumeMounts, found, err := unstructured.NestedSlice(obj2, []string{"volumeMounts"}...)
+	volumeMounts, found, err := unstructured.NestedSlice(mainContainer, []string{"volumeMounts"}...)
 	assert.NilError(t, err)
 
 	volumeMount := findVolumeMount(volumeMounts, SharedMemoryVolume)
@@ -233,27 +236,37 @@ func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, worklo
 	matchExpressionObj, ok := affinity["matchExpressions"]
 	assert.Equal(t, ok, true)
 	matchExpressionsSlice := matchExpressionObj.([]interface{})
-	assert.Equal(t, len(matchExpressionsSlice), 3)
+	totalExpressions := len(workload.Spec.CustomerLabels)
+	if workload.Spec.Workspace != "" {
+		totalExpressions++
+	}
+	assert.Equal(t, len(matchExpressionsSlice), totalExpressions)
+	if totalExpressions == 0 {
+		return
+	}
 
-	matchExpression := matchExpressionsSlice[0].(map[string]interface{})
+	if workload.Spec.Workspace != "" {
+		matchExpression := matchExpressionsSlice[0].(map[string]interface{})
+		key, ok := matchExpression["key"]
+		assert.Equal(t, ok, true)
+		assert.Equal(t, key, v1.WorkspaceIdLabel)
+		values, ok := matchExpression["values"]
+		assert.Equal(t, ok, true)
+		valuesSlice := values.([]interface{})
+		assert.Equal(t, len(valuesSlice), 1)
+		assert.Equal(t, valuesSlice[0].(string), workload.Spec.Workspace)
+	}
+
+	matchExpression := matchExpressionsSlice[totalExpressions-1].(map[string]interface{})
 	key, ok := matchExpression["key"]
 	assert.Equal(t, ok, true)
-	assert.Equal(t, key, v1.WorkspaceIdLabel)
+	val, ok := workload.Spec.CustomerLabels[key.(string)]
+	assert.Equal(t, ok, true)
 	values, ok := matchExpression["values"]
 	assert.Equal(t, ok, true)
 	valuesSlice := values.([]interface{})
 	assert.Equal(t, len(valuesSlice), 1)
-	assert.Equal(t, valuesSlice[0].(string), workload.Spec.Workspace)
-
-	matchExpression = matchExpressionsSlice[1].(map[string]interface{})
-	key, ok = matchExpression["key"]
-	assert.Equal(t, ok, true)
-	assert.Equal(t, key == "key1" || key == "key2", true)
-	values, ok = matchExpression["values"]
-	assert.Equal(t, ok, true)
-	valuesSlice = values.([]interface{})
-	assert.Equal(t, len(valuesSlice), 1)
-	assert.Equal(t, valuesSlice[0].(string) == "val1" || valuesSlice[0].(string) == "val2", true)
+	assert.Equal(t, valuesSlice[0].(string) == val, true)
 }
 
 func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
@@ -336,4 +349,35 @@ func checkPriorityClass(t *testing.T, obj *unstructured.Unstructured, workload *
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 	assert.Equal(t, priorityClassName, commonworkload.GeneratePriorityClass(workload))
+}
+
+func checkSecurityContext(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec) {
+	containerPath := append(template.PrePaths, template.TemplatePaths...)
+	containerPath = append(containerPath, "spec", "containers")
+
+	values, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, len(values) == 0, false)
+	mainContainer, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
+	assert.NilError(t, err)
+
+	securityContext, found, err := unstructured.NestedMap(mainContainer, []string{"securityContext"}...)
+	assert.NilError(t, err)
+	privileged, ok := securityContext["privileged"]
+	if v1.IsSystemUser(workload) {
+		assert.Equal(t, ok, true)
+		assert.Equal(t, privileged.(bool), true)
+	} else {
+		assert.Equal(t, ok, false)
+	}
+
+	obj2, ok := securityContext["capabilities"]
+	assert.Equal(t, ok, true)
+	capabilities, ok := obj2.(map[string]interface{})
+	assert.Equal(t, ok, true)
+	obj2, ok = capabilities["add"]
+	assert.Equal(t, ok, true)
+	add, ok := obj2.([]interface{})
+	assert.Equal(t, len(add) > 0, true)
 }

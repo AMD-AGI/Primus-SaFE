@@ -169,15 +169,13 @@ metadata:
 spec:
   backoffLimit: 0
   completionMode: NonIndexed
-  completions: 1
+  completions: 2
   parallelism: 2
   suspend: false
   template:
     metadata:
-      creationTimestamp: null
       labels:
         primus-safe.workload.id: test-abcd
-        job-name: test-abcd
     spec:
       affinity:
         nodeAffinity:
@@ -191,13 +189,16 @@ spec:
       containers:
       - command:
         - sleep 10s; exit 3
-        image: /docker.hub/test-image:0.0.1
+        image: docker.hub/test-image:0.0.1
         imagePullPolicy: IfNotPresent
         name: job
         resources:
           limits:
             cpu: "1"
             memory: 100Mi
+        securityContext:
+          capabilities:
+            add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
       dnsPolicy: ClusterFirst
@@ -461,17 +462,21 @@ var (
 	TestJobTemplate = &v1.ResourceTemplate{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "job",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+				v1.WorkloadKindLabel:    common.JobKind,
+			},
 		},
 		Spec: v1.ResourceTemplateSpec{
 			GroupVersionKind: v1.GroupVersionKind{
 				Group:   "batch",
 				Version: "v1",
-				Kind:    "Job",
+				Kind:    common.JobKind,
 			},
 			ResourceSpecs: []v1.ResourceSpec{{
 				PrePaths:      []string{"spec"},
 				TemplatePaths: []string{"template"},
-				ReplicasPaths: []string{"replicas"},
+				ReplicasPaths: []string{"parallelism"},
 			}},
 			ResourceStatus: v1.ResourceStatus{
 				PrePaths:     []string{"status", "conditions"},

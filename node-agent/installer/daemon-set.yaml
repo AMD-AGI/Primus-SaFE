@@ -136,7 +136,6 @@ spec:
       priorityClassName: system-cluster-critical
       restartPolicy: Always
       schedulerName: default-scheduler
-      securityContext: {}
       tolerations:
         - effect: NoSchedule
           operator: Exists

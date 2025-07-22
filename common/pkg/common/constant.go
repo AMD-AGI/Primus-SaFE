@@ -14,6 +14,7 @@ const (
 
 	AuthoringKind   = "Authoring"
 	PytorchJobKind  = "PyTorchJob"
+	JobKind         = "Job"
 	DeploymentKind  = "Deployment"
 	StatefulSetKind = "StatefulSet"
 	PodKind         = "Pod"

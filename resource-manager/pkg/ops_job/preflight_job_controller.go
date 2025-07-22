@@ -262,8 +262,8 @@ func genPreflightWorkload(job *v1.OpsJob, adminNode *v1.Node) *v1.Workload {
 		Spec: v1.WorkloadSpec{
 			EntryPoint: fmt.Sprintf("GPU_PRODUCT=%s bash run.sh", v1.GetGpuProductName(job)),
 			GroupVersionKind: v1.GroupVersionKind{
-				Version: "v1",
-				Kind:    "Job",
+				Version: common.DefaultVersion,
+				Kind:    common.JobKind,
 			},
 			IsTolerateAll: true,
 			Priority:      common.HighPriorityInt,

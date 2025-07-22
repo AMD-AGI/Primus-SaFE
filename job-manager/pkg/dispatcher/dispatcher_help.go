@@ -126,8 +126,8 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 	}
 	env := buildEnvironment(adminWorkload)
 	modifyEnv(mainContainer, env, v1.IsEnableHostNetwork(adminWorkload))
-
 	modifyVolumeMounts(mainContainer, workspace)
+	modifySecurityContext(mainContainer, adminWorkload)
 	mainContainer["ports"] = buildPorts(adminWorkload)
 	if healthz := buildHealthCheck(adminWorkload.Spec.Liveness); healthz != nil {
 		mainContainer["livenessProbe"] = healthz
@@ -145,7 +145,12 @@ func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNe
 	if len(env) == 0 && isHostNetwork {
 		return
 	}
-	currentEnv := mainContainer["env"].([]interface{})
+	var currentEnv []interface{}
+	envObjs, ok := mainContainer["env"]
+	if ok {
+		currentEnv = envObjs.([]interface{})
+	}
+
 	if !isHostNetwork {
 		for i := range currentEnv {
 			envObj := currentEnv[i].(map[string]interface{})
@@ -166,7 +171,12 @@ func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNe
 }
 
 func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Workspace) {
-	volumeMounts := mainContainer["volumeMounts"].([]interface{})
+	var volumeMounts []interface{}
+	volumeMountObjs, ok := mainContainer["volumeMounts"]
+	if ok {
+		volumeMounts = volumeMountObjs.([]interface{})
+	}
+
 	volumeMount := buildSharedMemoryVolumeMount()
 	volumeMounts = append(volumeMounts, volumeMount...)
 	if workspace != nil {
@@ -213,6 +223,21 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 		return err
 	}
 	return nil
+}
+
+func modifySecurityContext(mainContainer map[string]interface{}, workload *v1.Workload) {
+	if !v1.IsSystemUser(workload) || v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) {
+		return
+	}
+	securityContext, ok := mainContainer["securityContext"].(map[string]interface{})
+	if !ok {
+		mainContainer["securityContext"] = map[string]interface{}{
+			"privileged": true,
+		}
+		return
+	}
+	securityContext["privileged"] = true
+	mainContainer["securityContext"] = securityContext
 }
 
 func modifyPriorityClass(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
@@ -309,7 +334,7 @@ func buildResources(adminWorkload *v1.Workload) map[string]interface{} {
 	if adminWorkload.Spec.Resource.GPU != "" {
 		result[adminWorkload.Spec.Resource.GPUName] = adminWorkload.Spec.Resource.GPU
 	}
-	if adminWorkload.Spec.Resource.RdmaResource != "" {
+	if adminWorkload.Spec.Resource.RdmaResource != "" && commonconfig.GetRdmaName() != "" {
 		result[commonconfig.GetRdmaName()] = adminWorkload.Spec.Resource.RdmaResource
 	}
 	return result
