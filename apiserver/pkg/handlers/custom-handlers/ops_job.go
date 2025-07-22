@@ -56,7 +56,7 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 	var job *v1.OpsJob
 	switch req.Type {
 	case v1.OpsJobAddonType, v1.OpsJobPreflightType:
-		job, err = h.generateAddonJob(ctx, req)
+		job, err = h.generateDefaultJob(ctx, req)
 	case v1.OpsJobDumpLogType:
 		job, err = h.generateDumpLogJob(ctx, req)
 	default:
@@ -147,7 +147,7 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) generateAddonJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+func (h *Handler) generateDefaultJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
 	job := generateOpsJob(req)
 	if job.Spec.Cluster == "" {
 		if nodeParam := job.GetParameter(v1.ParameterNode); nodeParam != nil {

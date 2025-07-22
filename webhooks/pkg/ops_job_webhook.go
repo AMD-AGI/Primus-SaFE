@@ -179,10 +179,12 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 	}
 	var err error
 	switch job.Spec.Type {
-	case v1.OpsJobAddonType, v1.OpsJobPreflightType:
+	case v1.OpsJobAddonType:
 		if err = v.validateAddonTemplate(ctx, job); err != nil {
 			break
 		}
+		err = v.validateNodeDuplicated(ctx, job)
+	case v1.OpsJobPreflightType:
 		err = v.validateNodeDuplicated(ctx, job)
 	case v1.OpsJobDumpLogType:
 		err = v.validateDumplogDuplicated(ctx, job)
