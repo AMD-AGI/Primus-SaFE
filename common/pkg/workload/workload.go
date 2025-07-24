@@ -217,6 +217,10 @@ func IsAuthoring(w *v1.Workload) bool {
 	return false
 }
 
+func IsOpsJob(w *v1.Workload) bool {
+	return v1.GetOpsJobId(w) != ""
+}
+
 func IsResourceEqual(workload1, workload2 *v1.Workload) bool {
 	if workload1.Spec.Resource.Replica != workload2.Spec.Resource.Replica {
 		return false

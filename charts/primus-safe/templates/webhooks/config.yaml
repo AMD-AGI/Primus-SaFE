@@ -16,6 +16,7 @@ data:
       cpu_reserve_percent: {{ default 0.06 (default .Values.workspace).cpu_reserve_percent }}
       ephemeral_store_reserve_percent: {{ default 0.1 (default .Values.workspace).ephemeral_store_reserve_percent }}
     workload:
+      ttl_second: {{ default 60 (default .Values.workload).ttl_second }}
       max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
     ssh:
       enable: {{ .Values.ssh.enable }}

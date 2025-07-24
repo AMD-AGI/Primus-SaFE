@@ -332,12 +332,12 @@ func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 		return
 	}
 	if workload.Spec.TTLSecondsAfterFinished == nil {
-		workload.Spec.TTLSecondsAfterFinished = ptr.To(DefaultWorkloadTTL)
+		workload.Spec.TTLSecondsAfterFinished = ptr.To(commonconfig.GetWorkloadTTLSecond())
 	}
 }
 
 func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
-	if commonworkload.IsAuthoring(workload) {
+	if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
 		return
 	}
 	if !stringutil.IsBase64(workload.Spec.EntryPoint) {
@@ -467,7 +467,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if v1.GetClusterId(workload) == "" {
 		errs = append(errs, fmt.Errorf("the cluster is empty"))
 	}
-	if workload.Spec.Workspace == "" && !v1.IsSystemUser(workload) {
+	if workload.Spec.Workspace == "" && !commonworkload.IsOpsJob(workload) {
 		errs = append(errs, fmt.Errorf("the workspace is empty"))
 	}
 	if workload.Spec.EntryPoint == "" {
@@ -672,7 +672,7 @@ func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Wor
 }
 
 func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Workload) error {
-	if v1.IsSystemUser(workload) {
+	if commonworkload.IsOpsJob(workload) {
 		return nil
 	}
 	scope := commonworkload.GetScope(workload)

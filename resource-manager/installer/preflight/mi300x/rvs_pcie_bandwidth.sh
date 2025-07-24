@@ -10,23 +10,20 @@
 
 dpkg -l | grep -q rocm-validation-suite
 if [ $? -ne 0 ]; then
-  apt-get update >/dev/null 2>&1
-  apt install -y rocm-validation-suite >/dev/null 2>error
+  apt-get update >/dev/null && apt install -y rocm-validation-suite >/dev/null
   if [ $? -ne 0 ]; then
-    cat error && rm -f error
     echo "[ERROR] failed to install rocm-validation-suite"
     exit 1
   fi
-  rm -f error
 fi
 
 export PATH=$PATH:/opt/rocm/bin
 export RVS_CONF=/opt/rocm/share/rocm-validation-suite/conf
 LOG_FILE="/tmp/bandwidth.log"
-rvs -c "${RVS_CONF}/MI300X/pebb_single.conf" -l pebb.txt >$LOG_FILE 2>&1
+rvs -c "${RVS_CONF}/MI300X/pebb_single.conf" -l pebb.txt >$LOG_FILE
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
-  cat $LOG_FILE && rm -f $LOG_FILE
+  rm -f $LOG_FILE
   echo "[RvsPcieBandwidth] [ERROR] rvs failed with exit code: $EXIT_CODE"
   exit 1
 fi

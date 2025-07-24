@@ -236,10 +236,17 @@ spec:
       - status
     replicaPath: availableReplicas
 ---
-apiVersion: 01ai.xcs/v1
+apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
   name: job
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.workload.kind: Job
+    primus-safe.workload.version: v1
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   groupVersionKind:
     group: batch

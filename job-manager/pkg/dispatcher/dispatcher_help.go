@@ -226,7 +226,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 }
 
 func modifySecurityContext(mainContainer map[string]interface{}, workload *v1.Workload) {
-	if !v1.IsSystemUser(workload) || v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) {
+	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) {
 		return
 	}
 	securityContext, ok := mainContainer["securityContext"].(map[string]interface{})
@@ -309,13 +309,18 @@ func getMainContainer(containers []interface{}, mainContainerName string) (map[s
 	return mainContainer, nil
 }
 
-func buildCommands(entryPoint string) []interface{} {
-	return []interface{}{"/bin/sh", "-c", buildEntryPoint(entryPoint)}
+func buildCommands(adminWorkload *v1.Workload) []interface{} {
+	return []interface{}{"/bin/sh", "-c", buildEntryPoint(adminWorkload)}
 }
 
-func buildEntryPoint(entryPoint string) string {
-	entryPoint = Launcher + " '" + entryPoint + "'"
-	return entryPoint
+func buildEntryPoint(adminWorkload *v1.Workload) string {
+	result := ""
+	if commonworkload.IsOpsJob(adminWorkload) {
+		result = adminWorkload.Spec.EntryPoint
+	} else {
+		result = Launcher + " '" + adminWorkload.Spec.EntryPoint + "'"
+	}
+	return result
 }
 
 func buildLabels(adminWorkload *v1.Workload) map[string]interface{} {

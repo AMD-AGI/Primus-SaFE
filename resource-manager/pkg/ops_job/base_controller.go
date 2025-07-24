@@ -76,6 +76,9 @@ func (r *OpsJobBaseReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	result, err := component.handle(ctx, job)
 	if err != nil {
 		klog.ErrorS(err, "failed to handle job", "job", job.Name)
+		if utils.IsNonRetryableError(err) {
+			err = r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
+		}
 	}
 	return result, err
 }

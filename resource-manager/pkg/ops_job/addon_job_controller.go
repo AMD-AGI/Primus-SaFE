@@ -257,7 +257,6 @@ func (r *AddonJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlru
 	if job.IsPending() {
 		return r.setJobRunning(ctx, job)
 	}
-
 	return r.handleImpl(ctx, job)
 }
 

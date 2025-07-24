@@ -28,7 +28,6 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -112,6 +111,11 @@ func (m *OpsJobMutator) mutateJobSpec(job *v1.OpsJob) {
 }
 
 func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) {
+	m.toAddonTemplates(ctx, job)
+	m.removeDuplicates(job)
+}
+
+func (m *OpsJobMutator) toAddonTemplates(ctx context.Context, job *v1.OpsJob) {
 	param := job.GetParameter(v1.ParameterNodeTemplate)
 	if param == nil {
 		return
@@ -120,21 +124,26 @@ func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) {
 	if err := m.Get(ctx, client.ObjectKey{Name: param.Value}, nt); err != nil {
 		return
 	}
-	currentAddOns := sets.NewSet()
-	for _, p := range job.Spec.Inputs {
-		if p.Name == v1.ParameterAddonTemplate {
-			currentAddOns.Insert(p.Value)
-		}
-	}
 	for _, addOn := range nt.Spec.AddOnTemplates {
-		if currentAddOns.Has(addOn) {
-			continue
-		}
 		job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{
 			Name:  v1.ParameterAddonTemplate,
 			Value: addOn,
 		})
 	}
+}
+
+func (m *OpsJobMutator) removeDuplicates(job *v1.OpsJob) {
+	uniqMap := make(map[string]string)
+	uniqInputs := make([]v1.Parameter, 0, len(job.Spec.Inputs))
+	for i, in := range job.Spec.Inputs {
+		val, ok := uniqMap[in.Name]
+		if ok && val == in.Value {
+			continue
+		}
+		uniqInputs = append(uniqInputs, job.Spec.Inputs[i])
+		uniqMap[in.Name] = in.Value
+	}
+	job.Spec.Inputs = uniqInputs
 }
 
 type OpsJobValidator struct {

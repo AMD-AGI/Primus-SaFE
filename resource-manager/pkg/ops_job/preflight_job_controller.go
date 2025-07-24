@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -29,8 +30,10 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 )
 
 type PreflightJob struct {
@@ -47,6 +50,9 @@ type PreflightJobReconciler struct {
 }
 
 func SetupPreflightJobController(mgr manager.Manager) error {
+	if commonconfig.GetPreflightImage() == "" {
+		return nil
+	}
 	r := &PreflightJobReconciler{
 		OpsJobBaseReconciler: &OpsJobBaseReconciler{
 			Client: mgr.GetClient(),
@@ -156,10 +162,6 @@ func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ct
 	if !job.IsPending() {
 		return ctrlruntime.Result{}, nil
 	}
-	if commonconfig.GetPreflightImage() == "" {
-		err := r.setJobCompleted(ctx, job, v1.OpsJobFailed, "the image for preflight is not set", nil)
-		return ctrlruntime.Result{}, err
-	}
 	if err := r.handleImpl(ctx, job); err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -171,9 +173,16 @@ func (r *PreflightJobReconciler) handleImpl(ctx context.Context, job *v1.OpsJob)
 	if err != nil {
 		return err
 	}
-	workloads := make([]*v1.Workload, len(inputNodes))
+	totalNum := len(inputNodes)
+	workloads := make([]*v1.Workload, totalNum)
+	ch := make(chan int, totalNum)
+	defer close(ch)
 	for i, n := range inputNodes {
-		workloads[i] = genPreflightWorkload(job, n)
+		workloads[i], err = r.genPreflightWorkload(ctx, job, n)
+		if err != nil {
+			return err
+		}
+		ch <- i
 	}
 
 	r.Lock()
@@ -183,9 +192,12 @@ func (r *PreflightJobReconciler) handleImpl(ctx context.Context, job *v1.OpsJob)
 		preflightJob = &PreflightJob{allWorkloads: make(map[string]v1.WorkloadPhase)}
 		r.allJobs[job.Name] = preflightJob
 	}
-	for i, w := range workloads {
+
+	_, err = concurrent.Exec(totalNum, func() error {
+		i := <-ch
+		w := workloads[i]
 		if _, ok = preflightJob.allWorkloads[w.Name]; ok {
-			continue
+			return nil
 		}
 		err = r.createFault(ctx, job, inputNodes[i], common.PreflightMonitorId, "preflight check")
 		if err != nil {
@@ -196,6 +208,10 @@ func (r *PreflightJobReconciler) handleImpl(ctx context.Context, job *v1.OpsJob)
 			return err
 		}
 		preflightJob.allWorkloads[w.Name] = v1.WorkloadRunning
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -222,7 +238,7 @@ func (r *PreflightJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, stri
 	r.RLock()
 	defer r.RUnlock()
 	job, ok := r.allJobs[jobId]
-	if !ok {
+	if !ok || len(job.allWorkloads) == 0 {
 		return v1.OpsJobPending, ""
 	}
 	totalFailCount := 0
@@ -244,17 +260,29 @@ func (r *PreflightJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, stri
 	return v1.OpsJobRunning, ""
 }
 
-func genPreflightWorkload(job *v1.OpsJob, adminNode *v1.Node) *v1.Workload {
+func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
+	job *v1.OpsJob, adminNode *v1.Node) (*v1.Workload, error) {
+	nf := &v1.NodeFlavor{}
+	if err := r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(adminNode)}, nf); err != nil {
+		return nil, err
+	}
+	nodeResources := nf.ToResourceList("")
+	availNodeResources := quantity.GetAvailableResource(nodeResources)
+	maxAvailCpu, _ := availNodeResources[corev1.ResourceCPU]
+	maxAvailMem, _ := availNodeResources[corev1.ResourceMemory]
+	maxAvailStorage, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
+
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: job.Name + "-" + adminNode.Name,
 			Labels: map[string]string{
-				v1.ClusterIdLabel:  job.Spec.Cluster,
-				v1.OpsJobIdLabel:   job.Name,
-				v1.OpsJobTypeLabel: string(job.Spec.Type),
+				v1.ClusterIdLabel:   job.Spec.Cluster,
+				v1.OpsJobIdLabel:    job.Name,
+				v1.OpsJobTypeLabel:  string(job.Spec.Type),
+				v1.DisplayNameLabel: job.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: v1.SystemUser,
+				v1.UserNameAnnotation: v1.GetUserName(job),
 				// Dispatch the workload immediately, skipping the queue.
 				v1.WorkloadScheduledAnnotation: time.Now().UTC().Format(time.RFC3339),
 			},
@@ -272,14 +300,14 @@ func genPreflightWorkload(job *v1.OpsJob, adminNode *v1.Node) *v1.Workload {
 			},
 			Resource: v1.WorkloadResource{
 				Replica:          1,
-				CPU:              "32",
-				Memory:           "64Gi",
-				EphemeralStorage: "50Gi",
+				CPU:              maxAvailCpu.String(),
+				Memory:           maxAvailMem.String(),
 				GPU:              strconv.Itoa(v1.GetNodeGpuCount(adminNode)),
+				EphemeralStorage: maxAvailStorage.String(),
 			},
 			Workspace: v1.GetWorkspaceId(adminNode),
 			Image:     commonconfig.GetPreflightImage(),
 		},
 	}
-	return workload
+	return workload, nil
 }

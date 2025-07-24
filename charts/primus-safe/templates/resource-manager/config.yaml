@@ -15,6 +15,8 @@ data:
       mem_reserve_percent: {{ default 0.02 (default .Values.workspace).mem_reserve_percent }}
       cpu_reserve_percent: {{ default 0.06 (default .Values.workspace).cpu_reserve_percent }}
       ephemeral_store_reserve_percent: {{ default 0.1 (default .Values.workspace).ephemeral_store_reserve_percent }}
+    workload:
+      max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
     db:
       enable: {{ .Values.db.enable }}
       config_path: {{ default "/etc/secrets/db" (default .Values.db).mount_path }}

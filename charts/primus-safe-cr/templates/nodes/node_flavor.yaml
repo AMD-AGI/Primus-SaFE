@@ -17,14 +17,14 @@ spec:
     quantity: 7864Gi
     type: nvme
   extendedResources:
-    ephemeral-storage: 7440663780Ki
+    ephemeral-storage: 6695573390Ki
     rdma/hca: 1k
   flavorType: BareMetal
   gpu:
     product: AMD_Instinct_MI300X_OAM
     quantity: "8"
     resourceName: amd.com/gpu
-  memory: 1584921536Ki
+  memory: 1584032704Ki
   rootDisk:
     count: 1
     quantity: 7864Gi

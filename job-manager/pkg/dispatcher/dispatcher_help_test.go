@@ -365,7 +365,7 @@ func checkSecurityContext(t *testing.T, obj *unstructured.Unstructured, workload
 	securityContext, found, err := unstructured.NestedMap(mainContainer, []string{"securityContext"}...)
 	assert.NilError(t, err)
 	privileged, ok := securityContext["privileged"]
-	if v1.IsSystemUser(workload) {
+	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
 		assert.Equal(t, ok, true)
 		assert.Equal(t, privileged.(bool), true)
 	} else {

@@ -55,8 +55,10 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	var job *v1.OpsJob
 	switch req.Type {
-	case v1.OpsJobAddonType, v1.OpsJobPreflightType:
-		job, err = h.generateDefaultJob(ctx, req)
+	case v1.OpsJobAddonType:
+		job, err = h.generateAddonJob(ctx, req)
+	case v1.OpsJobPreflightType:
+		job, err = h.generatePreflightJob(ctx, req)
 	case v1.OpsJobDumpLogType:
 		job, err = h.generateDumpLogJob(ctx, req)
 	default:
@@ -147,16 +149,27 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) generateDefaultJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
-	job := generateOpsJob(req)
+func (h *Handler) generateAddonJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+	job := genDefaultOpsJob(req)
 	if job.Spec.Cluster == "" {
-		if nodeParam := job.GetParameter(v1.ParameterNode); nodeParam != nil {
-			adminNode, err := h.getAdminNode(ctx, nodeParam.Value)
-			if err != nil {
-				return nil, err
-			}
-			job.Spec.Cluster = v1.GetClusterId(adminNode)
-		}
+		h.genOpsJobClusterByNode(ctx, job)
+	}
+	v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(req.BatchCount))
+	v1.SetAnnotation(job, v1.OpsJobAvailRatioAnnotation,
+		strconv.FormatFloat(*req.AvailableRatio, 'f', -1, 64))
+	return job, nil
+}
+
+func (h *Handler) generatePreflightJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+	if commonconfig.GetPreflightImage() == "" {
+		return nil, commonerrors.NewInternalError("The preflight function is not enabled")
+	}
+	job := genDefaultOpsJob(req)
+	if job.Spec.Cluster == "" {
+		h.genOpsJobClusterByNode(ctx, job)
+	}
+	if req.GpuProduct != "" {
+		v1.SetLabel(job, v1.GpuProductNameLabel, strings.ToLower(req.GpuProduct))
 	}
 	return job, nil
 }
@@ -168,7 +181,7 @@ func (h *Handler) generateDumpLogJob(ctx context.Context, req *types.CreateOpsJo
 	if !commonconfig.IsS3Enable() {
 		return nil, commonerrors.NewInternalError("The s3 function is not enabled")
 	}
-	job := generateOpsJob(req)
+	job := genDefaultOpsJob(req)
 
 	workloadParam := job.GetParameter(v1.ParameterWorkload)
 	if workloadParam == nil {
@@ -193,7 +206,17 @@ func (h *Handler) generateDumpLogJob(ctx context.Context, req *types.CreateOpsJo
 	return job, nil
 }
 
-func generateOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {
+func (h *Handler) genOpsJobClusterByNode(ctx context.Context, job *v1.OpsJob) {
+	nodeParam := job.GetParameter(v1.ParameterNode)
+	if nodeParam == nil {
+		return
+	}
+	if adminNode, err := h.getAdminNode(ctx, nodeParam.Value); err == nil {
+		job.Spec.Cluster = v1.GetClusterId(adminNode)
+	}
+}
+
+func genDefaultOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {
 	job := &v1.OpsJob{
 		Spec: v1.OpsJobSpec{
 			Cluster:       req.Cluster,
@@ -205,14 +228,8 @@ func generateOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {
 	if req.UserName != "" {
 		v1.SetAnnotation(job, v1.UserNameAnnotation, req.UserName)
 	}
-	v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(req.BatchCount))
-	v1.SetAnnotation(job, v1.OpsJobAvailRatioAnnotation,
-		strconv.FormatFloat(*req.AvailableRatio, 'f', -1, 64))
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
-	}
-	if req.GpuProduct != "" {
-		v1.SetLabel(job, v1.GpuProductNameLabel, strings.ToLower(req.GpuProduct))
 	}
 	return job
 }

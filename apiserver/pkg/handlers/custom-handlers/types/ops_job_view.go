@@ -35,6 +35,7 @@ type CreateOpsJobRequest struct {
 	// job submitter
 	UserName string `json:"userName,omitempty"`
 	// The chip product name to be adapted, such as MI300X (case-insensitive).
+	// It is a required field for the preflight job.
 	GpuProduct string `json:"gpuProduct,omitempty"`
 }
 

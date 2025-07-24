@@ -7,12 +7,14 @@ package syncer
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
@@ -127,7 +129,8 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	if !pod.Status.StartTime.IsZero() {
 		workloadPod.StartTime = timeutil.FormatRFC3339(&pod.Status.StartTime.Time)
 	}
-	buildPodTerminatedInfo(pod, &workloadPod)
+	buildPodTerminatedInfo(ctx,
+		clusterInformer.dataClientFactory.ClientSet(), adminWorkload, pod, &workloadPod)
 	if workloadPod.FailedMessage != nil {
 		klog.Infof("pod(%s) exited abnormally. message: %s",
 			pod.Name, string(jsonutils.MarshalSilently(workloadPod.FailedMessage)))
@@ -179,7 +182,8 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, msg *resourceM
 	return nil
 }
 
-func buildPodTerminatedInfo(pod *corev1.Pod, workloadPod *v1.WorkloadPod) {
+func buildPodTerminatedInfo(ctx context.Context,
+	clientSet kubernetes.Interface, adminWorkload *v1.Workload, pod *corev1.Pod, workloadPod *v1.WorkloadPod) {
 	if pod.Status.Phase == corev1.PodFailed {
 		workloadPod.FailedMessage = new(v1.PodFailedMessage)
 		message := ""
@@ -217,9 +221,30 @@ func buildPodTerminatedInfo(pod *corev1.Pod, workloadPod *v1.WorkloadPod) {
 			Signal:   terminated.Signal,
 			Message:  terminated.Message,
 		}
+		if commonworkload.IsOpsJob(adminWorkload) {
+			message := getPodLog(ctx, clientSet, pod, v1.GetMainContainer(adminWorkload))
+			if message != "" {
+				containerMsg.Message = message
+			}
+		}
 		workloadPod.FailedMessage.Containers = append(workloadPod.FailedMessage.Containers, containerMsg)
 	}
 	if finishedTime != nil && !finishedTime.IsZero() {
 		workloadPod.EndTime = timeutil.FormatRFC3339(&finishedTime.Time)
 	}
+}
+
+func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod, mainContainerName string) string {
+	var tailLine int64 = 1
+	opt := &corev1.PodLogOptions{
+		Container: mainContainerName,
+		TailLines: &tailLine,
+	}
+	data, err := clientSet.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, opt).DoRaw(ctx)
+	if err != nil {
+		klog.ErrorS(err, "fail to get log of pod", "namespace", pod.Namespace, "podName", pod.Name)
+		return ""
+	}
+	podLog := strings.TrimSpace(string(data))
+	return podLog
 }

@@ -135,6 +135,10 @@ func IsWorkloadFailoverEnable() bool {
 	return getBool(workloadEnableFailover, true)
 }
 
+func GetWorkloadTTLSecond() int {
+	return getInt(workloadTTLSecond, 60)
+}
+
 func IsLogEnable() bool {
 	return getBool(logEnable, false)
 }

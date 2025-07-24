@@ -83,7 +83,7 @@ func IsInternal(err error) bool {
 
 func IsNotFound(err error) bool {
 	reason := apierrors.ReasonForError(err)
-	if reason == NotFound || reason == WorkloadNotFound ||
+	if reason == NotFound || reason == WorkloadNotFound || reason == WorkspaceNotFound ||
 		reason == NodeNotFound || reason == ResourceTemplateNotFound {
 		return true
 	}
@@ -229,15 +229,6 @@ func NewNodeNotReady(message string) *apierrors.StatusError {
 		Status:  metav1.StatusFailure,
 		Code:    http.StatusServiceUnavailable,
 		Reason:  NodeNotReady,
-		Message: message,
-	}}
-}
-
-func NewTimeout(message string) *apierrors.StatusError {
-	return &apierrors.StatusError{ErrStatus: metav1.Status{
-		Status:  metav1.StatusFailure,
-		Code:    http.StatusRequestTimeout,
-		Reason:  Timeout,
 		Message: message,
 	}}
 }

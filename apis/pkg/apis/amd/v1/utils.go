@@ -187,10 +187,6 @@ func GetUserName(obj metav1.Object) string {
 	return GetAnnotation(obj, UserNameAnnotation)
 }
 
-func IsSystemUser(obj metav1.Object) bool {
-	return GetUserName(obj) == SystemUser
-}
-
 func GetWorkloadDispatchCnt(obj metav1.Object) int {
 	return atoi(GetLabel(obj, WorkloadDispatchCntLabel))
 }

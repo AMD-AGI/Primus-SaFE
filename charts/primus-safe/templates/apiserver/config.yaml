@@ -39,6 +39,8 @@ data:
       config_path: {{ default "/etc/secrets/ssh" (default .Values.ssh).mount_path }}
     s3:
       enable: {{ .Values.s3.enable }}
+    ops_job:
+      preflight_image: docker.io/primussafe/{{ .Values.preflight.image }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

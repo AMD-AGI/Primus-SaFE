@@ -9,26 +9,25 @@
 
 dpkg -l | grep -q "linux-tools-$(uname -r)"
 if [ $? -ne 0 ]; then
-  apt-get update >/dev/null 2>&1
-  apt install -y linux-tools-$(uname -r) linux-cloud-tools-$(uname -r) >/dev/null 2>error
+  apt-get update >/dev/null
+  apt install -y linux-tools-$(uname -r) linux-cloud-tools-$(uname -r) >/dev/null
   if [ $? -ne 0 ]; then
-    cat error && rm -f error
     echo "[ERROR]: failed to install linux-tools" >&2
     exit 1
   fi
-  rm -f error
 fi
 
 LOG_FILE="/tmp/perf_cpu.log"
-perf stat -e cycles,instructions,cache-misses -a -r 10 -- sleep 3 >$LOG_FILE 2>&1
+perf stat -e cycles,instructions,cache-misses -a -r 10 -- sleep 3 >$LOG_FILE
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
-  cat "$LOG_FILE" && rm -f $LOG_FILE
+  rm -f $LOG_FILE
   echo "[PerfCpu] [ERROR]: perf failed with exit code: $EXIT_CODE" >&2
   exit 1
 fi
 
 insn_per_cycle=$(grep 'insn per cycle' $LOG_FILE | awk '{for(i=1;i<=NF;i++){if($i=="insn") print $(i-1)}}')
+rm -f $LOG_FILE
 if [[ -n "$insn_per_cycle" ]]; then
   echo "[PerfCpu] [INFO] insn per cycle = $insn_per_cycle"
 else

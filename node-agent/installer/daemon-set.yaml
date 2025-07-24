@@ -149,7 +149,7 @@ spec:
           name: node-agent-config
         - hostPath:
             path: /var/log/
-            type: ""
+            type: Directory
           name: log
         - hostPath:
             path: /dev/kmsg
@@ -161,23 +161,23 @@ spec:
           name: localtime
         - hostPath:
             path: /proc
-            type: ""
+            type: Directory
           name: proc
         - hostPath:
             path: /var/run/dbus
-            type: ""
+            type: Directory
           name: dbus
         - hostPath:
             path: /run/systemd
-            type: ""
+            type: Directory
           name: systemd
         - hostPath:
             path: /etc/systemd/system
-            type: ""
+            type: Directory
           name: system
         - hostPath:
             path: /sys/fs/cgroup
-            type: ""
+            type: Directory
           name: cgroup
         - hostPath:
             path: /var/run
@@ -189,7 +189,7 @@ spec:
           name: pki
         - hostPath:
             path: /var/lib/kubelet/device-plugins
-            type: ""
+            type: Directory
           name: device-plugin
   updateStrategy:
     rollingUpdate:

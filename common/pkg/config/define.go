@@ -45,6 +45,7 @@ const (
 	maxEphemeralStorePercent  = workloadPrefix + "max_ephemeral_store_percent"
 	workloadHangCheckInterval = workloadPrefix + "hang_check_interval"
 	workloadEnableFailover    = workloadPrefix + "enable_failover"
+	workloadTTLSecond         = workloadPrefix + "ttl_second"
 
 	// log
 	logPrefix        = "log."

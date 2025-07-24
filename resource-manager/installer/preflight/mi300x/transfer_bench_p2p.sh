@@ -12,27 +12,42 @@ REPO_URL="https://github.com/ROCm/TransferBench.git"
 DIR_NAME="TransferBench"
 LOG_FILE="/tmp/transfer_p2p.log"
 if [ ! -d "$DIR_NAME" ]; then
-  git clone "$REPO_URL" >/dev/null 2>error
+  dpkg -l | grep -q git
   if [ $? -ne 0 ]; then
-    cat error && rm -f error
+    apt-get update >/dev/null && apt-get -y install git >/dev/null
+    if [ $? -ne 0 ]; then
+      echo "[ERROR]: failed to install git" >&2
+      exit 1
+    fi
+  fi
+
+  git clone "$REPO_URL" >/dev/null
+  if [ $? -ne 0 ]; then
     echo "[ERROR]: failed to clone $REPO_URL" >&2
     exit 1
   fi
-  rm -f error
 fi
 cd "$DIR_NAME" || { echo "[ERROR]: unable to access $DIR_NAME" >&2; exit 1; }
-CC=hipcc make > /dev/null 2>error
+
+dpkg -l | grep -q make
 if [ $? -ne 0 ]; then
-  cat error && rm -f error
+  apt-get update >/dev/null && apt-get -y install make >/dev/null
+  if [ $? -ne 0 ]; then
+    echo "[ERROR]: failed to install make" >&2
+    exit 1
+  fi
+fi
+
+CC=hipcc make > /dev/null
+if [ $? -ne 0 ]; then
   echo "[ERROR]: failed to make TransferBench" >&2
   exit 1
 fi
-rm -f error
 
-./TransferBench p2p >$LOG_FILE 2>&1
+./TransferBench p2p >$LOG_FILE
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
-  cat $LOG_FILE && rm -f $LOG_FILE
+  rm -f $LOG_FILE
   echo "[TransferBenchP2P] [ERROR]: TransferBench failed with exit code: $EXIT_CODE" >&2
   exit 1
 fi

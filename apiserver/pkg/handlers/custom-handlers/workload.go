@@ -670,7 +670,9 @@ func (h *Handler) buildWorkloadDetail(ctx context.Context, w *dbclient.Workload,
 		result.Env = maps.RemoveValue(result.Env, "")
 	}
 	if result.GroupVersionKind.Kind != common.AuthoringKind && w.EntryPoint != "" {
-		result.EntryPoint = stringutil.Base64Decode(w.EntryPoint)
+		if stringutil.IsBase64(w.EntryPoint) {
+			result.EntryPoint = stringutil.Base64Decode(w.EntryPoint)
+		}
 	}
 }
 

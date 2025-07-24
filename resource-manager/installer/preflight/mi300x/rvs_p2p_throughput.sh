@@ -10,23 +10,20 @@
 
 dpkg -l | grep -q rocm-validation-suite
 if [ $? -ne 0 ]; then
-  apt-get update >/dev/null 2>&1
-  apt install -y rocm-validation-suite >/dev/null 2>error
+  apt-get update >/dev/null && apt install -y rocm-validation-suite >/dev/null
   if [ $? -ne 0 ]; then
-    cat error && rm -f error
     echo "[ERROR] failed to install rocm-validation-suite" >&2
     exit 1
   fi
-  rm -f error
 fi
 
 export PATH=$PATH:/opt/rocm/bin
 export RVS_CONF=/opt/rocm/share/rocm-validation-suite/conf
 LOG_FILE="/tmp/pbqt_single.log"
-rvs -c "${RVS_CONF}/MI300X/pbqt_single.conf" >$LOG_FILE 2>&1
+rvs -c "${RVS_CONF}/MI300X/pbqt_single.conf" >$LOG_FILE
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
-  cat $LOG_FILE && rm -f $LOG_FILE
+  rm -f $LOG_FILE
   echo "[RvsP2p] [ERROR] rvs failed with exit code: $EXIT_CODE" >&2
   exit 1
 fi

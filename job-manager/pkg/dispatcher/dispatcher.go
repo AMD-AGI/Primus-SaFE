@@ -167,12 +167,7 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 		return err
 	}
 	if err = jobutils.CreateObject(ctx, clusterInformer.ClientFactory(), k8sObject); err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			klog.ErrorS(err, "failed to create k8s unstructured object")
-		} else {
-			err = nil
-		}
-		return err
+		return commonerrors.NewInternalError(err.Error())
 	}
 	return nil
 }
@@ -359,7 +354,7 @@ func isEntryPointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructu
 	if len(commands) == 0 {
 		return false
 	}
-	cmd := buildEntryPoint(adminWorkload.Spec.EntryPoint)
+	cmd := buildEntryPoint(adminWorkload)
 	return cmd != commands[len(commands)-1]
 }
 
@@ -459,7 +454,7 @@ func updateMainContainer(adminWorkload *v1.Workload,
 		"requests": resources,
 	}
 	mainContainer["image"] = adminWorkload.Spec.Image
-	mainContainer["command"] = buildCommands(adminWorkload.Spec.EntryPoint)
+	mainContainer["command"] = buildCommands(adminWorkload)
 	if len(adminWorkload.Spec.Env) > 0 {
 		updateContainerEnv(adminWorkload, mainContainer)
 	}

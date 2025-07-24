@@ -42,7 +42,7 @@ type Parameter struct {
 }
 
 type OpsJobSpec struct {
-	// the type of ops-job, valid values include: addon
+	// the type of ops-job, valid values include: addon/preflight/dumplog
 	Type OpsJobType `json:"type"`
 	// the cluster which the ops-job belongs to
 	Cluster string `json:"cluster"`

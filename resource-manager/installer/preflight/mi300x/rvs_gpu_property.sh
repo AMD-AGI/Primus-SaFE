@@ -10,21 +10,18 @@
 
 dpkg -l | grep -q rocm-validation-suite
 if [ $? -ne 0 ]; then
-  apt-get update >/dev/null 2>&1
-  apt install -y rocm-validation-suite>/dev/null 2>error
+  apt-get update >/dev/null && apt install -y rocm-validation-suite>/dev/null
   if [ $? -ne 0 ]; then
-    cat error && rm -f error
     echo "[ERROR] failed to install rocm-validation-suite" >&2
     exit 1
   fi
-  rm -f error
 fi
+
 export PATH=$PATH:/opt/rocm/bin
 export RVS_CONF=/opt/rocm/share/rocm-validation-suite/conf
-OUTPUT=$(rvs -c "${RVS_CONF}/gpup_single.conf" 2>&1)
+OUTPUT=$(rvs -c "${RVS_CONF}/gpup_single.conf")
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
-  echo "$OUTPUT"
   echo "[RvsGpuProperty] [ERROR] rvs failed with exit code: $EXIT_CODE" >&2
   exit 1
 fi

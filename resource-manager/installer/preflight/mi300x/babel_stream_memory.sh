@@ -7,27 +7,50 @@
 
 # BabelStream is a benchmarking program designed to evaluate memory bandwidth performance.
 
+dpkg -l | grep -q openmpi-bin
+if [ $? -ne 0 ]; then
+  apt-get update >/dev/null && apt-get -y install openmpi-bin openmpi-common libopenmpi-dev >/dev/null
+  if [ $? -ne 0 ]; then
+    echo "[ERROR]: failed to install openmpi" >&2
+    exit 1
+  fi
+fi
+
 REPO_URL="https://github.com/UoB-HPC/BabelStream.git"
 DIR_NAME="BabelStream"
 if [ ! -d "$DIR_NAME" ]; then
-  git clone "$REPO_URL" >/dev/null 2>error
+  dpkg -l | grep -q git
   if [ $? -ne 0 ]; then
-    cat error && rm -f error
+    apt-get update >/dev/null && apt-get -y install git >/dev/null
+    if [ $? -ne 0 ]; then
+      echo "[ERROR]: failed to install git" >&2
+      exit 1
+    fi
+  fi
+
+  git clone "$REPO_URL" >/dev/null
+  if [ $? -ne 0 ]; then
     echo "[ERROR]: failed to clone $REPO_URL" >&2
     exit 1
   fi
-  rm -f error
 fi
 cd "$DIR_NAME" || { echo "[ERROR]: unable to access $DIR_NAME" >&2; exit 1; }
 
 if [ ! -f build/hip-stream ]; then
-  cmake -Bbuild -H. -DMODEL=hip -DCMAKE_CXX_COMPILER=hipcc && cmake --build build >/dev/null 2>error
+  dpkg -l | grep -q cmake
   if [ $? -ne 0 ]; then
-    cat error && rm -f error
+    apt-get update >/dev/null && apt-get -y install cmake >/dev/null
+    if [ $? -ne 0 ]; then
+      echo "[ERROR]: failed to install cmake" >&2
+      exit 1
+    fi
+  fi
+
+  cmake -Bbuild -H. -DMODEL=hip -DCMAKE_CXX_COMPILER=hipcc >/dev/null && cmake --build build >/dev/null
+  if [ $? -ne 0 ]; then
     echo "[ERROR]: failed to make hip-stream" >&2
     exit 1
   fi
-  rm -f error
 fi
 
 if [ ! -f wrapper.sh ]; then
@@ -37,22 +60,11 @@ if [ ! -f wrapper.sh ]; then
   chmod u+x wrapper.sh
 fi
 
-dpkg -l | grep -q openmpi-bin
-if [ $? -ne 0 ]; then
-  apt-get -y install openmpi-bin openmpi-common libopenmpi-dev >/dev/null 2>error
-  if [ $? -ne 0 ]; then
-    cat error && rm -f error
-    echo "[ERROR]: failed to install openmpi" >&2
-    exit 1
-  fi
-  rm -f error
-fi
-
 LOG_FILE="/tmp/babel_stream.log"
-mpiexec -n 8 --allow-run-as-root wrapper.sh >$LOG_FILE 2>&1
+mpiexec -n 8 --allow-run-as-root wrapper.sh >$LOG_FILE
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
-  cat $LOG_FILE && rm -f $LOG_FILE
+  rm -f $LOG_FILE
   echo "[ERROR]: mpiexec failed with exit code: $EXIT_CODE" >&2
   exit 1
 fi
