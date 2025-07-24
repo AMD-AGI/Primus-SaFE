@@ -115,4 +115,6 @@ spec:
           configMap:
             name: create-db-table
       restartPolicy: Never
+      tolerations:
+        - operator: Exists
   backoffLimit: 0

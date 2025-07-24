@@ -1,0 +1,4 @@
+net:
+  nccl_socket_ifname: "enp6s19"
+node_agent:
+  image: "node-agent:202507240900"

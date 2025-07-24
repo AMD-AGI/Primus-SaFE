@@ -581,9 +581,6 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 	}
 	// if the Kubernetes node is already present, it means the node has been successfully managed.
 	if k8sNode != nil {
-		if err := r.installAddonsOnNode(ctx, adminNode); err != nil {
-			return ctrlruntime.Result{}, err
-		}
 		if err := r.removeRetryCount(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
@@ -592,6 +589,9 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 		}
 		if err = r.syncLabelsToK8sNode(ctx, k8sClients.ClientSet(), adminNode, k8sNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if err = r.installAddonsOnNode(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
@@ -604,9 +604,6 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context,
 	adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	if k8sNode != nil {
-		if err := r.installAddonsOnNode(ctx, adminNode); err != nil {
-			return ctrlruntime.Result{}, err
-		}
 		if err := r.removeRetryCount(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
@@ -615,6 +612,9 @@ func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context,
 			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 		}
 		if err = r.syncLabelsToK8sNode(ctx, k8sClients.ClientSet(), adminNode, k8sNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if err = r.installAddonsOnNode(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged

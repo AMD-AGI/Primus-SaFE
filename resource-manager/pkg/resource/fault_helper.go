@@ -77,9 +77,14 @@ func parseFaultConfig(configMap *corev1.ConfigMap) map[string]*FaultConfig {
 	for _, val := range configMap.Data {
 		conf := &FaultConfig{}
 		if err := json.Unmarshal([]byte(val), conf); err != nil {
+			klog.ErrorS(err, "failed to unmarshal fault config", "value", val)
 			continue
 		}
-		if conf.Toggle != "on" || conf.Id == "" {
+		if conf.Toggle != "on" {
+			continue
+		}
+		if conf.Id == "" {
+			klog.Errorf("invalid fault config, value: %s", val)
 			continue
 		}
 		if conf.IsAutoRepair == nil {
@@ -153,6 +158,7 @@ func generateFaultOnCreation(node *v1.FaultNode,
 	if !ok || conf == nil {
 		return nil
 	}
+	
 	return &v1.Fault{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonfaults.GenerateFaultName(node.AdminName, id),

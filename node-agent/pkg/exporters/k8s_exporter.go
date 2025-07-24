@@ -32,7 +32,11 @@ func (ke *K8sExporter) Handle(msg *types.MonitorMessage) error {
 	if !isChanged {
 		return nil
 	}
-	return ke.node.UpdateConditions(conditions)
+	err := ke.node.UpdateConditions(conditions)
+	if err == nil {
+		klog.Infof("Update conditions for node %s successfully", ke.node.GetK8sNode().Name)
+	}
+	return err
 }
 
 func (ke *K8sExporter) Name() string {
@@ -63,7 +67,7 @@ func genAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.No
 			Message:            msg.Value,
 		})
 	}
-	klog.Infof("add condition. key: %s, message: %s", key, msg.Value)
+	klog.Infof("gen add condition. key: %s, message: %s", key, msg.Value)
 	return results, true
 }
 
@@ -74,7 +78,7 @@ func genDeleteConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1
 		if string(cond.Type) != key {
 			results = append(results, node.Status.Conditions[i])
 		} else {
-			klog.Infof("deleting condition. key: %s, message: %s", cond.Type, cond.Message)
+			klog.Infof("gen deleting condition. key: %s, message: %s", cond.Type, cond.Message)
 		}
 	}
 	if len(results) == len(node.Status.Conditions) {

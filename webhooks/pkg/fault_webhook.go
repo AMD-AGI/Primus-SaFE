@@ -11,7 +11,6 @@ import (
 	"fmt"
 
 	admissionv1 "k8s.io/api/admission/v1"
-	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -121,9 +120,6 @@ func (v *FaultValidator) validateOnCreation(fault *v1.Fault) error {
 }
 
 func (v *FaultValidator) validateOnUpdate(newFault, oldFault *v1.Fault) error {
-	if err := v.validateImmutableFields(newFault, oldFault); err != nil {
-		return err
-	}
 	if err := v.validateFaultSpec(newFault); err != nil {
 		return err
 	}
@@ -144,25 +140,6 @@ func (v *FaultValidator) validateFaultSpec(fault *v1.Fault) error {
 		if fault.Spec.Node.K8sName == "" {
 			return fmt.Errorf("the k8s node of spec is empty")
 		}
-	}
-	return nil
-}
-
-func (v *FaultValidator) validateImmutableFields(newFault, oldFault *v1.Fault) error {
-	if v1.GetClusterId(newFault) != v1.GetClusterId(oldFault) {
-		return field.Forbidden(field.NewPath("metadata", "labels").Key(v1.ClusterIdLabel), "immutable")
-	}
-	if newFault.Spec.Node.ClusterName != oldFault.Spec.Node.ClusterName {
-		return field.Forbidden(field.NewPath("spec", "node").Key("cluster"), "immutable")
-	}
-	if newFault.Spec.MonitorId != oldFault.Spec.MonitorId {
-		return field.Forbidden(field.NewPath("spec").Key("id"), "immutable")
-	}
-	if newFault.Spec.Action != oldFault.Spec.Action {
-		return field.Forbidden(field.NewPath("spec").Key("action"), "immutable")
-	}
-	if newFault.Spec.Node != nil && oldFault.Spec.Node != nil && newFault.Spec.Node.K8sName != oldFault.Spec.Node.K8sName {
-		return field.Forbidden(field.NewPath("spec", "node").Key("name"), "immutable")
 	}
 	return nil
 }

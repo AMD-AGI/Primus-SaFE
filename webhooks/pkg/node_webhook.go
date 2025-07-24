@@ -296,7 +296,7 @@ func (v *NodeValidator) validateNodeFlavor(ctx context.Context, node *v1.Node) e
 	}
 	nf, _ := getNodeFlavor(ctx, v.Client, node.Spec.NodeFlavor.Name)
 	if nf == nil {
-		return commonerrors.NewBadRequest(fmt.Sprintf("the flavo(%s) is not found", node.Spec.NodeFlavor.Name))
+		return commonerrors.NewBadRequest(fmt.Sprintf("the flavor(%s) is not found", node.Spec.NodeFlavor.Name))
 	}
 	return nil
 }
