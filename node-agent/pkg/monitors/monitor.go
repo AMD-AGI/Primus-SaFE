@@ -13,7 +13,6 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/node"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/utils"
@@ -31,8 +30,6 @@ type Monitor struct {
 	tomb *channel.Tomb
 	// The node where the agent is currently running
 	node *node.Node
-	// The exit code obtained when running the script last time
-	lastStatusCode int
 	// The monitor result will be reported only when it remains the same for max consecutive times(as specified by the configuration)
 	// It is only effective when the operation fails
 	consecutiveCount int
@@ -60,17 +57,12 @@ func NewMonitor(config *MonitorConfig,
 	}
 
 	inst := &Monitor{
-		config:         config,
-		queue:          queue,
-		scriptPath:     fullPath,
-		tomb:           channel.NewTomb(),
-		node:           node,
-		lastStatusCode: types.StatusOk,
-		isExited:       true,
-	}
-	key := commonfaults.GenerateTaintKey(config.Id)
-	if node != nil && node.FindConditionByType(key) != nil {
-		inst.lastStatusCode = types.StatusError
+		config:     config,
+		queue:      queue,
+		scriptPath: fullPath,
+		tomb:       channel.NewTomb(),
+		node:       node,
+		isExited:   true,
 	}
 	return inst
 }
@@ -139,17 +131,14 @@ func (m *Monitor) Run() {
 	}
 
 	if statusCode == types.StatusOk {
-		if statusCode != m.lastStatusCode {
-			(*m.queue).Add(msg)
-		}
+		(*m.queue).Add(msg)
 		m.consecutiveCount = 0
 	} else {
 		m.consecutiveCount++
-		if m.consecutiveCount == m.config.ConsecutiveCount {
+		if m.consecutiveCount >= m.config.ConsecutiveCount {
 			(*m.queue).Add(msg)
 		}
 	}
-	m.lastStatusCode = statusCode
 }
 
 func (m *Monitor) convertReservedWord(arg string) string {
