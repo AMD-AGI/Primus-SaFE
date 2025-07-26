@@ -17,7 +17,6 @@ for script in *.sh; do
   echo "Running script: $script"
   bash "$script"
   if [ $? -ne 0 ]; then
-    echo "Error occurred in script: $script" >&2
     has_error=1
   fi
 done

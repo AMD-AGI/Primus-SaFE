@@ -6,6 +6,8 @@
 package syncer
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"strings"
 	"time"
@@ -222,7 +224,7 @@ func buildPodTerminatedInfo(ctx context.Context,
 			Message:  terminated.Message,
 		}
 		if commonworkload.IsOpsJob(adminWorkload) {
-			message := getPodLog(ctx, clientSet, pod, v1.GetMainContainer(adminWorkload))
+			message := getPodErrorLog(ctx, clientSet, pod, v1.GetMainContainer(adminWorkload))
 			if message != "" {
 				containerMsg.Message = message
 			}
@@ -234,8 +236,8 @@ func buildPodTerminatedInfo(ctx context.Context,
 	}
 }
 
-func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod, mainContainerName string) string {
-	var tailLine int64 = 1
+func getPodErrorLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod, mainContainerName string) string {
+	var tailLine int64 = 1000
 	opt := &corev1.PodLogOptions{
 		Container: mainContainerName,
 		TailLines: &tailLine,
@@ -245,6 +247,17 @@ func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.
 		klog.ErrorS(err, "fail to get log of pod", "namespace", pod.Namespace, "podName", pod.Name)
 		return ""
 	}
-	podLog := strings.TrimSpace(string(data))
-	return podLog
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	var errorLines []string
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "[ERROR]") {
+			errorLines = append(errorLines, line)
+		}
+	}
+	if err = scanner.Err(); err != nil {
+		klog.ErrorS(err, "error reading pod log lines")
+	}
+	return strings.Join(errorLines, "\n")
 }
