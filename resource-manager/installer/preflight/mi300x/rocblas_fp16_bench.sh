@@ -8,44 +8,24 @@
 # Use the command "rocblas-bench" to benchmark(fp16) the GEMM performance of rocBLAS
 # This script can only be run on AMD MI300X chips.
 
-dpkg -l | grep -q "libgtest-dev"
+DIR_NAME="/root/rocBLAS"
+nsenter --target 1 --mount --uts --ipc --net --pid -- ls -d $DIR_NAME >/dev/null
 if [ $? -ne 0 ]; then
-  apt-get update >/dev/null && apt install -y libgtest-dev >/dev/null
+  echo "[ERROR]: the directory $DIR_NAME does not exist" >&2
+  exit 1
+fi
+
+nsenter --target 1 --mount --uts --ipc --net --pid -- dpkg -l | grep -q "libgtest-dev"
+if [ $? -ne 0 ]; then
+  nsenter --target 1 --mount --uts --ipc --net --pid -- apt-get update >/dev/null && apt install -y libgtest-dev >/dev/null
   if [ $? -ne 0 ]; then
     echo "[ERROR]: failed to install libgtest-dev" >&2
     exit 1
   fi
 fi
 
-REPO_URL="https://github.com/ROCm/rocBLAS.git"
-DIR_NAME="rocBLAS"
-if [ ! -d "$DIR_NAME" ]; then
-  dpkg -l | grep -q git
-  if [ $? -ne 0 ]; then
-    apt-get update >/dev/null && apt-get -y install git >/dev/null
-    if [ $? -ne 0 ]; then
-      echo "[ERROR]: failed to install git" >&2
-      exit 1
-    fi
-  fi
-
-  git clone "$REPO_URL" >/dev/null
-  if [ $? -ne 0 ]; then
-    echo "[ERROR]: failed to clone $REPO_URL" >&2
-    exit 1
-  fi
-fi
-cd "$DIR_NAME" || { echo "[ERROR]: unable to access $DIR_NAME" >&2; exit 1; }
-if [ ! -f ./build/release/clients/staging/rocblas-bench ]; then
-  git checkout rocm-6.2.0 >/dev/null && chmod +x ./install.sh && ./install.sh --clients-only --library-path /opt/rocm >/dev/null
-  if [ $? -ne 0 ]; then
-    echo "[ERROR]: failed to install rocm" >&2
-    exit 1
-  fi
-fi
-
 LOG_FILE="/tmp/roc_blas_fp16_bench.log"
-./build/release/clients/staging/rocblas-bench -f gemm_strided_batched_ex --transposeA N --transposeB T -m 1024 -n 2048 -k 512 --a_type h --lda 1024 --stride_a 4096 --b_type h --ldb 2048 --stride_b 4096 --c_type s --ldc 1024 --stride_c 2097152 --d_type s --ldd 1024 --stride_d 2097152 --compute_type s --alpha 1.1 --beta 1 --batch_count 5 >$LOG_FILE
+nsenter --target 1 --mount --uts --ipc --net --pid -- $DIR_NAME/build/release/clients/staging/rocblas-bench -f gemm_strided_batched_ex --transposeA N --transposeB T -m 1024 -n 2048 -k 512 --a_type h --lda 1024 --stride_a 4096 --b_type h --ldb 2048 --stride_b 4096 --c_type s --ldc 1024 --stride_c 2097152 --d_type s --ldd 1024 --stride_d 2097152 --compute_type s --alpha 1.1 --beta 1 --batch_count 5 >$LOG_FILE
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
   rm -f $LOG_FILE
@@ -57,7 +37,7 @@ threshold=130600
 rm -f $LOG_FILE
 result=$(echo "$gflops >= $threshold" | bc -l)
 if [[ "$result" -ne 1 ]]; then
-  echo "[RocBlasFp16] [ERROR] Gflops ($gflops) is less than the threshold($threshold)" >&2
+  echo "[RocBlasFp16] [ERROR] failed to evaluate the GEMM performance, Gflops ($gflops) is less than the threshold($threshold)" >&2
   exit 1
 fi
 echo "[RocBlasFp16] [SUCCESS] tests passed, result: $gflops"

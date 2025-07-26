@@ -6,9 +6,9 @@
 #
 
 if [ "$#" -lt 3 ]; then
-    echo "Usage: $0 <model> <link_speed> <link_width>"
-    echo "Example: $0 1002:74a1 32GT/s x16"
-    exit 2
+  echo "Usage: $0 <model> <link_speed> <link_width>"
+  echo "Example: $0 1002:74a1 32GT/s x16"
+  exit 2
 fi
 
 PCI_OUTPUT=`nsenter --target 1 --mount --uts --ipc --net --pid -- lspci -d $1 -vvv | grep -e DevSta -e LnkS`
@@ -51,8 +51,8 @@ BEGIN {
 RESULT=$?
 
 if [ $RESULT -eq 0 ]; then
-    echo "[OK] All checks passed: No FatalErr and Link is ${EXPECTED_SPEED} ${EXPECTED_WIDTH}"
+  echo "[OK] All checks passed: No FatalErr and Link is ${EXPECTED_SPEED} ${EXPECTED_WIDTH}"
 else
-    echo "[FAIL] Some PCIe status check failed"
-    exit 1
+  echo "[FAIL] Some PCIe status check failed"
+  exit 1
 fi

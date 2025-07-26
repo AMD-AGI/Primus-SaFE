@@ -7,10 +7,9 @@
 
 # Use the perf tool to test CPU performance
 
-dpkg -l | grep -q "linux-tools-$(uname -r)"
+nsenter --target 1 --mount --uts --ipc --net --pid -- dpkg -l | grep -q "linux-tools-$(uname -r)"
 if [ $? -ne 0 ]; then
-  apt-get update >/dev/null
-  apt install -y linux-tools-$(uname -r) linux-cloud-tools-$(uname -r) >/dev/null
+  nsenter --target 1 --mount --uts --ipc --net --pid -- apt-get update >/dev/null && apt install -y linux-tools-$(uname -r) linux-cloud-tools-$(uname -r) >/dev/null
   if [ $? -ne 0 ]; then
     echo "[ERROR]: failed to install linux-tools" >&2
     exit 1
@@ -18,7 +17,7 @@ if [ $? -ne 0 ]; then
 fi
 
 LOG_FILE="/tmp/perf_cpu.log"
-perf stat -e cycles,instructions,cache-misses -a -r 10 -- sleep 3 >$LOG_FILE
+nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/perf stat -e cycles,instructions,cache-misses -a -r 10 -- sleep 3 >$LOG_FILE 2>&1
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
   rm -f $LOG_FILE
@@ -37,7 +36,7 @@ fi
 threshold=1
 is_greater=$(echo "$insn_per_cycle >= $threshold" | bc -l)
 if [[ "$is_greater" -ne 1 ]]; then
-  echo "[PerfCpu] [ERROR] insn per cycle($insn_per_cycle) is less than the threshold($threshold)" >&2
+  echo "[PerfCpu] [ERROR] failed to evaluate CPU performance, insn per cycle($insn_per_cycle) is less than the threshold($threshold)" >&2
   exit 1
 fi
 echo "[PerfCpu] [SUCCESS] tests passed"

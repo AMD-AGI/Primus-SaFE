@@ -457,6 +457,8 @@ func TestCreateK8sJob(t *testing.T) {
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.createK8sObject(context.Background(), workload)
 	assert.NilError(t, err)
+	// fmt.Println(unstructuredutils.ToString(obj))
+
 	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
 	checkResources(t, obj, workload, &templates[0], workload.Spec.Resource.Replica)
 	checkPorts(t, obj, workload, &templates[0])
@@ -465,7 +467,7 @@ func TestCreateK8sJob(t *testing.T) {
 	checkImage(t, obj, workload, &templates[0])
 	checkLabels(t, obj, workload, &templates[0])
 	checkHostNetwork(t, obj, workload, &templates[0])
+	checkHostPid(t, obj, workload, &templates[0])
 	checkPriorityClass(t, obj, workload, &templates[0])
 	checkSecurityContext(t, obj, workload, &templates[0])
-	// fmt.Println(unstructuredutils.ToString(obj))
 }

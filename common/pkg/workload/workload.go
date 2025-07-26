@@ -261,7 +261,11 @@ func GetFailedMessage(workload *v1.Workload) string {
 			if pod.FailedMessage == nil {
 				continue
 			}
-			return pod.FailedMessage.Message
+			for _, c := range pod.FailedMessage.Containers {
+				if c.ExitCode != 0 && c.Message != "" {
+					return c.Message
+				}
+			}
 		}
 		return "unknown failed reason"
 	case v1.WorkloadStopped:

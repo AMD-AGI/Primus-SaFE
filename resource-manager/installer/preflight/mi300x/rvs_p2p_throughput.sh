@@ -8,19 +8,18 @@
 # Use the command "rvs -c pbqt_single.conf" to do throughput test between all P2P pairs
 # This script can only be run on AMD MI300X chips.
 
-dpkg -l | grep -q rocm-validation-suite
+nsenter --target 1 --mount --uts --ipc --net --pid -- dpkg -l | grep -q rocm-validation-suite
 if [ $? -ne 0 ]; then
-  apt-get update >/dev/null && apt install -y rocm-validation-suite >/dev/null
+  nsenter --target 1 --mount --uts --ipc --net --pid -- apt-get update >/dev/null && apt install -y rocm-validation-suite >/dev/null
   if [ $? -ne 0 ]; then
     echo "[ERROR] failed to install rocm-validation-suite" >&2
     exit 1
   fi
 fi
 
-export PATH=$PATH:/opt/rocm/bin
-export RVS_CONF=/opt/rocm/share/rocm-validation-suite/conf
+RVS_CONF=/opt/rocm/share/rocm-validation-suite/conf
 LOG_FILE="/tmp/pbqt_single.log"
-rvs -c "${RVS_CONF}/MI300X/pbqt_single.conf" >$LOG_FILE
+nsenter --target 1 --mount --uts --ipc --net --pid -- /opt/rocm/bin/rvs -c "${RVS_CONF}/MI300X/pbqt_single.conf" >$LOG_FILE
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
   rm -f $LOG_FILE
@@ -48,7 +47,7 @@ while IFS= read -r line; do
     else
       throughput=$(echo "$line" | grep -oE "([0-9]+\.)?[0-9]+ GBps" | awk '{print $1}')
       if (( $(echo "$throughput <= 0" | bc -l) )); then
-        echo "[RvsP2p] [ERROR]: $line, throughtput is less than or equal 0" >&2
+        echo "[RvsP2p] [ERROR]: failed to do throughput test between all P2P pairs, the value($line) is less than or equal 0" >&2
         rm -f $LOG_FILE
         exit 1
       fi

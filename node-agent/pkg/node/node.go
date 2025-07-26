@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +42,7 @@ var (
 type Node struct {
 	ctx       context.Context
 	k8sNode   *corev1.Node
+	mu        sync.Mutex
 	k8sClient typedcorev1.CoreV1Interface
 }
 
@@ -145,18 +147,29 @@ func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
 	if n.k8sNode == nil {
 		return fmt.Errorf("please initialize node first")
 	}
-	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		n.k8sNode.Status.Conditions = conditions
-		node, err := n.k8sClient.Nodes().UpdateStatus(n.ctx, n.k8sNode, metav1.UpdateOptions{})
-		if err != nil {
-			if apierrors.IsConflict(err) {
-				n.syncK8sNode()
+	var err error
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		n.mu.Lock()
+		k8sNode := n.k8sNode.DeepCopy()
+		k8sNode.Status.Conditions = conditions
+		n.mu.Unlock()
+
+		node, updateErr := n.k8sClient.Nodes().UpdateStatus(n.ctx, k8sNode, metav1.UpdateOptions{})
+		if updateErr != nil {
+			if apierrors.IsConflict(updateErr) {
+				// refresh node
+				if err = n.syncK8sNode(); err != nil {
+					return err
+				}
 			}
-		} else {
-			n.k8sNode = node
+			return updateErr
 		}
-		return err
+		n.mu.Lock()
+		n.k8sNode = node.DeepCopy()
+		n.mu.Unlock()
+		return nil
 	})
+
 	return err
 }
 
@@ -232,12 +245,15 @@ func (n *Node) isAmdGpu() bool {
 }
 
 func (n *Node) syncK8sNode() error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
 	k8sNode, err := n.k8sClient.Nodes().Get(n.ctx, n.GetK8sNode().Name, metav1.GetOptions{})
 	if err != nil {
 		klog.ErrorS(err, "failed to get k8s node")
 		return err
 	}
-	n.k8sNode = k8sNode
+	n.k8sNode = k8sNode.DeepCopy()
 	return nil
 }
 

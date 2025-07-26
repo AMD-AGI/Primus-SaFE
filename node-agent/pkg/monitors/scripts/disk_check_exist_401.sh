@@ -6,13 +6,13 @@
 #
 
 if [ "$#" -lt 1 ]; then
-    echo "Usage: $0 <path>"
-    echo "Example: $0 /nfs"
-    exit 2
+  echo "Usage: $0 <path>"
+  echo "Example: $0 /nfs"
+  exit 2
 fi
 
-nsenter --target 1 --mount --uts --ipc --net --pid -- df -h | grep "$1" > /dev/null
+nsenter --target 1 --mount --uts --ipc --net --pid -- ls -d "$1" > /dev/null
 if [ $? -ne 0 ]; then
-    echo "directory($1) is not found"
-    exit 1
+  echo "directory($1) is not found"
+  exit 1
 fi

@@ -8,19 +8,18 @@
 # Use the command "rvs -c pebb_single.conf" to do PCIe bandwidth benchmark between system memory and a target GPU card’s memory
 # This script can only be run on AMD MI300X chips.
 
-dpkg -l | grep -q rocm-validation-suite
+nsenter --target 1 --mount --uts --ipc --net --pid -- dpkg -l | grep -q rocm-validation-suite
 if [ $? -ne 0 ]; then
-  apt-get update >/dev/null && apt install -y rocm-validation-suite >/dev/null
+  nsenter --target 1 --mount --uts --ipc --net --pid -- apt-get update >/dev/null && apt install -y rocm-validation-suite >/dev/null
   if [ $? -ne 0 ]; then
     echo "[ERROR] failed to install rocm-validation-suite"
     exit 1
   fi
 fi
 
-export PATH=$PATH:/opt/rocm/bin
-export RVS_CONF=/opt/rocm/share/rocm-validation-suite/conf
+RVS_CONF=/opt/rocm/share/rocm-validation-suite/conf
 LOG_FILE="/tmp/bandwidth.log"
-rvs -c "${RVS_CONF}/MI300X/pebb_single.conf" -l pebb.txt >$LOG_FILE
+nsenter --target 1 --mount --uts --ipc --net --pid -- /opt/rocm/bin/rvs -c "${RVS_CONF}/MI300X/pebb_single.conf" -l pebb.txt >$LOG_FILE
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
   rm -f $LOG_FILE
@@ -28,7 +27,7 @@ if [ $EXIT_CODE -ne 0 ]; then
   exit 1
 fi
 
-TOTAL_GPUS=`rocm-smi | grep '^[0-9]' |wc -l`
+TOTAL_GPUS=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi | grep '^[0-9]' |wc -l`
 TOTAL_CPUS=2
 EXPECTED_LINES=$((TOTAL_GPUS * TOTAL_CPUS * 2))
 TMP_DIR="/tmp/pcie_bandwidth_check"
@@ -54,7 +53,7 @@ for file in "$TMP_DIR"/*; do
     echo "[RvsPcieBandwidth] [INFO] $action passed, pcie-bandwidth lines: $count / $EXPECTED_LINES"
   else
     cat "$file"
-    echo "[RvsPcieBandwidth] [ERROR] $action failed, pcie-bandwidth lines: $count / $EXPECTED_LINES"
+    echo "[RvsPcieBandwidth] [ERROR] failed to evaluate PCIe bandwidth, $action: bandwidth value: $count / $EXPECTED_LINES"
     rm -rf $TMP_DIR
     exit 1
   fi

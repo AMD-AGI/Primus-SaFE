@@ -7,61 +7,24 @@
 
 # BabelStream is a benchmarking program designed to evaluate memory bandwidth performance.
 
-dpkg -l | grep -q openmpi-bin
+DIR_NAME="/root/BabelStream"
+nsenter --target 1 --mount --uts --ipc --net --pid -- ls -d $DIR_NAME >/dev/null
 if [ $? -ne 0 ]; then
-  apt-get update >/dev/null && apt-get -y install openmpi-bin openmpi-common libopenmpi-dev >/dev/null
+  echo "[ERROR]: the directory $DIR_NAME does not exist" >&2
+  exit 1
+fi
+
+nsenter --target 1 --mount --uts --ipc --net --pid -- dpkg -l | grep -q openmpi-bin
+if [ $? -ne 0 ]; then
+  nsenter --target 1 --mount --uts --ipc --net --pid -- apt-get update >/dev/null && apt-get -y install openmpi-bin openmpi-common libopenmpi-dev >/dev/null
   if [ $? -ne 0 ]; then
     echo "[ERROR]: failed to install openmpi" >&2
     exit 1
   fi
 fi
 
-REPO_URL="https://github.com/UoB-HPC/BabelStream.git"
-DIR_NAME="BabelStream"
-if [ ! -d "$DIR_NAME" ]; then
-  dpkg -l | grep -q git
-  if [ $? -ne 0 ]; then
-    apt-get update >/dev/null && apt-get -y install git >/dev/null
-    if [ $? -ne 0 ]; then
-      echo "[ERROR]: failed to install git" >&2
-      exit 1
-    fi
-  fi
-
-  git clone "$REPO_URL" >/dev/null
-  if [ $? -ne 0 ]; then
-    echo "[ERROR]: failed to clone $REPO_URL" >&2
-    exit 1
-  fi
-fi
-cd "$DIR_NAME" || { echo "[ERROR]: unable to access $DIR_NAME" >&2; exit 1; }
-
-if [ ! -f build/hip-stream ]; then
-  dpkg -l | grep -q cmake
-  if [ $? -ne 0 ]; then
-    apt-get update >/dev/null && apt-get -y install cmake >/dev/null
-    if [ $? -ne 0 ]; then
-      echo "[ERROR]: failed to install cmake" >&2
-      exit 1
-    fi
-  fi
-
-  cmake -Bbuild -H. -DMODEL=hip -DCMAKE_CXX_COMPILER=hipcc >/dev/null && cmake --build build >/dev/null
-  if [ $? -ne 0 ]; then
-    echo "[ERROR]: failed to make hip-stream" >&2
-    exit 1
-  fi
-fi
-
-if [ ! -f wrapper.sh ]; then
-  echo '#!/bin/bash
-# Use the mpirank to manage the device:
-./build/hip-stream --device $OMPI_COMM_WORLD_RANK -n 50 -s 268435456' > wrapper.sh
-  chmod u+x wrapper.sh
-fi
-
 LOG_FILE="/tmp/babel_stream.log"
-mpiexec -n 8 --allow-run-as-root wrapper.sh >$LOG_FILE
+nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/mpiexec -n 8 --allow-run-as-root $DIR_NAME/wrapper.sh >$LOG_FILE
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
   rm -f $LOG_FILE
@@ -112,13 +75,11 @@ END {
   if [[ "$is_greater" -eq 1 ]]; then
     echo "[BabelStream] [INFO] $func average: $formatted_avg > $threshold"
   else
-    echo "[BabelStream] [ERROR] $func average: $formatted_avg <= $threshold" >&2
-    all_passed=1
+    echo "[BabelStream] [ERROR] failed to evaluate memory bandwidth performance, $func average: $formatted_avg <= $threshold" >&2
+    rm -f $LOG_FILE
+    exit 1
   fi
 done
 rm -f $LOG_FILE
-if [[ "$all_passed" -eq 1 ]]; then
-  exit 1
-fi
 echo "[BabelStream] [SUCCESS] tests passed"
 exit 0

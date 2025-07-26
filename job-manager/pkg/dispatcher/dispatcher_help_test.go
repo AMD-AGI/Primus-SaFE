@@ -6,6 +6,7 @@
 package dispatcher
 
 import (
+	"fmt"
 	"testing"
 
 	"gotest.tools/assert"
@@ -295,6 +296,21 @@ func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1
 	assert.Equal(t, isHostNetWork, v1.IsEnableHostNetwork(workload))
 }
 
+func checkHostPid(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
+	path = append(path, "spec", "hostPID")
+
+	resp, found, err := unstructured.NestedBool(obj.Object, path...)
+	assert.NilError(t, err)
+	fmt.Println(v1.GetOpsJobType(workload))
+	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
+		assert.Equal(t, found, true)
+		assert.Equal(t, resp, true)
+	} else {
+		assert.Equal(t, found, false)
+	}
+}
+
 func checkLabels(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
 	path := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	path = append(path, "metadata", "labels")
@@ -368,16 +384,17 @@ func checkSecurityContext(t *testing.T, obj *unstructured.Unstructured, workload
 	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
 		assert.Equal(t, ok, true)
 		assert.Equal(t, privileged.(bool), true)
+		_, ok := securityContext["capabilities"]
+		assert.Equal(t, ok, false)
 	} else {
 		assert.Equal(t, ok, false)
+		obj2, ok := securityContext["capabilities"]
+		assert.Equal(t, ok, true)
+		capabilities, ok := obj2.(map[string]interface{})
+		assert.Equal(t, ok, true)
+		obj2, ok = capabilities["add"]
+		assert.Equal(t, ok, true)
+		add, ok := obj2.([]interface{})
+		assert.Equal(t, len(add) > 0, true)
 	}
-
-	obj2, ok := securityContext["capabilities"]
-	assert.Equal(t, ok, true)
-	capabilities, ok := obj2.(map[string]interface{})
-	assert.Equal(t, ok, true)
-	obj2, ok = capabilities["add"]
-	assert.Equal(t, ok, true)
-	add, ok := obj2.([]interface{})
-	assert.Equal(t, len(add) > 0, true)
 }

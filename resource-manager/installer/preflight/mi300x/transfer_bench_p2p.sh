@@ -8,43 +8,15 @@
 # Use the command "TransferBench p2p" to measure bandwidth of unidirectional and bidirectional copy between CPU and GPU.
 # This script can only be run on AMD MI300X chips.
 
-REPO_URL="https://github.com/ROCm/TransferBench.git"
-DIR_NAME="TransferBench"
-LOG_FILE="/tmp/transfer_p2p.log"
-if [ ! -d "$DIR_NAME" ]; then
-  dpkg -l | grep -q git
-  if [ $? -ne 0 ]; then
-    apt-get update >/dev/null && apt-get -y install git >/dev/null
-    if [ $? -ne 0 ]; then
-      echo "[ERROR]: failed to install git" >&2
-      exit 1
-    fi
-  fi
-
-  git clone "$REPO_URL" >/dev/null
-  if [ $? -ne 0 ]; then
-    echo "[ERROR]: failed to clone $REPO_URL" >&2
-    exit 1
-  fi
-fi
-cd "$DIR_NAME" || { echo "[ERROR]: unable to access $DIR_NAME" >&2; exit 1; }
-
-dpkg -l | grep -q make
+DIR_NAME="/root/TransferBench"
+nsenter --target 1 --mount --uts --ipc --net --pid -- ls -d $DIR_NAME >/dev/null
 if [ $? -ne 0 ]; then
-  apt-get update >/dev/null && apt-get -y install make >/dev/null
-  if [ $? -ne 0 ]; then
-    echo "[ERROR]: failed to install make" >&2
-    exit 1
-  fi
-fi
-
-CC=hipcc make > /dev/null
-if [ $? -ne 0 ]; then
-  echo "[ERROR]: failed to make TransferBench" >&2
+  echo "[ERROR]: the directory $DIR_NAME does not exist" >&2
   exit 1
 fi
 
-./TransferBench p2p >$LOG_FILE
+LOG_FILE="/tmp/transfer_p2p.log"
+nsenter --target 1 --mount --uts --ipc --net --pid -- $DIR_NAME/TransferBench p2p >$LOG_FILE
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
   rm -f $LOG_FILE
@@ -89,7 +61,7 @@ done
 if [ "$all_above_43_9" = true ]; then
   echo "[TransferBenchP2P] [INFO]: Averages (During  BiDir) are greater than 43.9."
 else
-  echo "[TransferBenchP2P] [ERROR]: $line2, some averages are less than 43.9." >&2
+  echo "[TransferBenchP2P] [ERROR]: failed to measure bandwidth between cpu and gpu, $line2, the value is less than threshold(43.9)." >&2
   exit 1
 fi
 echo "[TransferBenchP2P] [SUCCESS]: tests passed"

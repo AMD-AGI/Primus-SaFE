@@ -113,42 +113,45 @@ func (job *NodeJob) handle(n *Node) error {
 	if jobInput == nil || len(jobInput.Commands) == 0 {
 		return fmt.Errorf("invalid input")
 	}
-	addonConditions := make([]corev1.NodeCondition, 0, len(jobInput.Commands))
-
+	outputConditions := make([]corev1.NodeCondition, 0, len(jobInput.Commands))
+	errorMessage := ""
 	for i, cmd := range jobInput.Commands {
-		if !n.IsMatchGpuChip(string(cmd.GpuChip)) {
-			continue
-		}
-		if !n.IsMatchGpuProduct(string(cmd.GpuProduct)) {
+		if !n.IsMatchGpuChip(string(cmd.GpuChip)) || !n.IsMatchGpuProduct(string(cmd.GpuProduct)) {
 			continue
 		}
 		var err error
 		message := ""
-		jobId := v1.GetOpsJobId(n.k8sNode)
 		if jobInput.Commands[i].IsSystemd {
-			err = job.executeSystemd(jobId, cmd)
+			err = job.executeSystemd(v1.GetOpsJobId(n.k8sNode), cmd)
 		} else {
-			message, err = job.executeCommand(jobId, cmd)
+			message, err = job.executeCommand(v1.GetOpsJobId(n.k8sNode), cmd)
 		}
 		// Check again — the task may be gone.
 		if v1.GetOpsJobId(n.k8sNode) == "" {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("failed to execute %s, %s", cmd.Addon, err.Error())
+			if errorMessage != "" {
+				errorMessage += "\n"
+			}
+			errorMessage += err.Error()
+			continue
 		}
-		addonConditions = append(addonConditions, corev1.NodeCondition{
+		outputConditions = append(outputConditions, corev1.NodeCondition{
 			Type:               corev1.NodeConditionType(cmd.Addon),
 			Status:             corev1.ConditionTrue,
-			Reason:             jobId,
+			Reason:             v1.GetOpsJobId(n.k8sNode),
 			Message:            message,
 			LastTransitionTime: metav1.Time{Time: time.Now().UTC()},
 		})
 	}
-	if len(addonConditions) == 0 {
+	if errorMessage != "" {
+		return fmt.Errorf("%s", errorMessage)
+	}
+	if len(outputConditions) == 0 {
 		return fmt.Errorf("no addon is applicable to the node")
 	}
-	if err := addAddonConditions(n, addonConditions); err != nil {
+	if err := addAddonConditions(n, outputConditions); err != nil {
 		klog.ErrorS(err, "failed to add addon condition", "job", v1.GetOpsJobId(n.k8sNode))
 	}
 	return nil
@@ -167,7 +170,7 @@ func (job *NodeJob) executeCommand(jobId string, jobCmd commonjob.OpsJobCommand)
 
 	if jobCmd.Action != "" {
 		if statusCode, actionMessage = job.execute(jobCmd.Action); statusCode != types.StatusOk {
-			return "", fmt.Errorf("action message: %s, code: %d", actionMessage, statusCode)
+			return "", fmt.Errorf(actionMessage)
 		}
 		klog.Infof("ops job(%s) execute action successfully, addon: %s", jobId, jobCmd.Addon)
 	}
@@ -178,7 +181,7 @@ func (job *NodeJob) executeCommand(jobId string, jobCmd commonjob.OpsJobCommand)
 	observeMessage := ""
 	statusCode, observeMessage = job.execute(jobCmd.Observe)
 	if statusCode != types.StatusOk {
-		return "", fmt.Errorf("observe message: %s, code: %d", observeMessage, statusCode)
+		return "", fmt.Errorf("observe message: %s", observeMessage)
 	}
 	klog.Infof("ops job(%s) observe successfully, addon: %s", jobId, jobCmd.Addon)
 	return actionMessage, nil

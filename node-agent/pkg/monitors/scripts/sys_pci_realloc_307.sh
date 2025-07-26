@@ -6,11 +6,14 @@
 #
 
 CMDLINE=`nsenter --target 1 --mount --uts --ipc --net --pid -- cat /proc/cmdline`
+if [ $? -ne 0 ]; then
+  exit 2
+fi
 for cmd in `echo $CMDLINE`
 do
-    if [[ "$cmd" == "pci=realloc=off" ]]; then
-        exit 0
-    fi
+  if [[ "$cmd" == "pci=realloc=off" ]]; then
+    exit 0
+  fi
 done
 
 echo "pci=realloc=on"

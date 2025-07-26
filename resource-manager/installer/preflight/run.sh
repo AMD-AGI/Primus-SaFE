@@ -12,15 +12,16 @@ fi
 
 cd $GPU_PRODUCT || { echo "The $GPU_PRODUCT test is not supported" >&2; exit 1; }
 
-for script in *.sh
-do
-  echo "running script: $script"
-  # The /var/log/ directory is a hostPath volume, and the host's identically named directory has already been mounted into the container.
-  cp $script /var/log
-  nsenter --target 1 --mount --uts --ipc --net --pid -- bash /var/log/$script
-  ret=$?
-  rm -f /var/log/$script
-  if [ $ret -ne 0 ]; then
-    exit 127
+has_error=0
+for script in *.sh; do
+  echo "Running script: $script"
+  bash "$script"
+  if [ $? -ne 0 ]; then
+    echo "Error occurred in script: $script" >&2
+    has_error=1
   fi
 done
+
+if [ "$has_error" -eq 1 ]; then
+  exit 127
+fi

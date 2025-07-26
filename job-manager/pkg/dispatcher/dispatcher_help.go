@@ -59,6 +59,10 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 	if err = modifyHostNetWork(obj, adminWorkload, path); err != nil {
 		return err
 	}
+	path = append(templatePath, "spec", "hostPID")
+	if err = modifyHostPid(obj, adminWorkload, path); err != nil {
+		return err
+	}
 	path = append(templatePath, "spec", "tolerations")
 	if err = modifyTolerations(obj, adminWorkload, path); err != nil {
 		return err
@@ -229,15 +233,9 @@ func modifySecurityContext(mainContainer map[string]interface{}, workload *v1.Wo
 	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) {
 		return
 	}
-	securityContext, ok := mainContainer["securityContext"].(map[string]interface{})
-	if !ok {
-		mainContainer["securityContext"] = map[string]interface{}{
-			"privileged": true,
-		}
-		return
+	mainContainer["securityContext"] = map[string]interface{}{
+		"privileged": true,
 	}
-	securityContext["privileged"] = true
-	mainContainer["securityContext"] = securityContext
 }
 
 func modifyPriorityClass(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
@@ -251,6 +249,16 @@ func modifyPriorityClass(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 func modifyHostNetWork(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
 	isEnableHostNetWork := v1.IsEnableHostNetwork(adminWorkload)
 	if err := unstructured.SetNestedField(obj.Object, isEnableHostNetWork, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func modifyHostPid(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
+	if v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobPreflightType) {
+		return nil
+	}
+	if err := unstructured.SetNestedField(obj.Object, true, path...); err != nil {
 		return err
 	}
 	return nil

@@ -101,7 +101,7 @@ func (r *PreflightJobReconciler) handleWorkloadEvent() handler.EventHandler {
 }
 
 func (r *PreflightJobReconciler) addFailedWorkload(ctx context.Context, jobId string, workload *v1.Workload) {
-	nodeName, _ := workload.Spec.Env[common.K8sHostNameLabel]
+	nodeName, _ := workload.Spec.CustomerLabels[common.K8sHostNameLabel]
 	if nodeName == "" {
 		return
 	}

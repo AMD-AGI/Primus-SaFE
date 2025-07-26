@@ -8,19 +8,18 @@
 # Use the command "rvs -c peqt_single.conf" to qualify the PCIe bus which the GPU is connected to.
 # This script can only be run on AMD MI300X chips.
 
-dpkg -l | grep -q rocm-validation-suite
+nsenter --target 1 --mount --uts --ipc --net --pid -- dpkg -l | grep -q rocm-validation-suite
 if [ $? -ne 0 ]; then
-  apt-get update >/dev/null && apt install -y rocm-validation-suite >/dev/null
+  nsenter --target 1 --mount --uts --ipc --net --pid -- apt-get update >/dev/null && apt install -y rocm-validation-suite >/dev/null
   if [ $? -ne 0 ]; then
     echo "[ERROR] failed to install rocm-validation-suite" >&2
     exit 1
   fi
 fi
 
-export PATH=$PATH:/opt/rocm/bin
-export RVS_CONF=/opt/rocm/share/rocm-validation-suite/conf
+RVS_CONF=/opt/rocm/share/rocm-validation-suite/conf
 LOG_FILE="/tmp/pcie_quality.log"
-rvs -c "${RVS_CONF}/peqt_single.conf" >$LOG_FILE
+nsenter --target 1 --mount --uts --ipc --net --pid -- /opt/rocm/bin/rvs -c "${RVS_CONF}/peqt_single.conf" >$LOG_FILE
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then
   rm -f $LOG_FILE
@@ -34,7 +33,7 @@ for i in {1..17}; do
   if grep -qF "$action" "$LOG_FILE"; then
     ((total++))
   else
-    echo "[RvsPcieQuality] [ERROR]: $action not found" >&2
+    echo "[RvsPcieQuality] [ERROR]: failed to qualify the PCIe bus, $action not found" >&2
     rm -f $LOG_FILE
     exit 1
   fi
