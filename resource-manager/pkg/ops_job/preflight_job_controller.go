@@ -276,10 +276,11 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
 		ObjectMeta: metav1.ObjectMeta{
 			Name: job.Name + "-" + adminNode.Name,
 			Labels: map[string]string{
-				v1.ClusterIdLabel:   job.Spec.Cluster,
-				v1.OpsJobIdLabel:    job.Name,
-				v1.OpsJobTypeLabel:  string(job.Spec.Type),
-				v1.DisplayNameLabel: job.Name,
+				v1.ClusterIdLabel:    job.Spec.Cluster,
+				v1.NodeFlavorIdLabel: v1.GetNodeFlavorId(adminNode),
+				v1.OpsJobIdLabel:     job.Name,
+				v1.OpsJobTypeLabel:   string(job.Spec.Type),
+				v1.DisplayNameLabel:  job.Name,
 			},
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: v1.GetUserName(job),
@@ -303,11 +304,15 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
 				CPU:              maxAvailCpu.String(),
 				Memory:           maxAvailMem.String(),
 				GPU:              strconv.Itoa(v1.GetNodeGpuCount(adminNode)),
+				GPUName:          v1.GetGpuResourceName(adminNode),
 				EphemeralStorage: maxAvailStorage.String(),
 			},
 			Workspace: v1.GetWorkspaceId(adminNode),
 			Image:     commonconfig.GetPreflightImage(),
 		},
+	}
+	if workload.Spec.Workspace == "" {
+		workload.Spec.Workspace = corev1.NamespaceDefault
 	}
 	return workload, nil
 }

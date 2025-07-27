@@ -557,8 +557,8 @@ func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace
 }
 
 func getWorkspace(ctx context.Context, cli client.Client, workspaceName string) (*v1.Workspace, error) {
-	if workspaceName == "" {
-		return nil, fmt.Errorf("empty workspace name")
+	if workspaceName == corev1.NamespaceDefault {
+		return nil, nil
 	}
 	workspace := &v1.Workspace{}
 	if err := cli.Get(ctx, client.ObjectKey{Name: workspaceName}, workspace); err != nil {

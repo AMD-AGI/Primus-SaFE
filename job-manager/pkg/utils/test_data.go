@@ -208,6 +208,10 @@ spec:
       terminationGracePeriodSeconds: 30
 status:
   active: 2
+  ready: 2
+  startTime: "2025-07-27T06:17:42Z"
+  terminating: 0
+  uncountedTerminatedPods: {}
 `
 	TestDeploymentData = `
 apiVersion: apps/v1

@@ -10,8 +10,22 @@ if [ -z "$GPU_PRODUCT" ]; then
   exit 1
 fi
 
-cd $GPU_PRODUCT || { echo "The $GPU_PRODUCT test is not supported" >&2; exit 1; }
+found=0
+target_dir=""
+while IFS= read -r -d $'\0' dir; do
+  DIR_NAME=$(basename "$dir")
+  if [[ "$KEYWORD" == *"$DIR_NAME"* ]]; then
+    target_dir=$dir
+    found=1
+  fi
+done < <(find . -type d -print0)
 
+if [ "$FOUND" -ne 1 ]; then
+  echo "The $GPU_PRODUCT test is not supported" >&2
+  exit 1
+fi
+
+cd $target_dir
 has_error=0
 for script in *.sh; do
   echo "Running script: $script"

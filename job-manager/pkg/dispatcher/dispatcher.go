@@ -197,7 +197,7 @@ func (r *DispatcherReconciler) buildPort(ctx context.Context, workload *v1.Workl
 func (r *DispatcherReconciler) createK8sObject(ctx context.Context,
 	adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
 	workspace := &v1.Workspace{}
-	if adminWorkload.Spec.Workspace != "" {
+	if adminWorkload.Spec.Workspace != corev1.NamespaceDefault {
 		err := r.Get(ctx, client.ObjectKey{Name: adminWorkload.Spec.Workspace}, workspace)
 		if err != nil {
 			return nil, err

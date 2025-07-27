@@ -236,8 +236,7 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 }
 
 func (v *OpsJobValidator) validateNodeDuplicated(ctx context.Context, job *v1.OpsJob) error {
-	currentJobs, err := v.listRelatedRunningJobs(ctx, job.Spec.Cluster,
-		[]string{string(v1.OpsJobAddonType), string(v1.OpsJobPreflightType)})
+	currentJobs, err := v.listRelatedRunningJobs(ctx, job.Spec.Cluster, []string{string(job.Spec.Type)})
 	if err != nil {
 		return err
 	}
@@ -346,15 +345,30 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster st
 func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
 	nodeParams := job.GetParameters(v1.ParameterNode)
 	cluster := ""
+	gpuProduct := ""
 	for _, param := range nodeParams {
 		adminNode, err := getNode(ctx, v.Client, param.Value)
 		if err != nil {
 			return err
 		}
+		clusterId := v1.GetClusterId(adminNode)
+		if clusterId == "" {
+			return fmt.Errorf("The node(%s) is not managed by the cluster.", param.Value)
+		}
 		if cluster == "" {
-			cluster = v1.GetClusterId(adminNode)
-		} else if cluster != v1.GetClusterId(adminNode) {
+			cluster = clusterId
+		} else if cluster != clusterId {
 			return fmt.Errorf("The nodes to be operated must belong to the same cluster.")
+		}
+		if job.Spec.Type == v1.OpsJobPreflightType {
+			if v1.GetGpuProductName(adminNode) == "" {
+				return commonerrors.NewNotImplemented("Only GPU nodes are supported.")
+			}
+			if gpuProduct == "" {
+				gpuProduct = v1.GetGpuProductName(adminNode)
+			} else if v1.GetGpuProductName(adminNode) != gpuProduct {
+				return fmt.Errorf("The nodes to be operated must belong to the same gpu chip.")
+			}
 		}
 	}
 	return nil

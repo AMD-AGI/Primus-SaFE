@@ -280,7 +280,7 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 			return result, err
 		}
 	}
-	if workload.Spec.Workspace == "" {
+	if workload.Spec.Workspace == corev1.NamespaceDefault {
 		return ctrlruntime.Result{}, nil
 	}
 	msg := &SchedulerMessage{

@@ -33,9 +33,6 @@ data:
                 - name: podinfo
                   mountPath: /etc/podinfo
                   readOnly: true
-                - mountPath: /var/log
-                  name: log
-                  readOnly: false
               securityContext:
                 capabilities:
                   add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
@@ -47,10 +44,6 @@ data:
                 - path: "labels"
                   fieldRef:
                     fieldPath: metadata.labels
-            - hostPath:
-              path: /var/log/
-              type: ""
-              name: log
           terminationGracePeriodSeconds: 5
           imagePullSecrets:
           - name: {{ .Release.Name }}-image

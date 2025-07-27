@@ -175,6 +175,10 @@ func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNe
 }
 
 func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Workspace) {
+	if workspace == nil {
+		return
+	}
+
 	var volumeMounts []interface{}
 	volumeMountObjs, ok := mainContainer["volumeMounts"]
 	if ok {
@@ -183,17 +187,15 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Work
 
 	volumeMount := buildSharedMemoryVolumeMount()
 	volumeMounts = append(volumeMounts, volumeMount...)
-	if workspace != nil {
-		id := 0
-		for _, vol := range workspace.Spec.Volumes {
-			volumeName := string(vol.StorageType)
-			if vol.StorageType == v1.HOSTPATH {
-				volumeName = generateVolumeName(volumeName, id)
-				id++
-			}
-			volumeMount = buildWorkspaceVolumeMount(vol, volumeName)
-			volumeMounts = append(volumeMounts, volumeMount...)
+	id := 0
+	for _, vol := range workspace.Spec.Volumes {
+		volumeName := string(vol.StorageType)
+		if vol.StorageType == v1.HOSTPATH {
+			volumeName = generateVolumeName(volumeName, id)
+			id++
 		}
+		volumeMount = buildWorkspaceVolumeMount(vol, volumeName)
+		volumeMounts = append(volumeMounts, volumeMount...)
 	}
 	mainContainer["volumeMounts"] = volumeMounts
 }
@@ -466,7 +468,7 @@ func buildPvcVolume(volumeName string) interface{} {
 
 func buildMatchExpression(adminWorkload *v1.Workload) []interface{} {
 	var result []interface{}
-	if adminWorkload.Spec.Workspace != "" {
+	if adminWorkload.Spec.Workspace != corev1.NamespaceDefault {
 		result = append(result, map[string]interface{}{
 			"key":      v1.WorkspaceIdLabel,
 			"operator": "In",

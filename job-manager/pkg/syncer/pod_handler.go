@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -250,14 +251,16 @@ func getPodErrorLog(ctx context.Context, clientSet kubernetes.Interface, pod *co
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	var errorLines []string
 
+	id := 1
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.Contains(line, "[ERROR]") {
-			errorLines = append(errorLines, line)
+			errorLines = append(errorLines, fmt.Sprintf("%d. %s", id, line))
+			id++
 		}
 	}
 	if err = scanner.Err(); err != nil {
 		klog.ErrorS(err, "error reading pod log lines")
 	}
-	return strings.Join(errorLines, "\n")
+	return strings.Join(errorLines, ";")
 }

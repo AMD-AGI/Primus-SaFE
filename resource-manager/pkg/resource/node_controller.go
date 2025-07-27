@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
@@ -591,7 +592,10 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		if err = r.syncLabelsToK8sNode(ctx, k8sClients.ClientSet(), adminNode, k8sNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		if err = r.installAddonsOnNode(ctx, adminNode); err != nil {
+		if err = r.installAddons(ctx, adminNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if err = r.doPreflight(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
@@ -614,7 +618,7 @@ func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context,
 		if err = r.syncLabelsToK8sNode(ctx, k8sClients.ClientSet(), adminNode, k8sNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		if err = r.installAddonsOnNode(ctx, adminNode); err != nil {
+		if err = r.installAddons(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
@@ -910,7 +914,7 @@ func (r *NodeReconciler) harborCA(ctx context.Context, sshClient *ssh.Client) er
 	return nil
 }
 
-func (r *NodeReconciler) installAddonsOnNode(ctx context.Context, adminNode *v1.Node) error {
+func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) error {
 	if adminNode.Spec.NodeTemplate == nil {
 		return nil
 	}
@@ -936,6 +940,36 @@ func (r *NodeReconciler) installAddonsOnNode(ctx context.Context, adminNode *v1.
 		return client.IgnoreAlreadyExists(err)
 	}
 	klog.Infof("create addon job(%s), node.name: %s", job.Name, adminNode.Name)
+	return nil
+}
+
+func (r *NodeReconciler) doPreflight(ctx context.Context, adminNode *v1.Node) error {
+	if commonconfig.GetPreflightImage() == "" || v1.GetGpuProductName(adminNode) == "" {
+		return nil
+	}
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				v1.GpuProductNameLabel: strings.ToLower(v1.GetGpuProductName(adminNode)),
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: v1.SystemUser,
+			},
+		},
+		Spec: v1.OpsJobSpec{
+			Cluster: adminNode.GetSpecCluster(),
+			Type:    v1.OpsJobPreflightType,
+			Inputs: []v1.Parameter{{
+				Name:  v1.ParameterNode,
+				Value: adminNode.Name,
+			}},
+			TimeoutSecond: 7200,
+		},
+	}
+	if err := r.Create(ctx, job); err != nil {
+		return client.IgnoreAlreadyExists(err)
+	}
+	klog.Infof("create preflight job(%s), node.name: %s", job.Name, adminNode.Name)
 	return nil
 }
 

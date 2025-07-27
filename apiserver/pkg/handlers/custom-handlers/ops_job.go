@@ -152,7 +152,11 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 func (h *Handler) generateAddonJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
 	job := genDefaultOpsJob(req)
 	if job.Spec.Cluster == "" {
-		h.genOpsJobClusterByNode(ctx, job)
+		if nodeParam := job.GetParameter(v1.ParameterNode); nodeParam != nil {
+			if adminNode, err := h.getAdminNode(ctx, nodeParam.Value); err == nil {
+				job.Spec.Cluster = v1.GetClusterId(adminNode)
+			}
+		}
 	}
 	v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(req.BatchCount))
 	v1.SetAnnotation(job, v1.OpsJobAvailRatioAnnotation,
@@ -165,12 +169,16 @@ func (h *Handler) generatePreflightJob(ctx context.Context, req *types.CreateOps
 		return nil, commonerrors.NewInternalError("The preflight function is not enabled")
 	}
 	job := genDefaultOpsJob(req)
-	if job.Spec.Cluster == "" {
-		h.genOpsJobClusterByNode(ctx, job)
+	nodeParam := job.GetParameter(v1.ParameterNode)
+	if nodeParam == nil {
+		return nil, commonerrors.NewInternalError("Node parameter is required")
 	}
-	if req.GpuProduct != "" {
-		v1.SetLabel(job, v1.GpuProductNameLabel, strings.ToLower(req.GpuProduct))
+	adminNode, err := h.getAdminNode(ctx, nodeParam.Value)
+	if err != nil {
+		return nil, err
 	}
+	job.Spec.Cluster = v1.GetClusterId(adminNode)
+	v1.SetLabel(job, v1.GpuProductNameLabel, strings.ToLower(v1.GetGpuProductName(adminNode)))
 	return job, nil
 }
 
@@ -204,16 +212,6 @@ func (h *Handler) generateDumpLogJob(ctx context.Context, req *types.CreateOpsJo
 		v1.SetLabel(job, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	}
 	return job, nil
-}
-
-func (h *Handler) genOpsJobClusterByNode(ctx context.Context, job *v1.OpsJob) {
-	nodeParam := job.GetParameter(v1.ParameterNode)
-	if nodeParam == nil {
-		return
-	}
-	if adminNode, err := h.getAdminNode(ctx, nodeParam.Value); err == nil {
-		job.Spec.Cluster = v1.GetClusterId(adminNode)
-	}
 }
 
 func genDefaultOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {

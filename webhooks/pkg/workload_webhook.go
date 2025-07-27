@@ -118,23 +118,22 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateMaxRetry(workload)
 	m.mutateCreateEnv(workload)
 	m.mutateTTLSeconds(workload)
-	m.mutateCommon(ctx, workload, workspace)
+	m.mutateCommon(ctx, workload)
 	return true
 }
 
 func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) bool {
 	m.mutateResource(newWorkload, nil)
 	m.mutateUpdateEnv(oldWorkload, newWorkload)
-	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
-	m.mutateCommon(ctx, newWorkload, workspace)
+	m.mutateCommon(ctx, newWorkload)
 	return true
 }
 
-func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
+func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload) bool {
 	m.mutatePriority(workload)
 	m.mutateImage(workload)
 	m.mutateEntryPoint(workload)
-	m.mutateHostNetwork(ctx, workload, workspace)
+	m.mutateHostNetwork(ctx, workload)
 	return true
 }
 
@@ -345,11 +344,12 @@ func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
 	}
 }
 
-func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
-	if workspace == nil {
+func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Workload) {
+	flavorId := v1.GetNodeFlavorId(workload)
+	if flavorId == "" {
 		return
 	}
-	nf, _ := getNodeFlavor(ctx, m.Client, workspace.Spec.NodeFlavor)
+	nf, _ := getNodeFlavor(ctx, m.Client, flavorId)
 	if nf == nil {
 		return
 	}
@@ -467,7 +467,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if v1.GetClusterId(workload) == "" {
 		errs = append(errs, fmt.Errorf("the cluster is empty"))
 	}
-	if workload.Spec.Workspace == "" && !commonworkload.IsOpsJob(workload) {
+	if workload.Spec.Workspace == "" {
 		errs = append(errs, fmt.Errorf("the workspace is empty"))
 	}
 	if workload.Spec.EntryPoint == "" {
@@ -550,13 +550,12 @@ func (v *WorkloadValidator) validateResourceValid(workload *v1.Workload) error {
 }
 
 func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.Workload) error {
-	if workload.Spec.Workspace == "" {
+	workspace, _ := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
+	if workspace == nil {
+		if v1.GetOpsJobId(workload) == "" {
+			return commonerrors.NewNotFound(v1.WorkspaceKind, workload.Spec.Workspace)
+		}
 		return nil
-	}
-	// workspace must exist
-	workspace, err := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
-	if err != nil {
-		return commonerrors.NewNotFound(v1.WorkspaceKind, workload.Spec.Workspace)
 	}
 	if workspace.IsAbnormal() && !workload.Spec.IsTolerateAll {
 		return commonerrors.NewInternalError(fmt.Sprintf("workspace %s is abnormal", workspace.Name))
@@ -683,7 +682,7 @@ func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Work
 	if err != nil {
 		return err
 	}
-	if len(workspace.Spec.Scopes) == 0 {
+	if workspace == nil || len(workspace.Spec.Scopes) == 0 {
 		return nil
 	}
 	hasFound := false

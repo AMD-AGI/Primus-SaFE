@@ -204,7 +204,8 @@ func IsApplication(w *v1.Workload) bool {
 }
 
 func IsJob(w *v1.Workload) bool {
-	if w.SpecKind() == common.PytorchJobKind || w.SpecKind() == common.AuthoringKind {
+	if w.SpecKind() == common.PytorchJobKind ||
+		w.SpecKind() == common.AuthoringKind || w.SpecKind() == common.JobKind {
 		return true
 	}
 	return false

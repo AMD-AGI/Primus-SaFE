@@ -281,9 +281,6 @@ func (v *NodeValidator) validateNodeSpec(ctx context.Context, node *v1.Node) err
 
 func (v *NodeValidator) validateNodeWorkspace(ctx context.Context, node *v1.Node) error {
 	workspaceName := node.GetSpecWorkspace()
-	if workspaceName == "" {
-		return nil
-	}
 	if _, err := getWorkspace(ctx, v.Client, workspaceName); err != nil {
 		return err
 	}
