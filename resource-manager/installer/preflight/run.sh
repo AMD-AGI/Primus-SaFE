@@ -14,13 +14,14 @@ found=0
 target_dir=""
 while IFS= read -r -d $'\0' dir; do
   DIR_NAME=$(basename "$dir")
-  if [[ "$KEYWORD" == *"$DIR_NAME"* ]]; then
+  if [[ "$GPU_PRODUCT" == *"$DIR_NAME"* ]]; then
     target_dir=$dir
     found=1
+    break
   fi
 done < <(find . -type d -print0)
 
-if [ "$FOUND" -ne 1 ]; then
+if [ "$found" -eq 0 ]; then
   echo "The $GPU_PRODUCT test is not supported" >&2
   exit 1
 fi
