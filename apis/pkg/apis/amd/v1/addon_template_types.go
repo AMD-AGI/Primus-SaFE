@@ -12,20 +12,22 @@ const (
 )
 
 type AddonTemplateType string
-type ChipType string
+type GpuChipType string
+type GpuChipProduct string
 
 const (
-	AddonTemplateDriver  AddonTemplateType = "driver"
-	AddonTemplateHelm    AddonTemplateType = "helm"
-	AddonTemplateDpkg    AddonTemplateType = "dpkg"
-	AddonTemplateConfig  AddonTemplateType = "config"
-	AddonTemplateSystemd AddonTemplateType = "systemd"
+	AddonTemplateDriver     AddonTemplateType = "driver"
+	AddonTemplateHelm       AddonTemplateType = "helm"
+	AddonTemplateDpkg       AddonTemplateType = "dpkg"
+	AddonTemplateConfig     AddonTemplateType = "config"
+	AddonTemplateSystemd    AddonTemplateType = "systemd"
+	AddonTemplateValidation AddonTemplateType = "validation"
 
 	AddOnObserve = "observe"
 	AddOnAction  = "action"
 
-	AmdGpuChip    ChipType = "amd"
-	NvidiaGpuChip ChipType = "nvidia"
+	AmdGpuChip    GpuChipType = "amd"
+	NvidiaGpuChip GpuChipType = "nvidia"
 )
 
 // +genclient
@@ -59,8 +61,10 @@ type AddonTemplateSpec struct {
 	Extensions map[string]string `json:"extensions,omitempty"`
 	// icon url，base64 encoded
 	Icon string `json:"icon,omitempty"`
-	// target chip， If left empty, it applies to all chip.
-	Chip ChipType `json:"chip,omitempty"`
+	// target gpu chip(amd or nvidia), If left empty, it applies to all chip.
+	GpuChip GpuChipType `json:"gpuChip,omitempty"`
+	// target GPU product, such as the MI300X, If left empty, it applies to all product.
+	GpuProduct GpuChipProduct `json:"gpuProduct,omitempty"`
 	// If it is a One-shot Service, the reload operation is not applicable.
 	IsOneShotService bool `json:"isOneShotService,omitempty"`
 	// the default value for helm install

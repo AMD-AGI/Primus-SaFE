@@ -20,7 +20,8 @@ type AddonTemplateSpecApplyConfiguration struct {
 	Description          *string                  `json:"description,omitempty"`
 	Extensions           map[string]string        `json:"extensions,omitempty"`
 	Icon                 *string                  `json:"icon,omitempty"`
-	Chip                 *amdv1.ChipType          `json:"chip,omitempty"`
+	GpuChip              *amdv1.GpuChipType       `json:"gpuChip,omitempty"`
+	GpuProduct           *amdv1.GpuChipProduct    `json:"gpuProduct,omitempty"`
 	IsOneShotService     *bool                    `json:"isOneShotService,omitempty"`
 	HelmDefaultValues    *string                  `json:"helmDefaultValues,omitempty"`
 	HelmDefaultNamespace *string                  `json:"helmDefaultNamespace,omitempty"`
@@ -94,11 +95,19 @@ func (b *AddonTemplateSpecApplyConfiguration) WithIcon(value string) *AddonTempl
 	return b
 }
 
-// WithChip sets the Chip field in the declarative configuration to the given value
+// WithGpuChip sets the GpuChip field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Chip field is set to the value of the last call.
-func (b *AddonTemplateSpecApplyConfiguration) WithChip(value amdv1.ChipType) *AddonTemplateSpecApplyConfiguration {
-	b.Chip = &value
+// If called multiple times, the GpuChip field is set to the value of the last call.
+func (b *AddonTemplateSpecApplyConfiguration) WithGpuChip(value amdv1.GpuChipType) *AddonTemplateSpecApplyConfiguration {
+	b.GpuChip = &value
+	return b
+}
+
+// WithGpuProduct sets the GpuProduct field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GpuProduct field is set to the value of the last call.
+func (b *AddonTemplateSpecApplyConfiguration) WithGpuProduct(value amdv1.GpuChipProduct) *AddonTemplateSpecApplyConfiguration {
+	b.GpuProduct = &value
 	return b
 }
 

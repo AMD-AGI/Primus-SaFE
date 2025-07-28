@@ -166,12 +166,9 @@ func (r *ClusterInformer) addResourceTemplate(gvk schema.GroupVersionKind) error
 	return nil
 }
 
-func (r *ClusterInformer) handleResource(ctx context.Context, oldObj, newObj interface{}, action string) {
+func (r *ClusterInformer) handleResource(_ context.Context, oldObj, newObj interface{}, action string) {
 	newUnstructured, ok := newObj.(*unstructured.Unstructured)
 	if !ok {
-		return
-	}
-	if !r.checkNamespace(ctx, newUnstructured.GetNamespace()) {
 		return
 	}
 	msg := &resourceMessage{
@@ -212,15 +209,6 @@ func (r *ClusterInformer) handleResource(ctx context.Context, oldObj, newObj int
 		}
 	}
 	r.handler(msg)
-}
-
-// Ignore the resource if its namespace does not belong to the current workspace
-func (r *ClusterInformer) checkNamespace(ctx context.Context, namespace string) bool {
-	workspace := &v1.Workspace{}
-	if err := r.adminClient.Get(ctx, client.ObjectKey{Name: namespace}, workspace); err != nil {
-		return false
-	}
-	return true
 }
 
 func (r *ClusterInformer) delResourceTemplate(gvk schema.GroupVersionKind) {

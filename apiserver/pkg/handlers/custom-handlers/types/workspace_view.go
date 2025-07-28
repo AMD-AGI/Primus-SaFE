@@ -42,38 +42,38 @@ type GetWorkspaceResponseItem struct {
 	// workspace's cluster
 	ClusterId string `json:"clusterId"`
 	// the total resource of workspace
-	TotalQuota ResourceList `json:"totalQuota,omitempty"`
+	TotalQuota ResourceList `json:"totalQuota"`
 	// the available resource of workspace
-	AvailQuota ResourceList `json:"availQuota,omitempty"`
+	AvailQuota ResourceList `json:"availQuota"`
 	// the faulty resources of workspace
-	AbnormalQuota ResourceList `json:"abnormalQuota,omitempty"`
+	AbnormalQuota ResourceList `json:"abnormalQuota"`
 	// the used resources of workspace
-	UsedQuota ResourceList `json:"usedQuota,omitempty"`
+	UsedQuota ResourceList `json:"usedQuota"`
 	// node flavor id
-	NodeFlavor string `json:"nodeFlavor,omitempty"`
+	NodeFlavor string `json:"nodeFlavor"`
 	// total node count
-	TotalNode int `json:"totalNode,omitempty"`
+	TotalNode int `json:"totalNode"`
 	// abnormal node count
-	AbnormalNode int `json:"abnormalNode,omitempty"`
+	AbnormalNode int `json:"abnormalNode"`
 	// the status of workspace
-	Phase string `json:"phase,omitempty"`
+	Phase string `json:"phase"`
 	// creation time
 	CreateTime string `json:"createTime"`
 	// description of workspace
-	Description string `json:"description,omitempty"`
+	Description string `json:"description"`
 	// Queuing policy for tasks submitted in this workspace.
 	QueuePolicy v1.WorkspaceQueuePolicy `json:"queuePolicy"`
 	// support service module: Train/Infer/Authoring, No limitation if not specified
 	Scopes []v1.WorkspaceScope `json:"scopes"`
 	// the store volumes used by workspace
-	Volumes []v1.WorkspaceVolume `json:"volumes,omitempty"`
+	Volumes []v1.WorkspaceVolume `json:"volumes"`
 	// Is preemption enabled
-	EnablePreempt bool `json:"enablePreempt,omitempty"`
+	EnablePreempt bool `json:"enablePreempt"`
 }
 
 type GetWorkspaceResponse struct {
 	TotalCount int                        `json:"totalCount"`
-	Items      []GetWorkspaceResponseItem `json:"items,omitempty"`
+	Items      []GetWorkspaceResponseItem `json:"items"`
 }
 
 type PatchWorkspaceRequest struct {

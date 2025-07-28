@@ -7,6 +7,7 @@ package node
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,7 +40,8 @@ func TestAddonJobSucceed(t *testing.T) {
 	nodeJobInput := commonjob.OpsJobInput{
 		DispatchTime: time.Now().Unix(),
 		Commands: []commonjob.OpsJobCommand{{
-			Action:  stringutil.Base64Encode("touch ./.a"),
+			Addon:   "test",
+			Action:  stringutil.Base64Encode("touch ./.a;echo hello"),
 			Observe: stringutil.Base64Encode("if [ -f \"./.a\" ]; then\n    exit 0\nelse\n    exit 1\nfi"),
 		}},
 	}
@@ -48,7 +50,7 @@ func TestAddonJobSucceed(t *testing.T) {
 	defer os.Remove("./.a")
 
 	var job NodeJob
-	err := job.Reconcile(node)
+	err := job.reconcile(node)
 	time.Sleep(time.Millisecond * 200)
 
 	assert.NilError(t, err)
@@ -60,6 +62,14 @@ func TestAddonJobSucceed(t *testing.T) {
 	assert.Equal(t, cond.Message, "")
 	assert.Equal(t, cond.LastTransitionTime.IsZero(), false)
 	assert.Equal(t, cond.LastTransitionTime.Unix() >= nodeJobInput.DispatchTime, true)
+
+	cond = node.FindConditionByType("test")
+	assert.Equal(t, cond != nil, true)
+	assert.Equal(t, cond.Reason, "test-job")
+	assert.Equal(t, cond.Status, corev1.ConditionTrue)
+	assert.Equal(t, cond.Message, "hello")
+	assert.Equal(t, cond.LastTransitionTime.IsZero(), false)
+	assert.Equal(t, cond.LastTransitionTime.Unix() >= nodeJobInput.DispatchTime, true)
 }
 
 func TestAddonJobFailed(t *testing.T) {
@@ -67,6 +77,7 @@ func TestAddonJobFailed(t *testing.T) {
 	nodeJobInput := commonjob.OpsJobInput{
 		DispatchTime: time.Now().Unix(),
 		Commands: []commonjob.OpsJobCommand{{
+			Addon:  "test",
 			Action: stringutil.Base64Encode("echo error\nexit 1"),
 		}},
 	}
@@ -74,7 +85,7 @@ func TestAddonJobFailed(t *testing.T) {
 		v1.OpsJobInputAnnotation, string(jsonutils.MarshalSilently(nodeJobInput)))
 
 	var job NodeJob
-	err := job.Reconcile(node)
+	err := job.reconcile(node)
 	time.Sleep(time.Millisecond * 200)
 
 	assert.Equal(t, err != nil, true)
@@ -83,7 +94,7 @@ func TestAddonJobFailed(t *testing.T) {
 	assert.Equal(t, v1.GetOpsJobId(node.k8sNode), "test-job")
 	assert.Equal(t, cond.Reason, "test-job")
 	assert.Equal(t, cond.Status, corev1.ConditionFalse)
-	assert.Equal(t, cond.Message, "error")
+	assert.Equal(t, strings.Contains(cond.Message, "error"), true)
 	assert.Equal(t, cond.LastTransitionTime.IsZero(), false)
 	assert.Equal(t, cond.LastTransitionTime.Unix() >= nodeJobInput.DispatchTime, true)
 }

@@ -22,5 +22,8 @@ func SetupOpsJobs(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupDumpLogJobController(ctx, mgr); err != nil {
 		return fmt.Errorf("dumplog-job controller: %v", err)
 	}
+	if err := SetupPreflightJobController(mgr); err != nil {
+		return fmt.Errorf("preflight-job controller: %v", err)
+	}
 	return nil
 }

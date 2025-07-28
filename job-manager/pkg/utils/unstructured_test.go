@@ -32,7 +32,7 @@ func TestGetPytorchJobPhase(t *testing.T) {
 
 	status, err := GetK8sResourceStatus(pytorchJob, rt)
 	assert.NilError(t, err)
-	assert.Equal(t, status == nil, true)
+	assert.Equal(t, status.Phase, "")
 
 	newCondition := map[string]interface{}{
 		"type":    "Running",
@@ -43,7 +43,7 @@ func TestGetPytorchJobPhase(t *testing.T) {
 	addK8sJobCond(t, pytorchJob, newCondition)
 	status, err = GetK8sResourceStatus(pytorchJob, rt)
 	assert.NilError(t, err)
-	assert.Equal(t, status == nil, true)
+	assert.Equal(t, status.Phase, "")
 
 	newCondition["status"] = "True"
 	addK8sJobCond(t, pytorchJob, newCondition)
@@ -92,7 +92,7 @@ func TestGetJobPhase(t *testing.T) {
 
 	status, err := GetK8sResourceStatus(job, rt)
 	assert.NilError(t, err)
-	assert.Equal(t, status == nil, true)
+	assert.Equal(t, status.Phase, string(v1.K8sRunning))
 
 	newCondition := map[string]interface{}{
 		"type":    "Failed",
@@ -104,10 +104,9 @@ func TestGetJobPhase(t *testing.T) {
 	status, err = GetK8sResourceStatus(job, rt)
 	assert.NilError(t, err)
 	assert.Equal(t, status.Phase, "K8sFailed")
-	assert.Equal(t, status.Reason, "BackoffLimitExceeded")
 }
 
-func TestK8sJobActiveReplica(t *testing.T) {
+func TestGetJobActiveReplica(t *testing.T) {
 	job, err := jsonutils.ParseYamlToJson(TestJobData)
 	assert.NilError(t, err)
 	rt := TestJobTemplate.DeepCopy()

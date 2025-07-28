@@ -6,7 +6,8 @@
 #
 
 if [ "$#" -lt 1 ]; then
-  echo 'Error: Missing parameter node-info. example: {"expectedGpuCount": 8}'
+  echo "Usage: $0 <node-info>"
+  echo "Example: $0 {\"expectedGpuCount\": 8}"
   exit 2
 fi
 
@@ -16,11 +17,11 @@ fi
 
 expectedCount=`echo "$1" |jq '.expectedGpuCount'`
 if [ -z "$expectedCount" ] || [ "$expectedCount" == "null" ] || [ $expectedCount -le 0 ]; then
-    echo "Error: failed to get expectedGpuCount from input: $1"
-    exit 2
+  echo "Error: failed to get expectedGpuCount from input: $1"
+  exit 2
 fi
 
-actualCount=`cat "/tmp/rocm-smi" | grep ^[0-9] |wc -l`
+actualCount=`cat "/tmp/rocm-smi" | grep '^[0-9]' |wc -l`
 ret=$?
 if [ $ret -ne 0 ]; then
   echo "Error: failed to execute rocm-smi"

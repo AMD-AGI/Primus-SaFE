@@ -27,24 +27,24 @@ type GetFaultResponseItem struct {
 	// the uniq id of response
 	ID int64 `json:"id"`
 	// the node ID related to this fault
-	NodeId string `json:"nodeId,omitempty"`
+	NodeId string `json:"nodeId"`
 	// the ID used by NodeAgent for monitoring.
 	MonitorId string `json:"monitorId"`
 	// fault message
-	Message string `json:"message,omitempty"`
+	Message string `json:"message"`
 	// the action of fault. e.g. taint
-	Action string `json:"action,omitempty"`
+	Action string `json:"action"`
 	// the status of fault, including Succeeded/Failed
-	Phase string `json:"phase,omitempty"`
+	Phase string `json:"phase"`
 	// cluster id
-	Cluster string `json:"cluster,omitempty"`
+	Cluster string `json:"cluster"`
 	// the creation time of fault
-	CreatedTime string `json:"createdTime,omitempty"`
+	CreatedTime string `json:"createdTime"`
 	// the deletion time of fault
-	DeleteTime string `json:"deleteTime,omitempty"`
+	DeleteTime string `json:"deleteTime"`
 }
 
 type GetFaultResponse struct {
 	TotalCount int                    `json:"totalCount"`
-	Items      []GetFaultResponseItem `json:"items,omitempty"`
+	Items      []GetFaultResponseItem `json:"items"`
 }

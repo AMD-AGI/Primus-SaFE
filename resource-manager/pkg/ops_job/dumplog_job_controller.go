@@ -38,11 +38,11 @@ import (
 )
 
 const (
-	contextTTL      = "10m"
-	maxBatchNum     = 10000
-	maxDocsPerQuery = 10000
-	minBatchSize    = 5 * 1024 * 1024
-	concurrent      = 8
+	contextTTL        = "10m"
+	maxBatchNum       = 10000
+	maxDocsPerQuery   = 10000
+	minBatchSize      = 5 * 1024 * 1024
+	defaultConcurrent = 8
 )
 
 type workloadInfo struct {
@@ -84,7 +84,7 @@ func SetupDumpLogJobController(ctx context.Context, mgr manager.Manager) error {
 	if r.searchClient == nil {
 		return fmt.Errorf("failed to new search-client")
 	}
-	r.Controller = controller.NewController[string](r, concurrent)
+	r.Controller = controller.NewController[string](r, defaultConcurrent)
 	r.start(ctx)
 
 	err = ctrlruntime.NewControllerManagedBy(mgr).

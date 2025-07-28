@@ -14,5 +14,5 @@ spec:
   ports:
     - protocol: TCP
       port: 443
-      targetPort: {{ .Values.webhooks.port }}
+      targetPort: {{ default 8084 (default .Values.webhooks).port }}
   type: ClusterIP

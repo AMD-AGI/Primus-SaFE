@@ -29,19 +29,19 @@ type StorageClusterView struct {
 	Flavor    string                                 `json:"flavor"`
 	Cluster   string                                 `json:"cluster"`
 	Count     int                                    `json:"count"`
-	Resources map[string]corev1.ResourceRequirements `json:"resources,omitempty"`
-	Image     *string                                `json:"image,omitempty"`
-	ClusterId string                                 `json:"clusterId,omitempty"`
+	Resources map[string]corev1.ResourceRequirements `json:"resources"`
+	Image     *string                                `json:"image"`
+	ClusterId string                                 `json:"clusterId"`
 	// 描述
-	Description string      `json:"description,omitempty"`
-	Phase       v1.Phase    `json:"phase,omitempty"`
-	Health      string      `json:"health,omitempty"`
-	Capacity    v1.Capacity `json:"capacity,omitempty"`
+	Description string      `json:"description"`
+	Phase       v1.Phase    `json:"phase"`
+	Health      string      `json:"health"`
+	Capacity    v1.Capacity `json:"capacity"`
 }
 
 type ListStorageClusterResponse struct {
 	TotalCount int                   `json:"totalCount"`
-	Items      []*StorageClusterView `json:"items,omitempty"`
+	Items      []*StorageClusterView `json:"items"`
 }
 
 type StorageBindingRequest struct {
@@ -78,7 +78,7 @@ type StorageNodeFlavorResponse struct {
 
 type StorageNodeFlavorResponseItem struct {
 	GetNodeFlavorResponseItem
-	Storages *v1.DiskFlavor `json:"storage,omitempty"`
+	Storages *v1.DiskFlavor `json:"storage"`
 	Count    int            `json:"count"`
 }
 
@@ -86,15 +86,15 @@ type BindingStorageResponseItem struct {
 	Name           string             `json:"name"`
 	StorageCluster string             `json:"storageCluster"`
 	Type           v1.StorageUseType  `json:"type"`
-	StorageClass   string             `json:"storageClass,omitempty"`
-	Secret         string             `json:"secret,omitempty"`
-	Namespace      string             `json:"namespace,omitempty"`
-	Replicated     *v1.ReplicatedSpec `json:"replicated,omitempty"`
-	ErasureCoded   bool               `json:"erasureCoded,omitempty"`
-	Phase          v1.Phase           `json:"phase,omitempty"`
+	StorageClass   string             `json:"storageClass"`
+	Secret         string             `json:"secret"`
+	Namespace      string             `json:"namespace"`
+	Replicated     *v1.ReplicatedSpec `json:"replicated"`
+	ErasureCoded   bool               `json:"erasureCoded"`
+	Phase          v1.Phase           `json:"phase"`
 }
 
 type BindingStorageResponse struct {
-	Storages []BindingStorageResponseItem `json:"storages,omitempty"`
+	Storages []BindingStorageResponseItem `json:"storages"`
 	Count    int                          `json:"count"`
 }

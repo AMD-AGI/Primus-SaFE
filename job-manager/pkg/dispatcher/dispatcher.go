@@ -167,12 +167,7 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 		return err
 	}
 	if err = jobutils.CreateObject(ctx, clusterInformer.ClientFactory(), k8sObject); err != nil {
-		if !apierrors.IsAlreadyExists(err) {
-			klog.ErrorS(err, "failed to create k8s unstructured object")
-		} else {
-			err = nil
-		}
-		return err
+		return commonerrors.NewInternalError(err.Error())
 	}
 	return nil
 }
@@ -202,13 +197,15 @@ func (r *DispatcherReconciler) buildPort(ctx context.Context, workload *v1.Workl
 func (r *DispatcherReconciler) createK8sObject(ctx context.Context,
 	adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
 	workspace := &v1.Workspace{}
-	err := r.Get(ctx, client.ObjectKey{Name: adminWorkload.Spec.Workspace}, workspace)
-	if err != nil {
-		return nil, err
+	if adminWorkload.Spec.Workspace != corev1.NamespaceDefault {
+		err := r.Get(ctx, client.ObjectKey{Name: adminWorkload.Spec.Workspace}, workspace)
+		if err != nil {
+			return nil, err
+		}
 	}
 	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
 	if err != nil {
-		klog.ErrorS(err, "", "gvk", adminWorkload.Spec.GroupVersionKind)
+		klog.Error(err.Error())
 		return nil, err
 	}
 
@@ -257,6 +254,9 @@ func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1
 	cond := jobutils.NewCondition(string(v1.AdminDispatched), "the workload is dispatched", reason)
 	if jobutils.FindCondition(workload, cond) == nil {
 		workload.Status.Conditions = append(workload.Status.Conditions, *cond)
+		if workload.Status.Phase == "" {
+			workload.Status.Phase = v1.WorkloadPending
+		}
 		if err := r.Status().Update(ctx, workload); err != nil {
 			klog.ErrorS(err, "failed to update workload", "name", workload.Name)
 			return err
@@ -354,7 +354,7 @@ func isEntryPointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructu
 	if len(commands) == 0 {
 		return false
 	}
-	cmd := buildEntryPoint(adminWorkload.Spec.EntryPoint)
+	cmd := buildEntryPoint(adminWorkload)
 	return cmd != commands[len(commands)-1]
 }
 
@@ -454,7 +454,7 @@ func updateMainContainer(adminWorkload *v1.Workload,
 		"requests": resources,
 	}
 	mainContainer["image"] = adminWorkload.Spec.Image
-	mainContainer["command"] = buildCommands(adminWorkload.Spec.EntryPoint)
+	mainContainer["command"] = buildCommands(adminWorkload)
 	if len(adminWorkload.Spec.Env) > 0 {
 		updateContainerEnv(adminWorkload, mainContainer)
 	}
@@ -465,7 +465,12 @@ func updateMainContainer(adminWorkload *v1.Workload,
 }
 
 func updateContainerEnv(adminWorkload *v1.Workload, mainContainer map[string]interface{}) {
-	currentEnv := mainContainer["env"].([]interface{})
+	var currentEnv []interface{}
+	envObjs, ok := mainContainer["env"]
+	if ok {
+		currentEnv = envObjs.([]interface{})
+	}
+
 	newEnv := make([]interface{}, 0, len(currentEnv))
 	currentEnvSet := sets.NewSet()
 	isChanged := false

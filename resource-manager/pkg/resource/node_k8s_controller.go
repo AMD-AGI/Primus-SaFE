@@ -51,7 +51,7 @@ const (
 var (
 	concernedK8sLabelKeys = []string{v1.WorkspaceIdLabel, v1.ClusterIdLabel,
 		v1.NodeStartupTimeLabel, v1.KubernetesControlPlane}
-	concernedK8sAnnotationKeys = []string{v1.GpuProductNameAnnotation}
+	concernedK8sAnnotationKeys = []string{}
 )
 
 type nodeQueueMessage struct {
@@ -365,9 +365,7 @@ func (r *NodeK8sReconciler) syncK8sStatus(ctx context.Context, adminNode *v1.Nod
 	adminNode.Status.MachineStatus.PrivateIP = commonnodes.GetInternalIp(k8sNode)
 	adminNode.Status.Unschedulable = k8sNode.Spec.Unschedulable
 	adminNode.Status.Taints = k8sNode.Spec.Taints
-	if isConditionsChanged(adminNode.Status.Conditions, k8sNode.Status.Conditions) {
-		adminNode.Status.Conditions = k8sNode.Status.Conditions
-	}
+	adminNode.Status.Conditions = k8sNode.Status.Conditions
 	adminNode.Status.Resources = quantity.GetConcernedResources(k8sNode.Status.Allocatable)
 	if !reflect.DeepEqual(originNode.Status, adminNode.Status) {
 		if err := r.Status().Update(ctx, adminNode); err != nil {

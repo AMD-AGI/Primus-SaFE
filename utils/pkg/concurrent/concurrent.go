@@ -7,8 +7,6 @@ package concurrent
 
 import (
 	"sync"
-
-	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 )
 
 func Exec(count int, fn func() error) (int, error) {
@@ -18,6 +16,8 @@ func Exec(count int, fn func() error) (int, error) {
 	var wg sync.WaitGroup
 	wg.Add(count)
 	errCh := make(chan error, count)
+	defer close(errCh)
+
 	for i := 0; i < count; i++ {
 		go func() {
 			defer wg.Done()
@@ -29,11 +29,8 @@ func Exec(count int, fn func() error) (int, error) {
 	wg.Wait()
 	successes := count - len(errCh)
 	if len(errCh) > 0 {
-		var errList []error
-		for l := len(errCh); l > 0; l-- {
-			errList = append(errList, <-errCh)
-		}
-		return successes, utilerrors.NewAggregate(errList)
+		err := <-errCh
+		return successes, err
 	}
 	return successes, nil
 }

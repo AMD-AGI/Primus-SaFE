@@ -36,12 +36,11 @@ const (
 	AlreadyExist          = PrimusPrefix + "00004"
 	NotFound              = PrimusPrefix + "00005"
 	RequestEntityTooLarge = PrimusPrefix + "00006"
-	UnsupportedMediaType  = PrimusPrefix + "00007"
+	NotImplemented        = PrimusPrefix + "00007"
 	QuotaInsufficient     = PrimusPrefix + "00008"
 	Unauthorized          = PrimusPrefix + "00009"
 	ResourceProcessing    = PrimusPrefix + "00010"
-	Timeout               = PrimusPrefix + "00011"
-	UserNotRegistered     = PrimusPrefix + "00012"
+	UserNotRegistered     = PrimusPrefix + "00011"
 )
 
 // workload: 01xxx
@@ -83,7 +82,7 @@ func IsInternal(err error) bool {
 
 func IsNotFound(err error) bool {
 	reason := apierrors.ReasonForError(err)
-	if reason == NotFound || reason == WorkloadNotFound ||
+	if reason == NotFound || reason == WorkloadNotFound || reason == WorkspaceNotFound ||
 		reason == NodeNotFound || reason == ResourceTemplateNotFound {
 		return true
 	}
@@ -179,15 +178,6 @@ func NewRequestEntityTooLargeError(message string) *apierrors.StatusError {
 	}}
 }
 
-func NewUnsupportedMediaType(message string) *apierrors.StatusError {
-	return &apierrors.StatusError{ErrStatus: metav1.Status{
-		Status:  metav1.StatusFailure,
-		Code:    http.StatusUnsupportedMediaType,
-		Reason:  UnsupportedMediaType,
-		Message: fmt.Sprintf("UnsupportedMediaType: %s", message),
-	}}
-}
-
 func NewQuotaInsufficient(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
@@ -233,11 +223,11 @@ func NewNodeNotReady(message string) *apierrors.StatusError {
 	}}
 }
 
-func NewTimeout(message string) *apierrors.StatusError {
+func NewNotImplemented(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
-		Code:    http.StatusRequestTimeout,
-		Reason:  Timeout,
+		Code:    http.StatusNotImplemented,
+		Reason:  NotImplemented,
 		Message: message,
 	}}
 }

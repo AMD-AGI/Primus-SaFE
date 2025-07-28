@@ -36,8 +36,10 @@ type OpsJobCommand struct {
 	IsSystemd bool `json:"isSystemd,omitempty"`
 	// If it is a One-shot Service, the reload operation is not applicable.
 	IsOneShotService bool `json:"isOneShotService,omitempty"`
-	// target chip， If left empty, it applies to all chip.
-	Chip v1.ChipType `json:"chip,omitempty"`
+	// target gpu chip(amd or nvidia), If left empty, it applies to all chip.
+	GpuChip v1.GpuChipType `json:"gpuChip,omitempty"`
+	// target GPU product(case-sensitive), such as the MI300X, If left empty, it applies to all product.
+	GpuProduct v1.GpuChipProduct `json:"gpuProduct,omitempty"`
 }
 
 func GetOpsJobInput(obj metav1.Object) *OpsJobInput {
@@ -71,13 +73,23 @@ func CleanupJobRelatedInfo(ctx context.Context, cli client.Client, opsJobId stri
 		}
 	}
 
+	workloadList := &v1.WorkloadList{}
+	if err := cli.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		return err
+	}
+	for _, workload := range workloadList.Items {
+		if err := cli.Delete(ctx, &workload); err != nil {
+			klog.ErrorS(err, "failed to delete workload")
+		}
+	}
+
 	faultList := &v1.FaultList{}
 	if err := cli.List(ctx, faultList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return err
 	}
 	for _, fault := range faultList.Items {
 		if err := cli.Delete(ctx, &fault); err != nil {
-			klog.Infof("delete addon fault, id: %s", fault.Name)
+			klog.ErrorS(err, "failed to delete fault")
 		}
 	}
 	return nil

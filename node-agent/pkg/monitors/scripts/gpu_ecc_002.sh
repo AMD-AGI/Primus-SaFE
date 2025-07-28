@@ -7,7 +7,7 @@
 
 nsenter --target 1 --mount --uts --ipc --net --pid -- ls /usr/bin/amd-smi > /dev/null
 if [ $? -ne 0 ]; then
-    exit 2
+  exit 2
 fi
 
 data=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/amd-smi monitor -e`
@@ -24,8 +24,8 @@ while read -r line; do
     total_double_ecc=$((total_double_ecc + double_ecc))
     total_pcie_replay=$((total_pcie_replay + pcie_replay))
     if [[ $total_single_ecc -gt 64 || $total_pcie_replay -gt 64 || $total_double_ecc -gt 1 ]]; then
-        echo "ECC error threshold exceeded: total_single_ecc: $total_single_ecc, total_double_errors: $total_double_ecc, total_pcie_replay: $total_pcie_replay"
-        exit 1
+      echo "ECC error threshold exceeded: total_single_ecc: $total_single_ecc, total_double_errors: $total_double_ecc, total_pcie_replay: $total_pcie_replay"
+      exit 1
     fi
   fi
 done <<< "$data"

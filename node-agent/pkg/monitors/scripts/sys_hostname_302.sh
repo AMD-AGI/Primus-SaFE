@@ -7,6 +7,6 @@
 
 nsenter --target 1 --mount --uts --ipc --net --pid -- hostname > /dev/null
 if [ $? -ne 0 ]; then
-    echo "hostname is abnormal"
-    exit 1
+  echo "hostname is abnormal"
+  exit 1
 fi

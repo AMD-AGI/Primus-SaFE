@@ -4,26 +4,25 @@ data:
     global:
       rdma_name: {{ .Values.net.rdma_name }}
     server:
-      port: {{ .Values.webhooks.port }}
+      port: {{ default 8084 (default .Values.webhooks).port }}
     health_check:
-      enable: {{ .Values.k8s.enable_health_check }}
-      port: {{ .Values.webhooks.health_port }}
+      enable: {{ default true (default .Values.k8s).enable_health_check }}
+      port: {{ default 8085 (default .Values.webhooks).health_port }}
     leader_election:
-      enable: {{ .Values.k8s.enable_leader_election }}
+      enable: true
       lock_namespace: "{{ .Release.Namespace }}"
     workspace:
-      mem_reserve_percent: {{ .Values.workspace.mem_reserve_percent }}
-      cpu_reserve_percent: {{ .Values.workspace.cpu_reserve_percent }}
-      ephemeral_store_reserve_percent: {{ .Values.workspace.ephemeral_store_reserve_percent }}
+      mem_reserve_percent: {{ default 0.02 (default .Values.workspace).mem_reserve_percent }}
+      cpu_reserve_percent: {{ default 0.06 (default .Values.workspace).cpu_reserve_percent }}
+      ephemeral_store_reserve_percent: {{ default 0.1 (default .Values.workspace).ephemeral_store_reserve_percent }}
     workload:
-      max_ephemeral_store_percent: {{ .Values.workload.max_ephemeral_store_percent }}
+      ttl_second: {{ default 60 (default .Values.workload).ttl_second }}
+      max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
     ssh:
       enable: {{ .Values.ssh.enable }}
     ops_job:
-      ttl_second: {{ .Values.ops_job.ttl_second }}
-      timeout_second: {{ .Values.ops_job.timeout_second }}
-      batch_count: {{ .Values.ops_job.batch_count }}
-      available_ratio: {{ .Values.ops_job.available_ratio }}
+      ttl_second: {{ default 300 (default .Values.ops_job).ttl_second }}
+      timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-webhooks
