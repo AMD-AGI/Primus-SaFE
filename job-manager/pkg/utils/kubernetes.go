@@ -37,7 +37,7 @@ func GetResourceTemplate(ctx context.Context, adminClient client.Client, gvk sch
 	}
 	if len(rtl.Items) == 0 {
 		return nil, commonerrors.NewBadRequest(
-			fmt.Sprintf("the resource template is not found, gvk: %s", gvk.String()))
+			fmt.Sprintf("the resource template is not found, kind: %s, version: %s", gvk.Kind, gvk.Version))
 	}
 	return &rtl.Items[0], nil
 }

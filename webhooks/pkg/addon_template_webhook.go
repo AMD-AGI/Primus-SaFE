@@ -103,11 +103,12 @@ func (v *AddOnTemplateValidator) validateRequiredParams(addon *v1.AddonTemplate)
 	var keys []string
 	if addon.Spec.Type == v1.AddonTemplateDriver || addon.Spec.Type == v1.AddonTemplateDpkg {
 		keys = []string{v1.AddOnObserve, v1.AddOnAction}
-	} else if addon.Spec.Type == v1.AddonTemplateConfig || addon.Spec.Type == v1.AddonTemplateSystemd {
+	} else if addon.Spec.Type == v1.AddonTemplateConfig ||
+		addon.Spec.Type == v1.AddonTemplateSystemd || addon.Spec.Type == v1.AddonTemplateValidation {
 		keys = []string{v1.AddOnAction}
 	} else if addon.Spec.Type == v1.AddonTemplateHelm {
 	} else {
-		return commonerrors.NewBadRequest("the type of addon is invalid")
+		return commonerrors.NewBadRequest("invalid addon-template type")
 	}
 	for _, key := range keys {
 		val, ok := addon.Spec.Extensions[key]

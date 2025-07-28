@@ -59,6 +59,10 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 	if err = modifyHostNetWork(obj, adminWorkload, path); err != nil {
 		return err
 	}
+	path = append(templatePath, "spec", "hostPID")
+	if err = modifyHostPid(obj, adminWorkload, path); err != nil {
+		return err
+	}
 	path = append(templatePath, "spec", "tolerations")
 	if err = modifyTolerations(obj, adminWorkload, path); err != nil {
 		return err
@@ -126,8 +130,8 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 	}
 	env := buildEnvironment(adminWorkload)
 	modifyEnv(mainContainer, env, v1.IsEnableHostNetwork(adminWorkload))
-
 	modifyVolumeMounts(mainContainer, workspace)
+	modifySecurityContext(mainContainer, adminWorkload)
 	mainContainer["ports"] = buildPorts(adminWorkload)
 	if healthz := buildHealthCheck(adminWorkload.Spec.Liveness); healthz != nil {
 		mainContainer["livenessProbe"] = healthz
@@ -145,7 +149,12 @@ func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNe
 	if len(env) == 0 && isHostNetwork {
 		return
 	}
-	currentEnv := mainContainer["env"].([]interface{})
+	var currentEnv []interface{}
+	envObjs, ok := mainContainer["env"]
+	if ok {
+		currentEnv = envObjs.([]interface{})
+	}
+
 	if !isHostNetwork {
 		for i := range currentEnv {
 			envObj := currentEnv[i].(map[string]interface{})
@@ -166,7 +175,16 @@ func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNe
 }
 
 func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Workspace) {
-	volumeMounts := mainContainer["volumeMounts"].([]interface{})
+	if workspace == nil {
+		return
+	}
+
+	var volumeMounts []interface{}
+	volumeMountObjs, ok := mainContainer["volumeMounts"]
+	if ok {
+		volumeMounts = volumeMountObjs.([]interface{})
+	}
+
 	volumeMount := buildSharedMemoryVolumeMount()
 	volumeMounts = append(volumeMounts, volumeMount...)
 	id := 0
@@ -183,14 +201,13 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Work
 }
 
 func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path []string) error {
+	if workspace == nil || len(workspace.Spec.Volumes) == 0 {
+		return nil
+	}
 	volumes, _, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
 		return err
 	}
-	if len(workspace.Spec.Volumes) == 0 {
-		return nil
-	}
-
 	volumeSets := sets.NewSet()
 	id := 0
 	for _, vol := range workspace.Spec.Volumes {
@@ -214,6 +231,15 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 	return nil
 }
 
+func modifySecurityContext(mainContainer map[string]interface{}, workload *v1.Workload) {
+	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) {
+		return
+	}
+	mainContainer["securityContext"] = map[string]interface{}{
+		"privileged": true,
+	}
+}
+
 func modifyPriorityClass(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
 	priorityClass := commonworkload.GeneratePriorityClass(adminWorkload)
 	if err := unstructured.SetNestedField(obj.Object, priorityClass, path...); err != nil {
@@ -225,6 +251,16 @@ func modifyPriorityClass(obj *unstructured.Unstructured, adminWorkload *v1.Workl
 func modifyHostNetWork(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
 	isEnableHostNetWork := v1.IsEnableHostNetwork(adminWorkload)
 	if err := unstructured.SetNestedField(obj.Object, isEnableHostNetWork, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func modifyHostPid(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
+	if v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobPreflightType) {
+		return nil
+	}
+	if err := unstructured.SetNestedField(obj.Object, true, path...); err != nil {
 		return err
 	}
 	return nil
@@ -283,13 +319,18 @@ func getMainContainer(containers []interface{}, mainContainerName string) (map[s
 	return mainContainer, nil
 }
 
-func buildCommands(entryPoint string) []interface{} {
-	return []interface{}{"/bin/sh", "-c", buildEntryPoint(entryPoint)}
+func buildCommands(adminWorkload *v1.Workload) []interface{} {
+	return []interface{}{"/bin/sh", "-c", buildEntryPoint(adminWorkload)}
 }
 
-func buildEntryPoint(entryPoint string) string {
-	entryPoint = Launcher + " '" + entryPoint + "'"
-	return entryPoint
+func buildEntryPoint(adminWorkload *v1.Workload) string {
+	result := ""
+	if commonworkload.IsOpsJob(adminWorkload) {
+		result = adminWorkload.Spec.EntryPoint
+	} else {
+		result = Launcher + " '" + adminWorkload.Spec.EntryPoint + "'"
+	}
+	return result
 }
 
 func buildLabels(adminWorkload *v1.Workload) map[string]interface{} {
@@ -308,7 +349,7 @@ func buildResources(adminWorkload *v1.Workload) map[string]interface{} {
 	if adminWorkload.Spec.Resource.GPU != "" {
 		result[adminWorkload.Spec.Resource.GPUName] = adminWorkload.Spec.Resource.GPU
 	}
-	if adminWorkload.Spec.Resource.RdmaResource != "" {
+	if adminWorkload.Spec.Resource.RdmaResource != "" && commonconfig.GetRdmaName() != "" {
 		result[commonconfig.GetRdmaName()] = adminWorkload.Spec.Resource.RdmaResource
 	}
 	return result
@@ -427,11 +468,13 @@ func buildPvcVolume(volumeName string) interface{} {
 
 func buildMatchExpression(adminWorkload *v1.Workload) []interface{} {
 	var result []interface{}
-	result = append(result, map[string]interface{}{
-		"key":      v1.WorkspaceIdLabel,
-		"operator": "In",
-		"values":   []interface{}{adminWorkload.Spec.Workspace},
-	})
+	if adminWorkload.Spec.Workspace != corev1.NamespaceDefault {
+		result = append(result, map[string]interface{}{
+			"key":      v1.WorkspaceIdLabel,
+			"operator": "In",
+			"values":   []interface{}{adminWorkload.Spec.Workspace},
+		})
+	}
 	for key, val := range adminWorkload.Spec.CustomerLabels {
 		result = append(result, map[string]interface{}{
 			"key":      key,

@@ -147,6 +147,10 @@ func GetDisplayName(obj metav1.Object) string {
 	return GetLabel(obj, DisplayNameLabel)
 }
 
+func GetGpuProductName(obj metav1.Object) string {
+	return GetLabel(obj, GpuProductNameLabel)
+}
+
 func GetGpuResourceName(obj metav1.Object) string {
 	return GetAnnotation(obj, GpuResourceNameAnnotation)
 }
@@ -243,6 +247,10 @@ func GetOpsJobBatchCount(obj metav1.Object) int {
 	return atoi(GetAnnotation(obj, OpsJobBatchCountAnnotation))
 }
 
+func GetOpsJobAvailRatio(obj metav1.Object) float64 {
+	return atof(GetAnnotation(obj, OpsJobAvailRatioAnnotation))
+}
+
 func atoi(str string) int {
 	if str == "" {
 		return 0
@@ -252,4 +260,15 @@ func atoi(str string) int {
 		return 0
 	}
 	return n
+}
+
+func atof(str string) float64 {
+	if str == "" {
+		return 0
+	}
+	f, err := strconv.ParseFloat(str, 64)
+	if err != nil {
+		return 0
+	}
+	return f
 }

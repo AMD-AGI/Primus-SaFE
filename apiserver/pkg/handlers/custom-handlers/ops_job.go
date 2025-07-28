@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -46,10 +47,8 @@ func (h *Handler) DeleteOpsJob(c *gin.Context) {
 }
 
 func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
-	req := &types.CreateOpsJobRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	req, err := parseCreateOpsJobQuery(c)
 	if err != nil {
-		klog.ErrorS(err, "failed to parse ops job request", "body", string(body))
 		return nil, err
 	}
 
@@ -58,6 +57,8 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 	switch req.Type {
 	case v1.OpsJobAddonType:
 		job, err = h.generateAddonJob(ctx, req)
+	case v1.OpsJobPreflightType:
+		job, err = h.generatePreflightJob(ctx, req)
 	case v1.OpsJobDumpLogType:
 		job, err = h.generateDumpLogJob(ctx, req)
 	default:
@@ -148,14 +149,36 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) generateAddonJob(_ context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
-	job := generateOpsJob(req)
-	if req.SecurityUpgrade {
-		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
+func (h *Handler) generateAddonJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+	job := genDefaultOpsJob(req)
+	if job.Spec.Cluster == "" {
+		if nodeParam := job.GetParameter(v1.ParameterNode); nodeParam != nil {
+			if adminNode, err := h.getAdminNode(ctx, nodeParam.Value); err == nil {
+				job.Spec.Cluster = v1.GetClusterId(adminNode)
+			}
+		}
 	}
-	if req.BatchCount > 0 {
-		v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(req.BatchCount))
+	v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(req.BatchCount))
+	v1.SetAnnotation(job, v1.OpsJobAvailRatioAnnotation,
+		strconv.FormatFloat(*req.AvailableRatio, 'f', -1, 64))
+	return job, nil
+}
+
+func (h *Handler) generatePreflightJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+	if commonconfig.GetPreflightImage() == "" {
+		return nil, commonerrors.NewInternalError("The preflight function is not enabled")
 	}
+	job := genDefaultOpsJob(req)
+	nodeParam := job.GetParameter(v1.ParameterNode)
+	if nodeParam == nil {
+		return nil, commonerrors.NewInternalError("Node parameter is required")
+	}
+	adminNode, err := h.getAdminNode(ctx, nodeParam.Value)
+	if err != nil {
+		return nil, err
+	}
+	job.Spec.Cluster = v1.GetClusterId(adminNode)
+	v1.SetLabel(job, v1.GpuProductNameLabel, strings.ToLower(v1.GetGpuProductName(adminNode)))
 	return job, nil
 }
 
@@ -166,7 +189,7 @@ func (h *Handler) generateDumpLogJob(ctx context.Context, req *types.CreateOpsJo
 	if !commonconfig.IsS3Enable() {
 		return nil, commonerrors.NewInternalError("The s3 function is not enabled")
 	}
-	job := generateOpsJob(req)
+	job := genDefaultOpsJob(req)
 
 	workloadParam := job.GetParameter(v1.ParameterWorkload)
 	if workloadParam == nil {
@@ -191,7 +214,7 @@ func (h *Handler) generateDumpLogJob(ctx context.Context, req *types.CreateOpsJo
 	return job, nil
 }
 
-func generateOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {
+func genDefaultOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {
 	job := &v1.OpsJob{
 		Spec: v1.OpsJobSpec{
 			Cluster:       req.Cluster,
@@ -203,7 +226,26 @@ func generateOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {
 	if req.UserName != "" {
 		v1.SetAnnotation(job, v1.UserNameAnnotation, req.UserName)
 	}
+	if req.SecurityUpgrade {
+		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
+	}
 	return job
+}
+
+func parseCreateOpsJobQuery(c *gin.Context) (*types.CreateOpsJobRequest, error) {
+	req := &types.CreateOpsJobRequest{}
+	body, err := getBodyFromRequest(c.Request, req)
+	if err != nil {
+		klog.ErrorS(err, "failed to parse ops job request", "body", string(body))
+		return nil, err
+	}
+	if req.BatchCount <= 0 {
+		req.BatchCount = 1
+	}
+	if req.AvailableRatio == nil || *req.AvailableRatio <= 0 {
+		req.AvailableRatio = pointer.Float64(1.0)
+	}
+	return req, nil
 }
 
 func parseListOpsJobQuery(c *gin.Context) (*types.GetOpsJobRequest, error) {

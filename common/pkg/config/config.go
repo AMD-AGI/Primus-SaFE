@@ -135,6 +135,10 @@ func IsWorkloadFailoverEnable() bool {
 	return getBool(workloadEnableFailover, true)
 }
 
+func GetWorkloadTTLSecond() int {
+	return getInt(workloadTTLSecond, 60)
+}
+
 func IsLogEnable() bool {
 	return getBool(logEnable, false)
 }
@@ -144,11 +148,17 @@ func GetLogServiceEndpoint() string {
 }
 
 func GetLogServiceUser() string {
-	return getFromFile(logConfigPath, "username")
+	if user := getString(logPrefix+logUser, ""); len(user) > 0 {
+		return user
+	}
+	return getFromFile(logConfigPath, logUser)
 }
 
 func GetLogServicePasswd() string {
-	return getFromFile(logConfigPath, "password")
+	if passwd := getString(logPrefix+logPassword, ""); len(passwd) > 0 {
+		return passwd
+	}
+	return getFromFile(logConfigPath, logPassword)
 }
 
 func GetLogServicePrefix() string {
@@ -220,12 +230,8 @@ func GetOpsJobTimeoutSecond() int {
 	return getInt(opsJobTimeoutSecond, 0)
 }
 
-func GetOpsJobAvailableRatio() float64 {
-	return getFloat(opsJobAvailableRatio, 1)
-}
-
-func GetOpsJobBatchCount() int {
-	return getInt(opsJobBatchCount, 0)
+func GetPreflightImage() string {
+	return getString(preflightImage, "")
 }
 
 func IsS3Enable() bool {
@@ -233,11 +239,17 @@ func IsS3Enable() bool {
 }
 
 func GetS3AccessKey() string {
-	return getFromFile(s3ConfigPath, "access-key")
+	if ak := getString(s3Prefix+s3AccessKey, ""); ak != "" {
+		return ak
+	}
+	return getFromFile(s3ConfigPath, s3AccessKey)
 }
 
 func GetS3SecretKey() string {
-	return getFromFile(s3ConfigPath, "secret-key")
+	if sk := getString(s3Prefix+s3SecretKey, ""); sk != "" {
+		return sk
+	}
+	return getFromFile(s3ConfigPath, s3SecretKey)
 }
 
 func GetS3Bucket() string {

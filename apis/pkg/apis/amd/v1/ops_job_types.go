@@ -25,8 +25,9 @@ const (
 	OpsJobRunning   OpsJobPhase = "Running"
 	OpsJobPending   OpsJobPhase = "Pending"
 
-	OpsJobAddonType   OpsJobType = "addon"
-	OpsJobDumpLogType OpsJobType = "dumplog"
+	OpsJobAddonType     OpsJobType = "addon"
+	OpsJobPreflightType OpsJobType = "preflight"
+	OpsJobDumpLogType   OpsJobType = "dumplog"
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"
@@ -41,7 +42,7 @@ type Parameter struct {
 }
 
 type OpsJobSpec struct {
-	// the type of ops-job, valid values include: addon
+	// the type of ops-job, valid values include: addon/preflight/dumplog
 	Type OpsJobType `json:"type"`
 	// the cluster which the ops-job belongs to
 	Cluster string `json:"cluster"`

@@ -63,7 +63,7 @@ type WorkloadResource struct {
 	// RDMA resource is effective only with hostNetwork enabled (default: 1).
 	// This field is set internally
 	RdmaResource string `json:"rdmaResource,omitempty"`
-	// the port for job
+	// the port for job, This field is set internally
 	JobPort int `json:"jobPort,omitempty"`
 }
 

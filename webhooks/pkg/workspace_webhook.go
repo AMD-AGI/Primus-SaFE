@@ -188,7 +188,7 @@ func (m *WorkspaceMutator) mutateCommon(ctx context.Context, workspace *v1.Works
 		nf, _ := getNodeFlavor(ctx, m.Client, workspace.Spec.NodeFlavor)
 		if nf != nil && nf.HasGpu() {
 			v1.SetAnnotation(workspace, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName)
-			v1.SetAnnotation(workspace, v1.GpuProductNameAnnotation, nf.Spec.Gpu.Product)
+			v1.SetLabel(workspace, v1.GpuProductNameLabel, nf.Spec.Gpu.Product)
 		}
 	}
 }
@@ -557,8 +557,8 @@ func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace
 }
 
 func getWorkspace(ctx context.Context, cli client.Client, workspaceName string) (*v1.Workspace, error) {
-	if workspaceName == "" {
-		return nil, fmt.Errorf("empty workspace name")
+	if workspaceName == corev1.NamespaceDefault || workspaceName == "" {
+		return nil, nil
 	}
 	workspace := &v1.Workspace{}
 	if err := cli.Get(ctx, client.ObjectKey{Name: workspaceName}, workspace); err != nil {

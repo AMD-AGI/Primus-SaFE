@@ -267,4 +267,52 @@ data:
               imagePullSecrets:
                 - name: test-image
 `
+
+	TestJobTemplateConfig = `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amd-job-template
+  namespace: "primus-safe"
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: Job
+  annotations:
+    # The main container name should match the configuration defined in the template below
+    primus-safe.main.container: job
+data:
+  template: |
+    apiVersion: batch/v1
+    kind: Job
+    spec:
+      completionMode: NonIndexed
+      backoffLimit: 0
+      completions: 1
+      parallelism: 1
+      suspend: false
+      template:
+        spec:
+          restartPolicy: Never
+          dnsPolicy: ClusterFirstWithHostNet
+          containers:
+            - name: job
+              imagePullPolicy: IfNotPresent
+              volumeMounts:
+                - name: podinfo
+                  mountPath: /etc/podinfo
+                  readOnly: true
+              securityContext:
+                capabilities:
+                  add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]
+          schedulerName: kube-scheduler-plugins
+          volumes:
+            - name: podinfo
+              downwardAPI:
+                items:
+                - path: "labels"
+                  fieldRef:
+                    fieldPath: metadata.labels
+          terminationGracePeriodSeconds: 5
+          imagePullSecrets:
+          - name: test-image`
 )

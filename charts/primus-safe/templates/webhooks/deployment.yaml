@@ -37,7 +37,7 @@ spec:
       serviceAccountName: {{ .Release.Name }}
       containers:
         - name: {{ .Release.Name }}-webhooks
-          image: {{ .Values.repository }}/{{ .Values.webhooks.image }}
+          image: docker.io/primussafe/{{ .Values.webhooks.image }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/webhooks/run.sh"]
           terminationMessagePath: /dev/termination-log
@@ -57,30 +57,30 @@ spec:
               mountPath: /opt/primus-safe/webhooks/config
               readOnly: true
           ports:
-            - containerPort: {{ .Values.webhooks.port }}
+            - containerPort: {{ default 8084 (default .Values.webhooks).port }}
               protocol: TCP
               name: http-port
-          {{- if .Values.k8s.enable_health_check }}
+          {{- if default true (default .Values.k8s).enable_health_check }}
           livenessProbe:
             httpGet:
               path: /healthz
-              port: {{ .Values.webhooks.health_port }}
+              port: {{ default 8085 (default .Values.webhooks).health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
           readinessProbe:
             httpGet:
               path: /readyz
-              port: {{ .Values.webhooks.health_port }}
+              port: {{ default 8085 (default .Values.webhooks).health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
           {{- end }}
           resources:
             limits:
-              cpu: {{ .Values.webhooks.cpu }}
-              memory: {{ .Values.webhooks.memory }}
+              cpu: 2000m
+              memory: 4Gi
             requests:
-              cpu: {{ .Values.webhooks.cpu }}
-              memory: {{ .Values.webhooks.memory }}
+              cpu: 2000m
+              memory: 4Gi
       imagePullSecrets:
       - name: {{ .Release.Name }}-image
       volumes:

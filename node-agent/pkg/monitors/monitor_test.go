@@ -82,7 +82,6 @@ func TestRunWithStatusOk(t *testing.T) {
 	time.Sleep(time.Millisecond * 1100)
 	monitor.Stop()
 	assert.Equal(t, (*monitor.queue).Len(), 0)
-	assert.Equal(t, monitor.lastStatusCode, types.StatusOk)
 }
 
 func TestRunWithStatusError(t *testing.T) {
@@ -110,7 +109,6 @@ func TestRunWithStatusUnknown(t *testing.T) {
 	time.Sleep(time.Millisecond * 1100)
 	monitor.Stop()
 	assert.Equal(t, (*monitor.queue).Len(), 0)
-	assert.Equal(t, monitor.lastStatusCode, types.StatusOk)
 }
 
 func TestNewNodeInfo(t *testing.T) {

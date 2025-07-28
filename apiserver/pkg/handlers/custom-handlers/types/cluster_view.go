@@ -32,14 +32,14 @@ type CreateClusterResponse struct {
 type GetClusterResponseItem struct {
 	ClusterId   string                       `json:"clusterId"`
 	Phase       string                       `json:"phase"`
-	Endpoint    string                       `json:"endpoint,omitempty"`
-	Storages    []BindingStorageResponseItem `json:"storage,omitempty"`
+	Endpoint    string                       `json:"endpoint"`
+	Storages    []BindingStorageResponseItem `json:"storage"`
 	IsProtected bool                         `json:"isProtected"`
 }
 
 type GetClusterResponse struct {
 	TotalCount int                      `json:"totalCount"`
-	Items      []GetClusterResponseItem `json:"items,omitempty"`
+	Items      []GetClusterResponseItem `json:"items"`
 }
 
 type ProcessNodesRequest struct {
@@ -57,9 +57,9 @@ type GetClusterPodLogResponse struct {
 	ClusterId string `json:"clusterId"`
 	PodId     string `json:"podId"`
 	// An array of log lines, returned in the same order as they appear in the original logs
-	Logs []string `json:"logs,omitempty"`
+	Logs []string `json:"logs"`
 }
 
 type PatchClusterRequest struct {
-	IsProtected *bool `json:"isProtected,omitempty"`
+	IsProtected *bool `json:"isProtected"`
 }

@@ -6,13 +6,13 @@
 #
 
 if [ ! -f "/tmp/rocm-smi" ]; then
-    exit 0
+  exit 0
 fi
 
 data=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi --showrasinfo`
 if [ $? -ne 0 ]; then
-    echo "Error: failed to execute rocm-smi --showrasinfo"
-    exit 1
+  echo "Error: failed to execute rocm-smi --showrasinfo"
+  exit 1
 fi
 
 gpu_id=""

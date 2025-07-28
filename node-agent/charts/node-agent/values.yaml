@@ -1,0 +1,4 @@
+net:
+  nccl_socket_ifname: "ens51f0"
+node_agent:
+  image: "node-agent:202507240900"

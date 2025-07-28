@@ -249,22 +249,35 @@ func (h *Handler) restartNode(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("BMC IP or password is not found")
 	}
 
+	req := &types.RebootNodeRequest{}
+	if _, err = getBodyFromRequest(c.Request, req); err != nil {
+		klog.ErrorS(err, "failed to parse request")
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+
 	url := fmt.Sprintf(RedfishUrl, v1.GetNodeBMCIp(node))
-	body := []byte(`{"ResetType": "ForceOff"}`)
+	var body []byte
+	if req.Force != nil && *req.Force {
+		body = []byte(`{"ResetType": "PowerCycle"}`)
+	} else {
+		body = []byte(`{"ResetType": "GracefulRestart"}`)
+	}
+
 	klog.Infof("restart node, url: %s, body: %s", url, string(body))
-	req, err := httpclient.BuildRequest(url, http.MethodPost, body)
+	resetReq, err := httpclient.BuildRequest(url, http.MethodPost, body)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	req.SetBasicAuth("ADMIN", v1.GetNodeBMCPassword(node))
+	resetReq.SetBasicAuth("ADMIN", v1.GetNodeBMCPassword(node))
 
-	resp, err := h.httpClient.Do(req)
+	resp, err := h.httpClient.Do(resetReq)
 	if err != nil {
 		return nil, err
 	}
 	if !resp.IsSuccess() {
 		return nil, fmt.Errorf("%s", string(resp.Body))
 	}
+
 	return string(resp.Body), nil
 }
 

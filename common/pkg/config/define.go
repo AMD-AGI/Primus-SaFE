@@ -45,12 +45,15 @@ const (
 	maxEphemeralStorePercent  = workloadPrefix + "max_ephemeral_store_percent"
 	workloadHangCheckInterval = workloadPrefix + "hang_check_interval"
 	workloadEnableFailover    = workloadPrefix + "enable_failover"
+	workloadTTLSecond         = workloadPrefix + "ttl_second"
 
 	// log
 	logPrefix        = "log."
 	logEnable        = logPrefix + "enable"
 	logConfigPath    = logPrefix + "config_path"
 	logEndpoint      = logPrefix + "endpoint"
+	logUser          = "username"
+	logPassword      = "password"
 	logServicePrefix = logPrefix + "prefix"
 
 	// db
@@ -69,11 +72,7 @@ const (
 	opsJobPrefix        = "ops_job."
 	opsJobTTLSecond     = opsJobPrefix + "ttl_second"
 	opsJobTimeoutSecond = opsJobPrefix + "timeout_second"
-	// Job Success Ratio: A percentage value used during plugin upgrades.
-	// The job is marked as successful if the number of successfully upgraded nodes exceeds total nodes * ratio.
-	opsJobAvailableRatio = opsJobPrefix + "available_ratio"
-	// Job Batch Size: The number of nodes to process simultaneously during a plugin upgrade
-	opsJobBatchCount = opsJobPrefix + "batch_count"
+	preflightImage      = opsJobPrefix + "preflight_image"
 
 	// s3
 	s3Prefix     = "s3."
@@ -81,5 +80,7 @@ const (
 	s3ConfigPath = s3Prefix + "config_path"
 	s3Endpoint   = s3Prefix + "endpoint"
 	s3Bucket     = s3Prefix + "bucket"
+	s3AccessKey  = "access_key"
+	s3SecretKey  = "secret_key"
 	s3ExpireDay  = s3Prefix + "expire_day"
 )

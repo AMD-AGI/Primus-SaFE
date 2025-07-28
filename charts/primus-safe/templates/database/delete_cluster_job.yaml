@@ -11,9 +11,11 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: {{ .Release.Name }}
+      tolerations:
+        - operator: Exists
       containers:
         - name: main
-          image: {{ .Values.repository }}/kubectl:latest
+          image: docker.io/primussafe/kubectl:latest
           command:
             - sh
             - -c

@@ -16,7 +16,7 @@ spec:
     - name: postgres
     - name: {{ .Release.Name }}
       databases:
-        - {{ .Values.db.dbname }}
+        - "primus-safe-db"
   backups:
     pgbackrest:
       repos:

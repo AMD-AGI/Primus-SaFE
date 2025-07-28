@@ -99,10 +99,7 @@ func (m *WorkloadMutator) Handle(ctx context.Context, req admission.Request) adm
 }
 
 func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Workload) bool {
-	workspace, err := getWorkspace(ctx, m.Client, workload.Spec.Workspace)
-	if err != nil {
-		return false
-	}
+	workspace, _ := getWorkspace(ctx, m.Client, workload.Spec.Workspace)
 	m.mutateGvk(workload)
 	m.mutateMeta(ctx, workload, workspace)
 
@@ -121,23 +118,22 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateMaxRetry(workload)
 	m.mutateCreateEnv(workload)
 	m.mutateTTLSeconds(workload)
-	m.mutateCommon(ctx, workload, workspace)
+	m.mutateCommon(ctx, workload)
 	return true
 }
 
 func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) bool {
 	m.mutateResource(newWorkload, nil)
 	m.mutateUpdateEnv(oldWorkload, newWorkload)
-	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
-	m.mutateCommon(ctx, newWorkload, workspace)
+	m.mutateCommon(ctx, newWorkload)
 	return true
 }
 
-func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
+func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload) bool {
 	m.mutatePriority(workload)
 	m.mutateImage(workload)
 	m.mutateEntryPoint(workload)
-	m.mutateHostNetwork(ctx, workload, workspace)
+	m.mutateHostNetwork(ctx, workload)
 	return true
 }
 
@@ -145,27 +141,29 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	if workload.Name != "" {
 		workload.Name = stringutil.NormalizeName(workload.Name)
 	}
-	if !hasOwnerReferences(workload, workspace.Name) {
-		if err := controllerutil.SetControllerReference(workspace, workload, m.Client.Scheme()); err != nil {
-			klog.ErrorS(err, "failed to SetControllerReference")
+	if workspace != nil {
+		if !hasOwnerReferences(workload, workspace.Name) {
+			if err := controllerutil.SetControllerReference(workspace, workload, m.Client.Scheme()); err != nil {
+				klog.ErrorS(err, "failed to SetControllerReference")
+			}
+		}
+		v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)
+		v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
+		if workspace.Spec.EnablePreempt {
+			v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, "true")
 		}
 	}
-	v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)
+
 	v1.SetLabel(workload, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	v1.SetLabel(workload, v1.WorkloadIdLabel, workload.Name)
-	v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
 	if v1.GetUserName(workload) != "" {
 		v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	}
-
 	if v1.GetMainContainer(workload) == "" {
 		cm, err := commonworkload.GetWorkloadTemplate(ctx, m.Client, workload)
 		if err == nil {
 			v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(cm))
 		}
-	}
-	if workspace.Spec.EnablePreempt {
-		v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, "true")
 	}
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
@@ -333,12 +331,12 @@ func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 		return
 	}
 	if workload.Spec.TTLSecondsAfterFinished == nil {
-		workload.Spec.TTLSecondsAfterFinished = ptr.To(DefaultWorkloadTTL)
+		workload.Spec.TTLSecondsAfterFinished = ptr.To(commonconfig.GetWorkloadTTLSecond())
 	}
 }
 
 func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
-	if commonworkload.IsAuthoring(workload) {
+	if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
 		return
 	}
 	if !stringutil.IsBase64(workload.Spec.EntryPoint) {
@@ -346,11 +344,12 @@ func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
 	}
 }
 
-func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
-	if workspace == nil {
+func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Workload) {
+	flavorId := v1.GetNodeFlavorId(workload)
+	if flavorId == "" {
 		return
 	}
-	nf, _ := getNodeFlavor(ctx, m.Client, workspace.Spec.NodeFlavor)
+	nf, _ := getNodeFlavor(ctx, m.Client, flavorId)
 	if nf == nil {
 		return
 	}
@@ -436,10 +435,10 @@ func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, o
 }
 
 func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Workload) error {
-	if err := v.validateWorkspace(ctx, workload); err != nil {
+	if err := v.validateRequiredParams(workload); err != nil {
 		return err
 	}
-	if err := v.validateRequiredParams(workload); err != nil {
+	if err := v.validateWorkspace(ctx, workload); err != nil {
 		return err
 	}
 	if err := v.validateService(workload); err != nil {
@@ -471,11 +470,11 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if workload.Spec.Workspace == "" {
 		errs = append(errs, fmt.Errorf("the workspace is empty"))
 	}
-	if workload.Spec.Image == "" {
-		errs = append(errs, fmt.Errorf("the image is empty"))
-	}
 	if workload.Spec.EntryPoint == "" {
 		errs = append(errs, fmt.Errorf("the entryPoint is empty"))
+	}
+	if workload.Spec.Image == "" {
+		errs = append(errs, fmt.Errorf("the image is empty"))
 	}
 	if workload.Spec.GroupVersionKind.Empty() {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
@@ -551,10 +550,12 @@ func (v *WorkloadValidator) validateResourceValid(workload *v1.Workload) error {
 }
 
 func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.Workload) error {
-	// workspace must exist
-	workspace, err := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
-	if err != nil {
-		return commonerrors.NewNotFound(v1.WorkspaceKind, workload.Spec.Workspace)
+	workspace, _ := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
+	if workspace == nil {
+		if v1.GetOpsJobId(workload) == "" {
+			return commonerrors.NewNotFound(v1.WorkspaceKind, workload.Spec.Workspace)
+		}
+		return nil
 	}
 	if workspace.IsAbnormal() && !workload.Spec.IsTolerateAll {
 		return commonerrors.NewInternalError(fmt.Sprintf("workspace %s is abnormal", workspace.Name))
@@ -670,6 +671,9 @@ func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Wor
 }
 
 func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Workload) error {
+	if commonworkload.IsOpsJob(workload) {
+		return nil
+	}
 	scope := commonworkload.GetScope(workload)
 	if scope == "" {
 		return commonerrors.NewBadRequest(fmt.Sprintf("unknown workload kind, %s", workload.SpecKind()))
@@ -678,7 +682,7 @@ func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Work
 	if err != nil {
 		return err
 	}
-	if len(workspace.Spec.Scopes) == 0 {
+	if workspace == nil || len(workspace.Spec.Scopes) == 0 {
 		return nil
 	}
 	hasFound := false

@@ -25,7 +25,6 @@ import (
 type K8sResourceStatus struct {
 	Phase         string
 	Message       string
-	Reason        string
 	SpecReplica   int
 	ActiveReplica int
 }
@@ -39,17 +38,31 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 	if result.ActiveReplica, err = GetActiveReplica(unstructuredObj, rt); err != nil {
 		return nil, err
 	}
-	if rt.SpecKind() == common.StatefulSetKind {
-		getStatefulSetStatus(unstructuredObj.Object, result)
-		return result, nil
-	}
 
+	switch rt.SpecKind() {
+	case common.StatefulSetKind:
+		getStatefulSetStatus(unstructuredObj.Object, result)
+	case common.JobKind:
+		if err = getResourceStatusImpl(unstructuredObj, rt, result); err != nil {
+			break
+		}
+		if result.Phase == "" && result.ActiveReplica > 0 {
+			result.Phase = string(v1.K8sRunning)
+			result.Message = "the job is running"
+		}
+	default:
+		err = getResourceStatusImpl(unstructuredObj, rt, result)
+	}
+	return result, err
+}
+
+func getResourceStatusImpl(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate, result *K8sResourceStatus) error {
 	if len(rt.Spec.ResourceStatus.PrePaths) == 0 {
-		return nil, nil
+		return nil
 	}
 	m, found, err := unstructured.NestedFieldNoCopy(unstructuredObj.Object, rt.Spec.ResourceStatus.PrePaths...)
 	if !found || err != nil {
-		return nil, err
+		return err
 	}
 	var objects []map[string]interface{}
 	switch val := m.(type) {
@@ -59,19 +72,19 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 		for _, item := range val {
 			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&item)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			objects = append(objects, obj)
 		}
 	default:
-		return nil, fmt.Errorf("invalid path: %v", rt.Spec.ResourceStatus.Phases)
+		return fmt.Errorf("invalid path: %v", rt.Spec.ResourceStatus.Phases)
 	}
 	for _, phase := range rt.Spec.ResourceStatus.Phases {
-		if getCommonObjStatus(objects, phase, rt.Spec.ResourceStatus.MessagePaths, rt.Spec.ResourceStatus.ReasonPaths, result) {
-			return result, nil
+		if getStatusByExpression(objects, phase, rt.Spec.ResourceStatus.MessagePaths, result) {
+			return nil
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 func getStatefulSetStatus(obj map[string]interface{}, result *K8sResourceStatus) {
@@ -88,11 +101,10 @@ func getStatefulSetStatus(obj map[string]interface{}, result *K8sResourceStatus)
 		result.Phase = string(v1.K8sFailed)
 		result.Message = "the statefulSet is not ready"
 	}
-	result.Reason = result.Phase
 }
 
-func getCommonObjStatus(objects []map[string]interface{},
-	phase v1.PhaseExpression, messagePaths, reasonPaths []string, result *K8sResourceStatus) bool {
+func getStatusByExpression(objects []map[string]interface{},
+	expression v1.PhaseExpression, messagePaths []string, result *K8sResourceStatus) bool {
 	match := func(obj map[string]interface{}, phase v1.PhaseExpression) bool {
 		for key, val := range phase.MatchExpressions {
 			val2 := getUnstructuredToString(obj, []string{key})
@@ -103,19 +115,14 @@ func getCommonObjStatus(objects []map[string]interface{},
 		return true
 	}
 	for _, obj := range objects {
-		if !match(obj, phase) {
+		if !match(obj, expression) {
 			continue
 		}
-		result.Phase = phase.Phase
+		result.Phase = expression.Phase
 		if msg := GetUnstructuredString(obj, messagePaths); msg != "" {
 			result.Message = msg
 		} else {
-			result.Message = buildMessage(phase.Phase)
-		}
-		if msg := GetUnstructuredString(obj, reasonPaths); msg != "" {
-			result.Reason = msg
-		} else {
-			result.Reason = buildReason(phase.Phase)
+			result.Message = buildMessage(expression.Phase)
 		}
 		return true
 	}
@@ -130,19 +137,6 @@ func buildMessage(phase string) string {
 		return "Job is failed"
 	case string(v1.K8sRunning):
 		return "Job is running"
-	default:
-		return "unknown"
-	}
-}
-
-func buildReason(phase string) string {
-	switch phase {
-	case string(v1.K8sSucceeded):
-		return "JobCompleted"
-	case string(v1.K8sFailed):
-		return "JobFailed"
-	case string(v1.K8sRunning):
-		return "JobRunning"
 	default:
 		return "unknown"
 	}

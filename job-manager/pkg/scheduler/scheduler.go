@@ -280,6 +280,9 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 			return result, err
 		}
 	}
+	if workload.Spec.Workspace == corev1.NamespaceDefault {
+		return ctrlruntime.Result{}, nil
+	}
 	msg := &SchedulerMessage{
 		ClusterId:   v1.GetClusterId(workload),
 		WorkspaceId: workload.Spec.Workspace,

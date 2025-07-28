@@ -2,26 +2,26 @@ apiVersion: v1
 data:
   config.yaml: |
     global:
-      enable_crypto: {{ .Values.crypto.enable }}
-      crypto_key: {{ .Values.crypto.mount_path }}/key
+      enable_crypto: {{ default false (default .Values.crypto).enable }}
+      crypto_key: {{ default "/etc/secrets" (default .Values.crypto).mount_path }}/key
       rdma_name: {{ .Values.net.rdma_name }}
     health_check:
-      enable: {{ .Values.k8s.enable_health_check }}
-      port: {{ .Values.job_manager.health_port }}
+      enable: {{ default true (default .Values.k8s).enable_health_check }}
+      port: {{ default 8083 (default .Values.job_manager).health_port }}
     leader_election:
-      enable: {{ .Values.k8s.enable_leader_election }}
+      enable: true
       lock_namespace: "{{ .Release.Namespace }}"
     workspace:
-      mem_reserve_percent: {{ .Values.workspace.mem_reserve_percent }}
-      cpu_reserve_percent: {{ .Values.workspace.cpu_reserve_percent }}
-      ephemeral_store_reserve_percent: {{ .Values.workspace.ephemeral_store_reserve_percent }}
+      mem_reserve_percent: {{ default 0.02 (default .Values.workspace).mem_reserve_percent }}
+      cpu_reserve_percent: {{ default 0.06 (default .Values.workspace).cpu_reserve_percent }}
+      ephemeral_store_reserve_percent: {{ default 0.1 (default .Values.workspace).ephemeral_store_reserve_percent }}
     workload:
-      max_ephemeral_store_percent: {{ .Values.workload.max_ephemeral_store_percent }}
+      max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
       enable_failover: true
       hang_check_interval: 1200
     ssh:
       enable: {{ .Values.ssh.enable }}
-      config_path: {{ .Values.ssh.mount_path }}
+      config_path: {{ default "/etc/secrets/ssh" (default .Values.ssh).mount_path }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-job-manager

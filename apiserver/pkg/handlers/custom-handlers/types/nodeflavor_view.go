@@ -49,7 +49,7 @@ type CreateNodeFlavorResponse struct {
 
 type GetNodeFlavorResponse struct {
 	TotalCount int                         `json:"totalCount"`
-	Items      []GetNodeFlavorResponseItem `json:"items,omitempty"`
+	Items      []GetNodeFlavorResponseItem `json:"items"`
 }
 
 type GetNodeFlavorResponseItem struct {
