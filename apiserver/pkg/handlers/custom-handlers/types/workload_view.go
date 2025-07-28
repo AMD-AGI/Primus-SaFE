@@ -65,36 +65,36 @@ type GetWorkloadResponseItem struct {
 	WorkloadId string `json:"workloadId"`
 	CreateWorkloadRequest
 	// cluster to which the workload belongs
-	Cluster string `json:"cluster,omitempty"`
+	Cluster string `json:"cluster"`
 	// status of workload
-	Phase string `json:"phase,omitempty"`
+	Phase string `json:"phase"`
 	// Shows the reason if the workload is in pending status.
-	Message string `json:"message,omitempty"`
+	Message string `json:"message"`
 	// detailed processing workflow of the workload
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Conditions []metav1.Condition `json:"conditions"`
 	// Pod info related to the workload
-	Pods []WorkloadPodWrapper `json:"pods,omitempty"`
+	Pods []WorkloadPodWrapper `json:"pods"`
 	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
-	Nodes [][]string `json:"nodes,omitempty"`
+	Nodes [][]string `json:"nodes"`
 	// workload creation time
-	CreationTime string `json:"creationTime,omitempty"`
+	CreationTime string `json:"creationTime"`
 	// workload start time
-	StartTime string `json:"startTime,omitempty"`
+	StartTime string `json:"startTime"`
 	// workload end time
-	EndTime string `json:"endTime,omitempty"`
+	EndTime string `json:"endTime"`
 	// workload deletion time
-	DeletionTime string `json:"deletionTime,omitempty"`
+	DeletionTime string `json:"deletionTime"`
 	// Seconds remaining before task timeout. Only applicable if a timeout is set.
-	SecondsUntilTimeout int64 `json:"secondsUntilTimeout,omitempty"`
+	SecondsUntilTimeout int64 `json:"secondsUntilTimeout"`
 	// show the queue position of the workload if it is pending.
-	SchedulerOrder int `json:"schedulerOrder,omitempty"`
+	SchedulerOrder int `json:"schedulerOrder"`
 	// total dispatch count
-	DispatchCount int `json:"dispatchCount,omitempty"`
+	DispatchCount int `json:"dispatchCount"`
 }
 
 type GetWorkloadResponse struct {
 	TotalCount int                       `json:"totalCount"`
-	Items      []GetWorkloadResponseItem `json:"items,omitempty"`
+	Items      []GetWorkloadResponseItem `json:"items"`
 }
 
 type PatchWorkloadRequest struct {
@@ -136,9 +136,9 @@ type GetWorkloadPodLogResponse struct {
 	// pod id
 	PodId string `json:"podId"`
 	// the namespace which the workload belongs to
-	Namespace string `json:"namespace,omitempty"`
+	Namespace string `json:"namespace"`
 	// An array of log lines, returned in the same order as they appear in the original logs
-	Logs []string `json:"logs,omitempty"`
+	Logs []string `json:"logs"`
 }
 
 type WorkloadSlice []v1.Workload

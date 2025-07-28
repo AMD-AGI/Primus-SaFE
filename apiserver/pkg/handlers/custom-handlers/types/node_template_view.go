@@ -20,5 +20,5 @@ type GetNodeTemplateResponseItem struct {
 
 type GetNodeTemplateResponse struct {
 	TotalCount int                           `json:"totalCount"`
-	Items      []GetNodeTemplateResponseItem `json:"items,omitempty"`
+	Items      []GetNodeTemplateResponseItem `json:"items"`
 }

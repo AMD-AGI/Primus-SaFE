@@ -64,7 +64,7 @@ type WorkloadInfo struct {
 	// workload id
 	Id string `json:"id"`
 	// workload submitter
-	User string `json:"user,omitempty"`
+	User string `json:"user"`
 	// Workspace that the workload belongs to
 	Workspace string `json:"workspace"`
 }
@@ -73,44 +73,44 @@ type GetNodeResponseItem struct {
 	// node id
 	NodeId string `json:"nodeId"`
 	// node display name
-	DisplayName string `json:"displayName,omitempty"`
+	DisplayName string `json:"displayName"`
 	// the node's cluster
-	Cluster string `json:"cluster,omitempty"`
+	Cluster string `json:"cluster"`
 	// the node's workspace
-	Workspace string `json:"workspace,omitempty"`
+	Workspace string `json:"workspace"`
 	// the node's phase
-	Phase string `json:"phase,omitempty"`
+	Phase string `json:"phase"`
 	// the internal ip of k8s cluster
-	InternalIP string `json:"internalIP,omitempty"`
+	InternalIP string `json:"internalIP"`
 	// the bmc ip of node
-	BMCIP string `json:"bmcIP,omitempty"`
+	BMCIP string `json:"bmcIP"`
 	// the nodes' flavor
 	NodeFlavor string `json:"nodeFlavor"`
 	// the nodes' template
-	NodeTemplate string `json:"nodeTemplate,omitempty"`
+	NodeTemplate string `json:"nodeTemplate"`
 	// Indicates whether the node can be scheduled in the Kubernetes cluster.
 	Available bool `json:"available"`
 	// the taints on node
-	Taints []corev1.Taint `json:"taints,omitempty"`
+	Taints []corev1.Taint `json:"taints"`
 	// total resource of node
 	TotalResources ResourceList `json:"totalResources"`
 	// available resource of node
-	AvailResources ResourceList `json:"availResources,omitempty"`
+	AvailResources ResourceList `json:"availResources"`
 	// Creation timestamp of the node
-	CreateTime string `json:"createTime,omitempty"`
+	CreateTime string `json:"createTime"`
 	// Running workloads information on the node
-	Workloads []WorkloadInfo `json:"workloads,omitempty"`
+	Workloads []WorkloadInfo `json:"workloads"`
 	// the labels by customer
-	CustomerLabels map[string]string `json:"customerLabels,omitempty"`
+	CustomerLabels map[string]string `json:"customerLabels"`
 	// the last startup time
-	LastStartupTime string `json:"lastStartupTime,omitempty"`
+	LastStartupTime string `json:"lastStartupTime"`
 	// Indicates whether the node is the control plane node in the Kubernetes cluster.
-	IsControlPlane bool `json:"isControlPlane,omitempty"`
+	IsControlPlane bool `json:"isControlPlane"`
 }
 
 type GetNodeResponse struct {
 	TotalCount int                   `json:"totalCount"`
-	Items      []GetNodeResponseItem `json:"items,omitempty"`
+	Items      []GetNodeResponseItem `json:"items"`
 }
 
 type PatchNodeRequest struct {
@@ -126,11 +126,11 @@ type PatchNodeRequest struct {
 type GetNodePodLogResponse struct {
 	ClusterId string `json:"clusterId"`
 	// node id
-	NodeId string `json:"nodeId,omitempty"`
+	NodeId string `json:"nodeId"`
 	// pod id
 	PodId string `json:"podId"`
 	// An array of log lines, returned in the same order as they appear in the original logs
-	Logs []string `json:"logs,omitempty"`
+	Logs []string `json:"logs"`
 }
 
 type RebootNodeRequest struct {

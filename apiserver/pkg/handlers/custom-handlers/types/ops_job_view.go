@@ -74,7 +74,7 @@ type GetOpsJobResponseItem struct {
 	// the cluster which the job belongs to
 	Cluster string `json:"cluster"`
 	// the workspace which the job belongs to
-	Workspace string `json:"workspace,omitempty"`
+	Workspace string `json:"workspace"`
 	// job submitter
 	UserName string `json:"userName"`
 	// job type
@@ -82,22 +82,22 @@ type GetOpsJobResponseItem struct {
 	// job phase: Succeeded/Failed/Running
 	Phase v1.OpsJobPhase `json:"phase"`
 	// job execution flow
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Conditions []metav1.Condition `json:"conditions"`
 	// job creation time
 	CreateTime string `json:"createTime"`
 	// job start time
-	StartTime string `json:"startTime,omitempty"`
+	StartTime string `json:"startTime"`
 	// job end time
-	EndTime string `json:"endTime,omitempty"`
+	EndTime string `json:"endTime"`
 	// job deletion time
-	DeleteTime string `json:"deleteTime,omitempty"`
+	DeleteTime string `json:"deleteTime"`
 	// job inputs
 	Inputs []v1.Parameter `json:"inputs"`
 	// job outputs
-	Outputs []v1.Parameter `json:"outputs,omitempty"`
+	Outputs []v1.Parameter `json:"outputs"`
 }
 
 type GetOpsJobResponse struct {
 	TotalCount int                     `json:"totalCount"`
-	Items      []GetOpsJobResponseItem `json:"items,omitempty"`
+	Items      []GetOpsJobResponseItem `json:"items"`
 }
