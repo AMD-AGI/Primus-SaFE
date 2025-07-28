@@ -14,6 +14,7 @@ const (
 
 	AuthoringKind   = "Authoring"
 	PytorchJobKind  = "PyTorchJob"
+	JobKind         = "Job"
 	DeploymentKind  = "Deployment"
 	StatefulSetKind = "StatefulSet"
 	PodKind         = "Pod"
@@ -32,9 +33,8 @@ const (
 	DefaultBurst = 1000
 	DefaultQPS   = 1000
 
-	AddonMonitorId      = "501"
-	PreflightMonitorId  = "502"
-	InspectionMonitorId = "503"
+	AddonMonitorId     = "501"
+	PreflightMonitorId = "502"
 
 	HighPriority    = "high-priority"
 	MedPriority     = "med-priority"

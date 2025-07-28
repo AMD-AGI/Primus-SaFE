@@ -76,7 +76,7 @@ spec:
               exit $?
           env:
             - name: PGSSLMODE
-              value: {{ .Values.db.ssl_mode }}
+              value: {{ default "require" (default .Values.db).ssl_mode }}
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef:
@@ -115,4 +115,6 @@ spec:
           configMap:
             name: create-db-table
       restartPolicy: Never
+      tolerations:
+        - operator: Exists
   backoffLimit: 0

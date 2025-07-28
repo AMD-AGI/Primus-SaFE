@@ -194,7 +194,8 @@ func TestUpdateDeployment(t *testing.T) {
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Image, "test-image")
 	assert.Equal(t, deployment.Spec.Template.Spec.PriorityClassName, commonworkload.GeneratePriorityClass(adminWorkload))
 	assert.Equal(t, len(deployment.Spec.Template.Spec.Containers[0].Command), 3)
-	cmd := buildEntryPoint("sh -c test.sh")
+	adminWorkload.Spec.EntryPoint = "sh -c test.sh"
+	cmd := buildEntryPoint(adminWorkload)
 	assert.Equal(t, deployment.Spec.Template.Spec.Containers[0].Command[2], cmd)
 
 	shareMemorySize, err := jobutils.GetMemoryStorageSize(workloadObj, jobutils.TestDeploymentTemplate)
@@ -428,4 +429,45 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	assert.Equal(t, ok, true)
 	assert.Equal(t, env["name"].(string), "GLOO_SOCKET_IFNAME")
 	assert.Equal(t, env["value"].(string), "eth0")
+}
+
+func TestCreateK8sJob(t *testing.T) {
+	commonconfig.SetValue("global.rdma_name", "rdma/hca")
+	defer commonconfig.SetValue("global.rdma_name", "")
+
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
+		Version: "v1",
+		Kind:    common.JobKind,
+	}
+	workload.Spec.Workspace = ""
+	workload.Spec.CustomerLabels = map[string]string{
+		common.K8sHostNameLabel: "node1",
+	}
+	v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.SystemUser)
+	v1.SetLabel(workload, v1.OpsJobTypeLabel, string(v1.OpsJobPreflightType))
+
+	configmap, err := parseConfigmap(TestJobTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestJobTemplate).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.createK8sObject(context.Background(), workload)
+	assert.NilError(t, err)
+	// fmt.Println(unstructuredutils.ToString(obj))
+
+	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
+	checkResources(t, obj, workload, &templates[0], workload.Spec.Resource.Replica)
+	checkPorts(t, obj, workload, &templates[0])
+	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkEnvs(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload, &templates[0])
+	checkLabels(t, obj, workload, &templates[0])
+	checkHostNetwork(t, obj, workload, &templates[0])
+	checkHostPid(t, obj, workload, &templates[0])
+	checkPriorityClass(t, obj, workload, &templates[0])
+	checkSecurityContext(t, obj, workload, &templates[0])
 }

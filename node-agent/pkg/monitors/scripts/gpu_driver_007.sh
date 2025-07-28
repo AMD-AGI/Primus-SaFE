@@ -6,7 +6,7 @@
 #
 
 if [ ! -f "/tmp/rocm-smi" ]; then
-    exit 0
+  exit 0
 fi
 
 EXPECT_MAJOR=$1
@@ -14,8 +14,8 @@ EXPECT_MINOR=$2
 
 version=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rocm-smi --showdriverversion |grep "^Driver version:"`
 if [ $? -ne 0 ]; then
-    echo "Error: failed to execute rocm-smi --showdriverversion"
-    exit 1
+  echo "Error: failed to execute rocm-smi --showdriverversion"
+  exit 1
 fi
 major_version=$(echo "$version" | cut -d ' ' -f 3 | cut -d '.' -f 1)
 minor_version=$(echo "$version" | cut -d ' ' -f 3 | cut -d '.' -f 2)

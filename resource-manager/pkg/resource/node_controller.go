@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
@@ -315,6 +316,7 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
+	opsJobIdToCleanup := getOpsJobToCleanUp(adminNode)
 
 	functions := []func(adminNode *v1.Node, k8sNode *corev1.Node) bool{
 		r.updateK8sNodeTaints, r.updateK8sNodeLabels,
@@ -332,7 +334,7 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 			return ctrlruntime.Result{}, err
 		}
 	}
-	if err = removeTaintConditions(ctx, k8sClients.ClientSet(), k8sNode); err != nil {
+	if err = clearConditions(ctx, k8sClients.ClientSet(), k8sNode, opsJobIdToCleanup); err != nil {
 		klog.ErrorS(err, "failed to remove taint conditions")
 		return ctrlruntime.Result{}, err
 	}
@@ -361,8 +363,8 @@ func (r *NodeReconciler) updateK8sNodeTaints(adminNode *v1.Node, k8sNode *corev1
 	return true
 }
 
-func removeTaintConditions(ctx context.Context,
-	k8sClient kubernetes.Interface, k8sNode *corev1.Node) error {
+func clearConditions(ctx context.Context,
+	k8sClient kubernetes.Interface, k8sNode *corev1.Node, cleanupOpsJobId string) error {
 	specTaintsSet := sets.NewSet()
 	for _, t := range k8sNode.Spec.Taints {
 		specTaintsSet.Insert(t.Key)
@@ -371,6 +373,11 @@ func removeTaintConditions(ctx context.Context,
 	isShouldUpdate := false
 	var reservedConditions []corev1.NodeCondition
 	for i, cond := range k8sNode.Status.Conditions {
+		if cleanupOpsJobId != "" && cond.Reason == cleanupOpsJobId {
+			isShouldUpdate = true
+			klog.Infof("remove node condition, name: %s, type: %s", k8sNode.Name, cond.Type)
+			continue
+		}
 		if !isPrimusCondition(cond.Type) {
 			reservedConditions = append(reservedConditions, k8sNode.Status.Conditions[i])
 			continue
@@ -380,8 +387,8 @@ func removeTaintConditions(ctx context.Context,
 			reservedConditions = append(reservedConditions, k8sNode.Status.Conditions[i])
 			continue
 		}
-		klog.Infof("remove node condition, name: %s, type: %s", k8sNode.Name, cond.Type)
 		isShouldUpdate = true
+		klog.Infof("remove node condition, name: %s, type: %s", k8sNode.Name, cond.Type)
 	}
 	if !isShouldUpdate {
 		return nil
@@ -575,9 +582,6 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 	}
 	// if the Kubernetes node is already present, it means the node has been successfully managed.
 	if k8sNode != nil {
-		if err := r.addNodeTemplate(ctx, adminNode); err != nil {
-			return ctrlruntime.Result{}, err
-		}
 		if err := r.removeRetryCount(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
@@ -586,6 +590,12 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 		}
 		if err = r.syncLabelsToK8sNode(ctx, k8sClients.ClientSet(), adminNode, k8sNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if err = r.installAddons(ctx, adminNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if err = r.doPreflight(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
@@ -598,9 +608,6 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context,
 	adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	if k8sNode != nil {
-		if err := r.addNodeTemplate(ctx, adminNode); err != nil {
-			return ctrlruntime.Result{}, err
-		}
 		if err := r.removeRetryCount(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
@@ -609,6 +616,9 @@ func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context,
 			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 		}
 		if err = r.syncLabelsToK8sNode(ctx, k8sClients.ClientSet(), adminNode, k8sNode); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if err = r.installAddons(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
@@ -634,6 +644,9 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	clientSet kubernetes.Interface, adminNode *v1.Node, k8sNode *corev1.Node) error {
 	labels := map[string]string{}
 	for k, v := range adminNode.Labels {
+		if k == v1.DisplayNameLabel {
+			continue
+		}
 		if v != k8sNode.Labels[k] {
 			labels[k] = v
 		}
@@ -901,14 +914,14 @@ func (r *NodeReconciler) harborCA(ctx context.Context, sshClient *ssh.Client) er
 	return nil
 }
 
-func (r *NodeReconciler) addNodeTemplate(ctx context.Context, adminNode *v1.Node) error {
+func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) error {
 	if adminNode.Spec.NodeTemplate == nil {
 		return nil
 	}
 	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: "system",
+				v1.UserNameAnnotation: v1.SystemUser,
 			},
 		},
 		Spec: v1.OpsJobSpec{
@@ -928,4 +941,50 @@ func (r *NodeReconciler) addNodeTemplate(ctx context.Context, adminNode *v1.Node
 	}
 	klog.Infof("create addon job(%s), node.name: %s", job.Name, adminNode.Name)
 	return nil
+}
+
+func (r *NodeReconciler) doPreflight(ctx context.Context, adminNode *v1.Node) error {
+	if commonconfig.GetPreflightImage() == "" || v1.GetGpuProductName(adminNode) == "" {
+		return nil
+	}
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				v1.GpuProductNameLabel: strings.ToLower(v1.GetGpuProductName(adminNode)),
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: v1.SystemUser,
+			},
+		},
+		Spec: v1.OpsJobSpec{
+			Cluster: adminNode.GetSpecCluster(),
+			Type:    v1.OpsJobPreflightType,
+			Inputs: []v1.Parameter{{
+				Name:  v1.ParameterNode,
+				Value: adminNode.Name,
+			}},
+			TimeoutSecond: 7200,
+		},
+	}
+	if err := r.Create(ctx, job); err != nil {
+		return client.IgnoreAlreadyExists(err)
+	}
+	klog.Infof("create preflight job(%s), node.name: %s", job.Name, adminNode.Name)
+	return nil
+}
+
+func getOpsJobToCleanUp(adminNode *v1.Node) string {
+	strAction := v1.GetNodeLabelAction(adminNode)
+	if strAction == "" {
+		return ""
+	}
+	actionMap := make(map[string]string)
+	if err := json.Unmarshal([]byte(strAction), &actionMap); err != nil {
+		return ""
+	}
+	action, _ := actionMap[v1.OpsJobIdLabel]
+	if action != v1.NodeActionRemove {
+		return ""
+	}
+	return v1.GetLabel(adminNode, v1.OpsJobIdLabel)
 }

@@ -6,14 +6,17 @@
 #
 
 CMDLINE=`nsenter --target 1 --mount --uts --ipc --net --pid -- cat /proc/cmdline`
+if [ $? -ne 0 ]; then
+  exit 2
+fi
 for cmd in `echo $CMDLINE`
 do
-    if [[ "$cmd" == "amd_iommu=off" ]]; then
-        exit 0
-    fi
-    if [[ "$cmd" == "iommu=pt" ]]; then
-        exit 0
-    fi
+  if [[ "$cmd" == "amd_iommu=off" ]]; then
+    exit 0
+  fi
+  if [[ "$cmd" == "iommu=pt" ]]; then
+    exit 0
+  fi
 done
 
 echo "iommus is enabled"

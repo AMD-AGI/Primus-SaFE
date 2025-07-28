@@ -62,7 +62,6 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, msg *resourceMessa
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-
 	var isNeedRetry bool
 	adminWorkload, isNeedRetry, err = r.updateAdminWorkloadStatus(ctx, adminWorkload, status, msg)
 	if isNeedRetry {
@@ -88,7 +87,6 @@ func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, msg *resour
 		return &jobutils.K8sResourceStatus{
 			Phase:   string(v1.K8sDeleted),
 			Message: fmt.Sprintf("%s %s is deleted", msg.gvk.Kind, msg.name),
-			Reason:  "ResourceDeleted",
 		}, nil
 	}
 
@@ -145,7 +143,7 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, msg *resource
 
 func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, originWorkload *v1.Workload,
 	status *jobutils.K8sResourceStatus, msg *resourceMessage) (*v1.Workload, bool, error) {
-	if originWorkload.IsEnd() || status == nil {
+	if originWorkload.IsEnd() || status == nil || status.Phase == "" {
 		return originWorkload, false, nil
 	}
 	adminWorkload := originWorkload.DeepCopy()

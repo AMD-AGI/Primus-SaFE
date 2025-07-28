@@ -2,44 +2,49 @@ apiVersion: v1
 data:
   config.yaml: |
     global:
-      enable_crypto: {{ .Values.crypto.enable }}
-      crypto_key: {{ .Values.crypto.mount_path }}/key
+      enable_crypto: {{ default false (default .Values.crypto).enable }}
+      crypto_key: {{ default "/etc/secrets" (default .Values.crypto).mount_path }}/key
       rdma_name: {{ .Values.net.rdma_name }}
     health_check:
-      enable: {{ .Values.k8s.enable_health_check }}
-      port: {{ .Values.resource_manager.health_port }}
+      enable: {{ default true (default .Values.k8s).enable_health_check }}
+      port: {{ default 8081 (default .Values.resource_manager).health_port }}
     leader_election:
-      enable: {{ .Values.k8s.enable_leader_election }}
+      enable: true
       lock_namespace: "{{ .Release.Namespace }}"
     workspace:
-      mem_reserve_percent: {{ .Values.workspace.mem_reserve_percent }}
-      cpu_reserve_percent: {{ .Values.workspace.cpu_reserve_percent }}
-      ephemeral_store_reserve_percent: {{ .Values.workspace.ephemeral_store_reserve_percent }}
+      mem_reserve_percent: {{ default 0.02 (default .Values.workspace).mem_reserve_percent }}
+      cpu_reserve_percent: {{ default 0.06 (default .Values.workspace).cpu_reserve_percent }}
+      ephemeral_store_reserve_percent: {{ default 0.1 (default .Values.workspace).ephemeral_store_reserve_percent }}
+    workload:
+      max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
     db:
       enable: {{ .Values.db.enable }}
-      config_path: {{ .Values.db.mount_path }}
-      ssl_mode: {{ .Values.db.ssl_mode }}
-      max_open_conns: {{ .Values.db.max_open_conns }}
-      max_idle_conns: {{ .Values.db.max_idle_conns }}
-      max_life_time_second: {{ .Values.db.max_life_time_second }}
-      max_idle_time_second: {{ .Values.db.max_idle_time_second }}
-      connect_timeout_second: {{ .Values.db.connect_timeout_second }}
-      request_timeout_second: {{ .Values.db.request_timeout_second }}
+      config_path: {{ default "/etc/secrets/db" (default .Values.db).mount_path }}
+      ssl_mode: {{ default "require" (default .Values.db).ssl_mode }}
+      max_open_conns: {{ default 100 (default .Values.db).max_open_conns }}
+      max_idle_conns: {{ default 10 (default .Values.db).max_idle_conns }}
+      max_life_time_second: {{ default 600 (default .Values.db).max_life_time_second }}
+      max_idle_time_second: {{ default 100 (default .Values.db).max_idle_time_second }}
+      connect_timeout_second: {{ default 10 (default .Values.db).connect_timeout_second }}
+      request_timeout_second: {{ default 20 (default .Values.db).request_timeout_second }}
     log:
       enable: {{ .Values.log.enable }}
-      config_path: {{ .Values.log.mount_path }}
-      endpoint: {{ .Values.log.endpoint }}
-      prefix: {{ .Values.log.prefix }}
+      config_path: {{ default "/etc/secrets/log" (default .Values.log).mount_path }}
+      endpoint: {{ default "primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200" (default .Values.log).endpoint }}
+      prefix: "node-"
+      username: "{{ default "" (default .Values.log).username }}"
+      password: "{{ default "" (default .Values.log).password }}"
     ops_job:
-      ttl_second: {{ .Values.ops_job.ttl_second }}
-      timeout_second: {{ .Values.ops_job.timeout_second }}
-      batch_count: {{ .Values.ops_job.batch_count }}
-      available_ratio: {{ .Values.ops_job.available_ratio }}
+      ttl_second: {{ default 300 (default .Values.ops_job).ttl_second }}
+      timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
+      preflight_image: docker.io/primussafe/{{ .Values.preflight.image }}
     s3:
       enable: {{ .Values.s3.enable }}
-      config_path: {{ .Values.s3.mount_path }}
+      config_path: {{ default "/etc/secrets/s3" (default .Values.s3).mount_path }}
       endpoint: {{ .Values.s3.endpoint }}
       bucket: {{ .Values.s3.bucket }}
+      access_key: "{{ default "" (default .Values.s3).access_key }}"
+      secret_key: "{{ default "" (default .Values.s3).secret_key }}"
       expire_day: 0
 kind: ConfigMap
 metadata:

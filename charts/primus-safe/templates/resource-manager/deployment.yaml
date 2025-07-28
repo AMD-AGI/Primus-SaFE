@@ -37,15 +37,15 @@ spec:
       serviceAccountName: {{ .Release.Name }}
       containers:
         - name: {{ .Release.Name }}-resource-manager
-          image: {{ .Values.repository }}/{{ .Values.resource_manager.image }}
+          image: docker.io/primussafe/{{ .Values.resource_manager.image }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/resource-manager/run.sh"]
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
           volumeMounts:
-            {{- if .Values.crypto.enable }}
+            {{- if default false (default .Values.crypto).enable }}
             - name: crypto-secret
-              mountPath: {{ .Values.crypto.mount_path }}
+              mountPath: {{ default "/etc/secrets" (default .Values.crypto).mount_path }}
               readOnly: true
             {{- end }}
             - name: server-config
@@ -53,46 +53,51 @@ spec:
               readOnly: true
             {{- if .Values.db.enable }}
             - name: db-secret
-              mountPath: {{ .Values.db.mount_path }}
+              mountPath: {{ default "/etc/secrets/db" (default .Values.db).mount_path }}
               readOnly: true
             {{- end }}
-            {{- if .Values.s3.enable }}
+            {{- if and .Values.s3.enable (or (empty .Values.s3.access_key) (empty .Values.log.secret_key)) }}
             - name: s3-secret
-              mountPath: {{ .Values.s3.mount_path }}
+              mountPath: {{ default "/etc/secrets/s3" (default .Values.s3).mount_path }}/access_key
+              subPath: "access-key"
+              readOnly: true
+            - name: s3-secret
+              mountPath: {{ default "/etc/secrets/s3" (default .Values.s3).mount_path }}/secret_key
+              subPath: "secret-key"
               readOnly: true
             {{- end }}
-            {{- if .Values.log.enable }}
+            {{- if and .Values.log.enable (or (empty .Values.log.username) (empty .Values.log.password)) }}
             - name: log-secret
-              mountPath: {{ .Values.log.mount_path }}
+              mountPath: {{ default "/etc/secrets/log" (default .Values.log).mount_path }}
               readOnly: true
             {{- end }}
-          {{- if .Values.k8s.enable_health_check }}
+          {{- if default true (default .Values.k8s).enable_health_check }}
           ports:
-            - containerPort: {{ .Values.resource_manager.health_port }}
+            - containerPort: {{ default 8081 (default .Values.resource_manager).health_port }}
           livenessProbe:
             httpGet:
               path: /healthz
-              port: {{ .Values.resource_manager.health_port }}
+              port: {{ default 8081 (default .Values.resource_manager).health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
           readinessProbe:
             httpGet:
               path: /readyz
-              port: {{ .Values.resource_manager.health_port }}
+              port: {{ default 8081 (default .Values.resource_manager).health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
           {{- end }}
           resources:
             limits:
-              cpu: {{ .Values.resource_manager.cpu }}
-              memory: {{ .Values.resource_manager.memory }}
+              cpu: 2000m
+              memory: 4Gi
             requests:
-              cpu: {{ .Values.resource_manager.cpu }}
-              memory: {{ .Values.resource_manager.memory }}
+              cpu: 2000m
+              memory: 4Gi
       imagePullSecrets:
       - name: {{ .Release.Name }}-image
       volumes:
-        {{- if .Values.crypto.enable }}
+        {{- if default false (default .Values.crypto).enable }}
         - name: crypto-secret
           secret:
             secretName: {{ .Release.Name }}-crypto
@@ -102,15 +107,15 @@ spec:
           secret:
             secretName: {{ .Release.Name }}-pguser-{{ .Release.Name }}
         {{- end }}
-        {{- if .Values.s3.enable }}
+        {{- if and .Values.s3.enable (or (empty .Values.s3.access_key) (empty .Values.log.secret_key)) }}
         - name: s3-secret
           secret:
             secretName: {{ .Values.s3.secret }}
         {{- end }}
-        {{- if .Values.log.enable }}
+        {{- if and .Values.log.enable (or (empty .Values.log.username) (empty .Values.log.password)) }}
         - name: log-secret
           secret:
-            secretName: {{ .Values.log.secret }}
+            secretName: {{ default "primus-lens-logs-admin-password" (default .Values.log).secret }}
         {{- end }}
         - name: server-config
           configMap:

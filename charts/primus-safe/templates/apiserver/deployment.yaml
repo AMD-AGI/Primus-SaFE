@@ -37,15 +37,15 @@ spec:
       serviceAccountName: {{ .Release.Name }}
       containers:
         - name: {{ .Release.Name }}-apiserver
-          image: {{ .Values.repository }}/{{ .Values.apiserver.image }}
+          image: docker.io/primussafe/{{ .Values.apiserver.image }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/apiserver/run.sh"]
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
           volumeMounts:
-            {{- if .Values.crypto.enable }}
+            {{- if default false (default .Values.crypto).enable }}
             - name: crypto-secret
-              mountPath: {{ .Values.crypto.mount_path }}
+              mountPath: {{ default "/etc/secrets" (default .Values.crypto).mount_path }}
               readOnly: true
             {{- end }}
             - name: server-config
@@ -53,50 +53,50 @@ spec:
               readOnly: true
             {{- if .Values.db.enable }}
             - name: db-secret
-              mountPath: {{ .Values.db.mount_path }}
+              mountPath: {{ default "/etc/secrets/db" (default .Values.db).mount_path }}
               readOnly: true
             {{- end }}
-            {{- if .Values.log.enable }}
+            {{- if and .Values.log.enable (or (empty .Values.log.username) (empty .Values.log.password)) }}
             - name: log-secret
-              mountPath: {{ .Values.log.mount_path }}
+              mountPath: {{ default "/etc/secrets/log" (default .Values.log).mount_path }}
               readOnly: true
             {{- end }}
             {{- if .Values.ssh.enable }}
             - name: ssh-proxy
-              mountPath: {{ .Values.ssh.mount_path }}
+              mountPath: {{ default "/etc/secrets/ssh" (default .Values.ssh).mount_path }}
               readOnly: true
             {{- end }}
           ports:
-            - containerPort: {{ .Values.apiserver.port }}
+            - containerPort: {{ default 8088 (default .Values.apiserver).port }}
               name: http-port
             {{- if .Values.ssh.enable }}
-            - containerPort: {{ .Values.ssh.port }}
+            - containerPort: {{ default 2222 (default .Values.ssh).port }}
               name: ssh-port
               protocol: TCP
             {{- end }}
-          {{- if .Values.k8s.enable_health_check }}
+          {{- if default true (default .Values.k8s).enable_health_check }}
           livenessProbe:
             httpGet:
               path: /healthz
-              port: {{ .Values.apiserver.health_port }}
+              port: {{ default 8082 (default .Values.apiserver).health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
           readinessProbe:
             httpGet:
               path: /readyz
-              port: {{ .Values.apiserver.health_port }}
+              port: {{ default 8082 (default .Values.apiserver).health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
           {{- end }}
           resources:
             limits:
-              cpu: {{ .Values.apiserver.cpu }}
-              memory: {{ .Values.apiserver.memory }}
+              cpu: 2000m
+              memory: 4Gi
             requests:
-              cpu: {{ .Values.apiserver.cpu }}
-              memory: {{ .Values.apiserver.memory }}
+              cpu: 2000m
+              memory: 4Gi
       volumes:
-        {{- if .Values.crypto.enable }}
+        {{- if default false (default .Values.crypto).enable }}
         - name: crypto-secret
           secret:
             secretName: {{ .Release.Name }}-crypto
@@ -106,10 +106,10 @@ spec:
           secret:
             secretName: {{ .Release.Name }}-pguser-{{ .Release.Name }}
         {{- end }}
-        {{- if .Values.log.enable }}
+        {{- if and .Values.log.enable (or (empty .Values.log.username) (empty .Values.log.password)) }}
         - name: log-secret
           secret:
-            secretName: {{ .Values.log.secret }}
+            secretName: {{ default "primus-lens-logs-admin-password" (default .Values.log).secret }}
         {{- end }}
         {{- if .Values.ssh.enable }}
         - name: ssh-proxy

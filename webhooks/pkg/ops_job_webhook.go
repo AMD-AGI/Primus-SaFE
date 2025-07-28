@@ -10,11 +10,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"strconv"
 	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -28,7 +28,6 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -77,8 +76,11 @@ func (m *OpsJobMutator) mutateMeta(ctx context.Context, job *v1.OpsJob) bool {
 	job.Name = commonutils.GenerateName(strings.ToLower(jobName))
 
 	v1.SetLabel(job, v1.OpsJobTypeLabel, string(job.Spec.Type))
-	if v1.GetAnnotation(job, v1.OpsJobBatchCountAnnotation) == "" && commonconfig.GetOpsJobBatchCount() > 0 {
-		v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(commonconfig.GetOpsJobBatchCount()))
+	if v1.GetAnnotation(job, v1.OpsJobBatchCountAnnotation) == "" {
+		v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, "1")
+	}
+	if v1.GetAnnotation(job, v1.OpsJobAvailRatioAnnotation) == "" {
+		v1.SetAnnotation(job, v1.OpsJobAvailRatioAnnotation, "1.0")
 	}
 
 	if job.Spec.Cluster != "" {
@@ -109,6 +111,11 @@ func (m *OpsJobMutator) mutateJobSpec(job *v1.OpsJob) {
 }
 
 func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) {
+	m.toAddonTemplates(ctx, job)
+	m.removeDuplicates(job)
+}
+
+func (m *OpsJobMutator) toAddonTemplates(ctx context.Context, job *v1.OpsJob) {
 	param := job.GetParameter(v1.ParameterNodeTemplate)
 	if param == nil {
 		return
@@ -117,21 +124,26 @@ func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) {
 	if err := m.Get(ctx, client.ObjectKey{Name: param.Value}, nt); err != nil {
 		return
 	}
-	currentAddOns := sets.NewSet()
-	for _, p := range job.Spec.Inputs {
-		if p.Name == v1.ParameterAddonTemplate {
-			currentAddOns.Insert(p.Value)
-		}
-	}
 	for _, addOn := range nt.Spec.AddOnTemplates {
-		if currentAddOns.Has(addOn) {
-			continue
-		}
 		job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{
 			Name:  v1.ParameterAddonTemplate,
 			Value: addOn,
 		})
 	}
+}
+
+func (m *OpsJobMutator) removeDuplicates(job *v1.OpsJob) {
+	uniqMap := make(map[string]string)
+	uniqInputs := make([]v1.Parameter, 0, len(job.Spec.Inputs))
+	for i, in := range job.Spec.Inputs {
+		val, ok := uniqMap[in.Name]
+		if ok && val == in.Value {
+			continue
+		}
+		uniqInputs = append(uniqInputs, job.Spec.Inputs[i])
+		uniqMap[in.Name] = in.Value
+	}
+	job.Spec.Inputs = uniqInputs
 }
 
 type OpsJobValidator struct {
@@ -171,6 +183,9 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 	if err := v.validateRequiredParams(ctx, job); err != nil {
 		return err
 	}
+	if err := v.validateNodes(ctx, job); err != nil {
+		return err
+	}
 	var err error
 	switch job.Spec.Type {
 	case v1.OpsJobAddonType:
@@ -178,8 +193,10 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 			break
 		}
 		err = v.validateNodeDuplicated(ctx, job)
+	case v1.OpsJobPreflightType:
+		err = v.validateNodeDuplicated(ctx, job)
 	case v1.OpsJobDumpLogType:
-		err = v.validateWorkloadDuplicated(ctx, job)
+		err = v.validateDumplogDuplicated(ctx, job)
 	}
 	if err != nil {
 		return err
@@ -219,7 +236,7 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 }
 
 func (v *OpsJobValidator) validateNodeDuplicated(ctx context.Context, job *v1.OpsJob) error {
-	currentJobs, err := v.listRelatedRunningJobs(ctx, job)
+	currentJobs, err := v.listRelatedRunningJobs(ctx, job.Spec.Cluster, []string{string(job.Spec.Type)})
 	if err != nil {
 		return err
 	}
@@ -234,8 +251,8 @@ func (v *OpsJobValidator) validateNodeDuplicated(ctx context.Context, job *v1.Op
 	return nil
 }
 
-func (v *OpsJobValidator) validateWorkloadDuplicated(ctx context.Context, job *v1.OpsJob) error {
-	currentJobs, err := v.listRelatedRunningJobs(ctx, job)
+func (v *OpsJobValidator) validateDumplogDuplicated(ctx context.Context, job *v1.OpsJob) error {
+	currentJobs, err := v.listRelatedRunningJobs(ctx, job.Spec.Cluster, []string{string(v1.OpsJobDumpLogType)})
 	if err != nil {
 		return err
 	}
@@ -304,9 +321,13 @@ func (v *OpsJobValidator) hasDuplicateInput(params1, params2 []v1.Parameter, par
 	return false
 }
 
-func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, job *v1.OpsJob) ([]v1.OpsJob, error) {
-	labelSelector := labels.SelectorFromSet(map[string]string{
-		v1.ClusterIdLabel: job.Spec.Cluster, v1.OpsJobTypeLabel: string(job.Spec.Type)})
+func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster string, jobTypes []string) ([]v1.OpsJob, error) {
+	var labelSelector = labels.NewSelector()
+	req1, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{cluster})
+	labelSelector = labelSelector.Add(*req1)
+	req2, _ := labels.NewRequirement(v1.OpsJobTypeLabel, selection.In, jobTypes)
+	labelSelector = labelSelector.Add(*req2)
+
 	jobList := &v1.OpsJobList{}
 	if err := v.List(ctx, jobList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return nil, client.IgnoreNotFound(err)
@@ -319,4 +340,36 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, job *v1.Op
 		result = append(result, jobList.Items[i])
 	}
 	return result, nil
+}
+
+func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
+	nodeParams := job.GetParameters(v1.ParameterNode)
+	cluster := ""
+	gpuProduct := ""
+	for _, param := range nodeParams {
+		adminNode, err := getNode(ctx, v.Client, param.Value)
+		if err != nil {
+			return err
+		}
+		clusterId := v1.GetClusterId(adminNode)
+		if clusterId == "" {
+			return fmt.Errorf("The node(%s) is not managed by the cluster.", param.Value)
+		}
+		if cluster == "" {
+			cluster = clusterId
+		} else if cluster != clusterId {
+			return fmt.Errorf("The nodes to be operated must belong to the same cluster.")
+		}
+		if job.Spec.Type == v1.OpsJobPreflightType {
+			if v1.GetGpuProductName(adminNode) == "" {
+				return commonerrors.NewNotImplemented("Only GPU nodes are supported.")
+			}
+			if gpuProduct == "" {
+				gpuProduct = v1.GetGpuProductName(adminNode)
+			} else if v1.GetGpuProductName(adminNode) != gpuProduct {
+				return fmt.Errorf("The nodes to be operated must belong to the same gpu chip.")
+			}
+		}
+	}
+	return nil
 }

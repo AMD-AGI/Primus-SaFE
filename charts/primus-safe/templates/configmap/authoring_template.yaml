@@ -8,7 +8,6 @@ metadata:
     primus-safe.workload.kind: Authoring
     app.kubernetes.io/managed-by: Helm
   annotations:
-    primus-safe.gpu.resource.name: "amd.com/gpu"
     # The main container name should match the configuration defined in the template below
     primus-safe.main.container: pytorch
     meta.helm.sh/release-name: {{ .Release.Name }}
@@ -26,7 +25,7 @@ data:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
                 - name: preprocess
-                  image: {{ .Values.repository }}/{{ .Values.preprocess.image }}
+                  image: docker.io/primussafe/{{ .Values.preprocess.image }}
                   imagePullPolicy: IfNotPresent
                   command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                   securityContext:

@@ -55,14 +55,14 @@ func handleError(name string, err error) admission.Response {
 		return admission.Allowed("")
 	}
 	klog.ErrorS(err, fmt.Sprintf("failed to handle %s webhook", name))
-	var apiStatus *apierrors.StatusError
-	if !errors.As(err, &apiStatus) {
-		apiStatus = commonerrors.NewBadRequest(err.Error())
+	var apiError *apierrors.StatusError
+	if !errors.As(err, &apiError) {
+		apiError = commonerrors.NewBadRequest(err.Error())
 	}
 	return admission.Response{
 		AdmissionResponse: admissionv1.AdmissionResponse{
 			Allowed: false,
-			Result:  &apiStatus.ErrStatus,
+			Result:  &apiError.ErrStatus,
 		},
 	}
 }

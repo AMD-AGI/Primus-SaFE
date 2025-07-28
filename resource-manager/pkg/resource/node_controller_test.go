@@ -389,7 +389,7 @@ func TestUpdateK8sWorkspace(t *testing.T) {
 	assert.Equal(t, v1.GetWorkspaceId(k8sNode), "")
 }
 
-func TestRemoveNodeCondition(t *testing.T) {
+func TestClearConditions(t *testing.T) {
 	taintKey := commonfaults.GenerateTaintKey("001")
 	k8sNode := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: "node1"},
@@ -406,11 +406,15 @@ func TestRemoveNodeCondition(t *testing.T) {
 			}, {
 				Type:   corev1.NodeConditionType("Ready"),
 				Status: corev1.ConditionTrue,
+			}, {
+				Type:   corev1.NodeConditionType(v1.OpsJobKind),
+				Status: corev1.ConditionTrue,
+				Reason: "test-ops-job",
 			}},
 		},
 	}
 	k8sClient := k8sfake.NewClientset(k8sNode)
-	err := removeTaintConditions(context.Background(), k8sClient, k8sNode)
+	err := clearConditions(context.Background(), k8sClient, k8sNode, "test-ops-job")
 	assert.NilError(t, err)
 
 	k8sNode2, err := k8sClient.CoreV1().Nodes().Get(context.Background(), k8sNode.Name, metav1.GetOptions{})

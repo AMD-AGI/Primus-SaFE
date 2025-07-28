@@ -149,7 +149,7 @@ func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, node *v1.Node) boo
 	}
 	isChanged := false
 	if nf.HasGpu() {
-		if v1.SetAnnotation(node, v1.GpuProductNameAnnotation, nf.Spec.Gpu.Product) {
+		if v1.SetLabel(node, v1.GpuProductNameLabel, nf.Spec.Gpu.Product) {
 			isChanged = true
 		}
 		if v1.SetAnnotation(node, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName) {
@@ -159,7 +159,7 @@ func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, node *v1.Node) boo
 			isChanged = true
 		}
 	} else {
-		if v1.RemoveAnnotation(node, v1.GpuProductNameAnnotation) {
+		if v1.RemoveLabel(node, v1.GpuProductNameLabel) {
 			isChanged = true
 		}
 		if v1.RemoveAnnotation(node, v1.GpuResourceNameAnnotation) {
@@ -281,9 +281,6 @@ func (v *NodeValidator) validateNodeSpec(ctx context.Context, node *v1.Node) err
 
 func (v *NodeValidator) validateNodeWorkspace(ctx context.Context, node *v1.Node) error {
 	workspaceName := node.GetSpecWorkspace()
-	if workspaceName == "" {
-		return nil
-	}
 	if _, err := getWorkspace(ctx, v.Client, workspaceName); err != nil {
 		return err
 	}
@@ -296,7 +293,7 @@ func (v *NodeValidator) validateNodeFlavor(ctx context.Context, node *v1.Node) e
 	}
 	nf, _ := getNodeFlavor(ctx, v.Client, node.Spec.NodeFlavor.Name)
 	if nf == nil {
-		return commonerrors.NewBadRequest(fmt.Sprintf("the flavo(%s) is not found", node.Spec.NodeFlavor.Name))
+		return commonerrors.NewBadRequest(fmt.Sprintf("the flavor(%s) is not found", node.Spec.NodeFlavor.Name))
 	}
 	return nil
 }
