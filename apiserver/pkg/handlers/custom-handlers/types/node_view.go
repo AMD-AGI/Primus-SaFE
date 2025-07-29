@@ -139,10 +139,3 @@ type RebootNodeRequest struct {
 	// false: Graceful restart (attempt a clean shutdown before restarting)
 	Force *bool `json:"force,omitempty"`
 }
-
-type RebootNodeRequest struct {
-	// force: Boolean, optional, default is false.
-	// true: Force restart (e.g., power off and then power on)
-	// false: Graceful restart (attempt a clean shutdown before restarting)
-	Force *bool `json:"force,omitempty"`
-}
