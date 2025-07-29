@@ -56,9 +56,7 @@ func (m *AddOnTemplateMutator) Handle(_ context.Context, req admission.Request) 
 
 func (m *AddOnTemplateMutator) mutateOnCreation(addon *v1.AddonTemplate) {
 	addon.Name = stringutil.NormalizeName(addon.Name)
-	for key, val := range addon.Spec.Extensions {
-		addon.Spec.Extensions[key] = strings.Trim(val, " ")
-	}
+	addon.Spec.Action = strings.Trim(addon.Spec.Action, " ")
 }
 
 type AddOnTemplateValidator struct {
@@ -97,24 +95,14 @@ func (v *AddOnTemplateValidator) validate(addon *v1.AddonTemplate) error {
 }
 
 func (v *AddOnTemplateValidator) validateRequiredParams(addon *v1.AddonTemplate) error {
-	if addon.Spec.Category == "" {
-		return commonerrors.NewBadRequest("the category for addon is not found")
-	}
-	var keys []string
-	if addon.Spec.Type == v1.AddonTemplateDriver || addon.Spec.Type == v1.AddonTemplateDpkg {
-		keys = []string{v1.AddOnObserve, v1.AddOnAction}
-	} else if addon.Spec.Type == v1.AddonTemplateConfig ||
-		addon.Spec.Type == v1.AddonTemplateSystemd || addon.Spec.Type == v1.AddonTemplateValidation {
-		keys = []string{v1.AddOnAction}
-	} else if addon.Spec.Type == v1.AddonTemplateHelm {
-	} else {
-		return commonerrors.NewBadRequest("invalid addon-template type")
-	}
-	for _, key := range keys {
-		val, ok := addon.Spec.Extensions[key]
-		if !ok || len(val) == 0 {
-			return commonerrors.NewBadRequest(fmt.Sprintf("%s is not found of extensions", key))
+	switch addon.Spec.Type {
+	case v1.AddonTemplateDriver, v1.AddonTemplateDpkg, v1.AddonTemplateConfig, v1.AddonTemplateSystemd:
+		if addon.Spec.Action == "" {
+			return commonerrors.NewBadRequest(fmt.Sprintf("the action of spec is empty"))
 		}
+	case v1.AddonTemplateHelm:
+	default:
+		return commonerrors.NewBadRequest("invalid addon-template type")
 	}
 	return nil
 }

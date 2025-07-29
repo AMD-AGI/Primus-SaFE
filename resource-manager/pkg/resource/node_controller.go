@@ -257,7 +257,7 @@ func (r *NodeReconciler) handle(ctx context.Context, adminNode *v1.Node, k8sNode
 
 func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) (ctrlruntime.Result, error) {
 	n := client.MergeFrom(node.DeepCopy())
-	sshClient, err := getSSHClient(ctx, r.Client, node)
+	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
 		klog.ErrorS(err, "failed to get client for ssh")
 		node.Status.MachineStatus.Phase = v1.NodeSSHFailed
@@ -494,8 +494,8 @@ func (r *NodeReconciler) updateAdminNode(ctx context.Context, adminNode *v1.Node
 }
 
 func (r *NodeReconciler) syncClusterStatus(ctx context.Context, node *v1.Node) error {
-	if !isCommandSuccessful(node.Status.ClusterStatus.CommandStatus, Authorize) {
-		sshClient, err := getSSHClient(ctx, r.Client, node)
+	if !isCommandSuccessful(node.Status.ClusterStatus.CommandStatus, utils.Authorize) {
+		sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 		if err != nil {
 			klog.ErrorS(err, "failed to get client for ssh")
 			return err
@@ -503,15 +503,15 @@ func (r *NodeReconciler) syncClusterStatus(ctx context.Context, node *v1.Node) e
 		if err = r.authorizeClusterAccess(ctx, node, sshClient); err != nil {
 			klog.ErrorS(err, "failed to authorize node", "node", node.Name)
 			node.Status.ClusterStatus.CommandStatus =
-				setCommandStatus(node.Status.ClusterStatus.CommandStatus, Authorize, v1.CommandFailed)
+				setCommandStatus(node.Status.ClusterStatus.CommandStatus, utils.Authorize, v1.CommandFailed)
 			return err
 		}
 		klog.Infof("node %s is Authorized", node.Name)
 		node.Status.ClusterStatus.CommandStatus =
-			setCommandStatus(node.Status.ClusterStatus.CommandStatus, Authorize, v1.CommandSucceeded)
+			setCommandStatus(node.Status.ClusterStatus.CommandStatus, utils.Authorize, v1.CommandSucceeded)
 	}
 	if !isCommandSuccessful(node.Status.ClusterStatus.CommandStatus, HarborCA) {
-		sshClient, err := getSSHClient(ctx, r.Client, node)
+		sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 		if err != nil {
 			klog.ErrorS(err, "failed to get client for ssh")
 			return err
@@ -550,7 +550,7 @@ func (r *NodeReconciler) authorizeClusterAccess(ctx context.Context, node *v1.No
 
 	username, err := r.getUsername(ctx, node, cluster)
 	if err != nil {
-		username = string(secret.Data[Username])
+		username = string(secret.Data[utils.Username])
 	}
 	hasAuthorized, err := isAlreadyAuthorized(username, secret, sshClient)
 	if err != nil || hasAuthorized {
@@ -563,7 +563,7 @@ func (r *NodeReconciler) authorizeClusterAccess(ctx context.Context, node *v1.No
 	}
 	var b bytes.Buffer
 	session.Stdout = &b
-	pub := string(secret.Data[AuthorizePub])
+	pub := string(secret.Data[utils.AuthorizePub])
 	var cmd string
 	if username == "" || username == "root" {
 		cmd = fmt.Sprintf("echo '\n %s' >> /root/.ssh/authorized_keys", pub)
@@ -779,7 +779,7 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 }
 
 func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
-	sshClient, err := getSSHClient(ctx, r.Client, node)
+	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
 		klog.ErrorS(err, "failed to get ssh client", "node", node.Name)
 		return

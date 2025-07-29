@@ -172,33 +172,6 @@ func (r *OpsJobBaseReconciler) getAdminNode(ctx context.Context, name string) (*
 	return node, nil
 }
 
-func (r *OpsJobBaseReconciler) getFault(ctx context.Context, adminNodeName, monitorId string) (*v1.Fault, error) {
-	faultName := commonfaults.GenerateFaultName(adminNodeName, monitorId)
-	fault := &v1.Fault{}
-	err := r.Get(ctx, client.ObjectKey{Name: faultName}, fault)
-	if err != nil {
-		return nil, err
-	}
-	return fault, nil
-}
-
-func (r *OpsJobBaseReconciler) getFaultConfig(ctx context.Context, monitorId string) (*resource.FaultConfig, error) {
-	configs, err := resource.GetFaultConfigmap(ctx, r.Client)
-	if err != nil {
-		klog.ErrorS(err, "failed to get fault configmap")
-		return nil, err
-	}
-	config, ok := configs[monitorId]
-	if !ok {
-		return nil, commonerrors.NewNotFoundWithMessage(
-			fmt.Sprintf("fault config is not found: %s", monitorId))
-	}
-	if !config.IsEnable() {
-		return nil, commonerrors.NewInternalError(fmt.Sprintf("fault config is disabled: %s", monitorId))
-	}
-	return config, nil
-}
-
 // Create a fault to block workload scheduling on the node for upgrade purposes
 func (r *OpsJobBaseReconciler) createFault(ctx context.Context,
 	job *v1.OpsJob, adminNode *v1.Node, monitorId, message string) error {
@@ -231,9 +204,43 @@ func (r *OpsJobBaseReconciler) createFault(ctx context.Context,
 		},
 	}
 	if err = r.Create(ctx, fault); err != nil {
-		return err
+		return client.IgnoreAlreadyExists(err)
 	}
 	klog.Infof("create fault, id: %s", fault.Name)
+	return nil
+}
+
+func (r *OpsJobBaseReconciler) getFaultConfig(ctx context.Context, monitorId string) (*resource.FaultConfig, error) {
+	configs, err := resource.GetFaultConfigmap(ctx, r.Client)
+	if err != nil {
+		klog.ErrorS(err, "failed to get fault configmap")
+		return nil, err
+	}
+	config, ok := configs[monitorId]
+	if !ok {
+		return nil, commonerrors.NewNotFoundWithMessage(
+			fmt.Sprintf("fault config is not found: %s", monitorId))
+	}
+	if !config.IsEnable() {
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("fault config is disabled: %s", monitorId))
+	}
+	return config, nil
+}
+
+func (r *OpsJobBaseReconciler) getFault(ctx context.Context, adminNodeName, monitorId string) (*v1.Fault, error) {
+	faultName := commonfaults.GenerateFaultName(adminNodeName, monitorId)
+	fault := &v1.Fault{}
+	err := r.Get(ctx, client.ObjectKey{Name: faultName}, fault)
+	if err != nil {
+		return nil, err
+	}
+	return fault, nil
+}
+
+func (r *OpsJobBaseReconciler) deleteFault(ctx context.Context, adminNodeName, monitorId string) error {
+	if fault, _ := r.getFault(ctx, adminNodeName, monitorId); fault != nil {
+		return r.Delete(ctx, fault)
+	}
 	return nil
 }
 
@@ -254,18 +261,19 @@ func (r *OpsJobBaseReconciler) getInputNodes(ctx context.Context, job *v1.OpsJob
 			results = append(results, node)
 		}
 	}
-	if isNodeSpecified {
-		return results, nil
+	if !isNodeSpecified {
+		// If not specified the nodes, apply to all nodes in the cluster, except for the master.
+		labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: job.Spec.Cluster})
+		nodeList := &v1.NodeList{}
+		if err := r.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+			return nil, err
+		}
+		for i := range nodeList.Items {
+			results = append(results, &nodeList.Items[i])
+		}
 	}
-
-	// If not specified the nodes, apply to all nodes in the cluster, except for the master.
-	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: job.Spec.Cluster})
-	nodeList := &v1.NodeList{}
-	if err := r.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
-		return nil, err
-	}
-	for i := range nodeList.Items {
-		results = append(results, &nodeList.Items[i])
+	if len(results) == 0 {
+		return nil, commonerrors.NewBadRequest("no input nodes found")
 	}
 	return results, nil
 }

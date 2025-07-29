@@ -22,6 +22,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
 func getNodeByInformer(ctx context.Context, k8sClients *commonclient.ClientFactory, nodeName string) (*corev1.Node, error) {
@@ -80,7 +81,7 @@ func isAlreadyAuthorized(username string, secret *corev1.Secret, sshClient *ssh.
 	if err = session.Run(cmd); err != nil {
 		klog.Errorf("failed exec %s : %v", cmd, err)
 	} else {
-		pub := string(secret.Data[AuthorizePub])
+		pub := string(secret.Data[utils.AuthorizePub])
 		index := strings.Index(strings.Replace(b.String(), "\n", "", -1), strings.Replace(pub, "\n", "", -1))
 		if index != -1 {
 			return true, nil
@@ -89,39 +90,12 @@ func isAlreadyAuthorized(username string, secret *corev1.Secret, sshClient *ssh.
 	return false, nil
 }
 
-func getSSHClient(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.Client, error) {
-	config, err := getSSHConfig(ctx, cli, node)
-	if err != nil {
-		return nil, err
-	}
-	// The port field is ensured to be non-empty by the webhook
-	sshClient, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", node.Spec.PrivateIP, *node.Spec.Port), config)
-	if err != nil {
-		return nil, fmt.Errorf("ssh client failed to connect: %v", err)
-	}
-	return sshClient, nil
-}
-
-func getSSHConfig(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.ClientConfig, error) {
-	if node.Spec.SSHSecret == nil {
-		return nil, fmt.Errorf("failed to get machine node SSH secret")
-	}
-	secret := new(corev1.Secret)
-	if err := cli.Get(ctx, apitypes.NamespacedName{
-		Name:      node.Spec.SSHSecret.Name,
-		Namespace: node.Spec.SSHSecret.Namespace,
-	}, secret); err != nil {
-		return nil, err
-	}
-	return getSHHConfig(secret)
-}
-
 func getKubeSprayScaleUpCMD(user, node, env string) string {
-	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s scale.yml --limit=%s %s --become-user=root -b -vvv", Authorize, node, env)
+	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s scale.yml --limit=%s %s --become-user=root -b -vvv", utils.Authorize, node, env)
 }
 
 func getKubeSprayScaleDownCMD(user, node, env string) string {
-	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s remove-node.yml -e node=%s -e skip_confirmation=yes -e reset_nodes=true -e allow_ungraceful_removal=false %s --become-user=root -b -vvv", Authorize, node, env)
+	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s remove-node.yml -e node=%s -e skip_confirmation=yes -e reset_nodes=true -e allow_ungraceful_removal=false %s --become-user=root -b -vvv", utils.Authorize, node, env)
 }
 
 func getHostname(conn *ssh.Client) (string, error) {

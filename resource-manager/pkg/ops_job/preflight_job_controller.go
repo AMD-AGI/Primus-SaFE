@@ -38,8 +38,7 @@ import (
 
 type PreflightJob struct {
 	// store the processing status for each workload. key is the workload name
-	allWorkloads map[string]v1.WorkloadPhase
-	// the maximum number of node failures that the system can tolerate during job execution.
+	workloads map[string]v1.WorkloadPhase
 }
 
 type PreflightJobReconciler struct {
@@ -84,27 +83,33 @@ func (r *PreflightJobReconciler) handleWorkloadEvent() handler.EventHandler {
 				return
 			}
 			if !oldWorkload.IsEnd() && newWorkload.IsEnd() {
-				phase := v1.WorkloadSucceeded
-				if newWorkload.Status.Phase != v1.WorkloadSucceeded {
-					phase = v1.WorkloadFailed
-				}
-				if !r.setWorkloadPhase(opsJobId, newWorkload.Name, phase) {
-					return
-				}
-				if phase == v1.WorkloadFailed {
-					r.addFailedWorkload(ctx, opsJobId, newWorkload)
-				}
+				r.handleWorkloadImpl(ctx, newWorkload)
 				q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: opsJobId}})
 			}
 		},
 	}
 }
 
-func (r *PreflightJobReconciler) addFailedWorkload(ctx context.Context, jobId string, workload *v1.Workload) {
+func (r *PreflightJobReconciler) handleWorkloadImpl(ctx context.Context, workload *v1.Workload) {
+	phase := v1.WorkloadSucceeded
+	if workload.Status.Phase != v1.WorkloadSucceeded {
+		phase = v1.WorkloadFailed
+	}
+	opsJobId := v1.GetOpsJobId(workload)
+	if !r.setWorkloadPhase(opsJobId, workload.Name, phase) {
+		return
+	}
 	nodeName, _ := workload.Spec.CustomerLabels[common.K8sHostNameLabel]
 	if nodeName == "" {
 		return
 	}
+	if phase == v1.WorkloadFailed {
+		r.addFailedWorkloadCondition(ctx, opsJobId, nodeName, workload)
+	}
+	r.deleteFault(ctx, nodeName, common.PreflightMonitorId)
+}
+
+func (r *PreflightJobReconciler) addFailedWorkloadCondition(ctx context.Context, jobId, nodeName string, workload *v1.Workload) {
 	message := commonworkload.GetFailedMessage(workload)
 	if message == "" {
 		message = "unknown reason"
@@ -189,25 +194,25 @@ func (r *PreflightJobReconciler) handleImpl(ctx context.Context, job *v1.OpsJob)
 	defer r.Unlock()
 	preflightJob, ok := r.allJobs[job.Name]
 	if !ok {
-		preflightJob = &PreflightJob{allWorkloads: make(map[string]v1.WorkloadPhase)}
+		preflightJob = &PreflightJob{workloads: make(map[string]v1.WorkloadPhase)}
 		r.allJobs[job.Name] = preflightJob
 	}
 
 	_, err = concurrent.Exec(totalNum, func() error {
 		i := <-ch
-		w := workloads[i]
-		if _, ok = preflightJob.allWorkloads[w.Name]; ok {
+		workload := workloads[i]
+		if _, ok = preflightJob.workloads[workload.Name]; ok {
 			return nil
 		}
 		err = r.createFault(ctx, job, inputNodes[i], common.PreflightMonitorId, "preflight check")
 		if err != nil {
 			return err
 		}
-		err = r.Create(ctx, w)
+		err = r.Create(ctx, workload)
 		if err != nil && !apierrors.IsAlreadyExists(err) {
 			return err
 		}
-		preflightJob.allWorkloads[w.Name] = v1.WorkloadRunning
+		preflightJob.workloads[workload.Name] = v1.WorkloadRunning
 		return nil
 	})
 	if err != nil {
@@ -230,7 +235,11 @@ func (r *PreflightJobReconciler) setWorkloadPhase(jobId, workloadId string, phas
 	if !ok {
 		return false
 	}
-	preflightJob.allWorkloads[workloadId] = phase
+	_, ok = preflightJob.workloads[workloadId]
+	if !ok {
+		return false
+	}
+	preflightJob.workloads[workloadId] = phase
 	return true
 }
 
@@ -238,19 +247,19 @@ func (r *PreflightJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, stri
 	r.RLock()
 	defer r.RUnlock()
 	job, ok := r.allJobs[jobId]
-	if !ok || len(job.allWorkloads) == 0 {
+	if !ok || len(job.workloads) == 0 {
 		return v1.OpsJobPending, ""
 	}
 	totalFailCount := 0
 	totalSuccessCount := 0
-	for _, p := range job.allWorkloads {
+	for _, p := range job.workloads {
 		if p == v1.WorkloadSucceeded {
 			totalSuccessCount++
 		} else if p == v1.WorkloadFailed {
 			totalFailCount++
 		}
 	}
-	if totalFailCount+totalSuccessCount >= len(job.allWorkloads) {
+	if totalFailCount+totalSuccessCount >= len(job.workloads) {
 		phase := v1.OpsJobSucceeded
 		if totalFailCount > 0 {
 			phase = v1.OpsJobFailed

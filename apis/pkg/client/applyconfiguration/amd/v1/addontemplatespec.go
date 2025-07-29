@@ -18,6 +18,7 @@ type AddonTemplateSpecApplyConfiguration struct {
 	URL                  *string                  `json:"url,omitempty"`
 	Version              *string                  `json:"version,omitempty"`
 	Description          *string                  `json:"description,omitempty"`
+	Action               *string                  `json:"action,omitempty"`
 	Extensions           map[string]string        `json:"extensions,omitempty"`
 	Icon                 *string                  `json:"icon,omitempty"`
 	GpuChip              *amdv1.GpuChipType       `json:"gpuChip,omitempty"`
@@ -70,6 +71,14 @@ func (b *AddonTemplateSpecApplyConfiguration) WithVersion(value string) *AddonTe
 // If called multiple times, the Description field is set to the value of the last call.
 func (b *AddonTemplateSpecApplyConfiguration) WithDescription(value string) *AddonTemplateSpecApplyConfiguration {
 	b.Description = &value
+	return b
+}
+
+// WithAction sets the Action field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Action field is set to the value of the last call.
+func (b *AddonTemplateSpecApplyConfiguration) WithAction(value string) *AddonTemplateSpecApplyConfiguration {
+	b.Action = &value
 	return b
 }
 

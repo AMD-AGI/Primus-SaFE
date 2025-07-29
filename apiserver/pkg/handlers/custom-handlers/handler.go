@@ -28,7 +28,6 @@ import (
 
 var (
 	jsonContentType = "application/json; charset=utf-8"
-	passKey         = "pass"
 )
 
 type Handler struct {
@@ -67,10 +66,6 @@ type handleFunc func(*gin.Context) (interface{}, error)
 
 func handle(c *gin.Context, fn handleFunc) {
 	rsp, err := fn(c)
-	_, ok := c.Get(passKey)
-	if ok {
-		return
-	}
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return

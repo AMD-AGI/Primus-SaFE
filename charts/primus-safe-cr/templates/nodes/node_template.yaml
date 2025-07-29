@@ -10,8 +10,12 @@ metadata:
 spec:
   addOnTemplates:
     - disable-os-upgrade
+    - disable-numa-balancing
     - load-amdgpu-module
     - load-rdma-module
-    - disable-numa-balancing
     - sysctl-ulimit
     - sysctl-inotify
+    - install-babel-stream
+    - install-rccl
+    - install-roc-blas
+    - install-transfer-bench
