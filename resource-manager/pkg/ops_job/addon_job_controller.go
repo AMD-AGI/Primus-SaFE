@@ -9,12 +9,14 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -231,7 +233,6 @@ func (r *AddonJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlru
 	if job.IsPending() {
 		return r.setJobRunning(ctx, job)
 	}
-
 	targetNodes := r.getNodesToProcess(job)
 	if len(targetNodes) == 0 {
 		return ctrlruntime.Result{}, nil

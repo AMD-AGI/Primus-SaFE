@@ -65,12 +65,19 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 type handleFunc func(*gin.Context) (interface{}, error)
 
 func handle(c *gin.Context, fn handleFunc) {
+	// allow Cross-Origin access
+	c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+	c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+	c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Authorization, Accept, X-Requested-With")
+	c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS")
+
 	rsp, err := fn(c)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
 	code := http.StatusOK
+	// If a status was previously set, use that status in the response.
 	if c.Writer.Status() > 0 {
 		code = c.Writer.Status()
 	}

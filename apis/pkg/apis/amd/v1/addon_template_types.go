@@ -16,11 +16,11 @@ type GpuChipType string
 type GpuChipProduct string
 
 const (
-	AddonTemplateDriver  AddonTemplateType = "driver"
-	AddonTemplateHelm    AddonTemplateType = "helm"
-	AddonTemplateDpkg    AddonTemplateType = "dpkg"
-	AddonTemplateConfig  AddonTemplateType = "config"
-	AddonTemplateSystemd AddonTemplateType = "systemd"
+	AddonTemplateDriver     AddonTemplateType = "driver"
+	AddonTemplateHelm       AddonTemplateType = "helm"
+	AddonTemplateDpkg       AddonTemplateType = "dpkg"
+	AddonTemplateConfig     AddonTemplateType = "config"
+	AddonTemplateSystemd    AddonTemplateType = "systemd"
 
 	AmdGpuChip    GpuChipType = "amd"
 	NvidiaGpuChip GpuChipType = "nvidia"
