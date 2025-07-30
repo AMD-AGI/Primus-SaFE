@@ -17,7 +17,7 @@ webhooks:
 preprocess:
   image: "preprocess:202506152300"
 preflight:
-  image: "preflight:202507240909"
+  image: "preflight:202507301344"
 db:
   enable: true
   storage_class: "juicefs"

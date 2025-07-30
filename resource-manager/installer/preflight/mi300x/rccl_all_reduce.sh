@@ -8,7 +8,7 @@
 # Use the command "all_reduce_perf" to evaluate the AllReduce operator using the RCCL tests benchmark
 # This script can only be run on AMD MI300X chips.
 
-DIR_NAME="/root/rccl_tests"
+DIR_NAME="/root/rccl-tests"
 nsenter --target 1 --mount --uts --ipc --net --pid -- ls -d $DIR_NAME >/dev/null
 if [ $? -ne 0 ]; then
   echo "[ERROR]: the directory $DIR_NAME does not exist" >&2
