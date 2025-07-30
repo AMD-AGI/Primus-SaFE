@@ -3,21 +3,21 @@ net:
   nccl_ib_hca: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
   rdma_name: "rdma/hca"
 apiserver:
-  image: "apiserver:202507270900"
+  image: "apiserver:202507301344"
   replicas: 1
 resource_manager:
-  image: "resource-manager:202507291700"
+  image: "resource-manager:202507301344"
   replicas: 1
 job_manager:
   image: "job-manager:202507270900"
   replicas: 1
 webhooks:
-  image: "webhooks:202507291700"
+  image: "webhooks:202507301344"
   replicas: 1
 preprocess:
   image: "preprocess:202506152300"
 preflight:
-  image: "preflight:202507240910"
+  image: "preflight:202507240909"
 db:
   enable: true
   storage_class: "juicefs"

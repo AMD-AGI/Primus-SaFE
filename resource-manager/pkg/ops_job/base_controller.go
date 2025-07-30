@@ -140,6 +140,9 @@ func (r *OpsJobBaseReconciler) setJobCompleted(ctx context.Context,
 func (r *OpsJobBaseReconciler) setJobRunning(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	patch := client.MergeFrom(job.DeepCopy())
 	job.Status.Phase = v1.OpsJobRunning
+	if job.Status.StartedAt == nil {
+		job.Status.StartedAt = &metav1.Time{Time: time.Now().UTC()}
+	}
 	result := ctrlruntime.Result{}
 	if err := r.Status().Patch(ctx, job, patch); err != nil {
 		return result, err
