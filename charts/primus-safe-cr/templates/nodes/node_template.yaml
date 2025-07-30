@@ -16,6 +16,6 @@ spec:
     - sysctl-ulimit
     - sysctl-inotify
     - install-babel-stream
-    - install-rccl
+    - install-rccl-test
     - install-roc-blas
     - install-transfer-bench

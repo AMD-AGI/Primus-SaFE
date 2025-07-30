@@ -56,6 +56,9 @@ func (m *AddOnTemplateMutator) Handle(_ context.Context, req admission.Request) 
 
 func (m *AddOnTemplateMutator) mutateOnCreation(addon *v1.AddonTemplate) {
 	addon.Name = stringutil.NormalizeName(addon.Name)
+	if addon.Spec.Type == "" {
+		addon.Spec.Type = v1.AddonTemplateDefault
+	}
 	addon.Spec.Action = strings.Trim(addon.Spec.Action, " ")
 }
 
@@ -96,7 +99,7 @@ func (v *AddOnTemplateValidator) validate(addon *v1.AddonTemplate) error {
 
 func (v *AddOnTemplateValidator) validateRequiredParams(addon *v1.AddonTemplate) error {
 	switch addon.Spec.Type {
-	case v1.AddonTemplateDriver, v1.AddonTemplateDpkg, v1.AddonTemplateConfig, v1.AddonTemplateSystemd:
+	case v1.AddonTemplateDefault:
 		if addon.Spec.Action == "" {
 			return commonerrors.NewBadRequest(fmt.Sprintf("the action of spec is empty"))
 		}

@@ -316,7 +316,6 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	opsJobIdToCleanup := getOpsJobToCleanUp(adminNode)
 
 	functions := []func(adminNode *v1.Node, k8sNode *corev1.Node) bool{
 		r.updateK8sNodeTaints, r.updateK8sNodeLabels,
@@ -334,7 +333,7 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 			return ctrlruntime.Result{}, err
 		}
 	}
-	if err = clearConditions(ctx, k8sClients.ClientSet(), k8sNode, opsJobIdToCleanup); err != nil {
+	if err = clearConditions(ctx, k8sClients.ClientSet(), k8sNode); err != nil {
 		klog.ErrorS(err, "failed to remove taint conditions")
 		return ctrlruntime.Result{}, err
 	}
@@ -363,8 +362,7 @@ func (r *NodeReconciler) updateK8sNodeTaints(adminNode *v1.Node, k8sNode *corev1
 	return true
 }
 
-func clearConditions(ctx context.Context,
-	k8sClient kubernetes.Interface, k8sNode *corev1.Node, cleanupOpsJobId string) error {
+func clearConditions(ctx context.Context, k8sClient kubernetes.Interface, k8sNode *corev1.Node) error {
 	specTaintsSet := sets.NewSet()
 	for _, t := range k8sNode.Spec.Taints {
 		specTaintsSet.Insert(t.Key)
@@ -373,11 +371,6 @@ func clearConditions(ctx context.Context,
 	isShouldUpdate := false
 	var reservedConditions []corev1.NodeCondition
 	for i, cond := range k8sNode.Status.Conditions {
-		if cleanupOpsJobId != "" && cond.Reason == cleanupOpsJobId {
-			isShouldUpdate = true
-			klog.Infof("remove node condition, name: %s, type: %s", k8sNode.Name, cond.Type)
-			continue
-		}
 		if !isPrimusCondition(cond.Type) {
 			reservedConditions = append(reservedConditions, k8sNode.Status.Conditions[i])
 			continue
@@ -971,20 +964,4 @@ func (r *NodeReconciler) doPreflight(ctx context.Context, adminNode *v1.Node) er
 	}
 	klog.Infof("create preflight job(%s), node.name: %s", job.Name, adminNode.Name)
 	return nil
-}
-
-func getOpsJobToCleanUp(adminNode *v1.Node) string {
-	strAction := v1.GetNodeLabelAction(adminNode)
-	if strAction == "" {
-		return ""
-	}
-	actionMap := make(map[string]string)
-	if err := json.Unmarshal([]byte(strAction), &actionMap); err != nil {
-		return ""
-	}
-	action, _ := actionMap[v1.OpsJobIdLabel]
-	if action != v1.NodeActionRemove {
-		return ""
-	}
-	return v1.GetLabel(adminNode, v1.OpsJobIdLabel)
 }

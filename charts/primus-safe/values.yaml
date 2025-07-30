@@ -6,13 +6,13 @@ apiserver:
   image: "apiserver:202507270900"
   replicas: 1
 resource_manager:
-  image: "resource-manager:202507270900"
+  image: "resource-manager:202507291700"
   replicas: 1
 job_manager:
   image: "job-manager:202507270900"
   replicas: 1
 webhooks:
-  image: "webhooks:202507270900"
+  image: "webhooks:202507291700"
   replicas: 1
 preprocess:
   image: "preprocess:202506152300"

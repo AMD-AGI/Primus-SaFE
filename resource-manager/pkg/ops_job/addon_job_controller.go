@@ -8,7 +8,9 @@ package ops_job
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,7 +43,10 @@ import (
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
+)
+
+const (
+	maxMessageLen = 256
 )
 
 type AddonJob struct {
@@ -242,7 +247,10 @@ func (r *AddonJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlru
 	if err = r.updateJobCondition(ctx, job, &cond); err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	return ctrlruntime.Result{}, r.handleNodes(ctx, job, targetNodes)
+	if err = r.handleNodes(ctx, job, targetNodes); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	return ctrlruntime.Result{Requeue: true}, nil
 }
 
 func (r *AddonJobReconciler) handleNodes(ctx context.Context, job *v1.OpsJob, nodeNames []string) error {
@@ -304,27 +312,47 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 	if err != nil {
 		return false, err
 	}
+	defer sshClient.Close()
+
 	for _, addOn := range addonJob.addonTemplates {
-		file := fmt.Sprintf("/tmp/%s.sh", addOn.Name)
-		cmd := fmt.Sprintf("sudo echo \"%s\" > %s && bash %s >/dev/null 2>&1; code=$?; rm -f %s; exit $code",
-			addOn.Spec.Action, file, file, file)
-		var session *ssh.Session
-		session, err = sshClient.NewSession()
-		if err != nil {
-			return false, err
+		if !isMatchGpuChip(string(addOn.Spec.GpuChip), adminNode) {
+			continue
 		}
-		if err = session.Run(cmd); err != nil {
-			var exitError *ssh.ExitError
-			if errors.As(err, &exitError) {
-				err = commonerrors.NewInternalError(fmt.Sprintf("message: %s, code: %d",
-					exitError.Error(), exitError.ExitStatus()))
-				break
+		if err = executeAction(sshClient, addOn); err != nil {
+			if utils.IsNonRetryableError(err) {
+				r.deleteFault(ctx, nodeName, common.AddonMonitorId)
 			}
 			return false, err
 		}
 	}
 	r.deleteFault(ctx, nodeName, common.AddonMonitorId)
-	return true, err
+	return true, nil
+}
+
+func executeAction(sshClient *ssh.Client, addOn *v1.AddonTemplate) error {
+	cmd := fmt.Sprintf(
+		`echo '%s' | /usr/bin/base64 -d | sudo /bin/bash`,
+		addOn.Spec.Action,
+	)
+	session, err := sshClient.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+
+	err = session.Run(cmd)
+	if err == nil {
+		return nil
+	}
+	var exitError *ssh.ExitError
+	if errors.As(err, &exitError) {
+		klog.ErrorS(err, "failed to execute command", "cmd", cmd)
+		message := exitError.Error()
+		message = normalizeMessage(message)
+		return commonerrors.NewInternalError(
+			fmt.Sprintf("message: %s, code: %d", message, exitError.ExitStatus()))
+	}
+	return err
 }
 
 func (r *AddonJobReconciler) addJob(ctx context.Context, job *v1.OpsJob) error {
@@ -440,7 +468,6 @@ func (r *AddonJobReconciler) getInputAddonTemplates(ctx context.Context, job *v1
 		if addonTemplate.Spec.Action == "" {
 			continue
 		}
-		addonTemplate.Spec.Action = stringutil.Base64Decode(addonTemplate.Spec.Action)
 		results = append(results, addonTemplate)
 	}
 	if len(results) == 0 {
@@ -457,4 +484,30 @@ func (r *AddonJobReconciler) listAddonJobs(ctx context.Context, clusterId string
 		return nil, err
 	}
 	return jobList.Items, nil
+}
+
+func isMatchGpuChip(chip string, adminNode *v1.Node) bool {
+	switch chip {
+	case string(v1.AmdGpuChip):
+		return v1.GetGpuResourceName(adminNode) == common.AmdGpu
+	case string(v1.NvidiaGpuChip):
+		return v1.GetGpuResourceName(adminNode) == common.NvidiaGpu
+	case "":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeMessage(message string) string {
+	if message == "" {
+		return ""
+	}
+	if len(message) > maxMessageLen {
+		message = message[:maxMessageLen]
+	}
+	message = strings.Replace(message, "\n", " ", -1)
+	message = strings.Replace(message, "\t", " ", -1)
+	re := regexp.MustCompile(`\s+`)
+	return re.ReplaceAllString(message, " ")
 }

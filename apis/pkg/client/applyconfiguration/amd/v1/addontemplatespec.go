@@ -19,11 +19,8 @@ type AddonTemplateSpecApplyConfiguration struct {
 	Version              *string                  `json:"version,omitempty"`
 	Description          *string                  `json:"description,omitempty"`
 	Action               *string                  `json:"action,omitempty"`
-	Extensions           map[string]string        `json:"extensions,omitempty"`
 	Icon                 *string                  `json:"icon,omitempty"`
 	GpuChip              *amdv1.GpuChipType       `json:"gpuChip,omitempty"`
-	GpuProduct           *amdv1.GpuChipProduct    `json:"gpuProduct,omitempty"`
-	IsOneShotService     *bool                    `json:"isOneShotService,omitempty"`
 	HelmDefaultValues    *string                  `json:"helmDefaultValues,omitempty"`
 	HelmDefaultNamespace *string                  `json:"helmDefaultNamespace,omitempty"`
 }
@@ -82,20 +79,6 @@ func (b *AddonTemplateSpecApplyConfiguration) WithAction(value string) *AddonTem
 	return b
 }
 
-// WithExtensions puts the entries into the Extensions field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, the entries provided by each call will be put on the Extensions field,
-// overwriting an existing map entries in Extensions field with the same key.
-func (b *AddonTemplateSpecApplyConfiguration) WithExtensions(entries map[string]string) *AddonTemplateSpecApplyConfiguration {
-	if b.Extensions == nil && len(entries) > 0 {
-		b.Extensions = make(map[string]string, len(entries))
-	}
-	for k, v := range entries {
-		b.Extensions[k] = v
-	}
-	return b
-}
-
 // WithIcon sets the Icon field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Icon field is set to the value of the last call.
@@ -109,22 +92,6 @@ func (b *AddonTemplateSpecApplyConfiguration) WithIcon(value string) *AddonTempl
 // If called multiple times, the GpuChip field is set to the value of the last call.
 func (b *AddonTemplateSpecApplyConfiguration) WithGpuChip(value amdv1.GpuChipType) *AddonTemplateSpecApplyConfiguration {
 	b.GpuChip = &value
-	return b
-}
-
-// WithGpuProduct sets the GpuProduct field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the GpuProduct field is set to the value of the last call.
-func (b *AddonTemplateSpecApplyConfiguration) WithGpuProduct(value amdv1.GpuChipProduct) *AddonTemplateSpecApplyConfiguration {
-	b.GpuProduct = &value
-	return b
-}
-
-// WithIsOneShotService sets the IsOneShotService field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the IsOneShotService field is set to the value of the last call.
-func (b *AddonTemplateSpecApplyConfiguration) WithIsOneShotService(value bool) *AddonTemplateSpecApplyConfiguration {
-	b.IsOneShotService = &value
 	return b
 }
 
