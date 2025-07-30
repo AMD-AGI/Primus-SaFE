@@ -112,6 +112,7 @@ func (m *OpsJobMutator) mutateJobSpec(job *v1.OpsJob) {
 
 func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) {
 	m.toAddonTemplates(ctx, job)
+	m.toNodes(ctx, job)
 	m.removeDuplicates(job)
 }
 
@@ -128,6 +129,28 @@ func (m *OpsJobMutator) toAddonTemplates(ctx context.Context, job *v1.OpsJob) {
 		job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{
 			Name:  v1.ParameterAddonTemplate,
 			Value: addOn,
+		})
+	}
+}
+
+func (m *OpsJobMutator) toNodes(ctx context.Context, job *v1.OpsJob) {
+	if job.Spec.Type != v1.OpsJobPreflightType && job.Spec.Type != v1.OpsJobAddonType {
+		return
+	}
+	param := job.GetParameter(v1.ParameterNode)
+	if param != nil || job.Spec.Cluster == "" {
+		return
+	}
+	// If not specified the nodes, apply to all nodes in the cluster
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: job.Spec.Cluster})
+	nodeList := &v1.NodeList{}
+	if err := m.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		return
+	}
+	for _, n := range nodeList.Items {
+		job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{
+			Name:  v1.ParameterNode,
+			Value: n.Name,
 		})
 	}
 }
@@ -229,6 +252,11 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 	if len(job.Spec.Inputs) == 0 {
 		errs = append(errs, fmt.Errorf("the inputs of ops job are empty"))
 	}
+	if job.Spec.Type == v1.OpsJobPreflightType || job.Spec.Type == v1.OpsJobAddonType {
+		if job.GetParameter(v1.ParameterNode) == nil {
+			errs = append(errs, fmt.Errorf("the node of ops job is empty"))
+		}
+	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
 	}
@@ -241,9 +269,7 @@ func (v *OpsJobValidator) validateNodeDuplicated(ctx context.Context, job *v1.Op
 		return err
 	}
 	for _, currentJob := range currentJobs {
-		// If the node parameter is empty, it indicates all nodes.
-		if job.GetParameter(v1.ParameterNode) == nil || currentJob.GetParameter(v1.ParameterNode) == nil ||
-			v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterNode) {
+		if v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterNode) {
 			return commonerrors.NewResourceProcessing(
 				fmt.Sprintf("another ops job (%s) is running, job.type: %s", currentJob.Name, currentJob.Spec.Type))
 		}

@@ -245,7 +245,7 @@ func getPodErrorLog(ctx context.Context, clientSet kubernetes.Interface, pod *co
 	}
 	data, err := clientSet.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, opt).DoRaw(ctx)
 	if err != nil {
-		klog.ErrorS(err, "fail to get log of pod", "namespace", pod.Namespace, "podName", pod.Name)
+		klog.ErrorS(err, "failed to get log of pod", "namespace", pod.Namespace, "podName", pod.Name)
 		return ""
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(data))

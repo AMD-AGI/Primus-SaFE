@@ -163,6 +163,10 @@ func GetNodeAnnotationAction(obj metav1.Object) string {
 	return GetAnnotation(obj, NodeAnnotationAction)
 }
 
+func IsNodeTemplateInstalled(obj metav1.Object) bool {
+	return GetAnnotation(obj, NodeTemplateInstalledAnnotation) == "true"
+}
+
 func GetWorkspaceNodesAction(obj metav1.Object) string {
 	return GetAnnotation(obj, WorkspaceNodesAction)
 }

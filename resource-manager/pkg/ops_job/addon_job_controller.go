@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +19,6 @@ import (
 	"golang.org/x/crypto/ssh"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -76,7 +76,7 @@ func SetupAddonJobController(mgr manager.Manager) error {
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, jobPhaseChangedPredicate()))).
+			predicate.GenerationChangedPredicate{}, onJobRunning()))).
 		Watches(&v1.Node{}, r.handleNodeEvent()).
 		Watches(&v1.Workload{}, r.handleWorkloadEvent()).
 		Complete(r)
@@ -106,14 +106,11 @@ func (r *AddonJobReconciler) handleNodeEvent() handler.EventHandler {
 
 func (r *AddonJobReconciler) handleNodeRemovedEvent(ctx context.Context,
 	node *v1.Node, message string, q v1.RequestWorkQueue) {
-	jobList, err := r.listAddonJobs(ctx, node.GetSpecCluster())
+	jobList, err := r.listOpsJobs(ctx, node.GetSpecCluster(), string(v1.OpsJobAddonType))
 	if err != nil {
 		return
 	}
 	for _, job := range jobList {
-		if job.IsEnd() {
-			continue
-		}
 		ok := r.setNodePhase(job.Name, node.Name, v1.OpsJobFailed)
 		if !ok {
 			continue
@@ -149,12 +146,12 @@ func (r *AddonJobReconciler) addFailedNodeCondition(ctx context.Context, jobId, 
 
 func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {
 	enqueue := func(ctx context.Context, q v1.RequestWorkQueue, clusterId string) {
-		jobList, err := r.listAddonJobs(ctx, clusterId)
+		jobList, err := r.listOpsJobs(ctx, clusterId, string(v1.OpsJobAddonType))
 		if err != nil {
 			return
 		}
 		for _, job := range jobList {
-			if v1.IsSecurityUpgrade(&job) && !job.IsEnd() {
+			if v1.IsSecurityUpgrade(&job) {
 				q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: job.Name}})
 			}
 		}
@@ -184,6 +181,9 @@ func (r *AddonJobReconciler) cleanupJobRelatedInfo(ctx context.Context, job *v1.
 
 // Observe the job status. Returns true if the expected state is met (no handling required), false otherwise.
 func (r *AddonJobReconciler) observe(ctx context.Context, job *v1.OpsJob) (bool, error) {
+	if job.IsEnd() {
+		return true, nil
+	}
 	phase, message := r.getJobPhase(job.Name)
 	switch phase {
 	case v1.OpsJobPending, "":
@@ -271,7 +271,7 @@ func (r *AddonJobReconciler) handleNodes(ctx context.Context, job *v1.OpsJob, no
 		nodeName := <-ch
 		ok, innerErr := r.handleNode(ctx, job, nodeName, allUsingNodes)
 		if innerErr != nil {
-			klog.ErrorS(innerErr, "fail to handle opsjob", "jod", job.Name, "node", nodeName)
+			klog.ErrorS(innerErr, "failed to handle opsjob", "jod", job.Name, "node", nodeName)
 			if utils.IsNonRetryableError(innerErr) {
 				if r.setNodePhase(job.Name, nodeName, v1.OpsJobFailed) {
 					r.addFailedNodeCondition(ctx, job.Name, nodeName, innerErr.Error())
@@ -314,19 +314,42 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 	}
 	defer sshClient.Close()
 
+	isOk := true
 	for _, addOn := range addonJob.addonTemplates {
 		if !isMatchGpuChip(string(addOn.Spec.GpuChip), adminNode) {
 			continue
 		}
 		if err = executeAction(sshClient, addOn); err != nil {
 			if utils.IsNonRetryableError(err) {
-				r.deleteFault(ctx, nodeName, common.AddonMonitorId)
+				isOk = false
+				break
 			}
 			return false, err
 		}
 	}
-	r.deleteFault(ctx, nodeName, common.AddonMonitorId)
-	return true, nil
+	// If the addon specified by node.template is installed on the node, save the operation result.
+	// Subsequent operations can then trigger the preflight check.
+	if err2 := r.updateNodeTemplatePhase(ctx, job, adminNode, isOk); err2 != nil {
+		return false, err2
+	}
+	if err2 := r.deleteFault(ctx, nodeName, common.AddonMonitorId); err2 != nil {
+		return false, err2
+	}
+	return isOk, err
+}
+
+func (r *AddonJobReconciler) updateNodeTemplatePhase(ctx context.Context, job *v1.OpsJob, adminNode *v1.Node, isOk bool) error {
+	if job.GetParameter(v1.ParameterNodeTemplate) == nil {
+		return nil
+	}
+	patch := client.MergeFrom(adminNode.DeepCopy())
+	if !v1.SetAnnotation(adminNode, v1.NodeTemplateInstalledAnnotation, strconv.FormatBool(isOk)) {
+		return nil
+	}
+	if err := r.Patch(ctx, adminNode, patch); err != nil {
+		return err
+	}
+	return nil
 }
 
 func executeAction(sshClient *ssh.Client, addOn *v1.AddonTemplate) error {
@@ -369,7 +392,7 @@ func (r *AddonJobReconciler) addJob(ctx context.Context, job *v1.OpsJob) error {
 	for _, n := range inputNodes {
 		nodes[n.Name] = v1.OpsJobPending
 	}
-	addonJob := AddonJob{
+	addonJob := &AddonJob{
 		nodes:          nodes,
 		addonTemplates: inputAddonTemplates,
 	}
@@ -387,7 +410,7 @@ func (r *AddonJobReconciler) addJob(ctx context.Context, job *v1.OpsJob) error {
 	r.Lock()
 	defer r.Unlock()
 	if _, ok := r.allJobs[job.Name]; !ok {
-		r.allJobs[job.Name] = &addonJob
+		r.allJobs[job.Name] = addonJob
 	}
 	return nil
 }
@@ -474,16 +497,6 @@ func (r *AddonJobReconciler) getInputAddonTemplates(ctx context.Context, job *v1
 		return nil, commonerrors.NewBadRequest("no addontemplates are found")
 	}
 	return results, nil
-}
-
-func (r *AddonJobReconciler) listAddonJobs(ctx context.Context, clusterId string) ([]v1.OpsJob, error) {
-	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterId,
-		v1.OpsJobTypeLabel: string(v1.OpsJobAddonType)})
-	jobList := &v1.OpsJobList{}
-	if err := r.List(ctx, jobList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
-		return nil, err
-	}
-	return jobList.Items, nil
 }
 
 func isMatchGpuChip(chip string, adminNode *v1.Node) bool {

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -37,8 +36,8 @@ import (
 )
 
 type PreflightJob struct {
-	// store the processing status for each workload. key is the workload name
-	workloads map[string]v1.WorkloadPhase
+	// store the processing status for each node. key is the admin node name
+	nodes map[string]v1.OpsJobPhase
 }
 
 type PreflightJobReconciler struct {
@@ -60,8 +59,9 @@ func SetupPreflightJobController(mgr manager.Manager) error {
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, jobPhaseChangedPredicate()))).
+			predicate.GenerationChangedPredicate{}, onJobRunning()))).
 		Watches(&v1.Workload{}, r.handleWorkloadEvent()).
+		Watches(&v1.Node{}, r.handleNodeEvent()).
 		Complete(r)
 	if err != nil {
 		return err
@@ -83,39 +83,43 @@ func (r *PreflightJobReconciler) handleWorkloadEvent() handler.EventHandler {
 				return
 			}
 			if !oldWorkload.IsEnd() && newWorkload.IsEnd() {
-				r.handleWorkloadImpl(ctx, newWorkload)
-				q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: opsJobId}})
+				if r.handleWorkloadEventImpl(ctx, newWorkload) {
+					q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: opsJobId}})
+				}
 			}
 		},
 	}
 }
 
-func (r *PreflightJobReconciler) handleWorkloadImpl(ctx context.Context, workload *v1.Workload) {
-	phase := v1.WorkloadSucceeded
-	if workload.Status.Phase != v1.WorkloadSucceeded {
-		phase = v1.WorkloadFailed
+func (r *PreflightJobReconciler) handleWorkloadEventImpl(ctx context.Context, workload *v1.Workload) bool {
+	nodeId, _ := workload.Spec.CustomerLabels[common.K8sHostNameLabel]
+	if nodeId == "" {
+		return false
+	}
+	var phase v1.OpsJobPhase
+	if workload.Status.Phase == v1.WorkloadSucceeded {
+		phase = v1.OpsJobSucceeded
+	} else {
+		phase = v1.OpsJobFailed
 	}
 	opsJobId := v1.GetOpsJobId(workload)
-	if !r.setWorkloadPhase(opsJobId, workload.Name, phase) {
-		return
+	if !r.setNodePhase(opsJobId, nodeId, phase) {
+		return false
 	}
-	nodeName, _ := workload.Spec.CustomerLabels[common.K8sHostNameLabel]
-	if nodeName == "" {
-		return
+	if phase == v1.OpsJobFailed {
+		r.addFailedNodeCondition(ctx, opsJobId, nodeId, workload)
 	}
-	if phase == v1.WorkloadFailed {
-		r.addFailedWorkloadCondition(ctx, opsJobId, nodeName, workload)
-	}
-	r.deleteFault(ctx, nodeName, common.PreflightMonitorId)
+	r.deleteFault(ctx, nodeId, common.PreflightMonitorId)
+	return true
 }
 
-func (r *PreflightJobReconciler) addFailedWorkloadCondition(ctx context.Context, jobId, nodeName string, workload *v1.Workload) {
+func (r *PreflightJobReconciler) addFailedNodeCondition(ctx context.Context, jobId, nodeId string, workload *v1.Workload) {
 	message := commonworkload.GetFailedMessage(workload)
 	if message == "" {
 		message = "unknown reason"
 	}
-	cond := &metav1.Condition{
-		Type:               nodeName,
+	condition := &metav1.Condition{
+		Type:               nodeId,
 		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.NewTime(time.Now()),
 		Reason:             "PreflightFailed",
@@ -126,13 +130,37 @@ func (r *PreflightJobReconciler) addFailedWorkloadCondition(ctx context.Context,
 		if err := r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
 			return client.IgnoreNotFound(err)
 		}
-		if err := r.updateJobCondition(ctx, job, cond); err != nil {
+		if err := r.updateJobCondition(ctx, job, condition); err != nil {
 			return err
 		}
 		return nil
 	}, 2*time.Second, 200*time.Millisecond)
 	if err != nil {
 		klog.ErrorS(err, "failed to update job condition", "jobId", jobId)
+	}
+}
+
+func (r *PreflightJobReconciler) handleNodeEvent() handler.EventHandler {
+	return handler.Funcs{
+		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
+			oldNode, ok1 := evt.ObjectOld.(*v1.Node)
+			newNode, ok2 := evt.ObjectNew.(*v1.Node)
+			if !ok1 || !ok2 || newNode.GetSpecCluster() == "" {
+				return
+			}
+			if v1.IsNodeTemplateInstalled(oldNode) || !v1.IsNodeTemplateInstalled(newNode) {
+				return
+			}
+			jobList, err := r.listOpsJobs(ctx, newNode.GetSpecCluster(), string(v1.OpsJobPreflightType))
+			if err != nil {
+				return
+			}
+			for _, job := range jobList {
+				if job.HasParameter(v1.ParameterNode, newNode.Name) {
+					q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: job.Name}})
+				}
+			}
+		},
 	}
 }
 
@@ -147,10 +175,16 @@ func (r *PreflightJobReconciler) cleanupJobRelatedInfo(ctx context.Context, job 
 
 // Observe the job status. Returns true if the expected state is met (no handling required), false otherwise.
 func (r *PreflightJobReconciler) observe(ctx context.Context, job *v1.OpsJob) (bool, error) {
+	if job.IsEnd() {
+		return true, nil
+	}
 	phase, message := r.getJobPhase(job.Name)
 	switch phase {
 	case v1.OpsJobPending, "":
 		return false, nil
+	case v1.OpsJobRunning:
+		nodes := r.getNodesToProcess(ctx, job)
+		return len(nodes) == 0, nil
 	case v1.OpsJobFailed, v1.OpsJobSucceeded:
 		if err := r.setJobCompleted(ctx, job, phase, message, nil); err != nil {
 			return false, err
@@ -163,60 +197,98 @@ func (r *PreflightJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool 
 	return job.Spec.Type != v1.OpsJobPreflightType
 }
 
-func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
-	if !job.IsPending() {
-		return ctrlruntime.Result{}, nil
+func (r *PreflightJobReconciler) getNodesToProcess(ctx context.Context, job *v1.OpsJob) []*v1.Node {
+	r.RLock()
+	preflightJob, ok := r.allJobs[job.Name]
+	if !ok {
+		r.RUnlock()
+		return nil
 	}
-	if err := r.handleImpl(ctx, job); err != nil {
-		return ctrlruntime.Result{}, err
+	allPendingNodes := make([]string, 0, len(preflightJob.nodes))
+	for key, val := range preflightJob.nodes {
+		if val != v1.OpsJobPending {
+			continue
+		}
+		allPendingNodes = append(allPendingNodes, key)
 	}
-	return r.setJobRunning(ctx, job)
+	r.RUnlock()
+
+	results := make([]*v1.Node, 0, len(allPendingNodes))
+	for _, n := range allPendingNodes {
+		node, err := r.getAdminNode(ctx, n)
+		if err != nil || !v1.IsNodeTemplateInstalled(node) {
+			continue
+		}
+		results = append(results, node)
+	}
+	return results
 }
 
-func (r *PreflightJobReconciler) handleImpl(ctx context.Context, job *v1.OpsJob) error {
+func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
+	if r.getJob(job.Name) == nil {
+		if err := r.addJob(ctx, job); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+	}
+	if job.IsPending() {
+		return r.setJobRunning(ctx, job)
+	}
+
+	targetNodes := r.getNodesToProcess(ctx, job)
+	totalNum := len(targetNodes)
+	if totalNum == 0 {
+		return ctrlruntime.Result{}, nil
+	}
+	ch := make(chan int, totalNum)
+	for i := range totalNum {
+		ch <- i
+	}
+	_, err := concurrent.Exec(totalNum, func() error {
+		i := <-ch
+		workload, err := r.genPreflightWorkload(ctx, job, targetNodes[i])
+		if err != nil {
+			return err
+		}
+		if err = r.createFault(ctx, job, targetNodes[i],
+			common.PreflightMonitorId, "preflight check"); err != nil {
+			return err
+		}
+		if err = r.Create(ctx, workload); err != nil {
+			return client.IgnoreAlreadyExists(err)
+		}
+		r.setNodePhase(job.Name, targetNodes[i].Name, v1.OpsJobRunning)
+		return nil
+	})
+	return ctrlruntime.Result{}, err
+}
+
+func (r *PreflightJobReconciler) addJob(ctx context.Context, job *v1.OpsJob) error {
 	inputNodes, err := r.getInputNodes(ctx, job)
 	if err != nil {
 		return err
 	}
-	totalNum := len(inputNodes)
-	workloads := make([]*v1.Workload, totalNum)
-	ch := make(chan int, totalNum)
-	defer close(ch)
-	for i, n := range inputNodes {
-		workloads[i], err = r.genPreflightWorkload(ctx, job, n)
-		if err != nil {
-			return err
-		}
-		ch <- i
+	nodes := make(map[string]v1.OpsJobPhase)
+	for _, n := range inputNodes {
+		nodes[n.Name] = v1.OpsJobPending
+	}
+	preflightJob := &PreflightJob{
+		nodes: nodes,
 	}
 
 	r.Lock()
 	defer r.Unlock()
-	preflightJob, ok := r.allJobs[job.Name]
-	if !ok {
-		preflightJob = &PreflightJob{workloads: make(map[string]v1.WorkloadPhase)}
+	if _, ok := r.allJobs[job.Name]; !ok {
 		r.allJobs[job.Name] = preflightJob
 	}
+	return nil
+}
 
-	_, err = concurrent.Exec(totalNum, func() error {
-		i := <-ch
-		workload := workloads[i]
-		if _, ok = preflightJob.workloads[workload.Name]; ok {
-			return nil
-		}
-		err = r.createFault(ctx, job, inputNodes[i], common.PreflightMonitorId, "preflight check")
-		if err != nil {
-			return err
-		}
-		err = r.Create(ctx, workload)
-		if err != nil && !apierrors.IsAlreadyExists(err) {
-			return err
-		}
-		preflightJob.workloads[workload.Name] = v1.WorkloadRunning
-		return nil
-	})
-	if err != nil {
-		return err
+func (r *PreflightJobReconciler) getJob(jobId string) *PreflightJob {
+	r.RLock()
+	defer r.RUnlock()
+	job, ok := r.allJobs[jobId]
+	if ok {
+		return job
 	}
 	return nil
 }
@@ -228,18 +300,22 @@ func (r *PreflightJobReconciler) removeJob(_ context.Context, job *v1.OpsJob) er
 	return nil
 }
 
-func (r *PreflightJobReconciler) setWorkloadPhase(jobId, workloadId string, phase v1.WorkloadPhase) bool {
+func (r *PreflightJobReconciler) setNodePhase(jobId, nodeId string, phase v1.OpsJobPhase) bool {
 	r.Lock()
 	defer r.Unlock()
-	preflightJob, ok := r.allJobs[jobId]
+	addonJob, ok := r.allJobs[jobId]
 	if !ok {
 		return false
 	}
-	_, ok = preflightJob.workloads[workloadId]
+	oldPhase, ok := addonJob.nodes[nodeId]
 	if !ok {
 		return false
 	}
-	preflightJob.workloads[workloadId] = phase
+	// The job on the node has finished.
+	if oldPhase == v1.OpsJobFailed || oldPhase == v1.OpsJobSucceeded {
+		return false
+	}
+	addonJob.nodes[nodeId] = phase
 	return true
 }
 
@@ -247,19 +323,19 @@ func (r *PreflightJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, stri
 	r.RLock()
 	defer r.RUnlock()
 	job, ok := r.allJobs[jobId]
-	if !ok || len(job.workloads) == 0 {
+	if !ok {
 		return v1.OpsJobPending, ""
 	}
 	totalFailCount := 0
 	totalSuccessCount := 0
-	for _, p := range job.workloads {
-		if p == v1.WorkloadSucceeded {
-			totalSuccessCount++
-		} else if p == v1.WorkloadFailed {
+	for _, p := range job.nodes {
+		if p == v1.OpsJobFailed {
 			totalFailCount++
+		} else if p == v1.OpsJobSucceeded {
+			totalSuccessCount++
 		}
 	}
-	if totalFailCount+totalSuccessCount >= len(job.workloads) {
+	if totalFailCount+totalSuccessCount >= len(job.nodes) {
 		phase := v1.OpsJobSucceeded
 		if totalFailCount > 0 {
 			phase = v1.OpsJobFailed

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -62,15 +61,18 @@ func (r *OpsJobBaseReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	if !job.GetDeletionTimestamp().IsZero() {
 		return ctrlruntime.Result{}, r.delete(ctx, job, clears...)
 	}
-	if job.IsEnd() {
-		return ctrlruntime.Result{}, nil
-	}
-	isTimeout := job.IsTimeout()
 	quit, err := component.observe(ctx, job)
-	if err != nil || (quit && !isTimeout) {
+	if err != nil {
+		klog.ErrorS(err, "failed to observe job", "job", job.Name)
+		if utils.IsNonRetryableError(err) {
+			err = r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
+		}
 		return ctrlruntime.Result{}, err
 	}
-	if isTimeout {
+	if quit {
+		return ctrlruntime.Result{}, nil
+	}
+	if job.IsTimeout() {
 		return ctrlruntime.Result{}, r.timeout(ctx, job)
 	}
 	result, err := component.handle(ctx, job)
@@ -249,12 +251,10 @@ func (r *OpsJobBaseReconciler) deleteFault(ctx context.Context, adminNodeName, m
 
 func (r *OpsJobBaseReconciler) getInputNodes(ctx context.Context, job *v1.OpsJob) ([]*v1.Node, error) {
 	var results []*v1.Node
-	isNodeSpecified := false
 	for _, p := range job.Spec.Inputs {
 		if p.Name != v1.ParameterNode {
 			continue
 		}
-		isNodeSpecified = true
 		node, err := r.getAdminNode(ctx, p.Value)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
@@ -264,24 +264,29 @@ func (r *OpsJobBaseReconciler) getInputNodes(ctx context.Context, job *v1.OpsJob
 			results = append(results, node)
 		}
 	}
-	if !isNodeSpecified {
-		// If not specified the nodes, apply to all nodes in the cluster, except for the master.
-		labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: job.Spec.Cluster})
-		nodeList := &v1.NodeList{}
-		if err := r.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
-			return nil, err
-		}
-		for i := range nodeList.Items {
-			results = append(results, &nodeList.Items[i])
-		}
-	}
 	if len(results) == 0 {
 		return nil, commonerrors.NewBadRequest("no input nodes found")
 	}
 	return results, nil
 }
 
-func jobPhaseChangedPredicate() predicate.Predicate {
+func (r *OpsJobBaseReconciler) listOpsJobs(ctx context.Context, clusterId, opsjobType string) ([]v1.OpsJob, error) {
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterId, v1.OpsJobTypeLabel: opsjobType})
+	jobList := &v1.OpsJobList{}
+	if err := r.List(ctx, jobList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		return nil, err
+	}
+	result := make([]v1.OpsJob, 0, len(jobList.Items))
+	for i := range jobList.Items {
+		if jobList.Items[i].IsEnd() {
+			continue
+		}
+		result = append(result, jobList.Items[i])
+	}
+	return result, nil
+}
+
+func onJobRunning() predicate.Predicate {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldJob, ok1 := e.ObjectOld.(*v1.OpsJob)
@@ -295,13 +300,4 @@ func jobPhaseChangedPredicate() predicate.Predicate {
 			return false
 		},
 	}
-}
-
-func findCondition(conditions []corev1.NodeCondition, condType corev1.NodeConditionType, reason string) *corev1.NodeCondition {
-	for i, cond := range conditions {
-		if cond.Type == condType && cond.Reason == reason {
-			return &conditions[i]
-		}
-	}
-	return nil
 }

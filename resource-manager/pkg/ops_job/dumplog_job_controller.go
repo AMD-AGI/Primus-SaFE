@@ -89,7 +89,7 @@ func SetupDumpLogJobController(ctx context.Context, mgr manager.Manager) error {
 
 	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, jobPhaseChangedPredicate()))).
+			predicate.GenerationChangedPredicate{}, onJobRunning()))).
 		Complete(r)
 	if err != nil {
 		return err

@@ -36,14 +36,15 @@ const (
 	// The expected GPU count for the node, it should be annotated as a label
 	NodeGpuCountLabel = NodePrefix + "gpu.count"
 	// The node's last startup time
-	NodeStartupTimeLabel      = NodePrefix + "startup.time"
-	NodeLabelAction           = NodePrefix + "label.action"
-	NodeAnnotationAction      = NodePrefix + "annotation.action"
-	NodeIdLabel               = NodePrefix + "id"
-	NodeBMCIpAnnotation       = NodePrefix + "bmcIp"
-	NodeBMCPasswordAnnotation = NodePrefix + "bmcPassword"
-	NodeActionAdd             = "add"
-	NodeActionRemove          = "remove"
+	NodeStartupTimeLabel            = NodePrefix + "startup.time"
+	NodeLabelAction                 = NodePrefix + "label.action"
+	NodeAnnotationAction            = NodePrefix + "annotation.action"
+	NodeTemplateInstalledAnnotation = NodePrefix + "template.installed"
+	NodeIdLabel                     = NodePrefix + "id"
+	NodeBMCIpAnnotation             = NodePrefix + "bmcIp"
+	NodeBMCPasswordAnnotation       = NodePrefix + "bmcPassword"
+	NodeActionAdd                   = "add"
+	NodeActionRemove                = "remove"
 
 	// cluster
 	ClusterPrefix                 = PrimusSafePrefix + "cluster."
