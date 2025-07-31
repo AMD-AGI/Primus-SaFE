@@ -75,7 +75,7 @@ END {
   if [[ "$is_greater" -eq 1 ]]; then
     echo "[BabelStream] [INFO] $func average: $formatted_avg > $threshold"
   else
-    echo "[BabelStream] [ERROR] failed to evaluate memory bandwidth performance, $func average: $formatted_avg <= $threshold" >&2
+    echo "[BabelStream] [ERROR] failed to evaluate memory bandwidth performance, $func average($formatted_avg) is less than threshold($threshold)" >&2
     rm -f $LOG_FILE
     exit 1
   fi

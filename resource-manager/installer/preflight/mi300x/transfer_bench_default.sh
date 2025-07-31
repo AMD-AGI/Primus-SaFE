@@ -58,7 +58,7 @@ check_result() {
   if [[ "$result" -eq 1 ]]; then
     echo "[TransferBenchDefault] [INFO] $test_name: $value >= $threshold"
   else
-    echo "[TransferBenchDefault] [ERROR] the parallel transfer rates does not meet the standard. $test_name: value($value) < threshold($threshold)" >&2
+    echo "[TransferBenchDefault] [ERROR] the parallel transfer rates does not meet the standard. $test_name: value($value) is less than threshold($threshold)" >&2
     exit 1
   fi
 }
