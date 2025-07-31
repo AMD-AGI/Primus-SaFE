@@ -58,7 +58,7 @@ func (h *Handler) listNodeTemplate(c *gin.Context) (interface{}, error) {
 	}
 	for i := range nts.Items {
 		result.Items = append(result.Items, types.GetNodeTemplateResponseItem{
-			Name:           nts.Items[i].Name,
+			TemplateId:     nts.Items[i].Name,
 			AddOnTemplates: nts.Items[i].Spec.AddOnTemplates,
 		})
 	}

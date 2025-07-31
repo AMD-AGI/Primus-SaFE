@@ -15,7 +15,7 @@ type CreateNodeTemplateResponse struct {
 }
 
 type GetNodeTemplateResponseItem struct {
-	Name           string   `json:"name"`
+	TemplateId     string   `json:"templateId"`
 	AddOnTemplates []string `json:"addOnTemplates"`
 }
 
