@@ -19,3 +19,7 @@ spec:
     - install-rccl-test
     - install-roc-blas
     - install-transfer-bench
+    - install-libgtest
+    - install-linux-tools
+    - install-openmpi-bin
+    - install-rocm-validation

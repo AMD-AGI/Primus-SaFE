@@ -10,11 +10,8 @@
 
 nsenter --target 1 --mount --uts --ipc --net --pid -- dpkg -l | grep -q rocm-validation-suite
 if [ $? -ne 0 ]; then
-  nsenter --target 1 --mount --uts --ipc --net --pid -- apt-get update >/dev/null && apt install -y rocm-validation-suite >/dev/null
-  if [ $? -ne 0 ]; then
-    echo "[ERROR] failed to install rocm-validation-suite" >&2
-    exit 1
-  fi
+  echo "[ERROR] rocm-validation-suite is not found" >&2
+  exit 1
 fi
 
 RVS_CONF=/opt/rocm/share/rocm-validation-suite/conf

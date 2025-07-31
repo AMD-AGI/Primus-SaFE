@@ -16,11 +16,8 @@ fi
 
 nsenter --target 1 --mount --uts --ipc --net --pid -- dpkg -l | grep -q openmpi-bin
 if [ $? -ne 0 ]; then
-  nsenter --target 1 --mount --uts --ipc --net --pid -- apt-get update >/dev/null && apt-get -y install openmpi-bin openmpi-common libopenmpi-dev >/dev/null
-  if [ $? -ne 0 ]; then
-    echo "[ERROR]: failed to install openmpi" >&2
-    exit 1
-  fi
+  echo "[ERROR]: openmpi-bin is not found" >&2
+  exit 1
 fi
 
 LOG_FILE="/tmp/babel_stream.log"
