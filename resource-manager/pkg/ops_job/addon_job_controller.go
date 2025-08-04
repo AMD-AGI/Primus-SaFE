@@ -8,14 +8,17 @@ package ops_job
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
+	"github.com/pkg/errors"
+	"golang.org/x/crypto/ssh"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -36,15 +39,21 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
+)
+
+const (
+	maxMessageLen = 256
 )
 
 type AddonJob struct {
 	// store the processing status for each node. key is the admin node name
-	allNodes map[string]v1.OpsJobPhase
+	nodes map[string]v1.OpsJobPhase
+	// list of addon templates associated with the job
+	addonTemplates []*v1.AddonTemplate
 	// the maximum number of node failures that the system can tolerate during job execution.
 	maxFailCount int
 	// the number of nodes to process simultaneously during the addon execution
@@ -67,7 +76,7 @@ func SetupAddonJobController(mgr manager.Manager) error {
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, jobPhaseChangedPredicate()))).
+			predicate.GenerationChangedPredicate{}, onJobRunning()))).
 		Watches(&v1.Node{}, r.handleNodeEvent()).
 		Watches(&v1.Workload{}, r.handleWorkloadEvent()).
 		Complete(r)
@@ -79,66 +88,40 @@ func SetupAddonJobController(mgr manager.Manager) error {
 }
 
 func (r *AddonJobReconciler) handleNodeEvent() handler.EventHandler {
-	filter := func(n *v1.Node) bool {
-		return v1.GetOpsJobId(n) == "" || v1.OpsJobType(v1.GetOpsJobType(n)) != v1.OpsJobAddonType
-	}
 	return handler.Funcs{
-		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
-			n, ok := evt.Object.(*v1.Node)
-			if !ok || filter(n) {
-				return
-			}
-			phase, message := getAddonNodePhase(n)
-			if isPhaseEnd(phase) {
-				r.handleNodeEventImpl(ctx, n, phase, message, q)
-			}
-		},
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
 			oldNode, ok1 := evt.ObjectOld.(*v1.Node)
 			newNode, ok2 := evt.ObjectNew.(*v1.Node)
-			if !ok1 || !ok2 || filter(newNode) {
+			if !ok1 || !ok2 || oldNode.GetSpecCluster() == "" {
 				return
 			}
-			if oldNode.GetSpecCluster() != "" && newNode.GetSpecCluster() == "" {
-				r.handleNodeEventImpl(ctx, newNode, v1.OpsJobFailed, "The node is unmanaged", q)
-			} else {
-				oldPhase, _ := getAddonNodePhase(oldNode)
-				newPhase, message := getAddonNodePhase(newNode)
-				if !isPhaseEnd(oldPhase) && isPhaseEnd(newPhase) ||
-					(isPhaseEnd(oldPhase) && isPhaseEnd(newPhase) && oldPhase != newPhase) {
-					r.handleNodeEventImpl(ctx, newNode, newPhase, message, q)
-				}
+			if newNode.GetSpecCluster() == "" {
+				r.handleNodeRemovedEvent(ctx, oldNode, "The node is unmanaged", q)
+			} else if oldNode.GetDeletionTimestamp().IsZero() && !newNode.GetDeletionTimestamp().IsZero() {
+				r.handleNodeRemovedEvent(ctx, newNode, "The node is deleted", q)
 			}
-		},
-		DeleteFunc: func(ctx context.Context, evt event.DeleteEvent, q v1.RequestWorkQueue) {
-			n, ok := evt.Object.(*v1.Node)
-			if !ok || !filter(n) {
-				return
-			}
-			r.handleNodeEventImpl(ctx, n, v1.OpsJobFailed, "The node is deleted", q)
 		},
 	}
 }
 
-func (r *AddonJobReconciler) handleNodeEventImpl(ctx context.Context,
-	n *v1.Node, phase v1.OpsJobPhase, message string, q v1.RequestWorkQueue) {
-	jobId := v1.GetOpsJobId(n)
-	r.setAddonNodePhase(jobId, n.Name, phase)
-
-	switch phase {
-	case v1.OpsJobFailed:
-		r.addFailedNode(ctx, jobId, n.Name, message)
-	case v1.OpsJobSucceeded:
-		if fault, _ := r.getFault(ctx, n.Name, common.AddonMonitorId); fault != nil {
-			if r.Delete(ctx, fault) == nil {
-				klog.Infof("delete addon fault, id: %s", fault.Name)
-			}
+func (r *AddonJobReconciler) handleNodeRemovedEvent(ctx context.Context,
+	node *v1.Node, message string, q v1.RequestWorkQueue) {
+	jobList, err := r.listOpsJobs(ctx, node.GetSpecCluster(), string(v1.OpsJobAddonType))
+	if err != nil {
+		return
+	}
+	for _, job := range jobList {
+		ok := r.setNodePhase(job.Name, node.Name, v1.OpsJobFailed)
+		if !ok {
+			continue
 		}
+		r.addFailedNodeCondition(ctx, job.Name, node.Name, message)
+		r.deleteFault(ctx, node.Name, common.AddonMonitorId)
+		q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: job.Name}})
 	}
-	q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: jobId}})
 }
 
-func (r *AddonJobReconciler) addFailedNode(ctx context.Context, jobId, nodeName, message string) {
+func (r *AddonJobReconciler) addFailedNodeCondition(ctx context.Context, jobId, nodeName, message string) {
 	cond := &metav1.Condition{
 		Type:               nodeName,
 		Status:             metav1.ConditionFalse,
@@ -163,13 +146,11 @@ func (r *AddonJobReconciler) addFailedNode(ctx context.Context, jobId, nodeName,
 
 func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {
 	enqueue := func(ctx context.Context, q v1.RequestWorkQueue, clusterId string) {
-		labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterId,
-			v1.OpsJobTypeLabel: string(v1.OpsJobAddonType)})
-		jobList := &v1.OpsJobList{}
-		if r.List(ctx, jobList, &client.ListOptions{LabelSelector: labelSelector}) != nil {
+		jobList, err := r.listOpsJobs(ctx, clusterId, string(v1.OpsJobAddonType))
+		if err != nil {
 			return
 		}
-		for _, job := range jobList.Items {
+		for _, job := range jobList {
 			if v1.IsSecurityUpgrade(&job) {
 				q.Add(reconcile.Request{NamespacedName: apitypes.NamespacedName{Name: job.Name}})
 			}
@@ -194,8 +175,15 @@ func (r *AddonJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r, clearFuncs...)
 }
 
+func (r *AddonJobReconciler) cleanupJobRelatedInfo(ctx context.Context, job *v1.OpsJob) error {
+	return commonjob.CleanupJobRelatedInfo(ctx, r.Client, job.Name)
+}
+
 // Observe the job status. Returns true if the expected state is met (no handling required), false otherwise.
 func (r *AddonJobReconciler) observe(ctx context.Context, job *v1.OpsJob) (bool, error) {
+	if job.IsEnd() {
+		return true, nil
+	}
 	phase, message := r.getJobPhase(job.Name)
 	switch phase {
 	case v1.OpsJobPending, "":
@@ -222,9 +210,10 @@ func (r *AddonJobReconciler) getNodesToProcess(job *v1.OpsJob) []string {
 	if !ok {
 		return nil
 	}
+
 	runningCount := 0
 	var allPendingNodes []string
-	for key, val := range addonJob.allNodes {
+	for key, val := range addonJob.nodes {
 		if val == v1.OpsJobRunning {
 			runningCount++
 			if runningCount >= addonJob.batchCount {
@@ -238,29 +227,15 @@ func (r *AddonJobReconciler) getNodesToProcess(job *v1.OpsJob) []string {
 	return slice.Copy(allPendingNodes, addonJob.batchCount-runningCount)
 }
 
-func (r *AddonJobReconciler) cleanupJobRelatedInfo(ctx context.Context, job *v1.OpsJob) error {
-	return commonjob.CleanupJobRelatedInfo(ctx, r.Client, job.Name)
-}
-
 func (r *AddonJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
-	if !r.hasJob(job.Name) {
-		inputNodes, err := r.getInputNodes(ctx, job)
-		if err != nil {
-			return ctrlruntime.Result{}, err
-		}
-		if err = r.addJob(job, inputNodes); err != nil {
-			err = r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
+	if r.getJob(job.Name) == nil {
+		if err := r.addJob(ctx, job); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 	}
-
 	if job.IsPending() {
 		return r.setJobRunning(ctx, job)
 	}
-	return r.handleImpl(ctx, job)
-}
-
-func (r *AddonJobReconciler) handleImpl(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	targetNodes := r.getNodesToProcess(job)
 	if len(targetNodes) == 0 {
 		return ctrlruntime.Result{}, nil
@@ -268,115 +243,175 @@ func (r *AddonJobReconciler) handleImpl(ctx context.Context, job *v1.OpsJob) (ct
 	cond := metav1.Condition{Type: JobProcessingType, Status: metav1.ConditionTrue,
 		Reason: "Processing", Message: string(jsonutils.MarshalSilently(targetNodes)),
 	}
-	if err := r.updateJobCondition(ctx, job, &cond); err != nil {
+	var err error
+	if err = r.updateJobCondition(ctx, job, &cond); err != nil {
 		return ctrlruntime.Result{}, err
 	}
+	if err = r.handleNodes(ctx, job, targetNodes); err != nil {
+		return ctrlruntime.Result{}, err
+	}
+	return ctrlruntime.Result{Requeue: true}, nil
+}
 
-	opsJobInput, err := r.buildOpsJobInput(ctx, job)
-	if err != nil {
-		return ctrlruntime.Result{}, err
-	}
+func (r *AddonJobReconciler) handleNodes(ctx context.Context, job *v1.OpsJob, nodeNames []string) error {
+	var err error
 	allUsingNodes := sets.NewSet()
 	if v1.IsSecurityUpgrade(job) {
 		if allUsingNodes, err = commonnodes.GetUsingNodesOfCluster(ctx, r.Client, job.Spec.Cluster); err != nil {
-			return ctrlruntime.Result{}, err
+			return err
 		}
 	}
+	count := len(nodeNames)
+	ch := make(chan string, count)
+	for _, n := range nodeNames {
+		ch <- n
+	}
 
-	hasFailedNode := false
-	for _, n := range targetNodes {
-		nodeInput := NodeInput{nodeName: n, allUsingNodes: allUsingNodes, opsJobInput: opsJobInput}
-		if result, err := r.handleNode(ctx, job, nodeInput); err != nil || result.RequeueAfter > 0 {
-			klog.ErrorS(err, "failed to handle node", "nodeName", n)
-			if utils.IsNonRetryableError(err) {
-				r.setAddonNodePhase(job.Name, n, v1.OpsJobFailed)
-				hasFailedNode = true
-				continue
+	_, err = concurrent.Exec(count, func() error {
+		nodeName := <-ch
+		ok, innerErr := r.handleNode(ctx, job, nodeName, allUsingNodes)
+		if innerErr != nil {
+			klog.ErrorS(innerErr, "failed to handle opsjob", "jod", job.Name, "node", nodeName)
+			if utils.IsNonRetryableError(innerErr) {
+				if r.setNodePhase(job.Name, nodeName, v1.OpsJobFailed) {
+					r.addFailedNodeCondition(ctx, job.Name, nodeName, innerErr.Error())
+				}
+				innerErr = nil
 			}
-			return result, err
+		} else if ok {
+			r.setNodePhase(job.Name, nodeName, v1.OpsJobSucceeded)
 		}
-	}
-	if hasFailedNode {
-		return ctrlruntime.Result{Requeue: true}, nil
-	}
-	return ctrlruntime.Result{}, nil
+		return innerErr
+	})
+	return err
 }
 
-type NodeInput struct {
-	nodeName      string
-	allUsingNodes sets.Set
-	opsJobInput   *commonjob.OpsJobInput
-}
-
-func (r *AddonJobReconciler) handleNode(ctx context.Context, job *v1.OpsJob, nodeInput NodeInput) (ctrlruntime.Result, error) {
-	adminNode, err := r.getAdminNode(ctx, nodeInput.nodeName)
+func (r *AddonJobReconciler) handleNode(ctx context.Context,
+	job *v1.OpsJob, nodeName string, allUsingNodes sets.Set) (bool, error) {
+	addonJob := r.getJob(job.Name)
+	if addonJob == nil {
+		return false, commonerrors.NewInternalError(fmt.Sprintf("the job(%s) is not found", job.Name))
+	}
+	adminNode, err := r.getAdminNode(ctx, nodeName)
 	if err != nil {
-		return ctrlruntime.Result{}, err
+		return false, err
 	}
 	key := commonfaults.GenerateTaintKey(resource.NodeNotReady)
 	if !adminNode.IsAvailable(true) || commonfaults.HasTaintKey(adminNode.Status.Taints, key) {
-		return ctrlruntime.Result{}, commonerrors.NewInternalError("the node is unavailable")
-	}
-	if v1.GetOpsJobId(adminNode) == job.Name {
-		return ctrlruntime.Result{}, nil
-	} else if v1.GetOpsJobId(adminNode) != "" {
-		klog.Errorf("another ops job(%s) is running, try later", v1.GetOpsJobId(adminNode))
-		return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
+		return false, commonerrors.NewInternalError("the node is unavailable")
 	}
 	if err = r.createFault(ctx, job, adminNode, common.AddonMonitorId, "upgrade Addon"); err != nil {
-		return ctrlruntime.Result{}, err
+		return false, err
 	}
+	// This node is currently being used by another workload.
+	// Please retry later, but first apply a taint(via fault).
+	if allUsingNodes.Has(nodeName) {
+		return false, nil
+	}
+	sshClient, err := utils.GetSSHClient(ctx, r.Client, adminNode)
+	if err != nil {
+		return false, err
+	}
+	defer sshClient.Close()
 
-	// This node is currently being used by another workload. Please retry later, but first apply a taint(via fault).
-	if nodeInput.allUsingNodes.Has(nodeInput.nodeName) {
-		return ctrlruntime.Result{}, nil
+	isOk := true
+	for _, addOn := range addonJob.addonTemplates {
+		if !isMatchGpuChip(string(addOn.Spec.GpuChip), adminNode) {
+			continue
+		}
+		if err = executeAction(sshClient, addOn); err != nil {
+			if utils.IsNonRetryableError(err) {
+				isOk = false
+				break
+			}
+			return false, err
+		}
 	}
-
-	patch := client.MergeFrom(adminNode.DeepCopy())
-	v1.SetLabel(adminNode, v1.OpsJobIdLabel, job.Name)
-	v1.SetLabel(adminNode, v1.OpsJobTypeLabel, string(job.Spec.Type))
-	nodeLabelAction := commonnodes.BuildAction(v1.NodeActionAdd, v1.OpsJobIdLabel, v1.OpsJobTypeLabel)
-	v1.SetAnnotation(adminNode, v1.NodeLabelAction, nodeLabelAction)
-	v1.SetAnnotation(adminNode,
-		v1.OpsJobInputAnnotation, string(jsonutils.MarshalSilently(*nodeInput.opsJobInput)))
-	nodeAnnotationAction := commonnodes.BuildAction(v1.NodeActionAdd, v1.OpsJobInputAnnotation)
-	v1.SetAnnotation(adminNode, v1.NodeAnnotationAction, nodeAnnotationAction)
-	if err = r.Patch(ctx, adminNode, patch); err != nil {
-		return ctrlruntime.Result{}, err
+	// If the addon specified by node.template is installed on the node, save the operation result.
+	// Subsequent operations can then trigger the preflight check.
+	if err2 := r.updateNodeTemplatePhase(ctx, job, adminNode, isOk); err2 != nil {
+		return false, err2
 	}
-	r.setAddonNodePhase(job.Name, adminNode.Name, v1.OpsJobRunning)
-	return ctrlruntime.Result{}, nil
+	if err2 := r.deleteFault(ctx, nodeName, common.AddonMonitorId); err2 != nil {
+		return false, err2
+	}
+	return isOk, err
 }
 
-func (r *AddonJobReconciler) addJob(job *v1.OpsJob, inputNodes []*v1.Node) error {
-	if len(inputNodes) == 0 {
-		return fmt.Errorf("no nodes are found")
+func (r *AddonJobReconciler) updateNodeTemplatePhase(ctx context.Context, job *v1.OpsJob, adminNode *v1.Node, isOk bool) error {
+	if job.GetParameter(v1.ParameterNodeTemplate) == nil {
+		return nil
 	}
-	nodePhases := make(map[string]v1.OpsJobPhase)
+	patch := client.MergeFrom(adminNode.DeepCopy())
+	if !v1.SetAnnotation(adminNode, v1.NodeTemplateInstalledAnnotation, strconv.FormatBool(isOk)) {
+		return nil
+	}
+	if err := r.Patch(ctx, adminNode, patch); err != nil {
+		return err
+	}
+	return nil
+}
+
+func executeAction(sshClient *ssh.Client, addOn *v1.AddonTemplate) error {
+	cmd := fmt.Sprintf(
+		`echo '%s' | /usr/bin/base64 -d | sudo /bin/bash`,
+		addOn.Spec.Action,
+	)
+	session, err := sshClient.NewSession()
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+
+	err = session.Run(cmd)
+	if err == nil {
+		return nil
+	}
+	var exitError *ssh.ExitError
+	if errors.As(err, &exitError) {
+		klog.ErrorS(err, "failed to execute command", "cmd", cmd)
+		message := exitError.Error()
+		message = normalizeMessage(message)
+		return commonerrors.NewInternalError(
+			fmt.Sprintf("message: %s, code: %d", message, exitError.ExitStatus()))
+	}
+	return err
+}
+
+func (r *AddonJobReconciler) addJob(ctx context.Context, job *v1.OpsJob) error {
+	inputNodes, err := r.getInputNodes(ctx, job)
+	if err != nil {
+		return err
+	}
+	inputAddonTemplates, err := r.getInputAddonTemplates(ctx, job)
+	if err != nil {
+		return err
+	}
+
+	nodes := make(map[string]v1.OpsJobPhase)
 	for _, n := range inputNodes {
-		nodePhases[n.Name] = v1.OpsJobPending
+		nodes[n.Name] = v1.OpsJobPending
 	}
-	addonJob := AddonJob{
-		allNodes: nodePhases,
+	addonJob := &AddonJob{
+		nodes:          nodes,
+		addonTemplates: inputAddonTemplates,
 	}
-	if len(nodePhases) == 1 {
+	failRatio := float64(1) - v1.GetOpsJobAvailRatio(job)
+	if addonJob.maxFailCount = int(float64(len(nodes)) * failRatio); addonJob.maxFailCount <= 0 {
 		addonJob.maxFailCount = 1
-		addonJob.batchCount = 1
-	} else {
-		failRatio := float64(1) - v1.GetOpsJobAvailRatio(job)
-		if addonJob.maxFailCount = int(float64(len(nodePhases)) * failRatio); addonJob.maxFailCount <= 0 {
-			addonJob.maxFailCount = 1
-		}
-		addonJob.batchCount = v1.GetOpsJobBatchCount(job)
-		if addonJob.batchCount == 0 {
-			addonJob.batchCount = 1
-		} else if addonJob.batchCount > len(nodePhases) {
-			addonJob.batchCount = len(nodePhases)
-		}
 	}
+	addonJob.batchCount = v1.GetOpsJobBatchCount(job)
+	if addonJob.batchCount == 0 {
+		addonJob.batchCount = 1
+	} else if addonJob.batchCount > len(nodes) {
+		addonJob.batchCount = len(nodes)
+	}
+
 	r.Lock()
 	defer r.Unlock()
-	r.allJobs[job.Name] = &addonJob
+	if _, ok := r.allJobs[job.Name]; !ok {
+		r.allJobs[job.Name] = addonJob
+	}
 	return nil
 }
 
@@ -387,22 +422,34 @@ func (r *AddonJobReconciler) removeJob(_ context.Context, job *v1.OpsJob) error 
 	return nil
 }
 
-func (r *AddonJobReconciler) hasJob(jobId string) bool {
+func (r *AddonJobReconciler) getJob(jobId string) *AddonJob {
 	r.RLock()
 	defer r.RUnlock()
-	_, ok := r.allJobs[jobId]
-	return ok
+	job, ok := r.allJobs[jobId]
+	if ok {
+		return job
+	}
+	return nil
 }
 
-func (r *AddonJobReconciler) setAddonNodePhase(jobId, nodeName string, phase v1.OpsJobPhase) {
-	klog.Infof("update addon node status, job: %s, node: %s, phase: %d", jobId, nodeName, phase)
+func (r *AddonJobReconciler) setNodePhase(jobId, nodeId string, phase v1.OpsJobPhase) bool {
 	r.Lock()
 	defer r.Unlock()
 	addonJob, ok := r.allJobs[jobId]
 	if !ok {
-		return
+		return false
 	}
-	addonJob.allNodes[nodeName] = phase
+	oldPhase, ok := addonJob.nodes[nodeId]
+	if !ok {
+		return false
+	}
+	// The job on the node has finished.
+	if oldPhase == v1.OpsJobFailed || oldPhase == v1.OpsJobSucceeded {
+		return false
+	}
+	addonJob.nodes[nodeId] = phase
+	klog.Infof("update node status for addon job, job.id: %s, node.id: %s, phase: %s", jobId, nodeId, phase)
+	return true
 }
 
 func (r *AddonJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, string) {
@@ -414,7 +461,7 @@ func (r *AddonJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, string) 
 	}
 	totalFailCount := 0
 	totalSuccessCount := 0
-	for _, p := range job.allNodes {
+	for _, p := range job.nodes {
 		if p == v1.OpsJobFailed {
 			totalFailCount++
 		} else if p == v1.OpsJobSucceeded {
@@ -423,63 +470,57 @@ func (r *AddonJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, string) 
 	}
 	if totalFailCount >= job.maxFailCount {
 		return v1.OpsJobFailed, fmt.Sprintf("The number of failures has reached the threshold(%d)", job.maxFailCount)
-	} else if totalFailCount+totalSuccessCount >= len(job.allNodes) {
+	} else if totalFailCount+totalSuccessCount >= len(job.nodes) {
 		return v1.OpsJobSucceeded, fmt.Sprintf("success: %d, fail: %d", totalSuccessCount, totalFailCount)
 	}
 	return v1.OpsJobRunning, ""
 }
 
-func (r *AddonJobReconciler) buildOpsJobInput(ctx context.Context, job *v1.OpsJob) (*commonjob.OpsJobInput, error) {
+func (r *AddonJobReconciler) getInputAddonTemplates(ctx context.Context, job *v1.OpsJob) ([]*v1.AddonTemplate, error) {
 	params := job.GetParameters(v1.ParameterAddonTemplate)
-	result := &commonjob.OpsJobInput{
-		DispatchTime: time.Now().Unix(),
-	}
+	results := make([]*v1.AddonTemplate, 0, len(params))
 	for i := range params {
 		addonTemplate := &v1.AddonTemplate{}
 		err := r.Get(ctx, client.ObjectKey{Name: params[i].Value}, addonTemplate)
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
 			return nil, err
 		}
-		cmd := commonjob.OpsJobCommand{
-			Addon:            params[i].Value,
-			Action:           addonTemplate.Spec.Extensions[v1.AddOnAction],
-			Observe:          addonTemplate.Spec.Extensions[v1.AddOnObserve],
-			GpuChip:          v1.GpuChipType(strings.ToLower(string(addonTemplate.Spec.GpuChip))),
-			GpuProduct:       addonTemplate.Spec.GpuProduct,
-			IsOneShotService: addonTemplate.Spec.IsOneShotService,
+		if addonTemplate.Spec.Action == "" {
+			continue
 		}
-		if addonTemplate.Spec.Type == v1.AddonTemplateSystemd {
-			cmd.IsSystemd = true
-		}
-		result.Commands = append(result.Commands, cmd)
+		results = append(results, addonTemplate)
 	}
-	return result, nil
+	if len(results) == 0 {
+		return nil, commonerrors.NewBadRequest("no addontemplates are found")
+	}
+	return results, nil
 }
 
-func getAddonNodePhase(node *v1.Node) (v1.OpsJobPhase, string) {
-	jobId := v1.GetOpsJobId(node)
-	opsJobInput := commonjob.GetOpsJobInput(node)
-	if opsJobInput == nil || opsJobInput.DispatchTime == 0 {
-		return v1.OpsJobPending, ""
-	}
-	condition := findCondition(node.Status.Conditions, v1.OpsJobKind, jobId)
-	if condition == nil || opsJobInput.DispatchTime > condition.LastTransitionTime.Unix() {
-		return v1.OpsJobRunning, ""
-	}
-
-	if condition.Status == corev1.ConditionTrue {
-		lastTransitionTime := condition.LastTransitionTime.UTC().Format(timeutil.TimeRFC3339Short)
-		klog.Infof("the addon job of node %s is successfully processed, time: %s, jobid: %s",
-			node.Name, lastTransitionTime, jobId)
-		return v1.OpsJobSucceeded, ""
-	} else {
-		return v1.OpsJobFailed, condition.Message
-	}
-}
-
-func isPhaseEnd(phase v1.OpsJobPhase) bool {
-	if phase == v1.OpsJobSucceeded || phase == v1.OpsJobFailed {
+func isMatchGpuChip(chip string, adminNode *v1.Node) bool {
+	switch chip {
+	case string(v1.AmdGpuChip):
+		return v1.GetGpuResourceName(adminNode) == common.AmdGpu
+	case string(v1.NvidiaGpuChip):
+		return v1.GetGpuResourceName(adminNode) == common.NvidiaGpu
+	case "":
 		return true
+	default:
+		return false
 	}
-	return false
+}
+
+func normalizeMessage(message string) string {
+	if message == "" {
+		return ""
+	}
+	if len(message) > maxMessageLen {
+		message = message[:maxMessageLen]
+	}
+	message = strings.Replace(message, "\n", " ", -1)
+	message = strings.Replace(message, "\t", " ", -1)
+	re := regexp.MustCompile(`\s+`)
+	return re.ReplaceAllString(message, " ")
 }

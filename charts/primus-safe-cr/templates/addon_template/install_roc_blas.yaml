@@ -1,0 +1,14 @@
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: install-roc-blas
+  labels:
+    primus-safe.display.name: "install-roc-blas"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  category: Tools
+  description: The rocBLAS test application allows users to benchmark the GEMM performance of rocBLAS in a standalone application
+  action: UkVQT19VUkw9Imh0dHBzOi8vZ2l0aHViLmNvbS9ST0NtL3JvY0JMQVMuZ2l0IgpESVJfTkFNRT0iL3Jvb3Qvcm9jQkxBUyIKaWYgWyAtZCAiJERJUl9OQU1FIiBdOyB0aGVuCiAgZXhpdCAwCmZpCgpkcGtnIC1sIHwgZ3JlcCAtcSBnaXQKaWYgWyAkPyAtbmUgMCBdOyB0aGVuCiAgYXB0LWdldCB1cGRhdGUgPi9kZXYvbnVsbCAmJiBhcHQtZ2V0IC15IGluc3RhbGwgZ2l0ID4vZGV2L251bGwKICBpZiBbICQ/IC1uZSAwIF07IHRoZW4KICAgIGV4aXQgMQogIGZpCmZpCmdpdCBjbG9uZSAiJFJFUE9fVVJMIiA+L2Rldi9udWxsCmlmIFsgJD8gLW5lIDAgXTsgdGhlbgogIGV4aXQgMQpmaQoKY2QgIiRESVJfTkFNRSIgfHwgZXhpdCAxCmdpdCBjaGVja291dCByb2NtLTYuMi4wID4vZGV2L251bGwgJiYgY2htb2QgK3ggLi9pbnN0YWxsLnNoICYmIC4vaW5zdGFsbC5zaCAtLWNsaWVudHMtb25seSAtLWxpYnJhcnktcGF0aCAvb3B0L3JvY20gPi9kZXYvbnVsbAppZiBbICQ/IC1uZSAwIF07IHRoZW4KICBleGl0IDEKZmkK

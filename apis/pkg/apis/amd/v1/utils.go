@@ -163,6 +163,10 @@ func GetNodeAnnotationAction(obj metav1.Object) string {
 	return GetAnnotation(obj, NodeAnnotationAction)
 }
 
+func IsNodeTemplateInstalled(obj metav1.Object) bool {
+	return GetAnnotation(obj, NodeTemplateInstalledAnnotation) == "true"
+}
+
 func GetWorkspaceNodesAction(obj metav1.Object) string {
 	return GetAnnotation(obj, WorkspaceNodesAction)
 }
@@ -233,10 +237,6 @@ func GetOpsJobId(obj metav1.Object) string {
 
 func GetOpsJobType(obj metav1.Object) string {
 	return GetLabel(obj, OpsJobTypeLabel)
-}
-
-func GetOpsJobInput(obj metav1.Object) string {
-	return GetAnnotation(obj, OpsJobInputAnnotation)
 }
 
 func IsSecurityUpgrade(obj metav1.Object) bool {

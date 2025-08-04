@@ -30,6 +30,7 @@ import (
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
@@ -455,7 +456,7 @@ func TestManageNodeSuccessfully(t *testing.T) {
 	assert.Equal(t, v1.GetClusterId(k8sNode), "")
 	assert.Equal(t, v1.GetNodeFlavorId(k8sNode), "")
 	assert.Equal(t, adminNode.IsManaged(), false)
-	ok := isCommandSuccessful(adminNode.Status.ClusterStatus.CommandStatus, Authorize)
+	ok := isCommandSuccessful(adminNode.Status.ClusterStatus.CommandStatus, utils.Authorize)
 	assert.Equal(t, ok, false)
 	assert.Equal(t, adminNode.Status.ClusterStatus.Cluster == nil, true)
 
@@ -470,7 +471,7 @@ func TestManageNodeSuccessfully(t *testing.T) {
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode.Name}, adminNode)
 	assert.NilError(t, err)
 	assert.Equal(t, adminNode.IsManaged(), true)
-	ok = isCommandSuccessful(adminNode.Status.ClusterStatus.CommandStatus, Authorize)
+	ok = isCommandSuccessful(adminNode.Status.ClusterStatus.CommandStatus, utils.Authorize)
 	assert.Equal(t, ok, true)
 	assert.Equal(t, adminNode.Status.ClusterStatus.Cluster == nil, false)
 	assert.Equal(t, *adminNode.Status.ClusterStatus.Cluster, cluster.Name)
@@ -485,7 +486,7 @@ func TestManagingNode(t *testing.T) {
 	adminNode.Spec.SSHSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
 	adminNode.Spec.Cluster = ptr.To(cluster.Name)
 	adminNode.Status.ClusterStatus.CommandStatus = []v1.CommandStatus{{
-		Name:  Authorize,
+		Name:  utils.Authorize,
 		Phase: v1.CommandSucceeded,
 	}}
 
@@ -511,7 +512,7 @@ func TestManagingControlPlaneNode(t *testing.T) {
 	adminNode.OwnerReferences = addOwnerReferences(adminNode.OwnerReferences, cluster)
 	adminNode.Spec.Cluster = ptr.To(cluster.Name)
 	adminNode.Status.ClusterStatus.CommandStatus = []v1.CommandStatus{{
-		Name:  Authorize,
+		Name:  utils.Authorize,
 		Phase: v1.CommandSucceeded,
 	}}
 
