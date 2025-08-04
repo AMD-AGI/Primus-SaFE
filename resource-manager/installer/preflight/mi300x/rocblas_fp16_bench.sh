@@ -17,11 +17,8 @@ fi
 
 nsenter --target 1 --mount --uts --ipc --net --pid -- dpkg -l | grep -q "libgtest-dev"
 if [ $? -ne 0 ]; then
-  nsenter --target 1 --mount --uts --ipc --net --pid -- apt-get update >/dev/null && apt install -y libgtest-dev >/dev/null
-  if [ $? -ne 0 ]; then
-    echo "[ERROR]: failed to install libgtest-dev" >&2
-    exit 1
-  fi
+  echo "[ERROR]: libgtest-dev is not found" >&2
+  exit 1
 fi
 
 LOG_FILE="/tmp/roc_blas_fp16_bench.log"

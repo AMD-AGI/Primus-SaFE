@@ -257,7 +257,7 @@ func (r *NodeReconciler) handle(ctx context.Context, adminNode *v1.Node, k8sNode
 
 func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) (ctrlruntime.Result, error) {
 	n := client.MergeFrom(node.DeepCopy())
-	sshClient, err := getSSHClient(ctx, r.Client, node)
+	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
 		klog.ErrorS(err, "failed to get client for ssh")
 		node.Status.MachineStatus.Phase = v1.NodeSSHFailed
@@ -316,7 +316,6 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	opsJobIdToCleanup := getOpsJobToCleanUp(adminNode)
 
 	functions := []func(adminNode *v1.Node, k8sNode *corev1.Node) bool{
 		r.updateK8sNodeTaints, r.updateK8sNodeLabels,
@@ -334,7 +333,7 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 			return ctrlruntime.Result{}, err
 		}
 	}
-	if err = clearConditions(ctx, k8sClients.ClientSet(), k8sNode, opsJobIdToCleanup); err != nil {
+	if err = clearConditions(ctx, k8sClients.ClientSet(), k8sNode); err != nil {
 		klog.ErrorS(err, "failed to remove taint conditions")
 		return ctrlruntime.Result{}, err
 	}
@@ -363,8 +362,7 @@ func (r *NodeReconciler) updateK8sNodeTaints(adminNode *v1.Node, k8sNode *corev1
 	return true
 }
 
-func clearConditions(ctx context.Context,
-	k8sClient kubernetes.Interface, k8sNode *corev1.Node, cleanupOpsJobId string) error {
+func clearConditions(ctx context.Context, k8sClient kubernetes.Interface, k8sNode *corev1.Node) error {
 	specTaintsSet := sets.NewSet()
 	for _, t := range k8sNode.Spec.Taints {
 		specTaintsSet.Insert(t.Key)
@@ -373,11 +371,6 @@ func clearConditions(ctx context.Context,
 	isShouldUpdate := false
 	var reservedConditions []corev1.NodeCondition
 	for i, cond := range k8sNode.Status.Conditions {
-		if cleanupOpsJobId != "" && cond.Reason == cleanupOpsJobId {
-			isShouldUpdate = true
-			klog.Infof("remove node condition, name: %s, type: %s", k8sNode.Name, cond.Type)
-			continue
-		}
 		if !isPrimusCondition(cond.Type) {
 			reservedConditions = append(reservedConditions, k8sNode.Status.Conditions[i])
 			continue
@@ -494,8 +487,8 @@ func (r *NodeReconciler) updateAdminNode(ctx context.Context, adminNode *v1.Node
 }
 
 func (r *NodeReconciler) syncClusterStatus(ctx context.Context, node *v1.Node) error {
-	if !isCommandSuccessful(node.Status.ClusterStatus.CommandStatus, Authorize) {
-		sshClient, err := getSSHClient(ctx, r.Client, node)
+	if !isCommandSuccessful(node.Status.ClusterStatus.CommandStatus, utils.Authorize) {
+		sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 		if err != nil {
 			klog.ErrorS(err, "failed to get client for ssh")
 			return err
@@ -503,15 +496,15 @@ func (r *NodeReconciler) syncClusterStatus(ctx context.Context, node *v1.Node) e
 		if err = r.authorizeClusterAccess(ctx, node, sshClient); err != nil {
 			klog.ErrorS(err, "failed to authorize node", "node", node.Name)
 			node.Status.ClusterStatus.CommandStatus =
-				setCommandStatus(node.Status.ClusterStatus.CommandStatus, Authorize, v1.CommandFailed)
+				setCommandStatus(node.Status.ClusterStatus.CommandStatus, utils.Authorize, v1.CommandFailed)
 			return err
 		}
 		klog.Infof("node %s is Authorized", node.Name)
 		node.Status.ClusterStatus.CommandStatus =
-			setCommandStatus(node.Status.ClusterStatus.CommandStatus, Authorize, v1.CommandSucceeded)
+			setCommandStatus(node.Status.ClusterStatus.CommandStatus, utils.Authorize, v1.CommandSucceeded)
 	}
 	if !isCommandSuccessful(node.Status.ClusterStatus.CommandStatus, HarborCA) {
-		sshClient, err := getSSHClient(ctx, r.Client, node)
+		sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 		if err != nil {
 			klog.ErrorS(err, "failed to get client for ssh")
 			return err
@@ -550,7 +543,7 @@ func (r *NodeReconciler) authorizeClusterAccess(ctx context.Context, node *v1.No
 
 	username, err := r.getUsername(ctx, node, cluster)
 	if err != nil {
-		username = string(secret.Data[Username])
+		username = string(secret.Data[utils.Username])
 	}
 	hasAuthorized, err := isAlreadyAuthorized(username, secret, sshClient)
 	if err != nil || hasAuthorized {
@@ -563,7 +556,7 @@ func (r *NodeReconciler) authorizeClusterAccess(ctx context.Context, node *v1.No
 	}
 	var b bytes.Buffer
 	session.Stdout = &b
-	pub := string(secret.Data[AuthorizePub])
+	pub := string(secret.Data[utils.AuthorizePub])
 	var cmd string
 	if username == "" || username == "root" {
 		cmd = fmt.Sprintf("echo '\n %s' >> /root/.ssh/authorized_keys", pub)
@@ -779,7 +772,7 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 }
 
 func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
-	sshClient, err := getSSHClient(ctx, r.Client, node)
+	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
 		klog.ErrorS(err, "failed to get ssh client", "node", node.Name)
 		return
@@ -971,20 +964,4 @@ func (r *NodeReconciler) doPreflight(ctx context.Context, adminNode *v1.Node) er
 	}
 	klog.Infof("create preflight job(%s), node.name: %s", job.Name, adminNode.Name)
 	return nil
-}
-
-func getOpsJobToCleanUp(adminNode *v1.Node) string {
-	strAction := v1.GetNodeLabelAction(adminNode)
-	if strAction == "" {
-		return ""
-	}
-	actionMap := make(map[string]string)
-	if err := json.Unmarshal([]byte(strAction), &actionMap); err != nil {
-		return ""
-	}
-	action, _ := actionMap[v1.OpsJobIdLabel]
-	if action != v1.NodeActionRemove {
-		return ""
-	}
-	return v1.GetLabel(adminNode, v1.OpsJobIdLabel)
 }

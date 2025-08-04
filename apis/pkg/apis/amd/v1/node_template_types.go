@@ -24,7 +24,7 @@ type NodeTemplate struct {
 }
 
 type NodeTemplateSpec struct {
-	// the addon templates
+	// Addon Template Name
 	AddOnTemplates []string `json:"addOnTemplates,omitempty"`
 }
 

@@ -1,0 +1,14 @@
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: install-transfer-bench
+  labels:
+    primus-safe.display.name: "install-transfer-bench"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  category: Tools
+  description: TransferBench is a tool and utility for benchmarking copies between user-specified CPU and GPU devices
+  action: UkVQT19VUkw9Imh0dHBzOi8vZ2l0aHViLmNvbS9ST0NtL1RyYW5zZmVyQmVuY2guZ2l0IgpESVJfTkFNRT0iL3Jvb3QvVHJhbnNmZXJCZW5jaCIKaWYgWyAtZCAiJERJUl9OQU1FIiBdOyB0aGVuCiAgZXhpdCAwCmZpCgpkcGtnIC1sIHwgZ3JlcCAtcSBnaXQKaWYgWyAkPyAtbmUgMCBdOyB0aGVuCiAgYXB0LWdldCB1cGRhdGUgPi9kZXYvbnVsbCAmJiBhcHQtZ2V0IC15IGluc3RhbGwgZ2l0ID4vZGV2L251bGwKICBpZiBbICQ/IC1uZSAwIF07IHRoZW4KICAgIGV4aXQgMQogIGZpCmZpCmdpdCBjbG9uZSAiJFJFUE9fVVJMIiA+L2Rldi9udWxsCmlmIFsgJD8gLW5lIDAgXTsgdGhlbgogIGV4aXQgMQpmaQoKY2QgIiRESVJfTkFNRSIgfHwgZXhpdCAxCmRwa2cgLWwgfCBncmVwIC1xIG1ha2UKaWYgWyAkPyAtbmUgMCBdOyB0aGVuCiAgYXB0LWdldCB1cGRhdGUgPi9kZXYvbnVsbCAmJiBhcHQtZ2V0IC15IGluc3RhbGwgbWFrZSA+L2Rldi9udWxsCiAgaWYgWyAkPyAtbmUgMCBdOyB0aGVuCiAgICBleGl0IDEKICBmaQpmaQpDQz1oaXBjYyBtYWtlID4gL2Rldi9udWxsCmlmIFsgJD8gLW5lIDAgXTsgdGhlbgogIGV4aXQgMQpmaQo=

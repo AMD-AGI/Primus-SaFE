@@ -7,13 +7,11 @@
 
 # Use the perf tool to test CPU performance
 
-nsenter --target 1 --mount --uts --ipc --net --pid -- dpkg -l | grep -q "linux-tools-$(uname -r)"
+linux_tools="linux-tools-$(uname -r)"
+nsenter --target 1 --mount --uts --ipc --net --pid -- dpkg -l | grep -q "$linux_tools"
 if [ $? -ne 0 ]; then
-  nsenter --target 1 --mount --uts --ipc --net --pid -- apt-get update >/dev/null && apt install -y linux-tools-$(uname -r) linux-cloud-tools-$(uname -r) >/dev/null
-  if [ $? -ne 0 ]; then
-    echo "[ERROR]: failed to install linux-tools" >&2
-    exit 1
-  fi
+  echo "[ERROR]: $linux_tools is not found" >&2
+  exit 1
 fi
 
 LOG_FILE="/tmp/perf_cpu.log"

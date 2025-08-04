@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -82,7 +81,6 @@ func (n *Node) Start() error {
 }
 
 func (n *Node) update() {
-	var job NodeJob
 	for {
 		select {
 		case <-n.ctx.Done():
@@ -91,9 +89,7 @@ func (n *Node) update() {
 			}
 			return
 		default:
-			if n.syncK8sNode() == nil {
-				job.reconcile(n)
-			}
+			n.syncK8sNode()
 			time.Sleep(sleepTime)
 		}
 	}
@@ -203,14 +199,6 @@ func (n *Node) IsMatchGpuChip(chip string) bool {
 	default:
 		return false
 	}
-}
-
-func (n *Node) IsMatchGpuProduct(product string) bool {
-	if product == "" {
-		return true
-	}
-	return strings.Contains(strings.ToLower(v1.GetGpuProductName(n.k8sNode)),
-		strings.ToLower(product))
 }
 
 func (n *Node) GetGpuQuantity() resource.Quantity {
