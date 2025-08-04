@@ -234,10 +234,9 @@ func (r *FaultReconciler) taintNode(ctx context.Context, fault *v1.Fault) error 
 	if fault.Spec.Node == nil {
 		return nil
 	}
-	clusterName := v1.GetClusterId(fault)
 	adminNode := &v1.Node{}
 	err := r.Get(ctx, client.ObjectKey{Name: fault.Spec.Node.AdminName}, adminNode)
-	if err != nil {
+	if err != nil || adminNode.GetSpecCluster() == "" {
 		return err
 	}
 
@@ -260,7 +259,7 @@ func (r *FaultReconciler) taintNode(ctx context.Context, fault *v1.Fault) error 
 		klog.ErrorS(err, "failed to update admin node")
 		return err
 	}
-	klog.Infof("taint node, cluster: %s, node-name: %s, key: %s", clusterName, adminNode.Name, taintKey)
+	klog.Infof("taint node, cluster: %s, node-name: %s, key: %s", v1.GetClusterId(fault), adminNode.Name, taintKey)
 	return nil
 }
 

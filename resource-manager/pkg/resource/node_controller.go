@@ -31,7 +31,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -99,7 +99,7 @@ func (r *NodeReconciler) isNodeCaredFieldChanged(oldNode, newNode *v1.Node) bool
 		(v1.GetNodeLabelAction(oldNode) == "" && v1.GetNodeLabelAction(newNode) != "") ||
 		(v1.GetNodeAnnotationAction(oldNode) == "" && v1.GetNodeAnnotationAction(newNode) != "") ||
 		oldNode.GetDeletionTimestamp().IsZero() && !newNode.GetDeletionTimestamp().IsZero() ||
-		(len(oldNode.Status.Taints) != 0 && len(newNode.Status.Taints) == 0) {
+		commonfaults.HasPrimusSafeTaint(oldNode.Status.Taints) && !commonfaults.HasPrimusSafeTaint(newNode.Status.Taints) {
 		return true
 	}
 	return false
@@ -205,7 +205,7 @@ func (r *NodeReconciler) observeTaints(_ context.Context, adminNode *v1.Node) (b
 			statusTaints = append(statusTaints, adminNode.Status.Taints[i])
 		}
 	}
-	return faults.IsTaintsEqualIgnoreOrder(adminNode.Spec.Taints, statusTaints), nil
+	return commonfaults.IsTaintsEqualIgnoreOrder(adminNode.Spec.Taints, statusTaints), nil
 }
 
 func (r *NodeReconciler) observeLabelAction(_ context.Context, adminNode *v1.Node) (bool, error) {
@@ -354,7 +354,7 @@ func (r *NodeReconciler) updateK8sNodeTaints(adminNode *v1.Node, k8sNode *corev1
 	}
 	reservedTaints = append(reservedTaints, adminNode.Spec.Taints...)
 
-	if faults.IsTaintsEqualIgnoreOrder(reservedTaints, k8sNode.Spec.Taints) {
+	if commonfaults.IsTaintsEqualIgnoreOrder(reservedTaints, k8sNode.Spec.Taints) {
 		return false
 	}
 	k8sNode.Spec.Taints = reservedTaints
@@ -738,7 +738,7 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 		return ctrlruntime.Result{}, nil
 	}
 	// Waiting for taint to disappear and workspace to be successfully unbound
-	if len(adminNode.Status.Taints) != 0 || v1.GetWorkspaceId(adminNode) != "" {
+	if commonfaults.HasPrimusSafeTaint(adminNode.Status.Taints) || v1.GetWorkspaceId(adminNode) != "" {
 		return ctrlruntime.Result{}, nil
 	}
 
