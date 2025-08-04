@@ -13,7 +13,6 @@ import (
 	"html/template"
 	"strings"
 
-	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,6 +23,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
 type ClusterBaseReconciler struct {
@@ -40,7 +40,7 @@ func (r *ClusterBaseReconciler) getUsername(ctx context.Context, node *v1.Node, 
 		if err != nil {
 			return "", err
 		}
-		if data, ok := secret.Data[Username]; ok {
+		if data, ok := secret.Data[utils.Username]; ok {
 			return string(data), nil
 		}
 	}
@@ -50,7 +50,7 @@ func (r *ClusterBaseReconciler) getUsername(ctx context.Context, node *v1.Node, 
 		if err != nil {
 			return "", err
 		}
-		if data, ok := secret.Data[Username]; ok {
+		if data, ok := secret.Data[utils.Username]; ok {
 			return string(data), nil
 		} else {
 			return "root", nil
@@ -65,7 +65,7 @@ func (r *ClusterBaseReconciler) getUsername(ctx context.Context, node *v1.Node, 
 		return "", err
 	}
 	username := "root"
-	if data, ok := secret.Data[Username]; ok {
+	if data, ok := secret.Data[utils.Username]; ok {
 		username = string(data)
 	}
 	return username, nil
@@ -269,15 +269,10 @@ var kubesprayHostsTemplate string
 
 const (
 	ProvisionedKubeConfigPath = "/etc/kubernetes/admin.conf"
-	Username                  = "username"
-	Password                  = "password"
-	Root                      = "root"
 	ClusterKubeSprayHosts     = "cluster-kube-spray-hosts"
 	ClusterSecret             = "cluster-secret"
 	Hosts                     = "hosts"
 	HostsYaml                 = "hosts.yaml"
-	Authorize                 = "authorize"
-	AuthorizePub              = "authorize.pub"
 	HarborCA                  = "HarborCa"
 )
 
@@ -296,33 +291,6 @@ type HostTemplateContent struct {
 	ClusterName   string
 	ClusterID     string
 	Controllers   []*v1.Node
-}
-
-func getSHHConfig(secret *corev1.Secret) (*ssh.ClientConfig, error) {
-	var username string
-	if data, ok := secret.Data[Username]; ok {
-		username = string(data)
-	} else {
-		username = Root
-	}
-	sshConfig := &ssh.ClientConfig{
-		User:            username,
-		Auth:            []ssh.AuthMethod{},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-
-	if sshPrivateKeyData, ok := secret.Data[Authorize]; ok {
-		signer, err := ssh.ParsePrivateKey(sshPrivateKeyData)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse SSH private key: %v", err)
-		}
-		sshConfig.Auth = append(sshConfig.Auth, ssh.PublicKeys(signer))
-	} else if password, ok := secret.Data[Password]; ok {
-		sshConfig.Auth = append(sshConfig.Auth, ssh.Password(string(password)))
-	} else {
-		return nil, fmt.Errorf("ssh private key or password not found in secret")
-	}
-	return sshConfig, nil
 }
 
 func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, username, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
@@ -432,8 +400,8 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 							DefaultMode: mode,
 							Items: []corev1.KeyToPath{
 								{
-									Key:  Authorize,
-									Path: Authorize,
+									Key:  utils.Authorize,
+									Path: utils.Authorize,
 								},
 							},
 						},
@@ -472,11 +440,11 @@ func generateScaleWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, 
 	return pod
 }
 func getKubeSprayCreateCMD(user, env string) string {
-	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s cluster.yml --become-user=root %s -b -vvv", Authorize, env)
+	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s cluster.yml --become-user=root %s -b -vvv", utils.Authorize, env)
 }
 
 func getKubeSprayHostsCMD(user string) string {
-	cmd := fmt.Sprintf("ansible all -i hosts/hosts.yaml --private-key .ssh/%s -m copy -a \"src=inventory/hosts dest=/etc/hosts mode=u+x\" --become-user=root -b -vvv", Authorize)
+	cmd := fmt.Sprintf("ansible all -i hosts/hosts.yaml --private-key .ssh/%s -m copy -a \"src=inventory/hosts dest=/etc/hosts mode=u+x\" --become-user=root -b -vvv", utils.Authorize)
 	if user == "" || user == "root" {
 		return cmd
 	}
@@ -517,7 +485,7 @@ func getKubeSprayEnv(cluster *v1.Cluster) string {
 }
 
 func getKubeSprayResetCMD(user, env string) string {
-	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s reset.yml -e reset_confirmation=yes %s --become-user=root -b -vvv", Authorize, env)
+	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s reset.yml -e reset_confirmation=yes %s --become-user=root -b -vvv", utils.Authorize, env)
 }
 
 func getKubesprayImage(cluster *v1.Cluster) string {

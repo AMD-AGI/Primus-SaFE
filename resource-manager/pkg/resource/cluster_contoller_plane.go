@@ -253,6 +253,7 @@ func (r *ClusterReconciler) getControllerPlaneNodes(ctx context.Context, cluster
 	}
 	return nodes, nil
 }
+
 func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Context, cluster *v1.Cluster) error {
 	if cluster.Status.ControlPlaneStatus.Phase != v1.CreatedPhase && cluster.Status.ControlPlaneStatus.Phase != "" {
 		return nil
@@ -268,15 +269,7 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 		return nil
 	}
 	node := nodes[0]
-	secret := new(corev1.Secret)
-	err = r.Get(ctx, types.NamespacedName{
-		Namespace: node.Spec.SSHSecret.Namespace,
-		Name:      node.Spec.SSHSecret.Name,
-	}, secret)
-	if err != nil {
-		return err
-	}
-	sshConfig, err := getSHHConfig(secret)
+	sshConfig, err := utils.GetSSHConfig(ctx, r.Client, node)
 	if err != nil {
 		return err
 	}
@@ -433,9 +426,9 @@ func (r *ClusterReconciler) generateSSHSecret(ctx context.Context, cluster *v1.C
 			OwnerReferences: []metav1.OwnerReference{createKubernetesClusterOwnerReference(cluster)},
 		},
 		Data: map[string][]byte{
-			Username:     []byte(username),
-			Authorize:    private,
-			AuthorizePub: pub,
+			utils.Username:     []byte(username),
+			utils.Authorize:    private,
+			utils.AuthorizePub: pub,
 		},
 		Type: "Opaque",
 	}

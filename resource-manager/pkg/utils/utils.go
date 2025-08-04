@@ -10,9 +10,12 @@ import (
 	"fmt"
 	"strconv"
 
+	"golang.org/x/crypto/ssh"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -21,6 +24,14 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+)
+
+const (
+	Username     = "username"
+	Password     = "password"
+	Root         = "root"
+	Authorize    = "authorize"
+	AuthorizePub = "authorize.pub"
 )
 
 func RemoveOwnerReferences(references []metav1.OwnerReference, uid types.UID) []metav1.OwnerReference {
@@ -95,4 +106,55 @@ func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId str
 		return nil, commonerrors.NewInternalError("failed to correctly build the k8s client")
 	}
 	return k8sClients, nil
+}
+
+func GetSSHClient(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.Client, error) {
+	config, err := GetSSHConfig(ctx, cli, node)
+	if err != nil {
+		return nil, err
+	}
+	// The port field is ensured to be non-empty by the webhook
+	sshClient, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", node.Spec.PrivateIP, *node.Spec.Port), config)
+	if err != nil {
+		return nil, fmt.Errorf("ssh client failed to connect: %v", err)
+	}
+	return sshClient, nil
+}
+
+func GetSSHConfig(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.ClientConfig, error) {
+	if node.Spec.SSHSecret == nil {
+		return nil, commonerrors.NewInternalError("failed to get SSH secret of node")
+	}
+	secret := new(corev1.Secret)
+	if err := cli.Get(ctx, apitypes.NamespacedName{
+		Name:      node.Spec.SSHSecret.Name,
+		Namespace: node.Spec.SSHSecret.Namespace,
+	}, secret); err != nil {
+		return nil, err
+	}
+
+	var username string
+	if data, ok := secret.Data[Username]; ok {
+		username = string(data)
+	} else {
+		username = Root
+	}
+	sshConfig := &ssh.ClientConfig{
+		User:            username,
+		Auth:            []ssh.AuthMethod{},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	if sshPrivateKeyData, ok := secret.Data[Authorize]; ok {
+		signer, err := ssh.ParsePrivateKey(sshPrivateKeyData)
+		if err != nil {
+			return nil, commonerrors.NewInternalError(err.Error())
+		}
+		sshConfig.Auth = append(sshConfig.Auth, ssh.PublicKeys(signer))
+	} else if password, ok := secret.Data[Password]; ok {
+		sshConfig.Auth = append(sshConfig.Auth, ssh.Password(string(password)))
+	} else {
+		return nil, commonerrors.NewInternalError("ssh private key or password not found in secret")
+	}
+	return sshConfig, nil
 }
