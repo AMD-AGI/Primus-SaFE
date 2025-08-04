@@ -592,6 +592,7 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 			return ctrlruntime.Result{}, err
 		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
+		klog.Infof("managed node %s", k8sNode.Name)
 		return ctrlruntime.Result{}, nil
 	}
 	return ctrlruntime.Result{}, r.syncOrCreateScaleUpPod(ctx, adminNode)
@@ -718,6 +719,7 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 		}
 		klog.Infof("kubernetes cluster %s scale up %s, pod: %s",
 			cluster.Name, adminNode.Name, pod.Name)
+		adminNode.Status.ClusterStatus.Phase = v1.NodeManaging
 	} else {
 		switch pod.Status.Phase {
 		case corev1.PodSucceeded:
@@ -746,6 +748,7 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 				Phase: v1.NodeUnmanaged,
 			},
 		}
+		klog.Infof("node %s is unmanaged", adminNode.Name)
 		r.rebootNode(ctx, adminNode)
 		// The node will be rebooted. Need to retry getting the node status later
 		return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
@@ -916,6 +919,7 @@ func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) 
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: v1.SystemUser,
 			},
+			Name: v1.OpsJobKind + "-" + string(v1.OpsJobAddonType) + "-" + adminNode.Name,
 		},
 		Spec: v1.OpsJobSpec{
 			Type:    v1.OpsJobAddonType,
@@ -948,6 +952,7 @@ func (r *NodeReconciler) doPreflight(ctx context.Context, adminNode *v1.Node) er
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: v1.SystemUser,
 			},
+			Name: v1.OpsJobKind + "-" + string(v1.OpsJobPreflightType) + "-" + adminNode.Name,
 		},
 		Spec: v1.OpsJobSpec{
 			Cluster: adminNode.GetSpecCluster(),

@@ -72,8 +72,12 @@ func (m *OpsJobMutator) mutateOnCreation(ctx context.Context, job *v1.OpsJob) bo
 }
 
 func (m *OpsJobMutator) mutateMeta(ctx context.Context, job *v1.OpsJob) bool {
-	jobName := v1.OpsJobKind + "-" + string(job.Spec.Type)
-	job.Name = commonutils.GenerateName(strings.ToLower(jobName))
+	if job.Name == "" {
+		jobName := v1.OpsJobKind + "-" + string(job.Spec.Type)
+		job.Name = commonutils.GenerateName(strings.ToLower(jobName))
+	} else {
+		job.Name = stringutil.NormalizeName(job.Name)
+	}
 
 	v1.SetLabel(job, v1.OpsJobTypeLabel, string(job.Spec.Type))
 	if v1.GetAnnotation(job, v1.OpsJobBatchCountAnnotation) == "" {
@@ -269,6 +273,9 @@ func (v *OpsJobValidator) validateNodeDuplicated(ctx context.Context, job *v1.Op
 		return err
 	}
 	for _, currentJob := range currentJobs {
+		if job.Name == currentJob.Name {
+			continue
+		}
 		if v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterNode) {
 			return commonerrors.NewResourceProcessing(
 				fmt.Sprintf("another ops job (%s) is running, job.type: %s", currentJob.Name, currentJob.Spec.Type))
@@ -283,6 +290,9 @@ func (v *OpsJobValidator) validateDumplogDuplicated(ctx context.Context, job *v1
 		return err
 	}
 	for _, currentJob := range currentJobs {
+		if job.Name == currentJob.Name {
+			continue
+		}
 		if v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterWorkload) {
 			return commonerrors.NewResourceProcessing(
 				fmt.Sprintf("another ops job (%s) is running, job.type: %s", currentJob.Name, currentJob.Spec.Type))

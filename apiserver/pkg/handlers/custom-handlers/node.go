@@ -219,14 +219,14 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 		clusterName = v1.GetClusterId(node)
 	}
 	if clusterName == "" {
-		return nil, commonerrors.NewInternalError("the node is not bound to any cluster")
+		return nil, commonerrors.NewBadRequest("the node is not bound to any cluster")
 	}
 
 	labelSelector := labels.SelectorFromSet(map[string]string{
 		v1.ClusterManageClusterLabel: clusterName, v1.ClusterManageNodeLabel: node.Name})
 	podName, err := h.getLatestPodName(c, labelSelector)
 	if err != nil {
-		return nil, err
+		return nil, commonerrors.NewNotImplemented("Logging service is only available during node managing or unmanaging processes")
 	}
 	podLogs, err := h.getPodLog(c, h.clientSet, common.PrimusSafeNamespace, podName, "")
 	if err != nil {
@@ -552,6 +552,10 @@ func cvtToGetNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.GetN
 		CustomerLabels: getCustomerLabels(n.Labels, true),
 		CreateTime:     timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
 		IsControlPlane: v1.IsControlPlane(n),
+	}
+	if n.Status.ClusterStatus.Phase == v1.NodeManagedFailed || n.Status.ClusterStatus.Phase == v1.NodeUnmanagedFailed ||
+		n.Status.ClusterStatus.Phase == v1.NodeManaging || n.Status.ClusterStatus.Phase == v1.NodeUnmanaging {
+		result.Phase = string(n.Status.ClusterStatus.Phase)
 	}
 	if n.Spec.NodeTemplate != nil {
 		result.NodeTemplate = n.Spec.NodeTemplate.Name
