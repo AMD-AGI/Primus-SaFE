@@ -378,7 +378,7 @@ func (r *NodeK8sReconciler) syncK8sStatus(ctx context.Context, adminNode *v1.Nod
 
 func (r *NodeK8sReconciler) handleFault(ctx context.Context, adminNode *v1.Node, message *nodeQueueMessage) error {
 	faultConfigMap, err := GetFaultConfigmap(ctx, r.Client)
-	if err != nil || len(faultConfigMap) == 0 || adminNode.GetSpecCluster() == "" {
+	if err != nil || len(faultConfigMap) == 0 {
 		return err
 	}
 
@@ -396,6 +396,9 @@ func (r *NodeK8sReconciler) handleFault(ctx context.Context, adminNode *v1.Node,
 			continue
 		}
 		if isShouldCreateFault(newCondition) {
+			if adminNode.GetSpecCluster() == "" {
+				continue
+			}
 			if f := generateFaultOnCreation(faultNode, newCondition, faultConfigMap); f != nil {
 				if err = createFault(ctx, r.Client, f); err != nil {
 					return err
