@@ -489,11 +489,15 @@ func cvtToListWorkloadSql(query *types.GetWorkloadRequest) (sqrl.Sqlizer, []stri
 	if sinceTime := strings.TrimSpace(query.Since); sinceTime != "" {
 		if t, err := timeutil.CvtStrToRFC3339Milli(sinceTime); err == nil {
 			dbSql = append(dbSql, sqrl.GtOrEq{dbclient.GetFieldTag(dbTags, "CreateTime"): t})
+		} else {
+			klog.ErrorS(err, "fail to parse since time")
 		}
 	}
 	if untilTime := strings.TrimSpace(query.Until); untilTime != "" {
 		if t, err := timeutil.CvtStrToRFC3339Milli(untilTime); err == nil {
 			dbSql = append(dbSql, sqrl.LtOrEq{dbclient.GetFieldTag(dbTags, "CreateTime"): t})
+		} else {
+			klog.ErrorS(err, "fail to parse until time")
 		}
 	}
 	if kind := strings.TrimSpace(query.Kind); kind != "" {
