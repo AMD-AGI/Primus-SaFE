@@ -642,6 +642,8 @@ var (
 			Priority:   2,
 			Image:      "test-image",
 			EntryPoint: "sh -c test.sh",
+			JobPort:    12345,
+			SSHPort:    23456,
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: "v1",
 				Kind:    "PyTorchJob",
@@ -655,7 +657,6 @@ var (
 				SharedMemory:     "32Gi",
 				EphemeralStorage: "20Gi",
 				RdmaResource:     "1k",
-				JobPort:          12345,
 			},
 			Env: map[string]string{
 				"key": "value",

@@ -86,12 +86,13 @@ func generateWorkspace(req *types.CreateWorkspaceRequest) *v1.Workspace {
 			},
 		},
 		Spec: v1.WorkspaceSpec{
-			Cluster:     req.Cluster,
-			NodeFlavor:  req.NodeFlavor,
-			Replica:     req.Replica,
-			QueuePolicy: v1.WorkspaceQueuePolicy(req.QueuePolicy),
-			Volumes:     req.Volumes,
-			Scopes:      req.Scopes,
+			Cluster:       req.Cluster,
+			NodeFlavor:    req.NodeFlavor,
+			Replica:       req.Replica,
+			QueuePolicy:   v1.WorkspaceQueuePolicy(req.QueuePolicy),
+			Volumes:       req.Volumes,
+			Scopes:        req.Scopes,
+			EnablePreempt: req.EnablePreempt,
 		},
 	}
 	if len(workspace.Spec.Scopes) == 0 {

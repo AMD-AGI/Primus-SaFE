@@ -8,6 +8,7 @@ package dispatcher
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -395,18 +396,27 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 		"name":  "DISPATCH_COUNT",
 		"value": strconv.Itoa(v1.GetWorkloadDispatchCnt(adminWorkload) + 1),
 	})
+	result = append(result, map[string]interface{}{
+		"name":  "SSH_PORT",
+		"value": strconv.Itoa(adminWorkload.Spec.SSHPort),
+	})
 	return result
 }
 
 func buildPorts(adminWorkload *v1.Workload) []interface{} {
 	jobPort := map[string]interface{}{
-		"containerPort": int64(adminWorkload.Spec.Resource.JobPort),
+		"containerPort": int64(adminWorkload.Spec.JobPort),
 		"protocol":      "TCP",
 	}
 	if adminWorkload.SpecKind() == common.PytorchJobKind || adminWorkload.SpecKind() == common.AuthoringKind {
 		jobPort["name"] = common.PytorchJobPortName
 	}
-	return []interface{}{jobPort}
+	sshPort := map[string]interface{}{
+		"containerPort": int64(adminWorkload.Spec.SSHPort),
+		"protocol":      "TCP",
+		"name":          common.SSHPortName,
+	}
+	return []interface{}{jobPort, sshPort}
 }
 
 func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {
@@ -476,10 +486,15 @@ func buildMatchExpression(adminWorkload *v1.Workload) []interface{} {
 		})
 	}
 	for key, val := range adminWorkload.Spec.CustomerLabels {
+		var values []interface{}
+		parts := strings.Fields(val)
+		for i := range parts {
+			values = append(values, parts[i])
+		}
 		result = append(result, map[string]interface{}{
 			"key":      key,
 			"operator": "In",
-			"values":   []interface{}{val},
+			"values":   values,
 		})
 	}
 	return result

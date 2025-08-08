@@ -10,7 +10,7 @@ RUN apt-get install -y sed
 RUN apt-get install -y jq
 RUN apt-get install -y bc
 
-COPY ./resource-manager/installer/preflight/*.sh ${APP_HOME}/
-COPY ./resource-manager/installer/preflight/mi300x/*.sh ${APP_HOME}/mi300x/
+COPY ./health-checker/preflight/*.sh ${APP_HOME}/
+COPY ./health-checker/preflight/mi300x/*.sh ${APP_HOME}/mi300x/
 
 WORKDIR ${APP_HOME}

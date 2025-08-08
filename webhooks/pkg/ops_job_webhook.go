@@ -115,12 +115,12 @@ func (m *OpsJobMutator) mutateJobSpec(job *v1.OpsJob) {
 }
 
 func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) {
-	m.toAddonTemplates(ctx, job)
-	m.toNodes(ctx, job)
+	m.getAddonTemplates(ctx, job)
+	m.getNodesByCluster(ctx, job)
 	m.removeDuplicates(job)
 }
 
-func (m *OpsJobMutator) toAddonTemplates(ctx context.Context, job *v1.OpsJob) {
+func (m *OpsJobMutator) getAddonTemplates(ctx context.Context, job *v1.OpsJob) {
 	param := job.GetParameter(v1.ParameterNodeTemplate)
 	if param == nil {
 		return
@@ -137,7 +137,7 @@ func (m *OpsJobMutator) toAddonTemplates(ctx context.Context, job *v1.OpsJob) {
 	}
 }
 
-func (m *OpsJobMutator) toNodes(ctx context.Context, job *v1.OpsJob) {
+func (m *OpsJobMutator) getNodesByCluster(ctx context.Context, job *v1.OpsJob) {
 	if job.Spec.Type != v1.OpsJobPreflightType && job.Spec.Type != v1.OpsJobAddonType {
 		return
 	}
@@ -220,7 +220,7 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 			break
 		}
 		err = v.validateNodeDuplicated(ctx, job)
-	case v1.OpsJobPreflightType:
+	case v1.OpsJobPreflightType, v1.OpsJobDiagnoseType:
 		err = v.validateNodeDuplicated(ctx, job)
 	case v1.OpsJobDumpLogType:
 		err = v.validateDumplogDuplicated(ctx, job)
@@ -256,7 +256,8 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 	if len(job.Spec.Inputs) == 0 {
 		errs = append(errs, fmt.Errorf("the inputs of ops job are empty"))
 	}
-	if job.Spec.Type == v1.OpsJobPreflightType || job.Spec.Type == v1.OpsJobAddonType {
+	if job.Spec.Type == v1.OpsJobPreflightType ||
+		job.Spec.Type == v1.OpsJobAddonType || job.Spec.Type == v1.OpsJobDiagnoseType {
 		if job.GetParameter(v1.ParameterNode) == nil {
 			errs = append(errs, fmt.Errorf("the node of ops job is empty"))
 		}

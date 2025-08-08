@@ -24,6 +24,8 @@ type CreateWorkspaceRequest struct {
 	Scopes []v1.WorkspaceScope `json:"scopes,omitempty"`
 	// volumes used in this space
 	Volumes []v1.WorkspaceVolume `json:"volumes,omitempty"`
+	// Is preemption enabled
+	EnablePreempt bool `json:"enablePreempt"`
 }
 
 type CreateWorkspaceResponse struct {

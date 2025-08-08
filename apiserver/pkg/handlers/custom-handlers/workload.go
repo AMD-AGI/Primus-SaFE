@@ -524,18 +524,18 @@ func buildListWorkloadOrderBy(query *types.GetWorkloadRequest, dbTags map[string
 	createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
 
 	var orderBy []string
-	hasOrderByCreatedTime := false
+	isSortByCreatedTime := false
 	if query.SortBy != "" {
 		sortBy := strings.TrimSpace(query.SortBy)
 		sortBy = dbclient.GetFieldTag(dbTags, sortBy)
 		if sortBy != "" {
 			if stringutil.StrCaseEqual(query.SortBy, createTime) {
-				hasOrderByCreatedTime = true
+				isSortByCreatedTime = true
 			}
 			orderBy = append(orderBy, fmt.Sprintf("%s %s %s", sortBy, query.Order, nullOrder))
 		}
 	}
-	if !hasOrderByCreatedTime {
+	if !isSortByCreatedTime {
 		orderBy = append(orderBy, fmt.Sprintf("%s %s", createTime, dbclient.DESC))
 	}
 	return orderBy
@@ -604,6 +604,9 @@ func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
 				IsTolerateAll: w.IsTolerateAll,
 			},
 		},
+	}
+	if result.EndTime == "" && result.DeletionTime != "" {
+		result.EndTime = result.DeletionTime
 	}
 	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
 	json.Unmarshal([]byte(w.Resource), &result.Resource)

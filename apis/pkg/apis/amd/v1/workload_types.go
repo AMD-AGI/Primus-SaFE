@@ -63,8 +63,6 @@ type WorkloadResource struct {
 	// RDMA resource is effective only with hostNetwork enabled (default: 1).
 	// This field is set internally
 	RdmaResource string `json:"rdmaResource,omitempty"`
-	// the port for job, This field is set internally
-	JobPort int `json:"jobPort,omitempty"`
 }
 
 type HealthCheck struct {
@@ -105,6 +103,11 @@ type WorkloadSpec struct {
 	// workload entryPoint, required in base64 encoding
 	EntryPoint string `json:"entryPoint,omitempty"`
 	// Environment variable for workload
+	// the port for job, This field is set internally
+	JobPort int `json:"jobPort,omitempty"`
+	// the port for ssh, This field is set internally
+	SSHPort int `json:"sshPort,omitempty"`
+	// environment variables
 	Env map[string]string `json:"env,omitempty"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised,omitempty"`

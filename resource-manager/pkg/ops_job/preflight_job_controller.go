@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -398,6 +399,9 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
 	}
 	if workload.Spec.Workspace == "" {
 		workload.Spec.Workspace = corev1.NamespaceDefault
+	}
+	if job.Spec.TimeoutSecond > 0 {
+		workload.Spec.Timeout = pointer.Int(job.Spec.TimeoutSecond)
 	}
 	return workload, nil
 }
