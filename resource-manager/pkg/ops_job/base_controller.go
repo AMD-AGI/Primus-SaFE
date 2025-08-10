@@ -174,6 +174,12 @@ func (r *OpsJobBaseReconciler) getAdminNode(ctx context.Context, name string) (*
 	if err != nil {
 		return nil, err
 	}
+	if !node.GetDeletionTimestamp().IsZero() {
+		return nil, commonerrors.NewInternalError("the node is deleting")
+	}
+	if !node.IsReady() {
+		return nil, fmt.Errorf("the node is not ready")
+	}
 	return node, nil
 }
 

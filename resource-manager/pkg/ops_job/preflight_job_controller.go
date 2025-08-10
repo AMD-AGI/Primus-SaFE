@@ -184,8 +184,8 @@ func (r *PreflightJobReconciler) observe(ctx context.Context, job *v1.OpsJob) (b
 	case v1.OpsJobPending, "":
 		return false, nil
 	case v1.OpsJobRunning:
-		nodes := r.getNodesToProcess(ctx, job)
-		return len(nodes) == 0, nil
+		nodes, err := r.getNodesToProcess(ctx, job)
+		return len(nodes) == 0, err
 	case v1.OpsJobFailed, v1.OpsJobSucceeded:
 		if err := r.setJobCompleted(ctx, job, phase, message, nil); err != nil {
 			return false, err
@@ -198,12 +198,12 @@ func (r *PreflightJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool 
 	return job.Spec.Type != v1.OpsJobPreflightType
 }
 
-func (r *PreflightJobReconciler) getNodesToProcess(ctx context.Context, job *v1.OpsJob) []*v1.Node {
+func (r *PreflightJobReconciler) getNodesToProcess(ctx context.Context, job *v1.OpsJob) ([]*v1.Node, error) {
 	r.RLock()
 	preflightJob, ok := r.allJobs[job.Name]
 	if !ok {
 		r.RUnlock()
-		return nil
+		return nil, nil
 	}
 	allPendingNodes := make([]string, 0, len(preflightJob.nodes))
 	for key, val := range preflightJob.nodes {
@@ -217,12 +217,15 @@ func (r *PreflightJobReconciler) getNodesToProcess(ctx context.Context, job *v1.
 	results := make([]*v1.Node, 0, len(allPendingNodes))
 	for _, n := range allPendingNodes {
 		node, err := r.getAdminNode(ctx, n)
-		if err != nil || !v1.IsNodeTemplateInstalled(node) {
+		if err != nil {
+			return nil, err
+		}
+		if !v1.IsNodeTemplateInstalled(node) {
 			continue
 		}
 		results = append(results, node)
 	}
-	return results
+	return results, nil
 }
 
 func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
@@ -235,7 +238,10 @@ func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ct
 		return r.setJobRunning(ctx, job)
 	}
 
-	targetNodes := r.getNodesToProcess(ctx, job)
+	targetNodes, err := r.getNodesToProcess(ctx, job)
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
 	totalNum := len(targetNodes)
 	if totalNum == 0 {
 		return ctrlruntime.Result{}, nil
@@ -244,7 +250,7 @@ func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ct
 	for i := range totalNum {
 		ch <- i
 	}
-	_, err := concurrent.Exec(totalNum, func() error {
+	_, err = concurrent.Exec(totalNum, func() error {
 		i := <-ch
 		workload, err := r.genPreflightWorkload(ctx, job, targetNodes[i])
 		if err != nil {

@@ -62,14 +62,19 @@ func SetupDiagnoseJobController(mgr manager.Manager) error {
 
 func (r *DiagnoseJobReconciler) handleWorkloadEvent() handler.EventHandler {
 	return handler.Funcs{
+		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
+			workload, ok := evt.Object.(*v1.Workload)
+			if !ok || !isDiagnoseWorkload(workload) {
+				return
+			}
+			if workload.IsEnd() {
+				r.handleWorkloadEventImpl(ctx, workload)
+			}
+		},
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
 			oldWorkload, ok1 := evt.ObjectOld.(*v1.Workload)
 			newWorkload, ok2 := evt.ObjectNew.(*v1.Workload)
-			if !ok1 || !ok2 {
-				return
-			}
-			opsJobId := v1.GetOpsJobId(newWorkload)
-			if opsJobId == "" || v1.GetOpsJobType(newWorkload) != string(v1.OpsJobDiagnoseType) {
+			if !ok1 || !ok2 || !isDiagnoseWorkload(newWorkload) {
 				return
 			}
 			if !oldWorkload.IsEnd() && newWorkload.IsEnd() {
@@ -77,6 +82,14 @@ func (r *DiagnoseJobReconciler) handleWorkloadEvent() handler.EventHandler {
 			}
 		},
 	}
+}
+
+func isDiagnoseWorkload(workload *v1.Workload) bool {
+	opsJobId := v1.GetOpsJobId(workload)
+	if opsJobId != "" && v1.GetOpsJobType(workload) == string(v1.OpsJobDiagnoseType) {
+		return true
+	}
+	return false
 }
 
 func (r *DiagnoseJobReconciler) handleWorkloadEventImpl(ctx context.Context, workload *v1.Workload) {
@@ -130,7 +143,24 @@ func (r *DiagnoseJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctr
 	if job.IsPending() {
 		return r.setJobRunning(ctx, job)
 	}
-	workload, err := r.genDiagnoseWorkload(ctx, job)
+	workload := &v1.Workload{}
+	if r.Get(ctx, client.ObjectKey{Name: job.Name}, workload) == nil {
+		return ctrlruntime.Result{}, nil
+	}
+	
+	var err error
+	nodeParams := job.GetParameters(v1.ParameterNode)
+	for _, param := range nodeParams {
+		adminNode, err := r.getAdminNode(ctx, param.Value)
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		if err = r.createFault(ctx, job, adminNode, common.DiagnoseMonitorId, "diagnose node"); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+	}
+
+	workload, err = r.genDiagnoseWorkload(ctx, job)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}

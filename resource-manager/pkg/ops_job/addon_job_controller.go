@@ -296,9 +296,6 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 	if err != nil {
 		return false, err
 	}
-	if !adminNode.GetDeletionTimestamp().IsZero() {
-		return false, commonerrors.NewInternalError("the node is deleting")
-	}
 	key := commonfaults.GenerateTaintKey(resource.NodeNotReady)
 	if !adminNode.IsReady() || commonfaults.HasTaintKey(adminNode.Status.Taints, key) {
 		return false, fmt.Errorf("the node is not ready")
