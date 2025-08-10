@@ -8,11 +8,9 @@ package ops_job
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -29,7 +27,6 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 )
@@ -147,7 +144,7 @@ func (r *DiagnoseJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctr
 	if r.Get(ctx, client.ObjectKey{Name: job.Name}, workload) == nil {
 		return ctrlruntime.Result{}, nil
 	}
-	
+
 	var err error
 	nodeParams := job.GetParameters(v1.ParameterNode)
 	for _, param := range nodeParams {
@@ -175,29 +172,21 @@ func (r *DiagnoseJobReconciler) genDiagnoseWorkload(ctx context.Context, job *v1
 	if len(nodeParams) == 0 {
 		return nil, commonerrors.NewBadRequest("node parameter is empty")
 	}
-	nodesCommaSeparated := ""
-	nodesSpaceSeparated := ""
+	nodeNames := ""
 	for i, p := range nodeParams {
 		if i > 0 {
-			nodesCommaSeparated += ","
-			nodesSpaceSeparated += " "
+			nodeNames += " "
 		}
-		nodesCommaSeparated += p.Value
-		nodesSpaceSeparated += p.Value
+		nodeNames += p.Value
 	}
 	node := &v1.Node{}
 	if err := r.Get(ctx, client.ObjectKey{Name: nodeParams[0].Value}, node); err != nil {
 		return nil, err
 	}
-	nf := &v1.NodeFlavor{}
-	if err := r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(node)}, nf); err != nil {
+	res, err := r.genMaxResource(ctx, node)
+	if err != nil {
 		return nil, err
 	}
-	nodeResources := nf.ToResourceList("")
-	availNodeResources := quantity.GetAvailableResource(nodeResources)
-	maxAvailCpu, _ := availNodeResources[corev1.ResourceCPU]
-	maxAvailMem, _ := availNodeResources[corev1.ResourceMemory]
-	maxAvailStorage, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
 
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -216,31 +205,22 @@ func (r *DiagnoseJobReconciler) genDiagnoseWorkload(ctx context.Context, job *v1
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			EntryPoint: fmt.Sprintf("bash run.sh %s", nodesCommaSeparated),
+			EntryPoint: fmt.Sprintf("bash run.sh"),
 			GroupVersionKind: v1.GroupVersionKind{
 				Version: common.DefaultVersion,
-				Kind:    common.JobKind,
+				Kind:    common.PytorchJobKind,
 			},
 			IsTolerateAll: true,
 			Priority:      common.HighPriorityInt,
 			CustomerLabels: map[string]string{
-				common.K8sHostNameLabel: nodesSpaceSeparated,
-			},
-			Resource: v1.WorkloadResource{
-				Replica:          1,
-				CPU:              maxAvailCpu.String(),
-				Memory:           maxAvailMem.String(),
-				GPU:              strconv.Itoa(v1.GetNodeGpuCount(node)),
-				GPUName:          v1.GetGpuResourceName(node),
-				EphemeralStorage: maxAvailStorage.String(),
+				common.K8sHostNameLabel: nodeNames,
 			},
 			Workspace: v1.GetWorkspaceId(node),
 			Image:     commonconfig.GetDiagnoseImage(),
 		},
 	}
-	if workload.Spec.Workspace == "" {
-		workload.Spec.Workspace = corev1.NamespaceDefault
-	}
+	workload.Spec.Resource = *res
+	workload.Spec.Resource.Replica = len(nodeParams)
 	if job.Spec.TimeoutSecond > 0 {
 		workload.Spec.Timeout = pointer.Int(job.Spec.TimeoutSecond)
 	}

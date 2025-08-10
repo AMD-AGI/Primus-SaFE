@@ -256,8 +256,8 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 	if len(job.Spec.Inputs) == 0 {
 		errs = append(errs, fmt.Errorf("the inputs of ops job are empty"))
 	}
-	if job.Spec.Type == v1.OpsJobPreflightType ||
-		job.Spec.Type == v1.OpsJobAddonType || job.Spec.Type == v1.OpsJobDiagnoseType {
+	if job.Spec.Type == v1.OpsJobPreflightType || job.Spec.Type == v1.OpsJobAddonType ||
+		job.Spec.Type == v1.OpsJobDiagnoseType || job.Spec.Type == v1.OpsJobDiagnoseType {
 		if job.GetParameter(v1.ParameterNode) == nil {
 			errs = append(errs, fmt.Errorf("the node of ops job is empty"))
 		}

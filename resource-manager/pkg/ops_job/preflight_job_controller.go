@@ -8,7 +8,6 @@ package ops_job
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
@@ -30,7 +29,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
@@ -354,15 +352,10 @@ func (r *PreflightJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, stri
 
 func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
 	job *v1.OpsJob, adminNode *v1.Node) (*v1.Workload, error) {
-	nf := &v1.NodeFlavor{}
-	if err := r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(adminNode)}, nf); err != nil {
+	res, err := r.genMaxResource(ctx, adminNode)
+	if err != nil {
 		return nil, err
 	}
-	nodeResources := nf.ToResourceList("")
-	availNodeResources := quantity.GetAvailableResource(nodeResources)
-	maxAvailCpu, _ := availNodeResources[corev1.ResourceCPU]
-	maxAvailMem, _ := availNodeResources[corev1.ResourceMemory]
-	maxAvailStorage, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
 
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -391,18 +384,13 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
 			CustomerLabels: map[string]string{
 				common.K8sHostNameLabel: adminNode.Name,
 			},
-			Resource: v1.WorkloadResource{
-				Replica:          1,
-				CPU:              maxAvailCpu.String(),
-				Memory:           maxAvailMem.String(),
-				GPU:              strconv.Itoa(v1.GetNodeGpuCount(adminNode)),
-				GPUName:          v1.GetGpuResourceName(adminNode),
-				EphemeralStorage: maxAvailStorage.String(),
-			},
 			Workspace: v1.GetWorkspaceId(adminNode),
 			Image:     commonconfig.GetPreflightImage(),
 		},
 	}
+
+	workload.Spec.Resource = *res
+	workload.Spec.Resource.Replica = 1
 	if workload.Spec.Workspace == "" {
 		workload.Spec.Workspace = corev1.NamespaceDefault
 	}

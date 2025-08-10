@@ -234,7 +234,7 @@ def main():
                     help="InfiniBand HCAs for RCCL_IB_HCA (default: bnxt_re[0-7])")
     args = parser.parse_args()
 
-    nodes = get_sort_ip("./hosts")
+    nodes = get_sort_ip("/root/hosts")
     if len(nodes) < 2:
         print("Error: At least 2 nodes are required.")
         sys.exit(1)
