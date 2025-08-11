@@ -485,6 +485,9 @@ func cvtToListWorkloadSql(query *types.GetWorkloadRequest) (sqrl.Sqlizer, []stri
 	if userName := strings.TrimSpace(query.UserName); userName != "" {
 		dbSql = append(dbSql, sqrl.Like{
 			dbclient.GetFieldTag(dbTags, "UserName"): fmt.Sprintf("%%%s%%", userName)})
+	} else {
+		dbSql = append(dbSql, sqrl.NotEq{
+			dbclient.GetFieldTag(dbTags, "UserName"): v1.SystemUser})
 	}
 	if sinceTime := strings.TrimSpace(query.Since); sinceTime != "" {
 		if t, err := timeutil.CvtStrToRFC3339Milli(sinceTime); err == nil {
@@ -793,6 +796,10 @@ func buildWorkloadLabelSelector(query *types.GetWorkloadRequest) labels.Selector
 	if query.UserName != "" {
 		nameMd5 := stringutil.MD5(query.UserName)
 		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.Equals, []string{nameMd5})
+		labelSelector = labelSelector.Add(*req)
+	} else {
+		nameMd5 := stringutil.MD5(v1.SystemUser)
+		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.NotEquals, []string{nameMd5})
 		labelSelector = labelSelector.Add(*req)
 	}
 	if query.Kind != "" {

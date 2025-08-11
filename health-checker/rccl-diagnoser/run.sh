@@ -29,9 +29,16 @@ fi
 export WORK_PATH=/opt/primus-safe/diagnoser
 export WORLD_SIZE=$WORLD_SIZE
 export RANK=$RANK
-python3 -m torch.distributed.launch --nnodes $WORLD_SIZE --node_rank $RANK \
-  --master_addr $MASTER_ADDR --master_port $MASTER_PORT --nproc_per_node=1 --use_env \
-  $WORK_PATH/sync_ssh.py --distributed-timeout-minutes 30 --interface $GLOO_SOCKET_IFNAME
+torchrun \
+  --nproc_per_node=1 \
+  --nnodes=$WORLD_SIZE \
+  --node_rank=$RANK \
+  --master_addr=$MASTER_ADDR \
+  --master_port=$MASTER_PORT \
+  $WORK_PATH/sync_ssh.py \
+  --interface $GLOO_SOCKET_IFNAME \
+  --distributed-timeout-minutes 30
+
 if [ $? -ne 0 ]; then
   echo "failed to execute sync_ssh.py"
   exit 1
@@ -51,9 +58,17 @@ if [[ "$RANK" == "0" ]]; then
   fi
 fi
 
-python3 -m torch.distributed.launch --nnodes $WORLD_SIZE --node_rank $RANK \
-  --master_addr $MASTER_ADDR --master_port $MASTER_PORT --nproc_per_node=1 --use_env \
-  $WORK_PATH/sync_ssh.py  --distributed-timeout-minutes 30 --no-data-sync 1
+torchrun \
+  --nproc_per_node=1 \
+  --nnodes=$WORLD_SIZE \
+  --node_rank=$RANK \
+  --master_addr=$MASTER_ADDR \
+  --master_port=$MASTER_PORT \
+  $WORK_PATH/sync_ssh.py \
+  --interface $GLOO_SOCKET_IFNAME \
+  --distributed-timeout-minutes 30 \
+  --no-data-sync 1
+
 if [ $? -ne 0 ]; then
   echo "failed to execute sync_ssh.py"
   exit 1
