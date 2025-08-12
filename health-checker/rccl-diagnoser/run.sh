@@ -53,9 +53,9 @@ if [[ "$RANK" == "0" ]]; then
   if [[ "$NCCL_DEBUG" == "INFO" ]] || [[ "$NCCL_DEBUG" == "info" ]] ; then
     debug="--debug"
   fi
-  python3 $WORK_PATH/rccl_diagnose.py --socket-ifname "$NCCL_SOCKET_IFNAME" --ib-hca "$NCCL_IB_HCA" $debug
+  python3 $WORK_PATH/rccl_diagnose.py --socket-ifname "$NCCL_SOCKET_IFNAME" --ib-hca "$NCCL_IB_HCA" --ssh-port $SSH_PORT $debug
   if [ $? -ne 0 ]; then
-      echo "The exec binary_search_run_nccl_test.py command failed."
+      echo "failed to execute binary_search_rccl_test.py."
       exit 1
   fi
 fi

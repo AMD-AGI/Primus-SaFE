@@ -25,6 +25,7 @@ LD_LIBRARY_PATH = "/opt/rocm/lib:/opt/openmpi-4.1.8/lib"
 RCCL_SOCKET_IFNAME = "ens51f0"
 RCCL_IB_HCA = "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
 NCCL_IB_GID_INDEX = "3"
+SSH_PORT = 22
 
 DEBUG_MODE = False
 healthy_node_queue: Queue[str] = Queue()
@@ -88,7 +89,6 @@ def run_rccl_test(nodes: List[str]) -> float:
 
     np = len(nodes) * NUM_GPUS_PER_NODE
     nodes_str = ",".join(nodes)
-    ssh_port=os.getenv("SSH_PORT", "22")
 
     cmd = [
         MPIEXEC, "-np", str(np), "-N", str(NUM_GPUS_PER_NODE),
@@ -97,7 +97,7 @@ def run_rccl_test(nodes: List[str]) -> float:
         "--mca", "oob_tcp_if_include", RCCL_SOCKET_IFNAME,
         "--mca", "btl_tcp_if_include", RCCL_SOCKET_IFNAME,
         "--host", nodes_str,
-        "--mca", "plm_rsh_agent", f'"ssh -p {ssh_port}"',
+        "--mca", "plm_rsh_agent", f'"ssh -p {SSH_PORT}"',
         "-x", f"LD_LIBRARY_PATH={LD_LIBRARY_PATH}",
         "-x", f"RCCL_SOCKET_IFNAME={RCCL_SOCKET_IFNAME}",
         "-x", f"RCCL_IB_HCA={RCCL_IB_HCA}",
@@ -238,6 +238,8 @@ def main():
                         help="Network interface for RCCL_SOCKET_IFNAME (default: ens51f0)")
     parser.add_argument("--ib-hca", type=str, default="bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7",
                     help="InfiniBand HCAs for RCCL_IB_HCA (default: bnxt_re[0-7])")
+    parser.add_argument("--ssh-port", type=int, default="22",
+                        help="port for SSH to connect to (default: 22)")
     args = parser.parse_args()
 
     nodes = get_sort_ip("/root/hosts")
@@ -251,6 +253,7 @@ def main():
     DEBUG_MODE = args.debug
     RCCL_SOCKET_IFNAME = args.socket_ifname
     RCCL_IB_HCA = args.ib_hca
+    SSH_PORT = args.ssh_port
 
     log(f"🔍 Starting diagnosis on {nodes}, threshold = {THRESHOLD_GBPS} GB/s")
     log("⚙️ Starting recursive diagnosis...")
