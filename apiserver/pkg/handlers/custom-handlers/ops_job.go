@@ -59,6 +59,8 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 		job, err = h.generateAddonJob(ctx, req)
 	case v1.OpsJobPreflightType:
 		job, err = h.generatePreflightJob(ctx, req)
+	case v1.OpsJobDiagnoseType:
+		job, err = h.generateDiagnoseJob(ctx, req)
 	case v1.OpsJobDumpLogType:
 		job, err = h.generateDumpLogJob(ctx, req)
 	default:
@@ -180,6 +182,59 @@ func (h *Handler) generatePreflightJob(ctx context.Context, req *types.CreateOps
 	job.Spec.Cluster = v1.GetClusterId(adminNode)
 	v1.SetLabel(job, v1.GpuProductNameLabel, strings.ToLower(v1.GetGpuProductName(adminNode)))
 	return job, nil
+}
+
+func (h *Handler) generateDiagnoseJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+	if commonconfig.GetDiagnoseImage() == "" {
+		return nil, commonerrors.NewInternalError("The diagnose function is not enabled")
+	}
+	job := genDefaultOpsJob(req)
+	workloadParam := job.GetParameter(v1.ParameterWorkload)
+	nodeParam := job.GetParameter(v1.ParameterNode)
+	if nodeParam == nil && workloadParam != nil {
+		nodes, err := h.getNodesOfWorkload(ctx, workloadParam.Value)
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range nodes {
+			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n})
+		}
+		nodeParam = job.GetParameter(v1.ParameterNode)
+	}
+	if nodeParam == nil {
+		return nil, commonerrors.NewInternalError("Node parameter or Workload parameter is required")
+	}
+	adminNode, err := h.getAdminNode(ctx, nodeParam.Value)
+	if err != nil {
+		return nil, err
+	}
+	job.Spec.Cluster = v1.GetClusterId(adminNode)
+	return job, nil
+}
+
+func (h *Handler) getNodesOfWorkload(ctx context.Context, workloadId string) ([]string, error) {
+	if commonconfig.IsDBEnable() {
+		workload, err := h.dbClient.GetWorkload(ctx, workloadId)
+		if err != nil {
+			return nil, err
+		}
+		if str := dbutils.ParseNullString(workload.Nodes); str != "" {
+			var nodes [][]string
+			json.Unmarshal([]byte(str), &nodes)
+			if len(nodes) > 0 {
+				return nodes[len(nodes)-1], nil
+			}
+		}
+	} else {
+		workload, err := h.getAdminWorkload(ctx, workloadId)
+		if err != nil {
+			return nil, err
+		}
+		if len(workload.Status.Nodes) > 0 {
+			return workload.Status.Nodes[len(workload.Status.Nodes)-1], nil
+		}
+	}
+	return nil, nil
 }
 
 func (h *Handler) generateDumpLogJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {

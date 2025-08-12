@@ -37,7 +37,7 @@ for i in $(seq $START $END); do
 done
 
 if [ "$ALL_PASS" = true ]; then
-  echo "[RvsGpuMemory] [SUCCESS] All mem tests from $START to $END passed."
+  echo "[RvsGpuMemory] [SUCCESS] tests passed"
   exit 0
 else
   exit 1

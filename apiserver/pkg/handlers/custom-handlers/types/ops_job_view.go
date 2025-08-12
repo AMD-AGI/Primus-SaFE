@@ -57,7 +57,7 @@ type GetOpsJobRequest struct {
 	// the cluster which the job belongs to
 	Cluster string `form:"cluster" binding:"omitempty,max=64"`
 	// job submitter
-	UserName string `json:"userName,omitempty"`
+	UserName string `form:"userName" binding:"omitempty,max=64"`
 	// job phase
 	Phase v1.OpsJobPhase `form:"phase" binding:"omitempty"`
 	// job type

@@ -39,6 +39,7 @@ data:
   # primus system: 5XX, System reserved
   addon: '{"id": "501","action":"taint","toggle":"on"}'
   preflight: '{"id": "502","action":"taint","toggle":"on"}'
+  diagnose: '{"id": "503","action":"taint","toggle":"on"}'
   # k8s
   NotReady: '{"id":"NotReady","action":"taint","toggle":"on"}'
   DiskPressure: '{"id":"DiskPressure","action":"taint","toggle":"on"}'

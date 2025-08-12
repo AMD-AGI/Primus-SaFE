@@ -50,9 +50,9 @@ type GetWorkloadRequest struct {
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
 	// Query the start time of the workload, based on the task's creation time.
 	// e.g. '2006-01-02T15:04:05.000Z'
-	Since string `json:"since,omitempty"`
+	Since string `form:"since" binding:"omitempty"`
 	// Query the end time of the workload, similar to since
-	Until string `json:"until,omitempty"`
+	Until string `form:"until" binding:"omitempty"`
 }
 
 type WorkloadPodWrapper struct {

@@ -8,7 +8,6 @@ package ops_job
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,8 +29,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 )
@@ -106,24 +104,28 @@ func (r *PreflightJobReconciler) handleWorkloadEventImpl(ctx context.Context, wo
 	if !r.setNodePhase(opsJobId, nodeId, phase) {
 		return false
 	}
-	if phase == v1.OpsJobFailed {
-		r.addFailedNodeCondition(ctx, opsJobId, nodeId, workload)
-	}
+	r.addJobCondition(ctx, opsJobId, nodeId, workload, phase)
 	r.deleteFault(ctx, nodeId, common.PreflightMonitorId)
 	return true
 }
 
-func (r *PreflightJobReconciler) addFailedNodeCondition(ctx context.Context, jobId, nodeId string, workload *v1.Workload) {
-	message := commonworkload.GetFailedMessage(workload)
+func (r *PreflightJobReconciler) addJobCondition(ctx context.Context,
+	jobId, nodeId string, workload *v1.Workload, phase v1.OpsJobPhase) {
+	message := getWorkloadMessage(workload)
 	if message == "" {
-		message = "unknown reason"
+		message = "unknown"
 	}
 	condition := &metav1.Condition{
 		Type:               nodeId,
-		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.NewTime(time.Now()),
-		Reason:             "PreflightFailed",
 		Message:            message,
+	}
+	if phase == v1.OpsJobFailed {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "PreflightFailed"
+	} else {
+		condition.Status = metav1.ConditionTrue
+		condition.Reason = "PreflightSucceeded"
 	}
 	err := backoff.Retry(func() error {
 		job := &v1.OpsJob{}
@@ -183,8 +185,8 @@ func (r *PreflightJobReconciler) observe(ctx context.Context, job *v1.OpsJob) (b
 	case v1.OpsJobPending, "":
 		return false, nil
 	case v1.OpsJobRunning:
-		nodes := r.getNodesToProcess(ctx, job)
-		return len(nodes) == 0, nil
+		nodes, err := r.getNodesToProcess(ctx, job)
+		return len(nodes) == 0, err
 	case v1.OpsJobFailed, v1.OpsJobSucceeded:
 		if err := r.setJobCompleted(ctx, job, phase, message, nil); err != nil {
 			return false, err
@@ -197,12 +199,12 @@ func (r *PreflightJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool 
 	return job.Spec.Type != v1.OpsJobPreflightType
 }
 
-func (r *PreflightJobReconciler) getNodesToProcess(ctx context.Context, job *v1.OpsJob) []*v1.Node {
+func (r *PreflightJobReconciler) getNodesToProcess(ctx context.Context, job *v1.OpsJob) ([]*v1.Node, error) {
 	r.RLock()
 	preflightJob, ok := r.allJobs[job.Name]
 	if !ok {
 		r.RUnlock()
-		return nil
+		return nil, nil
 	}
 	allPendingNodes := make([]string, 0, len(preflightJob.nodes))
 	for key, val := range preflightJob.nodes {
@@ -216,12 +218,15 @@ func (r *PreflightJobReconciler) getNodesToProcess(ctx context.Context, job *v1.
 	results := make([]*v1.Node, 0, len(allPendingNodes))
 	for _, n := range allPendingNodes {
 		node, err := r.getAdminNode(ctx, n)
-		if err != nil || !v1.IsNodeTemplateInstalled(node) {
+		if err != nil {
+			return nil, err
+		}
+		if !v1.IsNodeTemplateInstalled(node) {
 			continue
 		}
 		results = append(results, node)
 	}
-	return results
+	return results, nil
 }
 
 func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
@@ -234,7 +239,10 @@ func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ct
 		return r.setJobRunning(ctx, job)
 	}
 
-	targetNodes := r.getNodesToProcess(ctx, job)
+	targetNodes, err := r.getNodesToProcess(ctx, job)
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
 	totalNum := len(targetNodes)
 	if totalNum == 0 {
 		return ctrlruntime.Result{}, nil
@@ -243,7 +251,7 @@ func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ct
 	for i := range totalNum {
 		ch <- i
 	}
-	_, err := concurrent.Exec(totalNum, func() error {
+	_, err = concurrent.Exec(totalNum, func() error {
 		i := <-ch
 		workload, err := r.genPreflightWorkload(ctx, job, targetNodes[i])
 		if err != nil {
@@ -347,15 +355,10 @@ func (r *PreflightJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, stri
 
 func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
 	job *v1.OpsJob, adminNode *v1.Node) (*v1.Workload, error) {
-	nf := &v1.NodeFlavor{}
-	if err := r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(adminNode)}, nf); err != nil {
+	res, err := r.genMaxResource(ctx, adminNode)
+	if err != nil {
 		return nil, err
 	}
-	nodeResources := nf.ToResourceList("")
-	availNodeResources := quantity.GetAvailableResource(nodeResources)
-	maxAvailCpu, _ := availNodeResources[corev1.ResourceCPU]
-	maxAvailMem, _ := availNodeResources[corev1.ResourceMemory]
-	maxAvailStorage, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
 
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -368,7 +371,7 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
 				v1.DisplayNameLabel:  job.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: v1.GetUserName(job),
+				v1.UserNameAnnotation: v1.SystemUser,
 				// Dispatch the workload immediately, skipping the queue.
 				v1.WorkloadScheduledAnnotation: time.Now().UTC().Format(time.RFC3339),
 			},
@@ -384,20 +387,18 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
 			CustomerLabels: map[string]string{
 				common.K8sHostNameLabel: adminNode.Name,
 			},
-			Resource: v1.WorkloadResource{
-				Replica:          1,
-				CPU:              maxAvailCpu.String(),
-				Memory:           maxAvailMem.String(),
-				GPU:              strconv.Itoa(v1.GetNodeGpuCount(adminNode)),
-				GPUName:          v1.GetGpuResourceName(adminNode),
-				EphemeralStorage: maxAvailStorage.String(),
-			},
 			Workspace: v1.GetWorkspaceId(adminNode),
 			Image:     commonconfig.GetPreflightImage(),
 		},
 	}
+
+	workload.Spec.Resource = *res
+	workload.Spec.Resource.Replica = 1
 	if workload.Spec.Workspace == "" {
 		workload.Spec.Workspace = corev1.NamespaceDefault
+	}
+	if job.Spec.TimeoutSecond > 0 {
+		workload.Spec.Timeout = pointer.Int(job.Spec.TimeoutSecond)
 	}
 	return workload, nil
 }

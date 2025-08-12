@@ -323,7 +323,7 @@ func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterManageClusterLabel: cluster.Name})
 	podName, err := h.getLatestPodName(c, labelSelector)
 	if err != nil {
-		return nil, err
+		return nil, commonerrors.NewNotImplemented("Logging service is only available when creating cluster")
 	}
 	podLogs, err := h.getPodLog(c, h.clientSet, common.PrimusSafeNamespace, podName, "")
 	if err != nil {
@@ -345,7 +345,7 @@ func (h *Handler) getLatestPodName(c *gin.Context, labelSelector labels.Selector
 		return "", err
 	}
 	if len(podList.Items) == 0 {
-		return "", commonerrors.NewNotFoundWithMessage("no running pod found")
+		return "", fmt.Errorf("no running pod found")
 	}
 	sort.Slice(podList.Items, func(i, j int) bool {
 		return podList.Items[i].CreationTimestamp.Time.After(podList.Items[j].CreationTimestamp.Time)

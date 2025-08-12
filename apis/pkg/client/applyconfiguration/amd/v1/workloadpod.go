@@ -13,15 +13,15 @@ import (
 // WorkloadPodApplyConfiguration represents a declarative configuration of the WorkloadPod type for use
 // with apply.
 type WorkloadPodApplyConfiguration struct {
-	PodId         *string                             `json:"podId,omitempty"`
-	K8sNodeName   *string                             `json:"k8sNodeName,omitempty"`
-	AdminNodeName *string                             `json:"adminNodeName,omitempty"`
-	Phase         *corev1.PodPhase                    `json:"phase,omitempty"`
-	HostIp        *string                             `json:"hostIP,omitempty"`
-	PodIp         *string                             `json:"podIP,omitempty"`
-	StartTime     *string                             `json:"startTime,omitempty"`
-	EndTime       *string                             `json:"endTime,omitempty"`
-	FailedMessage *PodFailedMessageApplyConfiguration `json:"failedMessage,omitempty"`
+	PodId         *string                       `json:"podId,omitempty"`
+	K8sNodeName   *string                       `json:"k8sNodeName,omitempty"`
+	AdminNodeName *string                       `json:"adminNodeName,omitempty"`
+	Phase         *corev1.PodPhase              `json:"phase,omitempty"`
+	HostIp        *string                       `json:"hostIP,omitempty"`
+	PodIp         *string                       `json:"podIP,omitempty"`
+	StartTime     *string                       `json:"startTime,omitempty"`
+	EndTime       *string                       `json:"endTime,omitempty"`
+	Containers    []ContainerApplyConfiguration `json:"containers,omitempty"`
 }
 
 // WorkloadPodApplyConfiguration constructs a declarative configuration of the WorkloadPod type for use with
@@ -94,10 +94,15 @@ func (b *WorkloadPodApplyConfiguration) WithEndTime(value string) *WorkloadPodAp
 	return b
 }
 
-// WithFailedMessage sets the FailedMessage field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the FailedMessage field is set to the value of the last call.
-func (b *WorkloadPodApplyConfiguration) WithFailedMessage(value *PodFailedMessageApplyConfiguration) *WorkloadPodApplyConfiguration {
-	b.FailedMessage = value
+// WithContainers adds the given value to the Containers field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Containers field.
+func (b *WorkloadPodApplyConfiguration) WithContainers(values ...*ContainerApplyConfiguration) *WorkloadPodApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithContainers")
+		}
+		b.Containers = append(b.Containers, *values[i])
+	}
 	return b
 }

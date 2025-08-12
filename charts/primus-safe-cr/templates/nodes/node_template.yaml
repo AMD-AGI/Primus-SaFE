@@ -11,6 +11,8 @@ spec:
   addOnTemplates:
     - disable-os-upgrade
     - disable-numa-balancing
+    - enable-cpu-performance
+    - enable-huge-pages
     - load-amdgpu-module
     - load-rdma-module
     - sysctl-ulimit

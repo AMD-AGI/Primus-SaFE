@@ -29,12 +29,14 @@ const (
 	KubeSystemNamespace = "kube-system"
 	KubePublicNamespace = "kube-public"
 	PytorchJobPortName  = "pytorchjob-port"
+	SSHPortName         = "ssh-port"
 
 	DefaultBurst = 1000
 	DefaultQPS   = 1000
 
 	AddonMonitorId     = "501"
 	PreflightMonitorId = "502"
+	DiagnoseMonitorId  = "503"
 
 	HighPriority    = "high-priority"
 	MedPriority     = "med-priority"
