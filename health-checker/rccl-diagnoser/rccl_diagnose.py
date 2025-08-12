@@ -112,6 +112,7 @@ def run_rccl_test(nodes: List[str]) -> float:
         with open(log_file, "w") as f:
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                     text=True, timeout=600)  # 10 minutes timeout
+            print(result.stdout)
             f.write(result.stdout)
 
         target_size = str(parse_size(TEST_SIZE))
