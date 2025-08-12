@@ -16,6 +16,8 @@ cd openmpi-4.1.8
   --enable-mpi1-compatibility \
   --with-platform=optimized \
   --enable-ipv6 \
+  --enable-static \
+  --disable-shared \
   --with-libevent=internal > /dev/null 2>&1
 if [ $? -ne 0 ]; then
   echo "failed to configure openmpi-4.1.8"

@@ -247,7 +247,7 @@ def main():
         print("Error: At least 2 nodes are required.")
         sys.exit(1)
 
-    global THRESHOLD_GBPS, MAX_CONCURRENT_TESTS, DEBUG_MODE,  RCCL_SOCKET_IFNAME, RCCL_IB_HCA
+    global THRESHOLD_GBPS, MAX_CONCURRENT_TESTS, DEBUG_MODE,  RCCL_SOCKET_IFNAME, RCCL_IB_HCA, SSH_PORT
     THRESHOLD_GBPS = args.threshold
     MAX_CONCURRENT_TESTS = args.max_concurrent
     DEBUG_MODE = args.debug
