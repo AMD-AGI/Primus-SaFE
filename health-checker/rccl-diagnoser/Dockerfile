@@ -6,6 +6,7 @@ RUN apt update && \
         python3 \
         python3-pip \
         python3-distutils \
+        openssh-server \
         git \
         make \
         && \

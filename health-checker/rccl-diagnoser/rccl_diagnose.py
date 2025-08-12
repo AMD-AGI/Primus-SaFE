@@ -5,6 +5,7 @@
 
 import subprocess
 import sys
+import os
 import argparse
 import random
 import time
@@ -20,7 +21,7 @@ RCCL_TEST = "/root/rccl-tests/build/all_reduce_perf"
 NUM_GPUS_PER_NODE = 8
 TEST_SIZE = "1G"
 
-LD_LIBRARY_PATH = "/opt/rocm/lib:/usr/lib/x86_64-linux-gnu/openmpi/lib"
+LD_LIBRARY_PATH = "/opt/rocm/lib:/opt/openmpi-4.1.8/lib"
 RCCL_SOCKET_IFNAME = "ens51f0"
 RCCL_IB_HCA = "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
 NCCL_IB_GID_INDEX = "3"
@@ -84,7 +85,8 @@ def run_rccl_test(nodes: List[str]) -> float:
         return 0.0
 
     np = len(nodes) * NUM_GPUS_PER_NODE
-    host_str = ",".join([f"{node}:{NUM_GPUS_PER_NODE}" for node in nodes])
+    nodes_str = ",".join(nodes)
+    ssh_port=os.getenv("SSH_PORT", "22")
 
     cmd = [
         MPIEXEC, "-np", str(np), "-N", str(NUM_GPUS_PER_NODE),
@@ -92,7 +94,8 @@ def run_rccl_test(nodes: List[str]) -> float:
         "--mca", "routed", "direct",
         "--mca", "oob_tcp_if_include", RCCL_SOCKET_IFNAME,
         "--mca", "btl_tcp_if_include", RCCL_SOCKET_IFNAME,
-        "--host", host_str,
+        "--host", nodes_str,
+        "--mca", "plm_rsh_agent", f"ssh -p {ssh_port}",
         "-x", f"LD_LIBRARY_PATH={LD_LIBRARY_PATH}",
         "-x", f"RCCL_SOCKET_IFNAME={RCCL_SOCKET_IFNAME}",
         "-x", f"RCCL_IB_HCA={RCCL_IB_HCA}",

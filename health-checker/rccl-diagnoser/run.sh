@@ -5,6 +5,13 @@
 # See LICENSE for license information.
 #
 
+export SSH_PORT=$SSH_PORT
+bash build_ssh.sh
+if [ $? -ne 0 ]; then
+  echo "failed to build ssh"
+  exit 1
+fi
+
 pip3 install -r requirements.txt > /dev/null
 if [ $? -ne 0 ]; then
   echo "failed to install python package"
@@ -21,20 +28,9 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-rm -rf /root/.ssh
-mkdir /root/.ssh
-touch /root/.ssh/authorized_keys
-touch /root/.ssh/config
-ssh-keygen -t rsa -b 4096 -N "" -f  /root/.ssh/id_rsa
-if [ $? -ne 0 ]; then
-  echo "failed to execute ssh-keygen"
-  exit 1
-fi
-
 export WORK_PATH=/opt/primus-safe/diagnoser
 export WORLD_SIZE=$WORLD_SIZE
 export RANK=$RANK
-export SSH_PORT=$SSH_PORT
 torchrun \
   --nproc_per_node=1 \
   --nnodes=$WORLD_SIZE \
@@ -50,7 +46,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-cat /root/.ssh/config  | grep "Host " | awk '{print $2}' |sort | uniq > /root/hosts
+cat /root/.ssh/config  | grep "Host " | awk '{print $2}' > /root/hosts
 
 if [[ "$RANK" == "0" ]]; then
   debug=""
