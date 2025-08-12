@@ -47,17 +47,19 @@ def get_log_filename(nodes: List[str]) -> str:
     hash_hex = hash_obj.hexdigest()[:16]
     return f"/tmp/rccl_test_{hash_hex}.log"
 
+def ip_to_number(ip):
+    return sum(int(octet) << (8 * i) for i, octet in enumerate(reversed(ip.split('.'))))
+
+def number_to_ip(num):
+    return '.'.join(str((num >> (8 * i)) & 255) for i in reversed(range(4)))
+
 def get_sort_ip(hosts_file):
     ip_list = []
     with open(hosts_file, "r") as file:
         for line in file:
             if line.strip() and line.strip()[0].isdigit():
                 ip_list.append(line.strip())
-
-    ip_int_list = [list(map(int, ip.split('.'))) for ip in ip_list]
-    ip_int_list.sort()
-    sorted_ip_list = [",".join(map(str, ip)) for ip in ip_int_list]
-    return sorted_ip_list
+    return [number_to_ip(ip_to_number(ip)) for ip in sorted(ip_list, key=ip_to_number)]
 
 def parse_size(size_str: str) -> int:
     size_str = size_str.strip().upper()
@@ -95,7 +97,7 @@ def run_rccl_test(nodes: List[str]) -> float:
         "--mca", "oob_tcp_if_include", RCCL_SOCKET_IFNAME,
         "--mca", "btl_tcp_if_include", RCCL_SOCKET_IFNAME,
         "--host", nodes_str,
-        "--mca", "plm_rsh_agent", f"ssh -p {ssh_port}",
+        "--mca", "plm_rsh_agent", f'"ssh -p {ssh_port}"',
         "-x", f"LD_LIBRARY_PATH={LD_LIBRARY_PATH}",
         "-x", f"RCCL_SOCKET_IFNAME={RCCL_SOCKET_IFNAME}",
         "-x", f"RCCL_IB_HCA={RCCL_IB_HCA}",

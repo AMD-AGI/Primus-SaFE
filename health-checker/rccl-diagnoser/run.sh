@@ -46,7 +46,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-cat /root/.ssh/config  | grep "Host " | awk '{print $2}' > /root/hosts
+cat /root/.ssh/config  | grep "Host " | awk '{print $2}' | sort | uniq > /root/hosts
 
 if [[ "$RANK" == "0" ]]; then
   debug=""

@@ -18,10 +18,12 @@ cd openmpi-4.1.8
   --enable-ipv6 \
   --with-libevent=internal > /dev/null 2>&1
 if [ $? -ne 0 ]; then
+  echo "failed to configure openmpi-4.1.8"
   exit 1
 fi
 
-make install > /dev/null
+make install > /dev/null 2>&1
 if [ $? -ne 0 ]; then
+  echo "failed to install openmpi-4.1.8"
   exit 1
 fi
