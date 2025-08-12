@@ -314,6 +314,29 @@ func (r *OpsJobBaseReconciler) genMaxResource(ctx context.Context, adminNode *v1
 	}, nil
 }
 
+func getWorkloadMessage(workload *v1.Workload) string {
+	switch workload.Status.Phase {
+	case v1.WorkloadFailed, v1.WorkloadSucceeded:
+		for _, pod := range workload.Status.Pods {
+			for _, c := range pod.Containers {
+				if c.Name != v1.GetMainContainer(workload) {
+					continue
+				}
+				if c.Message != "" {
+					return c.Message
+				}
+			}
+		}
+	case v1.WorkloadStopped:
+		return "workload is stopped"
+	default:
+		if !workload.GetDeletionTimestamp().IsZero() {
+			return "workload is stopped"
+		}
+	}
+	return ""
+}
+
 func onJobRunning() predicate.Predicate {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {

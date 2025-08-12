@@ -64,5 +64,5 @@ else
   echo "[TransferBenchP2P] [ERROR]: failed to measure bandwidth between cpu and gpu, $line2, the value is less than threshold(43.9)." >&2
   exit 1
 fi
-echo "[TransferBenchP2P] [SUCCESS]: tests passed"
+echo "[TransferBenchP2P] [SUCCESS] tests passed"
 exit 0

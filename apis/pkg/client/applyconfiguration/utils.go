@@ -50,8 +50,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.ClusterStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("CommandStatus"):
 		return &amdv1.CommandStatusApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("ContainerFailedMessage"):
-		return &amdv1.ContainerFailedMessageApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("Container"):
+		return &amdv1.ContainerApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ControlPlane"):
 		return &amdv1.ControlPlaneApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ControlPlaneStatus"):
@@ -112,8 +112,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.ParameterApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("PhaseExpression"):
 		return &amdv1.PhaseExpressionApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("PodFailedMessage"):
-		return &amdv1.PodFailedMessageApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ReplicatedSpec"):
 		return &amdv1.ReplicatedSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ResourceSpec"):

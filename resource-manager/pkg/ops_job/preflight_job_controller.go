@@ -29,7 +29,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 )
@@ -105,24 +104,28 @@ func (r *PreflightJobReconciler) handleWorkloadEventImpl(ctx context.Context, wo
 	if !r.setNodePhase(opsJobId, nodeId, phase) {
 		return false
 	}
-	if phase == v1.OpsJobFailed {
-		r.addFailedNodeCondition(ctx, opsJobId, nodeId, workload)
-	}
+	r.addJobCondition(ctx, opsJobId, nodeId, workload, phase)
 	r.deleteFault(ctx, nodeId, common.PreflightMonitorId)
 	return true
 }
 
-func (r *PreflightJobReconciler) addFailedNodeCondition(ctx context.Context, jobId, nodeId string, workload *v1.Workload) {
-	message := commonworkload.GetFailedMessage(workload)
+func (r *PreflightJobReconciler) addJobCondition(ctx context.Context,
+	jobId, nodeId string, workload *v1.Workload, phase v1.OpsJobPhase) {
+	message := getWorkloadMessage(workload)
 	if message == "" {
-		message = "unknown reason"
+		message = "unknown"
 	}
 	condition := &metav1.Condition{
 		Type:               nodeId,
-		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.NewTime(time.Now()),
-		Reason:             "PreflightFailed",
 		Message:            message,
+	}
+	if phase == v1.OpsJobFailed {
+		condition.Status = metav1.ConditionFalse
+		condition.Reason = "PreflightFailed"
+	} else {
+		condition.Status = metav1.ConditionTrue
+		condition.Reason = "PreflightSucceeded"
 	}
 	err := backoff.Retry(func() error {
 		job := &v1.OpsJob{}

@@ -172,22 +172,15 @@ type WorkloadPod struct {
 	StartTime string `json:"startTime,omitempty"`
 	// pod end time
 	EndTime string `json:"endTime,omitempty"`
-	// error message
-	FailedMessage *PodFailedMessage `json:"failedMessage,omitempty"`
+	// container info
+	Containers []Container `json:"containers,omitempty"`
 }
 
-type ContainerFailedMessage struct {
+type Container struct {
 	Name     string `json:"name"`
 	Reason   string `json:"reason,omitempty"`
 	Message  string `json:"message,omitempty"`
 	ExitCode int32  `json:"exitCode"`
-	Signal   int32  `json:"signal"`
-	Analysis string `json:"analysis,omitempty"`
-}
-
-type PodFailedMessage struct {
-	Message    string                   `json:"message,omitempty"`
-	Containers []ContainerFailedMessage `json:"containers,omitempty"`
 }
 
 // +genclient

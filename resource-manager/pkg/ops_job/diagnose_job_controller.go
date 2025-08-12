@@ -27,7 +27,6 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 )
 
@@ -91,15 +90,14 @@ func isDiagnoseWorkload(workload *v1.Workload) bool {
 
 func (r *DiagnoseJobReconciler) handleWorkloadEventImpl(ctx context.Context, workload *v1.Workload) {
 	var phase v1.OpsJobPhase
-	var message string
 	if workload.Status.Phase == v1.WorkloadSucceeded {
 		phase = v1.OpsJobSucceeded
 	} else {
 		phase = v1.OpsJobFailed
-		message = commonworkload.GetFailedMessage(workload)
-		if message == "" {
-			message = "unknown reason"
-		}
+	}
+	message := getWorkloadMessage(workload)
+	if message == "" {
+		message = "unknown"
 	}
 
 	jobId := v1.GetOpsJobId(workload)
