@@ -35,6 +35,6 @@ for i in {1..17}; do
     exit 1
   fi
 done
-echo "[RvsPcieQuality] [SUCCESS]: $total tests passed"
+echo "[RvsPcieQuality] [SUCCESS] tests passed"
 rm -f $LOG_FILE
 exit 0

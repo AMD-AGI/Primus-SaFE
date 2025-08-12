@@ -440,7 +440,7 @@ func TestCreateK8sJob(t *testing.T) {
 		Version: "v1",
 		Kind:    common.JobKind,
 	}
-	workload.Spec.Workspace = ""
+	workload.Spec.Workspace = corev1.NamespaceDefault
 	workload.Spec.CustomerLabels = map[string]string{
 		common.K8sHostNameLabel: "node1",
 	}

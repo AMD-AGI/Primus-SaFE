@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"strconv"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -325,31 +324,36 @@ func isWorkloadEnd(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatu
 }
 
 func getFailedPodInfo(workload *v1.Workload) string {
-	result := ""
-	i := 0
 	type FailedPodInfo struct {
-		Pod  string `json:"pod"`
-		Node string `json:"node"`
-		*v1.PodFailedMessage
+		Pod       string       `json:"pod"`
+		Node      string       `json:"node"`
+		Container v1.Container `json:"container"`
 	}
-
+	var result []FailedPodInfo
+	i := 0
 	for _, pod := range workload.Status.Pods {
 		if pod.Phase != corev1.PodFailed {
 			continue
 		}
-		if result != "" {
-			result += "; "
-		}
-		i++
 		info := FailedPodInfo{
-			Pod:              pod.PodId,
-			Node:             pod.K8sNodeName,
-			PodFailedMessage: pod.FailedMessage,
+			Pod:  pod.PodId,
+			Node: pod.K8sNodeName,
 		}
-		result += "(" + strconv.Itoa(i) + ") " + string(jsonutils.MarshalSilently(&info))
+		for _, c := range pod.Containers {
+			if c.ExitCode == int32(0) {
+				continue
+			}
+			info.Container = c
+			break
+		}
+		result = append(result, info)
+		i++
 		if i >= 3 {
 			break
 		}
 	}
-	return result
+	if len(result) == 0 {
+		return ""
+	}
+	return string(jsonutils.MarshalSilently(result))
 }

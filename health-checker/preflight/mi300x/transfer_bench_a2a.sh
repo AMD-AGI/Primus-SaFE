@@ -40,6 +40,6 @@ if [[ "$result" -eq 1 ]]; then
   echo "[TransferBenchA2A] [ERROR]: the data transfer rates does not meet the standard. average bandwidth($bandwidth) is less than threshold(32.9)" >&2
   exit 1
 fi
-echo "[TransferBenchA2A] [SUCCESS]: tests passed"
+echo "[TransferBenchA2A] [SUCCESS] tests passed"
 exit 0
 

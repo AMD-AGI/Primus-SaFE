@@ -6,10 +6,10 @@
 package dispatcher
 
 import (
-	"fmt"
 	"testing"
 
 	"gotest.tools/assert"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -58,7 +58,7 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 
 	ports, found, err := unstructured.NestedSlice(mainContainer, []string{"ports"}...)
 	assert.NilError(t, err)
-	assert.Equal(t, len(ports) >= 1, true)
+	assert.Equal(t, len(ports), 2)
 
 	port := ports[0].(map[string]interface{})
 	name, ok := port["name"]
@@ -68,7 +68,14 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	}
 	val, ok := port["containerPort"]
 	assert.Equal(t, ok, true)
-	assert.Equal(t, val, int64(workload.Spec.Resource.JobPort))
+	assert.Equal(t, val, int64(workload.Spec.JobPort))
+
+	port = ports[1].(map[string]interface{})
+	name, ok = port["name"]
+	assert.Equal(t, name, common.SSHPortName)
+	val, ok = port["containerPort"]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, val, int64(workload.Spec.SSHPort))
 }
 
 func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
@@ -238,7 +245,7 @@ func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, worklo
 	assert.Equal(t, ok, true)
 	matchExpressionsSlice := matchExpressionObj.([]interface{})
 	totalExpressions := len(workload.Spec.CustomerLabels)
-	if workload.Spec.Workspace != "" {
+	if workload.Spec.Workspace != "" && workload.Spec.Workspace != corev1.NamespaceDefault {
 		totalExpressions++
 	}
 	assert.Equal(t, len(matchExpressionsSlice), totalExpressions)
@@ -246,7 +253,7 @@ func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, worklo
 		return
 	}
 
-	if workload.Spec.Workspace != "" {
+	if workload.Spec.Workspace != "" && workload.Spec.Workspace != corev1.NamespaceDefault {
 		matchExpression := matchExpressionsSlice[0].(map[string]interface{})
 		key, ok := matchExpression["key"]
 		assert.Equal(t, ok, true)
@@ -302,7 +309,6 @@ func checkHostPid(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 
 	resp, found, err := unstructured.NestedBool(obj.Object, path...)
 	assert.NilError(t, err)
-	fmt.Println(v1.GetOpsJobType(workload))
 	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
 		assert.Equal(t, found, true)
 		assert.Equal(t, resp, true)

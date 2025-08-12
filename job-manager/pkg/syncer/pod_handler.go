@@ -9,7 +9,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -134,11 +133,6 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	}
 	buildPodTerminatedInfo(ctx,
 		clusterInformer.dataClientFactory.ClientSet(), adminWorkload, pod, &workloadPod)
-	if workloadPod.FailedMessage != nil {
-		klog.Infof("pod(%s) exited abnormally. message: %s",
-			pod.Name, string(jsonutils.MarshalSilently(workloadPod.FailedMessage)))
-	}
-
 	if id >= 0 {
 		adminWorkload.Status.Pods[id].K8sNodeName = workloadPod.K8sNodeName
 		adminWorkload.Status.Pods[id].AdminNodeName = workloadPod.AdminNodeName
@@ -147,7 +141,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		adminWorkload.Status.Pods[id].PodIp = workloadPod.PodIp
 		adminWorkload.Status.Pods[id].StartTime = workloadPod.StartTime
 		adminWorkload.Status.Pods[id].EndTime = workloadPod.EndTime
-		adminWorkload.Status.Pods[id].FailedMessage = workloadPod.FailedMessage
+		adminWorkload.Status.Pods[id].Containers = workloadPod.Containers
 	} else {
 		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods, workloadPod)
 	}
@@ -187,20 +181,7 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, msg *resourceM
 
 func buildPodTerminatedInfo(ctx context.Context,
 	clientSet kubernetes.Interface, adminWorkload *v1.Workload, pod *corev1.Pod, workloadPod *v1.WorkloadPod) {
-	if pod.Status.Phase == corev1.PodFailed {
-		workloadPod.FailedMessage = new(v1.PodFailedMessage)
-		message := ""
-		if pod.Status.Message != "" {
-			message = pod.Status.Message
-		}
-		if pod.Status.Reason != "" {
-			if message != "" {
-				message += ","
-			}
-			message += pod.Status.Reason
-		}
-		workloadPod.FailedMessage.Message = message
-	} else if pod.Status.Phase != corev1.PodSucceeded {
+	if pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed {
 		return
 	}
 
@@ -213,31 +194,24 @@ func buildPodTerminatedInfo(ctx context.Context,
 		if finishedTime == nil || terminated.FinishedAt.After(finishedTime.Time) {
 			finishedTime = &pod.Status.ContainerStatuses[i].State.Terminated.FinishedAt
 		}
-		exitCode := terminated.ExitCode
-		if exitCode == 0 || pod.Status.Phase != corev1.PodFailed {
-			continue
-		}
-		containerMsg := v1.ContainerFailedMessage{
+		c := v1.Container{
 			Name:     container.Name,
 			Reason:   terminated.Reason,
-			ExitCode: exitCode,
-			Signal:   terminated.Signal,
+			ExitCode: terminated.ExitCode,
 			Message:  terminated.Message,
 		}
 		if commonworkload.IsOpsJob(adminWorkload) {
-			message := getPodErrorLog(ctx, clientSet, pod, v1.GetMainContainer(adminWorkload))
-			if message != "" {
-				containerMsg.Message = message
-			}
+			message := getPodLog(ctx, clientSet, pod, v1.GetMainContainer(adminWorkload))
+			c.Message = message
 		}
-		workloadPod.FailedMessage.Containers = append(workloadPod.FailedMessage.Containers, containerMsg)
+		workloadPod.Containers = append(workloadPod.Containers, c)
 	}
 	if finishedTime != nil && !finishedTime.IsZero() {
 		workloadPod.EndTime = timeutil.FormatRFC3339(&finishedTime.Time)
 	}
 }
 
-func getPodErrorLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod, mainContainerName string) string {
+func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod, mainContainerName string) string {
 	var tailLine int64 = 1000
 	opt := &corev1.PodLogOptions{
 		Container: mainContainerName,
@@ -248,19 +222,20 @@ func getPodErrorLog(ctx context.Context, clientSet kubernetes.Interface, pod *co
 		klog.ErrorS(err, "failed to get log of pod", "namespace", pod.Namespace, "podName", pod.Name)
 		return ""
 	}
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	var errorLines []string
 
-	id := 1
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	var lines []string
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.Contains(line, "[ERROR]") {
-			errorLines = append(errorLines, fmt.Sprintf("%d. %s", id, line))
-			id++
+		if strings.Contains(line, "[ERROR]") || strings.Contains(line, "[SUCCESS]") {
+			lines = append(lines, line)
 		}
 	}
 	if err = scanner.Err(); err != nil {
-		klog.ErrorS(err, "error reading pod log lines")
+		klog.ErrorS(err, "fail to read pod log lines")
 	}
-	return strings.Join(errorLines, ";")
+	if len(lines) == 0 {
+		return ""
+	}
+	return string(jsonutils.MarshalSilently(lines))
 }

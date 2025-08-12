@@ -43,6 +43,7 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		if workload.Status.Phase != v1.WorkloadSucceeded &&
 			workload.Status.Phase != v1.WorkloadFailed {
 			workload.Status.Phase = v1.WorkloadStopped
+			workload.Status.EndTime = workload.GetDeletionTimestamp()
 		}
 	}
 

@@ -37,5 +37,6 @@ if [[ "$result" -ne 1 ]]; then
   echo "[RocBlasFp16] [ERROR] failed to evaluate the GEMM performance, Gflops ($gflops) is less than the threshold($threshold)" >&2
   exit 1
 fi
-echo "[RocBlasFp16] [SUCCESS] tests passed, result: $gflops"
+echo "[RocBlasFp16] [INFO] result: $gflops"
+echo "[RocBlasFp16] [SUCCESS] tests passed"
 exit 0

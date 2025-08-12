@@ -1,18 +1,9 @@
 #!/usr/bin/env bash
 
-# Copyright 2023 The Kubernetes Authors.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 # This presents several functions for packages which want to use kubernetes
 # code-generation tools.
@@ -64,7 +55,7 @@ function kube::codegen::internal::grep() {
 #
 function kube::codegen::gen_helpers() {
     local in_dir=""
-    local boilerplate="${KUBE_CODEGEN_ROOT}/hack/boilerplate.go.txt"
+    local boilerplate="${KUBE_CODEGEN_ROOT}/boilerplate.go.txt"
     local v="${KUBE_VERBOSE:-0}"
     local extra_peers=()
 
@@ -256,7 +247,7 @@ function kube::codegen::gen_openapi() {
     local extra_pkgs=()
     local report="/dev/null"
     local update_report=""
-    local boilerplate="${KUBE_CODEGEN_ROOT}/hack/boilerplate.go.txt"
+    local boilerplate="${KUBE_CODEGEN_ROOT}/boilerplate.go.txt"
     local v="${KUBE_VERBOSE:-0}"
 
     while [ "$#" -gt 0 ]; do
@@ -447,7 +438,7 @@ function kube::codegen::gen_client() {
     local watchable="false"
     local listers_subdir="listers"
     local informers_subdir="informers"
-    local boilerplate="${KUBE_CODEGEN_ROOT}/hack/boilerplate.go.txt"
+    local boilerplate="${KUBE_CODEGEN_ROOT}/boilerplate.go.txt"
     local plural_exceptions=""
     local v="${KUBE_VERBOSE:-0}"
 
@@ -683,7 +674,7 @@ function kube::codegen::gen_client() {
 #
 function kube::codegen::gen_register() {
     local in_dir=""
-    local boilerplate="${KUBE_CODEGEN_ROOT}/hack/boilerplate.go.txt"
+    local boilerplate="${KUBE_CODEGEN_ROOT}/boilerplate.go.txt"
     local v="${KUBE_VERBOSE:-0}"
 
     while [ "$#" -gt 0 ]; do

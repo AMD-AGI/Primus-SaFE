@@ -6,6 +6,8 @@
 package faults
 
 import (
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -49,6 +51,15 @@ func IsTaintsEqualIgnoreOrder(taints1, taints2 []corev1.Taint) bool {
 func HasTaintKey(taints []corev1.Taint, key string) bool {
 	for _, t := range taints {
 		if t.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+func HasPrimusSafeTaint(taints []corev1.Taint) bool {
+	for _, t := range taints {
+		if strings.HasPrefix(t.Key, v1.PrimusSafePrefix) {
 			return true
 		}
 	}

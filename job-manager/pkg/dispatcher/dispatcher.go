@@ -181,13 +181,12 @@ func (r *DispatcherReconciler) buildPort(ctx context.Context, workload *v1.Workl
 	// Record currently in-use ports to avoid reuse
 	if r.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector}) == nil {
 		for _, item := range workloadList.Items {
-			if !v1.IsEnableHostNetwork(&item) {
-				continue
-			}
-			ports[item.Spec.Resource.JobPort] = true
+			ports[item.Spec.JobPort] = true
+			ports[item.Spec.SSHPort] = true
 		}
 	}
-	workload.Spec.Resource.JobPort = buildRandPort(ports)
+	workload.Spec.JobPort = buildRandPort(ports)
+	workload.Spec.SSHPort = buildRandPort(ports)
 	if err := r.Update(ctx, workload); err != nil {
 		return err
 	}

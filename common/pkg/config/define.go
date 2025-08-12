@@ -73,6 +73,7 @@ const (
 	opsJobTTLSecond     = opsJobPrefix + "ttl_second"
 	opsJobTimeoutSecond = opsJobPrefix + "timeout_second"
 	preflightImage      = opsJobPrefix + "preflight_image"
+	diagnoseImage       = opsJobPrefix + "diagnose_image"
 
 	// s3
 	s3Prefix     = "s3."
