@@ -5,7 +5,7 @@
 # See LICENSE for license information.
 #
 
-pip3 install -r requirements.txt
+pip3 install -r requirements.txt > /dev/null
 if [ $? -ne 0 ]; then
   echo "failed to install python package"
   exit 1
@@ -34,6 +34,7 @@ fi
 export WORK_PATH=/opt/primus-safe/diagnoser
 export WORLD_SIZE=$WORLD_SIZE
 export RANK=$RANK
+export SSH_PORT=$SSH_PORT
 torchrun \
   --nproc_per_node=1 \
   --nnodes=$WORLD_SIZE \

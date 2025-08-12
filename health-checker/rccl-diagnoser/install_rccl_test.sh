@@ -4,7 +4,7 @@
 #
 
 REPO_URL="https://github.com/ROCm/rccl-tests.git"
-cd "/root" && git clone "$REPO_URL"
+cd "/root" && git clone "$REPO_URL" > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
 fi

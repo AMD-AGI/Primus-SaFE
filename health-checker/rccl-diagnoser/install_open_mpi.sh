@@ -3,7 +3,7 @@
 # See LICENSE for license information.
 #
 
-wget https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.8.tar.gz
+wget https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.8.tar.gz > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
 fi

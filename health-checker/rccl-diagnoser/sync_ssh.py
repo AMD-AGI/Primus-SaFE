@@ -214,7 +214,7 @@ def sync_ssh_data(args):
     gathered_nodes = [None] * world_size if rank == 0 else None
     dist.gather_object(my_node_info, gathered_nodes, dst=0)
     if rank == 0:
-        logging.info(f"Gathered {len(gathered_nodes)} node IP:Port info.")
+        logging.info(f"Gathered {len(gathered_nodes)} node {my_ip}:{my_port} info.")
         write_ssh_config(rank, gathered_nodes)
 
     # Ensure all nodes finish
