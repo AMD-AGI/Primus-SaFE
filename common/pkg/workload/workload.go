@@ -254,29 +254,3 @@ func GeneratePriorityClass(workload *v1.Workload) string {
 	}
 	return commonutils.GeneratePriorityClass(clusterId, strPriority)
 }
-
-func GetFailedMessage(workload *v1.Workload) string {
-	switch workload.Status.Phase {
-	case v1.WorkloadFailed:
-		for _, pod := range workload.Status.Pods {
-			if pod.FailedMessage == nil {
-				continue
-			}
-			for _, c := range pod.FailedMessage.Containers {
-				if c.ExitCode != 0 && c.Message != "" {
-					return c.Message
-				}
-			}
-		}
-		return "unknown failed reason"
-	case v1.WorkloadStopped:
-		return "workload is stopped"
-	case v1.WorkloadSucceeded:
-		return ""
-	default:
-		if !workload.GetDeletionTimestamp().IsZero() {
-			return "workload is stopped"
-		}
-		return ""
-	}
-}

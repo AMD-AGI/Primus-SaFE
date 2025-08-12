@@ -135,9 +135,10 @@ func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	availResource := quantity.GetAvailableResource(nf.ToResourceList(commonconfig.GetRdmaName()))
+	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
+	availResource := quantity.GetAvailableResource(nodeResources)
 	if !floatutil.FloatEqual(commonconfig.GetMaxEphemeralStorePercent(), 0) {
-		maxEphemeralStoreQuantity, _ := quantity.GetMaxEphemeralStoreQuantity(availResource)
+		maxEphemeralStoreQuantity, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
 		if maxEphemeralStoreQuantity != nil {
 			availResource[corev1.ResourceEphemeralStorage] = *maxEphemeralStoreQuantity
 		}

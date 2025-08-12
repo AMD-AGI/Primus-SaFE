@@ -35,5 +35,6 @@ if (( $(echo "$busbw < 304" | bc -l) )); then
   echo "[RcclAllReduce] [ERROR] failed to evaluate the AllReduce operator, the result($busbw GB/s) is less than the threshold(304 GB/s) at a message size of 8589934592B." >&2
   exit 1
 fi
-echo "[RcclAllReduce] [SUCCESS] tests passed, result: $busbw GB/s"
+echo "[RcclAllReduce] [INFO] result: $busbw GB/s"
+echo "[RcclAllReduce] [SUCCESS] tests passed"
 exit 0

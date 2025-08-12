@@ -28,6 +28,7 @@ const (
 	OpsJobAddonType     OpsJobType = "addon"
 	OpsJobPreflightType OpsJobType = "preflight"
 	OpsJobDumpLogType   OpsJobType = "dumplog"
+	OpsJobDiagnoseType  OpsJobType = "diagnose"
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"

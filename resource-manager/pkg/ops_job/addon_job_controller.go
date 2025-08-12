@@ -297,8 +297,8 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 		return false, err
 	}
 	key := commonfaults.GenerateTaintKey(resource.NodeNotReady)
-	if !adminNode.IsAvailable(true) || commonfaults.HasTaintKey(adminNode.Status.Taints, key) {
-		return false, commonerrors.NewInternalError("the node is unavailable")
+	if !adminNode.IsReady() || commonfaults.HasTaintKey(adminNode.Status.Taints, key) {
+		return false, fmt.Errorf("the node is not ready")
 	}
 	if err = r.createFault(ctx, job, adminNode, common.AddonMonitorId, "upgrade Addon"); err != nil {
 		return false, err

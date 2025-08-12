@@ -485,15 +485,22 @@ func cvtToListWorkloadSql(query *types.GetWorkloadRequest) (sqrl.Sqlizer, []stri
 	if userName := strings.TrimSpace(query.UserName); userName != "" {
 		dbSql = append(dbSql, sqrl.Like{
 			dbclient.GetFieldTag(dbTags, "UserName"): fmt.Sprintf("%%%s%%", userName)})
+	} else {
+		dbSql = append(dbSql, sqrl.NotEq{
+			dbclient.GetFieldTag(dbTags, "UserName"): v1.SystemUser})
 	}
 	if sinceTime := strings.TrimSpace(query.Since); sinceTime != "" {
 		if t, err := timeutil.CvtStrToRFC3339Milli(sinceTime); err == nil {
 			dbSql = append(dbSql, sqrl.GtOrEq{dbclient.GetFieldTag(dbTags, "CreateTime"): t})
+		} else {
+			klog.ErrorS(err, "fail to parse since time")
 		}
 	}
 	if untilTime := strings.TrimSpace(query.Until); untilTime != "" {
 		if t, err := timeutil.CvtStrToRFC3339Milli(untilTime); err == nil {
 			dbSql = append(dbSql, sqrl.LtOrEq{dbclient.GetFieldTag(dbTags, "CreateTime"): t})
+		} else {
+			klog.ErrorS(err, "fail to parse until time")
 		}
 	}
 	if kind := strings.TrimSpace(query.Kind); kind != "" {
@@ -520,18 +527,18 @@ func buildListWorkloadOrderBy(query *types.GetWorkloadRequest, dbTags map[string
 	createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
 
 	var orderBy []string
-	hasOrderByCreatedTime := false
+	isSortByCreatedTime := false
 	if query.SortBy != "" {
 		sortBy := strings.TrimSpace(query.SortBy)
 		sortBy = dbclient.GetFieldTag(dbTags, sortBy)
 		if sortBy != "" {
 			if stringutil.StrCaseEqual(query.SortBy, createTime) {
-				hasOrderByCreatedTime = true
+				isSortByCreatedTime = true
 			}
 			orderBy = append(orderBy, fmt.Sprintf("%s %s %s", sortBy, query.Order, nullOrder))
 		}
 	}
-	if !hasOrderByCreatedTime {
+	if !isSortByCreatedTime {
 		orderBy = append(orderBy, fmt.Sprintf("%s %s", createTime, dbclient.DESC))
 	}
 	return orderBy
@@ -600,6 +607,9 @@ func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
 				IsTolerateAll: w.IsTolerateAll,
 			},
 		},
+	}
+	if result.EndTime == "" && result.DeletionTime != "" {
+		result.EndTime = result.DeletionTime
 	}
 	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
 	json.Unmarshal([]byte(w.Resource), &result.Resource)
@@ -786,6 +796,10 @@ func buildWorkloadLabelSelector(query *types.GetWorkloadRequest) labels.Selector
 	if query.UserName != "" {
 		nameMd5 := stringutil.MD5(query.UserName)
 		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.Equals, []string{nameMd5})
+		labelSelector = labelSelector.Add(*req)
+	} else {
+		nameMd5 := stringutil.MD5(v1.SystemUser)
+		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.NotEquals, []string{nameMd5})
 		labelSelector = labelSelector.Add(*req)
 	}
 	if query.Kind != "" {

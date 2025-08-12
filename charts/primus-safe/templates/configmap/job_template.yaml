@@ -33,6 +33,11 @@ data:
                 - name: podinfo
                   mountPath: /etc/podinfo
                   readOnly: true
+              env:
+                - name: NCCL_SOCKET_IFNAME
+                  value: "{{ .Values.net.nccl_socket_ifname }}"
+                - name: NCCL_IB_HCA
+                  value: "{{ .Values.net.nccl_ib_hca }}"
               securityContext:
                 capabilities:
                   add: [ "IPC_LOCK", "SYS_PTRACE", "SYS_RESOURCE"]

@@ -60,7 +60,7 @@ func NewClient() *Client {
 		}
 		instance = &Client{db: db, DBConfig: cfg}
 		klog.Infof("init db-client successfully! conn-timeout: %d(s), request-timeout: %d(s)",
-			cfg.ConnectTimeout, cfg.RequestTimeout)
+			cfg.ConnectTimeout, commonconfig.GetDBRequestTimeoutSecond())
 	})
 	return instance
 }

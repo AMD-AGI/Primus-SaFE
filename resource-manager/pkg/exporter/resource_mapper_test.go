@@ -32,6 +32,7 @@ var (
 			MaxRetry:   2,
 			Image:      "test-image",
 			EntryPoint: "sh -c test.sh",
+			JobPort:    12345,
 			GroupVersionKind: v1.GroupVersionKind{
 				Group:   "kubeflow.org",
 				Version: "v1",
@@ -45,7 +46,6 @@ var (
 				Memory:           "256Gi",
 				SharedMemory:     "32Gi",
 				EphemeralStorage: "20Gi",
-				JobPort:          12345,
 			},
 		},
 	}

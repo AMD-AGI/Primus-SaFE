@@ -29,6 +29,6 @@ if [ -s /tmp/match_lines.txt ]; then
   echo "[RvsPerformance] [ERROR] failed to do the GPU FLOPS performance test, Found 'met: FALSE' in output." >&2
   exit 1
 fi
-echo "[RvsPerformance] [SUCCESS] tests passed."
+echo "[RvsPerformance] [SUCCESS] tests passed"
 rm -f $tmpfile
 exit 0

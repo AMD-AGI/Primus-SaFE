@@ -29,7 +29,7 @@ if [ -s /tmp/match_lines.txt ]; then
   echo "[RvsPower] [ERROR] failed to do the GPU power test, Found 'pass: FALSE' in output." >&2
   exit 1
 fi
-echo "[RvsPower] [SUCCESS] tests passed."
+echo "[RvsPower] [SUCCESS] tests passed"
 rm -f $tmpfile
 exit 0
 

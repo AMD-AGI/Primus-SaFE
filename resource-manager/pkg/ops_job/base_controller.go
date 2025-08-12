@@ -8,8 +8,10 @@ package ops_job
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,6 +25,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
@@ -174,6 +177,12 @@ func (r *OpsJobBaseReconciler) getAdminNode(ctx context.Context, name string) (*
 	if err != nil {
 		return nil, err
 	}
+	if !node.GetDeletionTimestamp().IsZero() {
+		return nil, commonerrors.NewInternalError("the node is deleting")
+	}
+	if !node.IsReady() {
+		return nil, fmt.Errorf("the node is not ready")
+	}
 	return node, nil
 }
 
@@ -284,6 +293,48 @@ func (r *OpsJobBaseReconciler) listOpsJobs(ctx context.Context, clusterId, opsjo
 		result = append(result, jobList.Items[i])
 	}
 	return result, nil
+}
+
+func (r *OpsJobBaseReconciler) genMaxResource(ctx context.Context, adminNode *v1.Node) (*v1.WorkloadResource, error) {
+	nf := &v1.NodeFlavor{}
+	if err := r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(adminNode)}, nf); err != nil {
+		return nil, err
+	}
+	nodeResources := nf.ToResourceList("")
+	availNodeResources := quantity.GetAvailableResource(nodeResources)
+	maxAvailCpu, _ := availNodeResources[corev1.ResourceCPU]
+	maxAvailMem, _ := availNodeResources[corev1.ResourceMemory]
+	maxAvailStorage, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
+	return &v1.WorkloadResource{
+		CPU:              maxAvailCpu.String(),
+		Memory:           maxAvailMem.String(),
+		GPU:              strconv.Itoa(v1.GetNodeGpuCount(adminNode)),
+		GPUName:          v1.GetGpuResourceName(adminNode),
+		EphemeralStorage: maxAvailStorage.String(),
+	}, nil
+}
+
+func getWorkloadMessage(workload *v1.Workload) string {
+	switch workload.Status.Phase {
+	case v1.WorkloadFailed, v1.WorkloadSucceeded:
+		for _, pod := range workload.Status.Pods {
+			for _, c := range pod.Containers {
+				if c.Name != v1.GetMainContainer(workload) {
+					continue
+				}
+				if c.Message != "" {
+					return c.Message
+				}
+			}
+		}
+	case v1.WorkloadStopped:
+		return "workload is stopped"
+	default:
+		if !workload.GetDeletionTimestamp().IsZero() {
+			return "workload is stopped"
+		}
+	}
+	return ""
 }
 
 func onJobRunning() predicate.Predicate {

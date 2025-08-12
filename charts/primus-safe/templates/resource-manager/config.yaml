@@ -38,6 +38,7 @@ data:
       ttl_second: {{ default 300 (default .Values.ops_job).ttl_second }}
       timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
       preflight_image: docker.io/primussafe/{{ .Values.preflight.image }}
+      diagnose_image: docker.io/primussafe/{{ .Values.diagnose.image }}
     s3:
       enable: {{ .Values.s3.enable }}
       config_path: {{ default "/etc/secrets/s3" (default .Values.s3).mount_path }}

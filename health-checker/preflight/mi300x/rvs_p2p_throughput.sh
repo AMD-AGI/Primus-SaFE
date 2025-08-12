@@ -51,6 +51,6 @@ while IFS= read -r line; do
     fi
   fi
 done < "$LOG_FILE"
-echo "[RvsP2p] [SUCCESS]: tests passed"
+echo "[RvsP2p] [SUCCESS] tests passed"
 rm -f $LOG_FILE
 exit 0
