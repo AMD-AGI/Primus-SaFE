@@ -9,7 +9,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 cd "/root/rccl-tests" || exit 1
-make MPI=1 MPI_HOME=/usr/lib/x86_64-linux-gnu/openmpi NCCL_HOME=/opt/rocm/
+make MPI=1 MPI_HOME=/opt/openmpi-4.1.8 NCCL_HOME=/opt/rocm/
 if [ $? -ne 0 ]; then
   exit 1
 fi

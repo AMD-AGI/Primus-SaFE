@@ -10,6 +10,11 @@ if [ $? -ne 0 ]; then
   echo "failed to install python package"
   exit 1
 fi
+bash install_open_mpi.sh
+if [ $? -ne 0 ]; then
+  echo "failed to install openmpi"
+  exit 1
+fi
 bash install_rccl_test.sh
 if [ $? -ne 0 ]; then
   echo "failed to install rccl-tests"

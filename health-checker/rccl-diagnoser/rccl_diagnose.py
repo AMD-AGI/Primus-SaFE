@@ -15,7 +15,7 @@ import hashlib
 from concurrent.futures import ThreadPoolExecutor
 
 # ================= configuration =================
-MPIEXEC = "/usr/bin/mpirun"
+MPIEXEC = "/opt/openmpi-4.1.8/bin/mpirun"
 RCCL_TEST = "/root/rccl-tests/build/all_reduce_perf"
 NUM_GPUS_PER_NODE = 8
 TEST_SIZE = "1G"

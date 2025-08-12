@@ -8,9 +8,6 @@ RUN apt update && \
         python3-distutils \
         git \
         make \
-        openmpi-bin \
-        openmpi-common \
-        libopenmpi-dev \
         && \
     apt clean && \
     rm -rf /var/lib/apt/lists/*
