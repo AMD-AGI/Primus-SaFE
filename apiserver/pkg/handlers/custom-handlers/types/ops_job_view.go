@@ -16,7 +16,7 @@ import (
 type CreateOpsJobRequest struct {
 	// the resource objects to be processed. e.g. {{"name": "node", "value": "node.id"}}
 	Inputs []v1.Parameter `json:"inputs"`
-	// valid values include: addon/dumplog/preflight
+	// valid values include: addon/dumplog/preflight/diagnose
 	Type v1.OpsJobType `json:"type"`
 	// the cluster which the job belongs to
 	// If the input refers to nodes in the cluster, this field may be left blank.
@@ -34,6 +34,8 @@ type CreateOpsJobRequest struct {
 	SecurityUpgrade bool `json:"securityUpgrade,omitempty"`
 	// job submitter
 	UserName string `json:"userName,omitempty"`
+	// environment variables
+	Env map[string]string `json:"env,omitempty"`
 }
 
 type CreateOpsJobResponse struct {
@@ -95,6 +97,8 @@ type GetOpsJobResponseItem struct {
 	Inputs []v1.Parameter `json:"inputs"`
 	// job outputs
 	Outputs []v1.Parameter `json:"outputs"`
+	// envionment variables
+	Env map[string]string `json:"env"`
 }
 
 type GetOpsJobResponse struct {

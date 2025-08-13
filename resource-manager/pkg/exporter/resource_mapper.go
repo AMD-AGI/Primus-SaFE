@@ -227,5 +227,9 @@ func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 			job.Status.Phase = v1.OpsJobFailed
 		}
 	}
+	if len(job.Spec.Env) > 0 {
+		result.Env = dbutils.NullString(
+			string(jsonutils.MarshalSilently(job.Spec.Env)))
+	}
 	return result
 }

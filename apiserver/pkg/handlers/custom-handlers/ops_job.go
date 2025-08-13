@@ -276,6 +276,7 @@ func genDefaultOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {
 			Type:          req.Type,
 			Inputs:        req.Inputs,
 			TimeoutSecond: req.TimeoutSecond,
+			Env:           req.Env,
 		},
 	}
 	if req.UserName != "" {
@@ -394,6 +395,9 @@ func cvtToOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponseItem {
 	result.Inputs = deserializeParams(string(job.Inputs))
 	if outputs := dbutils.ParseNullString(job.Outputs); outputs != "" {
 		json.Unmarshal([]byte(outputs), &result.Outputs)
+	}
+	if env := dbutils.ParseNullString(job.Env); env != "" {
+		json.Unmarshal([]byte(env), &result.Env)
 	}
 	if conditions := dbutils.ParseNullString(job.Conditions); conditions != "" {
 		json.Unmarshal([]byte(conditions), &result.Conditions)

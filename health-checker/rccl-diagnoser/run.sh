@@ -50,13 +50,16 @@ cat /root/.ssh/config  | grep "Host " | awk '{print $2}' | sort | uniq > /root/h
 
 if [[ "$RANK" == "0" ]]; then
   debug=""
-  if [[ "$NCCL_DEBUG" == "INFO" ]] || [[ "$NCCL_DEBUG" == "info" ]] ; then
-    debug="--debug"
+  if [[ -n "$NCCL_DEBUG" ]]; then
+    nccl_debug=$(echo "$NCCL_DEBUG" | tr '[:upper:]' '[:lower:]')
+    if [[ "$nccl_debug" == "info" ]]; then
+      debug="--debug"
+    fi
   fi
   python3 $WORK_PATH/rccl_diagnose.py --socket-ifname "$NCCL_SOCKET_IFNAME" --ib-hca "$NCCL_IB_HCA" --ssh-port $SSH_PORT $debug
   if [ $? -ne 0 ]; then
-      echo "failed to execute binary_search_rccl_test.py."
-      exit 1
+    echo "failed to execute binary_search_rccl_test.py."
+    exit 1
   fi
 fi
 

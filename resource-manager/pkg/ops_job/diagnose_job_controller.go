@@ -215,6 +215,7 @@ func (r *DiagnoseJobReconciler) genDiagnoseWorkload(ctx context.Context, job *v1
 			},
 			Workspace: v1.GetWorkspaceId(node),
 			Image:     commonconfig.GetDiagnoseImage(),
+			Env:       job.Spec.Env,
 		},
 	}
 	workload.Spec.Resource = *res
