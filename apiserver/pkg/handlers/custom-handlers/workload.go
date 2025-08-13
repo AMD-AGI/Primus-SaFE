@@ -482,25 +482,28 @@ func cvtToListWorkloadSql(query *types.GetWorkloadRequest) (sqrl.Sqlizer, []stri
 		dbSql = append(dbSql,
 			sqrl.Like{dbclient.GetFieldTag(dbTags, "Description"): fmt.Sprintf("%%%s%%", description)})
 	}
+	userNameField := dbclient.GetFieldTag(dbTags, "UserName")
 	if userName := strings.TrimSpace(query.UserName); userName != "" {
-		dbSql = append(dbSql, sqrl.Like{
-			dbclient.GetFieldTag(dbTags, "UserName"): fmt.Sprintf("%%%s%%", userName)})
+		dbSql = append(dbSql, sqrl.Like{userNameField: fmt.Sprintf("%%%s%%", userName)})
 	} else {
-		dbSql = append(dbSql, sqrl.NotEq{
-			dbclient.GetFieldTag(dbTags, "UserName"): v1.SystemUser})
+		userCondition := sqrl.Or{
+			sqrl.NotEq{userNameField: v1.SystemUser},            // username != 'system'
+			sqrl.Expr(fmt.Sprintf("%s IS NULL", userNameField)), // username IS NULL
+		}
+		dbSql = append(dbSql, userCondition)
 	}
 	if sinceTime := strings.TrimSpace(query.Since); sinceTime != "" {
 		if t, err := timeutil.CvtStrToRFC3339Milli(sinceTime); err == nil {
 			dbSql = append(dbSql, sqrl.GtOrEq{dbclient.GetFieldTag(dbTags, "CreateTime"): t})
 		} else {
-			klog.ErrorS(err, "fail to parse since time")
+			klog.ErrorS(err, "failed to parse since time")
 		}
 	}
 	if untilTime := strings.TrimSpace(query.Until); untilTime != "" {
 		if t, err := timeutil.CvtStrToRFC3339Milli(untilTime); err == nil {
 			dbSql = append(dbSql, sqrl.LtOrEq{dbclient.GetFieldTag(dbTags, "CreateTime"): t})
 		} else {
-			klog.ErrorS(err, "fail to parse until time")
+			klog.ErrorS(err, "failed to parse until time")
 		}
 	}
 	if kind := strings.TrimSpace(query.Kind); kind != "" {

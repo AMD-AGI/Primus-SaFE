@@ -294,15 +294,17 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sRes
 		return
 	}
 	adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *cond)
-	// Only keep the latest 30 conditions
-	maxReserved := 30
-	if l := len(adminWorkload.Status.Conditions); l > maxReserved {
-		begin := l - maxReserved
-		conditions := make([]metav1.Condition, 0, maxReserved)
-		for i := begin; i < l; i++ {
-			conditions = append(conditions, adminWorkload.Status.Conditions[i])
+	if commonworkload.IsApplication(adminWorkload) {
+		// Only keep the latest 30 conditions
+		maxReserved := 30
+		if l := len(adminWorkload.Status.Conditions); l > maxReserved {
+			begin := l - maxReserved
+			conditions := make([]metav1.Condition, 0, maxReserved)
+			for i := begin; i < l; i++ {
+				conditions = append(conditions, adminWorkload.Status.Conditions[i])
+			}
+			adminWorkload.Status.Conditions = conditions
 		}
-		adminWorkload.Status.Conditions = conditions
 	}
 }
 

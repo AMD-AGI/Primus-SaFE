@@ -8,7 +8,7 @@
 echo root:root | chpasswd
 ret=$?
 if [ $ret != 0 ]; then
-  echo "fail to change password! $ret"
+  echo "failed to change password! $ret"
   exit $ret
 fi
 
