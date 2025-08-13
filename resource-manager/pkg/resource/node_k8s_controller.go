@@ -392,7 +392,7 @@ func (r *NodeK8sReconciler) handleFault(ctx context.Context, adminNode *v1.Node,
 			continue
 		}
 		if isShouldCreateFault(newCondition) {
-			if adminNode.GetSpecCluster() == "" {
+			if adminNode.GetSpecCluster() == "" || !v1.IsNodeTemplateInstalled(adminNode) {
 				continue
 			}
 			if f := generateFaultOnCreation(faultNode, newCondition, faultConfigMap); f != nil {

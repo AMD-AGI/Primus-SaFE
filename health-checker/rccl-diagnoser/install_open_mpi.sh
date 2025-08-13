@@ -27,3 +27,4 @@ if [ $? -ne 0 ]; then
   echo "failed to install openmpi-4.1.8"
   exit 1
 fi
+echo "install openmpi-4.1.8 successfully"

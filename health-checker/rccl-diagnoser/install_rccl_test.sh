@@ -14,3 +14,5 @@ make MPI=1 MPI_HOME=/opt/openmpi-4.1.8 NCCL_HOME=/opt/rocm/ > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
 fi
+
+echo "install rccl-tests successfully"
