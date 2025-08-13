@@ -28,10 +28,10 @@ sed -i '/Port /d' /etc/ssh/sshd_config
 sed -i '/PermitRootLogin yes/d' /etc/ssh/sshd_config
 sed -i 's/^#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
 sed -i 's/^#AuthorizedKeysFile/AuthorizedKeysFile/' /etc/ssh/sshd_config
-echo "Port $SSH_PORT" >> /etc/ssh/sshd_config
-echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
 sed -i "s/^AllowUsers/#AllowUsers/" /etc/ssh/sshd_config
 sed -i 's/# UsePAM yes/UsePAM yes/' /etc/ssh/sshd_config
+echo "Port $SSH_PORT" >> /etc/ssh/sshd_config
+echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
 
 service ssh restart > /dev/null 2>&1
 service ssh status | grep "sshd is running"

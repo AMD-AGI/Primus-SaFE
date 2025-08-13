@@ -4,8 +4,10 @@
 #  See LICENSE for license information.
 
 """
-Robust SSH key and config synchronization using torch.distributed.
-Only rank 0 gathers data and writes files.
+SSH key and config synchronization using torch.distributed.
+MODIFIED: All ranks gather data and attempt to write files.
+This is generally not recommended due to redundancy/conflicts,
+but implemented as requested.
 """
 
 import argparse
@@ -34,13 +36,13 @@ LOG_LEVEL = logging.INFO
 def setup_logging():
     logging.basicConfig(
         level=LOG_LEVEL,
-        format="[%(asctime)s] %(levelname)s [%(funcName)s] %(message)s",
+        format="[%(asctime)s] %(levelname)s [%(funcName)s] [Rank %(rank)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Robust SSH Sync Tool")
+    parser = argparse.ArgumentParser(description="SSH Sync Tool - All Ranks Write")
     parser.add_argument(
         "--distributed-backend",
         default="gloo",
@@ -61,9 +63,8 @@ def parse_args():
     )
     parser.add_argument(
         "--no-data-sync",
-        type=int,
-        default=0,
-        help="If non-zero, skip sync and just barrier",
+        action='store_true',
+        help="If set, skip sync and just barrier",
     )
     parser.add_argument(
         "--interface",
@@ -78,6 +79,14 @@ def parse_args():
     if args.world_size < 1:
         raise ValueError("WORLD_SIZE must be >= 1")
 
+    # Inject rank into logging format for this process
+    old_factory = logging.getLogRecordFactory()
+    def record_factory(*args, **kwargs):
+        record = old_factory(*args, **kwargs)
+        record.rank = args[0].split('Rank ')[-1].split(']')[0] if 'Rank ' in args[0] else args[0]
+        return record
+    logging.setLogRecordFactory(record_factory)
+
     return args
 
 
@@ -85,7 +94,6 @@ def get_ip_by_interface(interface: str) -> str:
     """Get IP address by interface name on Linux using ioctl."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            # SIOCGIFADDR: get interface address
             ifreq = struct.pack('16sH14s', interface.encode('utf-8'), socket.AF_INET, b'\x00'*14)
             try:
                 ret = fcntl.ioctl(s.fileno(), 0x8915, ifreq)  # SIOCGIFADDR
@@ -109,6 +117,19 @@ def read_file_safe(filepath: str) -> str:
         logging.error(f"Failed to read {filepath}: {e}")
         raise
 
+def check_ssh_dir_permissions(ssh_dir: str):
+    """Check permissions of .ssh directory."""
+    try:
+        stat_info = os.stat(ssh_dir)
+        mode = stat_info.st_mode
+        permissions = oct(mode)[-3:]
+        logging.info(f"Permissions for {ssh_dir}: {permissions}")
+        # Note: 700 is strictest, 755 is sometimes acceptable
+        if permissions not in ['700', '755']:
+            logging.warning(f"Permissions for {ssh_dir} are {permissions}, recommended is 700 or 755.")
+    except Exception as e:
+        logging.error(f"Failed to check permissions for {ssh_dir}: {e}")
+
 
 def backup_file(filepath: str):
     """Create backup if file exists."""
@@ -119,27 +140,34 @@ def backup_file(filepath: str):
 
 
 def write_authorized_keys(rank: int, public_keys: list):
-    """Only rank 0 writes the authorized_keys file."""
-    if rank != 0:
-        return
+    """MODIFIED: All ranks attempt to write the authorized_keys file."""
 
+    logging.info(f"Rank {rank} is attempting to write authorized_keys with {len(public_keys)} keys.")
     try:
         backup_file(AUTHORIZED_KEYS)
+        # Acquire an exclusive lock before writing
         with open(AUTHORIZED_KEYS, "w") as f:
+            lock_fd = f.fileno()
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            logging.debug(f"Rank {rank} acquired exclusive lock on {AUTHORIZED_KEYS}")
             for key in public_keys:
                 f.write(key.strip() + "\n")
+            f.flush() # Ensure data is written before releasing lock
+            os.fsync(lock_fd)
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            logging.debug(f"Rank {rank} released lock on {AUTHORIZED_KEYS}")
         os.chmod(AUTHORIZED_KEYS, 0o600)
-        logging.info(f"Wrote {len(public_keys)} keys to {AUTHORIZED_KEYS}")
+        logging.info(f"Rank {rank} successfully wrote {len(public_keys)} keys to {AUTHORIZED_KEYS}")
     except Exception as e:
-        logging.error(f"Failed to write {AUTHORIZED_KEYS}: {e}")
-        raise
+        logging.error(f"Rank {rank} failed to write {AUTHORIZED_KEYS}: {e}")
+        # Depending on requirements, you might want to raise or just log
+        # raise # Re-raise if you want the process to fail on write error
 
 
 def write_ssh_config(rank: int, node_info_list: list):
-    """Only rank 0 writes the SSH config file."""
-    if rank != 0:
-        return
+    """MODIFIED: All ranks attempt to write the SSH config file."""
 
+    logging.info(f"Rank {rank} is attempting to write SSH config for {len(node_info_list)} nodes.")
     template = """
 Host {ip}
   HostName {ip}
@@ -152,14 +180,23 @@ Host {ip}
 
     try:
         backup_file(SSH_CONFIG)
+        # Acquire an exclusive lock before writing
         with open(SSH_CONFIG, "w") as f:
+            lock_fd = f.fileno()
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            logging.debug(f"Rank {rank} acquired exclusive lock on {SSH_CONFIG}")
             for ip, port in node_info_list:
                 f.write(template.format(ip=ip.strip(), port=port.strip()))
+            f.flush()
+            os.fsync(lock_fd)
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            logging.debug(f"Rank {rank} released lock on {SSH_CONFIG}")
         os.chmod(SSH_CONFIG, 0o600)
-        logging.info(f"Wrote {len(node_info_list)} hosts to {SSH_CONFIG}")
+        logging.info(f"Rank {rank} successfully wrote {len(node_info_list)} hosts to {SSH_CONFIG}")
     except Exception as e:
-        logging.error(f"Failed to write {SSH_CONFIG}: {e}")
-        raise
+        logging.error(f"Rank {rank} failed to write {SSH_CONFIG}: {e}")
+        # Depending on requirements, you might want to raise or just log
+        # raise
 
 
 def init_distributed(args):
@@ -180,47 +217,64 @@ def init_distributed(args):
 
 
 def sync_ssh_data(args):
-    """Main logic: gather SSH keys and IP:Port info, only rank 0 writes files."""
+    """Main logic: gather SSH keys and IP:Port info, ALL ranks write files."""
     init_distributed(args)
 
     rank = dist.get_rank()
     world_size = dist.get_world_size()
+    logging.info(f"Node process started. Rank: {rank}, World Size: {world_size}")
+
+    check_ssh_dir_permissions(SSH_DIR)
 
     # === Step 1: Gather SSH public keys ===
     try:
         my_key = read_file_safe(KEY_FILE)
+        logging.info(f"Rank {rank} read local public key (preview): {my_key[:50]}...")
     except Exception:
-        logging.error("SSH key read failed. Exiting.")
+        logging.error(f"Rank {rank} SSH key read failed. Exiting.")
         dist.destroy_process_group()
         sys.exit(1)
 
-    # Gather all keys to rank 0
-    gathered_keys = [None] * world_size if rank == 0 else None
-    dist.gather_object(my_key, gathered_keys, dst=0)
-    if rank == 0:
-        logging.info(f"Gathered {len(gathered_keys)} SSH public keys.")
-        write_authorized_keys(rank, gathered_keys)
+    # Gather all keys to ALL ranks (gather_object broadcasts result to all)
+    # However, gather_object typically gathers to one destination.
+    # To make all ranks have the list, we can use 'all_gather_object'
+    # But all_gather_object requires a list of objects of the same structure.
+    # Let's stick to gather to rank 0 and then broadcast the list.
+    gathered_keys = [None] * world_size
+    logging.info(f"Rank {rank} starting all_gather_object for SSH keys...")
+    dist.all_gather_object(gathered_keys, my_key)
+    logging.info(f"Rank {rank} finished all_gather_object for SSH keys. Received {len(gathered_keys)} keys.")
+    # Now all ranks have the full list in gathered_keys
+
+    # All ranks write authorized_keys
+    write_authorized_keys(rank, gathered_keys)
+
 
     # === Step 2: Gather IP and SSH port ===
     try:
         my_ip = get_ip_by_interface(args.interface)
         my_port = os.getenv("SSH_PORT", "22")
-    except Exception:
-        logging.error("Failed to get IP or port. Exiting.")
+        logging.info(f"Rank {rank} determined local IP: {my_ip}, Port: {my_port}")
+    except Exception as e: # Catch specific exceptions if possible
+        logging.error(f"Rank {rank} failed to get IP or port: {e}. Exiting.")
         dist.destroy_process_group()
         sys.exit(1)
 
     my_node_info = (my_ip, my_port)
-    gathered_nodes = [None] * world_size if rank == 0 else None
-    dist.gather_object(my_node_info, gathered_nodes, dst=0)
-    if rank == 0:
-        logging.info(f"Gathered {len(gathered_nodes)} node {my_ip}:{my_port} info.")
-        write_ssh_config(rank, gathered_nodes)
+    gathered_nodes = [None] * world_size
+    logging.info(f"Rank {rank} starting all_gather_object for node info...")
+    dist.all_gather_object(gathered_nodes, my_node_info)
+    logging.info(f"Rank {rank} finished all_gather_object for node info. Received {len(gathered_nodes)} entries.")
+    # Now all ranks have the full list in gathered_nodes
 
-    # Ensure all nodes finish
+    # All ranks write SSH config
+    write_ssh_config(rank, gathered_nodes)
+
+    # Ensure all nodes finish writing
+    logging.info(f"Rank {rank} waiting at barrier...")
     dist.barrier()
-    if rank == 0:
-        logging.info("✅ SSH synchronization completed successfully.")
+    logging.info(f"Rank {rank} passed barrier.")
+    logging.info(f"✅ SSH synchronization process completed on Rank {rank}.")
 
 
 def sync_no_data(args):
@@ -228,28 +282,39 @@ def sync_no_data(args):
     init_distributed(args)
     logging.info("Barrier sync only (no data sync).")
     dist.barrier()
-    if dist.get_rank() == 0:
-        logging.info("✅ Barrier synchronization completed.")
+    rank = dist.get_rank()
+    logging.info(f"✅ Barrier synchronization process completed on Rank {rank}.")
 
 
 def main():
-    setup_logging()
     args = parse_args()
-
-    logging.info(f"Starting on rank {args.rank}")
+    setup_logging()
+    logging.info(f"Starting script execution.")
 
     try:
-        if args.no_data_sync == 0:
+        if not args.no_data_sync:
             sync_ssh_data(args)
         else:
             sync_no_data(args)
     except Exception as e:
-        logging.critical(f"Fatal error on rank {args.rank}: {e}", exc_info=True)
+        logging.critical(f"Fatal error: {e}", exc_info=True)
+        if dist.is_initialized():
+            try:
+                dist.destroy_process_group()
+            except:
+                pass
         sys.exit(1)
     finally:
         if dist.is_initialized():
-            dist.destroy_process_group()
+            try:
+                dist.destroy_process_group()
+                logging.info("Distributed process group destroyed.")
+            except Exception as e:
+                logging.warning(f"Error destroying process group: {e}")
 
 
 if __name__ == "__main__":
     main()
+
+
+
