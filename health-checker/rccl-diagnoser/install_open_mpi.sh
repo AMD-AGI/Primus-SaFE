@@ -21,7 +21,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-make -j8 > /dev/null 2>&1
+make -j 16 > /dev/null 2>&1
 if [ $? -ne 0 ]; then
   echo "failed to make openmpi-4.1.8"
   exit 1
