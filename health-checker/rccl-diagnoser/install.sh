@@ -11,7 +11,15 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-for script in *.sh; do
+SCRIPTS_TO_RUN=(
+    "install_cmake.sh"
+    "install_rocm.sh"
+    "install_rccl.sh"
+    "install_mpi.sh"
+    "install_rccl_test.sh"
+)
+
+for script in "${SCRIPTS_TO_RUN[@]}"; do
   bash "$script"
   if [ $? -ne 0 ]; then
     echo "failed to run $script"

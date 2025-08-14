@@ -16,12 +16,12 @@ import hashlib
 from concurrent.futures import ThreadPoolExecutor
 
 # ================= configuration =================
-MPIEXEC = "/opt/openmpi-4.1.8/bin/mpirun"
+MPIEXEC = "/opt/mpich/bin/mpirun"
 RCCL_TEST = "/opt/rccl-tests/build/all_reduce_perf"
 NUM_GPUS_PER_NODE = 8
 TEST_SIZE = "1G"
 
-LD_LIBRARY_PATH = "/opt/rocm/lib:/opt/openmpi-4.1.8/lib"
+LD_LIBRARY_PATH = "/opt/rocm/lib:/opt/mpich/lib"
 RCCL_SOCKET_IFNAME = "ens51f0"
 RCCL_IB_HCA = "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
 NCCL_IB_GID_INDEX = "3"

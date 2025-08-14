@@ -9,6 +9,7 @@ cd "/opt" && git clone "$REPO_URL" > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
 fi
+
 cd "/opt/rccl-tests" || exit 1
 make -j 16 MPI=1 MPI_HOME=/opt/mpich NCCL_HOME=/opt/rocm > /dev/null
 if [ $? -ne 0 ]; then
