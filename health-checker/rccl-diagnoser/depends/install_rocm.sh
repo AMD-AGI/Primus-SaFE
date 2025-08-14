@@ -5,19 +5,19 @@
 
 echo "begin to install rocm-6.4.3"
 
-wget https://repo.radeon.com/amdgpu-install/6.4.3/ubuntu/jammy/amdgpu-install_6.4.60403-1_all.deb
+wget https://repo.radeon.com/amdgpu-install/6.4.3/ubuntu/jammy/amdgpu-install_6.4.60403-1_all.deb > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
 fi
 
-apt install -y ./amdgpu-install_6.4.60403-1_all.deb
+apt install -y ./amdgpu-install_6.4.60403-1_all.deb > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
 fi
 
-apt update
+apt update > /dev/null
 usermod -a -G render,video # Add the current user to the render and video groups
-apt install -y rocm
+apt install -y rocm > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
 fi

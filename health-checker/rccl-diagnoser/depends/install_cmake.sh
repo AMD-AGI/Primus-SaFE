@@ -13,27 +13,24 @@ CMAKE_SOURCE_FILE="cmake-${CMAKE_VERSION}.tar.gz"
 CMAKE_SOURCE_DIR="cmake-${CMAKE_VERSION}"
 CMAKE_INSTALL_PREFIX="/usr/local"
 
-echo "=============================="
-echo "begin to CMake ${CMAKE_VERSION}"
-echo "install-prefix: ${CMAKE_INSTALL_PREFIX}"
-echo "=============================="
+echo "begin to CMake ${CMAKE_VERSION}, install-prefix: ${CMAKE_INSTALL_PREFIX}"
 
 apt-get update
-apt-get install -y build-essential libssl-dev
+apt-get install -y build-essential libssl-dev > /dev/null
 
 if [ ! -f "${CMAKE_SOURCE_FILE}" ]; then
   wget "${CMAKE_URL_PREFIX}/${CMAKE_SOURCE_FILE}"
 fi
 
 if [ ! -d "${CMAKE_SOURCE_DIR}" ]; then
-  tar -xzf "${CMAKE_SOURCE_FILE}"
+  tar -xzf "${CMAKE_SOURCE_FILE}" > /dev/null
 fi
 
 cd "${CMAKE_SOURCE_DIR}"
-./configure --prefix="${CMAKE_INSTALL_PREFIX}"
-make -j$(nproc)
+./configure --prefix="${CMAKE_INSTALL_PREFIX}" > /dev/null
+make -j$(nproc) > /dev/null
 
-make install
+make install > /dev/null
 
 ldconfig
 if command -v cmake &> /dev/null; then

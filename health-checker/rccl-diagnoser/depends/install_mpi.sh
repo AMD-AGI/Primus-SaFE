@@ -5,7 +5,7 @@
 
 echo "begin to install mpich-4.3.1"
 
-wget https://www.mpich.org/static/downloads/4.3.1/mpich-4.3.1.tar.gz > /dev/null 2>&1
+wget https://www.mpich.org/static/downloads/4.3.1/mpich-4.3.1.tar.gz > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
 fi
@@ -17,19 +17,19 @@ if [ ! -d "build" ]; then
   mkdir build
 fi
 cd build
-../configure --prefix=/opt/mpich --disable-fortran --with-ucx=embedded > /dev/null 2>&1
+../configure --prefix=/opt/mpich --disable-fortran --with-ucx=embedded > /dev/null
 if [ $? -ne 0 ]; then
   echo "failed to configure mpich-4.3.1"
   exit 1
 fi
 
-make -j 16 > /dev/null 2>&1
+make -j 16 > /dev/null
 if [ $? -ne 0 ]; then
   echo "failed to make mpich-4.3.1"
   exit 1
 fi
 
-make install > /dev/null 2>&1
+make install > /dev/null
 if [ $? -ne 0 ]; then
   echo "failed to install mpich-4.3.1"
   exit 1

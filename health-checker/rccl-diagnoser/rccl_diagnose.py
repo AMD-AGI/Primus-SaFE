@@ -5,7 +5,6 @@
 
 import subprocess
 import sys
-import os
 import argparse
 import random
 import time
@@ -91,7 +90,7 @@ def run_rccl_test(nodes: List[str]) -> float:
     nodes_str = ",".join([f"{node}:{NUM_GPUS_PER_NODE}" for node in nodes])
 
     cmd = [
-        MPIEXEC, "-np", str(np), "-N", str(NUM_GPUS_PER_NODE),
+        MPIEXEC, "-np", str(np), "-npernode", str(NUM_GPUS_PER_NODE),
         "--allow-run-as-root",
         "--mca", "routed", "direct",
         "--mca", "oob_tcp_if_include", RCCL_SOCKET_IFNAME,
