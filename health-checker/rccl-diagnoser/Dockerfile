@@ -1,4 +1,6 @@
-FROM primussafe/megatron-base:0.0.1
+ARG REGISTRY=docker.io
+
+FROM ${REGISTRY}/library/ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt update && \
@@ -8,6 +10,8 @@ RUN apt update && \
         python3-distutils \
         openssh-server \
         git \
+        sed \
+        bc \
         make \
         && \
     apt clean && \
@@ -17,9 +21,9 @@ RUN python3 --version && \
     pip3 --version
 
 ARG APP_HOME=/opt/primus-safe/diagnoser
-RUN mkdir -p ${APP_HOME}
-COPY ./health-checker/rccl-diagnoser/*.py ${APP_HOME}/
-COPY ./health-checker/rccl-diagnoser/*.sh ${APP_HOME}/
-COPY ./health-checker/rccl-diagnoser/requirements.txt ${APP_HOME}/
+RUN mkdir -p ${APP_HOME} && mkdir -p ${APP_HOME}/depends
+COPY ./health-checker/rccl-diagnoser/*.py ${APP_HOME}
+COPY ./health-checker/rccl-diagnoser/*.sh ${APP_HOME}
+COPY ./health-checker/rccl-diagnoser/depends/* ${APP_HOME}/depends
 
 WORKDIR ${APP_HOME}

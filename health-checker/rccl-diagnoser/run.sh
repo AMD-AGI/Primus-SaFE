@@ -12,19 +12,8 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-pip3 install -r requirements.txt > /dev/null
+bash install.sh
 if [ $? -ne 0 ]; then
-  echo "failed to install python package"
-  exit 1
-fi
-bash install_open_mpi.sh
-if [ $? -ne 0 ]; then
-  echo "failed to install openmpi"
-  exit 1
-fi
-bash install_rccl_test.sh
-if [ $? -ne 0 ]; then
-  echo "failed to install rccl-tests"
   exit 1
 fi
 
@@ -37,7 +26,7 @@ torchrun \
   --node_rank=$RANK \
   --master_addr=$MASTER_ADDR \
   --master_port=$MASTER_PORT \
-  $WORK_PATH/sync_ssh.py \
+  $WORK_PATH/sync_ssh_key.py \
   --interface $GLOO_SOCKET_IFNAME \
   --distributed-timeout-minutes 30
 
@@ -69,7 +58,7 @@ torchrun \
   --node_rank=$RANK \
   --master_addr=$MASTER_ADDR \
   --master_port=$MASTER_PORT \
-  $WORK_PATH/sync_ssh.py \
+  $WORK_PATH/sync_ssh_key.py \
   --interface $GLOO_SOCKET_IFNAME \
   --distributed-timeout-minutes 30 \
   --no-data-sync 1
