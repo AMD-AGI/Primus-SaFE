@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 # ================= configuration =================
 MPIEXEC = "/opt/openmpi-4.1.8/bin/mpirun"
-RCCL_TEST = "/root/rccl-tests/build/all_reduce_perf"
+RCCL_TEST = "/opt/rccl-tests/build/all_reduce_perf"
 NUM_GPUS_PER_NODE = 8
 TEST_SIZE = "1G"
 
@@ -88,7 +88,7 @@ def run_rccl_test(nodes: List[str]) -> float:
         return 0.0
 
     np = len(nodes) * NUM_GPUS_PER_NODE
-    nodes_str = ",".join(nodes)
+    nodes_str = ",".join([f"{node}:{NUM_GPUS_PER_NODE}" for node in nodes])
 
     cmd = [
         MPIEXEC, "-np", str(np), "-N", str(NUM_GPUS_PER_NODE),
