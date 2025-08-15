@@ -3,7 +3,7 @@
 # See LICENSE for license information.
 #
 
-echo "begin to install openmpi"
+echo "============== begin to install openmpi =============="
 wget -q https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.8.tar.gz
 if [ $? -ne 0 ]; then
   exit 1
@@ -32,4 +32,4 @@ if [ $? -ne 0 ]; then
   echo "failed to install openmpi-4.1.8"
   exit 1
 fi
-echo "install openmpi-4.1.8 successfully"
+echo "============== install openmpi-4.1.8 successfully =============="

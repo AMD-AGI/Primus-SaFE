@@ -125,13 +125,13 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	result := &types.GetWorkloadResponse{}
+	result := &types.ListWorkloadResponse{}
 	if result.TotalCount, err = h.dbClient.CountWorkloads(ctx, dbSql); err != nil {
 		return nil, err
 	}
 
 	for _, w := range workloads {
-		workload := h.cvtDBWorkloadToResponse(ctx, w, false)
+		workload := h.cvtDBWorkloadToListItem(ctx, w)
 		result.Items = append(result.Items, workload)
 	}
 	return result, nil
@@ -148,13 +148,13 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
-		return h.cvtDBWorkloadToResponse(ctx, workload, true), nil
+		return h.cvtDBWorkloadToGetResponse(ctx, workload), nil
 	} else {
 		adminWorkload, err := h.getAdminWorkload(ctx, name)
 		if err != nil {
 			return nil, err
 		}
-		return h.cvtAdminWorkloadToResponse(ctx, adminWorkload, true), nil
+		return h.cvtAdminWorkloadToGetResponse(ctx, adminWorkload), nil
 	}
 }
 
@@ -312,6 +312,7 @@ func (h *Handler) patchPhase(ctx context.Context, workload *v1.Workload,
 	}
 	return nil
 }
+
 func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
 	query, err := parseListWorkloadQuery(c)
 	if err != nil {
@@ -336,7 +337,7 @@ func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := &types.GetWorkloadResponse{}
+	result := &types.ListWorkloadResponse{}
 	for _, w := range workloadList.Items {
 		if query.Phase != "" {
 			values := strings.Split(query.Kind, ",")
@@ -355,7 +356,7 @@ func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
 		if !untilTime.IsZero() && w.CreationTimestamp.Time.After(untilTime) {
 			continue
 		}
-		result.Items = append(result.Items, h.cvtAdminWorkloadToResponse(ctx, &w, false))
+		result.Items = append(result.Items, h.cvtAdminWorkloadToListItem(&w))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
@@ -588,10 +589,11 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	}
 }
 
-func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
-	w *dbclient.Workload, isNeedDetail bool) types.GetWorkloadResponseItem {
-	result := types.GetWorkloadResponseItem{
+func (h *Handler) cvtDBWorkloadToListItem(ctx context.Context,
+	w *dbclient.Workload) types.ListWorkloadResponseItem {
+	result := types.ListWorkloadResponseItem{
 		WorkloadId:     w.WorkloadId,
+		Workspace:      w.Workspace,
 		Cluster:        w.Cluster,
 		Phase:          dbutils.ParseNullString(w.Phase),
 		CreationTime:   dbutils.ParseNullTimeToString(w.CreateTime),
@@ -600,16 +602,11 @@ func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
 		DeletionTime:   dbutils.ParseNullTimeToString(w.DeleteTime),
 		SchedulerOrder: w.SchedulerOrder,
 		DispatchCount:  w.DispatchCount,
-		CreateWorkloadRequest: types.CreateWorkloadRequest{
-			DisplayName: w.DisplayName,
-			Description: dbutils.ParseNullString(w.Description),
-			UserName:    dbutils.ParseNullString(w.UserName),
-			WorkloadSpec: v1.WorkloadSpec{
-				Priority:      w.Priority,
-				Workspace:     w.Workspace,
-				IsTolerateAll: w.IsTolerateAll,
-			},
-		},
+		DisplayName:    w.DisplayName,
+		Description:    dbutils.ParseNullString(w.Description),
+		UserName:       dbutils.ParseNullString(w.UserName),
+		Priority:       w.Priority,
+		IsTolerateAll:  w.IsTolerateAll,
 	}
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
@@ -631,16 +628,21 @@ func (h *Handler) cvtDBWorkloadToResponse(ctx context.Context,
 			result.Message = adminWorkload.Status.Message
 		}
 	}
-	if isNeedDetail {
-		h.buildWorkloadDetail(ctx, w, &result)
-	}
 	return result
 }
 
-func (h *Handler) buildWorkloadDetail(ctx context.Context, w *dbclient.Workload, result *types.GetWorkloadResponseItem) {
-	result.Image = w.Image
-	result.IsSupervised = w.IsSupervised
-	result.MaxRetry = w.MaxRetry
+func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Workload) *types.GetWorkloadResponse {
+	result := &types.GetWorkloadResponse{
+		ListWorkloadResponseItem: h.cvtDBWorkloadToListItem(ctx, w),
+		Image:                    w.Image,
+		IsSupervised:             w.IsSupervised,
+		MaxRetry:                 w.MaxRetry,
+	}
+	if result.GroupVersionKind.Kind != common.AuthoringKind && w.EntryPoint != "" {
+		if stringutil.IsBase64(w.EntryPoint) {
+			result.EntryPoint = stringutil.Base64Decode(w.EntryPoint)
+		}
+	}
 	if w.TTLSecond > 0 {
 		result.TTLSecondsAfterFinished = pointer.Int(w.TTLSecond)
 	}
@@ -682,32 +684,24 @@ func (h *Handler) buildWorkloadDetail(ctx context.Context, w *dbclient.Workload,
 		json.Unmarshal([]byte(str), &result.Env)
 		result.Env = maps.RemoveValue(result.Env, "")
 	}
-	if result.GroupVersionKind.Kind != common.AuthoringKind && w.EntryPoint != "" {
-		if stringutil.IsBase64(w.EntryPoint) {
-			result.EntryPoint = stringutil.Base64Decode(w.EntryPoint)
-		}
-	}
+	return result
 }
 
-func (h *Handler) cvtAdminWorkloadToResponse(ctx context.Context, w *v1.Workload, isNeedDetail bool) types.GetWorkloadResponseItem {
-	result := types.GetWorkloadResponseItem{
+func (h *Handler) cvtAdminWorkloadToListItem(w *v1.Workload) types.ListWorkloadResponseItem {
+	result := types.ListWorkloadResponseItem{
 		WorkloadId:     w.Name,
 		Cluster:        v1.GetClusterId(w),
 		Phase:          string(w.Status.Phase),
 		CreationTime:   timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
 		SchedulerOrder: w.Status.SchedulerOrder,
 		DispatchCount:  v1.GetWorkloadDispatchCnt(w),
-		CreateWorkloadRequest: types.CreateWorkloadRequest{
-			DisplayName: v1.GetDisplayName(w),
-			Description: v1.GetDescription(w),
-			UserName:    v1.GetUserName(w),
-			WorkloadSpec: v1.WorkloadSpec{
-				Priority:      w.Spec.Priority,
-				Workspace:     w.Spec.Workspace,
-				Timeout:       w.Spec.Timeout,
-				IsTolerateAll: w.Spec.IsTolerateAll,
-			},
-		},
+		DisplayName:    v1.GetDisplayName(w),
+		Description:    v1.GetDescription(w),
+		UserName:       v1.GetUserName(w),
+		Priority:       w.Spec.Priority,
+		Workspace:      w.Spec.Workspace,
+		Timeout:        w.Spec.Timeout,
+		IsTolerateAll:  w.Spec.IsTolerateAll,
 	}
 	if !w.Status.StartTime.IsZero() {
 		result.StartTime = timeutil.FormatRFC3339(&w.Status.StartTime.Time)
@@ -718,28 +712,40 @@ func (h *Handler) cvtAdminWorkloadToResponse(ctx context.Context, w *v1.Workload
 	if result.Phase == string(v1.WorkloadPending) {
 		result.Message = w.Status.Message
 	}
-	if isNeedDetail {
-		result.WorkloadSpec = w.Spec
-		result.EntryPoint = stringutil.Base64Decode(result.EntryPoint)
-		result.Conditions = w.Status.Conditions
-		result.Pods = make([]types.WorkloadPodWrapper, len(w.Status.Pods))
-		for i, p := range w.Status.Pods {
-			result.Pods[i].WorkloadPod = w.Status.Pods[i]
-			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p, result.UserName, result.Workspace)
-		}
-		result.Nodes = w.Status.Nodes
-		if len(w.Spec.CustomerLabels) > 0 {
-			result.CustomerLabels = make(map[string]string)
-			for key, val := range w.Spec.CustomerLabels {
-				if strings.HasPrefix(key, common.CustomerLabelPrefix) {
-					key = key[len(common.CustomerLabelPrefix):]
-				}
-				result.CustomerLabels[key] = val
+	return result
+}
+
+func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workload) *types.GetWorkloadResponse {
+	result := &types.GetWorkloadResponse{
+		ListWorkloadResponseItem: h.cvtAdminWorkloadToListItem(w),
+		Image:                    w.Spec.Image,
+		IsSupervised:             w.Spec.IsSupervised,
+		MaxRetry:                 w.Spec.MaxRetry,
+		Conditions:               w.Status.Conditions,
+		Nodes:                    w.Status.Nodes,
+		TTLSecondsAfterFinished:  w.Spec.TTLSecondsAfterFinished,
+		Service:                  w.Spec.Service,
+		Liveness:                 w.Spec.Liveness,
+		Readiness:                w.Spec.Readiness,
+		Env:                      w.Spec.Env,
+	}
+
+	result.Pods = make([]types.WorkloadPodWrapper, len(w.Status.Pods))
+	for i, p := range w.Status.Pods {
+		result.Pods[i].WorkloadPod = w.Status.Pods[i]
+		result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p, result.UserName, result.Workspace)
+	}
+	if len(w.Spec.CustomerLabels) > 0 {
+		result.CustomerLabels = make(map[string]string)
+		for key, val := range w.Spec.CustomerLabels {
+			if strings.HasPrefix(key, common.CustomerLabelPrefix) {
+				key = key[len(common.CustomerLabelPrefix):]
 			}
+			result.CustomerLabels[key] = val
 		}
 	}
-	if commonworkload.IsAuthoring(w) {
-		result.EntryPoint = ""
+	if !commonworkload.IsAuthoring(w) {
+		result.EntryPoint = stringutil.Base64Decode(w.Spec.EntryPoint)
 	}
 	return result
 }

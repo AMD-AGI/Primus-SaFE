@@ -121,13 +121,10 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 		return workspaceList.Items[i].Name < workspaceList.Items[j].Name
 	})
 
-	result := &types.GetWorkspaceResponse{}
+	result := &types.ListWorkspaceResponse{}
 	for _, w := range workspaceList.Items {
-		item, err := h.cvtToWorkspaceResItem(ctx, &w, false)
-		if err != nil {
-			return nil, err
-		}
-		result.Items = append(result.Items, *item)
+		item := cvtToListWorkspaceResItem(&w)
+		result.Items = append(result.Items, item)
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
@@ -139,7 +136,7 @@ func (h *Handler) getWorkspace(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	result, err := h.cvtToWorkspaceResItem(ctx, workspace, true)
+	result, err := h.cvtToGetWorkspaceResponse(ctx, workspace)
 	if err != nil {
 		return nil, err
 	}
@@ -264,9 +261,8 @@ func buildListWorkspaceSelector(query *types.GetWorkspaceRequest) (labels.Select
 	return labelSelector, nil
 }
 
-func (h *Handler) cvtToWorkspaceResItem(ctx context.Context,
-	w *v1.Workspace, isNeedDetail bool) (*types.GetWorkspaceResponseItem, error) {
-	result := &types.GetWorkspaceResponseItem{
+func cvtToListWorkspaceResItem(w *v1.Workspace) types.ListWorkspaceResponseItem {
+	result := types.ListWorkspaceResponseItem{
 		WorkspaceId:   w.Name,
 		WorkspaceName: v1.GetDisplayName(w),
 		ClusterId:     w.Spec.Cluster,
@@ -279,23 +275,19 @@ func (h *Handler) cvtToWorkspaceResItem(ctx context.Context,
 		Scopes:        w.Spec.Scopes,
 		Volumes:       w.Spec.Volumes,
 		EnablePreempt: w.Spec.EnablePreempt,
+		AbnormalNode:  w.Status.AbnormalReplica,
 	}
-	if isNeedDetail {
-		if err := h.buildWorkspaceDetail(ctx, w, result); err != nil {
-			klog.ErrorS(err, "failed to buildWorkspaceDetail")
-			return nil, err
-		}
-	}
-	return result, nil
+	return result
 }
 
-func (h *Handler) buildWorkspaceDetail(ctx context.Context, workspace *v1.Workspace, result *types.GetWorkspaceResponseItem) error {
+func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.Workspace) (*types.GetWorkspaceResponse, error) {
+	result := &types.GetWorkspaceResponse{
+		ListWorkspaceResponseItem: cvtToListWorkspaceResItem(workspace),
+	}
 	availableReplica := workspace.Status.AvailableReplica
-	result.AbnormalNode = workspace.Status.AbnormalReplica
-
 	nf, err := h.getAdminNodeFlavor(ctx, workspace.Spec.NodeFlavor)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	nfResource := nf.ToResourceList(commonconfig.GetRdmaName())
 
@@ -306,14 +298,14 @@ func (h *Handler) buildWorkspaceDetail(ctx context.Context, workspace *v1.Worksp
 
 	usedQuota, err := h.getWorkspaceUsedQuota(ctx, workspace)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	result.UsedQuota = cvtToResourceList(usedQuota)
 
 	availQuota := quantity.MultiResource(nfResource, int64(availableReplica))
 	availQuota = quantity.GetAvailableResource(availQuota)
 	result.AvailQuota = cvtToResourceList(quantity.SubResource(availQuota, usedQuota))
-	return nil
+	return result, nil
 }
 
 func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Workspace) (corev1.ResourceList, error) {
