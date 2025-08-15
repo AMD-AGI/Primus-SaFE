@@ -1,15 +1,8 @@
-ARG REGISTRY=docker.io
-
-FROM ${REGISTRY}/library/ubuntu:22.04
+FROM rocm/pytorch:rocm6.4.3_ubuntu24.04_py3.12_pytorch_release_2.6.0
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt update && \
     apt install -y --no-install-recommends \
-        python3 \
-        python3-pip \
-        python3-distutils  \
-        python3-setuptools  \
-        python3-wheel \
         openssh-server \
         net-tools \
         build-essential automake autoconf \
