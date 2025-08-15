@@ -16,6 +16,7 @@ RUN mkdir dist && mkdir dist/logs
 RUN GOOS=linux GOARCH=amd64  go build -o dist/resource_manager ./resource-manager/cmd/main.go
 
 FROM ${REGISTRY}/library/ubuntu:22.04
+RUN apt update && apt install -y ca-certificates
 ARG APP_HOME=/opt/primus-safe/resource-manager
 RUN apt-get update
 RUN apt-get install -y sed

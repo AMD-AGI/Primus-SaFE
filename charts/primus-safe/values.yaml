@@ -37,3 +37,5 @@ s3:
   bucket: "juicefs"
   secret: "juicefs-secret"
   secret_namespace: "juicefs-csi"
+addon:
+  default: cert-manager.v1.17.2,training-operator.1.9.2,network-operator.25.4.0

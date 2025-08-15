@@ -1,0 +1,19 @@
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "cert-manager.v1.17.2"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: cert-manager.v1.17.2
+spec:
+  category: plugin
+  description: cert-manager is a powerful and extensible X.509 certificate controller for Kubernetes and OpenShift workloads. It will obtain certificates from a variety of Issuers, both popular public Issuers as well as private Issuers, and ensure the certificates are valid and up-to-date, and will attempt to renew certificates at a configured time before expiry.
+  url: oci://registry-1.docker.io/primussafe/cert-manager
+  version: v1.17.2
+  type: helm
+  helmDefaultNamespace: cert-manager
+  helmDefaultValues: |
+    installCRDs: true
