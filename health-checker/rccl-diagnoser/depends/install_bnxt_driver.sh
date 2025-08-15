@@ -6,10 +6,11 @@
 echo "==============  begin to install bnxt_re-231.0.162.0 =============="
 
 bnxt_package="libbnxt_re-231.0.162.0.tar.gz"
-if [ ! -f "$bnxt_package" ]; then
+if [ ! -f "${bnxt_package}" ]; then
   exit 1
 fi
 
+apt update > /dev/null
 apt -y install linux-headers-"$(uname -r)"
 if [ $? -ne 0 ]; then
   exit 1
