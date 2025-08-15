@@ -15,12 +15,12 @@ import hashlib
 from concurrent.futures import ThreadPoolExecutor
 
 # ================= configuration =================
-MPIEXEC = "/opt/mpich/bin/mpirun"
+MPIEXEC = "/opt/openmpi-4.1.8/bin/mpirun"
 RCCL_TEST = "/opt/rccl-tests/build/all_reduce_perf"
 NUM_GPUS_PER_NODE = 8
 TEST_SIZE = "1G"
 
-LD_LIBRARY_PATH = "/opt/rocm/lib:/opt/mpich/lib"
+LD_LIBRARY_PATH = "/opt/rocm/lib:/opt/openmpi-4.1.8/lib"
 RCCL_SOCKET_IFNAME = "ens51f0"
 RCCL_IB_HCA = "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
 NCCL_IB_GID_INDEX = "3"
@@ -86,9 +86,8 @@ def run_rccl_test(nodes: List[str]) -> float:
         log(f"[WARN] Not enough nodes ({nodes}) for RCCL test.")
         return 0.0
 
-    np = len(nodes) * NUM_GPUS_PER_NODE
     nodes_str = ",".join([f"{node}:{NUM_GPUS_PER_NODE}" for node in nodes])
-
+    np = len(nodes) * NUM_GPUS_PER_NODE
     cmd = [
         MPIEXEC, "-np", str(np), "-npernode", str(NUM_GPUS_PER_NODE),
         "--allow-run-as-root",

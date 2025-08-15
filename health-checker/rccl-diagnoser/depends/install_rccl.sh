@@ -3,7 +3,7 @@
 # See LICENSE for license information.
 #
 
-echo "begin to install rccl"
+echo "==============  begin to install rccl =============="
 
 git clone https://github.com/ROCm/rccl
 if [ $? -ne 0 ]; then
@@ -11,8 +11,8 @@ if [ $? -ne 0 ]; then
 fi
 
 cd rccl
-bash ./install.sh -l
+bash ./install.sh -l  > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
 fi
-echo "install rccl successfully"
+echo "==============  install rccl successfully =============="

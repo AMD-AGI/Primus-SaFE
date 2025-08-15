@@ -13,13 +13,10 @@ CMAKE_SOURCE_FILE="cmake-${CMAKE_VERSION}.tar.gz"
 CMAKE_SOURCE_DIR="cmake-${CMAKE_VERSION}"
 CMAKE_INSTALL_PREFIX="/usr/local"
 
-echo "begin to CMake ${CMAKE_VERSION}, install-prefix: ${CMAKE_INSTALL_PREFIX}"
-
-apt-get update
-apt-get install -y build-essential libssl-dev > /dev/null
+echo "============== begin to CMake ${CMAKE_VERSION}, install-prefix: ${CMAKE_INSTALL_PREFIX} =============="
 
 if [ ! -f "${CMAKE_SOURCE_FILE}" ]; then
-  wget "${CMAKE_URL_PREFIX}/${CMAKE_SOURCE_FILE}"
+  wget -q "${CMAKE_URL_PREFIX}/${CMAKE_SOURCE_FILE}"
 fi
 
 if [ ! -d "${CMAKE_SOURCE_DIR}" ]; then
@@ -35,13 +32,11 @@ make install > /dev/null
 ldconfig
 if command -v cmake &> /dev/null; then
   INSTALLED_VERSION=$(cmake --version | head -n 1)
-  echo "CMake has been installed. version: ${INSTALLED_VERSION}, path: $(which cmake)"
-
   MIN_VERSION="3.2.5"
   if [[ "$(printf '%s\n%s' "$MIN_VERSION" "$(echo $INSTALLED_VERSION | awk '{print $3}')" | sort -V | head -n1)" == "$MIN_VERSION" ]]; then
-    echo "install cmake successfully"
+    echo "============== install cmake-$INSTALLED_VERSION successfully =============="
   else
-    echo "[Warning]: the version($INSTALLED_VERSION) is less than($MIN_VERSION)"
+    echo "[ERROR]: The installed version($INSTALLED_VERSION) is lower than the expected version($MIN_VERSION)"
     exit 1
   fi
 else

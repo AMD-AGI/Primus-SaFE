@@ -15,8 +15,9 @@ SCRIPTS_TO_RUN=(
     "install_cmake.sh"
     "install_rocm.sh"
     "install_rccl.sh"
-    "install_mpi.sh"
+    "install_open_mpi.sh"
     "install_rccl_test.sh"
+    "install_bnxt_driver.sh"
 )
 
 for script in "${SCRIPTS_TO_RUN[@]}"; do

@@ -33,7 +33,7 @@ sed -i 's/# UsePAM yes/UsePAM yes/' /etc/ssh/sshd_config
 echo "Port $SSH_PORT" >> /etc/ssh/sshd_config
 echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
 
-service ssh restart > /dev/null 2>&1
+service ssh restart > /dev/null
 service ssh status | grep "sshd is running"
 ret=$?
 if [ $ret != 0 ]; then

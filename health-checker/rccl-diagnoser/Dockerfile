@@ -11,9 +11,15 @@ RUN apt update && \
         python3-setuptools  \
         python3-wheel \
         openssh-server \
+        net-tools \
+        build-essential automake autoconf \
+        libtool \
         git \
         sed \
         bc \
+        libssl-dev \
+        libelf-dev \
+        librdmacm-dev rdmacm-utils infiniband-diags ibverbs-utils perftest ethtool libibverbs-dev rdma-core strace \
         wget \
         && \
     apt clean && \

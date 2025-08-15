@@ -3,9 +3,9 @@
 # See LICENSE for license information.
 #
 
-echo "begin to install rocm-6.4.3"
+echo "============== begin to install rocm-6.4.3 =============="
 
-wget https://repo.radeon.com/amdgpu-install/6.4.3/ubuntu/jammy/amdgpu-install_6.4.60403-1_all.deb > /dev/null
+wget -q https://repo.radeon.com/amdgpu-install/6.4.3/ubuntu/jammy/amdgpu-install_6.4.60403-1_all.deb
 if [ $? -ne 0 ]; then
   exit 1
 fi
@@ -22,4 +22,4 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "install rocm-6.4.3 successfully"
+echo "============== install rocm-6.4.3 successfully =============="
