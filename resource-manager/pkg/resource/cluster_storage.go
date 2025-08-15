@@ -10,19 +10,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
@@ -515,4 +519,90 @@ func (r *ClusterReconciler) guaranteeFileSystem(ctx context.Context, client kube
 		}
 	}
 	return nil
+}
+
+func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *v1.Cluster) (ctrlruntime.Result, error) {
+	addons := config.GetAddons(cluster.Spec.ControlPlane.KubeVersion)
+	for _, addon := range addons {
+		template := new(v1.AddonTemplate)
+		err := r.Get(ctx, types.NamespacedName{Name: addon}, template)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			klog.Errorf("get addon template %s failed %+v", addon, err)
+		}
+		component := getComponentName(addon)
+		name := fmt.Sprintf("%s-%s", cluster.Name, component)
+		addon := new(v1.Addon)
+		err = r.Get(ctx, types.NamespacedName{Name: name}, addon)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				namespace := template.Spec.HelmDefaultNamespace
+				if namespace == "" {
+					namespace = "default"
+				}
+				addon = &v1.Addon{
+					TypeMeta: metav1.TypeMeta{},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: name,
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion:         cluster.APIVersion,
+								Kind:               cluster.Kind,
+								Name:               cluster.Name,
+								UID:                cluster.UID,
+								Controller:         pointer.Bool(true),
+								BlockOwnerDeletion: pointer.Bool(true),
+							},
+						},
+					},
+					Spec: v1.AddonSpec{
+						Cluster: &corev1.ObjectReference{
+							Kind:            cluster.Kind,
+							Namespace:       cluster.Namespace,
+							Name:            cluster.Name,
+							UID:             cluster.UID,
+							APIVersion:      cluster.APIVersion,
+							ResourceVersion: cluster.ResourceVersion,
+						},
+						AddonSource: v1.AddonSource{
+							HelmRepository: &v1.HelmRepository{
+								ReleaseName:     component,
+								PlainHTTP:       false,
+								ChartVersion:    "",
+								Namespace:       namespace,
+								Values:          "",
+								PreviousVersion: nil,
+								Template: &corev1.ObjectReference{
+									Kind:            template.Kind,
+									Namespace:       template.Namespace,
+									Name:            template.Name,
+									UID:             template.UID,
+									APIVersion:      template.APIVersion,
+									ResourceVersion: template.ResourceVersion,
+								},
+							},
+						},
+					},
+					Status: v1.AddonStatus{},
+				}
+				err = r.Create(ctx, addon)
+				if err != nil {
+					return reconcile.Result{}, fmt.Errorf("create addon %s failed %+v", name, err)
+				}
+				continue
+			}
+			klog.Errorf("get addon template %s failed %+v", addon, err)
+		}
+	}
+	return reconcile.Result{}, nil
+}
+
+func getComponentName(name string) string {
+	index := strings.Index(name, ".")
+	if index > 0 {
+		return name[:index]
+	}
+	return name
 }

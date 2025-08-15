@@ -1,0 +1,17 @@
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "network-operator.25.4.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: network-operator.25.4.0
+spec:
+  category: plugin
+  description: Kubernetes provides access to special hardware resources such as NVIDIA GPUs, NICs, Infiniband adapters and other devices through the device plugin framework. 
+  url: oci://registry-1.docker.io/primussafe/network-operator
+  version: 25.4.0
+  type: helm
+  helmDefaultNamespace: network-operator

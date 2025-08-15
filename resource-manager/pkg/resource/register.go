@@ -46,5 +46,8 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupAddonController(mgr); err != nil {
 		return fmt.Errorf("failed to set up addon controller: %+v", err)
 	}
+	if err := SetupAddonTemplateController(mgr); err != nil {
+		return fmt.Errorf("failed to set up addon controller: %+v", err)
+	}
 	return nil
 }
