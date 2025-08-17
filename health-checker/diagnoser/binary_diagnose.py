@@ -5,6 +5,7 @@
 
 import subprocess
 import sys
+import os
 import argparse
 import random
 import time
@@ -88,32 +89,39 @@ def run_rccl_test(nodes: List[str]) -> float:
 
     nodes_str = ",".join([f"{node}" for node in nodes])
     np = len(nodes) * NUM_GPUS_PER_NODE
-    rsh = f'MPIEXEC_RSH="ssh -p {SSH_PORT}"'
 
     cmd = [
-        rsh, MPIEXEC, "-n", str(np), "-ppn", str(NUM_GPUS_PER_NODE),
-        "-launcher", f'"ssh"',
-        "-hosts", f'"{nodes_str}"',
-        "-env", "MPIEXEC_ALLOW_ROOT", "1",
-        "-env", "NCCL_IB_HCA", f'"{RCCL_IB_HCA}"',
-        "-env", "NCCL_SOCKET_IFNAME", f'"{RCCL_SOCKET_IFNAME}"',
-        "-env", "NCCL_IB_GID_INDEX", NCCL_IB_GID_INDEX,
-        "-env", "LD_LIBRARY_PATH", f'"{LD_LIBRARY_PATH}"',
+        MPIEXEC, "-n", str(np), "-ppn", str(NUM_GPUS_PER_NODE),
+        "-launcher", "ssh",
+        "-hosts", nodes_str,
     ]
+    env_vars = os.environ.copy()
+    env_vars["MPIEXEC_ALLOW_ROOT"] = "1"
+    env_vars["NCCL_IB_HCA"] = RCCL_IB_HCA
+    env_vars["NCCL_SOCKET_IFNAME"] = RCCL_SOCKET_IFNAME
+    env_vars["NCCL_IB_GID_INDEX"] = NCCL_IB_GID_INDEX
+    env_vars["LD_LIBRARY_PATH"] = LD_LIBRARY_PATH
+    env_vars["MPIEXEC_RSH"] = f"ssh -p {SSH_PORT}"
     if DEBUG_MODE:
-        cmd.extend(["-env", "NCCL_DEBUG", f'"INFO"'])
+        env_vars["NCCL_DEBUG"] = "INFO"
     cmd.append(RCCL_TEST)
     cmd.extend(["-b", "64M", "-e", TEST_SIZE, "-f", "2", "-g", "1"])
 
     log_file = get_log_filename(nodes)
     log(f"# Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     log(f"# Log: {log_file}")
-    log(f"# Command: {' '.join(cmd)}")
+    log(f"# Command (for manual execution): {' '.join([f'{k}=\"{v}\"' for k,v in env_vars.items() if k.startswith('MPI') or k.startswith('NCCL') or k.startswith('LD_')])} {' '.join(cmd)}")
 
     try:
         with open(log_file, "w") as f:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    text=True, timeout=600)  # 10 minutes timeout
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=600,
+                env=env_vars
+            )
             print(result.stdout)
             f.write(result.stdout)
 
