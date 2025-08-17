@@ -92,16 +92,16 @@ def run_rccl_test(nodes: List[str]) -> float:
 
     cmd = [
         rsh, MPIEXEC, "-n", str(np), "-ppn", str(NUM_GPUS_PER_NODE),
-        "-launcher", "ssh",
-        "-hosts", nodes_str,
+        "-launcher", f'"ssh"',
+        "-hosts", f'"{nodes_str}"',
         "-env", "MPIEXEC_ALLOW_ROOT", "1",
-        "-env", "NCCL_IB_HCA", RCCL_IB_HCA,
-        "-env", "NCCL_SOCKET_IFNAME", RCCL_SOCKET_IFNAME,
+        "-env", "NCCL_IB_HCA", f'"{RCCL_IB_HCA}"',
+        "-env", "NCCL_SOCKET_IFNAME", f'"{RCCL_SOCKET_IFNAME}"',
         "-env", "NCCL_IB_GID_INDEX", NCCL_IB_GID_INDEX,
-        "-env", "LD_LIBRARY_PATH", LD_LIBRARY_PATH,
+        "-env", "LD_LIBRARY_PATH", f'"{LD_LIBRARY_PATH}"',
     ]
     if DEBUG_MODE:
-        cmd.extend(["-env", "NCCL_DEBUG", "INFO"])
+        cmd.extend(["-env", "NCCL_DEBUG", f'"INFO"'])
     cmd.append(RCCL_TEST)
     cmd.extend(["-b", "64M", "-e", TEST_SIZE, "-f", "2", "-g", "1"])
 
