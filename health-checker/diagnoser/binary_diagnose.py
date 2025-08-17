@@ -110,7 +110,14 @@ def run_rccl_test(nodes: List[str]) -> float:
     log_file = get_log_filename(nodes)
     log(f"# Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     log(f"# Log: {log_file}")
-    log(f"# Command (for manual execution): {' '.join([f'{k}=\"{v}\"' for k,v in env_vars.items() if k.startswith('MPI') or k.startswith('NCCL') or k.startswith('LD_')])} {' '.join(cmd)}")
+    env_str_parts = []
+    for k, v in env_vars.items():
+        if k.startswith('MPI') or k.startswith('NCCL') or k.startswith('LD_'):
+            env_str_parts.append(f'{k}="{v}"')
+    env_str_for_manual_exec = " ".join(env_str_parts)
+    cmd_str_for_manual_exec = " ".join(cmd)
+    full_manual_cmd = f"{env_str_for_manual_exec} {cmd_str_for_manual_exec}"
+    log(f"# Command (for manual execution): {full_manual_cmd}")
 
     try:
         with open(log_file, "w") as f:

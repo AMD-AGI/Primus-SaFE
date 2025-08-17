@@ -56,7 +56,7 @@ torchrun \
   $WORK_PATH/sync_ssh_key.py \
   --interface $GLOO_SOCKET_IFNAME \
   --distributed-timeout-minutes 30 \
-  --no-data-sync 1
+  --no-data-sync
 
 if [ $? -ne 0 ]; then
   echo "failed to execute sync_ssh.py"
