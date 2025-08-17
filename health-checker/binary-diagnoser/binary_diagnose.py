@@ -15,12 +15,12 @@ import hashlib
 from concurrent.futures import ThreadPoolExecutor
 
 # ================= configuration =================
-MPIEXEC = "/opt/openmpi-4.1.8/bin/mpirun"
+MPIEXEC = "/opt/mpich/bin/mpirun"
 RCCL_TEST = "/opt/rccl-tests/build/all_reduce_perf"
 NUM_GPUS_PER_NODE = 8
-TEST_SIZE = "1G"
+TEST_SIZE = "2G"
 
-LD_LIBRARY_PATH = "/opt/rocm/lib:/opt/openmpi-4.1.8/lib"
+LD_LIBRARY_PATH = "/opt/rocm/lib:/opt/mpich/lib:/usr/local/lib"
 RCCL_SOCKET_IFNAME = "ens51f0"
 RCCL_IB_HCA = "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
 NCCL_IB_GID_INDEX = "3"
@@ -86,23 +86,22 @@ def run_rccl_test(nodes: List[str]) -> float:
         log(f"[WARN] Not enough nodes ({nodes}) for RCCL test.")
         return 0.0
 
-    nodes_str = ",".join([f"{node}:{NUM_GPUS_PER_NODE}" for node in nodes])
+    nodes_str = ",".join([f"{node}" for node in nodes])
     np = len(nodes) * NUM_GPUS_PER_NODE
+    rsh = f'MPIEXEC_RSH="ssh -p {SSH_PORT}"'
+
     cmd = [
-        MPIEXEC, "-np", str(np), "-npernode", str(NUM_GPUS_PER_NODE),
-        "--allow-run-as-root",
-        "--mca", "routed", "direct",
-        "--mca", "oob_tcp_if_include", RCCL_SOCKET_IFNAME,
-        "--mca", "btl_tcp_if_include", RCCL_SOCKET_IFNAME,
-        "--host", nodes_str,
-        "--mca", "plm_rsh_agent", f'"ssh -p {SSH_PORT}"',
-        "-x", f"LD_LIBRARY_PATH={LD_LIBRARY_PATH}",
-        "-x", f"RCCL_SOCKET_IFNAME={RCCL_SOCKET_IFNAME}",
-        "-x", f"RCCL_IB_HCA={RCCL_IB_HCA}",
-        "-x", f"NCCL_IB_GID_INDEX={NCCL_IB_GID_INDEX}",
+        rsh, MPIEXEC, "-n", str(np), "-ppn", str(NUM_GPUS_PER_NODE),
+        "-launcher", "ssh",
+        "-hosts", nodes_str,
+        "-env", "MPIEXEC_ALLOW_ROOT", "1",
+        "-env", "NCCL_IB_HCA", RCCL_IB_HCA,
+        "-env", "NCCL_SOCKET_IFNAME", RCCL_SOCKET_IFNAME,
+        "-env", "NCCL_IB_GID_INDEX", NCCL_IB_GID_INDEX,
+        "-env", "LD_LIBRARY_PATH", LD_LIBRARY_PATH,
     ]
     if DEBUG_MODE:
-        cmd.extend(["-x", "NCCL_DEBUG=INFO"])
+        cmd.extend(["-env", "NCCL_DEBUG", "INFO"])
     cmd.append(RCCL_TEST)
     cmd.extend(["-b", "64M", "-e", TEST_SIZE, "-f", "2", "-g", "1"])
 
@@ -227,7 +226,7 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
 def main():
     parser = argparse.ArgumentParser(description="RCCL Fault Diagnoser")
     # threshold of bandwidth (GB/s)
-    parser.add_argument("--threshold", type=float, default=300.0, help="Threshold in GB/s")
+    parser.add_argument("--threshold", type=float, default=280.0, help="Threshold in GB/s")
     # Maximum concurrent testing tasks (to avoid system overload)
     parser.add_argument("--max-concurrent", type=int, default=8, help="Max concurrent")
     # enable debug

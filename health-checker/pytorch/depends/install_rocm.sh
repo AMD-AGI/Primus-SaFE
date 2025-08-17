@@ -16,6 +16,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+apt update > /dev/null
 apt install -y rocm > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
