@@ -36,7 +36,7 @@ if [ $? -ne 0 ]; then
 fi
 
 cat /root/.ssh/config  | grep "Host " | awk '{print $2}' | sort | uniq > /root/hosts
-sleep 7200
+
 if [[ "$RANK" == "0" ]]; then
   debug=""
   if [[ -n "$NCCL_DEBUG" ]]; then

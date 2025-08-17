@@ -16,7 +16,6 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-usermod -a -G render,video # Add the current user to the render and video groups
 apt install -y rocm > /dev/null
 if [ $? -ne 0 ]; then
   exit 1

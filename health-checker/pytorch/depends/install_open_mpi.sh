@@ -13,8 +13,6 @@ cd openmpi-4.1.8
 
 ./configure \
   --prefix=/opt/openmpi-4.1.8 \
-  --enable-mpi1-compatibility \
-  --with-platform=optimized \
   --with-libevent=internal > /dev/null 2>&1
 if [ $? -ne 0 ]; then
   echo "failed to configure openmpi-4.1.8"
