@@ -7,7 +7,7 @@ RUN apt update && \
 
 ARG APP_HOME=/opt/primus-safe/diagnoser
 RUN mkdir -p ${APP_HOME}
-COPY ./health-checker/rccl-diagnoser/*.py ${APP_HOME}
-COPY ./health-checker/rccl-diagnoser/*.sh ${APP_HOME}
+COPY ./health-checker/diagnoser/*.py ${APP_HOME}
+COPY ./health-checker/diagnoser/*.sh ${APP_HOME}
 
 WORKDIR ${APP_HOME}
