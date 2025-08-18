@@ -47,12 +47,12 @@ type CreateNodeFlavorResponse struct {
 	FlavorId string `json:"flavorId"`
 }
 
-type GetNodeFlavorResponse struct {
-	TotalCount int                         `json:"totalCount"`
-	Items      []GetNodeFlavorResponseItem `json:"items"`
+type ListNodeFlavorResponse struct {
+	TotalCount int                      `json:"totalCount"`
+	Items      []NodeFlavorResponseItem `json:"items"`
 }
 
-type GetNodeFlavorResponseItem struct {
+type NodeFlavorResponseItem struct {
 	// flavor's id
 	FlavorId string `json:"flavorId"`
 	// VirtualMachine/BareMetal

@@ -42,7 +42,7 @@ type CreateOpsJobResponse struct {
 	JobId string `json:"jobId"`
 }
 
-type GetOpsJobRequest struct {
+type ListOpsJobRequest struct {
 	// Starting offset for the results. dfault is 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
 	// Limit the number of returned results. default is 100
@@ -70,7 +70,12 @@ type GetOpsJobRequest struct {
 	UntilTime time.Time
 }
 
-type GetOpsJobResponseItem struct {
+type ListOpsJobResponse struct {
+	TotalCount int                  `json:"totalCount"`
+	Items      []OpsJobResponseItem `json:"items"`
+}
+
+type OpsJobResponseItem struct {
 	// job id
 	JobId string `json:"jobId"`
 	// the cluster which the job belongs to
@@ -99,9 +104,4 @@ type GetOpsJobResponseItem struct {
 	Outputs []v1.Parameter `json:"outputs"`
 	// envionment variables
 	Env map[string]string `json:"env"`
-}
-
-type GetOpsJobResponse struct {
-	TotalCount int                     `json:"totalCount"`
-	Items      []GetOpsJobResponseItem `json:"items"`
 }

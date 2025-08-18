@@ -29,19 +29,19 @@ type CreateClusterResponse struct {
 	ClusterId string `json:"clusterId"`
 }
 
-type ListClusterResponseItem struct {
+type ListClusterResponse struct {
+	TotalCount int                   `json:"totalCount"`
+	Items      []ClusterResponseItem `json:"items"`
+}
+
+type ClusterResponseItem struct {
 	ClusterId   string `json:"clusterId"`
 	Phase       string `json:"phase"`
 	IsProtected bool   `json:"isProtected"`
 }
 
-type ListClusterResponse struct {
-	TotalCount int                       `json:"totalCount"`
-	Items      []ListClusterResponseItem `json:"items"`
-}
-
 type GetClusterResponse struct {
-	ListClusterResponseItem
+	ClusterResponseItem
 	Endpoint string                       `json:"endpoint"`
 	Storages []BindingStorageResponseItem `json:"storage"`
 }

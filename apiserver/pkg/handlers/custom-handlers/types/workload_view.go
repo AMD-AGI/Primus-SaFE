@@ -25,7 +25,7 @@ type CreateWorkloadResponse struct {
 	WorkloadId string `json:"workloadId"`
 }
 
-type GetWorkloadRequest struct {
+type ListWorkloadRequest struct {
 	// workspace id
 	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`
 	// Valid values include: Succeeded,Failed,Pending,Running,Stopped
@@ -55,12 +55,12 @@ type GetWorkloadRequest struct {
 	Until string `form:"until" binding:"omitempty"`
 }
 
-type WorkloadPodWrapper struct {
-	v1.WorkloadPod
-	SSHAddr string `json:"sshAddr,omitempty"`
+type ListWorkloadResponse struct {
+	TotalCount int                    `json:"totalCount"`
+	Items      []WorkloadResponseItem `json:"items"`
 }
 
-type ListWorkloadResponseItem struct {
+type WorkloadResponseItem struct {
 	// workload id
 	WorkloadId string `json:"workloadId"`
 	// Requested workspace
@@ -102,13 +102,8 @@ type ListWorkloadResponseItem struct {
 	Timeout *int `json:"timeout"`
 }
 
-type ListWorkloadResponse struct {
-	TotalCount int                        `json:"totalCount"`
-	Items      []ListWorkloadResponseItem `json:"items"`
-}
-
 type GetWorkloadResponse struct {
-	ListWorkloadResponseItem
+	WorkloadResponseItem
 	// Workload image address
 	Image string `json:"image"`
 	// workload entryPoint, required in base64 encoding
@@ -136,6 +131,11 @@ type GetWorkloadResponse struct {
 	Readiness *v1.HealthCheck `json:"readiness,omitempty"`
 	// Service configuration
 	Service *v1.Service `json:"service,omitempty"`
+}
+
+type WorkloadPodWrapper struct {
+	v1.WorkloadPod
+	SSHAddr string `json:"sshAddr,omitempty"`
 }
 
 type PatchWorkloadRequest struct {

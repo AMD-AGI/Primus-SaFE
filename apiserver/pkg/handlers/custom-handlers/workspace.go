@@ -123,7 +123,7 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 
 	result := &types.ListWorkspaceResponse{}
 	for _, w := range workspaceList.Items {
-		item := cvtToListWorkspaceResItem(&w)
+		item := cvtToWorkspaceResponseItem(&w)
 		result.Items = append(result.Items, item)
 	}
 	result.TotalCount = len(result.Items)
@@ -244,15 +244,15 @@ func (h *Handler) updateWorkspaceNodesAction(ctx context.Context, workspaceId, a
 	return nil
 }
 
-func parseListWorkspaceQuery(c *gin.Context) (*types.GetWorkspaceRequest, error) {
-	query := &types.GetWorkspaceRequest{}
+func parseListWorkspaceQuery(c *gin.Context) (*types.ListWorkspaceRequest, error) {
+	query := &types.ListWorkspaceRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
 	return query, nil
 }
 
-func buildListWorkspaceSelector(query *types.GetWorkspaceRequest) (labels.Selector, error) {
+func buildListWorkspaceSelector(query *types.ListWorkspaceRequest) (labels.Selector, error) {
 	var labelSelector = labels.NewSelector()
 	if query.ClusterId != "" {
 		req, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{query.ClusterId})
@@ -261,8 +261,8 @@ func buildListWorkspaceSelector(query *types.GetWorkspaceRequest) (labels.Select
 	return labelSelector, nil
 }
 
-func cvtToListWorkspaceResItem(w *v1.Workspace) types.ListWorkspaceResponseItem {
-	result := types.ListWorkspaceResponseItem{
+func cvtToWorkspaceResponseItem(w *v1.Workspace) types.WorkspaceResponseItem {
+	result := types.WorkspaceResponseItem{
 		WorkspaceId:   w.Name,
 		WorkspaceName: v1.GetDisplayName(w),
 		ClusterId:     w.Spec.Cluster,
@@ -282,7 +282,7 @@ func cvtToListWorkspaceResItem(w *v1.Workspace) types.ListWorkspaceResponseItem 
 
 func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.Workspace) (*types.GetWorkspaceResponse, error) {
 	result := &types.GetWorkspaceResponse{
-		ListWorkspaceResponseItem: cvtToListWorkspaceResItem(workspace),
+		WorkspaceResponseItem: cvtToWorkspaceResponseItem(workspace),
 	}
 	availableReplica := workspace.Status.AvailableReplica
 	nf, err := h.getAdminNodeFlavor(ctx, workspace.Spec.NodeFlavor)

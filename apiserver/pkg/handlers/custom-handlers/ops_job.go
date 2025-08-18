@@ -98,11 +98,11 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := &types.GetOpsJobResponse{
+	result := &types.ListOpsJobResponse{
 		TotalCount: count,
 	}
 	for _, job := range jobs {
-		result.Items = append(result.Items, cvtToOpsJobResponse(job))
+		result.Items = append(result.Items, cvtToOpsJobResponseItem(job))
 	}
 	return result, nil
 }
@@ -124,7 +124,7 @@ func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 	if len(jobs) == 0 {
 		return nil, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("job %s is not found", jobId))
 	}
-	return cvtToOpsJobResponse(jobs[0]), nil
+	return cvtToOpsJobResponseItem(jobs[0]), nil
 }
 
 func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
@@ -303,8 +303,8 @@ func parseCreateOpsJobQuery(c *gin.Context) (*types.CreateOpsJobRequest, error) 
 	return req, nil
 }
 
-func parseListOpsJobQuery(c *gin.Context) (*types.GetOpsJobRequest, error) {
-	query := &types.GetOpsJobRequest{}
+func parseListOpsJobQuery(c *gin.Context) (*types.ListOpsJobRequest, error) {
+	query := &types.ListOpsJobRequest{}
 	err := c.ShouldBindWith(&query, binding.Query)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
@@ -344,7 +344,7 @@ func parseListOpsJobQuery(c *gin.Context) (*types.GetOpsJobRequest, error) {
 	return query, nil
 }
 
-func cvtToListOpsJobSql(query *types.GetOpsJobRequest) sqrl.Sqlizer {
+func cvtToListOpsJobSql(query *types.ListOpsJobRequest) sqrl.Sqlizer {
 	dbTags := dbclient.GetOpsJobFieldTags()
 	createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
 	dbSql := sqrl.And{
@@ -375,8 +375,8 @@ func cvtToGetOpsJobSql(jobId string) sqrl.Sqlizer {
 	return dbSql
 }
 
-func cvtToOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponseItem {
-	result := types.GetOpsJobResponseItem{
+func cvtToOpsJobResponseItem(job *dbclient.OpsJob) types.OpsJobResponseItem {
+	result := types.OpsJobResponseItem{
 		JobId:      job.JobId,
 		Cluster:    job.Cluster,
 		Workspace:  dbutils.ParseNullString(job.Workspace),

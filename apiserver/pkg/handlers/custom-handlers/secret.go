@@ -76,9 +76,9 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 		&client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return nil, err
 	}
-	result := &types.GetSecretResponse{}
+	result := &types.ListSecretResponse{}
 	for _, item := range secretList.Items {
-		result.Items = append(result.Items, types.GetSecretResponseItem{
+		result.Items = append(result.Items, types.SecretResponseItem{
 			SecretId:   item.Name,
 			SecretName: v1.GetDisplayName(&item),
 			Type:       item.Labels[v1.SecretTypeLabel],
@@ -199,15 +199,15 @@ func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) erro
 	return nil
 }
 
-func parseListSecretQuery(c *gin.Context) (*types.GetSecretRequest, error) {
-	query := &types.GetSecretRequest{}
+func parseListSecretQuery(c *gin.Context) (*types.ListSecretRequest, error) {
+	query := &types.ListSecretRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
 	return query, nil
 }
 
-func buildSecretLabelSelector(query *types.GetSecretRequest) labels.Selector {
+func buildSecretLabelSelector(query *types.ListSecretRequest) labels.Selector {
 	var req1 *labels.Requirement
 	var labelSelector = labels.NewSelector()
 	if query.Type != "" {

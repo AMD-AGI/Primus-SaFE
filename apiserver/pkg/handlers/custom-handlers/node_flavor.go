@@ -77,7 +77,7 @@ func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	result := types.GetNodeFlavorResponse{}
+	result := types.ListNodeFlavorResponse{}
 	if result.TotalCount > 0 {
 		sort.Slice(nl.Items, func(i, j int) bool {
 			if nl.Items[i].CreationTimestamp.Time.Equal(nl.Items[j].CreationTimestamp.Time) {
@@ -90,7 +90,7 @@ func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
 		if !item.GetDeletionTimestamp().IsZero() {
 			continue
 		}
-		result.Items = append(result.Items, cvtToGetNodeFlavorResponseItem(&item))
+		result.Items = append(result.Items, cvtToNodeFlavorResponseItem(&item))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
@@ -101,7 +101,7 @@ func (h *Handler) getNodeFlavor(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return cvtToGetNodeFlavorResponseItem(nf), nil
+	return cvtToNodeFlavorResponseItem(nf), nil
 }
 
 func (h *Handler) deleteNodeFlavor(c *gin.Context) (interface{}, error) {
@@ -213,7 +213,7 @@ func buildDiskFlavor(req *types.DiskFlavor) (*v1.DiskFlavor, error) {
 	}, nil
 }
 
-func cvtToGetNodeFlavorResponseItem(nf *v1.NodeFlavor) types.GetNodeFlavorResponseItem {
+func cvtToNodeFlavorResponseItem(nf *v1.NodeFlavor) types.NodeFlavorResponseItem {
 	resources := make(types.ResourceList)
 	resources["cpu"] = nf.Spec.Cpu.Quantity.Value()
 	resources["memory"] = nf.Spec.Memory.Value()
@@ -229,7 +229,7 @@ func cvtToGetNodeFlavorResponseItem(nf *v1.NodeFlavor) types.GetNodeFlavorRespon
 	if nf.Spec.RootDisk != nil {
 		resources["rootDisk"] = nf.Spec.RootDisk.Quantity.Value() * int64(nf.Spec.RootDisk.Count)
 	}
-	return types.GetNodeFlavorResponseItem{
+	return types.NodeFlavorResponseItem{
 		FlavorId:   nf.Name,
 		FlavorType: string(nf.Spec.FlavorType),
 		Resources:  resources,

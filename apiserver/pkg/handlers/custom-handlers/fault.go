@@ -45,17 +45,17 @@ func (h *Handler) listFault(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := &types.GetFaultResponse{
+	result := &types.ListFaultResponse{
 		TotalCount: count,
 	}
 	for _, f := range faults {
-		result.Items = append(result.Items, cvtToFaultResponse(f))
+		result.Items = append(result.Items, cvtToFaultResponseItem(f))
 	}
 	return result, nil
 }
 
-func parseListFaultQuery(c *gin.Context) (*types.GetFaultRequest, error) {
-	query := &types.GetFaultRequest{}
+func parseListFaultQuery(c *gin.Context) (*types.ListFaultRequest, error) {
+	query := &types.ListFaultRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
@@ -73,7 +73,7 @@ func parseListFaultQuery(c *gin.Context) (*types.GetFaultRequest, error) {
 	return query, nil
 }
 
-func cvtToListFaultSql(query *types.GetFaultRequest) sqrl.Sqlizer {
+func cvtToListFaultSql(query *types.ListFaultRequest) sqrl.Sqlizer {
 	dbTags := dbclient.GetFaultFieldTags()
 	monitorId := dbclient.GetFieldTag(dbTags, "MonitorId")
 	dbSql := sqrl.And{}
@@ -99,8 +99,8 @@ func cvtToListFaultSql(query *types.GetFaultRequest) sqrl.Sqlizer {
 	return dbSql
 }
 
-func cvtToFaultResponse(f *dbclient.Fault) types.GetFaultResponseItem {
-	return types.GetFaultResponseItem{
+func cvtToFaultResponseItem(f *dbclient.Fault) types.FaultResponseItem {
+	return types.FaultResponseItem{
 		ID:          f.Id,
 		NodeId:      dbutils.ParseNullString(f.Node),
 		MonitorId:   f.MonitorId,

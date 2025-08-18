@@ -126,7 +126,7 @@ func TestListNodes(t *testing.T) {
 	h.ListNode(c)
 	assert.Equal(t, rsp.Code, http.StatusOK)
 
-	result := &types.GetNodeResponse{}
+	result := &types.ListNodeResponse{}
 	err := json.Unmarshal(rsp.Body.Bytes(), &result)
 	assert.NilError(t, err)
 	assert.Equal(t, result.TotalCount, 2)

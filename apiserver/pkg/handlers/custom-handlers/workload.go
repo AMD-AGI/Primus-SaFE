@@ -131,7 +131,7 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	}
 
 	for _, w := range workloads {
-		workload := h.cvtDBWorkloadToListItem(ctx, w)
+		workload := h.cvtDBWorkloadToResponseItem(ctx, w)
 		result.Items = append(result.Items, workload)
 	}
 	return result, nil
@@ -356,7 +356,7 @@ func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
 		if !untilTime.IsZero() && w.CreationTimestamp.Time.After(untilTime) {
 			continue
 		}
-		result.Items = append(result.Items, h.cvtAdminWorkloadToListItem(&w))
+		result.Items = append(result.Items, h.cvtWorkloadToResponseItem(&w))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
@@ -421,8 +421,8 @@ func generateWorkload(req *types.CreateWorkloadRequest, body []byte) (*v1.Worklo
 	return workload, nil
 }
 
-func parseListWorkloadQuery(c *gin.Context) (*types.GetWorkloadRequest, error) {
-	query := &types.GetWorkloadRequest{}
+func parseListWorkloadQuery(c *gin.Context) (*types.ListWorkloadRequest, error) {
+	query := &types.ListWorkloadRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
@@ -460,7 +460,7 @@ func parseGetPodLogQuery(c *gin.Context, mainContainerName string) (*types.GetPo
 	return query, nil
 }
 
-func cvtToListWorkloadSql(query *types.GetWorkloadRequest) (sqrl.Sqlizer, []string, error) {
+func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []string, error) {
 	dbTags := dbclient.GetWorkloadFieldTags()
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
@@ -521,7 +521,7 @@ func cvtToListWorkloadSql(query *types.GetWorkloadRequest) (sqrl.Sqlizer, []stri
 	return dbSql, orderBy, nil
 }
 
-func buildListWorkloadOrderBy(query *types.GetWorkloadRequest, dbTags map[string]string) []string {
+func buildListWorkloadOrderBy(query *types.ListWorkloadRequest, dbTags map[string]string) []string {
 	var nullOrder string
 	if query.Order == dbclient.DESC {
 		nullOrder = "NULLS FIRST"
@@ -589,9 +589,9 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	}
 }
 
-func (h *Handler) cvtDBWorkloadToListItem(ctx context.Context,
-	w *dbclient.Workload) types.ListWorkloadResponseItem {
-	result := types.ListWorkloadResponseItem{
+func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
+	w *dbclient.Workload) types.WorkloadResponseItem {
+	result := types.WorkloadResponseItem{
 		WorkloadId:     w.WorkloadId,
 		Workspace:      w.Workspace,
 		Cluster:        w.Cluster,
@@ -636,10 +636,10 @@ func (h *Handler) cvtDBWorkloadToListItem(ctx context.Context,
 
 func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Workload) *types.GetWorkloadResponse {
 	result := &types.GetWorkloadResponse{
-		ListWorkloadResponseItem: h.cvtDBWorkloadToListItem(ctx, w),
-		Image:                    w.Image,
-		IsSupervised:             w.IsSupervised,
-		MaxRetry:                 w.MaxRetry,
+		WorkloadResponseItem: h.cvtDBWorkloadToResponseItem(ctx, w),
+		Image:                w.Image,
+		IsSupervised:         w.IsSupervised,
+		MaxRetry:             w.MaxRetry,
 	}
 	if result.GroupVersionKind.Kind != common.AuthoringKind && w.EntryPoint != "" {
 		if stringutil.IsBase64(w.EntryPoint) {
@@ -690,8 +690,8 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 	return result
 }
 
-func (h *Handler) cvtAdminWorkloadToListItem(w *v1.Workload) types.ListWorkloadResponseItem {
-	result := types.ListWorkloadResponseItem{
+func (h *Handler) cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
+	result := types.WorkloadResponseItem{
 		WorkloadId:     w.Name,
 		Cluster:        v1.GetClusterId(w),
 		Phase:          string(w.Status.Phase),
@@ -720,17 +720,17 @@ func (h *Handler) cvtAdminWorkloadToListItem(w *v1.Workload) types.ListWorkloadR
 
 func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workload) *types.GetWorkloadResponse {
 	result := &types.GetWorkloadResponse{
-		ListWorkloadResponseItem: h.cvtAdminWorkloadToListItem(w),
-		Image:                    w.Spec.Image,
-		IsSupervised:             w.Spec.IsSupervised,
-		MaxRetry:                 w.Spec.MaxRetry,
-		Conditions:               w.Status.Conditions,
-		Nodes:                    w.Status.Nodes,
-		TTLSecondsAfterFinished:  w.Spec.TTLSecondsAfterFinished,
-		Service:                  w.Spec.Service,
-		Liveness:                 w.Spec.Liveness,
-		Readiness:                w.Spec.Readiness,
-		Env:                      w.Spec.Env,
+		WorkloadResponseItem:    h.cvtWorkloadToResponseItem(w),
+		Image:                   w.Spec.Image,
+		IsSupervised:            w.Spec.IsSupervised,
+		MaxRetry:                w.Spec.MaxRetry,
+		Conditions:              w.Status.Conditions,
+		Nodes:                   w.Status.Nodes,
+		TTLSecondsAfterFinished: w.Spec.TTLSecondsAfterFinished,
+		Service:                 w.Spec.Service,
+		Liveness:                w.Spec.Liveness,
+		Readiness:               w.Spec.Readiness,
+		Env:                     w.Spec.Env,
 	}
 
 	result.Pods = make([]types.WorkloadPodWrapper, len(w.Status.Pods))
@@ -795,7 +795,7 @@ func (h *Handler) buildSSHAddress(ctx context.Context, pod *v1.WorkloadPod, user
 		commonconfig.GetSSHServerPort(), userName, pod.PodId, workspace, localIp)
 }
 
-func buildWorkloadLabelSelector(query *types.GetWorkloadRequest) labels.Selector {
+func buildWorkloadLabelSelector(query *types.ListWorkloadRequest) labels.Selector {
 	var labelSelector = labels.NewSelector()
 	if query.WorkspaceId != "" {
 		req, _ := labels.NewRequirement(v1.WorkspaceIdLabel, selection.Equals, []string{query.WorkspaceId})

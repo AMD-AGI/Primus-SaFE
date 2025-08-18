@@ -200,7 +200,7 @@ func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 		})
 	}
 	for _, item := range clusterList.Items {
-		result.Items = append(result.Items, h.cvtToListClusterResponseItem(&item))
+		result.Items = append(result.Items, h.cvtToClusterResponseItem(&item))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
@@ -404,8 +404,8 @@ func parseProcessNodesRequest(c *gin.Context) (*types.ProcessNodesRequest, error
 	return req, nil
 }
 
-func (h *Handler) cvtToListClusterResponseItem(cluster *v1.Cluster) types.ListClusterResponseItem {
-	result := types.ListClusterResponseItem{
+func (h *Handler) cvtToClusterResponseItem(cluster *v1.Cluster) types.ClusterResponseItem {
+	result := types.ClusterResponseItem{
 		ClusterId:   cluster.Name,
 		Phase:       string(cluster.Status.ControlPlaneStatus.Phase),
 		IsProtected: v1.IsProtected(cluster),
@@ -418,7 +418,7 @@ func (h *Handler) cvtToListClusterResponseItem(cluster *v1.Cluster) types.ListCl
 
 func (h *Handler) cvtToGetClusterResponse(ctx context.Context, cluster *v1.Cluster) types.GetClusterResponse {
 	result := types.GetClusterResponse{
-		ListClusterResponseItem: types.ListClusterResponseItem{
+		ClusterResponseItem: types.ClusterResponseItem{
 			ClusterId:   cluster.Name,
 			Phase:       string(cluster.Status.ControlPlaneStatus.Phase),
 			IsProtected: v1.IsProtected(cluster),

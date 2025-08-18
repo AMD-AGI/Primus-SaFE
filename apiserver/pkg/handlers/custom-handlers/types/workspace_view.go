@@ -32,11 +32,16 @@ type CreateWorkspaceResponse struct {
 	WorkspaceId string `json:"workspaceId"`
 }
 
-type GetWorkspaceRequest struct {
+type ListWorkspaceRequest struct {
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
 }
 
-type ListWorkspaceResponseItem struct {
+type ListWorkspaceResponse struct {
+	TotalCount int                     `json:"totalCount"`
+	Items      []WorkspaceResponseItem `json:"items"`
+}
+
+type WorkspaceResponseItem struct {
 	// workspace id
 	WorkspaceId string `json:"workspaceId"`
 	// workspace name
@@ -65,13 +70,8 @@ type ListWorkspaceResponseItem struct {
 	EnablePreempt bool `json:"enablePreempt"`
 }
 
-type ListWorkspaceResponse struct {
-	TotalCount int                         `json:"totalCount"`
-	Items      []ListWorkspaceResponseItem `json:"items"`
-}
-
 type GetWorkspaceResponse struct {
-	ListWorkspaceResponseItem
+	WorkspaceResponseItem
 	// the total resource of workspace
 	TotalQuota ResourceList `json:"totalQuota"`
 	// the available resource of workspace

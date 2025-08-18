@@ -107,7 +107,7 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to list admin nodes", "labelSelector", labelSelector)
 		return nil, err
 	}
-	result := &types.GetNodeResponse{}
+	result := &types.ListNodeResponse{}
 	if len(nodeList.Items) == 0 {
 		return result, nil
 	}
@@ -119,7 +119,7 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 	nodeWrappers := sortAdminNodes(nodeList.Items)
 	for _, n := range nodeWrappers {
 		usedResource, _ := allUsedResource[n.Node.Name]
-		item := cvtToGetNodeResponseItem(n.Node, usedResource)
+		item := cvtToNodeResponseItem(n.Node, usedResource)
 		result.Items = append(result.Items, item)
 		result.TotalCount++
 	}
@@ -159,7 +159,7 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to get used resource", "node", node.Name)
 		return nil, err
 	}
-	return cvtToGetNodeResponseItem(node, usedResource), nil
+	return cvtToNodeResponseItem(node, usedResource), nil
 }
 
 func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
@@ -303,12 +303,6 @@ type resourceInfo struct {
 func (h *Handler) getAllUsedResourcePerNode(ctx context.Context,
 	query *types.ListNodeRequest) (map[string]*resourceInfo, error) {
 	result := make(map[string]*resourceInfo)
-	// Only cluster nodes bound to a workspace are included in the resource usage statistics.
-	if (query.ClusterId != nil && *query.ClusterId == "") ||
-		(query.WorkspaceId != nil && *query.WorkspaceId == "") ||
-		(query.ClusterId == nil && query.WorkspaceId == nil) {
-		return result, nil
-	}
 	var workspaceNames []string
 	if query.GetWorkspaceId() != "" {
 		workspaceNames = append(workspaceNames, query.GetWorkspaceId())
@@ -536,8 +530,8 @@ func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]s
 	return nodesLabelAction
 }
 
-func cvtToGetNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.GetNodeResponseItem {
-	result := types.GetNodeResponseItem{
+func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeResponseItem {
+	result := types.NodeResponseItem{
 		NodeId:         n.Name,
 		DisplayName:    v1.GetDisplayName(n),
 		Cluster:        v1.GetClusterId(n),
