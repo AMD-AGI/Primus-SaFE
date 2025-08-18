@@ -193,14 +193,14 @@ func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	result := types.GetClusterResponse{}
+	result := types.ListClusterResponse{}
 	if len(clusterList.Items) > 0 {
 		sort.Slice(clusterList.Items, func(i, j int) bool {
 			return clusterList.Items[i].Name < clusterList.Items[j].Name
 		})
 	}
 	for _, item := range clusterList.Items {
-		result.Items = append(result.Items, h.cvtToGetClusterResponseItem(ctx, &item, false))
+		result.Items = append(result.Items, h.cvtToListClusterResponseItem(&item))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
@@ -212,7 +212,7 @@ func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return h.cvtToGetClusterResponseItem(ctx, cluster, true), nil
+	return h.cvtToGetClusterResponse(ctx, cluster), nil
 }
 
 func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
@@ -404,8 +404,8 @@ func parseProcessNodesRequest(c *gin.Context) (*types.ProcessNodesRequest, error
 	return req, nil
 }
 
-func (h *Handler) cvtToGetClusterResponseItem(ctx context.Context, cluster *v1.Cluster, isNeedDetail bool) types.GetClusterResponseItem {
-	result := types.GetClusterResponseItem{
+func (h *Handler) cvtToListClusterResponseItem(cluster *v1.Cluster) types.ListClusterResponseItem {
+	result := types.ListClusterResponseItem{
 		ClusterId:   cluster.Name,
 		Phase:       string(cluster.Status.ControlPlaneStatus.Phase),
 		IsProtected: v1.IsProtected(cluster),
@@ -413,9 +413,21 @@ func (h *Handler) cvtToGetClusterResponseItem(ctx context.Context, cluster *v1.C
 	if !cluster.GetDeletionTimestamp().IsZero() {
 		result.Phase = string(v1.DeletingPhase)
 	}
-	if isNeedDetail {
-		result.Endpoint, _ = commoncluster.GetEndpoint(ctx, h.Client, cluster)
-		result.Storages = cvtBindingStorageView(cluster.Status.StorageStatus)
+	return result
+}
+
+func (h *Handler) cvtToGetClusterResponse(ctx context.Context, cluster *v1.Cluster) types.GetClusterResponse {
+	result := types.GetClusterResponse{
+		ListClusterResponseItem: types.ListClusterResponseItem{
+			ClusterId:   cluster.Name,
+			Phase:       string(cluster.Status.ControlPlaneStatus.Phase),
+			IsProtected: v1.IsProtected(cluster),
+		},
 	}
+	if !cluster.GetDeletionTimestamp().IsZero() {
+		result.Phase = string(v1.DeletingPhase)
+	}
+	result.Endpoint, _ = commoncluster.GetEndpoint(ctx, h.Client, cluster)
+	result.Storages = cvtBindingStorageView(cluster.Status.StorageStatus)
 	return result
 }

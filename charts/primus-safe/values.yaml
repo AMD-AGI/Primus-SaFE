@@ -19,7 +19,7 @@ preprocess:
 preflight:
   image: "preflight:202507301344"
 diagnose:
-  image: "diagnose:202508081730"
+  image: "diagnose:202508172305"
 db:
   enable: true
   storage_class: "juicefs"
@@ -32,7 +32,7 @@ workspace:
   cpu_reserve_percent: 0.1
   ephemeral_store_reserve_percent: 0.1
 s3:
-  enable: true
+  enable: false
   endpoint: "http://s3.safe.primus.ai"
   bucket: "juicefs"
   secret: "juicefs-secret"

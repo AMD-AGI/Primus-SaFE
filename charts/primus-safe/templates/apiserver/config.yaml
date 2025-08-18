@@ -41,7 +41,7 @@ data:
       enable: {{ .Values.s3.enable }}
     ops_job:
       preflight_image: docker.io/primussafe/{{ .Values.preflight.image }}
-      diagnose_image: docker.io/primussafe/{{ .Values.diagnose.image }}
+      diagnose_image: {{ default "" (default .Values.diagnose).image }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

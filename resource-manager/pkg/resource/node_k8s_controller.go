@@ -329,24 +329,20 @@ func (r *NodeK8sReconciler) syncK8sMetadata(ctx context.Context, adminNode *v1.N
 	isShouldUpdate := false
 	for _, k := range concernedK8sLabelKeys {
 		if v, ok := k8sNode.Labels[k]; ok {
-			if adminNode.Labels[k] != v {
-				v1.SetLabel(adminNode, k, v)
+			if v1.SetLabel(adminNode, k, v) {
 				isShouldUpdate = true
 			}
-		} else {
-			v1.RemoveLabel(adminNode, k)
+		} else if v1.RemoveLabel(adminNode, k) {
 			isShouldUpdate = true
 		}
 	}
 
 	for _, k := range concernedK8sAnnotationKeys {
 		if v, ok := k8sNode.Annotations[k]; ok {
-			if adminNode.Annotations[k] != v {
-				v1.SetAnnotation(adminNode, k, v)
+			if v1.SetAnnotation(adminNode, k, v) {
 				isShouldUpdate = true
 			}
-		} else {
-			v1.RemoveAnnotation(adminNode, k)
+		} else if v1.RemoveAnnotation(adminNode, k) {
 			isShouldUpdate = true
 		}
 	}
@@ -396,7 +392,7 @@ func (r *NodeK8sReconciler) handleFault(ctx context.Context, adminNode *v1.Node,
 			continue
 		}
 		if isShouldCreateFault(newCondition) {
-			if adminNode.GetSpecCluster() == "" {
+			if adminNode.GetSpecCluster() == "" || !v1.IsNodeTemplateInstalled(adminNode) {
 				continue
 			}
 			if f := generateFaultOnCreation(faultNode, newCondition, faultConfigMap); f != nil {

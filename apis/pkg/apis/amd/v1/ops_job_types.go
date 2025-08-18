@@ -53,6 +53,8 @@ type OpsJobSpec struct {
 	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
 	// ops-job Timeout (in seconds), Less than or equal to 0 means no timeout
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
+	// environment variables
+	Env map[string]string `json:"env,omitempty"`
 }
 
 type OpsJobStatus struct {

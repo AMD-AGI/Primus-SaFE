@@ -138,7 +138,8 @@ func (m *OpsJobMutator) getAddonTemplates(ctx context.Context, job *v1.OpsJob) {
 }
 
 func (m *OpsJobMutator) getNodesByCluster(ctx context.Context, job *v1.OpsJob) {
-	if job.Spec.Type != v1.OpsJobPreflightType && job.Spec.Type != v1.OpsJobAddonType {
+	if job.Spec.Type != v1.OpsJobPreflightType &&
+		job.Spec.Type != v1.OpsJobAddonType && job.Spec.Type != v1.OpsJobDiagnoseType {
 		return
 	}
 	param := job.GetParameter(v1.ParameterNode)
