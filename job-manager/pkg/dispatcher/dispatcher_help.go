@@ -233,7 +233,8 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 }
 
 func modifySecurityContext(mainContainer map[string]interface{}, workload *v1.Workload) {
-	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) {
+	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) &&
+		v1.GetOpsJobType(workload) != string(v1.OpsJobDiagnoseType) {
 		return
 	}
 	mainContainer["securityContext"] = map[string]interface{}{
@@ -258,7 +259,8 @@ func modifyHostNetWork(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 }
 
 func modifyHostPid(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
-	if v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobPreflightType) {
+	if v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobPreflightType) &&
+		v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobDiagnoseType) {
 		return nil
 	}
 	if err := unstructured.SetNestedField(obj.Object, true, path...); err != nil {

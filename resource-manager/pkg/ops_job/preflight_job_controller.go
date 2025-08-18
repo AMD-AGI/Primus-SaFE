@@ -389,6 +389,7 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
 			},
 			Workspace: v1.GetWorkspaceId(adminNode),
 			Image:     commonconfig.GetPreflightImage(),
+			Env:       job.Spec.Env,
 		},
 	}
 

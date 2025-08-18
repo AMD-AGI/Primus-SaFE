@@ -201,14 +201,13 @@ func (h *Handler) generateDiagnoseJob(ctx context.Context, req *types.CreateOpsJ
 		}
 		nodeParam = job.GetParameter(v1.ParameterNode)
 	}
-	if nodeParam == nil {
-		return nil, commonerrors.NewInternalError("Node parameter or Workload parameter is required")
+	if nodeParam != nil {
+		adminNode, err := h.getAdminNode(ctx, nodeParam.Value)
+		if err != nil {
+			return nil, err
+		}
+		job.Spec.Cluster = v1.GetClusterId(adminNode)
 	}
-	adminNode, err := h.getAdminNode(ctx, nodeParam.Value)
-	if err != nil {
-		return nil, err
-	}
-	job.Spec.Cluster = v1.GetClusterId(adminNode)
 	return job, nil
 }
 
@@ -276,6 +275,7 @@ func genDefaultOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {
 			Type:          req.Type,
 			Inputs:        req.Inputs,
 			TimeoutSecond: req.TimeoutSecond,
+			Env:           req.Env,
 		},
 	}
 	if req.UserName != "" {
@@ -394,6 +394,9 @@ func cvtToOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponseItem {
 	result.Inputs = deserializeParams(string(job.Inputs))
 	if outputs := dbutils.ParseNullString(job.Outputs); outputs != "" {
 		json.Unmarshal([]byte(outputs), &result.Outputs)
+	}
+	if env := dbutils.ParseNullString(job.Env); env != "" {
+		json.Unmarshal([]byte(env), &result.Env)
 	}
 	if conditions := dbutils.ParseNullString(job.Conditions); conditions != "" {
 		json.Unmarshal([]byte(conditions), &result.Conditions)

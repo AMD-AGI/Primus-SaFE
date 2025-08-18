@@ -95,6 +95,7 @@ data:
         is_deleted boolean
     );
 
+    alter table ops_job add column if not exists env TEXT;
     create index if not exists T_JOB_ID_INDEX on ops_job (job_id);
     create index if not exists T_JOB_CREATE_TIME_INDEX on ops_job (create_time);
     create index if not exists T_JOB_PHASE_INDEX on ops_job (phase);

@@ -60,22 +60,27 @@ type WorkloadPodWrapper struct {
 	SSHAddr string `json:"sshAddr,omitempty"`
 }
 
-type GetWorkloadResponseItem struct {
+type ListWorkloadResponseItem struct {
 	// workload id
 	WorkloadId string `json:"workloadId"`
-	CreateWorkloadRequest
+	// Requested workspace
+	Workspace string `json:"workspace"`
+	// Workload resource requirements
+	Resource v1.WorkloadResource `json:"resource"`
+	// workload name (display only)
+	DisplayName string `json:"displayName"`
+	// workload description
+	Description string `json:"description"`
+	// workload submitter
+	UserName string `json:"userName"`
 	// cluster to which the workload belongs
 	Cluster string `json:"cluster"`
 	// status of workload
 	Phase string `json:"phase"`
 	// Shows the reason if the workload is in pending status.
 	Message string `json:"message"`
-	// detailed processing workflow of the workload
-	Conditions []metav1.Condition `json:"conditions"`
-	// Pod info related to the workload
-	Pods []WorkloadPodWrapper `json:"pods"`
-	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
-	Nodes [][]string `json:"nodes"`
+	// Workload scheduling priority. Defaults to 0; valid range: 0–2
+	Priority int `json:"priority"`
 	// workload creation time
 	CreationTime string `json:"creationTime"`
 	// workload start time
@@ -90,11 +95,47 @@ type GetWorkloadResponseItem struct {
 	SchedulerOrder int `json:"schedulerOrder"`
 	// total dispatch count
 	DispatchCount int `json:"dispatchCount"`
+	// Indicates whether the workload tolerates node taints
+	IsTolerateAll    bool                `json:"isTolerateAll"`
+	GroupVersionKind v1.GroupVersionKind `json:"groupVersionKind"`
+	// Workload timeout in hours. Default is 0 (no timeout).
+	Timeout *int `json:"timeout"`
+}
+
+type ListWorkloadResponse struct {
+	TotalCount int                        `json:"totalCount"`
+	Items      []ListWorkloadResponseItem `json:"items"`
 }
 
 type GetWorkloadResponse struct {
-	TotalCount int                       `json:"totalCount"`
-	Items      []GetWorkloadResponseItem `json:"items"`
+	ListWorkloadResponseItem
+	// Workload image address
+	Image string `json:"image"`
+	// workload entryPoint, required in base64 encoding
+	EntryPoint string `json:"entryPoint"`
+	// Supervision flag for the workload. When enabled, it performs operations like hang detection
+	IsSupervised bool `json:"isSupervised"`
+	// Failure retry limit. default: 0
+	MaxRetry int `json:"maxRetry"`
+	// The lifecycle of the workload after completion, in seconds. Default to 60.
+	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished"`
+	// detailed processing workflow of the workload
+	Conditions []metav1.Condition `json:"conditions"`
+	// Pod info related to the workload
+	Pods []WorkloadPodWrapper `json:"pods"`
+	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
+	Nodes [][]string `json:"nodes"`
+	// The workload will run on nodes with the user-specified labels.
+	// If multiple labels are specified, all of them must be satisfied.
+	CustomerLabels map[string]string `json:"customerLabels"`
+	// environment variables
+	Env map[string]string `json:"env"`
+	// K8s liveness check. used for deployment/statefulSet
+	Liveness *v1.HealthCheck `json:"liveness,omitempty"`
+	// K8s readiness check. used for deployment/statefulSet
+	Readiness *v1.HealthCheck `json:"readiness,omitempty"`
+	// Service configuration
+	Service *v1.Service `json:"service,omitempty"`
 }
 
 type PatchWorkloadRequest struct {
