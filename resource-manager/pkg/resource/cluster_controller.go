@@ -184,6 +184,9 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	if result, err := r.guaranteeStorage(ctx, cluster); err != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
+	if result, err := r.guaranteeDefaultAddon(ctx, cluster); err != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
 	if result, err := r.guaranteePriorityClass(ctx, cluster); err != nil || result.RequeueAfter > 0 {
 		return result, err
 	}

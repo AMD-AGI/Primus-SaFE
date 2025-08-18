@@ -611,6 +611,9 @@ func (h *Handler) cvtDBWorkloadToListItem(ctx context.Context,
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
 	}
+	if result.EndTime == "" && result.DeletionTime != "" {
+		result.EndTime = result.DeletionTime
+	}
 	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
 	json.Unmarshal([]byte(w.Resource), &result.Resource)
 	if w.Timeout > 0 {

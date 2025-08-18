@@ -143,18 +143,19 @@ func (r *AddonController) helmInstall(ctx context.Context, addon *v1.Addon) erro
 	installClient.CreateNamespace = true
 	installClient.Version = version
 	installClient.PlainHTTP = addon.Spec.AddonSource.HelmRepository.PlainHTTP
+	installClient.InsecureSkipTLSverify = true
 	if url != "" {
 		installClient.RepoURL = url
 	}
 
 	chartRequested, err := installClient.ChartPathOptions.LocateChart(name, settings)
 	if err != nil {
-		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm install helm chart download failed %s", err))
+		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm install helm chart download %s", err))
 	}
 
 	chart, err := loader.Load(chartRequested)
 	if err != nil {
-		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm install helm chart load failed %s", err))
+		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm install helm chart load %s", err))
 	}
 	valuesMap := map[string]interface{}{}
 	if values != "" {
@@ -170,7 +171,7 @@ func (r *AddonController) helmInstall(ctx context.Context, addon *v1.Addon) erro
 		if err.Error() == installedMsg {
 			return r.helmStatus(ctx, addon)
 		}
-		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm chart install failed %s", err))
+		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm chart install %s", err))
 	}
 	return r.updateAddonHelmStatus(ctx, addon, resp)
 }
@@ -191,6 +192,7 @@ func (r *AddonController) getActiontConfig(ctx context.Context, addon *v1.Addon)
 	if err := actionConfig.Init(getter, addon.GetReleaseNamespace(), helmDriver, klog.Infof); err != nil {
 		return nil, nil, r.patchErrorStatus(ctx, addon, fmt.Errorf("helm install initializ action failed %s", err))
 	}
+	settings.KubeInsecureSkipTLSVerify = true
 	return actionConfig, settings, nil
 }
 
@@ -217,6 +219,7 @@ func (r *AddonController) helmUpgrade(ctx context.Context, addon *v1.Addon) erro
 	upgradeClient.Version = version
 	upgradeClient.PlainHTTP = addon.Spec.AddonSource.HelmRepository.PlainHTTP
 	upgradeClient.MaxHistory = MaxHistory
+	upgradeClient.InsecureSkipTLSverify = true
 	if url != "" {
 		upgradeClient.RepoURL = url
 	}
@@ -265,6 +268,9 @@ func (r *AddonController) helmRollback(ctx context.Context, addon *v1.Addon) err
 	rollback := action.NewRollback(actionConfig)
 	rollback.Version = *addon.Spec.AddonSource.HelmRepository.PreviousVersion
 	err = rollback.Run(addon.Spec.AddonSource.HelmRepository.ReleaseName)
+	if err != nil {
+		return err
+	}
 
 	statusClient := action.NewStatus(actionConfig)
 	resp, err := statusClient.Run(addon.Spec.AddonSource.HelmRepository.ReleaseName)
@@ -316,10 +322,14 @@ func (r *AddonController) helmStatus(ctx context.Context, addon *v1.Addon) error
 	if addon.Spec.AddonSource.HelmRepository == nil {
 		return nil
 	}
-	settings := cli.New()
 
-	actionConfig := new(action.Configuration)
-	var err error
+	actionConfig, settings, err := r.getActiontConfig(ctx, addon)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
 	actionConfig.RegistryClient, err = newDefaultRegistryClient(addon.Spec.AddonSource.HelmRepository.PlainHTTP, settings)
 	if err != nil {
 		return err
@@ -386,7 +396,8 @@ func (r *AddonController) getCluster(ctx context.Context, cluster *corev1.Object
 		return nil, err
 	}
 	cert := c.Status.ControlPlaneStatus
-	_, restCfg, err := commonclient.NewClientSet(fmt.Sprintf("https://%s", cluster.Name),
+	_, restCfg, err := commonclient.NewClientSet(fmt.Sprintf("https://%s", c.Name),
 		cert.CertData, cert.KeyData, cert.CAData, true)
+	restCfg.Insecure = true
 	return restCfg, err
 }
