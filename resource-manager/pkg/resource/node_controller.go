@@ -916,6 +916,9 @@ func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) 
 	}
 	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				v1.ClusterManageActionLabel: string(v1.ClusterScaleUpAction),
+			},
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: v1.SystemUser,
 			},
@@ -947,7 +950,8 @@ func (r *NodeReconciler) doPreflight(ctx context.Context, adminNode *v1.Node) er
 	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: map[string]string{
-				v1.GpuProductNameLabel: strings.ToLower(v1.GetGpuProductName(adminNode)),
+				v1.GpuProductNameLabel:      strings.ToLower(v1.GetGpuProductName(adminNode)),
+				v1.ClusterManageActionLabel: string(v1.ClusterScaleUpAction),
 			},
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: v1.SystemUser,

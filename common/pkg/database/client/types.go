@@ -96,6 +96,7 @@ type OpsJob struct {
 	Phase      sql.NullString `db:"phase"`
 	Conditions sql.NullString `db:"conditions"`
 	Outputs    sql.NullString `db:"outputs"`
+	Env        sql.NullString `db:"env"`
 	IsDeleted  bool           `db:"is_deleted"`
 }
 

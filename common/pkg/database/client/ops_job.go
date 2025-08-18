@@ -29,6 +29,7 @@ var (
 		    delete_time = :delete_time,
 		    phase = :phase,
 		    conditions = :conditions,
+		    env := env,
 		    outputs = :outputs 
 		WHERE job_id = :job_id`, TOpsJob)
 )

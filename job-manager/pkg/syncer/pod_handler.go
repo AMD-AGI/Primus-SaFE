@@ -232,7 +232,7 @@ func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.
 		}
 	}
 	if err = scanner.Err(); err != nil {
-		klog.ErrorS(err, "fail to read pod log lines")
+		klog.ErrorS(err, "failed to read pod log lines")
 	}
 	if len(lines) == 0 {
 		return ""

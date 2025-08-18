@@ -1395,6 +1395,13 @@ func (in *OpsJobSpec) DeepCopyInto(out *OpsJobSpec) {
 		*out = make([]Parameter, len(*in))
 		copy(*out, *in)
 	}
+	if in.Env != nil {
+		in, out := &in.Env, &out.Env
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	return
 }
 

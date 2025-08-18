@@ -36,21 +36,13 @@ type GetWorkspaceRequest struct {
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
 }
 
-type GetWorkspaceResponseItem struct {
+type ListWorkspaceResponseItem struct {
 	// workspace id
 	WorkspaceId string `json:"workspaceId"`
 	// workspace name
 	WorkspaceName string `json:"workspaceName"`
 	// workspace's cluster
 	ClusterId string `json:"clusterId"`
-	// the total resource of workspace
-	TotalQuota ResourceList `json:"totalQuota"`
-	// the available resource of workspace
-	AvailQuota ResourceList `json:"availQuota"`
-	// the faulty resources of workspace
-	AbnormalQuota ResourceList `json:"abnormalQuota"`
-	// the used resources of workspace
-	UsedQuota ResourceList `json:"usedQuota"`
 	// node flavor id
 	NodeFlavor string `json:"nodeFlavor"`
 	// total node count
@@ -73,9 +65,21 @@ type GetWorkspaceResponseItem struct {
 	EnablePreempt bool `json:"enablePreempt"`
 }
 
+type ListWorkspaceResponse struct {
+	TotalCount int                         `json:"totalCount"`
+	Items      []ListWorkspaceResponseItem `json:"items"`
+}
+
 type GetWorkspaceResponse struct {
-	TotalCount int                        `json:"totalCount"`
-	Items      []GetWorkspaceResponseItem `json:"items"`
+	ListWorkspaceResponseItem
+	// the total resource of workspace
+	TotalQuota ResourceList `json:"totalQuota"`
+	// the available resource of workspace
+	AvailQuota ResourceList `json:"availQuota"`
+	// the faulty resources of workspace
+	AbnormalQuota ResourceList `json:"abnormalQuota"`
+	// the used resources of workspace
+	UsedQuota ResourceList `json:"usedQuota"`
 }
 
 type PatchWorkspaceRequest struct {
