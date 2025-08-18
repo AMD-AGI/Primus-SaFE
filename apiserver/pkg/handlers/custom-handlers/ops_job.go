@@ -201,14 +201,13 @@ func (h *Handler) generateDiagnoseJob(ctx context.Context, req *types.CreateOpsJ
 		}
 		nodeParam = job.GetParameter(v1.ParameterNode)
 	}
-	if nodeParam == nil {
-		return nil, commonerrors.NewInternalError("Node parameter or Workload parameter is required")
+	if nodeParam != nil {
+		adminNode, err := h.getAdminNode(ctx, nodeParam.Value)
+		if err != nil {
+			return nil, err
+		}
+		job.Spec.Cluster = v1.GetClusterId(adminNode)
 	}
-	adminNode, err := h.getAdminNode(ctx, nodeParam.Value)
-	if err != nil {
-		return nil, err
-	}
-	job.Spec.Cluster = v1.GetClusterId(adminNode)
 	return job, nil
 }
 
