@@ -6,6 +6,7 @@
 import subprocess
 import sys
 import os
+import re
 import argparse
 import random
 import time
@@ -51,16 +52,30 @@ def get_log_filename(nodes: List[str]) -> str:
 def ip_to_number(ip):
     return sum(int(octet) << (8 * i) for i, octet in enumerate(reversed(ip.split('.'))))
 
-def number_to_ip(num):
-    return '.'.join(str((num >> (8 * i)) & 255) for i in reversed(range(4)))
+def is_valid_ip(ip):
+    pattern = r'^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.'
+    pattern += r'(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.'
+    pattern += r'(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.'
+    pattern += r'(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+    return re.match(pattern, ip) is not None
 
-def get_sort_ip(hosts_file):
-    ip_list = []
+def get_sorted_hosts(hosts_file):
+    ips = []
+    hostnames = []
+
     with open(hosts_file, "r") as file:
         for line in file:
-            if line.strip() and line.strip()[0].isdigit():
-                ip_list.append(line.strip())
-    return [number_to_ip(ip_to_number(ip)) for ip in sorted(ip_list, key=ip_to_number)]
+            item = line.strip()
+            if not item or item.startswith('#'):
+                continue
+            if is_valid_ip(item):
+                ips.append(item)
+            else:
+                hostnames.append(item)
+
+    sorted_ips = sorted(ips, key=ip_to_number)
+    sorted_hostnames = sorted(hostnames)
+    return sorted_ips + sorted_hostnames
 
 def parse_size(size_str: str) -> int:
     size_str = size_str.strip().upper()
@@ -257,7 +272,7 @@ def main():
     args = parser.parse_args()
 
     log(f"🔍 Starting get hosts from {args.nodes_file}")
-    nodes = get_sort_ip(args.nodes_file)
+    nodes = get_sorted_hosts(args.nodes_file)
     if len(nodes) < 2:
         print("Error: At least 2 nodes are required.")
         sys.exit(1)
