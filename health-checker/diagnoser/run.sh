@@ -30,9 +30,9 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-cat /root/.ssh/config  | grep "Host " | awk '{print $2}' | sort | uniq > /root/hosts
-
 if [[ "$RANK" == "0" ]]; then
+  nodes_file="/root/hosts"
+  cat /root/.ssh/config  | grep "Host " | awk '{print $2}' | sort | uniq > $nodes_file
   debug=""
   if [[ -n "$NCCL_DEBUG" ]]; then
     nccl_debug=$(echo "$NCCL_DEBUG" | tr '[:upper:]' '[:lower:]')
@@ -40,7 +40,7 @@ if [[ "$RANK" == "0" ]]; then
       debug="--debug"
     fi
   fi
-  python3 $WORK_PATH/binary_diagnose.py --socket-ifname "$NCCL_SOCKET_IFNAME" --ib-hca "$NCCL_IB_HCA" --ssh-port $SSH_PORT $debug
+  python3 $WORK_PATH/binary_diagnose.py --socket-ifname "$NCCL_SOCKET_IFNAME" --ib-hca "$NCCL_IB_HCA" --ssh-port $SSH_PORT --nodes-file "$nodes_file" $debug
   if [ $? -ne 0 ]; then
     echo "failed to execute binary_diagnose.py."
     exit 1

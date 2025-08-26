@@ -252,9 +252,12 @@ def main():
                     help="InfiniBand HCAs for RCCL_IB_HCA (default: bnxt_re[0-7])")
     parser.add_argument("--ssh-port", type=int, default="22",
                         help="port for SSH to connect to (default: 22)")
+    parser.add_argument("--nodes-file", type=str, default="/root/hosts",
+                        help="node list file")
     args = parser.parse_args()
 
-    nodes = get_sort_ip("/root/hosts")
+    log(f"🔍 Starting get hosts from {args.nodes_file}")
+    nodes = get_sort_ip(args.nodes_file)
     if len(nodes) < 2:
         print("Error: At least 2 nodes are required.")
         sys.exit(1)
