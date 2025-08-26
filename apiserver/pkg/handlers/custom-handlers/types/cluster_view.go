@@ -36,6 +36,7 @@ type ListClusterResponse struct {
 
 type ClusterResponseItem struct {
 	ClusterId   string `json:"clusterId"`
+	UserId      string `json:"userId"`
 	Phase       string `json:"phase"`
 	IsProtected bool   `json:"isProtected"`
 }

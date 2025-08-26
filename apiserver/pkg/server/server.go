@@ -28,6 +28,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/controllers"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
@@ -188,6 +189,7 @@ func (s *Server) startSSHServer() error {
 	if commonconfig.GetSSHServerPort() <= 0 {
 		return fmt.Errorf("the ssh port is not defined")
 	}
+	authority.NewAuthorizer(s.ctrlManager.GetClient())
 	handler, err := handlers.InitSshHandlers(s.ctx, s.ctrlManager)
 	if err != nil {
 		return err

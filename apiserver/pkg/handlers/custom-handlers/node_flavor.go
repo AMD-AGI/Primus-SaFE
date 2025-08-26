@@ -19,7 +19,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
@@ -47,6 +50,14 @@ func (h *Handler) GetNodeFlavorAvail(c *gin.Context) {
 }
 
 func (h *Handler) createNodeFlavor(c *gin.Context) (interface{}, error) {
+	if err := h.auth.Authorize(authority.Input{
+		GinContext:   c,
+		ResourceKind: v1.NodeFlavorKind,
+		Verb:         v1.CreateVerb,
+	}); err != nil {
+		return nil, err
+	}
+
 	req := &types.CreateNodeFlavorRequest{}
 	body, err := getBodyFromRequest(c.Request, req)
 	if err != nil {
@@ -54,7 +65,7 @@ func (h *Handler) createNodeFlavor(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	nodeFlavor, err := generateNodeFlavor(req)
+	nodeFlavor, err := generateNodeFlavor(c, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate node flavor")
 		return nil, err
@@ -71,8 +82,13 @@ func (h *Handler) createNodeFlavor(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.auth.GetRequestUser(c)
+	if err != nil {
+		return nil, err
+	}
+
 	nl := &v1.NodeFlavorList{}
-	if err := h.List(c.Request.Context(), nl); err != nil {
+	if err = h.List(c.Request.Context(), nl); err != nil {
 		klog.ErrorS(err, "failed to list node flavor")
 		return nil, err
 	}
@@ -86,8 +102,18 @@ func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
 			return nl.Items[i].CreationTimestamp.Time.Before(nl.Items[j].CreationTimestamp.Time)
 		})
 	}
+	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
 	for _, item := range nl.Items {
 		if !item.GetDeletionTimestamp().IsZero() {
+			continue
+		}
+		if err = h.auth.Authorize(authority.Input{
+			GinContext: c,
+			Resource:   &item,
+			Verb:       v1.ListVerb,
+			User:       requestUser,
+			Roles:      roles,
+		}); err != nil {
 			continue
 		}
 		result.Items = append(result.Items, cvtToNodeFlavorResponseItem(&item))
@@ -101,6 +127,13 @@ func (h *Handler) getNodeFlavor(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   nf,
+		Verb:       v1.GetVerb,
+	}); err != nil {
+		return nil, err
+	}
 	return cvtToNodeFlavorResponseItem(nf), nil
 }
 
@@ -108,6 +141,13 @@ func (h *Handler) deleteNodeFlavor(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(types.Name))
 	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   nf,
+		Verb:       v1.DeleteVerb,
+	}); err != nil {
 		return nil, err
 	}
 	if err = h.Delete(ctx, nf); err != nil {
@@ -135,6 +175,14 @@ func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   nf,
+		Verb:       v1.GetVerb,
+	}); err != nil {
+		return nil, err
+	}
+
 	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
 	availResource := quantity.GetAvailableResource(nodeResources)
 	if !floatutil.FloatEqual(commonconfig.GetMaxEphemeralStorePercent(), 0) {
@@ -146,12 +194,13 @@ func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
 	return cvtToResourceList(availResource), nil
 }
 
-func generateNodeFlavor(req *types.CreateNodeFlavorRequest) (*v1.NodeFlavor, error) {
+func generateNodeFlavor(c *gin.Context, req *types.CreateNodeFlavorRequest) (*v1.NodeFlavor, error) {
 	nf := &v1.NodeFlavor{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: req.Name,
 			Labels: map[string]string{
 				v1.DisplayNameLabel: req.Name,
+				v1.UserIdLabel:      c.GetString(common.UserId),
 			},
 		},
 		Spec: v1.NodeFlavorSpec{

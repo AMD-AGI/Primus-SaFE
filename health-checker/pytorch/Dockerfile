@@ -22,8 +22,9 @@ RUN python3 --version && \
     pip3 --version
 
 ARG APP_HOME=/opt/primus-safe/pytorch
-RUN mkdir -p ${APP_HOME} && mkdir -p ${APP_HOME}/depends
+RUN mkdir -p ${APP_HOME}
 COPY ./health-checker/pytorch/*.sh ${APP_HOME}
-COPY ./health-checker/pytorch/depends/* ${APP_HOME}/depends
+COPY ./health-checker/pytorch/*.txt ${APP_HOME}
+COPY ./health-checker/pytorch/*.gz ${APP_HOME}
 
 WORKDIR /opt

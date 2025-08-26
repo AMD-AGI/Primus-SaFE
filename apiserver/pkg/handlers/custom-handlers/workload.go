@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -81,40 +82,73 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	req := &types.CreateWorkloadRequest{}
 	body, err := getBodyFromRequest(c.Request, req)
 	if err != nil {
-		klog.ErrorS(err, "failed to parse request", "body", string(body))
+		return nil, err
+	}
+	if err = h.authWorkloadCreation(c, req); err != nil {
 		return nil, err
 	}
 
-	workload, err := generateWorkload(req, body)
+	workload, err := generateWorkload(c, req, body)
 	if err != nil {
-		klog.ErrorS(err, "failed to generate workload")
 		return nil, err
 	}
-	ctx := c.Request.Context()
-	if err = h.Create(ctx, workload); err != nil {
-		klog.ErrorS(err, "failed to create workload")
+	if err = h.Create(c.Request.Context(), workload); err != nil {
 		return nil, err
 	}
-	if err = h.patchPhase(ctx, workload, v1.WorkloadPending, nil); err != nil {
-		klog.ErrorS(err, "failed to patch workload phase")
+	if err = h.patchPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
 		return nil, err
 	}
 
 	klog.Infof("create workload, name: %s, user: %s, priority: %d, timeout: %d",
-		workload.Name, req.UserName, workload.Spec.Priority, workload.Spec.Timeout)
+		workload.Name, c.GetString(common.UserId), workload.Spec.Priority, workload.Spec.Timeout)
 	return &types.CreateWorkloadResponse{WorkloadId: workload.Name}, nil
 }
 
-func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
-	if !commonconfig.IsDBEnable() {
-		return h.listAdminWorkloads(c)
+func (h *Handler) authWorkloadCreation(c *gin.Context, req *types.CreateWorkloadRequest) error {
+	requestUser, err := h.auth.GetRequestUser(c)
+	if err != nil {
+		return err
+	}
+	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+
+	if err = h.auth.Authorize(authority.Input{
+		GinContext:   c,
+		ResourceKind: v1.WorkloadKind,
+		Verb:         v1.CreateVerb,
+		Workspaces:   []string{req.Workspace},
+		User:         requestUser,
+		Roles:        roles,
+	}); err != nil {
+		return err
 	}
 
+	priorityKind := buildPriorityKind(req.Priority)
+	if err = h.auth.Authorize(authority.Input{
+		GinContext:   c,
+		ResourceKind: priorityKind,
+		Verb:         v1.CreateVerb,
+		Workspaces:   []string{req.Workspace},
+		User:         requestUser,
+		Roles:        roles,
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	query, err := parseListWorkloadQuery(c)
 	if err != nil {
-		klog.ErrorS(err, "failed to parse query")
 		return nil, err
 	}
+	adminWorkload := generateAuthWorkload("", query.UserId, query.WorkspaceId, query.ClusterId)
+	if err = h.authWorkload(c, adminWorkload, v1.ListVerb, nil, nil); err != nil {
+		return nil, err
+	}
+	if !commonconfig.IsDBEnable() {
+		return h.listAdminWorkloads(c, query)
+	}
+
 	dbSql, orderBy, err := cvtToListWorkloadSql(query)
 	if err != nil {
 		return nil, err
@@ -129,7 +163,6 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	if result.TotalCount, err = h.dbClient.CountWorkloads(ctx, dbSql); err != nil {
 		return nil, err
 	}
-
 	for _, w := range workloads {
 		workload := h.cvtDBWorkloadToResponseItem(ctx, w)
 		result.Items = append(result.Items, workload)
@@ -139,19 +172,23 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 	name := c.GetString(types.Name)
-	if name == "" {
-		return nil, commonerrors.NewBadRequest("workloadId is empty")
-	}
 	ctx := c.Request.Context()
 	if commonconfig.IsDBEnable() {
-		workload, err := h.dbClient.GetWorkload(ctx, name)
+		dbWorkload, err := h.dbClient.GetWorkload(ctx, name)
 		if err != nil {
 			return nil, err
 		}
-		return h.cvtDBWorkloadToGetResponse(ctx, workload), nil
+		adminWorkload := generateAuthWorkload(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+		if err = h.authWorkload(c, adminWorkload, v1.GetVerb, nil, nil); err != nil {
+			return nil, err
+		}
+		return h.cvtDBWorkloadToGetResponse(ctx, dbWorkload), nil
 	} else {
 		adminWorkload, err := h.getAdminWorkload(ctx, name)
 		if err != nil {
+			return nil, err
+		}
+		if err = h.authWorkload(c, adminWorkload, v1.GetVerb, nil, nil); err != nil {
 			return nil, err
 		}
 		return h.cvtAdminWorkloadToGetResponse(ctx, adminWorkload), nil
@@ -159,23 +196,36 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
-	name := c.GetString(types.Name)
-	if name == "" {
-		return nil, commonerrors.NewBadRequest("workloadId is empty")
+	requestUser, err := h.auth.GetRequestUser(c)
+	if err != nil {
+		return nil, err
 	}
-	ctx := c.Request.Context()
-	adminWorkload, err := h.getAdminWorkload(ctx, name)
+	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+	name := c.GetString(types.Name)
+	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, err
 		}
 	} else {
+		if err = h.authWorkload(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+			return nil, err
+		}
 		if err = h.deleteAdminWorkload(c, adminWorkload); err != nil {
 			return nil, err
 		}
 	}
+
 	if commonconfig.IsDBEnable() {
-		if err = h.dbClient.SetWorkloadDeleted(ctx, name); err != nil {
+		dbWorkload, err := h.dbClient.GetWorkload(c.Request.Context(), name)
+		if err != nil {
+			return nil, commonerrors.IgnoreFound(err)
+		}
+		adminWorkload = generateAuthWorkload(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+		if err = h.authWorkload(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+			return nil, err
+		}
+		if err = h.dbClient.SetWorkloadDeleted(c.Request.Context(), name); err != nil {
 			return nil, err
 		}
 	}
@@ -192,33 +242,48 @@ func (h *Handler) deleteAdminWorkload(c *gin.Context, adminWorkload *v1.Workload
 	}
 
 	if err := h.patchPhase(ctx, adminWorkload, v1.WorkloadStopped, cond); err != nil {
-		klog.ErrorS(err, "failed to patch workload phase")
 		return err
 	}
 	if err := h.Delete(ctx, adminWorkload); err != nil {
-		klog.ErrorS(err, "failed to delete workload")
 		return err
 	}
 	return nil
 }
 
 func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
-	name := c.GetString(types.Name)
-	if name == "" {
-		return nil, commonerrors.NewBadRequest("workloadId is empty")
+	requestUser, err := h.auth.GetRequestUser(c)
+	if err != nil {
+		return nil, err
 	}
-	ctx := c.Request.Context()
-	adminWorkload, err := h.getAdminWorkload(ctx, name)
+	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+
+	name := c.GetString(types.Name)
+	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, err
 		}
-		if commonconfig.IsDBEnable() {
-			if err = h.dbClient.SetWorkloadStopped(ctx, name); err != nil {
+		if !commonconfig.IsDBEnable() {
+			return nil, nil
+		}
+		dbWorkload, err := h.dbClient.GetWorkload(c.Request.Context(), name)
+		if err != nil {
+			return nil, commonerrors.IgnoreFound(err)
+		}
+		if dbutils.ParseNullString(dbWorkload.Phase) != string(v1.WorkloadStopped) {
+			adminWorkload = generateAuthWorkload(name,
+				dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+			if err = h.authWorkload(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+				return nil, err
+			}
+			if err = h.dbClient.SetWorkloadStopped(c.Request.Context(), name); err != nil {
 				return nil, err
 			}
 		}
 	} else {
+		if err = h.authWorkload(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+			return nil, err
+		}
 		if err = h.deleteAdminWorkload(c, adminWorkload); err != nil {
 			return nil, err
 		}
@@ -229,43 +294,63 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	name := c.GetString(types.Name)
-	if name == "" {
-		return nil, commonerrors.NewBadRequest("workloadId is empty")
+	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
+	if err != nil {
+		return nil, commonerrors.NewInternalError("The workload can only be edited when it is running.")
 	}
 
-	ctx := c.Request.Context()
-	adminWorkload, err := h.getAdminWorkload(ctx, name)
-	if client.IgnoreNotFound(err) != nil {
-		return nil, err
-	}
 	req := &types.PatchWorkloadRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
-	if err != nil {
-		klog.ErrorS(err, "failed to parse request", "body", string(body))
+	if _, err = getBodyFromRequest(c.Request, req); err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	if adminWorkload != nil {
-		patch := client.MergeFrom(adminWorkload.DeepCopy())
-		updateWorkload(adminWorkload, req)
-		if err = h.Patch(ctx, adminWorkload, patch); err != nil {
-			klog.ErrorS(err, "failed to patch workload")
-			return nil, err
-		}
-	} else if commonconfig.IsDBEnable() {
-		if req.Description == nil || *req.Description == "" {
-			return nil, fmt.Errorf("The terminated workload can only modify the description")
-		}
-		if err = h.dbClient.SetWorkloadDescription(ctx, name, *req.Description); err != nil {
-			return nil, err
-		}
+	if err = h.authWorkloadUpdate(c, adminWorkload, req); err != nil {
+		return nil, err
 	}
+
+	patch := client.MergeFrom(adminWorkload.DeepCopy())
+	updateWorkload(adminWorkload, req)
+	if err = h.Patch(c.Request.Context(), adminWorkload, patch); err != nil {
+		return nil, err
+	}
+
 	klog.Infof("patch workload, name: %s, request: %s", name, string(jsonutils.MarshalSilently(*req)))
 	return nil, nil
+}
+
+func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload, req *types.PatchWorkloadRequest) error {
+	requestUser, err := h.auth.GetRequestUser(c)
+	if err != nil {
+		return err
+	}
+	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+
+	if h.authWorkload(c, adminWorkload, v1.UpdateVerb, requestUser, roles); err != nil {
+		return err
+	}
+
+	if req.Priority != nil {
+		priorityKind := buildPriorityKind(*req.Priority)
+		if err = h.auth.Authorize(authority.Input{
+			GinContext:   c,
+			ResourceKind: priorityKind,
+			Resource:     adminWorkload,
+			Verb:         v1.UpdateVerb,
+			Workspaces:   []string{adminWorkload.Spec.Workspace},
+			User:         requestUser,
+			Roles:        roles,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 	workload, err := h.getAdminWorkload(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
+		return nil, err
+	}
+	if err = h.authWorkload(c, workload, v1.GetVerb, nil, nil); err != nil {
 		return nil, err
 	}
 
@@ -307,23 +392,15 @@ func (h *Handler) patchPhase(ctx context.Context, workload *v1.Workload,
 		}
 	}
 	if err := h.Status().Patch(ctx, workload, patch); err != nil {
-		klog.ErrorS(err, "failed to patch workload status", "name", workload.Name)
 		return err
 	}
 	return nil
 }
 
-func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
-	query, err := parseListWorkloadQuery(c)
-	if err != nil {
-		klog.ErrorS(err, "failed to parse query")
-		return nil, err
-	}
-
-	ctx := c.Request.Context()
+func (h *Handler) listAdminWorkloads(c *gin.Context, query *types.ListWorkloadRequest) (interface{}, error) {
 	labelSelector := buildWorkloadLabelSelector(query)
 	workloadList := &v1.WorkloadList{}
-	if err = h.List(ctx, workloadList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+	if err := h.List(c.Request.Context(), workloadList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return nil, err
 	}
 	if len(workloadList.Items) > 0 {
@@ -337,6 +414,7 @@ func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	result := &types.ListWorkloadResponse{}
 	for _, w := range workloadList.Items {
 		if query.Phase != "" {
@@ -356,7 +434,7 @@ func (h *Handler) listAdminWorkloads(c *gin.Context) (interface{}, error) {
 		if !untilTime.IsZero() && w.CreationTimestamp.Time.After(untilTime) {
 			continue
 		}
-		result.Items = append(result.Items, h.cvtWorkloadToResponseItem(&w))
+		result.Items = append(result.Items, cvtWorkloadToResponseItem(&w))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
@@ -368,10 +446,26 @@ func (h *Handler) getAdminWorkload(ctx context.Context, name string) (*v1.Worklo
 	}
 	workload := &v1.Workload{}
 	if err := h.Get(ctx, client.ObjectKey{Name: name}, workload); err != nil {
-		klog.ErrorS(err, "failed to get admin workload", "name", name)
 		return nil, err
 	}
 	return workload.DeepCopy(), nil
+}
+
+func (h *Handler) getWorkloadInternal(ctx context.Context, workloadId string) (*v1.Workload, error) {
+	if !commonconfig.IsDBEnable() {
+		return h.getAdminWorkload(ctx, workloadId)
+	}
+	dbWorkload, err := h.dbClient.GetWorkload(ctx, workloadId)
+	if err != nil {
+		return nil, err
+	}
+	adminWorkload := generateAuthWorkload(workloadId, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+	adminWorkload.CreationTimestamp = metav1.NewTime(dbutils.ParseNullTime(dbWorkload.CreateTime))
+	endTime := dbutils.ParseNullTime(dbWorkload.EndTime)
+	if !endTime.IsZero() {
+		adminWorkload.Status.EndTime = &metav1.Time{Time: endTime}
+	}
+	return adminWorkload, nil
 }
 
 func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, workspaceNames []string) ([]*v1.Workload, error) {
@@ -384,19 +478,32 @@ func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, w
 	return commonworkload.GetWorkloadsOfWorkspace(ctx, h.Client, clusterName, workspaceNames, filterFunc)
 }
 
-func generateWorkload(req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
-	if req.UserName == v1.SystemUser {
-		return nil, commonerrors.NewBadRequest(fmt.Sprintf("The %s user is a reserved system account.", v1.SystemUser))
+func (h *Handler) authWorkload(c *gin.Context,
+	adminWorkload *v1.Workload, verb v1.RoleVerb, user *v1.User, roles []*v1.Role) error {
+	if err := h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   adminWorkload,
+		Verb:       verb,
+		Workspaces: []string{adminWorkload.Spec.Workspace},
+		User:       user,
+		Roles:      roles,
+	}); err != nil {
+		return err
 	}
+	return nil
+}
+
+func generateWorkload(c *gin.Context, req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName(req.DisplayName),
 			Labels: map[string]string{
 				v1.DisplayNameLabel: req.DisplayName,
+				v1.UserIdLabel:      c.GetString(common.UserId),
 			},
 			Annotations: map[string]string{
 				v1.DescriptionAnnotation: req.Description,
-				v1.UserNameAnnotation:    req.UserName,
+				v1.UserNameAnnotation:    c.GetString(common.UserName),
 			},
 		},
 	}
@@ -433,6 +540,9 @@ func parseListWorkloadQuery(c *gin.Context) (*types.ListWorkloadRequest, error) 
 	}
 	if query.Limit <= 0 {
 		query.Limit = types.DefaultQueryLimit
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
 	}
 	if query.Order == "" {
 		query.Order = dbclient.DESC
@@ -488,10 +598,13 @@ func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []str
 		dbSql = append(dbSql, sqrl.Like{userNameField: fmt.Sprintf("%%%s%%", userName)})
 	} else {
 		userCondition := sqrl.Or{
-			sqrl.NotEq{userNameField: v1.SystemUser},            // username != 'system'
+			sqrl.NotEq{userNameField: common.UserSystem},        // username != 'system'
 			sqrl.Expr(fmt.Sprintf("%s IS NULL", userNameField)), // username IS NULL
 		}
 		dbSql = append(dbSql, userCondition)
+	}
+	if userId := strings.TrimSpace(query.UserId); userId != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "UserId"): userId})
 	}
 	if sinceTime := strings.TrimSpace(query.Since); sinceTime != "" {
 		if t, err := timeutil.CvtStrToRFC3339Milli(sinceTime); err == nil {
@@ -604,6 +717,7 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 		DispatchCount:  w.DispatchCount,
 		DisplayName:    w.DisplayName,
 		Description:    dbutils.ParseNullString(w.Description),
+		UserId:         dbutils.ParseNullString(w.UserId),
 		UserName:       dbutils.ParseNullString(w.UserName),
 		Priority:       w.Priority,
 		IsTolerateAll:  w.IsTolerateAll,
@@ -655,7 +769,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 	if str := dbutils.ParseNullString(w.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
 		for i, p := range result.Pods {
-			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p.WorkloadPod, result.UserName, result.Workspace)
+			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p.WorkloadPod, result.UserId, result.Workspace)
 		}
 	}
 	if str := dbutils.ParseNullString(w.Nodes); str != "" {
@@ -690,7 +804,42 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 	return result
 }
 
-func (h *Handler) cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
+func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workload) *types.GetWorkloadResponse {
+	result := &types.GetWorkloadResponse{
+		WorkloadResponseItem:    cvtWorkloadToResponseItem(w),
+		Image:                   w.Spec.Image,
+		IsSupervised:            w.Spec.IsSupervised,
+		MaxRetry:                w.Spec.MaxRetry,
+		Conditions:              w.Status.Conditions,
+		Nodes:                   w.Status.Nodes,
+		TTLSecondsAfterFinished: w.Spec.TTLSecondsAfterFinished,
+		Service:                 w.Spec.Service,
+		Liveness:                w.Spec.Liveness,
+		Readiness:               w.Spec.Readiness,
+		Env:                     w.Spec.Env,
+	}
+
+	result.Pods = make([]types.WorkloadPodWrapper, len(w.Status.Pods))
+	for i, p := range w.Status.Pods {
+		result.Pods[i].WorkloadPod = w.Status.Pods[i]
+		result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p, result.UserId, result.Workspace)
+	}
+	if len(w.Spec.CustomerLabels) > 0 {
+		result.CustomerLabels = make(map[string]string)
+		for key, val := range w.Spec.CustomerLabels {
+			if strings.HasPrefix(key, common.CustomerLabelPrefix) {
+				key = key[len(common.CustomerLabelPrefix):]
+			}
+			result.CustomerLabels[key] = val
+		}
+	}
+	if !commonworkload.IsAuthoring(w) {
+		result.EntryPoint = stringutil.Base64Decode(w.Spec.EntryPoint)
+	}
+	return result
+}
+
+func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
 		WorkloadId:     w.Name,
 		Cluster:        v1.GetClusterId(w),
@@ -700,6 +849,7 @@ func (h *Handler) cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadRespon
 		DispatchCount:  v1.GetWorkloadDispatchCnt(w),
 		DisplayName:    v1.GetDisplayName(w),
 		Description:    v1.GetDescription(w),
+		UserId:         v1.GetUserId(w),
 		UserName:       v1.GetUserName(w),
 		Priority:       w.Spec.Priority,
 		Workspace:      w.Spec.Workspace,
@@ -718,47 +868,12 @@ func (h *Handler) cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadRespon
 	return result
 }
 
-func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workload) *types.GetWorkloadResponse {
-	result := &types.GetWorkloadResponse{
-		WorkloadResponseItem:    h.cvtWorkloadToResponseItem(w),
-		Image:                   w.Spec.Image,
-		IsSupervised:            w.Spec.IsSupervised,
-		MaxRetry:                w.Spec.MaxRetry,
-		Conditions:              w.Status.Conditions,
-		Nodes:                   w.Status.Nodes,
-		TTLSecondsAfterFinished: w.Spec.TTLSecondsAfterFinished,
-		Service:                 w.Spec.Service,
-		Liveness:                w.Spec.Liveness,
-		Readiness:               w.Spec.Readiness,
-		Env:                     w.Spec.Env,
-	}
-
-	result.Pods = make([]types.WorkloadPodWrapper, len(w.Status.Pods))
-	for i, p := range w.Status.Pods {
-		result.Pods[i].WorkloadPod = w.Status.Pods[i]
-		result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p, result.UserName, result.Workspace)
-	}
-	if len(w.Spec.CustomerLabels) > 0 {
-		result.CustomerLabels = make(map[string]string)
-		for key, val := range w.Spec.CustomerLabels {
-			if strings.HasPrefix(key, common.CustomerLabelPrefix) {
-				key = key[len(common.CustomerLabelPrefix):]
-			}
-			result.CustomerLabels[key] = val
-		}
-	}
-	if !commonworkload.IsAuthoring(w) {
-		result.EntryPoint = stringutil.Base64Decode(w.Spec.EntryPoint)
-	}
-	return result
-}
-
-func (h *Handler) buildSSHAddress(ctx context.Context, pod *v1.WorkloadPod, userName, workspace string) string {
+func (h *Handler) buildSSHAddress(ctx context.Context, pod *v1.WorkloadPod, userId, workspace string) string {
 	if !commonconfig.IsSSHEnable() || pod.Phase != corev1.PodRunning {
 		return ""
 	}
-	if userName == "" {
-		userName = "none"
+	if userId == "" {
+		userId = "none"
 	}
 	ep, err := h.clientSet.CoreV1().Endpoints(common.HigressNamespace).Get(ctx, common.HigressGateway, metav1.GetOptions{})
 	if err != nil {
@@ -784,7 +899,7 @@ func (h *Handler) buildSSHAddress(ctx context.Context, pod *v1.WorkloadPod, user
 		}
 	}
 	if gatewayIp != "" {
-		return fmt.Sprintf("ssh %s.%s.%s@%s", userName, pod.PodId, workspace, gatewayIp)
+		return fmt.Sprintf("ssh %s.%s.%s@%s", userId, pod.PodId, workspace, gatewayIp)
 	}
 
 	localIp, _ := netutil.GetLocalIp()
@@ -792,7 +907,7 @@ func (h *Handler) buildSSHAddress(ctx context.Context, pod *v1.WorkloadPod, user
 		return ""
 	}
 	return fmt.Sprintf("ssh -p %d %s.%s.%s@%s",
-		commonconfig.GetSSHServerPort(), userName, pod.PodId, workspace, localIp)
+		commonconfig.GetSSHServerPort(), userId, pod.PodId, workspace, localIp)
 }
 
 func buildWorkloadLabelSelector(query *types.ListWorkloadRequest) labels.Selector {
@@ -810,7 +925,7 @@ func buildWorkloadLabelSelector(query *types.ListWorkloadRequest) labels.Selecto
 		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.Equals, []string{nameMd5})
 		labelSelector = labelSelector.Add(*req)
 	} else {
-		nameMd5 := stringutil.MD5(v1.SystemUser)
+		nameMd5 := stringutil.MD5(common.UserSystem)
 		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.NotEquals, []string{nameMd5})
 		labelSelector = labelSelector.Add(*req)
 	}
@@ -819,5 +934,28 @@ func buildWorkloadLabelSelector(query *types.ListWorkloadRequest) labels.Selecto
 		req, _ := labels.NewRequirement(v1.WorkloadKindLabel, selection.In, values)
 		labelSelector = labelSelector.Add(*req)
 	}
+	if query.UserId != "" {
+		req, _ := labels.NewRequirement(v1.UserIdLabel, selection.Equals, []string{query.UserId})
+		labelSelector = labelSelector.Add(*req)
+	}
 	return labelSelector
+}
+
+func buildPriorityKind(priority int) string {
+	return fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
+}
+
+func generateAuthWorkload(name, userId, workspace, clusterId string) *v1.Workload {
+	return &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string]string{
+				v1.UserIdLabel:    userId,
+				v1.ClusterIdLabel: clusterId,
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			Workspace: workspace,
+		},
+	}
 }

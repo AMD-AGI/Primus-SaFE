@@ -20,6 +20,7 @@ type WorkspaceSpecApplyConfiguration struct {
 	Scopes        []amdv1.WorkspaceScope              `json:"scopes,omitempty"`
 	Volumes       []WorkspaceVolumeApplyConfiguration `json:"volumes,omitempty"`
 	EnablePreempt *bool                               `json:"enablePreempt,omitempty"`
+	Managers      []string                            `json:"managers,omitempty"`
 }
 
 // WorkspaceSpecApplyConfiguration constructs a declarative configuration of the WorkspaceSpec type for use with
@@ -88,5 +89,15 @@ func (b *WorkspaceSpecApplyConfiguration) WithVolumes(values ...*WorkspaceVolume
 // If called multiple times, the EnablePreempt field is set to the value of the last call.
 func (b *WorkspaceSpecApplyConfiguration) WithEnablePreempt(value bool) *WorkspaceSpecApplyConfiguration {
 	b.EnablePreempt = &value
+	return b
+}
+
+// WithManagers adds the given value to the Managers field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Managers field.
+func (b *WorkspaceSpecApplyConfiguration) WithManagers(values ...string) *WorkspaceSpecApplyConfiguration {
+	for i := range values {
+		b.Managers = append(b.Managers, values[i])
+	}
 	return b
 }

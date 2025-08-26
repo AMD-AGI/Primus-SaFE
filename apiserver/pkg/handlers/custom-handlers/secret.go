@@ -19,7 +19,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -40,6 +42,14 @@ func (h *Handler) DeleteSecret(c *gin.Context) {
 }
 
 func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
+	if err := h.auth.Authorize(authority.Input{
+		GinContext:   c,
+		ResourceKind: authority.SecretResourceKind,
+		Verb:         v1.CreateVerb,
+	}); err != nil {
+		return nil, err
+	}
+
 	req := &types.CreateSecretRequest{}
 	body, err := getBodyFromRequest(c.Request, req)
 	if err != nil {
@@ -47,7 +57,7 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	secret, err := generateSecret(req)
+	secret, err := generateSecret(c, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate secret")
 		return nil, err
@@ -65,6 +75,11 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.auth.GetRequestUser(c)
+	if err != nil {
+		return nil, err
+	}
+
 	query, err := parseListSecretQuery(c)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse query")
@@ -72,12 +87,23 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 	}
 	labelSelector := buildSecretLabelSelector(query)
 	secretList := &corev1.SecretList{}
-	if err = h.List(c.Request.Context(), secretList,
-		&client.ListOptions{LabelSelector: labelSelector}); err != nil {
+	if err = h.List(c.Request.Context(),
+		secretList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return nil, err
 	}
 	result := &types.ListSecretResponse{}
+	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
 	for _, item := range secretList.Items {
+		if err = h.auth.Authorize(authority.Input{
+			GinContext: c,
+			Resource:   &item,
+			Verb:       v1.ListVerb,
+			User:       requestUser,
+			Roles:      roles,
+		}); err != nil {
+			continue
+		}
+
 		result.Items = append(result.Items, types.SecretResponseItem{
 			SecretId:   item.Name,
 			SecretName: v1.GetDisplayName(&item),
@@ -93,7 +119,18 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the secretId is not found")
 	}
-	err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
+	secret, err := h.getSecret(c.Request.Context(), name)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   secret,
+		Verb:       v1.DeleteVerb,
+	}); err != nil {
+		return nil, err
+	}
+	err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
 		c.Request.Context(), name, metav1.DeleteOptions{})
 	if err != nil {
 		return nil, err
@@ -111,12 +148,13 @@ func (h *Handler) getSecret(ctx context.Context, name string) (*corev1.Secret, e
 	return secret, err
 }
 
-func generateSecret(req *types.CreateSecretRequest) (*corev1.Secret, error) {
+func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Secret, error) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: common.PrimusSafeNamespace,
 			Labels: map[string]string{
 				v1.SecretTypeLabel: string(req.Type),
+				v1.UserIdLabel:     c.GetString(common.UserId),
 			},
 		},
 	}

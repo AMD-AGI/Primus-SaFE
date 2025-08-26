@@ -26,6 +26,8 @@ type CreateWorkspaceRequest struct {
 	Volumes []v1.WorkspaceVolume `json:"volumes,omitempty"`
 	// Is preemption enabled
 	EnablePreempt bool `json:"enablePreempt"`
+	// the manager's user_id of workspace
+	Managers []string `json:"managers,omitempty"`
 }
 
 type CreateWorkspaceResponse struct {
@@ -50,6 +52,8 @@ type WorkspaceResponseItem struct {
 	ClusterId string `json:"clusterId"`
 	// node flavor id
 	NodeFlavor string `json:"nodeFlavor"`
+	// the creator's id
+	UserId string `json:"userId"`
 	// total node count
 	TotalNode int `json:"totalNode"`
 	// abnormal node count
@@ -68,6 +72,8 @@ type WorkspaceResponseItem struct {
 	Volumes []v1.WorkspaceVolume `json:"volumes"`
 	// Is preemption enabled
 	EnablePreempt bool `json:"enablePreempt"`
+	// the manager's user_id
+	Managers []string `json:"managers"`
 }
 
 type GetWorkspaceResponse struct {
@@ -97,4 +103,6 @@ type PatchWorkspaceRequest struct {
 	Description *string `json:"description,omitempty"`
 	// EnablePreempt
 	EnablePreempt *bool `json:"enablePreempt,omitempty"`
+	// the managers for workspace
+	Managers *[]string `json:"managers,omitempty"`
 }

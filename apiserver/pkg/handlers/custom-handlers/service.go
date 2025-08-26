@@ -10,6 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -31,7 +32,14 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewNotFoundWithMessage("the workload is not found")
 	}
 	workspace := adminWorkload.Spec.Workspace
-
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   adminWorkload,
+		Verb:       v1.GetVerb,
+		Workspaces: []string{workspace},
+	}); err != nil {
+		return nil, err
+	}
 	k8sClients, err := apiutils.GetK8sClientFactory(h.clientManager, v1.GetClusterId(adminWorkload))
 	if err != nil {
 		return nil, err

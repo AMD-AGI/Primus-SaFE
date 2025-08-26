@@ -26,7 +26,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/secure"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
@@ -314,19 +313,9 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 		return nil
 	}
 	c := client.MergeFrom(cluster.DeepCopy())
-	cry := crypto.NewCrypto()
-	cluster.Status.ControlPlaneStatus.CertData, err = cry.Encrypt([]byte(base64.StdEncoding.EncodeToString(conf.CertData)))
-	if err != nil {
-		return fmt.Errorf("cert  encrypt error %+v", err)
-	}
-	cluster.Status.ControlPlaneStatus.CAData, err = cry.Encrypt([]byte(base64.StdEncoding.EncodeToString(conf.CAData)))
-	if err != nil {
-		return fmt.Errorf("ca encrypt error %+v", err)
-	}
-	cluster.Status.ControlPlaneStatus.KeyData, err = cry.Encrypt([]byte(base64.StdEncoding.EncodeToString(conf.KeyData)))
-	if err != nil {
-		return fmt.Errorf("key encrypt error %+v", err)
-	}
+	cluster.Status.ControlPlaneStatus.CertData = base64.StdEncoding.EncodeToString(conf.CertData)
+	cluster.Status.ControlPlaneStatus.CAData = base64.StdEncoding.EncodeToString(conf.CAData)
+	cluster.Status.ControlPlaneStatus.KeyData = base64.StdEncoding.EncodeToString(conf.KeyData)
 	cluster.Status.ControlPlaneStatus.Endpoints = make([]string, 0, len(nodes))
 	for _, n := range nodes {
 		cluster.Status.ControlPlaneStatus.Endpoints = append(cluster.Status.ControlPlaneStatus.Endpoints, fmt.Sprintf("https://%s:6443", n.Spec.PrivateIP))

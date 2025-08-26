@@ -15,6 +15,7 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -37,6 +38,7 @@ type Handler struct {
 	dbClient      dbclient.Interface
 	httpClient    httpclient.Interface
 	clientManager *commonutils.ObjectManager
+	auth          *authority.Authorizer
 }
 
 func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
@@ -58,6 +60,7 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 		dbClient:      dbClient,
 		httpClient:    httpclient.NewHttpClient(),
 		clientManager: commonutils.NewObjectManagerSingleton(),
+		auth:          authority.Instance(),
 	}
 	return h, nil
 }

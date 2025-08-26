@@ -32,8 +32,6 @@ type CreateOpsJobRequest struct {
 	AvailableRatio *float64 `json:"availableRatio,omitempty"`
 	// When enabled, the operation will wait until the node is idle, only to addon
 	SecurityUpgrade bool `json:"securityUpgrade,omitempty"`
-	// job submitter
-	UserName string `json:"userName,omitempty"`
 	// environment variables
 	Env map[string]string `json:"env,omitempty"`
 }
@@ -57,17 +55,18 @@ type ListOpsJobRequest struct {
 	// Query the end time of the job, similar to since. default is now
 	Until string `form:"until" binding:"omitempty"`
 	// the cluster which the job belongs to
-	Cluster string `form:"cluster" binding:"omitempty,max=64"`
+	Cluster string `form:"cluster" binding:"required,max=64"`
 	// job submitter
 	UserName string `form:"userName" binding:"omitempty,max=64"`
 	// job phase
 	Phase v1.OpsJobPhase `form:"phase" binding:"omitempty"`
 	// job type
-	Type v1.OpsJobType `form:"type" binding:"omitempty"`
+	Type v1.OpsJobType `form:"type" binding:"required"`
 
 	// for internal use
 	SinceTime time.Time
 	UntilTime time.Time
+	UserId    string
 }
 
 type ListOpsJobResponse struct {
@@ -82,6 +81,8 @@ type OpsJobResponseItem struct {
 	Cluster string `json:"cluster"`
 	// the workspace which the job belongs to
 	Workspace string `json:"workspace"`
+	// job submitter
+	UserId string `json:"userId"`
 	// job submitter
 	UserName string `json:"userName"`
 	// job type

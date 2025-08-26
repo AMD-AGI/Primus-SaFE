@@ -14,6 +14,8 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	"k8s.io/klog/v2"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -29,6 +31,14 @@ func (h *Handler) listFault(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
+	if err := h.auth.Authorize(authority.Input{
+		GinContext:   c,
+		ResourceKind: v1.FaultKind,
+		Verb:         v1.ListVerb,
+	}); err != nil {
+		return nil, err
+	}
+
 	query, err := parseListFaultQuery(c)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse query")

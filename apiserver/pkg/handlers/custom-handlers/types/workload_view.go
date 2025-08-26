@@ -17,8 +17,6 @@ type CreateWorkloadRequest struct {
 	DisplayName string `json:"displayName"`
 	// workload description
 	Description string `json:"description,omitempty"`
-	// workload submitter
-	UserName string `json:"userName,omitempty"`
 }
 
 type CreateWorkloadResponse struct {
@@ -33,6 +31,8 @@ type ListWorkloadRequest struct {
 	Phase string `form:"phase" binding:"omitempty"`
 	// cluster id
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
+	// user id
+	UserId string `form:"userId" binding:"omitempty,max=64"`
 	// Valid values include: Deployment/PyTorchJob/StatefulSet/Authoring
 	// If specifying multiple kind queries, separate them with commas
 	Kind string `form:"kind" binding:"omitempty"`
@@ -71,7 +71,9 @@ type WorkloadResponseItem struct {
 	DisplayName string `json:"displayName"`
 	// workload description
 	Description string `json:"description"`
-	// workload submitter
+	// workload submitter's id
+	UserId string `json:"userId"`
+	// workload submitter's name
 	UserName string `json:"userName"`
 	// cluster to which the workload belongs
 	Cluster string `json:"cluster"`

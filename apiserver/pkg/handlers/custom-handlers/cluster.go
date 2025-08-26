@@ -23,7 +23,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -59,13 +61,20 @@ func (h *Handler) GetClusterPodLog(c *gin.Context) {
 }
 
 func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
+	if err := h.auth.Authorize(authority.Input{
+		GinContext:   c,
+		ResourceKind: v1.ClusterKind,
+		Verb:         v1.CreateVerb,
+	}); err != nil {
+		return nil, err
+	}
+
 	req := &types.CreateClusterRequest{}
 	body, err := getBodyFromRequest(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
 	}
-
 	cluster, err := h.generateCluster(c, req, body)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate cluster")
@@ -82,22 +91,199 @@ func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
-func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
-	adminCluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
+func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterRequest, body []byte) (*v1.Cluster, error) {
+	ctx := c.Request.Context()
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: req.Name,
+			Labels: map[string]string{
+				v1.DisplayNameLabel: req.Name,
+				v1.UserIdLabel:      c.GetString(common.UserId),
+			},
+		},
+	}
+	if err := json.Unmarshal(body, &cluster.Spec.ControlPlane); err != nil {
+		return nil, err
+	}
+	for key, val := range req.Labels {
+		if key == "" {
+			continue
+		}
+		v1.SetLabel(cluster, key, val)
+	}
+	if req.Description != "" {
+		v1.SetAnnotation(cluster, v1.DescriptionAnnotation, req.Description)
+	}
+	if req.IsProtected {
+		v1.SetLabel(cluster, v1.ProtectLabel, "")
+	}
+
+	if cluster.Spec.ControlPlane.ImageSecret == nil {
+		imageSecret, err := h.getSecret(ctx, common.PrimusImageSecret)
+		if err != nil {
+			return nil, err
+		}
+		cluster.Spec.ControlPlane.ImageSecret = commonutils.GenObjectReference(imageSecret.TypeMeta, imageSecret.ObjectMeta)
+	}
+
+	if cluster.Spec.ControlPlane.SSHSecret == nil && req.SSHSecretName != "" {
+		sshSecret, err := h.getSecret(ctx, req.SSHSecretName)
+		if err != nil {
+			return nil, err
+		}
+		cluster.Spec.ControlPlane.SSHSecret = commonutils.GenObjectReference(sshSecret.TypeMeta, sshSecret.ObjectMeta)
+	}
+	return cluster, nil
+}
+
+func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.auth.GetRequestUser(c)
 	if err != nil {
 		return nil, err
 	}
-	if !adminCluster.IsReady() {
-		return nil, commonerrors.NewInternalError("the cluster is not ready")
+
+	ctx := c.Request.Context()
+	clusterList := &v1.ClusterList{}
+	if err = h.List(ctx, clusterList, &client.ListOptions{}); err != nil {
+		return nil, err
 	}
 
+	result := types.ListClusterResponse{}
+	if len(clusterList.Items) > 0 {
+		sort.Slice(clusterList.Items, func(i, j int) bool {
+			return clusterList.Items[i].Name < clusterList.Items[j].Name
+		})
+	}
+	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+	for _, item := range clusterList.Items {
+		if err = h.auth.Authorize(authority.Input{
+			GinContext: c,
+			Resource:   &item,
+			Verb:       v1.ListVerb,
+			User:       requestUser,
+			Roles:      roles,
+		}); err != nil {
+			continue
+		}
+		result.Items = append(result.Items, cvtToClusterResponseItem(&item))
+	}
+	result.TotalCount = len(result.Items)
+	return result, nil
+}
+
+func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
+	ctx := c.Request.Context()
+	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   cluster,
+		Verb:       v1.GetVerb,
+	}); err != nil {
+		return nil, err
+	}
+
+	return cvtToGetClusterResponse(ctx, h.Client, cluster), nil
+}
+
+func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
+	ctx := c.Request.Context()
+	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
+	if err != nil {
+		klog.ErrorS(err, "failed to get admin cluster")
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   cluster,
+		Verb:       v1.DeleteVerb,
+	}); err != nil {
+		return nil, err
+	}
+
+	if v1.IsProtected(cluster) {
+		klog.Errorf("failed to delete cluster %s, because the cluster is protected", cluster.Name)
+		return nil, commonerrors.NewForbidden("the cluster is protected, it can not be deleted")
+	}
+	workloads, err := h.getRunningWorkloads(ctx, cluster.Name, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(workloads) > 0 {
+		klog.Errorf("failed to delete cluster %s, due to running workloads", cluster.Name)
+		return nil, commonerrors.NewForbidden("some workloads are still in progress. Please terminate them first.")
+	}
+	if err = h.Delete(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to delete cluster")
+		return nil, err
+	}
+	klog.Infof("deleted cluster %s", cluster.Name)
+	return nil, nil
+}
+
+func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
+	ctx := c.Request.Context()
+	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
+	if err != nil {
+		klog.ErrorS(err, "failed to get admin cluster")
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   cluster,
+		Verb:       v1.UpdateVerb,
+	}); err != nil {
+		return nil, err
+	}
+
+	req := &types.PatchClusterRequest{}
+	body, err := getBodyFromRequest(c.Request, req)
+	if err != nil {
+		klog.ErrorS(err, "failed to parse request", "body", string(body))
+		return nil, err
+	}
+
+	isChanged := false
+	if req.IsProtected != nil && *req.IsProtected != v1.IsProtected(cluster) {
+		if *req.IsProtected {
+			v1.SetLabel(cluster, v1.ProtectLabel, "")
+		} else {
+			v1.RemoveLabel(cluster, v1.ProtectLabel)
+		}
+		isChanged = true
+	}
+	if !isChanged {
+		return nil, nil
+	}
+	return nil, h.Update(ctx, cluster)
+}
+
+func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
+	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
+	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   cluster,
+		Verb:       v1.UpdateVerb,
+	}); err != nil {
+		return nil, err
+	}
+
+	if !cluster.IsReady() {
+		return nil, commonerrors.NewInternalError("the cluster is not ready")
+	}
 	req, err := parseProcessNodesRequest(c)
 	if err != nil {
 		return nil, err
 	}
 	ctx := c.Request.Context()
 	if req.Action == v1.NodeActionRemove {
-		if err = h.removeNodesFromWorkspace(ctx, req.NodeIds); err != nil {
+		if err = h.removeNodesFromWorkspace(c, req.NodeIds); err != nil {
 			return nil, err
 		}
 	}
@@ -107,7 +293,7 @@ func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
 	}
 	message := ""
 	for _, nodeId := range req.NodeIds {
-		err = h.processClusterNode(ctx, adminCluster, nodeId, req.Action)
+		err = h.processClusterNode(ctx, cluster, nodeId, req.Action)
 		if err != nil {
 			klog.ErrorS(err, "failed to process node")
 			message = err.Error()
@@ -158,10 +344,10 @@ func (h *Handler) processClusterNode(ctx context.Context, cluster *v1.Cluster, n
 	return err
 }
 
-func (h *Handler) removeNodesFromWorkspace(ctx context.Context, allNodeIds []string) error {
+func (h *Handler) removeNodesFromWorkspace(c *gin.Context, allNodeIds []string) error {
 	nodeIdMap := make(map[string]*[]string)
 	for _, nodeId := range allNodeIds {
-		node, err := h.getAdminNode(ctx, nodeId)
+		node, err := h.getAdminNode(c.Request.Context(), nodeId)
 		if err != nil {
 			return err
 		}
@@ -179,140 +365,11 @@ func (h *Handler) removeNodesFromWorkspace(ctx context.Context, allNodeIds []str
 	}
 
 	for workspaceId, nodeIds := range nodeIdMap {
-		if err := h.updateWorkspaceNodesAction(ctx, workspaceId, v1.NodeActionRemove, *nodeIds); err != nil {
+		if err := h.updateWorkspaceNodesAction(c, workspaceId, v1.NodeActionRemove, *nodeIds); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
-	ctx := c.Request.Context()
-	clusterList := &v1.ClusterList{}
-	if err := h.List(ctx, clusterList, &client.ListOptions{}); err != nil {
-		return nil, err
-	}
-
-	result := types.ListClusterResponse{}
-	if len(clusterList.Items) > 0 {
-		sort.Slice(clusterList.Items, func(i, j int) bool {
-			return clusterList.Items[i].Name < clusterList.Items[j].Name
-		})
-	}
-	for _, item := range clusterList.Items {
-		result.Items = append(result.Items, h.cvtToClusterResponseItem(&item))
-	}
-	result.TotalCount = len(result.Items)
-	return result, nil
-}
-
-func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
-	ctx := c.Request.Context()
-	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
-	if err != nil {
-		return nil, err
-	}
-	return h.cvtToGetClusterResponse(ctx, cluster), nil
-}
-
-func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
-	ctx := c.Request.Context()
-	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
-	if err != nil {
-		klog.ErrorS(err, "failed to get admin cluster")
-		return nil, err
-	}
-	if v1.IsProtected(cluster) {
-		klog.Errorf("failed to delete cluster %s, because the cluster is protected", cluster.Name)
-		return nil, commonerrors.NewForbidden("the cluster is protected, it can not be deleted")
-	}
-	workloads, err := h.getRunningWorkloads(ctx, cluster.Name, nil)
-	if err != nil {
-		return nil, err
-	}
-	if len(workloads) > 0 {
-		klog.Errorf("failed to delete cluster %s, due to running workloads", cluster.Name)
-		return nil, commonerrors.NewForbidden("some workloads are still in progress. Please terminate them first.")
-	}
-	if err = h.Delete(ctx, cluster); err != nil {
-		klog.ErrorS(err, "failed to delete cluster")
-		return nil, err
-	}
-	klog.Infof("deleted cluster %s", cluster.Name)
-	return nil, nil
-}
-
-func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
-	ctx := c.Request.Context()
-	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
-	if err != nil {
-		klog.ErrorS(err, "failed to get admin cluster")
-		return nil, err
-	}
-	req := &types.PatchClusterRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
-	if err != nil {
-		klog.ErrorS(err, "failed to parse request", "body", string(body))
-		return nil, err
-	}
-
-	isChanged := false
-	if req.IsProtected != nil && *req.IsProtected != v1.IsProtected(cluster) {
-		if *req.IsProtected {
-			v1.SetLabel(cluster, v1.ProtectLabel, "")
-		} else {
-			v1.RemoveLabel(cluster, v1.ProtectLabel)
-		}
-		isChanged = true
-	}
-	if !isChanged {
-		return nil, nil
-	}
-	return nil, h.Update(ctx, cluster)
-}
-
-func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterRequest, body []byte) (*v1.Cluster, error) {
-	ctx := c.Request.Context()
-	cluster := &v1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: req.Name,
-			Labels: map[string]string{
-				v1.DisplayNameLabel: req.Name,
-			},
-		},
-	}
-	if err := json.Unmarshal(body, &cluster.Spec.ControlPlane); err != nil {
-		return nil, err
-	}
-	for key, val := range req.Labels {
-		if key == "" {
-			continue
-		}
-		v1.SetLabel(cluster, key, val)
-	}
-	if req.Description != "" {
-		v1.SetAnnotation(cluster, v1.DescriptionAnnotation, req.Description)
-	}
-	if req.IsProtected {
-		v1.SetLabel(cluster, v1.ProtectLabel, "")
-	}
-
-	if cluster.Spec.ControlPlane.ImageSecret == nil {
-		imageSecret, err := h.getSecret(ctx, common.PrimusImageSecret)
-		if err != nil {
-			return nil, err
-		}
-		cluster.Spec.ControlPlane.ImageSecret = commonutils.GenObjectReference(imageSecret.TypeMeta, imageSecret.ObjectMeta)
-	}
-
-	if cluster.Spec.ControlPlane.SSHSecret == nil && req.SSHSecretName != "" {
-		sshSecret, err := h.getSecret(ctx, req.SSHSecretName)
-		if err != nil {
-			return nil, err
-		}
-		cluster.Spec.ControlPlane.SSHSecret = commonutils.GenObjectReference(sshSecret.TypeMeta, sshSecret.ObjectMeta)
-	}
-	return cluster, nil
 }
 
 func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
@@ -320,6 +377,15 @@ func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   cluster,
+		// The pod-log is generated when the cluster is creating.
+		Verb: v1.CreateVerb,
+	}); err != nil {
+		return nil, err
+	}
+
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterManageClusterLabel: cluster.Name})
 	podName, err := h.getLatestPodName(c, labelSelector)
 	if err != nil {
@@ -404,9 +470,10 @@ func parseProcessNodesRequest(c *gin.Context) (*types.ProcessNodesRequest, error
 	return req, nil
 }
 
-func (h *Handler) cvtToClusterResponseItem(cluster *v1.Cluster) types.ClusterResponseItem {
+func cvtToClusterResponseItem(cluster *v1.Cluster) types.ClusterResponseItem {
 	result := types.ClusterResponseItem{
 		ClusterId:   cluster.Name,
+		UserId:      v1.GetUserId(cluster),
 		Phase:       string(cluster.Status.ControlPlaneStatus.Phase),
 		IsProtected: v1.IsProtected(cluster),
 	}
@@ -416,10 +483,11 @@ func (h *Handler) cvtToClusterResponseItem(cluster *v1.Cluster) types.ClusterRes
 	return result
 }
 
-func (h *Handler) cvtToGetClusterResponse(ctx context.Context, cluster *v1.Cluster) types.GetClusterResponse {
+func cvtToGetClusterResponse(ctx context.Context, client client.Client, cluster *v1.Cluster) types.GetClusterResponse {
 	result := types.GetClusterResponse{
 		ClusterResponseItem: types.ClusterResponseItem{
 			ClusterId:   cluster.Name,
+			UserId:      v1.GetUserId(cluster),
 			Phase:       string(cluster.Status.ControlPlaneStatus.Phase),
 			IsProtected: v1.IsProtected(cluster),
 		},
@@ -427,7 +495,7 @@ func (h *Handler) cvtToGetClusterResponse(ctx context.Context, cluster *v1.Clust
 	if !cluster.GetDeletionTimestamp().IsZero() {
 		result.Phase = string(v1.DeletingPhase)
 	}
-	result.Endpoint, _ = commoncluster.GetEndpoint(ctx, h.Client, cluster)
+	result.Endpoint, _ = commoncluster.GetEndpoint(ctx, client, cluster)
 	result.Storages = cvtBindingStorageView(cluster.Status.StorageStatus)
 	return result
 }

@@ -371,7 +371,7 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
 				v1.DisplayNameLabel:  job.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: v1.SystemUser,
+				v1.UserNameAnnotation: common.UserSystem,
 				// Dispatch the workload immediately, skipping the queue.
 				v1.WorkloadScheduledAnnotation: time.Now().UTC().Format(time.RFC3339),
 			},

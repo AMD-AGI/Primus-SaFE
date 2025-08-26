@@ -8,9 +8,13 @@ package config
 const (
 	// global
 	globalPrefix = "global."
-	cryptoEnable = globalPrefix + "enable_crypto"
-	cryptoKey    = globalPrefix + "crypto_key"
 	rdmaName     = globalPrefix + "rdma_name"
+	loginUrl     = globalPrefix + "login_url"
+
+	// crypto
+	cryptoPrefix     = "crypto."
+	cryptoEnable     = cryptoPrefix + "enable"
+	cryptoConfigPath = cryptoPrefix + "config_path"
 
 	// server
 	serverPrefix = "server."
@@ -85,7 +89,12 @@ const (
 	s3SecretKey  = "secret_key"
 	s3ExpireDay  = s3Prefix + "expire_day"
 
-	//addon
+	// addon
 	addonPrefix  = "addon."
 	addonDefault = addonPrefix + "default"
+
+	// user
+	userPrefix            = "user."
+	userEnableAuthority   = userPrefix + "enable_authority"
+	userTokenExpireSecond = userPrefix + "token_expire"
 )

@@ -73,7 +73,7 @@ func IsCryptoEnable() bool {
 }
 
 func GetCryptoKey() string {
-	return getString(cryptoKey, "")
+	return getFromFile(cryptoConfigPath, "key")
 }
 
 func IsHealthCheckEnabled() bool {
@@ -293,4 +293,18 @@ func GetAddons(version *string) []string {
 		return addons
 	}
 	return getStrings(addonDefault)
+}
+
+func GetUserTokenExpire() int {
+	return getInt(userTokenExpireSecond, -1)
+}
+
+func IsEnableUserAuthority() bool {
+	return getBool(userEnableAuthority, false)
+}
+
+func GetLoginUrl() string {
+	path := getString(loginUrl, "")
+	path = strings.TrimSuffix(path, "/")
+	return path
 }

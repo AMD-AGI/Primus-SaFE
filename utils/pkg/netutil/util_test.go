@@ -18,3 +18,10 @@ func TestGetSecondLevelDomain(t *testing.T) {
 	fmt.Println(domain)
 	assert.Equal(t, domain, "amd.ai")
 }
+
+func TestGetHomepage(t *testing.T) {
+	uri := "http://primus-safe.amd.primus.ai/login"
+	homepage := GetHostname(uri)
+	fmt.Println(homepage)
+	assert.Equal(t, homepage, "primus-safe.amd.primus.ai")
+}

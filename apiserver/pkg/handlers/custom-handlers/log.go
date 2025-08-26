@@ -6,7 +6,6 @@
 package custom_handlers
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -18,10 +17,10 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
@@ -49,69 +48,84 @@ func (h *Handler) listWorkloadLog(c *gin.Context) (interface{}, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the workloadId is empty")
 	}
-
-	query, _, err := h.parseWorkloadLogQuery(c, name)
+	workload, err := h.getWorkloadInternal(c.Request.Context(), name)
 	if err != nil {
 		return nil, err
 	}
-	return h.searchLog(query, name)
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   workload,
+		Verb:       v1.GetVerb,
+		Workspaces: []string{workload.Spec.Workspace},
+	}); err != nil {
+		return nil, err
+	}
+
+	query, err := parseWorkloadLogQuery(c, workload)
+	if err != nil {
+		return nil, err
+	}
+	return h.searchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
+		"/_search", buildSearchBody(query, name))
 }
 
 func (h *Handler) listServiceLog(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsLogEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
-
-	name := c.GetString(types.Name)
-	if name == "" {
-		return nil, commonerrors.NewBadRequest("the service name is empty")
+	if err := h.auth.AuthorizeSystemAdmin(c); err != nil {
+		return nil, err
 	}
-	query, err := parseSearchLogQuery(c.Request, time.Time{}, time.Time{})
+	query, err := parseServiceLogQuery(c)
 	if err != nil {
 		return nil, err
 	}
-	query.DispatchCount = 0
-	query.Filters = map[string]string{
-		"app": name,
-	}
-	return h.searchLog(query, "")
+	return h.searchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
+		"/_search", buildSearchBody(query, ""))
 }
 
 func (h *Handler) listWorkloadLogContext(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsLogEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
-	startTime := time.Now().UTC()
-	logId := c.Param(types.LogId)
-	if logId == "" {
-		return nil, commonerrors.NewBadRequest("the logId parameter is empty")
-	}
 	name := c.GetString(types.Name)
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the workloadId is empty")
 	}
-
-	query, startTime, err := h.parseWorkloadLogQuery(c, name)
+	workload, err := h.getWorkloadInternal(c.Request.Context(), name)
 	if err != nil {
-		klog.ErrorS(err, "failed to parse workload log query")
 		return nil, err
 	}
-	limit := query.Limit
-	queryWrappers, err := genListContextQuery(query, startTime)
-	if err != nil {
-		klog.ErrorS(err, "failed to build query for context search")
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   workload,
+		Verb:       v1.GetVerb,
+		Workspaces: []string{workload.Spec.Workspace},
+	}); err != nil {
 		return nil, err
 	}
 
+	queries, err := parseContextQuery(c, workload)
+	if err != nil {
+		return nil, err
+	}
+	return h.searchContextLog(queries, name)
+}
+
+func (h *Handler) searchContextLog(queries []types.ListContextLogRequest, workloadId string) (*commonsearch.OpenSearchResponse, error) {
+	startTime := time.Now().UTC()
 	const count = 2
-	ch := make(chan types.GetLogRequestWrapper, count)
-	for i := range queryWrappers {
-		ch <- queryWrappers[i]
+	ch := make(chan types.ListContextLogRequest, count)
+	for i := range queries {
+		ch <- queries[i]
 	}
+
 	var response [count]commonsearch.OpenSearchResponse
-	_, err = concurrent.Exec(count, func() error {
+	_, err := concurrent.Exec(count, func() error {
 		wrapper := <-ch
-		resp, err := h.searchLog(wrapper.Query, name)
+		query := wrapper.Query
+		resp, err := h.searchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
+			"/_search", buildSearchBody(query, workloadId))
 		if err != nil {
 			return err
 		}
@@ -124,59 +138,14 @@ func (h *Handler) listWorkloadLogContext(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	result := &commonsearch.OpenSearchResponse{
-		Took: time.Since(startTime).Milliseconds(),
-	}
-	addContextDoc(result, &response[0], logId, true, limit)
-	addContextDoc(result, &response[1], logId, false, limit)
+	result := &commonsearch.OpenSearchResponse{}
+	addContextDoc(result, queries[0], &response[0], true)
+	addContextDoc(result, queries[1], &response[1], false)
+	result.Took = time.Since(startTime).Milliseconds()
 	return result, nil
 }
 
-func (h *Handler) parseWorkloadLogQuery(c *gin.Context, name string) (*types.GetLogRequest, time.Time, error) {
-	startTime, endTime, err := h.getWorkloadStartEndTime(c.Request.Context(), name)
-	if err != nil {
-		return nil, time.Time{}, err
-	}
-
-	query, err := parseSearchLogQuery(c.Request, startTime, endTime)
-	if err != nil {
-		klog.ErrorS(err, "failed to parse log query")
-		return nil, startTime, err
-	}
-	query.Filters = map[string]string{
-		v1.WorkloadIdLabel: name,
-	}
-	if query.DispatchCount > 0 {
-		query.Filters[v1.WorkloadDispatchCntLabel] = strconv.Itoa(query.DispatchCount)
-	}
-	return query, startTime, nil
-}
-
-func (h *Handler) getWorkloadStartEndTime(ctx context.Context, workloadId string) (time.Time, time.Time, error) {
-	if commonconfig.IsDBEnable() {
-		workload, err := h.dbClient.GetWorkload(ctx, workloadId)
-		if err != nil {
-			return time.Time{}, time.Time{}, err
-		}
-		startTime := dbutils.ParseNullTime(workload.CreateTime)
-		endTime := dbutils.ParseNullTime(workload.EndTime)
-		return startTime, endTime, nil
-	} else {
-		adminWorkload, err := h.getAdminWorkload(ctx, workloadId)
-		if err != nil {
-			return time.Time{}, time.Time{}, err
-		}
-		return adminWorkload.CreationTimestamp.Time, adminWorkload.EndTime(), nil
-	}
-}
-
-func (h *Handler) searchLog(query *types.GetLogRequest, workloadId string) ([]byte, error) {
-	body := buildSearchBody(query, workloadId)
-	return h.searchClient.RequestByTimeRange(
-		query.SinceTime, query.UntilTime, "/_search", http.MethodPost, body)
-}
-
-func buildSearchBody(query *types.GetLogRequest, workloadId string) []byte {
+func buildSearchBody(query *types.ListLogRequest, workloadId string) []byte {
 	req := &commonsearch.OpenSearchRequest{
 		From: query.Offset,
 		Size: query.Limit,
@@ -202,7 +171,7 @@ func buildSearchBody(query *types.GetLogRequest, workloadId string) []byte {
 	return jsonutils.MarshalSilently(req)
 }
 
-func buildFilter(req *commonsearch.OpenSearchRequest, query *types.GetLogRequest) {
+func buildFilter(req *commonsearch.OpenSearchRequest, query *types.ListLogRequest) {
 	buildLabelFilter(req, query.Filters)
 	buildNodeFilter(req, query)
 	if query.PodName != "" {
@@ -230,7 +199,7 @@ func buildLabelFilter(req *commonsearch.OpenSearchRequest, labelFilters map[stri
 	}
 }
 
-func buildNodeFilter(req *commonsearch.OpenSearchRequest, query *types.GetLogRequest) {
+func buildNodeFilter(req *commonsearch.OpenSearchRequest, query *types.ListLogRequest) {
 	nodeNames := split(query.NodeNames, ",")
 	if len(nodeNames) == 0 {
 		return
@@ -250,7 +219,7 @@ func buildNodeFilter(req *commonsearch.OpenSearchRequest, query *types.GetLogReq
 	})
 }
 
-func buildKeywords(req *commonsearch.OpenSearchRequest, query *types.GetLogRequest) {
+func buildKeywords(req *commonsearch.OpenSearchRequest, query *types.ListLogRequest) {
 	// and search
 	for _, key := range query.Keywords {
 		words := split(key, " ")
@@ -289,7 +258,7 @@ func normalize(str string) string {
 	return str
 }
 
-func buildOutput(req *commonsearch.OpenSearchRequest, query *types.GetLogRequest, workloadId string) {
+func buildOutput(req *commonsearch.OpenSearchRequest, query *types.ListLogRequest, workloadId string) {
 	req.Source = []string{
 		commonsearch.TimeField, commonsearch.MessageField, "kubernetes.host",
 	}
@@ -303,78 +272,104 @@ func buildOutput(req *commonsearch.OpenSearchRequest, query *types.GetLogRequest
 	}
 }
 
-func genListContextQuery(query *types.GetLogRequest, startTime time.Time) ([]types.GetLogRequestWrapper, error) {
+func parseWorkloadLogQuery(c *gin.Context, workload *v1.Workload) (*types.ListLogRequest, error) {
+	query, err := parseLogQuery(c.Request, workload.CreationTimestamp.Time, workload.EndTime())
+	if err != nil {
+		klog.ErrorS(err, "failed to parse log query")
+		return nil, err
+	}
+	query.Filters = map[string]string{
+		v1.WorkloadIdLabel: workload.Name,
+	}
+	if query.DispatchCount > 0 {
+		query.Filters[v1.WorkloadDispatchCntLabel] = strconv.Itoa(query.DispatchCount)
+	}
+	return query, nil
+}
+
+func parseServiceLogQuery(c *gin.Context) (*types.ListLogRequest, error) {
+	name := c.GetString(types.Name)
+	if name == "" {
+		return nil, commonerrors.NewBadRequest("the service name is empty")
+	}
+
+	query, err := parseLogQuery(c.Request, time.Time{}, time.Time{})
+	if err != nil {
+		return nil, err
+	}
+	query.DispatchCount = 0
+	query.Filters = map[string]string{
+		"app": name,
+	}
+	return query, nil
+}
+
+func parseContextQuery(c *gin.Context, workload *v1.Workload) ([]types.ListContextLogRequest, error) {
+	docId := c.Param(types.DocId)
+	if docId == "" {
+		return nil, commonerrors.NewBadRequest("the docId parameter is empty")
+	}
+	query, err := parseWorkloadLogQuery(c, workload)
+	if err != nil {
+		klog.ErrorS(err, "failed to parse workload log query")
+		return nil, err
+	}
+	// "since" is a required field for context queries.
 	if query.Since == "" {
 		return nil, commonerrors.NewBadRequest("the since parameter is empty")
 	}
 
-	result := make([]types.GetLogRequestWrapper, 0, 2)
+	limit := query.Limit
+	result := make([]types.ListContextLogRequest, 0, 2)
 	// Query with a higher limit to ensure the specified logId is among the results
 	query.Limit += 100
 	// context search should disable keywords search
 	query.Offset = 0
 	query.Keywords = nil
 
-	query2 := new(types.GetLogRequest)
+	query2 := new(types.ListLogRequest)
 	*query2 = *query
 	query.Order = dbclient.ASC
-	result = append(result, types.GetLogRequestWrapper{
+	result = append(result, types.ListContextLogRequest{
 		Query: query,
 		Id:    0,
+		Limit: limit,
+		DocId: docId,
 	})
 
 	query2.Order = dbclient.DESC
 	query2.UntilTime = query.SinceTime
-	query2.SinceTime = startTime
-
-	result = append(result, types.GetLogRequestWrapper{
+	query2.SinceTime = workload.CreationTimestamp.Time
+	result = append(result, types.ListContextLogRequest{
 		Query: query2,
 		Id:    1,
+		Limit: limit,
+		DocId: docId,
 	})
 	return result, nil
 }
 
-func addContextDoc(result *commonsearch.OpenSearchResponse,
-	response *commonsearch.OpenSearchResponse, logId string, isAsc bool, limit int) {
-	id := 0
-	for i := range response.Hits.Hits {
-		if response.Hits.Hits[i].Id == logId {
-			id = i + 1
-			break
-		}
-	}
-
-	count := 0
-	for ; id < len(response.Hits.Hits) && count < limit; id++ {
-		doc := &response.Hits.Hits[id]
-		if doc.Source.Message == "" {
-			continue
-		}
-		count++
-		if isAsc {
-			doc.Source.Line = count
-		} else {
-			doc.Source.Line = -count
-		}
-		result.Hits.Hits = append(result.Hits.Hits, *doc)
-	}
-	result.Hits.Total.Value += count
-}
-
-func parseSearchLogQuery(req *http.Request, beginTime, endTime time.Time) (*types.GetLogRequest, error) {
-	query := &types.GetLogRequest{}
+func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*types.ListLogRequest, error) {
+	query := &types.ListLogRequest{}
 	_, err := getBodyFromRequest(req, query)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
-	if query.Offset < 0 {
-		query.Offset = 0
+
+	if query.Offset < 0 || query.Limit < 0 {
+		return nil, commonerrors.NewBadRequest("invalid query offset or limit")
 	}
-	if query.Limit <= 0 {
+	if query.Offset >= commonsearch.MaxDocsPerQuery {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf(
+			"The maximum offset of log requested cannot exceed %d.", commonsearch.MaxDocsPerQuery))
+	}
+	if query.Limit == 0 {
 		query.Limit = 100
-	} else if query.Limit > 10000 {
-		query.Limit = 10000
 	}
+	if query.Limit+query.Offset > commonsearch.MaxDocsPerQuery {
+		query.Limit = commonsearch.MaxDocsPerQuery - query.Offset
+	}
+
 	if query.Order == "" {
 		query.Order = dbclient.ASC
 	} else if query.Order != dbclient.ASC && query.Order != dbclient.DESC {
@@ -408,6 +403,33 @@ func parseSearchLogQuery(req *http.Request, beginTime, endTime time.Time) (*type
 		return nil, commonerrors.NewBadRequest("the since time is later than until time")
 	}
 	return query, nil
+}
+
+func addContextDoc(result *commonsearch.OpenSearchResponse,
+	query types.ListContextLogRequest, response *commonsearch.OpenSearchResponse, isAsc bool) {
+	id := 0
+	for i := range response.Hits.Hits {
+		if response.Hits.Hits[i].Id == query.DocId {
+			id = i + 1
+			break
+		}
+	}
+
+	count := 0
+	for ; id < len(response.Hits.Hits) && count < query.Limit; id++ {
+		doc := &response.Hits.Hits[id]
+		if doc.Source.Message == "" {
+			continue
+		}
+		count++
+		if isAsc {
+			doc.Source.Line = count
+		} else {
+			doc.Source.Line = -count
+		}
+		result.Hits.Hits = append(result.Hits.Hits, *doc)
+	}
+	result.Hits.Total.Value += count
 }
 
 func split(str, sep string) []string {

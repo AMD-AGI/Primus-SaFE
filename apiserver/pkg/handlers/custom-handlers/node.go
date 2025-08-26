@@ -24,7 +24,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
@@ -70,12 +72,21 @@ func (h *Handler) RestartNode(c *gin.Context) {
 }
 
 func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
+	if err := h.auth.Authorize(authority.Input{
+		GinContext:   c,
+		ResourceKind: v1.NodeKind,
+		Verb:         v1.CreateVerb,
+	}); err != nil {
+		return nil, err
+	}
+
 	req := &types.CreateNodeRequest{}
 	body, err := getBodyFromRequest(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request")
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
+
 	node, err := h.generateNode(c, req, body)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate node")
@@ -92,6 +103,11 @@ func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.auth.GetRequestUser(c)
+	if err != nil {
+		return nil, err
+	}
+
 	query, err := parseListNodeQuery(c)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse query")
@@ -116,11 +132,21 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	nodeWrappers := sortAdminNodes(nodeList.Items)
-	for _, n := range nodeWrappers {
-		usedResource, _ := allUsedResource[n.Node.Name]
-		item := cvtToNodeResponseItem(n.Node, usedResource)
-		result.Items = append(result.Items, item)
+	roles := apiutils.GetRoles(ctx, h.Client, requestUser)
+	nodes := sortAdminNodes(nodeList.Items)
+	for _, n := range nodes {
+		if err = h.auth.Authorize(authority.Input{
+			GinContext: c,
+			Resource:   n,
+			Verb:       v1.ListVerb,
+			Workspaces: []string{query.GetWorkspaceId()},
+			User:       requestUser,
+			Roles:      roles,
+		}); err != nil {
+			continue
+		}
+		usedResource, _ := allUsedResource[n.Name]
+		result.Items = append(result.Items, cvtToNodeResponseItem(n, usedResource))
 		result.TotalCount++
 	}
 	return result, nil
@@ -131,7 +157,7 @@ type adminNodeWrapper struct {
 	NodeRank int64
 }
 
-func sortAdminNodes(nodes []v1.Node) []adminNodeWrapper {
+func sortAdminNodes(nodes []v1.Node) []*v1.Node {
 	nodeWrappers := make([]adminNodeWrapper, 0, len(nodes))
 	for i, n := range nodes {
 		nodeWrappers = append(nodeWrappers, adminNodeWrapper{
@@ -145,7 +171,11 @@ func sortAdminNodes(nodes []v1.Node) []adminNodeWrapper {
 		}
 		return nodeWrappers[i].NodeRank < nodeWrappers[j].NodeRank
 	})
-	return nodeWrappers
+	result := make([]*v1.Node, 0, len(nodeWrappers))
+	for i := range nodeWrappers {
+		result = append(result, nodeWrappers[i].Node)
+	}
+	return result
 }
 
 func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
@@ -154,6 +184,15 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   node,
+		Verb:       v1.GetVerb,
+		Workspaces: []string{v1.GetWorkspaceId(node)},
+	}); err != nil {
+		return nil, err
+	}
+
 	usedResource, err := h.getUsedResource(ctx, node)
 	if err != nil {
 		klog.ErrorS(err, "failed to get used resource", "node", node.Name)
@@ -166,6 +205,14 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	node, err := h.getAdminNode(ctx, c.GetString(types.Name))
 	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   node,
+		Verb:       v1.UpdateVerb,
+		Workspaces: []string{v1.GetWorkspaceId(node)},
+	}); err != nil {
 		return nil, err
 	}
 
@@ -194,6 +241,15 @@ func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   node,
+		Verb:       v1.DeleteVerb,
+		Workspaces: []string{v1.GetWorkspaceId(node)},
+	}); err != nil {
+		return nil, err
+	}
+
 	if v1.GetClusterId(node) != "" {
 		cluster, _ := h.getAdminCluster(ctx, v1.GetClusterId(node))
 		if cluster != nil {
@@ -214,6 +270,14 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   node,
+		Verb:       v1.CreateVerb,
+	}); err != nil {
+		return nil, err
+	}
+
 	clusterName := node.GetSpecCluster()
 	if clusterName == "" {
 		clusterName = v1.GetClusterId(node)
@@ -241,6 +305,10 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) restartNode(c *gin.Context) (interface{}, error) {
+	if err := h.auth.AuthorizeSystemAdmin(c); err != nil {
+		return nil, err
+	}
+
 	node, err := h.getAdminNode(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
 		return nil, err
@@ -248,7 +316,6 @@ func (h *Handler) restartNode(c *gin.Context) (interface{}, error) {
 	if v1.GetNodeBMCIp(node) == "" || v1.GetNodeBMCPassword(node) == "" {
 		return nil, commonerrors.NewInternalError("BMC IP or password is not found")
 	}
-
 	req := &types.RebootNodeRequest{}
 	if _, err = getBodyFromRequest(c.Request, req); err != nil {
 		klog.ErrorS(err, "failed to parse request")
@@ -402,6 +469,7 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 	if req.BMCPassword != "" {
 		v1.SetAnnotation(node, v1.NodeBMCPasswordAnnotation, req.BMCPassword)
 	}
+	v1.SetLabel(node, v1.UserIdLabel, c.GetString(common.UserId))
 	return node, nil
 }
 

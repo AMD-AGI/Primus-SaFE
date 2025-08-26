@@ -220,11 +220,11 @@ func TestNodeSort(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "n2"},
 		Status:     v1.NodeStatus{MachineStatus: v1.MachineStatus{PrivateIP: "10.0.0.2"}},
 	}}
-	nodeWrappers := sortAdminNodes(nodes)
+	nodes2 := sortAdminNodes(nodes)
 
-	assert.Equal(t, nodeWrappers[0].Node.Name, "n1")
-	assert.Equal(t, nodeWrappers[1].Node.Name, "n2")
-	assert.Equal(t, nodeWrappers[2].Node.Name, "n100")
+	assert.Equal(t, nodes2[0].Name, "n1")
+	assert.Equal(t, nodes2[1].Name, "n2")
+	assert.Equal(t, nodes2[2].Name, "n100")
 }
 
 func TestParseListNodeQuery(t *testing.T) {

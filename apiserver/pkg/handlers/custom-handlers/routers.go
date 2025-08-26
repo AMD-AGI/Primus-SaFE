@@ -70,8 +70,20 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.GET("opsjobs/:name", h.GetOpsJob)
 		group.DELETE("opsjobs/:name", h.DeleteOpsJob)
 
+		group.POST("users", h.CreateUser)
+		group.DELETE("users/:name", h.DeleteUser)
+		group.GET("users", h.ListUser)
+		group.PATCH("users/:name", h.PatchUser)
+		group.GET("users/:name", h.GetUser)
+
 		group.POST(fmt.Sprintf("service/:%s/logs", types.Name), h.ListServiceLog)
 		group.POST(fmt.Sprintf("workloads/:%s/logs", types.Name), h.ListWorkloadLog)
-		group.POST(fmt.Sprintf("workloads/:%s/logs/:%s/context", types.Name, types.LogId), h.ListWorkloadLogContext)
+		group.POST(fmt.Sprintf("workloads/:%s/logs/:%s/context", types.Name, types.DocId), h.ListWorkloadLogContext)
+	}
+
+	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath)
+	{
+		noAuthGroup.POST(fmt.Sprintf("login"), h.Login)
+		noAuthGroup.POST(fmt.Sprintf("logout"), h.Logout)
 	}
 }

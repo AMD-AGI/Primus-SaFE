@@ -16,12 +16,15 @@ import (
 	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
@@ -56,13 +59,13 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 	var job *v1.OpsJob
 	switch req.Type {
 	case v1.OpsJobAddonType:
-		job, err = h.generateAddonJob(ctx, req)
+		job, err = h.generateAddonJob(c, req)
 	case v1.OpsJobPreflightType:
-		job, err = h.generatePreflightJob(ctx, req)
+		job, err = h.generatePreflightJob(c, req)
 	case v1.OpsJobDiagnoseType:
-		job, err = h.generateDiagnoseJob(ctx, req)
+		job, err = h.generateDiagnoseJob(c, req)
 	case v1.OpsJobDumpLogType:
-		job, err = h.generateDumpLogJob(ctx, req)
+		job, err = h.generateDumpLogJob(c, req)
 	default:
 		err = fmt.Errorf("unsupported ops job type")
 	}
@@ -74,7 +77,7 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	klog.Infof("create ops job: %s, type: %s, params: %v, user: %s",
-		job.Name, job.Spec.Type, job.Spec.Inputs, req.UserName)
+		job.Name, job.Spec.Type, job.Spec.Inputs, c.GetString(common.UserName))
 	return &types.CreateOpsJobResponse{JobId: job.Name}, nil
 }
 
@@ -82,19 +85,18 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
-	query, err := parseListOpsJobQuery(c)
+	query, err := h.parseListOpsJobQuery(c)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse query")
 		return nil, err
 	}
 
-	ctx := c.Request.Context()
 	dbSql := cvtToListOpsJobSql(query)
-	jobs, err := h.dbClient.SelectJobs(ctx, dbSql, query.SortBy, query.Order, query.Limit, query.Offset)
+	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, query.SortBy, query.Order, query.Limit, query.Offset)
 	if err != nil {
 		return nil, err
 	}
-	count, err := h.dbClient.CountJobs(ctx, dbSql)
+	count, err := h.dbClient.CountJobs(c.Request.Context(), dbSql)
 	if err != nil {
 		return nil, err
 	}
@@ -111,51 +113,80 @@ func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
-	jobId := c.GetString(types.Name)
-	if jobId == "" {
-		return nil, commonerrors.NewBadRequest("the jobId is empty")
+	dbSql, err := h.cvtToGetOpsJobSql(c)
+	if err != nil {
+		return nil, err
 	}
-
-	dbSql := cvtToGetOpsJobSql(jobId)
 	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, "", "", 1, 0)
 	if err != nil {
 		return nil, err
 	}
 	if len(jobs) == 0 {
-		return nil, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("job %s is not found", jobId))
+		return nil, commonerrors.NewNotFoundWithMessage("the opsjob is not found")
 	}
 	return cvtToOpsJobResponseItem(jobs[0]), nil
 }
 
 func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.auth.GetRequestUser(c)
+	if err != nil {
+		return nil, err
+	}
+
 	name := c.GetString(types.Name)
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("opsJobId is empty")
 	}
 	ctx := c.Request.Context()
 	opsJob := &v1.OpsJob{}
+	isFound := false
 	if h.Get(ctx, client.ObjectKey{Name: name}, opsJob) == nil {
-		if err := h.Delete(ctx, opsJob); err != nil {
+		if err = h.auth.Authorize(authority.Input{
+			GinContext:   c,
+			ResourceKind: v1.OpsJobKind,
+			Verb:         v1.DeleteVerb,
+		}); err != nil {
 			return nil, err
 		}
-	}
-	if err := commonjob.CleanupJobRelatedInfo(ctx, h.Client, name); err != nil {
-		klog.ErrorS(err, "failed to cleanup ops job labels")
+		if err = h.Delete(ctx, opsJob); err != nil {
+			return nil, err
+		}
+		isFound = true
 	}
 	if commonconfig.IsDBEnable() {
-		if err := h.dbClient.SetOpsJobDeleted(ctx, name); err != nil {
+		userId := ""
+		if requestUser != nil && !requestUser.IsSystemAdmin() {
+			userId = requestUser.Name
+		}
+		if err = h.dbClient.SetOpsJobDeleted(ctx, name, userId); err != nil {
 			return nil, err
 		}
+		isFound = true
+	}
+	if !isFound {
+		return nil, commonerrors.NewNotFoundWithMessage("the opsjob is not found")
+	}
+
+	if err = commonjob.CleanupJobRelatedInfo(ctx, h.Client, name); err != nil {
+		klog.ErrorS(err, "failed to cleanup ops job labels")
 	}
 	klog.Infof("delete opsJob %s", name)
 	return nil, nil
 }
 
-func (h *Handler) generateAddonJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
-	job := genDefaultOpsJob(req)
+func (h *Handler) generateAddonJob(c *gin.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+	if err := h.auth.Authorize(authority.Input{
+		GinContext:   c,
+		ResourceKind: v1.AddOnTemplateKind,
+		Verb:         v1.CreateVerb,
+	}); err != nil {
+		return nil, err
+	}
+
+	job := genDefaultOpsJob(c, req)
 	if job.Spec.Cluster == "" {
 		if nodeParam := job.GetParameter(v1.ParameterNode); nodeParam != nil {
-			if adminNode, err := h.getAdminNode(ctx, nodeParam.Value); err == nil {
+			if adminNode, err := h.getAdminNode(c.Request.Context(), nodeParam.Value); err == nil {
 				job.Spec.Cluster = v1.GetClusterId(adminNode)
 			}
 		}
@@ -166,33 +197,42 @@ func (h *Handler) generateAddonJob(ctx context.Context, req *types.CreateOpsJobR
 	return job, nil
 }
 
-func (h *Handler) generatePreflightJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+func (h *Handler) generatePreflightJob(c *gin.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
 	if commonconfig.GetPreflightImage() == "" {
 		return nil, commonerrors.NewInternalError("The preflight function is not enabled")
 	}
-	job := genDefaultOpsJob(req)
+	job := genDefaultOpsJob(c, req)
 	nodeParam := job.GetParameter(v1.ParameterNode)
 	if nodeParam == nil {
 		return nil, commonerrors.NewInternalError("Node parameter is required")
 	}
-	adminNode, err := h.getAdminNode(ctx, nodeParam.Value)
+	adminNode, err := h.getAdminNode(c.Request.Context(), nodeParam.Value)
 	if err != nil {
 		return nil, err
 	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext:   c,
+		ResourceKind: v1.WorkloadKind,
+		Verb:         v1.CreateVerb,
+		Workspaces:   []string{v1.GetWorkspaceId(adminNode)},
+	}); err != nil {
+		return nil, err
+	}
+
 	job.Spec.Cluster = v1.GetClusterId(adminNode)
 	v1.SetLabel(job, v1.GpuProductNameLabel, strings.ToLower(v1.GetGpuProductName(adminNode)))
 	return job, nil
 }
 
-func (h *Handler) generateDiagnoseJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+func (h *Handler) generateDiagnoseJob(c *gin.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
 	if commonconfig.GetDiagnoseImage() == "" {
 		return nil, commonerrors.NewInternalError("The diagnose function is not enabled")
 	}
-	job := genDefaultOpsJob(req)
+	job := genDefaultOpsJob(c, req)
 	workloadParam := job.GetParameter(v1.ParameterWorkload)
 	nodeParam := job.GetParameter(v1.ParameterNode)
 	if nodeParam == nil && workloadParam != nil {
-		nodes, err := h.getNodesOfWorkload(ctx, workloadParam.Value)
+		nodes, err := h.getNodesOfWorkload(c.Request.Context(), workloadParam.Value)
 		if err != nil {
 			return nil, err
 		}
@@ -202,11 +242,23 @@ func (h *Handler) generateDiagnoseJob(ctx context.Context, req *types.CreateOpsJ
 		nodeParam = job.GetParameter(v1.ParameterNode)
 	}
 	if nodeParam != nil {
-		adminNode, err := h.getAdminNode(ctx, nodeParam.Value)
+		adminNode, err := h.getAdminNode(c.Request.Context(), nodeParam.Value)
 		if err != nil {
 			return nil, err
 		}
+		if err = h.auth.Authorize(authority.Input{
+			GinContext:   c,
+			ResourceKind: v1.WorkloadKind,
+			Verb:         v1.CreateVerb,
+			Workspaces:   []string{v1.GetWorkspaceId(adminNode)},
+		}); err != nil {
+			return nil, err
+		}
 		job.Spec.Cluster = v1.GetClusterId(adminNode)
+	} else {
+		if err := h.auth.AuthorizeSystemAdmin(c); err != nil {
+			return nil, err
+		}
 	}
 	return job, nil
 }
@@ -236,40 +288,47 @@ func (h *Handler) getNodesOfWorkload(ctx context.Context, workloadId string) ([]
 	return nil, nil
 }
 
-func (h *Handler) generateDumpLogJob(ctx context.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+func (h *Handler) generateDumpLogJob(c *gin.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
 	if !commonconfig.IsLogEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
 	if !commonconfig.IsS3Enable() {
 		return nil, commonerrors.NewInternalError("The s3 function is not enabled")
 	}
-	job := genDefaultOpsJob(req)
+	job := genDefaultOpsJob(c, req)
 
 	workloadParam := job.GetParameter(v1.ParameterWorkload)
 	if workloadParam == nil {
 		return nil, commonerrors.NewBadRequest(
 			fmt.Sprintf("%s must be specified in the job.", v1.ParameterWorkload))
 	}
-	if commonconfig.IsDBEnable() {
-		workload, err := h.dbClient.GetWorkload(ctx, workloadParam.Value)
-		if err != nil {
-			return nil, err
-		}
-		job.Spec.Cluster = workload.Cluster
-		v1.SetLabel(job, v1.WorkspaceIdLabel, workload.Workspace)
-	} else {
-		workload, err := h.getAdminWorkload(ctx, workloadParam.Value)
-		if err != nil {
-			return nil, err
-		}
-		job.Spec.Cluster = v1.GetClusterId(workload)
-		v1.SetLabel(job, v1.WorkspaceIdLabel, workload.Spec.Workspace)
+	workload, err := h.getWorkloadInternal(c.Request.Context(), workloadParam.Value)
+	if err != nil {
+		return nil, err
 	}
+	if err = h.auth.Authorize(authority.Input{
+		GinContext: c,
+		Resource:   workload,
+		Verb:       v1.GetVerb,
+		Workspaces: []string{workload.Spec.Workspace},
+	}); err != nil {
+		return nil, err
+	}
+	job.Spec.Cluster = v1.GetClusterId(workload)
+	v1.SetLabel(job, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	return job, nil
 }
 
-func genDefaultOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {
+func genDefaultOpsJob(c *gin.Context, req *types.CreateOpsJobRequest) *v1.OpsJob {
 	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels: map[string]string{
+				v1.UserIdLabel: c.GetString(common.UserId),
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: c.GetString(common.UserName),
+			},
+		},
 		Spec: v1.OpsJobSpec{
 			Cluster:       req.Cluster,
 			Type:          req.Type,
@@ -277,9 +336,6 @@ func genDefaultOpsJob(req *types.CreateOpsJobRequest) *v1.OpsJob {
 			TimeoutSecond: req.TimeoutSecond,
 			Env:           req.Env,
 		},
-	}
-	if req.UserName != "" {
-		v1.SetAnnotation(job, v1.UserNameAnnotation, req.UserName)
 	}
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
@@ -303,7 +359,7 @@ func parseCreateOpsJobQuery(c *gin.Context) (*types.CreateOpsJobRequest, error) 
 	return req, nil
 }
 
-func parseListOpsJobQuery(c *gin.Context) (*types.ListOpsJobRequest, error) {
+func (h *Handler) parseListOpsJobQuery(c *gin.Context) (*types.ListOpsJobRequest, error) {
 	query := &types.ListOpsJobRequest{}
 	err := c.ShouldBindWith(&query, binding.Query)
 	if err != nil {
@@ -341,6 +397,9 @@ func parseListOpsJobQuery(c *gin.Context) (*types.ListOpsJobRequest, error) {
 	if query.SinceTime.After(query.UntilTime) {
 		return nil, commonerrors.NewBadRequest("the since time is greater than until time")
 	}
+	if err = h.auth.AuthorizeSystemAdmin(c); err != nil {
+		query.UserId = c.GetString(common.UserId)
+	}
 	return query, nil
 }
 
@@ -360,6 +419,9 @@ func cvtToListOpsJobSql(query *types.ListOpsJobRequest) sqrl.Sqlizer {
 	if jobType := strings.TrimSpace(string(query.Type)); jobType != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "type"): jobType})
 	}
+	if userId := strings.TrimSpace(query.UserId); userId != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "UserId"): userId})
+	}
 	if userName := strings.TrimSpace(query.UserName); userName != "" {
 		dbSql = append(dbSql, sqrl.Like{
 			dbclient.GetFieldTag(dbTags, "UserName"): fmt.Sprintf("%%%s%%", userName)})
@@ -367,12 +429,19 @@ func cvtToListOpsJobSql(query *types.ListOpsJobRequest) sqrl.Sqlizer {
 	return dbSql
 }
 
-func cvtToGetOpsJobSql(jobId string) sqrl.Sqlizer {
+func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
+	jobId := c.GetString(types.Name)
+	if jobId == "" {
+		return nil, commonerrors.NewBadRequest("the jobId is empty")
+	}
 	dbTags := dbclient.GetOpsJobFieldTags()
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "JobId"): jobId},
 	}
-	return dbSql
+	if err := h.auth.AuthorizeSystemAdmin(c); err != nil {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "UserId"): c.GetString(common.UserId)})
+	}
+	return dbSql, nil
 }
 
 func cvtToOpsJobResponseItem(job *dbclient.OpsJob) types.OpsJobResponseItem {
@@ -382,6 +451,7 @@ func cvtToOpsJobResponseItem(job *dbclient.OpsJob) types.OpsJobResponseItem {
 		Workspace:  dbutils.ParseNullString(job.Workspace),
 		Type:       v1.OpsJobType(job.Type),
 		UserName:   dbutils.ParseNullString(job.UserName),
+		UserId:     dbutils.ParseNullString(job.UserId),
 		Phase:      v1.OpsJobPhase(dbutils.ParseNullString(job.Phase)),
 		CreateTime: dbutils.ParseNullTimeToString(job.CreateTime),
 		StartTime:  dbutils.ParseNullTimeToString(job.StartTime),

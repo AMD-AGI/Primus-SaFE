@@ -3,7 +3,11 @@
 # See LICENSE for license information.
 #
 
-cd depends
+cd /opt/primus-safe/pytorch
+if [ $? -ne 0 ]; then
+  echo "failed to find primus-safe/pytorch "
+  exit 1
+fi
 
 pip3 install -r requirements.txt > /dev/null
 if [ $? -ne 0 ]; then
