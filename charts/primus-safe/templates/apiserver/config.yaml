@@ -43,7 +43,7 @@ data:
       enable: {{ .Values.s3.enable }}
     ops_job:
       preflight_image: docker.io/primussafe/{{ .Values.preflight.image }}
-      diagnose_image: {{ default "" (default .Values.diagnose).image }}
+      diagnose_image: docker.io/primussafe/{{ .Values.diagnose.image }}
     user:
       enable_authority: {{ .Values.user.enable_authority }}
       token_expire: 604800
