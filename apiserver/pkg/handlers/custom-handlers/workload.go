@@ -84,14 +84,23 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.authWorkloadCreation(c, req); err != nil {
-		return nil, err
-	}
-
 	workload, err := generateWorkload(c, req, body)
 	if err != nil {
 		return nil, err
 	}
+
+	requestUser, err := h.auth.GetRequestUser(c)
+	if err != nil {
+		return nil, err
+	}
+	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
+		return nil, err
+	}
+	if err = h.authWorkloadPriority(c, workload, req.Priority, requestUser, roles); err != nil {
+		return nil, err
+	}
+
 	if err = h.Create(c.Request.Context(), workload); err != nil {
 		return nil, err
 	}
@@ -103,46 +112,13 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 		workload.Name, c.GetString(common.UserId), workload.Spec.Priority, workload.Spec.Timeout)
 	return &types.CreateWorkloadResponse{WorkloadId: workload.Name}, nil
 }
-
-func (h *Handler) authWorkloadCreation(c *gin.Context, req *types.CreateWorkloadRequest) error {
-	requestUser, err := h.auth.GetRequestUser(c)
-	if err != nil {
-		return err
-	}
-	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
-
-	if err = h.auth.Authorize(authority.Input{
-		GinContext:   c,
-		ResourceKind: v1.WorkloadKind,
-		Verb:         v1.CreateVerb,
-		Workspaces:   []string{req.Workspace},
-		User:         requestUser,
-		Roles:        roles,
-	}); err != nil {
-		return err
-	}
-
-	priorityKind := buildPriorityKind(req.Priority)
-	if err = h.auth.Authorize(authority.Input{
-		GinContext:   c,
-		ResourceKind: priorityKind,
-		Verb:         v1.CreateVerb,
-		Workspaces:   []string{req.Workspace},
-		User:         requestUser,
-		Roles:        roles,
-	}); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	query, err := parseListWorkloadQuery(c)
 	if err != nil {
 		return nil, err
 	}
 	adminWorkload := generateAuthWorkload("", query.UserId, query.WorkspaceId, query.ClusterId)
-	if err = h.authWorkload(c, adminWorkload, v1.ListVerb, nil, nil); err != nil {
+	if err = h.authWorkloadAction(c, adminWorkload, v1.ListVerb, nil, nil); err != nil {
 		return nil, err
 	}
 	if !commonconfig.IsDBEnable() {
@@ -179,7 +155,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 			return nil, err
 		}
 		adminWorkload := generateAuthWorkload(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-		if err = h.authWorkload(c, adminWorkload, v1.GetVerb, nil, nil); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, nil, nil); err != nil {
 			return nil, err
 		}
 		return h.cvtDBWorkloadToGetResponse(ctx, dbWorkload), nil
@@ -188,7 +164,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err = h.authWorkload(c, adminWorkload, v1.GetVerb, nil, nil); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, nil, nil); err != nil {
 			return nil, err
 		}
 		return h.cvtAdminWorkloadToGetResponse(ctx, adminWorkload), nil
@@ -208,7 +184,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 			return nil, err
 		}
 	} else {
-		if err = h.authWorkload(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
 			return nil, err
 		}
 		if err = h.deleteAdminWorkload(c, adminWorkload); err != nil {
@@ -222,7 +198,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 			return nil, commonerrors.IgnoreFound(err)
 		}
 		adminWorkload = generateAuthWorkload(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-		if err = h.authWorkload(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
 			return nil, err
 		}
 		if err = h.dbClient.SetWorkloadDeleted(c.Request.Context(), name); err != nil {
@@ -273,7 +249,7 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 		if dbutils.ParseNullString(dbWorkload.Phase) != string(v1.WorkloadStopped) {
 			adminWorkload = generateAuthWorkload(name,
 				dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-			if err = h.authWorkload(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+			if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
 				return nil, err
 			}
 			if err = h.dbClient.SetWorkloadStopped(c.Request.Context(), name); err != nil {
@@ -281,7 +257,7 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 			}
 		}
 	} else {
-		if err = h.authWorkload(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
 			return nil, err
 		}
 		if err = h.deleteAdminWorkload(c, adminWorkload); err != nil {
@@ -293,18 +269,32 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.auth.GetRequestUser(c)
+	if err != nil {
+		return nil, err
+	}
+	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+
 	name := c.GetString(types.Name)
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
 	if err != nil {
-		return nil, commonerrors.NewInternalError("The workload can only be edited when it is running.")
+		if apierrors.IsNotFound(err) {
+			return nil, commonerrors.NewInternalError("The workload can only be edited when it is running.")
+		}
+		return nil, err
 	}
 
 	req := &types.PatchWorkloadRequest{}
 	if _, err = getBodyFromRequest(c.Request, req); err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	if err = h.authWorkloadUpdate(c, adminWorkload, req); err != nil {
+	if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, requestUser, roles); err != nil {
 		return nil, err
+	}
+	if req.Priority != nil {
+		if err = h.authWorkloadPriority(c, adminWorkload, *req.Priority, requestUser, roles); err != nil {
+			return nil, err
+		}
 	}
 
 	patch := client.MergeFrom(adminWorkload.DeepCopy())
@@ -317,40 +307,12 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload, req *types.PatchWorkloadRequest) error {
-	requestUser, err := h.auth.GetRequestUser(c)
-	if err != nil {
-		return err
-	}
-	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
-
-	if h.authWorkload(c, adminWorkload, v1.UpdateVerb, requestUser, roles); err != nil {
-		return err
-	}
-
-	if req.Priority != nil {
-		priorityKind := buildPriorityKind(*req.Priority)
-		if err = h.auth.Authorize(authority.Input{
-			GinContext:   c,
-			ResourceKind: priorityKind,
-			Resource:     adminWorkload,
-			Verb:         v1.UpdateVerb,
-			Workspaces:   []string{adminWorkload.Spec.Workspace},
-			User:         requestUser,
-			Roles:        roles,
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 	workload, err := h.getAdminWorkload(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
-	if err = h.authWorkload(c, workload, v1.GetVerb, nil, nil); err != nil {
+	if err = h.authWorkloadAction(c, workload, v1.GetVerb, nil, nil); err != nil {
 		return nil, err
 	}
 
@@ -478,15 +440,32 @@ func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, w
 	return commonworkload.GetWorkloadsOfWorkspace(ctx, h.Client, clusterName, workspaceNames, filterFunc)
 }
 
-func (h *Handler) authWorkload(c *gin.Context,
+func (h *Handler) authWorkloadAction(c *gin.Context,
 	adminWorkload *v1.Workload, verb v1.RoleVerb, user *v1.User, roles []*v1.Role) error {
 	if err := h.auth.Authorize(authority.Input{
-		GinContext: c,
-		Resource:   adminWorkload,
-		Verb:       verb,
-		Workspaces: []string{adminWorkload.Spec.Workspace},
-		User:       user,
-		Roles:      roles,
+		GinContext:   c,
+		ResourceKind: v1.WorkloadKind,
+		Resource:     adminWorkload,
+		Verb:         verb,
+		Workspaces:   []string{adminWorkload.Spec.Workspace},
+		User:         user,
+		Roles:        roles,
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (h *Handler) authWorkloadPriority(c *gin.Context,
+	adminWorkload *v1.Workload, priority int, user *v1.User, roles []*v1.Role) error {
+	priorityKind := buildPriorityKind(priority)
+	if err := h.auth.Authorize(authority.Input{
+		GinContext:   c,
+		ResourceKind: priorityKind,
+		Verb:         v1.UpdateVerb,
+		Workspaces:   []string{adminWorkload.Spec.Workspace},
+		User:         user,
+		Roles:        roles,
 	}); err != nil {
 		return err
 	}
@@ -721,9 +700,6 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 		UserName:       dbutils.ParseNullString(w.UserName),
 		Priority:       w.Priority,
 		IsTolerateAll:  w.IsTolerateAll,
-	}
-	if result.EndTime == "" && result.DeletionTime != "" {
-		result.EndTime = result.DeletionTime
 	}
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
