@@ -146,7 +146,11 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 			continue
 		}
 		usedResource, _ := allUsedResource[n.Name]
-		result.Items = append(result.Items, cvtToNodeResponseItem(n, usedResource))
+		item, err := h.cvtToNodeResponseItem(ctx, n, usedResource)
+		if err != nil {
+			return nil, err
+		}
+		result.Items = append(result.Items, item)
 		result.TotalCount++
 	}
 	return result, nil
@@ -198,7 +202,11 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to get used resource", "node", node.Name)
 		return nil, err
 	}
-	return cvtToNodeResponseItem(node, usedResource), nil
+	result, err := h.cvtToNodeResponseItem(c.Request.Context(), node, usedResource)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
@@ -598,12 +606,11 @@ func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]s
 	return nodesLabelAction
 }
 
-func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeResponseItem {
+func (h *Handler) cvtToNodeResponseItem(ctx context.Context, n *v1.Node, usedResource *resourceInfo) (types.NodeResponseItem, error) {
 	result := types.NodeResponseItem{
 		NodeId:         n.Name,
 		DisplayName:    v1.GetDisplayName(n),
 		Cluster:        v1.GetClusterId(n),
-		Workspace:      v1.GetWorkspaceId(n),
 		Phase:          string(n.Status.MachineStatus.Phase),
 		InternalIP:     n.Status.MachineStatus.PrivateIP,
 		BMCIP:          v1.GetNodeBMCIp(n),
@@ -614,6 +621,15 @@ func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeRes
 		CustomerLabels: getCustomerLabels(n.Labels, true),
 		CreateTime:     timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
 		IsControlPlane: v1.IsControlPlane(n),
+	}
+	result.Workspace.Id = v1.GetWorkspaceId(n)
+	if result.Workspace.Id != "" {
+		workspace := &v1.Workspace{}
+		if err := h.Get(ctx, client.ObjectKey{Name: v1.GetWorkspaceId(n)}, workspace); err != nil {
+			return types.NodeResponseItem{}, err
+		} else {
+			result.Workspace.Name = v1.GetDisplayName(workspace)
+		}
 	}
 	if n.Status.ClusterStatus.Phase == v1.NodeManagedFailed || n.Status.ClusterStatus.Phase == v1.NodeUnmanagedFailed ||
 		n.Status.ClusterStatus.Phase == v1.NodeManaging || n.Status.ClusterStatus.Phase == v1.NodeUnmanaging {
@@ -633,7 +649,7 @@ func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeRes
 	result.AvailResources = cvtToResourceList(availResource)
 	lastStartupTime := timeutil.CvtStrUnixToTime(v1.GetNodeStartupTime(n))
 	result.LastStartupTime = timeutil.FormatRFC3339(&lastStartupTime)
-	return result
+	return result, nil
 }
 
 func getCustomerLabels(labels map[string]string, removePrefix bool) map[string]string {

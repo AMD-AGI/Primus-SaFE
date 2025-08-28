@@ -136,7 +136,7 @@ func TestListNodes(t *testing.T) {
 
 	assert.Equal(t, result.Items[0].NodeId, adminNode1.Name)
 	assert.Equal(t, result.Items[0].Cluster, clusterId)
-	assert.Equal(t, result.Items[0].Workspace, workspace.Name)
+	assert.Equal(t, result.Items[0].Workspace.Id, workspace.Name)
 	assert.Equal(t, result.Items[0].TotalResources["cpu"], int64(64))
 	assert.Equal(t, result.Items[0].TotalResources["memory"], int64(2*1024*1024*1024))
 	assert.Equal(t, result.Items[0].TotalResources[common.AmdGpu], int64(8))
@@ -147,7 +147,7 @@ func TestListNodes(t *testing.T) {
 
 	assert.Equal(t, result.Items[1].NodeId, adminNode2.Name)
 	assert.Equal(t, result.Items[1].Cluster, clusterId)
-	assert.Equal(t, result.Items[1].Workspace, workspace.Name)
+	assert.Equal(t, result.Items[1].Workspace.Id, workspace.Name)
 	assert.Equal(t, result.Items[1].TotalResources["cpu"], int64(64))
 	assert.Equal(t, result.Items[1].TotalResources["memory"], int64(2*1024*1024*1024))
 	assert.Equal(t, result.Items[1].TotalResources[common.AmdGpu], int64(8))

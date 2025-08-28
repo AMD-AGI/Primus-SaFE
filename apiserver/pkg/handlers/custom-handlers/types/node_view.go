@@ -73,7 +73,7 @@ type NodeResponseItem struct {
 	// the node's cluster
 	Cluster string `json:"cluster"`
 	// the node's workspace
-	Workspace string `json:"workspace"`
+	Workspace WorkspaceEntry `json:"workspace"`
 	// the node's phase
 	Phase string `json:"phase"`
 	// the internal ip of k8s cluster

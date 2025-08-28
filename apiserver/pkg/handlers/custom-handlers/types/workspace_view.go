@@ -106,3 +106,8 @@ type PatchWorkspaceRequest struct {
 	// the managers for workspace
 	Managers *[]string `json:"managers,omitempty"`
 }
+
+type WorkspaceEntry struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
