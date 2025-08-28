@@ -33,11 +33,6 @@ DEBUG_MODE = False
 healthy_node_queue: Queue[str] = Queue()
 # for log output
 print_lock = threading.Lock()
-
-total_nodes = 0
-total_unhealthy_nodes = 0
-stats_lock = threading.Lock()
-
 # ===========================================
 
 def log(msg: str):
@@ -203,9 +198,6 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 1800.0) -> 
             healthy_node_queue.put(healthy_node)
             return suspect_node, is_faulty
         except Exception:
-            with stats_lock:
-                if total_unhealthy_nodes >= total_nodes:
-                    break
             time.sleep(1)
             continue
     log(f"[TIMEOUT] failed to get healthy node for {suspect_node}")
@@ -215,7 +207,6 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
     """
     Recursively diagnose nodes and return the finally confirmed faulty nodes (those still < threshold when combined with healthy nodes).
     """
-    global total_unhealthy_nodes
     busbw = run_rccl_test(nodes)
     limit = threshold(len(nodes))
     log(f"[RESULT] {nodes} -> {busbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
@@ -227,11 +218,6 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
         return []
 
     if len(nodes) <= 2:
-        with stats_lock:
-            total_unhealthy_nodes += len(nodes)
-            if total_unhealthy_nodes >= total_nodes:
-                return nodes
-
         log(f"[FINAL CHECK] Testing {nodes} individually with healthy nodes.")
         bad_nodes = []
         # Parallel testing (up to MAX_CONCURRENT_TESTS)
@@ -309,9 +295,6 @@ def main():
     log("⚙️ Starting recursive diagnosis...")
     global healthy_node_queue
     healthy_node_queue = Queue()
-    global total_nodes, total_unhealthy_nodes
-    total_nodes = len(nodes)
-    total_unhealthy_nodes = 0
 
     bad_nodes = recursive_diagnose(nodes)
     if bad_nodes:

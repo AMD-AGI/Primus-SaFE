@@ -104,9 +104,9 @@ func (m *UserMutator) mutateMetadata(user *v1.User) {
 func (m *UserMutator) mutatePassword(user *v1.User) {
 	if user.Spec.Type == v1.DefaultUser {
 		if user.Spec.Password == "" {
-			user.Spec.Password = stringutil.Password(DefaultPasswordLen)
+			password := stringutil.Password(DefaultPasswordLen)
+			user.Spec.Password = stringutil.Base64Encode(password)
 		}
-		user.Spec.Password = stringutil.Base64Encode(user.Spec.Password)
 	}
 }
 

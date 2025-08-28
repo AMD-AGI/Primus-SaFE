@@ -51,10 +51,6 @@ func NewAuthorizer(cli client.Client) *Authorizer {
 	return instance
 }
 
-func Instance() *Authorizer {
-	return instance
-}
-
 func (a *Authorizer) Authorize(in Input) error {
 	if !commonconfig.IsEnableUserAuthority() {
 		return nil
@@ -112,7 +108,6 @@ func (a *Authorizer) authorize(in Input) error {
 	if in.Resource != nil {
 		resourceName = in.Resource.GetName()
 	}
-
 	for _, r := range in.Roles {
 		rules := getPolicyRules(r, resourceKind, resourceName, isOwner, isWorkspaceUser)
 		if isMatchVerb(rules, in.Verb) {
@@ -137,14 +132,14 @@ func (a *Authorizer) GetRequestUser(c *gin.Context) (*v1.User, error) {
 	return user, nil
 }
 
-func getPolicyRules(role *v1.Role, resource, resourceName string, isOwner, isWorkspaceUser bool) []*v1.PolicyRule {
+func getPolicyRules(role *v1.Role, resourceKind, resourceName string, isOwner, isWorkspaceUser bool) []*v1.PolicyRule {
 	var result []*v1.PolicyRule
 	for i, r := range role.Rules {
-		if !slice.Contains(r.Resources, AllResource) && !slice.Contains(r.Resources, resource) {
+		if !slice.Contains(r.Resources, AllResource) && !slice.Contains(r.Resources, resourceKind) {
 			continue
 		}
 		isMatch := false
-		for _, n := range r.Resources {
+		for _, n := range r.GrantedUsers {
 			switch n {
 			case AllResource:
 				isMatch = true

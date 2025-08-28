@@ -24,6 +24,10 @@ var (
 	instance *Crypto
 )
 
+const (
+	AESKeyLen = 16
+)
+
 func NewCrypto() *Crypto {
 	once.Do(func() {
 		key := ""
@@ -32,6 +36,9 @@ func NewCrypto() *Crypto {
 			key = commonconfig.GetCryptoKey()
 			if key == "" {
 				klog.ErrorS(err, "failed to get crypto key")
+				return
+			} else if len(key) != AESKeyLen {
+				klog.ErrorS(err, fmt.Sprintf("invalid crypto key, the length must be %d", AESKeyLen))
 				return
 			}
 		}

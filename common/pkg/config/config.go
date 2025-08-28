@@ -276,7 +276,8 @@ func getFromFile(configPath, item string) string {
 	if err != nil {
 		return ""
 	}
-	return string(data)
+	key := string(data)
+	return strings.TrimRight(key, "\r\n")
 }
 
 func GetRdmaName() string {
@@ -303,8 +304,6 @@ func IsEnableUserAuthority() bool {
 	return getBool(userEnableAuthority, false)
 }
 
-func GetLoginUrl() string {
-	path := getString(loginUrl, "")
-	path = strings.TrimSuffix(path, "/")
-	return path
+func GetDomain() string {
+	return getString(domain, "")
 }

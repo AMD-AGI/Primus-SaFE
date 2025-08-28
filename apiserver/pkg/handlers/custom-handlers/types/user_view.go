@@ -11,11 +11,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
-const (
-	Authorization = "Authorization"
-	AuthCode      = "authorization_code"
-)
-
 type CreateUserRequest struct {
 	// user's id
 	Id string `json:"id,omitempty"`
@@ -25,18 +20,12 @@ type CreateUserRequest struct {
 	Email string `json:"email,omitempty"`
 	// user's type. includes: default, teams
 	Type v1.UserType `json:"type,omitempty"`
-	// system-admin, queue-admin, default
-	Roles []v1.UserRole `json:"roles,omitempty"`
 	// the workspaces which user can access
 	Workspaces []string `json:"workspaces,omitempty"`
 	// password, base64 encode
 	Password string `json:"password,omitempty"`
 	// user's avatar URL
 	AvatarUrl string `json:"avatarUrl,omitempty"`
-}
-
-type CreateUserResponse struct {
-	UserId string `json:"userId"`
 }
 
 type ListUserRequest struct {
@@ -62,7 +51,7 @@ type UserResponseItem struct {
 	// system-admin, queue-admin, default
 	Roles []v1.UserRole `json:"roles,omitempty"`
 	// the workspace's name which user can access
-	Workspaces []string `json:"workspaces,omitempty"`
+	Workspaces []WorkspaceEntry `json:"workspaces,omitempty"`
 	// the workspace's name which user can manage
 	ManagedWorkspaces []string `json:"managedWorkspaces,omitempty"`
 	// user's creation time
@@ -90,27 +79,15 @@ type PatchUserRequest struct {
 	Email *string `json:"email,omitempty"`
 }
 
-type ListWorkspaceUsersResponse struct {
-	TotalCount int                  `json:"totalCount"`
-	Items      []WorkspaceUsersItem `json:"items"`
-}
-
-type WorkspaceUsersItem struct {
-	UserId   string `json:"userId"`
-	UserName string `json:"userName"`
-}
-
 type UserLoginRequest struct {
-	// teams, default
-	Type v1.UserType `json:"userType,omitempty"`
+	// teams or default
+	Type v1.UserType `json:"type,omitempty"`
 	// user's id
-	Id string `json:"userId,omitempty"`
+	Id string `json:"id,omitempty"`
 	// user's password
 	Password string `json:"password,omitempty"`
 	// whether the request is from console
 	IsFromConsole bool `json:"-"`
-	// the response url
-	ReturnUrl string `json:"returnUrl,omitempty"`
 }
 
 type UserLoginResponse struct {

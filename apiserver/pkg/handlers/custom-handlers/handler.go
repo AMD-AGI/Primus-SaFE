@@ -60,7 +60,7 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 		dbClient:      dbClient,
 		httpClient:    httpclient.NewHttpClient(),
 		clientManager: commonutils.NewObjectManagerSingleton(),
-		auth:          authority.Instance(),
+		auth:          authority.NewAuthorizer(mgr.GetClient()),
 	}
 	return h, nil
 }

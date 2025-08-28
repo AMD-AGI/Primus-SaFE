@@ -14,16 +14,24 @@ import (
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 const (
 	TokenExpire  = "The user's token has expired, please login again"
 	InvalidToken = "The user's token is invalid, please login first"
 )
+
+type TokenItem struct {
+	UserId   string
+	Expire   int64
+	UserType string
+}
 
 func ParseCookie(c *gin.Context) error {
 	if !commonconfig.IsEnableUserAuthority() {
@@ -37,60 +45,59 @@ func ParseCookie(c *gin.Context) error {
 }
 
 func parseCookie(c *gin.Context) error {
-	token, err := c.Cookie(CookieToken)
-	if err != nil || token == "" {
+	tokenStr, err := c.Cookie(CookieToken)
+	if err != nil || tokenStr == "" {
 		return fmt.Errorf("http: cookie %s not present", CookieToken)
 	}
-	tokenExpire, err := c.Cookie(CookieTokenExpire)
-	if err != nil || tokenExpire == "" {
-		return fmt.Errorf("http: cookie %s not present", CookieTokenExpire)
-	}
-	expire, err := strconv.ParseInt(tokenExpire, 10, 0)
+	token, err := validateToken(tokenStr)
 	if err != nil {
-		return err
-	}
-	if commonconfig.GetUserTokenExpire() >= 0 && time.Now().Unix() > expire {
-		return fmt.Errorf("%s", TokenExpire)
-	}
-	userId, err := validateToken(token, expire)
-	if err != nil {
-		klog.ErrorS(err, "failed to validate user token", "token", token, "expire", expire)
+		klog.ErrorS(err, "failed to validate user token", "token", tokenStr)
 		return fmt.Errorf("%s", InvalidToken)
 	}
-	tokenType, _ := c.Cookie(CookieTokenType)
-	c.Set(common.UserId, userId)
-	c.Set(common.UserType, tokenType)
+	if commonconfig.GetUserTokenExpire() >= 0 && time.Now().Unix() > token.Expire {
+		return fmt.Errorf("%s", TokenExpire)
+	}
+	c.Set(common.UserId, token.UserId)
+	c.Set(common.UserType, token.UserType)
 	return nil
 }
 
-func validateToken(token string, expire int64) (string, error) {
+func validateToken(token string) (*TokenItem, error) {
 	inst := crypto.NewCrypto()
 	if inst == nil {
-		return "", commonerrors.NewInternalError("failed to new crypto")
+		return nil, commonerrors.NewInternalError("failed to new crypto")
 	}
-
+	token = stringutil.Base64Decode(token)
 	tokenPlain, err := inst.Decrypt(token)
 	if err != nil {
-		return "", fmt.Errorf("fail to decrypt token")
+		return nil, fmt.Errorf("fail to decrypt token")
 	}
 
-	lastIndex := strings.LastIndex(tokenPlain, "-")
-	if lastIndex == -1 {
-		return "", fmt.Errorf("invalid token")
+	parts := strings.Split(tokenPlain, "-")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid token")
 	}
-	userId := token[:lastIndex]
-	if userId == "" {
-		return "", fmt.Errorf("invalid token")
+	for _, part := range parts {
+		if part == "" {
+			return nil, fmt.Errorf("invalid token")
+		}
 	}
-	expireDecode, err := strconv.ParseInt(token[lastIndex+1:], 10, 0)
-	if err != nil || expireDecode != expire {
-		return "", fmt.Errorf("invalid token")
+	expire, err := strconv.ParseInt(parts[1], 10, 0)
+	if err != nil {
+		return nil, fmt.Errorf("invalid token")
 	}
-	return userId, nil
+	if parts[2] != string(v1.DefaultUser) && parts[2] != string(v1.TeamsUser) {
+		return nil, fmt.Errorf("invalid token")
+	}
+	return &TokenItem{
+		UserId:   parts[0],
+		Expire:   expire,
+		UserType: parts[2],
+	}, nil
 }
 
-func BuildToken(userId string, expire int64) (string, error) {
-	tokenStr := userId + "-" + strconv.FormatInt(expire, 10)
+func GenerateToken(item TokenItem) (string, error) {
+	tokenStr := item.UserId + "-" + strconv.FormatInt(item.Expire, 10) + "-" + item.UserType
 	if !commonconfig.IsCryptoEnable() {
 		return tokenStr, nil
 	}

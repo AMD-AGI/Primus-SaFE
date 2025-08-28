@@ -20,9 +20,11 @@ export BNIC=${BNIC:-50}
 export BXGMI=${BXGMI:-315}
 export MAX_BYTES=${MAX_BYTES:-2G}
 export MAX_RETRY=${MAX_RETRY:-1}
+export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=1800
 
 torchrun \
   --nproc_per_node=1 \
+  --max_restarts=2 \
   --nnodes=$WORLD_SIZE \
   --node_rank=$RANK \
   --master_addr=$MASTER_ADDR \
@@ -82,15 +84,17 @@ if [[ "$RANK" == "0" ]]; then
   done
 fi
 
+export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=10800
 torchrun \
   --nproc_per_node=1 \
+  --max_restarts=2 \
   --nnodes=$WORLD_SIZE \
   --node_rank=$RANK \
   --master_addr=$MASTER_ADDR \
   --master_port=$MASTER_PORT \
   sync_ssh_key.py \
   --interface $GLOO_SOCKET_IFNAME \
-  --distributed-timeout-minutes 720 \
+  --distributed-timeout-minutes 180 \
   --no-data-sync
 
 echo "[NODE-$RANK]: end time=$(date +'%Y.%m.%d %H:%M:%S')"

@@ -7,11 +7,8 @@ package custom_handlers
 
 import (
 	"context"
-	"net/http"
 	"net/url"
 	"sort"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -31,7 +28,6 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -82,9 +78,7 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 	if err = h.Create(c.Request.Context(), user); err != nil {
 		return nil, err
 	}
-	return &types.CreateUserResponse{
-		UserId: user.Name,
-	}, nil
+	return nil, nil
 }
 
 func (h *Handler) authUserCreation(c *gin.Context, req *types.CreateUserRequest) error {
@@ -95,9 +89,6 @@ func (h *Handler) authUserCreation(c *gin.Context, req *types.CreateUserRequest)
 	if requestUser != nil && !requestUser.IsSystemAdmin() {
 		if req.Type != requestUser.Spec.Type {
 			return commonerrors.NewBadRequest("invalid user type")
-		}
-		if v1.IsContainRole(req.Roles, v1.SystemAdminRole) {
-			return commonerrors.NewBadRequest("system-admin role is required")
 		}
 	}
 	if err = h.auth.Authorize(authority.Input{
@@ -123,9 +114,12 @@ func generateUser(req *types.CreateUserRequest) *v1.User {
 		},
 		Spec: v1.UserSpec{
 			Type:     req.Type,
-			Roles:    req.Roles,
+			Roles:    []v1.UserRole{v1.DefaultRole},
 			Password: req.Password,
 		},
+	}
+	if req.Password != "" {
+		user.Spec.Password = stringutil.Base64Encode(req.Password)
 	}
 	commonuser.AssignWorkspace(user, req.Workspaces...)
 	return user
@@ -217,7 +211,7 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 		metav1.SetMetaDataAnnotation(&targetUser.ObjectMeta, v1.UserAvatarUrlAnnotation, *req.AvatarUrl)
 	}
 	if req.Password != nil {
-		targetUser.Spec.Password = *req.Password
+		targetUser.Spec.Password = stringutil.Base64Encode(*req.Password)
 	}
 
 	if req.Name != nil {
@@ -384,10 +378,16 @@ func (h *Handler) loginByPassword(c *gin.Context, query *types.UserLoginRequest)
 	} else {
 		userInfo.Expire = time.Now().Unix() + int64(commonconfig.GetUserTokenExpire())
 	}
-	userInfo.Token, err = authority.BuildToken(userInfo.Id, userInfo.Expire)
+	userInfo.Token, err = authority.GenerateToken(authority.TokenItem{
+		UserId:   userInfo.Id,
+		Expire:   userInfo.Expire,
+		UserType: string(userInfo.Type),
+	})
 	if err != nil {
+		klog.ErrorS(err, "failed to build user token")
 		return nil, err
 	}
+	userInfo.Token = stringutil.Base64Encode(userInfo.Token)
 	if query.IsFromConsole {
 		setCookie(c, userInfo)
 	}
@@ -396,35 +396,15 @@ func (h *Handler) loginByPassword(c *gin.Context, query *types.UserLoginRequest)
 
 func setCookie(c *gin.Context, userInfo *types.UserLoginResponse) {
 	maxAge := 0
-	expireStr := ""
 	switch {
 	case userInfo.Expire < 0:
 		maxAge = MaxTokenAge
-		expireStr = strconv.FormatInt(userInfo.Expire, 10)
 	case userInfo.Expire > 0:
 		maxAge = int(userInfo.Expire - time.Now().Unix())
-		expireStr = strconv.FormatInt(userInfo.Expire, 10)
 	default:
 	}
-
-	loginUrl := commonconfig.GetLoginUrl()
-	hostname := netutil.GetHostname(loginUrl)
-	secondLevelDomain := netutil.GetSecondLevelDomain(hostname)
-	secure := false
-	if strings.HasPrefix(loginUrl, "https://") {
-		secure = true
-	}
-	c.SetCookie(authority.CookieToken, userInfo.Token, maxAge, "/", secondLevelDomain, secure, true)
-	c.SetCookie(authority.CookieTokenExpire, expireStr, maxAge, "/", secondLevelDomain, secure, true)
-	c.SetCookie(authority.CookieTokenType, string(userInfo.Type), maxAge, "/", secondLevelDomain, secure, true)
-	redirectUrl := ""
-	if maxAge == 0 {
-		// A lifecycle value of 0 indicates logout, requiring a redirect to the login page.
-		redirectUrl = loginUrl
-	} else {
-		redirectUrl = hostname
-	}
-	http.Redirect(c.Writer, c.Request, redirectUrl, http.StatusFound)
+	domain := commonconfig.GetDomain()
+	c.SetCookie(authority.CookieToken, userInfo.Token, maxAge, "/", domain, false, true)
 }
 
 func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) types.UserResponseItem {
@@ -445,7 +425,9 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) type
 			if err := h.Get(ctx, client.ObjectKey{Name: id}, workspace); err != nil {
 				continue
 			}
-			result.Workspaces = append(result.Workspaces, v1.GetDisplayName(workspace))
+			result.Workspaces = append(result.Workspaces, types.WorkspaceEntry{
+				Id: id, Name: v1.GetDisplayName(workspace),
+			})
 		}
 		workspaces = commonuser.GetManagedWorkspace(user)
 		for _, id := range workspaces {
@@ -459,6 +441,7 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) type
 	return result
 }
 
+// only for request from console
 func (h *Handler) logout(c *gin.Context) (interface{}, error) {
 	info := &types.UserLoginResponse{}
 	setCookie(c, info)

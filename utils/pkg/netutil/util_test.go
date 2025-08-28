@@ -13,10 +13,10 @@ import (
 )
 
 func TestGetSecondLevelDomain(t *testing.T) {
-	host := "https://arsenal.amd.ai"
+	host := "https://primus-safe.amd.primus.ai"
 	domain := GetSecondLevelDomain(host)
 	fmt.Println(domain)
-	assert.Equal(t, domain, "amd.ai")
+	assert.Equal(t, domain, "primus.ai")
 }
 
 func TestGetHomepage(t *testing.T) {
