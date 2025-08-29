@@ -14,7 +14,7 @@ CMAKE_SOURCE_DIR="cmake-${CMAKE_VERSION}"
 CMAKE_INSTALL_PREFIX="/usr/local"
 
 echo "============== begin to CMake ${CMAKE_VERSION}, install-prefix: ${CMAKE_INSTALL_PREFIX} =============="
-
+cd /tmp
 if [ ! -f "${CMAKE_SOURCE_FILE}" ]; then
   wget -q "${CMAKE_URL_PREFIX}/${CMAKE_SOURCE_FILE}"
 fi
@@ -43,3 +43,5 @@ else
   echo "failed to find cmake"
   exit 1
 fi
+rm -rf /tmp/${CMAKE_SOURCE_DIR}
+rm -rf /tmp/${CMAKE_SOURCE_FILE}

@@ -4,8 +4,8 @@
 #
 
 echo "============== begin to install mpich-4.3.1 =============="
-
-wget https://www.mpich.org/static/downloads/4.3.1/mpich-4.3.1.tar.gz > /dev/null
+set -e
+cd /tmp && wget https://www.mpich.org/static/downloads/4.3.1/mpich-4.3.1.tar.gz > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
 fi
@@ -13,6 +13,7 @@ mkdir -p mpich && tar -zxf mpich-4.3.1.tar.gz -C mpich --strip-components=1 && c
 if [ $? -ne 0 ]; then
   exit 1
 fi
+
 if [ ! -d "build" ]; then
   mkdir build
 fi
@@ -34,4 +35,7 @@ if [ $? -ne 0 ]; then
   echo "failed to install mpich-4.3.1"
   exit 1
 fi
+
+rm -rf /tmp/mpich
+rm -f /tmp/mpich-4.3.1.tar.gz
 echo "============== install mpich-4.3.1 successfully =============="

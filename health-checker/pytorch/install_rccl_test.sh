@@ -3,7 +3,7 @@
 # See LICENSE for license information.
 #
 echo "==============  begin to install rccl-tests =============="
-
+set -e
 REPO_URL="https://github.com/ROCm/rccl-tests.git"
 cd "/opt" && git clone "$REPO_URL" > /dev/null
 if [ $? -ne 0 ]; then

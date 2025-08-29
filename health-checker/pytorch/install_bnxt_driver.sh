@@ -4,7 +4,8 @@
 #
 
 echo "==============  begin to install bnxt_re-231.0.162.0 =============="
-
+set -e
+cd /opt
 bnxt_package="libbnxt_re-231.0.162.0.tar.gz"
 if [ ! -f "${bnxt_package}" ]; then
   exit 1
@@ -27,5 +28,6 @@ cp -f /tmp/libbnxt_re-231.0.162.0/bnxt_re.driver /etc/libibverbs.d/
 if [ $? -ne 0 ]; then
   exit 1
 fi
+rm -rf /tmp/libbnxt_re-231.0.162.0
 
 echo "============== install bnxt_re-231.0.162.0 successfully =============="

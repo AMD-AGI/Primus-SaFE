@@ -4,8 +4,8 @@
 #
 
 echo "==============  begin to install rccl =============="
-
-git clone https://github.com/ROCm/rccl
+set -e
+cd /opt && git clone https://github.com/ROCm/rccl
 if [ $? -ne 0 ]; then
   exit 1
 fi

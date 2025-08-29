@@ -4,7 +4,7 @@
 #
 
 echo "============== begin to install rocm-6.4.3 =============="
-
+set -e
 wget -q https://repo.radeon.com/amdgpu-install/6.4.3/ubuntu/jammy/amdgpu-install_6.4.60403-1_all.deb
 if [ $? -ne 0 ]; then
   exit 1
@@ -21,5 +21,5 @@ apt install -y rocm > /dev/null
 if [ $? -ne 0 ]; then
   exit 1
 fi
-
+rm -f ./amdgpu-install_6.4.60403-1_all.deb
 echo "============== install rocm-6.4.3 successfully =============="#
