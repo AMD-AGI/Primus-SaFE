@@ -6,6 +6,7 @@
 package authority
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -82,12 +83,25 @@ func (a *Authorizer) AuthorizeSystemAdmin(c *gin.Context) error {
 	return nil
 }
 
+func (a *Authorizer) GetRequestUser(c *gin.Context) (*v1.User, error) {
+	userId := c.GetString(common.UserId)
+	if userId == "" {
+		return nil, nil
+	}
+	user := &v1.User{}
+	err := a.Get(getContext(c), client.ObjectKey{Name: userId}, user)
+	if err != nil {
+		return nil, commonerrors.NewUserNotRegistered(userId)
+	}
+	c.Set(common.UserName, v1.GetUserName(user))
+	return user, nil
+}
+
 func (a *Authorizer) authorize(in Input) error {
 	if in.User.IsRestricted() {
 		return commonerrors.NewForbidden(
 			fmt.Sprintf("The user is restricted. type: %d", in.User.Spec.RestrictedType))
 	}
-
 	if in.ResourceOwner == "" {
 		in.ResourceOwner = v1.GetUserId(in.Resource)
 	}
@@ -108,7 +122,15 @@ func (a *Authorizer) authorize(in Input) error {
 	if in.Resource != nil {
 		resourceName = in.Resource.GetName()
 	}
-	for _, r := range in.Roles {
+	roles := make([]*v1.Role, 0, len(in.Roles)+1)
+	roles = append(roles, in.Roles...)
+	if len(in.Workspaces) > 0 && commonuser.HasWorkspaceManagedRight(in.User, in.Workspaces...) {
+		role := &v1.Role{}
+		if err := a.Get(getContext(in.GinContext), client.ObjectKey{Name: string(v1.WorkspaceAdminRole)}, role); err == nil {
+			roles = append(roles, role)
+		}
+	}
+	for _, r := range roles {
 		rules := getPolicyRules(r, resourceKind, resourceName, isOwner, isWorkspaceUser)
 		if isMatchVerb(rules, in.Verb) {
 			return nil
@@ -118,18 +140,14 @@ func (a *Authorizer) authorize(in Input) error {
 		fmt.Sprintf("The user is not allowed to %s %s", in.Verb, resourceKind))
 }
 
-func (a *Authorizer) GetRequestUser(c *gin.Context) (*v1.User, error) {
-	userId := c.GetString(common.UserId)
-	if userId == "" {
-		return nil, nil
+func getContext(c *gin.Context) context.Context {
+	var ctx context.Context
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	} else {
+		ctx = context.Background()
 	}
-	user := &v1.User{}
-	err := a.Get(c.Request.Context(), client.ObjectKey{Name: userId}, user)
-	if err != nil {
-		return nil, commonerrors.NewUserNotRegistered(userId)
-	}
-	c.Set(common.UserName, v1.GetUserName(user))
-	return user, nil
+	return ctx
 }
 
 func getPolicyRules(role *v1.Role, resourceKind, resourceName string, isOwner, isWorkspaceUser bool) []*v1.PolicyRule {
@@ -160,7 +178,7 @@ func getPolicyRules(role *v1.Role, resourceKind, resourceName string, isOwner, i
 				break
 			}
 		}
-		if len(r.Resources) == 0 || isMatch {
+		if len(r.GrantedUsers) == 0 || isMatch {
 			result = append(result, &role.Rules[i])
 		}
 	}

@@ -48,7 +48,7 @@ type UserResponseItem struct {
 	Email string `json:"email,omitempty"`
 	// user's type. value includes: default, teams
 	Type v1.UserType `json:"type,omitempty"`
-	// system-admin, queue-admin, default
+	// system-admin, default
 	Roles []v1.UserRole `json:"roles,omitempty"`
 	// the workspace's name which user can access
 	Workspaces []WorkspaceEntry `json:"workspaces,omitempty"`
@@ -65,7 +65,7 @@ type UserResponseItem struct {
 type PatchUserRequest struct {
 	// user's name
 	Name *string `json:"name,omitempty"`
-	// system-admin, queue-admin
+	// system-admin, default
 	Roles *[]v1.UserRole `json:"roles,omitempty"`
 	// the workspaces which user can access
 	Workspaces *[]string `json:"workspaces,omitempty"`

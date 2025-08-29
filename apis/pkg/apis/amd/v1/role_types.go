@@ -47,6 +47,7 @@ type PolicyRule struct {
 	// grantedUsers is a list of users permitted to access the resource.
 	// Setting 'owner' means that only the resource owner is allowed
 	// Setting 'workspace-user' means that users of the workspace are allowed
+	// '*' represents all users are allowed.
 	// +optional
 	GrantedUsers []string `json:"grantedUsers,omitempty"`
 	// Verbs is a list of Verbs that apply to ALL the ResourceKinds contained in this rule.

@@ -23,8 +23,9 @@ const (
 	UserFrozen UserRestrictedType = 1
 
 	SystemAdminRole UserRole = "system-admin"
-	QueueAdminRole  UserRole = "queue-admin"
-	DefaultRole     UserRole = "default"
+	// only for internal-use, The user will not be assigned the workspace-admin role
+	WorkspaceAdminRole UserRole = "workspace-admin"
+	DefaultRole        UserRole = "default"
 )
 
 type UserSpec struct {
@@ -35,7 +36,7 @@ type UserSpec struct {
 	// 0: normal; 1 frozen. default: 0
 	// +optional
 	RestrictedType UserRestrictedType `json:"restrictedType,omitempty"`
-	// user's role, such as system-admin/queue-admin/default
+	// user's role, such as system-admin/default
 	// permission check passes if any single role is satisfied.
 	// +required
 	Roles []UserRole `json:"roles"`

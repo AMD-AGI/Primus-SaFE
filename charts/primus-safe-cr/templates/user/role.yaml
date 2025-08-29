@@ -10,6 +10,8 @@ metadata:
 rules:
 - resources:
     - "*"
+  grantedUsers:
+    - "*"
   verbs:
     - "*"
 ---
@@ -65,6 +67,8 @@ rules:
     - cluster
     - nodeflavor
     - nodetemplate
+  grantedUsers:
+    - "*"
   verbs:
     - get
     - list
@@ -72,7 +76,7 @@ rules:
 apiVersion: amd.com/v1
 kind: Role
 metadata:
-  name: queue-admin
+  name: workspace-admin
   labels:
     app.kubernetes.io/managed-by: Helm
   annotations:

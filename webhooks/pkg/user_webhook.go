@@ -118,7 +118,7 @@ func (m *UserMutator) mutateRoles(user *v1.User) {
 		roleSet := sets.NewSet()
 		newRoles := make([]v1.UserRole, 0, len(user.Spec.Roles))
 		for i, r := range user.Spec.Roles {
-			if roleSet.Has(string(r)) {
+			if roleSet.Has(string(r)) || r == v1.WorkspaceAdminRole {
 				continue
 			}
 			newRoles = append(newRoles, user.Spec.Roles[i])
@@ -200,24 +200,41 @@ func (v *UserValidator) Handle(ctx context.Context, req admission.Request) admis
 	return admission.Allowed("")
 }
 
-func (v *UserValidator) validateOnCreation(_ context.Context, user *v1.User) error {
-	// "self"/"system" is reserved word
-	if user.Name == common.UserSelf || user.Name == common.UserSystem {
-		return commonerrors.NewForbidden(
-			fmt.Sprintf("%s is a system reserved word that cannot be used", user.Name))
+func (v *UserValidator) validateOnCreation(ctx context.Context, user *v1.User) error {
+	if err := v.validateMetadata(user); err != nil {
+		return err
 	}
-	if err := v.validateRequiredParams(user); err != nil {
+	if err := v.validateCommon(ctx, user); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *UserValidator) validateOnUpdate(_ context.Context, newUser, oldUser *v1.User) error {
-	if err := v.validateRequiredParams(newUser); err != nil {
-		return err
-	}
+func (v *UserValidator) validateOnUpdate(ctx context.Context, newUser, oldUser *v1.User) error {
 	if err := v.validateImmutableFields(newUser, oldUser); err != nil {
 		return err
+	}
+	if err := v.validateCommon(ctx, newUser); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *UserValidator) validateCommon(ctx context.Context, user *v1.User) error {
+	if err := v.validateRequiredParams(user); err != nil {
+		return err
+	}
+	if err := v.validateRoles(ctx, user); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *UserValidator) validateMetadata(user *v1.User) error {
+	// "self"/"system" is reserved word
+	if user.Name == common.UserSelf || user.Name == common.UserSystem {
+		return commonerrors.NewForbidden(
+			fmt.Sprintf("%s is a system reserved word that cannot be used", user.Name))
 	}
 	return nil
 }
@@ -234,7 +251,7 @@ func (v *UserValidator) validateRequiredParams(user *v1.User) error {
 	if user.Spec.Type == "" {
 		errs = append(errs, fmt.Errorf("the user's type is empty"))
 	}
-	if user.Spec.Password == "" && user.Spec.Type == v1.DefaultUser {
+	if user.Spec.Type == v1.DefaultUser && user.Spec.Password == "" {
 		errs = append(errs, fmt.Errorf("the user's password is empty"))
 	}
 	if len(user.Spec.Roles) == 0 {
@@ -242,6 +259,17 @@ func (v *UserValidator) validateRequiredParams(user *v1.User) error {
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (v *UserValidator) validateRoles(ctx context.Context, user *v1.User) error {
+	for _, r := range user.Spec.Roles {
+		role := &v1.Role{}
+		err := v.Get(ctx, client.ObjectKey{Name: string(r)}, role)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
