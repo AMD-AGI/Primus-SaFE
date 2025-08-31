@@ -25,7 +25,7 @@ fi
 # Get local IP address from socket interface
 get_ip() {
     local interface=$1
-    ip addr show "$interface" | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n1
+    ifconfig "$interface" | grep -oE 'inet [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | awk '{print $2}' | head -n1
 }
 local_ip=$(get_ip "$2")
 if [ -z "$local_ip" ]; then
@@ -182,7 +182,7 @@ done
 # === Final Summary ===
 echo "=== All tests completed ==="
 if [ ${#FAILED_NODES_LIST[@]} -eq 0 ]; then
-  echo "[INFO] All nodes are healthy across all IB devices."
+  echo "[INFO] All nodes are healthy across all IB devices by tools ib_read_bw"
 else
   printf '[ERROR] unhealthy nodes: ['
   for i in "${!FAILED_NODES_LIST[@]}"; do

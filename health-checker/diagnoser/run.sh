@@ -103,4 +103,9 @@ torchrun \
   --no-data-sync
 
 echo "[NODE-$RANK]: end time=$(date +'%Y.%m.%d %H:%M:%S')"
+if [[ "$RANK" == "0" ]]; then
+  if [ $ret -eq 0 ]; then
+    echo "[INFO] All nodes are healthy by binary-diagnose"
+  fi
+fi
 exit $ret

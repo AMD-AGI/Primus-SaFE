@@ -227,55 +227,62 @@ def sync_ssh_data(args):
     check_ssh_dir_permissions(SSH_DIR)
 
     # === Step 1: Gather SSH public keys ===
+    my_key = None
+    error_flag = False
+
     try:
         my_key = read_file_safe(KEY_FILE)
         logging.info(f"Rank {rank} read local public key (preview): {my_key[:50]}...")
-    except Exception:
-        logging.error(f"Rank {rank} SSH key read failed. Exiting.")
-        dist.destroy_process_group()
-        sys.exit(1)
+    except Exception as e:
+        logging.error(f"Rank {rank} failed to read SSH key: {e}")
+        error_flag = True
 
-    # Gather all keys to ALL ranks (gather_object broadcasts result to all)
-    # However, gather_object typically gathers to one destination.
-    # To make all ranks have the list, we can use 'all_gather_object'
-    # But all_gather_object requires a list of objects of the same structure.
-    # Let's stick to gather to rank 0 and then broadcast the list.
+    # Gather all keys: use None for failed ranks
     gathered_keys = [None] * world_size
-    logging.info(f"Rank {rank} starting all_gather_object for SSH keys...")
-    dist.all_gather_object(gathered_keys, my_key)
-    logging.info(f"Rank {rank} finished all_gather_object for SSH keys. Received {len(gathered_keys)} keys.")
-    # Now all ranks have the full list in gathered_keys
+    try:
+        dist.all_gather_object(gathered_keys, my_key if not error_flag else f"ERROR_RANK_{rank}")
+    except Exception as e:
+        logging.error(f"Rank {rank} failed in all_gather_object for keys: {e}")
+        # Still try to proceed
+        pass
 
-    # All ranks write authorized_keys
-    write_authorized_keys(rank, gathered_keys)
-
+    # Check if any rank failed
+    if any("ERROR_RANK_" in (k if isinstance(k, str) else "") for k in gathered_keys if k):
+        logging.critical(f"Rank {rank} detected error in key gathering. Aborting.")
+        # Don't write file if any key is missing
+    else:
+        write_authorized_keys(rank, gathered_keys)
 
     # === Step 2: Gather IP and SSH port ===
     try:
         my_ip = get_ip_by_interface(args.interface)
         my_port = os.getenv("SSH_PORT", "22")
+        my_node_info = (my_ip, my_port)
         logging.info(f"Rank {rank} determined local IP: {my_ip}, Port: {my_port}")
-    except Exception as e: # Catch specific exceptions if possible
-        logging.error(f"Rank {rank} failed to get IP or port: {e}. Exiting.")
-        dist.destroy_process_group()
-        sys.exit(1)
+    except Exception as e:
+        logging.error(f"Rank {rank} failed to get IP or port: {e}")
+        my_node_info = ("ERROR_IP", "ERROR_PORT")
 
-    my_node_info = (my_ip, my_port)
     gathered_nodes = [None] * world_size
-    logging.info(f"Rank {rank} starting all_gather_object for node info...")
-    dist.all_gather_object(gathered_nodes, my_node_info)
-    logging.info(f"Rank {rank} finished all_gather_object for node info. Received {len(gathered_nodes)} entries.")
-    # Now all ranks have the full list in gathered_nodes
+    try:
+        dist.all_gather_object(gathered_nodes, my_node_info)
+    except Exception as e:
+        logging.error(f"Rank {rank} failed in all_gather_object for node info: {e}")
+        pass
 
-    # All ranks write SSH config
-    write_ssh_config(rank, gathered_nodes)
+    if any(ip == "ERROR_IP" for ip, port in gathered_nodes):
+        logging.critical(f"Rank {rank} detected error in node info gathering.")
+    else:
+        write_ssh_config(rank, gathered_nodes)
 
-    # Ensure all nodes finish writing
     logging.info(f"Rank {rank} waiting at barrier...")
-    dist.barrier()
-    logging.info(f"Rank {rank} passed barrier.")
-    logging.info(f"✅ SSH synchronization process completed on Rank {rank}.")
+    try:
+        dist.barrier()
+        logging.info(f"Rank {rank} passed barrier.")
+    except Exception as e:
+        logging.warning(f"Rank {rank} failed at barrier: {e}")
 
+    logging.info(f"✅ SSH synchronization process completed on Rank {rank}.")
 
 def sync_no_data(args):
     """Just initialize and barrier."""
@@ -291,30 +298,29 @@ def main():
     setup_logging()
     logging.info(f"Starting script execution.")
 
+    success = True
     try:
         if not args.no_data_sync:
             sync_ssh_data(args)
         else:
             sync_no_data(args)
     except Exception as e:
-        logging.critical(f"Fatal error: {e}", exc_info=True)
-        if dist.is_initialized():
-            try:
-                dist.destroy_process_group()
-            except:
-                pass
-        sys.exit(1)
+        logging.critical(f"Rank {dist.get_rank() if dist.is_initialized() else 'unknown'} got uncaught exception: {e}", exc_info=True)
+        success = False
     finally:
+        # ✅ all rank should to be destroy
         if dist.is_initialized():
             try:
+                try:
+                    dist.barrier(timeout=timedelta(seconds=30))
+                except Exception:
+                    pass
                 dist.destroy_process_group()
                 logging.info("Distributed process group destroyed.")
             except Exception as e:
                 logging.warning(f"Error destroying process group: {e}")
 
+    sys.exit(0 if success else 1)
 
 if __name__ == "__main__":
     main()
-
-
-
