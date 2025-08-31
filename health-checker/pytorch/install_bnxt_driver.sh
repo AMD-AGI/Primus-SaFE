@@ -5,7 +5,7 @@
 
 echo "==============  begin to install bnxt_re-231.0.162.0 =============="
 set -e
-cd /opt
+cd /opt/primus-safe/pytorch
 bnxt_package="libbnxt_re-231.0.162.0.tar.gz"
 if [ ! -f "${bnxt_package}" ]; then
   exit 1

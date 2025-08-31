@@ -32,3 +32,4 @@ for script in "${SCRIPTS_TO_RUN[@]}"; do
     exit 1
   fi
 done
+rm -rf /opt/primus-safe

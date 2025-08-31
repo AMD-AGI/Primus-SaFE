@@ -82,6 +82,11 @@ if [[ "$RANK" == "0" ]]; then
       fi
     done
   done
+
+  if [ $ret -eq 0 ]; then
+    bash ib_read_bw.sh "$NCCL_IB_HCA" "$NCCL_SOCKET_IFNAME" "$NODES_FILE"
+    ret=$?
+  fi
 fi
 
 export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=10800

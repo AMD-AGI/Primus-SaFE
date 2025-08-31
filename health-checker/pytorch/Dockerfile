@@ -12,7 +12,7 @@ RUN apt update && \
         sed \
         libssl-dev \
         libelf-dev \
-        librdmacm-dev rdmacm-utils infiniband-diags ibverbs-utils perftest ethtool libibverbs-dev rdma-core strace \
+        librdmacm-dev rdmacm-utils infiniband-diags ibverbs-utils perftest ethtool libibverbs-dev rdma-core libibumad-dev libpci-dev strace \
         wget \
         && \
     apt clean && \
