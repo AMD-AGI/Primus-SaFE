@@ -17,6 +17,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
@@ -32,9 +33,10 @@ func (h *Handler) listFault(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
 	if err := h.auth.Authorize(authority.Input{
-		GinContext:   c,
+		Context:      c.Request.Context(),
 		ResourceKind: v1.FaultKind,
 		Verb:         v1.ListVerb,
+		UserId:       c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}

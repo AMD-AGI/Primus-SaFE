@@ -59,9 +59,10 @@ func (h *Handler) ProcessWorkspaceNodes(c *gin.Context) {
 
 func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
 	if err := h.auth.Authorize(authority.Input{
-		GinContext:   c,
+		Context:      c.Request.Context(),
 		ResourceKind: v1.WorkspaceKind,
 		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -85,7 +86,7 @@ func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.auth.GetRequestUser(c)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
@@ -108,11 +109,11 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 	sort.Slice(workspaceList.Items, func(i, j int) bool {
 		return workspaceList.Items[i].Name < workspaceList.Items[j].Name
 	})
-	roles := authority.GetRoles(ctx, h.Client, requestUser)
+	roles := h.auth.GetRoles(ctx, requestUser)
 	result := &types.ListWorkspaceResponse{}
 	for _, w := range workspaceList.Items {
 		if err = h.auth.Authorize(authority.Input{
-			GinContext: c,
+			Context:    ctx,
 			Resource:   &w,
 			Verb:       v1.ListVerb,
 			User:       requestUser,
@@ -135,10 +136,11 @@ func (h *Handler) getWorkspace(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
+		Context:    ctx,
 		Resource:   workspace,
 		Verb:       v1.GetVerb,
 		Workspaces: []string{workspace.Name},
+		UserId:     c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -157,10 +159,11 @@ func (h *Handler) deleteWorkspace(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
+		Context:    ctx,
 		Resource:   workspace,
 		Verb:       v1.DeleteVerb,
 		Workspaces: []string{workspace.Name},
+		UserId:     c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -179,10 +182,11 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
+		Context:    ctx,
 		Resource:   workspace,
 		Verb:       v1.UpdateVerb,
 		Workspaces: []string{workspace.Name},
+		UserId:     c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -260,10 +264,11 @@ func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action
 			return err
 		}
 		if err := h.auth.Authorize(authority.Input{
-			GinContext: c,
+			Context:    c.Request.Context(),
 			Resource:   workspace,
 			Verb:       v1.UpdateVerb,
 			Workspaces: []string{workspaceId},
+			UserId:     c.GetString(common.UserId),
 		}); err != nil {
 			return err
 		}

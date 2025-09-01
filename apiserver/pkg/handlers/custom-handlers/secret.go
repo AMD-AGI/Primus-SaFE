@@ -42,9 +42,10 @@ func (h *Handler) DeleteSecret(c *gin.Context) {
 
 func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 	if err := h.auth.Authorize(authority.Input{
-		GinContext:   c,
+		Context:      c.Request.Context(),
 		ResourceKind: authority.SecretResourceKind,
 		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -74,7 +75,7 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.auth.GetRequestUser(c)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
@@ -91,14 +92,14 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	result := &types.ListSecretResponse{}
-	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 	for _, item := range secretList.Items {
 		if err = h.auth.Authorize(authority.Input{
-			GinContext: c,
-			Resource:   &item,
-			Verb:       v1.ListVerb,
-			User:       requestUser,
-			Roles:      roles,
+			Context:  c.Request.Context(),
+			Resource: &item,
+			Verb:     v1.ListVerb,
+			User:     requestUser,
+			Roles:    roles,
 		}); err != nil {
 			continue
 		}
@@ -123,9 +124,10 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
-		Resource:   secret,
-		Verb:       v1.DeleteVerb,
+		Context:  c.Request.Context(),
+		Resource: secret,
+		Verb:     v1.DeleteVerb,
+		UserId:   c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}

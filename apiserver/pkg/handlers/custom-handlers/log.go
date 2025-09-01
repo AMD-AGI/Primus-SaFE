@@ -19,6 +19,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -53,10 +54,11 @@ func (h *Handler) listWorkloadLog(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
+		Context:    c.Request.Context(),
 		Resource:   workload,
 		Verb:       v1.GetVerb,
 		Workspaces: []string{workload.Spec.Workspace},
+		UserId:     c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -73,7 +75,10 @@ func (h *Handler) listServiceLog(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsLogEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
-	if err := h.auth.AuthorizeSystemAdmin(c); err != nil {
+	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
+		Context: c.Request.Context(),
+		UserId:  c.GetString(common.UserId),
+	}); err != nil {
 		return nil, err
 	}
 	query, err := parseServiceLogQuery(c)
@@ -97,10 +102,11 @@ func (h *Handler) listWorkloadLogContext(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
+		Context:    c.Request.Context(),
 		Resource:   workload,
 		Verb:       v1.GetVerb,
 		Workspaces: []string{workload.Spec.Workspace},
+		UserId:     c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}

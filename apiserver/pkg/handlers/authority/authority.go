@@ -10,12 +10,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
@@ -35,14 +33,19 @@ type Authorizer struct {
 }
 
 type Input struct {
-	GinContext    *gin.Context
+	Context       context.Context
 	ResourceKind  string
 	ResourceOwner string
 	Resource      client.Object
 	Verb          v1.RoleVerb
-	Workspaces    []string
-	User          *v1.User
-	Roles         []*v1.Role
+	// the workspace to which the resource belongs.
+	Workspaces []string
+	// user and userid are optional; only one needs to be provided.
+	// it is from the requesting end.
+	UserId string
+	User   *v1.User
+	// the request user's roles
+	Roles []*v1.Role
 }
 
 func NewAuthorizer(cli client.Client) *Authorizer {
@@ -58,22 +61,22 @@ func (a *Authorizer) Authorize(in Input) error {
 	}
 	if in.User == nil {
 		var err error
-		in.User, err = a.GetRequestUser(in.GinContext)
+		in.User, err = a.GetRequestUser(in.Context, in.UserId)
 		if err != nil {
 			return err
 		}
 	}
 	if len(in.Roles) == 0 {
-		in.Roles = GetRoles(in.GinContext.Request.Context(), a.Client, in.User)
+		in.Roles = a.GetRoles(in.Context, in.User)
 	}
 	return a.authorize(in)
 }
 
-func (a *Authorizer) AuthorizeSystemAdmin(c *gin.Context) error {
+func (a *Authorizer) AuthorizeSystemAdmin(in Input) error {
 	if !commonconfig.IsEnableUserAuthority() {
 		return nil
 	}
-	user, err := a.GetRequestUser(c)
+	user, err := a.GetRequestUser(in.Context, in.UserId)
 	if err != nil {
 		return err
 	}
@@ -83,28 +86,26 @@ func (a *Authorizer) AuthorizeSystemAdmin(c *gin.Context) error {
 	return nil
 }
 
-func (a *Authorizer) GetRequestUser(c *gin.Context) (*v1.User, error) {
-	userId := c.GetString(common.UserId)
+func (a *Authorizer) GetRequestUser(ctx context.Context, userId string) (*v1.User, error) {
 	if userId == "" {
-		return nil, nil
+		return nil, commonerrors.NewUserNotRegistered("")
 	}
 	user := &v1.User{}
-	err := a.Get(getContext(c), client.ObjectKey{Name: userId}, user)
+	err := a.Get(ctx, client.ObjectKey{Name: userId}, user)
 	if err != nil {
 		return nil, commonerrors.NewUserNotRegistered(userId)
 	}
-	c.Set(common.UserName, v1.GetUserName(user))
 	return user, nil
 }
 
-func GetRoles(ctx context.Context, cli client.Client, user *v1.User) []*v1.Role {
+func (a *Authorizer) GetRoles(ctx context.Context, user *v1.User) []*v1.Role {
 	if user == nil {
 		return nil
 	}
 	var result []*v1.Role
 	for _, r := range user.Spec.Roles {
 		role := &v1.Role{}
-		err := cli.Get(ctx, client.ObjectKey{Name: string(r)}, role)
+		err := a.Get(ctx, client.ObjectKey{Name: string(r)}, role)
 		if err != nil {
 			klog.ErrorS(err, "failed to get user role", "user", user.Name, "role", r)
 			continue
@@ -143,7 +144,7 @@ func (a *Authorizer) authorize(in Input) error {
 	roles = append(roles, in.Roles...)
 	if len(in.Workspaces) > 0 && commonuser.HasWorkspaceManagedRight(in.User, in.Workspaces...) {
 		role := &v1.Role{}
-		if err := a.Get(getContext(in.GinContext), client.ObjectKey{Name: string(v1.WorkspaceAdminRole)}, role); err == nil {
+		if err := a.Get(in.Context, client.ObjectKey{Name: string(v1.WorkspaceAdminRole)}, role); err == nil {
 			roles = append(roles, role)
 		}
 	}
@@ -155,16 +156,6 @@ func (a *Authorizer) authorize(in Input) error {
 	}
 	return commonerrors.NewForbidden(
 		fmt.Sprintf("The user is not allowed to %s %s", in.Verb, resourceKind))
-}
-
-func getContext(c *gin.Context) context.Context {
-	var ctx context.Context
-	if c != nil && c.Request != nil {
-		ctx = c.Request.Context()
-	} else {
-		ctx = context.Background()
-	}
-	return ctx
 }
 
 func getPolicyRules(role *v1.Role, resourceKind, resourceName string, isOwner, isWorkspaceUser bool) []*v1.PolicyRule {

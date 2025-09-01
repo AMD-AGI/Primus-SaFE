@@ -61,9 +61,10 @@ func (h *Handler) GetClusterPodLog(c *gin.Context) {
 
 func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
 	if err := h.auth.Authorize(authority.Input{
-		GinContext:   c,
+		Context:      c.Request.Context(),
 		ResourceKind: v1.ClusterKind,
 		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -136,7 +137,7 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 }
 
 func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.auth.GetRequestUser(c)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
@@ -153,14 +154,14 @@ func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 			return clusterList.Items[i].Name < clusterList.Items[j].Name
 		})
 	}
-	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := h.auth.GetRoles(ctx, requestUser)
 	for _, item := range clusterList.Items {
 		if err = h.auth.Authorize(authority.Input{
-			GinContext: c,
-			Resource:   &item,
-			Verb:       v1.ListVerb,
-			User:       requestUser,
-			Roles:      roles,
+			Context:  ctx,
+			Resource: &item,
+			Verb:     v1.ListVerb,
+			User:     requestUser,
+			Roles:    roles,
 		}); err != nil {
 			continue
 		}
@@ -178,9 +179,10 @@ func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
 	}
 
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
-		Resource:   cluster,
-		Verb:       v1.GetVerb,
+		Context:  c.Request.Context(),
+		Resource: cluster,
+		Verb:     v1.GetVerb,
+		UserId:   c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -196,9 +198,10 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
-		Resource:   cluster,
-		Verb:       v1.DeleteVerb,
+		Context:  c.Request.Context(),
+		Resource: cluster,
+		Verb:     v1.DeleteVerb,
+		UserId:   c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -231,9 +234,10 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
-		Resource:   cluster,
-		Verb:       v1.UpdateVerb,
+		Context:  c.Request.Context(),
+		Resource: cluster,
+		Verb:     v1.UpdateVerb,
+		UserId:   c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -266,9 +270,10 @@ func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
-		Resource:   cluster,
-		Verb:       v1.UpdateVerb,
+		Context:  c.Request.Context(),
+		Resource: cluster,
+		Verb:     v1.UpdateVerb,
+		UserId:   c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -377,10 +382,11 @@ func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
-		Resource:   cluster,
+		Context:  c.Request.Context(),
+		Resource: cluster,
 		// The pod-log is generated when the cluster is creating.
-		Verb: v1.CreateVerb,
+		Verb:   v1.CreateVerb,
+		UserId: c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}

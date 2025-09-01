@@ -128,7 +128,7 @@ func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.auth.GetRequestUser(c)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
@@ -142,9 +142,10 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 	isFound := false
 	if h.Get(ctx, client.ObjectKey{Name: name}, opsJob) == nil {
 		if err = h.auth.Authorize(authority.Input{
-			GinContext:   c,
+			Context:      ctx,
 			ResourceKind: v1.OpsJobKind,
 			Verb:         v1.DeleteVerb,
+			UserId:       c.GetString(common.UserId),
 		}); err != nil {
 			return nil, err
 		}
@@ -176,9 +177,10 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) generateAddonJob(c *gin.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
 	if err := h.auth.Authorize(authority.Input{
-		GinContext:   c,
+		Context:      c.Request.Context(),
 		ResourceKind: v1.AddOnTemplateKind,
 		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -211,10 +213,11 @@ func (h *Handler) generatePreflightJob(c *gin.Context, req *types.CreateOpsJobRe
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext:   c,
+		Context:      c.Request.Context(),
 		ResourceKind: v1.WorkloadKind,
 		Verb:         v1.CreateVerb,
 		Workspaces:   []string{v1.GetWorkspaceId(adminNode)},
+		UserId:       c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -247,16 +250,20 @@ func (h *Handler) generateDiagnoseJob(c *gin.Context, req *types.CreateOpsJobReq
 			return nil, err
 		}
 		if err = h.auth.Authorize(authority.Input{
-			GinContext:   c,
+			Context:      c.Request.Context(),
 			ResourceKind: v1.WorkloadKind,
 			Verb:         v1.CreateVerb,
 			Workspaces:   []string{v1.GetWorkspaceId(adminNode)},
+			UserId:       c.GetString(common.UserId),
 		}); err != nil {
 			return nil, err
 		}
 		job.Spec.Cluster = v1.GetClusterId(adminNode)
 	} else {
-		if err := h.auth.AuthorizeSystemAdmin(c); err != nil {
+		if err := h.auth.AuthorizeSystemAdmin(authority.Input{
+			Context: c.Request.Context(),
+			UserId:  c.GetString(common.UserId),
+		}); err != nil {
 			return nil, err
 		}
 	}
@@ -307,10 +314,11 @@ func (h *Handler) generateDumpLogJob(c *gin.Context, req *types.CreateOpsJobRequ
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
+		Context:    c.Request.Context(),
 		Resource:   workload,
 		Verb:       v1.GetVerb,
 		Workspaces: []string{workload.Spec.Workspace},
+		UserId:     c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -397,7 +405,10 @@ func (h *Handler) parseListOpsJobQuery(c *gin.Context) (*types.ListOpsJobRequest
 	if query.SinceTime.After(query.UntilTime) {
 		return nil, commonerrors.NewBadRequest("the since time is greater than until time")
 	}
-	if err = h.auth.AuthorizeSystemAdmin(c); err != nil {
+	if err = h.auth.AuthorizeSystemAdmin(authority.Input{
+		Context: c.Request.Context(),
+		UserId:  c.GetString(common.UserId),
+	}); err != nil {
 		query.UserId = c.GetString(common.UserId)
 	}
 	return query, nil
@@ -438,7 +449,10 @@ func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "JobId"): jobId},
 	}
-	if err := h.auth.AuthorizeSystemAdmin(c); err != nil {
+	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
+		Context: c.Request.Context(),
+		UserId:  c.GetString(common.UserId),
+	}); err != nil {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "UserId"): c.GetString(common.UserId)})
 	}
 	return dbSql, nil

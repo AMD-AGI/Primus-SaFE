@@ -35,9 +35,10 @@ func (h *Handler) DeleteNodeTemplate(c *gin.Context) {
 
 func (h *Handler) createNodeTemplate(c *gin.Context) (interface{}, error) {
 	if err := h.auth.Authorize(authority.Input{
-		GinContext:   c,
+		Context:      c.Request.Context(),
 		ResourceKind: v1.NodeTemplateKind,
 		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -58,7 +59,7 @@ func (h *Handler) createNodeTemplate(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) listNodeTemplate(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.auth.GetRequestUser(c)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
@@ -69,17 +70,17 @@ func (h *Handler) listNodeTemplate(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	result := types.ListNodeTemplateResponse{}
-	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 	for _, nt := range nts.Items {
 		if !nt.GetDeletionTimestamp().IsZero() {
 			continue
 		}
 		if err = h.auth.Authorize(authority.Input{
-			GinContext: c,
-			Resource:   &nt,
-			Verb:       v1.ListVerb,
-			User:       requestUser,
-			Roles:      roles,
+			Context:  c.Request.Context(),
+			Resource: &nt,
+			Verb:     v1.ListVerb,
+			User:     requestUser,
+			Roles:    roles,
 		}); err != nil {
 			continue
 		}
@@ -103,9 +104,10 @@ func (h *Handler) deleteNodeTemplate(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
-		Resource:   nt,
-		Verb:       v1.DeleteVerb,
+		Context:  ctx,
+		Resource: nt,
+		Verb:     v1.DeleteVerb,
+		UserId:   c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}

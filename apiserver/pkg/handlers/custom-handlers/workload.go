@@ -89,11 +89,11 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	requestUser, err := h.auth.GetRequestUser(c)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
-	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
 		return nil, err
 	}
@@ -172,11 +172,11 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.auth.GetRequestUser(c)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
-	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 	name := c.GetString(types.Name)
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
 	if err != nil {
@@ -227,11 +227,11 @@ func (h *Handler) deleteAdminWorkload(c *gin.Context, adminWorkload *v1.Workload
 }
 
 func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.auth.GetRequestUser(c)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
-	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 
 	name := c.GetString(types.Name)
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
@@ -269,11 +269,11 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.auth.GetRequestUser(c)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
-	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 
 	name := c.GetString(types.Name)
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
@@ -443,7 +443,7 @@ func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, w
 func (h *Handler) authWorkloadAction(c *gin.Context,
 	adminWorkload *v1.Workload, verb v1.RoleVerb, user *v1.User, roles []*v1.Role) error {
 	if err := h.auth.Authorize(authority.Input{
-		GinContext:   c,
+		Context:      c.Request.Context(),
 		ResourceKind: v1.WorkloadKind,
 		Resource:     adminWorkload,
 		Verb:         verb,
@@ -460,7 +460,7 @@ func (h *Handler) authWorkloadPriority(c *gin.Context,
 	adminWorkload *v1.Workload, priority int, user *v1.User, roles []*v1.Role) error {
 	priorityKind := buildPriorityKind(priority)
 	if err := h.auth.Authorize(authority.Input{
-		GinContext:   c,
+		Context:      c.Request.Context(),
 		ResourceKind: priorityKind,
 		Verb:         v1.UpdateVerb,
 		Workspaces:   []string{adminWorkload.Spec.Workspace},

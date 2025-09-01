@@ -13,6 +13,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
@@ -33,10 +34,11 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	}
 	workspace := adminWorkload.Spec.Workspace
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
+		Context:    ctx,
 		Resource:   adminWorkload,
 		Verb:       v1.GetVerb,
 		Workspaces: []string{workspace},
+		UserId:     c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}

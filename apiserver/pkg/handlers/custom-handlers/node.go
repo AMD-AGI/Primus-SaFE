@@ -72,9 +72,10 @@ func (h *Handler) RestartNode(c *gin.Context) {
 
 func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
 	if err := h.auth.Authorize(authority.Input{
-		GinContext:   c,
+		Context:      c.Request.Context(),
 		ResourceKind: v1.NodeKind,
 		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -102,7 +103,7 @@ func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.auth.GetRequestUser(c)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
@@ -131,11 +132,11 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := authority.GetRoles(ctx, h.Client, requestUser)
+	roles := h.auth.GetRoles(ctx, requestUser)
 	nodes := sortAdminNodes(nodeList.Items)
 	for _, n := range nodes {
 		if err = h.auth.Authorize(authority.Input{
-			GinContext: c,
+			Context:    ctx,
 			Resource:   n,
 			Verb:       v1.ListVerb,
 			Workspaces: []string{query.GetWorkspaceId()},
@@ -188,10 +189,11 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
+		Context:    ctx,
 		Resource:   node,
 		Verb:       v1.GetVerb,
 		Workspaces: []string{v1.GetWorkspaceId(node)},
+		UserId:     c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -215,10 +217,11 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
+		Context:    ctx,
 		Resource:   node,
 		Verb:       v1.UpdateVerb,
 		Workspaces: []string{v1.GetWorkspaceId(node)},
+		UserId:     c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -249,10 +252,11 @@ func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
+		Context:    ctx,
 		Resource:   node,
 		Verb:       v1.DeleteVerb,
 		Workspaces: []string{v1.GetWorkspaceId(node)},
+		UserId:     c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -278,9 +282,10 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
-		Resource:   node,
-		Verb:       v1.CreateVerb,
+		Context:  c.Request.Context(),
+		Resource: node,
+		Verb:     v1.CreateVerb,
+		UserId:   c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -312,7 +317,10 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) restartNode(c *gin.Context) (interface{}, error) {
-	if err := h.auth.AuthorizeSystemAdmin(c); err != nil {
+	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
+		Context: c.Request.Context(),
+		UserId:  c.GetString(common.UserId),
+	}); err != nil {
 		return nil, err
 	}
 

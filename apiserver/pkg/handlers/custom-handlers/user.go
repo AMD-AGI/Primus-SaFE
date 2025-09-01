@@ -81,7 +81,7 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) authUserCreation(c *gin.Context, req *types.CreateUserRequest) error {
-	requestUser, err := h.auth.GetRequestUser(c)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func (h *Handler) authUserCreation(c *gin.Context, req *types.CreateUserRequest)
 		}
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext:   c,
+		Context:      c.Request.Context(),
 		ResourceKind: v1.UserKind,
 		Verb:         v1.CreateVerb,
 		User:         requestUser,
@@ -125,7 +125,7 @@ func generateUser(req *types.CreateUserRequest) *v1.User {
 }
 
 func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.auth.GetRequestUser(c)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	if len(userList.Items) > 0 {
 		sort.Sort(types.UserSlice(userList.Items))
 	}
-	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 	for _, item := range userList.Items {
 		if query.WorkspaceId != "" && !commonuser.HasWorkspaceRight(&item, query.WorkspaceId) {
 			continue
@@ -168,9 +168,10 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
-		Resource:   targetUser,
-		Verb:       v1.GetVerb,
+		Context:  c.Request.Context(),
+		Resource: targetUser,
+		Verb:     v1.GetVerb,
+		UserId:   c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
@@ -231,11 +232,11 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) checkPatchUser(c *gin.Context, targetUser *v1.User, req *types.PatchUserRequest) (bool, error) {
-	requestUser, err := h.auth.GetRequestUser(c)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return false, err
 	}
-	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 
 	isChanged := false
 	if req.RestrictedType != nil && *req.RestrictedType != targetUser.Spec.RestrictedType ||
@@ -281,7 +282,7 @@ func (h *Handler) checkPatchUser(c *gin.Context, targetUser *v1.User, req *types
 func (h *Handler) authUser(c *gin.Context, requestUser, targetUser *v1.User,
 	workspaces []string, kind string, roles []*v1.Role, verb v1.RoleVerb) error {
 	if err := h.auth.Authorize(authority.Input{
-		GinContext:   c,
+		Context:      c.Request.Context(),
 		ResourceKind: kind,
 		Resource:     targetUser,
 		Verb:         verb,
@@ -300,9 +301,10 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		GinContext: c,
-		Resource:   targetUser,
-		Verb:       v1.DeleteVerb,
+		Context:  c.Request.Context(),
+		Resource: targetUser,
+		Verb:     v1.DeleteVerb,
+		UserId:   c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}

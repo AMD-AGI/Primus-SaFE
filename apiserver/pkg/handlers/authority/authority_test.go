@@ -9,7 +9,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -311,9 +310,7 @@ func TestAuthorize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ginContext, _ := gin.CreateTestContext(nil)
-			tt.input.GinContext = ginContext
-
+			tt.input.Context = context.Background()
 			err := authorizer.authorize(tt.input)
 			if tt.expectError {
 				assert.Error(t, err)
@@ -346,10 +343,7 @@ func TestGetRequestUser(t *testing.T) {
 
 	authorizer := NewAuthorizer(fakeClient)
 
-	ginContext, _ := gin.CreateTestContext(nil)
-	ginContext.Set(common.UserId, "testuser")
-
-	user, err := authorizer.GetRequestUser(ginContext)
+	user, err := authorizer.GetRequestUser(context.Background(), "testuser")
 	assert.NoError(t, err)
 	assert.NotNil(t, user)
 	assert.Equal(t, "testuser", user.Name)
