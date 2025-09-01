@@ -3,7 +3,7 @@ net:
   nccl_ib_hca: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
   rdma_name: "rdma/hca"
 apiserver:
-  image: "apiserver:202508271650"
+  image: "apiserver:202509011100"
   replicas: 1
 resource_manager:
   image: "resource-manager:202508252300"
@@ -12,7 +12,7 @@ job_manager:
   image: "job-manager:202508211040"
   replicas: 1
 webhooks:
-  image: "webhooks:202508271650"
+  image: "webhooks:202509011100"
   replicas: 1
 preprocess:
   image: "preprocess:202508251402"

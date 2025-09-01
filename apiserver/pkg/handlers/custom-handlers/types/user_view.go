@@ -22,7 +22,7 @@ type CreateUserRequest struct {
 	Type v1.UserType `json:"type,omitempty"`
 	// the workspaces which user can access
 	Workspaces []string `json:"workspaces,omitempty"`
-	// password, base64 encode
+	// password
 	Password string `json:"password,omitempty"`
 	// user's avatar URL
 	AvatarUrl string `json:"avatarUrl,omitempty"`
@@ -41,23 +41,23 @@ type ListUserResponse struct {
 
 type UserResponseItem struct {
 	// user's id
-	Id string `json:"id,omitempty"`
+	Id string `json:"id"`
 	// user's name
-	Name string `json:"name,omitempty"`
+	Name string `json:"name"`
 	// user's mail
-	Email string `json:"email,omitempty"`
+	Email string `json:"email"`
 	// user's type. value includes: default, teams
-	Type v1.UserType `json:"type,omitempty"`
+	Type v1.UserType `json:"type"`
 	// system-admin, default
-	Roles []v1.UserRole `json:"roles,omitempty"`
+	Roles []v1.UserRole `json:"roles"`
 	// the workspace's name which user can access
-	Workspaces []WorkspaceEntry `json:"workspaces,omitempty"`
+	Workspaces []WorkspaceEntry `json:"workspaces"`
 	// the workspace's name which user can manage
-	ManagedWorkspaces []string `json:"managedWorkspaces,omitempty"`
+	ManagedWorkspaces []WorkspaceEntry `json:"managedWorkspaces"`
 	// user's creation time
-	CreatedTime string `json:"createdTime,omitempty"`
+	CreatedTime string `json:"createdTime"`
 	// 0: normal; 1 frozen
-	RestrictedType v1.UserRestrictedType `json:"restrictedType,omitempty"`
+	RestrictedType v1.UserRestrictedType `json:"restrictedType"`
 	// user's avatar URL
 	AvatarUrl string `json:"avatarUrl,omitempty"`
 }

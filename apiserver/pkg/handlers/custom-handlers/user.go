@@ -161,6 +161,9 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 	targetUserId := c.GetString(types.Name)
 	if targetUserId == common.UserSelf {
+		if !commonconfig.IsEnableUserAuthority() {
+			return nil, commonerrors.NewInternalError("the user authority is not enabled")
+		}
 		targetUserId = c.GetString(common.UserId)
 	}
 	targetUser, err := h.getTargetUser(c.Request.Context(), targetUserId)
@@ -436,7 +439,9 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) type
 			if err := h.Get(ctx, client.ObjectKey{Name: id}, workspace); err != nil {
 				continue
 			}
-			result.ManagedWorkspaces = append(result.ManagedWorkspaces, v1.GetDisplayName(workspace))
+			result.ManagedWorkspaces = append(result.ManagedWorkspaces, types.WorkspaceEntry{
+				Id: id, Name: v1.GetDisplayName(workspace),
+			})
 		}
 	}
 	return result
@@ -466,8 +471,8 @@ func parseLoginQuery(c *gin.Context) (*types.UserLoginRequest, error) {
 	req := &types.UserLoginRequest{}
 	contentType := c.ContentType()
 	if contentType == FormContent {
-		req.Type = v1.UserType(c.PostForm("userType"))
-		req.Id = c.PostForm("userId")
+		req.Type = v1.UserType(c.PostForm("type"))
+		req.Id = c.PostForm("id")
 		req.Password = c.PostForm("password")
 		req.IsFromConsole = true
 	} else {
