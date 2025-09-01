@@ -307,3 +307,7 @@ func IsEnableUserAuthority() bool {
 func GetDomain() string {
 	return getString(domain, "")
 }
+
+func GetUserDefaultWorkspace() string {
+	return getString(userDefaultWorkspace, "")
+}

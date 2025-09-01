@@ -21,6 +21,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -136,6 +137,10 @@ func (m *UserMutator) mutateRoles(user *v1.User) {
 func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 	workspaceSet := sets.NewSet()
 	allWorkspaces := commonuser.GetWorkspace(user)
+	defaultWorkspace := commonconfig.GetUserDefaultWorkspace()
+	if defaultWorkspace != "" {
+		allWorkspaces = append(allWorkspaces, defaultWorkspace)
+	}
 	var workspaces []string
 	for _, w := range allWorkspaces {
 		if workspaceSet.Has(w) {

@@ -28,7 +28,7 @@ log:
 ssh:
   enable: false
 user:
-  enable_authority: true
+  enable_authority: false
 workspace:
   mem_reserve_percent: 0.1
   cpu_reserve_percent: 0.1

@@ -97,4 +97,5 @@ const (
 	userPrefix            = "user."
 	userEnableAuthority   = userPrefix + "enable_authority"
 	userTokenExpireSecond = userPrefix + "token_expire"
+	userDefaultWorkspace  = userPrefix + "default_workspace"
 )
