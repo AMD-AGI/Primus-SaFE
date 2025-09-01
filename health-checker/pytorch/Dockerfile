@@ -9,6 +9,7 @@ RUN apt update && \
         net-tools \
         build-essential automake autoconf libtool \
         git \
+        apt-utils \
         sed \
         libssl-dev \
         libelf-dev \
