@@ -18,7 +18,6 @@ export WORLD_SIZE=$WORLD_SIZE
 export RANK=$RANK
 export BNIC=${BNIC:-50}
 export BXGMI=${BXGMI:-315}
-export MAX_BYTES=${MAX_BYTES:-2G}
 export MAX_RETRY=${MAX_RETRY:-1}
 export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=1800
 
@@ -61,6 +60,7 @@ if [[ "$RANK" == "0" ]]; then
   # Array of test types: 0 = all_reduce, 1 = alltoall
   TEST_TYPES=(0 1)
   TEST_NAMES=([0]="all_reduce_perf" [1]="alltoall_perf")
+  TEST_MAX_SIZE=([0]="1G" [1]="128M")
 
   # Run diagnosis for each test type
   for run in $(seq 1 $MAX_RETRY); do
@@ -72,7 +72,7 @@ if [[ "$RANK" == "0" ]]; then
         --ib-hca "$NCCL_IB_HCA" \
         --ssh-port "$SSH_PORT" \
         --nodes-file "$NODES_FILE" \
-        --max-bytes "$MAX_BYTES" \
+        --max-bytes "${TEST_MAX_SIZE[$test_type]}" \
         --rccl-test-type "$test_type" \
         $debug_arg
 
@@ -84,7 +84,7 @@ if [[ "$RANK" == "0" ]]; then
   done
 
   if [ $ret -eq 0 ]; then
-    bash ib_read_bw.sh "$NCCL_IB_HCA" "$NCCL_SOCKET_IFNAME" "$NODES_FILE"
+    bash ib_write_bw.sh "$NCCL_IB_HCA" "$NCCL_SOCKET_IFNAME" "$NODES_FILE"
     ret=$?
   fi
 fi

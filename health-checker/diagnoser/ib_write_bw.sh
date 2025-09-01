@@ -35,31 +35,31 @@ fi
 
 # Use the first node in the file as the client (initiator)
 export CLIENT=$(awk 'NR==1{print $1}' "$nodes_file")
-echo "=== Starting ib_read_bw tests ==="
+echo "=== Starting ib_write_bw tests ==="
 echo "Client initiator: $CLIENT"
 echo "Node list: $(paste -sd ',' "$nodes_file")"
 echo
 
 # SSH parameters for non-interactive connection
 ssh_params="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10"
-ib_read_bw="/opt/rdma-perftest/bin/ib_read_bw"
-ib_read_params="-s 16777216 -n 50 -F -x 3 -q 4 --report_gbits"
+ib_write_bw="/opt/rdma-perftest/bin/ib_write_bw"
+ib_params="-s 16777216 -n 50 -F -x 3 -q 4 --report_gbits"
 
-# Function: Kill remote ib_read_bw process
+# Function: Kill remote ib_write_bw process
 kill_remote_listener() {
   local node=$1
   local dev=$2
-  echo "[$node] Cleaning up remote ib_read_bw process..."
-  ssh $ssh_params "$node" "pkill -f 'ib_read_bw.*-d $dev' || true" &
+  echo "[$node] Cleaning up remote ib_write_bw process..."
+  ssh $ssh_params "$node" "pkill -f 'ib_write_bw.*-d $dev' || true" &
 }
 
-# Function: Check if ib_read_bw exists and device is present on remote node
+# Function: Check if ib_write_bw exists and device is present on remote node
 check_remote_cmd() {
   local node=$1
   local dev=$2
-  ssh $ssh_params "$node" "command -v $ib_read_bw >/dev/null 2>&1 && [ -e /sys/class/infiniband/$dev ]"
+  ssh $ssh_params "$node" "command -v $ib_write_bw >/dev/null 2>&1 && [ -e /sys/class/infiniband/$dev ]"
   if [ $? -ne 0 ]; then
-    echo "ERROR: $ib_read_bw not found or device $dev not present on $node"
+    echo "ERROR: $ib_write_bw not found or device $dev not present on $node"
     return 1
   fi
   return 0
@@ -99,7 +99,7 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
     if [[ "$node" == "$local_ip" ]]; then
       # Local server (no SSH)
       echo "[$node] Starting LOCAL server (no SSH)..."
-      $ib_read_bw -d "$ib_hca" $ib_read_params &
+      $ib_write_bw -d "$ib_hca" $ib_params &
       server_pid=$!
       echo "[$node] Local server started, PID: $server_pid"
       sleep 5
@@ -115,12 +115,12 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
       # Remote server via SSH
       echo "[$node] Starting REMOTE server via SSH..."
       if ! check_remote_cmd "$node" "$ib_hca"; then
-        echo "[$node] Skipping test due to missing ib_read_bw or device"
+        echo "[$node] Skipping test due to missing ib_write_bw or device"
         current_failed+=("$node")
         continue
       fi
 
-      ssh $ssh_params "$node" "$ib_read_bw -d $ib_hca $ib_read_params" &
+      ssh $ssh_params "$node" "$ib_write_bw -d $ib_hca $ib_params" &
       server_pid=$!
       echo "[$node] Remote server started via SSH, SSH PID: $server_pid"
       REMOTE_LISTENER=true
@@ -132,11 +132,11 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
 
     if [[ "$local_ip" == "$CLIENT" ]]; then
       # Run client locally
-      output=$(timeout 40s $ib_read_bw -d "$ib_hca" $ib_read_params "$node" 2>&1)
+      output=$(timeout 40s $ib_write_bw -d "$ib_hca" $ib_params "$node" 2>&1)
       client_ret=$?
     else
       # Run client via SSH on the designated client node
-      output=$(timeout 40s ssh $ssh_params "$CLIENT" "$ib_read_bw -d $ib_hca $ib_read_params $node" 2>&1)
+      output=$(timeout 40s ssh $ssh_params "$CLIENT" "$ib_write_bw -d $ib_hca $ib_params $node" 2>&1)
       client_ret=$?
     fi
 
@@ -182,7 +182,7 @@ done
 # === Final Summary ===
 echo "=== All tests completed ==="
 if [ ${#FAILED_NODES_LIST[@]} -eq 0 ]; then
-  echo "[INFO] All nodes are healthy across all IB devices by tools ib_read_bw"
+  echo "[INFO] All nodes are healthy across all IB devices by tools ib_write_bw"
 else
   printf '[ERROR] unhealthy nodes: ['
   for i in "${!FAILED_NODES_LIST[@]}"; do

@@ -20,7 +20,7 @@ MPIEXEC = "/opt/mpich/bin/mpirun"
 RCCL_ALL_REDUCE_PERF = "/opt/rccl-tests/build/all_reduce_perf"
 RCCL_ALL_TO_ALL_PERF = "/opt/rccl-tests/build/alltoall_perf"
 NUM_GPUS_PER_NODE = 8
-MAX_BYTES = "2G"
+MAX_BYTES = "1G"
 
 LD_LIBRARY_PATH = "/opt/rocm/lib:/opt/mpich/lib:/usr/local/lib"
 RCCL_SOCKET_IFNAME = "ens51f0"
@@ -266,7 +266,7 @@ def parse_args() -> List[str]:
                         help="port for SSH to connect to (default: 22)")
     parser.add_argument("--nodes-file", type=str, default="/root/hosts",
                         help="node list file")
-    parser.add_argument("--max-bytes", type=str, default="2G",
+    parser.add_argument("--max-bytes", type=str, default="1G",
                         help="maxbytes for rccl-test")
     parser.add_argument("--ib-gid-index", type=int, default=3, help="NCCL_IB_GID_INDEX")
     parser.add_argument("--rccl-test-type", type=int, default=0, choices=[0, 1], help="0: all_reduce_perf, 1: alltoall_perf")
