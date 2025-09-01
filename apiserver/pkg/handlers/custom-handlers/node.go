@@ -26,7 +26,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
-	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
@@ -132,7 +131,7 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := apiutils.GetRoles(ctx, h.Client, requestUser)
+	roles := authority.GetRoles(ctx, h.Client, requestUser)
 	nodes := sortAdminNodes(nodeList.Items)
 	for _, n := range nodes {
 		if err = h.auth.Authorize(authority.Input{

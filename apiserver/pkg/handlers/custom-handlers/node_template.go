@@ -16,7 +16,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
-	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -70,7 +69,7 @@ func (h *Handler) listNodeTemplate(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	result := types.ListNodeTemplateResponse{}
-	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
 	for _, nt := range nts.Items {
 		if !nt.GetDeletionTimestamp().IsZero() {
 			continue

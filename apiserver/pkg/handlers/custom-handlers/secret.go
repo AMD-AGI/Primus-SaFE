@@ -21,7 +21,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
-	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -92,7 +91,7 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	result := &types.ListSecretResponse{}
-	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
 	for _, item := range secretList.Items {
 		if err = h.auth.Authorize(authority.Input{
 			GinContext: c,

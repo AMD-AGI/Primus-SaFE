@@ -6,16 +6,11 @@
 package utils
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 
-	"k8s.io/klog/v2"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -56,21 +51,4 @@ func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId str
 		return nil, commonerrors.NewInternalError("the object type is not matched")
 	}
 	return k8sClients, nil
-}
-
-func GetRoles(ctx context.Context, cli client.Client, user *v1.User) []*v1.Role {
-	if user == nil {
-		return nil
-	}
-	var result []*v1.Role
-	for _, r := range user.Spec.Roles {
-		role := &v1.Role{}
-		err := cli.Get(ctx, client.ObjectKey{Name: string(r)}, role)
-		if err != nil {
-			klog.ErrorS(err, "failed to get user role", "user", user.Name, "role", r)
-			continue
-		}
-		result = append(result, role)
-	}
-	return result
 }

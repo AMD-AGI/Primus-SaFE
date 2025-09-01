@@ -21,7 +21,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
-	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -102,7 +101,7 @@ func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
 			return nl.Items[i].CreationTimestamp.Time.Before(nl.Items[j].CreationTimestamp.Time)
 		})
 	}
-	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
 	for _, item := range nl.Items {
 		if !item.GetDeletionTimestamp().IsZero() {
 			continue

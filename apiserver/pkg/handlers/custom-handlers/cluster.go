@@ -25,7 +25,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
-	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -154,7 +153,7 @@ func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 			return clusterList.Items[i].Name < clusterList.Items[j].Name
 		})
 	}
-	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
 	for _, item := range clusterList.Items {
 		if err = h.auth.Authorize(authority.Input{
 			GinContext: c,

@@ -11,10 +11,10 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -64,7 +64,7 @@ func (a *Authorizer) Authorize(in Input) error {
 		}
 	}
 	if len(in.Roles) == 0 {
-		in.Roles = apiutils.GetRoles(in.GinContext.Request.Context(), a.Client, in.User)
+		in.Roles = GetRoles(in.GinContext.Request.Context(), a.Client, in.User)
 	}
 	return a.authorize(in)
 }
@@ -95,6 +95,23 @@ func (a *Authorizer) GetRequestUser(c *gin.Context) (*v1.User, error) {
 	}
 	c.Set(common.UserName, v1.GetUserName(user))
 	return user, nil
+}
+
+func GetRoles(ctx context.Context, cli client.Client, user *v1.User) []*v1.Role {
+	if user == nil {
+		return nil
+	}
+	var result []*v1.Role
+	for _, r := range user.Spec.Roles {
+		role := &v1.Role{}
+		err := cli.Get(ctx, client.ObjectKey{Name: string(r)}, role)
+		if err != nil {
+			klog.ErrorS(err, "failed to get user role", "user", user.Name, "role", r)
+			continue
+		}
+		result = append(result, role)
+	}
+	return result
 }
 
 func (a *Authorizer) authorize(in Input) error {

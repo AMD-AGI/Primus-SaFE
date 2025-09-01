@@ -22,7 +22,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
-	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -145,7 +144,7 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	if len(userList.Items) > 0 {
 		sort.Sort(types.UserSlice(userList.Items))
 	}
-	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
 	for _, item := range userList.Items {
 		if query.WorkspaceId != "" && !commonuser.HasWorkspaceRight(&item, query.WorkspaceId) {
 			continue
@@ -236,7 +235,7 @@ func (h *Handler) checkPatchUser(c *gin.Context, targetUser *v1.User, req *types
 	if err != nil {
 		return false, err
 	}
-	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
 
 	isChanged := false
 	if req.RestrictedType != nil && *req.RestrictedType != targetUser.Spec.RestrictedType ||

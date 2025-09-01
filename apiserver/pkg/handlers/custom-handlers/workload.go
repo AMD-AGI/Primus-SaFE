@@ -93,7 +93,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
 		return nil, err
 	}
@@ -176,7 +176,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
 	name := c.GetString(types.Name)
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
 	if err != nil {
@@ -231,7 +231,7 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
 
 	name := c.GetString(types.Name)
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
@@ -273,7 +273,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := apiutils.GetRoles(c.Request.Context(), h.Client, requestUser)
+	roles := authority.GetRoles(c.Request.Context(), h.Client, requestUser)
 
 	name := c.GetString(types.Name)
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
