@@ -19,15 +19,16 @@ export RANK=$RANK
 export BNIC=${BNIC:-50}
 export BXGMI=${BXGMI:-315}
 export MAX_RETRY=${MAX_RETRY:-1}
-export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=1800
+export NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX:-3}
 
 torchrun \
   --nproc_per_node=1 \
   --max_restarts=2 \
   --nnodes=$WORLD_SIZE \
   --node_rank=$RANK \
-  --master_addr=$MASTER_ADDR \
-  --master_port=$MASTER_PORT \
+  --rdzv_backend=c10d \
+  --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
+  --rdzv_conf timeout=1800 \
   sync_ssh_key.py \
   --interface $GLOO_SOCKET_IFNAME \
   --distributed-timeout-minutes 30
@@ -70,6 +71,7 @@ if [[ "$RANK" == "0" ]]; then
       BNIC="$BNIC" BXGMI="$BXGMI" python3 "binary_diagnose.py" \
         --socket-ifname "$NCCL_SOCKET_IFNAME" \
         --ib-hca "$NCCL_IB_HCA" \
+        --ib-gid-index "$NCCL_IB_GID_INDEX" \
         --ssh-port "$SSH_PORT" \
         --nodes-file "$NODES_FILE" \
         --max-bytes "${TEST_MAX_SIZE[$test_type]}" \
@@ -95,8 +97,9 @@ torchrun \
   --max_restarts=2 \
   --nnodes=$WORLD_SIZE \
   --node_rank=$RANK \
-  --master_addr=$MASTER_ADDR \
-  --master_port=$MASTER_PORT \
+  --rdzv_backend=c10d \
+  --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
+  --rdzv_conf timeout=1800 \
   sync_ssh_key.py \
   --interface $GLOO_SOCKET_IFNAME \
   --distributed-timeout-minutes 180 \

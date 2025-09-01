@@ -182,7 +182,7 @@ done
 # === Final Summary ===
 echo "=== All tests completed ==="
 if [ ${#FAILED_NODES_LIST[@]} -eq 0 ]; then
-  echo "[INFO] All nodes are healthy across all IB devices by tools ib_write_bw"
+  echo "[INFO] All nodes are healthy, obtained through ib_write_bw"
 else
   printf '[ERROR] unhealthy nodes: ['
   for i in "${!FAILED_NODES_LIST[@]}"; do
@@ -191,6 +191,6 @@ else
       printf ", "
     fi
   done
-  printf "]\n"
+  printf "], obtained through ib_write_bw\n"
   exit 1
 fi

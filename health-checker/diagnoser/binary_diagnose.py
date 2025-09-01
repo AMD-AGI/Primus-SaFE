@@ -93,7 +93,7 @@ def parse_size(size_str: str) -> int:
 def run_rccl_test(nodes: List[str]) -> float:
     """
     do rccl/all_reduce_perf or rccl/alltoall_perf test on specified nodes
-    return: busbw (GB/s)
+    return: algbw (GB/s)
     """
     if len(nodes) < 2:
         log(f"[WARN] Not enough nodes ({nodes}) for RCCL test.")
@@ -157,14 +157,14 @@ def run_rccl_test(nodes: List[str]) -> float:
         for line in lines:
             if target_size in line:
                 parts = line.strip().split()
-                if len(parts) >= 8:
+                if len(parts) > 10:
                     try:
-                        busbw = float(parts[7])
-                        log(f"[INFO] After test on {nodes}, busbw = {busbw:.2f} GB/s")
-                        return busbw
+                        algbw = float(parts[10])
+                        log(f"[INFO] After test on {nodes}, algbw = {algbw:.2f} GB/s")
+                        return algbw
                     except ValueError:
                         continue
-        log(f"[FAIL] Failed to parse busbw from output for {nodes}")
+        log(f"[FAIL] Failed to parse algbw from output for {nodes}")
         return 0.0
     except subprocess.TimeoutExpired:
         log(f"[Exception] RCCL test timed out for {nodes}")
@@ -191,10 +191,10 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 1800.0) -> 
             healthy_node = healthy_node_queue.get_nowait()
             log(f"[COMBINE] Testing {suspect_node} + {healthy_node} ...")
             test_nodes=[suspect_node, healthy_node]
-            busbw = run_rccl_test(test_nodes)
+            algbw = run_rccl_test(test_nodes)
             limit = threshold(len(test_nodes))
-            is_faulty = busbw < limit
-            log(f"[RESULT] {suspect_node}+{healthy_node} -> {busbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
+            is_faulty = algbw < limit
+            log(f"[RESULT] {suspect_node}+{healthy_node} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
             healthy_node_queue.put(healthy_node)
             return suspect_node, is_faulty
         except Exception:
@@ -207,11 +207,11 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
     """
     Recursively diagnose nodes and return the finally confirmed faulty nodes (those still < threshold when combined with healthy nodes).
     """
-    busbw = run_rccl_test(nodes)
+    algbw = run_rccl_test(nodes)
     limit = threshold(len(nodes))
-    log(f"[RESULT] {nodes} -> {busbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
+    log(f"[RESULT] {nodes} -> {algbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
 
-    if busbw >= limit:
+    if algbw >= limit:
         log(f"[PASS] Group {nodes} is healthy. Adding to global healthy pool.")
         for node in nodes:
             healthy_node_queue.put(node)
@@ -298,7 +298,10 @@ def main():
 
     bad_nodes = recursive_diagnose(nodes)
     if bad_nodes:
-        log(f"[ERROR] unhealthy nodes: {bad_nodes}")
+        if RCCL_TEST_TYPE == 0:
+            log(f"[ERROR] unhealthy nodes: {bad_nodes}, obtained through all_reduce_perf")
+        elif RCCL_TEST_TYPE == 1:
+            log(f"[ERROR] unhealthy nodes: {bad_nodes}, obtained through alltoall_perf")
         sys.exit(1)
     else:
         log("[SUCCESS] all passed")
