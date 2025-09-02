@@ -26,9 +26,8 @@ torchrun \
   --max_restarts=2 \
   --nnodes=$WORLD_SIZE \
   --node_rank=$RANK \
-  --rdzv_backend=c10d \
-  --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
-  --rdzv_conf timeout=1800 \
+  --master_addr=$MASTER_ADDR \
+  --master_port=$MASTER_PORT \
   sync_ssh_key.py \
   --interface $GLOO_SOCKET_IFNAME \
   --distributed-timeout-minutes 30
@@ -97,9 +96,8 @@ torchrun \
   --max_restarts=2 \
   --nnodes=$WORLD_SIZE \
   --node_rank=$RANK \
-  --rdzv_backend=c10d \
-  --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
-  --rdzv_conf timeout=1800 \
+  --master_addr=$MASTER_ADDR \
+  --master_port=$MASTER_PORT \
   sync_ssh_key.py \
   --interface $GLOO_SOCKET_IFNAME \
   --distributed-timeout-minutes 180 \

@@ -42,11 +42,19 @@ func ConvertIpToInt(ip string) int {
 }
 
 func GetHostname(uri string) string {
-	parsedURL, err := url.Parse(uri)
+	parsed, err := url.Parse(uri)
 	if err != nil {
 		return ""
 	}
-	return parsedURL.Hostname()
+	return parsed.Hostname()
+}
+
+func GetSchemeHost(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host
 }
 
 func GetSecondLevelDomain(uri string) string {

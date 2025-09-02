@@ -125,7 +125,7 @@ def run_rccl_test(nodes: List[str]) -> float:
     else:
         raise ValueError("Invalid RCCL_TEST_TYPE")
     cmd.append(RCCL_TEST)
-    cmd.extend(["-b", "64M", "-e", MAX_BYTES, "-f", "2", "-g", "1"])
+    cmd.extend(["-b", "16M", "-e", MAX_BYTES, "-f", "2", "-g", "1"])
 
     log_file = get_log_filename(nodes)
     log(f"# Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -157,9 +157,12 @@ def run_rccl_test(nodes: List[str]) -> float:
         for line in lines:
             if target_size in line:
                 parts = line.strip().split()
-                if len(parts) > 10:
+                if len(parts) > 11:
                     try:
-                        algbw = float(parts[10])
+                        if RCCL_TEST_TYPE == 0:
+                            algbw = float(parts[11])
+                        else:
+                            algbw = float(parts[10])
                         log(f"[INFO] After test on {nodes}, algbw = {algbw:.2f} GB/s")
                         return algbw
                     except ValueError:
@@ -300,7 +303,7 @@ def main():
     if bad_nodes:
         if RCCL_TEST_TYPE == 0:
             log(f"[ERROR] unhealthy nodes: {bad_nodes}, obtained through all_reduce_perf")
-        elif RCCL_TEST_TYPE == 1:
+        else:
             log(f"[ERROR] unhealthy nodes: {bad_nodes}, obtained through alltoall_perf")
         sys.exit(1)
     else:

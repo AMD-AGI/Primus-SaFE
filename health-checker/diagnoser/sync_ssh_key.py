@@ -288,10 +288,12 @@ def sync_no_data(args):
     """Just initialize and barrier."""
     init_distributed(args)
     logging.info("Barrier sync only (no data sync).")
-    dist.barrier()
-    rank = dist.get_rank()
-    logging.info(f"✅ Barrier synchronization process completed on Rank {rank}.")
 
+    try:
+        dist.barrier()
+        logging.info(f"✅ Barrier synchronization process completed on Rank {dist.get_rank()}.")
+    except Exception as e:
+        logging.warning(f"Rank {dist.get_rank()} failed at barrier: {e}")
 
 def main():
     args = parse_args()
