@@ -9,9 +9,9 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-pip3 install -r requirements.txt > /dev/null
+pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.4
 if [ $? -ne 0 ]; then
-  echo "failed to install python package"
+  echo "failed to install torch package"
   exit 1
 fi
 
