@@ -51,7 +51,7 @@ func GetHostname(uri string) string {
 
 func GetSchemeHost(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
-	if err != nil {
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return ""
 	}
 	return parsed.Scheme + "://" + parsed.Host

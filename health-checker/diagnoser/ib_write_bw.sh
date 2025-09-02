@@ -6,15 +6,16 @@
 #
 
 # Check input arguments
-if [ "$#" -lt 3 ]; then
-  echo "Usage: $0 <ib_hca_list> <socket_ifname> <nodes_file>"
-  echo "Example: $0 'bnxt_re0,bnxt_re1' eth0 nodes.txt"
+if [ "$#" -lt 4 ]; then
+  echo "Usage: $0 <ib_hca_list> <socket_ifname> <ib_gid_index> <nodes_file>"
+  echo "Example: $0 'bnxt_re0,bnxt_re1' eth0 3 nodes.txt"
   exit 1
 fi
 
 # Parse comma-separated list of IB devices
 IFS=',' read -ra IB_HCA_LIST <<< "$1"
-nodes_file=$3
+ib_gid_index=$3
+nodes_file=$4
 
 # Validate nodes file
 if [ ! -f "$nodes_file" ]; then
@@ -43,7 +44,7 @@ echo
 # SSH parameters for non-interactive connection
 ssh_params="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10"
 ib_write_bw="/opt/rdma-perftest/bin/ib_write_bw"
-ib_params="-s 16777216 -n 50 -F -x 3 -q 4 --report_gbits"
+ib_params="-s 16777216 -n 50 -F -x $ib_gid_index -q 4 --report_gbits"
 
 # Function: Kill remote ib_write_bw process
 kill_remote_listener() {

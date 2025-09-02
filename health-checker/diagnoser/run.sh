@@ -60,7 +60,7 @@ if [[ "$RANK" == "0" ]]; then
   # Array of test types: 0 = all_reduce, 1 = alltoall
   TEST_TYPES=(0 1)
   TEST_NAMES=([0]="all_reduce_perf" [1]="alltoall_perf")
-  TEST_MAX_SIZE=([0]="1G" [1]="128M")
+  TEST_MAX_SIZE=([0]="1G" [1]="64M")
 
   # Run diagnosis for each test type
   for run in $(seq 1 $MAX_RETRY); do
@@ -85,7 +85,7 @@ if [[ "$RANK" == "0" ]]; then
   done
 
   if [ $ret -eq 0 ]; then
-    bash ib_write_bw.sh "$NCCL_IB_HCA" "$NCCL_SOCKET_IFNAME" "$NODES_FILE"
+    bash ib_write_bw.sh "$NCCL_IB_HCA" "$NCCL_SOCKET_IFNAME" "$NCCL_IB_GID_INDEX" "$NODES_FILE"
     ret=$?
   fi
 fi
