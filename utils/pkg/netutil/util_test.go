@@ -6,7 +6,6 @@
 package netutil
 
 import (
-	"fmt"
 	"testing"
 
 	"gotest.tools/assert"
@@ -15,7 +14,10 @@ import (
 func TestGetSecondLevelDomain(t *testing.T) {
 	host := "https://primus-safe.amd.primus.ai"
 	domain := GetSecondLevelDomain(host)
-	fmt.Println(domain)
+	assert.Equal(t, domain, "primus.ai")
+
+	host = "primus-safe.amd.primus.ai"
+	domain = GetSecondLevelDomain(host)
 	assert.Equal(t, domain, "primus.ai")
 }
 

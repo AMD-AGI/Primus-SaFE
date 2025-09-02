@@ -3,7 +3,6 @@ data:
   config.yaml: |
     global:
       rdma_name: {{ .Values.net.rdma_name }}
-      domain: primus.ai
     crypto:
       enable: true
       config_path: {{ default "/etc/secrets/crypto" (default .Values.crypto).mount_path }}

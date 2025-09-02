@@ -59,6 +59,9 @@ func GetSchemeHost(rawURL string) string {
 
 func GetSecondLevelDomain(uri string) string {
 	hostname := GetHostname(uri)
+	if hostname == "" {
+		hostname = uri
+	}
 	if hostname == "127.0.0.1" || hostname == "localhost" {
 		return hostname
 	}

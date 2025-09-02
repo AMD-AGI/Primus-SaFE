@@ -27,6 +27,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -407,7 +408,7 @@ func setCookie(c *gin.Context, userInfo *types.UserLoginResponse) {
 		maxAge = int(userInfo.Expire - time.Now().Unix())
 	default:
 	}
-	domain := commonconfig.GetDomain()
+	domain := netutil.GetSecondLevelDomain(c.Request.Host)
 	c.SetCookie(authority.CookieToken, userInfo.Token, maxAge, "/", domain, false, true)
 }
 

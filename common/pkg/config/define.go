@@ -9,7 +9,6 @@ const (
 	// global
 	globalPrefix = "global."
 	rdmaName     = globalPrefix + "rdma_name"
-	domain       = globalPrefix + "domain"
 
 	// crypto
 	cryptoPrefix     = "crypto."
