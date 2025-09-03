@@ -88,7 +88,7 @@ func (a *Authorizer) AuthorizeSystemAdmin(in Input) error {
 
 func (a *Authorizer) GetRequestUser(ctx context.Context, userId string) (*v1.User, error) {
 	if userId == "" {
-		return nil, commonerrors.NewUserNotRegistered("")
+		return nil, commonerrors.NewBadRequest("user id is empty")
 	}
 	user := &v1.User{}
 	err := a.Get(ctx, client.ObjectKey{Name: userId}, user)
@@ -140,6 +140,7 @@ func (a *Authorizer) authorize(in Input) error {
 	if in.Resource != nil {
 		resourceName = in.Resource.GetName()
 	}
+	
 	roles := make([]*v1.Role, 0, len(in.Roles)+1)
 	roles = append(roles, in.Roles...)
 	if len(in.Workspaces) > 0 && commonuser.HasWorkspaceManagedRight(in.User, in.Workspaces...) {

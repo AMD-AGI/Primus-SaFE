@@ -71,38 +71,18 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	if err = h.authUserCreation(c, req); err != nil {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
 		return nil, err
 	}
-	user := generateUser(req)
+	user := generateUser(req, requestUser)
 	if err = h.Create(c.Request.Context(), user); err != nil {
 		return nil, err
 	}
 	return nil, nil
 }
 
-func (h *Handler) authUserCreation(c *gin.Context, req *types.CreateUserRequest) error {
-	requestUser, err := h.getAndSetUsername(c)
-	if err != nil {
-		return err
-	}
-	if requestUser != nil && !requestUser.IsSystemAdmin() {
-		if req.Type != requestUser.Spec.Type {
-			return commonerrors.NewBadRequest("invalid user type")
-		}
-	}
-	if err = h.auth.Authorize(authority.Input{
-		Context:      c.Request.Context(),
-		ResourceKind: v1.UserKind,
-		Verb:         v1.CreateVerb,
-		User:         requestUser,
-	}); err != nil {
-		return err
-	}
-	return nil
-}
-
-func generateUser(req *types.CreateUserRequest) *v1.User {
+func generateUser(req *types.CreateUserRequest, requestUser *v1.User) *v1.User {
 	user := &v1.User{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: req.Id,
@@ -113,15 +93,17 @@ func generateUser(req *types.CreateUserRequest) *v1.User {
 			},
 		},
 		Spec: v1.UserSpec{
-			Type:     req.Type,
-			Roles:    []v1.UserRole{v1.DefaultRole},
-			Password: req.Password,
+			Roles: []v1.UserRole{v1.DefaultRole},
+			Type:  v1.DefaultUser,
 		},
 	}
 	if req.Password != "" {
 		user.Spec.Password = stringutil.Base64Encode(req.Password)
 	}
-	commonuser.AssignWorkspace(user, req.Workspaces...)
+	if requestUser != nil && requestUser.IsSystemAdmin() {
+		user.Spec.Type = req.Type
+		commonuser.AssignWorkspace(user, req.Workspaces...)
+	}
 	return user
 }
 
@@ -141,16 +123,21 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	result := types.ListUserResponse{}
 	if len(userList.Items) > 0 {
 		sort.Sort(types.UserSlice(userList.Items))
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 	for _, item := range userList.Items {
-		if query.WorkspaceId != "" && !commonuser.HasWorkspaceRight(&item, query.WorkspaceId) {
-			continue
+		var workspaces []string
+		if query.WorkspaceId != "" {
+			if !commonuser.HasWorkspaceRight(&item, query.WorkspaceId) {
+				continue
+			}
+			workspaces = append(workspaces, query.WorkspaceId)
 		}
-		if err = h.authUser(c, requestUser, &item, []string{query.WorkspaceId}, "", roles, v1.ListVerb); err != nil {
+		if err = h.authUserAction(c, requestUser, &item, workspaces, "", roles, v1.ListVerb); err != nil {
 			continue
 		}
 		result.Items = append(result.Items, h.cvtToUserResponseItem(c.Request.Context(), &item))
@@ -160,23 +147,25 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
+	var targetUser *v1.User
 	targetUserId := c.GetString(types.Name)
 	if targetUserId == common.UserSelf {
 		if !commonconfig.IsEnableUserAuthority() {
 			return nil, commonerrors.NewInternalError("the user authority is not enabled")
 		}
-		targetUserId = c.GetString(common.UserId)
+		targetUser = requestUser
+	} else {
+		targetUser, err = h.getTargetUser(c.Request.Context(), targetUserId)
+		if err != nil {
+			return nil, err
+		}
 	}
-	targetUser, err := h.getTargetUser(c.Request.Context(), targetUserId)
-	if err != nil {
-		return nil, err
-	}
-	if err = h.auth.Authorize(authority.Input{
-		Context:  c.Request.Context(),
-		Resource: targetUser,
-		Verb:     v1.GetVerb,
-		UserId:   c.GetString(common.UserId),
-	}); err != nil {
+	if err = h.authUserAction(c, requestUser, targetUser, nil, "", nil, v1.GetVerb); err != nil {
 		return nil, err
 	}
 	return h.cvtToUserResponseItem(c.Request.Context(), targetUser), nil
@@ -245,7 +234,7 @@ func (h *Handler) checkPatchUser(c *gin.Context, targetUser *v1.User, req *types
 	isChanged := false
 	if req.RestrictedType != nil && *req.RestrictedType != targetUser.Spec.RestrictedType ||
 		req.Roles != nil && !commonuser.IsRolesEqual(*req.Roles, targetUser.Spec.Roles) {
-		if err = h.authUser(c, requestUser, targetUser,
+		if err = h.authUserAction(c, requestUser, targetUser,
 			commonuser.GetWorkspace(targetUser), authority.UserIdentityResource, roles, v1.UpdateVerb); err != nil {
 			return false, err
 		}
@@ -262,7 +251,7 @@ func (h *Handler) checkPatchUser(c *gin.Context, targetUser *v1.User, req *types
 			workspaces = append(workspaces, workspaces2...)
 		}
 		if len(workspaces) > 0 {
-			if err = h.authUser(c, requestUser, targetUser,
+			if err = h.authUserAction(c, requestUser, targetUser,
 				workspaces, authority.UserWorkspaceResource, roles, v1.UpdateVerb); err != nil {
 				return false, err
 			}
@@ -274,7 +263,7 @@ func (h *Handler) checkPatchUser(c *gin.Context, targetUser *v1.User, req *types
 		req.Name != nil && *req.Name != v1.GetUserName(targetUser) ||
 		req.AvatarUrl != nil && *req.AvatarUrl != v1.GetUserAvatarUrl(targetUser) ||
 		req.Password != nil && *req.Password != stringutil.Base64Decode(targetUser.Spec.Password) {
-		if err = h.authUser(c, requestUser, targetUser,
+		if err = h.authUserAction(c, requestUser, targetUser,
 			commonuser.GetWorkspace(targetUser), "", roles, v1.UpdateVerb); err != nil {
 			return false, err
 		}
@@ -283,7 +272,7 @@ func (h *Handler) checkPatchUser(c *gin.Context, targetUser *v1.User, req *types
 	return isChanged, nil
 }
 
-func (h *Handler) authUser(c *gin.Context, requestUser, targetUser *v1.User,
+func (h *Handler) authUserAction(c *gin.Context, requestUser, targetUser *v1.User,
 	workspaces []string, kind string, roles []*v1.Role, verb v1.RoleVerb) error {
 	if err := h.auth.Authorize(authority.Input{
 		Context:      c.Request.Context(),
@@ -300,16 +289,17 @@ func (h *Handler) authUser(c *gin.Context, requestUser, targetUser *v1.User,
 }
 
 func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
 	targetUser, err := h.getTargetUser(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
-		Context:  c.Request.Context(),
-		Resource: targetUser,
-		Verb:     v1.DeleteVerb,
-		UserId:   c.GetString(common.UserId),
-	}); err != nil {
+	if err = h.authUserAction(c, requestUser, targetUser,
+		nil, "", nil, v1.DeleteVerb); err != nil {
 		return nil, err
 	}
 	if err = h.Delete(c.Request.Context(), targetUser); err != nil {

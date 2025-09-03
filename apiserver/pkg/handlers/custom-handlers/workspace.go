@@ -116,8 +116,8 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 			Context:    ctx,
 			Resource:   &w,
 			Verb:       v1.ListVerb,
-			User:       requestUser,
 			Workspaces: []string{w.Name},
+			User:       requestUser,
 			Roles:      roles,
 		}); err != nil {
 			continue

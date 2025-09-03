@@ -113,12 +113,18 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	return &types.CreateWorkloadResponse{WorkloadId: workload.Name}, nil
 }
 func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+
 	query, err := parseListWorkloadQuery(c)
 	if err != nil {
 		return nil, err
 	}
-	adminWorkload := generateAuthWorkload("", query.UserId, query.WorkspaceId, query.ClusterId)
-	if err = h.authWorkloadAction(c, adminWorkload, v1.ListVerb, nil, nil); err != nil {
+	adminWorkload := generateAuthWorkload("", "", query.WorkspaceId, query.ClusterId)
+	if err = h.authWorkloadAction(c, adminWorkload, v1.ListVerb, requestUser, roles); err != nil {
 		return nil, err
 	}
 	if !commonconfig.IsDBEnable() {
@@ -147,6 +153,12 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+
 	name := c.GetString(types.Name)
 	ctx := c.Request.Context()
 	if commonconfig.IsDBEnable() {
@@ -155,7 +167,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 			return nil, err
 		}
 		adminWorkload := generateAuthWorkload(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-		if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, nil, nil); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, requestUser, roles); err != nil {
 			return nil, err
 		}
 		return h.cvtDBWorkloadToGetResponse(ctx, dbWorkload), nil
@@ -164,7 +176,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, nil, nil); err != nil {
+		if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, requestUser, roles); err != nil {
 			return nil, err
 		}
 		return h.cvtAdminWorkloadToGetResponse(ctx, adminWorkload), nil
@@ -177,6 +189,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+
 	name := c.GetString(types.Name)
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
 	if err != nil {
@@ -187,7 +200,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
 			return nil, err
 		}
-		if err = h.deleteAdminWorkload(c, adminWorkload); err != nil {
+		if err = h.deleteAdminWorkload(c.Request.Context(), adminWorkload); err != nil {
 			return nil, err
 		}
 	}
@@ -209,8 +222,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) deleteAdminWorkload(c *gin.Context, adminWorkload *v1.Workload) error {
-	ctx := c.Request.Context()
+func (h *Handler) deleteAdminWorkload(ctx context.Context, adminWorkload *v1.Workload) error {
 	cond := &metav1.Condition{
 		Type:    string(v1.AdminStopped),
 		Status:  metav1.ConditionTrue,
@@ -260,7 +272,7 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
 			return nil, err
 		}
-		if err = h.deleteAdminWorkload(c, adminWorkload); err != nil {
+		if err = h.deleteAdminWorkload(c.Request.Context(), adminWorkload); err != nil {
 			return nil, err
 		}
 	}
@@ -308,11 +320,17 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+
 	workload, err := h.getAdminWorkload(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
-	if err = h.authWorkloadAction(c, workload, v1.GetVerb, nil, nil); err != nil {
+	if err = h.authWorkloadAction(c, workload, v1.GetVerb, requestUser, roles); err != nil {
 		return nil, err
 	}
 
@@ -441,14 +459,19 @@ func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, w
 }
 
 func (h *Handler) authWorkloadAction(c *gin.Context,
-	adminWorkload *v1.Workload, verb v1.RoleVerb, user *v1.User, roles []*v1.Role) error {
+	adminWorkload *v1.Workload, verb v1.RoleVerb, requestUser *v1.User, roles []*v1.Role) error {
+	var workspaces []string
+	if adminWorkload.Spec.Workspace != "" {
+		workspaces = append(workspaces, adminWorkload.Spec.Workspace)
+	}
 	if err := h.auth.Authorize(authority.Input{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.WorkloadKind,
 		Resource:     adminWorkload,
 		Verb:         verb,
-		Workspaces:   []string{adminWorkload.Spec.Workspace},
-		User:         user,
+		Workspaces:   workspaces,
+		User:         requestUser,
+		UserId:       c.GetString(common.UserId),
 		Roles:        roles,
 	}); err != nil {
 		return err
@@ -457,14 +480,14 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 }
 
 func (h *Handler) authWorkloadPriority(c *gin.Context,
-	adminWorkload *v1.Workload, priority int, user *v1.User, roles []*v1.Role) error {
-	priorityKind := buildPriorityKind(priority)
+	adminWorkload *v1.Workload, priority int, requestUser *v1.User, roles []*v1.Role) error {
+	priorityKind := fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
 	if err := h.auth.Authorize(authority.Input{
 		Context:      c.Request.Context(),
 		ResourceKind: priorityKind,
 		Verb:         v1.UpdateVerb,
 		Workspaces:   []string{adminWorkload.Spec.Workspace},
-		User:         user,
+		User:         requestUser,
 		Roles:        roles,
 	}); err != nil {
 		return err
@@ -916,11 +939,6 @@ func buildWorkloadLabelSelector(query *types.ListWorkloadRequest) labels.Selecto
 	}
 	return labelSelector
 }
-
-func buildPriorityKind(priority int) string {
-	return fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
-}
-
 func generateAuthWorkload(name, userId, workspace, clusterId string) *v1.Workload {
 	return &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{

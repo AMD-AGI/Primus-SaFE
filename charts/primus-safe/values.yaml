@@ -3,13 +3,13 @@ net:
   nccl_ib_hca: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
   rdma_name: "rdma/hca"
 apiserver:
-  image: "apiserver:202509011100"
+  image: "apiserver:202509031707"
   replicas: 1
 resource_manager:
   image: "resource-manager:202508252300"
   replicas: 1
 job_manager:
-  image: "job-manager:202508211040"
+  image: "job-manager:202509031707"
   replicas: 1
 webhooks:
   image: "webhooks:202509011100"
@@ -30,9 +30,9 @@ ssh:
 user:
   enable_authority: false
 workspace:
-  mem_reserve_percent: 0.1
+  mem_reserve_percent: 0.06
   cpu_reserve_percent: 0.1
-  ephemeral_store_reserve_percent: 0.1
+  ephemeral_store_reserve_percent: 0.05
 s3:
   enable: true
   endpoint: "http://s3.safe.primus.ai"

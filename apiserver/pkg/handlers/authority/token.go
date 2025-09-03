@@ -25,6 +25,8 @@ import (
 const (
 	TokenExpire  = "The user's token has expired, please login again"
 	InvalidToken = "The user's token is invalid, please login first"
+
+	TokenDelim = ":"
 )
 
 type TokenItem struct {
@@ -73,8 +75,9 @@ func validateToken(token string) (*TokenItem, error) {
 		return nil, fmt.Errorf("fail to decrypt token")
 	}
 
-	parts := strings.Split(tokenPlain, "-")
+	parts := strings.Split(tokenPlain, TokenDelim)
 	if len(parts) != 3 {
+		klog.Errorf("invalid user token, tokenPlain: %s, current len: %d", tokenPlain, len(parts))
 		return nil, fmt.Errorf("invalid token")
 	}
 	for _, part := range parts {
@@ -84,9 +87,11 @@ func validateToken(token string) (*TokenItem, error) {
 	}
 	expire, err := strconv.ParseInt(parts[1], 10, 0)
 	if err != nil {
+		klog.ErrorS(err, "failed to parse token expire", "user", parts[0], "expire", parts[1])
 		return nil, fmt.Errorf("invalid token")
 	}
 	if parts[2] != string(v1.DefaultUser) && parts[2] != string(v1.TeamsUser) {
+		klog.Errorf("invalid user type. user: %s, type: %s", parts[0], parts[2])
 		return nil, fmt.Errorf("invalid token")
 	}
 	return &TokenItem{
@@ -97,7 +102,7 @@ func validateToken(token string) (*TokenItem, error) {
 }
 
 func GenerateToken(item TokenItem) (string, error) {
-	tokenStr := item.UserId + "-" + strconv.FormatInt(item.Expire, 10) + "-" + item.UserType
+	tokenStr := item.UserId + TokenDelim + strconv.FormatInt(item.Expire, 10) + TokenDelim + item.UserType
 	if !commonconfig.IsCryptoEnable() {
 		return tokenStr, nil
 	}
