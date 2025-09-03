@@ -77,7 +77,7 @@ type StorageNodeFlavorResponse struct {
 }
 
 type StorageNodeFlavorResponseItem struct {
-	GetNodeFlavorResponseItem
+	NodeFlavorResponseItem
 	Storages *v1.DiskFlavor `json:"storage"`
 	Count    int            `json:"count"`
 }

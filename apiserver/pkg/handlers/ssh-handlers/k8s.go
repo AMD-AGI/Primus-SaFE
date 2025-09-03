@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
@@ -40,6 +41,10 @@ func (h *SshHandler) handleSession(s Session) {
 
 	workload, k8sClients, err := h.getWorkloadAndClients(s.Context(), userInfo)
 	if err != nil {
+		sendError(s, err.Error())
+		return
+	}
+	if err = h.authUser(s.Context(), userInfo, workload); err != nil {
 		sendError(s, err.Error())
 		return
 	}
@@ -93,6 +98,10 @@ func (h *SshHandler) handleSftp(s Session) {
 		klog.Error(err)
 		return
 	}
+	if err = h.authUser(s.Context(), userInfo, workload); err != nil {
+		klog.Error(err)
+		return
+	}
 
 	req := k8sClients.ClientSet().CoreV1().RESTClient().
 		Post().
@@ -140,8 +149,12 @@ func (h *SshHandler) handleDirectIp(ctx context.Context, sshConn *ssh.ServerConn
 		klog.Errorf("failed to parse ssh info, user: %s", sshConn.User())
 		return
 	}
-	_, k8sClients, err := h.getWorkloadAndClients(ctx, userInfo)
+	workload, k8sClients, err := h.getWorkloadAndClients(ctx, userInfo)
 	if err != nil {
+		klog.Error(err)
+		return
+	}
+	if err = h.authUser(ctx, userInfo, workload); err != nil {
 		klog.Error(err)
 		return
 	}
@@ -259,6 +272,19 @@ func (h *SshHandler) getWorkloadAndClients(ctx context.Context, userInfo *UserIn
 		return nil, nil, err
 	}
 	return workload, k8sClients, nil
+}
+
+func (h *SshHandler) authUser(ctx context.Context, userInfo *UserInfo, workload *v1.Workload) error {
+	if err := h.auth.Authorize(authority.Input{
+		Context:    ctx,
+		Resource:   workload,
+		Verb:       v1.GetVerb,
+		Workspaces: []string{workload.Spec.Workspace},
+		UserId:     userInfo.User,
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func sendError(w io.Writer, msg string) {

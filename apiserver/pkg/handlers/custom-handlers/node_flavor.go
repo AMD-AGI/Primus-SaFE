@@ -19,7 +19,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
@@ -47,6 +49,15 @@ func (h *Handler) GetNodeFlavorAvail(c *gin.Context) {
 }
 
 func (h *Handler) createNodeFlavor(c *gin.Context) (interface{}, error) {
+	if err := h.auth.Authorize(authority.Input{
+		Context:      c.Request.Context(),
+		ResourceKind: v1.NodeFlavorKind,
+		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	req := &types.CreateNodeFlavorRequest{}
 	body, err := getBodyFromRequest(c.Request, req)
 	if err != nil {
@@ -54,7 +65,7 @@ func (h *Handler) createNodeFlavor(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	nodeFlavor, err := generateNodeFlavor(req)
+	nodeFlavor, err := generateNodeFlavor(c, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate node flavor")
 		return nil, err
@@ -71,13 +82,18 @@ func (h *Handler) createNodeFlavor(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
 	nl := &v1.NodeFlavorList{}
-	if err := h.List(c.Request.Context(), nl); err != nil {
+	if err = h.List(c.Request.Context(), nl); err != nil {
 		klog.ErrorS(err, "failed to list node flavor")
 		return nil, err
 	}
 
-	result := types.GetNodeFlavorResponse{}
+	result := types.ListNodeFlavorResponse{}
 	if result.TotalCount > 0 {
 		sort.Slice(nl.Items, func(i, j int) bool {
 			if nl.Items[i].CreationTimestamp.Time.Equal(nl.Items[j].CreationTimestamp.Time) {
@@ -86,11 +102,21 @@ func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
 			return nl.Items[i].CreationTimestamp.Time.Before(nl.Items[j].CreationTimestamp.Time)
 		})
 	}
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 	for _, item := range nl.Items {
 		if !item.GetDeletionTimestamp().IsZero() {
 			continue
 		}
-		result.Items = append(result.Items, cvtToGetNodeFlavorResponseItem(&item))
+		if err = h.auth.Authorize(authority.Input{
+			Context:  c.Request.Context(),
+			Resource: &item,
+			Verb:     v1.ListVerb,
+			User:     requestUser,
+			Roles:    roles,
+		}); err != nil {
+			continue
+		}
+		result.Items = append(result.Items, cvtToNodeFlavorResponseItem(&item))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
@@ -101,13 +127,29 @@ func (h *Handler) getNodeFlavor(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return cvtToGetNodeFlavorResponseItem(nf), nil
+	if err = h.auth.Authorize(authority.Input{
+		Context:  c.Request.Context(),
+		Resource: nf,
+		Verb:     v1.GetVerb,
+		UserId:   c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+	return cvtToNodeFlavorResponseItem(nf), nil
 }
 
 func (h *Handler) deleteNodeFlavor(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(types.Name))
 	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		Context:  ctx,
+		Resource: nf,
+		Verb:     v1.DeleteVerb,
+		UserId:   c.GetString(common.UserId),
+	}); err != nil {
 		return nil, err
 	}
 	if err = h.Delete(ctx, nf); err != nil {
@@ -135,6 +177,15 @@ func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err = h.auth.Authorize(authority.Input{
+		Context:  c.Request.Context(),
+		Resource: nf,
+		Verb:     v1.GetVerb,
+		UserId:   c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
 	availResource := quantity.GetAvailableResource(nodeResources)
 	if !floatutil.FloatEqual(commonconfig.GetMaxEphemeralStorePercent(), 0) {
@@ -146,12 +197,13 @@ func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
 	return cvtToResourceList(availResource), nil
 }
 
-func generateNodeFlavor(req *types.CreateNodeFlavorRequest) (*v1.NodeFlavor, error) {
+func generateNodeFlavor(c *gin.Context, req *types.CreateNodeFlavorRequest) (*v1.NodeFlavor, error) {
 	nf := &v1.NodeFlavor{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: req.Name,
 			Labels: map[string]string{
 				v1.DisplayNameLabel: req.Name,
+				v1.UserIdLabel:      c.GetString(common.UserId),
 			},
 		},
 		Spec: v1.NodeFlavorSpec{
@@ -213,7 +265,7 @@ func buildDiskFlavor(req *types.DiskFlavor) (*v1.DiskFlavor, error) {
 	}, nil
 }
 
-func cvtToGetNodeFlavorResponseItem(nf *v1.NodeFlavor) types.GetNodeFlavorResponseItem {
+func cvtToNodeFlavorResponseItem(nf *v1.NodeFlavor) types.NodeFlavorResponseItem {
 	resources := make(types.ResourceList)
 	resources["cpu"] = nf.Spec.Cpu.Quantity.Value()
 	resources["memory"] = nf.Spec.Memory.Value()
@@ -229,7 +281,7 @@ func cvtToGetNodeFlavorResponseItem(nf *v1.NodeFlavor) types.GetNodeFlavorRespon
 	if nf.Spec.RootDisk != nil {
 		resources["rootDisk"] = nf.Spec.RootDisk.Quantity.Value() * int64(nf.Spec.RootDisk.Count)
 	}
-	return types.GetNodeFlavorResponseItem{
+	return types.NodeFlavorResponseItem{
 		FlavorId:   nf.Name,
 		FlavorType: string(nf.Spec.FlavorType),
 		Resources:  resources,

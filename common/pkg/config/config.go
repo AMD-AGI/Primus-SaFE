@@ -73,7 +73,7 @@ func IsCryptoEnable() bool {
 }
 
 func GetCryptoKey() string {
-	return getString(cryptoKey, "")
+	return getFromFile(cryptoConfigPath, "key")
 }
 
 func IsHealthCheckEnabled() bool {
@@ -276,7 +276,8 @@ func getFromFile(configPath, item string) string {
 	if err != nil {
 		return ""
 	}
-	return string(data)
+	key := string(data)
+	return strings.TrimRight(key, "\r\n")
 }
 
 func GetRdmaName() string {
@@ -293,4 +294,16 @@ func GetAddons(version *string) []string {
 		return addons
 	}
 	return getStrings(addonDefault)
+}
+
+func GetUserTokenExpire() int {
+	return getInt(userTokenExpireSecond, -1)
+}
+
+func IsEnableUserAuthority() bool {
+	return getBool(userEnableAuthority, false)
+}
+
+func GetUserDefaultWorkspace() string {
+	return getString(userDefaultWorkspace, "")
 }

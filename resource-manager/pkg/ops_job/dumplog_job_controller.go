@@ -40,7 +40,6 @@ import (
 const (
 	contextTTL        = "10m"
 	maxBatchNum       = 10000
-	maxDocsPerQuery   = 10000
 	minBatchSize      = 5 * 1024 * 1024
 	defaultConcurrent = 8
 )
@@ -156,7 +155,7 @@ func (r *DumpLogJobReconciler) do(ctx context.Context, job *v1.OpsJob) (ctrlrunt
 
 	// If the total number of documents is below the per-query threshold, perform a single upload.
 	// Otherwise, split the data into multiple uploads
-	if searchResult.Hits.Total.Value <= maxDocsPerQuery {
+	if searchResult.Hits.Total.Value <= commonsearch.MaxDocsPerQuery {
 		err = r.singleUpload(ctx, job, workload, searchResult)
 	} else {
 		err = r.multiUpload(ctx, job, workload, searchResult)
@@ -209,9 +208,10 @@ func (r *DumpLogJobReconciler) multiUpload(ctx context.Context, job *v1.OpsJob,
 	}()
 
 	param := &commons3.MultiUploadParam{
-		Key:            workload.workloadId,
-		UploadId:       uploadId,
-		CompletedParts: make([]types.CompletedPart, 0, (searchResult.Hits.Total.Value/maxDocsPerQuery)+1),
+		Key:      workload.workloadId,
+		UploadId: uploadId,
+		CompletedParts: make([]types.CompletedPart, 0,
+			(searchResult.Hits.Total.Value/commonsearch.MaxDocsPerQuery)+1),
 	}
 	logCh <- searchResult
 	go r.scroll(job, searchResult.ScrollId, logCh, errCh)
@@ -231,7 +231,7 @@ func (r *DumpLogJobReconciler) multiUpload(ctx context.Context, job *v1.OpsJob,
 		return err
 	}
 	location := ""
-	if output.Location != nil {
+	if output != nil && output.Location != nil {
 		location = *output.Location
 	}
 	klog.Infof("uploaded %s log Successfully, output: %s", workload.workloadId, location)
@@ -271,8 +271,8 @@ func (r *DumpLogJobReconciler) getInputWorkload(ctx context.Context, job *v1.Ops
 
 func (r *DumpLogJobReconciler) doSearch(job *v1.OpsJob, workload *workloadInfo) (*commonsearch.OpenSearchResponse, error) {
 	body := buildSearchBody(job, workload)
-	data, err := r.searchClient.RequestByTimeRange(workload.startTime, workload.endTime,
-		fmt.Sprintf("/_search?scroll=%s", contextTTL), http.MethodPost, body)
+	data, err := r.searchClient.SearchByTimeRange(workload.startTime, workload.endTime,
+		fmt.Sprintf("/_search?scroll=%s", contextTTL), body)
 	if err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
@@ -290,7 +290,7 @@ func (r *DumpLogJobReconciler) doSearch(job *v1.OpsJob, workload *workloadInfo) 
 
 func buildSearchBody(job *v1.OpsJob, workload *workloadInfo) []byte {
 	req := &commonsearch.OpenSearchRequest{
-		Size: maxDocsPerQuery,
+		Size: commonsearch.MaxDocsPerQuery,
 		Sort: []commonsearch.OpenSearchField{{
 			"@timestamp": map[string]interface{}{
 				"order": "asc",
@@ -365,7 +365,7 @@ func (r *DumpLogJobReconciler) scroll(job *v1.OpsJob, scrollId string,
 			logCh <- response
 		}
 		// Reached the end of results. Exiting
-		if len(response.Hits.Hits) < maxDocsPerQuery {
+		if len(response.Hits.Hits) < commonsearch.MaxDocsPerQuery {
 			logCh <- nil
 			break
 		}

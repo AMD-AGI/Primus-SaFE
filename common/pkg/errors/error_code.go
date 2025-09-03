@@ -89,6 +89,13 @@ func IsNotFound(err error) bool {
 	return false
 }
 
+func IgnoreFound(err error) error {
+	if err == nil || IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
 func GetErrorCode(err error) string {
 	if err == nil || !IsPrimus(err) {
 		return ""
@@ -196,12 +203,12 @@ func NewUnauthorized(message string) *apierrors.StatusError {
 	}}
 }
 
-func NewUserNotRegistered() *apierrors.StatusError {
+func NewUserNotRegistered(userId string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
 		Code:    http.StatusUnauthorized,
 		Reason:  UserNotRegistered,
-		Message: "the user is not registered",
+		Message: fmt.Sprintf("the user(%s) is not registered", userId),
 	}}
 }
 

@@ -5,9 +5,17 @@
 # See LICENSE for license information.
 #
 
+set -e
+export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"
+export NNODES="${PET_NNODES:-${NNODES}}"
+
 echo "$1" |base64 -d > .run.sh
 chmod +x .run.sh
-/bin/sh .run.sh &
+if command -v bash >/dev/null 2>&1; then
+    /usr/bin/bash -o pipefail .run.sh &
+else
+    /bin/sh .run.sh &
+fi
 pid1=$!
 
 if [ "${ENABLE_SUPERVISE}" = "true" ]; then

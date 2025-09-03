@@ -51,6 +51,8 @@ type WorkspaceSpec struct {
 	Volumes []WorkspaceVolume `json:"volumes,omitempty"`
 	// Is preemption enabled. default is false
 	EnablePreempt bool `json:"enablePreempt,omitempty"`
+	// the manager's user_id of workspace
+	Managers []string `json:"managers,omitempty"`
 }
 
 type WorkspaceVolume struct {

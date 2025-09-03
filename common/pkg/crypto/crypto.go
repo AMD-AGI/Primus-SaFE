@@ -7,8 +7,6 @@ package crypto
 
 import (
 	"fmt"
-	"os"
-	"strings"
 	"sync"
 
 	"k8s.io/klog/v2"
@@ -26,14 +24,21 @@ var (
 	instance *Crypto
 )
 
+const (
+	AESKeyLen = 16
+)
+
 func NewCrypto() *Crypto {
 	once.Do(func() {
 		key := ""
 		if commonconfig.IsCryptoEnable() {
 			var err error
-			key, err = getCryptoKey()
-			if err != nil {
+			key = commonconfig.GetCryptoKey()
+			if key == "" {
 				klog.ErrorS(err, "failed to get crypto key")
+				return
+			} else if len(key) != AESKeyLen {
+				klog.ErrorS(err, fmt.Sprintf("invalid crypto key, the length must be %d", AESKeyLen))
 				return
 			}
 		}
@@ -66,28 +71,4 @@ func (c *Crypto) Decrypt(ciphertext string) (string, error) {
 		return "", err
 	}
 	return string(data), nil
-}
-
-// The crypto_file is created during deployment and acts as the global key for the entire system
-func getCryptoKey() (string, error) {
-	keyFile := commonconfig.GetCryptoKey()
-	if keyFile == "" {
-		return "", fmt.Errorf("global.crypto_key of config is not set")
-	}
-	f, err := os.Open(keyFile)
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		if err = f.Close(); err != nil {
-			klog.ErrorS(err, "failed to close file")
-		}
-	}()
-
-	data := make([]byte, 1024)
-	n, err := f.Read(data)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSuffix(string(data[:n]), "\n"), nil
 }

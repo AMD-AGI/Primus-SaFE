@@ -13,7 +13,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -44,30 +43,6 @@ func NewClientSetWithRestConfig(cfg *rest.Config) (kubernetes.Interface, error) 
 	return client, nil
 }
 
-func GetRestConfig(endpoint, certData, keyData, caData string, insecure bool) (*rest.Config, error) {
-	inst := crypto.NewCrypto()
-	if inst == nil {
-		return nil, fmt.Errorf("failed to new crypto instance")
-	}
-	decryptedCertData, err := inst.Decrypt(certData)
-	if err != nil {
-		return nil, err
-	}
-	decryptedKeyData, err := inst.Decrypt(keyData)
-	if err != nil {
-		return nil, err
-	}
-	decryptedCaData, err := inst.Decrypt(caData)
-	if err != nil {
-		return nil, err
-	}
-	restConfig, err := getRestConfig(endpoint, decryptedCertData, decryptedKeyData, decryptedCaData, insecure)
-	if err != nil {
-		return nil, err
-	}
-	return restConfig, nil
-}
-
 func GetRestConfigInCluster() (*rest.Config, error) {
 	restCfg, err := config.GetConfig()
 	if err != nil {
@@ -78,7 +53,7 @@ func GetRestConfigInCluster() (*rest.Config, error) {
 	return restCfg, nil
 }
 
-func getRestConfig(endpoint, certData, keyData, caData string, insecure bool) (*rest.Config, error) {
+func GetRestConfig(endpoint, certData, keyData, caData string, insecure bool) (*rest.Config, error) {
 	cert := stringutil.Base64Decode(certData)
 	key := stringutil.Base64Decode(keyData)
 	if endpoint == "" || cert == "" || key == "" {

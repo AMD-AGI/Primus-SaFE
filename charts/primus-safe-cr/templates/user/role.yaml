@@ -1,0 +1,101 @@
+apiVersion: amd.com/v1
+kind: Role
+metadata:
+  name: system-admin
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+rules:
+- resources:
+    - "*"
+  grantedUsers:
+    - "*"
+  verbs:
+    - "*"
+---
+apiVersion: amd.com/v1
+kind: Role
+metadata:
+  name: default
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+rules:
+- resources:
+    - workload
+    - workload/low-priority
+    - workload/med-priority
+    - user
+    - opsjob
+  grantedUsers:
+    - owner
+  verbs:
+    - get
+    - list
+    - update
+    - delete
+- resources:
+    - workload
+    - workload/low-priority
+    - workload/med-priority
+  grantedUsers:
+    - workspace-user
+  verbs:
+    - create
+    - get
+    - list
+- resources:
+    - node
+  grantedUsers:
+    - workspace-user
+  verbs:
+    - update
+- resources:
+    - node
+    - workspace
+    - user
+  grantedUsers:
+    - workspace-user
+  verbs:
+    - get
+    - list
+- resources:
+    - cluster
+    - nodeflavor
+    - nodetemplate
+  grantedUsers:
+    - "*"
+  verbs:
+    - get
+    - list
+---
+apiVersion: amd.com/v1
+kind: Role
+metadata:
+  name: workspace-admin
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+rules:
+- resources:
+    - workload
+    - workspace
+    - workload/high-priority
+    - workload/med-priority
+    - workload/low-priority
+  grantedUsers:
+    - workspace-user
+  verbs:
+    - "*"
+- resources:
+    - user/workspace
+  grantedUsers:
+    - workspace-user
+  verbs:
+    - update

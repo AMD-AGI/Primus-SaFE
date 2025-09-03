@@ -191,6 +191,18 @@ func GetUserName(obj metav1.Object) string {
 	return GetAnnotation(obj, UserNameAnnotation)
 }
 
+func GetUserEmail(obj metav1.Object) string {
+	return GetAnnotation(obj, UserEmailAnnotation)
+}
+
+func GetUserAvatarUrl(obj metav1.Object) string {
+	return GetAnnotation(obj, UserAvatarUrlAnnotation)
+}
+
+func GetUserId(obj metav1.Object) string {
+	return GetLabel(obj, UserIdLabel)
+}
+
 func GetWorkloadDispatchCnt(obj metav1.Object) int {
 	return atoi(GetLabel(obj, WorkloadDispatchCntLabel))
 }

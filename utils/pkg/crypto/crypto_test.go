@@ -13,7 +13,7 @@ import (
 
 func TestCrypto(t *testing.T) {
 	key := "Arsenal123+_1234"
-	message := "Hello, World!"
+	message := "weilei-1756370912"
 	ciphertext, err := Encrypt([]byte(message), []byte(key))
 	assert.NilError(t, err)
 	decryptedMessage, err := Decrypt(ciphertext, []byte(key))

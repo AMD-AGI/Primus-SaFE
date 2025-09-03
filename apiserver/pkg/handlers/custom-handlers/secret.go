@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -40,6 +41,15 @@ func (h *Handler) DeleteSecret(c *gin.Context) {
 }
 
 func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
+	if err := h.auth.Authorize(authority.Input{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.SecretResourceKind,
+		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	req := &types.CreateSecretRequest{}
 	body, err := getBodyFromRequest(c.Request, req)
 	if err != nil {
@@ -47,7 +57,7 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	secret, err := generateSecret(req)
+	secret, err := generateSecret(c, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate secret")
 		return nil, err
@@ -65,6 +75,11 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
 	query, err := parseListSecretQuery(c)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse query")
@@ -72,13 +87,24 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 	}
 	labelSelector := buildSecretLabelSelector(query)
 	secretList := &corev1.SecretList{}
-	if err = h.List(c.Request.Context(), secretList,
-		&client.ListOptions{LabelSelector: labelSelector}); err != nil {
+	if err = h.List(c.Request.Context(),
+		secretList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return nil, err
 	}
-	result := &types.GetSecretResponse{}
+	result := &types.ListSecretResponse{}
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 	for _, item := range secretList.Items {
-		result.Items = append(result.Items, types.GetSecretResponseItem{
+		if err = h.auth.Authorize(authority.Input{
+			Context:  c.Request.Context(),
+			Resource: &item,
+			Verb:     v1.ListVerb,
+			User:     requestUser,
+			Roles:    roles,
+		}); err != nil {
+			continue
+		}
+
+		result.Items = append(result.Items, types.SecretResponseItem{
 			SecretId:   item.Name,
 			SecretName: v1.GetDisplayName(&item),
 			Type:       item.Labels[v1.SecretTypeLabel],
@@ -93,7 +119,19 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the secretId is not found")
 	}
-	err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
+	secret, err := h.getSecret(c.Request.Context(), name)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		Context:  c.Request.Context(),
+		Resource: secret,
+		Verb:     v1.DeleteVerb,
+		UserId:   c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+	err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
 		c.Request.Context(), name, metav1.DeleteOptions{})
 	if err != nil {
 		return nil, err
@@ -111,12 +149,13 @@ func (h *Handler) getSecret(ctx context.Context, name string) (*corev1.Secret, e
 	return secret, err
 }
 
-func generateSecret(req *types.CreateSecretRequest) (*corev1.Secret, error) {
+func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Secret, error) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: common.PrimusSafeNamespace,
 			Labels: map[string]string{
 				v1.SecretTypeLabel: string(req.Type),
+				v1.UserIdLabel:     c.GetString(common.UserId),
 			},
 		},
 	}
@@ -199,15 +238,15 @@ func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) erro
 	return nil
 }
 
-func parseListSecretQuery(c *gin.Context) (*types.GetSecretRequest, error) {
-	query := &types.GetSecretRequest{}
+func parseListSecretQuery(c *gin.Context) (*types.ListSecretRequest, error) {
+	query := &types.ListSecretRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
 	return query, nil
 }
 
-func buildSecretLabelSelector(query *types.GetSecretRequest) labels.Selector {
+func buildSecretLabelSelector(query *types.ListSecretRequest) labels.Selector {
 	var req1 *labels.Requirement
 	var labelSelector = labels.NewSelector()
 	if query.Type != "" {

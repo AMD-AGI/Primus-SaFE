@@ -112,6 +112,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.ParameterApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("PhaseExpression"):
 		return &amdv1.PhaseExpressionApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("PolicyRule"):
+		return &amdv1.PolicyRuleApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ReplicatedSpec"):
 		return &amdv1.ReplicatedSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ResourceSpec"):
@@ -122,6 +124,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.ResourceTemplateApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ResourceTemplateSpec"):
 		return &amdv1.ResourceTemplateSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("Role"):
+		return &amdv1.RoleApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Service"):
 		return &amdv1.ServiceApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Storage"):
@@ -134,6 +138,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.StorageClusterStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("StorageStatus"):
 		return &amdv1.StorageStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("User"):
+		return &amdv1.UserApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("UserSpec"):
+		return &amdv1.UserSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Workload"):
 		return &amdv1.WorkloadApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("WorkloadPod"):

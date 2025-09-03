@@ -27,7 +27,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
@@ -173,12 +172,6 @@ func (r *ClusterReconciler) guaranteeOBS(ctx context.Context, client kubernetes.
 		if !apierrors.IsNotFound(err) {
 			return fmt.Errorf("get obs %s secret failed %+v", name, err)
 		}
-
-		cry := crypto.NewCrypto()
-		sk, err := cry.Decrypt(storage.SecretKey)
-		if err != nil {
-			return fmt.Errorf("Decrypt obs %s access key failed %+v", name, err)
-		}
 		secret = &corev1.Secret{
 			TypeMeta: metav1.TypeMeta{},
 			ObjectMeta: metav1.ObjectMeta{
@@ -188,7 +181,7 @@ func (r *ClusterReconciler) guaranteeOBS(ctx context.Context, client kubernetes.
 			Immutable: nil,
 			Data: map[string][]byte{
 				"AccessKey": []byte(storage.AccessKey),
-				"SecretKey": []byte(sk),
+				"SecretKey": []byte(storage.SecretKey),
 				"Endpoint":  []byte(fmt.Sprintf("http://%s.%s.svc", name, namespace)),
 			},
 			StringData: nil,
@@ -311,11 +304,6 @@ func (r *ClusterReconciler) guaranteeRBD(ctx context.Context, client kubernetes.
 		if !apierrors.IsNotFound(err) {
 			return fmt.Errorf("get storage secret %s failed %+v", name, err)
 		}
-		cry := crypto.NewCrypto()
-		sk, err := cry.Decrypt(storage.SecretKey)
-		if err != nil {
-			return fmt.Errorf("decrypt storage secret %s failed %+v", name, err)
-		}
 		secret = &corev1.Secret{
 			TypeMeta: metav1.TypeMeta{},
 			ObjectMeta: metav1.ObjectMeta{
@@ -325,7 +313,7 @@ func (r *ClusterReconciler) guaranteeRBD(ctx context.Context, client kubernetes.
 			Immutable: nil,
 			Data: map[string][]byte{
 				"userID":  []byte(storage.AccessKey),
-				"userKey": []byte(sk),
+				"userKey": []byte(storage.SecretKey),
 			},
 			StringData: nil,
 			Type:       "kubernetes.io/rbd",
@@ -482,11 +470,6 @@ func (r *ClusterReconciler) guaranteeFileSystem(ctx context.Context, client kube
 		if !apierrors.IsNotFound(err) {
 			return fmt.Errorf("get storage secret %s failed %+v", name, err)
 		}
-		cry := crypto.NewCrypto()
-		sk, err := cry.Decrypt(storage.SecretKey)
-		if err != nil {
-			return fmt.Errorf("decrypt storage secret %s failed %+v", name, err)
-		}
 		secret = &corev1.Secret{
 			TypeMeta: metav1.TypeMeta{},
 			ObjectMeta: metav1.ObjectMeta{
@@ -506,9 +489,9 @@ func (r *ClusterReconciler) guaranteeFileSystem(ctx context.Context, client kube
 			Immutable: nil,
 			Data: map[string][]byte{
 				"adminID":  []byte(storage.AccessKey),
-				"adminKey": []byte(sk),
+				"adminKey": []byte(storage.SecretKey),
 				"userID":   []byte(storage.AccessKey),
-				"userKey":  []byte(sk),
+				"userKey":  []byte(storage.SecretKey),
 			},
 			StringData: nil,
 			Type:       "kubernetes.io/cephfs",

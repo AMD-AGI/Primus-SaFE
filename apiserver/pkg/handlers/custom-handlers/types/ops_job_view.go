@@ -32,8 +32,6 @@ type CreateOpsJobRequest struct {
 	AvailableRatio *float64 `json:"availableRatio,omitempty"`
 	// When enabled, the operation will wait until the node is idle, only to addon
 	SecurityUpgrade bool `json:"securityUpgrade,omitempty"`
-	// job submitter
-	UserName string `json:"userName,omitempty"`
 	// environment variables
 	Env map[string]string `json:"env,omitempty"`
 }
@@ -42,7 +40,7 @@ type CreateOpsJobResponse struct {
 	JobId string `json:"jobId"`
 }
 
-type GetOpsJobRequest struct {
+type ListOpsJobRequest struct {
 	// Starting offset for the results. dfault is 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
 	// Limit the number of returned results. default is 100
@@ -57,26 +55,34 @@ type GetOpsJobRequest struct {
 	// Query the end time of the job, similar to since. default is now
 	Until string `form:"until" binding:"omitempty"`
 	// the cluster which the job belongs to
-	Cluster string `form:"cluster" binding:"omitempty,max=64"`
+	Cluster string `form:"cluster" binding:"required,max=64"`
 	// job submitter
 	UserName string `form:"userName" binding:"omitempty,max=64"`
 	// job phase
 	Phase v1.OpsJobPhase `form:"phase" binding:"omitempty"`
 	// job type
-	Type v1.OpsJobType `form:"type" binding:"omitempty"`
+	Type v1.OpsJobType `form:"type" binding:"required"`
 
 	// for internal use
 	SinceTime time.Time
 	UntilTime time.Time
+	UserId    string
 }
 
-type GetOpsJobResponseItem struct {
+type ListOpsJobResponse struct {
+	TotalCount int                  `json:"totalCount"`
+	Items      []OpsJobResponseItem `json:"items"`
+}
+
+type OpsJobResponseItem struct {
 	// job id
 	JobId string `json:"jobId"`
 	// the cluster which the job belongs to
 	Cluster string `json:"cluster"`
 	// the workspace which the job belongs to
 	Workspace string `json:"workspace"`
+	// job submitter
+	UserId string `json:"userId"`
 	// job submitter
 	UserName string `json:"userName"`
 	// job type
@@ -99,9 +105,4 @@ type GetOpsJobResponseItem struct {
 	Outputs []v1.Parameter `json:"outputs"`
 	// envionment variables
 	Env map[string]string `json:"env"`
-}
-
-type GetOpsJobResponse struct {
-	TotalCount int                     `json:"totalCount"`
-	Items      []GetOpsJobResponseItem `json:"items"`
 }

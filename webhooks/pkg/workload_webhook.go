@@ -116,7 +116,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateHealthCheck(workload)
 	m.mutateService(workload)
 	m.mutateMaxRetry(workload)
-	m.mutateCreateEnv(workload)
+	m.mutateEnv(nil, workload)
 	m.mutateTTLSeconds(workload)
 	m.mutateCommon(ctx, workload)
 	return true
@@ -124,7 +124,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 
 func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) bool {
 	m.mutateResource(newWorkload, nil)
-	m.mutateUpdateEnv(oldWorkload, newWorkload)
+	m.mutateEnv(oldWorkload, newWorkload)
 	m.mutateCommon(ctx, newWorkload)
 	return true
 }
@@ -309,19 +309,14 @@ func (m *WorkloadMutator) mutateMaxRetry(workload *v1.Workload) {
 	}
 }
 
-func (m *WorkloadMutator) mutateCreateEnv(workload *v1.Workload) {
-	if len(workload.Spec.Env) == 0 {
-		return
-	}
-	workload.Spec.Env = maps.RemoveValue(workload.Spec.Env, "")
-}
-
-func (m *WorkloadMutator) mutateUpdateEnv(oldWorkload, newWorkload *v1.Workload) {
+func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 	newWorkload.Spec.Env = maps.RemoveValue(newWorkload.Spec.Env, "")
 	// A null or empty value means the field should be removed.
-	for key := range oldWorkload.Spec.Env {
-		if _, ok := newWorkload.Spec.Env[key]; !ok {
-			newWorkload.Spec.Env[key] = ""
+	if oldWorkload != nil {
+		for key := range oldWorkload.Spec.Env {
+			if _, ok := newWorkload.Spec.Env[key]; !ok {
+				newWorkload.Spec.Env[key] = ""
+			}
 		}
 	}
 }

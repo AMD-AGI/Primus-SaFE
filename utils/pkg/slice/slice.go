@@ -133,22 +133,18 @@ func Copy(slice []string, n int) []string {
 	return result
 }
 
-// Difference returns a list of objects that are not in s1 and s2
+// Difference returns a list of objects that are in slice1 but not in slice2.
 func Difference(slice1, slice2 []string) []string {
+	if len(slice1) == 0 {
+		return nil
+	}
 	slice2Set := sets.NewSet()
 	for _, str := range slice2 {
 		slice2Set.Insert(str)
 	}
 	var result []string
-	slice1Set := sets.NewSet()
 	for _, str := range slice1 {
-		slice1Set.Insert(str)
-		if _, ok := slice2Set[str]; !ok {
-			result = append(result, str)
-		}
-	}
-	for _, str := range slice2 {
-		if _, ok := slice1Set[str]; !ok {
+		if !slice2Set.Has(str) {
 			result = append(result, str)
 		}
 	}

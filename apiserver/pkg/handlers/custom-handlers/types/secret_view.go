@@ -38,16 +38,16 @@ type CreateSecretResponse struct {
 	SecretId string `json:"secretId"`
 }
 
-type GetSecretRequest struct {
+type ListSecretRequest struct {
 	Type string `form:"type" binding:"omitempty"`
 }
 
-type GetSecretResponse struct {
-	TotalCount int                     `json:"totalCount"`
-	Items      []GetSecretResponseItem `json:"items,omitempty"`
+type ListSecretResponse struct {
+	TotalCount int                  `json:"totalCount"`
+	Items      []SecretResponseItem `json:"items,omitempty"`
 }
 
-type GetSecretResponseItem struct {
+type SecretResponseItem struct {
 	SecretId   string `json:"secretId"`
 	SecretName string `json:"secretName"`
 	Type       string `json:"type,omitempty"`

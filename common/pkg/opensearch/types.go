@@ -6,9 +6,10 @@
 package opensearch
 
 const (
-	TimeField    = "@timestamp"
-	MessageField = "message"
-	StreamField  = "stream"
+	TimeField       = "@timestamp"
+	MessageField    = "message"
+	StreamField     = "stream"
+	MaxDocsPerQuery = 10000
 )
 
 type OpenSearchField map[string]interface{}

@@ -53,6 +53,7 @@ type Workload struct {
 	Service        sql.NullString `db:"service"`
 	Liveness       sql.NullString `db:"liveness"`
 	Readiness      sql.NullString `db:"readiness"`
+	UserId         sql.NullString `db:"user_id"`
 }
 
 func GetWorkloadFieldTags() map[string]string {
@@ -98,6 +99,7 @@ type OpsJob struct {
 	Outputs    sql.NullString `db:"outputs"`
 	Env        sql.NullString `db:"env"`
 	IsDeleted  bool           `db:"is_deleted"`
+	UserId     sql.NullString `db:"user_id"`
 }
 
 func GetOpsJobFieldTags() map[string]string {

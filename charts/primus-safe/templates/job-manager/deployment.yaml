@@ -43,11 +43,6 @@ spec:
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
           volumeMounts:
-            {{- if default false (default .Values.crypto).enable }}
-            - name: crypto-secret
-              mountPath: {{ default "/etc/secrets" (default .Values.crypto).mount_path }}
-              readOnly: true
-            {{- end }}
             - name: server-config
               mountPath: /opt/primus-safe/job-manager/config
               readOnly: true
@@ -80,11 +75,6 @@ spec:
               cpu: 2000m
               memory: 4Gi
       volumes:
-        {{- if default false (default .Values.crypto).enable }}
-        - name: crypto-secret
-          secret:
-            secretName: {{ .Release.Name }}-crypto
-        {{- end }}
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-job-manager

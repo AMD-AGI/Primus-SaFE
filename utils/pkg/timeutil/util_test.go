@@ -41,3 +41,14 @@ func TestCvtTimeToCronStandard(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, timeStr, timeStr2)
 }
+
+func TestCvtStrToRFC3339Milli(t *testing.T) {
+	timeStr := "2025-08-18T09:41:01.950926221Z"
+	time1, err := CvtStrToRFC3339Milli(timeStr)
+	assert.NilError(t, err)
+
+	timeStr = "2025-08-18T09:41:01.950Z"
+	time2, err := CvtStrToRFC3339Milli(timeStr)
+	assert.NilError(t, err)
+	assert.Equal(t, time1.Unix(), time2.Unix())
+}
