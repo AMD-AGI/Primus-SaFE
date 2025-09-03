@@ -84,20 +84,10 @@ func (c *Client) SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderB
 				strQuery, limit, offset, time.Since(startTime))
 		}
 	}()
-
 	if c.db == nil {
 		return nil, commonerrors.NewInternalError("The client of db has not been initialized")
 	}
-	db := c.db.Unsafe()
-	if limit < 0 {
-		var err error
-		if limit, err = c.CountWorkloads(ctx, query); err != nil {
-			return nil, err
-		}
-	}
-	if offset < 0 {
-		offset = 0
-	}
+
 	sql, args, err := sqrl.Select("*").PlaceholderFormat(sqrl.Dollar).
 		From(TWorkload).
 		Where(query).
@@ -109,6 +99,7 @@ func (c *Client) SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderB
 	}
 
 	var workloads []*Workload
+	db := c.db.Unsafe()
 	if c.RequestTimeout > 0 {
 		ctx2, cancel := context.WithTimeout(ctx, c.RequestTimeout)
 		defer cancel()
@@ -169,6 +160,9 @@ func (c *Client) SetWorkloadDescription(ctx context.Context, workloadId, descrip
 }
 
 func (c *Client) GetWorkload(ctx context.Context, workloadId string) (*Workload, error) {
+	if workloadId == "" {
+		return nil, commonerrors.NewBadRequest("workloadId is empty")
+	}
 	dbTags := GetWorkloadFieldTags()
 	dbSql := sqrl.And{
 		sqrl.Eq{GetFieldTag(dbTags, "IsDeleted"): false},

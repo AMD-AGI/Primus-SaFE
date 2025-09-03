@@ -26,17 +26,24 @@ type CreateWorkspaceRequest struct {
 	Volumes []v1.WorkspaceVolume `json:"volumes,omitempty"`
 	// Is preemption enabled
 	EnablePreempt bool `json:"enablePreempt"`
+	// the manager's user_id of workspace
+	Managers []string `json:"managers,omitempty"`
 }
 
 type CreateWorkspaceResponse struct {
 	WorkspaceId string `json:"workspaceId"`
 }
 
-type GetWorkspaceRequest struct {
+type ListWorkspaceRequest struct {
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
 }
 
-type ListWorkspaceResponseItem struct {
+type ListWorkspaceResponse struct {
+	TotalCount int                     `json:"totalCount"`
+	Items      []WorkspaceResponseItem `json:"items"`
+}
+
+type WorkspaceResponseItem struct {
 	// workspace id
 	WorkspaceId string `json:"workspaceId"`
 	// workspace name
@@ -45,6 +52,8 @@ type ListWorkspaceResponseItem struct {
 	ClusterId string `json:"clusterId"`
 	// node flavor id
 	NodeFlavor string `json:"nodeFlavor"`
+	// the creator's id
+	UserId string `json:"userId"`
 	// total node count
 	TotalNode int `json:"totalNode"`
 	// abnormal node count
@@ -63,15 +72,12 @@ type ListWorkspaceResponseItem struct {
 	Volumes []v1.WorkspaceVolume `json:"volumes"`
 	// Is preemption enabled
 	EnablePreempt bool `json:"enablePreempt"`
-}
-
-type ListWorkspaceResponse struct {
-	TotalCount int                         `json:"totalCount"`
-	Items      []ListWorkspaceResponseItem `json:"items"`
+	// the manager's user_id
+	Managers []string `json:"managers"`
 }
 
 type GetWorkspaceResponse struct {
-	ListWorkspaceResponseItem
+	WorkspaceResponseItem
 	// the total resource of workspace
 	TotalQuota ResourceList `json:"totalQuota"`
 	// the available resource of workspace
@@ -97,4 +103,11 @@ type PatchWorkspaceRequest struct {
 	Description *string `json:"description,omitempty"`
 	// EnablePreempt
 	EnablePreempt *bool `json:"enablePreempt,omitempty"`
+	// the managers for workspace
+	Managers *[]string `json:"managers,omitempty"`
+}
+
+type WorkspaceEntry struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
 }

@@ -14,12 +14,12 @@ type CreateNodeTemplateResponse struct {
 	Id string `json:"id"`
 }
 
-type GetNodeTemplateResponseItem struct {
-	TemplateId     string   `json:"templateId"`
-	AddOnTemplates []string `json:"addOnTemplates"`
+type ListNodeTemplateResponse struct {
+	TotalCount int                        `json:"totalCount"`
+	Items      []NodeTemplateResponseItem `json:"items"`
 }
 
-type GetNodeTemplateResponse struct {
-	TotalCount int                           `json:"totalCount"`
-	Items      []GetNodeTemplateResponseItem `json:"items"`
+type NodeTemplateResponseItem struct {
+	TemplateId     string   `json:"templateId"`
+	AddOnTemplates []string `json:"addOnTemplates"`
 }

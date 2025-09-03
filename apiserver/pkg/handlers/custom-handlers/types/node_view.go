@@ -60,16 +60,12 @@ func (req *ListNodeRequest) GetClusterId() string {
 	return *req.ClusterId
 }
 
-type WorkloadInfo struct {
-	// workload id
-	Id string `json:"id"`
-	// workload submitter
-	User string `json:"user"`
-	// Workspace that the workload belongs to
-	Workspace string `json:"workspace"`
+type ListNodeResponse struct {
+	TotalCount int                `json:"totalCount"`
+	Items      []NodeResponseItem `json:"items"`
 }
 
-type GetNodeResponseItem struct {
+type NodeResponseItem struct {
 	// node id
 	NodeId string `json:"nodeId"`
 	// node display name
@@ -77,7 +73,7 @@ type GetNodeResponseItem struct {
 	// the node's cluster
 	Cluster string `json:"cluster"`
 	// the node's workspace
-	Workspace string `json:"workspace"`
+	Workspace WorkspaceEntry `json:"workspace"`
 	// the node's phase
 	Phase string `json:"phase"`
 	// the internal ip of k8s cluster
@@ -108,9 +104,13 @@ type GetNodeResponseItem struct {
 	IsControlPlane bool `json:"isControlPlane"`
 }
 
-type GetNodeResponse struct {
-	TotalCount int                   `json:"totalCount"`
-	Items      []GetNodeResponseItem `json:"items"`
+type WorkloadInfo struct {
+	// workload id
+	Id string `json:"id"`
+	// workload submitter
+	User string `json:"user"`
+	// Workspace that the workload belongs to
+	Workspace string `json:"workspace"`
 }
 
 type PatchNodeRequest struct {

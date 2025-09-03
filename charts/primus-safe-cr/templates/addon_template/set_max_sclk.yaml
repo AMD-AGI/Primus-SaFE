@@ -1,0 +1,14 @@
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: set-max-sclk
+  labels:
+    primus-safe.display.name: "set-max-sclk"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  category: System
+  description: Set max of SCLK speed. SCLK is a critical clock signal that provides the reference clock frequency for multiple components in the system.
+  action: c3lzdGVtZF9wYXRoPSIvZXRjL3N5c3RlbWQvc3lzdGVtIgpzeXN0ZW1kX3NjcmlwdD0iJHN5c3RlbWRfcGF0aC9zZXQtbWF4LXNjbGsuc2giCnN5c3RlbWRfc2VydmljZV9uYW1lPSJzZXQtbWF4LXNjbGsuc2VydmljZSIKc3lzdGVtZF9zZXJ2aWNlX3BhdGg9IiRzeXN0ZW1kX3BhdGgvJHN5c3RlbWRfc2VydmljZV9uYW1lIgoKaWYgWyAhIC1mICIkc3lzdGVtZF9zY3JpcHQiIF07IHRoZW4KICBlY2hvICIjIS9iaW4vc2gKaWYgWyAtZiAvdXNyL2Jpbi9yb2NtLXNtaSBdOyB0aGVuCiAgeWVzIHwgL3Vzci9iaW4vcm9jbS1zbWkgLS1zZXRleHRyZW11bSBtYXggc2NsayAxODAwCmZpIiA+ICRzeXN0ZW1kX3NjcmlwdAogIGNobW9kICt4ICIkc3lzdGVtZF9zY3JpcHQiCmZpCmlmIFsgLWYgIiRzeXN0ZW1kX3NlcnZpY2VfcGF0aCIgXTsgdGhlbgogIGV4aXQgMApmaQoKY2F0ID4gIiRzeXN0ZW1kX3NlcnZpY2VfcGF0aCIgPDwgJ0VPRicKW1VuaXRdCkRlc2NyaXB0aW9uPVNldCBNYXggU0NMSyAKQWZ0ZXI9bmV0d29yay50YXJnZXQKCltTZXJ2aWNlXQpUeXBlPW9uZXNob3QKRXhlY1N0YXJ0PS9iaW4vc2ggL2V0Yy9zeXN0ZW1kL3N5c3RlbS9zZXQtbWF4LXNjbGsuc2gKUmVtYWluQWZ0ZXJFeGl0PXllcwoKW0luc3RhbGxdCldhbnRlZEJ5PW11bHRpLXVzZXIudGFyZ2V0CkVPRgoKc3lzdGVtY3RsIGRhZW1vbi1yZWxvYWQgJiYgc3lzdGVtY3RsIGVuYWJsZSAiJHN5c3RlbWRfc2VydmljZV9uYW1lIiAmJiBzeXN0ZW1jdGwgc3RhcnQgIiRzeXN0ZW1kX3NlcnZpY2VfbmFtZSIKZXhpdCAkPwo=

@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -920,7 +921,7 @@ func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) 
 				v1.ClusterManageActionLabel: string(v1.ClusterScaleUpAction),
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: v1.SystemUser,
+				v1.UserNameAnnotation: common.UserSystem,
 			},
 			Name: v1.OpsJobKind + "-" + string(v1.OpsJobAddonType) + "-" + adminNode.Name,
 		},
@@ -954,7 +955,7 @@ func (r *NodeReconciler) doPreflight(ctx context.Context, adminNode *v1.Node) er
 				v1.ClusterManageActionLabel: string(v1.ClusterScaleUpAction),
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: v1.SystemUser,
+				v1.UserNameAnnotation: common.UserSystem,
 			},
 			Name: v1.OpsJobKind + "-" + string(v1.OpsJobPreflightType) + "-" + adminNode.Name,
 		},

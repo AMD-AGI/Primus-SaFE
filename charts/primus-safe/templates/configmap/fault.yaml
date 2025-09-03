@@ -31,8 +31,7 @@ data:
   sys_containerd_303: '{"id":"303","action":"taint","toggle":"on"}'
   sys_kernel_lock_304: '{"id":"304","action":"taint","toggle":"on"}'
   sys_acsctl_305: '{"id":"305","toggle":"on"}'
-  sys_iommu_306: '{"id":"306","toggle":"on"}'
-  sys_pci_realloc_307: '{"id":"307","toggle":"on"}'
+  sys_boot_args_306: '{"id":"306","toggle":"on"}'
   sys_pcie_link_308: '{"id":"308","toggle":"on"}'
   # Disk: 4XX
   disk_check_exist_401: '{"id":"401","toggle":"on"}'

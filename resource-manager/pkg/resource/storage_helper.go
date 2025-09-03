@@ -32,7 +32,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
@@ -554,23 +553,12 @@ func (s *storageCluster) getCephCluster(ctx context.Context, cluster *v1.Storage
 	}
 	cluster.Status.CephClusterStatus.Monitors = endpoints
 
-	cryptoInstance := crypto.NewCrypto()
-	sk := ""
-	if cluster.Status.CephClusterStatus.SecretKey != "" {
-		sk, err = cryptoInstance.Decrypt(cluster.Status.CephClusterStatus.SecretKey)
-		if err != nil {
-			return nil, fmt.Errorf("storage cluster %s decrypt secret key %s failed", cluster.Name, cluster.Status.CephClusterStatus.SecretKey)
-		}
-	}
 	secret, err := s.clientset.CoreV1().Secrets(cephCluster.Namespace).Get(ctx, "rook-ceph-mon", metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("get secret %s failed %+v", "rook-ceph-mon", err)
 	}
-	if string(secret.Data["ceph-secret"]) != sk {
-		cluster.Status.CephClusterStatus.SecretKey, err = cryptoInstance.Encrypt(secret.Data["ceph-secret"])
-		if err != nil {
-			return nil, fmt.Errorf("storage cluster %s ecrypt secret failed", cluster.Name)
-		}
+	if string(secret.Data["ceph-secret"]) != cluster.Status.CephClusterStatus.SecretKey {
+		cluster.Status.CephClusterStatus.SecretKey = string(secret.Data["ceph-secret"])
 		cluster.Status.CephClusterStatus.AccessKey = "admin"
 	}
 	return cephCluster, nil
@@ -905,15 +893,6 @@ func (s *storageCluster) getObjectStore(ctx context.Context, cluster *v1.Storage
 
 func (s *storageCluster) getRBD(ctx context.Context, cluster *v1.StorageCluster, name string, storage v1.Storage) (*v1.StorageStatus, error) {
 	namespace := cluster.Name
-	cryptoInstance := crypto.NewCrypto()
-	sk := ""
-	var err error
-	if cluster.Status.CephClusterStatus.SecretKey != "" {
-		sk, err = cryptoInstance.Decrypt(cluster.Status.CephClusterStatus.SecretKey)
-		if err != nil {
-			return nil, fmt.Errorf("storage cluster %s decrypt secret key %s failed", cluster.Name, cluster.Status.CephClusterStatus.SecretKey)
-		}
-	}
 	status := &v1.StorageStatus{
 		Storage:   storage,
 		ClusterId: cluster.Status.CephClusterStatus.ClusterId,
@@ -921,7 +900,7 @@ func (s *storageCluster) getRBD(ctx context.Context, cluster *v1.StorageCluster,
 		Pool:      name,
 		Phase:     v1.Creating,
 		AccessKey: cluster.Status.CephClusterStatus.AccessKey,
-		SecretKey: sk,
+		SecretKey: cluster.Status.CephClusterStatus.SecretKey,
 	}
 
 	pool, err := s.rookClientset.CephV1().CephBlockPools(namespace).Get(ctx, name, metav1.GetOptions{})
@@ -1015,15 +994,6 @@ func (s *storageCluster) getRBD(ctx context.Context, cluster *v1.StorageCluster,
 
 func (s *storageCluster) getFileSystem(ctx context.Context, cluster *v1.StorageCluster, name string, storage v1.Storage) (*v1.StorageStatus, error) {
 	namespace := cluster.Name
-	cryptoInstance := crypto.NewCrypto()
-	sk := ""
-	var err error
-	if cluster.Status.CephClusterStatus.SecretKey != "" {
-		sk, err = cryptoInstance.Decrypt(cluster.Status.CephClusterStatus.SecretKey)
-		if err != nil {
-			return nil, fmt.Errorf("storage cluster %s decrypt secret key %s failed", cluster.Name, cluster.Status.CephClusterStatus.SecretKey)
-		}
-	}
 	status := &v1.StorageStatus{
 		Storage:   storage,
 		ClusterId: cluster.Status.CephClusterStatus.ClusterId,
@@ -1031,7 +1001,7 @@ func (s *storageCluster) getFileSystem(ctx context.Context, cluster *v1.StorageC
 		Pool:      name,
 		Phase:     v1.Creating,
 		AccessKey: cluster.Status.CephClusterStatus.AccessKey,
-		SecretKey: sk,
+		SecretKey: cluster.Status.CephClusterStatus.SecretKey,
 	}
 	fs, err := s.rookClientset.CephV1().CephFilesystems(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {

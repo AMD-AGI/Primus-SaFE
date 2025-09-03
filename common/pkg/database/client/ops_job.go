@@ -29,7 +29,7 @@ var (
 		    delete_time = :delete_time,
 		    phase = :phase,
 		    conditions = :conditions,
-		    env := env,
+		    env = :env,
 		    outputs = :outputs 
 		WHERE job_id = :job_id`, TOpsJob)
 )
@@ -111,12 +111,22 @@ func (c *Client) CountJobs(ctx context.Context, query sqrl.Sqlizer) (int, error)
 	return cnt, err
 }
 
-func (c *Client) SetOpsJobDeleted(ctx context.Context, opsJobId string) error {
+func (c *Client) SetOpsJobDeleted(ctx context.Context, opsJobId, userId string) error {
 	db := c.db.Unsafe()
-	cmd := fmt.Sprintf(`UPDATE %s SET is_deleted=true WHERE job_id=$1`, TOpsJob)
-	_, err := db.ExecContext(ctx, cmd, opsJobId)
+
+	var cmd string
+	var args []interface{}
+	if userId != "" {
+		cmd = fmt.Sprintf(`UPDATE %s SET is_deleted = true WHERE job_id = $1 AND user_id = $2`, TOpsJob)
+		args = []interface{}{opsJobId, userId}
+	} else {
+		cmd = fmt.Sprintf(`UPDATE %s SET is_deleted = true WHERE job_id = $1`, TOpsJob)
+		args = []interface{}{opsJobId}
+	}
+
+	_, err := db.ExecContext(ctx, cmd, args...)
 	if err != nil {
-		klog.ErrorS(err, "failed to update opsjob db. ", "job_id", opsJobId)
+		klog.ErrorS(err, "failed to update opsjob db", "job_id", opsJobId, "user_id", userId)
 		return err
 	}
 	return nil

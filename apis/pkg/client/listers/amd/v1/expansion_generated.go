@@ -78,6 +78,14 @@ type ResourceTemplateListerExpansion interface{}
 // ResourceTemplateNamespaceLister.
 type ResourceTemplateNamespaceListerExpansion interface{}
 
+// RoleListerExpansion allows custom methods to be added to
+// RoleLister.
+type RoleListerExpansion interface{}
+
+// RoleNamespaceListerExpansion allows custom methods to be added to
+// RoleNamespaceLister.
+type RoleNamespaceListerExpansion interface{}
+
 // StorageClusterListerExpansion allows custom methods to be added to
 // StorageClusterLister.
 type StorageClusterListerExpansion interface{}
@@ -85,6 +93,14 @@ type StorageClusterListerExpansion interface{}
 // StorageClusterNamespaceListerExpansion allows custom methods to be added to
 // StorageClusterNamespaceLister.
 type StorageClusterNamespaceListerExpansion interface{}
+
+// UserListerExpansion allows custom methods to be added to
+// UserLister.
+type UserListerExpansion interface{}
+
+// UserNamespaceListerExpansion allows custom methods to be added to
+// UserNamespaceLister.
+type UserNamespaceListerExpansion interface{}
 
 // WorkloadListerExpansion allows custom methods to be added to
 // WorkloadLister.

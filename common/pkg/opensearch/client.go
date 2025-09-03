@@ -7,6 +7,7 @@ package opensearch
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -48,8 +49,7 @@ func NewClient() *SearchClient {
 	return instance
 }
 
-func (c *SearchClient) RequestByTimeRange(sinceTime, untilTime time.Time,
-	uri, httpMethod string, body []byte) ([]byte, error) {
+func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, uri string, body []byte) ([]byte, error) {
 	index, err := c.getQueryIndex(sinceTime, untilTime)
 	if err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func (c *SearchClient) RequestByTimeRange(sinceTime, untilTime time.Time,
 	if !strings.HasPrefix(uri, "/") {
 		uri = "/" + uri
 	}
-	return c.Request(index+uri, httpMethod, body)
+	return c.Request(index+uri, http.MethodPost, body)
 }
 
 func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, error) {

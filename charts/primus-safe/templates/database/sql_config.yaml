@@ -100,3 +100,6 @@ data:
     create index if not exists T_JOB_CREATE_TIME_INDEX on ops_job (create_time);
     create index if not exists T_JOB_PHASE_INDEX on ops_job (phase);
     create index if not exists T_JOB_PARAMS_INDEX on ops_job (inputs);
+
+    alter table workload add column if not exists user_id VARCHAR(64);
+    alter table ops_job add column if not exists user_id VARCHAR(64);

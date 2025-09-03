@@ -53,4 +53,12 @@ const (
 
 	CustomerLabelPrefix = "customer."
 	K8sHostNameLabel    = "kubernetes.io/hostname"
+
+	UserName              = "userName"
+	UserId                = "userId"
+	UserSelf              = "self"
+	UserSystem            = "system"
+	UserType              = "userType"
+	UserWorkspaces        = "workspaces"
+	UserManagedWorkspaces = "managedWorkspaces"
 )

@@ -14,6 +14,7 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -28,6 +29,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
+	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -56,7 +58,8 @@ func (m *WorkspaceMutator) Handle(ctx context.Context, req admission.Request) ad
 		return admission.Allowed("")
 	}
 	workspace := &v1.Workspace{}
-	if err := m.decoder.Decode(req, workspace); err != nil {
+	var err error
+	if err = m.decoder.Decode(req, workspace); err != nil {
 		return handleError(v1.WorkspaceKind, err)
 	}
 	if !workspace.GetDeletionTimestamp().IsZero() {
@@ -65,14 +68,15 @@ func (m *WorkspaceMutator) Handle(ctx context.Context, req admission.Request) ad
 
 	switch req.Operation {
 	case admissionv1.Create:
-		m.mutateOnCreation(ctx, workspace)
+		err = m.mutateOnCreation(ctx, workspace)
 	case admissionv1.Update:
 		oldWorkspace := &v1.Workspace{}
 		if m.decoder.DecodeRaw(req.OldObject, oldWorkspace) == nil {
-			if err := m.mutateOnUpdate(ctx, oldWorkspace, workspace); err != nil {
-				return handleError(v1.WorkspaceKind, err)
-			}
+			err = m.mutateOnUpdate(ctx, oldWorkspace, workspace)
 		}
+	}
+	if err != nil {
+		return handleError(v1.WorkspaceKind, err)
 	}
 	data, err := json.Marshal(workspace)
 	if err != nil {
@@ -81,15 +85,25 @@ func (m *WorkspaceMutator) Handle(ctx context.Context, req admission.Request) ad
 	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
-func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.Workspace) {
-	m.mutateMeta(ctx, workspace)
+func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.Workspace) error {
+	if err := m.mutateMeta(ctx, workspace); err != nil {
+		return err
+	}
 	m.mutateSpec(workspace)
-	m.mutateCommon(ctx, workspace)
+	if err := m.mutateCommon(ctx, workspace); err != nil {
+		return err
+	}
 	m.mutateVolumes(workspace)
+	if err := m.mutateManagers(ctx, nil, workspace); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
-	m.mutateCommon(ctx, newWorkspace)
+	if err := m.mutateCommon(ctx, newWorkspace); err != nil {
+		return err
+	}
 	if v1.GetWorkspaceNodesAction(oldWorkspace) != v1.GetWorkspaceNodesAction(newWorkspace) {
 		if err := m.mutateNodesAction(ctx, oldWorkspace, newWorkspace); err != nil {
 			return err
@@ -102,24 +116,29 @@ func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, new
 			return err
 		}
 	}
+	if err := m.mutateManagers(ctx, oldWorkspace, newWorkspace); err != nil {
+		return err
+	}
 	return nil
 }
 
-func (m *WorkspaceMutator) mutateMeta(ctx context.Context, workspace *v1.Workspace) {
+func (m *WorkspaceMutator) mutateMeta(ctx context.Context, workspace *v1.Workspace) error {
 	workspace.Name = stringutil.NormalizeName(workspace.Name)
 	if workspace.Spec.Cluster != "" {
-		cl, _ := getCluster(ctx, m.Client, workspace.Spec.Cluster)
-		if cl != nil {
-			if !hasOwnerReferences(workspace, cl.Name) {
-				if err := controllerutil.SetControllerReference(cl, workspace, m.Client.Scheme()); err != nil {
-					klog.ErrorS(err, "failed to SetControllerReference")
-				}
-			}
-			v1.SetLabel(workspace, v1.ClusterIdLabel, workspace.Spec.Cluster)
+		cl, err := getCluster(ctx, m.Client, workspace.Spec.Cluster)
+		if err != nil {
+			return err
 		}
+		if !hasOwnerReferences(workspace, cl.Name) {
+			if err := controllerutil.SetControllerReference(cl, workspace, m.Client.Scheme()); err != nil {
+				klog.ErrorS(err, "failed to SetControllerReference")
+			}
+		}
+		v1.SetLabel(workspace, v1.ClusterIdLabel, workspace.Spec.Cluster)
 	}
 	v1.SetLabel(workspace, v1.WorkspaceIdLabel, workspace.Name)
 	controllerutil.AddFinalizer(workspace, v1.WorkspaceFinalizer)
+	return nil
 }
 
 func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
@@ -181,16 +200,20 @@ func (m *WorkspaceMutator) mutateVolumes(workspace *v1.Workspace) {
 	}
 }
 
-func (m *WorkspaceMutator) mutateCommon(ctx context.Context, workspace *v1.Workspace) {
+func (m *WorkspaceMutator) mutateCommon(ctx context.Context, workspace *v1.Workspace) error {
 	if workspace.Spec.NodeFlavor == "" {
 		workspace.Spec.Replica = 0
 	} else if v1.GetGpuResourceName(workspace) == "" {
-		nf, _ := getNodeFlavor(ctx, m.Client, workspace.Spec.NodeFlavor)
+		nf, err := getNodeFlavor(ctx, m.Client, workspace.Spec.NodeFlavor)
+		if err != nil {
+			return err
+		}
 		if nf != nil && nf.HasGpu() {
 			v1.SetAnnotation(workspace, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName)
 			v1.SetLabel(workspace, v1.GpuProductNameLabel, nf.Spec.Gpu.Product)
 		}
 	}
+	return nil
 }
 
 // A scale-down operation is performed by deleting specific nodes via nodeAction.
@@ -244,6 +267,53 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 		}
 		if err = m.Patch(ctx, w, patch); err != nil {
 			klog.ErrorS(err, "failed to patch workload")
+		}
+	}
+	return nil
+}
+
+func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
+	var currentManagers []string
+	if oldWorkspace != nil {
+		currentManagers = oldWorkspace.Spec.Managers
+	}
+	toAddManagers := sliceutil.Difference(newWorkspace.Spec.Managers, currentManagers)
+	for _, userId := range toAddManagers {
+		user, err := getUser(ctx, m.Client, userId)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				newWorkspace.Spec.Managers, _ = sliceutil.RemoveString(newWorkspace.Spec.Managers, userId)
+				continue
+			}
+			return err
+		}
+		isChanged := false
+		if commonuser.AddWorkspace(user, newWorkspace.Name) {
+			isChanged = true
+		}
+		if commonuser.AddManagedWorkspace(user, newWorkspace.Name) {
+			isChanged = true
+		}
+		if isChanged {
+			if err = m.Update(ctx, user); err != nil {
+				return err
+			}
+		}
+	}
+	toDelManagers := sliceutil.Difference(currentManagers, newWorkspace.Spec.Managers)
+	for _, userId := range toDelManagers {
+		user, err := getUser(ctx, m.Client, userId)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				newWorkspace.Spec.Managers, _ = sliceutil.RemoveString(newWorkspace.Spec.Managers, userId)
+				continue
+			}
+			return err
+		}
+		if commonuser.RemoveManagedWorkspace(user, newWorkspace.Name) {
+			if err = m.Update(ctx, user); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

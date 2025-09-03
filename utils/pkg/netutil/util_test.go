@@ -6,15 +6,37 @@
 package netutil
 
 import (
-	"fmt"
 	"testing"
 
 	"gotest.tools/assert"
 )
 
 func TestGetSecondLevelDomain(t *testing.T) {
-	host := "https://arsenal.amd.ai"
+	host := "https://primus-safe.amd.primus.ai"
 	domain := GetSecondLevelDomain(host)
-	fmt.Println(domain)
-	assert.Equal(t, domain, "amd.ai")
+	assert.Equal(t, domain, "primus.ai")
+
+	host = "primus-safe.amd.primus.ai"
+	domain = GetSecondLevelDomain(host)
+	assert.Equal(t, domain, "primus.ai")
+}
+
+func TestGetHostname(t *testing.T) {
+	uri := "http://primus-safe.amd.primus.ai/login"
+	homepage := GetHostname(uri)
+	assert.Equal(t, homepage, "primus-safe.amd.primus.ai")
+
+	uri = "http://localhost:5173/login"
+	homepage = GetHostname(uri)
+	assert.Equal(t, homepage, "localhost")
+}
+
+func TestGetSchemeHost(t *testing.T) {
+	uri := "https://primus-safe.amd.primus.ai/login"
+	homepage := GetSchemeHost(uri)
+	assert.Equal(t, homepage, "https://primus-safe.amd.primus.ai")
+
+	uri = "http://localhost:5173/login"
+	homepage = GetSchemeHost(uri)
+	assert.Equal(t, homepage, "http://localhost:5173")
 }

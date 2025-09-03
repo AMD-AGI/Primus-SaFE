@@ -17,25 +17,22 @@ from concurrent.futures import ThreadPoolExecutor
 
 # ================= configuration =================
 MPIEXEC = "/opt/mpich/bin/mpirun"
-RCCL_TEST = "/opt/rccl-tests/build/all_reduce_perf"
+RCCL_ALL_REDUCE_PERF = "/opt/rccl-tests/build/all_reduce_perf"
+RCCL_ALL_TO_ALL_PERF = "/opt/rccl-tests/build/alltoall_perf"
 NUM_GPUS_PER_NODE = 8
-TEST_SIZE = "2G"
+MAX_BYTES = "1G"
 
 LD_LIBRARY_PATH = "/opt/rocm/lib:/opt/mpich/lib:/usr/local/lib"
 RCCL_SOCKET_IFNAME = "ens51f0"
 RCCL_IB_HCA = "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
-NCCL_IB_GID_INDEX = "3"
+NCCL_IB_GID_INDEX = 3
+RCCL_TEST_TYPE = 0
 SSH_PORT = 22
 
 DEBUG_MODE = False
 healthy_node_queue: Queue[str] = Queue()
 # for log output
 print_lock = threading.Lock()
-
-total_nodes = 0
-total_unhealthy_nodes = 0
-stats_lock = threading.Lock()
-
 # ===========================================
 
 def log(msg: str):
@@ -48,20 +45,35 @@ def get_log_filename(nodes: List[str]) -> str:
     hash_hex = hash_obj.hexdigest()[:16]
     return f"/tmp/rccl_test_{hash_hex}.log"
 
-def ip_to_number(ip):
-    return sum(int(octet) << (8 * i) for i, octet in enumerate(reversed(ip.split('.'))))
+def threshold(node_count: int) -> float:
+    if RCCL_TEST_TYPE == 0:
+        return 300.0
+    try:
+        bnic = float(os.environ['BNIC'])
+        bxgmi = float(os.environ['BXGMI'])
+    except (KeyError, ValueError):
+        bnic = 50.0
+        bxgmi = 315.0
+    G_PER_NODE = 8
+    # Calculate traffic fractions
+    remote_frac = (node_count - 1) / node_count
+    local_frac = (G_PER_NODE - 1) / (G_PER_NODE * node_count)
+    # Compute effective bandwidth
+    beff = 1 / (remote_frac / bnic + local_frac / bxgmi)
+    beff *= 0.7
+    return beff
 
-def number_to_ip(num):
-    return '.'.join(str((num >> (8 * i)) & 255) for i in reversed(range(4)))
-
-def get_sort_ip(hosts_file):
-    ip_list = []
+def get_randomized_hosts(hosts_file) -> List[str]:
+    entries = []
     with open(hosts_file, "r") as file:
         for line in file:
-            if line.strip() and line.strip()[0].isdigit():
-                ip_list.append(line.strip())
-    return [number_to_ip(ip_to_number(ip)) for ip in sorted(ip_list, key=ip_to_number)]
+            item = line.strip()
+            if not item or item.startswith('#'):
+                continue
+            entries.append(item)
 
+    random.shuffle(entries)
+    return entries
 def parse_size(size_str: str) -> int:
     size_str = size_str.strip().upper()
     units = {'K': 1024, 'M': 1024**2, 'G': 1024**3, 'T': 1024**4}
@@ -80,8 +92,8 @@ def parse_size(size_str: str) -> int:
 
 def run_rccl_test(nodes: List[str]) -> float:
     """
-    do rccl/all_reduce_perf test on specified nodes
-    return: busbw (GB/s)
+    do rccl/all_reduce_perf or rccl/alltoall_perf test on specified nodes
+    return: algbw (GB/s)
     """
     if len(nodes) < 2:
         log(f"[WARN] Not enough nodes ({nodes}) for RCCL test.")
@@ -99,13 +111,21 @@ def run_rccl_test(nodes: List[str]) -> float:
     env_vars["MPIEXEC_ALLOW_ROOT"] = "1"
     env_vars["NCCL_IB_HCA"] = RCCL_IB_HCA
     env_vars["NCCL_SOCKET_IFNAME"] = RCCL_SOCKET_IFNAME
-    env_vars["NCCL_IB_GID_INDEX"] = NCCL_IB_GID_INDEX
+    env_vars["NCCL_IB_GID_INDEX"] = str(NCCL_IB_GID_INDEX)
     env_vars["LD_LIBRARY_PATH"] = LD_LIBRARY_PATH
-    env_vars["MPIEXEC_RSH"] = f"ssh -p {SSH_PORT}"
+    env_vars["MPIEXEC_RSH"] = f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
     if DEBUG_MODE:
         env_vars["NCCL_DEBUG"] = "INFO"
+    if RCCL_TEST_TYPE == 0:
+        RCCL_TEST = RCCL_ALL_REDUCE_PERF
+    elif RCCL_TEST_TYPE == 1:
+        RCCL_TEST = RCCL_ALL_TO_ALL_PERF
+        env_vars["NCCL_PXN_DISABLE"] = "0"
+        env_vars["NCCL_P2P_NET_CHUNKSIZE"] = "524288"
+    else:
+        raise ValueError("Invalid RCCL_TEST_TYPE")
     cmd.append(RCCL_TEST)
-    cmd.extend(["-b", "64M", "-e", TEST_SIZE, "-f", "2", "-g", "1"])
+    cmd.extend(["-b", "16M", "-e", MAX_BYTES, "-f", "2", "-g", "1"])
 
     log_file = get_log_filename(nodes)
     log(f"# Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -132,19 +152,22 @@ def run_rccl_test(nodes: List[str]) -> float:
             print(result.stdout)
             f.write(result.stdout)
 
-        target_size = str(parse_size(TEST_SIZE))
+        target_size = str(parse_size(MAX_BYTES))
         lines = result.stdout.splitlines()
         for line in lines:
             if target_size in line:
                 parts = line.strip().split()
-                if len(parts) >= 8:
+                if len(parts) > 11:
                     try:
-                        busbw = float(parts[7])
-                        log(f"[INFO] After test on {nodes}, busbw = {busbw:.2f} GB/s")
-                        return busbw
+                        if RCCL_TEST_TYPE == 0:
+                            algbw = float(parts[11])
+                        else:
+                            algbw = float(parts[10])
+                        log(f"[INFO] After test on {nodes}, algbw = {algbw:.2f} GB/s")
+                        return algbw
                     except ValueError:
                         continue
-        log(f"[FAIL] Failed to parse busbw from output for {nodes}")
+        log(f"[FAIL] Failed to parse algbw from output for {nodes}")
         return 0.0
     except subprocess.TimeoutExpired:
         log(f"[Exception] RCCL test timed out for {nodes}")
@@ -170,15 +193,14 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 1800.0) -> 
         try:
             healthy_node = healthy_node_queue.get_nowait()
             log(f"[COMBINE] Testing {suspect_node} + {healthy_node} ...")
-            busbw = run_rccl_test([suspect_node, healthy_node])
-            is_faulty = busbw < THRESHOLD_GBPS
-            log(f"[RESULT] {suspect_node}+{healthy_node} -> {busbw:.2f} GB/s -> {'FAULTY' if is_faulty else 'OK'}")
+            test_nodes=[suspect_node, healthy_node]
+            algbw = run_rccl_test(test_nodes)
+            limit = threshold(len(test_nodes))
+            is_faulty = algbw < limit
+            log(f"[RESULT] {suspect_node}+{healthy_node} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
             healthy_node_queue.put(healthy_node)
             return suspect_node, is_faulty
         except Exception:
-            with stats_lock:
-                if total_unhealthy_nodes >= total_nodes:
-                    break
             time.sleep(1)
             continue
     log(f"[TIMEOUT] failed to get healthy node for {suspect_node}")
@@ -186,24 +208,19 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 1800.0) -> 
 
 def recursive_diagnose(nodes: List[str]) -> List[str]:
     """
-    Recursively diagnose nodes and return the finally confirmed faulty nodes (those still < 300 when combined with healthy nodes).
+    Recursively diagnose nodes and return the finally confirmed faulty nodes (those still < threshold when combined with healthy nodes).
     """
-    global total_unhealthy_nodes
-    busbw = run_rccl_test(nodes)
-    log(f"[RESULT] {nodes} -> {busbw:.2f} GB/s")
+    algbw = run_rccl_test(nodes)
+    limit = threshold(len(nodes))
+    log(f"[RESULT] {nodes} -> {algbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
 
-    if busbw >= THRESHOLD_GBPS:
+    if algbw >= limit:
         log(f"[PASS] Group {nodes} is healthy. Adding to global healthy pool.")
         for node in nodes:
             healthy_node_queue.put(node)
         return []
 
     if len(nodes) <= 2:
-        with stats_lock:
-            total_unhealthy_nodes += len(nodes)
-            if total_unhealthy_nodes >= total_nodes:
-                return nodes
-
         log(f"[FINAL CHECK] Testing {nodes} individually with healthy nodes.")
         bad_nodes = []
         # Parallel testing (up to MAX_CONCURRENT_TESTS)
@@ -238,10 +255,8 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
             confirmed_bad.extend(bad_b)
     return list(set(confirmed_bad))
 
-def main():
+def parse_args() -> List[str]:
     parser = argparse.ArgumentParser(description="RCCL Fault Diagnoser")
-    # threshold of bandwidth (GB/s)
-    parser.add_argument("--threshold", type=float, default=280.0, help="Threshold in GB/s")
     # Maximum concurrent testing tasks (to avoid system overload)
     parser.add_argument("--max-concurrent", type=int, default=8, help="Max concurrent")
     # enable debug
@@ -249,38 +264,53 @@ def main():
     parser.add_argument("--socket-ifname", type=str, default="ens51f0",
                         help="Network interface for RCCL_SOCKET_IFNAME (default: ens51f0)")
     parser.add_argument("--ib-hca", type=str, default="bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7",
-                    help="InfiniBand HCAs for RCCL_IB_HCA (default: bnxt_re[0-7])")
+                        help="InfiniBand HCAs for RCCL_IB_HCA (default: bnxt_re[0-7])")
     parser.add_argument("--ssh-port", type=int, default="22",
                         help="port for SSH to connect to (default: 22)")
+    parser.add_argument("--nodes-file", type=str, default="/root/hosts",
+                        help="node list file")
+    parser.add_argument("--max-bytes", type=str, default="1G",
+                        help="maxbytes for rccl-test")
+    parser.add_argument("--ib-gid-index", type=int, default=3, help="NCCL_IB_GID_INDEX")
+    parser.add_argument("--rccl-test-type", type=int, default=0, choices=[0, 1], help="0: all_reduce_perf, 1: alltoall_perf")
     args = parser.parse_args()
 
-    nodes = get_sort_ip("/root/hosts")
-    if len(nodes) < 2:
-        print("Error: At least 2 nodes are required.")
-        sys.exit(1)
-
-    global THRESHOLD_GBPS, MAX_CONCURRENT_TESTS, DEBUG_MODE,  RCCL_SOCKET_IFNAME, RCCL_IB_HCA, SSH_PORT
-    THRESHOLD_GBPS = args.threshold
+    global MAX_CONCURRENT_TESTS, DEBUG_MODE, RCCL_SOCKET_IFNAME, RCCL_IB_HCA, SSH_PORT, NCCL_IB_GID_INDEX, RCCL_TEST_TYPE, MAX_BYTES
     MAX_CONCURRENT_TESTS = args.max_concurrent
     DEBUG_MODE = args.debug
     RCCL_SOCKET_IFNAME = args.socket_ifname
     RCCL_IB_HCA = args.ib_hca
     SSH_PORT = args.ssh_port
+    NCCL_IB_GID_INDEX = args.ib_gid_index
+    RCCL_TEST_TYPE = args.rccl_test_type
+    MAX_BYTES = args.max_bytes
 
-    log(f"🔍 Starting diagnosis on {nodes}, threshold = {THRESHOLD_GBPS} GB/s")
+    nodes = get_randomized_hosts(args.nodes_file)
+    return nodes
+
+def main():
+    nodes = parse_args()
+    if len(nodes) < 2:
+        print("Error: At least 2 nodes are required.")
+        sys.exit(1)
+
+    log(f"🔍 Starting diagnosis on {nodes}, rccl_test_type={RCCL_TEST_TYPE}")
     log("⚙️ Starting recursive diagnosis...")
     global healthy_node_queue
     healthy_node_queue = Queue()
-    global total_nodes, total_unhealthy_nodes
-    total_nodes = len(nodes)
-    total_unhealthy_nodes = 0
 
     bad_nodes = recursive_diagnose(nodes)
     if bad_nodes:
-        log(f"[ERROR] unhealthy nodes: {bad_nodes}")
+        if RCCL_TEST_TYPE == 0:
+            log(f"[ERROR] unhealthy nodes: {bad_nodes}, obtained through all_reduce_perf")
+        else:
+            log(f"[ERROR] unhealthy nodes: {bad_nodes}, obtained through alltoall_perf")
         sys.exit(1)
     else:
-        log("[SUCCESS] all passed")
+        if RCCL_TEST_TYPE == 0:
+            log(f"[SUCCESS] ✅ all passed, obtained through all_reduce_perf")
+        else:
+            log(f"[SUCCESS] ✅ all passed, obtained through alltoall_perf")
         sys.exit(0)
 
 if __name__ == "__main__":

@@ -10,17 +10,17 @@ import (
 )
 
 const (
-	LogId = "logId"
+	DocId = "docId"
 )
 
-type GetLogRequest struct {
+type ListLogRequest struct {
 	// Start timestamp of the query. defaults to one day ago. e.g.: '2006-01-02T15:04:05.000Z'
 	Since string `json:"since,omitempty"`
 	// End timestamp of the query, defaults to current time.
 	Until string `json:"until,omitempty"`
-	// Starting offset for the results
+	// Starting offset for the results. default 0
 	Offset int `json:"offset,omitempty"`
-	// Limit the number of returned results
+	// Limit the number of returned results. default 100
 	Limit int `json:"limit,omitempty"`
 	// asc/desc
 	Order string `json:"order,omitempty"`
@@ -42,7 +42,9 @@ type GetLogRequest struct {
 	Filters   map[string]string `json:"-"`
 }
 
-type GetLogRequestWrapper struct {
-	Query *GetLogRequest
+type ListContextLogRequest struct {
+	Query *ListLogRequest
 	Id    int
+	Limit int
+	DocId string
 }
