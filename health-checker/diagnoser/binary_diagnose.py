@@ -307,7 +307,10 @@ def main():
             log(f"[ERROR] unhealthy nodes: {bad_nodes}, obtained through alltoall_perf")
         sys.exit(1)
     else:
-        log("[SUCCESS] all passed")
+        if RCCL_TEST_TYPE == 0:
+            log(f"[SUCCESS] ✅ all passed, obtained through all_reduce_perf")
+        else:
+            log(f"[SUCCESS] ✅ all passed, obtained through alltoall_perf")
         sys.exit(0)
 
 if __name__ == "__main__":

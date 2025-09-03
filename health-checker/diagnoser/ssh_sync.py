@@ -23,8 +23,8 @@ import logging
 import shutil
 import struct
 from datetime import timedelta
+import fcntl
 import torch.distributed as dist
-
 
 # ==================== Configuration ====================
 DEFAULT_INTERFACE = "eth0"  # Network interface name used to get local IP
@@ -36,15 +36,13 @@ BACKUP_SUFFIX = ".backup"
 LOG_LEVEL = logging.INFO
 # ======================================================
 
-
 def setup_logging():
     """Set up logging with rank information in the format."""
     logging.basicConfig(
         level=LOG_LEVEL,
-        format="[%(asctime)s] %(levelname)s [%(funcName)s] [Rank %(rank)s] %(message)s",
+        format="[%(asctime)s] %(levelname)s [%(funcName)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-
 
 def parse_args():
     """Parse command line arguments."""
@@ -187,6 +185,7 @@ def init_distributed(args):
         logging.warning("Distributed already initialized.")
         return
 
+    os.environ['TORCH_DISTRIBUTED_DEFAULT_TIMEOUT'] = '3600'
     dist.init_process_group(
         backend=args.distributed_backend,
         init_method="env://",
@@ -269,21 +268,27 @@ def main():
 
     success = True
     try:
-        sync_ssh_data(args)
+        sync_ssh_data(args)  # This already has a barrier at the end
     except Exception as e:
         logging.critical(f"Rank {dist.get_rank() if dist.is_initialized() else 'unknown'} got uncaught exception: {e}", exc_info=True)
         success = False
-    finally:
-        if dist.is_initialized():
-            try:
-                dist.barrier(timeout=timedelta(seconds=30))
-                dist.destroy_process_group()
-                logging.info("Distributed process group destroyed.")
-            except Exception as e:
-                logging.warning(f"Error destroying process group: {e}")
+
+    if dist.is_initialized():
+        try:
+            # Use barrier before any cleanup
+            dist.barrier()
+            logging.info("All ranks reached the barrier. Proceeding to cleanup.")
+        except Exception as e:
+            logging.warning(f"Barrier before destroy failed: {e}")
+
+        # Now safely destroy
+        try:
+            dist.destroy_process_group()
+            logging.info("Distributed process group destroyed.")
+        except Exception as e:
+            logging.warning(f"Error destroying process group: {e}")
 
     sys.exit(0 if success else 1)
-
 
 if __name__ == "__main__":
     main()

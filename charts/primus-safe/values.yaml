@@ -19,7 +19,7 @@ preprocess:
 preflight:
   image: "preflight:202507301344"
 diagnose:
-  image: "diagnose:202508311614"
+  image: "diagnose:202509030852"
 db:
   enable: true
   storage_class: "juicefs"
