@@ -27,7 +27,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 )
 
 type StorageClusterController struct {
@@ -455,14 +454,7 @@ func (r *StorageClusterController) getStorageCluster(ctx context.Context, sc *v1
 func updateStorageStatus(kc *v1.Cluster, s v1.StorageStatus) {
 	for i, stats := range kc.Status.StorageStatus {
 		if stats.Name == s.Name {
-			cryptoInstance := crypto.NewCrypto()
-			sk, _ := cryptoInstance.Decrypt(stats.SecretKey)
-			if sk == s.SecretKey {
-				s.SecretKey = kc.Status.StorageStatus[i].SecretKey
-			} else {
-				s.SecretKey, _ = cryptoInstance.Encrypt([]byte(s.SecretKey))
-			}
-			kc.Status.StorageStatus[i] = s
+			kc.Status.StorageStatus[i].SecretKey = s.SecretKey
 			return
 		}
 	}

@@ -2,9 +2,10 @@ apiVersion: v1
 data:
   config.yaml: |
     global:
-      enable_crypto: {{ default false (default .Values.crypto).enable }}
-      crypto_key: {{ default "/etc/secrets" (default .Values.crypto).mount_path }}/key
       rdma_name: {{ .Values.net.rdma_name }}
+    crypto:
+      enable: true
+      config_path: {{ default "/etc/secrets/crypto" (default .Values.crypto).mount_path }}
     server:
       port: {{ default 8088 (default .Values.apiserver).port }}
     health_check:
@@ -41,7 +42,10 @@ data:
       enable: {{ .Values.s3.enable }}
     ops_job:
       preflight_image: docker.io/primussafe/{{ .Values.preflight.image }}
-      diagnose_image: {{ default "" (default .Values.diagnose).image }}
+      diagnose_image: docker.io/primussafe/{{ .Values.diagnose.image }}
+    user:
+      enable_authority: {{ .Values.user.enable_authority }}
+      token_expire: 604800
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

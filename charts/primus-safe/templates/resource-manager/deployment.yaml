@@ -43,11 +43,6 @@ spec:
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
           volumeMounts:
-            {{- if default false (default .Values.crypto).enable }}
-            - name: crypto-secret
-              mountPath: {{ default "/etc/secrets" (default .Values.crypto).mount_path }}
-              readOnly: true
-            {{- end }}
             - name: server-config
               mountPath: /opt/primus-safe/resource-manager/config
               readOnly: true
@@ -97,11 +92,6 @@ spec:
       imagePullSecrets:
       - name: {{ .Release.Name }}-image
       volumes:
-        {{- if default false (default .Values.crypto).enable }}
-        - name: crypto-secret
-          secret:
-            secretName: {{ .Release.Name }}-crypto
-        {{- end }}
         {{- if .Values.db.enable }}
         - name: db-secret
           secret:

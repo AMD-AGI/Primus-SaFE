@@ -15,8 +15,11 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -37,6 +40,7 @@ type Handler struct {
 	dbClient      dbclient.Interface
 	httpClient    httpclient.Interface
 	clientManager *commonutils.ObjectManager
+	auth          *authority.Authorizer
 }
 
 func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
@@ -58,6 +62,7 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 		dbClient:      dbClient,
 		httpClient:    httpclient.NewHttpClient(),
 		clientManager: commonutils.NewObjectManagerSingleton(),
+		auth:          authority.NewAuthorizer(mgr.GetClient()),
 	}
 	return h, nil
 }
@@ -112,4 +117,17 @@ func cvtToResourceList(resourceList corev1.ResourceList) types.ResourceList {
 		}
 	}
 	return result
+}
+
+func (h *Handler) getAndSetUsername(c *gin.Context) (*v1.User, error) {
+	userId := c.GetString(common.UserId)
+	if userId == "" {
+		return nil, nil
+	}
+	user, err := h.auth.GetRequestUser(c.Request.Context(), userId)
+	if err != nil {
+		return nil, err
+	}
+	c.Set(common.UserName, v1.GetUserName(user))
+	return user, nil
 }

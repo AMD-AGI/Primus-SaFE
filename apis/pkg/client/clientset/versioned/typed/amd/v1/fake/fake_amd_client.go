@@ -52,8 +52,16 @@ func (c *FakeAmdV1) ResourceTemplates(namespace string) v1.ResourceTemplateInter
 	return newFakeResourceTemplates(c, namespace)
 }
 
+func (c *FakeAmdV1) Roles(namespace string) v1.RoleInterface {
+	return newFakeRoles(c, namespace)
+}
+
 func (c *FakeAmdV1) StorageClusters(namespace string) v1.StorageClusterInterface {
 	return newFakeStorageClusters(c, namespace)
+}
+
+func (c *FakeAmdV1) Users(namespace string) v1.UserInterface {
+	return newFakeUsers(c, namespace)
 }
 
 func (c *FakeAmdV1) Workloads(namespace string) v1.WorkloadInterface {

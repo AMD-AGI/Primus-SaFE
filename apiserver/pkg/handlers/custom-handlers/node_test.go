@@ -126,7 +126,7 @@ func TestListNodes(t *testing.T) {
 	h.ListNode(c)
 	assert.Equal(t, rsp.Code, http.StatusOK)
 
-	result := &types.GetNodeResponse{}
+	result := &types.ListNodeResponse{}
 	err := json.Unmarshal(rsp.Body.Bytes(), &result)
 	assert.NilError(t, err)
 	assert.Equal(t, result.TotalCount, 2)
@@ -136,7 +136,7 @@ func TestListNodes(t *testing.T) {
 
 	assert.Equal(t, result.Items[0].NodeId, adminNode1.Name)
 	assert.Equal(t, result.Items[0].Cluster, clusterId)
-	assert.Equal(t, result.Items[0].Workspace, workspace.Name)
+	assert.Equal(t, result.Items[0].Workspace.Id, workspace.Name)
 	assert.Equal(t, result.Items[0].TotalResources["cpu"], int64(64))
 	assert.Equal(t, result.Items[0].TotalResources["memory"], int64(2*1024*1024*1024))
 	assert.Equal(t, result.Items[0].TotalResources[common.AmdGpu], int64(8))
@@ -147,7 +147,7 @@ func TestListNodes(t *testing.T) {
 
 	assert.Equal(t, result.Items[1].NodeId, adminNode2.Name)
 	assert.Equal(t, result.Items[1].Cluster, clusterId)
-	assert.Equal(t, result.Items[1].Workspace, workspace.Name)
+	assert.Equal(t, result.Items[1].Workspace.Id, workspace.Name)
 	assert.Equal(t, result.Items[1].TotalResources["cpu"], int64(64))
 	assert.Equal(t, result.Items[1].TotalResources["memory"], int64(2*1024*1024*1024))
 	assert.Equal(t, result.Items[1].TotalResources[common.AmdGpu], int64(8))
@@ -220,11 +220,11 @@ func TestNodeSort(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "n2"},
 		Status:     v1.NodeStatus{MachineStatus: v1.MachineStatus{PrivateIP: "10.0.0.2"}},
 	}}
-	nodeWrappers := sortAdminNodes(nodes)
+	nodes2 := sortAdminNodes(nodes)
 
-	assert.Equal(t, nodeWrappers[0].Node.Name, "n1")
-	assert.Equal(t, nodeWrappers[1].Node.Name, "n2")
-	assert.Equal(t, nodeWrappers[2].Node.Name, "n100")
+	assert.Equal(t, nodes2[0].Name, "n1")
+	assert.Equal(t, nodes2[1].Name, "n2")
+	assert.Equal(t, nodes2[2].Name, "n100")
 }
 
 func TestParseListNodeQuery(t *testing.T) {

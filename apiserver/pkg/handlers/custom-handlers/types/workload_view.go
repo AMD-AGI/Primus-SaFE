@@ -17,15 +17,13 @@ type CreateWorkloadRequest struct {
 	DisplayName string `json:"displayName"`
 	// workload description
 	Description string `json:"description,omitempty"`
-	// workload submitter
-	UserName string `json:"userName,omitempty"`
 }
 
 type CreateWorkloadResponse struct {
 	WorkloadId string `json:"workloadId"`
 }
 
-type GetWorkloadRequest struct {
+type ListWorkloadRequest struct {
 	// workspace id
 	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`
 	// Valid values include: Succeeded,Failed,Pending,Running,Stopped
@@ -33,6 +31,8 @@ type GetWorkloadRequest struct {
 	Phase string `form:"phase" binding:"omitempty"`
 	// cluster id
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
+	// user id
+	UserId string `form:"userId" binding:"omitempty,max=64"`
 	// Valid values include: Deployment/PyTorchJob/StatefulSet/Authoring
 	// If specifying multiple kind queries, separate them with commas
 	Kind string `form:"kind" binding:"omitempty"`
@@ -55,12 +55,12 @@ type GetWorkloadRequest struct {
 	Until string `form:"until" binding:"omitempty"`
 }
 
-type WorkloadPodWrapper struct {
-	v1.WorkloadPod
-	SSHAddr string `json:"sshAddr,omitempty"`
+type ListWorkloadResponse struct {
+	TotalCount int                    `json:"totalCount"`
+	Items      []WorkloadResponseItem `json:"items"`
 }
 
-type ListWorkloadResponseItem struct {
+type WorkloadResponseItem struct {
 	// workload id
 	WorkloadId string `json:"workloadId"`
 	// Requested workspace
@@ -71,7 +71,9 @@ type ListWorkloadResponseItem struct {
 	DisplayName string `json:"displayName"`
 	// workload description
 	Description string `json:"description"`
-	// workload submitter
+	// workload submitter's id
+	UserId string `json:"userId"`
+	// workload submitter's name
 	UserName string `json:"userName"`
 	// cluster to which the workload belongs
 	Cluster string `json:"cluster"`
@@ -102,13 +104,8 @@ type ListWorkloadResponseItem struct {
 	Timeout *int `json:"timeout"`
 }
 
-type ListWorkloadResponse struct {
-	TotalCount int                        `json:"totalCount"`
-	Items      []ListWorkloadResponseItem `json:"items"`
-}
-
 type GetWorkloadResponse struct {
-	ListWorkloadResponseItem
+	WorkloadResponseItem
 	// Workload image address
 	Image string `json:"image"`
 	// workload entryPoint, required in base64 encoding
@@ -136,6 +133,11 @@ type GetWorkloadResponse struct {
 	Readiness *v1.HealthCheck `json:"readiness,omitempty"`
 	// Service configuration
 	Service *v1.Service `json:"service,omitempty"`
+}
+
+type WorkloadPodWrapper struct {
+	v1.WorkloadPod
+	SSHAddr string `json:"sshAddr,omitempty"`
 }
 
 type PatchWorkloadRequest struct {

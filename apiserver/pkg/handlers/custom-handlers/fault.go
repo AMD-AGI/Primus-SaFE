@@ -14,7 +14,10 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	"k8s.io/klog/v2"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
@@ -29,6 +32,15 @@ func (h *Handler) listFault(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
+	if err := h.auth.Authorize(authority.Input{
+		Context:      c.Request.Context(),
+		ResourceKind: v1.FaultKind,
+		Verb:         v1.ListVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	query, err := parseListFaultQuery(c)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse query")
@@ -45,17 +57,17 @@ func (h *Handler) listFault(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := &types.GetFaultResponse{
+	result := &types.ListFaultResponse{
 		TotalCount: count,
 	}
 	for _, f := range faults {
-		result.Items = append(result.Items, cvtToFaultResponse(f))
+		result.Items = append(result.Items, cvtToFaultResponseItem(f))
 	}
 	return result, nil
 }
 
-func parseListFaultQuery(c *gin.Context) (*types.GetFaultRequest, error) {
-	query := &types.GetFaultRequest{}
+func parseListFaultQuery(c *gin.Context) (*types.ListFaultRequest, error) {
+	query := &types.ListFaultRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
@@ -73,7 +85,7 @@ func parseListFaultQuery(c *gin.Context) (*types.GetFaultRequest, error) {
 	return query, nil
 }
 
-func cvtToListFaultSql(query *types.GetFaultRequest) sqrl.Sqlizer {
+func cvtToListFaultSql(query *types.ListFaultRequest) sqrl.Sqlizer {
 	dbTags := dbclient.GetFaultFieldTags()
 	monitorId := dbclient.GetFieldTag(dbTags, "MonitorId")
 	dbSql := sqrl.And{}
@@ -99,8 +111,8 @@ func cvtToListFaultSql(query *types.GetFaultRequest) sqrl.Sqlizer {
 	return dbSql
 }
 
-func cvtToFaultResponse(f *dbclient.Fault) types.GetFaultResponseItem {
-	return types.GetFaultResponseItem{
+func cvtToFaultResponseItem(f *dbclient.Fault) types.FaultResponseItem {
+	return types.FaultResponseItem{
 		ID:          f.Id,
 		NodeId:      dbutils.ParseNullString(f.Node),
 		MonitorId:   f.MonitorId,

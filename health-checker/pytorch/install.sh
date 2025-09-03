@@ -3,11 +3,15 @@
 # See LICENSE for license information.
 #
 
-cd depends
-
-pip3 install -r requirements.txt > /dev/null
+cd /opt/primus-safe/pytorch
 if [ $? -ne 0 ]; then
-  echo "failed to install python package"
+  echo "failed to find primus-safe/pytorch "
+  exit 1
+fi
+
+pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm6.4
+if [ $? -ne 0 ]; then
+  echo "failed to install torch package"
   exit 1
 fi
 
@@ -17,6 +21,7 @@ SCRIPTS_TO_RUN=(
     "install_rccl.sh"
     "install_mpich.sh"
     "install_rccl_test.sh"
+    "install_rdma_test.sh"
     "install_bnxt_driver.sh"
 )
 

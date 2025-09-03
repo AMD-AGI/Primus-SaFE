@@ -189,4 +189,6 @@ func setUpWebhooks(mgr manager.Manager, server webhook.Server) {
 	AddResourceTemplateWebhook(mgr, &server, decoder)
 	AddAddOnTemplateWebhook(mgr, &server, decoder)
 	AddOpsJobWebhook(mgr, &server, decoder)
+	AddUserWebhook(mgr, &server, decoder)
+	AddRoleWebhook(mgr, &server, decoder)
 }

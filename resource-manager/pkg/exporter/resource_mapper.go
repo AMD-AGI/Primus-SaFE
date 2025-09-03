@@ -70,6 +70,7 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		DispatchCount:  v1.GetWorkloadDispatchCnt(workload),
 		Timeout:        workload.GetTimeout(),
 		Description:    dbutils.NullString(v1.GetDescription(workload)),
+		UserId:         dbutils.NullString(v1.GetUserId(workload)),
 	}
 	if workload.Spec.TTLSecondsAfterFinished != nil {
 		result.TTLSecond = *workload.Spec.TTLSecondsAfterFinished
@@ -213,6 +214,7 @@ func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 		EndTime:    dbutils.NullMetaV1Time(job.Status.FinishedAt),
 		DeleteTime: dbutils.NullMetaV1Time(job.GetDeletionTimestamp()),
 		Phase:      dbutils.NullString(string(job.Status.Phase)),
+		UserId:     dbutils.NullString(v1.GetUserId(job)),
 	}
 	if len(job.Status.Conditions) > 0 {
 		result.Conditions = dbutils.NullString(

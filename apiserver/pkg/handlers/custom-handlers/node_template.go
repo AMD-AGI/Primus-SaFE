@@ -14,7 +14,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -32,13 +34,22 @@ func (h *Handler) DeleteNodeTemplate(c *gin.Context) {
 }
 
 func (h *Handler) createNodeTemplate(c *gin.Context) (interface{}, error) {
+	if err := h.auth.Authorize(authority.Input{
+		Context:      c.Request.Context(),
+		ResourceKind: v1.NodeTemplateKind,
+		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	req := &types.CreateNodeTemplateRequest{}
 	body, err := getBodyFromRequest(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
 	}
-	nt := generateNodeTemplate(req)
+	nt := generateNodeTemplate(c, req)
 	if err = h.Create(c.Request.Context(), nt); err != nil {
 		return nil, err
 	}
@@ -48,19 +59,36 @@ func (h *Handler) createNodeTemplate(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) listNodeTemplate(c *gin.Context) (interface{}, error) {
-	nts := &v1.NodeTemplateList{}
-	err := h.List(c.Request.Context(), nts)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
-	result := types.GetNodeTemplateResponse{
-		TotalCount: len(nts.Items),
+
+	nts := &v1.NodeTemplateList{}
+	err = h.List(c.Request.Context(), nts)
+	if err != nil {
+		return nil, err
 	}
-	for i := range nts.Items {
-		result.Items = append(result.Items, types.GetNodeTemplateResponseItem{
-			TemplateId:     nts.Items[i].Name,
-			AddOnTemplates: nts.Items[i].Spec.AddOnTemplates,
+	result := types.ListNodeTemplateResponse{}
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	for _, nt := range nts.Items {
+		if !nt.GetDeletionTimestamp().IsZero() {
+			continue
+		}
+		if err = h.auth.Authorize(authority.Input{
+			Context:  c.Request.Context(),
+			Resource: &nt,
+			Verb:     v1.ListVerb,
+			User:     requestUser,
+			Roles:    roles,
+		}); err != nil {
+			continue
+		}
+		result.Items = append(result.Items, types.NodeTemplateResponseItem{
+			TemplateId:     nt.Name,
+			AddOnTemplates: nt.Spec.AddOnTemplates,
 		})
+		result.TotalCount++
 	}
 	return result, nil
 }
@@ -73,6 +101,14 @@ func (h *Handler) deleteNodeTemplate(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	nt, err := h.getAdminNodeTemplate(ctx, name)
 	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		Context:  ctx,
+		Resource: nt,
+		Verb:     v1.DeleteVerb,
+		UserId:   c.GetString(common.UserId),
+	}); err != nil {
 		return nil, err
 	}
 	return nil, h.Delete(ctx, nt)
@@ -91,10 +127,17 @@ func (h *Handler) getAdminNodeTemplate(ctx context.Context, name string) (*v1.No
 	return nt.DeepCopy(), nil
 }
 
-func generateNodeTemplate(req *types.CreateNodeTemplateRequest) *v1.NodeTemplate {
-	nt := &v1.NodeTemplate{}
-	nt.Name = stringutil.NormalizeName(req.Name)
-	metav1.SetMetaDataLabel(&nt.ObjectMeta, v1.DisplayNameLabel, req.Name)
-	nt.Spec.AddOnTemplates = req.AddOnTemplates
-	return nt
+func generateNodeTemplate(c *gin.Context, req *types.CreateNodeTemplateRequest) *v1.NodeTemplate {
+	return &v1.NodeTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: stringutil.NormalizeName(req.Name),
+			Labels: map[string]string{
+				v1.DisplayNameLabel: req.Name,
+				v1.UserIdLabel:      c.GetString(common.UserId),
+			},
+		},
+		Spec: v1.NodeTemplateSpec{
+			AddOnTemplates: req.AddOnTemplates,
+		},
+	}
 }

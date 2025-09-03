@@ -15,6 +15,7 @@ spec:
     - enable-huge-pages
     - load-amdgpu-module
     - load-rdma-module
+    - set-max-sclk
     - sysctl-ulimit
     - sysctl-inotify
     - install-libgtest

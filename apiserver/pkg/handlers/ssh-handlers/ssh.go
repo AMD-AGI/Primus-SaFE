@@ -18,6 +18,7 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
@@ -27,10 +28,12 @@ type SshHandler struct {
 	client.Client
 	clientManager *commonutils.ObjectManager
 	config        *ssh.ServerConfig
+	auth          *authority.Authorizer
 	timeout       time.Duration
 }
 
 func NewSshHandler(ctx context.Context, mgr ctrlruntime.Manager) (*SshHandler, error) {
+	// TODO: validate user's public-key
 	config := &ssh.ServerConfig{
 		NoClientAuth: true,
 	}
@@ -50,6 +53,7 @@ func NewSshHandler(ctx context.Context, mgr ctrlruntime.Manager) (*SshHandler, e
 		Client:        mgr.GetClient(),
 		clientManager: commonutils.NewObjectManagerSingleton(),
 		config:        config,
+		auth:          authority.NewAuthorizer(mgr.GetClient()),
 		timeout:       time.Hour * 48,
 	}
 	return h, nil

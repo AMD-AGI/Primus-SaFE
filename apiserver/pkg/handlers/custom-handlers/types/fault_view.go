@@ -5,7 +5,7 @@
 
 package types
 
-type GetFaultRequest struct {
+type ListFaultRequest struct {
 	// Starting offset for the results. dfault is 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
 	// Limit the number of returned results. default is 100
@@ -23,7 +23,12 @@ type GetFaultRequest struct {
 	Cluster string `form:"cluster" binding:"omitempty"`
 }
 
-type GetFaultResponseItem struct {
+type ListFaultResponse struct {
+	TotalCount int                 `json:"totalCount"`
+	Items      []FaultResponseItem `json:"items"`
+}
+
+type FaultResponseItem struct {
 	// the uniq id of response
 	ID int64 `json:"id"`
 	// the node ID related to this fault
@@ -42,9 +47,4 @@ type GetFaultResponseItem struct {
 	CreatedTime string `json:"createdTime"`
 	// the deletion time of fault
 	DeleteTime string `json:"deleteTime"`
-}
-
-type GetFaultResponse struct {
-	TotalCount int                    `json:"totalCount"`
-	Items      []GetFaultResponseItem `json:"items"`
 }
