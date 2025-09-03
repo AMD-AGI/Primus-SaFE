@@ -14,7 +14,15 @@ do
   if [[ "$cmd" == "pci=realloc=off" ]]; then
     exit 0
   fi
+  if [[ "$cmd" == "iommu=pt" ]]; then
+    exit 0
+  fi
+  if [[ "$cmd" == "amd_iommu=on" ]]; then
+    exit 0
+  fi
+  if [[ "$cmd" == "intel_iommu=on" ]]; then
+    exit 0
+  fi
 done
-
-echo "pci=realloc=on"
+echo "unsuitable kernel boot arguments"
 exit 1
