@@ -626,7 +626,7 @@ func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []str
 		values := strings.Split(query.Kind, ",")
 		var sqlList []sqrl.Sqlizer
 		for _, val := range values {
-			gvk := v1.GroupVersionKind{Kind: val, Version: common.DefaultVersion}
+			gvk := v1.GroupVersionKind{Kind: val, Version: v1.SchemeGroupVersion.Version}
 			gvkStr := string(jsonutils.MarshalSilently(gvk))
 			sqlList = append(sqlList, sqrl.Eq{dbclient.GetFieldTag(dbTags, "GVK"): gvkStr})
 		}
@@ -941,6 +941,10 @@ func buildWorkloadLabelSelector(query *types.ListWorkloadRequest) labels.Selecto
 }
 func generateAuthWorkload(name, userId, workspace, clusterId string) *v1.Workload {
 	return &v1.Workload{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       v1.WorkloadKind,
+			APIVersion: v1.SchemeGroupVersion.String(),
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{

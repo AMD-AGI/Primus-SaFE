@@ -205,7 +205,7 @@ func (r *DiagnoseJobReconciler) genDiagnoseWorkload(ctx context.Context, job *v1
 		Spec: v1.WorkloadSpec{
 			EntryPoint: fmt.Sprintf("bash run.sh"),
 			GroupVersionKind: v1.GroupVersionKind{
-				Version: common.DefaultVersion,
+				Version: v1.SchemeGroupVersion.Version,
 				Kind:    common.PytorchJobKind,
 			},
 			IsTolerateAll: true,

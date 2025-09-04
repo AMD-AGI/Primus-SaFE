@@ -37,6 +37,10 @@ import (
 func genMockNodeFlavor() *v1.NodeFlavor {
 	memQuantity, _ := resource.ParseQuantity("1024Gi")
 	return &v1.NodeFlavor{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       v1.NodeFlavorKind,
+			APIVersion: v1.SchemeGroupVersion.String(),
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName("nodeFlavor"),
 		},
@@ -58,6 +62,10 @@ func genMockNodeFlavor() *v1.NodeFlavor {
 
 func genMockAdminNode(clusterId, workspaceId, nodeFlavorId string) *v1.Node {
 	result := &v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       v1.NodeKind,
+			APIVersion: v1.SchemeGroupVersion.String(),
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName("node"),
 			Labels: map[string]string{

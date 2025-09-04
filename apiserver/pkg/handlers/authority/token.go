@@ -14,7 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
@@ -23,8 +22,9 @@ import (
 )
 
 const (
-	TokenExpire  = "The user's token has expired, please login again"
-	InvalidToken = "The user's token is invalid, please login first"
+	TokenExpire    = "The user's token has expired, please login again"
+	InvalidToken   = "The user's token is invalid, please login first"
+	TokenValidated = "TokenValidated"
 
 	TokenDelim = ":"
 )
@@ -36,11 +36,14 @@ type TokenItem struct {
 }
 
 func ParseCookie(c *gin.Context) error {
-	if !commonconfig.IsEnableUserAuthority() {
-		return nil
-	}
 	err := parseCookie(c)
 	if err != nil {
+		// only for internal user
+		userId := c.GetHeader(common.UserId)
+		if userId != "" && !commonconfig.IsUserTokenRequired() {
+			c.Set(common.UserId, userId)
+			return nil
+		}
 		return commonerrors.NewUnauthorized(err.Error())
 	}
 	return nil
@@ -60,7 +63,6 @@ func parseCookie(c *gin.Context) error {
 		return fmt.Errorf("%s", TokenExpire)
 	}
 	c.Set(common.UserId, token.UserId)
-	c.Set(common.UserType, token.UserType)
 	return nil
 }
 
@@ -88,10 +90,6 @@ func validateToken(token string) (*TokenItem, error) {
 	expire, err := strconv.ParseInt(parts[1], 10, 0)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse token expire", "user", parts[0], "expire", parts[1])
-		return nil, fmt.Errorf("invalid token")
-	}
-	if parts[2] != string(v1.DefaultUser) && parts[2] != string(v1.TeamsUser) {
-		klog.Errorf("invalid user type. user: %s, type: %s", parts[0], parts[2])
 		return nil, fmt.Errorf("invalid token")
 	}
 	return &TokenItem{

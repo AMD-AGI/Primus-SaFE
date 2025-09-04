@@ -29,19 +29,19 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-func (h *Handler) ListWorkloadLog(c *gin.Context) {
-	handle(c, h.listWorkloadLog)
+func (h *Handler) GetWorkloadLog(c *gin.Context) {
+	handle(c, h.getWorkloadLog)
 }
 
-func (h *Handler) ListServiceLog(c *gin.Context) {
-	handle(c, h.listServiceLog)
+func (h *Handler) GetServiceLog(c *gin.Context) {
+	handle(c, h.getServiceLog)
 }
 
-func (h *Handler) ListWorkloadLogContext(c *gin.Context) {
-	handle(c, h.listWorkloadLogContext)
+func (h *Handler) GetWorkloadLogContext(c *gin.Context) {
+	handle(c, h.getWorkloadLogContext)
 }
 
-func (h *Handler) listWorkloadLog(c *gin.Context) (interface{}, error) {
+func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsLogEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
@@ -71,7 +71,7 @@ func (h *Handler) listWorkloadLog(c *gin.Context) (interface{}, error) {
 		"/_search", buildSearchBody(query, name))
 }
 
-func (h *Handler) listServiceLog(c *gin.Context) (interface{}, error) {
+func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsLogEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
@@ -89,7 +89,7 @@ func (h *Handler) listServiceLog(c *gin.Context) (interface{}, error) {
 		"/_search", buildSearchBody(query, ""))
 }
 
-func (h *Handler) listWorkloadLogContext(c *gin.Context) (interface{}, error) {
+func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsLogEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}

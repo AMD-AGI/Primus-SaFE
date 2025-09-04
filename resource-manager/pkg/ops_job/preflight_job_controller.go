@@ -379,7 +379,7 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
 		Spec: v1.WorkloadSpec{
 			EntryPoint: fmt.Sprintf("GPU_PRODUCT=%s bash run.sh", v1.GetGpuProductName(job)),
 			GroupVersionKind: v1.GroupVersionKind{
-				Version: common.DefaultVersion,
+				Version: v1.SchemeGroupVersion.Version,
 				Kind:    common.JobKind,
 			},
 			IsTolerateAll: true,

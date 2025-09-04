@@ -16,8 +16,9 @@ type UserRestrictedType int
 const (
 	UserKind = "User"
 
-	DefaultUser UserType = "default"
-	TeamsUser   UserType = "teams"
+	DefaultUser  UserType = "default"
+	TeamsUser    UserType = "teams"
+	InternalUser UserType = "internal"
 
 	UserNormal UserRestrictedType = 0
 	UserFrozen UserRestrictedType = 1

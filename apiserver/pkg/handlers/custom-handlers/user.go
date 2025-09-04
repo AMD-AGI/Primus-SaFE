@@ -155,9 +155,6 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 	var targetUser *v1.User
 	targetUserId := c.GetString(types.Name)
 	if targetUserId == common.UserSelf {
-		if !commonconfig.IsEnableUserAuthority() {
-			return nil, commonerrors.NewInternalError("the user authority is not enabled")
-		}
 		targetUser = requestUser
 	} else {
 		targetUser, err = h.getTargetUser(c.Request.Context(), targetUserId)
@@ -281,6 +278,7 @@ func (h *Handler) authUserAction(c *gin.Context, requestUser, targetUser *v1.Use
 		Verb:         verb,
 		Workspaces:   workspaces,
 		User:         requestUser,
+		UserId:       c.GetString(common.UserId),
 		Roles:        roles,
 	}); err != nil {
 		return err
@@ -330,7 +328,7 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	switch query.Type {
 	case v1.TeamsUser:
 	default:
-		result, err = h.loginByPassword(c, query)
+		result, err = h.performDefaultLogin(c, query)
 	}
 	if err != nil {
 		return nil, err
@@ -341,21 +339,19 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
-func (h *Handler) loginByPassword(c *gin.Context, query *types.UserLoginRequest) (*types.UserLoginResponse, error) {
+func (h *Handler) performDefaultLogin(c *gin.Context, query *types.UserLoginRequest) (*types.UserLoginResponse, error) {
 	if query.Id == "" {
 		return nil, commonerrors.NewBadRequest("the userId is empty")
 	}
-	if query.Password == "" {
-		return nil, commonerrors.NewBadRequest("the password is empty")
-	}
-
 	user := &v1.User{}
 	var err error
 	if err = h.Get(c.Request.Context(), client.ObjectKey{Name: query.Id}, user); err != nil {
 		return nil, commonerrors.NewUserNotRegistered(query.Id)
 	}
-	if user.Spec.Password != stringutil.Base64Encode(query.Password) {
-		return nil, commonerrors.NewUnauthorized("the password is incorrect")
+	if user.Spec.Type != v1.InternalUser {
+		if user.Spec.Password != stringutil.Base64Encode(query.Password) {
+			return nil, commonerrors.NewUnauthorized("the password is incorrect")
+		}
 	}
 
 	userInfo := &types.UserLoginResponse{
@@ -364,7 +360,7 @@ func (h *Handler) loginByPassword(c *gin.Context, query *types.UserLoginRequest)
 			Name:      v1.GetUserName(user),
 			Roles:     user.Spec.Roles,
 			AvatarUrl: v1.GetUserAvatarUrl(user),
-			Type:      v1.DefaultUser,
+			Type:      user.Spec.Type,
 			Email:     v1.GetUserEmail(user),
 		},
 	}

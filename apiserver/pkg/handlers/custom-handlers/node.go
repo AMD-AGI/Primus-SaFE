@@ -287,6 +287,9 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 		Verb:     v1.CreateVerb,
 		UserId:   c.GetString(common.UserId),
 	}); err != nil {
+		if commonerrors.IsForbidden(err) {
+			return nil, commonerrors.NewForbidden("The user is not allowed to get node's log")
+		}
 		return nil, err
 	}
 
