@@ -28,10 +28,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
-const (
-	DefaultPasswordLen = 16
-)
-
 func AddUserWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.UserKind), &webhook.Admission{Handler: &UserMutator{
 		Client:  mgr.GetClient(),
@@ -75,7 +71,6 @@ func (m *UserMutator) Handle(ctx context.Context, req admission.Request) admissi
 
 func (m *UserMutator) mutateOnCreation(ctx context.Context, user *v1.User) {
 	m.mutateMetadata(user)
-	m.mutatePassword(user)
 	m.mutateCommon(ctx, user)
 }
 
@@ -100,13 +95,6 @@ func (m *UserMutator) mutateMetadata(user *v1.User) {
 		v1.SetLabel(user, v1.UserEmailMd5Label, stringutil.MD5(val))
 	}
 	metav1.SetMetaDataLabel(&user.ObjectMeta, v1.UserIdLabel, user.Name)
-}
-
-func (m *UserMutator) mutatePassword(user *v1.User) {
-	if user.Spec.Type == v1.DefaultUser && user.Spec.Password == "" {
-		password := stringutil.Password(DefaultPasswordLen)
-		user.Spec.Password = stringutil.Base64Encode(password)
-	}
 }
 
 func (m *UserMutator) mutateRoles(user *v1.User) {
@@ -253,9 +241,6 @@ func (v *UserValidator) validateRequiredParams(user *v1.User) error {
 	var errs []error
 	if user.Spec.Type == "" {
 		errs = append(errs, fmt.Errorf("the user's type is empty"))
-	}
-	if user.Spec.Type == v1.DefaultUser && user.Spec.Password == "" {
-		errs = append(errs, fmt.Errorf("the user's password is empty"))
 	}
 	if len(user.Spec.Roles) == 0 {
 		errs = append(errs, fmt.Errorf("the user's roles is empty"))

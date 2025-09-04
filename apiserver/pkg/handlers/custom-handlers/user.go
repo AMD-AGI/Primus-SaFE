@@ -66,15 +66,16 @@ func (h *Handler) Logout(c *gin.Context) {
 }
 
 func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
-	req, err := parseCreateUserQuery(c)
-	if err != nil {
-		return nil, err
-	}
-
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
+
+	req, err := parseCreateUserQuery(requestUser, c)
+	if err != nil {
+		return nil, err
+	}
+
 	user := generateUser(req, requestUser)
 	if err = h.Create(c.Request.Context(), user); err != nil {
 		return nil, err
@@ -97,12 +98,13 @@ func generateUser(req *types.CreateUserRequest, requestUser *v1.User) *v1.User {
 			Type:  v1.DefaultUser,
 		},
 	}
-	if req.Password != "" {
-		user.Spec.Password = stringutil.Base64Encode(req.Password)
-	}
+
 	if requestUser != nil && requestUser.IsSystemAdmin() {
 		user.Spec.Type = req.Type
 		commonuser.AssignWorkspace(user, req.Workspaces...)
+	}
+	if req.Password != "" {
+		user.Spec.Password = stringutil.Base64Encode(req.Password)
 	}
 	return user
 }
@@ -348,10 +350,8 @@ func (h *Handler) performDefaultLogin(c *gin.Context, query *types.UserLoginRequ
 	if err = h.Get(c.Request.Context(), client.ObjectKey{Name: query.Id}, user); err != nil {
 		return nil, commonerrors.NewUserNotRegistered(query.Id)
 	}
-	if user.Spec.Type != v1.InternalUser {
-		if user.Spec.Password != stringutil.Base64Encode(query.Password) {
-			return nil, commonerrors.NewUnauthorized("the password is incorrect")
-		}
+	if user.Spec.Password != "" && user.Spec.Password != stringutil.Base64Encode(query.Password) {
+		return nil, commonerrors.NewUnauthorized("the password is incorrect")
 	}
 
 	userInfo := &types.UserLoginResponse{
@@ -441,7 +441,7 @@ func (h *Handler) logout(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func parseCreateUserQuery(c *gin.Context) (*types.CreateUserRequest, error) {
+func parseCreateUserQuery(requestUser *v1.User, c *gin.Context) (*types.CreateUserRequest, error) {
 	req := &types.CreateUserRequest{}
 	body, err := getBodyFromRequest(c.Request, req)
 	if err != nil {
@@ -450,6 +450,11 @@ func parseCreateUserQuery(c *gin.Context) (*types.CreateUserRequest, error) {
 	}
 	if req.Type == "" {
 		req.Type = v1.DefaultUser
+	}
+	if requestUser == nil || !requestUser.IsSystemAdmin() {
+		if req.Password == "" {
+			return nil, commonerrors.NewBadRequest("the password is empty")
+		}
 	}
 	return req, nil
 }

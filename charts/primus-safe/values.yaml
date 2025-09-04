@@ -12,7 +12,7 @@ job_manager:
   image: "job-manager:202509031707"
   replicas: 1
 webhooks:
-  image: "webhooks:202509011100"
+  image: "webhooks:202509031707"
   replicas: 1
 preprocess:
   image: "preprocess:202508251402"
@@ -29,6 +29,7 @@ ssh:
   enable: false
 user:
   token_required: false
+  default_workspace: safe-cluster-dev
 workspace:
   mem_reserve_percent: 0.06
   cpu_reserve_percent: 0.1

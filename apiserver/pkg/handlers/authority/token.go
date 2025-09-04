@@ -22,9 +22,8 @@ import (
 )
 
 const (
-	TokenExpire    = "The user's token has expired, please login again"
-	InvalidToken   = "The user's token is invalid, please login first"
-	TokenValidated = "TokenValidated"
+	TokenExpire  = "The user's token has expired, please login again"
+	InvalidToken = "The user's token is invalid, please login first"
 
 	TokenDelim = ":"
 )

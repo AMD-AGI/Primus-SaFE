@@ -21,7 +21,7 @@ data:
     ssh:
       enable: {{ .Values.ssh.enable }}
     user:
-      default_workspace: safe-cluster-dev
+      default_workspace: {{ default "" (default .Values.user).default_workspace }}
     ops_job:
       ttl_second: {{ default 300 (default .Values.ops_job).ttl_second }}
       timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
