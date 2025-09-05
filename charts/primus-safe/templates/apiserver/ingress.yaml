@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-apiserver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    higress.io/resource-definer: higress
+    higress.io/domain_apiserver.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}: "true"
+  annotations:
+    higress.io/ignore-path-case: "false"
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  ingressClassName: higress
+  rules:
+    - host: apiserver.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}
+      http:
+        paths:
+          - backend:
+              service:
+                name: {{ .Release.Name }}-apiserver
+                port:
+                  number: {{ default 8088 (default .Values.apiserver).port }}
+            path: /
+            pathType: Prefix
