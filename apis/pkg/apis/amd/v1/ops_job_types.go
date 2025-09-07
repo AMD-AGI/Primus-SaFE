@@ -34,6 +34,7 @@ const (
 	ParameterNodeTemplate  = "node.template"
 	ParameterAddonTemplate = "addon.template"
 	ParameterWorkload      = "workload"
+	ParameterWorkspace     = "workspace"
 	ParameterEndpoint      = "endpoint"
 )
 

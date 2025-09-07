@@ -428,6 +428,7 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster st
 func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
 	nodeParams := job.GetParameters(v1.ParameterNode)
 	cluster := ""
+	workspace := ""
 	gpuProduct := ""
 	for _, param := range nodeParams {
 		adminNode, err := getNode(ctx, v.Client, param.Value)
@@ -443,7 +444,8 @@ func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) err
 		} else if cluster != clusterId {
 			return fmt.Errorf("The nodes to be operated must belong to the same cluster.")
 		}
-		if job.Spec.Type == v1.OpsJobPreflightType {
+
+		if job.Spec.Type == v1.OpsJobPreflightType || job.Spec.Type == v1.OpsJobDiagnoseType {
 			if v1.GetGpuProductName(adminNode) == "" {
 				return commonerrors.NewNotImplemented("Only GPU nodes are supported.")
 			}
@@ -451,6 +453,12 @@ func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) err
 				gpuProduct = v1.GetGpuProductName(adminNode)
 			} else if v1.GetGpuProductName(adminNode) != gpuProduct {
 				return fmt.Errorf("The nodes to be operated must belong to the same gpu chip.")
+			}
+			workspaceId := v1.GetWorkspaceId(adminNode)
+			if workspace == "" {
+				workspace = workspaceId
+			} else if workspace != workspaceId {
+				return fmt.Errorf("The nodes to be operated must belong to the same workspace.")
 			}
 		}
 	}

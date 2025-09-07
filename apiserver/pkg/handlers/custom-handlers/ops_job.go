@@ -29,6 +29,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -217,10 +218,19 @@ func (h *Handler) generateDiagnoseJob(c *gin.Context, req *types.CreateOpsJobReq
 	if commonconfig.GetDiagnoseImage() == "" {
 		return nil, commonerrors.NewInternalError("The diagnose function is not enabled")
 	}
+	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
+		Context: c.Request.Context(),
+		UserId:  c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	job := genDefaultOpsJob(c, req)
-	workloadParam := job.GetParameter(v1.ParameterWorkload)
-	nodeParam := job.GetParameter(v1.ParameterNode)
-	if nodeParam == nil && workloadParam != nil {
+	if job.GetParameter(v1.ParameterNode) != nil {
+		return job, nil
+	}
+
+	if workloadParam := job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
 		nodes, err := h.getNodesOfWorkload(c.Request.Context(), workloadParam.Value)
 		if err != nil {
 			return nil, err
@@ -228,30 +238,16 @@ func (h *Handler) generateDiagnoseJob(c *gin.Context, req *types.CreateOpsJobReq
 		for _, n := range nodes {
 			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n})
 		}
-		nodeParam = job.GetParameter(v1.ParameterNode)
-	}
-	if nodeParam != nil {
-		adminNode, err := h.getAdminNode(c.Request.Context(), nodeParam.Value)
+	} else if workspaceParam := job.GetParameter(v1.ParameterWorkspace); workspaceParam != nil {
+		nodes, err := commonnodes.GetNodesOfWorkspaces(c.Request.Context(), h.Client, []string{workspaceParam.Value}, nil)
 		if err != nil {
 			return nil, err
 		}
-		if err = h.auth.Authorize(authority.Input{
-			Context:      c.Request.Context(),
-			ResourceKind: v1.WorkloadKind,
-			Verb:         v1.CreateVerb,
-			Workspaces:   []string{v1.GetWorkspaceId(adminNode)},
-			UserId:       c.GetString(common.UserId),
-		}); err != nil {
-			return nil, err
+		for _, n := range nodes {
+			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n.Name})
 		}
-		job.Spec.Cluster = v1.GetClusterId(adminNode)
 	} else {
-		if err := h.auth.AuthorizeSystemAdmin(authority.Input{
-			Context: c.Request.Context(),
-			UserId:  c.GetString(common.UserId),
-		}); err != nil {
-			return nil, err
-		}
+		return nil, commonerrors.NewBadRequest("the nodes of diagnose-job is not specified")
 	}
 	return job, nil
 }
