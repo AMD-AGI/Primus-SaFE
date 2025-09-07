@@ -30,6 +30,7 @@ RCCL_TEST_TYPE = 0
 SSH_PORT = 22
 
 DEBUG_MODE = False
+total_nodes = 0
 healthy_node_queue: Queue[str] = Queue()
 # for log output
 print_lock = threading.Lock()
@@ -101,6 +102,7 @@ def run_rccl_test(nodes: List[str]) -> float:
 
     nodes_str = ",".join([f"{node}" for node in nodes])
     np = len(nodes) * NUM_GPUS_PER_NODE
+    dev0 = RCCL_IB_HCA.split(',')[0]
 
     cmd = [
         MPIEXEC, "-n", str(np), "-ppn", str(NUM_GPUS_PER_NODE),
@@ -111,6 +113,7 @@ def run_rccl_test(nodes: List[str]) -> float:
     env_vars["MPIEXEC_ALLOW_ROOT"] = "1"
     env_vars["NCCL_IB_HCA"] = RCCL_IB_HCA
     env_vars["NCCL_SOCKET_IFNAME"] = RCCL_SOCKET_IFNAME
+    env_vars["UCX_NET_DEVICES"] = dev0 + ":1"
     env_vars["NCCL_IB_GID_INDEX"] = str(NCCL_IB_GID_INDEX)
     env_vars["LD_LIBRARY_PATH"] = LD_LIBRARY_PATH
     env_vars["MPIEXEC_RSH"] = f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
@@ -182,12 +185,11 @@ def split_list(lst: List[str]) -> Tuple[List[str], List[str]]:
     mid = len(lst) // 2
     return lst[:mid], lst[mid:]
 
-def diagnose_single_with_healthy(suspect_node: str, timeout: float = 1800.0) -> Tuple[str, bool]:
+def diagnose_single_with_healthy(suspect_node: str, timeout: float = 900.0) -> Tuple[str, bool]:
     """
     Single suspicious node and healthy node combination test
     Retrieve a healthy node from the global health node pool and return it after testing is completed
     """
-
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
@@ -200,10 +202,16 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 1800.0) -> 
             log(f"[RESULT] {suspect_node}+{healthy_node} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
             healthy_node_queue.put(healthy_node)
             return suspect_node, is_faulty
-        except Exception:
+        except Queue.Empty:
             time.sleep(1)
             continue
-    log(f"[TIMEOUT] failed to get healthy node for {suspect_node}")
+        except Exception as e:
+            log(f"[ERROR] Exception during test for {suspect_node}: {e}")
+            if 'healthy_node' in locals():
+                healthy_node_queue.put(healthy_node)
+            return suspect_node, True
+
+    log(f"[TIMEOUT] failed to get healthy node for {suspect_node}, using fallback method")
     return suspect_node, True
 
 def recursive_diagnose(nodes: List[str]) -> List[str]:
@@ -221,6 +229,10 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
         return []
 
     if len(nodes) <= 2:
+        if healthy_node_queue.empty() and len(nodes) == total_nodes:
+            log(f"[WARNING] All nodes appear to be faulty or no healthy nodes available for comparison")
+            return nodes.copy()
+
         log(f"[FINAL CHECK] Testing {nodes} individually with healthy nodes.")
         bad_nodes = []
         # Parallel testing (up to MAX_CONCURRENT_TESTS)
@@ -296,7 +308,8 @@ def main():
 
     log(f"🔍 Starting diagnosis on {nodes}, rccl_test_type={RCCL_TEST_TYPE}")
     log("⚙️ Starting recursive diagnosis...")
-    global healthy_node_queue
+    global healthy_node_queue, total_nodes
+    total_nodes = len(nodes)
     healthy_node_queue = Queue()
 
     bad_nodes = recursive_diagnose(nodes)
