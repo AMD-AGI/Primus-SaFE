@@ -229,7 +229,6 @@ func (h *Handler) generateDiagnoseJob(c *gin.Context, req *types.CreateOpsJobReq
 	if job.GetParameter(v1.ParameterNode) != nil {
 		return job, nil
 	}
-
 	if workloadParam := job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
 		nodes, err := h.getNodesOfWorkload(c.Request.Context(), workloadParam.Value)
 		if err != nil {

@@ -60,7 +60,7 @@ if [[ "$RANK" == "0" ]]; then
   # Define test types and parameters
   TEST_TYPES=(0 1)
   TEST_NAMES=("all_reduce_perf" "alltoall_perf")
-  TEST_MAX_SIZE=("1G" "64M")
+  TEST_MAX_SIZE=("2G" "64M")
 
   # Run diagnosis tests
   for run in $(seq 1 $MAX_RETRY); do

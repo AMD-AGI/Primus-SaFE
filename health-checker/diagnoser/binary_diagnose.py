@@ -10,7 +10,7 @@ import argparse
 import random
 import time
 from typing import List, Tuple
-from queue import Queue
+from queue import Queue, Empty
 import threading
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
@@ -201,7 +201,7 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 900.0) -> T
             log(f"[RESULT] {suspect_node}+{healthy_node} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
             healthy_node_queue.put(healthy_node)
             return suspect_node, is_faulty
-        except Queue.Empty:
+        except Empty:
             time.sleep(1)
             continue
         except Exception as e:
@@ -247,6 +247,7 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
                         healthy_node_queue.put(node)
                         log(f"[PASS] {node} passed with healthy node.")
                 except Exception as e:
+                    node = "unknown"
                     log(f"[Exception] during test for {node}: {e}")
                     bad_nodes.append(node)
         return bad_nodes
