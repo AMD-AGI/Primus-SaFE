@@ -135,8 +135,7 @@ def run_rccl_test(nodes: List[str]) -> float:
     log(f"# Log: {log_file}")
     env_str_parts = []
     for k, v in env_vars.items():
-        if k.startswith('MPI') or k.startswith('NCCL') or k.startswith('LD_'):
-            env_str_parts.append(f'{k}="{v}"')
+      env_str_parts.append(f'{k}="{v}"')
     env_str_for_manual_exec = " ".join(env_str_parts)
     cmd_str_for_manual_exec = " ".join(cmd)
     full_manual_cmd = f"{env_str_for_manual_exec} {cmd_str_for_manual_exec}"
