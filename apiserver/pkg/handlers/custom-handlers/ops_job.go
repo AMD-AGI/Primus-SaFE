@@ -203,27 +203,13 @@ func (h *Handler) generatePreflightJob(c *gin.Context, req *types.CreateOpsJobRe
 	if commonconfig.GetPreflightImage() == "" {
 		return nil, commonerrors.NewInternalError("The preflight function is not enabled")
 	}
-	job := genDefaultOpsJob(c, req)
-	nodeParam := job.GetParameter(v1.ParameterNode)
-	if nodeParam == nil {
-		return nil, commonerrors.NewInternalError("Node parameter is required")
-	}
-	adminNode, err := h.getAdminNode(c.Request.Context(), nodeParam.Value)
-	if err != nil {
-		return nil, err
-	}
-	if err = h.auth.Authorize(authority.Input{
-		Context:      c.Request.Context(),
-		ResourceKind: v1.WorkloadKind,
-		Verb:         v1.CreateVerb,
-		Workspaces:   []string{v1.GetWorkspaceId(adminNode)},
-		UserId:       c.GetString(common.UserId),
+	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
+		Context: c.Request.Context(),
+		UserId:  c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
-
-	job.Spec.Cluster = v1.GetClusterId(adminNode)
-	v1.SetLabel(job, v1.GpuProductNameLabel, strings.ToLower(v1.GetGpuProductName(adminNode)))
+	job := genDefaultOpsJob(c, req)
 	return job, nil
 }
 
@@ -347,6 +333,9 @@ func genDefaultOpsJob(c *gin.Context, req *types.CreateOpsJobRequest) *v1.OpsJob
 	}
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
+	}
+	if v1.GetUserName(job) == "" {
+		v1.SetAnnotation(job, v1.UserNameAnnotation, v1.GetUserId(job))
 	}
 	return job
 }

@@ -369,11 +369,17 @@ func executeAction(sshClient *ssh.Client, addOn *v1.AddonTemplate) error {
 	}
 	var exitError *ssh.ExitError
 	if errors.As(err, &exitError) {
-		klog.ErrorS(err, "failed to execute command", "cmd", cmd)
 		message := exitError.Error()
 		message = normalizeMessage(message)
-		return commonerrors.NewInternalError(
-			fmt.Sprintf("message: %s, code: %d", message, exitError.ExitStatus()))
+		klog.ErrorS(err, "failed to execute command", "addon", addOn.Name,
+			"message", message, "code", exitError.ExitStatus())
+		err = commonerrors.NewInternalError(
+			fmt.Sprintf("message: %s, code: %d, addon: %s", message, exitError.ExitStatus(), addOn.Name))
+	} else {
+		klog.ErrorS(err, "failed to execute command", "addon", addOn.Name)
+	}
+	if !addOn.Spec.Required {
+		return nil
 	}
 	return err
 }

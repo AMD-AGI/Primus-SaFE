@@ -19,6 +19,7 @@ data:
   gpu_ras_008: '{"id":"008","toggle":"on"}'
   gpu_link_009: '{"id":"009","toggle":"on"}'
   gpu_xgmi_link_010: '{"id":"010","toggle":"on"}'
+  gpu_rocm_version_011: '{"id":"011","action":"taint","toggle":"on"}'
   # Network: 2XX
   net_ib_status_201: '{"id":"201","action":"taint","toggle":"on"}'
   net_ethtool_202: '{"id":"202","action":"taint","toggle":"on"}'

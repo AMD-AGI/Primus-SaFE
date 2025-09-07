@@ -25,8 +25,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -57,6 +59,7 @@ func (m *OpsJobMutator) Handle(ctx context.Context, req admission.Request) admis
 		return handleError(v1.OpsJobKind, err)
 	}
 	m.mutateOnCreation(ctx, job)
+	klog.Infof("job inputs: %v", job.Spec.Inputs)
 	data, err := json.Marshal(job)
 	if err != nil {
 		return handleError(v1.OpsJobKind, err)
@@ -65,9 +68,9 @@ func (m *OpsJobMutator) Handle(ctx context.Context, req admission.Request) admis
 }
 
 func (m *OpsJobMutator) mutateOnCreation(ctx context.Context, job *v1.OpsJob) bool {
-	m.mutateMeta(ctx, job)
 	m.mutateJobSpec(job)
 	m.mutateJobInputs(ctx, job)
+	m.mutateMeta(ctx, job)
 	return true
 }
 
@@ -85,6 +88,15 @@ func (m *OpsJobMutator) mutateMeta(ctx context.Context, job *v1.OpsJob) bool {
 	}
 	if v1.GetAnnotation(job, v1.OpsJobAvailRatioAnnotation) == "" {
 		v1.SetAnnotation(job, v1.OpsJobAvailRatioAnnotation, "1.0")
+	}
+
+	nodeParam := job.GetParameter(v1.ParameterNode)
+	if nodeParam != nil {
+		node, err := getNode(ctx, m.Client, nodeParam.Value)
+		if err == nil {
+			job.Spec.Cluster = v1.GetClusterId(node)
+			v1.SetLabel(job, v1.GpuProductNameLabel, strings.ToLower(v1.GetGpuProductName(node)))
+		}
 	}
 
 	if job.Spec.Cluster != "" {
@@ -118,6 +130,7 @@ func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) {
 	m.getAddonTemplates(ctx, job)
 	m.getNodesByCluster(ctx, job)
 	m.removeDuplicates(job)
+	m.filterUnhealthyNodes(ctx, job)
 }
 
 func (m *OpsJobMutator) getAddonTemplates(ctx context.Context, job *v1.OpsJob) {
@@ -160,6 +173,38 @@ func (m *OpsJobMutator) getNodesByCluster(ctx context.Context, job *v1.OpsJob) {
 	}
 }
 
+func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob) {
+	if job.Spec.Type != v1.OpsJobPreflightType && job.Spec.Type != v1.OpsJobDiagnoseType {
+		return
+	}
+	newInputs := make([]v1.Parameter, 0, len(job.Spec.Inputs))
+	for i, p := range job.Spec.Inputs {
+		if p.Name != v1.ParameterNode {
+			newInputs = append(newInputs, job.Spec.Inputs[i])
+			continue
+		}
+		node, err := getNode(ctx, m.Client, p.Value)
+		if err != nil || !node.IsAvailable(true) || len(node.Status.Taints) > 1 {
+			continue
+		} else if len(node.Status.Taints) == 1 {
+			monitorId := ""
+			switch job.Spec.Type {
+			case v1.OpsJobPreflightType:
+				monitorId = common.PreflightMonitorId
+			case v1.OpsJobDiagnoseType:
+				monitorId = common.DiagnoseMonitorId
+			}
+			if node.Status.Taints[0].Key != commonfaults.GenerateTaintKey(monitorId) {
+				continue
+			}
+		}
+		newInputs = append(newInputs, job.Spec.Inputs[i])
+	}
+	if len(job.Spec.Inputs) == len(newInputs) {
+		return
+	}
+	job.Spec.Inputs = newInputs
+}
 func (m *OpsJobMutator) removeDuplicates(job *v1.OpsJob) {
 	uniqMap := make(map[string]string)
 	uniqInputs := make([]v1.Parameter, 0, len(job.Spec.Inputs))
@@ -258,9 +303,9 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 		errs = append(errs, fmt.Errorf("the inputs of ops job are empty"))
 	}
 	if job.Spec.Type == v1.OpsJobPreflightType || job.Spec.Type == v1.OpsJobAddonType ||
-		job.Spec.Type == v1.OpsJobDiagnoseType || job.Spec.Type == v1.OpsJobDiagnoseType {
+		job.Spec.Type == v1.OpsJobDiagnoseType {
 		if job.GetParameter(v1.ParameterNode) == nil {
-			errs = append(errs, fmt.Errorf("the node of ops job is empty"))
+			errs = append(errs, fmt.Errorf("opsjob nodes are either empty or unhealthy"))
 		}
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {

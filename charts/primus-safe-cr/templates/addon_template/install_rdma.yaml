@@ -1,0 +1,14 @@
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  name: install-rdma
+  labels:
+    primus-safe.display.name: "install-rdma-core"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  category: Net
+  description: rdma-core is an open-source RDMA software that provides the core libraries and tools required for Linux systems to utilize RDMA technology."
+  action: ZHBrZyAtbCB8IGdyZXAgLXEgInJkbWEtY29yZSIKaWYgWyAkPyAtbmUgMCBdOyB0aGVuCiAgYXB0LWdldCB1cGRhdGUgPi9kZXYvbnVsbCAmJiBhcHQgaW5zdGFsbCAteSByZG1hLWNvcmUgPi9kZXYvbnVsbAogIGlmIFsgJD8gLW5lIDAgXTsgdGhlbgogICAgZXhpdCAxCiAgZmkKZmkK

@@ -102,6 +102,8 @@ type NodeResponseItem struct {
 	LastStartupTime string `json:"lastStartupTime"`
 	// Indicates whether the node is the control plane node in the Kubernetes cluster.
 	IsControlPlane bool `json:"isControlPlane"`
+	// Indicates whether the addons of node template are installed.
+	IsAddonsInstalled bool `json:"isAddonsInstalled"`
 }
 
 type WorkloadInfo struct {

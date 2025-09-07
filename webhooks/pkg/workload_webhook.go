@@ -156,6 +156,9 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 
 	v1.SetLabel(workload, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	v1.SetLabel(workload, v1.WorkloadIdLabel, workload.Name)
+	if v1.GetUserName(workload) == "" {
+		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserId(workload))
+	}
 	if v1.GetUserName(workload) != "" {
 		v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	}

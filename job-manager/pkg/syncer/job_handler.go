@@ -23,6 +23,7 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
@@ -282,7 +283,8 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 		if adminWorkload.Status.Pods[i].HostIp == adminWorkload.Status.Pods[j].HostIp {
 			return adminWorkload.Status.Pods[i].PodId < adminWorkload.Status.Pods[j].PodId
 		}
-		return adminWorkload.Status.Pods[i].HostIp < adminWorkload.Status.Pods[j].HostIp
+		return netutil.ConvertIpToInt(adminWorkload.Status.Pods[i].HostIp) <
+			netutil.ConvertIpToInt(adminWorkload.Status.Pods[j].HostIp)
 	})
 }
 

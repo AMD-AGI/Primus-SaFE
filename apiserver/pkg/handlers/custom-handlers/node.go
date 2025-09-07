@@ -34,7 +34,6 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -133,11 +132,13 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	roles := h.auth.GetRoles(ctx, requestUser)
-	nodes := sortAdminNodes(nodeList.Items)
-	for _, n := range nodes {
+	sort.Slice(nodeList.Items, func(i, j int) bool {
+		return nodeList.Items[i].Name < nodeList.Items[j].Name
+	})
+	for _, n := range nodeList.Items {
 		if err = h.auth.Authorize(authority.Input{
 			Context:    ctx,
-			Resource:   n,
+			Resource:   &n,
 			Verb:       v1.ListVerb,
 			Workspaces: []string{query.GetWorkspaceId()},
 			User:       requestUser,
@@ -146,7 +147,7 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 			continue
 		}
 		usedResource, _ := allUsedResource[n.Name]
-		item, err := h.cvtToNodeResponseItem(ctx, n, usedResource)
+		item, err := h.cvtToNodeResponseItem(ctx, &n, usedResource)
 		if err != nil {
 			return nil, err
 		}
@@ -155,33 +156,6 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 	}
 	return result, nil
 }
-
-type adminNodeWrapper struct {
-	Node     *v1.Node
-	NodeRank int64
-}
-
-func sortAdminNodes(nodes []v1.Node) []*v1.Node {
-	nodeWrappers := make([]adminNodeWrapper, 0, len(nodes))
-	for i, n := range nodes {
-		nodeWrappers = append(nodeWrappers, adminNodeWrapper{
-			Node:     &nodes[i],
-			NodeRank: stringutil.ExtractNumber(n.Status.MachineStatus.PrivateIP),
-		})
-	}
-	sort.Slice(nodeWrappers, func(i, j int) bool {
-		if nodeWrappers[i].NodeRank == 0 && nodeWrappers[j].NodeRank == 0 {
-			return nodeWrappers[i].Node.Name < nodeWrappers[j].Node.Name
-		}
-		return nodeWrappers[i].NodeRank < nodeWrappers[j].NodeRank
-	})
-	result := make([]*v1.Node, 0, len(nodeWrappers))
-	for i := range nodeWrappers {
-		result = append(result, nodeWrappers[i].Node)
-	}
-	return result
-}
-
 func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	node, err := h.getAdminNode(ctx, c.GetString(types.Name))
@@ -618,19 +592,20 @@ func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]s
 
 func (h *Handler) cvtToNodeResponseItem(ctx context.Context, n *v1.Node, usedResource *resourceInfo) (types.NodeResponseItem, error) {
 	result := types.NodeResponseItem{
-		NodeId:         n.Name,
-		DisplayName:    v1.GetDisplayName(n),
-		Cluster:        v1.GetClusterId(n),
-		Phase:          string(n.Status.MachineStatus.Phase),
-		InternalIP:     n.Status.MachineStatus.PrivateIP,
-		BMCIP:          v1.GetNodeBMCIp(n),
-		NodeFlavor:     v1.GetNodeFlavorId(n),
-		Available:      n.IsAvailable(false),
-		Taints:         getPrimusTaints(n.Status.Taints),
-		TotalResources: cvtToResourceList(n.Status.Resources),
-		CustomerLabels: getCustomerLabels(n.Labels, true),
-		CreateTime:     timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
-		IsControlPlane: v1.IsControlPlane(n),
+		NodeId:            n.Name,
+		DisplayName:       v1.GetDisplayName(n),
+		Cluster:           v1.GetClusterId(n),
+		Phase:             string(n.Status.MachineStatus.Phase),
+		InternalIP:        n.Spec.PrivateIP,
+		BMCIP:             v1.GetNodeBMCIp(n),
+		NodeFlavor:        v1.GetNodeFlavorId(n),
+		Available:         n.IsAvailable(false),
+		Taints:            getPrimusTaints(n.Status.Taints),
+		TotalResources:    cvtToResourceList(n.Status.Resources),
+		CustomerLabels:    getCustomerLabels(n.Labels, true),
+		CreateTime:        timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
+		IsControlPlane:    v1.IsControlPlane(n),
+		IsAddonsInstalled: v1.IsNodeTemplateInstalled(n),
 	}
 	result.Workspace.Id = v1.GetWorkspaceId(n)
 	if result.Workspace.Id != "" {

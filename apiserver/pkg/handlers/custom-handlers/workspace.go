@@ -337,7 +337,7 @@ func cvtToWorkspaceResponseItem(w *v1.Workspace) types.WorkspaceResponseItem {
 		ClusterId:     w.Spec.Cluster,
 		NodeFlavor:    w.Spec.NodeFlavor,
 		UserId:        v1.GetUserId(w),
-		TotalNode:     w.Spec.Replica,
+		TotalNode:     w.Status.AvailableReplica + w.Status.AbnormalReplica,
 		Phase:         string(w.Status.Phase),
 		CreateTime:    timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
 		Description:   v1.GetDescription(w),
