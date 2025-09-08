@@ -78,12 +78,9 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
   echo "[$(date +%H:%M:%S)] TESTING IB DEVICE: $ib_hca"
   echo "=================================================="
 
-  # Temporary list to collect failures in current device test
-  current_failed=()
-
   # Read nodes from file, skip empty lines
-  for x in $(awk '{print $1}' "$nodes_file"); do
-  (
+  for node in $(awk '{print $1}' "$nodes_file")
+  do
     [ -z "$node" ] && { echo "Skipping empty line"; continue; }
     # Skip if this node has already failed in a previous device test
     if [[ -n "${FAILED_NODES_MAP[$node]}" ]]; then
@@ -109,7 +106,10 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
       # Verify server process is still running
       if ! kill -0 $server_pid 2>/dev/null; then
         echo "ERROR: Local server failed to start!"
-        current_failed+=("$node")
+        if [[ -z "${FAILED_NODES_MAP[$node]}" ]]; then
+          FAILED_NODES_MAP[$node]=1
+          FAILED_NODES_LIST+=("$node")
+        fi
         continue
       fi
     else
@@ -117,7 +117,10 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
       echo "[$node] Starting REMOTE server via SSH..."
       if ! check_remote_cmd "$node" "$ib_hca"; then
         echo "[$node] Skipping test due to missing ib_write_bw or device"
-        current_failed+=("$node")
+        if [[ -z "${FAILED_NODES_MAP[$node]}" ]]; then
+          FAILED_NODES_MAP[$node]=1
+          FAILED_NODES_LIST+=("$node")
+        fi
         continue
       fi
 
@@ -162,22 +165,14 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
       echo "RESULT: $node on $ib_hca FAILS (exit code: $client_ret)"
       # Highlight common errors
       echo "$output" | grep -E "(Couldn't connect|No route|Device not found|Permission denied|timeout)" | sed 's/^/    [ERROR] &/'
-      current_failed+=("$node")
+      if [[ -z "${FAILED_NODES_MAP[$node]}" ]]; then
+        FAILED_NODES_MAP[$node]=1
+        FAILED_NODES_LIST+=("$node")
+      fi
     fi
 
     sleep 2
-  )
   done
-
-  # === Merge current failures into global failure set ===
-  for node in "${current_failed[@]}"; do
-    if [[ -z "${FAILED_NODES_MAP[$node]}" ]]; then
-      FAILED_NODES_MAP[$node]=1
-      FAILED_NODES_LIST+=("$node")
-    fi
-  done
-
-  echo "[$ib_hca] Completed. Failed nodes so far: [${FAILED_NODES_LIST[*]:-none}]"
   echo
 done
 
