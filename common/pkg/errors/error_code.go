@@ -192,7 +192,7 @@ func NewRequestEntityTooLargeError(message string) *apierrors.StatusError {
 func NewQuotaInsufficient(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
-		Code:    http.StatusInternalServerError,
+		Code:    http.StatusServiceUnavailable,
 		Reason:  QuotaInsufficient,
 		Message: message,
 	}}

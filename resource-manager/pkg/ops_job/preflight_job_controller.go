@@ -395,9 +395,7 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
 
 	workload.Spec.Resource = *res
 	workload.Spec.Resource.Replica = 1
-	if workload.Spec.Workspace == "" {
-		workload.Spec.Workspace = corev1.NamespaceDefault
-	}
+	workload.Spec.Workspace = corev1.NamespaceDefault
 	if job.Spec.TimeoutSecond > 0 {
 		workload.Spec.Timeout = pointer.Int(job.Spec.TimeoutSecond)
 	}

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -213,7 +214,7 @@ func (r *DiagnoseJobReconciler) genDiagnoseWorkload(ctx context.Context, job *v1
 			CustomerLabels: map[string]string{
 				common.K8sHostNameLabel: nodeNames,
 			},
-			Workspace: v1.GetWorkspaceId(node),
+			Workspace: corev1.NamespaceDefault,
 			Image:     commonconfig.GetDiagnoseImage(),
 			Env:       job.Spec.Env,
 		},

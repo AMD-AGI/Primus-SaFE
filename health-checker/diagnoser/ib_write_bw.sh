@@ -38,7 +38,9 @@ fi
 export CLIENT=$(awk 'NR==1{print $1}' "$nodes_file")
 echo "=== Starting ib_write_bw tests ==="
 echo "Client initiator: $CLIENT"
-echo "Node list: $(paste -sd ',' "$nodes_file")"
+echo "Testing the following nodes:"
+cat -A "$nodes_file"
+wc -l "$nodes_file"
 echo
 
 # SSH parameters for non-interactive connection
@@ -81,9 +83,9 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
   current_failed=()
 
   # Read nodes from file, skip empty lines
-  while IFS= read -r node; do
-    [ -z "$node" ] && continue
-
+  while IFS= read -r node || [[ -n "$node" ]]; do
+    echo "Debug: Read line: '$node'"
+    [ -z "$node" ] && { echo "Debug: Skipping empty line"; continue; }
     # Skip if this node has already failed in a previous device test
     if [[ -n "${FAILED_NODES_MAP[$node]}" ]]; then
       echo "[$node] Skipping: previously failed"
@@ -111,7 +113,6 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
         current_failed+=("$node")
         continue
       fi
-
     else
       # Remote server via SSH
       echo "[$node] Starting REMOTE server via SSH..."

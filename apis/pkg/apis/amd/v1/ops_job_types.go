@@ -56,6 +56,8 @@ type OpsJobSpec struct {
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
 	// environment variables
 	Env map[string]string `json:"env,omitempty"`
+	// Indicates whether the job tolerates node taints
+	IsTolerateAll bool `json:"isTolerateAll"`
 }
 
 type OpsJobStatus struct {

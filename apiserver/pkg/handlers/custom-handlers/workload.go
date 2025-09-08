@@ -97,7 +97,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
 		return nil, err
 	}
-	if err = h.authWorkloadPriority(c, workload, req.Priority, requestUser, roles); err != nil {
+	if err = h.authWorkloadPriority(c, workload, v1.CreateVerb, req.Priority, requestUser, roles); err != nil {
 		return nil, err
 	}
 
@@ -304,7 +304,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if req.Priority != nil {
-		if err = h.authWorkloadPriority(c, adminWorkload, *req.Priority, requestUser, roles); err != nil {
+		if err = h.authWorkloadPriority(c, adminWorkload, v1.UpdateVerb, *req.Priority, requestUser, roles); err != nil {
 			return nil, err
 		}
 	}
@@ -479,13 +479,13 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 	return nil
 }
 
-func (h *Handler) authWorkloadPriority(c *gin.Context,
-	adminWorkload *v1.Workload, priority int, requestUser *v1.User, roles []*v1.Role) error {
+func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workload,
+	verb v1.RoleVerb, priority int, requestUser *v1.User, roles []*v1.Role) error {
 	priorityKind := fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
 	if err := h.auth.Authorize(authority.Input{
 		Context:      c.Request.Context(),
 		ResourceKind: priorityKind,
-		Verb:         v1.UpdateVerb,
+		Verb:         verb,
 		Workspaces:   []string{adminWorkload.Spec.Workspace},
 		User:         requestUser,
 		Roles:        roles,
@@ -840,23 +840,28 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 
 func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
-		WorkloadId:     w.Name,
-		Cluster:        v1.GetClusterId(w),
-		Phase:          string(w.Status.Phase),
-		CreationTime:   timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
-		SchedulerOrder: w.Status.SchedulerOrder,
-		DispatchCount:  v1.GetWorkloadDispatchCnt(w),
-		DisplayName:    v1.GetDisplayName(w),
-		Description:    v1.GetDescription(w),
-		UserId:         v1.GetUserId(w),
-		UserName:       v1.GetUserName(w),
-		Priority:       w.Spec.Priority,
-		Workspace:      w.Spec.Workspace,
-		Timeout:        w.Spec.Timeout,
-		IsTolerateAll:  w.Spec.IsTolerateAll,
+		WorkloadId:       w.Name,
+		Workspace:        w.Spec.Workspace,
+		Resource:         w.Spec.Resource,
+		DisplayName:      v1.GetDisplayName(w),
+		Description:      v1.GetDescription(w),
+		UserId:           v1.GetUserId(w),
+		UserName:         v1.GetUserName(w),
+		Cluster:          v1.GetClusterId(w),
+		Phase:            string(w.Status.Phase),
+		Priority:         w.Spec.Priority,
+		CreationTime:     timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
+		SchedulerOrder:   w.Status.SchedulerOrder,
+		DispatchCount:    v1.GetWorkloadDispatchCnt(w),
+		IsTolerateAll:    w.Spec.IsTolerateAll,
+		GroupVersionKind: w.Spec.GroupVersionKind,
+		Timeout:          w.Spec.Timeout,
 	}
 	if !w.Status.StartTime.IsZero() {
 		result.StartTime = timeutil.FormatRFC3339(&w.Status.StartTime.Time)
+		if w.Spec.Timeout != nil {
+			result.SecondsUntilTimeout = w.Status.StartTime.Unix() + int64(3600*w.GetTimeout()) - time.Now().Unix()
+		}
 	}
 	if !w.Status.EndTime.IsZero() {
 		result.EndTime = timeutil.FormatRFC3339(&w.Status.EndTime.Time)

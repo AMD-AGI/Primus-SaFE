@@ -128,7 +128,6 @@ func (m *OpsJobMutator) mutateJobSpec(job *v1.OpsJob) {
 
 func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) {
 	m.getAddonTemplates(ctx, job)
-	m.getNodesByCluster(ctx, job)
 	m.removeDuplicates(job)
 	m.filterUnhealthyNodes(ctx, job)
 }
@@ -150,29 +149,6 @@ func (m *OpsJobMutator) getAddonTemplates(ctx context.Context, job *v1.OpsJob) {
 	}
 }
 
-func (m *OpsJobMutator) getNodesByCluster(ctx context.Context, job *v1.OpsJob) {
-	if job.Spec.Type != v1.OpsJobPreflightType &&
-		job.Spec.Type != v1.OpsJobAddonType && job.Spec.Type != v1.OpsJobDiagnoseType {
-		return
-	}
-	param := job.GetParameter(v1.ParameterNode)
-	if param != nil || job.Spec.Cluster == "" {
-		return
-	}
-	// If not specified the nodes, apply to all nodes in the cluster
-	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: job.Spec.Cluster})
-	nodeList := &v1.NodeList{}
-	if err := m.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
-		return
-	}
-	for _, n := range nodeList.Items {
-		job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{
-			Name:  v1.ParameterNode,
-			Value: n.Name,
-		})
-	}
-}
-
 func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob) {
 	if job.Spec.Type != v1.OpsJobPreflightType && job.Spec.Type != v1.OpsJobDiagnoseType {
 		return
@@ -184,7 +160,12 @@ func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob
 			continue
 		}
 		node, err := getNode(ctx, m.Client, p.Value)
-		if err != nil || !node.IsAvailable(true) || len(node.Status.Taints) > 1 {
+		if err != nil || !node.IsAvailable(true) {
+			continue
+		}
+		if job.Spec.IsTolerateAll {
+			// do nothing
+		} else if len(node.Status.Taints) > 1 {
 			continue
 		} else if len(node.Status.Taints) == 1 {
 			monitorId := ""
@@ -428,7 +409,6 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster st
 func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
 	nodeParams := job.GetParameters(v1.ParameterNode)
 	cluster := ""
-	workspace := ""
 	gpuProduct := ""
 	for _, param := range nodeParams {
 		adminNode, err := getNode(ctx, v.Client, param.Value)
@@ -444,7 +424,6 @@ func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) err
 		} else if cluster != clusterId {
 			return fmt.Errorf("The nodes to be operated must belong to the same cluster.")
 		}
-
 		if job.Spec.Type == v1.OpsJobPreflightType || job.Spec.Type == v1.OpsJobDiagnoseType {
 			if v1.GetGpuProductName(adminNode) == "" {
 				return commonerrors.NewNotImplemented("Only GPU nodes are supported.")
@@ -453,12 +432,6 @@ func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) err
 				gpuProduct = v1.GetGpuProductName(adminNode)
 			} else if v1.GetGpuProductName(adminNode) != gpuProduct {
 				return fmt.Errorf("The nodes to be operated must belong to the same gpu chip.")
-			}
-			workspaceId := v1.GetWorkspaceId(adminNode)
-			if workspace == "" {
-				workspace = workspaceId
-			} else if workspace != workspaceId {
-				return fmt.Errorf("The nodes to be operated must belong to the same workspace.")
 			}
 		}
 	}

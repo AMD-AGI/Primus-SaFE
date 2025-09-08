@@ -34,6 +34,10 @@ type CreateOpsJobRequest struct {
 	SecurityUpgrade bool `json:"securityUpgrade,omitempty"`
 	// environment variables
 	Env map[string]string `json:"env,omitempty"`
+	// Indicates whether the job tolerates node taints. default false
+	IsTolerateAll bool `json:"isTolerateAll"`
+	// Excluded nodes
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 }
 
 type CreateOpsJobResponse struct {
