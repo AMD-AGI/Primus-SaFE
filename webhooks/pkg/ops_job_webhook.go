@@ -160,7 +160,7 @@ func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob
 			continue
 		}
 		node, err := getNode(ctx, m.Client, p.Value)
-		if err != nil || !node.IsAvailable(true) {
+		if err != nil || !node.IsReady() || !node.GetDeletionTimestamp().IsZero() {
 			continue
 		}
 		if job.Spec.IsTolerateAll {

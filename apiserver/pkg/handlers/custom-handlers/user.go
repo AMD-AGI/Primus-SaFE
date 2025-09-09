@@ -394,7 +394,7 @@ func setCookie(c *gin.Context, userInfo *types.UserLoginResponse) {
 		maxAge = int(userInfo.Expire - time.Now().Unix())
 	default:
 	}
-	domain := netutil.GetSecondLevelDomain(c.Request.Host)
+	domain := "." + netutil.GetSecondLevelDomain(c.Request.Host)
 	c.SetCookie(authority.CookieToken, userInfo.Token, maxAge, "/", domain, false, true)
 }
 

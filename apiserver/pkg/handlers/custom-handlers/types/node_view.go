@@ -86,6 +86,8 @@ type NodeResponseItem struct {
 	NodeTemplate string `json:"nodeTemplate"`
 	// Indicates whether the node can be scheduled in the Kubernetes cluster.
 	Available bool `json:"available"`
+	// If a node is unavailable, provide the reason
+	Message string `json:"message,omitempty"`
 	// the taints on node
 	Taints []corev1.Taint `json:"taints"`
 	// total resource of node

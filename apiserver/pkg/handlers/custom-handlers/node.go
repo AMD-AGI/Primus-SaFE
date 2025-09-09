@@ -591,6 +591,7 @@ func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]s
 }
 
 func (h *Handler) cvtToNodeResponseItem(ctx context.Context, n *v1.Node, usedResource *resourceInfo) (types.NodeResponseItem, error) {
+	avail, message := n.CheckAvailable(false)
 	result := types.NodeResponseItem{
 		NodeId:            n.Name,
 		DisplayName:       v1.GetDisplayName(n),
@@ -599,7 +600,8 @@ func (h *Handler) cvtToNodeResponseItem(ctx context.Context, n *v1.Node, usedRes
 		InternalIP:        n.Spec.PrivateIP,
 		BMCIP:             v1.GetNodeBMCIp(n),
 		NodeFlavor:        v1.GetNodeFlavorId(n),
-		Available:         n.IsAvailable(false),
+		Available:         avail,
+		Message:           message,
 		Taints:            getPrimusTaints(n.Status.Taints),
 		TotalResources:    cvtToResourceList(n.Status.Resources),
 		CustomerLabels:    getCustomerLabels(n.Labels, true),

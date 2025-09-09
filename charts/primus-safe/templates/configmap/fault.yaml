@@ -35,7 +35,7 @@ data:
   sys_boot_args_306: '{"id":"306","toggle":"on"}'
   sys_pcie_link_308: '{"id":"308","toggle":"on"}'
   # Disk: 4XX
-  disk_check_exist_401: '{"id":"401","toggle":"on"}'
+  nfs_check_401: '{"id":"401","action":"taint","toggle":"on"}'
   # primus system: 5XX, System reserved
   addon: '{"id": "501","action":"taint","toggle":"on"}'
   preflight: '{"id": "502","action":"taint","toggle":"on"}'

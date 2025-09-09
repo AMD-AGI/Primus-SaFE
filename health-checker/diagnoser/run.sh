@@ -88,10 +88,11 @@ if [[ "$RANK" == "0" ]]; then
   done
 
   # Run IB bandwidth test
-  if [ $diag_ret -eq 0 ]; then
-    echo "[NODE-0] Running ib_write_bw.sh..."
-    bash ib_write_bw.sh "$NCCL_IB_HCA" "$NCCL_SOCKET_IFNAME" "$NCCL_IB_GID_INDEX" "$NODES_FILE"
-    diag_ret=$?
+  echo "[NODE-0] Running ib_write_bw.sh..."
+  bash ib_write_bw.sh "$NCCL_IB_HCA" "$NCCL_SOCKET_IFNAME" "$NCCL_IB_GID_INDEX" "$NODES_FILE"
+  if [[ $? -ne 0 ]]; then
+    echo "[NODE-0] Diagnosis failed for ib_write_bw"
+    diag_ret=1
   fi
 
   if [ $diag_ret -eq 0 ]; then
