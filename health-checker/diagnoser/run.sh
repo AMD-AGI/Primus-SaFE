@@ -20,6 +20,7 @@ export GLOO_SOCKET_IFNAME=${GLOO_SOCKET_IFNAME:-"eth0"}
 export SSH_PORT=${SSH_PORT:-22}
 export BNIC=${BNIC:-50}
 export BXGMI=${BXGMI:-315}
+export MAX_RETRY=${MAX_RETRY:-1}
 export NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX:-3}
 export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=3600
 export NCCL_TIMEOUT=3600
@@ -61,26 +62,29 @@ if [[ "$RANK" == "0" ]]; then
   TEST_NAMES=("all_reduce_perf" "alltoall_perf")
   TEST_MAX_SIZE=("2G" "64M")
 
-  for i in "${!TEST_TYPES[@]}"; do
-    test_type=${TEST_TYPES[$i]}
-    test_name=${TEST_NAMES[$i]}
-    max_bytes=${TEST_MAX_SIZE[$i]}
+  # Run diagnosis tests
+  for run in $(seq 1 $MAX_RETRY); do
+    for i in "${!TEST_TYPES[@]}"; do
+      test_type=${TEST_TYPES[$i]}
+      test_name=${TEST_NAMES[$i]}
+      max_bytes=${TEST_MAX_SIZE[$i]}
 
-    echo "[NODE-0] Running $test_name ..."
-    BNIC="$BNIC" BXGMI="$BXGMI" python3 binary_diagnose.py \
-      --socket-ifname "$NCCL_SOCKET_IFNAME" \
-      --ib-hca "$NCCL_IB_HCA" \
-      --ib-gid-index "$NCCL_IB_GID_INDEX" \
-      --ssh-port "$SSH_PORT" \
-      --nodes-file "$NODES_FILE" \
-      --max-bytes "$max_bytes" \
-      --rccl-test-type "$test_type" \
-      $debug_arg
+      echo "[NODE-0] Running $test_name (Run $run)..."
+      BNIC="$BNIC" BXGMI="$BXGMI" python3 binary_diagnose.py \
+        --socket-ifname "$NCCL_SOCKET_IFNAME" \
+        --ib-hca "$NCCL_IB_HCA" \
+        --ib-gid-index "$NCCL_IB_GID_INDEX" \
+        --ssh-port "$SSH_PORT" \
+        --nodes-file "$NODES_FILE" \
+        --max-bytes "$max_bytes" \
+        --rccl-test-type "$test_type" \
+        $debug_arg
 
-    if [[ $? -ne 0 ]]; then
-      echo "[NODE-0] Diagnosis failed for $test_name"
-      diag_ret=1
-    fi
+      if [[ $? -ne 0 ]]; then
+        echo "[NODE-0] Diagnosis failed for $test_name"
+        diag_ret=1
+      fi
+    done
   done
 
   # Run IB bandwidth test

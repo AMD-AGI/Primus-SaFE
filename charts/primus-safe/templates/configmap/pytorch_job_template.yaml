@@ -62,8 +62,6 @@ data:
                       value: "11"
                     - name: NCCL_IB_GID_INDEX
                       value: "3"
-                    - name: NCCL_IB_SPLIT_DATA_ON_QPS
-                      value: "1"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
                     - name: POD_NAME
@@ -137,8 +135,6 @@ data:
                       value: "11"
                     - name: NCCL_IB_GID_INDEX
                       value: "3"
-                    - name: NCCL_IB_SPLIT_DATA_ON_QPS
-                      value: "1"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
                     - name: POD_NAME
