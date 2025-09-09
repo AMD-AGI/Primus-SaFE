@@ -64,8 +64,6 @@ data:
                       value: "3"
                     - name: NCCL_IB_SPLIT_DATA_ON_QPS
                       value: "1"
-                    - name: NCCL_SHM_DISABLE
-                      value: "0"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
                     - name: POD_NAME
@@ -141,8 +139,6 @@ data:
                       value: "3"
                     - name: NCCL_IB_SPLIT_DATA_ON_QPS
                       value: "1"
-                    - name: NCCL_SHM_DISABLE
-                      value: "0"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
                     - name: POD_NAME

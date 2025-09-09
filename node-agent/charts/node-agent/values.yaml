@@ -1,8 +1,10 @@
 node_agent:
-  image: "node-agent:202509090905"
+  image: "node-agent:202509091754"
 monitor:
   nccl_socket_ifname: "enp49s0f0np0"
   nccl_ib_hca: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re7,bnxt_re8"
-  nfs_path: "/root/nfs_models"
+  nfs_mount: "/root/nfs_models"
+  nfs_server: "45.76.27.91"
+  nfs_path: "/mnt/nvme0"
   driver: "6.12.12"
   rocm_version: "6.4"

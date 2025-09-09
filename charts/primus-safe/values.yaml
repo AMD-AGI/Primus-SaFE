@@ -9,7 +9,7 @@ resource_manager:
   image: "resource-manager:202509090905"
   replicas: 1
 job_manager:
-  image: "job-manager:202509031707"
+  image: "job-manager:202509090905"
   replicas: 1
 webhooks:
   image: "webhooks:202509090905"
@@ -25,7 +25,7 @@ console:
   replicas: 1
 db:
   enable: true
-  storage_class: "juicefs"
+  storage_class: "rbd"
 log:
   enable: true
 ssh:

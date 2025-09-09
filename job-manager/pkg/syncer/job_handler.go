@@ -283,7 +283,7 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 		if adminWorkload.Status.Pods[i].HostIp == adminWorkload.Status.Pods[j].HostIp {
 			return adminWorkload.Status.Pods[i].PodId < adminWorkload.Status.Pods[j].PodId
 		}
-		return netutil.ConvertIpToInt(adminWorkload.Status.Pods[i].HostIp) <
+		return netutil.ConvertIpToInt(adminWorkload.Status.Pods[i].HostIp) >
 			netutil.ConvertIpToInt(adminWorkload.Status.Pods[j].HostIp)
 	})
 }
