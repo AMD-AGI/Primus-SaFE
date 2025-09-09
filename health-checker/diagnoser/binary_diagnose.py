@@ -91,6 +91,38 @@ def parse_size(size_str: str) -> int:
     except ValueError:
         raise ValueError(f"Invalid size string: {size_str}")
 
+def parse_algbw_after_header(text, target_size, tolerance=1000):
+    parsing_enabled = False
+
+    for line_num, line in enumerate(text.strip().splitlines(), 1):
+        line = line.strip()
+        if line.startswith('#') and 'algbw' in line.lower() and 'busbw' in line.lower():
+            if 'size' in line.lower() and 'count' in line.lower():
+                parsing_enabled = True
+                print(f"[Line {line_num}] Header found, enabling parsing: {line}")
+            continue
+
+        if not parsing_enabled:
+            continue
+        if not line or line.startswith('#'):
+            continue
+
+        parts = line.split()
+        if len(parts) <= 11:
+            continue
+        try:
+            size = int(parts[0])
+            if abs(size - target_size) <= tolerance:
+                if RCCL_TEST_TYPE == 0:
+                    algbw = float(parts[11])
+                else:
+                    algbw = float(parts[10])
+                return algbw
+        except ValueError:
+            continue
+    return 0.0
+
+
 def run_rccl_test(nodes: List[str]) -> float:
     """
     do rccl/all_reduce_perf or rccl/alltoall_perf test on specified nodes
@@ -155,23 +187,13 @@ def run_rccl_test(nodes: List[str]) -> float:
             print(result.stdout)
             f.write(result.stdout)
 
-        target_size = str(parse_size(MAX_BYTES))
-        lines = result.stdout.splitlines()
-        for line in lines:
-            if target_size in line:
-                parts = line.strip().split()
-                if len(parts) > 11:
-                    try:
-                        if RCCL_TEST_TYPE == 0:
-                            algbw = float(parts[11])
-                        else:
-                            algbw = float(parts[10])
-                        log(f"[INFO] After test on {nodes}, algbw = {algbw:.2f} GB/s")
-                        return algbw
-                    except ValueError:
-                        continue
-        log(f"[FAIL] Failed to parse algbw from output for {nodes}")
-        return 0.0
+        target_size = parse_size(MAX_BYTES)
+        algbw = parse_algbw_after_header(result.stdout, target_size)
+        if algbw == 0.0:
+            log(f"[FAIL] Failed to parse algbw from output for {nodes}")
+        else:
+            log(f"[INFO] After test on {nodes}, algbw = {algbw:.2f} GB/s")
+        return algbw
     except subprocess.TimeoutExpired:
         log(f"[Exception] RCCL test timed out for {nodes}")
         return 0.0
