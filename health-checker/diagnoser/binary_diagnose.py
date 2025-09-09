@@ -99,7 +99,6 @@ def parse_algbw_after_header(text, target_size, tolerance=1000):
         if line.startswith('#') and 'algbw' in line.lower() and 'busbw' in line.lower():
             if 'size' in line.lower() and 'count' in line.lower():
                 parsing_enabled = True
-                print(f"[Line {line_num}] Header found, enabling parsing: {line}")
             continue
 
         if not parsing_enabled:

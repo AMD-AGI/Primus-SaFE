@@ -4,8 +4,6 @@
 # See LICENSE for license information.
 #
 
-set -e
-
 echo "[NODE-$RANK] [SSH-SYNC] Starting at $(date +'%H:%M:%S')"
 
 export SSH_PORT=${SSH_PORT:-22}
