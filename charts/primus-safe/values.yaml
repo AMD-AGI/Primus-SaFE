@@ -15,7 +15,7 @@ webhooks:
   image: "webhooks:202509090905"
   replicas: 1
 preprocess:
-  image: "preprocess:202508251402"
+  image: "preprocess:202509092311"
 preflight:
   image: "preflight:202509031707"
 diagnose:
