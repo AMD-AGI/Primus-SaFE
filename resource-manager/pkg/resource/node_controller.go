@@ -260,7 +260,7 @@ func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) (
 	n := client.MergeFrom(node.DeepCopy())
 	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
-		klog.ErrorS(err, "failed to get client for ssh")
+		klog.ErrorS(err, "failed to get client for ssh", "node", node.Name)
 		node.Status.MachineStatus.Phase = v1.NodeSSHFailed
 		if err = r.Status().Patch(ctx, node, n); err != nil {
 			klog.ErrorS(err, "failed to patch status", "node", node.Name)

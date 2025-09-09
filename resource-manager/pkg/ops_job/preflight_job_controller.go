@@ -399,5 +399,8 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context,
 	if job.Spec.TimeoutSecond > 0 {
 		workload.Spec.Timeout = pointer.Int(job.Spec.TimeoutSecond)
 	}
+	if job.Spec.TTLSecondsAfterFinished > 0 {
+		workload.Spec.TTLSecondsAfterFinished = pointer.Int(job.Spec.TTLSecondsAfterFinished)
+	}
 	return workload, nil
 }

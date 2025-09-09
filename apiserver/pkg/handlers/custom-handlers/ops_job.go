@@ -346,12 +346,13 @@ func genDefaultOpsJob(c *gin.Context, req *types.CreateOpsJobRequest) *v1.OpsJob
 			},
 		},
 		Spec: v1.OpsJobSpec{
-			Cluster:       req.Cluster,
-			Type:          req.Type,
-			Inputs:        req.Inputs,
-			TimeoutSecond: req.TimeoutSecond,
-			Env:           req.Env,
-			IsTolerateAll: req.IsTolerateAll,
+			Cluster:                 req.Cluster,
+			Type:                    req.Type,
+			Inputs:                  req.Inputs,
+			TimeoutSecond:           req.TimeoutSecond,
+			Env:                     req.Env,
+			IsTolerateAll:           req.IsTolerateAll,
+			TTLSecondsAfterFinished: req.TTLSecondsAfterFinished,
 		},
 	}
 	if req.SecurityUpgrade {
