@@ -7,7 +7,6 @@ import subprocess
 import sys
 import os
 import argparse
-import random
 import time
 from typing import List, Tuple
 from queue import Queue, Empty
@@ -64,7 +63,7 @@ def threshold(node_count: int) -> float:
     beff *= 0.7
     return beff
 
-def get_randomized_hosts(hosts_file) -> List[str]:
+def get_hosts(hosts_file) -> List[str]:
     entries = []
     with open(hosts_file, "r") as file:
         for line in file:
@@ -72,8 +71,6 @@ def get_randomized_hosts(hosts_file) -> List[str]:
             if not item or item.startswith('#'):
                 continue
             entries.append(item)
-
-    random.shuffle(entries)
     return entries
 def parse_size(size_str: str) -> int:
     size_str = size_str.strip().upper()
@@ -202,11 +199,10 @@ def run_rccl_test(nodes: List[str]) -> float:
 
 def split_list(lst: List[str]) -> Tuple[List[str], List[str]]:
     lst = lst.copy()
-    random.shuffle(lst)
     mid = len(lst) // 2
     return lst[:mid], lst[mid:]
 
-def diagnose_single_with_healthy(suspect_node: str, timeout: float = 900.0) -> Tuple[str, bool]:
+def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> Tuple[str, bool]:
     """
     Single suspicious node and healthy node combination test
     Retrieve a healthy node from the global health node pool and return it after testing is completed
@@ -319,7 +315,7 @@ def parse_args() -> List[str]:
     RCCL_TEST_TYPE = args.rccl_test_type
     MAX_BYTES = args.max_bytes
 
-    nodes = get_randomized_hosts(args.nodes_file)
+    nodes = get_hosts(args.nodes_file)
     return nodes
 
 def main():
