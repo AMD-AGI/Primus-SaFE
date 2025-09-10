@@ -9,7 +9,7 @@ echo "[NODE-$RANK] [SSH-SYNC] Starting at $(date +'%H:%M:%S')"
 export SSH_PORT=${SSH_PORT:-22}
 export WORLD_SIZE=$WORLD_SIZE
 export RANK=$RANK
-export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=3600
+export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=$TORCH_DISTRIBUTED_DEFAULT_TIMEOUT
 
 # Step 1: Build SSH keys
 echo "[NODE-$RANK] [SSH-SYNC] Running build_ssh.sh..."

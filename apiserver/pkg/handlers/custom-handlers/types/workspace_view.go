@@ -28,6 +28,8 @@ type CreateWorkspaceRequest struct {
 	EnablePreempt bool `json:"enablePreempt"`
 	// the manager's user_id of workspace
 	Managers []string `json:"managers,omitempty"`
+	// Set the workspace as the default workspace (i.e., all users can access it).
+	IsDefault bool `json:"isDefault,omitempty"`
 }
 
 type CreateWorkspaceResponse struct {
@@ -74,6 +76,8 @@ type WorkspaceResponseItem struct {
 	EnablePreempt bool `json:"enablePreempt"`
 	// the manager's user_id
 	Managers []string `json:"managers"`
+	// Set the workspace as the default workspace (i.e., all users can access it).
+	IsDefault bool `json:"isDefault,omitempty"`
 }
 
 type GetWorkspaceResponse struct {
@@ -105,6 +109,8 @@ type PatchWorkspaceRequest struct {
 	EnablePreempt *bool `json:"enablePreempt,omitempty"`
 	// the managers for workspace
 	Managers *[]string `json:"managers,omitempty"`
+	// Set the workspace as the default workspace (i.e., all users can access it).
+	IsDefault *bool `json:"isDefault,omitempty"`
 }
 
 type WorkspaceEntry struct {

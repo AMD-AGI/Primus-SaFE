@@ -4,25 +4,25 @@ net:
   rdma_name: "rdma/hca"
 apiserver:
   image: "apiserver:202509101306"
-  replicas: 1
+  replicas: 2
 resource_manager:
   image: "resource-manager:202509101306"
-  replicas: 1
+  replicas: 2
 job_manager:
   image: "job-manager:202509101306"
-  replicas: 1
+  replicas: 2
 webhooks:
   image: "webhooks:202509101306"
-  replicas: 1
+  replicas: 2
 preprocess:
   image: "preprocess:202509092311"
 preflight:
   image: "preflight:202509031707"
 diagnose:
-  image: "diagnose:202509092322"
+  image: "diagnose:202509092324"
 console:
   image: "primus-safe-web:1.3.24"
-  replicas: 1
+  replicas: 2
 db:
   enable: true
   storage_class: "rbd"
@@ -32,7 +32,6 @@ ssh:
   enable: false
 user:
   token_required: false
-  default_workspace: safe-cluster-dev
 workspace:
   mem_reserve_percent: 0.06
   cpu_reserve_percent: 0.1

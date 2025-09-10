@@ -303,7 +303,3 @@ func GetUserTokenExpire() int {
 func IsUserTokenRequired() bool {
 	return getBool(userTokenRequired, true)
 }
-
-func GetUserDefaultWorkspace() string {
-	return getString(userDefaultWorkspace, "")
-}

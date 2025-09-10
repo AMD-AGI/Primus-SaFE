@@ -53,6 +53,8 @@ type WorkspaceSpec struct {
 	EnablePreempt bool `json:"enablePreempt,omitempty"`
 	// the manager's user_id of workspace
 	Managers []string `json:"managers,omitempty"`
+	// Set the workspace as the default workspace (i.e., all users can access it).
+	IsDefault bool `json:"isDefault,omitempty"`
 }
 
 type WorkspaceVolume struct {

@@ -146,11 +146,11 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 		return false, "node is unschedulable"
 	}
 	if !ignoreTaint && len(n.Status.Taints) > 0 {
-		var taintKey []string
+		var taints []string
 		for _, t := range n.Status.Taints {
-			taintKey = append(taintKey, t.Key)
+			taints = append(taints, fmt.Sprintf("%s=%s", t.Key, t.Value))
 		}
-		b, _ := json.Marshal(taintKey)
+		b, _ := json.Marshal(taints)
 		return false, fmt.Sprintf("node has taints: %s", string(b))
 	}
 	return true, ""

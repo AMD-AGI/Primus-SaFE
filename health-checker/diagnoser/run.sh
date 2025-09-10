@@ -22,9 +22,10 @@ export BNIC=${BNIC:-50}
 export BXGMI=${BXGMI:-315}
 export MAX_RETRY=${MAX_RETRY:-1}
 export NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX:-3}
-export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=3600
-export NCCL_TIMEOUT=3600
-export GLOO_TIMEOUT=3600
+
+export NCCL_TIMEOUT=7200
+export TORCH_DISTRIBUTED_DEFAULT_TIMEOUT=$NCCL_TIMEOUT
+export GLOO_TIMEOUT=$NCCL_TIMEOUT
 
 # ========================================
 # Phase 1: Synchronize SSH keys and config

@@ -96,5 +96,4 @@ const (
 	userPrefix            = "user."
 	userTokenRequired     = userPrefix + "token_required"
 	userTokenExpireSecond = userPrefix + "token_expire"
-	userDefaultWorkspace  = userPrefix + "default_workspace"
 )

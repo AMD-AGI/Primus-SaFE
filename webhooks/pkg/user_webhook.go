@@ -21,7 +21,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -73,7 +72,7 @@ func (m *UserMutator) Handle(ctx context.Context, req admission.Request) admissi
 func (m *UserMutator) mutateOnCreation(ctx context.Context, user *v1.User) {
 	m.mutateMetadata(user)
 	m.mutateCommon(ctx, user)
-	m.mutateDefaultWorkspace(user)
+	m.mutateDefaultWorkspace(ctx, user)
 }
 
 func (m *UserMutator) mutateOnUpdate(ctx context.Context, user *v1.User) {
@@ -140,17 +139,23 @@ func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 	}
 }
 
-func (m *UserMutator) mutateDefaultWorkspace(user *v1.User) {
-	defaultWorkspace := commonconfig.GetUserDefaultWorkspace()
-	if defaultWorkspace == "" {
+func (m *UserMutator) mutateDefaultWorkspace(ctx context.Context, user *v1.User) {
+	workspaceList := &v1.WorkspaceList{}
+	err := m.List(ctx, workspaceList)
+	if err != nil {
 		return
 	}
-	workspaces := commonuser.GetWorkspace(user)
-	if sliceutil.Contains(workspaces, defaultWorkspace) {
-		return
+	userWorkspaces := commonuser.GetWorkspace(user)
+	for _, w := range workspaceList.Items {
+		if !w.Spec.IsDefault {
+			continue
+		}
+		if sliceutil.Contains(userWorkspaces, w.Name) {
+			continue
+		}
+		userWorkspaces = append(userWorkspaces, w.Name)
 	}
-	workspaces = append(workspaces, defaultWorkspace)
-	commonuser.AssignWorkspace(user, workspaces...)
+	commonuser.AssignWorkspace(user, userWorkspaces...)
 }
 
 func (m *UserMutator) mutateManagedWorkspace(ctx context.Context, user *v1.User) {

@@ -233,6 +233,9 @@ func updateWorkspace(workspace *v1.Workspace, req *types.PatchWorkspaceRequest) 
 	if req.Managers != nil {
 		workspace.Spec.Managers = *req.Managers
 	}
+	if req.IsDefault != nil {
+		workspace.Spec.IsDefault = *req.IsDefault
+	}
 }
 
 func (h *Handler) getAdminWorkspace(ctx context.Context, name string) (*v1.Workspace, error) {
@@ -305,6 +308,7 @@ func generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRequest) *v1.Wo
 			Scopes:        req.Scopes,
 			EnablePreempt: req.EnablePreempt,
 			Managers:      req.Managers,
+			IsDefault:     req.IsDefault,
 		},
 	}
 	if len(workspace.Spec.Scopes) == 0 {
@@ -347,6 +351,7 @@ func cvtToWorkspaceResponseItem(w *v1.Workspace) types.WorkspaceResponseItem {
 		EnablePreempt: w.Spec.EnablePreempt,
 		AbnormalNode:  w.Status.AbnormalReplica,
 		Managers:      w.Spec.Managers,
+		IsDefault:     w.Spec.IsDefault,
 	}
 	return result
 }

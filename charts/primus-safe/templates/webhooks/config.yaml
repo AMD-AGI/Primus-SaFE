@@ -20,8 +20,6 @@ data:
       max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
     ssh:
       enable: {{ .Values.ssh.enable }}
-    user:
-      default_workspace: {{ default "" (default .Values.user).default_workspace }}
     ops_job:
       ttl_second: {{ default 300 (default .Values.ops_job).ttl_second }}
       timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
