@@ -171,6 +171,7 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 	if status.Phase != string(v1.K8sPending) && status.Phase != "" {
 		adminWorkload.Status.Message = ""
 	}
+	adminWorkload.Status.K8sObjectUid = string(msg.uid)
 	updateWorkloadCondition(adminWorkload, status, msg.dispatchCount)
 	if reflect.DeepEqual(adminWorkload.Status, originWorkload.Status) {
 		return originWorkload, false, nil

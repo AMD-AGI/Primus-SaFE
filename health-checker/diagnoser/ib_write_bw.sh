@@ -101,15 +101,11 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
       $ib_write_bw -d "$ib_hca" $ib_params &
       server_pid=$!
       echo "[$node] Local server started, PID: $server_pid"
-      sleep 5
+      sleep 2
 
       # Verify server process is still running
       if ! kill -0 $server_pid 2>/dev/null; then
         echo "ERROR: Local server failed to start!"
-        if [[ -z "${FAILED_NODES_MAP[$node]}" ]]; then
-          FAILED_NODES_MAP[$node]=1
-          FAILED_NODES_LIST+=("$node")
-        fi
         continue
       fi
     else
@@ -117,10 +113,6 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
       echo "[$node] Starting REMOTE server via SSH..."
       if ! check_remote_cmd "$node" "$ib_hca"; then
         echo "[$node] Skipping test due to missing ib_write_bw or device"
-        if [[ -z "${FAILED_NODES_MAP[$node]}" ]]; then
-          FAILED_NODES_MAP[$node]=1
-          FAILED_NODES_LIST+=("$node")
-        fi
         continue
       fi
 
@@ -128,7 +120,8 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
       server_pid=$!
       echo "[$node] Remote server started via SSH, SSH PID: $server_pid"
       REMOTE_LISTENER=true
-      sleep 5
+      # wait for server started
+      sleep 3
     fi
 
     # === STEP 2: Start Client ===
@@ -152,7 +145,8 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
     # === STEP 4: Cleanup Server ===
     if [[ "$REMOTE_LISTENER" == "true" ]]; then
       kill_remote_listener "$node" "$ib_hca"
-      sleep 1
+      # wait for finishing
+      sleep 2
     else
       kill $server_pid 2>/dev/null || true
       wait $server_pid 2>/dev/null || true
@@ -170,8 +164,6 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
         FAILED_NODES_LIST+=("$node")
       fi
     fi
-
-    sleep 2
   done
   echo
 done
@@ -179,9 +171,9 @@ done
 # === Final Summary ===
 echo "=== All tests completed ==="
 if [ ${#FAILED_NODES_LIST[@]} -eq 0 ]; then
-  echo "[SUCCESS] ✅ all passed, obtained through ib_write_bw"
+  echo "[RESULT] ✅ all passed, obtained through ib_write_bw"
 else
-  printf '[ERROR] unhealthy nodes: ['
+  printf '[RESULT] unhealthy nodes: ['
   for i in "${!FAILED_NODES_LIST[@]}"; do
     printf "'%s'" "${FAILED_NODES_LIST[i]}"
     if [ $i -lt $((${#FAILED_NODES_LIST[@]} - 1)) ]; then

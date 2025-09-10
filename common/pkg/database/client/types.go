@@ -54,6 +54,7 @@ type Workload struct {
 	Liveness       sql.NullString `db:"liveness"`
 	Readiness      sql.NullString `db:"readiness"`
 	UserId         sql.NullString `db:"user_id"`
+	K8sObjectUid   sql.NullString `db:"k8s_object_uid"`
 }
 
 func GetWorkloadFieldTags() map[string]string {

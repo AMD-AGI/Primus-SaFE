@@ -220,14 +220,14 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> T
             algbw = run_rccl_test(test_nodes)
             limit = threshold(len(test_nodes))
             is_faulty = algbw < limit
-            log(f"[RESULT] {suspect_node}+{healthy_node} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
+            log(f"[INFO] {suspect_node}+{healthy_node} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
             healthy_node_queue.put(healthy_node)
             return suspect_node, is_faulty
         except Empty:
             time.sleep(1)
             continue
         except Exception as e:
-            log(f"[ERROR] Exception during test for {suspect_node}: {e}")
+            log(f"[WARN] Exception during test for {suspect_node}: {e}")
             if 'healthy_node' in locals():
                 healthy_node_queue.put(healthy_node)
             return suspect_node, True
@@ -241,7 +241,7 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
     """
     algbw = run_rccl_test(nodes)
     limit = threshold(len(nodes))
-    log(f"[RESULT] {nodes} -> {algbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
+    log(f"[INFO] {nodes} -> {algbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
 
     if algbw >= limit:
         log(f"[PASS] Group {nodes} is healthy. Adding to global healthy pool.")
@@ -337,15 +337,15 @@ def main():
     bad_nodes = recursive_diagnose(nodes)
     if bad_nodes:
         if RCCL_TEST_TYPE == 0:
-            log(f"[ERROR] unhealthy nodes: {bad_nodes}, obtained through all_reduce_perf")
+            log(f"[RESULT] unhealthy nodes: {bad_nodes}, obtained through all_reduce_perf")
         else:
-            log(f"[ERROR] unhealthy nodes: {bad_nodes}, obtained through alltoall_perf")
+            log(f"[RESULT] unhealthy nodes: {bad_nodes}, obtained through alltoall_perf")
         sys.exit(1)
     else:
         if RCCL_TEST_TYPE == 0:
-            log(f"[SUCCESS] ✅ all passed, obtained through all_reduce_perf")
+            log(f"[RESULT] ✅ all passed, obtained through all_reduce_perf")
         else:
-            log(f"[SUCCESS] ✅ all passed, obtained through alltoall_perf")
+            log(f"[RESULT] ✅ all passed, obtained through alltoall_perf")
         sys.exit(0)
 
 if __name__ == "__main__":
