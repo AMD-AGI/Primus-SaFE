@@ -12,6 +12,7 @@ from typing import List, Tuple
 from queue import Queue, Empty
 import threading
 import hashlib
+import ipaddress
 from concurrent.futures import ThreadPoolExecutor
 
 # ================= configuration =================
@@ -72,6 +73,7 @@ def get_hosts(hosts_file) -> List[str]:
                 continue
             entries.append(item)
     return entries
+
 def parse_size(size_str: str) -> int:
     size_str = size_str.strip().upper()
     units = {'K': 1024, 'M': 1024**2, 'G': 1024**3, 'T': 1024**4}
@@ -127,6 +129,8 @@ def run_rccl_test(nodes: List[str]) -> float:
     if len(nodes) < 2:
         log(f"[WARN] Not enough nodes ({nodes}) for RCCL test.")
         return 0.0
+    elif len(nodes) > 2:
+        nodes = sorted(nodes, key=lambda ip: int(ipaddress.IPv4Address(ip)))
 
     nodes_str = ",".join([f"{node}" for node in nodes])
     np = len(nodes) * NUM_GPUS_PER_NODE
