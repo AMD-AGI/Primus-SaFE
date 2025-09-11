@@ -72,6 +72,7 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 		Description:    dbutils.NullString(v1.GetDescription(workload)),
 		UserId:         dbutils.NullString(v1.GetUserId(workload)),
 		K8sObjectUid:   dbutils.NullString(workload.Status.K8sObjectUid),
+		WorkloadUId:    dbutils.NullString(string(workload.UID)),
 	}
 	if workload.Spec.TTLSecondsAfterFinished != nil {
 		result.TTLSecond = *workload.Spec.TTLSecondsAfterFinished
