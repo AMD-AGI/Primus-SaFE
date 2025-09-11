@@ -40,7 +40,7 @@ fi
 # ========================================
 # Phase 2: Rank 0 runs diagnosis tasks
 # ========================================
-diag_ret=0
+ret=0
 if [[ "$RANK" == "0" ]]; then
   echo "[NODE-0] Starting diagnosis tasks..."
 
@@ -83,7 +83,7 @@ if [[ "$RANK" == "0" ]]; then
 
       if [[ $? -ne 0 ]]; then
         echo "[NODE-0] Diagnosis failed for $test_name"
-        diag_ret=1
+        ret=1
       fi
     done
   done
@@ -93,10 +93,10 @@ if [[ "$RANK" == "0" ]]; then
   bash ib_write_bw.sh "$NCCL_IB_HCA" "$NCCL_SOCKET_IFNAME" "$NCCL_IB_GID_INDEX" "$NODES_FILE"
   if [[ $? -ne 0 ]]; then
     echo "[NODE-0] Diagnosis failed for ib_write_bw"
-    diag_ret=1
+    ret=1
   fi
 
-  if [ $diag_ret -eq 0 ]; then
+  if [ $ret -eq 0 ]; then
     echo "[SUCCESS] ✅ All diagnosis tests passed."
   fi
 fi
@@ -117,4 +117,4 @@ torchrun \
 # Finalize
 # ========================================
 echo "[NODE-$RANK] ended at $(date +'%Y.%m.%d %H:%M:%S')"
-exit $diag_ret
+exit $ret

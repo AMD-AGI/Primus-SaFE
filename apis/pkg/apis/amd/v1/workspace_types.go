@@ -70,9 +70,9 @@ type WorkspaceVolume struct {
 	// The following parameters are used for PVC creation. If using hostPath mounting, they are not required.
 	// Capacity size, such as 100Gi. This is a required parameter when creating a PVC (PersistentVolumeClaim).
 	Capacity string `json:"capacity,omitempty"`
-	// volumeName specifies the name of an existing PersistentVolume. It cannot be used together with storageClassName.
-	// If both are set, the volumeName takes priority
-	PersistentVolumeName string `json:"PersistentVolumeName,omitempty"`
+	// selector is a label query over volumes to consider for binding.
+	// It cannot be used together with storageClassName. If both are set, the selector takes priority
+	Selector map[string]string `json:"selector,omitempty"`
 	// Responsible for automatic PV creation
 	StorageClass string `json:"storageClass,omitempty"`
 	// access mode, default is ReadWriteMany

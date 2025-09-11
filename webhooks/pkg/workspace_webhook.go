@@ -461,8 +461,8 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 			continue
 		}
 
-		if vol.StorageClass == "" && vol.PersistentVolumeName == "" {
-			return fmt.Errorf("the storageClass or persistentVolumeName is empty")
+		if vol.StorageClass == "" && len(vol.Selector) == 0 {
+			return fmt.Errorf("the storageClass or pv selector is empty")
 		}
 		if vol.Capacity == "" {
 			return fmt.Errorf("the capacity of volume is empty")
