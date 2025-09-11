@@ -119,6 +119,25 @@ func GetNodesOfWorkspaces(ctx context.Context, cli client.Client,
 	return results, nil
 }
 
+func GetNodesOfCluster(ctx context.Context, cli client.Client,
+	clusterId string, filterFunc func(v1.Node) bool) ([]v1.Node, error) {
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterId})
+	nodeList := &v1.NodeList{}
+	err := cli.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector})
+	if err != nil {
+		klog.ErrorS(err, "failed to list nodes", "selector", labelSelector.String())
+		return nil, err
+	}
+	results := make([]v1.Node, 0, len(nodeList.Items))
+	for i := range nodeList.Items {
+		if filterFunc != nil && filterFunc(nodeList.Items[i]) {
+			continue
+		}
+		results = append(results, nodeList.Items[i])
+	}
+	return results, nil
+}
+
 func GetInternalIp(node *corev1.Node) string {
 	internalIp := ""
 	for _, addr := range node.Status.Addresses {

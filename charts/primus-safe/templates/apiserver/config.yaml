@@ -44,7 +44,7 @@ data:
       preflight_image: docker.io/primussafe/{{ .Values.preflight.image }}
       diagnose_image: docker.io/primussafe/{{ .Values.diagnose.image }}
     user:
-      enable_authority: {{ .Values.user.enable_authority }}
+      token_required: {{ .Values.user.token_required }}
       token_expire: 604800
 kind: ConfigMap
 metadata:

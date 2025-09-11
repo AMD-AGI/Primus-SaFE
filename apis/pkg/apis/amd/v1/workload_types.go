@@ -153,6 +153,8 @@ type WorkloadStatus struct {
 	Pods []WorkloadPod `json:"pods,omitempty"`
 	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
 	Nodes [][]string `json:"nodes,omitempty"`
+	// The corresponding UID applied to the Kubernetes object.
+	K8sObjectUid string `json:"k8sObjectUid,omitempty"`
 }
 
 type WorkloadPod struct {

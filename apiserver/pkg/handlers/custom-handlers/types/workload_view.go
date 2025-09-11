@@ -102,6 +102,8 @@ type WorkloadResponseItem struct {
 	GroupVersionKind v1.GroupVersionKind `json:"groupVersionKind"`
 	// Workload timeout in hours. Default is 0 (no timeout).
 	Timeout *int `json:"timeout"`
+	// The corresponding UID applied to the Kubernetes object.
+	K8sObjectUid string `json:"k8sObjectUid"`
 }
 
 type GetWorkloadResponse struct {

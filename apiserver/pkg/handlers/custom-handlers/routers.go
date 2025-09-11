@@ -15,7 +15,7 @@ import (
 )
 
 func InitCustomRouters(e *gin.Engine, h *Handler) {
-	group := e.Group(common.PrimusRouterCustomRootPath, Prepare())
+	group := e.Group(common.PrimusRouterCustomRootPath, Authorize(), Prepare())
 	{
 		group.POST("workloads", h.CreateWorkload)
 		group.GET("workloads", h.ListWorkload)
@@ -56,8 +56,6 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.DELETE(fmt.Sprintf("clusters/:%s", types.Name), h.DeleteCluster)
 		group.PATCH(fmt.Sprintf("clusters/:%s", types.Name), h.PatchCluster)
 		group.GET(fmt.Sprintf("clusters/:%s/logs", types.Name), h.GetClusterPodLog)
-		group.GET("clusters", h.ListCluster)
-		group.GET(fmt.Sprintf("clusters/:%s", types.Name), h.GetCluster)
 
 		group.POST("nodeflavors", h.CreateNodeFlavor)
 		group.DELETE(fmt.Sprintf("nodeflavors/:%s", types.Name), h.DeleteNodeFlavor)
@@ -70,20 +68,23 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.GET("opsjobs/:name", h.GetOpsJob)
 		group.DELETE("opsjobs/:name", h.DeleteOpsJob)
 
-		group.POST("users", h.CreateUser)
 		group.DELETE("users/:name", h.DeleteUser)
 		group.GET("users", h.ListUser)
 		group.PATCH("users/:name", h.PatchUser)
 		group.GET("users/:name", h.GetUser)
 
-		group.POST(fmt.Sprintf("service/:%s/logs", types.Name), h.ListServiceLog)
-		group.POST(fmt.Sprintf("workloads/:%s/logs", types.Name), h.ListWorkloadLog)
-		group.POST(fmt.Sprintf("workloads/:%s/logs/:%s/context", types.Name, types.DocId), h.ListWorkloadLogContext)
+		group.POST(fmt.Sprintf("service/:%s/logs", types.Name), h.GetServiceLog)
+		group.POST(fmt.Sprintf("workloads/:%s/logs", types.Name), h.GetWorkloadLog)
+		group.POST(fmt.Sprintf("workloads/:%s/logs/:%s/context", types.Name, types.DocId), h.GetWorkloadLogContext)
 	}
 
-	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath)
+	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, Prepare())
 	{
+		noAuthGroup.GET("clusters", h.ListCluster)
+		noAuthGroup.GET(fmt.Sprintf("clusters/:%s", types.Name), h.GetCluster)
+
 		noAuthGroup.POST(fmt.Sprintf("login"), h.Login)
 		noAuthGroup.POST(fmt.Sprintf("logout"), h.Logout)
+		noAuthGroup.POST("users", h.CreateUser)
 	}
 }

@@ -5,7 +5,6 @@
 # See LICENSE for license information.
 #
 
-set -e
 export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"
 export NNODES="${PET_NNODES:-${NNODES}}"
 

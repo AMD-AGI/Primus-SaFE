@@ -267,19 +267,25 @@ func (r *AddonJobReconciler) handleNodes(ctx context.Context, job *v1.OpsJob, no
 		ch <- n
 	}
 
+	const maxRetry = 10
+	waitTime := time.Millisecond * 300
+	maxWaitTime := waitTime * maxRetry
 	_, err = concurrent.Exec(count, func() error {
 		nodeName := <-ch
-		ok, innerErr := r.handleNode(ctx, job, nodeName, allUsingNodes)
-		if innerErr != nil {
-			klog.ErrorS(innerErr, "failed to handle opsjob", "jod", job.Name, "node", nodeName)
-			if utils.IsNonRetryableError(innerErr) {
-				if r.setNodePhase(job.Name, nodeName, v1.OpsJobFailed) {
-					r.addFailedNodeCondition(ctx, job.Name, nodeName, innerErr.Error())
-				}
-				innerErr = nil
+		innerErr := backoff.Retry(func() error {
+			ok, innerErr := r.handleNode(ctx, job, nodeName, allUsingNodes)
+			if ok {
+				r.setNodePhase(job.Name, nodeName, v1.OpsJobSucceeded)
 			}
-		} else if ok {
-			r.setNodePhase(job.Name, nodeName, v1.OpsJobSucceeded)
+			return innerErr
+
+		}, maxWaitTime, waitTime)
+		if innerErr != nil {
+			klog.ErrorS(err, "failed to handle opsjob", "jod", job.Name, "node", nodeName)
+			if r.setNodePhase(job.Name, nodeName, v1.OpsJobFailed) {
+				r.addFailedNodeCondition(ctx, job.Name, nodeName, err.Error())
+			}
+			innerErr = nil
 		}
 		return innerErr
 	})
@@ -314,28 +320,23 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 	}
 	defer sshClient.Close()
 
-	isOk := true
 	for _, addOn := range addonJob.addonTemplates {
 		if !isMatchGpuChip(string(addOn.Spec.GpuChip), adminNode) {
 			continue
 		}
 		if err = executeAction(sshClient, addOn); err != nil {
-			if utils.IsNonRetryableError(err) {
-				isOk = false
-				break
-			}
 			return false, err
 		}
 	}
 	// If the addon specified by node.template is installed on the node, save the operation result.
 	// Subsequent operations can then trigger the preflight check.
-	if err2 := r.updateNodeTemplatePhase(ctx, job, adminNode, isOk); err2 != nil {
-		return false, err2
+	if err = r.updateNodeTemplatePhase(ctx, job, adminNode, true); err != nil {
+		return false, err
 	}
-	if err2 := r.deleteFault(ctx, nodeName, common.AddonMonitorId); err2 != nil {
-		return false, err2
+	if err = r.deleteFault(ctx, nodeName, common.AddonMonitorId); err != nil {
+		return false, err
 	}
-	return isOk, err
+	return true, nil
 }
 
 func (r *AddonJobReconciler) updateNodeTemplatePhase(ctx context.Context, job *v1.OpsJob, adminNode *v1.Node, isOk bool) error {
@@ -369,11 +370,17 @@ func executeAction(sshClient *ssh.Client, addOn *v1.AddonTemplate) error {
 	}
 	var exitError *ssh.ExitError
 	if errors.As(err, &exitError) {
-		klog.ErrorS(err, "failed to execute command", "cmd", cmd)
 		message := exitError.Error()
 		message = normalizeMessage(message)
-		return commonerrors.NewInternalError(
-			fmt.Sprintf("message: %s, code: %d", message, exitError.ExitStatus()))
+		klog.ErrorS(err, "failed to execute command", "addon", addOn.Name,
+			"message", message, "code", exitError.ExitStatus())
+		err = commonerrors.NewInternalError(
+			fmt.Sprintf("message: %s, code: %d, addon: %s", message, exitError.ExitStatus(), addOn.Name))
+	} else {
+		klog.ErrorS(err, "failed to execute command", "addon", addOn.Name)
+	}
+	if !addOn.Spec.Required {
+		return nil
 	}
 	return err
 }

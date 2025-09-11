@@ -10,7 +10,7 @@ const (
 
 	UserWorkspaceResource = "user/workspace"
 	UserIdentityResource  = "user/identity"
-	SecretResourceKind    = "secret"
+	SecretResourceKind    = "Secret"
 	AllResource           = "*"
 
 	GrantedOwner         = "owner"

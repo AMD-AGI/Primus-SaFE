@@ -137,14 +137,9 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 }
 
 func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.getAndSetUsername(c)
-	if err != nil {
-		return nil, err
-	}
-
 	ctx := c.Request.Context()
 	clusterList := &v1.ClusterList{}
-	if err = h.List(ctx, clusterList, &client.ListOptions{}); err != nil {
+	if err := h.List(ctx, clusterList, &client.ListOptions{}); err != nil {
 		return nil, err
 	}
 
@@ -154,17 +149,7 @@ func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 			return clusterList.Items[i].Name < clusterList.Items[j].Name
 		})
 	}
-	roles := h.auth.GetRoles(ctx, requestUser)
 	for _, item := range clusterList.Items {
-		if err = h.auth.Authorize(authority.Input{
-			Context:  ctx,
-			Resource: &item,
-			Verb:     v1.ListVerb,
-			User:     requestUser,
-			Roles:    roles,
-		}); err != nil {
-			continue
-		}
 		result.Items = append(result.Items, cvtToClusterResponseItem(&item))
 	}
 	result.TotalCount = len(result.Items)
@@ -172,22 +157,11 @@ func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
-	ctx := c.Request.Context()
-	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
+	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
-
-	if err = h.auth.Authorize(authority.Input{
-		Context:  c.Request.Context(),
-		Resource: cluster,
-		Verb:     v1.GetVerb,
-		UserId:   c.GetString(common.UserId),
-	}); err != nil {
-		return nil, err
-	}
-
-	return cvtToGetClusterResponse(ctx, h.Client, cluster), nil
+	return cvtToGetClusterResponse(c.Request.Context(), h.Client, cluster), nil
 }
 
 func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
@@ -388,6 +362,9 @@ func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
 		Verb:   v1.CreateVerb,
 		UserId: c.GetString(common.UserId),
 	}); err != nil {
+		if commonerrors.IsForbidden(err) {
+			return nil, commonerrors.NewForbidden("The user is not allowed to get cluster's log")
+		}
 		return nil, err
 	}
 

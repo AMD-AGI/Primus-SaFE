@@ -14,7 +14,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
@@ -56,9 +55,6 @@ func NewAuthorizer(cli client.Client) *Authorizer {
 }
 
 func (a *Authorizer) Authorize(in Input) error {
-	if !commonconfig.IsEnableUserAuthority() {
-		return nil
-	}
 	if in.User == nil {
 		var err error
 		in.User, err = a.GetRequestUser(in.Context, in.UserId)
@@ -73,9 +69,6 @@ func (a *Authorizer) Authorize(in Input) error {
 }
 
 func (a *Authorizer) AuthorizeSystemAdmin(in Input) error {
-	if !commonconfig.IsEnableUserAuthority() {
-		return nil
-	}
 	user, err := a.GetRequestUser(in.Context, in.UserId)
 	if err != nil {
 		return err
@@ -88,7 +81,7 @@ func (a *Authorizer) AuthorizeSystemAdmin(in Input) error {
 
 func (a *Authorizer) GetRequestUser(ctx context.Context, userId string) (*v1.User, error) {
 	if userId == "" {
-		return nil, commonerrors.NewUserNotRegistered("")
+		return nil, commonerrors.NewBadRequest("the request userId is empty")
 	}
 	user := &v1.User{}
 	err := a.Get(ctx, client.ObjectKey{Name: userId}, user)
@@ -140,6 +133,7 @@ func (a *Authorizer) authorize(in Input) error {
 	if in.Resource != nil {
 		resourceName = in.Resource.GetName()
 	}
+
 	roles := make([]*v1.Role, 0, len(in.Roles)+1)
 	roles = append(roles, in.Roles...)
 	if len(in.Workspaces) > 0 && commonuser.HasWorkspaceManagedRight(in.User, in.Workspaces...) {
@@ -155,7 +149,7 @@ func (a *Authorizer) authorize(in Input) error {
 		}
 	}
 	return commonerrors.NewForbidden(
-		fmt.Sprintf("The user is not allowed to %s %s", in.Verb, resourceKind))
+		fmt.Sprintf("The user is not allowed to %s the target %s", in.Verb, resourceKind))
 }
 
 func getPolicyRules(role *v1.Role, resourceKind, resourceName string, isOwner, isWorkspaceUser bool) []*v1.PolicyRule {

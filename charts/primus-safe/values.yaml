@@ -1,43 +1,50 @@
 net:
-  nccl_socket_ifname: "ens51f0"
-  nccl_ib_hca: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re6,bnxt_re7"
+  nccl_socket_ifname: "enp49s0f0np0"
+  nccl_ib_hca: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re7,bnxt_re8"
   rdma_name: "rdma/hca"
 apiserver:
-  image: "apiserver:202509011100"
-  replicas: 1
+  image: "apiserver:202509101306"
+  replicas: 2
 resource_manager:
-  image: "resource-manager:202508252300"
-  replicas: 1
+  image: "resource-manager:202509101306"
+  replicas: 2
 job_manager:
-  image: "job-manager:202508211040"
-  replicas: 1
+  image: "job-manager:202509101306"
+  replicas: 2
 webhooks:
-  image: "webhooks:202509011100"
-  replicas: 1
+  image: "webhooks:202509101306"
+  replicas: 2
 preprocess:
-  image: "preprocess:202508251402"
+  image: "preprocess:202509092311"
 preflight:
-  image: "preflight:202507301344"
+  image: "preflight:202509031707"
 diagnose:
-  image: "diagnose:202509030852"
+  image: "diagnose:202509092324"
+console:
+  image: "primus-safe-web:1.3.25"
+  replicas: 2
 db:
   enable: true
-  storage_class: "juicefs"
+  storage_class: "rbd"
 log:
   enable: true
 ssh:
   enable: false
 user:
-  enable_authority: false
+  token_required: false
 workspace:
-  mem_reserve_percent: 0.1
-  cpu_reserve_percent: 0.1
-  ephemeral_store_reserve_percent: 0.1
+  mem_reserve_percent: 0.08
+  cpu_reserve_percent: 0.15
+  ephemeral_store_reserve_percent: 0.08
 s3:
-  enable: true
+  enable: false
   endpoint: "http://s3.safe.primus.ai"
   bucket: "juicefs"
   secret: "juicefs-secret"
   secret_namespace: "juicefs-csi"
 addon:
   default: cert-manager.v1.17.2,training-operator.1.9.2,network-operator.25.4.0
+global:
+  domain: "safe-primus.ai"
+  sub_domain: "vultr"
+

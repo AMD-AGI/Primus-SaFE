@@ -86,6 +86,8 @@ type NodeResponseItem struct {
 	NodeTemplate string `json:"nodeTemplate"`
 	// Indicates whether the node can be scheduled in the Kubernetes cluster.
 	Available bool `json:"available"`
+	// If a node is unavailable, provide the reason
+	Message string `json:"message,omitempty"`
 	// the taints on node
 	Taints []corev1.Taint `json:"taints"`
 	// total resource of node
@@ -102,6 +104,8 @@ type NodeResponseItem struct {
 	LastStartupTime string `json:"lastStartupTime"`
 	// Indicates whether the node is the control plane node in the Kubernetes cluster.
 	IsControlPlane bool `json:"isControlPlane"`
+	// Indicates whether the addons of node template are installed.
+	IsAddonsInstalled bool `json:"isAddonsInstalled"`
 }
 
 type WorkloadInfo struct {
