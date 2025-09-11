@@ -23,6 +23,7 @@ type WorkloadStatusApplyConfiguration struct {
 	SchedulerOrder *int                                                    `json:"schedulerOrder,omitempty"`
 	Pods           []WorkloadPodApplyConfiguration                         `json:"pods,omitempty"`
 	Nodes          [][]string                                              `json:"nodes,omitempty"`
+	K8sObjectUid   *string                                                 `json:"k8sObjectUid,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -104,5 +105,13 @@ func (b *WorkloadStatusApplyConfiguration) WithNodes(values ...[]string) *Worklo
 	for i := range values {
 		b.Nodes = append(b.Nodes, values[i])
 	}
+	return b
+}
+
+// WithK8sObjectUid sets the K8sObjectUid field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the K8sObjectUid field is set to the value of the last call.
+func (b *WorkloadStatusApplyConfiguration) WithK8sObjectUid(value string) *WorkloadStatusApplyConfiguration {
+	b.K8sObjectUid = &value
 	return b
 }

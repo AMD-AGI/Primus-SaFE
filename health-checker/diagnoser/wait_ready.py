@@ -10,7 +10,7 @@ def main():
     os.environ['MASTER_PORT'] = os.getenv('MASTER_PORT')
     os.environ['WORLD_SIZE'] = os.getenv('WORLD_SIZE')
     os.environ['RANK'] = os.getenv('RANK')
-    os.environ.setdefault('TORCH_DISTRIBUTED_DEFAULT_TIMEOUT', '3600')
+    os.environ['TORCH_DISTRIBUTED_DEFAULT_TIMEOUT'] = os.getenv('TORCH_DISTRIBUTED_DEFAULT_TIMEOUT')
 
     dist.init_process_group(
         backend="gloo",

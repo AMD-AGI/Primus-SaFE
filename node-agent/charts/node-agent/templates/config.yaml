@@ -27,14 +27,15 @@ data:
   gpu_card_check_004: '{"script":"gpu_card_check_004.sh","id":"004","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["$Node"]}'
   gpu_device_plugin_005: '{"script":"gpu_device_plugin_005.sh","id":"005","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["$Node"]}'
   gpu_temperature_006: '{"script":"gpu_temperature_006.sh","id":"006","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on", "arguments":["100"]}'
-  gpu_driver_007: '{"script":"gpu_driver_007.sh","id":"007","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["6","10"]}'
+  gpu_driver_007: '{"script":"gpu_driver_007.sh","id":"007","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on","arguments":["{{ .Values.monitor.driver }}"]}'
   gpu_ras_008: '{"script":"gpu_ras_008.sh","id":"008","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   gpu_link_009: '{"script":"gpu_link_009.sh","id":"009","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
   gpu_xgmi_link_010: '{"script":"gpu_xgmi_link_010.sh","id":"010","cronjob":"@every 30s","timeoutSecond":25,"chip":"amd","toggle":"on"}'
+  gpu_rocm_version_011: '{"script":"gpu_rocm_version_011.sh","id":"011","cronjob":"@every 600s","timeoutSecond":100,"chip":"amd","toggle":"on","arguments":["{{ .Values.monitor.rocm_version }}"]}'
   # Network: 2XX
-  net_ib_status_201: '{"script":"net_ib_status_201.sh","id":"201","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'
+  net_ib_status_201: '{"script":"net_ib_status_201.sh","id":"201","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on","arguments":["{{ .Values.monitor.nccl_ib_hca }}"]}'
   net_ethtool_202: '{"script":"net_ethtool_202.sh","id":"202","cronjob":"@every 300s","timeoutSecond":250,"toggle":"on"}'
-  net_ethernet_id_203: '{"script":"net_ethernet_id_203.sh","id":"203","cronjob":"@every 600s","timeoutSecond":300,"toggle":"on","arguments":["{{ .Values.net.nccl_socket_ifname }}"]}'
+  net_ethernet_id_203: '{"script":"net_ethernet_id_203.sh","id":"203","cronjob":"@every 600s","timeoutSecond":300,"toggle":"on","arguments":["{{ .Values.monitor.nccl_socket_ifname }}"]}'
   net_bnxt_load_204: '{"script":"net_bnxt_load_204.sh","id":"204","cronjob":"@every 600s","timeoutSecond":300,"toggle":"on"}'
   net_bnxt_driver_205: '{"script":"net_bnxt_driver_205.sh","id":"205","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on","arguments":["231.0.162.0"]}'
   # System: 3XX
@@ -46,4 +47,4 @@ data:
   sys_boot_args_306: '{"script":"sys_boot_arguments_306.sh","id":"306","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"on"}'
   sys_pcie_link_308: '{"script":"sys_pcie_link_308.sh","id":"308","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on","arguments":["1002:74a1","32GT/s","x16"]}'
   # Disk: 4XX
-  disk_check_exist_401: '{"script":"disk_check_exist_401.sh","id":"401","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on","arguments":["/apps"]}'
+  nfs_check_401: '{"script":"nfs_check_401.sh","id":"401","cronjob":"@every 60s","timeoutSecond":50,"toggle":"on","arguments":["{{ .Values.monitor.nfs_server }}","{{ .Values.monitor.nfs_path }}","{{ .Values.monitor.nfs_mount }}"]}'

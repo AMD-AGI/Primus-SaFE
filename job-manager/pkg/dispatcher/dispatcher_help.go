@@ -60,10 +60,6 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 	if err = modifyHostNetWork(obj, adminWorkload, path); err != nil {
 		return err
 	}
-	path = append(templatePath, "spec", "hostPID")
-	if err = modifyHostPid(obj, adminWorkload, path); err != nil {
-		return err
-	}
 	path = append(templatePath, "spec", "tolerations")
 	if err = modifyTolerations(obj, adminWorkload, path); err != nil {
 		return err
@@ -77,6 +73,9 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 		if err = modifySelector(obj, adminWorkload, path); err != nil {
 			return err
 		}
+	}
+	if err = modifyByOpsJob(obj, adminWorkload, templatePath); err != nil {
+		return err
 	}
 	return nil
 }
@@ -186,8 +185,7 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Work
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
 
-	volumeMount := buildSharedMemoryVolumeMount()
-	volumeMounts = append(volumeMounts, volumeMount...)
+	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm"))
 	id := 0
 	for _, vol := range workspace.Spec.Volumes {
 		volumeName := string(vol.StorageType)
@@ -195,7 +193,7 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Work
 			volumeName = generateVolumeName(volumeName, id)
 			id++
 		}
-		volumeMount = buildWorkspaceVolumeMount(vol, volumeName)
+		volumeMount := buildWorkspaceVolumeMount(vol, volumeName)
 		volumeMounts = append(volumeMounts, volumeMount...)
 	}
 	mainContainer["volumeMounts"] = volumeMounts
@@ -258,11 +256,16 @@ func modifyHostNetWork(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 	return nil
 }
 
-func modifyHostPid(obj *unstructured.Unstructured, adminWorkload *v1.Workload, path []string) error {
+func modifyByOpsJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload, templatePath []string) error {
 	if v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobPreflightType) &&
 		v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobDiagnoseType) {
 		return nil
 	}
+	path := append(templatePath, "spec", "hostPID")
+	if err := unstructured.SetNestedField(obj.Object, true, path...); err != nil {
+		return err
+	}
+	path = append(templatePath, "spec", "hostIPC")
 	if err := unstructured.SetNestedField(obj.Object, true, path...); err != nil {
 		return err
 	}
@@ -451,13 +454,12 @@ func buildWorkspaceVolumeMount(vol v1.WorkspaceVolume, volumeName string) []inte
 	return result
 }
 
-func buildSharedMemoryVolumeMount() []interface{} {
+func buildVolumeMount(name, mountPath string) interface{} {
 	volMount := map[string]interface{}{
-		"mountPath": "/dev/shm",
-		"name":      SharedMemoryVolume,
+		"mountPath": mountPath,
+		"name":      name,
 	}
-	result := []interface{}{volMount}
-	return result
+	return volMount
 }
 
 func buildHostPathVolume(volumeName, hostPath string) interface{} {

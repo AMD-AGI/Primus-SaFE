@@ -128,6 +128,7 @@ func (h *Handler) getAndSetUsername(c *gin.Context) (*v1.User, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	c.Set(common.UserName, v1.GetUserName(user))
 	return user, nil
 }

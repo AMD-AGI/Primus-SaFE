@@ -80,6 +80,10 @@ func IsInternal(err error) bool {
 	return apierrors.ReasonForError(err) == InternalError
 }
 
+func IsForbidden(err error) bool {
+	return apierrors.ReasonForError(err) == Forbidden
+}
+
 func IsNotFound(err error) bool {
 	reason := apierrors.ReasonForError(err)
 	if reason == NotFound || reason == WorkloadNotFound || reason == WorkspaceNotFound ||
@@ -188,7 +192,7 @@ func NewRequestEntityTooLargeError(message string) *apierrors.StatusError {
 func NewQuotaInsufficient(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
-		Code:    http.StatusInternalServerError,
+		Code:    http.StatusServiceUnavailable,
 		Reason:  QuotaInsufficient,
 		Message: message,
 	}}

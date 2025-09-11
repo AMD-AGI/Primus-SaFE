@@ -300,10 +300,6 @@ func GetUserTokenExpire() int {
 	return getInt(userTokenExpireSecond, -1)
 }
 
-func IsEnableUserAuthority() bool {
-	return getBool(userEnableAuthority, false)
-}
-
-func GetUserDefaultWorkspace() string {
-	return getString(userDefaultWorkspace, "")
+func IsUserTokenRequired() bool {
+	return getBool(userTokenRequired, true)
 }

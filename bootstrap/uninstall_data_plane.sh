@@ -3,6 +3,4 @@
 # See LICENSE for license information.
 #
 
-helm uninstall training-operator -n kubeflow
-
 helm uninstall node-agent -n primus-safe

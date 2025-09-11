@@ -45,7 +45,8 @@ var (
 		    nodes = :nodes,
 		    is_supervised = :is_supervised,
 		    is_tolerate_all = :is_tolerate_all,
-		    timeout = :timeout 
+		    timeout = :timeout,
+		    k8s_object_uid = :k8s_object_uid  
 		WHERE workload_id = :workload_id`, TWorkload)
 )
 

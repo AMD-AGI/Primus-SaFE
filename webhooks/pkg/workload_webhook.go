@@ -155,7 +155,11 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	}
 
 	v1.SetLabel(workload, v1.WorkspaceIdLabel, workload.Spec.Workspace)
+	v1.SetLabel(workload, v1.WorkloadKindLabel, workload.Spec.Kind)
 	v1.SetLabel(workload, v1.WorkloadIdLabel, workload.Name)
+	if v1.GetUserName(workload) == "" {
+		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserId(workload))
+	}
 	if v1.GetUserName(workload) != "" {
 		v1.SetLabel(workload, v1.UserNameMd5Label, stringutil.MD5(v1.GetUserName(workload)))
 	}
@@ -173,7 +177,7 @@ func (m *WorkloadMutator) mutateGvk(workload *v1.Workload) {
 		workload.Spec.Kind = common.PytorchJobKind
 	}
 	if workload.Spec.Version == "" {
-		workload.Spec.Version = common.DefaultVersion
+		workload.Spec.Version = v1.SchemeGroupVersion.Version
 	}
 	// the group is not currently in use
 	workload.Spec.Group = ""
@@ -553,7 +557,7 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 		return nil
 	}
 	if workspace.IsAbnormal() && !workload.Spec.IsTolerateAll {
-		return commonerrors.NewInternalError(fmt.Sprintf("workspace %s is abnormal", workspace.Name))
+		return commonerrors.NewQuotaInsufficient(fmt.Sprintf("workspace %s is abnormal", workspace.Name))
 	}
 	if workload.Spec.Resource.Replica > workspace.Spec.Replica {
 		return commonerrors.NewQuotaInsufficient(

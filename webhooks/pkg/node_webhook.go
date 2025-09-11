@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -96,8 +97,11 @@ func (m *NodeMutator) mutateOnUpdate(ctx context.Context, node *v1.Node) bool {
 }
 
 func (m *NodeMutator) mutateSpec(_ context.Context, node *v1.Node) {
+	node.Spec.PrivateIP = strings.Trim(node.Spec.PrivateIP, " ")
 	if node.GetSpecHostName() == "" {
 		node.Spec.Hostname = ptr.To(node.Spec.PrivateIP)
+	} else {
+		node.Spec.Hostname = ptr.To(strings.Trim(*node.Spec.Hostname, " "))
 	}
 	if node.Spec.Port == nil {
 		node.Spec.Port = pointer.Int32(DefaultPort)

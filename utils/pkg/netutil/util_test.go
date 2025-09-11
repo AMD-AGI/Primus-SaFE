@@ -19,6 +19,10 @@ func TestGetSecondLevelDomain(t *testing.T) {
 	host = "primus-safe.amd.primus.ai"
 	domain = GetSecondLevelDomain(host)
 	assert.Equal(t, domain, "primus.ai")
+
+	host = "apiserver.tas.primus.ai"
+	domain = GetSecondLevelDomain(host)
+	assert.Equal(t, domain, "primus.ai")
 }
 
 func TestGetHostname(t *testing.T) {

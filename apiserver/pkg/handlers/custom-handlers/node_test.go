@@ -37,6 +37,10 @@ import (
 func genMockNodeFlavor() *v1.NodeFlavor {
 	memQuantity, _ := resource.ParseQuantity("1024Gi")
 	return &v1.NodeFlavor{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       v1.NodeFlavorKind,
+			APIVersion: v1.SchemeGroupVersion.String(),
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName("nodeFlavor"),
 		},
@@ -58,6 +62,10 @@ func genMockNodeFlavor() *v1.NodeFlavor {
 
 func genMockAdminNode(clusterId, workspaceId, nodeFlavorId string) *v1.Node {
 	result := &v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       v1.NodeKind,
+			APIVersion: v1.SchemeGroupVersion.String(),
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName("node"),
 			Labels: map[string]string{
@@ -207,24 +215,6 @@ func TestPatchNode(t *testing.T) {
 	val, ok = actionMap[v1.NodeFlavorIdLabel]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, val, v1.NodeActionAdd)
-}
-
-func TestNodeSort(t *testing.T) {
-	nodes := []v1.Node{{
-		ObjectMeta: metav1.ObjectMeta{Name: "n1"},
-		Status:     v1.NodeStatus{MachineStatus: v1.MachineStatus{PrivateIP: "10.0.0.1"}},
-	}, {
-		ObjectMeta: metav1.ObjectMeta{Name: "n100"},
-		Status:     v1.NodeStatus{MachineStatus: v1.MachineStatus{PrivateIP: "10.0.0.100"}},
-	}, {
-		ObjectMeta: metav1.ObjectMeta{Name: "n2"},
-		Status:     v1.NodeStatus{MachineStatus: v1.MachineStatus{PrivateIP: "10.0.0.2"}},
-	}}
-	nodes2 := sortAdminNodes(nodes)
-
-	assert.Equal(t, nodes2[0].Name, "n1")
-	assert.Equal(t, nodes2[1].Name, "n2")
-	assert.Equal(t, nodes2[2].Name, "n100")
 }
 
 func TestParseListNodeQuery(t *testing.T) {

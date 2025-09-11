@@ -7,12 +7,12 @@ import subprocess
 import sys
 import os
 import argparse
-import random
 import time
 from typing import List, Tuple
-from queue import Queue
+from queue import Queue, Empty
 import threading
 import hashlib
+import ipaddress
 from concurrent.futures import ThreadPoolExecutor
 
 # ================= configuration =================
@@ -30,6 +30,7 @@ RCCL_TEST_TYPE = 0
 SSH_PORT = 22
 
 DEBUG_MODE = False
+total_nodes = 0
 healthy_node_queue: Queue[str] = Queue()
 # for log output
 print_lock = threading.Lock()
@@ -63,7 +64,7 @@ def threshold(node_count: int) -> float:
     beff *= 0.7
     return beff
 
-def get_randomized_hosts(hosts_file) -> List[str]:
+def get_hosts(hosts_file) -> List[str]:
     entries = []
     with open(hosts_file, "r") as file:
         for line in file:
@@ -71,9 +72,8 @@ def get_randomized_hosts(hosts_file) -> List[str]:
             if not item or item.startswith('#'):
                 continue
             entries.append(item)
-
-    random.shuffle(entries)
     return entries
+
 def parse_size(size_str: str) -> int:
     size_str = size_str.strip().upper()
     units = {'K': 1024, 'M': 1024**2, 'G': 1024**3, 'T': 1024**4}
@@ -90,6 +90,37 @@ def parse_size(size_str: str) -> int:
     except ValueError:
         raise ValueError(f"Invalid size string: {size_str}")
 
+def parse_algbw_after_header(text, target_size, tolerance=1000):
+    parsing_enabled = False
+
+    for line_num, line in enumerate(text.strip().splitlines(), 1):
+        line = line.strip()
+        if line.startswith('#') and 'algbw' in line.lower() and 'busbw' in line.lower():
+            if 'size' in line.lower() and 'count' in line.lower():
+                parsing_enabled = True
+            continue
+
+        if not parsing_enabled:
+            continue
+        if not line or line.startswith('#'):
+            continue
+
+        parts = line.split()
+        if len(parts) <= 11:
+            continue
+        try:
+            size = int(parts[0])
+            if abs(size - target_size) <= tolerance:
+                if RCCL_TEST_TYPE == 0:
+                    algbw = float(parts[11])
+                else:
+                    algbw = float(parts[10])
+                return algbw
+        except ValueError:
+            continue
+    return 0.0
+
+
 def run_rccl_test(nodes: List[str]) -> float:
     """
     do rccl/all_reduce_perf or rccl/alltoall_perf test on specified nodes
@@ -98,9 +129,12 @@ def run_rccl_test(nodes: List[str]) -> float:
     if len(nodes) < 2:
         log(f"[WARN] Not enough nodes ({nodes}) for RCCL test.")
         return 0.0
+    elif len(nodes) > 2:
+        nodes = sorted(nodes, key=lambda ip: int(ipaddress.IPv4Address(ip)))
 
     nodes_str = ",".join([f"{node}" for node in nodes])
     np = len(nodes) * NUM_GPUS_PER_NODE
+    dev0 = RCCL_IB_HCA.split(',')[0]
 
     cmd = [
         MPIEXEC, "-n", str(np), "-ppn", str(NUM_GPUS_PER_NODE),
@@ -111,6 +145,7 @@ def run_rccl_test(nodes: List[str]) -> float:
     env_vars["MPIEXEC_ALLOW_ROOT"] = "1"
     env_vars["NCCL_IB_HCA"] = RCCL_IB_HCA
     env_vars["NCCL_SOCKET_IFNAME"] = RCCL_SOCKET_IFNAME
+    env_vars["UCX_NET_DEVICES"] = dev0 + ":1"
     env_vars["NCCL_IB_GID_INDEX"] = str(NCCL_IB_GID_INDEX)
     env_vars["LD_LIBRARY_PATH"] = LD_LIBRARY_PATH
     env_vars["MPIEXEC_RSH"] = f"ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p {SSH_PORT}"
@@ -132,7 +167,7 @@ def run_rccl_test(nodes: List[str]) -> float:
     log(f"# Log: {log_file}")
     env_str_parts = []
     for k, v in env_vars.items():
-        if k.startswith('MPI') or k.startswith('NCCL') or k.startswith('LD_'):
+        if k.startswith('MPI') or k.startswith('NCCL') or k.startswith('LD_') or k.startswith('UCX_') or  k.startswith('RCCL_'):
             env_str_parts.append(f'{k}="{v}"')
     env_str_for_manual_exec = " ".join(env_str_parts)
     cmd_str_for_manual_exec = " ".join(cmd)
@@ -152,23 +187,13 @@ def run_rccl_test(nodes: List[str]) -> float:
             print(result.stdout)
             f.write(result.stdout)
 
-        target_size = str(parse_size(MAX_BYTES))
-        lines = result.stdout.splitlines()
-        for line in lines:
-            if target_size in line:
-                parts = line.strip().split()
-                if len(parts) > 11:
-                    try:
-                        if RCCL_TEST_TYPE == 0:
-                            algbw = float(parts[11])
-                        else:
-                            algbw = float(parts[10])
-                        log(f"[INFO] After test on {nodes}, algbw = {algbw:.2f} GB/s")
-                        return algbw
-                    except ValueError:
-                        continue
-        log(f"[FAIL] Failed to parse algbw from output for {nodes}")
-        return 0.0
+        target_size = parse_size(MAX_BYTES)
+        algbw = parse_algbw_after_header(result.stdout, target_size)
+        if algbw == 0.0:
+            log(f"[FAIL] Failed to parse algbw from output for {nodes}")
+        else:
+            log(f"[INFO] After test on {nodes}, algbw = {algbw:.2f} GB/s")
+        return algbw
     except subprocess.TimeoutExpired:
         log(f"[Exception] RCCL test timed out for {nodes}")
         return 0.0
@@ -178,16 +203,14 @@ def run_rccl_test(nodes: List[str]) -> float:
 
 def split_list(lst: List[str]) -> Tuple[List[str], List[str]]:
     lst = lst.copy()
-    random.shuffle(lst)
     mid = len(lst) // 2
     return lst[:mid], lst[mid:]
 
-def diagnose_single_with_healthy(suspect_node: str, timeout: float = 1800.0) -> Tuple[str, bool]:
+def diagnose_single_with_healthy(suspect_node: str, timeout: float = 600.0) -> Tuple[str, bool]:
     """
     Single suspicious node and healthy node combination test
     Retrieve a healthy node from the global health node pool and return it after testing is completed
     """
-
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
@@ -197,13 +220,19 @@ def diagnose_single_with_healthy(suspect_node: str, timeout: float = 1800.0) -> 
             algbw = run_rccl_test(test_nodes)
             limit = threshold(len(test_nodes))
             is_faulty = algbw < limit
-            log(f"[RESULT] {suspect_node}+{healthy_node} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
+            log(f"[INFO] {suspect_node}+{healthy_node} -> {algbw:.2f} GB/s, threshold:{limit:.2f} GB/s-> {'FAULTY' if is_faulty else 'OK'}")
             healthy_node_queue.put(healthy_node)
             return suspect_node, is_faulty
-        except Exception:
+        except Empty:
             time.sleep(1)
             continue
-    log(f"[TIMEOUT] failed to get healthy node for {suspect_node}")
+        except Exception as e:
+            log(f"[WARN] Exception during test for {suspect_node}: {e}")
+            if 'healthy_node' in locals():
+                healthy_node_queue.put(healthy_node)
+            return suspect_node, True
+
+    log(f"[TIMEOUT] failed to get healthy node for {suspect_node}, using fallback method")
     return suspect_node, True
 
 def recursive_diagnose(nodes: List[str]) -> List[str]:
@@ -212,7 +241,7 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
     """
     algbw = run_rccl_test(nodes)
     limit = threshold(len(nodes))
-    log(f"[RESULT] {nodes} -> {algbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
+    log(f"[INFO] {nodes} -> {algbw:.2f} GB/s, threshold: {limit:.2f} GB/s")
 
     if algbw >= limit:
         log(f"[PASS] Group {nodes} is healthy. Adding to global healthy pool.")
@@ -221,6 +250,10 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
         return []
 
     if len(nodes) <= 2:
+        if healthy_node_queue.empty() and len(nodes) == total_nodes:
+            log(f"[WARNING] All nodes appear to be faulty or no healthy nodes available for comparison")
+            return nodes.copy()
+
         log(f"[FINAL CHECK] Testing {nodes} individually with healthy nodes.")
         bad_nodes = []
         # Parallel testing (up to MAX_CONCURRENT_TESTS)
@@ -236,6 +269,7 @@ def recursive_diagnose(nodes: List[str]) -> List[str]:
                         healthy_node_queue.put(node)
                         log(f"[PASS] {node} passed with healthy node.")
                 except Exception as e:
+                    node = "unknown"
                     log(f"[Exception] during test for {node}: {e}")
                     bad_nodes.append(node)
         return bad_nodes
@@ -285,7 +319,7 @@ def parse_args() -> List[str]:
     RCCL_TEST_TYPE = args.rccl_test_type
     MAX_BYTES = args.max_bytes
 
-    nodes = get_randomized_hosts(args.nodes_file)
+    nodes = get_hosts(args.nodes_file)
     return nodes
 
 def main():
@@ -296,21 +330,22 @@ def main():
 
     log(f"🔍 Starting diagnosis on {nodes}, rccl_test_type={RCCL_TEST_TYPE}")
     log("⚙️ Starting recursive diagnosis...")
-    global healthy_node_queue
+    global healthy_node_queue, total_nodes
+    total_nodes = len(nodes)
     healthy_node_queue = Queue()
 
     bad_nodes = recursive_diagnose(nodes)
     if bad_nodes:
         if RCCL_TEST_TYPE == 0:
-            log(f"[ERROR] unhealthy nodes: {bad_nodes}, obtained through all_reduce_perf")
+            log(f"[RESULT] unhealthy nodes: {bad_nodes}, obtained through all_reduce_perf")
         else:
-            log(f"[ERROR] unhealthy nodes: {bad_nodes}, obtained through alltoall_perf")
+            log(f"[RESULT] unhealthy nodes: {bad_nodes}, obtained through alltoall_perf")
         sys.exit(1)
     else:
         if RCCL_TEST_TYPE == 0:
-            log(f"[SUCCESS] ✅ all passed, obtained through all_reduce_perf")
+            log(f"[RESULT] ✅ all passed, obtained through all_reduce_perf")
         else:
-            log(f"[SUCCESS] ✅ all passed, obtained through alltoall_perf")
+            log(f"[RESULT] ✅ all passed, obtained through alltoall_perf")
         sys.exit(0)
 
 if __name__ == "__main__":

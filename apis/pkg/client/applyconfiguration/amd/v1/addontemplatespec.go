@@ -21,6 +21,7 @@ type AddonTemplateSpecApplyConfiguration struct {
 	Action               *string                  `json:"action,omitempty"`
 	Icon                 *string                  `json:"icon,omitempty"`
 	GpuChip              *amdv1.GpuChipType       `json:"gpuChip,omitempty"`
+	Required             *bool                    `json:"required,omitempty"`
 	HelmDefaultValues    *string                  `json:"helmDefaultValues,omitempty"`
 	HelmDefaultNamespace *string                  `json:"helmDefaultNamespace,omitempty"`
 }
@@ -92,6 +93,14 @@ func (b *AddonTemplateSpecApplyConfiguration) WithIcon(value string) *AddonTempl
 // If called multiple times, the GpuChip field is set to the value of the last call.
 func (b *AddonTemplateSpecApplyConfiguration) WithGpuChip(value amdv1.GpuChipType) *AddonTemplateSpecApplyConfiguration {
 	b.GpuChip = &value
+	return b
+}
+
+// WithRequired sets the Required field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Required field is set to the value of the last call.
+func (b *AddonTemplateSpecApplyConfiguration) WithRequired(value bool) *AddonTemplateSpecApplyConfiguration {
+	b.Required = &value
 	return b
 }
 

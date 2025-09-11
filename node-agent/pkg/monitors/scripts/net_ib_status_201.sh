@@ -5,25 +5,30 @@
 # See LICENSE for license information.
 #
 
-data=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/sbin/ibstatus`
-if [ $? -ne 0 ]; then
-  echo "Error: failed to execute ibstatus"
-  exit 2
+if [ -z "$1" ]; then
+  echo "Usage: $0 \"device1,device2,...\""
+  echo "Example: $0 \"bnxt_re0,bnxt_re1,bnxt_re2\""
+  exit 1
 fi
 
-device=""
-state=""
-while read -r line; do
-  line=$(echo "$line" | sed 's/^ *//;s/ *$//')
-  if [[ "$line" =~ ^Infiniband ]]; then
-    device=$(echo "$line" | grep -oP "(?<=Infiniband device ')[^']+(?=')")
-  elif [[ "$line" =~ ^state: ]]; then
-    state=$(echo "$line" | awk '{print $NF}')
-  elif [[ "$line" =~ ^phys" "state ]]; then
-    phys_state=$(echo "$line" | awk '{print $NF}')
-    if [[ "$phys_state" == "LinkUp" ]] && [[ "$state" == "DOWN" ]]; then
-      echo "Error: Device '$device' is DOWN!"
-      exit 1
-    fi
+IFS=',' read -ra DEV_ARRAY <<< "$1"
+for dev in "${DEV_ARRAY[@]}"; do
+  dev=$(echo "$dev" | xargs)
+
+  OUTPUT=$(nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/sbin/ibstatus "$dev" 2>&1)
+  ret=$?
+  if [ $ret -ne 0 ]; then
+    exit 1
   fi
-done <<< "$data"
+
+  STATE_LINE=$(echo "$OUTPUT" | grep "state:" | head -n1)
+  if [ -z "$STATE_LINE" ]; then
+    exit 1
+  fi
+
+  STATE=$(echo "$STATE_LINE" | awk -F':' '{print $3}' | xargs)
+  if [ "$STATE" != "ACTIVE" ]; then
+    echo "Error: Device '$dev' is DOWN!"
+    exit 1
+  fi
+done
