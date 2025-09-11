@@ -443,7 +443,7 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 			oldCapacityMap[string(vol.StorageType)] = vol.Capacity
 		}
 	}
-	supportedStorageType := []v1.StorageUseType{v1.RBD, v1.FS, v1.OBS, v1.HOSTPATH}
+	supportedStorageType := []v1.StorageUseType{v1.RBD, v1.FS, v1.OBS, v1.HOSTPATH, v1.JuiceFS}
 	supportedAccessMode := []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce,
 		corev1.ReadWriteMany, corev1.ReadOnlyMany, corev1.ReadWriteOncePod}
 
