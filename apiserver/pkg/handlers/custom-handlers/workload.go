@@ -724,6 +724,7 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 		Priority:       w.Priority,
 		IsTolerateAll:  w.IsTolerateAll,
 		WorkloadUid:    dbutils.ParseNullString(w.WorkloadUId),
+		K8sObjectUid:   dbutils.ParseNullString(w.K8sObjectUid),
 	}
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
@@ -858,6 +859,7 @@ func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
 		GroupVersionKind: w.Spec.GroupVersionKind,
 		Timeout:          w.Spec.Timeout,
 		WorkloadUid:      string(w.UID),
+		K8sObjectUid:     w.Status.K8sObjectUid,
 	}
 	if !w.Status.StartTime.IsZero() {
 		result.StartTime = timeutil.FormatRFC3339(&w.Status.StartTime.Time)

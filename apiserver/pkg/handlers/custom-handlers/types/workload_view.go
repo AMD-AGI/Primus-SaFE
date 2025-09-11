@@ -104,6 +104,8 @@ type WorkloadResponseItem struct {
 	Timeout *int `json:"timeout"`
 	// workload's UID
 	WorkloadUid string `json:"workloadUid"`
+	// K8s object uid corresponding to the workload
+	K8sObjectUid string `json:"k8sObjectUid"`
 }
 
 type GetWorkloadResponse struct {
