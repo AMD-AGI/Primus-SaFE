@@ -1,9 +1,9 @@
 apiVersion: amd.com/v1
 kind: AddonTemplate
 metadata:
-  name: sysctl-inotify
+  name: sysctl-max-map-count
   labels:
-    primus-safe.display.name: "sysctl-inotify-1024"
+    primus-safe.display.name: "sysctl-max-map-count-262144"
     app.kubernetes.io/managed-by: Helm
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
@@ -11,5 +11,5 @@ metadata:
 spec:
   category: System
   required: true
-  description: Set max inotify instances per user to 1024
-  action: ZWNobyAiZnMuaW5vdGlmeS5tYXhfdXNlcl9pbnN0YW5jZXM9MTAyNCIgPiAvZXRjL3N5c2N0bC5kLzk5LWlub3RpZnkuY29uZiAmJiBzeXNjdGwgLS1zeXN0ZW0K
+  description: Set vm.max_map_count to 262144
+  action: ZWNobyAidm0ubWF4X21hcF9jb3VudD0yNjIxNDQiID4gL2V0Yy9zeXNjdGwuZC85OS1tYXgtbWFwLWNvdW50LmNvbmYgJiYgc3lzY3RsIC0tc3lzdGVtCg==

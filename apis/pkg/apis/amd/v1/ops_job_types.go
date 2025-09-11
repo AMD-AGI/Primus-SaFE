@@ -34,6 +34,7 @@ const (
 	ParameterNodeTemplate  = "node.template"
 	ParameterAddonTemplate = "addon.template"
 	ParameterWorkload      = "workload"
+	ParameterWorkspace     = "workspace"
 	ParameterEndpoint      = "endpoint"
 )
 
@@ -49,12 +50,14 @@ type OpsJobSpec struct {
 	Cluster string `json:"cluster"`
 	// The resource objects to be processed, e.g., node. Multiple entries will be processed sequentially.
 	Inputs []Parameter `json:"inputs"`
-	// the lifecycle of ops-job
+	// the lifecycle of ops-job after it finishes
 	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
 	// ops-job Timeout (in seconds), Less than or equal to 0 means no timeout
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
 	// environment variables
 	Env map[string]string `json:"env,omitempty"`
+	// Indicates whether the job tolerates node taints
+	IsTolerateAll bool `json:"isTolerateAll"`
 }
 
 type OpsJobStatus struct {

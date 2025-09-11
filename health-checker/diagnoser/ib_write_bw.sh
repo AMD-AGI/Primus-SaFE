@@ -38,6 +38,7 @@ fi
 export CLIENT=$(awk 'NR==1{print $1}' "$nodes_file")
 echo "=== Starting ib_write_bw tests ==="
 echo "Client initiator: $CLIENT"
+echo "LocalIp = '$local_ip'"
 echo "Node list: $(paste -sd ',' "$nodes_file")"
 echo
 
@@ -77,13 +78,10 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
   echo "[$(date +%H:%M:%S)] TESTING IB DEVICE: $ib_hca"
   echo "=================================================="
 
-  # Temporary list to collect failures in current device test
-  current_failed=()
-
   # Read nodes from file, skip empty lines
-  while IFS= read -r node; do
-    [ -z "$node" ] && continue
-
+  for node in $(awk '{print $1}' "$nodes_file")
+  do
+    [ -z "$node" ] && { echo "Skipping empty line"; continue; }
     # Skip if this node has already failed in a previous device test
     if [[ -n "${FAILED_NODES_MAP[$node]}" ]]; then
       echo "[$node] Skipping: previously failed"
@@ -103,21 +101,18 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
       $ib_write_bw -d "$ib_hca" $ib_params &
       server_pid=$!
       echo "[$node] Local server started, PID: $server_pid"
-      sleep 5
+      sleep 2
 
       # Verify server process is still running
       if ! kill -0 $server_pid 2>/dev/null; then
         echo "ERROR: Local server failed to start!"
-        current_failed+=("$node")
         continue
       fi
-
     else
       # Remote server via SSH
       echo "[$node] Starting REMOTE server via SSH..."
       if ! check_remote_cmd "$node" "$ib_hca"; then
         echo "[$node] Skipping test due to missing ib_write_bw or device"
-        current_failed+=("$node")
         continue
       fi
 
@@ -125,7 +120,8 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
       server_pid=$!
       echo "[$node] Remote server started via SSH, SSH PID: $server_pid"
       REMOTE_LISTENER=true
-      sleep 5
+      # wait for server started
+      sleep 3
     fi
 
     # === STEP 2: Start Client ===
@@ -149,7 +145,8 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
     # === STEP 4: Cleanup Server ===
     if [[ "$REMOTE_LISTENER" == "true" ]]; then
       kill_remote_listener "$node" "$ib_hca"
-      sleep 1
+      # wait for finishing
+      sleep 2
     else
       kill $server_pid 2>/dev/null || true
       wait $server_pid 2>/dev/null || true
@@ -162,30 +159,21 @@ for ib_hca in "${IB_HCA_LIST[@]}"; do
       echo "RESULT: $node on $ib_hca FAILS (exit code: $client_ret)"
       # Highlight common errors
       echo "$output" | grep -E "(Couldn't connect|No route|Device not found|Permission denied|timeout)" | sed 's/^/    [ERROR] &/'
-      current_failed+=("$node")
-    fi
-
-    sleep 2
-  done < "$nodes_file"
-
-  # === Merge current failures into global failure set ===
-  for node in "${current_failed[@]}"; do
-    if [[ -z "${FAILED_NODES_MAP[$node]}" ]]; then
-      FAILED_NODES_MAP[$node]=1
-      FAILED_NODES_LIST+=("$node")
+      if [[ -z "${FAILED_NODES_MAP[$node]}" ]]; then
+        FAILED_NODES_MAP[$node]=1
+        FAILED_NODES_LIST+=("$node")
+      fi
     fi
   done
-
-  echo "[$ib_hca] Completed. Failed nodes so far: [${FAILED_NODES_LIST[*]:-none}]"
   echo
 done
 
 # === Final Summary ===
 echo "=== All tests completed ==="
 if [ ${#FAILED_NODES_LIST[@]} -eq 0 ]; then
-  echo "[SUCCESS] ✅ all passed, obtained through ib_write_bw"
+  echo "[RESULT] ✅ all passed, obtained through ib_write_bw"
 else
-  printf '[ERROR] unhealthy nodes: ['
+  printf '[RESULT] unhealthy nodes: ['
   for i in "${!FAILED_NODES_LIST[@]}"; do
     printf "'%s'" "${FAILED_NODES_LIST[i]}"
     if [ $i -lt $((${#FAILED_NODES_LIST[@]} - 1)) ]; then

@@ -23,6 +23,8 @@ type CreateOpsJobRequest struct {
 	Cluster string `json:"cluster,omitempty"`
 	// job Timeout (in seconds), Less than or equal to 0 means no timeout
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
+	// the lifecycle of ops-job after it finishes
+	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
 	// the number of nodes to process simultaneously during the addon upgrade. default 1
 	// If the number exceeds the job's limit, it will be capped to the maximum available node count.
 	BatchCount int `json:"batchCount,omitempty"`
@@ -34,6 +36,10 @@ type CreateOpsJobRequest struct {
 	SecurityUpgrade bool `json:"securityUpgrade,omitempty"`
 	// environment variables
 	Env map[string]string `json:"env,omitempty"`
+	// Indicates whether the job tolerates node taints. default false
+	IsTolerateAll bool `json:"isTolerateAll"`
+	// Excluded nodes
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
 }
 
 type CreateOpsJobResponse struct {

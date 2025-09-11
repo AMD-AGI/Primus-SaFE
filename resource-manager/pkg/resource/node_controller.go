@@ -260,7 +260,7 @@ func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) (
 	n := client.MergeFrom(node.DeepCopy())
 	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
-		klog.ErrorS(err, "failed to get client for ssh")
+		klog.ErrorS(err, "failed to get client for ssh", "node", node.Name)
 		node.Status.MachineStatus.Phase = v1.NodeSSHFailed
 		if err = r.Status().Patch(ctx, node, n); err != nil {
 			klog.ErrorS(err, "failed to patch status", "node", node.Name)
@@ -912,7 +912,7 @@ func (r *NodeReconciler) harborCA(ctx context.Context, sshClient *ssh.Client) er
 }
 
 func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) error {
-	if adminNode.Spec.NodeTemplate == nil {
+	if adminNode.Spec.NodeTemplate == nil || v1.IsNodeTemplateInstalled(adminNode) {
 		return nil
 	}
 	job := &v1.OpsJob{
@@ -960,12 +960,13 @@ func (r *NodeReconciler) doPreflight(ctx context.Context, adminNode *v1.Node) er
 			Name: v1.OpsJobKind + "-" + string(v1.OpsJobPreflightType) + "-" + adminNode.Name,
 		},
 		Spec: v1.OpsJobSpec{
-			Cluster: adminNode.GetSpecCluster(),
 			Type:    v1.OpsJobPreflightType,
+			Cluster: adminNode.GetSpecCluster(),
 			Inputs: []v1.Parameter{{
 				Name:  v1.ParameterNode,
 				Value: adminNode.Name,
 			}},
+			IsTolerateAll: true,
 			TimeoutSecond: 7200,
 		},
 	}

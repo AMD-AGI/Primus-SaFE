@@ -17,6 +17,10 @@ import (
 
 func genMockWorkload(clusterId, workspaceId string) *v1.Workload {
 	return &v1.Workload{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       v1.WorkloadKind,
+			APIVersion: v1.SchemeGroupVersion.String(),
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName("workload"),
 			Labels: map[string]string{

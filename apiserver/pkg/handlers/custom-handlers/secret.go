@@ -95,11 +95,12 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 	for _, item := range secretList.Items {
 		if err = h.auth.Authorize(authority.Input{
-			Context:  c.Request.Context(),
-			Resource: &item,
-			Verb:     v1.ListVerb,
-			User:     requestUser,
-			Roles:    roles,
+			Context:      c.Request.Context(),
+			Resource:     &item,
+			ResourceKind: authority.SecretResourceKind,
+			Verb:         v1.ListVerb,
+			User:         requestUser,
+			Roles:        roles,
 		}); err != nil {
 			continue
 		}
@@ -124,10 +125,11 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.auth.Authorize(authority.Input{
-		Context:  c.Request.Context(),
-		Resource: secret,
-		Verb:     v1.DeleteVerb,
-		UserId:   c.GetString(common.UserId),
+		Context:      c.Request.Context(),
+		Resource:     secret,
+		ResourceKind: authority.SecretResourceKind,
+		Verb:         v1.DeleteVerb,
+		UserId:       c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}

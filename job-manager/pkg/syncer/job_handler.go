@@ -23,6 +23,7 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
@@ -170,6 +171,7 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 	if status.Phase != string(v1.K8sPending) && status.Phase != "" {
 		adminWorkload.Status.Message = ""
 	}
+	adminWorkload.Status.K8sObjectUid = string(msg.uid)
 	updateWorkloadCondition(adminWorkload, status, msg.dispatchCount)
 	if reflect.DeepEqual(adminWorkload.Status, originWorkload.Status) {
 		return originWorkload, false, nil
@@ -282,7 +284,8 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 		if adminWorkload.Status.Pods[i].HostIp == adminWorkload.Status.Pods[j].HostIp {
 			return adminWorkload.Status.Pods[i].PodId < adminWorkload.Status.Pods[j].PodId
 		}
-		return adminWorkload.Status.Pods[i].HostIp < adminWorkload.Status.Pods[j].HostIp
+		return netutil.ConvertIpToInt(adminWorkload.Status.Pods[i].HostIp) >
+			netutil.ConvertIpToInt(adminWorkload.Status.Pods[j].HostIp)
 	})
 }
 

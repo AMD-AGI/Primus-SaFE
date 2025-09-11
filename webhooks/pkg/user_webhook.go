@@ -21,15 +21,11 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
-)
-
-const (
-	DefaultPasswordLen = 16
 )
 
 func AddUserWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
@@ -75,8 +71,8 @@ func (m *UserMutator) Handle(ctx context.Context, req admission.Request) admissi
 
 func (m *UserMutator) mutateOnCreation(ctx context.Context, user *v1.User) {
 	m.mutateMetadata(user)
-	m.mutatePassword(user)
 	m.mutateCommon(ctx, user)
+	m.mutateDefaultWorkspace(ctx, user)
 }
 
 func (m *UserMutator) mutateOnUpdate(ctx context.Context, user *v1.User) {
@@ -100,15 +96,6 @@ func (m *UserMutator) mutateMetadata(user *v1.User) {
 		v1.SetLabel(user, v1.UserEmailMd5Label, stringutil.MD5(val))
 	}
 	metav1.SetMetaDataLabel(&user.ObjectMeta, v1.UserIdLabel, user.Name)
-}
-
-func (m *UserMutator) mutatePassword(user *v1.User) {
-	if user.Spec.Type == v1.DefaultUser {
-		if user.Spec.Password == "" {
-			password := stringutil.Password(DefaultPasswordLen)
-			user.Spec.Password = stringutil.Base64Encode(password)
-		}
-	}
 }
 
 func (m *UserMutator) mutateRoles(user *v1.User) {
@@ -137,10 +124,6 @@ func (m *UserMutator) mutateRoles(user *v1.User) {
 func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 	workspaceSet := sets.NewSet()
 	allWorkspaces := commonuser.GetWorkspace(user)
-	defaultWorkspace := commonconfig.GetUserDefaultWorkspace()
-	if defaultWorkspace != "" {
-		allWorkspaces = append(allWorkspaces, defaultWorkspace)
-	}
 	var workspaces []string
 	for _, w := range allWorkspaces {
 		if workspaceSet.Has(w) {
@@ -151,7 +134,28 @@ func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 			workspaces = append(workspaces, w)
 		}
 	}
-	commonuser.AssignWorkspace(user, workspaces...)
+	if len(allWorkspaces) != len(workspaces) {
+		commonuser.AssignWorkspace(user, workspaces...)
+	}
+}
+
+func (m *UserMutator) mutateDefaultWorkspace(ctx context.Context, user *v1.User) {
+	workspaceList := &v1.WorkspaceList{}
+	err := m.List(ctx, workspaceList)
+	if err != nil {
+		return
+	}
+	userWorkspaces := commonuser.GetWorkspace(user)
+	for _, w := range workspaceList.Items {
+		if !w.Spec.IsDefault {
+			continue
+		}
+		if sliceutil.Contains(userWorkspaces, w.Name) {
+			continue
+		}
+		userWorkspaces = append(userWorkspaces, w.Name)
+	}
+	commonuser.AssignWorkspace(user, userWorkspaces...)
 }
 
 func (m *UserMutator) mutateManagedWorkspace(ctx context.Context, user *v1.User) {
@@ -255,9 +259,6 @@ func (v *UserValidator) validateRequiredParams(user *v1.User) error {
 	var errs []error
 	if user.Spec.Type == "" {
 		errs = append(errs, fmt.Errorf("the user's type is empty"))
-	}
-	if user.Spec.Type == v1.DefaultUser && user.Spec.Password == "" {
-		errs = append(errs, fmt.Errorf("the user's password is empty"))
 	}
 	if len(user.Spec.Roles) == 0 {
 		errs = append(errs, fmt.Errorf("the user's roles is empty"))

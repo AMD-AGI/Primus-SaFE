@@ -10,5 +10,6 @@ metadata:
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   category: System
+  required: true
   description: Set max open files per user process to 65535
   action: Z3JlcCAtcSBeIiogaGFyZCBub2ZpbGUgNjU1MzUiICIvZXRjL3NlY3VyaXR5L2xpbWl0cy5jb25mIgppZiBbICQ/IC1lcSAwIF07IHRoZW4KICBleGl0IDAKZmkKZWNobyAiKiBzb2Z0IG5vZmlsZSA2NTUzNSIgPj4gL2V0Yy9zZWN1cml0eS9saW1pdHMuY29uZgplY2hvICIqIGhhcmQgbm9maWxlIDY1NTM1IiA+PiAvZXRjL3NlY3VyaXR5L2xpbWl0cy5jb25mCg==

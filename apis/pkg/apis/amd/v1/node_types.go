@@ -6,6 +6,9 @@
 package v1
 
 import (
+	"encoding/json"
+	"fmt"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -122,25 +125,35 @@ func init() {
 }
 
 func (n *Node) IsAvailable(ignoreTaint bool) bool {
+	ok, _ := n.CheckAvailable(ignoreTaint)
+	return ok
+}
+
+func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 	if n == nil {
-		return false
+		return false, "node is empty"
 	}
 	if !n.IsReady() {
-		return false
+		return false, "node's status is not ready"
 	}
 	if !n.IsManaged() {
-		return false
+		return false, "node is not managed"
 	}
 	if !n.GetDeletionTimestamp().IsZero() {
-		return false
+		return false, "node is deleting"
 	}
 	if n.Status.Unschedulable {
-		return false
+		return false, "node is unschedulable"
 	}
 	if !ignoreTaint && len(n.Status.Taints) > 0 {
-		return false
+		var taints []string
+		for _, t := range n.Status.Taints {
+			taints = append(taints, fmt.Sprintf("%s=%s", t.Key, t.Value))
+		}
+		b, _ := json.Marshal(taints)
+		return false, fmt.Sprintf("node has taints: %s", string(b))
 	}
-	return true
+	return true, ""
 }
 
 func (n *Node) IsReady() bool {

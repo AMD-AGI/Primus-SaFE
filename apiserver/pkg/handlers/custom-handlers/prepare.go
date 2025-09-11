@@ -18,6 +18,11 @@ import (
 func Prepare(_ ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Set(types.Name, strings.TrimSpace(c.Param(types.Name)))
+	}
+}
+
+func Authorize(_ ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		err := authority.ParseCookie(c)
 		if err != nil {
 			apiutils.AbortWithApiError(c, err)

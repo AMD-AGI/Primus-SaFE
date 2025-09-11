@@ -27,9 +27,7 @@ var (
 	eventReasonPath            = []string{"reason"}
 	eventInvolvedKindPath      = []string{"involvedObject", "kind"}
 
-	cardEventReasons = []string{"FailedToRetrieveImagePullSecret", "Failed", "BackOff",
-		"FailedScheduling", "FailedCreate", "FreeDiskSpaceFailed", "PyTorchJobFailedValidation",
-		"FailedCreateService", "FailedCreatePod"}
+	cardEventReasons = []string{"BackOff", "FreeDiskSpaceFailed"}
 
 	PullingReason       = "Pulling"
 	PulledReason        = "Pulled"
@@ -130,15 +128,13 @@ func isCaredPodEvent(obj *unstructured.Unstructured) bool {
 	if eventType != corev1.EventTypeWarning {
 		return false
 	}
-	hasFound := false
+	if strings.HasPrefix(eventReason, "Failed") {
+		return true
+	}
 	for _, reason := range cardEventReasons {
 		if reason == eventReason {
-			hasFound = true
-			break
+			return true
 		}
 	}
-	if !hasFound {
-		return false
-	}
-	return true
+	return false
 }

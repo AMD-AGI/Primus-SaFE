@@ -18,6 +18,7 @@ spec:
     - set-max-sclk
     - sysctl-ulimit
     - sysctl-inotify
+    - sysctl-max-map-count
     - install-libgtest
     - install-linux-tools
     - install-openmpi-bin
@@ -26,3 +27,4 @@ spec:
     - install-rccl-test
     - install-roc-blas
     - install-transfer-bench
+    - install-rdma

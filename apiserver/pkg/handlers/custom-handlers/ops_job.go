@@ -29,7 +29,9 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -186,13 +188,10 @@ func (h *Handler) generateAddonJob(c *gin.Context, req *types.CreateOpsJobReques
 	}
 
 	job := genDefaultOpsJob(c, req)
-	if job.Spec.Cluster == "" {
-		if nodeParam := job.GetParameter(v1.ParameterNode); nodeParam != nil {
-			if adminNode, err := h.getAdminNode(c.Request.Context(), nodeParam.Value); err == nil {
-				job.Spec.Cluster = v1.GetClusterId(adminNode)
-			}
-		}
+	if err := h.genOpsJobInputs(c.Request.Context(), job, req); err != nil {
+		return nil, err
 	}
+
 	v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(req.BatchCount))
 	v1.SetAnnotation(job, v1.OpsJobAvailRatioAnnotation,
 		strconv.FormatFloat(*req.AvailableRatio, 'f', -1, 64))
@@ -203,27 +202,16 @@ func (h *Handler) generatePreflightJob(c *gin.Context, req *types.CreateOpsJobRe
 	if commonconfig.GetPreflightImage() == "" {
 		return nil, commonerrors.NewInternalError("The preflight function is not enabled")
 	}
-	job := genDefaultOpsJob(c, req)
-	nodeParam := job.GetParameter(v1.ParameterNode)
-	if nodeParam == nil {
-		return nil, commonerrors.NewInternalError("Node parameter is required")
-	}
-	adminNode, err := h.getAdminNode(c.Request.Context(), nodeParam.Value)
-	if err != nil {
-		return nil, err
-	}
-	if err = h.auth.Authorize(authority.Input{
-		Context:      c.Request.Context(),
-		ResourceKind: v1.WorkloadKind,
-		Verb:         v1.CreateVerb,
-		Workspaces:   []string{v1.GetWorkspaceId(adminNode)},
-		UserId:       c.GetString(common.UserId),
+	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
+		Context: c.Request.Context(),
+		UserId:  c.GetString(common.UserId),
 	}); err != nil {
 		return nil, err
 	}
-
-	job.Spec.Cluster = v1.GetClusterId(adminNode)
-	v1.SetLabel(job, v1.GpuProductNameLabel, strings.ToLower(v1.GetGpuProductName(adminNode)))
+	job := genDefaultOpsJob(c, req)
+	if err := h.genOpsJobInputs(c.Request.Context(), job, req); err != nil {
+		return nil, err
+	}
 	return job, nil
 }
 
@@ -231,41 +219,16 @@ func (h *Handler) generateDiagnoseJob(c *gin.Context, req *types.CreateOpsJobReq
 	if commonconfig.GetDiagnoseImage() == "" {
 		return nil, commonerrors.NewInternalError("The diagnose function is not enabled")
 	}
-	job := genDefaultOpsJob(c, req)
-	workloadParam := job.GetParameter(v1.ParameterWorkload)
-	nodeParam := job.GetParameter(v1.ParameterNode)
-	if nodeParam == nil && workloadParam != nil {
-		nodes, err := h.getNodesOfWorkload(c.Request.Context(), workloadParam.Value)
-		if err != nil {
-			return nil, err
-		}
-		for _, n := range nodes {
-			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n})
-		}
-		nodeParam = job.GetParameter(v1.ParameterNode)
+	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
+		Context: c.Request.Context(),
+		UserId:  c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
 	}
-	if nodeParam != nil {
-		adminNode, err := h.getAdminNode(c.Request.Context(), nodeParam.Value)
-		if err != nil {
-			return nil, err
-		}
-		if err = h.auth.Authorize(authority.Input{
-			Context:      c.Request.Context(),
-			ResourceKind: v1.WorkloadKind,
-			Verb:         v1.CreateVerb,
-			Workspaces:   []string{v1.GetWorkspaceId(adminNode)},
-			UserId:       c.GetString(common.UserId),
-		}); err != nil {
-			return nil, err
-		}
-		job.Spec.Cluster = v1.GetClusterId(adminNode)
-	} else {
-		if err := h.auth.AuthorizeSystemAdmin(authority.Input{
-			Context: c.Request.Context(),
-			UserId:  c.GetString(common.UserId),
-		}); err != nil {
-			return nil, err
-		}
+
+	job := genDefaultOpsJob(c, req)
+	if err := h.genOpsJobInputs(c.Request.Context(), job, req); err != nil {
+		return nil, err
 	}
 	return job, nil
 }
@@ -293,6 +256,51 @@ func (h *Handler) getNodesOfWorkload(ctx context.Context, workloadId string) ([]
 		}
 	}
 	return nil, nil
+}
+
+func (h *Handler) genOpsJobInputs(ctx context.Context, job *v1.OpsJob, req *types.CreateOpsJobRequest) error {
+	if job.GetParameter(v1.ParameterNode) != nil {
+		return nil
+	}
+	excludedNodesSet := sets.NewSetByKeys(req.ExcludedNodes...)
+	if workloadParam := job.GetParameter(v1.ParameterWorkload); workloadParam != nil {
+		nodes, err := h.getNodesOfWorkload(ctx, workloadParam.Value)
+		if err != nil {
+			return err
+		}
+		for _, n := range nodes {
+			if excludedNodesSet.Has(n) {
+				continue
+			}
+			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n})
+		}
+	} else if workspaceParam := job.GetParameter(v1.ParameterWorkspace); workspaceParam != nil {
+		nodes, err := commonnodes.GetNodesOfWorkspaces(ctx, h.Client, []string{workspaceParam.Value}, nil)
+		if err != nil {
+			return err
+		}
+		for _, n := range nodes {
+			if excludedNodesSet.Has(n.Name) {
+				continue
+			}
+			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n.Name})
+		}
+	} else if job.Spec.Cluster != "" {
+		nodes, err := commonnodes.GetNodesOfCluster(ctx, h.Client, job.Spec.Cluster, nil)
+		if err != nil {
+			return err
+		}
+		for _, n := range nodes {
+			if excludedNodesSet.Has(n.Name) {
+				continue
+			}
+			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n.Name})
+		}
+
+	} else {
+		return commonerrors.NewBadRequest("the nodes of ops-job is not specified")
+	}
+	return nil
 }
 
 func (h *Handler) generateDumpLogJob(c *gin.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
@@ -338,15 +346,20 @@ func genDefaultOpsJob(c *gin.Context, req *types.CreateOpsJobRequest) *v1.OpsJob
 			},
 		},
 		Spec: v1.OpsJobSpec{
-			Cluster:       req.Cluster,
-			Type:          req.Type,
-			Inputs:        req.Inputs,
-			TimeoutSecond: req.TimeoutSecond,
-			Env:           req.Env,
+			Cluster:                 req.Cluster,
+			Type:                    req.Type,
+			Inputs:                  req.Inputs,
+			TimeoutSecond:           req.TimeoutSecond,
+			Env:                     req.Env,
+			IsTolerateAll:           req.IsTolerateAll,
+			TTLSecondsAfterFinished: req.TTLSecondsAfterFinished,
 		},
 	}
 	if req.SecurityUpgrade {
 		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
+	}
+	if v1.GetUserName(job) == "" {
+		v1.SetAnnotation(job, v1.UserNameAnnotation, v1.GetUserId(job))
 	}
 	return job
 }

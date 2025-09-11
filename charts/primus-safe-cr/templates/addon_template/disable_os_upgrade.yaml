@@ -10,5 +10,6 @@ metadata:
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   category: System
+  required: true
   description: Disable the operating system's automatic update feature. only for Ubuntu
   action: Y2F0IC9ldGMvYXB0L2FwdC5jb25mLmQvMjBhdXRvLXVwZ3JhZGVzIHxncmVwIFVuYXR0ZW5kZWQtVXBncmFkZXxhd2sgIntwcmludCBzdWJzdHIoXCQyLCAyLCAxKX0ifGdyZXAgLXEgMAppZiBbICQ/IC1lcSAwIF07IHRoZW4KICBleGl0IDAKZmkKYXB0LW1hcmsgaG9sZCB1bmF0dGVuZGVkLXVwZ3JhZGVzICYmIGFwdC1nZXQgdXBkYXRlICYmIHNlZCAtaSAtZSAicy9uYXR0ZW5kZWQtVXBncmFkZSBcIjFcIi9uYXR0ZW5kZWQtVXBncmFkZSBcIjBcIi9nIiAvZXRjL2FwdC9hcHQuY29uZi5kLzIwYXV0by11cGdyYWRlcwo=

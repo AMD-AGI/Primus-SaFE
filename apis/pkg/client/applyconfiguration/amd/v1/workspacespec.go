@@ -21,6 +21,7 @@ type WorkspaceSpecApplyConfiguration struct {
 	Volumes       []WorkspaceVolumeApplyConfiguration `json:"volumes,omitempty"`
 	EnablePreempt *bool                               `json:"enablePreempt,omitempty"`
 	Managers      []string                            `json:"managers,omitempty"`
+	IsDefault     *bool                               `json:"isDefault,omitempty"`
 }
 
 // WorkspaceSpecApplyConfiguration constructs a declarative configuration of the WorkspaceSpec type for use with
@@ -99,5 +100,13 @@ func (b *WorkspaceSpecApplyConfiguration) WithManagers(values ...string) *Worksp
 	for i := range values {
 		b.Managers = append(b.Managers, values[i])
 	}
+	return b
+}
+
+// WithIsDefault sets the IsDefault field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the IsDefault field is set to the value of the last call.
+func (b *WorkspaceSpecApplyConfiguration) WithIsDefault(value bool) *WorkspaceSpecApplyConfiguration {
+	b.IsDefault = &value
 	return b
 }

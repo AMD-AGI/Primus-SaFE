@@ -185,7 +185,6 @@ def init_distributed(args):
         logging.warning("Distributed already initialized.")
         return
 
-    os.environ['TORCH_DISTRIBUTED_DEFAULT_TIMEOUT'] = '3600'
     dist.init_process_group(
         backend=args.distributed_backend,
         init_method="env://",

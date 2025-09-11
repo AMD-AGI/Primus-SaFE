@@ -12,17 +12,13 @@ fi
 
 found=0
 target_dir=""
-while IFS= read -r -d $'\0' dir; do
-  DIR_NAME=$(basename "$dir")
-  if [[ "$GPU_PRODUCT" == *"$DIR_NAME"* ]]; then
-    target_dir=$dir
+if [[ "$GPU_PRODUCT" == *"mi300x"* ]] || [[ "$GPU_PRODUCT" == *"mi325x"* ]]; then
+    target_dir="mi300x"
     found=1
-    break
-  fi
-done < <(find . -type d -print0)
+fi
 
 if [ "$found" -eq 0 ]; then
-  echo "The $GPU_PRODUCT test is not supported" >&2
+  echo "[ERROR] The $GPU_PRODUCT test is not supported" >&2
   exit 1
 fi
 

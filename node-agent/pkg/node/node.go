@@ -257,7 +257,7 @@ func getLocation() (*time.Location, error) {
 	}
 	loc, err := time.LoadLocation(timezone)
 	if err != nil {
-		klog.ErrorS(err, "failed to load location. Use utc instead of it", "timezone", timezone)
+		klog.ErrorS(err, "failed to load location. Use utc instead of it")
 		timezone = "UTC"
 		loc, _ = time.LoadLocation(timezone)
 	}

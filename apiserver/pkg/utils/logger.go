@@ -46,14 +46,14 @@ func Logger() gin.HandlerFunc {
 }
 
 func formatter(param gin.LogFormatterParams) string {
-	return fmt.Sprintf("[GIN] %v | %d | %v | %s | %s %#v | %#v | %#v |\n%s",
+	return fmt.Sprintf("[GIN] %v | %d | %v | %s | %s %#v | %#v | %d |\n%s",
 		param.TimeStamp.Format(time.DateTime),
 		param.StatusCode,
 		param.Latency,
 		param.ClientIP,
 		param.Method, param.Path,
-		param.Keys["resource"],
 		param.Keys["trace_id"],
+		param.BodySize,
 		param.ErrorMessage,
 	)
 }

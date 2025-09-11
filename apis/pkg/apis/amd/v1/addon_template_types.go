@@ -57,6 +57,9 @@ type AddonTemplateSpec struct {
 	Icon string `json:"icon,omitempty"`
 	// target gpu chip(amd or nvidia), If left empty, it applies to all chip.
 	GpuChip GpuChipType `json:"gpuChip,omitempty"`
+	// If it is true, installation failure will terminate the installation of other packages and raise an error.
+	// If it is false, only an error log will be printed and the failure can be ignored.
+	Required bool `json:"required,omitempty"`
 	// the default value for helm install
 	HelmDefaultValues    string `json:"helmDefaultValues,omitempty"`
 	HelmDefaultNamespace string `json:"helmDefaultNamespace,omitempty"`

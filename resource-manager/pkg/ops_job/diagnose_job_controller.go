@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -205,7 +206,7 @@ func (r *DiagnoseJobReconciler) genDiagnoseWorkload(ctx context.Context, job *v1
 		Spec: v1.WorkloadSpec{
 			EntryPoint: fmt.Sprintf("bash run.sh"),
 			GroupVersionKind: v1.GroupVersionKind{
-				Version: common.DefaultVersion,
+				Version: v1.SchemeGroupVersion.Version,
 				Kind:    common.PytorchJobKind,
 			},
 			IsTolerateAll: true,
@@ -213,7 +214,7 @@ func (r *DiagnoseJobReconciler) genDiagnoseWorkload(ctx context.Context, job *v1
 			CustomerLabels: map[string]string{
 				common.K8sHostNameLabel: nodeNames,
 			},
-			Workspace: v1.GetWorkspaceId(node),
+			Workspace: corev1.NamespaceDefault,
 			Image:     commonconfig.GetDiagnoseImage(),
 			Env:       job.Spec.Env,
 		},
@@ -222,6 +223,9 @@ func (r *DiagnoseJobReconciler) genDiagnoseWorkload(ctx context.Context, job *v1
 	workload.Spec.Resource.Replica = len(nodeParams)
 	if job.Spec.TimeoutSecond > 0 {
 		workload.Spec.Timeout = pointer.Int(job.Spec.TimeoutSecond)
+	}
+	if job.Spec.TTLSecondsAfterFinished > 0 {
+		workload.Spec.TTLSecondsAfterFinished = pointer.Int(job.Spec.TTLSecondsAfterFinished)
 	}
 	return workload, nil
 }
