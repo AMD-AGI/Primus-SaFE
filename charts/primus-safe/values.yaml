@@ -33,9 +33,9 @@ ssh:
 user:
   token_required: false
 workspace:
-  mem_reserve_percent: 0.06
-  cpu_reserve_percent: 0.1
-  ephemeral_store_reserve_percent: 0.05
+  mem_reserve_percent: 0.08
+  cpu_reserve_percent: 0.15
+  ephemeral_store_reserve_percent: 0.08
 s3:
   enable: false
   endpoint: "http://s3.safe.primus.ai"
