@@ -22,7 +22,6 @@ SCRIPTS_TO_RUN=(
     "install_mpich.sh"
     "install_rccl_test.sh"
     "install_rdma_test.sh"
-    "install_bnxt_driver.sh"
 )
 
 for script in "${SCRIPTS_TO_RUN[@]}"; do

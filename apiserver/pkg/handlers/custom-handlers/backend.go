@@ -12,13 +12,13 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
-func (h *Handler) ListFeatures(c *gin.Context) {
-	handle(c, h.listFeatures)
+func (h *Handler) GetEnvs(c *gin.Context) {
+	handle(c, h.getEnvs)
 }
 
 // List the features supported by the backend
-func (h *Handler) listFeatures(_ *gin.Context) (interface{}, error) {
-	return types.ListFeaturesResponse{
+func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
+	return types.GetEnvResponse{
 		EnableLog:         commonconfig.IsLogEnable(),
 		EnableLogDownload: commonconfig.IsS3Enable(),
 		EnableSSH:         commonconfig.IsSSHEnable(),

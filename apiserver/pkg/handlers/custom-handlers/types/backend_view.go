@@ -5,7 +5,7 @@
 
 package types
 
-type ListFeaturesResponse struct {
+type GetEnvResponse struct {
 	EnableLogDownload bool `json:"enableLogDownload"`
 	EnableLog         bool `json:"enableLog"`
 	EnableSSH         bool `json:"enableSsh"`
