@@ -69,12 +69,14 @@ spec:
               port: {{ default 8083 (default .Values.job_manager).health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
+            timeoutSeconds: 3
           readinessProbe:
             httpGet:
               path: /readyz
               port: {{ default 8083 (default .Values.job_manager).health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
+            timeoutSeconds: 3
           {{- end }}
           resources:
             limits:
