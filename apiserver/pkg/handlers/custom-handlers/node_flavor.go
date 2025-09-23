@@ -7,7 +7,6 @@ package custom_handlers
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -250,18 +249,14 @@ func (h *Handler) updateNodeFlavor(nf *v1.NodeFlavor, req *types.PatchNodeFlavor
 		isShouldUpdate = true
 	}
 	if req.RootDisk != nil {
-		if df, err := buildDiskFlavor(req.RootDisk); err != nil {
-			return false, err
-		} else if !reflect.DeepEqual(*nf.Spec.RootDisk, *df) {
-			nf.Spec.RootDisk = df
+		if nf.Spec.RootDisk == nil || !reflect.DeepEqual(*nf.Spec.RootDisk, *req.RootDisk) {
+			nf.Spec.RootDisk = req.RootDisk
 			isShouldUpdate = true
 		}
 	}
 	if req.DataDisk != nil {
-		if df, err := buildDiskFlavor(req.DataDisk); err != nil {
-			return false, err
-		} else if !reflect.DeepEqual(*nf.Spec.DataDisk, *df) {
-			nf.Spec.DataDisk = df
+		if nf.Spec.DataDisk == nil || !reflect.DeepEqual(*nf.Spec.DataDisk, *req.DataDisk) {
+			nf.Spec.DataDisk = req.DataDisk
 			isShouldUpdate = true
 		}
 	}
@@ -281,41 +276,8 @@ func generateNodeFlavor(c *gin.Context, req *types.CreateNodeFlavorRequest) (*v1
 				v1.UserIdLabel:      c.GetString(common.UserId),
 			},
 		},
-		Spec: v1.NodeFlavorSpec{
-			Cpu: v1.CpuChip{
-				Product:  req.CPUProduct,
-				Quantity: *resource.NewQuantity(req.CPU, resource.DecimalSI),
-			},
-			Memory:          *resource.NewQuantity(req.Memory, resource.BinarySI),
-			ExtendResources: req.Extends,
-		},
+		Spec: req.NodeFlavorSpec,
 	}
-
-	if req.GPU > 0 {
-		if req.GPUName == "" {
-			return nil, commonerrors.NewBadRequest("the gpuName is empty")
-		}
-		nf.Spec.Gpu = &v1.GpuChip{
-			ResourceName: req.GPUName,
-			Product:      req.GPUProduct,
-			Quantity:     *resource.NewQuantity(req.GPU, resource.DecimalSI),
-		}
-	}
-
-	var err error
-	if req.RootDisk != nil {
-		nf.Spec.RootDisk, err = buildDiskFlavor(req.RootDisk)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if req.DataDisk != nil {
-		nf.Spec.DataDisk, err = buildDiskFlavor(req.DataDisk)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	_, ok := nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage]
 	if !ok && nf.Spec.RootDisk != nil && !nf.Spec.RootDisk.Quantity.IsZero() {
 		nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage] = *resource.NewQuantity(
@@ -324,35 +286,10 @@ func generateNodeFlavor(c *gin.Context, req *types.CreateNodeFlavorRequest) (*v1
 	return nf, nil
 }
 
-func buildDiskFlavor(req *types.DiskFlavor) (*v1.DiskFlavor, error) {
-	if req.Count == 0 || req.Quantity == "" || req.Type == "" {
-		return nil, commonerrors.NewBadRequest("invalid disk input")
-	}
-	diskQuantity, err := resource.ParseQuantity(req.Quantity)
-	if err != nil || diskQuantity.Value() <= 0 {
-		return nil, fmt.Errorf("invalid disk quantity")
-	}
-	return &v1.DiskFlavor{
-		Type:     req.Type,
-		Count:    req.Count,
-		Quantity: diskQuantity,
-	}, nil
-}
-
 func cvtToNodeFlavorResponseItem(nf *v1.NodeFlavor) types.NodeFlavorResponseItem {
 	result := types.NodeFlavorResponseItem{
-		FlavorId:   nf.Name,
-		CPU:        nf.Spec.Cpu.Quantity.Value(),
-		CPUProduct: nf.Spec.Cpu.Product,
-		Memory:     nf.Spec.Gpu.Quantity.Value(),
-		RootDisk:   nf.Spec.RootDisk,
-		DataDisk:   nf.Spec.DataDisk,
-		Extends:    nf.Spec.ExtendResources,
-	}
-	if nf.Spec.Gpu != nil {
-		result.GPU = nf.Spec.Gpu.Quantity.Value()
-		result.GPUName = nf.Spec.Gpu.ResourceName
-		result.GPUProduct = nf.Spec.Gpu.Product
+		FlavorId:       nf.Name,
+		NodeFlavorSpec: nf.Spec,
 	}
 	return result
 }
