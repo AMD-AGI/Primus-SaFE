@@ -33,11 +33,11 @@ type ListWorkloadRequest struct {
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
 	// user id
 	UserId string `form:"userId" binding:"omitempty,max=64"`
+	// workload submitter, Supports fuzzy matching
+	UserName string `form:"userName" binding:"omitempty"`
 	// Valid values include: Deployment/PyTorchJob/StatefulSet/Authoring
 	// If specifying multiple kind queries, separate them with commas
 	Kind string `form:"kind" binding:"omitempty"`
-	// workload submitter, Supports fuzzy matching
-	UserName string `form:"userName" binding:"omitempty"`
 	// description, Supports fuzzy matching
 	Description string `form:"description" binding:"omitempty"`
 	// Starting offset for the results. dfault is 0
@@ -53,6 +53,8 @@ type ListWorkloadRequest struct {
 	Since string `form:"since" binding:"omitempty"`
 	// Query the end time of the workload, similar to since
 	Until string `form:"until" binding:"omitempty"`
+	// workloadId, Supports fuzzy matching
+	WorkloadId string `form:"workloadId" binding:"omitempty,max=64"`
 }
 
 type ListWorkloadResponse struct {
@@ -102,7 +104,9 @@ type WorkloadResponseItem struct {
 	GroupVersionKind v1.GroupVersionKind `json:"groupVersionKind"`
 	// Workload timeout in hours. Default is 0 (no timeout).
 	Timeout *int `json:"timeout"`
-	// The corresponding UID applied to the Kubernetes object.
+	// workload's UID
+	WorkloadUid string `json:"workloadUid"`
+	// K8s object uid corresponding to the workload
 	K8sObjectUid string `json:"k8sObjectUid"`
 }
 

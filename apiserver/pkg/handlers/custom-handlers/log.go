@@ -179,13 +179,10 @@ func buildSearchBody(query *types.ListLogRequest, workloadId string) []byte {
 
 func buildFilter(req *commonsearch.OpenSearchRequest, query *types.ListLogRequest) {
 	buildLabelFilter(req, query.Filters)
-	buildNodeFilter(req, query)
-	if query.PodName != "" {
-		req.Query.Bool.Filter = append(req.Query.Bool.Filter, commonsearch.OpenSearchField{
-			"term": map[string]interface{}{
-				"kubernetes.pod_name.keyword": query.PodName,
-			},
-		})
+	if query.PodNames != "" {
+		buildMultiTermsFilter(req, "pod_name", query.PodNames)
+	} else if query.NodeNames != "" {
+		buildMultiTermsFilter(req, "host", query.NodeNames)
 	}
 }
 
@@ -205,22 +202,22 @@ func buildLabelFilter(req *commonsearch.OpenSearchRequest, labelFilters map[stri
 	}
 }
 
-func buildNodeFilter(req *commonsearch.OpenSearchRequest, query *types.ListLogRequest) {
-	nodeNames := split(query.NodeNames, ",")
-	if len(nodeNames) == 0 {
+func buildMultiTermsFilter(req *commonsearch.OpenSearchRequest, key, values string) {
+	valueList := split(values, ",")
+	if len(valueList) == 0 {
 		return
 	}
-	var nodes []map[string]interface{}
-	for _, name := range nodeNames {
-		nodes = append(nodes, map[string]interface{}{
+	var queries []map[string]interface{}
+	for _, val := range valueList {
+		queries = append(queries, map[string]interface{}{
 			"term": map[string]string{
-				"kubernetes.host.keyword": name,
+				fmt.Sprintf("kubernetes.%s.keyword", key): val,
 			},
 		})
 	}
 	req.Query.Bool.Must = append(req.Query.Bool.Must, commonsearch.OpenSearchField{
 		"bool": map[string]interface{}{
-			"should": nodes,
+			"should": queries,
 		},
 	})
 }
@@ -273,7 +270,7 @@ func buildOutput(req *commonsearch.OpenSearchRequest, query *types.ListLogReques
 		key := strings.ReplaceAll(v1.WorkloadDispatchCntLabel, ".", "_")
 		req.Source = append(req.Source, fmt.Sprintf("kubernetes.labels.%s", key))
 	}
-	if query.PodName == "" || strings.Contains(query.PodName, ",") {
+	if query.PodNames == "" || strings.Contains(query.PodNames, ",") {
 		req.Source = append(req.Source, "kubernetes.pod_name")
 	}
 }

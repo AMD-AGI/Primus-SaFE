@@ -343,7 +343,7 @@ func cvtToWorkspaceResponseItem(w *v1.Workspace) types.WorkspaceResponseItem {
 		UserId:        v1.GetUserId(w),
 		TotalNode:     w.Status.AvailableReplica + w.Status.AbnormalReplica,
 		Phase:         string(w.Status.Phase),
-		CreateTime:    timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
+		CreationTime:  timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
 		Description:   v1.GetDescription(w),
 		QueuePolicy:   w.Spec.QueuePolicy,
 		Scopes:        w.Spec.Scopes,
@@ -360,16 +360,14 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 	result := &types.GetWorkspaceResponse{
 		WorkspaceResponseItem: cvtToWorkspaceResponseItem(workspace),
 	}
-	availableNode := workspace.Status.AvailableReplica
 	nf, err := h.getAdminNodeFlavor(ctx, workspace.Spec.NodeFlavor)
 	if err != nil {
 		return nil, err
 	}
 	nfResource := nf.ToResourceList(commonconfig.GetRdmaName())
 
-	totalQuota := quantity.MultiResource(nfResource, int64(availableNode+result.AbnormalNode))
 	abnormalQuota := quantity.MultiResource(nfResource, int64(result.AbnormalNode))
-	result.TotalQuota = cvtToResourceList(totalQuota)
+	result.TotalQuota = cvtToResourceList(workspace.Status.TotalResources)
 	result.AbnormalQuota = cvtToResourceList(abnormalQuota)
 
 	usedQuota, err := h.getWorkspaceUsedQuota(ctx, workspace)
@@ -378,8 +376,7 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 	}
 	result.UsedQuota = cvtToResourceList(usedQuota)
 
-	availQuota := quantity.MultiResource(nfResource, int64(availableNode))
-	availQuota = quantity.GetAvailableResource(availQuota)
+	availQuota := workspace.Status.AvailableResources
 	result.AvailQuota = cvtToResourceList(quantity.SubResource(availQuota, usedQuota))
 	return result, nil
 }

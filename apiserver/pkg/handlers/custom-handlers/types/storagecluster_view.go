@@ -71,17 +71,6 @@ type StorageUnbindingResponse struct {
 	Name string `json:"name"`
 }
 
-type StorageNodeFlavorResponse struct {
-	TotalCount int                             `json:"totalCount"`
-	Items      []StorageNodeFlavorResponseItem `json:"nodeflavors,omitempty"`
-}
-
-type StorageNodeFlavorResponseItem struct {
-	NodeFlavorResponseItem
-	Storages *v1.DiskFlavor `json:"storage"`
-	Count    int            `json:"count"`
-}
-
 type BindingStorageResponseItem struct {
 	Name           string             `json:"name"`
 	StorageCluster string             `json:"storageCluster"`

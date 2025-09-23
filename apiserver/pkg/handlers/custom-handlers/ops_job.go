@@ -285,8 +285,8 @@ func (h *Handler) genOpsJobInputs(ctx context.Context, job *v1.OpsJob, req *type
 			}
 			job.Spec.Inputs = append(job.Spec.Inputs, v1.Parameter{Name: v1.ParameterNode, Value: n.Name})
 		}
-	} else if job.Spec.Cluster != "" {
-		nodes, err := commonnodes.GetNodesOfCluster(ctx, h.Client, job.Spec.Cluster, nil)
+	} else if clusterParam := job.GetParameter(v1.ParameterCluster); clusterParam != nil {
+		nodes, err := commonnodes.GetNodesOfCluster(ctx, h.Client, clusterParam.Value, nil)
 		if err != nil {
 			return err
 		}
@@ -473,17 +473,17 @@ func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
 
 func cvtToOpsJobResponseItem(job *dbclient.OpsJob) types.OpsJobResponseItem {
 	result := types.OpsJobResponseItem{
-		JobId:      job.JobId,
-		Cluster:    job.Cluster,
-		Workspace:  dbutils.ParseNullString(job.Workspace),
-		Type:       v1.OpsJobType(job.Type),
-		UserName:   dbutils.ParseNullString(job.UserName),
-		UserId:     dbutils.ParseNullString(job.UserId),
-		Phase:      v1.OpsJobPhase(dbutils.ParseNullString(job.Phase)),
-		CreateTime: dbutils.ParseNullTimeToString(job.CreateTime),
-		StartTime:  dbutils.ParseNullTimeToString(job.StartTime),
-		EndTime:    dbutils.ParseNullTimeToString(job.EndTime),
-		DeleteTime: dbutils.ParseNullTimeToString(job.DeleteTime),
+		JobId:        job.JobId,
+		Cluster:      job.Cluster,
+		Workspace:    dbutils.ParseNullString(job.Workspace),
+		Type:         v1.OpsJobType(job.Type),
+		UserName:     dbutils.ParseNullString(job.UserName),
+		UserId:       dbutils.ParseNullString(job.UserId),
+		Phase:        v1.OpsJobPhase(dbutils.ParseNullString(job.Phase)),
+		CreationTime: dbutils.ParseNullTimeToString(job.CreateTime),
+		StartTime:    dbutils.ParseNullTimeToString(job.StartTime),
+		EndTime:      dbutils.ParseNullTimeToString(job.EndTime),
+		DeletionTime: dbutils.ParseNullTimeToString(job.DeleteTime),
 	}
 	if result.Phase == "" {
 		result.Phase = v1.OpsJobPending

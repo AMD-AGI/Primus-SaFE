@@ -63,6 +63,19 @@ func SetupFaultController(mgr manager.Manager, opt *FaultReconcilerOption) error
 
 func (r *FaultReconciler) handleNodeEvent() handler.EventHandler {
 	return handler.Funcs{
+		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
+			node, ok := evt.Object.(*v1.Node)
+			if !ok {
+				return
+			}
+			labelSelector := labels.SelectorFromSet(map[string]string{v1.NodeIdLabel: node.Name})
+			faultList, _ := listFaults(ctx, r.Client, labelSelector)
+			for _, f := range faultList {
+				if !isValidFault(&f, node) {
+					r.Delete(ctx, &f)
+				}
+			}
+		},
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
 			oldNode, ok1 := evt.ObjectOld.(*v1.Node)
 			newNode, ok2 := evt.ObjectNew.(*v1.Node)

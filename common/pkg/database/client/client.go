@@ -16,6 +16,7 @@ import (
 
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
 var (
@@ -72,8 +73,11 @@ func (c *Client) Close() {
 	}
 }
 
-func (c *Client) GetDB() *sqlx.DB {
-	return c.db.Unsafe()
+func (c *Client) getDB() (*sqlx.DB, error) {
+	if c.db == nil {
+		return nil, commonerrors.NewInternalError("The client of db has not been initialized")
+	}
+	return c.db.Unsafe(), nil
 }
 
 func checkParams(cfg *utils.DBConfig) error {

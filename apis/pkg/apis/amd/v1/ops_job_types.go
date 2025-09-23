@@ -35,6 +35,7 @@ const (
 	ParameterAddonTemplate = "addon.template"
 	ParameterWorkload      = "workload"
 	ParameterWorkspace     = "workspace"
+	ParameterCluster       = "cluster"
 	ParameterEndpoint      = "endpoint"
 )
 

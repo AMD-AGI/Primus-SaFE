@@ -25,7 +25,7 @@ spec:
             volumeClaimSpec:
               storageClassName: {{ .Values.db.storage_class }}
               accessModes:
-                - {{ if eq .Values.db.storage_class "rbd" }}ReadWriteOnce{{ else }}ReadWriteMany{{ end }}
+                - {{ if eq .Values.db.storage_class "juicefs" }}ReadWriteMany{{ else }}ReadWriteOnce{{ end }}
               resources:
                 requests:
                   storage: 1024Gi
@@ -33,7 +33,7 @@ spec:
     - dataVolumeClaimSpec:
         storageClassName: {{ .Values.db.storage_class }}
         accessModes:
-          - {{ if eq .Values.db.storage_class "rbd" }}ReadWriteOnce{{ else }}ReadWriteMany{{ end }}
+          - {{ if eq .Values.db.storage_class "juicefs" }}ReadWriteMany{{ else }}ReadWriteOnce{{ end }}
         resources:
           requests:
             storage: 500Gi

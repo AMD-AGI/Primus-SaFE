@@ -7,25 +7,25 @@ metadata:
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-  name: amd-mi300x-192gb-hbm3
+  name: amd-mi325x-example
 spec:
   cpu:
-    product: AMD_EPYC_9554
-    quantity: "256"
+    product: AMD_EPYC_9575F
+    quantity: "128"
   dataDisk:
-    count: 9
-    quantity: 7864Gi
+    count: 4
+    quantity: 3.49Ti
     type: nvme
   extendedResources:
-    ephemeral-storage: 6695573390Ki
+    ephemeral-storage: 948194417
     rdma/hca: 1k
   flavorType: BareMetal
   gpu:
-    product: AMD_Instinct_MI300X_OAM
+    product: AMD_Instinct_MI325X
     quantity: "8"
     resourceName: amd.com/gpu
-  memory: 1584032704Ki
+  memory: 3116075048Ki
   rootDisk:
     count: 1
-    quantity: 7864Gi
+    quantity: 14Ti
     type: nvme
