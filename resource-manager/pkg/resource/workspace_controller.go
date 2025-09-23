@@ -425,6 +425,7 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 		}
 		totalResources = quantity.AddResource(totalResources, node.Status.Resources)
 	}
+	availResources = quantity.GetAvailableResource(availResources)
 	isChanged := false
 	if !quantity.Equal(totalResources, workspace.Status.TotalResources) {
 		workspace.Status.TotalResources = totalResources

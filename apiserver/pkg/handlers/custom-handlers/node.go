@@ -605,7 +605,7 @@ func (h *Handler) cvtToNodeResponseItem(ctx context.Context, n *v1.Node, usedRes
 		Taints:            getPrimusTaints(n.Status.Taints),
 		TotalResources:    cvtToResourceList(n.Status.Resources),
 		CustomerLabels:    getCustomerLabels(n.Labels, true),
-		CreateTime:        timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
+		CreationTime:      timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
 		IsControlPlane:    v1.IsControlPlane(n),
 		IsAddonsInstalled: v1.IsNodeTemplateInstalled(n),
 	}

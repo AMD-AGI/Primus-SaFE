@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+set -o pipefail
+
 if [ ! -f "/tmp/rocm-smi" ]; then
   exit 0
 fi

@@ -158,7 +158,7 @@ func generateFaultOnCreation(node *v1.FaultNode,
 	if !ok || conf == nil {
 		return nil
 	}
-	
+
 	return &v1.Fault{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonfaults.GenerateFaultName(node.AdminName, id),
@@ -209,4 +209,13 @@ func getIdByConditionType(condType corev1.NodeConditionType) string {
 	default:
 		return string(condType)
 	}
+}
+
+func isValidFault(fault *v1.Fault, adminNode *v1.Node) bool {
+	for _, cond := range adminNode.Status.Conditions {
+		if getIdByConditionType(cond.Type) == fault.Spec.MonitorId {
+			return true
+		}
+	}
+	return false
 }

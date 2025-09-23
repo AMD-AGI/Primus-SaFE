@@ -149,7 +149,7 @@ func (a *Authorizer) authorize(in Input) error {
 		}
 	}
 	return commonerrors.NewForbidden(
-		fmt.Sprintf("The user is not allowed to %s the target %s", in.Verb, resourceKind))
+		fmt.Sprintf("The user is not allowed to %s %s", in.Verb, resourceKind))
 }
 
 func getPolicyRules(role *v1.Role, resourceKind, resourceName string, isOwner, isWorkspaceUser bool) []*v1.PolicyRule {

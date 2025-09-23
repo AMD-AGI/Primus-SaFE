@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+set -o pipefail
+
 if [ "$#" -lt 3 ]; then
   echo "Usage: $0 <nfs_server> <nfs_path> <nfs_mount>"
   echo "Example: $0 45.76.27.91 /mnt/nvme0 /nfs"

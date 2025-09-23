@@ -14,14 +14,14 @@ import (
 // WorkspaceVolumeApplyConfiguration represents a declarative configuration of the WorkspaceVolume type for use
 // with apply.
 type WorkspaceVolumeApplyConfiguration struct {
-	StorageType          *amdv1.StorageUseType              `json:"storageType,omitempty"`
-	MountPath            *string                            `json:"mountPath,omitempty"`
-	SubPath              *string                            `json:"subPath,omitempty"`
-	HostPath             *string                            `json:"hostPath,omitempty"`
-	Capacity             *string                            `json:"capacity,omitempty"`
-	PersistentVolumeName *string                            `json:"PersistentVolumeName,omitempty"`
-	StorageClass         *string                            `json:"storageClass,omitempty"`
-	AccessMode           *corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
+	StorageType  *amdv1.StorageUseType              `json:"storageType,omitempty"`
+	MountPath    *string                            `json:"mountPath,omitempty"`
+	SubPath      *string                            `json:"subPath,omitempty"`
+	HostPath     *string                            `json:"hostPath,omitempty"`
+	Capacity     *string                            `json:"capacity,omitempty"`
+	Selector     map[string]string                  `json:"selector,omitempty"`
+	StorageClass *string                            `json:"storageClass,omitempty"`
+	AccessMode   *corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
 }
 
 // WorkspaceVolumeApplyConfiguration constructs a declarative configuration of the WorkspaceVolume type for use with
@@ -70,11 +70,17 @@ func (b *WorkspaceVolumeApplyConfiguration) WithCapacity(value string) *Workspac
 	return b
 }
 
-// WithPersistentVolumeName sets the PersistentVolumeName field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the PersistentVolumeName field is set to the value of the last call.
-func (b *WorkspaceVolumeApplyConfiguration) WithPersistentVolumeName(value string) *WorkspaceVolumeApplyConfiguration {
-	b.PersistentVolumeName = &value
+// WithSelector puts the entries into the Selector field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the Selector field,
+// overwriting an existing map entries in Selector field with the same key.
+func (b *WorkspaceVolumeApplyConfiguration) WithSelector(entries map[string]string) *WorkspaceVolumeApplyConfiguration {
+	if b.Selector == nil && len(entries) > 0 {
+		b.Selector = make(map[string]string, len(entries))
+	}
+	for k, v := range entries {
+		b.Selector[k] = v
+	}
 	return b
 }
 

@@ -632,6 +632,10 @@ func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []str
 		}
 		dbSql = append(dbSql, sqrl.Or(sqlList))
 	}
+	if workloadId := strings.TrimSpace(query.WorkloadId); workloadId != "" {
+		dbSql = append(dbSql, sqrl.Like{
+			dbclient.GetFieldTag(dbTags, "WorkloadId"): fmt.Sprintf("%%%s%%", workloadId)})
+	}
 	orderBy := buildListWorkloadOrderBy(query, dbTags)
 	return dbSql, orderBy, nil
 }
@@ -646,18 +650,18 @@ func buildListWorkloadOrderBy(query *types.ListWorkloadRequest, dbTags map[strin
 	createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
 
 	var orderBy []string
-	isSortByCreatedTime := false
+	isSortByCreationTime := false
 	if query.SortBy != "" {
 		sortBy := strings.TrimSpace(query.SortBy)
 		sortBy = dbclient.GetFieldTag(dbTags, sortBy)
 		if sortBy != "" {
 			if stringutil.StrCaseEqual(query.SortBy, createTime) {
-				isSortByCreatedTime = true
+				isSortByCreationTime = true
 			}
 			orderBy = append(orderBy, fmt.Sprintf("%s %s %s", sortBy, query.Order, nullOrder))
 		}
 	}
-	if !isSortByCreatedTime {
+	if !isSortByCreationTime {
 		orderBy = append(orderBy, fmt.Sprintf("%s %s", createTime, dbclient.DESC))
 	}
 	return orderBy
@@ -723,6 +727,7 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 		UserName:       dbutils.ParseNullString(w.UserName),
 		Priority:       w.Priority,
 		IsTolerateAll:  w.IsTolerateAll,
+		WorkloadUid:    dbutils.ParseNullString(w.WorkloadUId),
 		K8sObjectUid:   dbutils.ParseNullString(w.K8sObjectUid),
 	}
 	if result.EndTime == "" && result.DeletionTime != "" {
@@ -857,6 +862,7 @@ func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
 		IsTolerateAll:    w.Spec.IsTolerateAll,
 		GroupVersionKind: w.Spec.GroupVersionKind,
 		Timeout:          w.Spec.Timeout,
+		WorkloadUid:      string(w.UID),
 		K8sObjectUid:     w.Status.K8sObjectUid,
 	}
 	if !w.Status.StartTime.IsZero() {

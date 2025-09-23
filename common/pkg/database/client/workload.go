@@ -52,12 +52,14 @@ var (
 
 func (c *Client) UpsertWorkload(ctx context.Context, workload *Workload) error {
 	if workload == nil {
-		return nil
+		return commonerrors.NewBadRequest("the input is empty")
+	}
+	db, err := c.getDB()
+	if err != nil {
+		return err
 	}
 
-	db := c.db.Unsafe()
 	var workloads []*Workload
-	var err error
 	if err = db.SelectContext(ctx, &workloads, getWorkloadCmd, workload.WorkloadId); err != nil {
 		klog.ErrorS(err, "failed to select workload", "id", workload.WorkloadId)
 		return err
@@ -85,8 +87,9 @@ func (c *Client) SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderB
 				strQuery, limit, offset, time.Since(startTime))
 		}
 	}()
-	if c.db == nil {
-		return nil, commonerrors.NewInternalError("The client of db has not been initialized")
+	db, err := c.getDB()
+	if err != nil {
+		return nil, err
 	}
 
 	sql, args, err := sqrl.Select("*").PlaceholderFormat(sqrl.Dollar).
@@ -100,7 +103,6 @@ func (c *Client) SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderB
 	}
 
 	var workloads []*Workload
-	db := c.db.Unsafe()
 	if c.RequestTimeout > 0 {
 		ctx2, cancel := context.WithTimeout(ctx, c.RequestTimeout)
 		defer cancel()
@@ -112,10 +114,10 @@ func (c *Client) SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderB
 }
 
 func (c *Client) CountWorkloads(ctx context.Context, query sqrl.Sqlizer) (int, error) {
-	if c.db == nil {
-		return 0, commonerrors.NewInternalError("The client of db has not been initialized")
+	db, err := c.getDB()
+	if err != nil {
+		return 0, err
 	}
-	db := c.db.Unsafe()
 	sql, args, err := sqrl.Select("COUNT(*)").PlaceholderFormat(sqrl.Dollar).From(TWorkload).Where(query).ToSql()
 	if err != nil {
 		return 0, err
@@ -126,9 +128,12 @@ func (c *Client) CountWorkloads(ctx context.Context, query sqrl.Sqlizer) (int, e
 }
 
 func (c *Client) SetWorkloadDeleted(ctx context.Context, workloadId string) error {
-	db := c.db.Unsafe()
+	db, err := c.getDB()
+	if err != nil {
+		return err
+	}
 	cmd := fmt.Sprintf(`UPDATE %s SET is_deleted=true WHERE workload_id=$1`, TWorkload)
-	_, err := db.ExecContext(ctx, cmd, workloadId)
+	_, err = db.ExecContext(ctx, cmd, workloadId)
 	if err != nil {
 		klog.ErrorS(err, "failed to update workload db. ", "WorkloadId", workloadId)
 		return err
@@ -137,11 +142,14 @@ func (c *Client) SetWorkloadDeleted(ctx context.Context, workloadId string) erro
 }
 
 func (c *Client) SetWorkloadStopped(ctx context.Context, workloadId string) error {
-	db := c.db.Unsafe()
+	db, err := c.getDB()
+	if err != nil {
+		return err
+	}
 	nowTime := dbutils.NullMetaV1Time(&metav1.Time{Time: time.Now().UTC()})
 	cmd := fmt.Sprintf(`UPDATE %s SET phase='%s', end_time=$2, delete_time=$3 WHERE workload_id=$1`,
 		TWorkload, v1.WorkloadStopped)
-	_, err := db.ExecContext(ctx, cmd, workloadId, nowTime, nowTime)
+	_, err = db.ExecContext(ctx, cmd, workloadId, nowTime, nowTime)
 	if err != nil {
 		klog.ErrorS(err, "failed to update workload db. ", "WorkloadId", workloadId)
 		return err
@@ -150,9 +158,12 @@ func (c *Client) SetWorkloadStopped(ctx context.Context, workloadId string) erro
 }
 
 func (c *Client) SetWorkloadDescription(ctx context.Context, workloadId, description string) error {
-	db := c.db.Unsafe()
+	db, err := c.getDB()
+	if err != nil {
+		return err
+	}
 	cmd := fmt.Sprintf(`UPDATE %s SET description=$1 WHERE workload_id=$2`, TWorkload)
-	_, err := db.ExecContext(ctx, cmd, description, workloadId)
+	_, err = db.ExecContext(ctx, cmd, description, workloadId)
 	if err != nil {
 		klog.ErrorS(err, "failed to update workload db. ", "WorkloadId", workloadId)
 		return err

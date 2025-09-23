@@ -19,8 +19,36 @@ spec:
       labels:
         app: {{ .Release.Name }}-web
     spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: feature.node.kubernetes.io/amd-gpu
+                    operator: NotIn
+                    values:
+                      - "true"
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - {{ .Release.Name }}-job-manager
+                        - {{ .Release.Name }}-webhooks
+                        - {{ .Release.Name }}-resource-manager
+                        - {{ .Release.Name }}-apiserver
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: app
           image: docker.io/primussafe/{{ .Values.console.image }}
           ports:
             - containerPort: 80
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists

@@ -26,7 +26,7 @@ const (
 
 type CreateSecretRequest struct {
 	// Secret name (display only), applicable only for SSH key usage
-	DisplayName string `json:"displayName,omitempty"`
+	Name string `json:"name,omitempty"`
 	// secret type. crypto/image/ssh
 	Type SecretType `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
@@ -51,6 +51,9 @@ type SecretResponseItem struct {
 	SecretId   string `json:"secretId"`
 	SecretName string `json:"secretName"`
 	Type       string `json:"type,omitempty"`
+	UserName   string `json:"userName,omitempty"`
+	// Creation timestamp of the secret
+	CreationTime string `json:"creationTime"`
 }
 
 type DockerConfigItem struct {

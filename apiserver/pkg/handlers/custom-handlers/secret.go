@@ -26,6 +26,7 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 func (h *Handler) CreateSecret(c *gin.Context) {
@@ -105,11 +106,7 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 			continue
 		}
 
-		result.Items = append(result.Items, types.SecretResponseItem{
-			SecretId:   item.Name,
-			SecretName: v1.GetDisplayName(&item),
-			Type:       item.Labels[v1.SecretTypeLabel],
-		})
+		result.Items = append(result.Items, cvtToSecretResponseItem(&item))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
@@ -164,8 +161,8 @@ func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Sec
 	if err := buildSecretData(req, secret); err != nil {
 		return nil, err
 	}
-	if req.DisplayName != "" {
-		secret.Labels[v1.DisplayNameLabel] = req.DisplayName
+	if req.Name != "" {
+		secret.Labels[v1.DisplayNameLabel] = req.Name
 	}
 	if req.Type == types.SecretSSH {
 		if sshMd5 := buildSshSecretMd5(req); sshMd5 != "" {
@@ -186,8 +183,8 @@ func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) erro
 			return fmt.Errorf("the %s is not found", types.PasswordParam)
 		}
 		name = common.PrimusCryptoSecret
-		if req.DisplayName == "" {
-			req.DisplayName = name
+		if req.Name == "" {
+			req.Name = name
 		}
 		secretType = corev1.SecretTypeOpaque
 		params[string(types.PasswordParam)] = []byte(req.Params[types.PasswordParam])
@@ -199,8 +196,8 @@ func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) erro
 			}
 		}
 		name = common.PrimusImageSecret
-		if req.DisplayName == "" {
-			req.DisplayName = name
+		if req.Name == "" {
+			req.Name = name
 		}
 		secretType = corev1.SecretTypeDockerConfigJson
 		auth := stringutil.Base64Encode(fmt.Sprintf("%s:%s",
@@ -219,10 +216,10 @@ func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) erro
 		if !req.HasParam(types.UserNameParam) {
 			return fmt.Errorf("the %s is empty", types.UserNameParam)
 		}
-		if req.DisplayName == "" {
-			req.DisplayName = "ssh-" + req.Params[types.UserNameParam]
+		if req.Name == "" {
+			req.Name = "ssh-" + req.Params[types.UserNameParam]
 		}
-		name = commonutils.GenerateName(req.DisplayName)
+		name = commonutils.GenerateName(req.Name)
 		secretType = corev1.SecretTypeOpaque
 		params[string(types.UserNameParam)] = []byte(req.Params[types.UserNameParam])
 		if req.HasParam(types.PasswordParam) {
@@ -269,4 +266,17 @@ func buildSshSecretMd5(req *types.CreateSecretRequest) string {
 		return ""
 	}
 	return stringutil.MD5(result)
+}
+
+func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
+	result := types.SecretResponseItem{
+		SecretId:     secret.Name,
+		SecretName:   v1.GetDisplayName(secret),
+		CreationTime: timeutil.FormatRFC3339(&secret.CreationTimestamp.Time),
+	}
+	data, ok := secret.Data[string(types.UserNameParam)]
+	if ok {
+		result.UserName = string(data)
+	}
+	return result
 }

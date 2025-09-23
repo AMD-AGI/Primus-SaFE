@@ -48,6 +48,7 @@ const (
 	RBD      StorageUseType = "rbd"
 	OBS      StorageUseType = "obs"
 	FS       StorageUseType = "cephfs"
+	JuiceFS  StorageUseType = "juicefs"
 	HOSTPATH StorageUseType = "hostpath"
 )
 

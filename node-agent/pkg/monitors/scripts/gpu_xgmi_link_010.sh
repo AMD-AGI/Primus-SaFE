@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+set -o pipefail
+
 msg=`nsenter --target 1 --mount --uts --ipc --net --pid -- dmesg | grep -i xgmi |grep "link error"`
 if [ $? -eq 0 ]; then
   echo "Error: $msg"

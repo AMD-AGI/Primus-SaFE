@@ -15,13 +15,6 @@ const (
 	NodeFlavorKind = "NodeFlavor"
 )
 
-type NodeFlavorType string
-
-const (
-	BareMetal      NodeFlavorType = "BareMetal"
-	VirtualMachine NodeFlavorType = "VirtualMachine"
-)
-
 type CpuChip struct {
 	// e.g. AMD EPYC 9554
 	Product  string            `json:"product,omitempty"`
@@ -38,8 +31,6 @@ type GpuChip struct {
 
 // NodeFlavorSpec defines the desired state of NodeFlavor
 type NodeFlavorSpec struct {
-	// +kubebuilder:validation:Enum=VirtualMachine;BareMetal
-	FlavorType      NodeFlavorType      `json:"flavorType,omitempty"`
 	Cpu             CpuChip             `json:"cpu"`
 	Memory          resource.Quantity   `json:"memory"`
 	Gpu             *GpuChip            `json:"gpu,omitempty"`

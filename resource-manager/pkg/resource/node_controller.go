@@ -38,10 +38,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
-const (
-	MaxRetryCount = 3
-)
-
 type NodeReconciler struct {
 	*ClusterBaseReconciler
 	clientManager *commonutils.ObjectManager
@@ -589,9 +585,11 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		if err = r.installAddons(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
+		/**
 		if err = r.doPreflight(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
+		*/
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
 		klog.Infof("managed node %s", k8sNode.Name)
 		return ctrlruntime.Result{}, nil
@@ -685,16 +683,6 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 		return err
 	}
 	if pod == nil {
-		// A retry limit is set when deleting a Pod. If the k8s node operation fails, scale-up will be retried.
-		// After exceeding the max retry count, it will fail directly to avoid infinite loops
-		count, err := utils.IncRetryCount(ctx, r.Client, adminNode, MaxRetryCount)
-		if err != nil {
-			return err
-		}
-		if count > MaxRetryCount {
-			adminNode.Status.ClusterStatus.Phase = v1.NodeManagedFailed
-			return nil
-		}
 		cluster, err := r.getCluster(ctx, adminNode.GetSpecCluster())
 		if err != nil || cluster == nil {
 			return err
@@ -809,17 +797,6 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 
 	adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanaging
 	if pod == nil {
-		// A retry limit is set when deleting a Pod. If the k8s node operation fails, scale-down will be retried.
-		// After exceeding the max retry count, it will fail directly to avoid infinite loops
-		count, err := utils.IncRetryCount(ctx, r.Client, adminNode, MaxRetryCount)
-		if err != nil {
-			return err
-		}
-		if count > MaxRetryCount {
-			adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanagedFailed
-			return nil
-		}
-
 		username, err := r.getUsername(ctx, adminNode, cluster)
 		if err != nil {
 			return err
