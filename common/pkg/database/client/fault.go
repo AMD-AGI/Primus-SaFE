@@ -28,37 +28,37 @@ var (
 		    update_time = :update_time,
 		    delete_time = :delete_time 
 		WHERE uid = :uid`, TFault)
+	deleteFaultCmd = fmt.Sprintf(`DELETE FROM %s WHERE uid = $1`, TFault)
 )
 
 func (c *Client) UpsertFault(ctx context.Context, fault *Fault) error {
 	if fault == nil {
-		return nil
+		return commonerrors.NewBadRequest("input is empty")
 	}
-	db := c.db.Unsafe()
-	var faults []*Fault
-	var err error
-	if err = db.SelectContext(ctx, &faults, getFaultCmd, fault.Uid); err != nil {
+	db, err := c.getDB()
+	if err != nil {
 		return err
 	}
-	if len(faults) > 0 && faults[0] != nil {
+	if _, err = c.GetFault(ctx, fault.Uid); err == nil {
 		if _, err = db.NamedExecContext(ctx, updateFaultCmd, fault); err != nil {
 			klog.ErrorS(err, "failed to upsert fault db")
+			return err
 		}
 	} else {
 		_, err = db.NamedExecContext(ctx, genInsertCommand(*fault, insertFaultFormat, "id"), fault)
 		if err != nil {
 			klog.ErrorS(err, "failed to insert fault db")
+			return err
 		}
 	}
-
-	return err
+	return nil
 }
 
 func (c *Client) SelectFaults(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*Fault, error) {
-	if c.db == nil {
-		return nil, commonerrors.NewInternalError("The client of db has not been initialized")
+	db, err := c.getDB()
+	if err != nil {
+		return nil, err
 	}
-	db := c.db.Unsafe()
 	orderBy := func() []string {
 		var results []string
 		if sortBy == "" || order == "" {
@@ -93,10 +93,10 @@ func (c *Client) SelectFaults(ctx context.Context, query sqrl.Sqlizer, sortBy, o
 }
 
 func (c *Client) CountFaults(ctx context.Context, query sqrl.Sqlizer) (int, error) {
-	if c.db == nil {
-		return 0, commonerrors.NewInternalError("The client of db has not been initialized")
+	db, err := c.getDB()
+	if err != nil {
+		return 0, err
 	}
-	db := c.db.Unsafe()
 	sql, args, err := sqrl.Select("COUNT(*)").PlaceholderFormat(sqrl.Dollar).From(TFault).Where(query).ToSql()
 	if err != nil {
 		return 0, err
@@ -104,4 +104,34 @@ func (c *Client) CountFaults(ctx context.Context, query sqrl.Sqlizer) (int, erro
 	var cnt int
 	err = db.GetContext(ctx, &cnt, sql, args...)
 	return cnt, err
+}
+
+func (c *Client) GetFault(ctx context.Context, uid string) (*Fault, error) {
+	if uid == "" {
+		return nil, commonerrors.NewBadRequest("the faultUId is empty")
+	}
+	db, err := c.getDB()
+	if err != nil {
+		return nil, err
+	}
+	var faults []*Fault
+	if err = db.SelectContext(ctx, &faults, getFaultCmd, uid); err != nil {
+		return nil, err
+	}
+	if len(faults) > 0 && faults[0] != nil {
+		return faults[0], nil
+	}
+	return nil, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("fault %s not found", uid))
+}
+
+func (c *Client) DeleteFault(ctx context.Context, uid string) error {
+	if uid == "" {
+		return commonerrors.NewBadRequest("the faultUId is empty")
+	}
+	db, err := c.getDB()
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, deleteFaultCmd, uid)
+	return err
 }

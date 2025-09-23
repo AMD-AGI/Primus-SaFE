@@ -122,5 +122,9 @@ spec:
           configMap:
             name: {{ .Release.Name }}-resource-manager
       terminationGracePeriodSeconds: 10
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
       priorityClassName: system-cluster-critical
       restartPolicy: Always

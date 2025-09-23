@@ -13,6 +13,7 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -86,17 +87,23 @@ type NodeFlavorValidator struct {
 }
 
 func (v *NodeFlavorValidator) Handle(_ context.Context, req admission.Request) admission.Response {
-	nf := &v1.NodeFlavor{}
+	newFlavor := &v1.NodeFlavor{}
 	var err error
+	if err = v.decoder.Decode(req, newFlavor); err != nil {
+		return handleError(v1.NodeFlavorKind, err)
+	}
+	if !newFlavor.GetDeletionTimestamp().IsZero() {
+		return admission.Allowed("")
+	}
+
 	switch req.Operation {
-	case admissionv1.Create, admissionv1.Update:
-		if err = v.decoder.Decode(req, nf); err != nil {
-			break
+	case admissionv1.Create:
+		err = v.validateOnCreation(newFlavor)
+	case admissionv1.Update:
+		oldFlavor := &v1.NodeFlavor{}
+		if err = v.decoder.DecodeRaw(req.OldObject, oldFlavor); err == nil {
+			err = v.validateOnUpdate(oldFlavor, newFlavor)
 		}
-		if !nf.GetDeletionTimestamp().IsZero() {
-			break
-		}
-		err = v.validate(nf)
 	default:
 	}
 	if err != nil {
@@ -105,7 +112,24 @@ func (v *NodeFlavorValidator) Handle(_ context.Context, req admission.Request) a
 	return admission.Allowed("")
 }
 
-func (v *NodeFlavorValidator) validate(nf *v1.NodeFlavor) error {
+func (v *NodeFlavorValidator) validateOnCreation(nf *v1.NodeFlavor) error {
+	if err := v.validateCommon(nf); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *NodeFlavorValidator) validateOnUpdate(oldFlavor, newFlavor *v1.NodeFlavor) error {
+	if err := v.validateCommon(newFlavor); err != nil {
+		return err
+	}
+	if err := v.validateImmutableFields(oldFlavor, newFlavor); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (v *NodeFlavorValidator) validateCommon(nf *v1.NodeFlavor) error {
 	if nf.Spec.Cpu.Quantity.Value() <= 0 {
 		return fmt.Errorf("invalid cpu: %s", nf.Spec.Cpu.Quantity.String())
 	}
@@ -137,6 +161,25 @@ func (v *NodeFlavorValidator) validate(nf *v1.NodeFlavor) error {
 	rdma, ok := nf.Spec.ExtendResources[corev1.ResourceName(commonconfig.GetRdmaName())]
 	if ok && rdma.Value() <= 0 {
 		return fmt.Errorf("invalid %s: %v", commonconfig.GetRdmaName(), rdma.String())
+	}
+	return nil
+}
+
+func (v *NodeFlavorValidator) validateImmutableFields(oldFlavor, newFlavor *v1.NodeFlavor) error {
+	if (newFlavor.Spec.Gpu == nil && oldFlavor.Spec.Gpu != nil) ||
+		(newFlavor.Spec.Gpu != nil && oldFlavor.Spec.Gpu == nil) {
+		return field.Forbidden(field.NewPath("spec").Key("gpu"), "immutable")
+	}
+	if newFlavor.Spec.Gpu != nil && oldFlavor.Spec.Gpu != nil {
+		if newFlavor.Spec.Gpu.ResourceName != oldFlavor.Spec.Gpu.ResourceName {
+			return field.Forbidden(field.NewPath("spec").Key("gpu").Key("resourceName"), "immutable")
+		}
+		if newFlavor.Spec.Gpu.Quantity.Value() != oldFlavor.Spec.Gpu.Quantity.Value() {
+			return field.Forbidden(field.NewPath("spec").Key("gpu").Key("quantity"), "immutable")
+		}
+		if newFlavor.Spec.Gpu.Product != oldFlavor.Spec.Gpu.Product {
+			return field.Forbidden(field.NewPath("spec").Key("gpu").Key("product"), "immutable")
+		}
 	}
 	return nil
 }

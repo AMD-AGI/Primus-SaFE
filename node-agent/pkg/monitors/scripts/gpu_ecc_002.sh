@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+set -o pipefail
+
 nsenter --target 1 --mount --uts --ipc --net --pid -- ls /usr/bin/amd-smi > /dev/null
 if [ $? -ne 0 ]; then
   exit 2

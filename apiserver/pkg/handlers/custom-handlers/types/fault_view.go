@@ -30,7 +30,7 @@ type ListFaultResponse struct {
 
 type FaultResponseItem struct {
 	// the uniq id of response
-	ID int64 `json:"id"`
+	ID string `json:"id"`
 	// the node ID related to this fault
 	NodeId string `json:"nodeId"`
 	// the ID used by NodeAgent for monitoring.
@@ -44,7 +44,7 @@ type FaultResponseItem struct {
 	// cluster id
 	Cluster string `json:"cluster"`
 	// the creation time of fault
-	CreatedTime string `json:"createdTime"`
+	CreationTime string `json:"creationTime"`
 	// the deletion time of fault
-	DeleteTime string `json:"deleteTime"`
+	DeletionTime string `json:"deletionTime"`
 }

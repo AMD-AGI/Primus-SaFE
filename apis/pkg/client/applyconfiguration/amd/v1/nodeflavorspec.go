@@ -7,7 +7,6 @@ Copyright The AMD Authors.
 package v1
 
 import (
-	amdv1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	corev1 "k8s.io/api/core/v1"
 	resource "k8s.io/apimachinery/pkg/api/resource"
 )
@@ -15,7 +14,6 @@ import (
 // NodeFlavorSpecApplyConfiguration represents a declarative configuration of the NodeFlavorSpec type for use
 // with apply.
 type NodeFlavorSpecApplyConfiguration struct {
-	FlavorType      *amdv1.NodeFlavorType         `json:"flavorType,omitempty"`
 	Cpu             *CpuChipApplyConfiguration    `json:"cpu,omitempty"`
 	Memory          *resource.Quantity            `json:"memory,omitempty"`
 	Gpu             *GpuChipApplyConfiguration    `json:"gpu,omitempty"`
@@ -28,14 +26,6 @@ type NodeFlavorSpecApplyConfiguration struct {
 // apply.
 func NodeFlavorSpec() *NodeFlavorSpecApplyConfiguration {
 	return &NodeFlavorSpecApplyConfiguration{}
-}
-
-// WithFlavorType sets the FlavorType field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the FlavorType field is set to the value of the last call.
-func (b *NodeFlavorSpecApplyConfiguration) WithFlavorType(value amdv1.NodeFlavorType) *NodeFlavorSpecApplyConfiguration {
-	b.FlavorType = &value
-	return b
 }
 
 // WithCpu sets the Cpu field in the declarative configuration to the given value

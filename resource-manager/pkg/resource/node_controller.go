@@ -585,9 +585,11 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		if err = r.installAddons(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
+		/**
 		if err = r.doPreflight(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
+		*/
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
 		klog.Infof("managed node %s", k8sNode.Name)
 		return ctrlruntime.Result{}, nil

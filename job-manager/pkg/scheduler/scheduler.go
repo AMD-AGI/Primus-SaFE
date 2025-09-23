@@ -544,7 +544,7 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 		usedResource = quantity.AddResource(usedResource, resourceList)
 	}
 
-	availResource := quantity.GetAvailableResource(workspace.Status.AvailableResources)
+	availResource := workspace.Status.AvailableResources
 	leftAvailResource := quantity.SubResource(availResource, usedResource)
 	totalResource := quantity.GetAvailableResource(workspace.Status.TotalResources)
 	leftTotalResource := quantity.SubResource(totalResource, usedResource)

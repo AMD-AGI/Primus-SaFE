@@ -36,11 +36,13 @@ var (
 
 func (c *Client) UpsertJob(ctx context.Context, job *OpsJob) error {
 	if job == nil {
-		return nil
+		return commonerrors.NewBadRequest("the input is empty")
 	}
-	db := c.db.Unsafe()
+	db, err := c.getDB()
+	if err != nil {
+		return err
+	}
 	var jobs []*OpsJob
-	var err error
 	if err = db.SelectContext(ctx, &jobs, getJobCmd, job.JobId); err != nil {
 		return err
 	}
@@ -60,10 +62,10 @@ func (c *Client) UpsertJob(ctx context.Context, job *OpsJob) error {
 }
 
 func (c *Client) SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*OpsJob, error) {
-	if c.db == nil {
-		return nil, commonerrors.NewInternalError("The client of db has not been initialized")
+	db, err := c.getDB()
+	if err != nil {
+		return nil, err
 	}
-	db := c.db.Unsafe()
 	orderBy := func() []string {
 		var results []string
 		if sortBy == "" || order == "" {
@@ -98,10 +100,10 @@ func (c *Client) SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, ord
 }
 
 func (c *Client) CountJobs(ctx context.Context, query sqrl.Sqlizer) (int, error) {
-	if c.db == nil {
-		return 0, commonerrors.NewInternalError("The client of db has not been initialized")
+	db, err := c.getDB()
+	if err != nil {
+		return 0, err
 	}
-	db := c.db.Unsafe()
 	sql, args, err := sqrl.Select("COUNT(*)").PlaceholderFormat(sqrl.Dollar).From(TOpsJob).Where(query).ToSql()
 	if err != nil {
 		return 0, err
@@ -112,7 +114,10 @@ func (c *Client) CountJobs(ctx context.Context, query sqrl.Sqlizer) (int, error)
 }
 
 func (c *Client) SetOpsJobDeleted(ctx context.Context, opsJobId, userId string) error {
-	db := c.db.Unsafe()
+	db, err := c.getDB()
+	if err != nil {
+		return err
+	}
 
 	var cmd string
 	var args []interface{}
@@ -124,7 +129,7 @@ func (c *Client) SetOpsJobDeleted(ctx context.Context, opsJobId, userId string) 
 		args = []interface{}{opsJobId}
 	}
 
-	_, err := db.ExecContext(ctx, cmd, args...)
+	_, err = db.ExecContext(ctx, cmd, args...)
 	if err != nil {
 		klog.ErrorS(err, "failed to update opsjob db", "job_id", opsJobId, "user_id", userId)
 		return err

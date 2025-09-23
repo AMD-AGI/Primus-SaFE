@@ -98,13 +98,13 @@ type OpsJobResponseItem struct {
 	// job execution flow
 	Conditions []metav1.Condition `json:"conditions"`
 	// job creation time
-	CreateTime string `json:"createTime"`
+	CreationTime string `json:"creationTime"`
 	// job start time
 	StartTime string `json:"startTime"`
 	// job end time
 	EndTime string `json:"endTime"`
 	// job deletion time
-	DeleteTime string `json:"deleteTime"`
+	DeletionTime string `json:"deletionTime"`
 	// job inputs
 	Inputs []v1.Parameter `json:"inputs"`
 	// job outputs

@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+set -o pipefail
+
 ps aux | grep /usr/local/bin/containerd | grep -v grep > /dev/null
 if [ $? -ne 0 ]; then
   echo "Error: /usr/local/bin/containerd is not running"

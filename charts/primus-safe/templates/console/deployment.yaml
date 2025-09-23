@@ -48,3 +48,7 @@ spec:
           image: docker.io/primussafe/{{ .Values.console.image }}
           ports:
             - containerPort: 80
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists

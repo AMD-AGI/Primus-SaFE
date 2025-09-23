@@ -3,16 +3,16 @@ net:
   nccl_ib_hca: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re7,bnxt_re8"
   rdma_name: "rdma/hca"
 apiserver:
-  image: "apiserver:202509111344"
+  image: "apiserver:202509231600"
   replicas: 2
 resource_manager:
-  image: "resource-manager:202509111344"
+  image: "resource-manager:202509231600"
   replicas: 2
 job_manager:
-  image: "job-manager:202509111344"
+  image: "job-manager:202509231600"
   replicas: 2
 webhooks:
-  image: "webhooks:202509111344"
+  image: "webhooks:202509231600"
   replicas: 2
 preprocess:
   image: "preprocess:202509092311"
@@ -21,7 +21,7 @@ preflight:
 diagnose:
   image: "diagnose_multi:202509121700"
 console:
-  image: "primus-safe-web:1.3.28"
+  image: "primus-safe-web:1.5.0"
   replicas: 2
 db:
   enable: true

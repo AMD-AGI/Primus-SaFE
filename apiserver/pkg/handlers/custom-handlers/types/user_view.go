@@ -55,7 +55,7 @@ type UserResponseItem struct {
 	// the workspace's name which user can manage
 	ManagedWorkspaces []WorkspaceEntry `json:"managedWorkspaces"`
 	// user's creation time
-	CreatedTime string `json:"createdTime"`
+	CreationTime string `json:"creationTime"`
 	// 0: normal; 1 frozen
 	RestrictedType v1.UserRestrictedType `json:"restrictedType"`
 	// user's avatar URL

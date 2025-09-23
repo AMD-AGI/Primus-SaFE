@@ -101,7 +101,6 @@ func genMockNodeFlavor() *v1.NodeFlavor {
 			Name: commonutils.GenerateName("nodeFlavor"),
 		},
 		Spec: v1.NodeFlavorSpec{
-			FlavorType: v1.BareMetal,
 			Cpu: v1.CpuChip{
 				Product:  "AMD 9554",
 				Quantity: *resource.NewQuantity(256, resource.DecimalSI),

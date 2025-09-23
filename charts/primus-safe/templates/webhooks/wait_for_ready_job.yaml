@@ -19,11 +19,11 @@ spec:
         - operator: Exists
       containers:
         - name: complete
-          image: busybox
+          image: docker.io/library/busybox:latest
           command: ["sh", "-c", "echo webhook is ready."]
       initContainers:
         - name: wait
-          image: curlimages/curl:latest
+          image: docker.io/curlimages/curl:latest
           command:
             - sh
             - -c

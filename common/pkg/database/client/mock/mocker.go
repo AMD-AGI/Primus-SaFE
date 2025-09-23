@@ -81,6 +81,35 @@ func (mr *MockInterfaceMockRecorder) CountWorkloads(ctx, query interface{}) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountWorkloads", reflect.TypeOf((*MockInterface)(nil).CountWorkloads), ctx, query)
 }
 
+// DeleteFault mocks base method.
+func (m *MockInterface) DeleteFault(ctx context.Context, uid string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteFault", ctx, uid)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteFault indicates an expected call of DeleteFault.
+func (mr *MockInterfaceMockRecorder) DeleteFault(ctx, uid interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteFault", reflect.TypeOf((*MockInterface)(nil).DeleteFault), ctx, uid)
+}
+
+// GetFault mocks base method.
+func (m *MockInterface) GetFault(ctx context.Context, uid string) (*client.Fault, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetFault", ctx, uid)
+	ret0, _ := ret[0].(*client.Fault)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetFault indicates an expected call of GetFault.
+func (mr *MockInterfaceMockRecorder) GetFault(ctx, uid interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFault", reflect.TypeOf((*MockInterface)(nil).GetFault), ctx, uid)
+}
+
 // GetWorkload mocks base method.
 func (m *MockInterface) GetWorkload(ctx context.Context, workloadId string) (*client.Workload, error) {
 	m.ctrl.T.Helper()
@@ -399,6 +428,35 @@ func (m *MockFaultInterface) CountFaults(ctx context.Context, query squirrel.Sql
 func (mr *MockFaultInterfaceMockRecorder) CountFaults(ctx, query interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountFaults", reflect.TypeOf((*MockFaultInterface)(nil).CountFaults), ctx, query)
+}
+
+// DeleteFault mocks base method.
+func (m *MockFaultInterface) DeleteFault(ctx context.Context, uid string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteFault", ctx, uid)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteFault indicates an expected call of DeleteFault.
+func (mr *MockFaultInterfaceMockRecorder) DeleteFault(ctx, uid interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteFault", reflect.TypeOf((*MockFaultInterface)(nil).DeleteFault), ctx, uid)
+}
+
+// GetFault mocks base method.
+func (m *MockFaultInterface) GetFault(ctx context.Context, uid string) (*client.Fault, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetFault", ctx, uid)
+	ret0, _ := ret[0].(*client.Fault)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetFault indicates an expected call of GetFault.
+func (mr *MockFaultInterfaceMockRecorder) GetFault(ctx, uid interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFault", reflect.TypeOf((*MockFaultInterface)(nil).GetFault), ctx, uid)
 }
 
 // SelectFaults mocks base method.

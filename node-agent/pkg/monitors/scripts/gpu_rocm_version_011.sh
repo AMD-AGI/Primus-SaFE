@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+set -o pipefail
+
 if [ "$#" -lt 1 ]; then
   echo "Usage: $0 <rocm-version>"
   echo "Example: $0 '6.4.43484'"

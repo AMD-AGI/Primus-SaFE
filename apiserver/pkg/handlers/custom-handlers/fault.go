@@ -28,6 +28,14 @@ func (h *Handler) ListFault(c *gin.Context) {
 	handle(c, h.listFault)
 }
 
+func (h *Handler) DeleteFault(c *gin.Context) {
+	handle(c, h.deleteFault)
+}
+
+func (h *Handler) StopFault(c *gin.Context) {
+	handle(c, h.stopFault)
+}
+
 func (h *Handler) listFault(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
@@ -66,6 +74,53 @@ func (h *Handler) listFault(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+func (h *Handler) deleteFault(c *gin.Context) (interface{}, error) {
+	if !commonconfig.IsDBEnable() {
+		return nil, commonerrors.NewInternalError("the database function is not enabled")
+	}
+	_, err := h.stopFault(c)
+	if err != nil {
+		return nil, err
+	}
+
+	id := c.GetString(types.Name)
+	err = h.dbClient.DeleteFault(c.Request.Context(), id)
+	if err != nil {
+		return nil, err
+	}
+	klog.Infof("delete fault from db %s", id)
+	return nil, nil
+}
+
+func (h *Handler) stopFault(c *gin.Context) (interface{}, error) {
+	ctx := c.Request.Context()
+	if err := h.auth.Authorize(authority.Input{
+		Context:      ctx,
+		ResourceKind: v1.FaultKind,
+		Verb:         v1.DeleteVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
+	id := c.GetString(types.Name)
+	faultList := &v1.FaultList{}
+	err := h.List(ctx, faultList)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range faultList.Items {
+		if string(item.UID) != id {
+			continue
+		}
+		if err = h.Delete(ctx, &item); err != nil {
+			return nil, err
+		}
+		break
+	}
+	klog.Infof("delete admin fault %s", id)
+	return nil, nil
+}
 func parseListFaultQuery(c *gin.Context) (*types.ListFaultRequest, error) {
 	query := &types.ListFaultRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
@@ -113,14 +168,14 @@ func cvtToListFaultSql(query *types.ListFaultRequest) sqrl.Sqlizer {
 
 func cvtToFaultResponseItem(f *dbclient.Fault) types.FaultResponseItem {
 	return types.FaultResponseItem{
-		ID:          f.Id,
-		NodeId:      dbutils.ParseNullString(f.Node),
-		MonitorId:   f.MonitorId,
-		Message:     dbutils.ParseNullString(f.Message),
-		Action:      dbutils.ParseNullString(f.Action),
-		Phase:       dbutils.ParseNullString(f.Phase),
-		Cluster:     dbutils.ParseNullString(f.Cluster),
-		CreatedTime: dbutils.ParseNullTimeToString(f.CreateTime),
-		DeleteTime:  dbutils.ParseNullTimeToString(f.DeleteTime),
+		ID:           f.Uid,
+		NodeId:       dbutils.ParseNullString(f.Node),
+		MonitorId:    f.MonitorId,
+		Message:      dbutils.ParseNullString(f.Message),
+		Action:       dbutils.ParseNullString(f.Action),
+		Phase:        dbutils.ParseNullString(f.Phase),
+		Cluster:      dbutils.ParseNullString(f.Cluster),
+		CreationTime: dbutils.ParseNullTimeToString(f.CreateTime),
+		DeletionTime: dbutils.ParseNullTimeToString(f.DeleteTime),
 	}
 }
