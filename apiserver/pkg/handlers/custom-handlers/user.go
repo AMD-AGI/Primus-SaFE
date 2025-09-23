@@ -405,7 +405,7 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) type
 		Email:          v1.GetUserEmail(user),
 		Type:           user.Spec.Type,
 		Roles:          user.Spec.Roles,
-		CreatedTime:    user.CreationTimestamp.Format(time.DateTime),
+		CreationTime:   user.CreationTimestamp.Format(time.DateTime),
 		RestrictedType: user.Spec.RestrictedType,
 		AvatarUrl:      v1.GetUserAvatarUrl(user),
 	}

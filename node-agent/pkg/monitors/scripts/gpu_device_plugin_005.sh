@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+set -o pipefail
+
 if [ "$#" -lt 1 ]; then
   echo "Usage: $0 <node-info>"
   echo "Example: $0 {\"expectedGpuCount\": 8, \"observedGpuCount\": 8}"

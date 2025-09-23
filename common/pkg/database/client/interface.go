@@ -31,6 +31,8 @@ type FaultInterface interface {
 	UpsertFault(ctx context.Context, fault *Fault) error
 	SelectFaults(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*Fault, error)
 	CountFaults(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	GetFault(ctx context.Context, uid string) (*Fault, error)
+	DeleteFault(ctx context.Context, uid string) error
 }
 
 type OpsJobInterface interface {

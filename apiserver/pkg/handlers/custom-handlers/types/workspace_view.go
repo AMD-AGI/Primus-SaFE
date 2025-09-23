@@ -63,7 +63,7 @@ type WorkspaceResponseItem struct {
 	// the status of workspace
 	Phase string `json:"phase"`
 	// creation time
-	CreateTime string `json:"createTime"`
+	CreationTime string `json:"creationTime"`
 	// description of workspace
 	Description string `json:"description"`
 	// Queuing policy for tasks submitted in this workspace.
@@ -77,7 +77,7 @@ type WorkspaceResponseItem struct {
 	// the manager's user_id
 	Managers []string `json:"managers"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
-	IsDefault bool `json:"isDefault,omitempty"`
+	IsDefault bool `json:"isDefault"`
 }
 
 type GetWorkspaceResponse struct {

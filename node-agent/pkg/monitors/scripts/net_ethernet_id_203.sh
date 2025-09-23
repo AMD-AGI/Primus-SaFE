@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+set -o pipefail
+
 if [ -z "$1" ]; then
   echo "Usage: $0 <search_id>"
   exit 2

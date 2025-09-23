@@ -16,7 +16,7 @@ spec:
     spec:
       initContainers:
         - name: wait-for-service-ready
-          image: postgres:latest
+          image: docker.io/library/postgres:latest
           command:
             - /bin/sh
             - -c
@@ -46,7 +46,7 @@ spec:
                   key: user
       containers:
         - name: create-table
-          image: "postgres:latest"
+          image: docker.io/library/postgres:latest
           command:
             - /bin/sh
             - -c

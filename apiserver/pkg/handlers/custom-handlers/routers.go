@@ -31,6 +31,8 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.DELETE(fmt.Sprintf("secrets/:%s", types.Name), h.DeleteSecret)
 
 		group.GET("faults", h.ListFault)
+		group.DELETE(fmt.Sprintf("faults/:%s", types.Name), h.DeleteFault)
+		group.POST(fmt.Sprintf("faults/:%s/stop", types.Name), h.StopFault)
 
 		group.POST("nodetemplates", h.CreateNodeTemplate)
 		group.DELETE("nodetemplates/:name", h.DeleteNodeTemplate)
@@ -62,6 +64,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.GET("nodeflavors", h.ListNodeFlavor)
 		group.GET(fmt.Sprintf("nodeflavors/:%s", types.Name), h.GetNodeFlavor)
 		group.GET(fmt.Sprintf("nodeflavors/:%s/avail", types.Name), h.GetNodeFlavorAvail)
+		group.PATCH(fmt.Sprintf("nodeflavors/:%s", types.Name), h.PatchNodeFlavor)
 
 		group.POST("opsjobs", h.CreateOpsJob)
 		group.GET("opsjobs", h.ListOpsJob)
@@ -85,6 +88,8 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 
 		noAuthGroup.POST(fmt.Sprintf("login"), h.Login)
 		noAuthGroup.POST(fmt.Sprintf("logout"), h.Logout)
+
+		noAuthGroup.GET(fmt.Sprintf("/envs"), h.GetEnvs)
 		noAuthGroup.POST("users", h.CreateUser)
 	}
 }

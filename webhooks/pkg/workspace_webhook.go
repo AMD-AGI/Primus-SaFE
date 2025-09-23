@@ -443,7 +443,7 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 			oldCapacityMap[string(vol.StorageType)] = vol.Capacity
 		}
 	}
-	supportedStorageType := []v1.StorageUseType{v1.RBD, v1.FS, v1.OBS, v1.HOSTPATH}
+	supportedStorageType := []v1.StorageUseType{v1.RBD, v1.FS, v1.OBS, v1.HOSTPATH, v1.JuiceFS}
 	supportedAccessMode := []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce,
 		corev1.ReadWriteMany, corev1.ReadOnlyMany, corev1.ReadWriteOncePod}
 
@@ -461,8 +461,8 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 			continue
 		}
 
-		if vol.StorageClass == "" && vol.PersistentVolumeName == "" {
-			return fmt.Errorf("the storageClass or persistentVolumeName is empty")
+		if vol.StorageClass == "" && len(vol.Selector) == 0 {
+			return fmt.Errorf("the storageClass or pv selector is empty")
 		}
 		if vol.Capacity == "" {
 			return fmt.Errorf("the capacity of volume is empty")

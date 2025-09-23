@@ -7,7 +7,7 @@ package custom_handlers
 
 import (
 	"context"
-	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -38,6 +38,10 @@ func (h *Handler) ListNodeFlavor(c *gin.Context) {
 
 func (h *Handler) GetNodeFlavor(c *gin.Context) {
 	handle(c, h.getNodeFlavor)
+}
+
+func (h *Handler) PatchNodeFlavor(c *gin.Context) {
+	handle(c, h.patchNodeFlavor)
 }
 
 func (h *Handler) DeleteNodeFlavor(c *gin.Context) {
@@ -138,6 +142,39 @@ func (h *Handler) getNodeFlavor(c *gin.Context) (interface{}, error) {
 	return cvtToNodeFlavorResponseItem(nf), nil
 }
 
+func (h *Handler) patchNodeFlavor(c *gin.Context) (interface{}, error) {
+	ctx := c.Request.Context()
+	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(types.Name))
+	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		Context:  ctx,
+		Resource: nf,
+		Verb:     v1.UpdateVerb,
+		UserId:   c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
+	req := &types.PatchNodeFlavorRequest{}
+	body, err := getBodyFromRequest(c.Request, req)
+	if err != nil {
+		klog.ErrorS(err, "failed to parse request", "body", string(body))
+		return nil, err
+	}
+	patch := client.MergeFrom(nf.DeepCopy())
+	isShouldUpdate, err := h.updateNodeFlavor(nf, req)
+	if err != nil || !isShouldUpdate {
+		return nil, err
+	}
+	if err = h.Patch(ctx, nf, patch); err != nil {
+		klog.ErrorS(err, "failed to patch nodeFlavor", "name", nf.Name)
+		return nil, err
+	}
+	return nil, nil
+}
+
 func (h *Handler) deleteNodeFlavor(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(types.Name))
@@ -197,6 +234,39 @@ func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
 	return cvtToResourceList(availResource), nil
 }
 
+func (h *Handler) updateNodeFlavor(nf *v1.NodeFlavor, req *types.PatchNodeFlavorRequest) (bool, error) {
+	isShouldUpdate := false
+	if req.CPU != nil && *req.CPU != nf.Spec.Cpu.Quantity.Value() {
+		nf.Spec.Cpu.Quantity = *resource.NewQuantity(*req.CPU, resource.DecimalSI)
+		isShouldUpdate = true
+	}
+	if req.CPUProduct != nil && *req.CPUProduct != nf.Spec.Cpu.Product {
+		nf.Spec.Cpu.Product = *req.CPUProduct
+		isShouldUpdate = true
+	}
+	if req.Memory != nil && *req.Memory != nf.Spec.Memory.Value() {
+		nf.Spec.Memory = *resource.NewQuantity(*req.Memory, resource.BinarySI)
+		isShouldUpdate = true
+	}
+	if req.RootDisk != nil {
+		if nf.Spec.RootDisk == nil || !reflect.DeepEqual(*nf.Spec.RootDisk, *req.RootDisk) {
+			nf.Spec.RootDisk = req.RootDisk
+			isShouldUpdate = true
+		}
+	}
+	if req.DataDisk != nil {
+		if nf.Spec.DataDisk == nil || !reflect.DeepEqual(*nf.Spec.DataDisk, *req.DataDisk) {
+			nf.Spec.DataDisk = req.DataDisk
+			isShouldUpdate = true
+		}
+	}
+	if req.Extends != nil && !reflect.DeepEqual(req.Extends, nf.Spec.ExtendResources) {
+		nf.Spec.ExtendResources = *req.Extends
+		isShouldUpdate = true
+	}
+	return isShouldUpdate, nil
+}
+
 func generateNodeFlavor(c *gin.Context, req *types.CreateNodeFlavorRequest) (*v1.NodeFlavor, error) {
 	nf := &v1.NodeFlavor{
 		ObjectMeta: metav1.ObjectMeta{
@@ -206,42 +276,8 @@ func generateNodeFlavor(c *gin.Context, req *types.CreateNodeFlavorRequest) (*v1
 				v1.UserIdLabel:      c.GetString(common.UserId),
 			},
 		},
-		Spec: v1.NodeFlavorSpec{
-			FlavorType: v1.NodeFlavorType(req.FlavorType),
-			Cpu: v1.CpuChip{
-				Product:  req.CPUProduct,
-				Quantity: *resource.NewQuantity(req.CPU, resource.DecimalSI),
-			},
-			Memory:          *resource.NewQuantity(req.Memory, resource.BinarySI),
-			ExtendResources: req.Extends,
-		},
+		Spec: req.NodeFlavorSpec,
 	}
-
-	if req.GPU > 0 {
-		if req.GPUName == "" {
-			return nil, commonerrors.NewBadRequest("the gpuName is empty")
-		}
-		nf.Spec.Gpu = &v1.GpuChip{
-			ResourceName: req.GPUName,
-			Product:      req.GPUProduct,
-			Quantity:     *resource.NewQuantity(req.GPU, resource.DecimalSI),
-		}
-	}
-
-	var err error
-	if req.RootDisk != nil {
-		nf.Spec.RootDisk, err = buildDiskFlavor(req.RootDisk)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if req.DataDisk != nil {
-		nf.Spec.DataDisk, err = buildDiskFlavor(req.DataDisk)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	_, ok := nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage]
 	if !ok && nf.Spec.RootDisk != nil && !nf.Spec.RootDisk.Quantity.IsZero() {
 		nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage] = *resource.NewQuantity(
@@ -250,40 +286,10 @@ func generateNodeFlavor(c *gin.Context, req *types.CreateNodeFlavorRequest) (*v1
 	return nf, nil
 }
 
-func buildDiskFlavor(req *types.DiskFlavor) (*v1.DiskFlavor, error) {
-	if req.Count == 0 || req.Quantity == "" || req.Type == "" {
-		return nil, commonerrors.NewBadRequest("invalid disk input")
-	}
-	diskQuantity, err := resource.ParseQuantity(req.Quantity)
-	if err != nil || diskQuantity.Value() <= 0 {
-		return nil, fmt.Errorf("invalid disk quantity")
-	}
-	return &v1.DiskFlavor{
-		Type:     req.Type,
-		Count:    req.Count,
-		Quantity: diskQuantity,
-	}, nil
-}
-
 func cvtToNodeFlavorResponseItem(nf *v1.NodeFlavor) types.NodeFlavorResponseItem {
-	resources := make(types.ResourceList)
-	resources["cpu"] = nf.Spec.Cpu.Quantity.Value()
-	resources["memory"] = nf.Spec.Memory.Value()
-	if nf.Spec.Gpu != nil {
-		resources[nf.Spec.Gpu.ResourceName] = nf.Spec.Gpu.Quantity.Value()
+	result := types.NodeFlavorResponseItem{
+		FlavorId:       nf.Name,
+		NodeFlavorSpec: nf.Spec,
 	}
-	for name, res := range nf.Spec.ExtendResources {
-		resources[string(name)] = res.Value()
-	}
-	if nf.Spec.DataDisk != nil {
-		resources["dataDisk"] = nf.Spec.DataDisk.Quantity.Value() * int64(nf.Spec.DataDisk.Count)
-	}
-	if nf.Spec.RootDisk != nil {
-		resources["rootDisk"] = nf.Spec.RootDisk.Quantity.Value() * int64(nf.Spec.RootDisk.Count)
-	}
-	return types.NodeFlavorResponseItem{
-		FlavorId:   nf.Name,
-		FlavorType: string(nf.Spec.FlavorType),
-		Resources:  resources,
-	}
+	return result
 }

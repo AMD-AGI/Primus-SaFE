@@ -5,18 +5,39 @@
 # See LICENSE for license information.
 #
 
-if [ "$#" -lt 3 ]; then
-  echo "Usage: $0 <model> <link_speed> <link_width>"
-  echo "Example: $0 1002:74a1 32GT/s x16"
+set -o pipefail
+
+EXPECTED_SPEED="32GT/s"
+EXPECTED_WIDTH="x16"
+GPU_PRODUCT=`nsenter --target 1 --mount --uts --ipc --net --pid -- rocm-smi --showproductname |grep "Card Series" |head -1 |awk -F"\t" '{print $NF}'`
+if [ $? -ne 0 ] || [ -z "$GPU_PRODUCT" ]; then
+  echo "Error: failed to get product"
   exit 2
 fi
 
-PCI_OUTPUT=`nsenter --target 1 --mount --uts --ipc --net --pid -- lspci -d $1 -vvv | grep -e DevSta -e LnkS`
+shopt -s nocasematch
+model=""
+if [[ "$GPU_PRODUCT" == *"mi300x"* ]]; then
+  model="1002:74a1"
+elif [[ "$GPU_PRODUCT" == *"mi325x"* ]]; then
+  model="1002:74a5"
+elif [[ "$GPU_PRODUCT" == *"mi350x"* ]]; then
+  model="1002:75a0"
+elif [[ "$GPU_PRODUCT" == *"mi355x"* ]]; then
+  model="1002:75a3"
+else
+  echo "${LOG_HEADER}[$(date +'%Y-%m-%d %H:%M:%S')] [WARNING] The $GPU_PRODUCT is not supported" >&2
+  exit 2
+fi
+
+PCI_OUTPUT=`nsenter --target 1 --mount --uts --ipc --net --pid -- lspci -d $model -vvv | grep -e DevSta -e LnkS`
+if [ $? -ne 0 ]; then
+  echo "failed to get PCI info"
+  exit 1
+fi
 
 FATAL_ERR_FOUND=0
 LINK_BAD=0
-EXPECTED_SPEED="$2"
-EXPECTED_WIDTH="$3"
 
 echo "$PCI_OUTPUT" | awk -v speed="$EXPECTED_SPEED" -v width="$EXPECTED_WIDTH" '
 BEGIN {

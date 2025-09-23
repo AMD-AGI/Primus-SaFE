@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+set -o pipefail
+
 data=`nsenter --target 1 --mount --uts --ipc --net --pid -- /usr/bin/rdma link show |grep LINK_UP |grep ACTIVE`
 if [ $? -ne 0 ]; then
   echo "Error: failed to execute rmda"

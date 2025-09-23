@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+set -o pipefail
+
 if [ "$#" -lt 1 ]; then
   echo "Usage: $0 driver-version"
   echo "Example: $0 231.0.162.0"

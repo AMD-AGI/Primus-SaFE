@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+set -o pipefail
+
 if [ -z "$1" ]; then
   echo "Usage: $0 \"device1,device2,...\""
   echo "Example: $0 \"bnxt_re0,bnxt_re1,bnxt_re2\""

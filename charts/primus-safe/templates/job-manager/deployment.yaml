@@ -26,14 +26,23 @@ spec:
               preference:
                 matchExpressions:
                   - key: feature.node.kubernetes.io/amd-gpu
-                    operator: DoesNotExist
-            - weight: 100
-              preference:
-                matchExpressions:
-                  - key: feature.node.kubernetes.io/amd-gpu
                     operator: NotIn
                     values:
                       - "true"
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - {{ .Release.Name }}-webhooks
+                        - {{ .Release.Name }}-resource-manager
+                        - {{ .Release.Name }}-apiserver
+                        - {{ .Release.Name }}-web
+                topologyKey: kubernetes.io/hostname
       serviceAccountName: {{ .Release.Name }}
       containers:
         - name: {{ .Release.Name }}-job-manager
@@ -60,12 +69,14 @@ spec:
               port: {{ default 8083 (default .Values.job_manager).health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
+            timeoutSeconds: 3
           readinessProbe:
             httpGet:
               path: /readyz
               port: {{ default 8083 (default .Values.job_manager).health_port }}
             initialDelaySeconds: 20
             periodSeconds: 2
+            timeoutSeconds: 3
           {{- end }}
           resources:
             limits:
@@ -85,6 +96,10 @@ spec:
         {{- end }}
       imagePullSecrets:
         - name: {{ .Release.Name }}-image
+      tolerations:
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
+          operator: Exists
       terminationGracePeriodSeconds: 10
       priorityClassName: system-cluster-critical
       restartPolicy: Always

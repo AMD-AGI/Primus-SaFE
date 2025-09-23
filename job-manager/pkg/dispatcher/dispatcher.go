@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -406,7 +407,7 @@ func updateUnstructuredObj(obj *unstructured.Unstructured, adminWorkload *v1.Wor
 		if err := updateHostNetwork(adminWorkload, obj, t); err != nil {
 			return err
 		}
-		if err := updateReplica(obj, t, replica); err != nil {
+		if err := updateReplica(adminWorkload, obj, t, replica); err != nil {
 			return err
 		}
 		if err := updateMainContainer(adminWorkload, obj, t); err != nil {
@@ -422,11 +423,23 @@ func updateUnstructuredObj(obj *unstructured.Unstructured, adminWorkload *v1.Wor
 	return nil
 }
 
-func updateReplica(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
+func updateReplica(adminWorkload *v1.Workload,
+	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.ReplicasPaths...)
 	if err := unstructured.SetNestedField(obj.Object, replica, path...); err != nil {
 		return err
+	}
+	if adminWorkload.Spec.Kind == common.JobKind {
+		end := len(path) - 1
+		if end < 0 {
+			end = 0
+		}
+		path = path[:end]
+		path = append(path, "completions")
+		if err := unstructured.SetNestedField(obj.Object, replica, path...); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -24,6 +24,11 @@ func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.W
 	path := append(template.PrePaths, template.ReplicasPaths...)
 	objReplica := jobutils.GetUnstructuredInt(obj.Object, path)
 	assert.Equal(t, objReplica, int64(replica))
+	if workload.Spec.Kind == common.JobKind {
+		path = append(template.PrePaths, "completions")
+		objReplica = jobutils.GetUnstructuredInt(obj.Object, path)
+		assert.Equal(t, objReplica, int64(replica))
+	}
 
 	path = append(template.PrePaths, template.TemplatePaths...)
 	path = append(path, "spec", "containers")

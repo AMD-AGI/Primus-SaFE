@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+set -o pipefail
+
 nsenter --target 1 --mount --uts --ipc --net --pid -- hostname > /dev/null
 if [ $? -ne 0 ]; then
   echo "hostname is abnormal"
