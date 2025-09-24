@@ -95,11 +95,11 @@ spec:
           {{- end }}
           resources:
             limits:
-              cpu: 2000m
-              memory: 4Gi
+              cpu: {{ .Values.resource_manager.cpu }}
+              memory: {{ .Values.resource_manager.memory }}
             requests:
-              cpu: 2000m
-              memory: 4Gi
+              cpu: {{ .Values.resource_manager.cpu }}
+              memory: {{ .Values.resource_manager.memory }}
       imagePullSecrets:
       - name: {{ .Release.Name }}-image
       volumes:

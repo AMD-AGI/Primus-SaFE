@@ -80,11 +80,11 @@ spec:
           {{- end }}
           resources:
             limits:
-              cpu: 2000m
-              memory: 4Gi
+              cpu: {{ .Values.job_manager.cpu }}
+              memory: {{ .Values.job_manager.memory }}
             requests:
-              cpu: 2000m
-              memory: 4Gi
+              cpu: {{ .Values.job_manager.cpu }}
+              memory: {{ .Values.job_manager.memory }}
       volumes:
         - name: server-config
           configMap:

@@ -99,11 +99,11 @@ spec:
           {{- end }}
           resources:
             limits:
-              cpu: 2000m
-              memory: 4Gi
+              cpu: {{ .Values.apiserver.cpu }}
+              memory: {{ .Values.apiserver.memory }}
             requests:
-              cpu: 2000m
-              memory: 4Gi
+              cpu: {{ .Values.apiserver.cpu }}
+              memory: {{ .Values.apiserver.memory }}
       volumes:
         - name: crypto-secret
           secret:

@@ -26,18 +26,10 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 major_version=$(echo "$version" | cut -d ' ' -f 3 | cut -d '.' -f 1)
-minor_version=$(echo "$version" | cut -d ' ' -f 3 | cut -d '.' -f 2)
 
 if [ $length -ge 1 ]; then
   if [ -n "${parts[0]}" ] && [ "$major_version" != "${parts[0]}" ]; then
     echo "current gpu driver major version is $major_version, but the expect value is ${parts[0]}"
-    exit 1
-  fi
-fi
-
-if [ $length -ge 2 ]; then
-  if [ -n "${parts[1]}" ] && [ "$minor_version" != "${parts[1]}" ]; then
-    echo "current gpu driver minor version is $minor_version, but the expect value is ${parts[1]}"
     exit 1
   fi
 fi

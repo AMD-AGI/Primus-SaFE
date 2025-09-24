@@ -8,6 +8,7 @@ package custom_handlers
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -108,6 +109,9 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 
 		result.Items = append(result.Items, cvtToSecretResponseItem(&item))
 	}
+	sort.Slice(result.Items, func(i, j int) bool {
+		return result.Items[i].SecretId < result.Items[j].SecretId
+	})
 	result.TotalCount = len(result.Items)
 	return result, nil
 }

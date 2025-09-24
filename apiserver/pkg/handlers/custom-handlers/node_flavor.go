@@ -122,6 +122,9 @@ func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
 		}
 		result.Items = append(result.Items, cvtToNodeFlavorResponseItem(&item))
 	}
+	sort.Slice(result.Items, func(i, j int) bool {
+		return result.Items[i].FlavorId < result.Items[j].FlavorId
+	})
 	result.TotalCount = len(result.Items)
 	return result, nil
 }

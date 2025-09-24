@@ -1,31 +1,41 @@
 net:
-  nccl_socket_ifname: "enp49s0f0np0"
-  nccl_ib_hca: "bnxt_re0,bnxt_re1,bnxt_re2,bnxt_re3,bnxt_re4,bnxt_re5,bnxt_re7,bnxt_re8"
+  nccl_socket_ifname: "eno0"
+  nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
   rdma_name: "rdma/hca"
 apiserver:
   image: "apiserver:202509231600"
-  replicas: 2
+  replicas: 1
+  cpu: 2000m
+  memory: 4Gi
 resource_manager:
   image: "resource-manager:202509231600"
-  replicas: 2
+  replicas: 1
+  cpu: 2000m
+  memory: 4Gi
 job_manager:
   image: "job-manager:202509231600"
-  replicas: 2
+  replicas: 1
+  cpu: 2000m
+  memory: 4Gi
 webhooks:
   image: "webhooks:202509231600"
-  replicas: 2
+  replicas: 1
+  cpu: 2000m
+  memory: 4Gi
+web:
+  image: "primus-safe-web:1.5.7"
+  replicas: 1
+  cpu: 2000m
+  memory: 4Gi
 preprocess:
   image: "preprocess:202509092311"
 preflight:
   image: "diagnose_single:202509131410"
 diagnose:
   image: "diagnose_multi:202509121700"
-console:
-  image: "primus-safe-web:1.5.0"
-  replicas: 2
 db:
   enable: true
-  storage_class: "rbd"
+  storage_class: "local-path"
 log:
   enable: true
 ssh:
@@ -46,5 +56,5 @@ addon:
   default: cert-manager.v1.17.2,training-operator.1.9.2,network-operator.25.4.0,kube-scheduler-plugins-0.38.1
 global:
   domain: "safe-primus.ai"
-  sub_domain: "vultr"
+  sub_domain: "oci"
 

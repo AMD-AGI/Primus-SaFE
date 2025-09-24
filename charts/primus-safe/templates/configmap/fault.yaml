@@ -26,7 +26,6 @@ data:
   net_ethtool_202: '{"id":"202","action":"taint","toggle":"on"}'
   net_ethernet_id_203: '{"id":"203","action":"taint","toggle":"on"}'
   net_bnxt_load_204: '{"id":"204","action":"taint","toggle":"on"}'
-  net_bnxt_driver_205: '{"id":"205","toggle":"on"}'
   net_ib_devices_206: '{"id":"206","action":"taint","toggle":"on"}'
   # System: 3XX
   sys_timezone_301: '{"id":"301","toggle":"on"}'

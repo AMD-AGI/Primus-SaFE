@@ -19,7 +19,6 @@ spec:
   extendedResources:
     ephemeral-storage: 6695573390Ki
     rdma/hca: 1k
-  flavorType: BareMetal
   gpu:
     product: AMD_Instinct_MI300X_OAM
     quantity: "8"

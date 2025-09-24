@@ -87,11 +87,11 @@ spec:
           {{- end }}
           resources:
             limits:
-              cpu: 2000m
-              memory: 4Gi
+              cpu: {{ .Values.webhooks.cpu }}
+              memory: {{ .Values.webhooks.memory }}
             requests:
-              cpu: 2000m
-              memory: 4Gi
+              cpu: {{ .Values.webhooks.cpu }}
+              memory: {{ .Values.webhooks.memory }}
       imagePullSecrets:
       - name: {{ .Release.Name }}-image
       volumes:

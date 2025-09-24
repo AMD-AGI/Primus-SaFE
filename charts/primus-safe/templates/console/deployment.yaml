@@ -10,7 +10,7 @@ metadata:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
-  replicas: {{ .Values.console.replicas }}
+  replicas: {{ .Values.web.replicas }}
   selector:
     matchLabels:
       app: {{ .Release.Name }}-web
@@ -48,6 +48,13 @@ spec:
           image: docker.io/primussafe/{{ .Values.console.image }}
           ports:
             - containerPort: 80
+          resources:
+            limits:
+              cpu: {{ .Values.web.cpu }}
+              memory: {{ .Values.web.memory }}
+            requests:
+              cpu: {{ .Values.web.cpu }}
+              memory: {{ .Values.web.memory }}
       tolerations:
         - effect: NoSchedule
           key: node-role.kubernetes.io/control-plane
