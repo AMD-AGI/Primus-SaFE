@@ -230,6 +230,8 @@ func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) erro
 		} else {
 			return fmt.Errorf("the password or keypair is empty")
 		}
+	default:
+		return fmt.Errorf("the secret type %s is not supported", req.Type)
 	}
 	secret.Data = params
 	secret.Name = name

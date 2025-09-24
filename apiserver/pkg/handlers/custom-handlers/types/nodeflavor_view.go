@@ -7,6 +7,7 @@ package types
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
@@ -33,14 +34,11 @@ type NodeFlavorResponseItem struct {
 }
 
 type PatchNodeFlavorRequest struct {
-	// cpu core, e.g. 128
-	CPU *int64 `json:"cpu"`
-	// the product name of cpu. e.g. AMD EPYC 9554
-	CPUProduct *string `json:"cpuProduct,omitempty"`
-	// memory size, e.g. 1073741824
-	Memory   *int64         `json:"memory"`
-	RootDisk *v1.DiskFlavor `json:"rootDisk,omitempty"`
-	DataDisk *v1.DiskFlavor `json:"dataDisk,omitempty"`
+	CPU      *v1.CpuChip        `json:"cpu,omitempty"`
+	Memory   *resource.Quantity `json:"memory,omitempty"`
+	Gpu      *v1.GpuChip        `json:"gpu,omitempty"`
+	RootDisk *v1.DiskFlavor     `json:"rootDisk,omitempty"`
+	DataDisk *v1.DiskFlavor     `json:"dataDisk,omitempty"`
 	// other extend parameters，e.g. rdma/hca
-	Extends *corev1.ResourceList `json:"extends,omitempty"`
+	ExtendResources *corev1.ResourceList `json:"extendedResources,omitempty"`
 }

@@ -97,36 +97,14 @@ func (v *NodeFlavorValidator) Handle(_ context.Context, req admission.Request) a
 	}
 
 	switch req.Operation {
-	case admissionv1.Create:
-		err = v.validateOnCreation(newFlavor)
-	case admissionv1.Update:
-		oldFlavor := &v1.NodeFlavor{}
-		if err = v.decoder.DecodeRaw(req.OldObject, oldFlavor); err == nil {
-			err = v.validateOnUpdate(oldFlavor, newFlavor)
-		}
+	case admissionv1.Create, admissionv1.Update:
+		err = v.validateCommon(newFlavor)
 	default:
 	}
 	if err != nil {
 		return handleError(v1.NodeFlavorKind, err)
 	}
 	return admission.Allowed("")
-}
-
-func (v *NodeFlavorValidator) validateOnCreation(nf *v1.NodeFlavor) error {
-	if err := v.validateCommon(nf); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (v *NodeFlavorValidator) validateOnUpdate(oldFlavor, newFlavor *v1.NodeFlavor) error {
-	if err := v.validateCommon(newFlavor); err != nil {
-		return err
-	}
-	if err := v.validateImmutableFields(oldFlavor, newFlavor); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (v *NodeFlavorValidator) validateCommon(nf *v1.NodeFlavor) error {
