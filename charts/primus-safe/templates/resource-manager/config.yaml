@@ -44,7 +44,7 @@ data:
       bucket: {{ .Values.s3.bucket }}
       access_key: "{{ default "" (default .Values.s3).access_key }}"
       secret_key: "{{ default "" (default .Values.s3).secret_key }}"
-      expire_day: 0
+      expire_day: 1
 {{- if .Values.addon }}
     addon:
 {{ toYaml .Values.addon | indent 6 }}

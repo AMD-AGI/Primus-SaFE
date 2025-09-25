@@ -11,8 +11,8 @@ helm install primus-pgo -n primus-safe oci://registry-1.docker.io/primussafe/pri
 
 sleep 10
 
-helm install primus-safe -n primus-safe oci://registry-1.docker.io/primussafe/primus-safe --version 0.2.0
+helm install primus-safe -n primus-safe oci://registry-1.docker.io/primussafe/primus-safe --version 0.2.1
 
-helm install primus-safe-cr -n primus-safe oci://registry-1.docker.io/primussafe/primus-safe-cr --version 0.2.0
+helm install primus-safe-cr -n primus-safe oci://registry-1.docker.io/primussafe/primus-safe-cr --version 0.2.1
 
-helm install node-agent -n primus-safe oci://registry-1.docker.io/primussafe/node-agent --version 0.1.1  --create-namespace
+helm install node-agent -n primus-safe oci://registry-1.docker.io/primussafe/node-agent --version 0.1.2  --create-namespace

@@ -44,6 +44,7 @@ echo "✅ NFS Server: \"$nfs_server\""
 echo "✅ NFS Path: \"$nfs_path\""
 echo "✅ NFS Mount: \"$nfs_mount\""
 echo "✅ Support Primus-lens: \"$support_lens\""
+echo
 
 shopt -s nocasematch
 log_enable=true
@@ -56,12 +57,12 @@ cpu=2000m
 memory=4Gi
 if [[ "$cluster_scale" == "medium" ]]; then
   replicas=2
-  cpu=8000m
+  cpu=16000m
   memory=16Gi
 elif [[ "$cluster_scale" == "large" ]]; then
   replicas=2
-  cpu=64000m
-  memory=64Gi
+  cpu=32000m
+  memory=32Gi
 fi
 
 echo "========================================="
@@ -82,7 +83,7 @@ sed -i "s/^.*cpu:.*/  cpu: $cpu/" "$values_yaml"
 sed -i "s/^.*memory:.*/  memory: $memory/" "$values_yaml"
 sed -i "s/^.*storage_class:.*/  storage_class: \"$storage_class\"/" "$values_yaml"
 sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
-sed -i '/log:/,/^[a-z]/ s/enable: .*/enable: '"$log_enable"'/' values.yaml
+sed -i '/log:/,/^[a-z]/ s/enable: .*/enable: '"$log_enable"'/' "$values_yaml"
 
 helm upgrade -i primus-pgo ./primus-pgo -n "$NAMESPACE" --create-namespace
 echo "✅ Step 2.1: primus-pgo-5.8.2 installed"
@@ -98,9 +99,11 @@ done
 
 helm upgrade -i primus-safe ./primus-safe -n "$NAMESPACE" --create-namespace
 echo "✅ Step 2.3: primus-safe installed"
+echo
 
 helm upgrade -i primus-safe-cr ./primus-safe-cr -n "$NAMESPACE" --create-namespace
 echo "✅ Step 2.4: primus-safe-cr installed"
+echo
 
 echo "========================================="
 echo "🔧 Step 3: install primus-safe data plane"
