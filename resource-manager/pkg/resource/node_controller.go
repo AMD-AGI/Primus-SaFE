@@ -31,7 +31,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
@@ -585,11 +584,6 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		if err = r.installAddons(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		/**
-		if err = r.doPreflight(ctx, adminNode); err != nil {
-			return ctrlruntime.Result{}, err
-		}
-		*/
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
 		klog.Infof("managed node %s", k8sNode.Name)
 		return ctrlruntime.Result{}, nil
@@ -918,38 +912,5 @@ func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) 
 		return client.IgnoreAlreadyExists(err)
 	}
 	klog.Infof("create addon job(%s), node.name: %s", job.Name, adminNode.Name)
-	return nil
-}
-
-func (r *NodeReconciler) doPreflight(ctx context.Context, adminNode *v1.Node) error {
-	if commonconfig.GetPreflightImage() == "" || v1.GetGpuProductName(adminNode) == "" {
-		return nil
-	}
-	job := &v1.OpsJob{
-		ObjectMeta: metav1.ObjectMeta{
-			Labels: map[string]string{
-				v1.GpuProductNameLabel:      strings.ToLower(v1.GetGpuProductName(adminNode)),
-				v1.ClusterManageActionLabel: string(v1.ClusterScaleUpAction),
-			},
-			Annotations: map[string]string{
-				v1.UserNameAnnotation: common.UserSystem,
-			},
-			Name: v1.OpsJobKind + "-" + string(v1.OpsJobPreflightType) + "-" + adminNode.Name,
-		},
-		Spec: v1.OpsJobSpec{
-			Type:    v1.OpsJobPreflightType,
-			Cluster: adminNode.GetSpecCluster(),
-			Inputs: []v1.Parameter{{
-				Name:  v1.ParameterNode,
-				Value: adminNode.Name,
-			}},
-			IsTolerateAll: true,
-			TimeoutSecond: 7200,
-		},
-	}
-	if err := r.Create(ctx, job); err != nil {
-		return client.IgnoreAlreadyExists(err)
-	}
-	klog.Infof("create preflight job(%s), node.name: %s", job.Name, adminNode.Name)
 	return nil
 }

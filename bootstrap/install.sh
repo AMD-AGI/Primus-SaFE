@@ -17,9 +17,9 @@ read -rp "Enter rdma nic(e.g., rdma0,rdma1...): " rdma_nic
 read -rp "Enter cluster scale(small/medium/large): " cluster_scale
 read -rp "Enter storage class(e.g., rbd): " storage_class
 read -rp "Enter sub domain(e.g., tas): " sub_domain
-read -rp "Enter gpu nfs-server or press Enter to skip: " nfs_server
-read -rp "Enter gpu nfs-path or press Enter to skip: " nfs_path
-read -rp "Enter gpu nfs-mount or press Enter to skip: " nfs_mount
+read -rp "Enter gpu nfs-server or press 'Enter' to skip: " nfs_server
+read -rp "Enter gpu nfs-path or press 'Enter' to skip: " nfs_path
+read -rp "Enter gpu nfs-mount or press 'Enter' to skip: " nfs_mount
 read -rp "Support Primus-lens? (y/n): " support_lens
 
 ethernet_nic=$(echo "$ethernet_nic" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
@@ -47,9 +47,9 @@ echo "✅ Support Primus-lens: \"$support_lens\""
 echo
 
 shopt -s nocasematch
-log_enable=true
+opensearch_enable=true
 if [[ "$support_lens" != "y" ]]; then
-  log_enable=false
+  opensearch_enable=false
 fi
 
 replicas=1
@@ -83,7 +83,7 @@ sed -i "s/^.*cpu:.*/  cpu: $cpu/" "$values_yaml"
 sed -i "s/^.*memory:.*/  memory: $memory/" "$values_yaml"
 sed -i "s/^.*storage_class:.*/  storage_class: \"$storage_class\"/" "$values_yaml"
 sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
-sed -i '/log:/,/^[a-z]/ s/enable: .*/enable: '"$log_enable"'/' "$values_yaml"
+sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$opensearch_enable"'/' "$values_yaml"
 
 helm upgrade -i primus-pgo ./primus-pgo -n "$NAMESPACE" --create-namespace
 echo "✅ Step 2.1: primus-pgo-5.8.2 installed"

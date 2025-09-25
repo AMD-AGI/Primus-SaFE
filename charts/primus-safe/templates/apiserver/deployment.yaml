@@ -53,24 +53,24 @@ spec:
           terminationMessagePolicy: File
           volumeMounts:
             - name: crypto-secret
-              mountPath: {{ default "/etc/secrets/crypto" (default .Values.crypto).mount_path }}
+              mountPath: {{ default "/etc/secrets/crypto" (default .Values.crypto).secret_path }}
               readOnly: true
             - name: server-config
               mountPath: /opt/primus-safe/apiserver/config
               readOnly: true
             {{- if .Values.db.enable }}
             - name: db-secret
-              mountPath: {{ default "/etc/secrets/db" (default .Values.db).mount_path }}
+              mountPath: {{ default "/etc/secrets/db" (default .Values.db).secret_path }}
               readOnly: true
             {{- end }}
-            {{- if and .Values.log.enable (or (empty .Values.log.username) (empty .Values.log.password)) }}
-            - name: log-secret
-              mountPath: {{ default "/etc/secrets/log" (default .Values.log).mount_path }}
+            {{- if and .Values.opensearch.enable (or (empty .Values.opensearch.username) (empty .Values.opensearch.password)) }}
+            - name: opensearch-secret
+              mountPath: {{ .Values.opensearch.secret_path }}
               readOnly: true
             {{- end }}
             {{- if .Values.ssh.enable }}
             - name: ssh-proxy
-              mountPath: {{ default "/etc/secrets/ssh" (default .Values.ssh).mount_path }}
+              mountPath: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
               readOnly: true
             {{- end }}
           ports:
@@ -113,10 +113,10 @@ spec:
           secret:
             secretName: {{ .Release.Name }}-pguser-{{ .Release.Name }}
         {{- end }}
-        {{- if and .Values.log.enable (or (empty .Values.log.username) (empty .Values.log.password)) }}
-        - name: log-secret
+        {{- if and .Values.opensearch.enable (or (empty .Values.opensearch.username) (empty .Values.opensearch.password)) }}
+        - name: opensearch-secret
           secret:
-            secretName: {{ default "primus-lens-logs-admin-password" (default .Values.log).secret }}
+            secretName: {{ .Values.opensearch.secret }}
         {{- end }}
         {{- if .Values.ssh.enable }}
         - name: ssh-proxy

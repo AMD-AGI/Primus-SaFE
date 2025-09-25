@@ -73,7 +73,7 @@ func IsCryptoEnable() bool {
 }
 
 func GetCryptoKey() string {
-	return getFromFile(cryptoConfigPath, "key")
+	return getFromFile(cryptoSecretPath, "key")
 }
 
 func IsHealthCheckEnabled() bool {
@@ -105,11 +105,11 @@ func GetSSHServerPort() int {
 }
 
 func GetSSHRsaPublic() string {
-	return getFromFile(sshKeyPath, "id_rsa.pub")
+	return getFromFile(sshSecretPath, "id_rsa.pub")
 }
 
 func GetSSHRsaPrivate() string {
-	return getFromFile(sshKeyPath, "id_rsa")
+	return getFromFile(sshSecretPath, "id_rsa")
 }
 
 func GetMemoryReservePercent() float64 {
@@ -140,30 +140,30 @@ func GetWorkloadTTLSecond() int {
 	return getInt(workloadTTLSecond, 60)
 }
 
-func IsLogEnable() bool {
-	return getBool(logEnable, false)
+func IsOpenSearchEnable() bool {
+	return getBool(openSearchEnable, false)
 }
 
-func GetLogServiceEndpoint() string {
-	return getString(logEndpoint, "")
+func GetOpenSearchEndpoint() string {
+	return getString(openSearchEndpoint, "")
 }
 
-func GetLogServiceUser() string {
-	if user := getString(logPrefix+logUser, ""); len(user) > 0 {
+func GetOpenSearchUser() string {
+	if user := getString(openSearchPrefix+openSearchUser, ""); len(user) > 0 {
 		return user
 	}
-	return getFromFile(logConfigPath, logUser)
+	return getFromFile(openSearchSecretPath, openSearchUser)
 }
 
-func GetLogServicePasswd() string {
-	if passwd := getString(logPrefix+logPassword, ""); len(passwd) > 0 {
+func GetOpenSearchPasswd() string {
+	if passwd := getString(openSearchPrefix+openSearchPassword, ""); len(passwd) > 0 {
 		return passwd
 	}
-	return getFromFile(logConfigPath, logPassword)
+	return getFromFile(openSearchSecretPath, openSearchPassword)
 }
 
-func GetLogServicePrefix() string {
-	return getString(logServicePrefix, "")
+func GetOpenSearchIndexPrefix() string {
+	return getString(openSearchIndexPrefix, "")
 }
 
 func IsDBEnable() bool {
@@ -171,11 +171,11 @@ func IsDBEnable() bool {
 }
 
 func GetDBHost() string {
-	return getFromFile(dbConfigPath, "host")
+	return getFromFile(dbSecretPath, "host")
 }
 
 func GetDBPort() int {
-	data := getFromFile(dbConfigPath, "port")
+	data := getFromFile(dbSecretPath, "port")
 	n, err := strconv.Atoi(data)
 	if err != nil {
 		return 0
@@ -184,15 +184,15 @@ func GetDBPort() int {
 }
 
 func GetDBName() string {
-	return getFromFile(dbConfigPath, "dbname")
+	return getFromFile(dbSecretPath, "dbname")
 }
 
 func GetDBUser() string {
-	return getFromFile(dbConfigPath, "user")
+	return getFromFile(dbSecretPath, "user")
 }
 
 func GetDBPassword() string {
-	return getFromFile(dbConfigPath, "password")
+	return getFromFile(dbSecretPath, "password")
 }
 
 func GetDBSslMode() string {
@@ -247,14 +247,14 @@ func GetS3AccessKey() string {
 	if ak := getString(s3Prefix+s3AccessKey, ""); ak != "" {
 		return ak
 	}
-	return getFromFile(s3ConfigPath, s3AccessKey)
+	return getFromFile(s3SecretPath, s3AccessKey)
 }
 
 func GetS3SecretKey() string {
 	if sk := getString(s3Prefix+s3SecretKey, ""); sk != "" {
 		return sk
 	}
-	return getFromFile(s3ConfigPath, s3SecretKey)
+	return getFromFile(s3SecretPath, s3SecretKey)
 }
 
 func GetS3Bucket() string {

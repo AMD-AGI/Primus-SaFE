@@ -3,22 +3,22 @@ net:
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
   rdma_name: "rdma/hca"
 apiserver:
-  image: "apiserver:202509231600"
+  image: "apiserver:202509251314"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
 resource_manager:
-  image: "resource-manager:202509231600"
+  image: "resource-manager:202509251314"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
 job_manager:
-  image: "job-manager:202509231600"
+  image: "job-manager:202509251314"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
 webhooks:
-  image: "webhooks:202509231600"
+  image: "webhooks:202509251314"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
@@ -29,15 +29,16 @@ web:
   memory: 4Gi
 preprocess:
   image: "preprocess:202509092311"
-preflight:
-  image: "diagnose_single:202509131410"
-diagnose:
-  image: "diagnose_multi:202509121700"
 db:
   enable: true
   storage_class: "local-path"
-log:
+opensearch:
   enable: true
+  prefix: "node-"
+  secret: "primus-lens-logs-admin-password"
+  secret_namespace: "primus-lens"
+  secret_path: "/etc/secrets/opensearch"
+  endpoint: "primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200"
 ssh:
   enable: false
 user:
@@ -48,12 +49,13 @@ workspace:
   ephemeral_store_reserve_percent: 0.05
 s3:
   enable: false
-  endpoint: "http://s3.safe.primus.ai"
   bucket: "juicefs"
   secret: "juicefs-secret"
   secret_namespace: "juicefs-csi"
+  secret_path: "/etc/secrets/s3"
+  endpoint: "http://s3.safe.primus.ai"
 addon:
   default: cert-manager.v1.17.2,training-operator.1.9.2,network-operator.25.4.0,kube-scheduler-plugins-0.38.1
 global:
   domain: "safe-primus.ai"
-  sub_domain: "oci"
+  sub_domain: "intern"

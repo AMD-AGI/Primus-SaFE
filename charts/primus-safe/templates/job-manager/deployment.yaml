@@ -57,7 +57,7 @@ spec:
               readOnly: true
             {{- if .Values.ssh.enable }}
             - name: ssh-proxy
-              mountPath: {{ default "/etc/secrets/ssh" (default .Values.ssh).mount_path }}
+              mountPath: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
               readOnly: true
             {{- end }}
           {{- if default true (default .Values.k8s).enable_health_check }}
