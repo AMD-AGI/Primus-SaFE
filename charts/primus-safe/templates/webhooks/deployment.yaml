@@ -102,9 +102,5 @@ spec:
           secret:
             secretName: {{ .Release.Name }}-cert
       terminationGracePeriodSeconds: 10
-      tolerations:
-        - effect: NoSchedule
-          key: node-role.kubernetes.io/control-plane
-          operator: Exists
       priorityClassName: system-cluster-critical
       restartPolicy: Always

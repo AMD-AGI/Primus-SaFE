@@ -12,15 +12,27 @@ echo "============================"
 echo "🔧 Step 1: Input Parameters"
 echo "============================"
 
-read -rp "Enter ethernet nic(e.g., eno0): " ethernet_nic
-read -rp "Enter rdma nic(e.g., rdma0,rdma1...): " rdma_nic
-read -rp "Enter cluster scale(small/medium/large): " cluster_scale
-read -rp "Enter storage class(e.g., rbd): " storage_class
-read -rp "Enter sub domain(e.g., tas): " sub_domain
-read -rp "Enter gpu nfs-server or press 'Enter' to skip: " nfs_server
-read -rp "Enter gpu nfs-path or press 'Enter' to skip: " nfs_path
-read -rp "Enter gpu nfs-mount or press 'Enter' to skip: " nfs_mount
-read -rp "Support Primus-lens? (y/n): " support_lens
+shopt -s nocasematch
+
+default_ethernet_nic="eno0"
+default_rdma_nic="rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
+default_cluster_scale="small"
+default_storage_class="local-path"
+default_sub_domain="test"
+
+read -rp "Enter ethernet nic($default_ethernet_nic): " ethernet_nic
+read -rp "Enter rdma nic($default_rdma_nic): " rdma_nic
+read -rp "Enter cluster scale, choose 'small/medium/large' ($default_cluster_scale): " cluster_scale
+read -rp "Enter storage class($default_storage_class): " storage_class
+read -rp "Enter sub domain($default_sub_domain): " sub_domain
+read -rp "Enter nfs-server (empty for no server): " nfs_server
+read -rp "Enter nfs-path (empty for no path): " nfs_path
+read -rp "Enter nfs-mount (empty for no mount): " nfs_mount
+read -rp "Support Primus-lens ? (y/n): " support_lens
+read -rp "Support Primus-S3 ? (y/n): " support_s3
+if [[ "$support_s3" == "y" ]]; then
+  read -rp "Enter S3 endpoint (empty to disable S3): " s3_endpoint
+fi
 
 ethernet_nic=$(echo "$ethernet_nic" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 rdma_nic=$(echo "$rdma_nic" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
@@ -29,10 +41,23 @@ sub_domain=$(echo "$sub_domain" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 nfs_server=$(echo "$nfs_server" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 nfs_path=$(echo "$nfs_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 nfs_mount=$(echo "$nfs_mount" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+support_lens=$(echo "$support_lens" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+s3_endpoint=$(echo "$s3_endpoint" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
-if [ -z "$ethernet_nic" ] || [ -z "$rdma_nic" ] || [ -z "$storage_class" ] || [ -z "$sub_domain" ]; then
-  echo "Error: Please input again."
-  exit 1
+if [ -z "$ethernet_nic" ]; then
+  ethernet_nic="$default_ethernet_nic"
+fi
+if [ -z "$rdma_nic" ]; then
+  rdma_nic="$default_rdma_nic"
+fi
+if [ -z "$cluster_scale" ]; then
+  cluster_scale="$default_cluster_scale"
+fi
+if [ -z "$storage_class" ]; then
+  storage_class="$default_storage_class"
+fi
+if [ -z "$sub_domain" ]; then
+  sub_domain="$default_sub_domain"
 fi
 
 echo "✅ Ethernet nic: \"$ethernet_nic\""
@@ -44,12 +69,19 @@ echo "✅ NFS Server: \"$nfs_server\""
 echo "✅ NFS Path: \"$nfs_path\""
 echo "✅ NFS Mount: \"$nfs_mount\""
 echo "✅ Support Primus-lens: \"$support_lens\""
+echo "✅ Support Primus-s3: \"$support_s3\""
+echo "✅ S3 Endpoint: \"$s3_endpoint\""
 echo
 
-shopt -s nocasematch
+
 opensearch_enable=true
 if [[ "$support_lens" != "y" ]]; then
   opensearch_enable=false
+fi
+
+s3_enable=true
+if [[ "$support_s3" != "y" || -z "$s3_endpoint" ]]; then
+  s3_enable=false
 fi
 
 replicas=1
@@ -84,6 +116,10 @@ sed -i "s/^.*memory:.*/  memory: $memory/" "$values_yaml"
 sed -i "s/^.*storage_class:.*/  storage_class: \"$storage_class\"/" "$values_yaml"
 sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
 sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$opensearch_enable"'/' "$values_yaml"
+sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
+if [[ "$s3_enable" == "true" ]]; then
+  sed -i '/^s3:/,/^[a-z]/ s#endpoint: ".*"#endpoint: "'"$s3_endpoint"'"#' "$values_yaml"
+fi
 
 helm upgrade -i primus-pgo ./primus-pgo -n "$NAMESPACE" --create-namespace
 echo "✅ Step 2.1: primus-pgo-5.8.2 installed"

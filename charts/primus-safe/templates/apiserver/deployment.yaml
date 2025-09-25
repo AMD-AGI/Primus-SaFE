@@ -128,10 +128,6 @@ spec:
             name: {{ .Release.Name }}-apiserver
       imagePullSecrets:
         - name: {{ .Release.Name }}-image
-      tolerations:
-        - effect: NoSchedule
-          key: node-role.kubernetes.io/control-plane
-          operator: Exists
       terminationGracePeriodSeconds: 10
       priorityClassName: system-cluster-critical
       restartPolicy: Always

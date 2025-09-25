@@ -55,7 +55,3 @@ spec:
             requests:
               cpu: {{ .Values.web.cpu }}
               memory: {{ .Values.web.memory }}
-      tolerations:
-        - effect: NoSchedule
-          key: node-role.kubernetes.io/control-plane
-          operator: Exists
