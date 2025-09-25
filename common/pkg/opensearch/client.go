@@ -39,10 +39,10 @@ type SearchClient struct {
 func NewClient() *SearchClient {
 	once.Do(func() {
 		instance = &SearchClient{
-			endpoint:   commonconfig.GetLogServiceEndpoint(),
-			prefix:     commonconfig.GetLogServicePrefix(),
-			username:   commonconfig.GetLogServiceUser(),
-			password:   commonconfig.GetLogServicePasswd(),
+			endpoint:   commonconfig.GetOpenSearchEndpoint(),
+			prefix:     commonconfig.GetOpenSearchIndexPrefix(),
+			username:   commonconfig.GetOpenSearchUser(),
+			password:   commonconfig.GetOpenSearchPasswd(),
 			httpClient: httpclient.NewHttpClient(),
 		}
 	})

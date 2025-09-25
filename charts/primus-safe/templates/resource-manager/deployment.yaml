@@ -57,22 +57,22 @@ spec:
               readOnly: true
             {{- if .Values.db.enable }}
             - name: db-secret
-              mountPath: {{ default "/etc/secrets/db" (default .Values.db).mount_path }}
+              mountPath: {{ default "/etc/secrets/db" (default .Values.db).secret_path }}
               readOnly: true
             {{- end }}
-            {{- if and .Values.s3.enable (or (empty .Values.s3.access_key) (empty .Values.log.secret_key)) }}
+            {{- if and .Values.s3.enable (or (empty .Values.s3.access_key) (empty .Values.s3.secret_key)) }}
             - name: s3-secret
-              mountPath: {{ default "/etc/secrets/s3" (default .Values.s3).mount_path }}/access_key
+              mountPath: {{ .Values.s3.secret_path }}/access_key
               subPath: "access-key"
               readOnly: true
             - name: s3-secret
-              mountPath: {{ default "/etc/secrets/s3" (default .Values.s3).mount_path }}/secret_key
+              mountPath: {{ .Values.s3.secret_path }}/secret_key
               subPath: "secret-key"
               readOnly: true
             {{- end }}
-            {{- if and .Values.log.enable (or (empty .Values.log.username) (empty .Values.log.password)) }}
-            - name: log-secret
-              mountPath: {{ default "/etc/secrets/log" (default .Values.log).mount_path }}
+            {{- if and .Values.opensearch.enable (or (empty .Values.opensearch.username) (empty .Values.opensearch.password)) }}
+            - name: opensearch-secret
+              mountPath: {{ .Values.opensearch.secret_path }}
               readOnly: true
             {{- end }}
           {{- if default true (default .Values.k8s).enable_health_check }}
@@ -95,11 +95,11 @@ spec:
           {{- end }}
           resources:
             limits:
-              cpu: 2000m
-              memory: 4Gi
+              cpu: {{ .Values.resource_manager.cpu }}
+              memory: {{ .Values.resource_manager.memory }}
             requests:
-              cpu: 2000m
-              memory: 4Gi
+              cpu: {{ .Values.resource_manager.cpu }}
+              memory: {{ .Values.resource_manager.memory }}
       imagePullSecrets:
       - name: {{ .Release.Name }}-image
       volumes:
@@ -108,23 +108,19 @@ spec:
           secret:
             secretName: {{ .Release.Name }}-pguser-{{ .Release.Name }}
         {{- end }}
-        {{- if and .Values.s3.enable (or (empty .Values.s3.access_key) (empty .Values.log.secret_key)) }}
+        {{- if and .Values.s3.enable (or (empty .Values.s3.access_key) (empty .Values.s3.secret_key)) }}
         - name: s3-secret
           secret:
             secretName: {{ .Values.s3.secret }}
         {{- end }}
-        {{- if and .Values.log.enable (or (empty .Values.log.username) (empty .Values.log.password)) }}
-        - name: log-secret
+        {{- if and .Values.opensearch.enable (or (empty .Values.opensearch.username) (empty .Values.opensearch.password)) }}
+        - name: opensearch-secret
           secret:
-            secretName: {{ default "primus-lens-logs-admin-password" (default .Values.log).secret }}
+            secretName: {{ .Values.opensearch.secret }}
         {{- end }}
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-resource-manager
       terminationGracePeriodSeconds: 10
-      tolerations:
-        - effect: NoSchedule
-          key: node-role.kubernetes.io/control-plane
-          operator: Exists
       priorityClassName: system-cluster-critical
       restartPolicy: Always

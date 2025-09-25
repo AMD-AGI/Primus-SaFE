@@ -122,6 +122,9 @@ func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
 		}
 		result.Items = append(result.Items, cvtToNodeFlavorResponseItem(&item))
 	}
+	sort.Slice(result.Items, func(i, j int) bool {
+		return result.Items[i].FlavorId < result.Items[j].FlavorId
+	})
 	result.TotalCount = len(result.Items)
 	return result, nil
 }
@@ -236,16 +239,16 @@ func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) updateNodeFlavor(nf *v1.NodeFlavor, req *types.PatchNodeFlavorRequest) (bool, error) {
 	isShouldUpdate := false
-	if req.CPU != nil && *req.CPU != nf.Spec.Cpu.Quantity.Value() {
-		nf.Spec.Cpu.Quantity = *resource.NewQuantity(*req.CPU, resource.DecimalSI)
+	if req.CPU != nil && !reflect.DeepEqual(nf.Spec.Cpu, *req.CPU) {
+		nf.Spec.Cpu = *req.CPU
 		isShouldUpdate = true
 	}
-	if req.CPUProduct != nil && *req.CPUProduct != nf.Spec.Cpu.Product {
-		nf.Spec.Cpu.Product = *req.CPUProduct
+	if req.Gpu != nil && (nf.Spec.Gpu == nil || !reflect.DeepEqual(*nf.Spec.Gpu, *req.Gpu)) {
+		nf.Spec.Gpu = req.Gpu
 		isShouldUpdate = true
 	}
-	if req.Memory != nil && *req.Memory != nf.Spec.Memory.Value() {
-		nf.Spec.Memory = *resource.NewQuantity(*req.Memory, resource.BinarySI)
+	if req.Memory != nil && req.Memory.Value() != nf.Spec.Memory.Value() {
+		nf.Spec.Memory = *req.Memory
 		isShouldUpdate = true
 	}
 	if req.RootDisk != nil {
@@ -260,8 +263,8 @@ func (h *Handler) updateNodeFlavor(nf *v1.NodeFlavor, req *types.PatchNodeFlavor
 			isShouldUpdate = true
 		}
 	}
-	if req.Extends != nil && !reflect.DeepEqual(req.Extends, nf.Spec.ExtendResources) {
-		nf.Spec.ExtendResources = *req.Extends
+	if req.ExtendResources != nil && !reflect.DeepEqual(req.ExtendResources, nf.Spec.ExtendResources) {
+		nf.Spec.ExtendResources = *req.ExtendResources
 		isShouldUpdate = true
 	}
 	return isShouldUpdate, nil

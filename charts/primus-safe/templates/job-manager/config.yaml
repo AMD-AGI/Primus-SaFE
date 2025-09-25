@@ -19,7 +19,7 @@ data:
       hang_check_interval: 1200
     ssh:
       enable: {{ .Values.ssh.enable }}
-      config_path: {{ default "/etc/secrets/ssh" (default .Values.ssh).mount_path }}
+      secret_path: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-job-manager
