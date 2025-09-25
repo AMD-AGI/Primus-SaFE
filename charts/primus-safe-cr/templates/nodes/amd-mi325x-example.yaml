@@ -19,7 +19,6 @@ spec:
   extendedResources:
     ephemeral-storage: 948194417
     rdma/hca: 1k
-  flavorType: BareMetal
   gpu:
     product: AMD_Instinct_MI325X
     quantity: "8"

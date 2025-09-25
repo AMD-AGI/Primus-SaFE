@@ -19,7 +19,7 @@ func (h *Handler) GetEnvs(c *gin.Context) {
 // List the features supported by the backend
 func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 	return types.GetEnvResponse{
-		EnableLog:         commonconfig.IsLogEnable(),
+		EnableLog:         commonconfig.IsOpenSearchEnable(),
 		EnableLogDownload: commonconfig.IsS3Enable(),
 		EnableSSH:         commonconfig.IsSSHEnable(),
 	}, nil

@@ -11,8 +11,6 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: {{ .Release.Name }}
-      tolerations:
-        - operator: Exists
       containers:
         - name: main
           image: docker.io/primussafe/kubectl:latest

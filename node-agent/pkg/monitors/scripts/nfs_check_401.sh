@@ -8,13 +8,17 @@
 set -o pipefail
 
 if [ "$#" -lt 3 ]; then
+  exit 2
+fi
+
+NFS_SERVER="$1"
+NFS_PATH="$2"
+MOUNT_POINT=$3
+if [ -z "$NFS_SERVER" ] || [ -z "$NFS_PATH" ] || [ -z "$MOUNT_POINT" ]; then
   echo "Usage: $0 <nfs_server> <nfs_path> <nfs_mount>"
   echo "Example: $0 45.76.27.91 /mnt/nvme0 /nfs"
   exit 2
 fi
-NFS_SERVER="$1"
-NFS_PATH="$2"
-MOUNT_POINT=$3
 
 nsenter --target 1 --mount --uts --ipc --net --pid -- df -h | grep -q "$MOUNT_POINT" > /dev/null
 if [ $? -eq 0 ]; then

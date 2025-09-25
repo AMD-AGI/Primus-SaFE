@@ -8,6 +8,7 @@ package custom_handlers
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -108,6 +109,9 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 
 		result.Items = append(result.Items, cvtToSecretResponseItem(&item))
 	}
+	sort.Slice(result.Items, func(i, j int) bool {
+		return result.Items[i].SecretId < result.Items[j].SecretId
+	})
 	result.TotalCount = len(result.Items)
 	return result, nil
 }
@@ -230,6 +234,8 @@ func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) erro
 		} else {
 			return fmt.Errorf("the password or keypair is empty")
 		}
+	default:
+		return fmt.Errorf("the secret type %s is not supported", req.Type)
 	}
 	secret.Data = params
 	secret.Name = name

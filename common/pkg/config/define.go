@@ -13,7 +13,7 @@ const (
 	// crypto
 	cryptoPrefix     = "crypto."
 	cryptoEnable     = cryptoPrefix + "enable"
-	cryptoConfigPath = cryptoPrefix + "config_path"
+	cryptoSecretPath = cryptoPrefix + "secret_path"
 
 	// server
 	serverPrefix = "server."
@@ -23,7 +23,7 @@ const (
 	sshPrefix     = "ssh."
 	sshEnable     = sshPrefix + "enable"
 	sshServerPort = sshPrefix + "server_port"
-	sshKeyPath    = sshPrefix + "config_path"
+	sshSecretPath = sshPrefix + "secret_path"
 
 	// health_check
 	healthCheckPrefix = "health_check."
@@ -50,19 +50,19 @@ const (
 	workloadEnableFailover    = workloadPrefix + "enable_failover"
 	workloadTTLSecond         = workloadPrefix + "ttl_second"
 
-	// log
-	logPrefix        = "log."
-	logEnable        = logPrefix + "enable"
-	logConfigPath    = logPrefix + "config_path"
-	logEndpoint      = logPrefix + "endpoint"
-	logUser          = "username"
-	logPassword      = "password"
-	logServicePrefix = logPrefix + "prefix"
+	// opensearch
+	openSearchPrefix      = "opensearch."
+	openSearchEnable      = openSearchPrefix + "enable"
+	openSearchSecretPath  = openSearchPrefix + "secret_path"
+	openSearchEndpoint    = openSearchPrefix + "endpoint"
+	openSearchUser        = "username"
+	openSearchPassword    = "password"
+	openSearchIndexPrefix = openSearchPrefix + "prefix"
 
 	// db
 	dbPrefix               = "db."
 	dbEnable               = dbPrefix + "enable"
-	dbConfigPath           = dbPrefix + "config_path"
+	dbSecretPath           = dbPrefix + "secret_path"
 	dbSslMode              = dbPrefix + "ssl_mode"
 	dbMaxOpenConns         = dbPrefix + "max_open_conns"
 	dbMaxIdleConns         = dbPrefix + "max_idle_conns"
@@ -81,7 +81,7 @@ const (
 	// s3
 	s3Prefix     = "s3."
 	s3Enable     = s3Prefix + "enable"
-	s3ConfigPath = s3Prefix + "config_path"
+	s3SecretPath = s3Prefix + "secret_path"
 	s3Endpoint   = s3Prefix + "endpoint"
 	s3Bucket     = s3Prefix + "bucket"
 	s3AccessKey  = "access_key"
