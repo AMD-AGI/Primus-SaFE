@@ -304,7 +304,7 @@ func (h *Handler) genOpsJobInputs(ctx context.Context, job *v1.OpsJob, req *type
 }
 
 func (h *Handler) generateDumpLogJob(c *gin.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
-	if !commonconfig.IsLogEnable() {
+	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
 	if !commonconfig.IsS3Enable() {

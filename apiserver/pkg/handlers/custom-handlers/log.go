@@ -42,7 +42,7 @@ func (h *Handler) GetWorkloadLogContext(c *gin.Context) {
 }
 
 func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
-	if !commonconfig.IsLogEnable() {
+	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
 	name := c.GetString(types.Name)
@@ -72,7 +72,7 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
-	if !commonconfig.IsLogEnable() {
+	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
 	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
@@ -90,7 +90,7 @@ func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
-	if !commonconfig.IsLogEnable() {
+	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
 	name := c.GetString(types.Name)

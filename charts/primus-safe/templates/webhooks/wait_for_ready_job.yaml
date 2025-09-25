@@ -15,8 +15,6 @@ spec:
     spec:
       activeDeadlineSeconds: 300
       restartPolicy: Never
-      tolerations:
-        - operator: Exists
       containers:
         - name: complete
           image: docker.io/library/busybox:latest
