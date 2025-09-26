@@ -29,6 +29,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.POST("secrets", h.CreateSecret)
 		group.GET("secrets", h.ListSecret)
 		group.GET(fmt.Sprintf("secrets/:%s", types.Name), h.GetSecret)
+		group.PATCH(fmt.Sprintf("secrets/:%s", types.Name), h.PatchSecret)
 		group.DELETE(fmt.Sprintf("secrets/:%s", types.Name), h.DeleteSecret)
 
 		group.GET("faults", h.ListFault)

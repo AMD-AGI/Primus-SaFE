@@ -67,7 +67,8 @@ type DockerConfig struct {
 	Auth map[string]DockerConfigItem `json:"auths"`
 }
 
-func (req *CreateSecretRequest) HasParam(key SecretParam) bool {
-	val, _ := req.Params[key]
-	return val != ""
+type PatchSecretRequest struct {
+	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
+	// the private key, public key and password need to be Base64 encoded
+	Params map[SecretParam]string `json:"params,omitempty"`
 }

@@ -68,5 +68,6 @@ type GetClusterPodLogResponse struct {
 }
 
 type PatchClusterRequest struct {
-	IsProtected *bool `json:"isProtected"`
+	IsProtected   *bool   `json:"isProtected,omitempty"`
+	ImageSecretId *string `json:"imageSecretId,omitempty"`
 }

@@ -223,6 +223,17 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	isChanged, err := h.updateCluster(ctx, cluster, req)
+	if err != nil {
+		return nil, err
+	}
+	if !isChanged {
+		return nil, nil
+	}
+	return nil, h.Update(ctx, cluster)
+}
+
+func (h *Handler) updateCluster(ctx context.Context, cluster *v1.Cluster, req *types.PatchClusterRequest) (bool, error) {
 	isChanged := false
 	if req.IsProtected != nil && *req.IsProtected != v1.IsProtected(cluster) {
 		if *req.IsProtected {
@@ -232,10 +243,15 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 		}
 		isChanged = true
 	}
-	if !isChanged {
-		return nil, nil
+	if req.ImageSecretId != nil {
+		imageSecret, err := h.getAdminSecret(ctx, *req.ImageSecretId)
+		if err != nil {
+			return false, err
+		}
+		cluster.Spec.ControlPlane.ImageSecret = commonutils.GenObjectReference(imageSecret.TypeMeta, imageSecret.ObjectMeta)
+		isChanged = true
 	}
-	return nil, h.Update(ctx, cluster)
+	return isChanged, nil
 }
 
 func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {

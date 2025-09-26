@@ -26,7 +26,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -42,6 +41,10 @@ func (h *Handler) ListSecret(c *gin.Context) {
 
 func (h *Handler) GetSecret(c *gin.Context) {
 	handle(c, h.getSecret)
+}
+
+func (h *Handler) PatchSecret(c *gin.Context) {
+	handle(c, h.patchSecret)
 }
 
 func (h *Handler) DeleteSecret(c *gin.Context) {
@@ -142,6 +145,41 @@ func (h *Handler) getSecret(c *gin.Context) (interface{}, error) {
 	return cvtToSecretResponseItem(secret), nil
 }
 
+func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
+	req := &types.PatchSecretRequest{}
+	body, err := getBodyFromRequest(c.Request, req)
+	if err != nil {
+		klog.ErrorS(err, "failed to parse request", "body", string(body))
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	if len(req.Params) == 0 {
+		return nil, nil
+	}
+
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.SecretResourceKind,
+		Verb:         v1.UpdateVerb,
+		User:         requestUser,
+	}); err != nil {
+		return nil, err
+	}
+
+	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(types.Name))
+	if err != nil {
+		return nil, err
+	}
+	reqType := types.SecretType(v1.GetLabel(secret, v1.SecretTypeLabel))
+	if err = buildSecretData(reqType, req.Params, secret); err != nil {
+		return nil, err
+	}
+	return nil, h.Update(c.Request.Context(), secret)
+}
+
 func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	name := c.GetString(types.Name)
 	if name == "" {
@@ -179,8 +217,12 @@ func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secr
 }
 
 func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Secret, error) {
+	if req.Name == "" {
+		return nil, commonerrors.NewBadRequest("the secretName is empty")
+	}
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
+			Name:      req.Name,
 			Namespace: common.PrimusSafeNamespace,
 			Labels: map[string]string{
 				v1.SecretTypeLabel: string(req.Type),
@@ -188,7 +230,7 @@ func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Sec
 			},
 		},
 	}
-	if err := buildSecretData(req, secret); err != nil {
+	if err := buildSecretData(req.Type, req.Params, secret); err != nil {
 		return nil, err
 	}
 	if req.Name != "" {
@@ -197,55 +239,53 @@ func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Sec
 	return secret, nil
 }
 
-func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) error {
-	name := ""
+func buildSecretData(reqType types.SecretType, reqParams map[types.SecretParam]string, secret *corev1.Secret) error {
 	var secretType corev1.SecretType
 	params := make(map[string][]byte)
 
-	switch req.Type {
+	switch reqType {
 	case types.SecretImage:
 		keys := []types.SecretParam{types.PasswordParam, types.UserNameParam, types.ServerParam}
 		for _, key := range keys {
-			if !req.HasParam(key) {
+			if !existKey(reqParams, key) {
 				return fmt.Errorf("the %s is empty", key)
 			}
 		}
-		name = req.Name
 		secretType = corev1.SecretTypeDockerConfigJson
 		dockerConf := types.DockerConfig{
 			Auth: map[string]types.DockerConfigItem{
-				req.Params[types.ServerParam]: {
-					UserName: req.Params[types.UserNameParam],
-					Password: stringutil.Base64Decode(req.Params[types.PasswordParam]),
+				reqParams[types.ServerParam]: {
+					UserName: reqParams[types.UserNameParam],
+					Password: stringutil.Base64Decode(reqParams[types.PasswordParam]),
 				},
 			},
 		}
 		params[types.DockerConfigJson] = jsonutils.MarshalSilently(dockerConf)
 	case types.SecretSSH:
-		if !req.HasParam(types.UserNameParam) {
+		if !existKey(reqParams, types.UserNameParam) {
 			return fmt.Errorf("the %s is empty", types.UserNameParam)
 		}
-		if req.Name == "" {
-			req.Name = "ssh-" + req.Params[types.UserNameParam]
-		}
-		name = commonutils.GenerateName(req.Name)
 		secretType = corev1.SecretTypeOpaque
-		params[string(types.UserNameParam)] = []byte(req.Params[types.UserNameParam])
-		if req.HasParam(types.PasswordParam) {
-			params[string(types.PasswordParam)] = []byte(req.Params[types.PasswordParam])
-		} else if req.HasParam(types.PublicKeyParam) && req.HasParam(types.PrivateKeyParam) {
-			params[types.SSHAuthKey] = []byte(stringutil.Base64Decode(req.Params[types.PrivateKeyParam]))
-			params[types.SSHAuthPubKey] = []byte(stringutil.Base64Decode(req.Params[types.PublicKeyParam]))
+		params[string(types.UserNameParam)] = []byte(reqParams[types.UserNameParam])
+		if val, _ := reqParams[types.PasswordParam]; val != "" {
+			params[string(types.PasswordParam)] = []byte(reqParams[types.PasswordParam])
+		} else if existKey(reqParams, types.PublicKeyParam) && existKey(reqParams, types.PrivateKeyParam) {
+			params[types.SSHAuthKey] = []byte(stringutil.Base64Decode(reqParams[types.PrivateKeyParam]))
+			params[types.SSHAuthPubKey] = []byte(stringutil.Base64Decode(reqParams[types.PublicKeyParam]))
 		} else {
 			return fmt.Errorf("the password or keypair is empty")
 		}
 	default:
-		return fmt.Errorf("the secret type %s is not supported", req.Type)
+		return fmt.Errorf("the secret type %s is not supported", reqType)
 	}
 	secret.Data = params
-	secret.Name = name
 	secret.Type = secretType
 	return nil
+}
+
+func existKey(params map[types.SecretParam]string, key types.SecretParam) bool {
+	val, _ := params[key]
+	return val != ""
 }
 
 func parseListSecretQuery(c *gin.Context) (*types.ListSecretRequest, error) {
