@@ -493,6 +493,9 @@ func cvtToGetClusterResponse(ctx context.Context, client client.Client, cluster 
 	if !cluster.GetDeletionTimestamp().IsZero() {
 		result.Phase = string(v1.DeletingPhase)
 	}
+	if cluster.Spec.ControlPlane.ImageSecret != nil {
+		result.ImageSecretId = cluster.Spec.ControlPlane.ImageSecret.Name
+	}
 	result.Endpoint, _ = commoncluster.GetEndpoint(ctx, client, cluster)
 	result.Storages = cvtBindingStorageView(cluster.Status.StorageStatus)
 	return result
