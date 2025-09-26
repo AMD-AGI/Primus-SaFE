@@ -140,7 +140,7 @@ chart_name="primus-safe"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   kubectl replace -f $chart_name/crds/ -n "$NAMESPACE"
   mkdir -p output
-  helm template "$chart_name" -n "$NAMESPACE" "$chart_name" --output-dir ./output/
+  helm template "$chart_name" -n "$NAMESPACE" "$chart_name" --output-dir ./output 1>/dev/null
   kubectl replace -f output/$chart_name/templates/rbac/role.yaml
   kubectl replace -f output/$chart_name/templates/webhooks/manifests.yaml
   rm -rf output
@@ -165,3 +165,8 @@ if [[ "$support_lens" == "y" ]]; then
   bash install-grafana.sh
   echo "✅ grafana installed"
 fi
+
+
+echo "==============================="
+echo "🔧 Step 4: All completed!"
+echo "==============================="
