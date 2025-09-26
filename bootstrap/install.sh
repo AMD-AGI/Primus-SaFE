@@ -155,3 +155,9 @@ sed -i "s#nfs_mount: \".*\"#nfs_mount: \"$nfs_mount\"#" "$values_yaml"
 
 helm upgrade -i node-agent ./node-agent -n "$NAMESPACE" --create-namespace
 echo "✅ Step 3.1: node-agent installed"
+
+if [[ "$support_lens" == "y" ]]; then
+  export STORAGE_CLASS="$storage_class"
+  bash install-grafana.sh
+  echo "✅ Step 3.2: grafana installed"
+fi

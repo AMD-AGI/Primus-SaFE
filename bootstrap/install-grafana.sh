@@ -1,0 +1,28 @@
+#!/bin/bash
+set -e
+
+MANIFEST_DIR="manifests"
+NAMESPACE="primus-safe"
+PG_PASSWORD=$(kubectl get secret -n "primus-lens" primus-lens-pguser-primus-lens -o jsonpath="{.data.password}" | base64 -d)
+export PG_PASSWORD
+rm -rf grafana-operator
+git clone https://github.com/grafana/grafana-operator.git
+helm upgrade --install -n "$NAMESPACE" grafana-operator grafana-operator/deploy/helm/grafana-operator \
+  -f "$MANIFEST_DIR/grafana-operator-values.yaml.tpl"
+rm -rf grafana-operator
+
+
+echo "Installing Grafana in namespace: $NAMESPACE"
+envsubst < "$MANIFEST_DIR/grafana.yaml.tpl" | kubectl apply -n "$NAMESPACE" -f -
+
+BASE_DIR="manifests/grafana"
+envsubst < "$BASE_DIR/datasource.yaml.tpl" | kubectl apply -n "$NAMESPACE" -f -
+
+echo "Grafana datasources and folders applied."
+
+echo "Start applying Grafana dashboards..."
+DASHBOARD_DIR="$BASE_DIR/dashboards"
+kubectl apply -f "$DASHBOARD_DIR" -n "$NAMESPACE"
+echo "Grafana dashboards applied."
+
+kubectl apply -f "$MANIFEST_DIR/primussafe-nginx.yaml" -n "$NAMESPACE"
