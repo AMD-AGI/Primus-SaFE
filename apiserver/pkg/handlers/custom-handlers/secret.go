@@ -288,8 +288,8 @@ func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 		}
 	case string(types.SecretSSH):
 		result.Params[types.UserNameParam] = string(secret.Data[string(types.UserNameParam)])
-		result.Params[types.PrivateKeyParam] = stringutil.Base64Encode(string(secret.Data[string(types.PrivateKeyParam)]))
-		result.Params[types.PublicKeyParam] = stringutil.Base64Encode(string(secret.Data[string(types.PublicKeyParam)]))
+		result.Params[types.PrivateKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthKey]))
+		result.Params[types.PublicKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthPubKey]))
 	}
 	return result
 }
