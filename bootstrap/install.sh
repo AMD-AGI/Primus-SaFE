@@ -8,6 +8,41 @@ fi
 
 NAMESPACE="primus-safe"
 
+get_input_with_default() {
+    local prompt="$1"
+    local default_value="$2"
+    local input
+    read -rp "$prompt" input
+    input=$(echo "$input" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    if [ -z "$input" ]; then
+        echo "$default_value"
+    else
+        echo "$input"
+    fi
+}
+
+convert_to_boolean() {
+    local value="$1"
+    if [[ "$value" == "y" ]]; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+install_or_upgrade_helm_chart() {
+    local chart_name="$1"
+    local chart_path="./$chart_name"
+
+    if helm -n "$namespace" list | grep -q "^$chart_name "; then
+        helm upgrade "$chart_name" "$chart_path" -n "$NAMESPACE"
+    else
+        helm install "$chart_name" "$chart_path" -n "$NAMESPACE" --create-namespace
+    fi
+    echo "✅ $chart_name installed in namespace("$NAMESPACE")"
+    echo
+}
+
 echo "============================"
 echo "🔧 Step 1: Input Parameters"
 echo "============================"
@@ -18,78 +53,41 @@ default_ethernet_nic="eno0"
 default_rdma_nic="rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
 default_cluster_scale="small"
 default_storage_class="local-path"
-default_sub_domain="test"
 
-read -rp "Enter ethernet nic($default_ethernet_nic): " ethernet_nic
-read -rp "Enter rdma nic($default_rdma_nic): " rdma_nic
-read -rp "Enter cluster scale, choose 'small/medium/large' ($default_cluster_scale): " cluster_scale
-read -rp "Enter storage class($default_storage_class): " storage_class
-read -rp "Enter sub domain($default_sub_domain): " sub_domain
-read -rp "Enter nfs-server (empty for no server): " nfs_server
-read -rp "Enter nfs-path (empty for no path): " nfs_path
-read -rp "Enter nfs-mount (empty for no mount): " nfs_mount
-read -rp "Support Primus-lens ? (y/n): " support_lens
-read -rp "Support Primus-S3 ? (y/n): " support_s3
-if [[ "$support_s3" == "y" ]]; then
-  read -rp "Enter S3 endpoint (empty to disable S3): " s3_endpoint
-fi
-
-ethernet_nic=$(echo "$ethernet_nic" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-rdma_nic=$(echo "$rdma_nic" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-storage_class=$(echo "$storage_class" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-sub_domain=$(echo "$sub_domain" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-nfs_server=$(echo "$nfs_server" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-nfs_path=$(echo "$nfs_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-nfs_mount=$(echo "$nfs_mount" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-support_lens=$(echo "$support_lens" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-s3_endpoint=$(echo "$s3_endpoint" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-
-if [ -z "$ethernet_nic" ]; then
-  ethernet_nic="$default_ethernet_nic"
-fi
-if [ -z "$rdma_nic" ]; then
-  rdma_nic="$default_rdma_nic"
-fi
-if [ -z "$cluster_scale" ]; then
-  cluster_scale="$default_cluster_scale"
-fi
-if [ -z "$storage_class" ]; then
-  storage_class="$default_storage_class"
-fi
-if [ -z "$sub_domain" ]; then
-  sub_domain="$default_sub_domain"
+ethernet_nic=$(get_input_with_default "Enter ethernet nic($default_ethernet_nic): " "$default_ethernet_nic")
+rdma_nic=$(get_input_with_default "Enter rdma nic($default_rdma_nic): " "$default_rdma_nic")
+cluster_scale=$(get_input_with_default "Enter cluster scale, choose 'small/medium/large' ($default_cluster_scale): " "$default_cluster_scale")
+storage_class=$(get_input_with_default "Enter storage class($default_storage_class): " "$default_storage_class")
+sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
+support_lens=$(get_input_with_default "Support Primus-lens ? (y/n): " "n")
+support_s3=$(get_input_with_default "Support Primus-S3 ? (y/n): " "n")
+opensearch_enable=$(convert_to_boolean "$support_lens")
+s3_enable=$(convert_to_boolean "$support_s3")
+if [[ "$s3_enable" == "true" ]]; then
+  s3_endpoint=$(get_input_with_default "Enter S3 endpoint (empty to disable S3): " "")
+  if [ -z "$s3_endpoint" ]; then
+    s3_enable="false"
+  fi
 fi
 
 echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
+echo "✅ Cluster Name: \"$sub_domain\""
 echo "✅ Storage Class: \"$storage_class\""
-echo "✅ Sub Domain: \"$sub_domain\""
-echo "✅ NFS Server: \"$nfs_server\""
-echo "✅ NFS Path: \"$nfs_path\""
-echo "✅ NFS Mount: \"$nfs_mount\""
-echo "✅ Support Primus-lens: \"$support_lens\""
-echo "✅ Support Primus-s3: \"$support_s3\""
-echo "✅ S3 Endpoint: \"$s3_endpoint\""
+echo "✅ Support Primus-lens: \"$opensearch_enable\""
+echo "✅ Support Primus-s3: \"$s3_enable\""
+if [[ "$s3_enable" == "true" ]]; then
+  echo "✅ S3 Endpoint: \"$s3_endpoint\""
+fi
 echo
-
-
-opensearch_enable=true
-if [[ "$support_lens" != "y" ]]; then
-  opensearch_enable=false
-fi
-
-s3_enable=true
-if [[ "$support_s3" != "y" || -z "$s3_endpoint" ]]; then
-  s3_enable=false
-fi
 
 replicas=1
 cpu=2000m
 memory=4Gi
 if [[ "$cluster_scale" == "medium" ]]; then
   replicas=2
-  cpu=16000m
+  cpu=8000m
   memory=16Gi
 elif [[ "$cluster_scale" == "large" ]]; then
   replicas=2
@@ -121,9 +119,8 @@ if [[ "$s3_enable" == "true" ]]; then
   sed -i '/^s3:/,/^[a-z]/ s#endpoint: ".*"#endpoint: "'"$s3_endpoint"'"#' "$values_yaml"
 fi
 
-helm upgrade -i primus-pgo ./primus-pgo -n "$NAMESPACE" --create-namespace
-echo "✅ Step 2.1: primus-pgo-5.8.2 installed"
-echo "⏳ Step 2.2: Waiting for Postgres Operator pod..."
+install_or_upgrade_helm_chart "primus-pgo"
+echo "⏳ Waiting for Postgres Operator pod..."
 for i in {1..30}; do
   if kubectl get pods -n "$NAMESPACE" | grep "primus-pgo"| grep -q "Running"; then
     echo "✅ Postgres Operator is running."
@@ -133,31 +130,23 @@ for i in {1..30}; do
   sleep 5
 done
 
-helm upgrade -i primus-safe ./primus-safe -n "$NAMESPACE" --create-namespace
-echo "✅ Step 2.3: primus-safe installed"
-echo
+install_or_upgrade_helm_chart "primus-safe"
+install_or_upgrade_helm_chart "primus-safe-cr"
 
-helm upgrade -i primus-safe-cr ./primus-safe-cr -n "$NAMESPACE" --create-namespace
-echo "✅ Step 2.4: primus-safe-cr installed"
-echo
 
 echo "========================================="
 echo "🔧 Step 3: install primus-safe data plane"
 echo "========================================="
+
 cd ../node-agent/charts/
 values_yaml="node-agent/values.yaml"
-
 sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
-sed -i "s/nfs_server: \".*\"/nfs_server: \"$nfs_server\"/" "$values_yaml"
-sed -i "s#nfs_path: \".*\"#nfs_path: \"$nfs_path\"#" "$values_yaml"
-sed -i "s#nfs_mount: \".*\"#nfs_mount: \"$nfs_mount\"#" "$values_yaml"
 
-helm upgrade -i node-agent ./node-agent -n "$NAMESPACE" --create-namespace
-echo "✅ Step 3.1: node-agent installed"
+install_or_upgrade_helm_chart "node-agent"
 
 if [[ "$support_lens" == "y" ]]; then
   export STORAGE_CLASS="$storage_class"
   bash install-grafana.sh
-  echo "✅ Step 3.2: grafana installed"
+  echo "✅ grafana installed"
 fi
