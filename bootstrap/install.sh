@@ -138,9 +138,9 @@ echo
 
 chart_name="primus-safe"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
-  kubectl replace -f charts/$chart_name/crds/ -n "$NAMESPACE"
+  kubectl replace -f $chart_name/crds/ -n "$NAMESPACE"
   mkdir -p output
-  helm template "$chart_name" -n "$NAMESPACE" "./charts/$chart_name" --output-dir ./output/
+  helm template "$chart_name" -n "$NAMESPACE" "$chart_name" --output-dir ./output/
   kubectl replace -f output/$chart_name/templates/rbac/role.yaml
   kubectl replace -f output/$chart_name/templates/webhooks/manifests.yaml
   rm -rf output
