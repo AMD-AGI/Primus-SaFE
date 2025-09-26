@@ -190,6 +190,9 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	if result, err := r.guaranteePriorityClass(ctx, cluster); err != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
+	if err = r.guaranteeDefaultImageSecret(ctx, cluster); err != nil {
+		return ctrlruntime.Result{}, err
+	}
 	return ctrlruntime.Result{}, nil
 }
 
@@ -312,6 +315,38 @@ func deletePriorityClass(ctx context.Context, clientSet kubernetes.Interface, na
 		return client.IgnoreNotFound(err)
 	}
 	klog.Infof("delete PriorityClass, name: %s", name)
+	return nil
+}
+
+func (r *ClusterReconciler) guaranteeDefaultImageSecret(ctx context.Context, cluster *v1.Cluster) error {
+	imageSecret := cluster.Spec.ControlPlane.ImageSecret
+	if imageSecret == nil {
+		return fmt.Errorf("cluster %s has no image secret", cluster.Name)
+	}
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
+
+	sourceSecret := &corev1.Secret{}
+	err = r.Get(ctx, client.ObjectKey{Name: imageSecret.Name, Namespace: imageSecret.Namespace}, sourceSecret)
+	if err != nil {
+		return err
+	}
+
+	targetNamespace := corev1.NamespaceDefault
+	targetSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      sourceSecret.Name,
+			Namespace: targetNamespace,
+		},
+		Type: sourceSecret.Type,
+		Data: sourceSecret.Data,
+	}
+	newContext, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	_, err = k8sClients.ClientSet().CoreV1().Secrets(targetNamespace).Create(newContext, targetSecret, metav1.CreateOptions{})
+	if err != nil {
+		return client.IgnoreAlreadyExists(err)
+	}
+	klog.Infof("copy secret: %s/%s", targetNamespace, targetSecret.Name)
 	return nil
 }
 

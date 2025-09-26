@@ -34,7 +34,7 @@ install_or_upgrade_helm_chart() {
     local chart_name="$1"
     local chart_path="./$chart_name"
 
-    if helm -n "$namespace" list | grep -q "^$chart_name "; then
+    if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
         helm upgrade "$chart_name" "$chart_path" -n "$NAMESPACE"
     else
         helm install "$chart_name" "$chart_path" -n "$NAMESPACE" --create-namespace
@@ -129,6 +129,7 @@ for i in {1..30}; do
   echo "⏳ [$i/30] Waiting for postgres-operator..."
   sleep 5
 done
+echo
 
 install_or_upgrade_helm_chart "primus-safe"
 install_or_upgrade_helm_chart "primus-safe-cr"

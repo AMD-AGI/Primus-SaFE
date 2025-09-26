@@ -9,9 +9,8 @@ type SecretType string
 type SecretParam string
 
 const (
-	SecretCrypto SecretType = "crypto"
-	SecretImage  SecretType = "image"
-	SecretSSH    SecretType = "ssh"
+	SecretImage SecretType = "image"
+	SecretSSH   SecretType = "ssh"
 
 	PasswordParam   SecretParam = "password"
 	PrivateKeyParam SecretParam = "privateKey"
@@ -30,7 +29,7 @@ type CreateSecretRequest struct {
 	// secret type. crypto/image/ssh
 	Type SecretType `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
-	// Both the private key and public key need to be Base64 encoded
+	// the private key, public key and password need to be Base64 encoded
 	Params map[SecretParam]string `json:"params"`
 }
 
@@ -39,6 +38,8 @@ type CreateSecretResponse struct {
 }
 
 type ListSecretRequest struct {
+	// secret type: ssh/image
+	// if specifying multiple phase queries, separate them with commas
 	Type string `form:"type" binding:"omitempty"`
 }
 
@@ -50,8 +51,9 @@ type ListSecretResponse struct {
 type SecretResponseItem struct {
 	SecretId   string `json:"secretId"`
 	SecretName string `json:"secretName"`
-	Type       string `json:"type,omitempty"`
-	UserName   string `json:"userName,omitempty"`
+	Type       string `json:"type"`
+	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
+	Params map[SecretParam]string `json:"params"`
 	// Creation timestamp of the secret
 	CreationTime string `json:"creationTime"`
 }
@@ -59,7 +61,6 @@ type SecretResponseItem struct {
 type DockerConfigItem struct {
 	UserName string `json:"username"`
 	Password string `json:"password"`
-	Auth     string `json:"auth"`
 }
 
 type DockerConfig struct {

@@ -462,7 +462,7 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 		node.Spec.NodeTemplate = commonutils.GenObjectReference(nt.TypeMeta, nt.ObjectMeta)
 	}
 
-	secret, err := h.getSecret(ctx, req.SSHSecretName)
+	secret, err := h.getAdminSecret(ctx, req.SSHSecretName)
 	if err != nil {
 		return nil, err
 	}

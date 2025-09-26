@@ -7,8 +7,10 @@ package custom_handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -36,6 +38,10 @@ func (h *Handler) CreateSecret(c *gin.Context) {
 
 func (h *Handler) ListSecret(c *gin.Context) {
 	handle(c, h.listSecret)
+}
+
+func (h *Handler) GetSecret(c *gin.Context) {
+	handle(c, h.getSecret)
 }
 
 func (h *Handler) DeleteSecret(c *gin.Context) {
@@ -116,12 +122,32 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+func (h *Handler) getSecret(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.SecretResourceKind,
+		Verb:         v1.GetVerb,
+		User:         requestUser,
+	}); err != nil {
+		return nil, err
+	}
+	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(types.Name))
+	if err != nil {
+		return nil, err
+	}
+	return cvtToSecretResponseItem(secret), nil
+}
+
 func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	name := c.GetString(types.Name)
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the secretId is not found")
 	}
-	secret, err := h.getSecret(c.Request.Context(), name)
+	secret, err := h.getAdminSecret(c.Request.Context(), name)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +169,7 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) getSecret(ctx context.Context, name string) (*corev1.Secret, error) {
+func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secret, error) {
 	secret, err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(
 		ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -168,11 +194,6 @@ func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Sec
 	if req.Name != "" {
 		secret.Labels[v1.DisplayNameLabel] = req.Name
 	}
-	if req.Type == types.SecretSSH {
-		if sshMd5 := buildSshSecretMd5(req); sshMd5 != "" {
-			secret.Labels[v1.SecretMd5Label] = sshMd5
-		}
-	}
 	return secret, nil
 }
 
@@ -182,16 +203,6 @@ func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) erro
 	params := make(map[string][]byte)
 
 	switch req.Type {
-	case types.SecretCrypto:
-		if !req.HasParam(types.PasswordParam) {
-			return fmt.Errorf("the %s is not found", types.PasswordParam)
-		}
-		name = common.PrimusCryptoSecret
-		if req.Name == "" {
-			req.Name = name
-		}
-		secretType = corev1.SecretTypeOpaque
-		params[string(types.PasswordParam)] = []byte(req.Params[types.PasswordParam])
 	case types.SecretImage:
 		keys := []types.SecretParam{types.PasswordParam, types.UserNameParam, types.ServerParam}
 		for _, key := range keys {
@@ -199,19 +210,13 @@ func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) erro
 				return fmt.Errorf("the %s is empty", key)
 			}
 		}
-		name = common.PrimusImageSecret
-		if req.Name == "" {
-			req.Name = name
-		}
+		name = req.Name
 		secretType = corev1.SecretTypeDockerConfigJson
-		auth := stringutil.Base64Encode(fmt.Sprintf("%s:%s",
-			req.Params[types.UserNameParam], req.Params[types.PasswordParam]))
 		dockerConf := types.DockerConfig{
 			Auth: map[string]types.DockerConfigItem{
 				req.Params[types.ServerParam]: {
 					UserName: req.Params[types.UserNameParam],
-					Password: req.Params[types.PasswordParam],
-					Auth:     auth,
+					Password: stringutil.Base64Decode(req.Params[types.PasswordParam]),
 				},
 			},
 		}
@@ -255,34 +260,36 @@ func buildSecretLabelSelector(query *types.ListSecretRequest) labels.Selector {
 	var req1 *labels.Requirement
 	var labelSelector = labels.NewSelector()
 	if query.Type != "" {
-		req1, _ = labels.NewRequirement(v1.SecretTypeLabel, selection.Equals, []string{query.Type})
+		types := strings.Split(query.Type, ",")
+		req1, _ = labels.NewRequirement(v1.SecretTypeLabel, selection.In, types)
 		labelSelector = labelSelector.Add(*req1)
 	}
 	return labelSelector
-}
-
-func buildSshSecretMd5(req *types.CreateSecretRequest) string {
-	result := ""
-	if req.HasParam(types.PasswordParam) {
-		result = req.Params[types.UserNameParam] + "-" + req.Params[types.PasswordParam]
-	} else if req.HasParam(types.PublicKeyParam) && req.HasParam(types.PrivateKeyParam) {
-		result = req.Params[types.UserNameParam] + "-" +
-			req.Params[types.PrivateKeyParam] + "-" + req.Params[types.PublicKeyParam]
-	} else {
-		return ""
-	}
-	return stringutil.MD5(result)
 }
 
 func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 	result := types.SecretResponseItem{
 		SecretId:     secret.Name,
 		SecretName:   v1.GetDisplayName(secret),
+		Type:         v1.GetLabel(secret, v1.SecretTypeLabel),
 		CreationTime: timeutil.FormatRFC3339(&secret.CreationTimestamp.Time),
 	}
-	data, ok := secret.Data[string(types.UserNameParam)]
-	if ok {
-		result.UserName = string(data)
+	result.Params = make(map[types.SecretParam]string)
+	switch result.Type {
+	case string(types.SecretImage):
+		dockerConf := &types.DockerConfig{}
+		if json.Unmarshal(secret.Data[types.DockerConfigJson], dockerConf) == nil {
+			for k, v := range dockerConf.Auth {
+				result.Params[types.ServerParam] = k
+				result.Params[types.UserNameParam] = v.UserName
+				result.Params[types.PasswordParam] = stringutil.Base64Encode(v.Password)
+				break
+			}
+		}
+	case string(types.SecretSSH):
+		result.Params[types.UserNameParam] = string(secret.Data[string(types.UserNameParam)])
+		result.Params[types.PrivateKeyParam] = stringutil.Base64Encode(string(secret.Data[string(types.PrivateKeyParam)]))
+		result.Params[types.PublicKeyParam] = stringutil.Base64Encode(string(secret.Data[string(types.PublicKeyParam)]))
 	}
 	return result
 }

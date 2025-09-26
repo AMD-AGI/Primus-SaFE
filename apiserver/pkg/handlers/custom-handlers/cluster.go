@@ -118,8 +118,8 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 		v1.SetLabel(cluster, v1.ProtectLabel, "")
 	}
 
-	if cluster.Spec.ControlPlane.ImageSecret == nil {
-		imageSecret, err := h.getSecret(ctx, common.PrimusImageSecret)
+	if cluster.Spec.ControlPlane.ImageSecret == nil && req.ImageSecretName != "" {
+		imageSecret, err := h.getAdminSecret(ctx, req.ImageSecretName)
 		if err != nil {
 			return nil, err
 		}
@@ -127,7 +127,7 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 	}
 
 	if cluster.Spec.ControlPlane.SSHSecret == nil && req.SSHSecretName != "" {
-		sshSecret, err := h.getSecret(ctx, req.SSHSecretName)
+		sshSecret, err := h.getAdminSecret(ctx, req.SSHSecretName)
 		if err != nil {
 			return nil, err
 		}
