@@ -2,45 +2,50 @@
 
 set -euo pipefail
 if ! command -v helm &> /dev/null; then
-  echo "Error: helm command not found. Please install Helm first."
+  echo "Error: helm command not found. Please install it first."
+  exit 1
+fi
+
+if ! command -v kubectl &> /dev/null; then
+  echo "Error: kubectl command not found. Please install it first."
   exit 1
 fi
 
 NAMESPACE="primus-safe"
 
 get_input_with_default() {
-    local prompt="$1"
-    local default_value="$2"
-    local input
-    read -rp "$prompt" input
-    input=$(echo "$input" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-    if [ -z "$input" ]; then
-        echo "$default_value"
-    else
-        echo "$input"
-    fi
+  local prompt="$1"
+  local default_value="$2"
+  local input
+  read -rp "$prompt" input
+  input=$(echo "$input" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  if [ -z "$input" ]; then
+      echo "$default_value"
+  else
+      echo "$input"
+  fi
 }
 
 convert_to_boolean() {
-    local value="$1"
-    if [[ "$value" == "y" ]]; then
-        echo "true"
-    else
-        echo "false"
-    fi
+  local value="$1"
+  if [[ "$value" == "y" ]]; then
+      echo "true"
+  else
+      echo "false"
+  fi
 }
 
 install_or_upgrade_helm_chart() {
-    local chart_name="$1"
-    local chart_path="./$chart_name"
+  local chart_name="$1"
+  local chart_path="./$chart_name"
 
-    if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
-        helm upgrade "$chart_name" "$chart_path" -n "$NAMESPACE"
-    else
-        helm install "$chart_name" "$chart_path" -n "$NAMESPACE" --create-namespace
-    fi
-    echo "✅ $chart_name installed in namespace("$NAMESPACE")"
-    echo
+  if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
+      helm upgrade "$chart_name" "$chart_path" -n "$NAMESPACE"
+  else
+      helm install "$chart_name" "$chart_path" -n "$NAMESPACE" --create-namespace
+  fi
+  echo "✅ $chart_name installed in namespace("$NAMESPACE")"
+  echo
 }
 
 echo "============================"
@@ -131,9 +136,18 @@ for i in {1..30}; do
 done
 echo
 
-install_or_upgrade_helm_chart "primus-safe"
-install_or_upgrade_helm_chart "primus-safe-cr"
+chart_name="primus-safe"
+if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
+  kubectl replace -f charts/$chart_name/crds/ -n "$NAMESPACE"
+  mkdir -p output
+  helm template "$chart_name" -n "$NAMESPACE" "./charts/$chart_name" --output-dir ./output/
+  kubectl replace -f output/$chart_name/templates/rbac/role.yaml
+  kubectl replace -f output/$chart_name/templates/webhooks/manifests.yaml
+  rm -rf output
+fi
+install_or_upgrade_helm_chart "$chart_name"
 
+install_or_upgrade_helm_chart "primus-safe-cr"
 
 echo "========================================="
 echo "🔧 Step 3: install primus-safe data plane"
