@@ -1,0 +1,136 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: resourcetemplates.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: ResourceTemplate
+    listKind: ResourceTemplateList
+    plural: resourcetemplates
+    singular: resourcetemplate
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              activeReplica:
+                description: Definition used to retrieve the active replica count
+                  of a Kubernetes object
+                properties:
+                  prePaths:
+                    items:
+                      type: string
+                    type: array
+                  replicaPath:
+                    type: string
+                type: object
+              groupVersionKind:
+                description: |-
+                  Specifies the Group, Version, and Kind (GVK) for a Kubernetes object
+                  This GVK is not the same as the workload's GVK, which is defined in the label selector.
+                properties:
+                  group:
+                    type: string
+                  kind:
+                    type: string
+                  version:
+                    type: string
+                type: object
+              resourceSpecs:
+                description: Definition used to retrieve the spec of a Kubernetes
+                  object
+                items:
+                  properties:
+                    prePaths:
+                      description: Pre-path to k8s object's spec
+                      items:
+                        type: string
+                      type: array
+                    replica:
+                      description: |-
+                        If the replica count is set to a non-zero value, it will be used as a fixed allocation when the task is submitted
+                        This applies only to the master role of a PyTorchJob (or similar structures).
+                      format: int64
+                      type: integer
+                    replicasPaths:
+                      description: The relative path of pod replica
+                      items:
+                        type: string
+                      type: array
+                    templatePaths:
+                      description: The relative path of pod template
+                      items:
+                        type: string
+                      type: array
+                  type: object
+                type: array
+              resourceStatus:
+                description: Definition used to retrieve the status of a Kubernetes
+                  object
+                properties:
+                  messagePaths:
+                    description: The relative path of message
+                    items:
+                      type: string
+                    type: array
+                  phases:
+                    description: Expression for retrieving the phase value.
+                    items:
+                      properties:
+                        matchExpressions:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        phase:
+                          type: string
+                      required:
+                      - matchExpressions
+                      - phase
+                      type: object
+                    type: array
+                  prePaths:
+                    description: Prefix path for retrieving the object's phase, commonly
+                      referencing the status condition.
+                    items:
+                      type: string
+                    type: array
+                  reasonPaths:
+                    description: The relative path of reason
+                    items:
+                      type: string
+                    type: array
+                type: object
+            required:
+            - groupVersionKind
+            type: object
+          status:
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

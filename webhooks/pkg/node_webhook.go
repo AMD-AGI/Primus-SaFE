@@ -26,7 +26,6 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -245,9 +244,6 @@ func (v *NodeValidator) validateOnUpdate(ctx context.Context, newNode, oldNode *
 	if err := v.validateReadyWhenManaging(ctx, newNode, oldNode); err != nil {
 		return err
 	}
-	if err := v.validateRelatedFaults(ctx, newNode, oldNode); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -353,30 +349,6 @@ func (v *NodeValidator) validateReadyWhenManaging(_ context.Context, newNode, ol
 		oldNode.Status.MachineStatus.Phase != v1.NodeReady {
 		return commonerrors.NewNodeNotReady(
 			fmt.Sprintf("node %s is not ready. current state: %s", oldNode.Name, oldNode.Status.MachineStatus.Phase))
-	}
-	return nil
-}
-
-func (v *NodeValidator) validateRelatedFaults(ctx context.Context, newNode, oldNode *v1.Node) error {
-	if newNode.GetSpecCluster() == "" {
-		return nil
-	}
-	newTaintKeys := sets.NewSet()
-	for _, t := range newNode.Spec.Taints {
-		newTaintKeys.Insert(t.Key)
-	}
-	for _, t := range oldNode.Spec.Taints {
-		if newTaintKeys.Has(t.Key) {
-			continue
-		}
-		id := commonfaults.GetIdByTaintKey(t.Key)
-		faultName := commonfaults.GenerateFaultName(newNode.Name, id)
-		fault := &v1.Fault{}
-		if v.Get(ctx, client.ObjectKey{Name: faultName}, fault) == nil && fault.GetDeletionTimestamp().IsZero() {
-			return commonerrors.NewForbidden(
-				fmt.Sprintf("the taint %s is controlled by fault %s. Please delete the fault first",
-					t.Key, faultName))
-		}
 	}
 	return nil
 }

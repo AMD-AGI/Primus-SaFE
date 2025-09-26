@@ -1,0 +1,156 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: workspaces.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: Workspace
+    listKind: WorkspaceList
+    plural: workspaces
+    singular: workspace
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              cluster:
+                description: The name of the cluster that the workspace belongs to
+                type: string
+              enablePreempt:
+                description: Is preemption enabled. default is false
+                type: boolean
+              isDefault:
+                description: Set the workspace as the default workspace (i.e., all
+                  users can access it).
+                type: boolean
+              managers:
+                description: the manager's user_id of workspace
+                items:
+                  type: string
+                type: array
+              nodeFlavor:
+                description: node flavor id
+                type: string
+              queuePolicy:
+                description: |-
+                  Queuing policy for tasks submitted in this workspace.
+                  All tasks currently share the same policy (no per-task customization). default is fifo.
+                type: string
+              replica:
+                description: node count
+                type: integer
+              scopes:
+                description: Service modules available in this space. No limitation
+                  if not specified.
+                items:
+                  enum:
+                  - Train
+                  - Infer
+                  - Authoring
+                  type: string
+                type: array
+              volumes:
+                description: volumes used in this space
+                items:
+                  properties:
+                    accessMode:
+                      description: access mode, default is ReadWriteMany
+                      type: string
+                    capacity:
+                      description: |-
+                        The following parameters are used for PVC creation. If using hostPath mounting, they are not required.
+                        Capacity size, such as 100Gi. This is a required parameter when creating a PVC (PersistentVolumeClaim).
+                      type: string
+                    hostPath:
+                      description: Path on the host to mount. Required when storage
+                        type is hostpath
+                      type: string
+                    mountPath:
+                      description: Mount path to be used, equivalent to 'mountPath'
+                        in Kubernetes volume mounts.
+                      type: string
+                    selector:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        selector is a label query over volumes to consider for binding.
+                        It cannot be used together with storageClassName. If both are set, the selector takes priority
+                      type: object
+                    storageClass:
+                      description: Responsible for automatic PV creation
+                      type: string
+                    storageType:
+                      description: |-
+                        The storage type, which is also used as the volume name
+                        valid values includes: rbd/obs/cephfs/juicefs/hostpath
+                      type: string
+                    subPath:
+                      description: equivalent to 'subPath' in Kubernetes volume mounts
+                      type: string
+                  required:
+                  - mountPath
+                  - storageType
+                  type: object
+                type: array
+            required:
+            - cluster
+            type: object
+          status:
+            properties:
+              abnormalReplica:
+                type: integer
+              availableReplica:
+                type: integer
+              availableResources:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: ResourceList is a set of (resource name, quantity) pairs.
+                type: object
+              phase:
+                type: string
+              totalResources:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: ResourceList is a set of (resource name, quantity) pairs.
+                type: object
+              updateTime:
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

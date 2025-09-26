@@ -125,7 +125,7 @@ helm upgrade -i primus-pgo ./primus-pgo -n "$NAMESPACE" --create-namespace
 echo "✅ Step 2.1: primus-pgo-5.8.2 installed"
 echo "⏳ Step 2.2: Waiting for Postgres Operator pod..."
 for i in {1..30}; do
-  if kubectl get pods -n "$NAMESPACE" | grep $NAMESPACE-db | grep -q "Running"; then
+  if kubectl get pods -n "$NAMESPACE" | grep "primus-pgo"| grep -q "Running"; then
     echo "✅ Postgres Operator is running."
     break
   fi

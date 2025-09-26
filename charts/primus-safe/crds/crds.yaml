@@ -1,0 +1,2693 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: addons.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: Addon
+    listKind: AddonList
+    plural: addons
+    singular: addon
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              addonSource:
+                properties:
+                  helm:
+                    properties:
+                      chartVersion:
+                        type: string
+                      namespace:
+                        type: string
+                      plainHttp:
+                        type: boolean
+                      previousVersion:
+                        type: integer
+                      releaseName:
+                        type: string
+                      template:
+                        description: ObjectReference contains enough information to
+                          let you inspect or modify the referred object.
+                        properties:
+                          apiVersion:
+                            description: API version of the referent.
+                            type: string
+                          fieldPath:
+                            description: |-
+                              If referring to a piece of an object instead of an entire object, this string
+                              should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                              For example, if the object reference is to a container within a pod, this would take on a value like:
+                              "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                              the event) or if no container name is specified "spec.containers[2]" (container with
+                              index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                              referencing a part of an object.
+                            type: string
+                          kind:
+                            description: |-
+                              Kind of the referent.
+                              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                            type: string
+                          name:
+                            description: |-
+                              Name of the referent.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          namespace:
+                            description: |-
+                              Namespace of the referent.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                            type: string
+                          resourceVersion:
+                            description: |-
+                              Specific resourceVersion to which this reference is made, if any.
+                              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                            type: string
+                          uid:
+                            description: |-
+                              UID of the referent.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      url:
+                        type: string
+                      values:
+                        type: string
+                    required:
+                    - releaseName
+                    type: object
+                type: object
+              cluster:
+                description: ObjectReference contains enough information to let you
+                  inspect or modify the referred object.
+                properties:
+                  apiVersion:
+                    description: API version of the referent.
+                    type: string
+                  fieldPath:
+                    description: |-
+                      If referring to a piece of an object instead of an entire object, this string
+                      should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                      For example, if the object reference is to a container within a pod, this would take on a value like:
+                      "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                      the event) or if no container name is specified "spec.containers[2]" (container with
+                      index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                      referencing a part of an object.
+                    type: string
+                  kind:
+                    description: |-
+                      Kind of the referent.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                    type: string
+                  name:
+                    description: |-
+                      Name of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                    type: string
+                  resourceVersion:
+                    description: |-
+                      Specific resourceVersion to which this reference is made, if any.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                    type: string
+                  uid:
+                    description: |-
+                      UID of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+            required:
+            - cluster
+            type: object
+          status:
+            properties:
+              addonSourceStatus:
+                properties:
+                  helm:
+                    properties:
+                      chartVersion:
+                        type: string
+                      deleted:
+                        description: Deleted tracks when this object was deleted.
+                        format: date-time
+                        type: string
+                      description:
+                        description: Description is human-friendly "log entry" about
+                          this release.
+                        type: string
+                      firstDeployed:
+                        description: FirstDeployed is when the release was first deployed.
+                        format: date-time
+                        type: string
+                      lastDeployed:
+                        description: LastDeployed is when the release was last deployed.
+                        format: date-time
+                        type: string
+                      notes:
+                        description: Contains the rendered templates/NOTES.txt if
+                          available
+                        type: string
+                      previousVersion:
+                        type: integer
+                      status:
+                        description: Status is the current state of the release
+                        type: string
+                      template:
+                        description: ObjectReference contains enough information to
+                          let you inspect or modify the referred object.
+                        properties:
+                          apiVersion:
+                            description: API version of the referent.
+                            type: string
+                          fieldPath:
+                            description: |-
+                              If referring to a piece of an object instead of an entire object, this string
+                              should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                              For example, if the object reference is to a container within a pod, this would take on a value like:
+                              "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                              the event) or if no container name is specified "spec.containers[2]" (container with
+                              index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                              referencing a part of an object.
+                            type: string
+                          kind:
+                            description: |-
+                              Kind of the referent.
+                              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                            type: string
+                          name:
+                            description: |-
+                              Name of the referent.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          namespace:
+                            description: |-
+                              Namespace of the referent.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                            type: string
+                          resourceVersion:
+                            description: |-
+                              Specific resourceVersion to which this reference is made, if any.
+                              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                            type: string
+                          uid:
+                            description: |-
+                              UID of the referent.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      values:
+                        type: string
+                      version:
+                        description: |-
+                          Contains the deployed resources information
+                          Resources    map[string][]runtime.Object `json:"resources,omitempty"`
+                        type: integer
+                    type: object
+                required:
+                - helm
+                type: object
+              phase:
+                type: string
+            required:
+            - phase
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: addontemplates.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: AddonTemplate
+    listKind: AddonTemplateList
+    plural: addontemplates
+    singular: addontemplate
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              action:
+                description: the action of addon (base64 encoded)
+                type: string
+              category:
+                description: category of template. e.g. system/gpu
+                type: string
+              description:
+                description: the description of addon template
+                type: string
+              gpuChip:
+                description: target gpu chip(amd or nvidia), If left empty, it applies
+                  to all chip.
+                type: string
+              helmDefaultNamespace:
+                type: string
+              helmDefaultValues:
+                description: the default value for helm install
+                type: string
+              icon:
+                description: icon url，base64 encoded
+                type: string
+              required:
+                description: |-
+                  If it is true, installation failure will terminate the installation of other packages and raise an error.
+                  If it is false, only an error log will be printed and the failure can be ignored.
+                type: boolean
+              type:
+                description: type of template
+                type: string
+              url:
+                description: only for helm
+                type: string
+              version:
+                description: version of template
+                type: string
+            required:
+            - category
+            type: object
+          status:
+            properties:
+              helmStatus:
+                properties:
+                  values:
+                    type: string
+                  valuesYaml:
+                    type: string
+                type: object
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: clusters.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: Cluster
+    listKind: ClusterList
+    plural: clusters
+    singular: cluster
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              clusterID:
+                description: |-
+                  INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
+                  Important: Run "make" to regenerate code after modifying this file
+                type: string
+              controlPlane:
+                properties:
+                  imageSecret:
+                    description: ObjectReference contains enough information to let
+                      you inspect or modify the referred object.
+                    properties:
+                      apiVersion:
+                        description: API version of the referent.
+                        type: string
+                      fieldPath:
+                        description: |-
+                          If referring to a piece of an object instead of an entire object, this string
+                          should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                          For example, if the object reference is to a container within a pod, this would take on a value like:
+                          "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                          the event) or if no container name is specified "spec.containers[2]" (container with
+                          index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                          referencing a part of an object.
+                        type: string
+                      kind:
+                        description: |-
+                          Kind of the referent.
+                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                        type: string
+                      name:
+                        description: |-
+                          Name of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      namespace:
+                        description: |-
+                          Namespace of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                        type: string
+                      resourceVersion:
+                        description: |-
+                          Specific resourceVersion to which this reference is made, if any.
+                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                        type: string
+                      uid:
+                        description: |-
+                          UID of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  kubeApiServerArgs:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  kubeNetworkNodePrefix:
+                    format: int32
+                    type: integer
+                  kubeNetworkPlugin:
+                    description: default is cilium
+                    type: string
+                  kubePodsSubnet:
+                    type: string
+                  kubeProxyMode:
+                    type: string
+                  kubeServiceAddress:
+                    type: string
+                  kubeSprayImage:
+                    type: string
+                  kubeletConfigArgs:
+                    additionalProperties:
+                      type: string
+                    type: object
+                  kubeletLogFilesMaxSize:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  kubernetesVersion:
+                    type: string
+                  nodeLocalDNSIP:
+                    type: string
+                  nodes:
+                    description: 控制节点
+                    items:
+                      type: string
+                    type: array
+                  secret:
+                    description: SSH 登录节点证书
+                    properties:
+                      apiVersion:
+                        description: API version of the referent.
+                        type: string
+                      fieldPath:
+                        description: |-
+                          If referring to a piece of an object instead of an entire object, this string
+                          should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                          For example, if the object reference is to a container within a pod, this would take on a value like:
+                          "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                          the event) or if no container name is specified "spec.containers[2]" (container with
+                          index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                          referencing a part of an object.
+                        type: string
+                      kind:
+                        description: |-
+                          Kind of the referent.
+                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                        type: string
+                      name:
+                        description: |-
+                          Name of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      namespace:
+                        description: |-
+                          Namespace of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                        type: string
+                      resourceVersion:
+                        description: |-
+                          Specific resourceVersion to which this reference is made, if any.
+                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                        type: string
+                      uid:
+                        description: |-
+                          UID of the referent.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - nodes
+                type: object
+              storages:
+                items:
+                  properties:
+                    erasureCoded:
+                      description: The erasure code settings
+                      properties:
+                        algorithm:
+                          type: string
+                        codingChunks:
+                          type: integer
+                        dataChunks:
+                          type: integer
+                      required:
+                      - codingChunks
+                      - dataChunks
+                      type: object
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    replicated:
+                      description: The replication settings
+                      properties:
+                        hybridStorage:
+                          description: HybridStorageSpec represents the settings for
+                            hybrid storage pool
+                          properties:
+                            primaryDeviceClass:
+                              type: string
+                            secondaryDeviceClass:
+                              type: string
+                          required:
+                          - primaryDeviceClass
+                          - secondaryDeviceClass
+                          type: object
+                        replicasPerFailureDomain:
+                          type: integer
+                        requireSafeReplicaSize:
+                          description: TargetSizeRatio          float64            `json:"targetSizeRatio,omitempty"`
+                          type: boolean
+                        size:
+                          type: integer
+                        subFailureDomain:
+                          type: string
+                      required:
+                      - size
+                      type: object
+                    secret:
+                      type: string
+                    storageClass:
+                      type: string
+                    storageCluster:
+                      type: string
+                    type:
+                      type: string
+                  required:
+                  - name
+                  - storageCluster
+                  - type
+                  type: object
+                type: array
+            type: object
+          status:
+            properties:
+              controlPlaneStatus:
+                description: |-
+                  INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+                  Important: Run "make" to regenerate code after modifying this file
+                properties:
+                  CAData:
+                    description: |-
+                      CAData holds PEM-encoded bytes (typically read from a root certificates bundle).
+                      CAData takes precedence over CAFile
+                    type: string
+                  certData:
+                    description: |-
+                      CertData holds PEM-encoded bytes (typically read from a client certificate file).
+                      CertData takes precedence over CertFile
+                    type: string
+                  endpoints:
+                    items:
+                      type: string
+                    type: array
+                  keyData:
+                    description: |-
+                      KeyData holds PEM-encoded bytes (typically read from a client certificate key file).
+                      KeyData takes precedence over KeyFile
+                    type: string
+                  phase:
+                    type: string
+                type: object
+              storageStatus:
+                description: 存储状态
+                items:
+                  properties:
+                    accessKey:
+                      type: string
+                    clusterId:
+                      type: string
+                    erasureCoded:
+                      description: The erasure code settings
+                      properties:
+                        algorithm:
+                          type: string
+                        codingChunks:
+                          type: integer
+                        dataChunks:
+                          type: integer
+                      required:
+                      - codingChunks
+                      - dataChunks
+                      type: object
+                    monitors:
+                      items:
+                        type: string
+                      type: array
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    phase:
+                      type: string
+                    pool:
+                      type: string
+                    ref:
+                      description: ObjectReference contains enough information to
+                        let you inspect or modify the referred object.
+                      properties:
+                        apiVersion:
+                          description: API version of the referent.
+                          type: string
+                        fieldPath:
+                          description: |-
+                            If referring to a piece of an object instead of an entire object, this string
+                            should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                            For example, if the object reference is to a container within a pod, this would take on a value like:
+                            "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                            the event) or if no container name is specified "spec.containers[2]" (container with
+                            index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                            referencing a part of an object.
+                          type: string
+                        kind:
+                          description: |-
+                            Kind of the referent.
+                            More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                          type: string
+                        name:
+                          description: |-
+                            Name of the referent.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                        namespace:
+                          description: |-
+                            Namespace of the referent.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                          type: string
+                        resourceVersion:
+                          description: |-
+                            Specific resourceVersion to which this reference is made, if any.
+                            More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                          type: string
+                        uid:
+                          description: |-
+                            UID of the referent.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    replicated:
+                      description: The replication settings
+                      properties:
+                        hybridStorage:
+                          description: HybridStorageSpec represents the settings for
+                            hybrid storage pool
+                          properties:
+                            primaryDeviceClass:
+                              type: string
+                            secondaryDeviceClass:
+                              type: string
+                          required:
+                          - primaryDeviceClass
+                          - secondaryDeviceClass
+                          type: object
+                        replicasPerFailureDomain:
+                          type: integer
+                        requireSafeReplicaSize:
+                          description: TargetSizeRatio          float64            `json:"targetSizeRatio,omitempty"`
+                          type: boolean
+                        size:
+                          type: integer
+                        subFailureDomain:
+                          type: string
+                      required:
+                      - size
+                      type: object
+                    secret:
+                      type: string
+                    secretKey:
+                      type: string
+                    storageClass:
+                      type: string
+                    storageCluster:
+                      type: string
+                    subsets:
+                      items:
+                        description: "EndpointSubset is a group of addresses with
+                          a common set of ports. The\nexpanded set of endpoints is
+                          the Cartesian product of Addresses x Ports.\nFor example,
+                          given:\n\n\t{\n\t  Addresses: [{\"ip\": \"10.10.1.1\"},
+                          {\"ip\": \"10.10.2.2\"}],\n\t  Ports:     [{\"name\": \"a\",
+                          \"port\": 8675}, {\"name\": \"b\", \"port\": 309}]\n\t}\n\nThe
+                          resulting set of endpoints can be viewed as:\n\n\ta: [ 10.10.1.1:8675,
+                          10.10.2.2:8675 ],\n\tb: [ 10.10.1.1:309, 10.10.2.2:309 ]\n\nDeprecated:
+                          This API is deprecated in v1.33+."
+                        properties:
+                          addresses:
+                            description: |-
+                              IP addresses which offer the related ports that are marked as ready. These endpoints
+                              should be considered safe for load balancers and clients to utilize.
+                            items:
+                              description: |-
+                                EndpointAddress is a tuple that describes single IP address.
+                                Deprecated: This API is deprecated in v1.33+.
+                              properties:
+                                hostname:
+                                  description: The Hostname of this endpoint
+                                  type: string
+                                ip:
+                                  description: |-
+                                    The IP of this endpoint.
+                                    May not be loopback (127.0.0.0/8 or ::1), link-local (169.254.0.0/16 or fe80::/10),
+                                    or link-local multicast (224.0.0.0/24 or ff02::/16).
+                                  type: string
+                                nodeName:
+                                  description: 'Optional: Node hosting this endpoint.
+                                    This can be used to determine endpoints local
+                                    to a node.'
+                                  type: string
+                                targetRef:
+                                  description: Reference to object providing the endpoint.
+                                  properties:
+                                    apiVersion:
+                                      description: API version of the referent.
+                                      type: string
+                                    fieldPath:
+                                      description: |-
+                                        If referring to a piece of an object instead of an entire object, this string
+                                        should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                                        For example, if the object reference is to a container within a pod, this would take on a value like:
+                                        "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                                        the event) or if no container name is specified "spec.containers[2]" (container with
+                                        index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                                        referencing a part of an object.
+                                      type: string
+                                    kind:
+                                      description: |-
+                                        Kind of the referent.
+                                        More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                                      type: string
+                                    name:
+                                      description: |-
+                                        Name of the referent.
+                                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                      type: string
+                                    namespace:
+                                      description: |-
+                                        Namespace of the referent.
+                                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                                      type: string
+                                    resourceVersion:
+                                      description: |-
+                                        Specific resourceVersion to which this reference is made, if any.
+                                        More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                                      type: string
+                                    uid:
+                                      description: |-
+                                        UID of the referent.
+                                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                                      type: string
+                                  type: object
+                                  x-kubernetes-map-type: atomic
+                              required:
+                              - ip
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          notReadyAddresses:
+                            description: |-
+                              IP addresses which offer the related ports but are not currently marked as ready
+                              because they have not yet finished starting, have recently failed a readiness check,
+                              or have recently failed a liveness check.
+                            items:
+                              description: |-
+                                EndpointAddress is a tuple that describes single IP address.
+                                Deprecated: This API is deprecated in v1.33+.
+                              properties:
+                                hostname:
+                                  description: The Hostname of this endpoint
+                                  type: string
+                                ip:
+                                  description: |-
+                                    The IP of this endpoint.
+                                    May not be loopback (127.0.0.0/8 or ::1), link-local (169.254.0.0/16 or fe80::/10),
+                                    or link-local multicast (224.0.0.0/24 or ff02::/16).
+                                  type: string
+                                nodeName:
+                                  description: 'Optional: Node hosting this endpoint.
+                                    This can be used to determine endpoints local
+                                    to a node.'
+                                  type: string
+                                targetRef:
+                                  description: Reference to object providing the endpoint.
+                                  properties:
+                                    apiVersion:
+                                      description: API version of the referent.
+                                      type: string
+                                    fieldPath:
+                                      description: |-
+                                        If referring to a piece of an object instead of an entire object, this string
+                                        should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                                        For example, if the object reference is to a container within a pod, this would take on a value like:
+                                        "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                                        the event) or if no container name is specified "spec.containers[2]" (container with
+                                        index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                                        referencing a part of an object.
+                                      type: string
+                                    kind:
+                                      description: |-
+                                        Kind of the referent.
+                                        More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                                      type: string
+                                    name:
+                                      description: |-
+                                        Name of the referent.
+                                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                      type: string
+                                    namespace:
+                                      description: |-
+                                        Namespace of the referent.
+                                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                                      type: string
+                                    resourceVersion:
+                                      description: |-
+                                        Specific resourceVersion to which this reference is made, if any.
+                                        More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                                      type: string
+                                    uid:
+                                      description: |-
+                                        UID of the referent.
+                                        More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                                      type: string
+                                  type: object
+                                  x-kubernetes-map-type: atomic
+                              required:
+                              - ip
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          ports:
+                            description: Port numbers available on the related IP
+                              addresses.
+                            items:
+                              description: |-
+                                EndpointPort is a tuple that describes a single port.
+                                Deprecated: This API is deprecated in v1.33+.
+                              properties:
+                                appProtocol:
+                                  description: |-
+                                    The application protocol for this port.
+                                    This is used as a hint for implementations to offer richer behavior for protocols that they understand.
+                                    This field follows standard Kubernetes label syntax.
+                                    Valid values are either:
+
+                                    * Un-prefixed protocol names - reserved for IANA standard service names (as per
+                                    RFC-6335 and https://www.iana.org/assignments/service-names).
+
+                                    * Kubernetes-defined prefixed names:
+                                      * 'kubernetes.io/h2c' - HTTP/2 prior knowledge over cleartext as described in https://www.rfc-editor.org/rfc/rfc9113.html#name-starting-http-2-with-prior-
+                                      * 'kubernetes.io/ws'  - WebSocket over cleartext as described in https://www.rfc-editor.org/rfc/rfc6455
+                                      * 'kubernetes.io/wss' - WebSocket over TLS as described in https://www.rfc-editor.org/rfc/rfc6455
+
+                                    * Other protocols should use implementation-defined prefixed names such as
+                                    mycompany.com/my-custom-protocol.
+                                  type: string
+                                name:
+                                  description: |-
+                                    The name of this port.  This must match the 'name' field in the
+                                    corresponding ServicePort.
+                                    Must be a DNS_LABEL.
+                                    Optional only if one port is defined.
+                                  type: string
+                                port:
+                                  description: The port number of the endpoint.
+                                  format: int32
+                                  type: integer
+                                protocol:
+                                  description: |-
+                                    The IP protocol for this port.
+                                    Must be UDP, TCP, or SCTP.
+                                    Default is TCP.
+                                  type: string
+                              required:
+                              - port
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            type: array
+                            x-kubernetes-list-type: atomic
+                        type: object
+                      type: array
+                    type:
+                      type: string
+                  required:
+                  - clusterId
+                  - name
+                  - pool
+                  - storageCluster
+                  - type
+                  type: object
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: faults.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: Fault
+    listKind: FaultList
+    plural: faults
+    singular: fault
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              action:
+                description: Handling actions for the fault. e.g. reboot,taint
+                type: string
+              isAutoRepairEnabled:
+                description: whether the fault is auto repaired or not. default true
+                type: boolean
+              message:
+                description: fault message
+                type: string
+              monitorId:
+                description: the ID used by NodeAgent for monitoring.
+                type: string
+              node:
+                description: node information related to the fault
+                properties:
+                  adminName:
+                    description: fault-associated admin node name
+                    type: string
+                  clusterName:
+                    type: string
+                  k8sName:
+                    description: fault-associated k8s node name
+                    type: string
+                required:
+                - adminName
+                - clusterName
+                - k8sName
+                type: object
+            required:
+            - monitorId
+            type: object
+          status:
+            properties:
+              phase:
+                type: string
+              updateTime:
+                description: the last update time
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: nodeflavors.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: NodeFlavor
+    listKind: NodeFlavorList
+    plural: nodeflavors
+    singular: nodeflavor
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: NodeFlavorSpec defines the desired state of NodeFlavor
+            properties:
+              cpu:
+                properties:
+                  product:
+                    description: e.g. AMD EPYC 9554
+                    type: string
+                  quantity:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                required:
+                - quantity
+                type: object
+              dataDisk:
+                properties:
+                  count:
+                    type: integer
+                  quantity:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  type:
+                    type: string
+                required:
+                - count
+                - quantity
+                type: object
+              extendedResources:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: ResourceList is a set of (resource name, quantity) pairs.
+                type: object
+              gpu:
+                properties:
+                  product:
+                    description: e.g. AMD MI300X
+                    type: string
+                  quantity:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  resourceName:
+                    description: Corresponding resource names in Kubernetes ResourceList,
+                      such as amd.com/gpu or nvidia.com/gpu
+                    type: string
+                required:
+                - quantity
+                - resourceName
+                type: object
+              memory:
+                anyOf:
+                - type: integer
+                - type: string
+                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                x-kubernetes-int-or-string: true
+              rootDisk:
+                properties:
+                  count:
+                    type: integer
+                  quantity:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                  type:
+                    type: string
+                required:
+                - count
+                - quantity
+                type: object
+            required:
+            - cpu
+            - memory
+            type: object
+          status:
+            description: NodeFlavorStatus defines the observed state of NodeFlavor
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: nodes.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: Node
+    listKind: NodeList
+    plural: nodes
+    singular: node
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              cluster:
+                description: The name of the cluster that the node belongs to
+                type: string
+              hostname:
+                description: node hostname
+                type: string
+              nodeFlavor:
+                description: node flavor reference
+                properties:
+                  apiVersion:
+                    description: API version of the referent.
+                    type: string
+                  fieldPath:
+                    description: |-
+                      If referring to a piece of an object instead of an entire object, this string
+                      should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                      For example, if the object reference is to a container within a pod, this would take on a value like:
+                      "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                      the event) or if no container name is specified "spec.containers[2]" (container with
+                      index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                      referencing a part of an object.
+                    type: string
+                  kind:
+                    description: |-
+                      Kind of the referent.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                    type: string
+                  name:
+                    description: |-
+                      Name of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                    type: string
+                  resourceVersion:
+                    description: |-
+                      Specific resourceVersion to which this reference is made, if any.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                    type: string
+                  uid:
+                    description: |-
+                      UID of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              nodeTemplate:
+                description: node template reference
+                properties:
+                  apiVersion:
+                    description: API version of the referent.
+                    type: string
+                  fieldPath:
+                    description: |-
+                      If referring to a piece of an object instead of an entire object, this string
+                      should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                      For example, if the object reference is to a container within a pod, this would take on a value like:
+                      "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                      the event) or if no container name is specified "spec.containers[2]" (container with
+                      index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                      referencing a part of an object.
+                    type: string
+                  kind:
+                    description: |-
+                      Kind of the referent.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                    type: string
+                  name:
+                    description: |-
+                      Name of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                    type: string
+                  resourceVersion:
+                    description: |-
+                      Specific resourceVersion to which this reference is made, if any.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                    type: string
+                  uid:
+                    description: |-
+                      UID of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              port:
+                description: SSH port，default 22
+                format: int32
+                type: integer
+              privateIP:
+                type: string
+              publicIP:
+                description: option
+                type: string
+              secret:
+                description: secret for ssh
+                properties:
+                  apiVersion:
+                    description: API version of the referent.
+                    type: string
+                  fieldPath:
+                    description: |-
+                      If referring to a piece of an object instead of an entire object, this string
+                      should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
+                      For example, if the object reference is to a container within a pod, this would take on a value like:
+                      "spec.containers{name}" (where "name" refers to the name of the container that triggered
+                      the event) or if no container name is specified "spec.containers[2]" (container with
+                      index 2 in this pod). This syntax is chosen only to have some well-defined way of
+                      referencing a part of an object.
+                    type: string
+                  kind:
+                    description: |-
+                      Kind of the referent.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                    type: string
+                  name:
+                    description: |-
+                      Name of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                    type: string
+                  resourceVersion:
+                    description: |-
+                      Specific resourceVersion to which this reference is made, if any.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
+                    type: string
+                  uid:
+                    description: |-
+                      UID of the referent.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              taints:
+                description: The taint will be automatically synchronized to the Kubernetes
+                  node.
+                items:
+                  description: |-
+                    The node this Taint is attached to has the "effect" on
+                    any pod that does not tolerate the Taint.
+                  properties:
+                    effect:
+                      description: |-
+                        Required. The effect of the taint on pods
+                        that do not tolerate the taint.
+                        Valid effects are NoSchedule, PreferNoSchedule and NoExecute.
+                      type: string
+                    key:
+                      description: Required. The taint key to be applied to a node.
+                      type: string
+                    timeAdded:
+                      description: |-
+                        TimeAdded represents the time at which the taint was added.
+                        It is only written for NoExecute taints.
+                      format: date-time
+                      type: string
+                    value:
+                      description: The taint value corresponding to the taint key.
+                      type: string
+                  required:
+                  - effect
+                  - key
+                  type: object
+                type: array
+              workspace:
+                description: The name of the workspace that the node belongs to
+                type: string
+            required:
+            - nodeFlavor
+            - nodeTemplate
+            - secret
+            type: object
+          status:
+            description: NodeStatus defines the observed state of Node.
+            properties:
+              clusterStatus:
+                properties:
+                  cluster:
+                    type: string
+                  commandStatus:
+                    items:
+                      properties:
+                        name:
+                          type: string
+                        phase:
+                          type: string
+                      type: object
+                    type: array
+                  phase:
+                    type: string
+                type: object
+              conditions:
+                description: Node condition, automatically synchronized from the Kubernetes
+                  node
+                items:
+                  description: NodeCondition contains condition information for a
+                    node.
+                  properties:
+                    lastHeartbeatTime:
+                      description: Last time we got an update on a given condition.
+                      format: date-time
+                      type: string
+                    lastTransitionTime:
+                      description: Last time the condition transit from one status
+                        to another.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Human readable message indicating details about
+                        last transition.
+                      type: string
+                    reason:
+                      description: (brief) reason for the condition's last transition.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: Type of node condition.
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+              machineStatus:
+                properties:
+                  commandStatus:
+                    items:
+                      properties:
+                        name:
+                          type: string
+                        phase:
+                          type: string
+                      type: object
+                    type: array
+                  hostName:
+                    description: HostName is the hostname of the machine node.
+                    type: string
+                  phase:
+                    type: string
+                  privateIP:
+                    description: PrivateIP is the private ip address of the machine
+                      node.
+                    type: string
+                  publicIP:
+                    description: PublicIP specifies the public IP.
+                    type: string
+                type: object
+              resources:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: all the resource of node
+                type: object
+              taints:
+                description: taint automatically synchronized from the Kubernetes
+                  node
+                items:
+                  description: |-
+                    The node this Taint is attached to has the "effect" on
+                    any pod that does not tolerate the Taint.
+                  properties:
+                    effect:
+                      description: |-
+                        Required. The effect of the taint on pods
+                        that do not tolerate the taint.
+                        Valid effects are NoSchedule, PreferNoSchedule and NoExecute.
+                      type: string
+                    key:
+                      description: Required. The taint key to be applied to a node.
+                      type: string
+                    timeAdded:
+                      description: |-
+                        TimeAdded represents the time at which the taint was added.
+                        It is only written for NoExecute taints.
+                      format: date-time
+                      type: string
+                    value:
+                      description: The taint value corresponding to the taint key.
+                      type: string
+                  required:
+                  - effect
+                  - key
+                  type: object
+                type: array
+              unschedulable:
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: nodetemplates.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: NodeTemplate
+    listKind: NodeTemplateList
+    plural: nodetemplates
+    singular: nodetemplate
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              addOnTemplates:
+                description: Addon Template Name
+                items:
+                  type: string
+                type: array
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: opsjobs.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: OpsJob
+    listKind: OpsJobList
+    plural: opsjobs
+    singular: opsjob
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              cluster:
+                description: the cluster which the ops-job belongs to
+                type: string
+              env:
+                additionalProperties:
+                  type: string
+                description: environment variables
+                type: object
+              inputs:
+                description: The resource objects to be processed, e.g., node. Multiple
+                  entries will be processed sequentially.
+                items:
+                  properties:
+                    name:
+                      type: string
+                    value:
+                      type: string
+                  required:
+                  - name
+                  - value
+                  type: object
+                type: array
+              isTolerateAll:
+                description: Indicates whether the job tolerates node taints
+                type: boolean
+              timeoutSecond:
+                description: ops-job Timeout (in seconds), Less than or equal to 0
+                  means no timeout
+                type: integer
+              ttlSecondsAfterFinished:
+                description: the lifecycle of ops-job after it finishes
+                type: integer
+              type:
+                description: 'the type of ops-job, valid values include: addon/preflight/dumplog'
+                type: string
+            required:
+            - cluster
+            - inputs
+            - isTolerateAll
+            - type
+            type: object
+          status:
+            properties:
+              conditions:
+                description: ops job's conditions
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              finishedAt:
+                description: ops job's end time
+                format: date-time
+                type: string
+              outputs:
+                description: ops job's output
+                items:
+                  properties:
+                    name:
+                      type: string
+                    value:
+                      type: string
+                  required:
+                  - name
+                  - value
+                  type: object
+                type: array
+              phase:
+                description: ops job's phase
+                type: string
+              startedAt:
+                description: ops job's start time
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: resourcetemplates.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: ResourceTemplate
+    listKind: ResourceTemplateList
+    plural: resourcetemplates
+    singular: resourcetemplate
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              activeReplica:
+                description: Definition used to retrieve the active replica count
+                  of a Kubernetes object
+                properties:
+                  prePaths:
+                    items:
+                      type: string
+                    type: array
+                  replicaPath:
+                    type: string
+                type: object
+              groupVersionKind:
+                description: |-
+                  Specifies the Group, Version, and Kind (GVK) for a Kubernetes object
+                  This GVK is not the same as the workload's GVK, which is defined in the label selector.
+                properties:
+                  group:
+                    type: string
+                  kind:
+                    type: string
+                  version:
+                    type: string
+                type: object
+              resourceSpecs:
+                description: Definition used to retrieve the spec of a Kubernetes
+                  object
+                items:
+                  properties:
+                    prePaths:
+                      description: Pre-path to k8s object's spec
+                      items:
+                        type: string
+                      type: array
+                    replica:
+                      description: |-
+                        If the replica count is set to a non-zero value, it will be used as a fixed allocation when the task is submitted
+                        This applies only to the master role of a PyTorchJob (or similar structures).
+                      format: int64
+                      type: integer
+                    replicasPaths:
+                      description: The relative path of pod replica
+                      items:
+                        type: string
+                      type: array
+                    templatePaths:
+                      description: The relative path of pod template
+                      items:
+                        type: string
+                      type: array
+                  type: object
+                type: array
+              resourceStatus:
+                description: Definition used to retrieve the status of a Kubernetes
+                  object
+                properties:
+                  messagePaths:
+                    description: The relative path of message
+                    items:
+                      type: string
+                    type: array
+                  phases:
+                    description: Expression for retrieving the phase value.
+                    items:
+                      properties:
+                        matchExpressions:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        phase:
+                          type: string
+                      required:
+                      - matchExpressions
+                      - phase
+                      type: object
+                    type: array
+                  prePaths:
+                    description: Prefix path for retrieving the object's phase, commonly
+                      referencing the status condition.
+                    items:
+                      type: string
+                    type: array
+                  reasonPaths:
+                    description: The relative path of reason
+                    items:
+                      type: string
+                    type: array
+                type: object
+            required:
+            - groupVersionKind
+            type: object
+          status:
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: roles.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: Role
+    listKind: RoleList
+    plural: roles
+    singular: role
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          rules:
+            items:
+              properties:
+                grantedUsers:
+                  description: |-
+                    grantedUsers is a list of users permitted to access the resource.
+                    Setting 'owner' means that only the resource owner is allowed
+                    Setting 'workspace-user' means that users of the workspace are allowed
+                    '*' represents all users are allowed.
+                  items:
+                    type: string
+                  type: array
+                resources:
+                  description: |-
+                    Resources is a list of resources this rule applies to. '*' represents all resources.
+                    e.g. workload, workspace/dev
+                  items:
+                    type: string
+                  type: array
+                verbs:
+                  description: |-
+                    Verbs is a list of Verbs that apply to ALL the ResourceKinds contained in this rule.
+                    '*' represents all verbs.
+                  items:
+                    type: string
+                  type: array
+              required:
+              - resources
+              - verbs
+              type: object
+            type: array
+        required:
+        - rules
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: storageclusters.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: StorageCluster
+    listKind: StorageClusterList
+    plural: storageclusters
+    singular: storagecluster
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              cluster:
+                type: string
+              count:
+                type: integer
+              flavor:
+                type: string
+              image:
+                type: string
+              resources:
+                additionalProperties:
+                  description: ResourceRequirements describes the compute resource
+                    requirements.
+                  properties:
+                    claims:
+                      description: |-
+                        Claims lists the names of resources, defined in spec.resourceClaims,
+                        that are used by this container.
+
+                        This is an alpha field and requires enabling the
+                        DynamicResourceAllocation feature gate.
+
+                        This field is immutable. It can only be set for containers.
+                      items:
+                        description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                        properties:
+                          name:
+                            description: |-
+                              Name must match the name of one entry in pod.spec.resourceClaims of
+                              the Pod where this field is used. It makes that resource available
+                              inside a container.
+                            type: string
+                          request:
+                            description: |-
+                              Request is the name chosen for a request in the referenced claim.
+                              If empty, everything from the claim is made available, otherwise
+                              only the result of this request.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
+                    limits:
+                      additionalProperties:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      description: |-
+                        Limits describes the maximum amount of compute resources allowed.
+                        More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                      type: object
+                    requests:
+                      additionalProperties:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      description: |-
+                        Requests describes the minimum amount of compute resources required.
+                        If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                        otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                        More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                      type: object
+                  type: object
+                type: object
+            required:
+            - cluster
+            - count
+            - flavor
+            type: object
+          status:
+            properties:
+              cephStatus:
+                description: CephClusterStatus represents the status of a Ceph cluster
+                properties:
+                  accessKey:
+                    type: string
+                  capacity:
+                    description: Capacity is the capacity information of a Ceph Cluster
+                    properties:
+                      bytesAvailable:
+                        format: int64
+                        type: integer
+                      bytesTotal:
+                        format: int64
+                        type: integer
+                      bytesUsed:
+                        format: int64
+                        type: integer
+                      lastUpdated:
+                        type: string
+                    type: object
+                  clusterId:
+                    type: string
+                  health:
+                    type: string
+                  lastChanged:
+                    type: string
+                  lastChecked:
+                    type: string
+                  monitors:
+                    items:
+                      type: string
+                    type: array
+                  osd:
+                    type: integer
+                  previousHealth:
+                    type: string
+                  secretKey:
+                    type: string
+                type: object
+              phase:
+                description: State             string             `json:"state,omitempty"`
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: users.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: User
+    listKind: UserList
+    plural: users
+    singular: user
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              password:
+                description: user's password, base64 encoded, optional
+                type: string
+              resources:
+                additionalProperties:
+                  items:
+                    type: string
+                  type: array
+                description: |-
+                  key is the resource name to be managed (e.g. workspace)
+                  values are its corresponding values(e.g. workspace-id)"
+                type: object
+              restrictedType:
+                description: '0: normal; 1 frozen. default: 0'
+                type: integer
+              roles:
+                description: |-
+                  user's role, such as system-admin/default
+                  permission check passes if any single role is satisfied.
+                items:
+                  type: string
+                type: array
+              type:
+                description: user's type, required
+                type: string
+            required:
+            - roles
+            - type
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: workloads.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: Workload
+    listKind: WorkloadList
+    plural: workloads
+    singular: workload
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              customerLabels:
+                additionalProperties:
+                  type: string
+                description: |-
+                  The workload will run on nodes with the user-specified labels.
+                  If multiple labels are specified, all of them must be satisfied.
+                type: object
+              entryPoint:
+                description: workload entryPoint, required in base64 encoding
+                type: string
+              env:
+                additionalProperties:
+                  type: string
+                description: environment variables
+                type: object
+              groupVersionKind:
+                description: |-
+                  Group: An extension field that is not currently in use
+                  Version: version of workload, default value is v1
+                  Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default value is PyTorchJob
+                properties:
+                  group:
+                    type: string
+                  kind:
+                    type: string
+                  version:
+                    type: string
+                type: object
+              image:
+                description: Workload image address
+                type: string
+              isSupervised:
+                description: Supervision flag for the workload. When enabled, it performs
+                  operations like hang detection
+                type: boolean
+              isTolerateAll:
+                description: Indicates whether the workload tolerates node taints
+                type: boolean
+              jobPort:
+                description: |-
+                  Environment variable for workload
+                  the port for job, This field is set internally
+                type: integer
+              liveness:
+                description: K8s liveness check. used for deployment/statefulSet
+                properties:
+                  failureThreshold:
+                    description: 'Failure retry limit. default: 3'
+                    type: integer
+                  initialDelaySeconds:
+                    description: 'initial delay seconds. default: 600s'
+                    type: integer
+                  path:
+                    description: the path for health check
+                    type: string
+                  periodSeconds:
+                    description: 'period check interval. default: 3s'
+                    type: integer
+                  port:
+                    description: Service port for health detect
+                    type: integer
+                required:
+                - path
+                - port
+                type: object
+              maxRetry:
+                description: 'Failure retry limit. default: 0'
+                type: integer
+              priority:
+                description: 'Workload scheduling priority. Defaults to 0; valid range:
+                  0–2'
+                type: integer
+              readiness:
+                description: K8s readiness check. used for deployment/statefulSet
+                properties:
+                  failureThreshold:
+                    description: 'Failure retry limit. default: 3'
+                    type: integer
+                  initialDelaySeconds:
+                    description: 'initial delay seconds. default: 600s'
+                    type: integer
+                  path:
+                    description: the path for health check
+                    type: string
+                  periodSeconds:
+                    description: 'period check interval. default: 3s'
+                    type: integer
+                  port:
+                    description: Service port for health detect
+                    type: integer
+                required:
+                - path
+                - port
+                type: object
+              resource:
+                description: Workload resource requirements
+                properties:
+                  cpu:
+                    description: Requested CPU core count (e.g., 128)
+                    type: string
+                  ephemeralStorage:
+                    description: 'ephemeral-storage for pod，default: 50Gi'
+                    type: string
+                  gpu:
+                    description: Requested GPU card count (e.g., 8)
+                    type: string
+                  gpuName:
+                    description: This field is set internally to match the resource
+                      supported by the workspace. e.g. amd.com/gpu
+                    type: string
+                  memory:
+                    description: Requested Memory size (e.g., 128Gi)
+                    type: string
+                  rdmaResource:
+                    description: |-
+                      RDMA resource is effective only with hostNetwork enabled (default: 1).
+                      This field is set internally
+                    type: string
+                  replica:
+                    description: Number of requested nodes
+                    type: integer
+                  sharedMemory:
+                    description: 'Requested Shared Memory size (e.g., 128Gi). Used
+                      for sharing data between processes. default: Memory/2'
+                    type: string
+                required:
+                - cpu
+                - memory
+                - replica
+                type: object
+              service:
+                description: Service configuration
+                properties:
+                  extends:
+                    additionalProperties:
+                      type: string
+                    description: Extended environment variable
+                    type: object
+                  nodePort:
+                    description: k8s node port
+                    type: integer
+                  port:
+                    description: Service port for external access
+                    type: integer
+                  protocol:
+                    description: TCP/UDP
+                    type: string
+                  serviceType:
+                    description: ClusterIP/NodePort
+                    type: string
+                  targetPort:
+                    description: Pod service listening port
+                    type: integer
+                required:
+                - port
+                - protocol
+                - serviceType
+                - targetPort
+                type: object
+              sshPort:
+                description: the port for ssh, This field is set internally
+                type: integer
+              timeout:
+                description: Workload timeout in hours. Default is 0 (no timeout).
+                type: integer
+              ttlSecondsAfterFinished:
+                description: The lifecycle of the workload after completion, in seconds.
+                  Default to 60.
+                type: integer
+              workspace:
+                description: Requested workspace
+                type: string
+            required:
+            - groupVersionKind
+            - priority
+            - resource
+            - workspace
+            type: object
+          status:
+            properties:
+              conditions:
+                description: Some status descriptions of the workload
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              endTime:
+                description: workload end time
+                format: date-time
+                type: string
+              k8sObjectUid:
+                description: The corresponding UID applied to the Kubernetes object.
+                type: string
+              message:
+                description: Some status descriptions of the workload. only for pending
+                type: string
+              nodes:
+                description: The node used for each workload execution. If the workload
+                  is retried multiple times, there will be multiple entries.
+                items:
+                  items:
+                    type: string
+                  type: array
+                type: array
+              phase:
+                description: Pending，Running，Succeeded，Failed, Stopped, Error
+                type: string
+              pods:
+                description: Pod info related to the workload
+                items:
+                  properties:
+                    adminNodeName:
+                      description: the admin node that the Pod is scheduled on
+                      type: string
+                    containers:
+                      description: container info
+                      items:
+                        properties:
+                          exitCode:
+                            format: int32
+                            type: integer
+                          message:
+                            type: string
+                          name:
+                            type: string
+                          reason:
+                            type: string
+                        required:
+                        - exitCode
+                        - name
+                        type: object
+                      type: array
+                    endTime:
+                      description: pod end time
+                      type: string
+                    hostIP:
+                      description: The node's IP address where the Pod is running
+                      type: string
+                    k8sNodeName:
+                      description: the Kubernetes node that the Pod is scheduled on
+                      type: string
+                    phase:
+                      description: 'pod status: Pending, Running, Succeeded, Failed,
+                        Unknown'
+                      type: string
+                    podIP:
+                      description: The pod's IP address where the Pod is running
+                      type: string
+                    podId:
+                      description: podId
+                      type: string
+                    startTime:
+                      description: pod start time
+                      type: string
+                  required:
+                  - podId
+                  type: object
+                type: array
+              schedulerOrder:
+                description: The current position of the workload in the queue
+                type: integer
+              startTime:
+                description: workload start time
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: workspaces.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: Workspace
+    listKind: WorkspaceList
+    plural: workspaces
+    singular: workspace
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              cluster:
+                description: The name of the cluster that the workspace belongs to
+                type: string
+              enablePreempt:
+                description: Is preemption enabled. default is false
+                type: boolean
+              isDefault:
+                description: Set the workspace as the default workspace (i.e., all
+                  users can access it).
+                type: boolean
+              managers:
+                description: the manager's user_id of workspace
+                items:
+                  type: string
+                type: array
+              nodeFlavor:
+                description: node flavor id
+                type: string
+              queuePolicy:
+                description: |-
+                  Queuing policy for tasks submitted in this workspace.
+                  All tasks currently share the same policy (no per-task customization). default is fifo.
+                type: string
+              replica:
+                description: node count
+                type: integer
+              scopes:
+                description: Service modules available in this space. No limitation
+                  if not specified.
+                items:
+                  enum:
+                  - Train
+                  - Infer
+                  - Authoring
+                  type: string
+                type: array
+              volumes:
+                description: volumes used in this space
+                items:
+                  properties:
+                    accessMode:
+                      description: access mode, default is ReadWriteMany
+                      type: string
+                    capacity:
+                      description: |-
+                        The following parameters are used for PVC creation. If using hostPath mounting, they are not required.
+                        Capacity size, such as 100Gi. This is a required parameter when creating a PVC (PersistentVolumeClaim).
+                      type: string
+                    hostPath:
+                      description: Path on the host to mount. Required when storage
+                        type is hostpath
+                      type: string
+                    mountPath:
+                      description: Mount path to be used, equivalent to 'mountPath'
+                        in Kubernetes volume mounts.
+                      type: string
+                    selector:
+                      additionalProperties:
+                        type: string
+                      description: |-
+                        selector is a label query over volumes to consider for binding.
+                        It cannot be used together with storageClassName. If both are set, the selector takes priority
+                      type: object
+                    storageClass:
+                      description: Responsible for automatic PV creation
+                      type: string
+                    storageType:
+                      description: |-
+                        The storage type, which is also used as the volume name
+                        valid values includes: rbd/obs/cephfs/juicefs/hostpath
+                      type: string
+                    subPath:
+                      description: equivalent to 'subPath' in Kubernetes volume mounts
+                      type: string
+                  required:
+                  - mountPath
+                  - storageType
+                  type: object
+                type: array
+            required:
+            - cluster
+            type: object
+          status:
+            properties:
+              abnormalReplica:
+                type: integer
+              availableReplica:
+                type: integer
+              availableResources:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: ResourceList is a set of (resource name, quantity) pairs.
+                type: object
+              phase:
+                type: string
+              totalResources:
+                additionalProperties:
+                  anyOf:
+                  - type: integer
+                  - type: string
+                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                  x-kubernetes-int-or-string: true
+                description: ResourceList is a set of (resource name, quantity) pairs.
+                type: object
+              updateTime:
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

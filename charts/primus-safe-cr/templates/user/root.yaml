@@ -1,10 +1,11 @@
 apiVersion: amd.com/v1
 kind: User
 metadata:
-  name: root
+  name: 63a9f0ea7bb98050796b649e85481845
   labels:
     app.kubernetes.io/managed-by: Helm
   annotations:
+    primus-safe.user.name: root
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:

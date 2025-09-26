@@ -86,14 +86,11 @@ func (m *UserMutator) mutateCommon(ctx context.Context, user *v1.User) {
 }
 
 func (m *UserMutator) mutateMetadata(user *v1.User) {
-	if user.Name != "" {
-		user.Name = stringutil.NormalizeName(user.Name)
-	}
-	if val := v1.GetUserName(user); val != "" {
-		v1.SetLabel(user, v1.UserNameMd5Label, stringutil.MD5(val))
-	}
 	if val := v1.GetUserEmail(user); val != "" {
 		v1.SetLabel(user, v1.UserEmailMd5Label, stringutil.MD5(val))
+	}
+	if user.Spec.Type == "" {
+		user.Spec.Type = v1.DefaultUser
 	}
 	metav1.SetMetaDataLabel(&user.ObjectMeta, v1.UserIdLabel, user.Name)
 }
@@ -251,6 +248,9 @@ func (v *UserValidator) validateMetadata(user *v1.User) error {
 func (v *UserValidator) validateImmutableFields(newUser, oldUser *v1.User) error {
 	if newUser.Spec.Type != oldUser.Spec.Type {
 		return field.Forbidden(field.NewPath("spec").Key("type"), "immutable")
+	}
+	if v1.GetUserName(newUser) != v1.GetUserName(oldUser) {
+		return field.Forbidden(field.NewPath("user").Key("name"), "immutable")
 	}
 	return nil
 }

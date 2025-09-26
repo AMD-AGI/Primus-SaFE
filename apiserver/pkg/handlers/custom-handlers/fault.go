@@ -6,6 +6,7 @@
 package custom_handlers
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -121,6 +123,18 @@ func (h *Handler) stopFault(c *gin.Context) (interface{}, error) {
 	klog.Infof("delete admin fault %s", id)
 	return nil, nil
 }
+
+func (h *Handler) getAdminFault(ctx context.Context, name string) (*v1.Fault, error) {
+	if name == "" {
+		return nil, commonerrors.NewBadRequest("the faultId is empty")
+	}
+	fault := &v1.Fault{}
+	if err := h.Get(ctx, client.ObjectKey{Name: name}, fault); err != nil {
+		return nil, err
+	}
+	return fault.DeepCopy(), nil
+}
+
 func parseListFaultQuery(c *gin.Context) (*types.ListFaultRequest, error) {
 	query := &types.ListFaultRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
@@ -151,9 +165,6 @@ func cvtToListFaultSql(query *types.ListFaultRequest) sqrl.Sqlizer {
 			sqlList = append(sqlList, sqrl.Eq{monitorId: val})
 		}
 		dbSql = append(dbSql, sqrl.Or(sqlList))
-	} else {
-		// 5xx IDs are reserved for internal use and are generally not exposed to external users."
-		dbSql = append(dbSql, sqrl.NotLike{monitorId: "5%"})
 	}
 
 	if cluster := strings.TrimSpace(query.Cluster); cluster != "" {
