@@ -7,6 +7,7 @@ package authority
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -37,9 +38,13 @@ type TokenItem struct {
 func ParseCookie(c *gin.Context) error {
 	err := parseCookie(c)
 	if err != nil {
-		// only for internal user
 		userId := c.GetHeader(common.UserId)
+		// only for internal user
 		if userId != "" && !commonconfig.IsUserTokenRequired() {
+			// Briefly: Maintain compatibility with the old user system for now, to be removed later.
+			if !isMD5(userId) {
+				userId = stringutil.MD5(userId)
+			}
 			c.Set(common.UserId, userId)
 			return nil
 		}
@@ -63,6 +68,11 @@ func parseCookie(c *gin.Context) error {
 	}
 	c.Set(common.UserId, token.UserId)
 	return nil
+}
+
+func isMD5(s string) bool {
+	matched, _ := regexp.MatchString(`^[a-fA-F0-9]{32}$`, s)
+	return matched
 }
 
 func validateToken(token string) (*TokenItem, error) {
