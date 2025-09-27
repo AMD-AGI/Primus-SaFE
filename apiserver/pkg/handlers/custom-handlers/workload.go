@@ -84,12 +84,11 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	workload, err := generateWorkload(c, req, body)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
-
-	requestUser, err := h.getAndSetUsername(c)
+	workload, err := generateWorkload(c, req, body)
 	if err != nil {
 		return nil, err
 	}
@@ -108,8 +107,8 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	klog.Infof("create workload, name: %s, user: %s, priority: %d, timeout: %d",
-		workload.Name, c.GetString(common.UserId), workload.Spec.Priority, workload.Spec.Timeout)
+	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d",
+		workload.Name, c.GetString(common.UserName), c.GetString(common.UserId), workload.Spec.Priority, workload.Spec.Timeout)
 	return &types.CreateWorkloadResponse{WorkloadId: workload.Name}, nil
 }
 func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
