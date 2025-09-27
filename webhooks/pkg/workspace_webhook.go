@@ -452,10 +452,10 @@ func (v *WorkspaceValidator) validateResource(ctx context.Context, workspace *v1
 }
 
 func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Workspace) error {
-	oldCapacityMap := make(map[string]string)
+	oldVolumeMap := make(map[string]v1.WorkspaceVolume)
 	if oldWorkspace != nil {
 		for _, vol := range oldWorkspace.Spec.Volumes {
-			oldCapacityMap[vol.GenFullVolumeId()] = vol.Capacity
+			oldVolumeMap[vol.GenFullVolumeId()] = vol
 		}
 	}
 	supportedTypes := []v1.WorkspaceVolumeType{v1.HOSTPATH, v1.PFS}
@@ -489,9 +489,17 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 		}
 
 		volumeId := vol.GenFullVolumeId()
-		oldCapacity, ok := oldCapacityMap[volumeId]
-		if ok && oldCapacity != vol.Capacity {
-			return fmt.Errorf("The capacity of volume(%s) can not be changed", volumeId)
+		oldVolume, ok := oldVolumeMap[volumeId]
+		if ok {
+			if oldVolume.StorageClass != vol.StorageClass {
+				return fmt.Errorf("The storageClass of volume(%s) can not be changed", volumeId)
+			}
+			if oldVolume.Capacity != vol.Capacity {
+				return fmt.Errorf("The capacity of volume(%s) can not be changed", volumeId)
+			}
+			if !maps.EqualIgnoreOrder(oldVolume.Selector, vol.Selector) {
+				return fmt.Errorf("The pv selector of volume(%s) can not be changed", volumeId)
+			}
 		}
 		if !sliceutil.Contains(supportedAccessMode, vol.AccessMode) {
 			return fmt.Errorf("invalid volume access mode. only %v supported", supportedAccessMode)
