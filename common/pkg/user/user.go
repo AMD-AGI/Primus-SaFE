@@ -10,6 +10,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 func IsRolesEqual(roles1, roles2 []v1.UserRole) bool {
@@ -135,4 +136,8 @@ func delWorkspace(u *v1.User, key string) {
 		return
 	}
 	delete(u.Spec.Resources, key)
+}
+
+func GetUserIdByName(name string) string {
+	return stringutil.MD5(name)
 }

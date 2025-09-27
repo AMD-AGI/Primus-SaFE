@@ -80,13 +80,13 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 	if err = h.Create(c.Request.Context(), user); err != nil {
 		return nil, err
 	}
-	return nil, nil
+	return &types.CreateUserResponse{Id: user.Name}, nil
 }
 
 func generateUser(req *types.CreateUserRequest, requestUser *v1.User) *v1.User {
 	user := &v1.User{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: req.Id,
+			Name: commonuser.GetUserIdByName(req.Name),
 			Annotations: map[string]string{
 				v1.UserNameAnnotation:      req.Name,
 				v1.UserEmailAnnotation:     req.Email,
@@ -99,6 +99,7 @@ func generateUser(req *types.CreateUserRequest, requestUser *v1.User) *v1.User {
 		},
 	}
 
+	// Only administrators can specify user type; others can only create default user.
 	if requestUser != nil && requestUser.IsSystemAdmin() {
 		user.Spec.Type = req.Type
 		commonuser.AssignWorkspace(user, req.Workspaces...)
@@ -159,7 +160,7 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 	if targetUserId == common.UserSelf {
 		targetUser = requestUser
 	} else {
-		targetUser, err = h.getTargetUser(c.Request.Context(), targetUserId)
+		targetUser, err = h.getAdminUser(c.Request.Context(), targetUserId)
 		if err != nil {
 			return nil, err
 		}
@@ -179,7 +180,7 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	}
 
 	targetUserId := c.GetString(types.Name)
-	targetUser, err := h.getTargetUser(c.Request.Context(), targetUserId)
+	targetUser, err := h.getAdminUser(c.Request.Context(), targetUserId)
 	if err != nil {
 		return nil, err
 	}
@@ -204,11 +205,6 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	}
 	if req.Password != nil {
 		targetUser.Spec.Password = stringutil.Base64Encode(*req.Password)
-	}
-
-	if req.Name != nil {
-		v1.SetLabel(targetUser, v1.UserNameMd5Label, stringutil.MD5(*req.Name))
-		v1.SetAnnotation(targetUser, v1.UserNameAnnotation, *req.Name)
 	}
 	if req.Email != nil {
 		v1.SetLabel(targetUser, v1.UserEmailMd5Label, stringutil.MD5(*req.Email))
@@ -259,7 +255,6 @@ func (h *Handler) checkPatchUser(c *gin.Context, targetUser *v1.User, req *types
 	}
 
 	if req.Email != nil && *req.Email != v1.GetUserEmail(targetUser) ||
-		req.Name != nil && *req.Name != v1.GetUserName(targetUser) ||
 		req.AvatarUrl != nil && *req.AvatarUrl != v1.GetUserAvatarUrl(targetUser) ||
 		req.Password != nil && *req.Password != stringutil.Base64Decode(targetUser.Spec.Password) {
 		if err = h.authUserAction(c, requestUser, targetUser,
@@ -294,7 +289,7 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	targetUser, err := h.getTargetUser(c.Request.Context(), c.GetString(types.Name))
+	targetUser, err := h.getAdminUser(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +303,7 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) getTargetUser(ctx context.Context, name string) (*v1.User, error) {
+func (h *Handler) getAdminUser(ctx context.Context, name string) (*v1.User, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the userId is empty")
 	}
@@ -342,13 +337,13 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) performDefaultLogin(c *gin.Context, query *types.UserLoginRequest) (*types.UserLoginResponse, error) {
-	if query.Id == "" {
-		return nil, commonerrors.NewBadRequest("the userId is empty")
+	if query.Name == "" {
+		return nil, commonerrors.NewBadRequest("the userName is empty")
 	}
-	user := &v1.User{}
-	var err error
-	if err = h.Get(c.Request.Context(), client.ObjectKey{Name: query.Id}, user); err != nil {
-		return nil, commonerrors.NewUserNotRegistered(query.Id)
+	userId := commonuser.GetUserIdByName(query.Name)
+	user, err := h.getAdminUser(c.Request.Context(), userId)
+	if err != nil {
+		return nil, commonerrors.NewUserNotRegistered(query.Name)
 	}
 	if user.Spec.Password != "" && user.Spec.Password != stringutil.Base64Encode(query.Password) {
 		return nil, commonerrors.NewUnauthorized("the password is incorrect")
@@ -356,8 +351,8 @@ func (h *Handler) performDefaultLogin(c *gin.Context, query *types.UserLoginRequ
 
 	userInfo := &types.UserLoginResponse{
 		UserResponseItem: types.UserResponseItem{
-			Id:        query.Id,
-			Name:      v1.GetUserName(user),
+			Id:        user.Name,
+			Name:      query.Name,
 			Roles:     user.Spec.Roles,
 			AvatarUrl: v1.GetUserAvatarUrl(user),
 			Type:      user.Spec.Type,
@@ -448,9 +443,6 @@ func parseCreateUserQuery(requestUser *v1.User, c *gin.Context) (*types.CreateUs
 		klog.ErrorS(err, "fail to getBodyFromRequest", "body", string(body))
 		return nil, err
 	}
-	if req.Type == "" {
-		req.Type = v1.DefaultUser
-	}
 	if requestUser == nil || !requestUser.IsSystemAdmin() {
 		if req.Password == "" {
 			return nil, commonerrors.NewBadRequest("the password is empty")
@@ -464,7 +456,7 @@ func parseLoginQuery(c *gin.Context) (*types.UserLoginRequest, error) {
 	contentType := c.ContentType()
 	if contentType == FormContent {
 		req.Type = v1.UserType(c.PostForm("type"))
-		req.Id = c.PostForm("id")
+		req.Name = c.PostForm("name")
 		req.Password = c.PostForm("password")
 		req.IsFromConsole = true
 	} else {
@@ -492,8 +484,8 @@ func buildListUserSelector(query *types.ListUserRequest) labels.Selector {
 		if unescape, err := url.QueryUnescape(name); err == nil {
 			name = unescape
 		}
-		nameMd5 := stringutil.MD5(name)
-		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.Equals, []string{nameMd5})
+		userId := commonuser.GetUserIdByName(query.Name)
+		req, _ := labels.NewRequirement(v1.UserIdLabel, selection.Equals, []string{userId})
 		labelSelector = labelSelector.Add(*req)
 	}
 	if query.Email != "" {

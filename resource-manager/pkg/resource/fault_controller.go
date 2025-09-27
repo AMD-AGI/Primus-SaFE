@@ -82,8 +82,9 @@ func (r *FaultReconciler) handleNodeEvent() handler.EventHandler {
 			if !ok1 || !ok2 {
 				return
 			}
-			// delete all faults when unmanaging node
-			if oldNode.GetSpecCluster() != "" && newNode.GetSpecCluster() == "" {
+			// delete all faults when unmanaging or deleting node
+			if (oldNode.GetSpecCluster() != "" && newNode.GetSpecCluster() == "") ||
+				oldNode.GetDeletionTimestamp().IsZero() && !newNode.GetDeletionTimestamp().IsZero() {
 				labelSelector := labels.SelectorFromSet(map[string]string{v1.NodeIdLabel: newNode.Name})
 				if err := r.deleteFaults(ctx, labelSelector); err != nil {
 					klog.ErrorS(err, "failed to delete faults with node", "node", newNode.Name)
