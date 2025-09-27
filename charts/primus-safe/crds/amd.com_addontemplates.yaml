@@ -1,0 +1,94 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: addontemplates.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: AddonTemplate
+    listKind: AddonTemplateList
+    plural: addontemplates
+    singular: addontemplate
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              action:
+                description: the action of addon (base64 encoded)
+                type: string
+              category:
+                description: category of template. e.g. system/gpu
+                type: string
+              description:
+                description: the description of addon template
+                type: string
+              gpuChip:
+                description: target gpu chip(amd or nvidia), If left empty, it applies
+                  to all chip.
+                type: string
+              helmDefaultNamespace:
+                type: string
+              helmDefaultValues:
+                description: the default value for helm install
+                type: string
+              icon:
+                description: icon url，base64 encoded
+                type: string
+              required:
+                description: |-
+                  If it is true, installation failure will terminate the installation of other packages and raise an error.
+                  If it is false, only an error log will be printed and the failure can be ignored.
+                type: boolean
+              type:
+                description: type of template
+                type: string
+              url:
+                description: only for helm
+                type: string
+              version:
+                description: version of template
+                type: string
+            required:
+            - category
+            type: object
+          status:
+            properties:
+              helmStatus:
+                properties:
+                  values:
+                    type: string
+                  valuesYaml:
+                    type: string
+                type: object
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

@@ -105,7 +105,6 @@ const (
 	// secret
 	SecretPrefix    = PrimusSafePrefix + "secret."
 	SecretTypeLabel = SecretPrefix + "type"
-	SecretMd5Label  = SecretPrefix + "md5"
 
 	// exporter
 	ExporterFinalizer = PrimusSafeDomain + "exporter.finalizer"

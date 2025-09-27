@@ -1,0 +1,361 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: workloads.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: Workload
+    listKind: WorkloadList
+    plural: workloads
+    singular: workload
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              customerLabels:
+                additionalProperties:
+                  type: string
+                description: |-
+                  The workload will run on nodes with the user-specified labels.
+                  If multiple labels are specified, all of them must be satisfied.
+                type: object
+              entryPoint:
+                description: workload entryPoint, required in base64 encoding
+                type: string
+              env:
+                additionalProperties:
+                  type: string
+                description: environment variables
+                type: object
+              groupVersionKind:
+                description: |-
+                  Group: An extension field that is not currently in use
+                  Version: version of workload, default value is v1
+                  Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default value is PyTorchJob
+                properties:
+                  group:
+                    type: string
+                  kind:
+                    type: string
+                  version:
+                    type: string
+                type: object
+              image:
+                description: Workload image address
+                type: string
+              isSupervised:
+                description: Supervision flag for the workload. When enabled, it performs
+                  operations like hang detection
+                type: boolean
+              isTolerateAll:
+                description: Indicates whether the workload tolerates node taints
+                type: boolean
+              jobPort:
+                description: |-
+                  Environment variable for workload
+                  the port for job, This field is set internally
+                type: integer
+              liveness:
+                description: K8s liveness check. used for deployment/statefulSet
+                properties:
+                  failureThreshold:
+                    description: 'Failure retry limit. default: 3'
+                    type: integer
+                  initialDelaySeconds:
+                    description: 'initial delay seconds. default: 600s'
+                    type: integer
+                  path:
+                    description: the path for health check
+                    type: string
+                  periodSeconds:
+                    description: 'period check interval. default: 3s'
+                    type: integer
+                  port:
+                    description: Service port for health detect
+                    type: integer
+                required:
+                - path
+                - port
+                type: object
+              maxRetry:
+                description: 'Failure retry limit. default: 0'
+                type: integer
+              priority:
+                description: 'Workload scheduling priority. Defaults to 0; valid range:
+                  0–2'
+                type: integer
+              readiness:
+                description: K8s readiness check. used for deployment/statefulSet
+                properties:
+                  failureThreshold:
+                    description: 'Failure retry limit. default: 3'
+                    type: integer
+                  initialDelaySeconds:
+                    description: 'initial delay seconds. default: 600s'
+                    type: integer
+                  path:
+                    description: the path for health check
+                    type: string
+                  periodSeconds:
+                    description: 'period check interval. default: 3s'
+                    type: integer
+                  port:
+                    description: Service port for health detect
+                    type: integer
+                required:
+                - path
+                - port
+                type: object
+              resource:
+                description: Workload resource requirements
+                properties:
+                  cpu:
+                    description: Requested CPU core count (e.g., 128)
+                    type: string
+                  ephemeralStorage:
+                    description: 'ephemeral-storage for pod，default: 50Gi'
+                    type: string
+                  gpu:
+                    description: Requested GPU card count (e.g., 8)
+                    type: string
+                  gpuName:
+                    description: This field is set internally to match the resource
+                      supported by the workspace. e.g. amd.com/gpu
+                    type: string
+                  memory:
+                    description: Requested Memory size (e.g., 128Gi)
+                    type: string
+                  rdmaResource:
+                    description: |-
+                      RDMA resource is effective only with hostNetwork enabled (default: 1).
+                      This field is set internally
+                    type: string
+                  replica:
+                    description: Number of requested nodes
+                    type: integer
+                  sharedMemory:
+                    description: 'Requested Shared Memory size (e.g., 128Gi). Used
+                      for sharing data between processes. default: Memory/2'
+                    type: string
+                required:
+                - cpu
+                - memory
+                - replica
+                type: object
+              service:
+                description: Service configuration
+                properties:
+                  extends:
+                    additionalProperties:
+                      type: string
+                    description: Extended environment variable
+                    type: object
+                  nodePort:
+                    description: k8s node port
+                    type: integer
+                  port:
+                    description: Service port for external access
+                    type: integer
+                  protocol:
+                    description: TCP/UDP
+                    type: string
+                  serviceType:
+                    description: ClusterIP/NodePort
+                    type: string
+                  targetPort:
+                    description: Pod service listening port
+                    type: integer
+                required:
+                - port
+                - protocol
+                - serviceType
+                - targetPort
+                type: object
+              sshPort:
+                description: the port for ssh, This field is set internally
+                type: integer
+              timeout:
+                description: Workload timeout in hours. Default is 0 (no timeout).
+                type: integer
+              ttlSecondsAfterFinished:
+                description: The lifecycle of the workload after completion, in seconds.
+                  Default to 60.
+                type: integer
+              workspace:
+                description: Requested workspace
+                type: string
+            required:
+            - groupVersionKind
+            - priority
+            - resource
+            - workspace
+            type: object
+          status:
+            properties:
+              conditions:
+                description: Some status descriptions of the workload
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              endTime:
+                description: workload end time
+                format: date-time
+                type: string
+              k8sObjectUid:
+                description: The corresponding UID applied to the Kubernetes object.
+                type: string
+              message:
+                description: Some status descriptions of the workload. only for pending
+                type: string
+              nodes:
+                description: The node used for each workload execution. If the workload
+                  is retried multiple times, there will be multiple entries.
+                items:
+                  items:
+                    type: string
+                  type: array
+                type: array
+              phase:
+                description: Pending，Running，Succeeded，Failed, Stopped, Error
+                type: string
+              pods:
+                description: Pod info related to the workload
+                items:
+                  properties:
+                    adminNodeName:
+                      description: the admin node that the Pod is scheduled on
+                      type: string
+                    containers:
+                      description: container info
+                      items:
+                        properties:
+                          exitCode:
+                            format: int32
+                            type: integer
+                          message:
+                            type: string
+                          name:
+                            type: string
+                          reason:
+                            type: string
+                        required:
+                        - exitCode
+                        - name
+                        type: object
+                      type: array
+                    endTime:
+                      description: pod end time
+                      type: string
+                    hostIP:
+                      description: The node's IP address where the Pod is running
+                      type: string
+                    k8sNodeName:
+                      description: the Kubernetes node that the Pod is scheduled on
+                      type: string
+                    phase:
+                      description: 'pod status: Pending, Running, Succeeded, Failed,
+                        Unknown'
+                      type: string
+                    podIP:
+                      description: The pod's IP address where the Pod is running
+                      type: string
+                    podId:
+                      description: podId
+                      type: string
+                    startTime:
+                      description: pod start time
+                      type: string
+                  required:
+                  - podId
+                  type: object
+                type: array
+              schedulerOrder:
+                description: The current position of the workload in the queue
+                type: integer
+              startTime:
+                description: workload start time
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

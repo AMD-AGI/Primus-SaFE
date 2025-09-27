@@ -17,6 +17,8 @@ type CreateClusterRequest struct {
 	Description string `json:"description,omitempty"`
 	// The SSH secret name specified by the user, which must already exist
 	SSHSecretName string `json:"sshSecretName,omitempty"`
+	// The Image secret name specified by the user, which must already exist
+	ImageSecretName string `json:"imageSecretName,omitempty"`
 	// The labels for cluster
 	Labels map[string]string `json:"labels,omitempty"`
 	// The maximum number of pods supported per node. It must be a power of two, with a maximum value of 256
@@ -35,10 +37,11 @@ type ListClusterResponse struct {
 }
 
 type ClusterResponseItem struct {
-	ClusterId   string `json:"clusterId"`
-	UserId      string `json:"userId"`
-	Phase       string `json:"phase"`
-	IsProtected bool   `json:"isProtected"`
+	ClusterId     string `json:"clusterId"`
+	UserId        string `json:"userId"`
+	Phase         string `json:"phase"`
+	ImageSecretId string `json:"imageSecretId"`
+	IsProtected   bool   `json:"isProtected"`
 }
 
 type GetClusterResponse struct {
@@ -66,5 +69,6 @@ type GetClusterPodLogResponse struct {
 }
 
 type PatchClusterRequest struct {
-	IsProtected *bool `json:"isProtected"`
+	IsProtected   *bool   `json:"isProtected,omitempty"`
+	ImageSecretId *string `json:"imageSecretId,omitempty"`
 }

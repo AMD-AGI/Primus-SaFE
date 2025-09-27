@@ -118,8 +118,8 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 		v1.SetLabel(cluster, v1.ProtectLabel, "")
 	}
 
-	if cluster.Spec.ControlPlane.ImageSecret == nil {
-		imageSecret, err := h.getSecret(ctx, common.PrimusImageSecret)
+	if cluster.Spec.ControlPlane.ImageSecret == nil && req.ImageSecretName != "" {
+		imageSecret, err := h.getAdminSecret(ctx, req.ImageSecretName)
 		if err != nil {
 			return nil, err
 		}
@@ -127,7 +127,7 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 	}
 
 	if cluster.Spec.ControlPlane.SSHSecret == nil && req.SSHSecretName != "" {
-		sshSecret, err := h.getSecret(ctx, req.SSHSecretName)
+		sshSecret, err := h.getAdminSecret(ctx, req.SSHSecretName)
 		if err != nil {
 			return nil, err
 		}
@@ -223,6 +223,17 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	isChanged, err := h.updateCluster(ctx, cluster, req)
+	if err != nil {
+		return nil, err
+	}
+	if !isChanged {
+		return nil, nil
+	}
+	return nil, h.Update(ctx, cluster)
+}
+
+func (h *Handler) updateCluster(ctx context.Context, cluster *v1.Cluster, req *types.PatchClusterRequest) (bool, error) {
 	isChanged := false
 	if req.IsProtected != nil && *req.IsProtected != v1.IsProtected(cluster) {
 		if *req.IsProtected {
@@ -232,10 +243,15 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 		}
 		isChanged = true
 	}
-	if !isChanged {
-		return nil, nil
+	if req.ImageSecretId != nil {
+		imageSecret, err := h.getAdminSecret(ctx, *req.ImageSecretId)
+		if err != nil {
+			return false, err
+		}
+		cluster.Spec.ControlPlane.ImageSecret = commonutils.GenObjectReference(imageSecret.TypeMeta, imageSecret.ObjectMeta)
+		isChanged = true
 	}
-	return nil, h.Update(ctx, cluster)
+	return isChanged, nil
 }
 
 func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
@@ -476,6 +492,9 @@ func cvtToGetClusterResponse(ctx context.Context, client client.Client, cluster 
 	}
 	if !cluster.GetDeletionTimestamp().IsZero() {
 		result.Phase = string(v1.DeletingPhase)
+	}
+	if cluster.Spec.ControlPlane.ImageSecret != nil {
+		result.ImageSecretId = cluster.Spec.ControlPlane.ImageSecret.Name
 	}
 	result.Endpoint, _ = commoncluster.GetEndpoint(ctx, client, cluster)
 	result.Storages = cvtBindingStorageView(cluster.Status.StorageStatus)

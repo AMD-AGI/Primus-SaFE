@@ -12,8 +12,6 @@ import (
 )
 
 type CreateUserRequest struct {
-	// user's id
-	Id string `json:"id,omitempty"`
 	// user's name
 	Name string `json:"name,omitempty"`
 	// user's mail
@@ -28,7 +26,12 @@ type CreateUserRequest struct {
 	AvatarUrl string `json:"avatarUrl,omitempty"`
 }
 
+type CreateUserResponse struct {
+	Id string `json:"id"`
+}
+
 type ListUserRequest struct {
+	// user's name
 	Name        string `form:"name" binding:"omitempty"`
 	Email       string `form:"email" binding:"omitempty"`
 	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`
@@ -63,8 +66,6 @@ type UserResponseItem struct {
 }
 
 type PatchUserRequest struct {
-	// user's name
-	Name *string `json:"name,omitempty"`
 	// system-admin, default
 	Roles *[]v1.UserRole `json:"roles,omitempty"`
 	// the workspaces which user can access
@@ -82,8 +83,8 @@ type PatchUserRequest struct {
 type UserLoginRequest struct {
 	// teams or default
 	Type v1.UserType `json:"type,omitempty"`
-	// user's id
-	Id string `json:"id,omitempty"`
+	// user's name
+	Name string `json:"name,omitempty"`
 	// user's password
 	Password string `json:"password,omitempty"`
 	// whether the request is from console

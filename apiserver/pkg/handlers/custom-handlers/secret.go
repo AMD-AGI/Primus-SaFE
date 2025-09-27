@@ -7,8 +7,10 @@ package custom_handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -24,7 +26,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -36,6 +37,14 @@ func (h *Handler) CreateSecret(c *gin.Context) {
 
 func (h *Handler) ListSecret(c *gin.Context) {
 	handle(c, h.listSecret)
+}
+
+func (h *Handler) GetSecret(c *gin.Context) {
+	handle(c, h.getSecret)
+}
+
+func (h *Handler) PatchSecret(c *gin.Context) {
+	handle(c, h.patchSecret)
 }
 
 func (h *Handler) DeleteSecret(c *gin.Context) {
@@ -116,12 +125,67 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+func (h *Handler) getSecret(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.SecretResourceKind,
+		Verb:         v1.GetVerb,
+		User:         requestUser,
+	}); err != nil {
+		return nil, err
+	}
+	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(types.Name))
+	if err != nil {
+		return nil, err
+	}
+	return cvtToSecretResponseItem(secret), nil
+}
+
+func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
+	req := &types.PatchSecretRequest{}
+	body, err := getBodyFromRequest(c.Request, req)
+	if err != nil {
+		klog.ErrorS(err, "failed to parse request", "body", string(body))
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	if len(req.Params) == 0 {
+		return nil, nil
+	}
+
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.SecretResourceKind,
+		Verb:         v1.UpdateVerb,
+		User:         requestUser,
+	}); err != nil {
+		return nil, err
+	}
+
+	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(types.Name))
+	if err != nil {
+		return nil, err
+	}
+	reqType := types.SecretType(v1.GetLabel(secret, v1.SecretTypeLabel))
+	if err = buildSecretData(reqType, req.Params, secret); err != nil {
+		return nil, err
+	}
+	return nil, h.Update(c.Request.Context(), secret)
+}
+
 func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	name := c.GetString(types.Name)
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the secretId is not found")
 	}
-	secret, err := h.getSecret(c.Request.Context(), name)
+	secret, err := h.getAdminSecret(c.Request.Context(), name)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +207,7 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) getSecret(ctx context.Context, name string) (*corev1.Secret, error) {
+func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secret, error) {
 	secret, err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(
 		ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -153,8 +217,12 @@ func (h *Handler) getSecret(ctx context.Context, name string) (*corev1.Secret, e
 }
 
 func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Secret, error) {
+	if req.Name == "" {
+		return nil, commonerrors.NewBadRequest("the secretName is empty")
+	}
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
+			Name:      req.Name,
 			Namespace: common.PrimusSafeNamespace,
 			Labels: map[string]string{
 				v1.SecretTypeLabel: string(req.Type),
@@ -162,85 +230,62 @@ func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Sec
 			},
 		},
 	}
-	if err := buildSecretData(req, secret); err != nil {
+	if err := buildSecretData(req.Type, req.Params, secret); err != nil {
 		return nil, err
 	}
 	if req.Name != "" {
 		secret.Labels[v1.DisplayNameLabel] = req.Name
 	}
-	if req.Type == types.SecretSSH {
-		if sshMd5 := buildSshSecretMd5(req); sshMd5 != "" {
-			secret.Labels[v1.SecretMd5Label] = sshMd5
-		}
-	}
 	return secret, nil
 }
 
-func buildSecretData(req *types.CreateSecretRequest, secret *corev1.Secret) error {
-	name := ""
+func buildSecretData(reqType types.SecretType, reqParams map[types.SecretParam]string, secret *corev1.Secret) error {
 	var secretType corev1.SecretType
 	params := make(map[string][]byte)
 
-	switch req.Type {
-	case types.SecretCrypto:
-		if !req.HasParam(types.PasswordParam) {
-			return fmt.Errorf("the %s is not found", types.PasswordParam)
-		}
-		name = common.PrimusCryptoSecret
-		if req.Name == "" {
-			req.Name = name
-		}
-		secretType = corev1.SecretTypeOpaque
-		params[string(types.PasswordParam)] = []byte(req.Params[types.PasswordParam])
+	switch reqType {
 	case types.SecretImage:
 		keys := []types.SecretParam{types.PasswordParam, types.UserNameParam, types.ServerParam}
 		for _, key := range keys {
-			if !req.HasParam(key) {
+			if !existKey(reqParams, key) {
 				return fmt.Errorf("the %s is empty", key)
 			}
 		}
-		name = common.PrimusImageSecret
-		if req.Name == "" {
-			req.Name = name
-		}
 		secretType = corev1.SecretTypeDockerConfigJson
-		auth := stringutil.Base64Encode(fmt.Sprintf("%s:%s",
-			req.Params[types.UserNameParam], req.Params[types.PasswordParam]))
 		dockerConf := types.DockerConfig{
 			Auth: map[string]types.DockerConfigItem{
-				req.Params[types.ServerParam]: {
-					UserName: req.Params[types.UserNameParam],
-					Password: req.Params[types.PasswordParam],
-					Auth:     auth,
+				reqParams[types.ServerParam]: {
+					UserName: reqParams[types.UserNameParam],
+					Password: stringutil.Base64Decode(reqParams[types.PasswordParam]),
 				},
 			},
 		}
 		params[types.DockerConfigJson] = jsonutils.MarshalSilently(dockerConf)
 	case types.SecretSSH:
-		if !req.HasParam(types.UserNameParam) {
+		if !existKey(reqParams, types.UserNameParam) {
 			return fmt.Errorf("the %s is empty", types.UserNameParam)
 		}
-		if req.Name == "" {
-			req.Name = "ssh-" + req.Params[types.UserNameParam]
-		}
-		name = commonutils.GenerateName(req.Name)
 		secretType = corev1.SecretTypeOpaque
-		params[string(types.UserNameParam)] = []byte(req.Params[types.UserNameParam])
-		if req.HasParam(types.PasswordParam) {
-			params[string(types.PasswordParam)] = []byte(req.Params[types.PasswordParam])
-		} else if req.HasParam(types.PublicKeyParam) && req.HasParam(types.PrivateKeyParam) {
-			params[types.SSHAuthKey] = []byte(stringutil.Base64Decode(req.Params[types.PrivateKeyParam]))
-			params[types.SSHAuthPubKey] = []byte(stringutil.Base64Decode(req.Params[types.PublicKeyParam]))
+		params[string(types.UserNameParam)] = []byte(reqParams[types.UserNameParam])
+		if val, _ := reqParams[types.PasswordParam]; val != "" {
+			params[string(types.PasswordParam)] = []byte(reqParams[types.PasswordParam])
+		} else if existKey(reqParams, types.PublicKeyParam) && existKey(reqParams, types.PrivateKeyParam) {
+			params[types.SSHAuthKey] = []byte(stringutil.Base64Decode(reqParams[types.PrivateKeyParam]))
+			params[types.SSHAuthPubKey] = []byte(stringutil.Base64Decode(reqParams[types.PublicKeyParam]))
 		} else {
 			return fmt.Errorf("the password or keypair is empty")
 		}
 	default:
-		return fmt.Errorf("the secret type %s is not supported", req.Type)
+		return fmt.Errorf("the secret type %s is not supported", reqType)
 	}
 	secret.Data = params
-	secret.Name = name
 	secret.Type = secretType
 	return nil
+}
+
+func existKey(params map[types.SecretParam]string, key types.SecretParam) bool {
+	val, _ := params[key]
+	return val != ""
 }
 
 func parseListSecretQuery(c *gin.Context) (*types.ListSecretRequest, error) {
@@ -255,34 +300,36 @@ func buildSecretLabelSelector(query *types.ListSecretRequest) labels.Selector {
 	var req1 *labels.Requirement
 	var labelSelector = labels.NewSelector()
 	if query.Type != "" {
-		req1, _ = labels.NewRequirement(v1.SecretTypeLabel, selection.Equals, []string{query.Type})
+		types := strings.Split(query.Type, ",")
+		req1, _ = labels.NewRequirement(v1.SecretTypeLabel, selection.In, types)
 		labelSelector = labelSelector.Add(*req1)
 	}
 	return labelSelector
-}
-
-func buildSshSecretMd5(req *types.CreateSecretRequest) string {
-	result := ""
-	if req.HasParam(types.PasswordParam) {
-		result = req.Params[types.UserNameParam] + "-" + req.Params[types.PasswordParam]
-	} else if req.HasParam(types.PublicKeyParam) && req.HasParam(types.PrivateKeyParam) {
-		result = req.Params[types.UserNameParam] + "-" +
-			req.Params[types.PrivateKeyParam] + "-" + req.Params[types.PublicKeyParam]
-	} else {
-		return ""
-	}
-	return stringutil.MD5(result)
 }
 
 func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 	result := types.SecretResponseItem{
 		SecretId:     secret.Name,
 		SecretName:   v1.GetDisplayName(secret),
+		Type:         v1.GetLabel(secret, v1.SecretTypeLabel),
 		CreationTime: timeutil.FormatRFC3339(&secret.CreationTimestamp.Time),
 	}
-	data, ok := secret.Data[string(types.UserNameParam)]
-	if ok {
-		result.UserName = string(data)
+	result.Params = make(map[types.SecretParam]string)
+	switch result.Type {
+	case string(types.SecretImage):
+		dockerConf := &types.DockerConfig{}
+		if json.Unmarshal(secret.Data[types.DockerConfigJson], dockerConf) == nil {
+			for k, v := range dockerConf.Auth {
+				result.Params[types.ServerParam] = k
+				result.Params[types.UserNameParam] = v.UserName
+				result.Params[types.PasswordParam] = stringutil.Base64Encode(v.Password)
+				break
+			}
+		}
+	case string(types.SecretSSH):
+		result.Params[types.UserNameParam] = string(secret.Data[string(types.UserNameParam)])
+		result.Params[types.PrivateKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthKey]))
+		result.Params[types.PublicKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthPubKey]))
 	}
 	return result
 }
