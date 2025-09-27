@@ -106,7 +106,7 @@ echo "========================================="
 
 if [[ "$support_lens" == "y" ]]; then
   export STORAGE_CLASS="$storage_class"
-  bash install-grafana.sh
+  bash install-grafana.sh >/dev/null
   echo "✅ grafana installed"
 fi
 
@@ -149,6 +149,7 @@ if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   helm template "$chart_name" -n "$NAMESPACE" "$chart_name" --output-dir ./output 1>/dev/null
   kubectl replace -f output/$chart_name/templates/rbac/role.yaml
   kubectl replace -f output/$chart_name/templates/webhooks/manifests.yaml
+  echo
   rm -rf output
 fi
 install_or_upgrade_helm_chart "$chart_name"
