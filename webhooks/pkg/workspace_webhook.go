@@ -93,7 +93,6 @@ func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.W
 	if err := m.mutateCommon(ctx, workspace); err != nil {
 		return err
 	}
-	m.mutateVolumes(workspace)
 	if err := m.mutateManagers(ctx, nil, workspace); err != nil {
 		return err
 	}
@@ -188,7 +187,17 @@ func (m *WorkspaceMutator) mutateSpec(workspace *v1.Workspace) {
 }
 
 func (m *WorkspaceMutator) mutateVolumes(workspace *v1.Workspace) {
+	maxId := 0
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Id > maxId {
+			maxId = vol.Id
+		}
+	}
 	for i := range workspace.Spec.Volumes {
+		if workspace.Spec.Volumes[i].Id <= 0 {
+			maxId++
+			workspace.Spec.Volumes[i].Id = maxId
+		}
 		if workspace.Spec.Volumes[i].MountPath == "" && workspace.Spec.Volumes[i].HostPath != "" {
 			workspace.Spec.Volumes[i].MountPath = workspace.Spec.Volumes[i].HostPath
 		}
@@ -201,6 +210,14 @@ func (m *WorkspaceMutator) mutateVolumes(workspace *v1.Workspace) {
 }
 
 func (m *WorkspaceMutator) mutateCommon(ctx context.Context, workspace *v1.Workspace) error {
+	if err := m.mutateByNodeFlavor(ctx, workspace); err != nil {
+		return err
+	}
+	m.mutateVolumes(workspace)
+	return nil
+}
+
+func (m *WorkspaceMutator) mutateByNodeFlavor(ctx context.Context, workspace *v1.Workspace) error {
 	if workspace.Spec.NodeFlavor == "" {
 		workspace.Spec.Replica = 0
 	} else if v1.GetGpuResourceName(workspace) == "" {
@@ -435,15 +452,13 @@ func (v *WorkspaceValidator) validateResource(ctx context.Context, workspace *v1
 }
 
 func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Workspace) error {
-	newCapacityMap := make(map[string]string)
-	var oldCapacityMap map[string]string
+	oldVolumeMap := make(map[string]v1.WorkspaceVolume)
 	if oldWorkspace != nil {
-		oldCapacityMap = make(map[string]string)
 		for _, vol := range oldWorkspace.Spec.Volumes {
-			oldCapacityMap[string(vol.StorageType)] = vol.Capacity
+			oldVolumeMap[vol.GenFullVolumeId()] = vol
 		}
 	}
-	supportedStorageType := []v1.StorageUseType{v1.RBD, v1.FS, v1.OBS, v1.HOSTPATH, v1.JuiceFS}
+	supportedTypes := []v1.WorkspaceVolumeType{v1.HOSTPATH, v1.PFS}
 	supportedAccessMode := []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce,
 		corev1.ReadWriteMany, corev1.ReadOnlyMany, corev1.ReadWriteOncePod}
 
@@ -451,10 +466,10 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 		if vol.MountPath == "" {
 			return fmt.Errorf("the mountPath of volume is required")
 		}
-		if !sliceutil.Contains(supportedStorageType, vol.StorageType) {
-			return fmt.Errorf("invalid volume storage type. only %v supported", supportedStorageType)
+		if !sliceutil.Contains(supportedTypes, vol.Type) {
+			return fmt.Errorf("invalid volume storage type. only %v supported", supportedTypes)
 		}
-		if vol.StorageType == v1.HOSTPATH {
+		if vol.Type == v1.HOSTPATH {
 			if vol.HostPath == "" {
 				return fmt.Errorf("the hostPath of volume is required for hostpath storage")
 			}
@@ -472,19 +487,19 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 		} else if resp.IsZero() {
 			return fmt.Errorf("the capacity of volume is zero")
 		}
-		storageType := string(vol.StorageType)
 
-		oldCapacity, ok := oldCapacityMap[storageType]
-		if ok && oldCapacity != vol.Capacity {
-			return fmt.Errorf("The capacity of volume(%s) can not be changed", storageType)
-		}
-		oldCapacity, ok = newCapacityMap[storageType]
+		volumeId := vol.GenFullVolumeId()
+		oldVolume, ok := oldVolumeMap[volumeId]
 		if ok {
-			if oldCapacity != vol.Capacity {
-				return fmt.Errorf("The capacity of the same volume(%s) must be the same", storageType)
+			if oldVolume.StorageClass != vol.StorageClass {
+				return fmt.Errorf("The storageClass of volume(%s) can not be changed", volumeId)
 			}
-		} else {
-			newCapacityMap[storageType] = vol.Capacity
+			if oldVolume.Capacity != vol.Capacity {
+				return fmt.Errorf("The capacity of volume(%s) can not be changed", volumeId)
+			}
+			if !maps.EqualIgnoreOrder(oldVolume.Selector, vol.Selector) {
+				return fmt.Errorf("The pv selector of volume(%s) can not be changed", volumeId)
+			}
 		}
 		if !sliceutil.Contains(supportedAccessMode, vol.AccessMode) {
 			return fmt.Errorf("invalid volume access mode. only %v supported", supportedAccessMode)
@@ -509,32 +524,29 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorks
 	if reflect.DeepEqual(oldWorkspace.Spec.Volumes, newWorkspace.Spec.Volumes) {
 		return nil
 	}
-	newPvcSets := sets.NewSet()
+	volumeId := ""
 	for _, vol := range newWorkspace.Spec.Volumes {
-		if vol.StorageType == v1.HOSTPATH {
+		if vol.Type == v1.HOSTPATH {
 			continue
 		}
-		newPvcSets.Insert(string(vol.StorageType))
+		volumeId = vol.GenFullVolumeId()
+		break
 	}
+	if volumeId == "" {
+		return nil
+	}
+
 	filterFunc := func(w *v1.Workload) bool {
 		if w.IsEnd() || !v1.IsWorkloadDispatched(w) {
 			return true
 		}
 		return false
 	}
-	for _, vol := range oldWorkspace.Spec.Volumes {
-		if vol.StorageType == v1.HOSTPATH {
-			continue
-		}
-		if newPvcSets.Has(string(vol.StorageType)) {
-			continue
-		}
-		runningWorkloads, _ := commonworkload.GetWorkloadsOfWorkspace(ctx, v.Client,
-			v1.GetClusterId(newWorkspace), []string{newWorkspace.Name}, filterFunc)
-		if len(runningWorkloads) > 0 {
-			return commonerrors.NewForbidden(fmt.Sprintf("the pvc(%s) is used by workload(%s), "+
-				"it can not be removed", vol.StorageType, runningWorkloads[0].Name))
-		}
+	runningWorkloads, _ := commonworkload.GetWorkloadsOfWorkspace(ctx, v.Client,
+		v1.GetClusterId(newWorkspace), []string{newWorkspace.Name}, filterFunc)
+	if len(runningWorkloads) > 0 {
+		return commonerrors.NewForbidden(fmt.Sprintf("the pvc(%s) is used by workload(%s), "+
+			"it can not be removed", volumeId, runningWorkloads[0].Name))
 	}
 	return nil
 }

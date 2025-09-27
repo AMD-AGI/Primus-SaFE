@@ -75,7 +75,7 @@ type WorkspaceResponseItem struct {
 	// Is preemption enabled
 	EnablePreempt bool `json:"enablePreempt"`
 	// the manager's user_id
-	Managers []string `json:"managers"`
+	Managers []UserEntity `json:"managers"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault bool `json:"isDefault"`
 }

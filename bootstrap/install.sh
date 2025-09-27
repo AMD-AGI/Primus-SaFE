@@ -104,6 +104,12 @@ echo "========================================="
 echo "🔧 Step 2: install primus-safe admin plane"
 echo "========================================="
 
+if [[ "$support_lens" == "y" ]]; then
+  export STORAGE_CLASS="$storage_class"
+  bash install-grafana.sh >/dev/null
+  echo "✅ grafana installed"
+fi
+
 cd ../charts/
 values_yaml="primus-safe/values.yaml"
 if [ ! -f "$values_yaml" ]; then
@@ -143,6 +149,7 @@ if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
   helm template "$chart_name" -n "$NAMESPACE" "$chart_name" --output-dir ./output 1>/dev/null
   kubectl replace -f output/$chart_name/templates/rbac/role.yaml
   kubectl replace -f output/$chart_name/templates/webhooks/manifests.yaml
+  echo
   rm -rf output
 fi
 install_or_upgrade_helm_chart "$chart_name"
@@ -159,13 +166,6 @@ sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$v
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
 
 install_or_upgrade_helm_chart "node-agent"
-
-if [[ "$support_lens" == "y" ]]; then
-  export STORAGE_CLASS="$storage_class"
-  bash install-grafana.sh
-  echo "✅ grafana installed"
-fi
-
 
 echo "==============================="
 echo "🔧 Step 4: All completed!"

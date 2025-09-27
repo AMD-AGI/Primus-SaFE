@@ -84,12 +84,11 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	workload, err := generateWorkload(c, req, body)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
-
-	requestUser, err := h.getAndSetUsername(c)
+	workload, err := generateWorkload(c, req, body)
 	if err != nil {
 		return nil, err
 	}
@@ -108,8 +107,8 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	klog.Infof("create workload, name: %s, user: %s, priority: %d, timeout: %d",
-		workload.Name, c.GetString(common.UserId), workload.Spec.Priority, workload.Spec.Timeout)
+	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d",
+		workload.Name, c.GetString(common.UserName), c.GetString(common.UserId), workload.Spec.Priority, workload.Spec.Timeout)
 	return &types.CreateWorkloadResponse{WorkloadId: workload.Name}, nil
 }
 func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
@@ -513,19 +512,30 @@ func generateWorkload(c *gin.Context, req *types.CreateWorkloadRequest, body []b
 	if err = json.Unmarshal(body, &workload.Spec); err != nil {
 		return nil, err
 	}
-
 	if len(workload.Spec.CustomerLabels) > 0 {
 		customerLabels := make(map[string]string)
 		for key, val := range workload.Spec.CustomerLabels {
-			if len(val) == 0 {
+			if len(val) == 0 || key == common.K8sHostNameLabel {
 				continue
 			}
-			if key != common.K8sHostNameLabel {
-				key = common.CustomerLabelPrefix + key
-			}
+			key = common.CustomerLabelPrefix + key
 			customerLabels[key] = val
 		}
 		workload.Spec.CustomerLabels = customerLabels
+	}
+	if len(req.NodeList) > 0 {
+		workload.Spec.Resource.Replica = len(req.NodeList)
+		nodeNames := ""
+		for i := range req.NodeList {
+			if i > 0 {
+				nodeNames += " "
+			}
+			nodeNames += req.NodeList[i]
+		}
+		if len(workload.Spec.CustomerLabels) == 0 {
+			workload.Spec.CustomerLabels = make(map[string]string)
+		}
+		workload.Spec.CustomerLabels[common.K8sHostNameLabel] = nodeNames
 	}
 	return workload, nil
 }
@@ -784,13 +794,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 		var customerLabels map[string]string
 		json.Unmarshal([]byte(str), &customerLabels)
 		if len(customerLabels) > 0 {
-			result.CustomerLabels = make(map[string]string)
-			for key, val := range customerLabels {
-				if strings.HasPrefix(key, common.CustomerLabelPrefix) {
-					key = key[len(common.CustomerLabelPrefix):]
-				}
-				result.CustomerLabels[key] = val
-			}
+			result.CustomerLabels, result.NodeList = handleCustomerLabels(customerLabels)
 		}
 	}
 	if str := dbutils.ParseNullString(w.Liveness); str != "" {
@@ -830,18 +834,27 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 		result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p, result.UserId, result.Workspace)
 	}
 	if len(w.Spec.CustomerLabels) > 0 {
-		result.CustomerLabels = make(map[string]string)
-		for key, val := range w.Spec.CustomerLabels {
-			if strings.HasPrefix(key, common.CustomerLabelPrefix) {
-				key = key[len(common.CustomerLabelPrefix):]
-			}
-			result.CustomerLabels[key] = val
-		}
+		result.CustomerLabels, result.NodeList = handleCustomerLabels(w.Spec.CustomerLabels)
 	}
 	if !commonworkload.IsAuthoring(w) {
 		result.EntryPoint = stringutil.Base64Decode(w.Spec.EntryPoint)
 	}
 	return result
+}
+
+func handleCustomerLabels(labels map[string]string) (map[string]string, []string) {
+	var nodeList []string
+	result := make(map[string]string)
+	for key, val := range labels {
+		if strings.HasPrefix(key, common.CustomerLabelPrefix) {
+			key = key[len(common.CustomerLabelPrefix):]
+		} else if key == common.K8sHostNameLabel {
+			nodeList = strings.Split(val, " ")
+			continue
+		}
+		result[key] = val
+	}
+	return result, nodeList
 }
 
 func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {

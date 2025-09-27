@@ -601,14 +601,14 @@ var (
 			Replica:    3,
 			NodeFlavor: "nf1",
 			Volumes: []v1.WorkspaceVolume{{
-				StorageType:  v1.FS,
+				Type:         v1.PFS,
 				MountPath:    "/ceph",
 				StorageClass: "storage-cephfs",
 				Capacity:     "100Gi",
 			}, {
-				StorageType: v1.HOSTPATH,
-				MountPath:   "/data",
-				HostPath:    "/apps",
+				Type:      v1.HOSTPATH,
+				MountPath: "/data",
+				HostPath:  "/apps",
 			}},
 		},
 		Status: v1.WorkspaceStatus{

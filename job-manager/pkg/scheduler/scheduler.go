@@ -163,7 +163,7 @@ func (r *SchedulerReconciler) createDataPlaneResources(ctx context.Context, work
 	}
 	// create pvc for data plane
 	for _, vol := range workspace.Spec.Volumes {
-		if vol.StorageType == v1.HOSTPATH {
+		if vol.Type == v1.HOSTPATH {
 			continue
 		}
 		pvc, err := r.generatePVC(&vol, workspace)
@@ -186,20 +186,20 @@ func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspa
 
 	oldPvcSets := sets.NewSet()
 	for _, vol := range oldWorkspace.Spec.Volumes {
-		if vol.StorageType == v1.HOSTPATH {
+		if vol.Type == v1.HOSTPATH {
 			continue
 		}
-		oldPvcSets.Insert(string(vol.StorageType))
+		oldPvcSets.Insert(vol.GenFullVolumeId())
 	}
 	newPvcSets := sets.NewSet()
 	k8sClientSet := informer.ClientFactory().ClientSet()
 	for _, vol := range newWorkspace.Spec.Volumes {
-		if vol.StorageType == v1.HOSTPATH {
+		if vol.Type == v1.HOSTPATH {
 			continue
 		}
-		storageType := string(vol.StorageType)
-		newPvcSets.Insert(storageType)
-		if oldPvcSets.Has(storageType) {
+		volumeId := vol.GenFullVolumeId()
+		newPvcSets.Insert(volumeId)
+		if oldPvcSets.Has(volumeId) {
 			continue
 		}
 		pvc, err := r.generatePVC(&vol, newWorkspace)
@@ -212,13 +212,14 @@ func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspa
 		}
 	}
 	for _, vol := range oldWorkspace.Spec.Volumes {
-		if vol.StorageType == v1.HOSTPATH {
+		if vol.Type == v1.HOSTPATH {
 			continue
 		}
-		if newPvcSets.Has(string(vol.StorageType)) {
+		volumeId := vol.GenFullVolumeId()
+		if newPvcSets.Has(volumeId) {
 			continue
 		}
-		if err = jobutils.DeletePVC(ctx, string(vol.StorageType), newWorkspace.Name, k8sClientSet); err != nil {
+		if err = jobutils.DeletePVC(ctx, volumeId, newWorkspace.Name, k8sClientSet); err != nil {
 			return err
 		}
 	}
@@ -232,10 +233,10 @@ func (r *SchedulerReconciler) deleteDataPlaneResources(ctx context.Context, clus
 	}
 	k8sClientSet := informer.ClientFactory().ClientSet()
 	for _, vol := range volumes {
-		if vol.StorageType == v1.HOSTPATH {
+		if vol.Type == v1.HOSTPATH {
 			continue
 		}
-		if err = jobutils.DeletePVC(ctx, string(vol.StorageType), workspaceId, k8sClientSet); err != nil {
+		if err = jobutils.DeletePVC(ctx, vol.GenFullVolumeId(), workspaceId, k8sClientSet); err != nil {
 			return err
 		}
 	}
@@ -248,7 +249,7 @@ func (r *SchedulerReconciler) deleteDataPlaneResources(ctx context.Context, clus
 func (r *SchedulerReconciler) generatePVC(volume *v1.WorkspaceVolume,
 	workspace *v1.Workspace) (*corev1.PersistentVolumeClaim, error) {
 	pvc := &corev1.PersistentVolumeClaim{}
-	pvc.SetName(string(volume.StorageType))
+	pvc.SetName(volume.GenFullVolumeId())
 	pvc.SetNamespace(workspace.Name)
 	if len(volume.Selector) > 0 {
 		pvc.Spec.Selector = &metav1.LabelSelector{

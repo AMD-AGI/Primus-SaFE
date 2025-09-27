@@ -58,11 +58,15 @@ func (h *Handler) ProcessWorkspaceNodes(c *gin.Context) {
 }
 
 func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
-	if err := h.auth.Authorize(authority.Input{
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.WorkspaceKind,
 		Verb:         v1.CreateVerb,
-		UserId:       c.GetString(common.UserId),
+		User:         requestUser,
 	}); err != nil {
 		return nil, err
 	}
@@ -122,7 +126,7 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 		}); err != nil {
 			continue
 		}
-		item := cvtToWorkspaceResponseItem(&w)
+		item := h.cvtToWorkspaceResponseItem(ctx, &w)
 		result.Items = append(result.Items, item)
 	}
 	result.TotalCount = len(result.Items)
@@ -296,6 +300,7 @@ func generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRequest) *v1.Wo
 				v1.UserIdLabel:      c.GetString(common.UserId),
 			},
 			Annotations: map[string]string{
+				v1.UserNameAnnotation:    c.GetString(common.UserName),
 				v1.DescriptionAnnotation: req.Description,
 			},
 		},
@@ -334,7 +339,7 @@ func buildListWorkspaceSelector(query *types.ListWorkspaceRequest) (labels.Selec
 	return labelSelector, nil
 }
 
-func cvtToWorkspaceResponseItem(w *v1.Workspace) types.WorkspaceResponseItem {
+func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspace) types.WorkspaceResponseItem {
 	result := types.WorkspaceResponseItem{
 		WorkspaceId:   w.Name,
 		WorkspaceName: v1.GetDisplayName(w),
@@ -350,15 +355,22 @@ func cvtToWorkspaceResponseItem(w *v1.Workspace) types.WorkspaceResponseItem {
 		Volumes:       w.Spec.Volumes,
 		EnablePreempt: w.Spec.EnablePreempt,
 		AbnormalNode:  w.Status.AbnormalReplica,
-		Managers:      w.Spec.Managers,
 		IsDefault:     w.Spec.IsDefault,
+	}
+	for _, m := range w.Spec.Managers {
+		user, err := h.getAdminUser(ctx, m)
+		if err == nil {
+			result.Managers = append(result.Managers, types.UserEntity{
+				Id: m, Name: v1.GetUserName(user),
+			})
+		}
 	}
 	return result
 }
 
 func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.Workspace) (*types.GetWorkspaceResponse, error) {
 	result := &types.GetWorkspaceResponse{
-		WorkspaceResponseItem: cvtToWorkspaceResponseItem(workspace),
+		WorkspaceResponseItem: h.cvtToWorkspaceResponseItem(ctx, workspace),
 	}
 	nf, err := h.getAdminNodeFlavor(ctx, workspace.Spec.NodeFlavor)
 	if err != nil {
