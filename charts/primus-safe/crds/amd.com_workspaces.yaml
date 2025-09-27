@@ -86,9 +86,12 @@ spec:
                         Capacity size, such as 100Gi. This is a required parameter when creating a PVC (PersistentVolumeClaim).
                       type: string
                     hostPath:
-                      description: Path on the host to mount. Required when storage
+                      description: Path on the host to mount. Required when volume
                         type is hostpath
                       type: string
+                    id:
+                      description: The volume id, which is used to identify the volume.
+                      type: integer
                     mountPath:
                       description: Mount path to be used, equivalent to 'mountPath'
                         in Kubernetes volume mounts.
@@ -103,17 +106,16 @@ spec:
                     storageClass:
                       description: Responsible for automatic PV creation
                       type: string
-                    storageType:
-                      description: |-
-                        The storage type, which is also used as the volume name
-                        valid values includes: rbd/obs/cephfs/juicefs/hostpath
-                      type: string
                     subPath:
                       description: equivalent to 'subPath' in Kubernetes volume mounts
                       type: string
+                    type:
+                      description: 'The volume type, valid values includes: pfs/hostpath'
+                      type: string
                   required:
+                  - id
                   - mountPath
-                  - storageType
+                  - type
                   type: object
                 type: array
             required:

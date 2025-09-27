@@ -321,7 +321,7 @@ func deletePriorityClass(ctx context.Context, clientSet kubernetes.Interface, na
 func (r *ClusterReconciler) guaranteeDefaultImageSecret(ctx context.Context, cluster *v1.Cluster) error {
 	imageSecret := cluster.Spec.ControlPlane.ImageSecret
 	if imageSecret == nil {
-		return fmt.Errorf("cluster %s has no image secret", cluster.Name)
+		return nil
 	}
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 

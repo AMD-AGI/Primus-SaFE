@@ -14,14 +14,15 @@ import (
 // WorkspaceVolumeApplyConfiguration represents a declarative configuration of the WorkspaceVolume type for use
 // with apply.
 type WorkspaceVolumeApplyConfiguration struct {
-	StorageType  *amdv1.StorageUseType              `json:"storageType,omitempty"`
+	Id           *int                               `json:"id,omitempty"`
+	Type         *amdv1.WorkspaceVolumeType         `json:"type,omitempty"`
 	MountPath    *string                            `json:"mountPath,omitempty"`
-	SubPath      *string                            `json:"subPath,omitempty"`
 	HostPath     *string                            `json:"hostPath,omitempty"`
 	Capacity     *string                            `json:"capacity,omitempty"`
 	Selector     map[string]string                  `json:"selector,omitempty"`
 	StorageClass *string                            `json:"storageClass,omitempty"`
 	AccessMode   *corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
+	SubPath      *string                            `json:"subPath,omitempty"`
 }
 
 // WorkspaceVolumeApplyConfiguration constructs a declarative configuration of the WorkspaceVolume type for use with
@@ -30,11 +31,19 @@ func WorkspaceVolume() *WorkspaceVolumeApplyConfiguration {
 	return &WorkspaceVolumeApplyConfiguration{}
 }
 
-// WithStorageType sets the StorageType field in the declarative configuration to the given value
+// WithId sets the Id field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the StorageType field is set to the value of the last call.
-func (b *WorkspaceVolumeApplyConfiguration) WithStorageType(value amdv1.StorageUseType) *WorkspaceVolumeApplyConfiguration {
-	b.StorageType = &value
+// If called multiple times, the Id field is set to the value of the last call.
+func (b *WorkspaceVolumeApplyConfiguration) WithId(value int) *WorkspaceVolumeApplyConfiguration {
+	b.Id = &value
+	return b
+}
+
+// WithType sets the Type field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Type field is set to the value of the last call.
+func (b *WorkspaceVolumeApplyConfiguration) WithType(value amdv1.WorkspaceVolumeType) *WorkspaceVolumeApplyConfiguration {
+	b.Type = &value
 	return b
 }
 
@@ -43,14 +52,6 @@ func (b *WorkspaceVolumeApplyConfiguration) WithStorageType(value amdv1.StorageU
 // If called multiple times, the MountPath field is set to the value of the last call.
 func (b *WorkspaceVolumeApplyConfiguration) WithMountPath(value string) *WorkspaceVolumeApplyConfiguration {
 	b.MountPath = &value
-	return b
-}
-
-// WithSubPath sets the SubPath field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the SubPath field is set to the value of the last call.
-func (b *WorkspaceVolumeApplyConfiguration) WithSubPath(value string) *WorkspaceVolumeApplyConfiguration {
-	b.SubPath = &value
 	return b
 }
 
@@ -97,5 +98,13 @@ func (b *WorkspaceVolumeApplyConfiguration) WithStorageClass(value string) *Work
 // If called multiple times, the AccessMode field is set to the value of the last call.
 func (b *WorkspaceVolumeApplyConfiguration) WithAccessMode(value corev1.PersistentVolumeAccessMode) *WorkspaceVolumeApplyConfiguration {
 	b.AccessMode = &value
+	return b
+}
+
+// WithSubPath sets the SubPath field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SubPath field is set to the value of the last call.
+func (b *WorkspaceVolumeApplyConfiguration) WithSubPath(value string) *WorkspaceVolumeApplyConfiguration {
+	b.SubPath = &value
 	return b
 }
