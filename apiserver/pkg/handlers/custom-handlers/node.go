@@ -12,10 +12,12 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -32,8 +34,10 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -186,7 +190,8 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	node, err := h.getAdminNode(ctx, c.GetString(types.Name))
+	nodeId := c.GetString(types.Name)
+	node, err := h.getAdminNode(ctx, nodeId)
 	if err != nil {
 		return nil, err
 	}
@@ -206,16 +211,23 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
 	}
-	patch := client.MergeFrom(node.DeepCopy())
-	isShouldUpdate, err := h.updateNode(ctx, node, req)
-	if err != nil || !isShouldUpdate {
+
+	maxRetry := 3
+	if err = backoff.ConflictRetry(func() error {
+		isShouldUpdate, innerErr := h.updateNode(ctx, node, req)
+		if innerErr != nil || !isShouldUpdate {
+			return innerErr
+		}
+		innerErr = h.Update(ctx, node)
+		if apierrors.IsConflict(innerErr) {
+			h.getAdminNode(ctx, nodeId)
+		}
+		return innerErr
+	}, maxRetry, time.Millisecond*200); err != nil {
+		klog.ErrorS(err, "failed to update node", "name", node.Name)
 		return nil, err
 	}
-	if err = h.Patch(ctx, node, patch); err != nil {
-		klog.ErrorS(err, "failed to patch node", "name", node.Name)
-		return nil, err
-	}
-	klog.Infof("patch node, name: %s, request: %v", node.Name, *req)
+	klog.Infof("update node, name: %s, request: %v", node.Name, *req)
 	return nil, nil
 }
 
@@ -450,7 +462,7 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 		node.Spec.NodeTemplate = commonutils.GenObjectReference(nt.TypeMeta, nt.ObjectMeta)
 	}
 
-	secret, err := h.getSecret(ctx, req.SSHSecretName)
+	secret, err := h.getAdminSecret(ctx, req.SSHSecretName)
 	if err != nil {
 		return nil, err
 	}
@@ -522,6 +534,9 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 		for i, t := range *req.Taints {
 			(*req.Taints)[i].Key = commonfaults.GenerateTaintKey(t.Key)
 		}
+		if err := h.deleteRelatedFaults(ctx, node, *req.Taints); err != nil {
+			return false, err
+		}
 		if !commonfaults.IsTaintsEqualIgnoreOrder(*req.Taints, node.Spec.Taints) {
 			node.Spec.Taints = *req.Taints
 			isShouldUpdate = true
@@ -560,6 +575,36 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 		v1.SetAnnotation(node, v1.NodeLabelAction, string(jsonutils.MarshalSilently(nodesLabelAction)))
 	}
 	return isShouldUpdate, nil
+}
+
+func (h *Handler) deleteRelatedFaults(ctx context.Context, node *v1.Node, newTaints []corev1.Taint) error {
+	if node.GetSpecCluster() == "" {
+		return nil
+	}
+	newTaintKeys := sets.NewSet()
+	for _, t := range newTaints {
+		newTaintKeys.Insert(t.Key)
+	}
+	for _, t := range node.Spec.Taints {
+		if newTaintKeys.Has(t.Key) {
+			continue
+		}
+		id := commonfaults.GetIdByTaintKey(t.Key)
+		faultName := commonfaults.GenerateFaultName(node.Name, id)
+		fault, err := h.getAdminFault(ctx, faultName)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		if fault.GetDeletionTimestamp().IsZero() {
+			if err = h.Delete(ctx, fault); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]string {

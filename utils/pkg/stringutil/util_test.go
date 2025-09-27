@@ -20,10 +20,10 @@ func TestBase64Encode(t *testing.T) {
 }
 
 func TestMD5(t *testing.T) {
-	pwd := "tT5+uQ0^qF4,fL6{"
+	pwd := "root"
 	encode := MD5(pwd)
 	fmt.Println(encode)
-	assert.Equal(t, encode, "091611f47f7f5c5ac81c004c0169f831")
+	assert.Equal(t, encode, "63a9f0ea7bb98050796b649e85481845")
 }
 
 func TestConvertToString(t *testing.T) {

@@ -1,0 +1,105 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: primus-safe
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups:
+  - amd.com
+  resources:
+  - addons
+  - addontemplates
+  - clusters
+  - faults
+  - nodeflavors
+  - nodes
+  - nodetemplates
+  - opsjobs
+  - resourcetemplates
+  - roles
+  - storageclusters
+  - users
+  - workloads
+  - workspaces
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - amd.com
+  resources:
+  - addons/status
+  - addontemplates/status
+  - clusters/status
+  - faults/status
+  - nodeflavors/status
+  - nodes/status
+  - nodetemplates/status
+  - opsjobs/status
+  - resourcetemplates/status
+  - roles/status
+  - storageclusters/status
+  - users/status
+  - workloads/status
+  - workspaces/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - '*'
+- apiGroups:
+  - apps
+  resources:
+  - '*'
+  verbs:
+  - '*'
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  - services
+  - pods
+  - pods/log
+  - nodes
+  - serviceaccounts
+  - deployments
+  - statefulsets
+  - priorityclasses
+  - endpoints
+  - events
+  verbs:
+  - '*'
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - '*'
+- apiGroups:
+  - "postgres-operator.crunchydata.com"
+  resources:
+  - "postgresclusters"
+  verbs:
+  - '*'
+- apiGroups:
+  - "rbac.authorization.k8s.io"
+  resources:
+  - "clusterrolebindings"
+  - "clusterroles"
+  verbs:
+  - '*'

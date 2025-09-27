@@ -8,8 +8,6 @@ package common
 const (
 	PrimusSafeNamespace        = "primus-safe"
 	PrimusFault                = "primus-safe-fault"
-	PrimusImageSecret          = "primus-safe-image"
-	PrimusCryptoSecret         = "primus-safe-crypto"
 	PrimusRouterCustomRootPath = "api/v1"
 
 	AuthoringKind   = "Authoring"

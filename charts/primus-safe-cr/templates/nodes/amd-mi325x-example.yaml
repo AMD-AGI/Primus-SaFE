@@ -17,13 +17,13 @@ spec:
     quantity: 3.49Ti
     type: nvme
   extendedResources:
-    ephemeral-storage: 948194417
+    ephemeral-storage: 13496617142Ki
     rdma/hca: 1k
   gpu:
     product: AMD_Instinct_MI325X
     quantity: "8"
     resourceName: amd.com/gpu
-  memory: 3116075048Ki
+  memory: 3169200176Ki
   rootDisk:
     count: 1
     quantity: 14Ti

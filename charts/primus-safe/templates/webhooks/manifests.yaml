@@ -1,0 +1,482 @@
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ .Release.Name }}-cert
+  name: primus-safe-webhook-mutate
+webhooks:
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-amd-primus-safe-v1-addontemplate
+  failurePolicy: Fail
+  name: maddontemplate.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - addontemplates
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-amd-primus-safe-v1-cluster
+  failurePolicy: Fail
+  name: mcluster.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - clusters
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-amd-primus-safe-v1-fault
+  failurePolicy: Fail
+  name: mfault.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - faults
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-amd-primus-safe-v1-node
+  failurePolicy: Fail
+  name: mnode.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - nodes
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-amd-primus-safe-v1-nodeflavor
+  failurePolicy: Fail
+  name: mnodeflavor.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - nodeflavors
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-amd-primus-safe-v1-opsjob
+  failurePolicy: Fail
+  name: mopsjob.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - opsjobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-amd-primus-safe-v1-resourcetemplate
+  failurePolicy: Fail
+  name: mresourcetemplate.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - resourcetemplates
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-amd-primus-safe-v1-role
+  failurePolicy: Fail
+  name: mrole.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - roles
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-amd-primus-safe-v1-user
+  failurePolicy: Fail
+  name: muser.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - users
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-amd-primus-safe-v1-workload
+  failurePolicy: Fail
+  name: mworkload.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - workloads
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-amd-primus-safe-v1-workspace
+  failurePolicy: Fail
+  name: mworkspace.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - workspaces
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ .Release.Name }}-cert
+  name: primus-safe-webhook-validate
+webhooks:
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /validate-amd-primus-safe-v1-addontemplate
+  failurePolicy: Fail
+  name: vaddontemplate.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - addontemplates
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /validate-amd-primus-safe-v1-cluster
+  failurePolicy: Fail
+  name: vcluster.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - cluster
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /validate-amd-primus-safe-v1-fault
+  failurePolicy: Fail
+  name: vfault.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - faults
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /validate-amd-primus-safe-v1-node
+  failurePolicy: Fail
+  name: vnode.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - nodes
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /validate-amd-primus-safe-v1-nodeflavor
+  failurePolicy: Fail
+  name: vnodeflavor.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - nodeflavors
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /validate-amd-primus-safe-v1-opsjob
+  failurePolicy: Fail
+  name: vopsjob.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - opsjobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /validate-amd-primus-safe-v1-resourcetemplate
+  failurePolicy: Fail
+  name: vresourcetemplate.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - resourcetemplates
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /validate-amd-primus-safe-v1-role
+  failurePolicy: Fail
+  name: vrole.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - roles
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /validate-amd-primus-safe-v1-user
+  failurePolicy: Fail
+  name: vuser.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - users
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /validate-amd-primus-safe-v1-workload
+  failurePolicy: Fail
+  name: vworkload.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - workloads
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  - v1beta1
+  clientConfig:
+    service:
+      name: {{ .Release.Name }}-webhooks
+      namespace: {{ .Release.Namespace }}
+      path: /validate-amd-primus-safe-v1-workspace
+  failurePolicy: Fail
+  name: vworkspace.kb.io
+  rules:
+  - apiGroups:
+    - amd.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - workspaces
+  sideEffects: None
