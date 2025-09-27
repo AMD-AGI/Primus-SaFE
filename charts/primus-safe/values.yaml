@@ -3,22 +3,22 @@ net:
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
   rdma_name: "rdma/hca"
 apiserver:
-  image: "apiserver:202509271120"
+  image: "apiserver:202509271600"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
 resource_manager:
-  image: "resource-manager:202509261000"
+  image: "resource-manager:202509271600"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
 job_manager:
-  image: "job-manager:202509251314"
+  image: "job-manager:202509271600"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
 webhooks:
-  image: "webhooks:202509261000"
+  image: "webhooks:202509271600"
   replicas: 1
   cpu: 2000m
   memory: 4Gi

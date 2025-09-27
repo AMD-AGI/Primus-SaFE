@@ -18,7 +18,6 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -178,22 +177,14 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Work
 	if workspace == nil {
 		return
 	}
-
 	var volumeMounts []interface{}
 	volumeMountObjs, ok := mainContainer["volumeMounts"]
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
-
 	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm"))
-	id := 0
 	for _, vol := range workspace.Spec.Volumes {
-		volumeName := string(vol.StorageType)
-		if vol.StorageType == v1.HOSTPATH {
-			volumeName = generateVolumeName(volumeName, id)
-			id++
-		}
-		volumeMount := buildWorkspaceVolumeMount(vol, volumeName)
+		volumeMount := buildWorkspaceVolumeMount(vol, vol.GenFullVolumeId())
 		volumeMounts = append(volumeMounts, volumeMount...)
 	}
 	mainContainer["volumeMounts"] = volumeMounts
@@ -207,19 +198,13 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 	if err != nil {
 		return err
 	}
-	volumeSets := sets.NewSet()
-	id := 0
+
 	for _, vol := range workspace.Spec.Volumes {
-		volumeName := string(vol.StorageType)
+		volumeName := vol.GenFullVolumeId()
 		var volume interface{}
-		if vol.StorageType == v1.HOSTPATH {
-			volume = buildHostPathVolume(generateVolumeName(volumeName, id), vol.HostPath)
-			id++
+		if vol.Type == v1.HOSTPATH {
+			volume = buildHostPathVolume(volumeName, vol.HostPath)
 		} else {
-			if volumeSets.Has(volumeName) {
-				continue
-			}
-			volumeSets.Insert(volumeName)
 			volume = buildPvcVolume(volumeName)
 		}
 		volumes = append(volumes, volume)

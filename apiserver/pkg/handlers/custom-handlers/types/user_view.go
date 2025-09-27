@@ -99,6 +99,11 @@ type UserLoginResponse struct {
 	Token string `json:"token"`
 }
 
+type UserEntity struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type UserSlice []v1.User
 
 func (users UserSlice) Less(i, j int) bool {

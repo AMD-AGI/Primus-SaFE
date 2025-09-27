@@ -6,6 +6,8 @@
 package v1
 
 import (
+	"strconv"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -18,6 +20,7 @@ type WorkspaceScope string
 type FileSystemType string
 type VolumePurpose int
 type WorkspaceType string
+type WorkspaceVolumeType string
 
 const (
 	WorkspaceKind = "Workspace"
@@ -33,6 +36,9 @@ const (
 	TrainScope     WorkspaceScope = "Train"
 	InferScope     WorkspaceScope = "Infer"
 	AuthoringScope WorkspaceScope = "Authoring"
+
+	HOSTPATH WorkspaceVolumeType = "hostpath"
+	PFS      WorkspaceVolumeType = "pfs"
 )
 
 type WorkspaceSpec struct {
@@ -58,16 +64,15 @@ type WorkspaceSpec struct {
 }
 
 type WorkspaceVolume struct {
-	// The storage type, which is also used as the volume name
-	// valid values includes: rbd/obs/cephfs/juicefs/hostpath
-	StorageType StorageUseType `json:"storageType"`
+	// The volume id, which is used to identify the volume.
+	Id int `json:"id"`
+	// The volume type, valid values includes: pfs/hostpath
+	Type WorkspaceVolumeType `json:"type"`
 	// Mount path to be used, equivalent to 'mountPath' in Kubernetes volume mounts.
 	// +required
 	MountPath string `json:"mountPath"`
-	// equivalent to 'subPath' in Kubernetes volume mounts
-	// +optional
-	SubPath string `json:"subPath,omitempty"`
-	// Path on the host to mount. Required when storage type is hostpath
+
+	// Path on the host to mount. Required when volume type is hostpath
 	HostPath string `json:"hostPath,omitempty"`
 
 	// The following parameters are used for PVC creation. If using hostPath mounting, they are not required.
@@ -80,6 +85,9 @@ type WorkspaceVolume struct {
 	StorageClass string `json:"storageClass,omitempty"`
 	// access mode, default is ReadWriteMany
 	AccessMode corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
+	// equivalent to 'subPath' in Kubernetes volume mounts
+	// +optional
+	SubPath string `json:"subPath,omitempty"`
 }
 
 type WorkspaceStatus struct {
@@ -147,4 +155,8 @@ func (w *Workspace) IsEnableFifo() bool {
 		return true
 	}
 	return false
+}
+
+func (w *WorkspaceVolume) GenFullVolumeId() string {
+	return string(w.Type) + "-" + strconv.Itoa(w.Id)
 }

@@ -512,19 +512,30 @@ func generateWorkload(c *gin.Context, req *types.CreateWorkloadRequest, body []b
 	if err = json.Unmarshal(body, &workload.Spec); err != nil {
 		return nil, err
 	}
-
 	if len(workload.Spec.CustomerLabels) > 0 {
 		customerLabels := make(map[string]string)
 		for key, val := range workload.Spec.CustomerLabels {
-			if len(val) == 0 {
+			if len(val) == 0 || key == common.K8sHostNameLabel {
 				continue
 			}
-			if key != common.K8sHostNameLabel {
-				key = common.CustomerLabelPrefix + key
-			}
+			key = common.CustomerLabelPrefix + key
 			customerLabels[key] = val
 		}
 		workload.Spec.CustomerLabels = customerLabels
+	}
+	if len(req.NodeList) > 0 {
+		workload.Spec.Resource.Replica = len(req.NodeList)
+		nodeNames := ""
+		for i := range req.NodeList {
+			if i > 0 {
+				nodeNames += " "
+			}
+			nodeNames += req.NodeList[i]
+		}
+		if len(workload.Spec.CustomerLabels) == 0 {
+			workload.Spec.CustomerLabels = make(map[string]string)
+		}
+		workload.Spec.CustomerLabels[common.K8sHostNameLabel] = nodeNames
 	}
 	return workload, nil
 }
@@ -833,6 +844,9 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 		for key, val := range w.Spec.CustomerLabels {
 			if strings.HasPrefix(key, common.CustomerLabelPrefix) {
 				key = key[len(common.CustomerLabelPrefix):]
+			} else if key == common.K8sHostNameLabel {
+				result.NodeList = strings.Split(val, " ")
+				continue
 			}
 			result.CustomerLabels[key] = val
 		}

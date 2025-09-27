@@ -13,6 +13,8 @@ import (
 
 type CreateWorkloadRequest struct {
 	v1.WorkloadSpec
+	// When specifying nodes, the replica count corresponds to the number of nodes
+	NodeList []string `json:"nodeList,omitempty"`
 	// workload name (display only)
 	DisplayName string `json:"displayName"`
 	// workload description
@@ -112,6 +114,7 @@ type WorkloadResponseItem struct {
 
 type GetWorkloadResponse struct {
 	WorkloadResponseItem
+	NodeList []string `json:"nodeList"`
 	// Workload image address
 	Image string `json:"image"`
 	// workload entryPoint, required in base64 encoding
