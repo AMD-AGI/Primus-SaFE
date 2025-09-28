@@ -823,6 +823,9 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 		json.Unmarshal([]byte(str), &customerLabels)
 		if len(customerLabels) > 0 {
 			result.CustomerLabels, result.NodeList = handleCustomerLabels(customerLabels)
+			if len(result.NodeList) > 0 {
+				result.Resource = v1.WorkloadResource{}
+			}
 		}
 	}
 	if str := dbutils.ParseNullString(w.Liveness); str != "" {
@@ -863,6 +866,9 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 	}
 	if len(w.Spec.CustomerLabels) > 0 {
 		result.CustomerLabels, result.NodeList = handleCustomerLabels(w.Spec.CustomerLabels)
+		if len(result.NodeList) > 0 {
+			result.Resource = v1.WorkloadResource{}
+		}
 	}
 	if !commonworkload.IsAuthoring(w) {
 		result.EntryPoint = stringutil.Base64Decode(w.Spec.EntryPoint)
