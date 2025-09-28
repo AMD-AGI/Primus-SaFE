@@ -224,6 +224,10 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 		workload.Status.Nodes = append(workload.Status.Nodes, []string{})
 		isStatusChanged = true
 	}
+	if len(workload.Status.Ranks) < count {
+		workload.Status.Ranks = append(workload.Status.Ranks, []string{})
+		isStatusChanged = true
+	}
 	if isStatusChanged {
 		if err := r.Status().Patch(ctx, workload, patch); err != nil {
 			return err
@@ -264,17 +268,21 @@ func (r *SyncerReconciler) updateAdminWorkloadNodes(adminWorkload *v1.Workload, 
 	sortWorkloadPods(adminWorkload)
 
 	nodeNames := make([]string, 0, len(adminWorkload.Status.Pods))
+	ranks := make([]string, 0, len(adminWorkload.Status.Pods))
 	nodeNameSet := sets.NewSet()
 	for _, p := range adminWorkload.Status.Pods {
 		if !nodeNameSet.Has(p.K8sNodeName) {
 			nodeNames = append(nodeNames, p.K8sNodeName)
+			ranks = append(ranks, p.Rank)
 			nodeNameSet.Insert(p.K8sNodeName)
 		}
 	}
 	if len(adminWorkload.Status.Nodes) < msg.dispatchCount {
 		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, nodeNames)
+		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, ranks)
 	} else if msg.dispatchCount > 0 {
 		adminWorkload.Status.Nodes[msg.dispatchCount-1] = nodeNames
+		adminWorkload.Status.Ranks[msg.dispatchCount-1] = ranks
 	}
 	return false
 }

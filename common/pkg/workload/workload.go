@@ -18,11 +18,13 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 )
 
 func GetWorkloadsOfWorkspace(ctx context.Context, cli client.Client, clusterName string, workspaceNames []string,
@@ -258,4 +260,35 @@ func GeneratePriority(priority int) string {
 		strPriority = common.LowPriority
 	}
 	return strPriority
+}
+
+func GenerateMaxAvailResource(nf *v1.NodeFlavor) *v1.WorkloadResource {
+	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
+	availResource := quantity.GetAvailableResource(nodeResources)
+	if !floatutil.FloatEqual(commonconfig.GetMaxEphemeralStorePercent(), 0) {
+		maxEphemeralStoreQuantity, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
+		if maxEphemeralStoreQuantity != nil {
+			availResource[corev1.ResourceEphemeralStorage] = *maxEphemeralStoreQuantity
+		}
+	}
+
+	maxAvailCpu, _ := availResource[corev1.ResourceCPU]
+	maxAvailMem, _ := availResource[corev1.ResourceMemory]
+	maxAvailStorage, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
+	result := &v1.WorkloadResource{
+		CPU:              maxAvailCpu.String(),
+		Memory:           quantity.ToString(maxAvailMem),
+		EphemeralStorage: quantity.ToString(*maxAvailStorage),
+	}
+	if result.Memory == "" {
+		result.Memory = "1Mi"
+	}
+	if result.EphemeralStorage == "" {
+		result.EphemeralStorage = "1Mi"
+	}
+	if nf.HasGpu() {
+		result.GPUName = nf.Spec.Gpu.ResourceName
+		result.GPU = nf.Spec.Gpu.Quantity.String()
+	}
+	return result
 }

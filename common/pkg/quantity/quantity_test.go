@@ -175,3 +175,12 @@ func TestParseFloatQuantity(t *testing.T) {
 	assert.Equal(t, shareMemQuantity.Value(), int64(536870912))
 	assert.Equal(t, shareMemQuantity.String(), "512Mi")
 }
+
+func TestToGiString(t *testing.T) {
+	q1 := resource.MustParse("2Gi")
+	assert.Equal(t, ToString(q1), "2Gi")
+	q2 := resource.MustParse("1024Mi")
+	assert.Equal(t, ToString(q2), "1Gi")
+	q3 := resource.MustParse("500Mi")
+	assert.Equal(t, ToString(q3), "500Mi")
+}

@@ -23,6 +23,7 @@ type WorkloadStatusApplyConfiguration struct {
 	SchedulerOrder *int                                                    `json:"schedulerOrder,omitempty"`
 	Pods           []WorkloadPodApplyConfiguration                         `json:"pods,omitempty"`
 	Nodes          [][]string                                              `json:"nodes,omitempty"`
+	Ranks          [][]string                                              `json:"ranks,omitempty"`
 	K8sObjectUid   *string                                                 `json:"k8sObjectUid,omitempty"`
 }
 
@@ -104,6 +105,16 @@ func (b *WorkloadStatusApplyConfiguration) WithPods(values ...*WorkloadPodApplyC
 func (b *WorkloadStatusApplyConfiguration) WithNodes(values ...[]string) *WorkloadStatusApplyConfiguration {
 	for i := range values {
 		b.Nodes = append(b.Nodes, values[i])
+	}
+	return b
+}
+
+// WithRanks adds the given value to the Ranks field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Ranks field.
+func (b *WorkloadStatusApplyConfiguration) WithRanks(values ...[]string) *WorkloadStatusApplyConfiguration {
+	for i := range values {
+		b.Ranks = append(b.Ranks, values[i])
 	}
 	return b
 }
