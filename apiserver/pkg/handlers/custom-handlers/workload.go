@@ -88,7 +88,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	workload, err := generateWorkload(c, req, body)
+	workload, err := h.generateWorkload(c, req, body)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +494,7 @@ func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workloa
 	return nil
 }
 
-func generateWorkload(c *gin.Context, req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
+func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName(req.DisplayName),
@@ -512,6 +512,14 @@ func generateWorkload(c *gin.Context, req *types.CreateWorkloadRequest, body []b
 	if err = json.Unmarshal(body, &workload.Spec); err != nil {
 		return nil, err
 	}
+	genWorkloadCustomerLabels(workload, req)
+	if err = h.genWorkloadResource(c.Request.Context(), workload); err != nil {
+		return nil, err
+	}
+	return workload, nil
+}
+
+func genWorkloadCustomerLabels(workload *v1.Workload, req *types.CreateWorkloadRequest) {
 	if len(workload.Spec.CustomerLabels) > 0 {
 		customerLabels := make(map[string]string)
 		for key, val := range workload.Spec.CustomerLabels {
@@ -537,7 +545,32 @@ func generateWorkload(c *gin.Context, req *types.CreateWorkloadRequest, body []b
 		}
 		workload.Spec.CustomerLabels[common.K8sHostNameLabel] = nodeNames
 	}
-	return workload, nil
+}
+
+func (h *Handler) genWorkloadResource(ctx context.Context, workload *v1.Workload) error {
+	workspace, err := h.getAdminWorkspace(ctx, workload.Spec.Workspace)
+	if err != nil {
+		return err
+	}
+	nf, err := h.getAdminNodeFlavor(ctx, workspace.Spec.NodeFlavor)
+	if err != nil {
+		return err
+	}
+	maxAvailResource := commonworkload.GenerateMaxAvailResource(nf)
+	if workload.Spec.Resource.CPU == "" {
+		workload.Spec.Resource.CPU = maxAvailResource.CPU
+	}
+	if workload.Spec.Resource.Memory == "" {
+		workload.Spec.Resource.Memory = maxAvailResource.Memory
+	}
+	if workload.Spec.Resource.GPU == "" {
+		workload.Spec.Resource.GPUName = maxAvailResource.GPUName
+		workload.Spec.Resource.GPU = maxAvailResource.GPU
+	}
+	if workload.Spec.Resource.EphemeralStorage == "" {
+		workload.Spec.Resource.EphemeralStorage = maxAvailResource.EphemeralStorage
+	}
+	return nil
 }
 
 func parseListWorkloadQuery(c *gin.Context) (*types.ListWorkloadRequest, error) {
