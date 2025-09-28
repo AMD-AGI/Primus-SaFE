@@ -178,9 +178,9 @@ func TestParseFloatQuantity(t *testing.T) {
 
 func TestToGiString(t *testing.T) {
 	q1 := resource.MustParse("2Gi")
-	assert.Equal(t, ToGiString(q1), "2Gi")
+	assert.Equal(t, ToString(q1), "2Gi")
 	q2 := resource.MustParse("1024Mi")
-	assert.Equal(t, ToGiString(q2), "1Gi")
+	assert.Equal(t, ToString(q2), "1Gi")
 	q3 := resource.MustParse("500Mi")
-	assert.Equal(t, ToGiString(q3), "0.488Gi")
+	assert.Equal(t, ToString(q3), "500Mi")
 }

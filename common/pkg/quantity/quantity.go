@@ -188,7 +188,7 @@ func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore, rdmaResource s
 	if cpu != "" {
 		cpuQuantity, err := resource.ParseQuantity(cpu)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s, value: %s", err.Error(), cpu)
 		}
 		if cpuQuantity.Value() <= 0 {
 			return nil, fmt.Errorf("invalid cpu")
@@ -199,7 +199,7 @@ func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore, rdmaResource s
 	if memory != "" {
 		memQuantity, err := resource.ParseQuantity(memory)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s, value: %s", err.Error(), memory)
 		}
 		if memQuantity.Value() <= 0 {
 			return nil, fmt.Errorf("invalid memory")
@@ -210,7 +210,7 @@ func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore, rdmaResource s
 	if gpu != "" && gpuName != "" {
 		gpuQuantity, err := resource.ParseQuantity(gpu)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s, value: %s", err.Error(), gpu)
 		}
 		if gpuQuantity.Value() <= 0 {
 			return nil, fmt.Errorf("invalid gpu")
@@ -221,7 +221,7 @@ func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore, rdmaResource s
 	if ephemeralStore != "" {
 		ephemeralStoreQuantity, err := resource.ParseQuantity(ephemeralStore)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s, value: %s", err.Error(), ephemeralStore)
 		}
 		if ephemeralStoreQuantity.Value() <= 0 {
 			return nil, fmt.Errorf("invalid ephemeral store")
@@ -232,7 +232,7 @@ func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore, rdmaResource s
 	if rdmaResource != "" && commonconfig.GetRdmaName() != "" {
 		rdmaQuantity, err := resource.ParseQuantity(rdmaResource)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s, value: %s", err.Error(), rdmaResource)
 		}
 		if rdmaQuantity.Value() <= 0 {
 			return nil, fmt.Errorf("invalid rdma resource")
@@ -308,8 +308,15 @@ func GetMaxEphemeralStoreQuantity(resources corev1.ResourceList) (*resource.Quan
 	return resource.NewQuantity(int64(newQuantity), resource.DecimalSI), nil
 }
 
-func ToGiString(q resource.Quantity) string {
+func ToString(q resource.Quantity) string {
 	bytes := q.AsApproximateFloat64()
 	gibibytes := bytes / (1024 * 1024 * 1024)
-	return fmt.Sprintf("%.3gGi", gibibytes)
+	if gibibytes < 1 {
+		mebibytes := bytes / (1024 * 1024)
+		if mebibytes < 1 {
+			return "0Mi"
+		}
+		return fmt.Sprintf("%dMi", int64(mebibytes))
+	}
+	return fmt.Sprintf("%dGi", int64(gibibytes))
 }
