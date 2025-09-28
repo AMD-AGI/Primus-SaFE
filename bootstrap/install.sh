@@ -180,15 +180,16 @@ install_or_upgrade_helm_chart "node-agent" "$values_yaml"
 
 rm -f "$values_yaml"
 
+cd ../../bootstrap
 cat > .env <<EOF
-ETHERNET_NIC=$ethernet_nic
-RDMA_NIC=$rdma_nic
-CLUSTER_SCALE=$cluster_scale
-STORAGE_CLASS=$storage_class
-SUB_DOMAIN=$sub_domain
-OPENSEARCH_ENABLE=$opensearch_enable
-S3_ENABLE=$s3_enable
-S3_ENDPOINT=$s3_endpoint
+ethernet_nic=$ethernet_nic
+rdma_nic=$rdma_nic
+cluster_scale=$cluster_scale
+storage_class=$storage_class
+sub_domain=$sub_domain
+opensearch_enable=$opensearch_enable
+s3_enable=$s3_enable
+s3_endpoint=$s3_endpoint
 EOF
 
 echo "==============================="
