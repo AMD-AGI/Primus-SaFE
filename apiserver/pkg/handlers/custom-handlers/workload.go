@@ -88,7 +88,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	workload, err := generateWorkload(c, req, body)
+	workload, err := h.generateWorkload(c, req, body)
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +309,9 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	}
 
 	patch := client.MergeFrom(adminWorkload.DeepCopy())
-	updateWorkload(adminWorkload, req)
+	if err = updateWorkload(adminWorkload, req); err != nil {
+		return nil, err
+	}
 	if err = h.Patch(c.Request.Context(), adminWorkload, patch); err != nil {
 		return nil, err
 	}
@@ -494,7 +496,7 @@ func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workloa
 	return nil
 }
 
-func generateWorkload(c *gin.Context, req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
+func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName(req.DisplayName),
@@ -523,21 +525,50 @@ func generateWorkload(c *gin.Context, req *types.CreateWorkloadRequest, body []b
 		}
 		workload.Spec.CustomerLabels = customerLabels
 	}
-	if len(req.NodeList) > 0 {
-		workload.Spec.Resource.Replica = len(req.NodeList)
-		nodeNames := ""
-		for i := range req.NodeList {
-			if i > 0 {
-				nodeNames += " "
-			}
-			nodeNames += req.NodeList[i]
-		}
-		if len(workload.Spec.CustomerLabels) == 0 {
-			workload.Spec.CustomerLabels = make(map[string]string)
-		}
-		workload.Spec.CustomerLabels[common.K8sHostNameLabel] = nodeNames
+	genCustomerLabelsByNodes(workload, req.NodeList)
+	if err = h.genWorkloadResourceByNodes(c.Request.Context(), workload, req.NodeList); err != nil {
+		return nil, err
 	}
 	return workload, nil
+}
+
+func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
+	if len(nodeList) == 0 {
+		return
+	}
+	nodeNames := ""
+	for i := range nodeList {
+		if i > 0 {
+			nodeNames += " "
+		}
+		nodeNames += nodeList[i]
+	}
+	if len(workload.Spec.CustomerLabels) == 0 {
+		workload.Spec.CustomerLabels = make(map[string]string)
+	}
+	workload.Spec.CustomerLabels[common.K8sHostNameLabel] = nodeNames
+}
+
+func (h *Handler) genWorkloadResourceByNodes(ctx context.Context, workload *v1.Workload, nodeList []string) error {
+	if len(nodeList) == 0 {
+		return nil
+	}
+	node, err := h.getAdminNode(ctx, nodeList[0])
+	if err != nil || node.Spec.NodeFlavor == nil {
+		return err
+	}
+	nf, err := h.getAdminNodeFlavor(ctx, node.Spec.NodeFlavor.Name)
+	if err != nil {
+		return err
+	}
+	workload.Spec.Resource.Replica = len(nodeList)
+	maxAvailResource := commonworkload.GenerateMaxAvailResource(nf)
+	workload.Spec.Resource.CPU = maxAvailResource.CPU
+	workload.Spec.Resource.Memory = maxAvailResource.Memory
+	workload.Spec.Resource.GPUName = maxAvailResource.GPUName
+	workload.Spec.Resource.GPU = maxAvailResource.GPU
+	workload.Spec.Resource.EphemeralStorage = maxAvailResource.EphemeralStorage
+	return nil
 }
 
 func parseListWorkloadQuery(c *gin.Context) (*types.ListWorkloadRequest, error) {
@@ -677,11 +708,15 @@ func buildListWorkloadOrderBy(query *types.ListWorkloadRequest, dbTags map[strin
 	return orderBy
 }
 
-func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest) {
+func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest) error {
 	if req.Priority != nil {
 		adminWorkload.Spec.Priority = *req.Priority
 	}
 	if req.Replica != nil {
+		_, ok := adminWorkload.Spec.CustomerLabels[common.K8sHostNameLabel]
+		if ok {
+			return commonerrors.NewBadRequest("cannot update replica when specifying nodes")
+		}
 		adminWorkload.Spec.Resource.Replica = *req.Replica
 	}
 	if req.CPU != nil {
@@ -712,10 +747,9 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 		adminWorkload.Spec.Timeout = pointer.Int(*req.Timeout)
 	}
 	if req.Env != nil {
-		for key, val := range *req.Env {
-			adminWorkload.Spec.Env[key] = val
-		}
+		adminWorkload.Spec.Env = *req.Env
 	}
+	return nil
 }
 
 func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
@@ -790,6 +824,9 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 	if str := dbutils.ParseNullString(w.Nodes); str != "" {
 		json.Unmarshal([]byte(str), &result.Nodes)
 	}
+	if str := dbutils.ParseNullString(w.Ranks); str != "" {
+		json.Unmarshal([]byte(str), &result.Ranks)
+	}
 	if str := dbutils.ParseNullString(w.CustomerLabels); str != "" {
 		var customerLabels map[string]string
 		json.Unmarshal([]byte(str), &customerLabels)
@@ -821,6 +858,7 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 		MaxRetry:                w.Spec.MaxRetry,
 		Conditions:              w.Status.Conditions,
 		Nodes:                   w.Status.Nodes,
+		Ranks:                   w.Status.Ranks,
 		TTLSecondsAfterFinished: w.Spec.TTLSecondsAfterFinished,
 		Service:                 w.Spec.Service,
 		Liveness:                w.Spec.Liveness,

@@ -131,6 +131,8 @@ type GetWorkloadResponse struct {
 	Pods []WorkloadPodWrapper `json:"pods"`
 	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
 	Nodes [][]string `json:"nodes"`
+	// The node's rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above.
+	Ranks [][]string `json:"ranks"`
 	// The workload will run on nodes with the user-specified labels.
 	// If multiple labels are specified, all of them must be satisfied.
 	CustomerLabels map[string]string `json:"customerLabels"`

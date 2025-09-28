@@ -339,12 +339,23 @@ spec:
                     podId:
                       description: podId
                       type: string
+                    rank:
+                      description: only for pytorch-job
+                      type: string
                     startTime:
                       description: pod start time
                       type: string
                   required:
                   - podId
                   type: object
+                type: array
+              ranks:
+                description: The node's rank is only valid for the PyTorch job and
+                  corresponds one-to-one with the nodes listed above.
+                items:
+                  items:
+                    type: string
+                  type: array
                 type: array
               schedulerOrder:
                 description: The current position of the workload in the queue

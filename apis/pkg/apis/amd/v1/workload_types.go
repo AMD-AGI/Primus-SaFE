@@ -153,6 +153,8 @@ type WorkloadStatus struct {
 	Pods []WorkloadPod `json:"pods,omitempty"`
 	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
 	Nodes [][]string `json:"nodes,omitempty"`
+	// The node's rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above.
+	Ranks [][]string `json:"ranks,omitempty"`
 	// The corresponding UID applied to the Kubernetes object.
 	K8sObjectUid string `json:"k8sObjectUid,omitempty"`
 }
@@ -170,6 +172,8 @@ type WorkloadPod struct {
 	HostIp string `json:"hostIP,omitempty"`
 	// The pod's IP address where the Pod is running
 	PodIp string `json:"podIP,omitempty"`
+	// only for pytorch-job
+	Rank string `json:"rank,omitempty"`
 	// pod start time
 	StartTime string `json:"startTime,omitempty"`
 	// pod end time
