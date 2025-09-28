@@ -127,6 +127,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		Phase:         pod.Status.Phase,
 		HostIp:        pod.Status.HostIP,
 		PodIp:         pod.Status.PodIP,
+		Rank:          getMainContainerRank(adminWorkload, pod),
 	}
 	if !pod.Status.StartTime.IsZero() {
 		workloadPod.StartTime = timeutil.FormatRFC3339(&pod.Status.StartTime.Time)
@@ -142,10 +143,25 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		adminWorkload.Status.Pods[id].StartTime = workloadPod.StartTime
 		adminWorkload.Status.Pods[id].EndTime = workloadPod.EndTime
 		adminWorkload.Status.Pods[id].Containers = workloadPod.Containers
+		adminWorkload.Status.Pods[id].Rank = workloadPod.Rank
 	} else {
 		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods, workloadPod)
 	}
 	return ctrlruntime.Result{}, r.Status().Update(ctx, adminWorkload)
+}
+
+func getMainContainerRank(adminWorkload *v1.Workload, pod *corev1.Pod) string {
+	for _, container := range pod.Spec.Containers {
+		if container.Name != v1.GetMainContainer(adminWorkload) {
+			continue
+		}
+		for _, env := range container.Env {
+			if env.Name == "RANK" {
+				return env.Value
+			}
+		}
+	}
+	return ""
 }
 
 func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, msg *resourceMessage) error {

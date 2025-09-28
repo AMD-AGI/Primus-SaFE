@@ -818,13 +818,16 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 	if str := dbutils.ParseNullString(w.Nodes); str != "" {
 		json.Unmarshal([]byte(str), &result.Nodes)
 	}
+	if str := dbutils.ParseNullString(w.Ranks); str != "" {
+		json.Unmarshal([]byte(str), &result.Ranks)
+	}
 	if str := dbutils.ParseNullString(w.CustomerLabels); str != "" {
 		var customerLabels map[string]string
 		json.Unmarshal([]byte(str), &customerLabels)
 		if len(customerLabels) > 0 {
 			result.CustomerLabels, result.NodeList = handleCustomerLabels(customerLabels)
 			if len(result.NodeList) > 0 {
-				result.Resource = v1.WorkloadResource{}
+				result.Resource = nil
 			}
 		}
 	}
@@ -852,6 +855,7 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 		MaxRetry:                w.Spec.MaxRetry,
 		Conditions:              w.Status.Conditions,
 		Nodes:                   w.Status.Nodes,
+		Ranks:                   w.Status.Ranks,
 		TTLSecondsAfterFinished: w.Spec.TTLSecondsAfterFinished,
 		Service:                 w.Spec.Service,
 		Liveness:                w.Spec.Liveness,
@@ -867,7 +871,7 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 	if len(w.Spec.CustomerLabels) > 0 {
 		result.CustomerLabels, result.NodeList = handleCustomerLabels(w.Spec.CustomerLabels)
 		if len(result.NodeList) > 0 {
-			result.Resource = v1.WorkloadResource{}
+			result.Resource = nil
 		}
 	}
 	if !commonworkload.IsAuthoring(w) {
@@ -895,7 +899,7 @@ func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
 		WorkloadId:       w.Name,
 		Workspace:        w.Spec.Workspace,
-		Resource:         w.Spec.Resource,
+		Resource:         &w.Spec.Resource,
 		DisplayName:      v1.GetDisplayName(w),
 		Description:      v1.GetDescription(w),
 		UserId:           v1.GetUserId(w),

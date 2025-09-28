@@ -105,3 +105,4 @@ data:
     alter table workload add column if not exists k8s_object_uid VARCHAR(36);
     alter table workload add column if not exists workload_uid VARCHAR(36);
     alter table ops_job add column if not exists user_id VARCHAR(64);
+    alter table workload add column if not exists ranks TEXT;
