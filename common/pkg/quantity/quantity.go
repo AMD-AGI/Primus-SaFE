@@ -314,7 +314,7 @@ func ToString(q resource.Quantity) string {
 	if gibibytes < 1 {
 		mebibytes := bytes / (1024 * 1024)
 		if mebibytes < 1 {
-			return "0Mi"
+			return ""
 		}
 		return fmt.Sprintf("%dMi", int64(mebibytes))
 	}
