@@ -747,9 +747,7 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 		adminWorkload.Spec.Timeout = pointer.Int(*req.Timeout)
 	}
 	if req.Env != nil {
-		for key, val := range *req.Env {
-			adminWorkload.Spec.Env[key] = val
-		}
+		adminWorkload.Spec.Env = *req.Env
 	}
 	return nil
 }
