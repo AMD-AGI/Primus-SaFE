@@ -513,7 +513,7 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 		return nil, err
 	}
 	genWorkloadCustomerLabels(workload, req)
-	if err = h.genWorkloadResource(c.Request.Context(), workload); err != nil {
+	if err = h.genWorkloadResourceByNodes(c.Request.Context(), workload, req.NodeList); err != nil {
 		return nil, err
 	}
 	return workload, nil
@@ -532,7 +532,6 @@ func genWorkloadCustomerLabels(workload *v1.Workload, req *types.CreateWorkloadR
 		workload.Spec.CustomerLabels = customerLabels
 	}
 	if len(req.NodeList) > 0 {
-		workload.Spec.Resource.Replica = len(req.NodeList)
 		nodeNames := ""
 		for i := range req.NodeList {
 			if i > 0 {
@@ -547,29 +546,25 @@ func genWorkloadCustomerLabels(workload *v1.Workload, req *types.CreateWorkloadR
 	}
 }
 
-func (h *Handler) genWorkloadResource(ctx context.Context, workload *v1.Workload) error {
-	workspace, err := h.getAdminWorkspace(ctx, workload.Spec.Workspace)
+func (h *Handler) genWorkloadResourceByNodes(ctx context.Context, workload *v1.Workload, nodeList []string) error {
+	if len(nodeList) == 0 {
+		return nil
+	}
+	node, err := h.getAdminNode(ctx, nodeList[0])
+	if err != nil || node.Spec.NodeFlavor == nil {
+		return err
+	}
+	nf, err := h.getAdminNodeFlavor(ctx, node.Spec.NodeFlavor.Name)
 	if err != nil {
 		return err
 	}
-	nf, err := h.getAdminNodeFlavor(ctx, workspace.Spec.NodeFlavor)
-	if err != nil {
-		return err
-	}
+	workload.Spec.Resource.Replica = len(nodeList)
 	maxAvailResource := commonworkload.GenerateMaxAvailResource(nf)
-	if workload.Spec.Resource.CPU == "" {
-		workload.Spec.Resource.CPU = maxAvailResource.CPU
-	}
-	if workload.Spec.Resource.Memory == "" {
-		workload.Spec.Resource.Memory = maxAvailResource.Memory
-	}
-	if workload.Spec.Resource.GPU == "" {
-		workload.Spec.Resource.GPUName = maxAvailResource.GPUName
-		workload.Spec.Resource.GPU = maxAvailResource.GPU
-	}
-	if workload.Spec.Resource.EphemeralStorage == "" {
-		workload.Spec.Resource.EphemeralStorage = maxAvailResource.EphemeralStorage
-	}
+	workload.Spec.Resource.CPU = maxAvailResource.CPU
+	workload.Spec.Resource.Memory = maxAvailResource.Memory
+	workload.Spec.Resource.GPUName = maxAvailResource.GPUName
+	workload.Spec.Resource.GPU = maxAvailResource.GPU
+	workload.Spec.Resource.EphemeralStorage = maxAvailResource.EphemeralStorage
 	return nil
 }
 
