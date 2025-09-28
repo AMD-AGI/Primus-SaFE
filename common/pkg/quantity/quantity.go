@@ -307,3 +307,9 @@ func GetMaxEphemeralStoreQuantity(resources corev1.ResourceList) (*resource.Quan
 	newQuantity := float64(storeQuantity.Value()) * maxPercent
 	return resource.NewQuantity(int64(newQuantity), resource.DecimalSI), nil
 }
+
+func ToGiString(q resource.Quantity) string {
+	bytes := q.AsApproximateFloat64()
+	gibibytes := bytes / (1024 * 1024 * 1024)
+	return fmt.Sprintf("%.3gGi", gibibytes)
+}

@@ -309,7 +309,9 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	}
 
 	patch := client.MergeFrom(adminWorkload.DeepCopy())
-	updateWorkload(adminWorkload, req)
+	if err = updateWorkload(adminWorkload, req); err != nil {
+		return nil, err
+	}
 	if err = h.Patch(c.Request.Context(), adminWorkload, patch); err != nil {
 		return nil, err
 	}
@@ -512,14 +514,6 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 	if err = json.Unmarshal(body, &workload.Spec); err != nil {
 		return nil, err
 	}
-	genWorkloadCustomerLabels(workload, req)
-	if err = h.genWorkloadResourceByNodes(c.Request.Context(), workload, req.NodeList); err != nil {
-		return nil, err
-	}
-	return workload, nil
-}
-
-func genWorkloadCustomerLabels(workload *v1.Workload, req *types.CreateWorkloadRequest) {
 	if len(workload.Spec.CustomerLabels) > 0 {
 		customerLabels := make(map[string]string)
 		for key, val := range workload.Spec.CustomerLabels {
@@ -531,19 +525,28 @@ func genWorkloadCustomerLabels(workload *v1.Workload, req *types.CreateWorkloadR
 		}
 		workload.Spec.CustomerLabels = customerLabels
 	}
-	if len(req.NodeList) > 0 {
-		nodeNames := ""
-		for i := range req.NodeList {
-			if i > 0 {
-				nodeNames += " "
-			}
-			nodeNames += req.NodeList[i]
-		}
-		if len(workload.Spec.CustomerLabels) == 0 {
-			workload.Spec.CustomerLabels = make(map[string]string)
-		}
-		workload.Spec.CustomerLabels[common.K8sHostNameLabel] = nodeNames
+	genCustomerLabelsByNodes(workload, req.NodeList)
+	if err = h.genWorkloadResourceByNodes(c.Request.Context(), workload, req.NodeList); err != nil {
+		return nil, err
 	}
+	return workload, nil
+}
+
+func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
+	if len(nodeList) == 0 {
+		return
+	}
+	nodeNames := ""
+	for i := range nodeList {
+		if i > 0 {
+			nodeNames += " "
+		}
+		nodeNames += nodeList[i]
+	}
+	if len(workload.Spec.CustomerLabels) == 0 {
+		workload.Spec.CustomerLabels = make(map[string]string)
+	}
+	workload.Spec.CustomerLabels[common.K8sHostNameLabel] = nodeNames
 }
 
 func (h *Handler) genWorkloadResourceByNodes(ctx context.Context, workload *v1.Workload, nodeList []string) error {
@@ -705,11 +708,15 @@ func buildListWorkloadOrderBy(query *types.ListWorkloadRequest, dbTags map[strin
 	return orderBy
 }
 
-func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest) {
+func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest) error {
 	if req.Priority != nil {
 		adminWorkload.Spec.Priority = *req.Priority
 	}
 	if req.Replica != nil {
+		_, ok := adminWorkload.Spec.CustomerLabels[common.K8sHostNameLabel]
+		if ok {
+			return commonerrors.NewBadRequest("cannot update replica when specifying nodes")
+		}
 		adminWorkload.Spec.Resource.Replica = *req.Replica
 	}
 	if req.CPU != nil {
@@ -744,6 +751,7 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 			adminWorkload.Spec.Env[key] = val
 		}
 	}
+	return nil
 }
 
 func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
@@ -826,9 +834,6 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 		json.Unmarshal([]byte(str), &customerLabels)
 		if len(customerLabels) > 0 {
 			result.CustomerLabels, result.NodeList = handleCustomerLabels(customerLabels)
-			if len(result.NodeList) > 0 {
-				result.Resource = nil
-			}
 		}
 	}
 	if str := dbutils.ParseNullString(w.Liveness); str != "" {
@@ -870,9 +875,6 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 	}
 	if len(w.Spec.CustomerLabels) > 0 {
 		result.CustomerLabels, result.NodeList = handleCustomerLabels(w.Spec.CustomerLabels)
-		if len(result.NodeList) > 0 {
-			result.Resource = nil
-		}
 	}
 	if !commonworkload.IsAuthoring(w) {
 		result.EntryPoint = stringutil.Base64Decode(w.Spec.EntryPoint)
@@ -899,7 +901,7 @@ func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
 		WorkloadId:       w.Name,
 		Workspace:        w.Spec.Workspace,
-		Resource:         &w.Spec.Resource,
+		Resource:         w.Spec.Resource,
 		DisplayName:      v1.GetDisplayName(w),
 		Description:      v1.GetDescription(w),
 		UserId:           v1.GetUserId(w),

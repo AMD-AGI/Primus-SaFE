@@ -70,7 +70,7 @@ type WorkloadResponseItem struct {
 	// Requested workspace
 	Workspace string `json:"workspace"`
 	// Workload resource requirements
-	Resource *v1.WorkloadResource `json:"resource"`
+	Resource v1.WorkloadResource `json:"resource"`
 	// workload name (display only)
 	DisplayName string `json:"displayName"`
 	// workload description
