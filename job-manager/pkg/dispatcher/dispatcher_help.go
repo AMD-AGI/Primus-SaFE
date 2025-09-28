@@ -360,19 +360,7 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 			})
 		}
 	}
-	if adminWorkload.Spec.Resource.GPU == "" {
-		if adminWorkload.Spec.Resource.GPUName == common.NvidiaGpu {
-			result = append(result, map[string]interface{}{
-				"name":  "NVIDIA_VISIBLE_DEVICES",
-				"value": "void",
-			})
-		} else if adminWorkload.Spec.Resource.GPUName == common.AmdGpu {
-			result = append(result, map[string]interface{}{
-				"name":  "ROCR_VISIBLE_DEVICES",
-				"value": "",
-			})
-		}
-	} else {
+	if adminWorkload.Spec.Resource.GPU != "" {
 		result = append(result, map[string]interface{}{
 			"name":  "GPUS_PER_NODE",
 			"value": adminWorkload.Spec.Resource.GPU,

@@ -8,10 +8,8 @@ package ops_job
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,7 +23,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
@@ -303,18 +301,7 @@ func (r *OpsJobBaseReconciler) genMaxResource(ctx context.Context, adminNode *v1
 	if err := r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(adminNode)}, nf); err != nil {
 		return nil, err
 	}
-	nodeResources := nf.ToResourceList("")
-	availNodeResources := quantity.GetAvailableResource(nodeResources)
-	maxAvailCpu, _ := availNodeResources[corev1.ResourceCPU]
-	maxAvailMem, _ := availNodeResources[corev1.ResourceMemory]
-	maxAvailStorage, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
-	return &v1.WorkloadResource{
-		CPU:              maxAvailCpu.String(),
-		Memory:           maxAvailMem.String(),
-		GPU:              strconv.Itoa(v1.GetNodeGpuCount(adminNode)),
-		GPUName:          v1.GetGpuResourceName(adminNode),
-		EphemeralStorage: maxAvailStorage.String(),
-	}, nil
+	return commonworkload.GenerateMaxAvailResource(nf), nil
 }
 
 func getWorkloadMessage(workload *v1.Workload) string {

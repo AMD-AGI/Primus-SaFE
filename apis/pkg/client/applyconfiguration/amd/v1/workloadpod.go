@@ -19,6 +19,7 @@ type WorkloadPodApplyConfiguration struct {
 	Phase         *corev1.PodPhase              `json:"phase,omitempty"`
 	HostIp        *string                       `json:"hostIP,omitempty"`
 	PodIp         *string                       `json:"podIP,omitempty"`
+	Rank          *string                       `json:"rank,omitempty"`
 	StartTime     *string                       `json:"startTime,omitempty"`
 	EndTime       *string                       `json:"endTime,omitempty"`
 	Containers    []ContainerApplyConfiguration `json:"containers,omitempty"`
@@ -75,6 +76,14 @@ func (b *WorkloadPodApplyConfiguration) WithHostIp(value string) *WorkloadPodApp
 // If called multiple times, the PodIp field is set to the value of the last call.
 func (b *WorkloadPodApplyConfiguration) WithPodIp(value string) *WorkloadPodApplyConfiguration {
 	b.PodIp = &value
+	return b
+}
+
+// WithRank sets the Rank field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Rank field is set to the value of the last call.
+func (b *WorkloadPodApplyConfiguration) WithRank(value string) *WorkloadPodApplyConfiguration {
+	b.Rank = &value
 	return b
 }
 

@@ -199,6 +199,7 @@ func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Wo
 	isChanged := false
 	if workload.Spec.Resource.GPU != "" && workspace != nil {
 		workload.Spec.Resource.GPUName = v1.GetGpuResourceName(workspace)
+		isChanged = true
 	}
 	if workload.Spec.Resource.SharedMemory == "" && workload.Spec.Resource.Memory != "" {
 		memQuantity, err := resource.ParseQuantity(workload.Spec.Resource.Memory)

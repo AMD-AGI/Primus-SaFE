@@ -43,6 +43,7 @@ var (
 		    pods = :pods,
 		    dispatch_count = :dispatch_count,
 		    nodes = :nodes,
+		    ranks = :ranks,
 		    is_supervised = :is_supervised,
 		    is_tolerate_all = :is_tolerate_all,
 		    timeout = :timeout,

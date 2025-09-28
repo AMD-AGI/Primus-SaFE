@@ -97,6 +97,9 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 	if len(workload.Status.Nodes) > 0 {
 		result.Nodes = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Status.Nodes)))
 	}
+	if len(workload.Status.Ranks) > 0 {
+		result.Ranks = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Status.Ranks)))
+	}
 	if len(workload.Spec.CustomerLabels) > 0 {
 		result.CustomerLabels = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.CustomerLabels)))
 	}
