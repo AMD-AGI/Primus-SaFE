@@ -280,6 +280,12 @@ func GenerateMaxAvailResource(nf *v1.NodeFlavor) *v1.WorkloadResource {
 		Memory:           quantity.ToString(maxAvailMem),
 		EphemeralStorage: quantity.ToString(*maxAvailStorage),
 	}
+	if result.Memory == "" {
+		result.Memory = "1Mi"
+	}
+	if result.EphemeralStorage == "" {
+		result.EphemeralStorage = "1Mi"
+	}
 	if nf.HasGpu() {
 		result.GPUName = nf.Spec.Gpu.ResourceName
 		result.GPU = nf.Spec.Gpu.Quantity.String()
