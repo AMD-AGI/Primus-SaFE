@@ -510,6 +510,7 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 			},
 		},
 	}
+
 	var err error
 	if err = json.Unmarshal(body, &workload.Spec); err != nil {
 		return nil, err
@@ -526,8 +527,8 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 		workload.Spec.CustomerLabels = customerLabels
 	}
 	genCustomerLabelsByNodes(workload, req.NodeList)
-	if err = h.genWorkloadResourceByNodes(c.Request.Context(), workload, req.NodeList); err != nil {
-		return nil, err
+	if len(req.NodeList) > 0 {
+		workload.Spec.Resource.Replica = len(req.NodeList)
 	}
 	return workload, nil
 }
@@ -547,28 +548,6 @@ func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
 		workload.Spec.CustomerLabels = make(map[string]string)
 	}
 	workload.Spec.CustomerLabels[common.K8sHostNameLabel] = nodeNames
-}
-
-func (h *Handler) genWorkloadResourceByNodes(ctx context.Context, workload *v1.Workload, nodeList []string) error {
-	if len(nodeList) == 0 {
-		return nil
-	}
-	node, err := h.getAdminNode(ctx, nodeList[0])
-	if err != nil || node.Spec.NodeFlavor == nil {
-		return err
-	}
-	nf, err := h.getAdminNodeFlavor(ctx, node.Spec.NodeFlavor.Name)
-	if err != nil {
-		return err
-	}
-	workload.Spec.Resource.Replica = len(nodeList)
-	maxAvailResource := commonworkload.GenerateMaxAvailResource(nf)
-	workload.Spec.Resource.CPU = maxAvailResource.CPU
-	workload.Spec.Resource.Memory = maxAvailResource.Memory
-	workload.Spec.Resource.GPUName = maxAvailResource.GPUName
-	workload.Spec.Resource.GPU = maxAvailResource.GPU
-	workload.Spec.Resource.EphemeralStorage = maxAvailResource.EphemeralStorage
-	return nil
 }
 
 func parseListWorkloadQuery(c *gin.Context) (*types.ListWorkloadRequest, error) {
@@ -712,7 +691,7 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	if req.Priority != nil {
 		adminWorkload.Spec.Priority = *req.Priority
 	}
-	if req.Replica != nil {
+	if req.Replica != nil && *req.Replica != adminWorkload.Spec.Resource.Replica {
 		_, ok := adminWorkload.Spec.CustomerLabels[common.K8sHostNameLabel]
 		if ok {
 			return commonerrors.NewBadRequest("cannot update replica when specifying nodes")

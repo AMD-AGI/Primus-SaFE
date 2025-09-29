@@ -31,6 +31,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -52,7 +53,8 @@ func (h *Handler) DeleteOpsJob(c *gin.Context) {
 }
 
 func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
-	req, err := parseCreateOpsJobQuery(c)
+	req := &types.BaseOpsJobRequest{}
+	_, err := getBodyFromRequest(c.Request, req)
 	if err != nil {
 		return nil, err
 	}
@@ -61,19 +63,18 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 	var job *v1.OpsJob
 	switch req.Type {
 	case v1.OpsJobAddonType:
-		job, err = h.generateAddonJob(c, req)
+		job, err = h.generateAddonJob(c)
 	case v1.OpsJobPreflightType:
-		job, err = h.generatePreflightJob(c, req)
-	case v1.OpsJobDiagnoseType:
-		job, err = h.generateDiagnoseJob(c, req)
+		job, err = h.generatePreflightJob(c)
 	case v1.OpsJobDumpLogType:
-		job, err = h.generateDumpLogJob(c, req)
+		job, err = h.generateDumpLogJob(c)
 	default:
-		err = fmt.Errorf("unsupported ops job type")
+		err = fmt.Errorf("unsupported ops job type(%s)", req.Type)
 	}
 	if err != nil || job == nil {
 		return nil, err
 	}
+
 	if err = h.Create(ctx, job); err != nil {
 		klog.ErrorS(err, "failed to create ops job")
 		return nil, err
@@ -106,7 +107,7 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 		TotalCount: count,
 	}
 	for _, job := range jobs {
-		result.Items = append(result.Items, cvtToOpsJobResponseItem(job))
+		result.Items = append(result.Items, cvtToOpsJobResponseItem(job, false))
 	}
 	return result, nil
 }
@@ -126,7 +127,7 @@ func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 	if len(jobs) == 0 {
 		return nil, commonerrors.NewNotFoundWithMessage("the opsjob is not found")
 	}
-	return cvtToOpsJobResponseItem(jobs[0]), nil
+	return cvtToOpsJobResponseItem(jobs[0], true), nil
 }
 
 func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
@@ -177,7 +178,7 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) generateAddonJob(c *gin.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
+func (h *Handler) generateAddonJob(c *gin.Context) (*v1.OpsJob, error) {
 	if err := h.auth.Authorize(authority.Input{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.AddOnTemplateKind,
@@ -187,38 +188,32 @@ func (h *Handler) generateAddonJob(c *gin.Context, req *types.CreateOpsJobReques
 		return nil, err
 	}
 
-	job := genDefaultOpsJob(c, req)
-	if err := h.genOpsJobInputs(c.Request.Context(), job, req); err != nil {
+	req := &types.CreateAddonRequest{}
+	_, err := getBodyFromRequest(c.Request, req)
+	if err != nil {
 		return nil, err
 	}
-
+	if req.BatchCount <= 0 {
+		req.BatchCount = 1
+	}
+	if req.AvailableRatio == nil || *req.AvailableRatio <= 0 {
+		req.AvailableRatio = pointer.Float64(1.0)
+	}
+	job := genDefaultOpsJob(c, &req.BaseOpsJobRequest)
+	if req.SecurityUpgrade {
+		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
+	}
 	v1.SetAnnotation(job, v1.OpsJobBatchCountAnnotation, strconv.Itoa(req.BatchCount))
 	v1.SetAnnotation(job, v1.OpsJobAvailRatioAnnotation,
 		strconv.FormatFloat(*req.AvailableRatio, 'f', -1, 64))
-	return job, nil
-}
 
-func (h *Handler) generatePreflightJob(c *gin.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
-	if commonconfig.GetPreflightImage() == "" {
-		return nil, commonerrors.NewInternalError("The preflight function is not enabled")
-	}
-	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
-		Context: c.Request.Context(),
-		UserId:  c.GetString(common.UserId),
-	}); err != nil {
-		return nil, err
-	}
-	job := genDefaultOpsJob(c, req)
-	if err := h.genOpsJobInputs(c.Request.Context(), job, req); err != nil {
+	if err = h.genOpsJobInputs(c.Request.Context(), job, &req.BaseOpsJobRequest); err != nil {
 		return nil, err
 	}
 	return job, nil
 }
 
-func (h *Handler) generateDiagnoseJob(c *gin.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
-	if commonconfig.GetDiagnoseImage() == "" {
-		return nil, commonerrors.NewInternalError("The diagnose function is not enabled")
-	}
+func (h *Handler) generatePreflightJob(c *gin.Context) (*v1.OpsJob, error) {
 	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
 		Context: c.Request.Context(),
 		UserId:  c.GetString(common.UserId),
@@ -226,39 +221,87 @@ func (h *Handler) generateDiagnoseJob(c *gin.Context, req *types.CreateOpsJobReq
 		return nil, err
 	}
 
-	job := genDefaultOpsJob(c, req)
-	if err := h.genOpsJobInputs(c.Request.Context(), job, req); err != nil {
+	req := &types.CreatePreflightRequest{}
+	_, err := getBodyFromRequest(c.Request, req)
+	if err != nil {
+		return nil, err
+	}
+	job := genDefaultOpsJob(c, &req.BaseOpsJobRequest)
+	job.Spec.Resource = req.Resource
+	job.Spec.Image = req.Image
+	job.Spec.EntryPoint = req.EntryPoint
+	job.Spec.Env = req.Env
+	job.Spec.IsTolerateAll = req.IsTolerateAll
+
+	if err = h.genOpsJobInputs(c.Request.Context(), job, &req.BaseOpsJobRequest); err != nil {
 		return nil, err
 	}
 	return job, nil
 }
 
-func (h *Handler) getNodesOfWorkload(ctx context.Context, workloadId string) ([]string, error) {
-	if commonconfig.IsDBEnable() {
-		workload, err := h.dbClient.GetWorkload(ctx, workloadId)
-		if err != nil {
-			return nil, err
-		}
-		if str := dbutils.ParseNullString(workload.Nodes); str != "" {
-			var nodes [][]string
-			json.Unmarshal([]byte(str), &nodes)
-			if len(nodes) > 0 {
-				return nodes[len(nodes)-1], nil
-			}
-		}
-	} else {
-		workload, err := h.getAdminWorkload(ctx, workloadId)
-		if err != nil {
-			return nil, err
-		}
-		if len(workload.Status.Nodes) > 0 {
-			return workload.Status.Nodes[len(workload.Status.Nodes)-1], nil
-		}
+func (h *Handler) generateDumpLogJob(c *gin.Context) (*v1.OpsJob, error) {
+	if !commonconfig.IsOpenSearchEnable() {
+		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
-	return nil, nil
+	if !commonconfig.IsS3Enable() {
+		return nil, commonerrors.NewInternalError("The s3 function is not enabled")
+	}
+
+	req := &types.CreateDumplogRequest{}
+	_, err := getBodyFromRequest(c.Request, req)
+	if err != nil {
+		return nil, err
+	}
+	job := genDefaultOpsJob(c, &req.BaseOpsJobRequest)
+
+	workloadParam := job.GetParameter(v1.ParameterWorkload)
+	if workloadParam == nil {
+		return nil, commonerrors.NewBadRequest(
+			fmt.Sprintf("%s must be specified in the job.", v1.ParameterWorkload))
+	}
+	workload, err := h.getWorkloadInternal(c.Request.Context(), workloadParam.Value)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		Context:    c.Request.Context(),
+		Resource:   workload,
+		Verb:       v1.GetVerb,
+		Workspaces: []string{workload.Spec.Workspace},
+		UserId:     c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+	v1.SetLabel(job, v1.WorkspaceIdLabel, workload.Spec.Workspace)
+	return job, nil
 }
 
-func (h *Handler) genOpsJobInputs(ctx context.Context, job *v1.OpsJob, req *types.CreateOpsJobRequest) error {
+func genDefaultOpsJob(c *gin.Context, req *types.BaseOpsJobRequest) *v1.OpsJob {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: commonutils.GenerateName(req.Name),
+			Labels: map[string]string{
+				v1.UserIdLabel:      c.GetString(common.UserId),
+				v1.DisplayNameLabel: req.Name,
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: c.GetString(common.UserName),
+			},
+		},
+		Spec: v1.OpsJobSpec{
+			Type:                    req.Type,
+			Inputs:                  req.Inputs,
+			TimeoutSecond:           req.TimeoutSecond,
+			TTLSecondsAfterFinished: req.TTLSecondsAfterFinished,
+		},
+	}
+	if v1.GetUserName(job) == "" {
+		v1.SetAnnotation(job, v1.UserNameAnnotation, v1.GetUserId(job))
+	}
+	return job
+}
+
+func (h *Handler) genOpsJobInputs(ctx context.Context, job *v1.OpsJob, req *types.BaseOpsJobRequest) error {
 	if job.GetParameter(v1.ParameterNode) != nil {
 		return nil
 	}
@@ -303,81 +346,29 @@ func (h *Handler) genOpsJobInputs(ctx context.Context, job *v1.OpsJob, req *type
 	return nil
 }
 
-func (h *Handler) generateDumpLogJob(c *gin.Context, req *types.CreateOpsJobRequest) (*v1.OpsJob, error) {
-	if !commonconfig.IsOpenSearchEnable() {
-		return nil, commonerrors.NewInternalError("The logging function is not enabled")
+func (h *Handler) getNodesOfWorkload(ctx context.Context, workloadId string) ([]string, error) {
+	if commonconfig.IsDBEnable() {
+		workload, err := h.dbClient.GetWorkload(ctx, workloadId)
+		if err != nil {
+			return nil, err
+		}
+		if str := dbutils.ParseNullString(workload.Nodes); str != "" {
+			var nodes [][]string
+			json.Unmarshal([]byte(str), &nodes)
+			if len(nodes) > 0 {
+				return nodes[len(nodes)-1], nil
+			}
+		}
+	} else {
+		workload, err := h.getAdminWorkload(ctx, workloadId)
+		if err != nil {
+			return nil, err
+		}
+		if len(workload.Status.Nodes) > 0 {
+			return workload.Status.Nodes[len(workload.Status.Nodes)-1], nil
+		}
 	}
-	if !commonconfig.IsS3Enable() {
-		return nil, commonerrors.NewInternalError("The s3 function is not enabled")
-	}
-	job := genDefaultOpsJob(c, req)
-
-	workloadParam := job.GetParameter(v1.ParameterWorkload)
-	if workloadParam == nil {
-		return nil, commonerrors.NewBadRequest(
-			fmt.Sprintf("%s must be specified in the job.", v1.ParameterWorkload))
-	}
-	workload, err := h.getWorkloadInternal(c.Request.Context(), workloadParam.Value)
-	if err != nil {
-		return nil, err
-	}
-	if err = h.auth.Authorize(authority.Input{
-		Context:    c.Request.Context(),
-		Resource:   workload,
-		Verb:       v1.GetVerb,
-		Workspaces: []string{workload.Spec.Workspace},
-		UserId:     c.GetString(common.UserId),
-	}); err != nil {
-		return nil, err
-	}
-	job.Spec.Cluster = v1.GetClusterId(workload)
-	v1.SetLabel(job, v1.WorkspaceIdLabel, workload.Spec.Workspace)
-	return job, nil
-}
-
-func genDefaultOpsJob(c *gin.Context, req *types.CreateOpsJobRequest) *v1.OpsJob {
-	job := &v1.OpsJob{
-		ObjectMeta: metav1.ObjectMeta{
-			Labels: map[string]string{
-				v1.UserIdLabel: c.GetString(common.UserId),
-			},
-			Annotations: map[string]string{
-				v1.UserNameAnnotation: c.GetString(common.UserName),
-			},
-		},
-		Spec: v1.OpsJobSpec{
-			Cluster:                 req.Cluster,
-			Type:                    req.Type,
-			Inputs:                  req.Inputs,
-			TimeoutSecond:           req.TimeoutSecond,
-			Env:                     req.Env,
-			IsTolerateAll:           req.IsTolerateAll,
-			TTLSecondsAfterFinished: req.TTLSecondsAfterFinished,
-		},
-	}
-	if req.SecurityUpgrade {
-		v1.SetAnnotation(job, v1.OpsJobSecurityUpgradeAnnotation, "")
-	}
-	if v1.GetUserName(job) == "" {
-		v1.SetAnnotation(job, v1.UserNameAnnotation, v1.GetUserId(job))
-	}
-	return job
-}
-
-func parseCreateOpsJobQuery(c *gin.Context) (*types.CreateOpsJobRequest, error) {
-	req := &types.CreateOpsJobRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
-	if err != nil {
-		klog.ErrorS(err, "failed to parse ops job request", "body", string(body))
-		return nil, err
-	}
-	if req.BatchCount <= 0 {
-		req.BatchCount = 1
-	}
-	if req.AvailableRatio == nil || *req.AvailableRatio <= 0 {
-		req.AvailableRatio = pointer.Float64(1.0)
-	}
-	return req, nil
+	return nil, nil
 }
 
 func (h *Handler) parseListOpsJobQuery(c *gin.Context) (*types.ListOpsJobRequest, error) {
@@ -471,14 +462,14 @@ func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
 	return dbSql, nil
 }
 
-func cvtToOpsJobResponseItem(job *dbclient.OpsJob) types.OpsJobResponseItem {
+func cvtToOpsJobResponseItem(job *dbclient.OpsJob, isNeedDetail bool) types.OpsJobResponseItem {
 	result := types.OpsJobResponseItem{
 		JobId:        job.JobId,
 		Cluster:      job.Cluster,
 		Workspace:    dbutils.ParseNullString(job.Workspace),
-		Type:         v1.OpsJobType(job.Type),
-		UserName:     dbutils.ParseNullString(job.UserName),
 		UserId:       dbutils.ParseNullString(job.UserId),
+		UserName:     dbutils.ParseNullString(job.UserName),
+		Type:         v1.OpsJobType(job.Type),
 		Phase:        v1.OpsJobPhase(dbutils.ParseNullString(job.Phase)),
 		CreationTime: dbutils.ParseNullTimeToString(job.CreateTime),
 		StartTime:    dbutils.ParseNullTimeToString(job.StartTime),
@@ -488,6 +479,13 @@ func cvtToOpsJobResponseItem(job *dbclient.OpsJob) types.OpsJobResponseItem {
 	if result.Phase == "" {
 		result.Phase = v1.OpsJobPending
 	}
+	if !isNeedDetail {
+		return result
+	}
+
+	if conditions := dbutils.ParseNullString(job.Conditions); conditions != "" {
+		json.Unmarshal([]byte(conditions), &result.Conditions)
+	}
 	result.Inputs = deserializeParams(string(job.Inputs))
 	if outputs := dbutils.ParseNullString(job.Outputs); outputs != "" {
 		json.Unmarshal([]byte(outputs), &result.Outputs)
@@ -495,8 +493,14 @@ func cvtToOpsJobResponseItem(job *dbclient.OpsJob) types.OpsJobResponseItem {
 	if env := dbutils.ParseNullString(job.Env); env != "" {
 		json.Unmarshal([]byte(env), &result.Env)
 	}
-	if conditions := dbutils.ParseNullString(job.Conditions); conditions != "" {
-		json.Unmarshal([]byte(conditions), &result.Conditions)
+	if resource := dbutils.ParseNullString(job.Resource); resource != "" {
+		json.Unmarshal([]byte(resource), &result.Resource)
+	}
+	if image := dbutils.ParseNullString(job.Image); image != "" {
+		result.Image = image
+	}
+	if entryPoint := dbutils.ParseNullString(job.EntryPoint); entryPoint != "" {
+		result.EntryPoint = entryPoint
 	}
 	return result
 }

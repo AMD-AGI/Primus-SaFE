@@ -23,7 +23,7 @@ webhooks:
   cpu: 2000m
   memory: 4Gi
 web:
-  image: "primus-safe-web:1.6.0"
+  image: "primus-safe-web:1.6.3"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
@@ -58,4 +58,4 @@ addon:
   default: cert-manager.v1.17.2,training-operator.1.9.2,network-operator.25.4.0,kube-scheduler-plugins-0.38.1
 global:
   domain: "safe-primus.ai"
-  sub_domain: "intern"
+  sub_domain: "tw325"

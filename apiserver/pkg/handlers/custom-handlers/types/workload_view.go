@@ -114,6 +114,7 @@ type WorkloadResponseItem struct {
 
 type GetWorkloadResponse struct {
 	WorkloadResponseItem
+	// The node specified by the user when creating the workload
 	NodeList []string `json:"nodeList"`
 	// Workload image address
 	Image string `json:"image"`

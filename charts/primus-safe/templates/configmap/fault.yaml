@@ -11,16 +11,16 @@ metadata:
 data:
   gpu_module_001: '{"id":"001","action":"taint","toggle":"on"}'
   gpu_ecc_002: '{"id":"002","toggle":"on"}'
-  gpu_bad_pages_003: '{"id":"003","toggle":"on"}'
+  gpu_bad_pages_003: '{"id":"003","action":"taint","toggle":"on"}'
   gpu_card_check_004: '{"id":"004","action":"taint","toggle":"on"}'
   gpu_device_plugin_005: '{"id":"005","action":"taint","toggle":"on"}'
   gpu_temperature_006: '{"id":"006","toggle":"on"}'
   gpu_driver_007: '{"id":"007","toggle":"on"}'
   gpu_ras_008: '{"id":"008","toggle":"on"}'
-  gpu_link_009: '{"id":"009","toggle":"on"}'
-  gpu_xgmi_link_010: '{"id":"010","toggle":"on"}'
+  gpu_link_009: '{"id":"009","action":"taint","toggle":"on"}'
+  gpu_xgmi_link_010: '{"id":"010","action":"taint","toggle":"on"}'
   gpu_rocm_version_011: '{"id":"011","toggle":"on"}'
-  gpu_ipc_012: '{"id":"012","toggle":"on"}'
+  gpu_ipc_012: '{"id":"012","action":"taint","toggle":"on"}'
   # Network: 2XX
   net_ib_status_201: '{"id":"201","action":"taint","toggle":"on"}'
   net_ethtool_202: '{"id":"202","action":"taint","toggle":"on"}'
@@ -40,7 +40,6 @@ data:
   # primus system: 5XX, System reserved
   addon: '{"id": "501","action":"taint","toggle":"on"}'
   preflight: '{"id": "502","action":"taint","toggle":"on"}'
-  diagnose: '{"id": "503","action":"taint","toggle":"on"}'
   # k8s
   NotReady: '{"id":"NotReady","action":"taint","toggle":"on"}'
   DiskPressure: '{"id":"DiskPressure","action":"taint","toggle":"on"}'

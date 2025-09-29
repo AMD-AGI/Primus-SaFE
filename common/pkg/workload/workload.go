@@ -93,7 +93,7 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 	if workload.Spec.Resource.Replica == 0 {
 		return nil, nil
 	}
-	podResources, err := GetPodResources(workload)
+	podResources, err := GetPodResources(&workload.Spec.Resource)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func GetActiveResources(workload *v1.Workload, filterNode func(nodeName string) 
 	if workload.Spec.Resource.Replica == 0 || len(workload.Status.Pods) == 0 {
 		return nil, nil
 	}
-	podResources, err := GetPodResources(workload)
+	podResources, err := GetPodResources(&workload.Spec.Resource)
 	if err != nil {
 		return nil, err
 	}
@@ -174,8 +174,10 @@ func CvtToResourceList(w *v1.Workload) (corev1.ResourceList, error) {
 	return result, nil
 }
 
-func GetPodResources(w *v1.Workload) (corev1.ResourceList, error) {
-	res := &w.Spec.Resource
+func GetPodResources(res *v1.WorkloadResource) (corev1.ResourceList, error) {
+	if res == nil {
+		return nil, fmt.Errorf("the input resource is empty")
+	}
 	result, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
 		res.GPUName, res.EphemeralStorage, res.RdmaResource, 1)
 	if err != nil {

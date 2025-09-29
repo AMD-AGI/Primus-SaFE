@@ -238,5 +238,14 @@ func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 		result.Env = dbutils.NullString(
 			string(jsonutils.MarshalSilently(job.Spec.Env)))
 	}
+	if job.Spec.Resource != nil {
+		result.Resource = dbutils.NullString(string(jsonutils.MarshalSilently(job.Spec.Resource)))
+	}
+	if job.Spec.Image != nil {
+		result.Image = dbutils.NullString(*job.Spec.Image)
+	}
+	if job.Spec.EntryPoint != nil {
+		result.EntryPoint = dbutils.NullString(*job.Spec.EntryPoint)
+	}
 	return result
 }

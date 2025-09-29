@@ -479,6 +479,18 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if workload.Spec.GroupVersionKind.Empty() {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
+	if workload.Spec.Resource.Replica <= 0 {
+		errs = append(errs, fmt.Errorf("the replica is empty"))
+	}
+	if workload.Spec.Resource.CPU == "" {
+		errs = append(errs, fmt.Errorf("the cpu is empty"))
+	}
+	if workload.Spec.Resource.Memory == "" {
+		errs = append(errs, fmt.Errorf("the memory is empty"))
+	}
+	if workload.Spec.Resource.EphemeralStorage == "" {
+		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
+	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
 	}
@@ -543,6 +555,9 @@ func (v *WorkloadValidator) validateResourceValid(workload *v1.Workload) error {
 	if workload.Spec.Resource.Memory == "" {
 		errs = append(errs, fmt.Errorf("the memory is empty"))
 	}
+	if workload.Spec.Resource.EphemeralStorage == "" {
+		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
+	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
 	}
@@ -576,11 +591,15 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload
 	if nf == nil {
 		return err
 	}
+	return validateResourceEnough(nf, &workload.Spec.Resource)
+}
+
+func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
 	availNodeResources := quantity.GetAvailableResource(nodeResources)
 
 	// Validate if the workload's resource requests exceed the per-node resource limits
-	podResources, err := commonworkload.GetPodResources(workload)
+	podResources, err := commonworkload.GetPodResources(res)
 	if err != nil {
 		return err
 	}
@@ -591,7 +610,7 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload
 	}
 
 	// Validate if the workload's share memory requests exceed the memory
-	shareMemQuantity, err := resource.ParseQuantity(workload.Spec.Resource.SharedMemory)
+	shareMemQuantity, err := resource.ParseQuantity(res.SharedMemory)
 	if err != nil {
 		return err
 	}
