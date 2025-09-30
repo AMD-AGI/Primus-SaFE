@@ -31,6 +31,17 @@ func GenerateName(base string) string {
 	return fmt.Sprintf("%s-%s", base, utilrand.String(randomLength))
 }
 
+func GetBaseFromName(name string) string {
+	if len(name) <= randomLength+1 {
+		return name
+	}
+	lastIndex := len(name) - randomLength - 1
+	if name[lastIndex] != '-' {
+		return name
+	}
+	return name[:lastIndex]
+}
+
 func GenObjectReference(typeMeta metav1.TypeMeta, objMeta metav1.ObjectMeta) *corev1.ObjectReference {
 	return &corev1.ObjectReference{
 		Namespace:       objMeta.GetNamespace(),

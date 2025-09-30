@@ -106,3 +106,7 @@ data:
     alter table workload add column if not exists workload_uid VARCHAR(36);
     alter table ops_job add column if not exists user_id VARCHAR(64);
     alter table workload add column if not exists ranks TEXT;
+
+    alter table ops_job add column if not exists resource VARCHAR(1024);
+    alter table ops_job add column if not exists image VARCHAR(128);
+    alter table ops_job add column if not exists entrypoint TEXT;

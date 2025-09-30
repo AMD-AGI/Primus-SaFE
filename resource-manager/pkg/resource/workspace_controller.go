@@ -262,7 +262,7 @@ func (r *WorkspaceReconciler) handle(ctx context.Context, workspace *v1.Workspac
 		return ctrlruntime.Result{}, err
 	}
 
-	totalStatusCount := workspace.Status.AvailableReplica + workspace.Status.AbnormalReplica
+	totalStatusCount := workspace.CurrentReplica()
 	var result ctrlruntime.Result
 	switch {
 	case totalStatusCount > workspace.Spec.Replica:

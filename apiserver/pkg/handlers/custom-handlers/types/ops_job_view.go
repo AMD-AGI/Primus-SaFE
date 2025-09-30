@@ -13,18 +13,37 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
-type CreateOpsJobRequest struct {
+type BaseOpsJobRequest struct {
+	// ops job name
+	Name string `json:"name"`
+	// valid values include: addon/dumplog/preflight
+	Type v1.OpsJobType `json:"type"`
 	// the resource objects to be processed. e.g. {{"name": "node", "value": "node.id"}}
 	Inputs []v1.Parameter `json:"inputs"`
-	// valid values include: addon/dumplog/preflight/diagnose
-	Type v1.OpsJobType `json:"type"`
-	// the cluster which the job belongs to
-	// If the input refers to nodes in the cluster, this field may be left blank.
-	Cluster string `json:"cluster,omitempty"`
 	// job Timeout (in seconds), Less than or equal to 0 means no timeout
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
 	// the lifecycle of ops-job after it finishes
 	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
+	// Excluded nodes
+	ExcludedNodes []string `json:"excludedNodes,omitempty"`
+}
+
+type CreatePreflightRequest struct {
+	BaseOpsJobRequest
+	// Opsjob resource requirements
+	Resource *v1.WorkloadResource `json:"resource,omitempty"`
+	// opsjob image address
+	Image *string `json:"image,omitempty"`
+	// opsjob entryPoint, required in base64 encoding
+	EntryPoint *string `json:"entryPoint,omitempty"`
+	// environment variables
+	Env map[string]string `json:"env,omitempty"`
+	// Indicates whether the job tolerates node taints. default false
+	IsTolerateAll bool `json:"isTolerateAll"`
+}
+
+type CreateAddonRequest struct {
+	BaseOpsJobRequest
 	// the number of nodes to process simultaneously during the addon upgrade. default 1
 	// If the number exceeds the job's limit, it will be capped to the maximum available node count.
 	BatchCount int `json:"batchCount,omitempty"`
@@ -34,12 +53,10 @@ type CreateOpsJobRequest struct {
 	AvailableRatio *float64 `json:"availableRatio,omitempty"`
 	// When enabled, the operation will wait until the node is idle, only to addon
 	SecurityUpgrade bool `json:"securityUpgrade,omitempty"`
-	// environment variables
-	Env map[string]string `json:"env,omitempty"`
-	// Indicates whether the job tolerates node taints. default false
-	IsTolerateAll bool `json:"isTolerateAll"`
-	// Excluded nodes
-	ExcludedNodes []string `json:"excludedNodes,omitempty"`
+}
+
+type CreateDumplogRequest struct {
+	BaseOpsJobRequest
 }
 
 type CreateOpsJobResponse struct {
@@ -67,7 +84,7 @@ type ListOpsJobRequest struct {
 	// job phase
 	Phase v1.OpsJobPhase `form:"phase" binding:"omitempty"`
 	// job type
-	Type v1.OpsJobType `form:"type" binding:"required"`
+	Type v1.OpsJobType `form:"type" binding:"omitempty,max=64"`
 
 	// for internal use
 	SinceTime time.Time
@@ -83,6 +100,8 @@ type ListOpsJobResponse struct {
 type OpsJobResponseItem struct {
 	// job id
 	JobId string `json:"jobId"`
+	// job name
+	JobName string `json:"jobName"`
 	// the cluster which the job belongs to
 	Cluster string `json:"cluster"`
 	// the workspace which the job belongs to
@@ -109,6 +128,12 @@ type OpsJobResponseItem struct {
 	Inputs []v1.Parameter `json:"inputs"`
 	// job outputs
 	Outputs []v1.Parameter `json:"outputs"`
-	// envionment variables
-	Env map[string]string `json:"env"`
+	// environment variables
+	Env map[string]string `json:"env,omitempty"`
+	// Opsjob resource requirements, only for preflight
+	Resource *v1.WorkloadResource `json:"resource,omitempty"`
+	// opsjob image address, only for preflight
+	Image string `json:"image,omitempty"`
+	// opsjob entryPoint, required in base64 encoding, only for preflight
+	EntryPoint string `json:"entryPoint,omitempty"`
 }

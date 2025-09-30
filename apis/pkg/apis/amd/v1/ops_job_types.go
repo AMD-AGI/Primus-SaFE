@@ -26,9 +26,8 @@ const (
 	OpsJobPending   OpsJobPhase = "Pending"
 
 	OpsJobAddonType     OpsJobType = "addon"
-	OpsJobPreflightType OpsJobType = "preflight"
 	OpsJobDumpLogType   OpsJobType = "dumplog"
-	OpsJobDiagnoseType  OpsJobType = "diagnose"
+	OpsJobPreflightType OpsJobType = "preflight"
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"
@@ -47,8 +46,12 @@ type Parameter struct {
 type OpsJobSpec struct {
 	// the type of ops-job, valid values include: addon/preflight/dumplog
 	Type OpsJobType `json:"type"`
-	// the cluster which the ops-job belongs to
-	Cluster string `json:"cluster"`
+	// Opsjob resource requirements, only for preflight
+	Resource *WorkloadResource `json:"resource,omitempty"`
+	// opsjob image address, only for preflight
+	Image *string `json:"image,omitempty"`
+	// opsjob entryPoint, required in base64 encoding, only for preflight
+	EntryPoint *string `json:"entryPoint,omitempty"`
 	// The resource objects to be processed, e.g., node. Multiple entries will be processed sequentially.
 	Inputs []Parameter `json:"inputs"`
 	// the lifecycle of ops-job after it finishes

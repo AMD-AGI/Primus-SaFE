@@ -326,7 +326,7 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 		return true
 	}
 
-	podResource, err := commonworkload.GetPodResources(adminWorkload)
+	podResource, err := commonworkload.GetPodResources(&adminWorkload.Spec.Resource)
 	if err != nil {
 		return false
 	}

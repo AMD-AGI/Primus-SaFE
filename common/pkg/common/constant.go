@@ -33,7 +33,6 @@ const (
 
 	AddonMonitorId     = "501"
 	PreflightMonitorId = "502"
-	DiagnoseMonitorId  = "503"
 
 	HighPriority    = "high-priority"
 	MedPriority     = "med-priority"
