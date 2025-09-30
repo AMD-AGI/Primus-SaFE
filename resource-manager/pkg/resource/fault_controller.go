@@ -90,8 +90,7 @@ func (r *FaultReconciler) handleNodeEvent() handler.EventHandler {
 					klog.ErrorS(err, "failed to delete faults with node", "node", newNode.Name)
 				}
 			}
-			if !reflect.DeepEqual(oldNode.Status.Taints, newNode.Status.Taints) ||
-				(!v1.IsNodeTemplateInstalled(oldNode) && v1.IsNodeTemplateInstalled(newNode)) {
+			if !reflect.DeepEqual(oldNode.Status.Taints, newNode.Status.Taints) {
 				labelSelector := labels.SelectorFromSet(map[string]string{v1.NodeIdLabel: newNode.Name})
 				faultList, _ := listFaults(ctx, r.Client, labelSelector)
 				for _, f := range faultList {
@@ -251,7 +250,7 @@ func (r *FaultReconciler) taintNode(ctx context.Context, fault *v1.Fault) error 
 	}
 	adminNode := &v1.Node{}
 	err := r.Get(ctx, client.ObjectKey{Name: fault.Spec.Node.AdminName}, adminNode)
-	if err != nil || adminNode.GetSpecCluster() == "" || !v1.IsNodeTemplateInstalled(adminNode) {
+	if err != nil || adminNode.GetSpecCluster() == "" {
 		return err
 	}
 

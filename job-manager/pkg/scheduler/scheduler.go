@@ -428,7 +428,7 @@ func (r *SchedulerReconciler) checkNodeResources(ctx context.Context,
 	if err != nil {
 		return false, "", err
 	}
-	podResources, err := commonworkload.GetPodResources(requestWorkload)
+	podResources, err := commonworkload.GetPodResources(&requestWorkload.Spec.Resource)
 	if err != nil {
 		return false, "", err
 	}

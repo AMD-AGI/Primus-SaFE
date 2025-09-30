@@ -217,7 +217,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 
 func modifySecurityContext(mainContainer map[string]interface{}, workload *v1.Workload) {
 	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) &&
-		v1.GetOpsJobType(workload) != string(v1.OpsJobDiagnoseType) {
+		v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) {
 		return
 	}
 	mainContainer["securityContext"] = map[string]interface{}{
@@ -243,7 +243,7 @@ func modifyHostNetWork(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 
 func modifyByOpsJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload, templatePath []string) error {
 	if v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobPreflightType) &&
-		v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobDiagnoseType) {
+		v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobPreflightType) {
 		return nil
 	}
 	path := append(templatePath, "spec", "hostPID")
@@ -317,7 +317,7 @@ func buildCommands(adminWorkload *v1.Workload) []interface{} {
 func buildEntryPoint(adminWorkload *v1.Workload) string {
 	result := ""
 	if commonworkload.IsOpsJob(adminWorkload) {
-		result = adminWorkload.Spec.EntryPoint
+		result = stringutil.Base64Decode(adminWorkload.Spec.EntryPoint)
 	} else {
 		result = Launcher + " '" + adminWorkload.Spec.EntryPoint + "'"
 	}

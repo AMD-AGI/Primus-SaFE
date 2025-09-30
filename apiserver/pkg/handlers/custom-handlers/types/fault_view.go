@@ -21,6 +21,8 @@ type ListFaultRequest struct {
 	MonitorId string `form:"monitorId" binding:"omitempty"`
 	// the cluster id
 	Cluster string `form:"cluster" binding:"omitempty"`
+	// If set to true, only open faults are queried.
+	OnlyOpen bool `form:"onlyOpen" binding:"omitempty"`
 }
 
 type ListFaultResponse struct {

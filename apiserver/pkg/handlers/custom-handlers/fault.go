@@ -174,6 +174,9 @@ func cvtToListFaultSql(query *types.ListFaultRequest) sqrl.Sqlizer {
 		dbSql = append(dbSql, sqrl.Like{
 			dbclient.GetFieldTag(dbTags, "Node"): fmt.Sprintf("%%%s%%", nodeId)})
 	}
+	if query.OnlyOpen {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "DeleteTime"): nil})
+	}
 	return dbSql
 }
 

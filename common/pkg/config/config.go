@@ -231,14 +231,6 @@ func GetOpsJobTimeoutSecond() int {
 	return getInt(opsJobTimeoutSecond, 0)
 }
 
-func GetPreflightImage() string {
-	return getString(preflightImage, "")
-}
-
-func GetDiagnoseImage() string {
-	return getString(diagnoseImage, "")
-}
-
 func IsS3Enable() bool {
 	return getBool(s3Enable, false)
 }

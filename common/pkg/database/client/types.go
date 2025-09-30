@@ -103,6 +103,9 @@ type OpsJob struct {
 	Env        sql.NullString `db:"env"`
 	IsDeleted  bool           `db:"is_deleted"`
 	UserId     sql.NullString `db:"user_id"`
+	Resource   sql.NullString `db:"resource"`
+	Image      sql.NullString `db:"image"`
+	EntryPoint sql.NullString `db:"entrypoint"`
 }
 
 func GetOpsJobFieldTags() map[string]string {

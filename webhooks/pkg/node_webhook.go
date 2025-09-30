@@ -152,9 +152,6 @@ func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, node *v1.Node) boo
 	}
 	isChanged := false
 	if nf.HasGpu() {
-		if v1.SetLabel(node, v1.GpuProductNameLabel, nf.Spec.Gpu.Product) {
-			isChanged = true
-		}
 		if v1.SetAnnotation(node, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName) {
 			isChanged = true
 		}
@@ -162,9 +159,6 @@ func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, node *v1.Node) boo
 			isChanged = true
 		}
 	} else {
-		if v1.RemoveLabel(node, v1.GpuProductNameLabel) {
-			isChanged = true
-		}
 		if v1.RemoveAnnotation(node, v1.GpuResourceNameAnnotation) {
 			isChanged = true
 		}

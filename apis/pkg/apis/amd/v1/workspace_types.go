@@ -157,6 +157,10 @@ func (w *Workspace) IsEnableFifo() bool {
 	return false
 }
 
-func (w *WorkspaceVolume) GenFullVolumeId() string {
-	return string(w.Type) + "-" + strconv.Itoa(w.Id)
+func (w *Workspace) CurrentReplica() int {
+	return w.Status.AvailableReplica + w.Status.AbnormalReplica
+}
+
+func (v *WorkspaceVolume) GenFullVolumeId() string {
+	return string(v.Type) + "-" + strconv.Itoa(v.Id)
 }

@@ -13,13 +13,15 @@ import (
 // OpsJobSpecApplyConfiguration represents a declarative configuration of the OpsJobSpec type for use
 // with apply.
 type OpsJobSpecApplyConfiguration struct {
-	Type                    *amdv1.OpsJobType             `json:"type,omitempty"`
-	Cluster                 *string                       `json:"cluster,omitempty"`
-	Inputs                  []ParameterApplyConfiguration `json:"inputs,omitempty"`
-	TTLSecondsAfterFinished *int                          `json:"ttlSecondsAfterFinished,omitempty"`
-	TimeoutSecond           *int                          `json:"timeoutSecond,omitempty"`
-	Env                     map[string]string             `json:"env,omitempty"`
-	IsTolerateAll           *bool                         `json:"isTolerateAll,omitempty"`
+	Type                    *amdv1.OpsJobType                   `json:"type,omitempty"`
+	Resource                *WorkloadResourceApplyConfiguration `json:"resource,omitempty"`
+	Image                   *string                             `json:"image,omitempty"`
+	EntryPoint              *string                             `json:"entryPoint,omitempty"`
+	Inputs                  []ParameterApplyConfiguration       `json:"inputs,omitempty"`
+	TTLSecondsAfterFinished *int                                `json:"ttlSecondsAfterFinished,omitempty"`
+	TimeoutSecond           *int                                `json:"timeoutSecond,omitempty"`
+	Env                     map[string]string                   `json:"env,omitempty"`
+	IsTolerateAll           *bool                               `json:"isTolerateAll,omitempty"`
 }
 
 // OpsJobSpecApplyConfiguration constructs a declarative configuration of the OpsJobSpec type for use with
@@ -36,11 +38,27 @@ func (b *OpsJobSpecApplyConfiguration) WithType(value amdv1.OpsJobType) *OpsJobS
 	return b
 }
 
-// WithCluster sets the Cluster field in the declarative configuration to the given value
+// WithResource sets the Resource field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Cluster field is set to the value of the last call.
-func (b *OpsJobSpecApplyConfiguration) WithCluster(value string) *OpsJobSpecApplyConfiguration {
-	b.Cluster = &value
+// If called multiple times, the Resource field is set to the value of the last call.
+func (b *OpsJobSpecApplyConfiguration) WithResource(value *WorkloadResourceApplyConfiguration) *OpsJobSpecApplyConfiguration {
+	b.Resource = value
+	return b
+}
+
+// WithImage sets the Image field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Image field is set to the value of the last call.
+func (b *OpsJobSpecApplyConfiguration) WithImage(value string) *OpsJobSpecApplyConfiguration {
+	b.Image = &value
+	return b
+}
+
+// WithEntryPoint sets the EntryPoint field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the EntryPoint field is set to the value of the last call.
+func (b *OpsJobSpecApplyConfiguration) WithEntryPoint(value string) *OpsJobSpecApplyConfiguration {
+	b.EntryPoint = &value
 	return b
 }
 

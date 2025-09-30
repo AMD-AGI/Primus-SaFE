@@ -890,6 +890,8 @@ func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) 
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: map[string]string{
 				v1.ClusterManageActionLabel: string(v1.ClusterScaleUpAction),
+				v1.ClusterIdLabel:           adminNode.GetSpecCluster(),
+				v1.NodeFlavorIdLabel:        adminNode.GetSpecNodeFlavor(),
 			},
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: common.UserSystem,
@@ -897,8 +899,7 @@ func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) 
 			Name: v1.OpsJobKind + "-" + string(v1.OpsJobAddonType) + "-" + adminNode.Name,
 		},
 		Spec: v1.OpsJobSpec{
-			Type:    v1.OpsJobAddonType,
-			Cluster: adminNode.GetSpecCluster(),
+			Type: v1.OpsJobAddonType,
 			Inputs: []v1.Parameter{{
 				Name:  v1.ParameterNode,
 				Value: adminNode.Name,
