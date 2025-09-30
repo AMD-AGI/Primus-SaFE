@@ -179,18 +179,21 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
-	if err := h.auth.Authorize(authority.Input{
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.AddOnTemplateKind,
 		Verb:         v1.CreateVerb,
-		UserId:       c.GetString(common.UserId),
+		User:         requestUser,
 	}); err != nil {
 		return nil, err
 	}
 
 	req := &types.CreateAddonRequest{}
-	err := jsonutils.Unmarshal(body, req)
-	if err != nil {
+	if err = jsonutils.Unmarshal(body, req); err != nil {
 		return nil, err
 	}
 	if req.BatchCount <= 0 {
@@ -214,16 +217,20 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 }
 
 func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
-	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = h.auth.AuthorizeSystemAdmin(authority.Input{
 		Context: c.Request.Context(),
-		UserId:  c.GetString(common.UserId),
+		User:    requestUser,
 	}); err != nil {
 		return nil, err
 	}
 
 	req := &types.CreatePreflightRequest{}
-	err := jsonutils.Unmarshal(body, req)
-	if err != nil {
+	if err = jsonutils.Unmarshal(body, req); err != nil {
 		return nil, err
 	}
 	job := genDefaultOpsJob(c, &req.BaseOpsJobRequest)
@@ -247,9 +254,13 @@ func (h *Handler) generateDumpLogJob(c *gin.Context, body []byte) (*v1.OpsJob, e
 		return nil, commonerrors.NewInternalError("The s3 function is not enabled")
 	}
 
-	req := &types.CreateDumplogRequest{}
-	err := jsonutils.Unmarshal(body, req)
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
+		return nil, err
+	}
+
+	req := &types.CreateDumplogRequest{}
+	if err = jsonutils.Unmarshal(body, req); err != nil {
 		return nil, err
 	}
 	job := genDefaultOpsJob(c, &req.BaseOpsJobRequest)
@@ -268,7 +279,7 @@ func (h *Handler) generateDumpLogJob(c *gin.Context, body []byte) (*v1.OpsJob, e
 		Resource:   workload,
 		Verb:       v1.GetVerb,
 		Workspaces: []string{workload.Spec.Workspace},
-		UserId:     c.GetString(common.UserId),
+		User:       requestUser,
 	}); err != nil {
 		return nil, err
 	}
