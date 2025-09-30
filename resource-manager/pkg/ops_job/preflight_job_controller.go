@@ -92,17 +92,19 @@ func (r *PreflightJobReconciler) handleWorkloadEventImpl(ctx context.Context, wo
 		phase = v1.OpsJobFailed
 	}
 	message := getWorkloadMessage(workload)
+	var output []v1.Parameter
 	if message == "" {
 		message = "unknown"
+	} else {
+		output = append(output, v1.Parameter{Name: "result", Value: message})
 	}
-
 	jobId := v1.GetOpsJobId(workload)
 	err := backoff.Retry(func() error {
 		job := &v1.OpsJob{}
 		if err := r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
 			return client.IgnoreNotFound(err)
 		}
-		if err := r.setJobCompleted(ctx, job, phase, message, nil); err != nil {
+		if err := r.setJobCompleted(ctx, job, phase, message, output); err != nil {
 			return err
 		}
 		return nil
@@ -140,17 +142,6 @@ func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ct
 	}
 
 	var err error
-	nodeParams := job.GetParameters(v1.ParameterNode)
-	for _, param := range nodeParams {
-		adminNode, err := r.getAdminNode(ctx, param.Value)
-		if err != nil {
-			return ctrlruntime.Result{}, err
-		}
-		if err = r.createFault(ctx, job, adminNode, common.PreflightMonitorId, "preflight"); err != nil {
-			return ctrlruntime.Result{}, err
-		}
-	}
-
 	workload, err = r.genPreflightWorkload(ctx, job)
 	if err != nil {
 		return ctrlruntime.Result{}, err

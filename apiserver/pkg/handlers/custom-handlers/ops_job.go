@@ -422,6 +422,7 @@ func cvtToListOpsJobSql(query *types.ListOpsJobRequest) sqrl.Sqlizer {
 	dbTags := dbclient.GetOpsJobFieldTags()
 	createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
 	dbSql := sqrl.And{
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
 		sqrl.GtOrEq{createTime: query.SinceTime},
 		sqrl.LtOrEq{createTime: query.UntilTime},
 	}

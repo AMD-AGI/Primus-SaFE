@@ -28,7 +28,7 @@ web:
   cpu: 2000m
   memory: 4Gi
 preprocess:
-  image: "preprocess:202509092311"
+  image: "preprocess:202509292300"
 db:
   enable: true
   storage_class: "local-path"
