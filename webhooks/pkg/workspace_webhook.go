@@ -227,7 +227,6 @@ func (m *WorkspaceMutator) mutateByNodeFlavor(ctx context.Context, workspace *v1
 		}
 		if nf != nil && nf.HasGpu() {
 			v1.SetAnnotation(workspace, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName)
-			v1.SetLabel(workspace, v1.GpuProductNameLabel, nf.Spec.Gpu.Product)
 		}
 	}
 	return nil
