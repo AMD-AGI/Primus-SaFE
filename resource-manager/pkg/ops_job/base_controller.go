@@ -187,9 +187,6 @@ func (r *OpsJobBaseReconciler) getAdminNode(ctx context.Context, name string) (*
 // Create a fault to block workload scheduling on the node for upgrade purposes
 func (r *OpsJobBaseReconciler) createFault(ctx context.Context,
 	job *v1.OpsJob, adminNode *v1.Node, monitorId, message string) error {
-	if v1.GetLabel(job, v1.ClusterManageActionLabel) == string(v1.ClusterScaleUpAction) {
-		return nil
-	}
 	_, err := r.getFault(ctx, adminNode.Name, monitorId)
 	if err == nil || !apierrors.IsNotFound(err) {
 		return err

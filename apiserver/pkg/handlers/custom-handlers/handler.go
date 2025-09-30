@@ -98,7 +98,7 @@ func getBodyFromRequest(req *http.Request, bodyStruct interface{}) ([]byte, erro
 	if len(body) == 0 {
 		return nil, nil
 	}
-	if err = jsonutils.UnmarshalWithCheck(body, bodyStruct); err != nil {
+	if err = jsonutils.Unmarshal(body, bodyStruct); err != nil {
 		return body, commonerrors.NewBadRequest(err.Error())
 	}
 	return body, nil

@@ -257,7 +257,7 @@ func (r *AddonJobReconciler) handleNodes(ctx context.Context, job *v1.OpsJob, no
 	var err error
 	allUsingNodes := sets.NewSet()
 	if v1.IsSecurityUpgrade(job) {
-		if allUsingNodes, err = commonnodes.GetUsingNodesOfCluster(ctx, r.Client, job.Spec.Cluster); err != nil {
+		if allUsingNodes, err = commonnodes.GetUsingNodesOfCluster(ctx, r.Client, v1.GetClusterId(job)); err != nil {
 			return err
 		}
 	}

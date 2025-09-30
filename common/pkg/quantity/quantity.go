@@ -283,7 +283,7 @@ func GetAvailableResource(resources corev1.ResourceList) corev1.ResourceList {
 			reserveQuantity := int64(math.Ceil(float64(storeQuantity.Value()) *
 				commonconfig.GetEphemeralStoreReservePercent()))
 			result[corev1.ResourceEphemeralStorage] = *resource.NewQuantity(
-				storeQuantity.Value()-reserveQuantity, resource.DecimalSI)
+				storeQuantity.Value()-reserveQuantity, resource.BinarySI)
 		}
 	}
 	return result
@@ -305,7 +305,7 @@ func GetMaxEphemeralStoreQuantity(resources corev1.ResourceList) (*resource.Quan
 		return &storeQuantity, nil
 	}
 	newQuantity := float64(storeQuantity.Value()) * maxPercent
-	return resource.NewQuantity(int64(newQuantity), resource.DecimalSI), nil
+	return resource.NewQuantity(int64(newQuantity), resource.BinarySI), nil
 }
 
 func ToString(q resource.Quantity) string {

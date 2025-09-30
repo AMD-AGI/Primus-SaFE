@@ -147,10 +147,6 @@ func GetDisplayName(obj metav1.Object) string {
 	return GetLabel(obj, DisplayNameLabel)
 }
 
-func GetGpuProductName(obj metav1.Object) string {
-	return GetLabel(obj, GpuProductNameLabel)
-}
-
 func GetGpuResourceName(obj metav1.Object) string {
 	return GetAnnotation(obj, GpuResourceNameAnnotation)
 }
