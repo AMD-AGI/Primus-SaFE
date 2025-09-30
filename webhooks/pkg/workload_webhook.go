@@ -598,9 +598,10 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
 	availNodeResources := quantity.GetAvailableResource(nodeResources)
 
-	// Validate if the workload's resource requests exceed the per-node resource limits
+	// Validate if the request resource requests exceed the per-node resource limits
 	podResources, err := commonworkload.GetPodResources(res)
 	if err != nil {
+		klog.ErrorS(err, "failed to get pod resource", "input", *res)
 		return err
 	}
 	if ok, key := quantity.IsSubResource(podResources, availNodeResources); !ok {
@@ -609,17 +610,19 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 				key, podResources, availNodeResources))
 	}
 
-	// Validate if the workload's share memory requests exceed the memory
-	shareMemQuantity, err := resource.ParseQuantity(res.SharedMemory)
-	if err != nil {
-		return err
-	}
-	maxMemoryQuantity := availNodeResources[corev1.ResourceMemory]
-	if shareMemQuantity.Value() <= 0 || shareMemQuantity.Value() > maxMemoryQuantity.Value() {
-		return fmt.Errorf("invalid share memory")
+	// Validate if the share memory requests exceed the memory
+	if res.SharedMemory != "" {
+		shareMemQuantity, err := resource.ParseQuantity(res.SharedMemory)
+		if err != nil {
+			return err
+		}
+		maxMemoryQuantity := availNodeResources[corev1.ResourceMemory]
+		if shareMemQuantity.Value() <= 0 || shareMemQuantity.Value() > maxMemoryQuantity.Value() {
+			return fmt.Errorf("invalid share memory")
+		}
 	}
 
-	// Validate if the workload's ephemeral storage requests exceed the limit
+	// Validate if ephemeral storage requests exceed the limit
 	if !floatutil.FloatEqual(commonconfig.GetMaxEphemeralStorePercent(), 0) {
 		maxEphemeralStoreQuantity, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
 		requestQuantity, ok := podResources[corev1.ResourceEphemeralStorage]

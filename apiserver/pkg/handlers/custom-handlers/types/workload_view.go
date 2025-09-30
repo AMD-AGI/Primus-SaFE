@@ -177,6 +177,8 @@ type PatchWorkloadRequest struct {
 	Description *string `json:"description,omitempty"`
 	// workload timeout in hours. Default is 0 (no timeout).
 	Timeout *int `json:"timeout,omitempty"`
+	// Failure retry limit
+	MaxRetry *int `json:"maxRetry,omitempty"`
 }
 
 type GetPodLogRequest struct {

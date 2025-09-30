@@ -56,8 +56,10 @@ type WorkspaceResponseItem struct {
 	NodeFlavor string `json:"nodeFlavor"`
 	// the creator's id
 	UserId string `json:"userId"`
-	// total node count
-	TotalNode int `json:"totalNode"`
+	// Target number of nodes
+	TargetNode int `json:"targetNode"`
+	// current total node count
+	CurrentNode int `json:"currentNode"`
 	// abnormal node count
 	AbnormalNode int `json:"abnormalNode"`
 	// the status of workspace

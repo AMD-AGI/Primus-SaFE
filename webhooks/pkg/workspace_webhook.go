@@ -239,7 +239,11 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 	if oldCount <= newCount {
 		return nil
 	}
-	count := oldCount - newCount
+	if newCount >= oldWorkspace.CurrentReplica() {
+		return nil
+	}
+
+	count := oldWorkspace.CurrentReplica() - newCount
 	nodes, err := commonnodes.GetNodesForScalingDown(ctx, m.Client, newWorkspace.Name, count)
 	if err != nil {
 		return err
@@ -375,7 +379,7 @@ func (v *WorkspaceValidator) validateOnCreation(ctx context.Context, workspace *
 	if err := validateDisplayName(v1.GetDisplayName(workspace)); err != nil {
 		return err
 	}
-	if err := v.validateResource(ctx, workspace); err != nil {
+	if err := v.validateRelatedResource(ctx, workspace); err != nil {
 		return err
 	}
 	return nil
@@ -392,7 +396,7 @@ func (v *WorkspaceValidator) validateOnUpdate(ctx context.Context, newWorkspace,
 		return err
 	}
 	if newWorkspace.Spec.Replica > oldWorkspace.Spec.Replica {
-		if err := v.validateResource(ctx, newWorkspace); err != nil {
+		if err := v.validateRelatedResource(ctx, newWorkspace); err != nil {
 			return err
 		}
 	}
@@ -435,7 +439,7 @@ func (v *WorkspaceValidator) validateRequiredParams(workspace *v1.Workspace) err
 	return nil
 }
 
-func (v *WorkspaceValidator) validateResource(ctx context.Context, workspace *v1.Workspace) error {
+func (v *WorkspaceValidator) validateRelatedResource(ctx context.Context, workspace *v1.Workspace) error {
 	if workspace.Spec.Replica <= 0 || workspace.Spec.NodeFlavor == "" {
 		return nil
 	}

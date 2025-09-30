@@ -14,6 +14,14 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 )
 
+func Unmarshal(data []byte, v interface{}) error {
+	d := json.NewDecoder(bytes.NewReader(data))
+	if err := d.Decode(v); err != nil {
+		return err
+	}
+	return nil
+}
+
 func UnmarshalWithCheck(data []byte, v interface{}) error {
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.DisallowUnknownFields()

@@ -32,6 +32,7 @@ import (
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -53,8 +54,7 @@ func (h *Handler) DeleteOpsJob(c *gin.Context) {
 }
 
 func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
-	req := &types.BaseOpsJobRequest{}
-	_, err := getBodyFromRequest(c.Request, req)
+	req, body, err := parseCreateOpsJobRequest(c)
 	if err != nil {
 		return nil, err
 	}
@@ -63,11 +63,11 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 	var job *v1.OpsJob
 	switch req.Type {
 	case v1.OpsJobAddonType:
-		job, err = h.generateAddonJob(c)
+		job, err = h.generateAddonJob(c, body)
 	case v1.OpsJobPreflightType:
-		job, err = h.generatePreflightJob(c)
+		job, err = h.generatePreflightJob(c, body)
 	case v1.OpsJobDumpLogType:
-		job, err = h.generateDumpLogJob(c)
+		job, err = h.generateDumpLogJob(c, body)
 	default:
 		err = fmt.Errorf("unsupported ops job type(%s)", req.Type)
 	}
@@ -178,7 +178,7 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) generateAddonJob(c *gin.Context) (*v1.OpsJob, error) {
+func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
 	if err := h.auth.Authorize(authority.Input{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.AddOnTemplateKind,
@@ -189,7 +189,7 @@ func (h *Handler) generateAddonJob(c *gin.Context) (*v1.OpsJob, error) {
 	}
 
 	req := &types.CreateAddonRequest{}
-	_, err := getBodyFromRequest(c.Request, req)
+	err := jsonutils.Unmarshal(body, req)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +213,7 @@ func (h *Handler) generateAddonJob(c *gin.Context) (*v1.OpsJob, error) {
 	return job, nil
 }
 
-func (h *Handler) generatePreflightJob(c *gin.Context) (*v1.OpsJob, error) {
+func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
 	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
 		Context: c.Request.Context(),
 		UserId:  c.GetString(common.UserId),
@@ -222,7 +222,7 @@ func (h *Handler) generatePreflightJob(c *gin.Context) (*v1.OpsJob, error) {
 	}
 
 	req := &types.CreatePreflightRequest{}
-	_, err := getBodyFromRequest(c.Request, req)
+	err := jsonutils.Unmarshal(body, req)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +239,7 @@ func (h *Handler) generatePreflightJob(c *gin.Context) (*v1.OpsJob, error) {
 	return job, nil
 }
 
-func (h *Handler) generateDumpLogJob(c *gin.Context) (*v1.OpsJob, error) {
+func (h *Handler) generateDumpLogJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
 	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
@@ -248,7 +248,7 @@ func (h *Handler) generateDumpLogJob(c *gin.Context) (*v1.OpsJob, error) {
 	}
 
 	req := &types.CreateDumplogRequest{}
-	_, err := getBodyFromRequest(c.Request, req)
+	err := jsonutils.Unmarshal(body, req)
 	if err != nil {
 		return nil, err
 	}
@@ -462,9 +462,28 @@ func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
 	return dbSql, nil
 }
 
+func parseCreateOpsJobRequest(c *gin.Context) (*types.BaseOpsJobRequest, []byte, error) {
+	req := &types.BaseOpsJobRequest{}
+	body, err := getBodyFromRequest(c.Request, req)
+	if err != nil {
+		return nil, nil, err
+	}
+	if req.Name == "" {
+		return nil, nil, commonerrors.NewBadRequest("the job name is empty")
+	}
+	if req.Type == "" {
+		return nil, nil, commonerrors.NewBadRequest("the job type is empty")
+	}
+	if len(req.Inputs) == 0 {
+		return nil, nil, commonerrors.NewBadRequest("the job inputs is empty")
+	}
+	return req, body, nil
+}
+
 func cvtToOpsJobResponseItem(job *dbclient.OpsJob, isNeedDetail bool) types.OpsJobResponseItem {
 	result := types.OpsJobResponseItem{
 		JobId:        job.JobId,
+		JobName:      commonutils.GetBaseFromName(job.JobId),
 		Cluster:      job.Cluster,
 		Workspace:    dbutils.ParseNullString(job.Workspace),
 		UserId:       dbutils.ParseNullString(job.UserId),

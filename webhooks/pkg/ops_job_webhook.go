@@ -57,7 +57,6 @@ func (m *OpsJobMutator) Handle(ctx context.Context, req admission.Request) admis
 		return handleError(v1.OpsJobKind, err)
 	}
 	m.mutateOnCreation(ctx, job)
-	klog.Infof("job inputs: %v", job.Spec.Inputs)
 	data, err := json.Marshal(job)
 	if err != nil {
 		return handleError(v1.OpsJobKind, err)
@@ -75,7 +74,7 @@ func (m *OpsJobMutator) mutateOnCreation(ctx context.Context, job *v1.OpsJob) bo
 func (m *OpsJobMutator) mutateMeta(ctx context.Context, job *v1.OpsJob) bool {
 	job.Name = stringutil.NormalizeName(job.Name)
 	v1.SetLabel(job, v1.OpsJobTypeLabel, string(job.Spec.Type))
-	
+
 	if v1.GetClusterId(job) == "" || v1.GetNodeFlavorId(job) == "" {
 		if nodeParam := job.GetParameter(v1.ParameterNode); nodeParam != nil {
 			if node, err := getNode(ctx, m.Client, nodeParam.Value); err == nil {
@@ -108,8 +107,11 @@ func (m *OpsJobMutator) mutateJobSpec(ctx context.Context, job *v1.OpsJob) {
 		job.Spec.Inputs[i].Name = stringutil.NormalizeName(job.Spec.Inputs[i].Name)
 	}
 	if job.Spec.Resource != nil {
-		if nf, err := getNodeFlavor(ctx, m.Client, v1.GetNodeFlavorId(job)); err == nil && nf.HasGpu() {
-			job.Spec.Resource.GPUName = nf.Spec.Gpu.ResourceName
+		if job.Spec.Resource.GPU != "" {
+			nf, err := getNodeFlavor(ctx, m.Client, v1.GetNodeFlavorId(job))
+			if err == nil && nf.HasGpu() {
+				job.Spec.Resource.GPUName = nf.Spec.Gpu.ResourceName
+			}
 		}
 		job.Spec.Resource.Replica = 0
 		for _, param := range job.Spec.Inputs {

@@ -728,6 +728,9 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	if req.Env != nil {
 		adminWorkload.Spec.Env = *req.Env
 	}
+	if req.MaxRetry != nil {
+		adminWorkload.Spec.MaxRetry = *req.MaxRetry
+	}
 	return nil
 }
 

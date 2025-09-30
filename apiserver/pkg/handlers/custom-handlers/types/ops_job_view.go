@@ -84,7 +84,7 @@ type ListOpsJobRequest struct {
 	// job phase
 	Phase v1.OpsJobPhase `form:"phase" binding:"omitempty"`
 	// job type
-	Type v1.OpsJobType `form:"type" binding:"required"`
+	Type v1.OpsJobType `form:"type" binding:"omitempty,max=64"`
 
 	// for internal use
 	SinceTime time.Time
@@ -100,6 +100,8 @@ type ListOpsJobResponse struct {
 type OpsJobResponseItem struct {
 	// job id
 	JobId string `json:"jobId"`
+	// job name
+	JobName string `json:"jobName"`
 	// the cluster which the job belongs to
 	Cluster string `json:"cluster"`
 	// the workspace which the job belongs to
@@ -127,9 +129,9 @@ type OpsJobResponseItem struct {
 	// job outputs
 	Outputs []v1.Parameter `json:"outputs"`
 	// environment variables
-	Env map[string]string `json:"env"`
+	Env map[string]string `json:"env,omitempty"`
 	// Opsjob resource requirements, only for preflight
-	Resource v1.WorkloadResource `json:"resource,omitempty"`
+	Resource *v1.WorkloadResource `json:"resource,omitempty"`
 	// opsjob image address, only for preflight
 	Image string `json:"image,omitempty"`
 	// opsjob entryPoint, required in base64 encoding, only for preflight
