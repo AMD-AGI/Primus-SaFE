@@ -270,6 +270,12 @@ func (h *Handler) generateDumpLogJob(c *gin.Context, body []byte) (*v1.OpsJob, e
 		return nil, commonerrors.NewBadRequest(
 			fmt.Sprintf("%s must be specified in the job.", v1.ParameterWorkload))
 	}
+	// Compatible with the old API.
+	if req.Name == "" {
+		req.Name = workloadParam.Value
+		v1.SetLabel(job, v1.DisplayNameLabel, workloadParam.Value)
+	}
+
 	workload, err := h.getWorkloadInternal(c.Request.Context(), workloadParam.Value)
 	if err != nil {
 		return nil, err
