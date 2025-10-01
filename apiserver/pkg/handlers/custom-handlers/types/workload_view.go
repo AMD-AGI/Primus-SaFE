@@ -67,9 +67,9 @@ type ListWorkloadResponse struct {
 type WorkloadResponseItem struct {
 	// workload id
 	WorkloadId string `json:"workloadId"`
-	// Requested workspace
-	Workspace string `json:"workspace"`
-	// Workload resource requirements
+	// the workspace which workload belongs
+	WorkspaceId string `json:"workspaceId"`
+	// workload resource requirements
 	Resource v1.WorkloadResource `json:"resource"`
 	// workload name (display only)
 	DisplayName string `json:"displayName"`
@@ -80,7 +80,7 @@ type WorkloadResponseItem struct {
 	// workload submitter's name
 	UserName string `json:"userName"`
 	// cluster to which the workload belongs
-	Cluster string `json:"cluster"`
+	ClusterId string `json:"cluster"`
 	// status of workload
 	Phase string `json:"phase"`
 	// Shows the reason if the workload is in pending status.

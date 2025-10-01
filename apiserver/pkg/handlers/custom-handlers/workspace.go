@@ -216,8 +216,8 @@ func updateWorkspace(workspace *v1.Workspace, req *types.PatchWorkspaceRequest) 
 	if req.Description != nil {
 		v1.SetAnnotation(workspace, v1.DescriptionAnnotation, *req.Description)
 	}
-	if req.NodeFlavor != nil {
-		workspace.Spec.NodeFlavor = *req.NodeFlavor
+	if req.FlavorId != nil {
+		workspace.Spec.NodeFlavor = *req.FlavorId
 	}
 	if req.Replica != nil {
 		workspace.Spec.Replica = *req.Replica
@@ -291,10 +291,18 @@ func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action
 	return nil
 }
 
+func (h *Handler) getWorkspaceDisplayName(ctx context.Context, workspaceId string) (string, error) {
+	workspace := &v1.Workspace{}
+	if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err != nil {
+		return "", err
+	}
+	return v1.GetDisplayName(workspace), nil
+}
+
 func generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRequest) *v1.Workspace {
 	workspace := &v1.Workspace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: stringutil.NormalizeName(req.Cluster + "-" + req.Name),
+			Name: stringutil.NormalizeName(req.ClusterId + "-" + req.Name),
 			Labels: map[string]string{
 				v1.DisplayNameLabel: req.Name,
 				v1.UserIdLabel:      c.GetString(common.UserId),
@@ -305,8 +313,8 @@ func generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRequest) *v1.Wo
 			},
 		},
 		Spec: v1.WorkspaceSpec{
-			Cluster:       req.Cluster,
-			NodeFlavor:    req.NodeFlavor,
+			Cluster:       req.ClusterId,
+			NodeFlavor:    req.FlavorId,
 			Replica:       req.Replica,
 			QueuePolicy:   v1.WorkspaceQueuePolicy(req.QueuePolicy),
 			Volumes:       req.Volumes,
@@ -344,7 +352,7 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 		WorkspaceId:   w.Name,
 		WorkspaceName: v1.GetDisplayName(w),
 		ClusterId:     w.Spec.Cluster,
-		NodeFlavor:    w.Spec.NodeFlavor,
+		FlavorId:      w.Spec.NodeFlavor,
 		UserId:        v1.GetUserId(w),
 		TargetNode:    w.Spec.Replica,
 		CurrentNode:   w.CurrentReplica(),

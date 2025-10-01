@@ -27,9 +27,10 @@ func TestCreateNodeFlavor(t *testing.T) {
 	h := Handler{Client: adminClient}
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
-	body := `{"name":"amd-mi300x-192gb-hbm3","flavorType":"BareMetal","cpu":256,"cpuProduct":"AMD_EPYC_9554","gpu":8,"gpuName":"amd.com/gpu","gpuProduct":"AMD_Instinct_MI300X_OAM","memory":1622959652864,"rootDisk":{"type":"nvme","quantity":"7864Gi","count":1},"dataDisk":{"type":"nvme","quantity":"7864Gi","count":9},"extends":{"ephemeral-storage":"7440663780Ki","rdma/hca":"1k"}}`
+	body := `{"name":"amd-mi300x-192gb-hbm3","cpu":256,"cpuProduct":"AMD_EPYC_9554","gpu":8,"gpuName":"amd.com/gpu","gpuProduct":"AMD_Instinct_MI300X_OAM","memory":1622959652864,"rootDisk":{"type":"nvme","quantity":"7864Gi","count":1},"dataDisk":{"type":"nvme","quantity":"7864Gi","count":9},"extends":{"ephemeral-storage":"7440663780Ki","rdma/hca":"1k"}}`
 	c.Request = httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/v1/nodeflavors"), strings.NewReader(body))
 	h.CreateNodeFlavor(c)
+	fmt.Println(rsp.Body.String())
 	assert.Equal(t, rsp.Code, http.StatusOK)
 	time.Sleep(time.Millisecond * 200)
 

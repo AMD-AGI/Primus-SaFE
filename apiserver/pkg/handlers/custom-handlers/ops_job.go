@@ -437,8 +437,8 @@ func cvtToListOpsJobSql(query *types.ListOpsJobRequest) sqrl.Sqlizer {
 		sqrl.GtOrEq{createTime: query.SinceTime},
 		sqrl.LtOrEq{createTime: query.UntilTime},
 	}
-	if cluster := strings.TrimSpace(query.Cluster); cluster != "" {
-		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Cluster"): cluster})
+	if clusterId := strings.TrimSpace(query.ClusterId); clusterId != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Cluster"): clusterId})
 	}
 	if phase := strings.TrimSpace(string(query.Phase)); phase != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Phase"): phase})
@@ -496,8 +496,8 @@ func cvtToOpsJobResponseItem(job *dbclient.OpsJob, isNeedDetail bool) types.OpsJ
 	result := types.OpsJobResponseItem{
 		JobId:        job.JobId,
 		JobName:      commonutils.GetBaseFromName(job.JobId),
-		Cluster:      job.Cluster,
-		Workspace:    dbutils.ParseNullString(job.Workspace),
+		ClusterId:    job.Cluster,
+		WorkspaceId:  dbutils.ParseNullString(job.Workspace),
 		UserId:       dbutils.ParseNullString(job.UserId),
 		UserName:     dbutils.ParseNullString(job.UserName),
 		Type:         v1.OpsJobType(job.Type),

@@ -78,7 +78,7 @@ type ListOpsJobRequest struct {
 	// Query the end time of the job, similar to since. default is now
 	Until string `form:"until" binding:"omitempty"`
 	// the cluster which the job belongs to
-	Cluster string `form:"cluster" binding:"required,max=64"`
+	ClusterId string `form:"clusterId" binding:"required,max=64"`
 	// job submitter
 	UserName string `form:"userName" binding:"omitempty,max=64"`
 	// job phase
@@ -103,9 +103,9 @@ type OpsJobResponseItem struct {
 	// job name
 	JobName string `json:"jobName"`
 	// the cluster which the job belongs to
-	Cluster string `json:"cluster"`
+	ClusterId string `json:"clusterId"`
 	// the workspace which the job belongs to
-	Workspace string `json:"workspace"`
+	WorkspaceId string `json:"workspaceId"`
 	// job submitter
 	UserId string `json:"userId"`
 	// job submitter

@@ -11,13 +11,13 @@ import (
 
 type CreateWorkspaceRequest struct {
 	Name        string `json:"name"`
-	Cluster     string `json:"cluster"`
+	ClusterId   string `json:"clusterId"`
 	Description string `json:"description,omitempty"`
 	// Queuing policy for tasks submitted in this workspace.
 	// All tasks currently share the same policy (no per-task customization). Default: fifo.
 	QueuePolicy string `json:"queuePolicy,omitempty"`
 	// node flavor id
-	NodeFlavor string `json:"nodeFlavor,omitempty"`
+	FlavorId string `json:"flavorId,omitempty"`
 	// node count
 	Replica int `json:"replica,omitempty"`
 	// Service modules available in this space. support: Train/Infer/Authoring, No limitation if not specified
@@ -53,7 +53,7 @@ type WorkspaceResponseItem struct {
 	// workspace's cluster
 	ClusterId string `json:"clusterId"`
 	// node flavor id
-	NodeFlavor string `json:"nodeFlavor"`
+	FlavorId string `json:"flavorId"`
 	// the creator's id
 	UserId string `json:"userId"`
 	// Target number of nodes
@@ -96,7 +96,7 @@ type GetWorkspaceResponse struct {
 
 type PatchWorkspaceRequest struct {
 	// node flavor id
-	NodeFlavor *string `json:"nodeFlavor,omitempty"`
+	FlavorId *string `json:"flavorId,omitempty"`
 	// total node count
 	Replica *int `json:"replica,omitempty"`
 	// Queuing policy for tasks submitted in this workspace. fifo/balance

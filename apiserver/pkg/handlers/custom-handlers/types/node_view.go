@@ -10,10 +10,6 @@ import (
 )
 
 type CreateNodeRequest struct {
-	// The name of the cluster that the node belongs to
-	Cluster *string `json:"cluster,omitempty"`
-	// The name of the workspace that the node belongs to
-	Workspace *string `json:"workspace,omitempty"`
 	// node hostname. If not specified, it will be assigned the value of PrivateIP.
 	Hostname *string `json:"hostname,omitempty"`
 	// required
@@ -28,12 +24,12 @@ type CreateNodeRequest struct {
 	Port *int32 `json:"port,omitempty"`
 	// node labels
 	Labels map[string]string `json:"labels,omitempty"`
-	// the name of node flavor
-	FlavorName string `json:"flavorName"`
-	// the name of node template
-	TemplateName string `json:"templateName"`
-	// the name of ssh secret
-	SSHSecretName string `json:"sshSecretName,omitempty"`
+	// the id of node flavor
+	FlavorId string `json:"flavorId"`
+	// the id of node template
+	TemplateId string `json:"templateId"`
+	// the id of ssh secret
+	SSHSecretId string `json:"sshSecretId,omitempty"`
 }
 
 type CreateNodeResponse struct {
@@ -43,7 +39,14 @@ type CreateNodeResponse struct {
 type ListNodeRequest struct {
 	WorkspaceId *string `form:"workspaceId" binding:"omitempty,max=64"`
 	ClusterId   *string `form:"clusterId" binding:"omitempty,max=64"`
-	NodeFlavor  *string `form:"nodeFlavor" binding:"omitempty,max=64"`
+	FlavorId    *string `form:"flavorId" binding:"omitempty,max=64"`
+	// If enabled, only the node ID and node IP will be returned.
+	Brief bool `form:"brief" binding:"omitempty"`
+	// Starting offset for the results. dfault is 0
+	Offset int `form:"offset" binding:"omitempty,min=0"`
+	// Limit the number of returned results. default is 100
+	// If set to -1, all results will be returned.
+	Limit int `form:"limit" binding:"omitempty,min=1"`
 }
 
 func (req *ListNodeRequest) GetWorkspaceId() string {
@@ -70,8 +73,8 @@ type NodeResponseItem struct {
 	NodeId string `json:"nodeId"`
 	// node display name
 	DisplayName string `json:"displayName"`
-	// the node's cluster
-	Cluster string `json:"cluster"`
+	// the node's cluster id
+	ClusterId string `json:"clusterId"`
 	// the node's workspace
 	Workspace WorkspaceEntry `json:"workspace"`
 	// the node's phase
@@ -80,10 +83,10 @@ type NodeResponseItem struct {
 	InternalIP string `json:"internalIP"`
 	// the bmc ip of node
 	BMCIP string `json:"bmcIP"`
-	// the nodes' flavor
-	NodeFlavor string `json:"nodeFlavor"`
-	// the nodes' template
-	NodeTemplate string `json:"nodeTemplate"`
+	// the nodes' flavor id
+	FlavorId string `json:"flavorId"`
+	// the nodes' template id
+	TemplateId string `json:"templateId"`
 	// Indicates whether the node can be scheduled in the Kubernetes cluster.
 	Available bool `json:"available"`
 	// If a node is unavailable, provide the reason
@@ -112,9 +115,9 @@ type WorkloadInfo struct {
 	// workload id
 	Id string `json:"id"`
 	// workload submitter
-	User string `json:"user"`
+	UserId string `json:"userId"`
 	// Workspace that the workload belongs to
-	Workspace string `json:"workspace"`
+	WorkspaceId string `json:"workspaceId"`
 }
 
 type PatchNodeRequest struct {
