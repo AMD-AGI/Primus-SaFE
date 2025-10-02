@@ -18,7 +18,6 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -211,8 +210,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 	if err != nil {
 		return err
 	}
-
-	hostPathSet := sets.NewSet()
+	
 	maxId := 0
 	for _, vol := range workspace.Spec.Volumes {
 		if vol.Id > maxId {
@@ -221,7 +219,6 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 		volumeName := vol.GenFullVolumeId()
 		var volume interface{}
 		if vol.Type == v1.HOSTPATH {
-			hostPathSet.Insert(vol.HostPath)
 			volume = buildHostPathVolume(volumeName, vol.HostPath)
 		} else {
 			volume = buildPvcVolume(volumeName)
