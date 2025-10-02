@@ -22,6 +22,7 @@ type OpsJobSpecApplyConfiguration struct {
 	TimeoutSecond           *int                                `json:"timeoutSecond,omitempty"`
 	Env                     map[string]string                   `json:"env,omitempty"`
 	IsTolerateAll           *bool                               `json:"isTolerateAll,omitempty"`
+	Hostpath                []string                            `json:"hostpath,omitempty"`
 }
 
 // OpsJobSpecApplyConfiguration constructs a declarative configuration of the OpsJobSpec type for use with
@@ -110,5 +111,15 @@ func (b *OpsJobSpecApplyConfiguration) WithEnv(entries map[string]string) *OpsJo
 // If called multiple times, the IsTolerateAll field is set to the value of the last call.
 func (b *OpsJobSpecApplyConfiguration) WithIsTolerateAll(value bool) *OpsJobSpecApplyConfiguration {
 	b.IsTolerateAll = &value
+	return b
+}
+
+// WithHostpath adds the given value to the Hostpath field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Hostpath field.
+func (b *OpsJobSpecApplyConfiguration) WithHostpath(values ...string) *OpsJobSpecApplyConfiguration {
+	for i := range values {
+		b.Hostpath = append(b.Hostpath, values[i])
+	}
 	return b
 }

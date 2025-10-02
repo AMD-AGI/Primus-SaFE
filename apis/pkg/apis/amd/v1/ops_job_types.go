@@ -62,6 +62,8 @@ type OpsJobSpec struct {
 	Env map[string]string `json:"env,omitempty"`
 	// Indicates whether the job tolerates node taints
 	IsTolerateAll bool `json:"isTolerateAll"`
+	// the hostpath for opsjob mounting.
+	Hostpath []string `json:"hostpath,omitempty"`
 }
 
 type OpsJobStatus struct {
