@@ -219,6 +219,7 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context, job *
 			Workspace: corev1.NamespaceDefault,
 			Image:     *job.Spec.Image,
 			Env:       job.Spec.Env,
+			Hostpath:  job.Spec.Hostpath,
 		},
 	}
 	if job.Spec.TimeoutSecond > 0 {

@@ -65,6 +65,13 @@ spec:
                   version:
                     type: string
                 type: object
+              hostpath:
+                description: |-
+                  The workload will automatically mount the volumes defined in the workspace,
+                  and you can also define specific hostPath for mounting.
+                items:
+                  type: string
+                type: array
               image:
                 description: Workload image address
                 type: string

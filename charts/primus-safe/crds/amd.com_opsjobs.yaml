@@ -46,6 +46,11 @@ spec:
                   type: string
                 description: environment variables
                 type: object
+              hostpath:
+                description: the hostpath for opsjob mounting.
+                items:
+                  type: string
+                type: array
               image:
                 description: opsjob image address, only for preflight
                 type: string
