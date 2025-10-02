@@ -26,6 +26,8 @@ type BaseOpsJobRequest struct {
 	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
 	// Excluded nodes
 	ExcludedNodes []string `json:"excludedNodes,omitempty"`
+	// Indicates whether the job tolerates node taints. default false
+	IsTolerateAll bool `json:"isTolerateAll"`
 }
 
 type CreatePreflightRequest struct {
@@ -38,8 +40,8 @@ type CreatePreflightRequest struct {
 	EntryPoint *string `json:"entryPoint,omitempty"`
 	// environment variables
 	Env map[string]string `json:"env,omitempty"`
-	// Indicates whether the job tolerates node taints. default false
-	IsTolerateAll bool `json:"isTolerateAll"`
+	// the hostpath for opsjob mounting.
+	Hostpath []string `json:"hostpath,omitempty"`
 }
 
 type CreateAddonRequest struct {

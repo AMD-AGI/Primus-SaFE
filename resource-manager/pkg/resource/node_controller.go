@@ -886,17 +886,19 @@ func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) 
 	if adminNode.Spec.NodeTemplate == nil || v1.IsNodeTemplateInstalled(adminNode) {
 		return nil
 	}
+	name := string(v1.OpsJobAddonType) + "-" + adminNode.Name
 	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: map[string]string{
 				v1.ClusterManageActionLabel: string(v1.ClusterScaleUpAction),
 				v1.ClusterIdLabel:           adminNode.GetSpecCluster(),
 				v1.NodeFlavorIdLabel:        adminNode.GetSpecNodeFlavor(),
+				v1.DisplayNameLabel:         name,
 			},
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: common.UserSystem,
 			},
-			Name: v1.OpsJobKind + "-" + string(v1.OpsJobAddonType) + "-" + adminNode.Name,
+			Name: v1.OpsJobKind + "-" + name,
 		},
 		Spec: v1.OpsJobSpec{
 			Type: v1.OpsJobAddonType,

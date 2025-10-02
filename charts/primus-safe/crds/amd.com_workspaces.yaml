@@ -74,7 +74,7 @@ spec:
                   type: string
                 type: array
               volumes:
-                description: volumes used in this space
+                description: volumes used in this workspace
                 items:
                   properties:
                     accessMode:
@@ -110,7 +110,9 @@ spec:
                       description: equivalent to 'subPath' in Kubernetes volume mounts
                       type: string
                     type:
-                      description: 'The volume type, valid values includes: pfs/hostpath'
+                      description: |-
+                        The volume type, valid values includes: pfs/hostpath
+                        If PFS is configured, a PVC will be automatically created in the workspace.
                       type: string
                   required:
                   - id
