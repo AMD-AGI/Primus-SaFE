@@ -5,10 +5,12 @@
 # See LICENSE for license information.
 #
 
+input="$1"
+
 export NODE_RANK="${PET_NODE_RANK:-${NODE_RANK}}"
 export NNODES="${PET_NNODES:-${NNODES}}"
 
-if [[ -f "$PATH_TO_BNXT_TAR_PACKAGE" ]]; then
+if [ -f "${PATH_TO_BNXT_TAR_PACKAGE}" ]; then
   echo "Rebuild bnxt from $PATH_TO_BNXT_TAR_PACKAGE ..." && \
   tar xzf "${PATH_TO_BNXT_TAR_PACKAGE}" -C /tmp/ && \
   mv /tmp/libbnxt_re-* /tmp/libbnxt && \
@@ -24,12 +26,12 @@ else
   echo "Skip bnxt rebuild. PATH_TO_BNXT_TAR_PACKAGE=$PATH_TO_BNXT_TAR_PACKAGE"
 fi
 
-echo "$1" |base64 -d > .run.sh
-chmod +x .run.sh
+echo "$input" |base64 -d > ".run.sh"
+chmod +x ".run.sh"
 if command -v bash >/dev/null 2>&1; then
-    /usr/bin/bash -o pipefail .run.sh &
+    /usr/bin/bash -o pipefail ".run.sh" &
 else
-    /bin/sh .run.sh &
+    /bin/sh ".run.sh" &
 fi
 pid1=$!
 

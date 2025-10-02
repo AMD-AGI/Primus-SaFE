@@ -1417,6 +1417,11 @@ func (in *OpsJobSpec) DeepCopyInto(out *OpsJobSpec) {
 			(*out)[key] = val
 		}
 	}
+	if in.Hostpath != nil {
+		in, out := &in.Hostpath, &out.Hostpath
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	return
 }
 
@@ -2285,6 +2290,11 @@ func (in *WorkloadSpec) DeepCopyInto(out *WorkloadSpec) {
 		in, out := &in.Service, &out.Service
 		*out = new(Service)
 		(*in).DeepCopyInto(*out)
+	}
+	if in.Hostpath != nil {
+		in, out := &in.Hostpath, &out.Hostpath
+		*out = make([]string, len(*in))
+		copy(*out, *in)
 	}
 	return
 }

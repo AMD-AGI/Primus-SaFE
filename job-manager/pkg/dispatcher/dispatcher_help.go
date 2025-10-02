@@ -48,7 +48,7 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 		return err
 	}
 	path = append(templatePath, "spec", "volumes")
-	if err = modifyVolumes(obj, workspace, path); err != nil {
+	if err = modifyVolumes(obj, adminWorkload, workspace, path); err != nil {
 		return err
 	}
 	path = append(templatePath, "spec", "priorityClassName")
@@ -129,7 +129,7 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 	}
 	env := buildEnvironment(adminWorkload)
 	modifyEnv(mainContainer, env, v1.IsEnableHostNetwork(adminWorkload))
-	modifyVolumeMounts(mainContainer, workspace)
+	modifyVolumeMounts(mainContainer, adminWorkload, workspace)
 	modifySecurityContext(mainContainer, adminWorkload)
 	mainContainer["ports"] = buildPorts(adminWorkload)
 	if healthz := buildHealthCheck(adminWorkload.Spec.Liveness); healthz != nil {
@@ -173,7 +173,7 @@ func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNe
 	mainContainer["env"] = currentEnv
 }
 
-func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Workspace) {
+func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workload, workspace *v1.Workspace) {
 	if workspace == nil {
 		return
 	}
@@ -182,15 +182,27 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Work
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
-	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm"))
+	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", ""))
+	maxId := 0
 	for _, vol := range workspace.Spec.Volumes {
-		volumeMount := buildWorkspaceVolumeMount(vol, vol.GenFullVolumeId())
-		volumeMounts = append(volumeMounts, volumeMount...)
+		if vol.Id > maxId {
+			maxId = vol.Id
+		}
+		if vol.MountPath != "" {
+			volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath)
+			volumeMounts = append(volumeMounts, volumeMount)
+		}
+	}
+	for _, hostpath := range workload.Spec.Hostpath {
+		maxId++
+		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
+		volumeMount := buildVolumeMount(volumeName, hostpath, "")
+		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	mainContainer["volumeMounts"] = volumeMounts
 }
 
-func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path []string) error {
+func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, path []string) error {
 	if workspace == nil || len(workspace.Spec.Volumes) == 0 {
 		return nil
 	}
@@ -198,8 +210,12 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 	if err != nil {
 		return err
 	}
-
+	
+	maxId := 0
 	for _, vol := range workspace.Spec.Volumes {
+		if vol.Id > maxId {
+			maxId = vol.Id
+		}
 		volumeName := vol.GenFullVolumeId()
 		var volume interface{}
 		if vol.Type == v1.HOSTPATH {
@@ -207,6 +223,12 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 		} else {
 			volume = buildPvcVolume(volumeName)
 		}
+		volumes = append(volumes, volume)
+	}
+	for _, hostpath := range workload.Spec.Hostpath {
+		maxId++
+		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
+		volume := buildHostPathVolume(volumeName, hostpath)
 		volumes = append(volumes, volume)
 	}
 	if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
@@ -412,25 +434,13 @@ func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {
 	}
 }
 
-func buildWorkspaceVolumeMount(vol v1.WorkspaceVolume, volumeName string) []interface{} {
-	var result []interface{}
-	if vol.MountPath != "" {
-		volMount := map[string]interface{}{
-			"mountPath": vol.MountPath,
-			"name":      volumeName,
-		}
-		if vol.SubPath != "" {
-			volMount["subPath"] = vol.SubPath
-		}
-		result = append(result, volMount)
-	}
-	return result
-}
-
-func buildVolumeMount(name, mountPath string) interface{} {
+func buildVolumeMount(name, mountPath, subPath string) interface{} {
 	volMount := map[string]interface{}{
 		"mountPath": mountPath,
 		"name":      name,
+	}
+	if subPath != "" {
+		volMount["subPath"] = subPath
 	}
 	return volMount
 }

@@ -134,6 +134,9 @@ type WorkloadSpec struct {
 	Service *Service `json:"service,omitempty"`
 	// Indicates whether the workload tolerates node taints
 	IsTolerateAll bool `json:"isTolerateAll,omitempty"`
+	// The workload will automatically mount the volumes defined in the workspace,
+	// and you can also define specific hostPath for mounting.
+	Hostpath []string `json:"hostpath,omitempty"`
 }
 
 type WorkloadStatus struct {

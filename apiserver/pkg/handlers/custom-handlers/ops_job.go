@@ -238,7 +238,7 @@ func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob,
 	job.Spec.Image = req.Image
 	job.Spec.EntryPoint = req.EntryPoint
 	job.Spec.Env = req.Env
-	job.Spec.IsTolerateAll = req.IsTolerateAll
+	job.Spec.Hostpath = req.Hostpath
 
 	if err = h.genOpsJobInputs(c.Request.Context(), job, &req.BaseOpsJobRequest); err != nil {
 		return nil, err
@@ -270,6 +270,7 @@ func (h *Handler) generateDumpLogJob(c *gin.Context, body []byte) (*v1.OpsJob, e
 		return nil, commonerrors.NewBadRequest(
 			fmt.Sprintf("%s must be specified in the job.", v1.ParameterWorkload))
 	}
+
 	workload, err := h.getWorkloadInternal(c.Request.Context(), workloadParam.Value)
 	if err != nil {
 		return nil, err
@@ -304,6 +305,7 @@ func genDefaultOpsJob(c *gin.Context, req *types.BaseOpsJobRequest) *v1.OpsJob {
 			Inputs:                  req.Inputs,
 			TimeoutSecond:           req.TimeoutSecond,
 			TTLSecondsAfterFinished: req.TTLSecondsAfterFinished,
+			IsTolerateAll:           req.IsTolerateAll,
 		},
 	}
 	if v1.GetUserName(job) == "" {
