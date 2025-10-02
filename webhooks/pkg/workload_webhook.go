@@ -222,7 +222,7 @@ func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Wo
 }
 
 func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Workspace) {
-	if len(workload.Spec.Hostpath) == 0 {
+	if len(workload.Spec.Hostpath) == 0 || workspace == nil {
 		return
 	}
 	hostpathSet := sets.NewSet()
