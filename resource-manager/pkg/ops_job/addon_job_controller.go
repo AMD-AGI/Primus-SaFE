@@ -76,7 +76,7 @@ func SetupAddonJobController(mgr manager.Manager) error {
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, onJobRunning()))).
+			predicate.GenerationChangedPredicate{}, onFirstPhaseChanged()))).
 		Watches(&v1.Node{}, r.handleNodeEvent()).
 		Watches(&v1.Workload{}, r.handleWorkloadEvent()).
 		Complete(r)
@@ -106,7 +106,7 @@ func (r *AddonJobReconciler) handleNodeEvent() handler.EventHandler {
 
 func (r *AddonJobReconciler) handleNodeRemovedEvent(ctx context.Context,
 	node *v1.Node, message string, q v1.RequestWorkQueue) {
-	jobList, err := r.listOpsJobs(ctx, node.GetSpecCluster(), string(v1.OpsJobAddonType))
+	jobList, err := r.listJobs(ctx, node.GetSpecCluster(), string(v1.OpsJobAddonType))
 	if err != nil {
 		return
 	}
@@ -134,7 +134,7 @@ func (r *AddonJobReconciler) addFailedNodeCondition(ctx context.Context, jobId, 
 		if err := r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
 			return client.IgnoreNotFound(err)
 		}
-		if err := r.updateJobCondition(ctx, job, cond); err != nil {
+		if err := r.updateCondition(ctx, job, cond); err != nil {
 			return err
 		}
 		return nil
@@ -146,7 +146,7 @@ func (r *AddonJobReconciler) addFailedNodeCondition(ctx context.Context, jobId, 
 
 func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {
 	enqueue := func(ctx context.Context, q v1.RequestWorkQueue, clusterId string) {
-		jobList, err := r.listOpsJobs(ctx, clusterId, string(v1.OpsJobAddonType))
+		jobList, err := r.listJobs(ctx, clusterId, string(v1.OpsJobAddonType))
 		if err != nil {
 			return
 		}
@@ -234,7 +234,11 @@ func (r *AddonJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlru
 		}
 	}
 	if job.IsPending() {
-		return r.setJobRunning(ctx, job)
+		if err := r.setJobPhase(ctx, job, v1.OpsJobRunning); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		// ensure that job will be reconciled when it is timeout
+		return genRequeueAfterResult(job), nil
 	}
 	targetNodes := r.getNodesToProcess(job)
 	if len(targetNodes) == 0 {
@@ -244,7 +248,7 @@ func (r *AddonJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlru
 		Reason: "Processing", Message: string(jsonutils.MarshalSilently(targetNodes)),
 	}
 	var err error
-	if err = r.updateJobCondition(ctx, job, &cond); err != nil {
+	if err = r.updateCondition(ctx, job, &cond); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	if err = r.handleNodes(ctx, job, targetNodes); err != nil {

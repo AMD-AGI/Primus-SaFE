@@ -23,7 +23,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
@@ -139,25 +138,19 @@ func (r *OpsJobBaseReconciler) setJobCompleted(ctx context.Context,
 	return nil
 }
 
-// this function changes the job state from Pending to Running and start the timeout timer.
-func (r *OpsJobBaseReconciler) setJobRunning(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
+func (r *OpsJobBaseReconciler) setJobPhase(ctx context.Context, job *v1.OpsJob, phase v1.OpsJobPhase) error {
+	if job.Status.Phase == phase && job.Status.StartedAt != nil {
+		return nil
+	}
 	patch := client.MergeFrom(job.DeepCopy())
-	job.Status.Phase = v1.OpsJobRunning
+	job.Status.Phase = phase
 	if job.Status.StartedAt == nil {
 		job.Status.StartedAt = &metav1.Time{Time: time.Now().UTC()}
 	}
-	result := ctrlruntime.Result{}
-	if err := r.Status().Patch(ctx, job, patch); err != nil {
-		return result, err
-	}
-	// ensure that job will be reconciled when it is timeout
-	if job.Spec.TimeoutSecond > 0 {
-		result.RequeueAfter = time.Second * time.Duration(job.Spec.TimeoutSecond)
-	}
-	return result, nil
+	return r.Status().Patch(ctx, job, patch)
 }
 
-func (r *OpsJobBaseReconciler) updateJobCondition(ctx context.Context, job *v1.OpsJob, cond *metav1.Condition) error {
+func (r *OpsJobBaseReconciler) updateCondition(ctx context.Context, job *v1.OpsJob, cond *metav1.Condition) error {
 	changed := meta.SetStatusCondition(&job.Status.Conditions, *cond)
 	if !changed {
 		return nil
@@ -277,7 +270,7 @@ func (r *OpsJobBaseReconciler) getInputNodes(ctx context.Context, job *v1.OpsJob
 	return results, nil
 }
 
-func (r *OpsJobBaseReconciler) listOpsJobs(ctx context.Context, clusterId, opsjobType string) ([]v1.OpsJob, error) {
+func (r *OpsJobBaseReconciler) listJobs(ctx context.Context, clusterId, opsjobType string) ([]v1.OpsJob, error) {
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterId, v1.OpsJobTypeLabel: opsjobType})
 	jobList := &v1.OpsJobList{}
 	if err := r.List(ctx, jobList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
@@ -292,39 +285,7 @@ func (r *OpsJobBaseReconciler) listOpsJobs(ctx context.Context, clusterId, opsjo
 	}
 	return result, nil
 }
-
-func (r *OpsJobBaseReconciler) genMaxResource(ctx context.Context, adminNode *v1.Node) (*v1.WorkloadResource, error) {
-	nf := &v1.NodeFlavor{}
-	if err := r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(adminNode)}, nf); err != nil {
-		return nil, err
-	}
-	return commonworkload.GenerateMaxAvailResource(nf), nil
-}
-
-func getWorkloadMessage(workload *v1.Workload) string {
-	switch workload.Status.Phase {
-	case v1.WorkloadFailed, v1.WorkloadSucceeded:
-		for _, pod := range workload.Status.Pods {
-			for _, c := range pod.Containers {
-				if c.Name != v1.GetMainContainer(workload) {
-					continue
-				}
-				if c.Message != "" {
-					return c.Message
-				}
-			}
-		}
-	case v1.WorkloadStopped:
-		return "workload is stopped"
-	default:
-		if !workload.GetDeletionTimestamp().IsZero() {
-			return "workload is stopped"
-		}
-	}
-	return ""
-}
-
-func onJobRunning() predicate.Predicate {
+func onFirstPhaseChanged() predicate.Predicate {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldJob, ok1 := e.ObjectOld.(*v1.OpsJob)
@@ -332,10 +293,18 @@ func onJobRunning() predicate.Predicate {
 			if !ok1 || !ok2 {
 				return false
 			}
-			if oldJob.IsPending() && !newJob.IsPending() {
+			if oldJob.Status.Phase == "" && newJob.Status.Phase != "" {
 				return true
 			}
 			return false
 		},
 	}
+}
+
+func genRequeueAfterResult(job *v1.OpsJob) ctrlruntime.Result {
+	result := ctrlruntime.Result{}
+	if job.Spec.TimeoutSecond > 0 {
+		result.RequeueAfter = time.Second * time.Duration(job.Spec.TimeoutSecond)
+	}
+	return result
 }

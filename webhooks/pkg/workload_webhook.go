@@ -35,6 +35,8 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -112,24 +114,25 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 		m.mutateAuthoring(workload)
 	}
 
-	m.mutateResource(workload, workspace)
+	m.mutateCommon(ctx, workload, workspace)
 	m.mutateHealthCheck(workload)
 	m.mutateService(workload)
 	m.mutateMaxRetry(workload)
 	m.mutateEnv(nil, workload)
 	m.mutateTTLSeconds(workload)
-	m.mutateCommon(ctx, workload)
 	return true
 }
 
 func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) bool {
-	m.mutateResource(newWorkload, nil)
+	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
+	m.mutateCommon(ctx, newWorkload, workspace)
 	m.mutateEnv(oldWorkload, newWorkload)
-	m.mutateCommon(ctx, newWorkload)
 	return true
 }
 
-func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload) bool {
+func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
+	m.mutateResource(workload, workspace)
+	m.mutateHostpath(workload, workspace)
 	m.mutatePriority(workload)
 	m.mutateImage(workload)
 	m.mutateEntryPoint(workload)
@@ -216,6 +219,25 @@ func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Wo
 		isChanged = true
 	}
 	return isChanged
+}
+
+func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Workspace) {
+	if len(workload.Spec.Hostpath) == 0 {
+		return
+	}
+	hostpathSet := sets.NewSet()
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type == v1.HOSTPATH {
+			hostpathSet.Insert(vol.HostPath)
+		}
+	}
+	hostpath := make([]string, 0, len(workload.Spec.Hostpath))
+	for _, path := range workload.Spec.Hostpath {
+		if !hostpathSet.Has(path) {
+			hostpath = append(hostpath, path)
+		}
+	}
+	workload.Spec.Hostpath = hostpath
 }
 
 func (m *WorkloadMutator) mutateHealthCheck(workload *v1.Workload) {
@@ -674,7 +696,13 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 
 // Changes to the PyTorchJob are only allowed when the job is queued.
 func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Workload) error {
-	if commonworkload.IsApplication(newWorkload) || !v1.IsWorkloadScheduled(newWorkload) {
+	if !v1.IsWorkloadScheduled(newWorkload) {
+		return nil
+	}
+	if !sliceutil.EqualIgnoreOrder(oldWorkload.Spec.Hostpath, newWorkload.Spec.Hostpath) {
+		return commonerrors.NewForbidden("hostpath cannot be changed once the workload has been scheduled")
+	}
+	if commonworkload.IsApplication(newWorkload) {
 		return nil
 	}
 	if oldWorkload.Spec.EntryPoint != newWorkload.Spec.EntryPoint {

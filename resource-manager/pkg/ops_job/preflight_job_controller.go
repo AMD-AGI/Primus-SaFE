@@ -42,7 +42,7 @@ func SetupPreflightJobController(mgr manager.Manager) error {
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, onJobRunning()))).
+			predicate.GenerationChangedPredicate{}, onFirstPhaseChanged()))).
 		Watches(&v1.Workload{}, r.handleWorkloadEvent()).
 		Complete(r)
 	if err != nil {
@@ -59,9 +59,7 @@ func (r *PreflightJobReconciler) handleWorkloadEvent() handler.EventHandler {
 			if !ok || !isPreflightWorkload(workload) {
 				return
 			}
-			if workload.IsEnd() {
-				r.handleWorkloadEventImpl(ctx, workload)
-			}
+			r.handleWorkloadEventImpl(ctx, workload)
 		},
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
 			oldWorkload, ok1 := evt.ObjectOld.(*v1.Workload)
@@ -69,7 +67,8 @@ func (r *PreflightJobReconciler) handleWorkloadEvent() handler.EventHandler {
 			if !ok1 || !ok2 || !isPreflightWorkload(newWorkload) {
 				return
 			}
-			if !oldWorkload.IsEnd() && newWorkload.IsEnd() {
+			if (!oldWorkload.IsEnd() && newWorkload.IsEnd()) ||
+				(!oldWorkload.IsRunning() && newWorkload.IsRunning()) {
 				r.handleWorkloadEventImpl(ctx, newWorkload)
 			}
 		},
@@ -86,25 +85,39 @@ func isPreflightWorkload(workload *v1.Workload) bool {
 
 func (r *PreflightJobReconciler) handleWorkloadEventImpl(ctx context.Context, workload *v1.Workload) {
 	var phase v1.OpsJobPhase
-	if workload.Status.Phase == v1.WorkloadSucceeded {
-		phase = v1.OpsJobSucceeded
-	} else {
-		phase = v1.OpsJobFailed
+	completionMessage := ""
+	switch {
+	case workload.IsEnd():
+		if workload.Status.Phase == v1.WorkloadSucceeded {
+			phase = v1.OpsJobSucceeded
+		} else {
+			phase = v1.OpsJobFailed
+		}
+		completionMessage = getWorkloadCompletionMessage(workload)
+		if completionMessage == "" {
+			completionMessage = "unknown"
+		}
+	case workload.IsRunning():
+		phase = v1.OpsJobRunning
+	default:
+		phase = v1.OpsJobPending
 	}
-	message := getWorkloadMessage(workload)
-	var output []v1.Parameter
-	if message == "" {
-		message = "unknown"
-	} else {
-		output = append(output, v1.Parameter{Name: "result", Value: message})
-	}
+
 	jobId := v1.GetOpsJobId(workload)
 	err := backoff.Retry(func() error {
 		job := &v1.OpsJob{}
-		if err := r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
+		var err error
+		if err = r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
 			return client.IgnoreNotFound(err)
 		}
-		if err := r.setJobCompleted(ctx, job, phase, message, output); err != nil {
+		switch phase {
+		case v1.OpsJobPending, v1.OpsJobRunning:
+			err = r.setJobPhase(ctx, job, phase)
+		default:
+			output := []v1.Parameter{{Name: "result", Value: completionMessage}}
+			err = r.setJobCompleted(ctx, job, phase, completionMessage, output)
+		}
+		if err != nil {
 			return err
 		}
 		return nil
@@ -133,14 +146,20 @@ func (r *PreflightJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool 
 }
 
 func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
-	if job.IsPending() {
-		return r.setJobRunning(ctx, job)
+	if job.Status.Phase == "" {
+		patch := client.MergeFrom(job.DeepCopy())
+		job.Status.Phase = v1.OpsJobPending
+		if err := r.Status().Patch(ctx, job, patch); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		// ensure that job will be reconciled when it is timeout
+		return genRequeueAfterResult(job), nil
 	}
+
 	workload := &v1.Workload{}
 	if r.Get(ctx, client.ObjectKey{Name: job.Name}, workload) == nil {
 		return ctrlruntime.Result{}, nil
 	}
-
 	var err error
 	workload, err = r.genPreflightWorkload(ctx, job)
 	if err != nil {
@@ -200,6 +219,7 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context, job *
 			Workspace: corev1.NamespaceDefault,
 			Image:     *job.Spec.Image,
 			Env:       job.Spec.Env,
+			Hostpath:  job.Spec.Hostpath,
 		},
 	}
 	if job.Spec.TimeoutSecond > 0 {
@@ -209,4 +229,27 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context, job *
 		workload.Spec.TTLSecondsAfterFinished = pointer.Int(job.Spec.TTLSecondsAfterFinished)
 	}
 	return workload, nil
+}
+
+func getWorkloadCompletionMessage(workload *v1.Workload) string {
+	switch workload.Status.Phase {
+	case v1.WorkloadFailed, v1.WorkloadSucceeded:
+		for _, pod := range workload.Status.Pods {
+			for _, c := range pod.Containers {
+				if c.Name != v1.GetMainContainer(workload) {
+					continue
+				}
+				if c.Message != "" {
+					return c.Message
+				}
+			}
+		}
+	case v1.WorkloadStopped:
+		return "workload is stopped"
+	default:
+		if !workload.GetDeletionTimestamp().IsZero() {
+			return "workload is stopped"
+		}
+	}
+	return ""
 }
