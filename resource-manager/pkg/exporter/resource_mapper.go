@@ -207,19 +207,20 @@ func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 	}
 	strInputs := fmt.Sprintf("{%s}", fmt.Sprintf("\"%s\"", strings.Join(inputs, "\",\"")))
 	result := &dbclient.OpsJob{
-		JobId:      job.Name,
-		Cluster:    v1.GetClusterId(job),
-		Inputs:     []byte(strInputs),
-		Type:       string(job.Spec.Type),
-		Timeout:    job.Spec.TimeoutSecond,
-		UserName:   dbutils.NullString(v1.GetUserName(job)),
-		Workspace:  dbutils.NullString(v1.GetWorkspaceId(job)),
-		CreateTime: dbutils.NullMetaV1Time(&job.CreationTimestamp),
-		StartTime:  dbutils.NullMetaV1Time(job.Status.StartedAt),
-		EndTime:    dbutils.NullMetaV1Time(job.Status.FinishedAt),
-		DeleteTime: dbutils.NullMetaV1Time(job.GetDeletionTimestamp()),
-		Phase:      dbutils.NullString(string(job.Status.Phase)),
-		UserId:     dbutils.NullString(v1.GetUserId(job)),
+		JobId:         job.Name,
+		Cluster:       v1.GetClusterId(job),
+		Inputs:        []byte(strInputs),
+		Type:          string(job.Spec.Type),
+		Timeout:       job.Spec.TimeoutSecond,
+		UserName:      dbutils.NullString(v1.GetUserName(job)),
+		Workspace:     dbutils.NullString(v1.GetWorkspaceId(job)),
+		CreateTime:    dbutils.NullMetaV1Time(&job.CreationTimestamp),
+		StartTime:     dbutils.NullMetaV1Time(job.Status.StartedAt),
+		EndTime:       dbutils.NullMetaV1Time(job.Status.FinishedAt),
+		DeleteTime:    dbutils.NullMetaV1Time(job.GetDeletionTimestamp()),
+		Phase:         dbutils.NullString(string(job.Status.Phase)),
+		UserId:        dbutils.NullString(v1.GetUserId(job)),
+		IsTolerateAll: job.Spec.IsTolerateAll,
 	}
 	if len(job.Status.Conditions) > 0 {
 		result.Conditions = dbutils.NullString(
@@ -246,6 +247,9 @@ func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 	}
 	if job.Spec.EntryPoint != nil {
 		result.EntryPoint = dbutils.NullString(*job.Spec.EntryPoint)
+	}
+	if len(job.Spec.Hostpath) > 0 {
+		result.Hostpath = dbutils.NullString(string(jsonutils.MarshalSilently(job.Spec.Hostpath)))
 	}
 	return result
 }
