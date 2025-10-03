@@ -496,18 +496,20 @@ func parseCreateOpsJobRequest(c *gin.Context) (*types.BaseOpsJobRequest, []byte,
 
 func cvtToOpsJobResponseItem(job *dbclient.OpsJob, isNeedDetail bool) types.OpsJobResponseItem {
 	result := types.OpsJobResponseItem{
-		JobId:        job.JobId,
-		JobName:      commonutils.GetBaseFromName(job.JobId),
-		Cluster:      job.Cluster,
-		Workspace:    dbutils.ParseNullString(job.Workspace),
-		UserId:       dbutils.ParseNullString(job.UserId),
-		UserName:     dbutils.ParseNullString(job.UserName),
-		Type:         v1.OpsJobType(job.Type),
-		Phase:        v1.OpsJobPhase(dbutils.ParseNullString(job.Phase)),
-		CreationTime: dbutils.ParseNullTimeToString(job.CreateTime),
-		StartTime:    dbutils.ParseNullTimeToString(job.StartTime),
-		EndTime:      dbutils.ParseNullTimeToString(job.EndTime),
-		DeletionTime: dbutils.ParseNullTimeToString(job.DeleteTime),
+		JobId:         job.JobId,
+		JobName:       commonutils.GetBaseFromName(job.JobId),
+		Cluster:       job.Cluster,
+		Workspace:     dbutils.ParseNullString(job.Workspace),
+		UserId:        dbutils.ParseNullString(job.UserId),
+		UserName:      dbutils.ParseNullString(job.UserName),
+		Type:          v1.OpsJobType(job.Type),
+		Phase:         v1.OpsJobPhase(dbutils.ParseNullString(job.Phase)),
+		CreationTime:  dbutils.ParseNullTimeToString(job.CreateTime),
+		StartTime:     dbutils.ParseNullTimeToString(job.StartTime),
+		EndTime:       dbutils.ParseNullTimeToString(job.EndTime),
+		DeletionTime:  dbutils.ParseNullTimeToString(job.DeleteTime),
+		TimeoutSecond: job.Timeout,
+		IsTolerateAll: job.IsTolerateAll,
 	}
 	if result.Phase == "" {
 		result.Phase = v1.OpsJobPending
@@ -534,6 +536,9 @@ func cvtToOpsJobResponseItem(job *dbclient.OpsJob, isNeedDetail bool) types.OpsJ
 	}
 	if entryPoint := dbutils.ParseNullString(job.EntryPoint); entryPoint != "" {
 		result.EntryPoint = entryPoint
+	}
+	if hostpath := dbutils.ParseNullString(job.Hostpath); hostpath != "" {
+		json.Unmarshal([]byte(hostpath), &result.Hostpath)
 	}
 	return result
 }

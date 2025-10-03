@@ -174,9 +174,6 @@ func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNe
 }
 
 func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workload, workspace *v1.Workspace) {
-	if workspace == nil {
-		return
-	}
 	var volumeMounts []interface{}
 	volumeMountObjs, ok := mainContainer["volumeMounts"]
 	if ok {
@@ -184,13 +181,15 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workl
 	}
 	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", ""))
 	maxId := 0
-	for _, vol := range workspace.Spec.Volumes {
-		if vol.Id > maxId {
-			maxId = vol.Id
-		}
-		if vol.MountPath != "" {
-			volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath)
-			volumeMounts = append(volumeMounts, volumeMount)
+	if workspace != nil {
+		for _, vol := range workspace.Spec.Volumes {
+			if vol.Id > maxId {
+				maxId = vol.Id
+			}
+			if vol.MountPath != "" {
+				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath)
+				volumeMounts = append(volumeMounts, volumeMount)
+			}
 		}
 	}
 	for _, hostpath := range workload.Spec.Hostpath {
@@ -203,33 +202,39 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workl
 }
 
 func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, path []string) error {
-	if workspace == nil || len(workspace.Spec.Volumes) == 0 {
-		return nil
-	}
 	volumes, _, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
 		return err
 	}
-	
+
 	maxId := 0
-	for _, vol := range workspace.Spec.Volumes {
-		if vol.Id > maxId {
-			maxId = vol.Id
+	hasNewVolume := false
+	if workspace != nil {
+		for _, vol := range workspace.Spec.Volumes {
+			if vol.Id > maxId {
+				maxId = vol.Id
+			}
+			volumeName := vol.GenFullVolumeId()
+			var volume interface{}
+			if vol.Type == v1.HOSTPATH {
+				volume = buildHostPathVolume(volumeName, vol.HostPath)
+			} else {
+				volume = buildPvcVolume(volumeName)
+			}
+			volumes = append(volumes, volume)
+			hasNewVolume = true
 		}
-		volumeName := vol.GenFullVolumeId()
-		var volume interface{}
-		if vol.Type == v1.HOSTPATH {
-			volume = buildHostPathVolume(volumeName, vol.HostPath)
-		} else {
-			volume = buildPvcVolume(volumeName)
-		}
-		volumes = append(volumes, volume)
 	}
+
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
 		volume := buildHostPathVolume(volumeName, hostpath)
 		volumes = append(volumes, volume)
+		hasNewVolume = true
+	}
+	if !hasNewVolume {
+		return nil
 	}
 	if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
 		return err
