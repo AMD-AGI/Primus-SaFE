@@ -110,3 +110,5 @@ data:
     alter table ops_job add column if not exists resource VARCHAR(1024);
     alter table ops_job add column if not exists image VARCHAR(128);
     alter table ops_job add column if not exists entrypoint TEXT;
+    alter table ops_job add column if not exists is_tolerate_all boolean;
+    alter table ops_job add column if not exists hostpath TEXT;

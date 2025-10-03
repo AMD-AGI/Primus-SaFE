@@ -138,4 +138,10 @@ type OpsJobResponseItem struct {
 	Image string `json:"image,omitempty"`
 	// opsjob entryPoint, required in base64 encoding, only for preflight
 	EntryPoint string `json:"entryPoint,omitempty"`
+	// job Timeout (in seconds), Less than or equal to 0 means no timeout
+	TimeoutSecond int `json:"timeoutSecond,omitempty"`
+	// Indicates whether the job tolerates node taints. default false
+	IsTolerateAll bool `json:"isTolerateAll"`
+	// the hostpath for opsjob mounting.
+	Hostpath []string `json:"hostpath,omitempty"`
 }
