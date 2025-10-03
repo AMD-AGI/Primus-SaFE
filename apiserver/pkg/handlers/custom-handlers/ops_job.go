@@ -508,6 +508,8 @@ func cvtToOpsJobResponseItem(job *dbclient.OpsJob, isNeedDetail bool) types.OpsJ
 		StartTime:    dbutils.ParseNullTimeToString(job.StartTime),
 		EndTime:      dbutils.ParseNullTimeToString(job.EndTime),
 		DeletionTime: dbutils.ParseNullTimeToString(job.DeleteTime),
+		TimeoutSecond: job.Timeout,
+		IsTolerateAll: job.IsTolerateAll,
 	}
 	if result.Phase == "" {
 		result.Phase = v1.OpsJobPending
@@ -534,6 +536,9 @@ func cvtToOpsJobResponseItem(job *dbclient.OpsJob, isNeedDetail bool) types.OpsJ
 	}
 	if entryPoint := dbutils.ParseNullString(job.EntryPoint); entryPoint != "" {
 		result.EntryPoint = entryPoint
+	}
+	if hostpath := dbutils.ParseNullString(job.Hostpath); hostpath != "" {
+		json.Unmarshal([]byte(hostpath), &result.Hostpath)
 	}
 	return result
 }
