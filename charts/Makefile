@@ -1,3 +1,8 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 ## Location to install dependencies to
 LOCALBIN:= $(shell go env GOBIN)
 LOCALBIN := $(if $(LOCALBIN),$(LOCALBIN),$(shell pwd)/bin)
