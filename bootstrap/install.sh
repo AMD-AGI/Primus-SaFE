@@ -1,5 +1,10 @@
 #!/bin/bash
 
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 set -euo pipefail
 if ! command -v helm &> /dev/null; then
   echo "Error: helm command not found. Please install it first."
@@ -108,7 +113,7 @@ echo "========================================="
 
 if [[ "$support_lens" == "y" ]]; then
   export STORAGE_CLASS="$storage_class"
-  bash install-grafana.sh >/dev/null
+  bash install_grafana.sh >/dev/null
   echo "✅ grafana installed"
 fi
 

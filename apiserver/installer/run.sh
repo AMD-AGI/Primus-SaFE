@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 WORK_PATH=/opt/primus-safe/apiserver
 
 . /etc/bashrc

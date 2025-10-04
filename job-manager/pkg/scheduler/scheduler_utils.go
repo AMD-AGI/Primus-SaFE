@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -109,7 +109,7 @@ func formatResourceName(key string) string {
 
 func isMatchNodeLabel(node *v1.Node, workload *v1.Workload) bool {
 	for key, val := range workload.Spec.CustomerLabels {
-		if key == common.K8sHostNameLabel {
+		if key == common.K8sHostName {
 			nodeNames := strings.Split(val, " ")
 			if !sliceutil.Contains(nodeNames, v1.GetDisplayName(node)) {
 				return false

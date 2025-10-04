@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -7,7 +7,7 @@ package custom_handlers
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	
+
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )

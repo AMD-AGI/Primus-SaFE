@@ -1,4 +1,8 @@
 ---
+# Copyright 2017 - 2025 Crunchy Data Solutions, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+
 # controllerImages are used to run the operator's controllers.
 # The cluster image defined below runs the PostgresCluster and PGUpgrade controllers.
 controllerImages:

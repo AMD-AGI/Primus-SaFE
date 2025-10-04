@@ -1,5 +1,10 @@
 #!/bin/sh
 
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 script_path="/shared-data/scripts"
 
 while true; do
