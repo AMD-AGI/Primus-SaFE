@@ -682,7 +682,7 @@ func (h *Handler) cvtToNodeResponseItem(ctx context.Context, n *v1.Node, usedRes
 func getNodeCustomerLabels(labels map[string]string) map[string]string {
 	result := make(map[string]string)
 	for key, val := range labels {
-		if strings.HasPrefix(key, v1.PrimusSafePrefix) || key == common.K8sHostNameLabel {
+		if strings.HasPrefix(key, v1.PrimusSafePrefix) || key == v1.KubernetesControlPlane {
 			continue
 		}
 		result[key] = val
