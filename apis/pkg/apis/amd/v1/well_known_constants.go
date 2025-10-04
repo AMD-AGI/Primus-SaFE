@@ -41,6 +41,8 @@ const (
 	NodeIdLabel                     = NodePrefix + "id"
 	NodeBMCIpAnnotation             = NodePrefix + "bmcIp"
 	NodeBMCPasswordAnnotation       = NodePrefix + "bmcPassword"
+	NodeManageRebootLabel           = "manage.reboot"
+	NodeUnmanageNoRebootLabel       = "unmanage.noreboot"
 	NodeActionAdd                   = "add"
 	NodeActionRemove                = "remove"
 

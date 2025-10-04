@@ -1,3 +1,8 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -51,7 +56,7 @@ spec:
           image: docker.io/library/nginx:latest
           ports:
             - containerPort: 80
-              hostPort: 80                # 映射 host 80 端口
+              hostPort: 80
           volumeMounts:
             - name: nginx-config
               mountPath: /etc/nginx/nginx.conf

@@ -1,5 +1,10 @@
 #!/bin/bash
 
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 # This script only applies if install.sh has been previously executed and
 # the environment configuration and code directory have not changed.
 

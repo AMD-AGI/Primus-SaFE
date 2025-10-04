@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -610,13 +610,8 @@ func (h *Handler) deleteRelatedFaults(ctx context.Context, node *v1.Node, newTai
 func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]string {
 	nodesLabelAction := make(map[string]string)
 	if req.Labels != nil {
-		reqLabels := make(map[string]string)
-		for key, val := range *req.Labels {
-			reqLabels[common.CustomerLabelPrefix+key] = val
-		}
-		currentLabels := getCustomerLabels(node.Labels, false)
-		for key, val := range currentLabels {
-			val2, ok := reqLabels[key]
+		for key, val := range node.Labels {
+			val2, ok := (*req.Labels)[key]
 			if !ok {
 				nodesLabelAction[key] = v1.NodeActionRemove
 				delete(node.Labels, key)
@@ -625,8 +620,8 @@ func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]s
 				v1.SetLabel(node, key, val2)
 			}
 		}
-		for key, val := range reqLabels {
-			if _, ok := currentLabels[key]; !ok {
+		for key, val := range *req.Labels {
+			if _, ok := node.Labels[key]; !ok {
 				nodesLabelAction[key] = v1.NodeActionAdd
 				v1.SetLabel(node, key, val)
 			}
@@ -649,7 +644,7 @@ func (h *Handler) cvtToNodeResponseItem(ctx context.Context, n *v1.Node, usedRes
 		Message:           message,
 		Taints:            getPrimusTaints(n.Status.Taints),
 		TotalResources:    cvtToResourceList(n.Status.Resources),
-		CustomerLabels:    getCustomerLabels(n.Labels, true),
+		CustomerLabels:    getNodeCustomerLabels(n.Labels),
 		CreationTime:      timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
 		IsControlPlane:    v1.IsControlPlane(n),
 		IsAddonsInstalled: v1.IsNodeTemplateInstalled(n),
@@ -684,16 +679,13 @@ func (h *Handler) cvtToNodeResponseItem(ctx context.Context, n *v1.Node, usedRes
 	return result, nil
 }
 
-func getCustomerLabels(labels map[string]string, removePrefix bool) map[string]string {
+func getNodeCustomerLabels(labels map[string]string) map[string]string {
 	result := make(map[string]string)
 	for key, val := range labels {
-		if strings.HasPrefix(key, common.CustomerLabelPrefix) {
-			if removePrefix {
-				result[key[len(common.CustomerLabelPrefix):]] = val
-			} else {
-				result[key] = val
-			}
+		if strings.HasPrefix(key, v1.PrimusSafePrefix) || key == v1.KubernetesControlPlane {
+			continue
 		}
+		result[key] = val
 	}
 	return result
 }
