@@ -25,6 +25,7 @@ const (
 	NodeNameSelector    = "spec.nodeName="
 	KubeSystemNamespace = "kube-system"
 	KubePublicNamespace = "kube-public"
+	K8sHostName         = "kubernetes.io/hostname"
 	PytorchJobPortName  = "pytorchjob-port"
 	SSHPortName         = "ssh-port"
 
@@ -46,8 +47,6 @@ const (
 	NvidiaVfio           = "nvidia.com/gpu.deploy.vfio-manager"
 	AMDGpuIdentification = "feature.node.kubernetes.io/amd-gpu"
 	AmdGpu               = "amd.com/gpu"
-
-	K8sHostName = "kubernetes.io/hostname"
 
 	UserName              = "userName"
 	UserId                = "userId"
