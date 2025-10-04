@@ -169,7 +169,7 @@ func TestPatchNode(t *testing.T) {
 	clusterId := "cluster"
 	nodeFlavor := genMockNodeFlavor()
 	adminNode := genMockAdminNode(clusterId, "", "test-node-flavor")
-	adminNode.Labels[common.CustomerLabelPrefix+"key1"] = "val1"
+	adminNode.Labels["key1"] = "val1"
 	adminClient := fake.NewClientBuilder().WithObjects(nodeFlavor, adminNode).WithScheme(scheme.Scheme).Build()
 
 	h := Handler{Client: adminClient}
@@ -195,8 +195,8 @@ func TestPatchNode(t *testing.T) {
 
 	node2, err := h.getAdminNode(context.Background(), adminNode.Name)
 	assert.NilError(t, err)
-	assert.Equal(t, node2.Labels[common.CustomerLabelPrefix+"key1"], "")
-	assert.Equal(t, node2.Labels[common.CustomerLabelPrefix+"key2"], "val2")
+	assert.Equal(t, node2.Labels["key1"], "")
+	assert.Equal(t, node2.Labels["key2"], "val2")
 	assert.Equal(t, node2.Spec.NodeFlavor.Name, nodeFlavor.Name)
 	assert.Equal(t, len(node2.Spec.Taints), 1)
 	assert.Equal(t, node2.Spec.Taints[0].Key, commonfaults.GenerateTaintKey("key1"))
@@ -205,10 +205,10 @@ func TestPatchNode(t *testing.T) {
 	actionMap := make(map[string]string)
 	err = json.Unmarshal([]byte(actions), &actionMap)
 	assert.NilError(t, err)
-	val, ok := actionMap[common.CustomerLabelPrefix+"key1"]
+	val, ok := actionMap["key1"]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, val, v1.NodeActionRemove)
-	val, ok = actionMap[common.CustomerLabelPrefix+"key2"]
+	val, ok = actionMap["key2"]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, val, v1.NodeActionAdd)
 	val, ok = actionMap[v1.NodeFlavorIdLabel]

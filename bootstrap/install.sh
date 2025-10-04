@@ -113,7 +113,7 @@ echo "========================================="
 
 if [[ "$support_lens" == "y" ]]; then
   export STORAGE_CLASS="$storage_class"
-  bash install-grafana.sh >/dev/null
+  bash install_grafana.sh >/dev/null
   echo "✅ grafana installed"
 fi
 

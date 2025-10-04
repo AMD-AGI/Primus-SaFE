@@ -515,17 +515,6 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 	if err = json.Unmarshal(body, &workload.Spec); err != nil {
 		return nil, err
 	}
-	if len(workload.Spec.CustomerLabels) > 0 {
-		customerLabels := make(map[string]string)
-		for key, val := range workload.Spec.CustomerLabels {
-			if len(val) == 0 || key == common.K8sHostNameLabel {
-				continue
-			}
-			key = common.CustomerLabelPrefix + key
-			customerLabels[key] = val
-		}
-		workload.Spec.CustomerLabels = customerLabels
-	}
 	genCustomerLabelsByNodes(workload, req.NodeList)
 	if len(req.NodeList) > 0 {
 		workload.Spec.Resource.Replica = len(req.NodeList)
@@ -537,15 +526,19 @@ func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
 	if len(nodeList) == 0 {
 		return
 	}
+	if len(workload.Spec.CustomerLabels) > 0 {
+		if _, ok := workload.Spec.CustomerLabels[common.K8sHostNameLabel]; ok {
+			return
+		}
+	} else {
+		workload.Spec.CustomerLabels = make(map[string]string)
+	}
 	nodeNames := ""
 	for i := range nodeList {
 		if i > 0 {
 			nodeNames += " "
 		}
 		nodeNames += nodeList[i]
-	}
-	if len(workload.Spec.CustomerLabels) == 0 {
-		workload.Spec.CustomerLabels = make(map[string]string)
 	}
 	workload.Spec.CustomerLabels[common.K8sHostNameLabel] = nodeNames
 }
@@ -813,7 +806,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 		var customerLabels map[string]string
 		json.Unmarshal([]byte(str), &customerLabels)
 		if len(customerLabels) > 0 {
-			result.CustomerLabels, result.NodeList = handleCustomerLabels(customerLabels)
+			result.CustomerLabels, result.NodeList = handleWorkloadCustomerLabels(customerLabels)
 		}
 	}
 	if str := dbutils.ParseNullString(w.Liveness); str != "" {
@@ -854,7 +847,7 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 		result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p, result.UserId, result.Workspace)
 	}
 	if len(w.Spec.CustomerLabels) > 0 {
-		result.CustomerLabels, result.NodeList = handleCustomerLabels(w.Spec.CustomerLabels)
+		result.CustomerLabels, result.NodeList = handleWorkloadCustomerLabels(w.Spec.CustomerLabels)
 	}
 	if !commonworkload.IsAuthoring(w) {
 		result.EntryPoint = stringutil.Base64Decode(w.Spec.EntryPoint)
@@ -862,19 +855,17 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 	return result
 }
 
-func handleCustomerLabels(labels map[string]string) (map[string]string, []string) {
+func handleWorkloadCustomerLabels(labels map[string]string) (map[string]string, []string) {
 	var nodeList []string
-	result := make(map[string]string)
+	customerLabels := make(map[string]string)
 	for key, val := range labels {
-		if strings.HasPrefix(key, common.CustomerLabelPrefix) {
-			key = key[len(common.CustomerLabelPrefix):]
-		} else if key == common.K8sHostNameLabel {
+		if key == common.K8sHostNameLabel {
 			nodeList = strings.Split(val, " ")
-			continue
+		} else {
+			customerLabels[key] = val
 		}
-		result[key] = val
 	}
-	return result, nodeList
+	return customerLabels, nodeList
 }
 
 func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {

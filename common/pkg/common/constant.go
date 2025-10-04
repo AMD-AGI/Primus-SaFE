@@ -46,9 +46,8 @@ const (
 	NvidiaVfio           = "nvidia.com/gpu.deploy.vfio-manager"
 	AMDGpuIdentification = "feature.node.kubernetes.io/amd-gpu"
 	AmdGpu               = "amd.com/gpu"
-
-	CustomerLabelPrefix = "customer."
-	K8sHostNameLabel    = "kubernetes.io/hostname"
+	
+	K8sHostNameLabel = "kubernetes.io/hostname"
 
 	UserName              = "userName"
 	UserId                = "userId"

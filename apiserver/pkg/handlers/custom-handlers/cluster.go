@@ -328,7 +328,6 @@ func (h *Handler) processClusterNode(ctx context.Context, cluster *v1.Cluster, n
 		if v1.IsControlPlane(adminNode) {
 			return fmt.Errorf("the control plane node can not be changed")
 		}
-		v1.RemoveAnnotation(adminNode, v1.RetryCountAnnotation)
 		adminNode.Spec.Cluster = pointer.String(specCluster)
 		if err = h.Update(ctx, adminNode); err != nil {
 			return err

@@ -35,6 +35,7 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 type NodeReconciler struct {
@@ -566,14 +567,8 @@ func (r *NodeReconciler) authorizeClusterAccess(ctx context.Context, node *v1.No
 }
 
 func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
-	if isControlPlaneNode(adminNode) {
-		return r.syncControlPlaneNodeStatus(ctx, adminNode, k8sNode)
-	}
 	// if the Kubernetes node is already present, it means the node has been successfully managed.
 	if k8sNode != nil {
-		if err := r.removeRetryCount(ctx, adminNode); err != nil {
-			return ctrlruntime.Result{}, err
-		}
 		k8sClients, err := utils.GetK8sClientFactory(r.clientManager, adminNode.GetSpecCluster())
 		if err != nil || !k8sClients.IsValid() {
 			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
@@ -586,44 +581,33 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
 		klog.Infof("managed node %s", k8sNode.Name)
+		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeManageRebootLabel), "true") {
+			r.rebootNode(ctx, adminNode)
+			return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
+		}
 		return ctrlruntime.Result{}, nil
+	}
+	if isControlPlaneNode(adminNode) {
+		return ctrlruntime.Result{}, r.syncControlPlaneNodeStatus(ctx, adminNode)
 	}
 	return ctrlruntime.Result{}, r.syncOrCreateScaleUpPod(ctx, adminNode)
 }
 
 // Synchronize the status of control plane nodes in Kubernetes
-func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context,
-	adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
-	if k8sNode != nil {
-		if err := r.removeRetryCount(ctx, adminNode); err != nil {
-			return ctrlruntime.Result{}, err
-		}
-		k8sClients, err := utils.GetK8sClientFactory(r.clientManager, adminNode.GetSpecCluster())
-		if err != nil || !k8sClients.IsValid() {
-			return ctrlruntime.Result{RequeueAfter: time.Second}, nil
-		}
-		if err = r.syncLabelsToK8sNode(ctx, k8sClients.ClientSet(), adminNode, k8sNode); err != nil {
-			return ctrlruntime.Result{}, err
-		}
-		if err = r.installAddons(ctx, adminNode); err != nil {
-			return ctrlruntime.Result{}, err
-		}
-		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
-		return ctrlruntime.Result{}, nil
-	}
+func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context, adminNode *v1.Node) error {
 	labelSelector := client.MatchingLabels{
 		v1.ClusterManageActionLabel:  string(v1.ClusterCreateAction),
 		v1.ClusterManageClusterLabel: adminNode.GetSpecCluster()}
 	pod, err := r.getPod(ctx, labelSelector)
 	if err != nil {
-		return ctrlruntime.Result{}, err
+		return err
 	}
 	if pod != nil && pod.Status.Phase == corev1.PodFailed {
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManagedFailed
 	} else {
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaging
 	}
-	return ctrlruntime.Result{}, nil
+	return nil
 }
 
 // Synchronize the labels of admin node to k8s node
@@ -732,6 +716,9 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 			},
 		}
 		klog.Infof("node %s is unmanaged", adminNode.Name)
+		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeUnmanageNoRebootLabel), "true") {
+			return ctrlruntime.Result{}, nil
+		}
 		r.rebootNode(ctx, adminNode)
 		// The node will be rebooted. Need to retry getting the node status later
 		return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
@@ -828,17 +815,6 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 			}
 		default:
 		}
-	}
-	return nil
-}
-
-func (r *NodeReconciler) removeRetryCount(ctx context.Context, adminNode *v1.Node) error {
-	n := client.MergeFrom(adminNode.DeepCopy())
-	if !v1.RemoveAnnotation(adminNode, v1.RetryCountAnnotation) {
-		return nil
-	}
-	if err := r.Patch(ctx, adminNode, n); err != nil {
-		return client.IgnoreNotFound(err)
 	}
 	return nil
 }

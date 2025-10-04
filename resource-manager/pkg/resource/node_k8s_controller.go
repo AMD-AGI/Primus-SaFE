@@ -426,7 +426,6 @@ func deleteConcernedMeta(adminNode *v1.Node) {
 	for _, k := range concernedK8sAnnotationKeys {
 		v1.RemoveAnnotation(adminNode, k)
 	}
-	v1.RemoveAnnotation(adminNode, v1.RetryCountAnnotation)
 }
 
 func isConcernedLabelsEqual(obj1, obj2 metav1.Object) bool {

@@ -3,6 +3,7 @@
 # See LICENSE for license information.
 #
 
+---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
