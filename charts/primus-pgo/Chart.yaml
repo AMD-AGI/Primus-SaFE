@@ -1,3 +1,7 @@
+# Copyright 2017 - 2025 Crunchy Data Solutions, Inc.
+#
+# SPDX-License-Identifier: Apache-2.0
+
 apiVersion: v2
 name: primus-pgo
 description: Installer for PGO, which is an open-source software from Crunchy Data

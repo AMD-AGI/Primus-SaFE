@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -137,6 +137,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workloa
 	m.mutateImage(workload)
 	m.mutateEntryPoint(workload)
 	m.mutateHostNetwork(ctx, workload)
+	m.mutateCustomerLabels(workload)
 	return true
 }
 
@@ -391,6 +392,21 @@ func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Wo
 		}
 	} else {
 		workload.Spec.Resource.RdmaResource = ""
+	}
+}
+
+func (m *WorkloadMutator) mutateCustomerLabels(workload *v1.Workload) {
+	if len(workload.Spec.CustomerLabels) == 0 {
+		return
+	}
+	var toRemoveKeys []string
+	for key, val := range workload.Spec.CustomerLabels {
+		if key == "" || val == "" {
+			toRemoveKeys = append(toRemoveKeys, key)
+		}
+	}
+	for _, key := range toRemoveKeys {
+		delete(workload.Spec.CustomerLabels, key)
 	}
 }
 

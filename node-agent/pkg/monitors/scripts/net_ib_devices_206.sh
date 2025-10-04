@@ -1,5 +1,10 @@
 #!/bin/bash
 
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 # check_ibv_device.sh
 # Purpose: Check if comma-separated RDMA device names exist in ibv_devices output.
 # Exit: 0 if all devices are valid, 1 otherwise.

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -426,7 +426,6 @@ func deleteConcernedMeta(adminNode *v1.Node) {
 	for _, k := range concernedK8sAnnotationKeys {
 		v1.RemoveAnnotation(adminNode, k)
 	}
-	v1.RemoveAnnotation(adminNode, v1.RetryCountAnnotation)
 }
 
 func isConcernedLabelsEqual(obj1, obj2 metav1.Object) bool {
