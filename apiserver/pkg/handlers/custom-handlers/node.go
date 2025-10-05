@@ -610,7 +610,8 @@ func (h *Handler) deleteRelatedFaults(ctx context.Context, node *v1.Node, newTai
 func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]string {
 	nodesLabelAction := make(map[string]string)
 	if req.Labels != nil {
-		for key, val := range node.Labels {
+		customerLabels := getNodeCustomerLabels(node.Labels)
+		for key, val := range customerLabels {
 			val2, ok := (*req.Labels)[key]
 			if !ok {
 				nodesLabelAction[key] = v1.NodeActionRemove
@@ -621,7 +622,7 @@ func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]s
 			}
 		}
 		for key, val := range *req.Labels {
-			if _, ok := node.Labels[key]; !ok {
+			if _, ok := customerLabels[key]; !ok {
 				nodesLabelAction[key] = v1.NodeActionAdd
 				v1.SetLabel(node, key, val)
 			}
