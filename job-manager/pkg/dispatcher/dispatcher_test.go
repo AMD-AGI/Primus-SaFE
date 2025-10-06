@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -442,7 +442,7 @@ func TestCreateK8sJob(t *testing.T) {
 	}
 	workload.Spec.Workspace = corev1.NamespaceDefault
 	workload.Spec.CustomerLabels = map[string]string{
-		common.K8sHostNameLabel: "node1",
+		common.K8sHostName: "node1",
 	}
 	workload.Spec.Resource.Replica = 2
 	v1.SetAnnotation(workload, v1.UserNameAnnotation, common.UserSystem)

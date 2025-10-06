@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -214,7 +214,7 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context, job *
 			IsTolerateAll: job.Spec.IsTolerateAll,
 			Priority:      common.HighPriorityInt,
 			CustomerLabels: map[string]string{
-				common.K8sHostNameLabel: nodeNames,
+				common.K8sHostName: nodeNames,
 			},
 			Workspace: corev1.NamespaceDefault,
 			Image:     *job.Spec.Image,

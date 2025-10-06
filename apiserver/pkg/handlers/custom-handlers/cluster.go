@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -328,7 +328,6 @@ func (h *Handler) processClusterNode(ctx context.Context, cluster *v1.Cluster, n
 		if v1.IsControlPlane(adminNode) {
 			return fmt.Errorf("the control plane node can not be changed")
 		}
-		v1.RemoveAnnotation(adminNode, v1.RetryCountAnnotation)
 		adminNode.Spec.Cluster = pointer.String(specCluster)
 		if err = h.Update(ctx, adminNode); err != nil {
 			return err
