@@ -96,6 +96,9 @@ func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.W
 	if err := m.mutateManagers(ctx, nil, workspace); err != nil {
 		return err
 	}
+	if err := m.mutateImageSecret(ctx, workspace); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -335,6 +338,21 @@ func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, new
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+func (m *WorkspaceMutator) mutateImageSecret(ctx context.Context, workspace *v1.Workspace) error {
+	cluster, err := getCluster(ctx, m.Client, workspace.Spec.Cluster)
+	if err != nil {
+		return err
+	}
+	if cluster.Spec.ControlPlane.ImageSecret == nil {
+		return nil
+	}
+	if !workspace.HasImageSecret(cluster.Spec.ControlPlane.ImageSecret.Name) {
+		workspace.Spec.ImageSecrets = append(workspace.Spec.ImageSecrets,
+			cluster.Spec.ControlPlane.ImageSecret.DeepCopy())
 	}
 	return nil
 }

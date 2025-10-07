@@ -30,6 +30,8 @@ type CreateWorkspaceRequest struct {
 	Managers []string `json:"managers,omitempty"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault bool `json:"isDefault,omitempty"`
+	// ImageSecretIds
+	ImageSecretIds []string `json:"imageSecretIds,omitempty"`
 }
 
 type CreateWorkspaceResponse struct {
@@ -92,6 +94,8 @@ type GetWorkspaceResponse struct {
 	AbnormalQuota ResourceList `json:"abnormalQuota"`
 	// the used resources of workspace
 	UsedQuota ResourceList `json:"usedQuota"`
+	// ImageSecretIds
+	ImageSecretIds []string `json:"imageSecretIds"`
 }
 
 type PatchWorkspaceRequest struct {
@@ -113,6 +117,8 @@ type PatchWorkspaceRequest struct {
 	Managers *[]string `json:"managers,omitempty"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault *bool `json:"isDefault,omitempty"`
+	// ImageSecretIds
+	ImageSecretIds *[]string `json:"imageSecretIds,omitempty"`
 }
 
 type WorkspaceEntry struct {

@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -113,13 +114,11 @@ func (r *SchedulerReconciler) handleByWorkspace() handler.EventHandler {
 			if !ok1 || !ok2 {
 				return
 			}
-			if !reflect.DeepEqual(oldWorkspace.Spec.Volumes, newWorkspace.Spec.Volumes) {
-				op := func() error {
-					return r.updateDataPlanePvc(ctx, oldWorkspace, newWorkspace)
-				}
-				if err := backoff.Retry(op, maxWaitTime, waitTime); err != nil {
-					klog.Error(err.Error())
-				}
+			op := func() error {
+				return r.updateDataPlaneResources(ctx, oldWorkspace, newWorkspace)
+			}
+			if err := backoff.Retry(op, maxWaitTime, waitTime); err != nil {
+				klog.Error(err.Error())
 			}
 			// Since workspace resource updates may impact scheduling decisions, a rescheduling reconciliation is triggered.
 			if !quantity.Equal(oldWorkspace.Status.AvailableResources, newWorkspace.Status.AvailableResources) {
@@ -135,7 +134,7 @@ func (r *SchedulerReconciler) handleByWorkspace() handler.EventHandler {
 				return
 			}
 			op := func() error {
-				return r.deleteDataPlaneResources(ctx, workspace.Spec.Cluster, workspace.Name, workspace.Spec.Volumes)
+				return r.deleteDataPlaneResources(ctx, workspace)
 			}
 			if err := backoff.Retry(op, maxWaitTime, waitTime); err != nil {
 				klog.Error(err.Error())
@@ -149,15 +148,18 @@ func (r *SchedulerReconciler) createDataPlaneResources(ctx context.Context, work
 	if err != nil {
 		return err
 	}
-	k8sClientSet := clusterInformer.ClientFactory().ClientSet()
+	clientSet := clusterInformer.ClientFactory().ClientSet()
 	// create namespace for data plane
-	if err = jobutils.CreateNamespace(ctx, workspace.Name, k8sClientSet); err != nil {
+	if err = jobutils.CreateNamespace(ctx, workspace.Name, clientSet); err != nil {
 		return err
 	}
 	// copy image secret from admin plane to data plane
-	imageSecret, _ := r.getImageSecret(ctx, workspace.Spec.Cluster)
-	if imageSecret != nil {
-		if err = jobutils.CopySecret(ctx, imageSecret, workspace.Name, k8sClientSet); err != nil {
+	for _, s := range workspace.Spec.ImageSecrets {
+		secret, err := r.getSecret(ctx, s.Name)
+		if err != nil {
+			continue
+		}
+		if err = jobutils.CopySecret(ctx, clientSet, secret, workspace.Name); err != nil {
 			return err
 		}
 	}
@@ -171,7 +173,22 @@ func (r *SchedulerReconciler) createDataPlaneResources(ctx context.Context, work
 			klog.Error(err.Error())
 			continue
 		}
-		if err = jobutils.CreatePVC(ctx, pvc, k8sClientSet); err != nil {
+		if err = jobutils.CreatePVC(ctx, pvc, clientSet); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *SchedulerReconciler) updateDataPlaneResources(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
+	if !reflect.DeepEqual(oldWorkspace.Spec.Volumes, newWorkspace.Spec.Volumes) {
+		if err := r.updateDataPlanePvc(ctx, oldWorkspace, newWorkspace); err != nil {
+			return err
+		}
+	}
+
+	if !reflect.DeepEqual(oldWorkspace.Spec.ImageSecrets, newWorkspace.Spec.ImageSecrets) {
+		if err := r.updateDataPlaneSecrets(ctx, oldWorkspace, newWorkspace); err != nil {
 			return err
 		}
 	}
@@ -192,7 +209,7 @@ func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspa
 		oldPvcSets.Insert(vol.GenFullVolumeId())
 	}
 	newPvcSets := sets.NewSet()
-	k8sClientSet := informer.ClientFactory().ClientSet()
+	clientSet := informer.ClientFactory().ClientSet()
 	for _, vol := range newWorkspace.Spec.Volumes {
 		if vol.Type == v1.HOSTPATH {
 			continue
@@ -207,7 +224,7 @@ func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspa
 			klog.Error(err.Error())
 			continue
 		}
-		if err = jobutils.CreatePVC(ctx, pvc, k8sClientSet); err != nil {
+		if err = jobutils.CreatePVC(ctx, pvc, clientSet); err != nil {
 			return err
 		}
 	}
@@ -219,28 +236,87 @@ func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspa
 		if newPvcSets.Has(volumeId) {
 			continue
 		}
-		if err = jobutils.DeletePVC(ctx, volumeId, newWorkspace.Name, k8sClientSet); err != nil {
+		if err = jobutils.DeletePVC(ctx, volumeId, newWorkspace.Name, clientSet); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *SchedulerReconciler) deleteDataPlaneResources(ctx context.Context, clusterId, workspaceId string, volumes []v1.WorkspaceVolume) error {
+func (r *SchedulerReconciler) updateDataPlaneSecrets(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
+	informer, err := syncer.GetClusterInformer(r.clusterInformers, newWorkspace.Spec.Cluster)
+	if err != nil {
+		return err
+	}
+	clientSet := informer.ClientFactory().ClientSet()
+
+	oldSecretMap := make(map[string]string)
+	for _, s := range oldWorkspace.Spec.ImageSecrets {
+		oldSecretMap[s.Name] = s.ResourceVersion
+	}
+	newSecretSet := sets.NewSet()
+	for _, s := range newWorkspace.Spec.ImageSecrets {
+		newSecretSet.Insert(s.Name)
+		secret, err := r.getSecret(ctx, s.Name)
+		if err != nil {
+			continue
+		}
+		oldSecretVersion, ok := oldSecretMap[s.Name]
+		if ok {
+			if oldSecretVersion == s.ResourceVersion {
+				continue
+			}
+			if err = jobutils.UpdateSecret(ctx, clientSet, secret, newWorkspace.Name); err != nil {
+				return err
+			}
+		} else {
+			if err = jobutils.CopySecret(ctx, clientSet, secret, newWorkspace.Name); err != nil {
+				return err
+			}
+		}
+	}
+	for _, s := range oldWorkspace.Spec.ImageSecrets {
+		if newSecretSet.Has(s.Name) {
+			continue
+		}
+		if err = jobutils.DeleteSecret(ctx, clientSet, s.Name, newWorkspace.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *SchedulerReconciler) deleteDataPlaneResources(ctx context.Context, workspace *v1.Workspace) error {
+	informer, err := syncer.GetClusterInformer(r.clusterInformers, workspace.Spec.Cluster)
+	if err != nil {
+		return err
+	}
+	clientSet := informer.ClientFactory().ClientSet()
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type == v1.HOSTPATH {
+			continue
+		}
+		if err = jobutils.DeletePVC(ctx, vol.GenFullVolumeId(), workspace.Name, clientSet); err != nil {
+			return err
+		}
+	}
+	for _, s := range workspace.Spec.ImageSecrets {
+		if err = jobutils.DeleteSecret(ctx, clientSet, s.Name, workspace.Name); err != nil {
+			return err
+		}
+	}
+	if err = jobutils.DeleteNamespace(ctx, workspace.Name, clientSet); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *SchedulerReconciler) deleteDataPlaneNamespace(ctx context.Context, targetNamespace, clusterId string) error {
 	informer, err := syncer.GetClusterInformer(r.clusterInformers, clusterId)
 	if err != nil {
 		return err
 	}
-	k8sClientSet := informer.ClientFactory().ClientSet()
-	for _, vol := range volumes {
-		if vol.Type == v1.HOSTPATH {
-			continue
-		}
-		if err = jobutils.DeletePVC(ctx, vol.GenFullVolumeId(), workspaceId, k8sClientSet); err != nil {
-			return err
-		}
-	}
-	if err = jobutils.DeleteNamespace(ctx, workspaceId, k8sClientSet); err != nil {
+	if err = jobutils.DeleteNamespace(ctx, targetNamespace, informer.ClientFactory().ClientSet()); err != nil {
 		return err
 	}
 	return nil
@@ -466,7 +542,7 @@ func (r *SchedulerReconciler) getWorkspace(ctx context.Context, clusterId, works
 	workspace := &v1.Workspace{}
 	if err := r.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err != nil {
 		if apierrors.IsNotFound(err) {
-			if err = r.deleteDataPlaneResources(ctx, clusterId, workspaceId, nil); err != nil {
+			if err = r.deleteDataPlaneNamespace(ctx, workspaceId, clusterId); err != nil {
 				klog.Error(err.Error())
 			}
 			err = nil
@@ -476,17 +552,9 @@ func (r *SchedulerReconciler) getWorkspace(ctx context.Context, clusterId, works
 	return workspace, nil
 }
 
-func (r *SchedulerReconciler) getImageSecret(ctx context.Context, clusterId string) (*corev1.Secret, error) {
-	cluster := &v1.Cluster{}
-	if err := r.Get(ctx, client.ObjectKey{Name: clusterId}, cluster); err != nil {
-		return nil, err
-	}
-	imageSecret := cluster.Spec.ControlPlane.ImageSecret
-	if imageSecret == nil {
-		return nil, fmt.Errorf("cluster %s has no image secret", clusterId)
-	}
+func (r *SchedulerReconciler) getSecret(ctx context.Context, secretId string) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}
-	err := r.Get(ctx, client.ObjectKey{Name: imageSecret.Name, Namespace: imageSecret.Namespace}, secret)
+	err := r.Get(ctx, client.ObjectKey{Name: secretId, Namespace: common.PrimusSafeNamespace}, secret)
 	if err != nil {
 		return nil, err
 	}

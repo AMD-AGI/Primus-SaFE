@@ -51,6 +51,10 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 	if err = modifyVolumes(obj, adminWorkload, workspace, path); err != nil {
 		return err
 	}
+	path = append(templatePath, "spec", "imagePullSecrets")
+	if err = modifyImageSecrets(obj, adminWorkload, workspace, path); err != nil {
+		return err
+	}
 	path = append(templatePath, "spec", "priorityClassName")
 	if err = modifyPriorityClass(obj, adminWorkload, path); err != nil {
 		return err
@@ -237,6 +241,28 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 		return nil
 	}
 	if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, path []string) error {
+	secrets, _, err := unstructured.NestedSlice(obj.Object, path...)
+	if err != nil {
+		return err
+	}
+
+	if workspace != nil {
+		for _, s := range workspace.Spec.ImageSecrets {
+			secrets = append(secrets, buildImageSecret(s.Name))
+		}
+	} else {
+		imageSecret := v1.GetAnnotation(workload, v1.ImageSecretAnnotation)
+		if imageSecret != "" {
+			secrets = append(secrets, buildImageSecret(imageSecret))
+		}
+	}
+	if err = unstructured.SetNestedSlice(obj.Object, secrets, path...); err != nil {
 		return err
 	}
 	return nil
@@ -525,6 +551,12 @@ func buildSelector(adminWorkload *v1.Workload) map[string]interface{} {
 	}
 }
 
+func buildImageSecret(secretId string) interface{} {
+	return map[string]interface{}{
+		"name": secretId,
+	}
+}
+
 func convertToStringMap(input map[string]interface{}) map[string]string {
 	result := make(map[string]string)
 	for key, value := range input {
@@ -553,8 +585,4 @@ func convertEnvsToStringMap(envs []interface{}) map[string]string {
 		result[name.(string)] = value.(string)
 	}
 	return result
-}
-
-func generateVolumeName(storageType string, id int) string {
-	return fmt.Sprintf("%s-%d", storageType, id)
 }

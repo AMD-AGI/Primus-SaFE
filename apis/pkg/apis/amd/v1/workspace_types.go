@@ -61,6 +61,8 @@ type WorkspaceSpec struct {
 	Managers []string `json:"managers,omitempty"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault bool `json:"isDefault,omitempty"`
+	// image secrets for workspace use
+	ImageSecrets []*corev1.ObjectReference `json:"imageSecrets,omitempty"`
 }
 
 type WorkspaceVolume struct {
@@ -160,6 +162,18 @@ func (w *Workspace) IsEnableFifo() bool {
 
 func (w *Workspace) CurrentReplica() int {
 	return w.Status.AvailableReplica + w.Status.AbnormalReplica
+}
+
+func (w *Workspace) HasImageSecret(name string) bool {
+	if len(w.Spec.ImageSecrets) == 0 {
+		return false
+	}
+	for _, secret := range w.Spec.ImageSecrets {
+		if secret.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *WorkspaceVolume) GenFullVolumeId() string {

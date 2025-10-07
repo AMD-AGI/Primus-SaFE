@@ -27,6 +27,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -77,7 +78,10 @@ func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", string(body))
 		return nil, err
 	}
-	workspace := generateWorkspace(c, req)
+	workspace, err := h.generateWorkspace(c, req)
+	if err != nil {
+		return nil, err
+	}
 	err = h.Create(c.Request.Context(), workspace)
 	if err != nil {
 		klog.ErrorS(err, "failed to create", "workspace", workspace)
@@ -203,7 +207,9 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	}
 
 	patch := client.MergeFrom(workspace.DeepCopy())
-	updateWorkspace(workspace, req)
+	if err = h.updateWorkspace(ctx, workspace, req); err != nil {
+		return nil, err
+	}
 	if err = h.Patch(ctx, workspace, patch); err != nil {
 		klog.ErrorS(err, "failed to patch workspace", "data", string(body))
 		return nil, err
@@ -212,7 +218,7 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func updateWorkspace(workspace *v1.Workspace, req *types.PatchWorkspaceRequest) {
+func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, req *types.PatchWorkspaceRequest) error {
 	if req.Description != nil {
 		v1.SetAnnotation(workspace, v1.DescriptionAnnotation, *req.Description)
 	}
@@ -240,6 +246,25 @@ func updateWorkspace(workspace *v1.Workspace, req *types.PatchWorkspaceRequest) 
 	if req.IsDefault != nil {
 		workspace.Spec.IsDefault = *req.IsDefault
 	}
+	if req.ImageSecretIds != nil {
+		if err := h.updateWorkspaceImageSecrets(ctx, workspace, *req.ImageSecretIds); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1.Workspace, ids []string) error {
+	var imageSecrets []*corev1.ObjectReference
+	for _, id := range ids {
+		secret, err := h.getAdminSecret(ctx, id)
+		if err != nil {
+			return err
+		}
+		imageSecrets = append(imageSecrets, commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
+	}
+	workspace.Spec.ImageSecrets = imageSecrets
+	return nil
 }
 
 func (h *Handler) getAdminWorkspace(ctx context.Context, name string) (*v1.Workspace, error) {
@@ -299,7 +324,7 @@ func (h *Handler) getWorkspaceDisplayName(ctx context.Context, workspaceId strin
 	return v1.GetDisplayName(workspace), nil
 }
 
-func generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRequest) *v1.Workspace {
+func (h *Handler) generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRequest) (*v1.Workspace, error) {
 	workspace := &v1.Workspace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: stringutil.NormalizeName(req.ClusterId + "-" + req.Name),
@@ -327,7 +352,11 @@ func generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRequest) *v1.Wo
 	if len(workspace.Spec.Scopes) == 0 {
 		workspace.Spec.Scopes = []v1.WorkspaceScope{v1.TrainScope, v1.InferScope, v1.AuthoringScope}
 	}
-	return workspace
+	err := h.updateWorkspaceImageSecrets(c.Request.Context(), workspace, req.ImageSecretIds)
+	if err != nil {
+		return nil, err
+	}
+	return workspace, nil
 }
 
 func parseListWorkspaceQuery(c *gin.Context) (*types.ListWorkspaceRequest, error) {
@@ -399,6 +428,9 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 
 	availQuota := workspace.Status.AvailableResources
 	result.AvailQuota = cvtToResourceList(quantity.SubResource(availQuota, usedQuota))
+	for _, s := range workspace.Spec.ImageSecrets {
+		result.ImageSecretIds = append(result.ImageSecretIds, s.Name)
+	}
 	return result, nil
 }
 

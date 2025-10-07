@@ -692,7 +692,6 @@ func (h *Handler) cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo, 
 		Available:         isAvailable,
 		Message:           message,
 		TotalResources:    cvtToResourceList(n.Status.Resources),
-		CustomerLabels:    getNodeCustomerLabels(n.Labels),
 		CreationTime:      timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
 		IsControlPlane:    v1.IsControlPlane(n),
 		IsAddonsInstalled: v1.IsNodeTemplateInstalled(n),
@@ -718,7 +717,7 @@ func (h *Handler) cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo, 
 	result.FlavorId = v1.GetNodeFlavorId(n)
 	result.BMCIP = v1.GetNodeBMCIp(n)
 	result.Taints = getPrimusTaints(n.Status.Taints)
-	result.CustomerLabels = getCustomerLabels(n.Labels, true)
+	result.CustomerLabels = getNodeCustomerLabels(n.Labels)
 	if n.Spec.NodeTemplate != nil {
 		result.TemplateId = n.Spec.NodeTemplate.Name
 	}

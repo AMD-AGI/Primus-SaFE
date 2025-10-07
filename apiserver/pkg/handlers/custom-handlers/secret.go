@@ -26,6 +26,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -173,11 +174,65 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	reqType := types.SecretType(v1.GetLabel(secret, v1.SecretTypeLabel))
+	reqType := types.SecretType(v1.GetSecretType(secret))
 	if err = buildSecretData(reqType, req.Params, secret); err != nil {
 		return nil, err
 	}
-	return nil, h.Update(c.Request.Context(), secret)
+	err = h.Update(c.Request.Context(), secret)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update the resources associated with the secret simultaneously
+	if err = h.updateClusterSecret(c.Request.Context(), secret); err != nil {
+		return nil, err
+	}
+	if err = h.updateWorkspaceSecret(c.Request.Context(), secret); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+func (h *Handler) updateClusterSecret(ctx context.Context, secret *corev1.Secret) error {
+	clusterList := &v1.ClusterList{}
+	if err := h.List(ctx, clusterList, &client.ListOptions{}); err != nil {
+		return err
+	}
+	for _, cluster := range clusterList.Items {
+		imageSecret := cluster.Spec.ControlPlane.ImageSecret
+		if imageSecret == nil {
+			continue
+		}
+		if imageSecret.UID == secret.UID && imageSecret.ResourceVersion != secret.ResourceVersion {
+			cluster.Spec.ControlPlane.ImageSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
+			if err := h.Update(ctx, &cluster); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (h *Handler) updateWorkspaceSecret(ctx context.Context, secret *corev1.Secret) error {
+	workspaceList := &v1.WorkspaceList{}
+	if err := h.List(ctx, workspaceList, &client.ListOptions{}); err != nil {
+		return err
+	}
+	for _, workspace := range workspaceList.Items {
+		for i, s := range workspace.Spec.ImageSecrets {
+			if s.UID != secret.UID {
+				continue
+			}
+			if s.ResourceVersion != secret.ResourceVersion {
+				workspace.Spec.ImageSecrets[i] = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
+				if err := h.Update(ctx, &workspace); err != nil {
+					return err
+				}
+			}
+			break
+		}
+	}
+	return nil
 }
 
 func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
@@ -234,7 +289,7 @@ func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Sec
 		return nil, err
 	}
 	if req.Name != "" {
-		secret.Labels[v1.DisplayNameLabel] = req.Name
+		v1.SetLabel(secret, v1.DisplayNameLabel, req.Name)
 	}
 	return secret, nil
 }
@@ -311,7 +366,7 @@ func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 	result := types.SecretResponseItem{
 		SecretId:     secret.Name,
 		SecretName:   v1.GetDisplayName(secret),
-		Type:         v1.GetLabel(secret, v1.SecretTypeLabel),
+		Type:         v1.GetSecretType(secret),
 		CreationTime: timeutil.FormatRFC3339(&secret.CreationTimestamp.Time),
 	}
 	result.Params = make(map[types.SecretParam]string)

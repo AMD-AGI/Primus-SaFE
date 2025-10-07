@@ -259,6 +259,9 @@ func GetOpsJobAvailRatio(obj metav1.Object) float64 {
 	return atof(GetAnnotation(obj, OpsJobAvailRatioAnnotation))
 }
 
+func GetSecretType(obj metav1.Object) string {
+	return GetLabel(obj, SecretTypeLabel)
+}
 func atoi(str string) int {
 	if str == "" {
 		return 0

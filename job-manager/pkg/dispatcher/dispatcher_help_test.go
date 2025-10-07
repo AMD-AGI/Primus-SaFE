@@ -158,7 +158,7 @@ func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, resourceSpe
 
 	volumeMount := findVolumeMount(volumeMounts, SharedMemoryVolume)
 	assert.Equal(t, volumeMount != nil, true)
-	volumeMount = findVolumeMount(volumeMounts, string(v1.FS))
+	volumeMount = findVolumeMount(volumeMounts, v1.GenFullVolumeId(v1.PFS, 1))
 	assert.Equal(t, volumeMount != nil, true)
 	path, ok := volumeMount["mountPath"]
 	assert.Equal(t, ok, true)
@@ -166,7 +166,7 @@ func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, resourceSpe
 	_, ok = volumeMount["subPath"]
 	assert.Equal(t, ok, false)
 
-	volumeMount = findVolumeMount(volumeMounts, generateVolumeName(string(v1.HOSTPATH), 0))
+	volumeMount = findVolumeMount(volumeMounts, v1.GenFullVolumeId(v1.HOSTPATH, 2))
 	assert.Equal(t, volumeMount != nil, true)
 	path, ok = volumeMount["mountPath"]
 	assert.Equal(t, ok, true)
@@ -205,15 +205,16 @@ func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 	assert.Equal(t, ok, true)
 	assert.Equal(t, sizeLimit.(string), workload.Spec.Resource.SharedMemory)
 
-	volume = findVolume(volumes, string(v1.FS))
+	volumeName := v1.GenFullVolumeId(v1.PFS, 1)
+	volume = findVolume(volumes, volumeName)
 	assert.Equal(t, volume != nil, true)
 	persistentVolumeObj, ok := volume["persistentVolumeClaim"]
 	assert.Equal(t, ok, true)
 	claimName, ok := persistentVolumeObj.(map[string]interface{})["claimName"]
 	assert.Equal(t, ok, true)
-	assert.Equal(t, claimName.(string), string(v1.FS))
+	assert.Equal(t, claimName.(string), volumeName)
 
-	volume = findVolume(volumes, generateVolumeName(string(v1.HOSTPATH), 0))
+	volume = findVolume(volumes, v1.GenFullVolumeId(v1.HOSTPATH, 2))
 	assert.Equal(t, volume != nil, true)
 	hostPathObj, ok := volume["hostPath"]
 	assert.Equal(t, ok, true)
@@ -408,4 +409,20 @@ func checkSecurityContext(t *testing.T, obj *unstructured.Unstructured, workload
 		add, ok := obj2.([]interface{})
 		assert.Equal(t, len(add) > 0, true)
 	}
+}
+
+func checkImageSecrets(t *testing.T, obj *unstructured.Unstructured, resourceSpec *v1.ResourceSpec) {
+	secretPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
+	secretPath = append(secretPath, "spec", "imagePullSecrets")
+
+	secrets, found, err := unstructured.NestedSlice(obj.Object, secretPath...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, len(secrets), 1)
+
+	secret := secrets[0]
+	assert.Equal(t, secret != nil, true)
+	name, ok := secret.(map[string]interface{})["name"]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, name, "test-image")
 }
