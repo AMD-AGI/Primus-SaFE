@@ -15,14 +15,8 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
-const (
-	FailoverConfigmapName = "primus-safe-failover"
-	GlobalRestart         = "global_restart"
-)
-
 type FailoverConfig struct {
-	Key    string `json:"key"`
-	Action string `json:"action"`
+	Id string `json:"id"`
 }
 
 func (conf *FailoverConfig) Release() error {
@@ -30,35 +24,34 @@ func (conf *FailoverConfig) Release() error {
 }
 
 func addFailoverConfig(cm *corev1.ConfigMap, failoverManager *commonutils.ObjectManager) {
-	currentSet := sets.NewSet()
+	currentIds := sets.NewSet()
 	for _, val := range cm.Data {
 		conf := &FailoverConfig{}
 		if json.Unmarshal([]byte(val), conf) != nil {
 			continue
 		}
-		conf.Key = strings.ToLower(conf.Key)
-		currentSet.Insert(conf.Key)
-		existConf := getFailoverConfig(failoverManager, conf.Key)
-		if existConf == nil || existConf.Action != conf.Action {
-			failoverManager.AddOrReplace(conf.Key, conf)
+		conf.Id = strings.ToLower(conf.Id)
+		currentIds.Insert(conf.Id)
+		if !isIdExists(failoverManager, conf.Id) {
+			failoverManager.AddOrReplace(conf.Id, conf)
 		}
 	}
-	keys, _ := failoverManager.GetAll()
-	for _, key := range keys {
-		if !currentSet.Has(key) {
-			failoverManager.Delete(key)
+	ids, _ := failoverManager.GetAll()
+	for _, id := range ids {
+		if !currentIds.Has(id) {
+			failoverManager.Delete(id)
 		}
 	}
 }
 
-func getFailoverConfig(failoverManager *commonutils.ObjectManager, key string) *FailoverConfig {
-	obj, ok := failoverManager.Get(key)
+func isIdExists(failoverManager *commonutils.ObjectManager, id string) bool {
+	obj, ok := failoverManager.Get(id)
 	if !ok {
-		return nil
+		return false
 	}
 	conf, ok := obj.(*FailoverConfig)
 	if ok && conf != nil {
-		return conf
+		return true
 	}
-	return nil
+	return false
 }
