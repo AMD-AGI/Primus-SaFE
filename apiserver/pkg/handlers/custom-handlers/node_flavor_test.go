@@ -7,6 +7,7 @@ package custom_handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,26 +17,63 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gotest.tools/assert"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
 func TestCreateNodeFlavor(t *testing.T) {
-	adminClient := fake.NewClientBuilder().WithObjects().WithScheme(scheme.Scheme).Build()
-
-	h := Handler{Client: adminClient}
+	mockUser, fakeClient := createMockUser()
+	h := Handler{Client: fakeClient, auth: authority.NewAuthorizer(fakeClient)}
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
-	body := `{"name":"amd-mi300x-192gb-hbm3","cpu":256,"cpuProduct":"AMD_EPYC_9554","gpu":8,"gpuName":"amd.com/gpu","gpuProduct":"AMD_Instinct_MI300X_OAM","memory":1622959652864,"rootDisk":{"type":"nvme","quantity":"7864Gi","count":1},"dataDisk":{"type":"nvme","quantity":"7864Gi","count":9},"extends":{"ephemeral-storage":"7440663780Ki","rdma/hca":"1k"}}`
-	c.Request = httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/v1/nodeflavors"), strings.NewReader(body))
+	body := `
+{
+    "name": "amd-mi325x-256gb-hbm3e",
+    "cpu": {
+        "product": " AMD_EPYC_9575F",
+        "quantity": "256"
+    },
+    "gpu": {
+        "product": " AMD_Instinct_MI325X",
+        "resourceName": "amd.com/gpu",
+        "quantity": "8"
+    },
+    "memory": "128Gi",
+    "rootDisk": {
+        "type": "ssd",
+        "quantity": "128Gi",
+        "count": 1
+    },
+    "dataDisk": {
+        "type": "nvme",
+        "quantity": "1024Gi",
+        "count": 8
+    },
+    "extendedResources": {
+        "ephemeral-storage": "800Gi",
+        "rdma/hca": "1k"
+    }
+}`
+	c.Request = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/nodeflavors"), strings.NewReader(body))
+	c.Set(common.UserId, mockUser.Name)
 	h.CreateNodeFlavor(c)
-	fmt.Println(rsp.Body.String())
 	assert.Equal(t, rsp.Code, http.StatusOK)
+	result := &types.CreateNodeFlavorResponse{}
+	err := json.Unmarshal(rsp.Body.Bytes(), result)
+	assert.NilError(t, err)
 	time.Sleep(time.Millisecond * 200)
 
-	nodeflavor, err := h.getAdminNodeFlavor(context.Background(), "amd-mi300x-192gb-hbm3")
+	nodeflavor, err := h.getAdminNodeFlavor(context.Background(), result.FlavorId)
 	assert.NilError(t, err)
 	assert.Equal(t, nodeflavor.Spec.Cpu.Quantity.Value(), int64(256))
 	assert.Equal(t, nodeflavor.Spec.Gpu.Quantity.Value(), int64(8))
+	assert.Equal(t, nodeflavor.Spec.Memory.Value(), int64(128*1024*1024*1024))
+	assert.Equal(t, nodeflavor.Spec.RootDisk.Quantity.Value(), int64(128*1024*1024*1024))
+	assert.Equal(t, nodeflavor.Spec.ExtendResources[corev1.ResourceEphemeralStorage], *resource.NewQuantity(800*1024*1024*1024, resource.BinarySI))
+	quantity, _ := resource.ParseQuantity("1k")
+	assert.Equal(t, nodeflavor.Spec.ExtendResources["rdma/hca"], quantity)
 }

@@ -81,7 +81,14 @@ func TestRunWithStatusOk(t *testing.T) {
 	monitor.Start()
 	time.Sleep(time.Millisecond * 1100)
 	monitor.Stop()
-	assert.Equal(t, (*monitor.queue).Len(), 0)
+
+	assert.Equal(t, (*monitor.queue).Len() > 0, true)
+	message, ok := (*monitor.queue).Get()
+	assert.Equal(t, ok, false)
+	assert.Equal(t, message.Id, "test.id")
+	assert.Equal(t, message.StatusCode, types.StatusOk)
+	assert.Equal(t, message.Value, "hello")
+	(*monitor.queue).Done(message)
 }
 
 func TestRunWithStatusError(t *testing.T) {
