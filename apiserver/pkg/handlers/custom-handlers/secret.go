@@ -100,7 +100,7 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 	labelSelector := buildSecretLabelSelector(query)
 	secretList := &corev1.SecretList{}
 	if err = h.List(c.Request.Context(),
-		secretList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		secretList, &client.ListOptions{LabelSelector: labelSelector, Namespace: common.PrimusSafeNamespace}); err != nil {
 		return nil, err
 	}
 	result := &types.ListSecretResponse{}
