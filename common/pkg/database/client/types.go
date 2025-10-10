@@ -7,9 +7,11 @@ package client
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/lib/pq"
 )
@@ -145,4 +147,30 @@ func genInsertCommand(obj interface{}, format, ignoreTag string) string {
 func GetFieldTag(tags map[string]string, name string) string {
 	name = strings.ToLower(name)
 	return tags[name]
+}
+
+type ImageDigest struct {
+	ID           int64      `db:"id" json:"id"`
+	Size         int64      `db:"size" json:"size"`
+	OS           string     `db:"os" json:"os"`
+	Architecture string     `db:"architecture" json:"architecture"`
+	Digest       string     `db:"digest" json:"digest"`
+	Type         string     `db:"type" json:"type"`
+	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt    *time.Time `db:"updated_at" json:"updated_at,omitempty"`
+	DeletedAt    *time.Time `db:"deleted_at" json:"deleted_at,omitempty"`
+}
+
+type Image struct {
+	ID             int64           `db:"id" json:"id"`
+	Tag            string          `db:"tag" json:"tag"`
+	Description    string          `db:"description" json:"description"`
+	Source         string          `db:"source" json:"source"`
+	Status         string          `db:"status" json:"status"`
+	RelationDigest json.RawMessage `db:"relation_digest" json:"relation_digest"` // jsonb
+	CreatedAt      time.Time       `db:"created_at" json:"created_at"`
+	CreatedBy      string          `db:"created_by" json:"created_by"`
+	UpdatedAt      *time.Time      `db:"updated_at" json:"updated_at,omitempty"`
+	DeletedAt      *time.Time      `db:"deleted_at" json:"deleted_at,omitempty"`
+	DeletedBy      string          `db:"deleted_by" json:"deleted_by"`
 }

@@ -15,6 +15,8 @@ type Interface interface {
 	WorkloadInterface
 	FaultInterface
 	OpsJobInterface
+	ImageInterface
+	ImageDigestInterface
 }
 
 type WorkloadInterface interface {
@@ -40,4 +42,18 @@ type OpsJobInterface interface {
 	SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*OpsJob, error)
 	CountJobs(ctx context.Context, query sqrl.Sqlizer) (int, error)
 	SetOpsJobDeleted(ctx context.Context, opsJobId, userId string) error
+}
+
+type ImageInterface interface {
+	UpsertImage(ctx context.Context, image *Image) error
+	SelectImages(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*Image, error)
+	CountImages(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	DeleteImage(ctx context.Context, id int64, deletedBy string) error
+}
+
+type ImageDigestInterface interface {
+	UpsertImageDigest(ctx context.Context, digest *ImageDigest) error
+	SelectImageDigests(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*ImageDigest, error)
+	CountImageDigests(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	DeleteImageDigest(ctx context.Context, id int64) error
 }
