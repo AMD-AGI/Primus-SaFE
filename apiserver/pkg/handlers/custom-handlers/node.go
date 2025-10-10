@@ -135,7 +135,7 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 			}
 		} else {
 			usedResource, _ := allUsedResource[n.Name]
-			item = h.cvtToNodeResponseItem(n, usedResource, false)
+			item = cvtToNodeResponseItem(n, usedResource)
 			if item.Workspace.Id != "" {
 				if i > 0 && item.Workspace.Id == result.Items[i-1].Workspace.Id {
 					item.Workspace.Name = result.Items[i-1].Workspace.Name
@@ -223,7 +223,7 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to get used resource", "node", node.Name)
 		return nil, err
 	}
-	result := h.cvtToNodeResponseItem(node, usedResource, true)
+	result := cvtToGetNodeResponse(node, usedResource)
 	if result.Workspace.Id != "" {
 		if result.Workspace.Name, err = h.getWorkspaceDisplayName(ctx, result.Workspace.Id); err != nil {
 			return nil, err
@@ -536,26 +536,33 @@ func validateCreateNodeRequest(req *types.CreateNodeRequest) error {
 
 func buildNodeLabelSelector(query *types.ListNodeRequest) (labels.Selector, error) {
 	var labelSelector = labels.NewSelector()
-	var req1, req2, req3 *labels.Requirement
 	if query.ClusterId != nil {
+		var req *labels.Requirement
 		if *query.ClusterId == "" {
-			req1, _ = labels.NewRequirement(v1.ClusterIdLabel, selection.DoesNotExist, nil)
+			req, _ = labels.NewRequirement(v1.ClusterIdLabel, selection.DoesNotExist, nil)
 		} else {
-			req1, _ = labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{*query.ClusterId})
+			req, _ = labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{*query.ClusterId})
 		}
-		labelSelector = labelSelector.Add(*req1)
+		labelSelector = labelSelector.Add(*req)
 	}
 	if query.WorkspaceId != nil {
+		var req *labels.Requirement
 		if *query.WorkspaceId == "" {
-			req2, _ = labels.NewRequirement(v1.WorkspaceIdLabel, selection.DoesNotExist, nil)
+			req, _ = labels.NewRequirement(v1.WorkspaceIdLabel, selection.DoesNotExist, nil)
 		} else {
-			req2, _ = labels.NewRequirement(v1.WorkspaceIdLabel, selection.Equals, []string{*query.WorkspaceId})
+			req, _ = labels.NewRequirement(v1.WorkspaceIdLabel, selection.Equals, []string{*query.WorkspaceId})
 		}
-		labelSelector = labelSelector.Add(*req2)
+		labelSelector = labelSelector.Add(*req)
 	}
 	if query.FlavorId != nil {
-		req3, _ = labels.NewRequirement(v1.NodeFlavorIdLabel, selection.Equals, []string{*query.FlavorId})
-		labelSelector = labelSelector.Add(*req3)
+		var req *labels.Requirement
+		req, _ = labels.NewRequirement(v1.NodeFlavorIdLabel, selection.Equals, []string{*query.FlavorId})
+		labelSelector = labelSelector.Add(*req)
+	}
+	if query.NodeId != nil {
+		var req *labels.Requirement
+		req, _ = labels.NewRequirement(v1.NodeIdLabel, selection.Equals, []string{*query.NodeId})
+		labelSelector = labelSelector.Add(*req)
 	}
 	return labelSelector, nil
 }
@@ -592,9 +599,9 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 			isShouldUpdate = true
 		}
 	}
-	if req.NodeFlavor != nil && *req.NodeFlavor != "" &&
-		(node.Spec.NodeFlavor == nil || *req.NodeFlavor != node.Spec.NodeFlavor.Name) {
-		nf, err := h.getAdminNodeFlavor(ctx, *req.NodeFlavor)
+	if req.FlavorId != nil && *req.FlavorId != "" &&
+		(node.Spec.NodeFlavor == nil || *req.FlavorId != node.Spec.NodeFlavor.Name) {
+		nf, err := h.getAdminNodeFlavor(ctx, *req.FlavorId)
 		if err != nil {
 			return false, err
 		}
@@ -602,9 +609,9 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 		nodesLabelAction[v1.NodeFlavorIdLabel] = v1.NodeActionAdd
 		isShouldUpdate = true
 	}
-	if req.NodeTemplate != nil && *req.NodeTemplate != "" &&
-		(node.Spec.NodeTemplate == nil || *req.NodeTemplate != node.Spec.NodeTemplate.Name) {
-		nt, err := h.getAdminNodeTemplate(ctx, *req.NodeTemplate)
+	if req.TemplateId != nil && *req.TemplateId != "" &&
+		(node.Spec.NodeTemplate == nil || *req.TemplateId != node.Spec.NodeTemplate.Name) {
+		nt, err := h.getAdminNodeTemplate(ctx, *req.TemplateId)
 		if err != nil {
 			return false, err
 		}
@@ -681,7 +688,7 @@ func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]s
 	return nodesLabelAction
 }
 
-func (h *Handler) cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo, isNeedDetail bool) types.NodeResponseItem {
+func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeResponseItem {
 	isAvailable, message := n.CheckAvailable(false)
 	result := types.NodeResponseItem{
 		NodeId:            n.Name,
@@ -710,10 +717,13 @@ func (h *Handler) cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo, 
 		availResource = quantity.GetAvailableResource(n.Status.Resources)
 	}
 	result.AvailResources = cvtToResourceList(availResource)
-	if !isNeedDetail {
-		return result
-	}
+	return result
+}
 
+func cvtToGetNodeResponse(n *v1.Node, usedResource *resourceInfo) types.GetNodeResponse {
+	result := types.GetNodeResponse{
+		NodeResponseItem: cvtToNodeResponseItem(n, usedResource),
+	}
 	result.FlavorId = v1.GetNodeFlavorId(n)
 	result.BMCIP = v1.GetNodeBMCIp(n)
 	result.Taints = getPrimusTaints(n.Status.Taints)

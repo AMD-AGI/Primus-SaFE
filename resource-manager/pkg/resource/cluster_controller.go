@@ -81,6 +81,10 @@ func (r *ClusterReconciler) caredChangePredicate() predicate.Predicate {
 			if !oldCluster.IsReady() && newCluster.IsReady() {
 				return true
 			}
+			if oldCluster.Spec.ControlPlane.ImageSecret != nil &&
+				newCluster.Spec.ControlPlane.ImageSecret == nil {
+				r.deleteDefaultImageSecret(context.Background(), oldCluster)
+			}
 			return false
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {

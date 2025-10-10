@@ -34,7 +34,7 @@ func newNode(t *testing.T) *node.Node {
 			Name: "test-node",
 			Labels: map[string]string{
 				v1.NodeGpuCountLabel:        "8",
-				common.AMDGpuIdentification: "true",
+				common.AMDGpuIdentification: v1.TrueStr,
 			},
 		},
 		Status: corev1.NodeStatus{

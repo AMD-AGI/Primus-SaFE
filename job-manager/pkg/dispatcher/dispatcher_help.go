@@ -404,7 +404,7 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 	if adminWorkload.Spec.IsSupervised {
 		result = append(result, map[string]interface{}{
 			"name":  "ENABLE_SUPERVISE",
-			"value": "true",
+			"value": v1.TrueStr,
 		})
 		if commonconfig.GetWorkloadHangCheckInterval() > 0 {
 			result = append(result, map[string]interface{}{

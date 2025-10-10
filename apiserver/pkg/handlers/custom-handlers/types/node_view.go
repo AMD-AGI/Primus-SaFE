@@ -40,6 +40,7 @@ type ListNodeRequest struct {
 	WorkspaceId *string `form:"workspaceId" binding:"omitempty,max=64"`
 	ClusterId   *string `form:"clusterId" binding:"omitempty,max=64"`
 	FlavorId    *string `form:"flavorId" binding:"omitempty,max=64"`
+	NodeId      *string `form:"nodeId" binding:"omitempty,max=64"`
 	// If enabled, only the node ID and node IP will be returned.
 	Brief bool `form:"brief" binding:"omitempty"`
 	// Starting offset for the results. dfault is 0
@@ -81,18 +82,10 @@ type NodeResponseItem struct {
 	Phase string `json:"phase"`
 	// the internal ip of k8s cluster
 	InternalIP string `json:"internalIP"`
-	// the bmc ip of node
-	BMCIP string `json:"bmcIP"`
-	// the nodes' flavor id
-	FlavorId string `json:"flavorId"`
-	// the nodes' template id
-	TemplateId string `json:"templateId"`
 	// Indicates whether the node can be scheduled in the Kubernetes cluster.
 	Available bool `json:"available"`
 	// If a node is unavailable, provide the reason
 	Message string `json:"message,omitempty"`
-	// the taints on node
-	Taints []corev1.Taint `json:"taints"`
 	// total resource of node
 	TotalResources ResourceList `json:"totalResources"`
 	// available resource of node
@@ -101,14 +94,26 @@ type NodeResponseItem struct {
 	CreationTime string `json:"creationTime"`
 	// Running workloads information on the node
 	Workloads []WorkloadInfo `json:"workloads"`
-	// the labels by customer
-	CustomerLabels map[string]string `json:"customerLabels"`
-	// the last startup time
-	LastStartupTime string `json:"lastStartupTime"`
 	// Indicates whether the node is the control plane node in the Kubernetes cluster.
 	IsControlPlane bool `json:"isControlPlane"`
 	// Indicates whether the addons of node template are installed.
 	IsAddonsInstalled bool `json:"isAddonsInstalled"`
+}
+
+type GetNodeResponse struct {
+	NodeResponseItem
+	// the bmc ip of node
+	BMCIP string `json:"bmcIP"`
+	// the nodes' flavor id
+	FlavorId string `json:"flavorId"`
+	// the nodes' template id
+	TemplateId string `json:"templateId"`
+	// the taints on node
+	Taints []corev1.Taint `json:"taints"`
+	// the labels by customer
+	CustomerLabels map[string]string `json:"customerLabels"`
+	// the last startup time
+	LastStartupTime string `json:"lastStartupTime"`
 }
 
 type WorkloadInfo struct {
@@ -121,13 +126,13 @@ type WorkloadInfo struct {
 }
 
 type PatchNodeRequest struct {
-	Taints       *[]corev1.Taint    `json:"taints,omitempty"`
-	Labels       *map[string]string `json:"labels,omitempty"`
-	NodeFlavor   *string            `json:"nodeFlavor,omitempty"`
-	NodeTemplate *string            `json:"nodeTemplate,omitempty"`
-	Port         *int32             `json:"port,omitempty"`
-	BMCIp        *string            `json:"bmcIp,omitempty"`
-	BMCPassword  *string            `json:"bmcPassword,omitempty"`
+	Taints      *[]corev1.Taint    `json:"taints,omitempty"`
+	Labels      *map[string]string `json:"labels,omitempty"`
+	FlavorId    *string            `json:"flavorId,omitempty"`
+	TemplateId  *string            `json:"templateId,omitempty"`
+	Port        *int32             `json:"port,omitempty"`
+	BMCIp       *string            `json:"bmcIp,omitempty"`
+	BMCPassword *string            `json:"bmcPassword,omitempty"`
 }
 
 type GetNodePodLogResponse struct {

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -27,6 +28,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -81,6 +83,9 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	klog.Infof("created secret %s", secret.Name)
+	if err = h.updateWorkspaceSecret(c.Request.Context(), secret); err != nil {
+		return nil, err
+	}
 	return &types.CreateSecretResponse{
 		SecretId: secret.Name,
 	}, nil
@@ -174,15 +179,13 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	reqType := types.SecretType(v1.GetSecretType(secret))
-	if err = buildSecretData(reqType, req.Params, secret); err != nil {
+	if err = updateSecret(secret, req); err != nil {
 		return nil, err
 	}
 	err = h.Update(c.Request.Context(), secret)
 	if err != nil {
 		return nil, err
 	}
-
 	// Update the resources associated with the secret simultaneously
 	if err = h.updateClusterSecret(c.Request.Context(), secret); err != nil {
 		return nil, err
@@ -193,6 +196,21 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+func updateSecret(secret *corev1.Secret, req *types.PatchSecretRequest) error {
+	reqType := v1.SecretType(v1.GetSecretType(secret))
+	if err := buildSecretData(reqType, req.Params, secret); err != nil {
+		return err
+	}
+	if req.BindAllWorkspaces != nil {
+		if *req.BindAllWorkspaces {
+			v1.SetLabel(secret, v1.SecretAllWorkspaceLabel, v1.TrueStr)
+		} else {
+			v1.RemoveLabel(secret, v1.SecretAllWorkspaceLabel)
+		}
+	}
+	return nil
+}
+
 func (h *Handler) updateClusterSecret(ctx context.Context, secret *corev1.Secret) error {
 	clusterList := &v1.ClusterList{}
 	if err := h.List(ctx, clusterList, &client.ListOptions{}); err != nil {
@@ -200,37 +218,57 @@ func (h *Handler) updateClusterSecret(ctx context.Context, secret *corev1.Secret
 	}
 	for _, cluster := range clusterList.Items {
 		imageSecret := cluster.Spec.ControlPlane.ImageSecret
-		if imageSecret == nil {
+		if imageSecret == nil || imageSecret.Name != secret.Name {
 			continue
 		}
-		if imageSecret.UID == secret.UID && imageSecret.ResourceVersion != secret.ResourceVersion {
+		if imageSecret.ResourceVersion != secret.ResourceVersion {
 			cluster.Spec.ControlPlane.ImageSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
 			if err := h.Update(ctx, &cluster); err != nil {
 				return err
 			}
 		}
+		break
 	}
 	return nil
 }
 
-func (h *Handler) updateWorkspaceSecret(ctx context.Context, secret *corev1.Secret) error {
-	workspaceList := &v1.WorkspaceList{}
-	if err := h.List(ctx, workspaceList, &client.ListOptions{}); err != nil {
-		return err
-	}
-	for _, workspace := range workspaceList.Items {
-		for i, s := range workspace.Spec.ImageSecrets {
-			if s.UID != secret.UID {
-				continue
+func (h *Handler) updateWorkspaceSecret(ctx context.Context, inputSecret *corev1.Secret) error {
+	maxRetry := 3
+	isApplyAllWorkspace := v1.IsSecretBindAllWorkspaces(inputSecret)
+	secretReference := commonutils.GenObjectReference(inputSecret.TypeMeta, inputSecret.ObjectMeta)
+
+	if err := backoff.ConflictRetry(func() error {
+		workspaceList := &v1.WorkspaceList{}
+		if err := h.List(ctx, workspaceList, &client.ListOptions{}); err != nil {
+			return err
+		}
+		for _, workspace := range workspaceList.Items {
+			isChanged := false
+			isExist := false
+			for i, currentSecret := range workspace.Spec.ImageSecrets {
+				if currentSecret.Name == secretReference.Name {
+					isExist = true
+					if currentSecret.ResourceVersion != secretReference.ResourceVersion {
+						workspace.Spec.ImageSecrets[i] = secretReference
+						isChanged = true
+					}
+					break
+				}
 			}
-			if s.ResourceVersion != secret.ResourceVersion {
-				workspace.Spec.ImageSecrets[i] = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
+			if !isExist && isApplyAllWorkspace {
+				workspace.Spec.ImageSecrets = append(workspace.Spec.ImageSecrets, secretReference)
+				isChanged = true
+			}
+			if isChanged {
 				if err := h.Update(ctx, &workspace); err != nil {
 					return err
 				}
 			}
-			break
 		}
+		return nil
+	}, maxRetry, time.Millisecond*100); err != nil {
+		klog.ErrorS(err, "failed to update workspace secret", "secret", inputSecret.Name)
+		return err
 	}
 	return nil
 }
@@ -253,13 +291,68 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	}); err != nil {
 		return nil, err
 	}
-	err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
-		c.Request.Context(), name, metav1.DeleteOptions{})
-	if err != nil {
+	if err = h.deleteClusterSecret(c.Request.Context(), name); err != nil {
+		return nil, err
+	}
+	if err = h.deleteWorkspaceSecret(c.Request.Context(), name); err != nil {
+		return nil, err
+	}
+	if err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
+		c.Request.Context(), name, metav1.DeleteOptions{}); err != nil {
 		return nil, err
 	}
 	klog.Infof("delete secret %s", name)
+
 	return nil, nil
+}
+
+func (h *Handler) deleteClusterSecret(ctx context.Context, secretId string) error {
+	clusterList := &v1.ClusterList{}
+	if err := h.List(ctx, clusterList, &client.ListOptions{}); err != nil {
+		return err
+	}
+	for _, cluster := range clusterList.Items {
+		imageSecret := cluster.Spec.ControlPlane.ImageSecret
+		if imageSecret == nil || imageSecret.Name != secretId {
+			continue
+		}
+		cluster.Spec.ControlPlane.ImageSecret = nil
+		if err := h.Update(ctx, &cluster); err != nil {
+			return err
+		}
+		break
+	}
+	return nil
+}
+
+func (h *Handler) deleteWorkspaceSecret(ctx context.Context, secretId string) error {
+	maxRetry := 3
+	if err := backoff.ConflictRetry(func() error {
+		workspaceList := &v1.WorkspaceList{}
+		if err := h.List(ctx, workspaceList, &client.ListOptions{}); err != nil {
+			return err
+		}
+		for _, workspace := range workspaceList.Items {
+			newSecrets := make([]*corev1.ObjectReference, 0, len(workspace.Spec.ImageSecrets))
+			for i, currentSecret := range workspace.Spec.ImageSecrets {
+				if currentSecret.Name == secretId {
+					continue
+				}
+				newSecrets = append(newSecrets, workspace.Spec.ImageSecrets[i])
+			}
+			if len(newSecrets) != len(workspace.Spec.ImageSecrets) {
+				workspace.Spec.ImageSecrets = newSecrets
+				if err := h.Update(ctx, &workspace); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}, maxRetry, time.Millisecond*100); err != nil {
+		klog.ErrorS(err, "failed to update workspace secret", "secret", secretId)
+		return err
+	}
+	return nil
 }
 
 func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secret, error) {
@@ -285,6 +378,9 @@ func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Sec
 			},
 		},
 	}
+	if req.BindAllWorkspaces {
+		v1.SetLabel(secret, v1.SecretAllWorkspaceLabel, v1.TrueStr)
+	}
 	if err := buildSecretData(req.Type, req.Params, secret); err != nil {
 		return nil, err
 	}
@@ -294,12 +390,12 @@ func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Sec
 	return secret, nil
 }
 
-func buildSecretData(reqType types.SecretType, reqParams map[types.SecretParam]string, secret *corev1.Secret) error {
+func buildSecretData(reqType v1.SecretType, reqParams map[types.SecretParam]string, secret *corev1.Secret) error {
 	var secretType corev1.SecretType
 	params := make(map[string][]byte)
 
 	switch reqType {
-	case types.SecretImage:
+	case v1.SecretImage:
 		keys := []types.SecretParam{types.PasswordParam, types.UserNameParam, types.ServerParam}
 		for _, key := range keys {
 			if !existKey(reqParams, key) {
@@ -316,7 +412,7 @@ func buildSecretData(reqType types.SecretType, reqParams map[types.SecretParam]s
 			},
 		}
 		params[types.DockerConfigJson] = jsonutils.MarshalSilently(dockerConf)
-	case types.SecretSSH:
+	case v1.SecretSSH:
 		if !existKey(reqParams, types.UserNameParam) {
 			return fmt.Errorf("the %s is empty", types.UserNameParam)
 		}
@@ -364,14 +460,15 @@ func buildSecretLabelSelector(query *types.ListSecretRequest) labels.Selector {
 
 func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 	result := types.SecretResponseItem{
-		SecretId:     secret.Name,
-		SecretName:   v1.GetDisplayName(secret),
-		Type:         v1.GetSecretType(secret),
-		CreationTime: timeutil.FormatRFC3339(&secret.CreationTimestamp.Time),
+		SecretId:          secret.Name,
+		SecretName:        v1.GetDisplayName(secret),
+		Type:              v1.GetSecretType(secret),
+		CreationTime:      timeutil.FormatRFC3339(&secret.CreationTimestamp.Time),
+		BindAllWorkspaces: v1.IsSecretBindAllWorkspaces(secret),
 	}
 	result.Params = make(map[types.SecretParam]string)
 	switch result.Type {
-	case string(types.SecretImage):
+	case string(v1.SecretImage):
 		dockerConf := &types.DockerConfig{}
 		if json.Unmarshal(secret.Data[types.DockerConfigJson], dockerConf) == nil {
 			for k, v := range dockerConf.Auth {
@@ -381,7 +478,7 @@ func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 				break
 			}
 		}
-	case string(types.SecretSSH):
+	case string(v1.SecretSSH):
 		result.Params[types.UserNameParam] = string(secret.Data[string(types.UserNameParam)])
 		result.Params[types.PrivateKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthKey]))
 		result.Params[types.PublicKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthPubKey]))

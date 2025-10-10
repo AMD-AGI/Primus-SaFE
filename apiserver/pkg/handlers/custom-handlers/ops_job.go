@@ -107,7 +107,7 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 		TotalCount: count,
 	}
 	for _, job := range jobs {
-		result.Items = append(result.Items, cvtToOpsJobResponseItem(job, false))
+		result.Items = append(result.Items, cvtToOpsJobResponseItem(job))
 	}
 	return result, nil
 }
@@ -127,7 +127,7 @@ func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 	if len(jobs) == 0 {
 		return nil, commonerrors.NewNotFoundWithMessage("the opsjob is not found")
 	}
-	return cvtToOpsJobResponseItem(jobs[0], true), nil
+	return cvtToGetOpsJobResponse(jobs[0]), nil
 }
 
 func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
@@ -494,30 +494,33 @@ func parseCreateOpsJobRequest(c *gin.Context) (*types.BaseOpsJobRequest, []byte,
 	return req, body, nil
 }
 
-func cvtToOpsJobResponseItem(job *dbclient.OpsJob, isNeedDetail bool) types.OpsJobResponseItem {
+func cvtToOpsJobResponseItem(job *dbclient.OpsJob) types.OpsJobResponseItem {
 	result := types.OpsJobResponseItem{
-		JobId:        job.JobId,
-		JobName:      commonutils.GetBaseFromName(job.JobId),
-		ClusterId:    job.Cluster,
-		WorkspaceId:  dbutils.ParseNullString(job.Workspace),
-		UserId:       dbutils.ParseNullString(job.UserId),
-		UserName:     dbutils.ParseNullString(job.UserName),
-		Type:         v1.OpsJobType(job.Type),
-		Phase:        v1.OpsJobPhase(dbutils.ParseNullString(job.Phase)),
-		CreationTime: dbutils.ParseNullTimeToString(job.CreateTime),
-		StartTime:    dbutils.ParseNullTimeToString(job.StartTime),
-		EndTime:      dbutils.ParseNullTimeToString(job.EndTime),
-		DeletionTime: dbutils.ParseNullTimeToString(job.DeleteTime),
+		JobId:         job.JobId,
+		JobName:       commonutils.GetBaseFromName(job.JobId),
+		ClusterId:     job.Cluster,
+		WorkspaceId:   dbutils.ParseNullString(job.Workspace),
+		UserId:        dbutils.ParseNullString(job.UserId),
+		UserName:      dbutils.ParseNullString(job.UserName),
+		Type:          v1.OpsJobType(job.Type),
+		Phase:         v1.OpsJobPhase(dbutils.ParseNullString(job.Phase)),
+		CreationTime:  dbutils.ParseNullTimeToString(job.CreateTime),
+		StartTime:     dbutils.ParseNullTimeToString(job.StartTime),
+		EndTime:       dbutils.ParseNullTimeToString(job.EndTime),
+		DeletionTime:  dbutils.ParseNullTimeToString(job.DeleteTime),
 		TimeoutSecond: job.Timeout,
-		IsTolerateAll: job.IsTolerateAll,
 	}
 	if result.Phase == "" {
 		result.Phase = v1.OpsJobPending
 	}
-	if !isNeedDetail {
-		return result
-	}
+	return result
+}
 
+func cvtToGetOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponse {
+	result := types.GetOpsJobResponse{
+		OpsJobResponseItem: cvtToOpsJobResponseItem(job),
+		IsTolerateAll:      job.IsTolerateAll,
+	}
 	if conditions := dbutils.ParseNullString(job.Conditions); conditions != "" {
 		json.Unmarshal([]byte(conditions), &result.Conditions)
 	}

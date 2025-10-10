@@ -190,7 +190,7 @@ func TestPatchNode(t *testing.T) {
 			Key:    "key1",
 			Effect: corev1.TaintEffectNoSchedule,
 		}},
-		NodeFlavor: &nodeFlavor.Name,
+		FlavorId: &nodeFlavor.Name,
 	}
 	c.Request = httptest.NewRequest(http.MethodPatch,
 		fmt.Sprintf("/api/v1/nodes/%s", adminNode.Name),

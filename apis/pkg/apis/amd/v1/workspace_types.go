@@ -165,9 +165,6 @@ func (w *Workspace) CurrentReplica() int {
 }
 
 func (w *Workspace) HasImageSecret(name string) bool {
-	if len(w.Spec.ImageSecrets) == 0 {
-		return false
-	}
 	for _, secret := range w.Spec.ImageSecrets {
 		if secret.Name == name {
 			return true
