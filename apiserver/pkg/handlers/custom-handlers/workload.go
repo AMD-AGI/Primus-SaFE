@@ -94,9 +94,13 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
+		klog.ErrorS(err, "failed to auth workload",
+			"workspace", workload.Spec.Workspace, "user", c.GetString(common.UserName))
 		return nil, err
 	}
 	if err = h.authWorkloadPriority(c, workload, v1.CreateVerb, req.Priority, requestUser, roles); err != nil {
+		klog.ErrorS(err, "failed to auth workload priority",
+			"priority", req.Priority, "user", c.GetString(common.UserName))
 		return nil, err
 	}
 
