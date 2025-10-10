@@ -19,6 +19,8 @@ type CreateWorkloadRequest struct {
 	DisplayName string `json:"displayName"`
 	// workload description
 	Description string `json:"description,omitempty"`
+	// workspace's id
+	WorkspaceId string `json:"workspaceId,omitempty"`
 }
 
 type CreateWorkloadResponse struct {

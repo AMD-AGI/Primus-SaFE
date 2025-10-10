@@ -44,7 +44,7 @@ data:
   net_ethernet_id_203: '{"script":"net_ethernet_id_203.sh","id":"203","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"on","arguments":["{{ .Values.monitor.nccl_socket_ifname }}"]}'
   net_bnxt_load_204: '{"script":"net_bnxt_load_204.sh","id":"204","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"on"}'
   net_ib_devices_206: '{"script":"net_ib_devices_206.sh","id":"206","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on","arguments":["{{ .Values.monitor.nccl_ib_hca }}"]}'
-  net_ib_gid_207: '{"script":"net_ib_gid_207.sh","id":"207","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on","arguments":["{{ .Values.monitor.nccl_ib_hca }}"]}'
+  net_ib_gid_207: '{"script":"net_ib_gid_207.sh","id":"207","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
   # System: 3XX
   sys_timezone_301: '{"script":"sys_timezone_301.sh","id":"301","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'
   sys_hostname_302: '{"script":"sys_hostname_302.sh","id":"302","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'

@@ -37,10 +37,12 @@ type CreateNodeResponse struct {
 }
 
 type ListNodeRequest struct {
-	WorkspaceId *string `form:"workspaceId" binding:"omitempty,max=64"`
-	ClusterId   *string `form:"clusterId" binding:"omitempty,max=64"`
-	FlavorId    *string `form:"flavorId" binding:"omitempty,max=64"`
-	NodeId      *string `form:"nodeId" binding:"omitempty,max=64"`
+	WorkspaceId       *string `form:"workspaceId" binding:"omitempty,max=64"`
+	ClusterId         *string `form:"clusterId" binding:"omitempty,max=64"`
+	FlavorId          *string `form:"flavorId" binding:"omitempty,max=64"`
+	NodeId            *string `form:"nodeId" binding:"omitempty,max=64"`
+	Available         *bool   `form:"available" binding:"omitempty"`
+	IsAddonsInstalled *bool   `form:"isAddonsInstalled" binding:"omitempty"`
 	// If enabled, only the node ID and node IP will be returned.
 	Brief bool `form:"brief" binding:"omitempty"`
 	// Starting offset for the results. dfault is 0

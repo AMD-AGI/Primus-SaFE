@@ -7,15 +7,7 @@
 
 set -o pipefail
 
-if [ -z "$1" ]; then
-  echo "Usage: $0 \"device1,device2,...\""
-  echo "Example: $0 \"bnxt_re0,bnxt_re1,bnxt_re2\""
-  exit 1
-fi
-
-input_devices="$1"
-first_device=$(echo "$input_devices" | cut -d',' -f1)
-nsenter --target 1 --mount --uts --ipc --net --pid -- cat "/sys/class/infiniband/${first_device}/ports/1/gid_attrs/types/1" |grep -q "RoCE v2"
+nsenter --target 1 --mount --uts --ipc --net --pid -- ibv_devinfo -vv | grep -q "RoCE v2"
 if [[ $? -ne 0 ]]; then
   echo "Error: $first_device is not RoCE v2 device"
   exit 2

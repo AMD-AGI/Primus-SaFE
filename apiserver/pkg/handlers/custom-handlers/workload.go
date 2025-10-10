@@ -519,6 +519,9 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 	if len(req.NodeList) > 0 {
 		workload.Spec.Resource.Replica = len(req.NodeList)
 	}
+	if req.WorkspaceId != "" {
+		workload.Spec.Workspace = req.WorkspaceId
+	}
 	return workload, nil
 }
 

@@ -178,6 +178,17 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 		}); err != nil {
 			continue
 		}
+		if query.Available != nil {
+			isAvailable, _ := n.CheckAvailable(false)
+			if *query.Available != isAvailable {
+				continue
+			}
+		}
+		if query.IsAddonsInstalled != nil {
+			if *query.IsAddonsInstalled != v1.IsNodeTemplateInstalled(&n) {
+				continue
+			}
+		}
 		nodes = append(nodes, &nodeList.Items[i])
 	}
 	if len(nodes) == 0 {
