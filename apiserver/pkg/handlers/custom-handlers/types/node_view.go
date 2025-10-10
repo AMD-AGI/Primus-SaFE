@@ -43,13 +43,13 @@ type ListNodeRequest struct {
 	NodeId            *string `form:"nodeId" binding:"omitempty,max=64"`
 	Available         *bool   `form:"available" binding:"omitempty"`
 	IsAddonsInstalled *bool   `form:"isAddonsInstalled" binding:"omitempty"`
-	// If enabled, only the node ID and node IP will be returned.
+	// If enabled, only the node ID, node Name and node IP will be returned.
 	Brief bool `form:"brief" binding:"omitempty"`
 	// Starting offset for the results. dfault is 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
 	// Limit the number of returned results. default is 100
 	// If set to -1, all results will be returned.
-	Limit int `form:"limit" binding:"omitempty,min=1"`
+	Limit int `form:"limit" binding:"omitempty"`
 }
 
 func (req *ListNodeRequest) GetWorkspaceId() string {
@@ -66,24 +66,33 @@ func (req *ListNodeRequest) GetClusterId() string {
 	return *req.ClusterId
 }
 
+type ListNodeBriefResponse struct {
+	TotalCount int                     `json:"totalCount"`
+	Items      []NodeBriefResponseItem `json:"items"`
+}
+
+type NodeBriefResponseItem struct {
+	// node id
+	NodeId string `json:"nodeId"`
+	// node display name
+	NodeName string `json:"nodeName"`
+	// the internal ip of k8s cluster
+	InternalIP string `json:"internalIP"`
+}
+
 type ListNodeResponse struct {
 	TotalCount int                `json:"totalCount"`
 	Items      []NodeResponseItem `json:"items"`
 }
 
 type NodeResponseItem struct {
-	// node id
-	NodeId string `json:"nodeId"`
-	// node display name
-	DisplayName string `json:"displayName"`
+	NodeBriefResponseItem
 	// the node's cluster id
 	ClusterId string `json:"clusterId"`
 	// the node's workspace
 	Workspace WorkspaceEntry `json:"workspace"`
 	// the node's phase
 	Phase string `json:"phase"`
-	// the internal ip of k8s cluster
-	InternalIP string `json:"internalIP"`
 	// Indicates whether the node can be scheduled in the Kubernetes cluster.
 	Available bool `json:"available"`
 	// If a node is unavailable, provide the reason

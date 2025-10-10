@@ -26,6 +26,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 )
 
@@ -233,7 +234,8 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context, job *
 		workload.Spec.TTLSecondsAfterFinished = pointer.Int(job.Spec.TTLSecondsAfterFinished)
 	}
 	if cluster.Spec.ControlPlane.ImageSecret != nil {
-		v1.SetAnnotation(workload, v1.ImageSecretAnnotation, cluster.Spec.ControlPlane.ImageSecret.Name)
+		secretId := commonutils.GenerateClusterSecret(cluster.Name, cluster.Spec.ControlPlane.ImageSecret.Name)
+		v1.SetAnnotation(workload, v1.ImageSecretAnnotation, secretId)
 	}
 	return workload, nil
 }

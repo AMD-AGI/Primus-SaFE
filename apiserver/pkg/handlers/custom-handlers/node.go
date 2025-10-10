@@ -116,37 +116,11 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	var allUsedResource map[string]*resourceInfo
-	if !query.Brief {
-		if allUsedResource, err = h.getAllUsedResourcePerNode(ctx, query); err != nil {
-			return nil, err
-		}
+	if query.Brief {
+		return buildListNodeBriefResponse(totalCount, nodes)
+	} else {
+		return h.buildListNodeResponse(ctx, query, totalCount, nodes)
 	}
-	result := &types.ListNodeResponse{
-		TotalCount: totalCount,
-	}
-	for i, n := range nodes {
-		var item types.NodeResponseItem
-		if query.Brief {
-			item = types.NodeResponseItem{
-				NodeId:     n.Name,
-				InternalIP: n.Spec.PrivateIP,
-			}
-		} else {
-			usedResource, _ := allUsedResource[n.Name]
-			item = cvtToNodeResponseItem(n, usedResource)
-			if item.Workspace.Id != "" {
-				if i > 0 && item.Workspace.Id == result.Items[i-1].Workspace.Id {
-					item.Workspace.Name = result.Items[i-1].Workspace.Name
-				} else if item.Workspace.Name, err = h.getWorkspaceDisplayName(ctx, item.Workspace.Id); err != nil {
-					return nil, err
-				}
-			}
-		}
-		result.Items = append(result.Items, item)
-	}
-	return result, nil
 }
 
 func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) (int, []*v1.Node, error) {
@@ -211,6 +185,46 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 		return totalCount, nodes[start:end], nil
 	}
 	return totalCount, nodes, nil
+}
+
+func buildListNodeBriefResponse(totalCount int, nodes []*v1.Node) (interface{}, error) {
+	result := &types.ListNodeBriefResponse{
+		TotalCount: totalCount,
+	}
+	for _, n := range nodes {
+		item := types.NodeBriefResponseItem{
+			NodeId:     n.Name,
+			NodeName:   v1.GetDisplayName(n),
+			InternalIP: n.Spec.PrivateIP,
+		}
+		result.Items = append(result.Items, item)
+	}
+	return result, nil
+}
+
+func (h *Handler) buildListNodeResponse(ctx context.Context,
+	query *types.ListNodeRequest, totalCount int, nodes []*v1.Node) (interface{}, error) {
+	allUsedResource, err := h.getAllUsedResourcePerNode(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	result := &types.ListNodeResponse{
+		TotalCount: totalCount,
+	}
+	for i, n := range nodes {
+		var item types.NodeResponseItem
+		usedResource, _ := allUsedResource[n.Name]
+		item = cvtToNodeResponseItem(n, usedResource)
+		if item.Workspace.Id != "" {
+			if i > 0 && item.Workspace.Id == result.Items[i-1].Workspace.Id {
+				item.Workspace.Name = result.Items[i-1].Workspace.Name
+			} else if item.Workspace.Name, err = h.getWorkspaceDisplayName(ctx, item.Workspace.Id); err != nil {
+				return nil, err
+			}
+		}
+		result.Items = append(result.Items, item)
+	}
+	return result, nil
 }
 
 func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
@@ -583,9 +597,6 @@ func parseListNodeQuery(c *gin.Context) (*types.ListNodeRequest, error) {
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
-	if query.Offset < 0 {
-		query.Offset = 0
-	}
 	if query.Limit == 0 {
 		query.Limit = types.DefaultQueryLimit
 	}
@@ -702,11 +713,13 @@ func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]s
 func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeResponseItem {
 	isAvailable, message := n.CheckAvailable(false)
 	result := types.NodeResponseItem{
-		NodeId:            n.Name,
-		DisplayName:       v1.GetDisplayName(n),
+		NodeBriefResponseItem: types.NodeBriefResponseItem{
+			NodeId:     n.Name,
+			NodeName:   v1.GetDisplayName(n),
+			InternalIP: n.Spec.PrivateIP,
+		},
 		ClusterId:         v1.GetClusterId(n),
 		Phase:             string(n.Status.MachineStatus.Phase),
-		InternalIP:        n.Spec.PrivateIP,
 		Available:         isAvailable,
 		Message:           message,
 		TotalResources:    cvtToResourceList(n.Status.Resources),

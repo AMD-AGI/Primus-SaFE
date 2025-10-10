@@ -332,9 +332,9 @@ type PriorityClass struct {
 
 func genAllPriorityClass(clusterId string) []PriorityClass {
 	return []PriorityClass{
-		{name: commonutils.GeneratePriorityClass(clusterId, common.HighPriority), value: 10000},
-		{name: commonutils.GeneratePriorityClass(clusterId, common.MedPriority), value: -1},
-		{name: commonutils.GeneratePriorityClass(clusterId, common.LowPriority), value: -10000},
+		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.HighPriority), value: 10000},
+		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.MedPriority), value: -1},
+		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.LowPriority), value: -10000},
 	}
 }
 
@@ -349,43 +349,39 @@ func (r *ClusterReconciler) guaranteeDefaultImageSecret(ctx context.Context, clu
 	}
 	clientSet := k8sClients.ClientSet()
 
-	sourceSecret := &corev1.Secret{}
-	err = r.Get(ctx, client.ObjectKey{Name: imageSecret.Name, Namespace: imageSecret.Namespace}, sourceSecret)
+	adminPlaneSecret := &corev1.Secret{}
+	err = r.Get(ctx, client.ObjectKey{Name: imageSecret.Name, Namespace: imageSecret.Namespace}, adminPlaneSecret)
 	if err != nil {
 		return err
 	}
+
 	targetNamespace := corev1.NamespaceDefault
-	targetSecret, err := clientSet.CoreV1().Secrets(targetNamespace).Get(ctx, imageSecret.Name, metav1.GetOptions{})
+	targetName := commonutils.GenerateClusterSecret(cluster.Name, imageSecret.Name)
+	dataPlaneSecret, err := clientSet.CoreV1().Secrets(targetNamespace).Get(ctx, targetName, metav1.GetOptions{})
 	if err == nil {
-		targetSecret.Type = sourceSecret.Type
-		targetSecret.Data = sourceSecret.Data
-		_, err = clientSet.CoreV1().Secrets(targetNamespace).Update(ctx, targetSecret, metav1.UpdateOptions{})
+		dataPlaneSecret.Type = adminPlaneSecret.Type
+		dataPlaneSecret.Data = adminPlaneSecret.Data
+		_, err = clientSet.CoreV1().Secrets(targetNamespace).Update(ctx, dataPlaneSecret, metav1.UpdateOptions{})
 		if err != nil {
 			return err
 		}
-		klog.Infof("update the %s/%s secret", targetNamespace, imageSecret.Name)
+		klog.Infof("update the %s/%s secret", targetNamespace, targetName)
 	} else {
-		if err = copyDefaultImageSecret(ctx, clientSet, sourceSecret); err != nil {
+		targetSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      targetName,
+				Namespace: targetNamespace,
+			},
+			Type: adminPlaneSecret.Type,
+			Data: adminPlaneSecret.Data,
+		}
+		_, err = clientSet.CoreV1().Secrets(targetNamespace).Create(ctx, targetSecret, metav1.CreateOptions{})
+		if err != nil {
 			return err
 		}
-		klog.Infof("copy the cluster secret to %s/%s", targetNamespace, imageSecret.Name)
+		klog.Infof("copy the cluster secret to %s/%s", targetNamespace, targetName)
 	}
 	return nil
-}
-
-func copyDefaultImageSecret(ctx context.Context, clientSet kubernetes.Interface, sourceSecret *corev1.Secret) error {
-	targetSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      sourceSecret.Name,
-			Namespace: corev1.NamespaceDefault,
-		},
-		Type: sourceSecret.Type,
-		Data: sourceSecret.Data,
-	}
-	newContext, cancel := context.WithTimeout(ctx, time.Second*10)
-	defer cancel()
-	_, err := clientSet.CoreV1().Secrets(corev1.NamespaceDefault).Create(newContext, targetSecret, metav1.CreateOptions{})
-	return err
 }
 
 func (r *ClusterReconciler) deleteDefaultImageSecret(ctx context.Context, cluster *v1.Cluster) error {
@@ -397,6 +393,7 @@ func (r *ClusterReconciler) deleteDefaultImageSecret(ctx context.Context, cluste
 	if err != nil {
 		return err
 	}
-	err = k8sClients.ClientSet().CoreV1().Secrets(corev1.NamespaceDefault).Delete(ctx, imageSecret.Name, metav1.DeleteOptions{})
+	targetName := commonutils.GenerateClusterSecret(cluster.Name, imageSecret.Name)
+	err = k8sClients.ClientSet().CoreV1().Secrets(corev1.NamespaceDefault).Delete(ctx, targetName, metav1.DeleteOptions{})
 	return client.IgnoreNotFound(err)
 }

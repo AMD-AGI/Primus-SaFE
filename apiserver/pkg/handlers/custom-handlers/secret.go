@@ -158,9 +158,6 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	if len(req.Params) == 0 {
-		return nil, nil
-	}
 
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -197,9 +194,11 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 }
 
 func updateSecret(secret *corev1.Secret, req *types.PatchSecretRequest) error {
-	reqType := v1.SecretType(v1.GetSecretType(secret))
-	if err := buildSecretData(reqType, req.Params, secret); err != nil {
-		return err
+	if len(req.Params) > 0 {
+		reqType := v1.SecretType(v1.GetSecretType(secret))
+		if err := buildSecretData(reqType, req.Params, secret); err != nil {
+			return err
+		}
 	}
 	if req.BindAllWorkspaces != nil {
 		if *req.BindAllWorkspaces {

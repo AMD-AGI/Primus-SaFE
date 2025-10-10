@@ -53,6 +53,9 @@ func (h *Handler) DeleteOpsJob(c *gin.Context) {
 	handle(c, h.deleteOpsJob)
 }
 
+func (h *Handler) StopOpsJob(c *gin.Context) {
+	handle(c, h.stopOpsJob)
+}
 func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 	req, body, err := parseCreateOpsJobRequest(c)
 	if err != nil {
@@ -137,32 +140,16 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 	}
 
 	name := c.GetString(types.Name)
-	if name == "" {
-		return nil, commonerrors.NewBadRequest("opsJobId is empty")
-	}
-	ctx := c.Request.Context()
-	opsJob := &v1.OpsJob{}
-	isFound := false
-	if h.Get(ctx, client.ObjectKey{Name: name}, opsJob) == nil {
-		if err = h.auth.Authorize(authority.Input{
-			Context:      ctx,
-			ResourceKind: v1.OpsJobKind,
-			Verb:         v1.DeleteVerb,
-			UserId:       c.GetString(common.UserId),
-		}); err != nil {
-			return nil, err
-		}
-		if err = h.Delete(ctx, opsJob); err != nil {
-			return nil, err
-		}
-		isFound = true
+	isFound, err := h.deleteAdminOpsJob(c, name)
+	if err != nil {
+		return nil, err
 	}
 	if commonconfig.IsDBEnable() {
 		userId := ""
 		if requestUser != nil && !requestUser.IsSystemAdmin() {
 			userId = requestUser.Name
 		}
-		if err = h.dbClient.SetOpsJobDeleted(ctx, name, userId); err != nil {
+		if err = h.dbClient.SetOpsJobDeleted(c.Request.Context(), name, userId); err != nil {
 			return nil, err
 		}
 		isFound = true
@@ -171,11 +158,52 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewNotFoundWithMessage("the opsjob is not found")
 	}
 
-	if err = commonjob.CleanupJobRelatedInfo(ctx, h.Client, name); err != nil {
+	if err = commonjob.CleanupJobRelatedInfo(c.Request.Context(), h.Client, name); err != nil {
 		klog.ErrorS(err, "failed to cleanup ops job labels")
 	}
 	klog.Infof("delete opsJob %s", name)
 	return nil, nil
+}
+
+func (h *Handler) stopOpsJob(c *gin.Context) (interface{}, error) {
+	name := c.GetString(types.Name)
+	isFound, err := h.deleteAdminOpsJob(c, name)
+	if err != nil {
+		return nil, err
+	}
+	if !isFound {
+		return nil, commonerrors.NewNotFoundWithMessage("the opsjob is not found")
+	}
+	if err = commonjob.CleanupJobRelatedInfo(c.Request.Context(), h.Client, name); err != nil {
+		klog.ErrorS(err, "failed to cleanup ops job labels")
+	}
+	klog.Infof("stop opsJob %s", name)
+	return nil, nil
+}
+
+func (h *Handler) deleteAdminOpsJob(c *gin.Context, name string) (bool, error) {
+	if name == "" {
+		return false, commonerrors.NewBadRequest("opsJobId is empty")
+	}
+	ctx := c.Request.Context()
+	opsJob := &v1.OpsJob{}
+	err := h.Get(ctx, client.ObjectKey{Name: name}, opsJob)
+	if err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+
+	if err = h.auth.Authorize(authority.Input{
+		Context:      ctx,
+		ResourceKind: v1.OpsJobKind,
+		Verb:         v1.DeleteVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return false, err
+	}
+	if err = h.Delete(ctx, opsJob); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
