@@ -109,7 +109,7 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	klog.Infof("delete k8s object, name: %s, namespace: %s", obj.GetName(), obj.GetNamespace())
+	klog.Infof("deleting k8s object %s/%s, kind: %s", obj.GetNamespace(), obj.GetName(), obj.GetKind())
 	return nil
 }
 
@@ -159,23 +159,53 @@ func DeleteNamespace(ctx context.Context, name string, clientSet kubernetes.Inte
 	return nil
 }
 
-func CopySecret(ctx context.Context,
-	sourceSecret *corev1.Secret, namespace string, clientSet kubernetes.Interface) error {
-	secret := &corev1.Secret{
+func CopySecret(ctx context.Context, clientSet kubernetes.Interface,
+	adminPlaneSecret *corev1.Secret, targetNamespace string) error {
+	dataPlaneSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      sourceSecret.Name,
-			Namespace: namespace,
+			Name:      adminPlaneSecret.Name,
+			Namespace: targetNamespace,
 		},
-		Type: sourceSecret.Type,
-		Data: sourceSecret.Data,
+		Type: adminPlaneSecret.Type,
+		Data: adminPlaneSecret.Data,
 	}
 	newContext, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
-	_, err := clientSet.CoreV1().Secrets(namespace).Create(newContext, secret, metav1.CreateOptions{})
+	_, err := clientSet.CoreV1().Secrets(targetNamespace).Create(newContext, dataPlaneSecret, metav1.CreateOptions{})
 	if err != nil {
 		return client.IgnoreAlreadyExists(err)
 	}
-	klog.Infof("copy secret: %s/%s", namespace, sourceSecret.Name)
+	klog.Infof("copy secret: %s/%s", targetNamespace, adminPlaneSecret.Name)
+	return nil
+}
+
+func UpdateSecret(ctx context.Context, clientSet kubernetes.Interface,
+	adminPlaneSecret *corev1.Secret, targetNamespace string) error {
+	dataPlaneSecret, err := clientSet.CoreV1().Secrets(targetNamespace).Get(
+		ctx, adminPlaneSecret.Name, metav1.GetOptions{})
+	if err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	dataPlaneSecret.Type = adminPlaneSecret.Type
+	dataPlaneSecret.Data = adminPlaneSecret.Data
+	newContext, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	_, err = clientSet.CoreV1().Secrets(targetNamespace).Update(newContext, dataPlaneSecret, metav1.UpdateOptions{})
+	if err != nil {
+		return err
+	}
+	klog.Infof("update secret: %s/%s", targetNamespace, adminPlaneSecret.Name)
+	return nil
+}
+
+func DeleteSecret(ctx context.Context, clientSet kubernetes.Interface, targetName, targetNamespace string) error {
+	newContext, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	err := clientSet.CoreV1().Secrets(targetNamespace).Delete(newContext, targetName, metav1.DeleteOptions{})
+	if err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	klog.Infof("delete secret: %s/%s", targetNamespace, targetName)
 	return nil
 }
 
@@ -206,7 +236,7 @@ func DeletePVC(ctx context.Context, name, namespace string, clientSet kubernetes
 	}
 	err = clientSet.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, name, metav1.DeleteOptions{})
 	if err != nil {
-		return client.IgnoreNotFound(err)
+		return err
 	}
 	klog.Infof("delete persistent volume claims: %s/%s", namespace, name)
 	return nil

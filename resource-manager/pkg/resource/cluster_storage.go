@@ -362,7 +362,7 @@ func (r *ClusterReconciler) guaranteeRBD(ctx context.Context, client kubernetes.
 			return fmt.Errorf("list storage classes %s failed %+v", name, err)
 		}
 		if len(list.Items) == 0 {
-			sc.Annotations["storageclass.kubernetes.io/is-default-class"] = "true"
+			sc.Annotations["storageclass.kubernetes.io/is-default-class"] = v1.TrueStr
 		}
 		sc, err = client.StorageV1().StorageClasses().Create(ctx, sc, metav1.CreateOptions{})
 		if err != nil {
@@ -450,7 +450,7 @@ func (r *ClusterReconciler) guaranteeFileSystem(ctx context.Context, client kube
 			return fmt.Errorf("list storage classes %s failed %+v", name, err)
 		}
 		if len(list.Items) == 0 {
-			sc.Annotations["storageclass.kubernetes.io/is-default-class"] = "true"
+			sc.Annotations["storageclass.kubernetes.io/is-default-class"] = v1.TrueStr
 		}
 		sc, err = client.StorageV1().StorageClasses().Create(ctx, sc, metav1.CreateOptions{})
 		if err != nil {

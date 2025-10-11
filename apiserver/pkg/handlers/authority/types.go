@@ -13,6 +13,7 @@ const (
 	SecretResourceKind    = "Secret"
 	AllResource           = "*"
 
+	GrantedAllUser       = "*"
 	GrantedOwner         = "owner"
 	GrantedWorkspaceUser = "workspace-user"
 )

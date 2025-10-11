@@ -203,7 +203,7 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	if req.AvatarUrl != nil {
 		metav1.SetMetaDataAnnotation(&targetUser.ObjectMeta, v1.UserAvatarUrlAnnotation, *req.AvatarUrl)
 	}
-	if req.Password != nil {
+	if req.Password != nil && *req.Password != "" {
 		targetUser.Spec.Password = stringutil.Base64Encode(*req.Password)
 	}
 	if req.Email != nil {

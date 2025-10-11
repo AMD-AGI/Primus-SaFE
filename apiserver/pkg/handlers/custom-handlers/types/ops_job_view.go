@@ -80,7 +80,7 @@ type ListOpsJobRequest struct {
 	// Query the end time of the job, similar to since. default is now
 	Until string `form:"until" binding:"omitempty"`
 	// the cluster which the job belongs to
-	Cluster string `form:"cluster" binding:"required,max=64"`
+	ClusterId string `form:"clusterId" binding:"required,max=64"`
 	// job submitter
 	UserName string `form:"userName" binding:"omitempty,max=64"`
 	// job phase
@@ -105,9 +105,9 @@ type OpsJobResponseItem struct {
 	// job name
 	JobName string `json:"jobName"`
 	// the cluster which the job belongs to
-	Cluster string `json:"cluster"`
+	ClusterId string `json:"clusterId"`
 	// the workspace which the job belongs to
-	Workspace string `json:"workspace"`
+	WorkspaceId string `json:"workspaceId"`
 	// job submitter
 	UserId string `json:"userId"`
 	// job submitter
@@ -116,8 +116,6 @@ type OpsJobResponseItem struct {
 	Type v1.OpsJobType `json:"type"`
 	// job phase: Succeeded/Failed/Running
 	Phase v1.OpsJobPhase `json:"phase"`
-	// job execution flow
-	Conditions []metav1.Condition `json:"conditions"`
 	// job creation time
 	CreationTime string `json:"creationTime"`
 	// job start time
@@ -126,22 +124,28 @@ type OpsJobResponseItem struct {
 	EndTime string `json:"endTime"`
 	// job deletion time
 	DeletionTime string `json:"deletionTime"`
+	// job Timeout (in seconds), Less than or equal to 0 means no timeout
+	TimeoutSecond int `json:"timeoutSecond"`
+}
+
+type GetOpsJobResponse struct {
+	OpsJobResponseItem
+	// job execution flow
+	Conditions []metav1.Condition `json:"conditions"`
 	// job inputs
 	Inputs []v1.Parameter `json:"inputs"`
 	// job outputs
 	Outputs []v1.Parameter `json:"outputs"`
 	// environment variables
-	Env map[string]string `json:"env,omitempty"`
+	Env map[string]string `json:"env"`
 	// Opsjob resource requirements, only for preflight
-	Resource *v1.WorkloadResource `json:"resource,omitempty"`
+	Resource *v1.WorkloadResource `json:"resource"`
 	// opsjob image address, only for preflight
-	Image string `json:"image,omitempty"`
+	Image string `json:"image"`
 	// opsjob entryPoint, required in base64 encoding, only for preflight
-	EntryPoint string `json:"entryPoint,omitempty"`
-	// job Timeout (in seconds), Less than or equal to 0 means no timeout
-	TimeoutSecond int `json:"timeoutSecond,omitempty"`
+	EntryPoint string `json:"entryPoint"`
 	// Indicates whether the job tolerates node taints. default false
 	IsTolerateAll bool `json:"isTolerateAll"`
 	// the hostpath for opsjob mounting.
-	Hostpath []string `json:"hostpath,omitempty"`
+	Hostpath []string `json:"hostpath"`
 }

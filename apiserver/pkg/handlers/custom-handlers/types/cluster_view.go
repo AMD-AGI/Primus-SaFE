@@ -16,9 +16,9 @@ type CreateClusterRequest struct {
 	// The description for cluster
 	Description string `json:"description,omitempty"`
 	// The SSH secret name specified by the user, which must already exist
-	SSHSecretName string `json:"sshSecretName,omitempty"`
+	SSHSecretId string `json:"sshSecretId,omitempty"`
 	// The Image secret name specified by the user, which must already exist
-	ImageSecretName string `json:"imageSecretName,omitempty"`
+	ImageSecretId string `json:"imageSecretId,omitempty"`
 	// The labels for cluster
 	Labels map[string]string `json:"labels,omitempty"`
 	// The maximum number of pods supported per node. It must be a power of two, with a maximum value of 256

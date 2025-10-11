@@ -118,16 +118,16 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 		v1.SetLabel(cluster, v1.ProtectLabel, "")
 	}
 
-	if cluster.Spec.ControlPlane.ImageSecret == nil && req.ImageSecretName != "" {
-		imageSecret, err := h.getAdminSecret(ctx, req.ImageSecretName)
+	if cluster.Spec.ControlPlane.ImageSecret == nil && req.ImageSecretId != "" {
+		imageSecret, err := h.getAdminSecret(ctx, req.ImageSecretId)
 		if err != nil {
 			return nil, err
 		}
 		cluster.Spec.ControlPlane.ImageSecret = commonutils.GenObjectReference(imageSecret.TypeMeta, imageSecret.ObjectMeta)
 	}
 
-	if cluster.Spec.ControlPlane.SSHSecret == nil && req.SSHSecretName != "" {
-		sshSecret, err := h.getAdminSecret(ctx, req.SSHSecretName)
+	if cluster.Spec.ControlPlane.SSHSecret == nil && req.SSHSecretId != "" {
+		sshSecret, err := h.getAdminSecret(ctx, req.SSHSecretId)
 		if err != nil {
 			return nil, err
 		}
@@ -482,15 +482,7 @@ func cvtToClusterResponseItem(cluster *v1.Cluster) types.ClusterResponseItem {
 
 func cvtToGetClusterResponse(ctx context.Context, client client.Client, cluster *v1.Cluster) types.GetClusterResponse {
 	result := types.GetClusterResponse{
-		ClusterResponseItem: types.ClusterResponseItem{
-			ClusterId:   cluster.Name,
-			UserId:      v1.GetUserId(cluster),
-			Phase:       string(cluster.Status.ControlPlaneStatus.Phase),
-			IsProtected: v1.IsProtected(cluster),
-		},
-	}
-	if !cluster.GetDeletionTimestamp().IsZero() {
-		result.Phase = string(v1.DeletingPhase)
+		ClusterResponseItem: cvtToClusterResponseItem(cluster),
 	}
 	if cluster.Spec.ControlPlane.ImageSecret != nil {
 		result.ImageSecretId = cluster.Spec.ControlPlane.ImageSecret.Name

@@ -102,8 +102,6 @@ data:
                       fieldRef:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 5
-              imagePullSecrets:
-                - name: {{ .Release.Name }}-image
         Worker:
           restartPolicy: Never
           template:
@@ -183,5 +181,3 @@ data:
                       fieldRef:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 5
-              imagePullSecrets:
-                - name: {{ .Release.Name }}-image

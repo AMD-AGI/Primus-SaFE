@@ -1,0 +1,26 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # The name cannot be modified, It is referenced in constant.go
+  name: primus-safe-failover
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+data:
+  # id: monitorId of faults, the corresponding action will proactively perform a failover.
+  gpu_module_001: '{"id":"001"}'
+  gpu_card_check_004: '{"id":"004"}'
+  gpu_link_009: '{"id":"009"}'
+  gpu_ipc_012: '{"id":"012"}'
+  net_ib_devices_206: '{"id":"206"}'
+  not_ready: '{"id":"NotReady"}'
+
+
