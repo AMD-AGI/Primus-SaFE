@@ -506,14 +506,18 @@ func (r *NodeReconciler) syncClusterStatus(ctx context.Context, node *v1.Node) e
 			klog.ErrorS(err, "failed to get client for ssh")
 			return err
 		}
-		if err := r.harborCA(ctx, sshClient); err != nil {
+		ok, err := r.harborCA(ctx, sshClient)
+		if err != nil {
 			klog.ErrorS(err, "failed to harbor ca ", "node", node.Name)
 			node.Status.ClusterStatus.CommandStatus =
 				setCommandStatus(node.Status.ClusterStatus.CommandStatus, HarborCA, v1.CommandFailed)
 			return err
 		}
-		node.Status.ClusterStatus.CommandStatus =
-			setCommandStatus(node.Status.ClusterStatus.CommandStatus, HarborCA, v1.CommandSucceeded)
+		if ok {
+			node.Status.ClusterStatus.CommandStatus =
+				setCommandStatus(node.Status.ClusterStatus.CommandStatus, HarborCA, v1.CommandSucceeded)
+			return nil
+		}
 	}
 	node.Status.ClusterStatus.Cluster = node.Spec.Cluster
 	if node.IsReady() {
@@ -835,21 +839,21 @@ func getClusterId(adminNode *v1.Node) string {
 	return clusterId
 }
 
-func (r *NodeReconciler) harborCA(ctx context.Context, sshClient *ssh.Client) error {
+func (r *NodeReconciler) harborCA(ctx context.Context, sshClient *ssh.Client) (bool, error) {
 	secret := new(corev1.Secret)
 	err := r.Get(ctx, types.NamespacedName{
 		Namespace: "harbor",
-		Name:      "harbor-ingress",
+		Name:      "harbor-tls",
 	}, secret)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
 	ca, ok := secret.Data["ca.crt"]
 	if !ok {
-		return nil
+		return false, nil
 	}
 	file := "/usr/local/share/ca-certificates/harbor-ca.crt"
 	ubuntu := fmt.Sprintf("sudo touch %s && sudo chmod -R 666 %s && sudo echo \"%s\" > %s && sudo update-ca-certificates", file, file, string(ca), file)
@@ -858,12 +862,12 @@ func (r *NodeReconciler) harborCA(ctx context.Context, sshClient *ssh.Client) er
 	cmd := fmt.Sprintf("command -v update-ca-certificates >/dev/null 2>&1 && (%s) || (%s)", ubuntu, centos)
 	session, err := sshClient.NewSession()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := session.Run(cmd); err != nil {
-		return fmt.Errorf("failed %s: %v", cmd, err)
+		return false, fmt.Errorf("failed %s: %v", cmd, err)
 	}
-	return nil
+	return false, nil
 }
 
 func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) error {
