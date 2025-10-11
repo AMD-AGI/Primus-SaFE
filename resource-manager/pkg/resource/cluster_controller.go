@@ -201,23 +201,27 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 }
 
 func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) error {
-	if err := r.resetNodesOfCluster(ctx, cluster.Name); err != nil {
+	if err := r.resetNodesOfCluster(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to reset nodes of cluster")
 		return err
 	}
-	if err := r.deletePriorityClass(ctx, cluster.Name); err != nil {
+	if err := r.deletePriorityClass(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to delete priority class")
 		return err
 	}
 	if err := r.deleteDefaultImageSecret(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to delete default image secret")
 		return err
 	}
 	if err := utils.RemoveFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer); err != nil {
+		klog.ErrorS(err, "failed to remove finalizer")
 		return err
 	}
 	return nil
 }
 
-func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, clusterName string) error {
-	req, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{clusterName})
+func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, cluster *v1.Cluster) error {
+	req, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{cluster.Name})
 	labelSelector := labels.NewSelector().Add(*req)
 	nodeList := &v1.NodeList{}
 	if err := r.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
@@ -238,7 +242,7 @@ func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, clusterName
 			klog.ErrorS(err, "failed to update node status")
 			return err
 		}
-		klog.Infof("reset the node(%s) after the cluster(%s) is deleted.", n.Name, clusterName)
+		klog.Infof("reset the node(%s) after the cluster(%s) is deleted.", n.Name, cluster.Name)
 	}
 	return nil
 }
@@ -286,13 +290,16 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 	return ctrlruntime.Result{}, nil
 }
 
-func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, clusterId string) error {
-	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterId)
+func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1.Cluster) error {
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
-		return nil
+		if !cluster.IsReady() {
+			return nil
+		}
+		return err
 	}
 	clientSet := k8sClients.ClientSet()
-	allPriorityClass := genAllPriorityClass(clusterId)
+	allPriorityClass := genAllPriorityClass(cluster.Name)
 	for _, pc := range allPriorityClass {
 		if err = deletePriorityClass(ctx, clientSet, pc.name); err != nil {
 			return err
@@ -391,6 +398,9 @@ func (r *ClusterReconciler) deleteDefaultImageSecret(ctx context.Context, cluste
 	}
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
+		if !cluster.IsReady() {
+			return nil
+		}
 		return err
 	}
 	targetName := commonutils.GenerateClusterSecret(cluster.Name, imageSecret.Name)

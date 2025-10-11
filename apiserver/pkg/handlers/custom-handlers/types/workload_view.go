@@ -200,6 +200,10 @@ type GetWorkloadPodLogResponse struct {
 	Logs []string `json:"logs"`
 }
 
+type BatchWorkloadsRequest struct {
+	WorkloadIds []string `json:"workloadIds"`
+}
+
 type WorkloadSlice []v1.Workload
 
 func (ws WorkloadSlice) Len() int {

@@ -29,6 +29,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 func (h *Handler) CreateCluster(c *gin.Context) {
@@ -469,10 +470,11 @@ func parseProcessNodesRequest(c *gin.Context) (*types.ProcessNodesRequest, error
 
 func cvtToClusterResponseItem(cluster *v1.Cluster) types.ClusterResponseItem {
 	result := types.ClusterResponseItem{
-		ClusterId:   cluster.Name,
-		UserId:      v1.GetUserId(cluster),
-		Phase:       string(cluster.Status.ControlPlaneStatus.Phase),
-		IsProtected: v1.IsProtected(cluster),
+		ClusterId:    cluster.Name,
+		UserId:       v1.GetUserId(cluster),
+		Phase:        string(cluster.Status.ControlPlaneStatus.Phase),
+		IsProtected:  v1.IsProtected(cluster),
+		CreationTime: timeutil.FormatRFC3339(&cluster.CreationTimestamp.Time),
 	}
 	if !cluster.GetDeletionTimestamp().IsZero() {
 		result.Phase = string(v1.DeletingPhase)
@@ -483,11 +485,22 @@ func cvtToClusterResponseItem(cluster *v1.Cluster) types.ClusterResponseItem {
 func cvtToGetClusterResponse(ctx context.Context, client client.Client, cluster *v1.Cluster) types.GetClusterResponse {
 	result := types.GetClusterResponse{
 		ClusterResponseItem: cvtToClusterResponseItem(cluster),
+		Description:         v1.GetDescription(cluster),
+		Storages:            cvtBindingStorageView(cluster.Status.StorageStatus),
+		Nodes:               cluster.Spec.ControlPlane.Nodes,
+		KubeSprayImage:      cluster.Spec.ControlPlane.KubeSprayImage,
+		KubePodsSubnet:      cluster.Spec.ControlPlane.KubePodsSubnet,
+		KubeServiceAddress:  cluster.Spec.ControlPlane.KubeServiceAddress,
+		KubeNetworkPlugin:   cluster.Spec.ControlPlane.KubeNetworkPlugin,
+		KubeVersion:         cluster.Spec.ControlPlane.KubeVersion,
+		KubeApiServerArgs:   cluster.Spec.ControlPlane.KubeApiServerArgs,
 	}
 	if cluster.Spec.ControlPlane.ImageSecret != nil {
 		result.ImageSecretId = cluster.Spec.ControlPlane.ImageSecret.Name
 	}
+	if cluster.Spec.ControlPlane.SSHSecret != nil {
+		result.SSHSecretId = cluster.Spec.ControlPlane.SSHSecret.Name
+	}
 	result.Endpoint, _ = commoncluster.GetEndpoint(ctx, client, cluster)
-	result.Storages = cvtBindingStorageView(cluster.Status.StorageStatus)
 	return result
 }
