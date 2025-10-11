@@ -96,6 +96,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		noAuthGroup.POST(fmt.Sprintf("logout"), h.Logout)
 
 		noAuthGroup.POST("users", h.CreateUser)
+
 		noAuthGroup.GET(fmt.Sprintf("/envs"), h.GetEnvs)
 	}
 }
