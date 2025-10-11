@@ -376,6 +376,7 @@ func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1
 		return nil, err
 	}
 	workload := generateWorkloadByDBItem(c, dbWorkload)
+	klog.Infof("cloning workload from %s to %s", name, workload.Name)
 	return h.createWorkloadImpl(c, workload, requestUser, roles)
 }
 
@@ -597,27 +598,27 @@ func (h *Handler) batchHandleWorkloads(c *gin.Context, action WorkloadBatchActio
 	}
 	count := len(req.WorkloadIds)
 	ch := make(chan string, count)
-	for _, n := range req.WorkloadIds {
-		ch <- n
+	for _, id := range req.WorkloadIds {
+		ch <- id
 	}
 
 	success, err := concurrent.Exec(count, func() error {
-		nodeName := <-ch
+		workloadId := <-ch
 		var innerErr error
 		switch action {
 		case BatchDelete:
-			_, innerErr = h.deleteWorkloadImpl(c, nodeName, requestUser, roles)
+			_, innerErr = h.deleteWorkloadImpl(c, workloadId, requestUser, roles)
 		case BatchStop:
-			_, innerErr = h.stopWorkloadImpl(c, nodeName, requestUser, roles)
+			_, innerErr = h.stopWorkloadImpl(c, workloadId, requestUser, roles)
 		case BatchClone:
-			_, innerErr = h.cloneWorkloadImpl(c, nodeName, requestUser, roles)
+			_, innerErr = h.cloneWorkloadImpl(c, workloadId, requestUser, roles)
 		default:
 			return commonerrors.NewInternalError("invalid action")
 		}
 		return innerErr
 	})
 	if success == 0 {
-		return nil, err
+		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	return nil, nil
 }
@@ -1109,16 +1110,20 @@ func generateWorkloadByDBItem(c *gin.Context, dbItem *dbclient.Workload) *v1.Wor
 			},
 		},
 		Spec: v1.WorkloadSpec{
-			Workspace:               dbItem.Workspace,
-			Image:                   dbItem.Image,
-			EntryPoint:              dbItem.EntryPoint,
-			IsSupervised:            dbItem.IsSupervised,
-			MaxRetry:                dbItem.MaxRetry,
-			Priority:                dbItem.Priority,
-			TTLSecondsAfterFinished: pointer.Int(dbItem.TTLSecond),
-			Timeout:                 pointer.Int(dbItem.Timeout),
-			IsTolerateAll:           dbItem.IsTolerateAll,
+			Workspace:     dbItem.Workspace,
+			Image:         dbItem.Image,
+			EntryPoint:    dbItem.EntryPoint,
+			IsSupervised:  dbItem.IsSupervised,
+			MaxRetry:      dbItem.MaxRetry,
+			Priority:      dbItem.Priority,
+			IsTolerateAll: dbItem.IsTolerateAll,
 		},
+	}
+	if dbItem.Timeout > 0 {
+		result.Spec.Timeout = pointer.Int(dbItem.Timeout)
+	}
+	if dbItem.TTLSecond > 0 {
+		result.Spec.TTLSecondsAfterFinished = pointer.Int(dbItem.TTLSecond)
 	}
 	json.Unmarshal([]byte(dbItem.GVK), &result.Spec.GroupVersionKind)
 	json.Unmarshal([]byte(dbItem.Resource), &result.Spec.Resource)
