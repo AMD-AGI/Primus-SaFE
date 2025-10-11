@@ -26,6 +26,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 )
 
@@ -187,6 +188,10 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context, job *
 	if err := r.Get(ctx, client.ObjectKey{Name: nodeParams[0].Value}, node); err != nil {
 		return nil, err
 	}
+	cluster := &v1.Cluster{}
+	if err := r.Get(ctx, client.ObjectKey{Name: v1.GetClusterId(job)}, cluster); err != nil {
+		return nil, err
+	}
 
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -227,6 +232,10 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context, job *
 	}
 	if job.Spec.TTLSecondsAfterFinished > 0 {
 		workload.Spec.TTLSecondsAfterFinished = pointer.Int(job.Spec.TTLSecondsAfterFinished)
+	}
+	if cluster.Spec.ControlPlane.ImageSecret != nil {
+		secretId := commonutils.GenerateClusterSecret(cluster.Name, cluster.Spec.ControlPlane.ImageSecret.Name)
+		v1.SetAnnotation(workload, v1.ImageSecretAnnotation, secretId)
 	}
 	return workload, nil
 }

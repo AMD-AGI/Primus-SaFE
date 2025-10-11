@@ -160,7 +160,7 @@ func GetNodeAnnotationAction(obj metav1.Object) string {
 }
 
 func IsNodeTemplateInstalled(obj metav1.Object) bool {
-	return GetAnnotation(obj, NodeTemplateInstalledAnnotation) == "true"
+	return GetAnnotation(obj, NodeTemplateInstalledAnnotation) == TrueStr
 }
 
 func GetWorkspaceNodesAction(obj metav1.Object) string {
@@ -224,11 +224,11 @@ func IsWorkloadReScheduled(obj metav1.Object) bool {
 }
 
 func IsEnableHostNetwork(obj metav1.Object) bool {
-	return GetAnnotation(obj, EnableHostNetworkAnnotation) == "true"
+	return GetAnnotation(obj, EnableHostNetworkAnnotation) == TrueStr
 }
 
 func IsWorkloadEnablePreempt(obj metav1.Object) bool {
-	return GetAnnotation(obj, WorkloadEnablePreemptAnnotation) == "true"
+	return GetAnnotation(obj, WorkloadEnablePreemptAnnotation) == TrueStr
 }
 
 func IsWorkloadPreempted(obj metav1.Object) bool {
@@ -259,6 +259,13 @@ func GetOpsJobAvailRatio(obj metav1.Object) float64 {
 	return atof(GetAnnotation(obj, OpsJobAvailRatioAnnotation))
 }
 
+func GetSecretType(obj metav1.Object) string {
+	return GetLabel(obj, SecretTypeLabel)
+}
+
+func IsSecretBindAllWorkspaces(obj metav1.Object) bool {
+	return GetLabel(obj, SecretAllWorkspaceLabel) == TrueStr
+}
 func atoi(str string) int {
 	if str == "" {
 		return 0

@@ -8,6 +8,7 @@ package common
 const (
 	PrimusSafeNamespace        = "primus-safe"
 	PrimusFault                = "primus-safe-fault"
+	PrimusFailover             = "primus-safe-failover"
 	PrimusRouterCustomRootPath = "api/v1"
 
 	AuthoringKind   = "Authoring"

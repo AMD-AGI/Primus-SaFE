@@ -17,6 +17,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
+	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/utils"
 )
 
 var (
@@ -32,7 +33,7 @@ func addFakeConfig(t *testing.T, config *MonitorConfig) {
 	fullPath = filepath.Join(fullPath, config.Script)
 	data, err := json.Marshal(config)
 	assert.NilError(t, err)
-	err = os.WriteFile(fullPath, data, 0777)
+	err = utils.WriteFile(fullPath, string(data), 0777)
 	assert.NilError(t, err)
 }
 

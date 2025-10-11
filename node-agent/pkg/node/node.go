@@ -229,7 +229,7 @@ func (n *Node) isAmdGpu() bool {
 		return false
 	}
 	val, ok := n.k8sNode.Labels[common.AMDGpuIdentification]
-	return ok && val == "true"
+	return ok && val == v1.TrueStr
 }
 
 func (n *Node) syncK8sNode() error {

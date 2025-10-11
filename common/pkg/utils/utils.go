@@ -53,6 +53,10 @@ func GenObjectReference(typeMeta metav1.TypeMeta, objMeta metav1.ObjectMeta) *co
 	}
 }
 
-func GeneratePriorityClass(clusterId, priorityClass string) string {
+func GenerateClusterPriorityClass(clusterId, priorityClass string) string {
 	return clusterId + "-" + priorityClass
+}
+
+func GenerateClusterSecret(clusterId, secretName string) string {
+	return clusterId + "-" + secretName
 }

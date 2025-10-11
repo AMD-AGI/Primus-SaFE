@@ -154,7 +154,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 		v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)
 		v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
 		if workspace.Spec.EnablePreempt {
-			v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, "true")
+			v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr)
 		}
 	}
 

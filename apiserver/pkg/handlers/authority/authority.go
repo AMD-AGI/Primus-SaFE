@@ -162,7 +162,7 @@ func getPolicyRules(role *v1.Role, resourceKind, resourceName string, isOwner, i
 		isMatch := false
 		for _, n := range r.GrantedUsers {
 			switch n {
-			case AllResource:
+			case GrantedAllUser:
 				isMatch = true
 			case GrantedOwner:
 				if isOwner {

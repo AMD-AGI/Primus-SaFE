@@ -248,7 +248,7 @@ func GenerateDispatchReason(count int) string {
 func GeneratePriorityClass(workload *v1.Workload) string {
 	clusterId := v1.GetClusterId(workload)
 	strPriority := GeneratePriority(workload.Spec.Priority)
-	return commonutils.GeneratePriorityClass(clusterId, strPriority)
+	return commonutils.GenerateClusterPriorityClass(clusterId, strPriority)
 }
 
 func GeneratePriority(priority int) string {

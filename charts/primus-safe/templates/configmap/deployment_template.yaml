@@ -73,8 +73,6 @@ data:
                path: /var/log
            - name: shared-data
              emptyDir: {}
-         imagePullSecrets:
-           - name: {{ .Release.Name }}-image
          terminationGracePeriodSeconds: 10
          restartPolicy: Always
          schedulerName: kube-scheduler-plugins
