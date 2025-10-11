@@ -109,7 +109,6 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	klog.Infof("delete k8s object, name: %s, namespace: %s", obj.GetName(), obj.GetNamespace())
 	return nil
 }
 
