@@ -32,7 +32,7 @@ func addFailoverConfig(cm *corev1.ConfigMap, failoverManager *commonutils.Object
 		}
 		conf.Id = strings.ToLower(conf.Id)
 		currentIds.Insert(conf.Id)
-		if !isIdExists(failoverManager, conf.Id) {
+		if !isMonitorIdExists(failoverManager, conf.Id) {
 			failoverManager.AddOrReplace(conf.Id, conf)
 		}
 	}
@@ -44,7 +44,7 @@ func addFailoverConfig(cm *corev1.ConfigMap, failoverManager *commonutils.Object
 	}
 }
 
-func isIdExists(failoverManager *commonutils.ObjectManager, id string) bool {
+func isMonitorIdExists(failoverManager *commonutils.ObjectManager, id string) bool {
 	obj, ok := failoverManager.Get(id)
 	if !ok {
 		return false

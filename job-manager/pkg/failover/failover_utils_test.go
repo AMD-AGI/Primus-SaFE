@@ -30,11 +30,11 @@ func TestAddConfig(t *testing.T) {
 	configManager := commonutils.NewObjectManager()
 	addFailoverConfig(cm1, configManager)
 
-	ok := isIdExists(configManager, "key1")
+	ok := isMonitorIdExists(configManager, "key1")
 	assert.Equal(t, ok, true)
-	ok = isIdExists(configManager, "key2")
+	ok = isMonitorIdExists(configManager, "key2")
 	assert.Equal(t, ok, true)
-	ok = isIdExists(configManager, "key3")
+	ok = isMonitorIdExists(configManager, "key3")
 	assert.Equal(t, ok, false)
 
 	cm1 = &corev1.ConfigMap{
@@ -48,10 +48,10 @@ func TestAddConfig(t *testing.T) {
 		},
 	}
 	addFailoverConfig(cm1, configManager)
-	ok = isIdExists(configManager, "key1")
+	ok = isMonitorIdExists(configManager, "key1")
 	assert.Equal(t, ok, true)
-	ok = isIdExists(configManager, "key2")
+	ok = isMonitorIdExists(configManager, "key2")
 	assert.Equal(t, ok, false)
-	ok = isIdExists(configManager, "key3")
+	ok = isMonitorIdExists(configManager, "key3")
 	assert.Equal(t, ok, true)
 }

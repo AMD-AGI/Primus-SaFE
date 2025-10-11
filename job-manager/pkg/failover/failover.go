@@ -126,7 +126,7 @@ func (r *FailoverReconciler) handleFaultEvent() handler.EventHandler {
 		if fault.Status.Phase != v1.FaultPhaseSucceeded || fault.Spec.Node == nil {
 			return false
 		}
-		return isIdExists(r.failoverConfig, strings.ToLower(fault.Spec.MonitorId))
+		return isMonitorIdExists(r.failoverConfig, strings.ToLower(fault.Spec.MonitorId))
 	}
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
