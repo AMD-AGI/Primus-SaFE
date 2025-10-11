@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -561,15 +560,24 @@ func (v *WorkspaceValidator) validateImmutableFields(newWorkspace, oldWorkspace 
 }
 
 func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
-	if reflect.DeepEqual(oldWorkspace.Spec.Volumes, newWorkspace.Spec.Volumes) {
-		return nil
-	}
-	volumeId := ""
+	newVolumeSet := sets.NewSet()
 	for _, vol := range newWorkspace.Spec.Volumes {
 		if vol.Type == v1.HOSTPATH {
 			continue
 		}
-		volumeId = vol.GenFullVolumeId()
+		newVolumeSet.Insert(vol.GenFullVolumeId())
+	}
+
+	volumeId := ""
+	for _, vol := range oldWorkspace.Spec.Volumes {
+		if vol.Type == v1.HOSTPATH {
+			continue
+		}
+		id := vol.GenFullVolumeId()
+		if newVolumeSet.Has(id) {
+			continue
+		}
+		volumeId = id
 		break
 	}
 	if volumeId == "" {

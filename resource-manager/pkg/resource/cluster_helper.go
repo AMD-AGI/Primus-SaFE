@@ -231,27 +231,6 @@ func (r *ClusterBaseReconciler) guaranteeHostsConfigMapCreated(ctx context.Conte
 	return cm, nil
 }
 
-func (r *ClusterBaseReconciler) getPod(ctx context.Context, labelSelector client.MatchingLabels) (*corev1.Pod, error) {
-	list := new(corev1.PodList)
-	err := r.List(ctx, list, client.InNamespace(common.PrimusSafeNamespace), labelSelector)
-	if err != nil {
-		return nil, err
-	}
-	if len(list.Items) > 0 {
-		return &list.Items[0], nil
-	}
-	return nil, nil
-}
-
-func (r *ClusterBaseReconciler) getPodList(ctx context.Context, labelSelector client.MatchingLabels) ([]corev1.Pod, error) {
-	list := new(corev1.PodList)
-	err := r.List(ctx, list, client.InNamespace(common.PrimusSafeNamespace), labelSelector)
-	if err != nil {
-		return nil, err
-	}
-	return list.Items, nil
-}
-
 func (r *ClusterBaseReconciler) getCluster(ctx context.Context, clusterName string) (*v1.Cluster, error) {
 	if clusterName == "" {
 		return nil, nil

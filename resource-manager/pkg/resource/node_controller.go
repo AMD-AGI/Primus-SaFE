@@ -579,6 +579,14 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		if err = r.installAddons(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
+		if pods, err := r.listPod(ctx, adminNode.GetSpecCluster(), adminNode.Name, string(v1.ClusterScaleUpAction)); err != nil {
+			return ctrlruntime.Result{}, err
+		} else if len(pods) > 0 {
+			if err = r.Delete(ctx, &pods[0]); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+			klog.Infof("delete pod(%s) for scaleUp", pods[0].Name)
+		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
 		klog.Infof("managed node %s", k8sNode.Name)
 		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeManageRebootLabel), v1.TrueStr) {
@@ -590,19 +598,16 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 	if isControlPlaneNode(adminNode) {
 		return ctrlruntime.Result{}, r.syncControlPlaneNodeStatus(ctx, adminNode)
 	}
-	return ctrlruntime.Result{}, r.syncOrCreateScaleUpPod(ctx, adminNode)
+	return r.syncOrCreateScaleUpPod(ctx, adminNode)
 }
 
 // Synchronize the status of control plane nodes in Kubernetes
 func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context, adminNode *v1.Node) error {
-	labelSelector := client.MatchingLabels{
-		v1.ClusterManageActionLabel:  string(v1.ClusterCreateAction),
-		v1.ClusterManageClusterLabel: adminNode.GetSpecCluster()}
-	pod, err := r.getPod(ctx, labelSelector)
+	pods, err := r.listPod(ctx, adminNode.GetSpecCluster(), "", string(v1.ClusterCreateAction))
 	if err != nil {
 		return err
 	}
-	if pod != nil && pod.Status.Phase == corev1.PodFailed {
+	if len(pods) > 0 && pods[0].Status.Phase == corev1.PodFailed {
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManagedFailed
 	} else {
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaging
@@ -650,54 +655,51 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	return nil
 }
 
-func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *v1.Node) error {
-	labelSelector := client.MatchingLabels{
-		v1.ClusterManageActionLabel:  string(v1.ClusterScaleUpAction),
-		v1.ClusterManageClusterLabel: adminNode.GetSpecCluster(),
-		v1.ClusterManageNodeLabel:    adminNode.Name,
-	}
-	pod, err := r.getPod(ctx, labelSelector)
+func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *v1.Node) (ctrlruntime.Result, error) {
+	pods, err := r.listPod(ctx, adminNode.GetSpecCluster(), adminNode.Name, string(v1.ClusterScaleUpAction))
 	if err != nil {
-		return err
+		return ctrlruntime.Result{}, err
 	}
-	if pod == nil {
+	if len(pods) == 0 {
 		cluster, err := r.getCluster(ctx, adminNode.GetSpecCluster())
 		if err != nil || cluster == nil {
-			return err
+			return ctrlruntime.Result{RequeueAfter: time.Second}, err
 		}
 		username, err := r.getUsername(ctx, adminNode, cluster)
 		if err != nil {
-			return err
+			return ctrlruntime.Result{}, err
 		}
 		hostsContent, err := r.generateHosts(ctx, cluster, adminNode)
 		if err != nil || hostsContent == nil {
-			return err
+			return ctrlruntime.Result{}, err
 		}
 		if _, err = r.guaranteeHostsConfigMapCreated(ctx, adminNode.Name,
 			genNodeOwnerReference(adminNode), hostsContent); err != nil {
-			return err
+			return ctrlruntime.Result{}, err
 		}
 		cmd := getKubeSprayScaleUpCMD(username, adminNode.Name, getKubeSprayEnv(cluster))
-		pod = generateScaleWorkerPod(v1.ClusterScaleUpAction, cluster, adminNode, username,
+		pod := generateScaleWorkerPod(v1.ClusterScaleUpAction, cluster, adminNode, username,
 			cmd, getKubesprayImage(cluster), adminNode.Name, hostsContent)
 
 		if err = r.Create(ctx, pod); err != nil {
-			return err
+			return ctrlruntime.Result{}, err
 		}
-		klog.Infof("kubernetes cluster %s scale up %s, pod: %s",
+		klog.Infof("kubernetes cluster %s begins to manage %s, pod: %s",
 			cluster.Name, adminNode.Name, pod.Name)
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaging
 	} else {
+		pod := pods[0]
 		switch pod.Status.Phase {
 		case corev1.PodSucceeded:
-			return r.Delete(ctx, pod)
+			klog.Infof("pod(%s) is succeeded", pod.Name)
+			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		case corev1.PodFailed:
 			adminNode.Status.ClusterStatus.Phase = v1.NodeManagedFailed
 		default:
 			adminNode.Status.ClusterStatus.Phase = v1.NodeManaging
 		}
 	}
-	return nil
+	return ctrlruntime.Result{}, nil
 }
 
 func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
@@ -708,8 +710,17 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 	if commonfaults.HasPrimusSafeTaint(adminNode.Status.Taints) || v1.GetWorkspaceId(adminNode) != "" {
 		return ctrlruntime.Result{}, nil
 	}
+	clusterName := *adminNode.Status.ClusterStatus.Cluster
 
 	if k8sNode == nil {
+		if pods, err := r.listPod(ctx, clusterName, adminNode.Name, string(v1.ClusterScaleDownAction)); err != nil {
+			return ctrlruntime.Result{}, err
+		} else if len(pods) > 0 {
+			if err = r.Delete(ctx, &pods[0]); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+			klog.Infof("delete pod(%s) for scaleDown", pods[0].Name)
+		}
 		adminNode.Status = v1.NodeStatus{
 			ClusterStatus: v1.NodeClusterStatus{
 				Phase: v1.NodeUnmanaged,
@@ -724,11 +735,8 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 		return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
 	}
 
-	// delete all scaleup pod when do scaledown
-	clusterName := *adminNode.Status.ClusterStatus.Cluster
-	labelSelector := client.MatchingLabels{v1.ClusterManageActionLabel: string(v1.ClusterScaleUpAction),
-		v1.ClusterManageClusterLabel: clusterName, v1.ClusterManageNodeLabel: adminNode.Name}
-	pods, err := r.getPodList(ctx, labelSelector)
+	// delete all scaleup pod when doing scaledown
+	pods, err := r.listPod(ctx, clusterName, adminNode.Name, string(v1.ClusterScaleUpAction))
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -736,12 +744,14 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 		if err = r.Delete(ctx, &pod); client.IgnoreNotFound(err) != nil {
 			return ctrlruntime.Result{}, err
 		}
+		klog.Infof("delete pod(%s) for scaleUp", pod.Name)
 	}
+
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterName)
 	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	return ctrlruntime.Result{}, r.syncOrCreateScaleDownPod(ctx, k8sClients.ClientSet(), adminNode, k8sNode)
+	return r.syncOrCreateScaleDownPod(ctx, k8sClients.ClientSet(), adminNode, k8sNode)
 }
 
 func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
@@ -763,60 +773,58 @@ func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
 }
 
 func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
-	clientSet kubernetes.Interface, adminNode *v1.Node, k8sNode *corev1.Node) error {
+	clientSet kubernetes.Interface, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	cluster, err := r.getCluster(ctx, *adminNode.Status.ClusterStatus.Cluster)
 	if err != nil {
-		return client.IgnoreNotFound(err)
+		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	hostname := adminNode.Status.MachineStatus.HostName
-	labelSelector := client.MatchingLabels{v1.ClusterManageActionLabel: string(v1.ClusterScaleDownAction),
-		v1.ClusterManageClusterLabel: cluster.Name, v1.ClusterManageNodeLabel: hostname}
-	pod, err := r.getPod(ctx, labelSelector)
+	pods, err := r.listPod(ctx, cluster.Name, hostname, string(v1.ClusterScaleDownAction))
 	if err != nil {
-		return err
+		return ctrlruntime.Result{}, err
 	}
 
 	adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanaging
-	if pod == nil {
+	if len(pods) == 0 {
 		username, err := r.getUsername(ctx, adminNode, cluster)
 		if err != nil {
-			return err
+			return ctrlruntime.Result{}, err
 		}
 		hostsContent, err := r.generateHosts(ctx, cluster, adminNode)
 		if err != nil || hostsContent == nil {
-			return err
+			return ctrlruntime.Result{}, err
 		}
 		if _, err = r.guaranteeHostsConfigMapCreated(ctx, adminNode.Name,
 			genNodeOwnerReference(adminNode), hostsContent); err != nil {
-			return err
+			return ctrlruntime.Result{}, err
 		}
-		pod = generateScaleWorkerPod(v1.ClusterScaleDownAction, cluster, adminNode, username,
+		pod := generateScaleWorkerPod(v1.ClusterScaleDownAction, cluster, adminNode, username,
 			getKubeSprayScaleDownCMD(username, hostname, getKubeSprayEnv(cluster)),
 			getKubesprayImage(cluster), adminNode.Name, hostsContent)
 		if err = r.Create(ctx, pod); err != nil {
-			return err
+			return ctrlruntime.Result{}, err
 		}
-		klog.Infof("kubernetes cluster %s scale down %s, pod: %s",
+		klog.Infof("kubernetes cluster %s begins to unmanage %s, pod: %s",
 			cluster.Name, adminNode.Name, pod.Name)
 	} else {
+		pod := pods[0]
 		switch pod.Status.Phase {
 		case corev1.PodSucceeded:
-			return r.Delete(ctx, pod)
+			klog.Infof("the pod(%s) is succeeded", pod.Name)
+			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		case corev1.PodFailed:
 			if !isK8sNodeReady(k8sNode) {
 				if err = clientSet.CoreV1().Nodes().Delete(ctx, k8sNode.Name, metav1.DeleteOptions{}); err != nil {
-					return err
+					return ctrlruntime.Result{}, err
 				}
-				if err = r.Delete(ctx, pod); err != nil {
-					return err
-				}
+				return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 			} else {
 				adminNode.Status.ClusterStatus.Phase = v1.NodeUnmanagedFailed
 			}
 		default:
 		}
 	}
-	return nil
+	return ctrlruntime.Result{}, nil
 }
 
 func getClusterId(adminNode *v1.Node) string {
@@ -892,4 +900,20 @@ func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) 
 	}
 	klog.Infof("create addon job(%s), node.name: %s", job.Name, adminNode.Name)
 	return nil
+}
+
+func (r *NodeReconciler) listPod(ctx context.Context, clusterName, nodeName, action string) ([]corev1.Pod, error) {
+	labelSelector := client.MatchingLabels{
+		v1.ClusterManageClusterLabel: clusterName,
+		v1.ClusterManageActionLabel:  action,
+	}
+	if nodeName != "" {
+		labelSelector[v1.ClusterManageNodeLabel] = nodeName
+	}
+	list := new(corev1.PodList)
+	err := r.List(ctx, list, client.InNamespace(common.PrimusSafeNamespace), labelSelector)
+	if err != nil {
+		return nil, err
+	}
+	return list.Items, nil
 }
