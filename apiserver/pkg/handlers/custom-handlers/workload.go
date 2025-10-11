@@ -38,6 +38,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
@@ -46,8 +47,14 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
+type WorkloadBatchAction string
+
 const (
 	DefaultLogTailLine int64 = 1000
+
+	BatchDelete WorkloadBatchAction = "delete"
+	BatchStop   WorkloadBatchAction = "stop"
+	BatchClone  WorkloadBatchAction = "clone"
 )
 
 func (h *Handler) CreateWorkload(c *gin.Context) {
@@ -66,12 +73,24 @@ func (h *Handler) DeleteWorkload(c *gin.Context) {
 	handle(c, h.deleteWorkload)
 }
 
+func (h *Handler) DeleteWorkloads(c *gin.Context) {
+	handle(c, h.deleteWorkloads)
+}
+
 func (h *Handler) StopWorkload(c *gin.Context) {
 	handle(c, h.stopWorkload)
 }
 
+func (h *Handler) StopWorkloads(c *gin.Context) {
+	handle(c, h.stopWorkloads)
+}
+
 func (h *Handler) PatchWorkload(c *gin.Context) {
 	handle(c, h.patchWorkload)
+}
+
+func (h *Handler) CloneWorkloads(c *gin.Context) {
+	handle(c, h.cloneWorkloads)
 }
 
 func (h *Handler) GetWorkloadPodLog(c *gin.Context) {
@@ -93,28 +112,33 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+
+	return h.createWorkloadImpl(c, workload, requestUser, roles)
+}
+
+func (h *Handler) createWorkloadImpl(c *gin.Context, workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
+	var err error
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
 		klog.ErrorS(err, "failed to auth workload",
 			"workspace", workload.Spec.Workspace, "user", c.GetString(common.UserName))
 		return nil, err
 	}
-	if err = h.authWorkloadPriority(c, workload, v1.CreateVerb, req.Priority, requestUser, roles); err != nil {
+	if err = h.authWorkloadPriority(c, workload, v1.CreateVerb, workload.Spec.Priority, requestUser, roles); err != nil {
 		klog.ErrorS(err, "failed to auth workload priority",
-			"priority", req.Priority, "user", c.GetString(common.UserName))
+			"priority", workload.Spec.Priority, "user", c.GetString(common.UserName))
 		return nil, err
 	}
-
 	if err = h.Create(c.Request.Context(), workload); err != nil {
 		return nil, err
 	}
 	if err = h.patchPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
 		return nil, err
 	}
-
 	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d",
 		workload.Name, c.GetString(common.UserName), c.GetString(common.UserId), workload.Spec.Priority, workload.Spec.Timeout)
 	return &types.CreateWorkloadResponse{WorkloadId: workload.Name}, nil
 }
+
 func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -194,6 +218,14 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 
 	name := c.GetString(types.Name)
+	return h.deleteWorkloadImpl(c, name, requestUser, roles)
+}
+
+func (h *Handler) deleteWorkloads(c *gin.Context) (interface{}, error) {
+	return h.batchHandleWorkloads(c, BatchDelete)
+}
+
+func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -247,8 +279,15 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
-
 	name := c.GetString(types.Name)
+	return h.stopWorkloadImpl(c, name, requestUser, roles)
+}
+
+func (h *Handler) stopWorkloads(c *gin.Context) (interface{}, error) {
+	return h.batchHandleWorkloads(c, BatchStop)
+}
+
+func (h *Handler) stopWorkloadImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -322,6 +361,22 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 
 	klog.Infof("patch workload, name: %s, request: %s", name, string(jsonutils.MarshalSilently(*req)))
 	return nil, nil
+}
+
+func (h *Handler) cloneWorkloads(c *gin.Context) (interface{}, error) {
+	return h.batchHandleWorkloads(c, BatchClone)
+}
+
+func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
+	if !commonconfig.IsDBEnable() {
+		return nil, commonerrors.NewInternalError("the database function is not enabled")
+	}
+	dbWorkload, err := h.dbClient.GetWorkload(c.Request.Context(), name)
+	if err != nil {
+		return nil, err
+	}
+	workload := generateWorkloadByDBItem(c, dbWorkload)
+	return h.createWorkloadImpl(c, workload, requestUser, roles)
 }
 
 func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
@@ -527,6 +582,44 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 		workload.Spec.Workspace = req.WorkspaceId
 	}
 	return workload, nil
+}
+
+func (h *Handler) batchHandleWorkloads(c *gin.Context, action WorkloadBatchAction) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+
+	req := &types.BatchWorkloadsRequest{}
+	if _, err = getBodyFromRequest(c.Request, req); err != nil {
+		return nil, err
+	}
+	count := len(req.WorkloadIds)
+	ch := make(chan string, count)
+	for _, n := range req.WorkloadIds {
+		ch <- n
+	}
+
+	success, err := concurrent.Exec(count, func() error {
+		nodeName := <-ch
+		var innerErr error
+		switch action {
+		case BatchDelete:
+			_, innerErr = h.deleteWorkloadImpl(c, nodeName, requestUser, roles)
+		case BatchStop:
+			_, innerErr = h.stopWorkloadImpl(c, nodeName, requestUser, roles)
+		case BatchClone:
+			_, innerErr = h.cloneWorkloadImpl(c, nodeName, requestUser, roles)
+		default:
+			return commonerrors.NewInternalError("invalid action")
+		}
+		return innerErr
+	})
+	if success == 0 {
+		return nil, err
+	}
+	return nil, nil
 }
 
 func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
@@ -1000,4 +1093,49 @@ func generateAuthWorkload(name, userId, workspace, clusterId string) *v1.Workloa
 			Workspace: workspace,
 		},
 	}
+}
+
+func generateWorkloadByDBItem(c *gin.Context, dbItem *dbclient.Workload) *v1.Workload {
+	result := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: commonutils.GenerateName(dbItem.DisplayName),
+			Labels: map[string]string{
+				v1.DisplayNameLabel: dbItem.DisplayName,
+				v1.UserIdLabel:      c.GetString(common.UserId),
+			},
+			Annotations: map[string]string{
+				v1.DescriptionAnnotation: dbutils.ParseNullString(dbItem.Description),
+				v1.UserNameAnnotation:    c.GetString(common.UserName),
+			},
+		},
+		Spec: v1.WorkloadSpec{
+			Workspace:               dbItem.Workspace,
+			Image:                   dbItem.Image,
+			EntryPoint:              dbItem.EntryPoint,
+			IsSupervised:            dbItem.IsSupervised,
+			MaxRetry:                dbItem.MaxRetry,
+			Priority:                dbItem.Priority,
+			TTLSecondsAfterFinished: pointer.Int(dbItem.TTLSecond),
+			Timeout:                 pointer.Int(dbItem.Timeout),
+			IsTolerateAll:           dbItem.IsTolerateAll,
+		},
+	}
+	json.Unmarshal([]byte(dbItem.GVK), &result.Spec.GroupVersionKind)
+	json.Unmarshal([]byte(dbItem.Resource), &result.Spec.Resource)
+	if str := dbutils.ParseNullString(dbItem.Env); str != "" {
+		json.Unmarshal([]byte(str), &result.Spec.Env)
+	}
+	if str := dbutils.ParseNullString(dbItem.CustomerLabels); str != "" {
+		json.Unmarshal([]byte(str), &result.Spec.CustomerLabels)
+	}
+	if str := dbutils.ParseNullString(dbItem.Liveness); str != "" {
+		json.Unmarshal([]byte(str), &result.Spec.Liveness)
+	}
+	if str := dbutils.ParseNullString(dbItem.Readiness); str != "" {
+		json.Unmarshal([]byte(str), &result.Spec.Readiness)
+	}
+	if str := dbutils.ParseNullString(dbItem.Service); str != "" {
+		json.Unmarshal([]byte(str), &result.Spec.Service)
+	}
+	return result
 }

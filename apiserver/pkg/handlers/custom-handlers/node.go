@@ -135,8 +135,21 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 	}
 	nodeList := &v1.NodeList{}
 	ctx := c.Request.Context()
-	if err = h.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
-		return 0, nil, err
+	if query.NodeId == nil {
+		if err = h.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+			return 0, nil, err
+		}
+	} else {
+		// If a nodeId is provided, you can directly get it to save time.
+		node, err := h.getAdminNode(ctx, *query.NodeId)
+		if err != nil {
+			return 0, nil, err
+		}
+		nodeLabels := labels.Set(node.Labels)
+		if !labelSelector.Matches(nodeLabels) {
+			return 0, nil, nil
+		}
+		nodeList.Items = append(nodeList.Items, *node)
 	}
 
 	roles := h.auth.GetRoles(ctx, requestUser)
@@ -165,14 +178,15 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 		}
 		nodes = append(nodes, &nodeList.Items[i])
 	}
-	if len(nodes) == 0 {
+	totalCount := len(nodes)
+	if totalCount == 0 {
 		return 0, nil, nil
+	} else if totalCount > 1 {
+		sort.Slice(nodes, func(i, j int) bool {
+			return nodes[i].Name < nodes[j].Name
+		})
 	}
 
-	sort.Slice(nodes, func(i, j int) bool {
-		return nodes[i].Name < nodes[j].Name
-	})
-	totalCount := len(nodes)
 	if query.Limit >= 0 {
 		start := query.Offset
 		end := start + query.Limit
@@ -582,11 +596,6 @@ func buildNodeLabelSelector(query *types.ListNodeRequest) (labels.Selector, erro
 	if query.FlavorId != nil {
 		var req *labels.Requirement
 		req, _ = labels.NewRequirement(v1.NodeFlavorIdLabel, selection.Equals, []string{*query.FlavorId})
-		labelSelector = labelSelector.Add(*req)
-	}
-	if query.NodeId != nil {
-		var req *labels.Requirement
-		req, _ = labels.NewRequirement(v1.NodeIdLabel, selection.Equals, []string{*query.NodeId})
 		labelSelector = labelSelector.Add(*req)
 	}
 	return labelSelector, nil
