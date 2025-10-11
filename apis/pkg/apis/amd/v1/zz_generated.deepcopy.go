@@ -2450,6 +2450,17 @@ func (in *WorkspaceSpec) DeepCopyInto(out *WorkspaceSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.ImageSecrets != nil {
+		in, out := &in.ImageSecrets, &out.ImageSecrets
+		*out = make([]*corev1.ObjectReference, len(*in))
+		for i := range *in {
+			if (*in)[i] != nil {
+				in, out := &(*in)[i], &(*out)[i]
+				*out = new(corev1.ObjectReference)
+				**out = **in
+			}
+		}
+	}
 	return
 }
 

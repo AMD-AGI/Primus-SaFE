@@ -523,6 +523,9 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 	if len(req.NodeList) > 0 {
 		workload.Spec.Resource.Replica = len(req.NodeList)
 	}
+	if req.WorkspaceId != "" {
+		workload.Spec.Workspace = req.WorkspaceId
+	}
 	return workload, nil
 }
 
@@ -735,8 +738,8 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 	w *dbclient.Workload) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
 		WorkloadId:     w.WorkloadId,
-		Workspace:      w.Workspace,
-		Cluster:        w.Cluster,
+		WorkspaceId:    w.Workspace,
+		ClusterId:      w.Cluster,
 		Phase:          dbutils.ParseNullString(w.Phase),
 		CreationTime:   dbutils.ParseNullTimeToString(w.CreateTime),
 		StartTime:      dbutils.ParseNullTimeToString(w.StartTime),
@@ -797,7 +800,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 	if str := dbutils.ParseNullString(w.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
 		for i, p := range result.Pods {
-			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p.WorkloadPod, result.UserId, result.Workspace)
+			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p.WorkloadPod, result.UserId, result.WorkspaceId)
 		}
 	}
 	if str := dbutils.ParseNullString(w.Nodes); str != "" {
@@ -848,7 +851,7 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 	result.Pods = make([]types.WorkloadPodWrapper, len(w.Status.Pods))
 	for i, p := range w.Status.Pods {
 		result.Pods[i].WorkloadPod = w.Status.Pods[i]
-		result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p, result.UserId, result.Workspace)
+		result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p, result.UserId, result.WorkspaceId)
 	}
 	if len(w.Spec.CustomerLabels) > 0 {
 		result.CustomerLabels, result.NodeList = handleWorkloadCustomerLabels(w.Spec.CustomerLabels)
@@ -875,13 +878,13 @@ func handleWorkloadCustomerLabels(labels map[string]string) (map[string]string, 
 func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
 		WorkloadId:       w.Name,
-		Workspace:        w.Spec.Workspace,
+		WorkspaceId:      w.Spec.Workspace,
 		Resource:         w.Spec.Resource,
 		DisplayName:      v1.GetDisplayName(w),
 		Description:      v1.GetDescription(w),
 		UserId:           v1.GetUserId(w),
 		UserName:         v1.GetUserName(w),
-		Cluster:          v1.GetClusterId(w),
+		ClusterId:        v1.GetClusterId(w),
 		Phase:            string(w.Status.Phase),
 		Priority:         w.Spec.Priority,
 		CreationTime:     timeutil.FormatRFC3339(&w.CreationTimestamp.Time),

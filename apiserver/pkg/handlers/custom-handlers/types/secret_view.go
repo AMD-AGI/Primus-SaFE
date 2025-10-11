@@ -5,13 +5,13 @@
 
 package types
 
-type SecretType string
+import (
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+)
+
 type SecretParam string
 
 const (
-	SecretImage SecretType = "image"
-	SecretSSH   SecretType = "ssh"
-
 	PasswordParam   SecretParam = "password"
 	PrivateKeyParam SecretParam = "privateKey"
 	PublicKeyParam  SecretParam = "publicKey"
@@ -27,10 +27,12 @@ type CreateSecretRequest struct {
 	// Secret name (display only), applicable only for SSH key usage
 	Name string `json:"name,omitempty"`
 	// secret type. crypto/image/ssh
-	Type SecretType `json:"type"`
+	Type v1.SecretType `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
 	// the private key, public key and password need to be Base64 encoded
 	Params map[SecretParam]string `json:"params"`
+	// Whether to bind the secret to all workspaces
+	BindAllWorkspaces bool `json:"bindAllWorkspaces,omitempty"`
 }
 
 type CreateSecretResponse struct {
@@ -56,6 +58,8 @@ type SecretResponseItem struct {
 	Params map[SecretParam]string `json:"params"`
 	// Creation timestamp of the secret
 	CreationTime string `json:"creationTime"`
+	// Whether to bind the secret to all workspaces
+	BindAllWorkspaces bool `json:"bindAllWorkspaces,omitempty"`
 }
 
 type DockerConfigItem struct {
@@ -71,4 +75,6 @@ type PatchSecretRequest struct {
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
 	// the private key, public key and password need to be Base64 encoded
 	Params map[SecretParam]string `json:"params,omitempty"`
+	// Whether to bind the secret to all workspaces
+	BindAllWorkspaces *bool `json:"bindAllWorkspaces,omitempty"`
 }

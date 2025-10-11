@@ -120,21 +120,13 @@ func (r *StorageClusterController) Reconcile(ctx context.Context, req ctrlruntim
 		}
 		return ctrlruntime.Result{}, err
 	}
-	if err := r.addFinalizer(ctx, cluster); err != nil {
+	if err = r.addFinalizer(ctx, cluster); err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	// if dur, err := r.ensureAddon(ctx, cluster); err != nil {
-	// 	return ctrlruntime.Result{}, err
-	// } else if dur > 0 {
-	// 	return ctrlruntime.Result{
-	// 		Requeue:      true,
-	// 		RequeueAfter: dur,
-	// 	}, nil
-	// }
 	scluster, err := r.getStorageCluster(ctx, cluster)
 	if err != nil {
 		if errors.IsNotFound(err) && !cluster.DeletionTimestamp.IsZero() {
-			if err := r.removeFinalizer(ctx, cluster); err != nil {
+			if err = r.removeFinalizer(ctx, cluster); err != nil {
 				return ctrlruntime.Result{}, err
 			}
 			return ctrlruntime.Result{}, nil
@@ -145,7 +137,7 @@ func (r *StorageClusterController) Reconcile(ctx context.Context, req ctrlruntim
 	if scluster == nil {
 		return ctrlruntime.Result{}, fmt.Errorf("storage cluster %s not found", cluster.Name)
 	}
-	if err := r.addFinalizer(ctx, cluster); err != nil {
+	if err = r.addFinalizer(ctx, cluster); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	if !cluster.DeletionTimestamp.IsZero() {
@@ -175,11 +167,6 @@ func (r *StorageClusterController) Reconcile(ctx context.Context, req ctrlruntim
 		}
 	}
 	if cephCluster.Status.Phase == rookv1.ConditionReady {
-		// err = r.updateCephCsiConfig(ctx, cluster, scluster)
-		// if err != nil {
-		// 	return ctrlruntime.Result{}, err
-		// }
-
 		clusters := new(v1.ClusterList)
 		err = r.List(ctx, clusters)
 		if err != nil {

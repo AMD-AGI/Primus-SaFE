@@ -112,6 +112,7 @@ func (m *NodeMutator) mutateMeta(_ context.Context, node *v1.Node) {
 	if v1.GetDisplayName(node) == "" {
 		v1.SetLabel(node, v1.DisplayNameLabel, node.GetSpecHostName())
 	}
+	v1.SetLabel(node, v1.NodeIdLabel, node.Name)
 	controllerutil.AddFinalizer(node, v1.NodeFinalizer)
 }
 

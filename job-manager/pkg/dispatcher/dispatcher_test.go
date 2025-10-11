@@ -101,6 +101,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkHostNetwork(t, obj, workload, &templates[0])
 	checkTolerations(t, obj, workload, &templates[0])
 	checkPriorityClass(t, obj, workload, &templates[0])
+	checkImageSecrets(t, obj, &templates[0])
 	_, found, err := unstructured.NestedSlice(obj.Object, templates[1].PrePaths...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, false)
@@ -122,6 +123,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkHostNetwork(t, obj, workload, &templates[1])
 	checkTolerations(t, obj, workload, &templates[1])
 	checkPriorityClass(t, obj, workload, &templates[1])
+	checkImageSecrets(t, obj, &templates[1])
 	// fmt.Println(unstructuredutils.ToString(obj))
 }
 

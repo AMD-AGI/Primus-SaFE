@@ -589,7 +589,7 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
 		klog.Infof("managed node %s", k8sNode.Name)
-		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeManageRebootLabel), "true") {
+		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeManageRebootLabel), v1.TrueStr) {
 			r.rebootNode(ctx, adminNode)
 			return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
 		}
@@ -727,7 +727,7 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 			},
 		}
 		klog.Infof("node %s is unmanaged", adminNode.Name)
-		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeUnmanageNoRebootLabel), "true") {
+		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeUnmanageNoRebootLabel), v1.TrueStr) {
 			return ctrlruntime.Result{}, nil
 		}
 		r.rebootNode(ctx, adminNode)

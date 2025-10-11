@@ -100,5 +100,3 @@ data:
                       fieldRef:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 5
-              imagePullSecrets:
-                - name: {{ .Release.Name }}-image

@@ -20,7 +20,7 @@ type ListFaultRequest struct {
 	// If specifying multiple kind queries, separate them with commas
 	MonitorId string `form:"monitorId" binding:"omitempty"`
 	// the cluster id
-	Cluster string `form:"cluster" binding:"omitempty"`
+	ClusterId string `form:"clusterId" binding:"omitempty"`
 	// If set to true, only open faults are queried.
 	OnlyOpen bool `form:"onlyOpen" binding:"omitempty"`
 }
@@ -44,7 +44,7 @@ type FaultResponseItem struct {
 	// the status of fault, including Succeeded/Failed
 	Phase string `json:"phase"`
 	// cluster id
-	Cluster string `json:"cluster"`
+	ClusterId string `json:"clusterId"`
 	// the creation time of fault
 	CreationTime string `json:"creationTime"`
 	// the deletion time of fault

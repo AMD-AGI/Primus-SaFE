@@ -15,6 +15,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -29,6 +31,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -93,6 +96,9 @@ func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.W
 		return err
 	}
 	if err := m.mutateManagers(ctx, nil, workspace); err != nil {
+		return err
+	}
+	if err := m.mutateImageSecret(ctx, workspace); err != nil {
 		return err
 	}
 	return nil
@@ -277,7 +283,7 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 			if v1.IsWorkloadEnablePreempt(w) {
 				continue
 			}
-			v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, "true")
+			v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr)
 		} else {
 			if !v1.IsWorkloadEnablePreempt(w) {
 				continue
@@ -334,6 +340,37 @@ func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, new
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+func (m *WorkspaceMutator) mutateImageSecret(ctx context.Context, workspace *v1.Workspace) error {
+	cluster, err := getCluster(ctx, m.Client, workspace.Spec.Cluster)
+	if err != nil {
+		return err
+	}
+	if cluster.Spec.ControlPlane.ImageSecret != nil {
+		if !workspace.HasImageSecret(cluster.Spec.ControlPlane.ImageSecret.Name) {
+			workspace.Spec.ImageSecrets = append(workspace.Spec.ImageSecrets,
+				cluster.Spec.ControlPlane.ImageSecret.DeepCopy())
+		}
+	}
+
+	var labelSelector = labels.NewSelector()
+	req1, _ := labels.NewRequirement(v1.SecretTypeLabel, selection.Equals, []string{string(v1.SecretImage)})
+	labelSelector = labelSelector.Add(*req1)
+	req2, _ := labels.NewRequirement(v1.SecretAllWorkspaceLabel, selection.Equals, []string{v1.TrueStr})
+	labelSelector = labelSelector.Add(*req2)
+	secretList := &corev1.SecretList{}
+	if err = m.List(ctx, secretList, &client.ListOptions{LabelSelector: labelSelector, Namespace: common.PrimusSafeNamespace}); err != nil {
+		return err
+	}
+	for _, secret := range secretList.Items {
+		if workspace.HasImageSecret(secret.Name) {
+			continue
+		}
+		workspace.Spec.ImageSecrets = append(workspace.Spec.ImageSecrets,
+			commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
 	}
 	return nil
 }

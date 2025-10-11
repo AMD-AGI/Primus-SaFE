@@ -33,7 +33,7 @@ type ListLogRequest struct {
 	// Run number to filter by. Default 0 means all;
 	// a positive number indicates a specific number.
 	DispatchCount int `json:"dispatchCount,omitempty"`
-	// Kubernetes node name used for filtering. E.g., smc300x-ccs-aus-a16-10
+	// Kubernetes node name used for filtering.
 	// Multiple entries are allowed, separated by commas, and treated as OR conditions
 	// If both PodNames and NodeNames are set, only PodNames will take effect.
 	NodeNames string `json:"nodeNames,omitempty"`

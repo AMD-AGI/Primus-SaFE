@@ -53,6 +53,9 @@ func (h *Handler) DeleteOpsJob(c *gin.Context) {
 	handle(c, h.deleteOpsJob)
 }
 
+func (h *Handler) StopOpsJob(c *gin.Context) {
+	handle(c, h.stopOpsJob)
+}
 func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 	req, body, err := parseCreateOpsJobRequest(c)
 	if err != nil {
@@ -107,7 +110,7 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 		TotalCount: count,
 	}
 	for _, job := range jobs {
-		result.Items = append(result.Items, cvtToOpsJobResponseItem(job, false))
+		result.Items = append(result.Items, cvtToOpsJobResponseItem(job))
 	}
 	return result, nil
 }
@@ -127,7 +130,7 @@ func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 	if len(jobs) == 0 {
 		return nil, commonerrors.NewNotFoundWithMessage("the opsjob is not found")
 	}
-	return cvtToOpsJobResponseItem(jobs[0], true), nil
+	return cvtToGetOpsJobResponse(jobs[0]), nil
 }
 
 func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
@@ -137,32 +140,16 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 	}
 
 	name := c.GetString(types.Name)
-	if name == "" {
-		return nil, commonerrors.NewBadRequest("opsJobId is empty")
-	}
-	ctx := c.Request.Context()
-	opsJob := &v1.OpsJob{}
-	isFound := false
-	if h.Get(ctx, client.ObjectKey{Name: name}, opsJob) == nil {
-		if err = h.auth.Authorize(authority.Input{
-			Context:      ctx,
-			ResourceKind: v1.OpsJobKind,
-			Verb:         v1.DeleteVerb,
-			UserId:       c.GetString(common.UserId),
-		}); err != nil {
-			return nil, err
-		}
-		if err = h.Delete(ctx, opsJob); err != nil {
-			return nil, err
-		}
-		isFound = true
+	isFound, err := h.deleteAdminOpsJob(c, name)
+	if err != nil {
+		return nil, err
 	}
 	if commonconfig.IsDBEnable() {
 		userId := ""
 		if requestUser != nil && !requestUser.IsSystemAdmin() {
 			userId = requestUser.Name
 		}
-		if err = h.dbClient.SetOpsJobDeleted(ctx, name, userId); err != nil {
+		if err = h.dbClient.SetOpsJobDeleted(c.Request.Context(), name, userId); err != nil {
 			return nil, err
 		}
 		isFound = true
@@ -171,11 +158,52 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewNotFoundWithMessage("the opsjob is not found")
 	}
 
-	if err = commonjob.CleanupJobRelatedInfo(ctx, h.Client, name); err != nil {
+	if err = commonjob.CleanupJobRelatedInfo(c.Request.Context(), h.Client, name); err != nil {
 		klog.ErrorS(err, "failed to cleanup ops job labels")
 	}
 	klog.Infof("delete opsJob %s", name)
 	return nil, nil
+}
+
+func (h *Handler) stopOpsJob(c *gin.Context) (interface{}, error) {
+	name := c.GetString(types.Name)
+	isFound, err := h.deleteAdminOpsJob(c, name)
+	if err != nil {
+		return nil, err
+	}
+	if !isFound {
+		return nil, commonerrors.NewNotFoundWithMessage("the opsjob is not found")
+	}
+	if err = commonjob.CleanupJobRelatedInfo(c.Request.Context(), h.Client, name); err != nil {
+		klog.ErrorS(err, "failed to cleanup ops job labels")
+	}
+	klog.Infof("stop opsJob %s", name)
+	return nil, nil
+}
+
+func (h *Handler) deleteAdminOpsJob(c *gin.Context, name string) (bool, error) {
+	if name == "" {
+		return false, commonerrors.NewBadRequest("opsJobId is empty")
+	}
+	ctx := c.Request.Context()
+	opsJob := &v1.OpsJob{}
+	err := h.Get(ctx, client.ObjectKey{Name: name}, opsJob)
+	if err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+
+	if err = h.auth.Authorize(authority.Input{
+		Context:      ctx,
+		ResourceKind: v1.OpsJobKind,
+		Verb:         v1.DeleteVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return false, err
+	}
+	if err = h.Delete(ctx, opsJob); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
@@ -439,8 +467,8 @@ func cvtToListOpsJobSql(query *types.ListOpsJobRequest) sqrl.Sqlizer {
 		sqrl.GtOrEq{createTime: query.SinceTime},
 		sqrl.LtOrEq{createTime: query.UntilTime},
 	}
-	if cluster := strings.TrimSpace(query.Cluster); cluster != "" {
-		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Cluster"): cluster})
+	if clusterId := strings.TrimSpace(query.ClusterId); clusterId != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Cluster"): clusterId})
 	}
 	if phase := strings.TrimSpace(string(query.Phase)); phase != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Phase"): phase})
@@ -494,12 +522,12 @@ func parseCreateOpsJobRequest(c *gin.Context) (*types.BaseOpsJobRequest, []byte,
 	return req, body, nil
 }
 
-func cvtToOpsJobResponseItem(job *dbclient.OpsJob, isNeedDetail bool) types.OpsJobResponseItem {
+func cvtToOpsJobResponseItem(job *dbclient.OpsJob) types.OpsJobResponseItem {
 	result := types.OpsJobResponseItem{
 		JobId:         job.JobId,
 		JobName:       commonutils.GetBaseFromName(job.JobId),
-		Cluster:       job.Cluster,
-		Workspace:     dbutils.ParseNullString(job.Workspace),
+		ClusterId:     job.Cluster,
+		WorkspaceId:   dbutils.ParseNullString(job.Workspace),
 		UserId:        dbutils.ParseNullString(job.UserId),
 		UserName:      dbutils.ParseNullString(job.UserName),
 		Type:          v1.OpsJobType(job.Type),
@@ -509,15 +537,18 @@ func cvtToOpsJobResponseItem(job *dbclient.OpsJob, isNeedDetail bool) types.OpsJ
 		EndTime:       dbutils.ParseNullTimeToString(job.EndTime),
 		DeletionTime:  dbutils.ParseNullTimeToString(job.DeleteTime),
 		TimeoutSecond: job.Timeout,
-		IsTolerateAll: job.IsTolerateAll,
 	}
 	if result.Phase == "" {
 		result.Phase = v1.OpsJobPending
 	}
-	if !isNeedDetail {
-		return result
-	}
+	return result
+}
 
+func cvtToGetOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponse {
+	result := types.GetOpsJobResponse{
+		OpsJobResponseItem: cvtToOpsJobResponseItem(job),
+		IsTolerateAll:      job.IsTolerateAll,
+	}
 	if conditions := dbutils.ParseNullString(job.Conditions); conditions != "" {
 		json.Unmarshal([]byte(conditions), &result.Conditions)
 	}

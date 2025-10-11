@@ -27,6 +27,7 @@ const (
 	DescriptionAnnotation   = PrimusSafePrefix + "description"
 	ProtectLabel            = PrimusSafePrefix + "protect"
 	MainContainerAnnotation = PrimusSafePrefix + "main.container"
+	ImageSecretAnnotation   = PrimusSafePrefix + "image.secret"
 
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."
@@ -103,8 +104,9 @@ const (
 	UserAvatarUrlAnnotation = UserPrefix + "avatar.url"
 
 	// secret
-	SecretPrefix    = PrimusSafePrefix + "secret."
-	SecretTypeLabel = SecretPrefix + "type"
+	SecretPrefix            = PrimusSafePrefix + "secret."
+	SecretTypeLabel         = SecretPrefix + "type"
+	SecretAllWorkspaceLabel = SecretPrefix + "all.workspace"
 
 	// exporter
 	ExporterFinalizer = PrimusSafeDomain + "exporter.finalizer"
@@ -123,10 +125,17 @@ const (
 	AddonFinalizer = AddonPrefix + "finalizer"
 )
 
+type SecretType string
+
 const (
 	Pending  Phase = "Pending"
 	Creating Phase = "Creating"
 	Ready    Phase = "Ready"
 	Unknown  Phase = "Unknown"
 	Deleted  Phase = "Deleted"
+
+	TrueStr = "true"
+
+	SecretImage SecretType = "image"
+	SecretSSH   SecretType = "ssh"
 )

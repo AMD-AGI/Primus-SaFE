@@ -167,8 +167,8 @@ func cvtToListFaultSql(query *types.ListFaultRequest) sqrl.Sqlizer {
 		dbSql = append(dbSql, sqrl.Or(sqlList))
 	}
 
-	if cluster := strings.TrimSpace(query.Cluster); cluster != "" {
-		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Cluster"): cluster})
+	if clusterId := strings.TrimSpace(query.ClusterId); clusterId != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Cluster"): clusterId})
 	}
 	if nodeId := strings.TrimSpace(query.NodeId); nodeId != "" {
 		dbSql = append(dbSql, sqrl.Like{
@@ -188,7 +188,7 @@ func cvtToFaultResponseItem(f *dbclient.Fault) types.FaultResponseItem {
 		Message:      dbutils.ParseNullString(f.Message),
 		Action:       dbutils.ParseNullString(f.Action),
 		Phase:        dbutils.ParseNullString(f.Phase),
-		Cluster:      dbutils.ParseNullString(f.Cluster),
+		ClusterId:    dbutils.ParseNullString(f.Cluster),
 		CreationTime: dbutils.ParseNullTimeToString(f.CreateTime),
 		DeletionTime: dbutils.ParseNullTimeToString(f.DeleteTime),
 	}
