@@ -155,7 +155,7 @@ func (r *SchedulerReconciler) createDataPlaneResources(ctx context.Context, work
 	}
 	// copy image secret from admin plane to data plane
 	for _, s := range workspace.Spec.ImageSecrets {
-		secret, err := r.getSecret(ctx, s.Name)
+		secret, err := r.getAdminSecret(ctx, s.Name)
 		if err != nil {
 			continue
 		}
@@ -257,7 +257,7 @@ func (r *SchedulerReconciler) updateDataPlaneSecrets(ctx context.Context, oldWor
 	newSecretSet := sets.NewSet()
 	for _, s := range newWorkspace.Spec.ImageSecrets {
 		newSecretSet.Insert(s.Name)
-		secret, err := r.getSecret(ctx, s.Name)
+		secret, err := r.getAdminSecret(ctx, s.Name)
 		if err != nil {
 			continue
 		}
@@ -552,7 +552,7 @@ func (r *SchedulerReconciler) getWorkspace(ctx context.Context, clusterId, works
 	return workspace, nil
 }
 
-func (r *SchedulerReconciler) getSecret(ctx context.Context, secretId string) (*corev1.Secret, error) {
+func (r *SchedulerReconciler) getAdminSecret(ctx context.Context, secretId string) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}
 	err := r.Get(ctx, client.ObjectKey{Name: secretId, Namespace: common.PrimusSafeNamespace}, secret)
 	if err != nil {
