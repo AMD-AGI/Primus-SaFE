@@ -104,21 +104,14 @@ type StorageStatus struct {
 }
 
 type ClusterSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	ClusterID *string `json:"clusterID,omitempty"`
-
+	ClusterID    *string      `json:"clusterID,omitempty"`
 	ControlPlane ControlPlane `json:"controlPlane,omitempty"`
 	Storages     []Storage    `json:"storages,omitempty"`
 }
 
 type ClusterStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 	ControlPlaneStatus ControlPlaneStatus `json:"controlPlaneStatus,omitempty"`
-
-	// 存储状态
-	StorageStatus []StorageStatus `json:"storageStatus,omitempty"`
+	StorageStatus      []StorageStatus    `json:"storageStatus,omitempty"`
 }
 
 // +genclient

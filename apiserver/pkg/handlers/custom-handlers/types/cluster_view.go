@@ -21,8 +21,6 @@ type CreateClusterRequest struct {
 	ImageSecretId string `json:"imageSecretId,omitempty"`
 	// The labels for cluster
 	Labels map[string]string `json:"labels,omitempty"`
-	// The maximum number of pods supported per node. It must be a power of two, with a maximum value of 256
-	MaxPodCount uint32 `json:"maxPodCount,omitempty"`
 	// Whether the cluster is under protection. When set to true, direct deletion is not allowed unless the label is first removed
 	IsProtected bool `json:"isProtected,omitempty"`
 }
@@ -37,17 +35,32 @@ type ListClusterResponse struct {
 }
 
 type ClusterResponseItem struct {
-	ClusterId     string `json:"clusterId"`
-	UserId        string `json:"userId"`
-	Phase         string `json:"phase"`
-	ImageSecretId string `json:"imageSecretId"`
-	IsProtected   bool   `json:"isProtected"`
+	ClusterId   string `json:"clusterId"`
+	UserId      string `json:"userId"`
+	Phase       string `json:"phase"`
+	IsProtected bool   `json:"isProtected"`
+	// cluster creation time
+	CreationTime string `json:"creationTime"`
 }
 
 type GetClusterResponse struct {
 	ClusterResponseItem
-	Endpoint string                       `json:"endpoint"`
-	Storages []BindingStorageResponseItem `json:"storage"`
+	Description string                       `json:"description"`
+	Endpoint    string                       `json:"endpoint"`
+	Storages    []BindingStorageResponseItem `json:"storage"`
+	// The SSH secret name specified by the user, which must already exist
+	SSHSecretId string `json:"sshSecretId"`
+	// The Image secret name specified by the user, which must already exist
+	ImageSecretId string `json:"imageSecretId"`
+	// the nodes of control plane
+	Nodes              []string `json:"nodes"`
+	KubeSprayImage     *string  `json:"kubeSprayImage,omitempty"`
+	KubePodsSubnet     *string  `json:"kubePodsSubnet,omitempty"`
+	KubeServiceAddress *string  `json:"kubeServiceAddress,omitempty"`
+	// default is cilium
+	KubeNetworkPlugin *string           `json:"kubeNetworkPlugin,omitempty"`
+	KubeVersion       *string           `json:"kubernetesVersion,omitempty"`
+	KubeApiServerArgs map[string]string `json:"kubeApiServerArgs,omitempty"`
 }
 
 type ProcessNodesRequest struct {
