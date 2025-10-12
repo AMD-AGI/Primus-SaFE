@@ -16,7 +16,7 @@ jobs:
     outputs:
       is_build_apiserver: ${{ steps.changed-files.outputs.apiserver_any_changed }}
       is_build_resource_manager: ${{ steps.changed-files.outputs.resource_manager_any_changed }}
-      is_build_node_exporter: ${{ steps.changed-files.outputs.node_exporter_any_changed }}
+      is_build_sync_image: ${{ steps.changed-files.outputs.sync_image_any_changed }}
       is_build_telemetry_processor:  ${{ steps.changed-files.outputs.telemetry_processor_any_changed }}
       is_build_gpu_resource_exporter: ${{ steps.changed-files.outputs.gpu_resource_exporter_any_changed }}
       is_build_system_tuner: ${{ steps.changed-files.outputs.system_tuner_any_changed }}
@@ -57,9 +57,8 @@ jobs:
             - resource-manager/**
             - common/**
             - utils/**
-          node_exporter:
-            - modules/exporters/node-exporter/**
-            - modules/core/**
+          sync_image:
+            - tools/sync-image/**
           telemetry_processor:
             - modules/telemetry-processor/**
             - modules/core/**
@@ -72,7 +71,7 @@ jobs:
             - modules/adapter/primus-safe-adapter/**
             - modules/core/**
   #####
-  # api
+  # apiserver
   #####
   build-apiserver:
     needs: detect-changes
@@ -101,7 +100,7 @@ jobs:
             "primussafe/apiserver:${{needs.detect-changes.outputs.image_version}}"
             "primussafe/apiserver:${{needs.detect-changes.outputs.date_time}}"
   #####
-  # jobs
+  # resource-manager
   #####
   build-resource-manager:
     needs: detect-changes
@@ -130,11 +129,11 @@ jobs:
             "primussafe/resource-manager:${{needs.detect-changes.outputs.image_version}}"
             "primussafe/resource-manager:${{needs.detect-changes.outputs.date_time}}"
   #####
-  # node-exporter
+  # sync-image
   #####
-  build-node-exporter:
+  build-sync-image:
     needs: detect-changes
-    if: needs.detect-changes.outputs.is_build_node_exporter == 'true'
+    if: needs.detect-changes.outputs.is_build_sync_image == 'true'
     runs-on: ubuntu-latest
     outputs:
       primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
@@ -153,15 +152,12 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: '.'
-          file: build/Dockerfile
+          file: tools/sync-image/Dockerfile
           push: true
           tags: |
-            "primussafe/primus-lens-node-exporter:${{needs.detect-changes.outputs.image_version}}"
-            "primussafe/primus-lens-node-exporter:${{needs.detect-changes.outputs.date_time}}"
-          build-args: |
-            BUILDPATH=cmd/node-exporter
-            BASEPATH=modules/exporters/node-exporter/
-            APPNAME=primus-lens-node-exporter
+            "primussafe/image-sync:${{needs.detect-changes.outputs.image_version}}"
+            "primussafe/image-sync:${{needs.detect-changes.outputs.date_time}}"
+
   #####
   # telemetry-processor
   #####
