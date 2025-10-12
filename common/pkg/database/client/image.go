@@ -2,136 +2,126 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/dal"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	sqrl "github.com/Masterminds/squirrel"
+	"gorm.io/gorm"
 	"k8s.io/klog/v2"
 )
 
-const (
-	TImage = "image"
-)
-
-// ===========================
-// Image CRUD
-// ===========================
-
-var (
-	getImageCmd       = fmt.Sprintf(`SELECT * FROM %s WHERE id = $1 LIMIT 1`, TImage)
-	insertImageFormat = `INSERT INTO ` + TImage + ` (%s) VALUES (%s)`
-	updateImageCmd    = fmt.Sprintf(`UPDATE %s 
-		SET tag = :tag,
-		    description = :description,
-		    source = :source,
-		    status = :status,
-		    relation_digest = :relation_digest,
-		    created_by = :created_by,
-		    updated_at = :updated_at,
-		    deleted_at = :deleted_at,
-		    deleted_by = :deleted_by
-		WHERE id = :id`, TImage)
-)
+type ImageFilter struct {
+	UserName string
+	Tag      string
+	OrderBy  string
+	Order    string
+	PageNum  int
+	PageSize int
+}
 
 // UpsertImage 插入或更新镜像记录
-func (c *Client) UpsertImage(ctx context.Context, img *Image) error {
+func (c *Client) UpsertImage(ctx context.Context, img *model.Image) error {
 	if img == nil {
 		return commonerrors.NewBadRequest("the input is empty")
 	}
-	db, err := c.getDB()
+	q := dal.Use(c.gorm).Image
+	exist, err := c.GetImageByTag(ctx, img.Tag)
 	if err != nil {
 		return err
 	}
-
-	var list []*Image
-	if err = db.SelectContext(ctx, &list, getImageCmd, img.ID); err != nil {
-		return err
-	}
-
-	if len(list) > 0 && list[0] != nil {
-		if _, err = db.NamedExecContext(ctx, updateImageCmd, img); err != nil {
-			klog.ErrorS(err, "failed to upsert image", "id", img.ID)
+	if exist != nil {
+		img.ID = exist.ID
+		if err := q.WithContext(ctx).Save(img); err != nil {
+			klog.ErrorS(err, "failed to upsert image", "image", img)
 			return err
 		}
 	} else {
-		_, err = db.NamedExecContext(ctx, genInsertCommand(*img, insertImageFormat, "id"), img)
-		if err != nil {
-			klog.ErrorS(err, "failed to insert image", "id", img.ID)
+		if err := q.WithContext(ctx).Create(img); err != nil {
+			klog.ErrorS(err, "failed to upsert image", "image", img)
 			return err
 		}
 	}
 	return nil
 }
 
-// SelectImages 查询镜像列表
-func (c *Client) SelectImages(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*Image, error) {
-	db, err := c.getDB()
+func (c *Client) GetImageByTag(ctx context.Context, tag string) (*model.Image, error) {
+	q := dal.Use(c.gorm).Image
+	img, err := q.WithContext(ctx).Where(q.Tag.Eq(tag), q.DeletedAt.IsNull()).First()
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		klog.ErrorS(err, "failed to get image by tag", "tag", tag)
 		return nil, err
 	}
-
-	orderBy := func() []string {
-		var results []string
-		if sortBy == "" || order == "" {
-			return results
-		}
-		if order == DESC {
-			results = append(results, fmt.Sprintf("%s desc", sortBy))
-		} else {
-			results = append(results, fmt.Sprintf("%s asc", sortBy))
-		}
-		return results
-	}()
-
-	sql, args, err := sqrl.Select("*").PlaceholderFormat(sqrl.Dollar).
-		From(TImage).
-		Where(query).
-		OrderBy(orderBy...).
-		Limit(uint64(limit)).
-		Offset(uint64(offset)).ToSql()
-	if err != nil {
-		return nil, err
-	}
-
-	var items []*Image
-	if c.RequestTimeout > 0 {
-		ctx2, cancel := context.WithTimeout(ctx, c.RequestTimeout)
-		defer cancel()
-		err = db.SelectContext(ctx2, &items, sql, args...)
-	} else {
-		err = db.SelectContext(ctx, &items, sql, args...)
-	}
-	return items, err
+	return img, nil
 }
 
-// CountImages 返回镜像总数
-func (c *Client) CountImages(ctx context.Context, query sqrl.Sqlizer) (int, error) {
-	db, err := c.getDB()
-	if err != nil {
-		return 0, err
+func (c *Client) SelectImages(ctx context.Context, filter *ImageFilter) ([]*model.Image, int, error) {
+	q := dal.Use(c.gorm).Image
+	query := q.WithContext(ctx).Where(q.DeletedAt.IsNull())
+	if filter.Tag != "" {
+		query = query.Where(q.Tag.Like("%" + filter.Tag + "%"))
 	}
-	sql, args, err := sqrl.Select("COUNT(*)").
-		PlaceholderFormat(sqrl.Dollar).
-		From(TImage).
-		Where(query).
-		ToSql()
-	if err != nil {
-		return 0, err
+	if filter.UserName != "" {
+		query = query.Where(q.CreatedBy.Eq(filter.UserName))
 	}
-	var cnt int
-	err = db.GetContext(ctx, &cnt, sql, args...)
-	return cnt, err
+	count, err := query.Count()
+	if err != nil {
+		klog.ErrorS(err, "failed to count images")
+		return nil, 0, err
+	}
+	gormDB := query.UnderlyingDB()
+	if filter.OrderBy != "" {
+		order := filter.Order
+		if order == "" {
+			order = "DESC"
+		}
+		gormDB = gormDB.Order(fmt.Sprintf("%s %s", filter.OrderBy, order))
+	}
+	if filter.PageSize > 0 {
+		gormDB = gormDB.Limit(filter.PageSize)
+	}
+	if filter.PageNum > 0 {
+		gormDB = gormDB.Offset((filter.PageNum - 1) * filter.PageSize)
+	}
+	var images []*model.Image
+	err = gormDB.Find(&images).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	return images, int(count), nil
+}
+
+func (c *Client) GetImage(ctx context.Context, imageId int32) (*model.Image, error) {
+	q := dal.Use(c.gorm).Image
+	img, err := q.WithContext(ctx).Where(q.ID.Eq(imageId), q.DeletedAt.IsNull()).First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		klog.ErrorS(err, "failed to get image by id", "id", imageId)
+		return nil, err
+	}
+	return img, nil
 }
 
 // DeleteImage 逻辑删除镜像
-func (c *Client) DeleteImage(ctx context.Context, id int64, deletedBy string) error {
-	db, err := c.getDB()
+func (c *Client) DeleteImage(ctx context.Context, id int32, deletedBy string) error {
+	q := dal.Use(c.gorm).Image
+	img, err := q.WithContext(ctx).Where(q.ID.Eq(id), q.DeletedAt.IsNull()).First()
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		klog.ErrorS(err, "failed to get image by id", "id", id)
 		return err
 	}
-	cmd := fmt.Sprintf(`UPDATE %s SET deleted_at = NOW(), deleted_by = $2 WHERE id = $1`, TImage)
-	_, err = db.ExecContext(ctx, cmd, id, deletedBy)
+	_, err = q.WithContext(ctx).Delete(img)
 	if err != nil {
-		klog.ErrorS(err, "failed to delete image", "id", id)
+		klog.ErrorS(err, "failed to delete image by id", "id", id)
+		return err
 	}
-	return err
+	return nil
 }

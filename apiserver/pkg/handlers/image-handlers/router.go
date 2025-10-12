@@ -4,9 +4,44 @@ import "github.com/gin-gonic/gin"
 
 func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 	group := e.Group("/api/v1/")
+	harborGroup := group.Group("/harbor")
 	{
-		group.GET("harbor/stats", func(c *gin.Context) {
+		harborGroup.GET("stats", func(c *gin.Context) {
 			handle(c, h.GetHarborStats)
+		})
+	}
+	imageGroup := e.Group("/api/v1/images")
+	{
+		imageGroup.GET("", func(c *gin.Context) {
+			handle(c, h.listImage)
+		})
+		imageGroup.DELETE(":id", func(c *gin.Context) {
+			handle(c, h.deleteImage)
+		})
+	}
+	imageImportGroup := e.Group("/api/v1/images:import")
+	{
+		imageImportGroup.POST("", func(c *gin.Context) {
+			handle(c, h.importImage)
+		})
+		imageImportGroup.PUT(":name/progress", func(c *gin.Context) {
+			handle(c, h.updateImportProgress)
+		})
+	}
+
+	imageRegistryGroup := group.Group("/image-registries")
+	{
+		imageRegistryGroup.POST("", func(c *gin.Context) {
+			handle(c, h.createImageRegistry)
+		})
+		imageRegistryGroup.PUT(":id", func(c *gin.Context) {
+			handle(c, h.updateImageRegistry)
+		})
+		imageRegistryGroup.DELETE(":id", func(c *gin.Context) {
+			handle(c, h.deleteImageRegistry)
+		})
+		imageRegistryGroup.GET("", func(c *gin.Context) {
+			handle(c, h.listImageRegistry)
 		})
 	}
 }

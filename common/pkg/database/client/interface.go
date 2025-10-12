@@ -7,6 +7,7 @@ package client
 
 import (
 	"context"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 
 	sqrl "github.com/Masterminds/squirrel"
 )
@@ -17,6 +18,8 @@ type Interface interface {
 	OpsJobInterface
 	ImageInterface
 	ImageDigestInterface
+	ImageImportJobInterface
+	RegistryInfoInterface
 }
 
 type WorkloadInterface interface {
@@ -45,15 +48,31 @@ type OpsJobInterface interface {
 }
 
 type ImageInterface interface {
-	UpsertImage(ctx context.Context, image *Image) error
-	SelectImages(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*Image, error)
-	CountImages(ctx context.Context, query sqrl.Sqlizer) (int, error)
-	DeleteImage(ctx context.Context, id int64, deletedBy string) error
+	UpsertImage(ctx context.Context, image *model.Image) error
+	SelectImages(ctx context.Context, filter *ImageFilter) ([]*model.Image, int, error)
+	GetImage(ctx context.Context, imageId int32) (*model.Image, error)
+	GetImageByTag(ctx context.Context, tag string) (*model.Image, error)
+	DeleteImage(ctx context.Context, id int32, deletedBy string) error
 }
 
 type ImageDigestInterface interface {
-	UpsertImageDigest(ctx context.Context, digest *ImageDigest) error
-	SelectImageDigests(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*ImageDigest, error)
-	CountImageDigests(ctx context.Context, query sqrl.Sqlizer) (int, error)
-	DeleteImageDigest(ctx context.Context, id int64) error
+	UpsertImageDigest(ctx context.Context, digest *model.ImageDigest) error
+	DeleteImageDigest(ctx context.Context, id int32) error
+}
+
+type ImageImportJobInterface interface {
+	GetImageImportJobByJobName(ctx context.Context, jobName string) (*model.ImageImportJob, error)
+	GetImageImportJobByTag(ctx context.Context, tag string) (*model.ImageImportJob, error)
+	UpsertImageImportJob(ctx context.Context, job *model.ImageImportJob) error
+	GetImportImageByImageID(ctx context.Context, imageID int32) (*model.ImageImportJob, error)
+	UpdateImageImportJob(ctx context.Context, job *model.ImageImportJob) error
+}
+
+type RegistryInfoInterface interface {
+	UpsertRegistryInfo(ctx context.Context, registryInfo *model.RegistryInfo) error
+	GetDefaultRegistryInfo(ctx context.Context) (*model.RegistryInfo, error)
+	GetRegistryInfoByUrl(ctx context.Context, url string) (*model.RegistryInfo, error)
+	GetRegistryInfoById(ctx context.Context, id int32) (*model.RegistryInfo, error)
+	DeleteRegistryInfo(ctx context.Context, id int32) error
+	ListRegistryInfos(ctx context.Context, pageNum, pageSize int) ([]*model.RegistryInfo, error)
 }
