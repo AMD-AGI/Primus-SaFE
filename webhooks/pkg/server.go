@@ -133,7 +133,7 @@ func (s *Server) newCtrlManager() error {
 	}
 	localIp, err := netutil.GetLocalIp()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get localip, %s", err.Error())
 	}
 	if commonconfig.GetServerPort() <= 0 {
 		return fmt.Errorf("the server port is not defined")

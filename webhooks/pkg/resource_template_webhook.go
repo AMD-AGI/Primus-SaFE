@@ -89,18 +89,19 @@ func (v *ResourceTemplateValidator) validate(rt *v1.ResourceTemplate) error {
 	return nil
 }
 
+// Check template, only one replica can have a null value.
 func (v *ResourceTemplateValidator) validateTemplate(rt *v1.ResourceTemplate) error {
 	if len(rt.Spec.ResourceSpecs) <= 1 {
 		return nil
 	}
 	count := 0
 	for _, template := range rt.Spec.ResourceSpecs {
-		if template.Replica > 0 {
+		if template.Replica == 0 {
 			count++
 		}
 	}
-	if count < len(rt.Spec.ResourceSpecs)-1 {
-		return commonerrors.NewInternalError("If more than one template is defined, only one can have a empty replica field")
+	if count > 1 {
+		return commonerrors.NewInternalError("If more than one template is defined, only one can have an empty replica field")
 	}
 	return nil
 }

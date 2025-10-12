@@ -91,11 +91,7 @@ func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.W
 	if err := m.mutateMeta(ctx, workspace); err != nil {
 		return err
 	}
-	m.mutateSpec(workspace)
-	if err := m.mutateCommon(ctx, workspace); err != nil {
-		return err
-	}
-	if err := m.mutateManagers(ctx, nil, workspace); err != nil {
+	if err := m.mutateCommon(ctx, nil, workspace); err != nil {
 		return err
 	}
 	if err := m.mutateImageSecret(ctx, workspace); err != nil {
@@ -105,7 +101,7 @@ func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.W
 }
 
 func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
-	if err := m.mutateCommon(ctx, newWorkspace); err != nil {
+	if err := m.mutateCommon(ctx, oldWorkspace, newWorkspace); err != nil {
 		return err
 	}
 	if v1.GetWorkspaceNodesAction(oldWorkspace) != v1.GetWorkspaceNodesAction(newWorkspace) {
@@ -115,7 +111,16 @@ func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, new
 	} else if err := m.mutateScaleDown(ctx, oldWorkspace, newWorkspace); err != nil {
 		return err
 	}
-	if oldWorkspace.Spec.EnablePreempt != newWorkspace.Spec.EnablePreempt {
+	return nil
+}
+
+func (m *WorkspaceMutator) mutateCommon(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
+	if err := m.mutateByNodeFlavor(ctx, newWorkspace); err != nil {
+		return err
+	}
+	m.mutateVolumes(newWorkspace)
+	m.mutateQueuePolicy(newWorkspace)
+	if oldWorkspace == nil || oldWorkspace.Spec.EnablePreempt != newWorkspace.Spec.EnablePreempt {
 		if err := m.mutatePreempt(ctx, newWorkspace); err != nil {
 			return err
 		}
@@ -134,7 +139,7 @@ func (m *WorkspaceMutator) mutateMeta(ctx context.Context, workspace *v1.Workspa
 			return err
 		}
 		if !hasOwnerReferences(workspace, cl.Name) {
-			if err := controllerutil.SetControllerReference(cl, workspace, m.Client.Scheme()); err != nil {
+			if err = controllerutil.SetControllerReference(cl, workspace, m.Client.Scheme()); err != nil {
 				klog.ErrorS(err, "failed to SetControllerReference")
 			}
 		}
@@ -145,6 +150,7 @@ func (m *WorkspaceMutator) mutateMeta(ctx context.Context, workspace *v1.Workspa
 	return nil
 }
 
+// If there is a nodesAction on the workspace targeting node operations, modify the corresponding replica accordingly.
 func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	if oldWorkspace.Spec.Replica != newWorkspace.Spec.Replica {
 		return fmt.Errorf("the operation of specifying nodes and the modification of " +
@@ -162,7 +168,8 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			return commonerrors.NewNotFound(v1.NodeKind, key)
 		}
 		if v1.GetClusterId(n) != newWorkspace.Spec.Cluster {
-			err = fmt.Errorf("The cluster(%s) of the operation and the workspace's cluster do not match", v1.GetClusterId(n))
+			err = fmt.Errorf("the cluster(%s) of the operation and the workspace's"+
+				" cluster do not match", v1.GetClusterId(n))
 			return err
 		}
 		if newWorkspace.Spec.Replica == 0 {
@@ -172,7 +179,8 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 			}
 		} else {
 			if v1.GetNodeFlavorId(n) != newWorkspace.Spec.NodeFlavor {
-				err = fmt.Errorf("The flavor(%s) of the operation and the workspace's flavor do not match", v1.GetNodeFlavorId(n))
+				err = fmt.Errorf("the flavor(%s) of the operation and the workspace's "+
+					"flavor do not match", v1.GetNodeFlavorId(n))
 				return err
 			}
 			if val == v1.NodeActionAdd {
@@ -185,7 +193,7 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 	return nil
 }
 
-func (m *WorkspaceMutator) mutateSpec(workspace *v1.Workspace) {
+func (m *WorkspaceMutator) mutateQueuePolicy(workspace *v1.Workspace) {
 	if workspace.Spec.QueuePolicy == "" {
 		workspace.Spec.QueuePolicy = v1.QueueFifoPolicy
 	}
@@ -212,14 +220,6 @@ func (m *WorkspaceMutator) mutateVolumes(workspace *v1.Workspace) {
 			workspace.Spec.Volumes[i].AccessMode = corev1.ReadWriteMany
 		}
 	}
-}
-
-func (m *WorkspaceMutator) mutateCommon(ctx context.Context, workspace *v1.Workspace) error {
-	if err := m.mutateByNodeFlavor(ctx, workspace); err != nil {
-		return err
-	}
-	m.mutateVolumes(workspace)
-	return nil
 }
 
 func (m *WorkspaceMutator) mutateByNodeFlavor(ctx context.Context, workspace *v1.Workspace) error {
@@ -254,7 +254,7 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 		return err
 	}
 	if len(nodes) != count {
-		return commonerrors.NewInternalError("Unable to get enough nodes for scaling down")
+		return commonerrors.NewInternalError("failed to get enough nodes for scaling down")
 	}
 	nodeNames := make([]string, 0, count)
 	for _, n := range nodes {
@@ -265,6 +265,8 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 	return nil
 }
 
+// When preemption is enabled or disabled for a workspace,
+// simultaneously update the workloads within it to enable or disable preemption accordingly.
 func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Workspace) error {
 	filterFunc := func(w *v1.Workload) bool {
 		if w.IsEnd() {
@@ -297,6 +299,7 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 	return nil
 }
 
+// If the managers on the workspace are modified, update the user attribute of the corresponding manager
 func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	var currentManagers []string
 	if oldWorkspace != nil {
@@ -344,6 +347,8 @@ func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, new
 	return nil
 }
 
+// When a workspace is created, synchronize the cluster's image secret and
+// simultaneously synchronize the image secrets applied to all workspaces.
 func (m *WorkspaceMutator) mutateImageSecret(ctx context.Context, workspace *v1.Workspace) error {
 	cluster, err := getCluster(ctx, m.Client, workspace.Spec.Cluster)
 	if err != nil {
@@ -362,7 +367,8 @@ func (m *WorkspaceMutator) mutateImageSecret(ctx context.Context, workspace *v1.
 	req2, _ := labels.NewRequirement(v1.SecretAllWorkspaceLabel, selection.Equals, []string{v1.TrueStr})
 	labelSelector = labelSelector.Add(*req2)
 	secretList := &corev1.SecretList{}
-	if err = m.List(ctx, secretList, &client.ListOptions{LabelSelector: labelSelector, Namespace: common.PrimusSafeNamespace}); err != nil {
+	if err = m.List(ctx, secretList, &client.ListOptions{LabelSelector: labelSelector,
+		Namespace: common.PrimusSafeNamespace}); err != nil {
 		return err
 	}
 	for _, secret := range secretList.Items {
@@ -412,12 +418,6 @@ func (v *WorkspaceValidator) validateOnCreation(ctx context.Context, workspace *
 	if err := v.validateCommon(ctx, workspace, nil); err != nil {
 		return err
 	}
-	if err := validateDisplayName(v1.GetDisplayName(workspace)); err != nil {
-		return err
-	}
-	if err := v.validateRelatedResource(ctx, workspace); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -431,27 +431,31 @@ func (v *WorkspaceValidator) validateOnUpdate(ctx context.Context, newWorkspace,
 	if err := v.validateNodesAction(ctx, newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
-	if newWorkspace.Spec.Replica > oldWorkspace.Spec.Replica {
-		if err := v.validateRelatedResource(ctx, newWorkspace); err != nil {
-			return err
-		}
-	}
 	if err := v.validateVolumeRemoved(ctx, newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (v *WorkspaceValidator) validateCommon(_ context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
+func (v *WorkspaceValidator) validateCommon(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
 	if err := v.validateRequiredParams(newWorkspace); err != nil {
 		return err
 	}
 	if err := v.validateVolumes(newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
+	if err := validateDisplayName(v1.GetDisplayName(newWorkspace)); err != nil {
+		return err
+	}
+	if oldWorkspace == nil || newWorkspace.Spec.Replica > oldWorkspace.Spec.Replica {
+		if err := v.validateRelatedResource(ctx, newWorkspace); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
+// Check whether the required fields of the workspace are empty.
 func (v *WorkspaceValidator) validateRequiredParams(workspace *v1.Workspace) error {
 	var errs []error
 	if workspace.Spec.Cluster == "" || v1.GetClusterId(workspace) == "" {
@@ -475,6 +479,7 @@ func (v *WorkspaceValidator) validateRequiredParams(workspace *v1.Workspace) err
 	return nil
 }
 
+// Check whether the node flavor and cluster associated with the workspace exist.
 func (v *WorkspaceValidator) validateRelatedResource(ctx context.Context, workspace *v1.Workspace) error {
 	if workspace.Spec.Replica <= 0 || workspace.Spec.NodeFlavor == "" {
 		return nil
@@ -490,6 +495,7 @@ func (v *WorkspaceValidator) validateRelatedResource(ctx context.Context, worksp
 	return nil
 }
 
+// Check whether the volume fields on the workspace are valid.
 func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Workspace) error {
 	oldVolumeMap := make(map[string]v1.WorkspaceVolume)
 	if oldWorkspace != nil {
@@ -531,13 +537,13 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 		oldVolume, ok := oldVolumeMap[volumeId]
 		if ok {
 			if oldVolume.StorageClass != vol.StorageClass {
-				return fmt.Errorf("The storageClass of volume(%s) can not be changed", volumeId)
+				return fmt.Errorf("the storageClass of volume(%s) can not be changed", volumeId)
 			}
 			if oldVolume.Capacity != vol.Capacity {
-				return fmt.Errorf("The capacity of volume(%s) can not be changed", volumeId)
+				return fmt.Errorf("the capacity of volume(%s) can not be changed", volumeId)
 			}
 			if !maps.EqualIgnoreOrder(oldVolume.Selector, vol.Selector) {
-				return fmt.Errorf("The pv selector of volume(%s) can not be changed", volumeId)
+				return fmt.Errorf("the pv selector of volume(%s) can not be changed", volumeId)
 			}
 		}
 		if !sliceutil.Contains(supportedAccessMode, vol.AccessMode) {
@@ -547,6 +553,7 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 	return nil
 }
 
+// Check fields that cannot be modified.
 func (v *WorkspaceValidator) validateImmutableFields(newWorkspace, oldWorkspace *v1.Workspace) error {
 	if newWorkspace.Spec.Cluster != "" && newWorkspace.Spec.Cluster != oldWorkspace.Spec.Cluster {
 		return field.Forbidden(field.NewPath("spec").Key("cluster"), "immutable")
@@ -559,6 +566,8 @@ func (v *WorkspaceValidator) validateImmutableFields(newWorkspace, oldWorkspace 
 	return nil
 }
 
+// When a volume is removed, check whether any workload is currently using it.
+// Note: that only PVC volumes are checked here; hostPath volumes are ignored.
 func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
 	newVolumeSet := sets.NewSet()
 	for _, vol := range newWorkspace.Spec.Volumes {
@@ -599,6 +608,9 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorks
 	return nil
 }
 
+// When there is a nodesAction targeting nodes, check whether the operation's targets are valid,
+// for example, whether they belong to the same cluster,
+// and whether the workspace corresponding to the nodes to be bound or unbound is correct.
 func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
 	oldActions, _ := parseNodesAction(oldWorkspace)
 	newActions, err := parseNodesAction(newWorkspace)
@@ -686,12 +698,13 @@ func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace
 	return nil
 }
 
-func getWorkspace(ctx context.Context, cli client.Client, workspaceName string) (*v1.Workspace, error) {
-	if workspaceName == corev1.NamespaceDefault || workspaceName == "" {
+// Get the workspace; if it is the default workspace (typically used internally by preflight), return empty.
+func getWorkspace(ctx context.Context, cli client.Client, workspaceId string) (*v1.Workspace, error) {
+	if workspaceId == corev1.NamespaceDefault || workspaceId == "" {
 		return nil, nil
 	}
 	workspace := &v1.Workspace{}
-	if err := cli.Get(ctx, client.ObjectKey{Name: workspaceName}, workspace); err != nil {
+	if err := cli.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err != nil {
 		return nil, err
 	}
 	return workspace, nil
