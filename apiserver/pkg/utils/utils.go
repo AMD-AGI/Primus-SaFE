@@ -43,7 +43,7 @@ func ReadBody(req *http.Request) ([]byte, error) {
 func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
 	obj, _ := clientManager.Get(clusterId)
 	if obj == nil {
-		err := fmt.Errorf("the client of cluster %s is not found. pls retry later", clusterId)
+		err := fmt.Errorf("the client of cluster %s is not found. please retry later", clusterId)
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	k8sClients, ok := obj.(*commonclient.ClientFactory)

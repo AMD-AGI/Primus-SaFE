@@ -10,11 +10,12 @@ import (
 	"fmt"
 )
 
+// Options contains configuration options for the webhook server
 type Options struct {
-	Config      string
-	CertDir     string
-	LogFileSize int // unit: MB
-	LogfilePath string
+	Config      string // Config path to the primus-safe config.yaml
+	CertDir     string // CertDir path to the certificates directory
+	LogFileSize int    // LogFileSize maximum log file size in MB
+	LogfilePath string // LogfilePath path to the log file
 }
 
 func (opt *Options) InitFlags() error {

@@ -8,7 +8,6 @@ package webhooks
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -101,7 +100,7 @@ func (v *AddOnTemplateValidator) validateRequiredParams(addon *v1.AddonTemplate)
 	switch addon.Spec.Type {
 	case v1.AddonTemplateDefault:
 		if addon.Spec.Action == "" {
-			return commonerrors.NewBadRequest(fmt.Sprintf("the action of spec is empty"))
+			return commonerrors.NewBadRequest("the action of spec is empty")
 		}
 	case v1.AddonTemplateHelm:
 	default:
