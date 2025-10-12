@@ -13,6 +13,88 @@ import (
 	"k8s.io/klog/v2"
 )
 
+func (h *ImageHandler) refreshImageImportSecrets(ctx context.Context) error {
+	registries, err := h.dbClient.ListRegistryInfos(ctx, 1, -1)
+	if err != nil {
+		klog.ErrorS(err, "List registry info from db error")
+		return err
+	}
+	secret, err := h.getDesiredImageImportSecret(registries)
+	if err != nil {
+		klog.ErrorS(err, "Get desired image pull secret error")
+		return err
+	}
+	// create or update
+	existSecret, err := h.clientSet.CoreV1().Secrets(secret.Namespace).Get(ctx, secret.Name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			_, err = h.clientSet.CoreV1().Secrets(secret.Namespace).Create(ctx, secret, metav1.CreateOptions{})
+			if err != nil {
+				klog.ErrorS(err, "Create image pull secret error")
+				return err
+			}
+			klog.Info("Create image pull secret success")
+			return nil
+		}
+		klog.ErrorS(err, "Get image pull secret error")
+		return err
+	}
+	existSecret.Data = secret.Data
+	existSecret.StringData = secret.StringData
+	existSecret.Type = secret.Type
+	_, err = h.clientSet.CoreV1().Secrets(secret.Namespace).Update(ctx, existSecret, metav1.UpdateOptions{})
+	if err != nil {
+		klog.ErrorS(err, "Update image pull secret error")
+		return err
+	}
+	klog.Info("Update image pull secret success")
+	return nil
+}
+
+func (h *ImageHandler) getDesiredImageImportSecret(registries []*model.RegistryInfo) (*corev1.Secret, error) {
+	auths := RegistryAuth{Auths: map[string]RegistryAuthItem{}}
+	for _, registry := range registries {
+		if registry.Username == "" {
+			continue
+		}
+		userName := ""
+		password := ""
+		if registry.Username != "" {
+			u, err := crypto.NewCrypto().Decrypt(registry.Username)
+			if err != nil {
+				klog.ErrorS(err, "Decrypt registry username Fail", registry.Name)
+				continue
+			}
+			userName = u
+		}
+		if registry.Password != "" {
+			p, err := crypto.NewCrypto().Decrypt(registry.Password)
+			if err != nil {
+				klog.ErrorS(err, "Decrypt registry password Fail", registry.Name)
+				continue
+			}
+			password = p
+
+		}
+		auths.Auths[registry.URL] = RegistryAuthItem{Auth: generateAuthValue(userName, password)}
+	}
+	jsonByte, err := json.Marshal(auths)
+	if err != nil {
+		klog.ErrorS(err, "Generate registry auth json error")
+		return nil, err
+	}
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ImageImportSecretName,
+			Namespace: DefaultNamespace,
+		},
+		StringData: map[string]string{
+			"config.json": string(jsonByte),
+		},
+		Type: corev1.SecretTypeOpaque,
+	}, nil
+}
+
 func (h *ImageHandler) refreshImagePullSecrets(ctx context.Context) error {
 	registries, err := h.dbClient.ListRegistryInfos(ctx, 1, -1)
 	if err != nil {
@@ -25,10 +107,10 @@ func (h *ImageHandler) refreshImagePullSecrets(ctx context.Context) error {
 		return err
 	}
 	// create or update
-	existSecret, err := h.clientSet.CoreV1().Secrets(DefaultNamespace).Get(ctx, PullSecretName, metav1.GetOptions{})
+	existSecret, err := h.clientSet.CoreV1().Secrets(secret.Namespace).Get(ctx, secret.Name, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			_, err = h.clientSet.CoreV1().Secrets(DefaultNamespace).Create(ctx, secret, metav1.CreateOptions{})
+			_, err = h.clientSet.CoreV1().Secrets(secret.Namespace).Create(ctx, secret, metav1.CreateOptions{})
 			if err != nil {
 				klog.ErrorS(err, "Create image pull secret error")
 				return err
@@ -40,8 +122,9 @@ func (h *ImageHandler) refreshImagePullSecrets(ctx context.Context) error {
 		return err
 	}
 	existSecret.Data = secret.Data
+	existSecret.StringData = secret.StringData
 	existSecret.Type = secret.Type
-	_, err = h.clientSet.CoreV1().Secrets(DefaultNamespace).Update(ctx, existSecret, metav1.UpdateOptions{})
+	_, err = h.clientSet.CoreV1().Secrets(secret.Namespace).Update(ctx, existSecret, metav1.UpdateOptions{})
 	if err != nil {
 		klog.ErrorS(err, "Update image pull secret error")
 		return err
@@ -84,13 +167,13 @@ func (h *ImageHandler) getDesiredImagePullSecret(registries []*model.RegistryInf
 	}
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      PullSecretName,
+			Name:      ImagePullSecretName,
 			Namespace: DefaultNamespace,
 		},
 		StringData: map[string]string{
-			"config.json": string(jsonByte),
+			".dockerconfigjson": string(jsonByte),
 		},
-		Type: corev1.SecretTypeOpaque,
+		Type: corev1.SecretTypeDockerConfigJson,
 	}, nil
 }
 

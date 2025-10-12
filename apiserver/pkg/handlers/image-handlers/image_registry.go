@@ -22,6 +22,11 @@ func (h *ImageHandler) createImageRegistry(c *gin.Context) (*model.RegistryInfo,
 	if err != nil {
 		return nil, err
 	}
+	err = h.refreshImageImportSecrets(c)
+	if err != nil {
+		return nil, err
+	}
+
 	err = h.refreshImagePullSecrets(c)
 	if err != nil {
 		return nil, err
@@ -44,6 +49,10 @@ func (h *ImageHandler) updateImageRegistry(c *gin.Context) (*model.RegistryInfo,
 	}
 	body.Id = int32(id)
 	result, err := h.upsertImageRegistryInfo(c, body)
+	if err != nil {
+		return nil, err
+	}
+	err = h.refreshImageImportSecrets(c)
 	if err != nil {
 		return nil, err
 	}

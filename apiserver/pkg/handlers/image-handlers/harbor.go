@@ -99,6 +99,10 @@ func (h *ImageHandler) setDefaultImageRegistry(ctx context.Context, url, usernam
 	if err != nil {
 		return fmt.Errorf("failed to update existing registry info: %w", err)
 	}
+	err = h.refreshImageImportSecrets(ctx)
+	if err != nil {
+		return err
+	}
 	err = h.refreshImagePullSecrets(ctx)
 	if err != nil {
 		return err
