@@ -87,7 +87,13 @@ func (h *ImageHandler) setDefaultImageRegistry(ctx context.Context, url, usernam
 	}
 	if exist != nil {
 		req.Id = exist.ID
-
+	} else {
+		exist, err = h.cvtCreateRegistryRequestToRegistryInfo(req)
+		if err != nil {
+			return fmt.Errorf("failed to convert registry request to model: %w", err)
+		}
+		exist.CreatedAt = time.Now()
+		exist.UpdatedAt = time.Now()
 	}
 	err = h.dbClient.UpsertRegistryInfo(ctx, exist)
 	if err != nil {
