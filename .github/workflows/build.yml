@@ -124,11 +124,11 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: '.'
-          file: resource_manager/installer/Dockerfile
+          file: resource-manager/installer/Dockerfile
           push: true
           tags: |
-            "primussafe/resource_manager:${{needs.detect-changes.outputs.image_version}}"
-            "primussafe/resource_manager:${{needs.detect-changes.outputs.date_time}}"
+            "primussafe/resource-manager:${{needs.detect-changes.outputs.image_version}}"
+            "primussafe/resource-manager:${{needs.detect-changes.outputs.date_time}}"
   #####
   # node-exporter
   #####

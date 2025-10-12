@@ -131,7 +131,6 @@ func (r *ImageImportJobReconciler) Reconcile(ctx context.Context, req ctrlruntim
 }
 
 func (r *ImageImportJobReconciler) getImportImagePodLogs(ctx context.Context, job *batchv1.Job) (string, error) {
-	// parse job.Spec.Selector to LabelSelector
 	labelSelect, err := metav1.LabelSelectorAsSelector(job.Spec.Selector)
 	if err != nil {
 		klog.Errorf("transform labelSelect as Selector failed: %v", err)
