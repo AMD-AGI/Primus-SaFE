@@ -138,6 +138,6 @@ func delWorkspace(u *v1.User, key string) {
 	delete(u.Spec.Resources, key)
 }
 
-func GetUserIdByName(name string) string {
+func GenerateUserIdByName(name string) string {
 	return stringutil.MD5(name)
 }

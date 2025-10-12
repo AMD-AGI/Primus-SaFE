@@ -89,7 +89,7 @@ func (r *ClusterReconciler) Reconcile(_ context.Context, _ ctrlruntime.Request) 
 func (r *ClusterReconciler) addClientFactory(ctx context.Context, cluster *v1.Cluster) error {
 	clientManager := commonutils.NewObjectManagerSingleton()
 	if clientManager == nil {
-		return fmt.Errorf("failed to new clients manager")
+		return fmt.Errorf("failed to initialize cluster client manager for cluster %s", cluster.Name)
 	}
 	if clientManager.Has(cluster.Name) {
 		return nil

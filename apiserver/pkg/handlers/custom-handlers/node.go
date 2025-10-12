@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -35,14 +34,9 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
-)
-
-const (
-	RedfishUrl = "https://%s/redfish/v1/Systems/1/Actions/ComputerSystem.Reset"
 )
 
 func (h *Handler) CreateNode(c *gin.Context) {
@@ -67,10 +61,6 @@ func (h *Handler) DeleteNode(c *gin.Context) {
 
 func (h *Handler) GetNodePodLog(c *gin.Context) {
 	handle(c, h.getNodePodLog)
-}
-
-func (h *Handler) RestartNode(c *gin.Context) {
-	handle(c, h.restartNode)
 }
 
 func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
@@ -201,6 +191,7 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 	return totalCount, nodes, nil
 }
 
+// Construct a simplified list node return to improve performance and meet specific requirements.
 func buildListNodeBriefResponse(totalCount int, nodes []*v1.Node) (interface{}, error) {
 	result := &types.ListNodeBriefResponse{
 		TotalCount: totalCount,
@@ -387,54 +378,6 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 		Logs:      strings.Split(string(podLogs), "\n"),
 	}, nil
 }
-
-func (h *Handler) restartNode(c *gin.Context) (interface{}, error) {
-	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
-		Context: c.Request.Context(),
-		UserId:  c.GetString(common.UserId),
-	}); err != nil {
-		return nil, err
-	}
-
-	node, err := h.getAdminNode(c.Request.Context(), c.GetString(types.Name))
-	if err != nil {
-		return nil, err
-	}
-	if v1.GetNodeBMCIp(node) == "" || v1.GetNodeBMCPassword(node) == "" {
-		return nil, commonerrors.NewInternalError("BMC IP or password is not found")
-	}
-	req := &types.RebootNodeRequest{}
-	if _, err = getBodyFromRequest(c.Request, req); err != nil {
-		klog.ErrorS(err, "failed to parse request")
-		return nil, commonerrors.NewBadRequest(err.Error())
-	}
-
-	url := fmt.Sprintf(RedfishUrl, v1.GetNodeBMCIp(node))
-	var body []byte
-	if req.Force != nil && *req.Force {
-		body = []byte(`{"ResetType": "PowerCycle"}`)
-	} else {
-		body = []byte(`{"ResetType": "GracefulRestart"}`)
-	}
-
-	klog.Infof("restart node, url: %s, body: %s", url, string(body))
-	resetReq, err := httpclient.BuildRequest(url, http.MethodPost, body)
-	if err != nil {
-		return nil, commonerrors.NewBadRequest(err.Error())
-	}
-	resetReq.SetBasicAuth("ADMIN", v1.GetNodeBMCPassword(node))
-
-	resp, err := h.httpClient.Do(resetReq)
-	if err != nil {
-		return nil, err
-	}
-	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("%s", string(resp.Body))
-	}
-
-	return string(resp.Body), nil
-}
-
 func (h *Handler) getAdminNode(ctx context.Context, name string) (*v1.Node, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the nodeId is empty")
@@ -550,12 +493,6 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 		return nil, err
 	}
 	node.Spec.SSHSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
-	if req.BMCIp != "" {
-		v1.SetAnnotation(node, v1.NodeBMCIpAnnotation, req.BMCIp)
-	}
-	if req.BMCPassword != "" {
-		v1.SetAnnotation(node, v1.NodeBMCPasswordAnnotation, req.BMCPassword)
-	}
 	v1.SetLabel(node, v1.UserIdLabel, c.GetString(common.UserId))
 	return node, nil
 }
@@ -614,7 +551,7 @@ func parseListNodeQuery(c *gin.Context) (*types.ListNodeRequest, error) {
 
 func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest) (bool, error) {
 	isShouldUpdate := false
-	nodesLabelAction := genNodeLabelAction(node, req)
+	nodesLabelAction := generateNodeLabelAction(node, req)
 	if len(nodesLabelAction) > 0 {
 		isShouldUpdate = true
 	}
@@ -653,12 +590,6 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 		node.Spec.Port = pointer.Int32(*req.Port)
 		isShouldUpdate = true
 	}
-	if req.BMCIp != nil && v1.SetAnnotation(node, v1.NodeBMCIpAnnotation, *req.BMCIp) {
-		isShouldUpdate = true
-	}
-	if req.BMCPassword != nil && v1.SetAnnotation(node, v1.NodeBMCPasswordAnnotation, *req.BMCPassword) {
-		isShouldUpdate = true
-	}
 	if len(nodesLabelAction) > 0 {
 		v1.SetAnnotation(node, v1.NodeLabelAction, string(jsonutils.MarshalSilently(nodesLabelAction)))
 	}
@@ -678,8 +609,8 @@ func (h *Handler) deleteRelatedFaults(ctx context.Context, node *v1.Node, newTai
 			continue
 		}
 		id := commonfaults.GetIdByTaintKey(t.Key)
-		faultName := commonfaults.GenerateFaultName(node.Name, id)
-		fault, err := h.getAdminFault(ctx, faultName)
+		faultId := commonfaults.GenerateFaultName(node.Name, id)
+		fault, err := h.getAdminFault(ctx, faultId)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
@@ -695,7 +626,7 @@ func (h *Handler) deleteRelatedFaults(ctx context.Context, node *v1.Node, newTai
 	return nil
 }
 
-func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]string {
+func generateNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]string {
 	nodesLabelAction := make(map[string]string)
 	if req.Labels != nil {
 		customerLabels := getNodeCustomerLabels(node.Labels)
@@ -758,7 +689,6 @@ func cvtToGetNodeResponse(n *v1.Node, usedResource *resourceInfo) types.GetNodeR
 		NodeResponseItem: cvtToNodeResponseItem(n, usedResource),
 	}
 	result.FlavorId = v1.GetNodeFlavorId(n)
-	result.BMCIP = v1.GetNodeBMCIp(n)
 	result.Taints = getPrimusTaints(n.Status.Taints)
 	result.CustomerLabels = getNodeCustomerLabels(n.Labels)
 	if n.Spec.NodeTemplate != nil {

@@ -70,7 +70,7 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 type handleFunc func(*gin.Context) (interface{}, error)
 
 func handle(c *gin.Context, fn handleFunc) {
-	rsp, err := fn(c)
+	response, err := fn(c)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -80,13 +80,13 @@ func handle(c *gin.Context, fn handleFunc) {
 	if c.Writer.Status() > 0 {
 		code = c.Writer.Status()
 	}
-	switch rspType := rsp.(type) {
+	switch responseType := response.(type) {
 	case []byte:
-		c.Data(code, jsonContentType, rspType)
+		c.Data(code, jsonContentType, responseType)
 	case string:
-		c.Data(code, jsonContentType, []byte(rspType))
+		c.Data(code, jsonContentType, []byte(responseType))
 	default:
-		c.JSON(code, rspType)
+		c.JSON(code, responseType)
 	}
 }
 

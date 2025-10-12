@@ -124,12 +124,12 @@ func (h *Handler) stopFault(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) getAdminFault(ctx context.Context, name string) (*v1.Fault, error) {
-	if name == "" {
+func (h *Handler) getAdminFault(ctx context.Context, faultId string) (*v1.Fault, error) {
+	if faultId == "" {
 		return nil, commonerrors.NewBadRequest("the faultId is empty")
 	}
 	fault := &v1.Fault{}
-	if err := h.Get(ctx, client.ObjectKey{Name: name}, fault); err != nil {
+	if err := h.Get(ctx, client.ObjectKey{Name: faultId}, fault); err != nil {
 		return nil, err
 	}
 	return fault.DeepCopy(), nil

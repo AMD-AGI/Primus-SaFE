@@ -49,7 +49,7 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the workloadId is empty")
 	}
-	workload, err := h.getWorkloadInternal(c.Request.Context(), name)
+	workload, err := h.getWorkloadForAuth(c.Request.Context(), name)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the workloadId is empty")
 	}
-	workload, err := h.getWorkloadInternal(c.Request.Context(), name)
+	workload, err := h.getWorkloadForAuth(c.Request.Context(), name)
 	if err != nil {
 		return nil, err
 	}
@@ -364,7 +364,7 @@ func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*types.List
 	}
 	if query.Offset >= commonsearch.MaxDocsPerQuery {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf(
-			"The maximum offset of log requested cannot exceed %d.", commonsearch.MaxDocsPerQuery))
+			"the maximum offset of log requested cannot exceed %d", commonsearch.MaxDocsPerQuery))
 	}
 	if query.Limit == 0 {
 		query.Limit = 100

@@ -150,7 +150,7 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	adminWorkload := generateAuthWorkload("", "", query.WorkspaceId, query.ClusterId)
+	adminWorkload := generateWorkloadForAuth("", "", query.WorkspaceId, query.ClusterId)
 	if err = h.authWorkloadAction(c, adminWorkload, v1.ListVerb, requestUser, roles); err != nil {
 		return nil, err
 	}
@@ -193,7 +193,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
-		adminWorkload := generateAuthWorkload(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+		adminWorkload := generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
 		if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, requestUser, roles); err != nil {
 			return nil, err
 		}
@@ -222,7 +222,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) deleteWorkloads(c *gin.Context) (interface{}, error) {
-	return h.batchHandleWorkloads(c, BatchDelete)
+	return h.handleBatchWorkloads(c, BatchDelete)
 }
 
 func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
@@ -245,7 +245,7 @@ func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v
 		if err != nil {
 			return nil, commonerrors.IgnoreFound(err)
 		}
-		adminWorkload = generateAuthWorkload(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+		adminWorkload = generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
 		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
 			return nil, err
 		}
@@ -284,7 +284,7 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) stopWorkloads(c *gin.Context) (interface{}, error) {
-	return h.batchHandleWorkloads(c, BatchStop)
+	return h.handleBatchWorkloads(c, BatchStop)
 }
 
 func (h *Handler) stopWorkloadImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
@@ -301,7 +301,7 @@ func (h *Handler) stopWorkloadImpl(c *gin.Context, name string, requestUser *v1.
 			return nil, commonerrors.IgnoreFound(err)
 		}
 		if dbutils.ParseNullString(dbWorkload.Phase) != string(v1.WorkloadStopped) {
-			adminWorkload = generateAuthWorkload(name,
+			adminWorkload = generateWorkloadForAuth(name,
 				dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
 			if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
 				return nil, err
@@ -364,7 +364,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) cloneWorkloads(c *gin.Context) (interface{}, error) {
-	return h.batchHandleWorkloads(c, BatchClone)
+	return h.handleBatchWorkloads(c, BatchClone)
 }
 
 func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
@@ -375,7 +375,7 @@ func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1
 	if err != nil {
 		return nil, err
 	}
-	workload := generateWorkloadByDBItem(c, dbWorkload)
+	workload := cvtDBWorkloadToAdminWorkload(c, dbWorkload)
 	klog.Infof("cloning workload from %s to %s", name, workload.Name)
 	return h.createWorkloadImpl(c, workload, requestUser, roles)
 }
@@ -481,18 +481,18 @@ func (h *Handler) listAdminWorkloads(c *gin.Context, query *types.ListWorkloadRe
 	return result, nil
 }
 
-func (h *Handler) getAdminWorkload(ctx context.Context, name string) (*v1.Workload, error) {
-	if name == "" {
+func (h *Handler) getAdminWorkload(ctx context.Context, workloadId string) (*v1.Workload, error) {
+	if workloadId == "" {
 		return nil, commonerrors.NewBadRequest("the workloadId is empty")
 	}
 	workload := &v1.Workload{}
-	if err := h.Get(ctx, client.ObjectKey{Name: name}, workload); err != nil {
+	if err := h.Get(ctx, client.ObjectKey{Name: workloadId}, workload); err != nil {
 		return nil, err
 	}
 	return workload.DeepCopy(), nil
 }
 
-func (h *Handler) getWorkloadInternal(ctx context.Context, workloadId string) (*v1.Workload, error) {
+func (h *Handler) getWorkloadForAuth(ctx context.Context, workloadId string) (*v1.Workload, error) {
 	if !commonconfig.IsDBEnable() {
 		return h.getAdminWorkload(ctx, workloadId)
 	}
@@ -500,7 +500,7 @@ func (h *Handler) getWorkloadInternal(ctx context.Context, workloadId string) (*
 	if err != nil {
 		return nil, err
 	}
-	adminWorkload := generateAuthWorkload(workloadId, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+	adminWorkload := generateWorkloadForAuth(workloadId, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
 	adminWorkload.CreationTimestamp = metav1.NewTime(dbutils.ParseNullTime(dbWorkload.CreateTime))
 	endTime := dbutils.ParseNullTime(dbWorkload.EndTime)
 	if !endTime.IsZero() {
@@ -585,7 +585,7 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 	return workload, nil
 }
 
-func (h *Handler) batchHandleWorkloads(c *gin.Context, action WorkloadBatchAction) (interface{}, error) {
+func (h *Handler) handleBatchWorkloads(c *gin.Context, action WorkloadBatchAction) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
@@ -781,6 +781,7 @@ func buildListWorkloadOrderBy(query *types.ListWorkloadRequest, dbTags map[strin
 	return orderBy
 }
 
+// Update workload via PatchWorkloadRequest.
 func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest) error {
 	if req.Priority != nil {
 		adminWorkload.Spec.Priority = *req.Priority
@@ -828,6 +829,7 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	return nil
 }
 
+// Convert the workload object returned from the database into the content for API response.
 func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 	w *dbclient.Workload) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
@@ -873,6 +875,7 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 	return result
 }
 
+// Convert the workload object returned from the database into the result of getWorkload
 func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Workload) *types.GetWorkloadResponse {
 	result := &types.GetWorkloadResponse{
 		WorkloadResponseItem: h.cvtDBWorkloadToResponseItem(ctx, w),
@@ -907,7 +910,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 		var customerLabels map[string]string
 		json.Unmarshal([]byte(str), &customerLabels)
 		if len(customerLabels) > 0 {
-			result.CustomerLabels, result.NodeList = handleWorkloadCustomerLabels(customerLabels)
+			result.CustomerLabels, result.NodeList = parseCustomerLabelsAndNodes(customerLabels)
 		}
 	}
 	if str := dbutils.ParseNullString(w.Liveness); str != "" {
@@ -926,6 +929,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 	return result
 }
 
+// Convert the workload object from etcd into the result of getWorkload
 func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workload) *types.GetWorkloadResponse {
 	result := &types.GetWorkloadResponse{
 		WorkloadResponseItem:    cvtWorkloadToResponseItem(w),
@@ -948,7 +952,7 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 		result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p, result.UserId, result.WorkspaceId)
 	}
 	if len(w.Spec.CustomerLabels) > 0 {
-		result.CustomerLabels, result.NodeList = handleWorkloadCustomerLabels(w.Spec.CustomerLabels)
+		result.CustomerLabels, result.NodeList = parseCustomerLabelsAndNodes(w.Spec.CustomerLabels)
 	}
 	if !commonworkload.IsAuthoring(w) {
 		result.EntryPoint = stringutil.Base64Decode(w.Spec.EntryPoint)
@@ -956,7 +960,7 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 	return result
 }
 
-func handleWorkloadCustomerLabels(labels map[string]string) (map[string]string, []string) {
+func parseCustomerLabelsAndNodes(labels map[string]string) (map[string]string, []string) {
 	var nodeList []string
 	customerLabels := make(map[string]string)
 	for key, val := range labels {
@@ -969,6 +973,7 @@ func handleWorkloadCustomerLabels(labels map[string]string) (map[string]string, 
 	return customerLabels, nodeList
 }
 
+// Convert the workload object returned from the etcd into the content for API response.
 func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
 		WorkloadId:       w.Name,
@@ -1077,7 +1082,7 @@ func buildWorkloadLabelSelector(query *types.ListWorkloadRequest) labels.Selecto
 	}
 	return labelSelector
 }
-func generateAuthWorkload(name, userId, workspace, clusterId string) *v1.Workload {
+func generateWorkloadForAuth(name, userId, workspace, clusterId string) *v1.Workload {
 	return &v1.Workload{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       v1.WorkloadKind,
@@ -1096,7 +1101,8 @@ func generateAuthWorkload(name, userId, workspace, clusterId string) *v1.Workloa
 	}
 }
 
-func generateWorkloadByDBItem(c *gin.Context, dbItem *dbclient.Workload) *v1.Workload {
+// Convert the workload object returned from the database into a workload CR
+func cvtDBWorkloadToAdminWorkload(c *gin.Context, dbItem *dbclient.Workload) *v1.Workload {
 	result := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName(dbItem.DisplayName),

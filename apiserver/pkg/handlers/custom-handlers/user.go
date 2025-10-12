@@ -34,7 +34,8 @@ import (
 
 const (
 	FormContent = "application/x-www-form-urlencoded"
-	MaxTokenAge = 3600 * 24 * 365
+	// The lifecycle of the user token
+	MaxCookieTokenAge = 3600 * 24 * 365
 )
 
 func (h *Handler) CreateUser(c *gin.Context) {
@@ -86,7 +87,7 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 func generateUser(req *types.CreateUserRequest, requestUser *v1.User) *v1.User {
 	user := &v1.User{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: commonuser.GetUserIdByName(req.Name),
+			Name: commonuser.GenerateUserIdByName(req.Name),
 			Annotations: map[string]string{
 				v1.UserNameAnnotation:      req.Name,
 				v1.UserEmailAnnotation:     req.Email,
@@ -303,12 +304,12 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) getAdminUser(ctx context.Context, name string) (*v1.User, error) {
-	if name == "" {
+func (h *Handler) getAdminUser(ctx context.Context, userId string) (*v1.User, error) {
+	if userId == "" {
 		return nil, commonerrors.NewBadRequest("the userId is empty")
 	}
 	user := &v1.User{}
-	err := h.Get(ctx, client.ObjectKey{Name: name}, user)
+	err := h.Get(ctx, client.ObjectKey{Name: userId}, user)
 	if err != nil {
 		klog.ErrorS(err, "failed to get user")
 		return nil, err
@@ -340,7 +341,7 @@ func (h *Handler) performDefaultLogin(c *gin.Context, query *types.UserLoginRequ
 	if query.Name == "" {
 		return nil, commonerrors.NewBadRequest("the userName is empty")
 	}
-	userId := commonuser.GetUserIdByName(query.Name)
+	userId := commonuser.GenerateUserIdByName(query.Name)
 	user, err := h.getAdminUser(c.Request.Context(), userId)
 	if err != nil {
 		return nil, commonerrors.NewUserNotRegistered(query.Name)
@@ -384,7 +385,7 @@ func setCookie(c *gin.Context, userInfo *types.UserLoginResponse) {
 	maxAge := 0
 	switch {
 	case userInfo.Expire < 0:
-		maxAge = MaxTokenAge
+		maxAge = MaxCookieTokenAge
 	case userInfo.Expire > 0:
 		maxAge = int(userInfo.Expire - time.Now().Unix())
 	default:
@@ -429,7 +430,7 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) type
 	return result
 }
 
-// only for request from console
+// Clear user's cookie, only for request from console
 func (h *Handler) logout(c *gin.Context) (interface{}, error) {
 	info := &types.UserLoginResponse{}
 	setCookie(c, info)
@@ -480,22 +481,23 @@ func parseListUserQuery(c *gin.Context) (*types.ListUserRequest, error) {
 func buildListUserSelector(query *types.ListUserRequest) labels.Selector {
 	var labelSelector = labels.NewSelector()
 	if query.Name != "" {
-		name := query.Name
-		if unescape, err := url.QueryUnescape(name); err == nil {
-			name = unescape
-		}
-		userId := commonuser.GetUserIdByName(query.Name)
+		name := queryUnescape(query.Name)
+		userId := commonuser.GenerateUserIdByName(name)
 		req, _ := labels.NewRequirement(v1.UserIdLabel, selection.Equals, []string{userId})
 		labelSelector = labelSelector.Add(*req)
 	}
 	if query.Email != "" {
-		email := query.Email
-		if unescape, err := url.QueryUnescape(email); err == nil {
-			email = unescape
-		}
+		email := queryUnescape(query.Email)
 		emailMd5 := stringutil.MD5(email)
 		req, _ := labels.NewRequirement(v1.UserEmailMd5Label, selection.Equals, []string{emailMd5})
 		labelSelector = labelSelector.Add(*req)
 	}
 	return labelSelector
+}
+
+func queryUnescape(input string) string {
+	if unescape, err := url.QueryUnescape(input); err == nil {
+		return unescape
+	}
+	return input
 }

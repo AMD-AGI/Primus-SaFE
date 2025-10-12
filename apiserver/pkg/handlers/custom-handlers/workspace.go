@@ -84,7 +84,7 @@ func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
 	}
 	err = h.Create(c.Request.Context(), workspace)
 	if err != nil {
-		klog.ErrorS(err, "failed to create", "workspace", workspace)
+		klog.ErrorS(err, "failed to create", "workspace", req.Name)
 		return nil, err
 	}
 	klog.Infof("create workspace, name: %s", workspace.Name)
@@ -114,9 +114,11 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 	if err = h.List(ctx, workspaceList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
 		return nil, err
 	}
-	sort.Slice(workspaceList.Items, func(i, j int) bool {
-		return workspaceList.Items[i].Name < workspaceList.Items[j].Name
-	})
+	if len(workspaceList.Items) > 1 {
+		sort.Slice(workspaceList.Items, func(i, j int) bool {
+			return workspaceList.Items[i].Name < workspaceList.Items[j].Name
+		})
+	}
 	roles := h.auth.GetRoles(ctx, requestUser)
 	result := &types.ListWorkspaceResponse{}
 	for _, w := range workspaceList.Items {
@@ -218,6 +220,7 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// Update workload via PatchWorkspaceRequest.
 func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, req *types.PatchWorkspaceRequest) error {
 	if req.Description != nil {
 		v1.SetAnnotation(workspace, v1.DescriptionAnnotation, *req.Description)
@@ -254,9 +257,9 @@ func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, 
 	return nil
 }
 
-func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1.Workspace, ids []string) error {
+func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1.Workspace, secretIds []string) error {
 	var imageSecrets []*corev1.ObjectReference
-	for _, id := range ids {
+	for _, id := range secretIds {
 		secret, err := h.getAdminSecret(ctx, id)
 		if err != nil {
 			return err
@@ -267,12 +270,12 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1
 	return nil
 }
 
-func (h *Handler) getAdminWorkspace(ctx context.Context, name string) (*v1.Workspace, error) {
-	if name == "" {
+func (h *Handler) getAdminWorkspace(ctx context.Context, workspaceId string) (*v1.Workspace, error) {
+	if workspaceId == "" {
 		return nil, commonerrors.NewBadRequest("the workspaceId is empty")
 	}
 	workspace := &v1.Workspace{}
-	err := h.Get(ctx, client.ObjectKey{Name: name}, workspace)
+	err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace)
 	if err != nil {
 		klog.ErrorS(err, "failed to get admin workspace")
 		return nil, err
@@ -288,6 +291,7 @@ func (h *Handler) processWorkspaceNodes(c *gin.Context) (interface{}, error) {
 	return nil, h.updateWorkspaceNodesAction(c, c.GetString(types.Name), req.Action, req.NodeIds)
 }
 
+// Convert the requested nodes and action into a node action to update the workspace.
 func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action string, nodeIds []string) error {
 	nodeAction := commonnodes.BuildAction(action, nodeIds...)
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -434,6 +438,7 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 	return result, nil
 }
 
+// Get the quota that has been used by the workspace.
 func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Workspace) (corev1.ResourceList, error) {
 	filterNode := func(nodeName string) bool {
 		n, err := h.getAdminNode(ctx, nodeName)

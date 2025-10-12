@@ -232,7 +232,6 @@ func (h *Handler) updateClusterSecret(ctx context.Context, secret *corev1.Secret
 }
 
 func (h *Handler) updateWorkspaceSecret(ctx context.Context, inputSecret *corev1.Secret) error {
-	maxRetry := 3
 	isApplyAllWorkspace := v1.IsSecretBindAllWorkspaces(inputSecret)
 	secretReference := commonutils.GenObjectReference(inputSecret.TypeMeta, inputSecret.ObjectMeta)
 
@@ -265,7 +264,7 @@ func (h *Handler) updateWorkspaceSecret(ctx context.Context, inputSecret *corev1
 			}
 		}
 		return nil
-	}, maxRetry, time.Millisecond*100); err != nil {
+	}, types.MaxRetry, time.Millisecond*100); err != nil {
 		klog.ErrorS(err, "failed to update workspace secret", "secret", inputSecret.Name)
 		return err
 	}
@@ -275,7 +274,7 @@ func (h *Handler) updateWorkspaceSecret(ctx context.Context, inputSecret *corev1
 func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	name := c.GetString(types.Name)
 	if name == "" {
-		return nil, commonerrors.NewBadRequest("the secretId is not found")
+		return nil, commonerrors.NewBadRequest("the secretId is empty")
 	}
 	secret, err := h.getAdminSecret(c.Request.Context(), name)
 	if err != nil {
@@ -325,7 +324,6 @@ func (h *Handler) deleteClusterSecret(ctx context.Context, secretId string) erro
 }
 
 func (h *Handler) deleteWorkspaceSecret(ctx context.Context, secretId string) error {
-	maxRetry := 3
 	if err := backoff.ConflictRetry(func() error {
 		workspaceList := &v1.WorkspaceList{}
 		if err := h.List(ctx, workspaceList, &client.ListOptions{}); err != nil {
@@ -347,7 +345,7 @@ func (h *Handler) deleteWorkspaceSecret(ctx context.Context, secretId string) er
 			}
 		}
 		return nil
-	}, maxRetry, time.Millisecond*100); err != nil {
+	}, types.MaxRetry, time.Millisecond*100); err != nil {
 		klog.ErrorS(err, "failed to update workspace secret", "secret", secretId)
 		return err
 	}
@@ -365,7 +363,7 @@ func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secr
 
 func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Secret, error) {
 	if req.Name == "" {
-		return nil, commonerrors.NewBadRequest("the secretName is empty")
+		return nil, commonerrors.NewBadRequest("the name is empty")
 	}
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -469,7 +467,7 @@ func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 	switch result.Type {
 	case string(v1.SecretImage):
 		dockerConf := &types.DockerConfig{}
-		if json.Unmarshal(secret.Data[types.DockerConfigJson], dockerConf) == nil {
+		if json.Unmarshal(secret.Data[types.DockerConfigJson], dockerConf) == nil && len(dockerConf.Auth) > 0 {
 			for k, v := range dockerConf.Auth {
 				result.Params[types.ServerParam] = k
 				result.Params[types.UserNameParam] = v.UserName
