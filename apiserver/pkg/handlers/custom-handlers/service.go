@@ -21,16 +21,17 @@ func (h *Handler) GetWorkloadService(c *gin.Context) {
 	handle(c, h.getWorkloadService)
 }
 
+// Obtain the service started by the data plane corresponding to this workload.
 func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	name := c.GetString(types.Name)
 	if name == "" {
-		return nil, commonerrors.NewBadRequest("the serviceId is not found")
+		return nil, commonerrors.NewBadRequest("the serviceId is empty")
 	}
 
 	ctx := c.Request.Context()
 	adminWorkload, err := h.getAdminWorkload(ctx, name)
 	if err != nil {
-		return nil, commonerrors.NewNotFoundWithMessage("the workload is not found")
+		return nil, commonerrors.NewNotFoundWithMessage(err.Error())
 	}
 	workspace := adminWorkload.Spec.Workspace
 	if err = h.auth.Authorize(authority.Input{

@@ -10,6 +10,7 @@ const (
 	PodId = "podId"
 
 	DefaultQueryLimit = 100
+	MaxRetry          = 3
 )
 
 type ResourceList map[string]int64

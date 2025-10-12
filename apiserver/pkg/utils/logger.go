@@ -46,13 +46,13 @@ func Logger() gin.HandlerFunc {
 }
 
 func formatter(param gin.LogFormatterParams) string {
-	return fmt.Sprintf("[GIN] %v | %d | %v | %s | %s %#v | %#v | %d |\n%s",
+	return fmt.Sprintf("[GIN] %v | %d | %v | %s | %s %#v | %d |\n%s",
 		param.TimeStamp.Format(time.DateTime),
 		param.StatusCode,
 		param.Latency,
 		param.ClientIP,
-		param.Method, param.Path,
-		param.Keys["trace_id"],
+		param.Method,
+		param.Path,
 		param.BodySize,
 		param.ErrorMessage,
 	)
@@ -66,7 +66,7 @@ func errorWrapper(errs []*gin.Error) string {
 	for i, err := range errs {
 		var innerErr *commonerrors.Error
 		if errors.As(err.Err, &innerErr) {
-			_, _ = fmt.Fprintf(&buffer, "Error #%02d:Message %s.Code %s .Stack %s\n",
+			_, _ = fmt.Fprintf(&buffer, "Error #%02d:Message %s.Code %s. Stack %s\n",
 				i+1, innerErr.Message, innerErr.Code, innerErr.GetTopStackString())
 
 		} else if _, ok := err.Err.(fmt.Formatter); ok {

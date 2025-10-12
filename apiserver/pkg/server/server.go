@@ -35,6 +35,10 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 )
 
+const (
+	MaxSSHConnections = 10000
+)
+
 var (
 	scheme = runtime.NewScheme()
 )
@@ -107,7 +111,7 @@ func (s *Server) Start() {
 		}
 	}()
 	if !s.ctrlManager.GetCache().WaitForCacheSync(s.ctx) {
-		klog.Errorf("failed to WaitForCacheSync")
+		klog.Errorf("failed to WaitForCacheSync for controller manager")
 		os.Exit(-1)
 	}
 
@@ -132,6 +136,7 @@ func (s *Server) Start() {
 func (s *Server) Stop() {
 	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
+	klog.Info("shutting down http server...")
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		klog.ErrorS(err, "failed to shutdown httpserver")
 	}
@@ -140,7 +145,7 @@ func (s *Server) Stop() {
 			klog.ErrorS(err, "failed to shutdown ssh-server")
 		}
 	}
-	klog.Info("api-server is stopped")
+	klog.Info("apiserver is stopped")
 	klog.Flush()
 }
 
@@ -193,7 +198,7 @@ func (s *Server) startSSHServer() error {
 		return err
 	}
 	addr := fmt.Sprintf(":%d", commonconfig.GetSSHServerPort())
-	s.sshServer = &SshServer{Addr: addr, Handler: handler}
+	s.sshServer = NewSshServer(addr, handler, MaxSSHConnections)
 	klog.Infof("ssh-server listen port: %d", commonconfig.GetSSHServerPort())
 	if err = s.sshServer.ListenAndServe(s.ctx); err != nil {
 		klog.ErrorS(err, "failed to start ssh server")

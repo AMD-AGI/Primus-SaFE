@@ -314,17 +314,17 @@ func (h *Handler) processClusterNode(ctx context.Context, cluster *v1.Cluster, n
 		if err != nil {
 			return err
 		}
+		if adminNode.GetSpecCluster() == specCluster {
+			return nil
+		}
 		if action == v1.NodeActionRemove {
 			if v1.GetClusterId(adminNode) != cluster.Name {
-				return fmt.Errorf("The node does not belong to the specified cluster")
+				return fmt.Errorf("the node does not belong to the specified cluster")
 			}
 		} else {
 			if adminNode.GetSpecCluster() != "" && adminNode.GetSpecCluster() != specCluster {
-				return fmt.Errorf("The node belongs to another cluster")
+				return fmt.Errorf("the node belongs to another cluster")
 			}
-		}
-		if adminNode.GetSpecCluster() == specCluster {
-			return nil
 		}
 		if v1.IsControlPlane(adminNode) {
 			return fmt.Errorf("the control plane node can not be changed")
@@ -374,12 +374,12 @@ func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
 	if err = h.auth.Authorize(authority.Input{
 		Context:  c.Request.Context(),
 		Resource: cluster,
-		// The pod-log is generated when the cluster is creating.
+		// The pod log is generated when the cluster is being created.
 		Verb:   v1.CreateVerb,
 		UserId: c.GetString(common.UserId),
 	}); err != nil {
 		if commonerrors.IsForbidden(err) {
-			return nil, commonerrors.NewForbidden("The user is not allowed to get cluster's log")
+			return nil, commonerrors.NewForbidden("the user is not allowed to get cluster's log")
 		}
 		return nil, err
 	}
@@ -387,7 +387,7 @@ func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterManageClusterLabel: cluster.Name})
 	podName, err := h.getLatestPodName(c, labelSelector)
 	if err != nil {
-		return nil, commonerrors.NewNotImplemented("Logging service is only available when creating cluster")
+		return nil, commonerrors.NewNotImplemented("logging service is only available when creating cluster")
 	}
 	podLogs, err := h.getPodLog(c, h.clientSet, common.PrimusSafeNamespace, podName, "")
 	if err != nil {
@@ -439,12 +439,12 @@ func (h *Handler) getPodLog(c *gin.Context, clientSet kubernetes.Interface,
 	return podLogs, nil
 }
 
-func (h *Handler) getAdminCluster(ctx context.Context, name string) (*v1.Cluster, error) {
-	if name == "" {
+func (h *Handler) getAdminCluster(ctx context.Context, clusterId string) (*v1.Cluster, error) {
+	if clusterId == "" {
 		return nil, commonerrors.NewBadRequest("the clusterId is empty")
 	}
 	cluster := &v1.Cluster{}
-	err := h.Get(ctx, client.ObjectKey{Name: name}, cluster)
+	err := h.Get(ctx, client.ObjectKey{Name: clusterId}, cluster)
 	if err != nil {
 		klog.ErrorS(err, "failed to get admin cluster")
 		return nil, err

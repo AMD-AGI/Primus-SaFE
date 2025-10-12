@@ -16,10 +16,6 @@ type CreateNodeRequest struct {
 	PrivateIP string `json:"privateIP"`
 	// optional
 	PublicIP string `json:"publicIP,omitempty"`
-	// optional, the ip of bmc
-	BMCIp string `json:"bmcIp,omitempty"`
-	// optional, the password of bmc
-	BMCPassword string `json:"bmcPassword,omitempty"`
 	// SSH port，default 22
 	Port *int32 `json:"port,omitempty"`
 	// node labels
@@ -113,8 +109,6 @@ type NodeResponseItem struct {
 
 type GetNodeResponse struct {
 	NodeResponseItem
-	// the bmc ip of node
-	BMCIP string `json:"bmcIP"`
 	// the nodes' flavor id
 	FlavorId string `json:"flavorId"`
 	// the nodes' template id
@@ -137,13 +131,11 @@ type WorkloadInfo struct {
 }
 
 type PatchNodeRequest struct {
-	Taints      *[]corev1.Taint    `json:"taints,omitempty"`
-	Labels      *map[string]string `json:"labels,omitempty"`
-	FlavorId    *string            `json:"flavorId,omitempty"`
-	TemplateId  *string            `json:"templateId,omitempty"`
-	Port        *int32             `json:"port,omitempty"`
-	BMCIp       *string            `json:"bmcIp,omitempty"`
-	BMCPassword *string            `json:"bmcPassword,omitempty"`
+	Taints     *[]corev1.Taint    `json:"taints,omitempty"`
+	Labels     *map[string]string `json:"labels,omitempty"`
+	FlavorId   *string            `json:"flavorId,omitempty"`
+	TemplateId *string            `json:"templateId,omitempty"`
+	Port       *int32             `json:"port,omitempty"`
 }
 
 type GetNodePodLogResponse struct {
@@ -154,11 +146,4 @@ type GetNodePodLogResponse struct {
 	PodId string `json:"podId"`
 	// An array of log lines, returned in the same order as they appear in the original logs
 	Logs []string `json:"logs"`
-}
-
-type RebootNodeRequest struct {
-	// force: Boolean, optional, default is false.
-	// true: Force restart (e.g., power off and then power on)
-	// false: Graceful restart (attempt a clean shutdown before restarting)
-	Force *bool `json:"force,omitempty"`
 }
