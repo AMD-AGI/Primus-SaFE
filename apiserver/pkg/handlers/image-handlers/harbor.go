@@ -3,6 +3,7 @@ package image_handlers
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -224,7 +225,7 @@ func (h *ImageHandler) harborDo(ctx context.Context, harborHost, path, username,
 		req.SetBasicAuth(username, password)
 	}
 
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := newHTTPClientSkipTLS()
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("%s request failed: %w", method, err)
@@ -253,7 +254,7 @@ func (h *ImageHandler) harborRequest(ctx context.Context, harborHost, path, user
 		req.SetBasicAuth(username, password)
 	}
 
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := newHTTPClientSkipTLS()
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
@@ -265,4 +266,15 @@ func (h *ImageHandler) harborRequest(ctx context.Context, harborHost, path, user
 	}
 
 	return json.NewDecoder(resp.Body).Decode(result)
+}
+
+func newHTTPClientSkipTLS() *http.Client {
+	return &http.Client{
+		Timeout: 8 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, // <- 跳过证书校验（不安全）
+			},
+		},
+	}
 }
