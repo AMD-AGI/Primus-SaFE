@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"strings"
 	"sync"
@@ -90,7 +89,7 @@ func (c *client) Do(req *http.Request) (*Result, error) {
 	if rsp == nil {
 		return nil, fmt.Errorf("no result")
 	}
-	data, err := ioutil.ReadAll(rsp.Body)
+	data, err := io.ReadAll(rsp.Body)
 	defer rsp.Body.Close()
 	if err != nil {
 		return nil, err

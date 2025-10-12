@@ -8,7 +8,6 @@ package utils
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -20,6 +19,7 @@ const (
 	DefaultMaxRequestBodyBytes = int64(2 * 1024 * 1024)
 )
 
+// Read the HTTP request body with a size limit.
 func ReadBody(req *http.Request) ([]byte, error) {
 	defer req.Body.Close()
 	var lr *io.LimitedReader
@@ -28,7 +28,7 @@ func ReadBody(req *http.Request) ([]byte, error) {
 			R: req.Body,
 			N: DefaultMaxRequestBodyBytes + 1,
 		}
-		return ioutil.ReadAll(lr)
+		return io.ReadAll(lr)
 	}()
 	if err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())

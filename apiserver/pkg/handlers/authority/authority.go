@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -24,6 +25,7 @@ const (
 )
 
 var (
+	once     sync.Once
 	instance *Authorizer
 )
 
@@ -48,9 +50,11 @@ type Input struct {
 }
 
 func NewAuthorizer(cli client.Client) *Authorizer {
-	instance = &Authorizer{
-		Client: cli,
-	}
+	once.Do(func() {
+		instance = &Authorizer{
+			Client: cli,
+		}
+	})
 	return instance
 }
 
@@ -110,41 +114,15 @@ func (a *Authorizer) GetRoles(ctx context.Context, user *v1.User) []*v1.Role {
 }
 
 func (a *Authorizer) authorize(in Input) error {
-	if in.User.IsRestricted() {
-		return commonerrors.NewForbidden(
-			fmt.Sprintf("The user is restricted. type: %d", in.User.Spec.RestrictedType))
+	if err := a.checkUserStatus(in.User); err != nil {
+		return err
 	}
-	if in.ResourceOwner == "" {
-		in.ResourceOwner = v1.GetUserId(in.Resource)
-	}
-	isOwner := false
-	if in.User.Name == in.ResourceOwner {
-		isOwner = true
-	}
-	isWorkspaceUser := false
-	if len(in.Workspaces) > 0 && commonuser.HasWorkspaceRight(in.User, in.Workspaces...) {
-		isWorkspaceUser = true
-	}
-	resourceKind := in.ResourceKind
-	if resourceKind == "" {
-		resourceKind = in.Resource.GetObjectKind().GroupVersionKind().Kind
-	}
-	resourceKind = strings.ToLower(resourceKind)
-	resourceName := ""
-	if in.Resource != nil {
-		resourceName = in.Resource.GetName()
-	}
+	isOwner, isWorkspaceUser := a.determineOwnership(&in)
+	resourceKind, resourceName := a.extractResourceInfo(in)
 
-	roles := make([]*v1.Role, 0, len(in.Roles)+1)
-	roles = append(roles, in.Roles...)
-	if len(in.Workspaces) > 0 && commonuser.HasWorkspaceManagedRight(in.User, in.Workspaces...) {
-		role := &v1.Role{}
-		if err := a.Get(in.Context, client.ObjectKey{Name: string(v1.WorkspaceAdminRole)}, role); err == nil {
-			roles = append(roles, role)
-		}
-	}
+	roles := a.extendRolesWithWorkspaceAdmin(in)
 	for _, r := range roles {
-		rules := getPolicyRules(r, resourceKind, resourceName, isOwner, isWorkspaceUser)
+		rules := a.getPolicyRules(r, resourceKind, resourceName, isOwner, isWorkspaceUser)
 		if isMatchVerb(rules, in.Verb) {
 			return nil
 		}
@@ -153,7 +131,58 @@ func (a *Authorizer) authorize(in Input) error {
 		fmt.Sprintf("The user is not allowed to %s %s", in.Verb, resourceKind))
 }
 
-func getPolicyRules(role *v1.Role, resourceKind, resourceName string, isOwner, isWorkspaceUser bool) []*v1.PolicyRule {
+func (a *Authorizer) checkUserStatus(user *v1.User) error {
+	if user.IsRestricted() {
+		return commonerrors.NewForbidden(
+			fmt.Sprintf("The user is restricted. type: %d", user.Spec.RestrictedType))
+	}
+	return nil
+}
+
+func (a *Authorizer) extractResourceInfo(in Input) (resourceKind, resourceName string) {
+	resourceKind = in.ResourceKind
+	if resourceKind == "" {
+		resourceKind = in.Resource.GetObjectKind().GroupVersionKind().Kind
+	}
+	resourceKind = strings.ToLower(resourceKind)
+
+	if in.Resource != nil {
+		resourceName = in.Resource.GetName()
+	}
+	return resourceKind, resourceName
+}
+
+func (a *Authorizer) determineOwnership(in *Input) (isOwner bool, isWorkspaceUser bool) {
+	if in.ResourceOwner == "" {
+		in.ResourceOwner = v1.GetUserId(in.Resource)
+	}
+
+	if in.User.Name == in.ResourceOwner {
+		isOwner = true
+	}
+
+	if len(in.Workspaces) > 0 && commonuser.HasWorkspaceRight(in.User, in.Workspaces...) {
+		isWorkspaceUser = true
+	}
+
+	return isOwner, isWorkspaceUser
+}
+
+func (a *Authorizer) extendRolesWithWorkspaceAdmin(in Input) []*v1.Role {
+	roles := make([]*v1.Role, 0, len(in.Roles)+1)
+	roles = append(roles, in.Roles...)
+
+	if len(in.Workspaces) > 0 && commonuser.HasWorkspaceManagedRight(in.User, in.Workspaces...) {
+		role := &v1.Role{}
+		if err := a.Get(in.Context, client.ObjectKey{Name: string(v1.WorkspaceAdminRole)}, role); err == nil {
+			roles = append(roles, role)
+		}
+	}
+	return roles
+}
+
+func (a *Authorizer) getPolicyRules(role *v1.Role,
+	resourceKind, resourceName string, isOwner, isWorkspaceUser bool) []*v1.PolicyRule {
 	var result []*v1.PolicyRule
 	for i, r := range role.Rules {
 		if !slice.Contains(r.Resources, AllResource) && !slice.Contains(r.Resources, resourceKind) {

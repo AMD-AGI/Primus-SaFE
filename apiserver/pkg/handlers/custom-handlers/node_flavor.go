@@ -98,7 +98,7 @@ func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
 	}
 
 	result := types.ListNodeFlavorResponse{}
-	if result.TotalCount > 0 {
+	if len(nl.Items) > 1 {
 		sort.Slice(nl.Items, func(i, j int) bool {
 			if nl.Items[i].CreationTimestamp.Time.Equal(nl.Items[j].CreationTimestamp.Time) {
 				return strings.Compare(nl.Items[i].Name, nl.Items[j].Name) < 0
@@ -199,12 +199,12 @@ func (h *Handler) deleteNodeFlavor(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) getAdminNodeFlavor(ctx context.Context, name string) (*v1.NodeFlavor, error) {
-	if name == "" {
+func (h *Handler) getAdminNodeFlavor(ctx context.Context, flavorId string) (*v1.NodeFlavor, error) {
+	if flavorId == "" {
 		return nil, commonerrors.NewBadRequest("the nodeFlavorId is empty")
 	}
 	nf := &v1.NodeFlavor{}
-	err := h.Get(ctx, client.ObjectKey{Name: name}, nf)
+	err := h.Get(ctx, client.ObjectKey{Name: flavorId}, nf)
 	if err != nil {
 		klog.ErrorS(err, "failed to get node flavor")
 		return nil, err

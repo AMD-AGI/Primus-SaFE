@@ -181,13 +181,13 @@ func (h *Handler) stopOpsJob(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) deleteAdminOpsJob(c *gin.Context, name string) (bool, error) {
-	if name == "" {
-		return false, commonerrors.NewBadRequest("opsJobId is empty")
+func (h *Handler) deleteAdminOpsJob(c *gin.Context, opsJobId string) (bool, error) {
+	if opsJobId == "" {
+		return false, commonerrors.NewBadRequest("the opsJobId is empty")
 	}
 	ctx := c.Request.Context()
 	opsJob := &v1.OpsJob{}
-	err := h.Get(ctx, client.ObjectKey{Name: name}, opsJob)
+	err := h.Get(ctx, client.ObjectKey{Name: opsJobId}, opsJob)
 	if err != nil {
 		return false, client.IgnoreNotFound(err)
 	}
@@ -299,7 +299,7 @@ func (h *Handler) generateDumpLogJob(c *gin.Context, body []byte) (*v1.OpsJob, e
 			fmt.Sprintf("%s must be specified in the job.", v1.ParameterWorkload))
 	}
 
-	workload, err := h.getWorkloadInternal(c.Request.Context(), workloadParam.Value)
+	workload, err := h.getWorkloadForAuth(c.Request.Context(), workloadParam.Value)
 	if err != nil {
 		return nil, err
 	}

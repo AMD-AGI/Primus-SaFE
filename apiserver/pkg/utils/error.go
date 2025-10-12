@@ -15,6 +15,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
+// Define a unified Primus error response, including HTTP code, error code, and error message.
 type PrimusApiError struct {
 	HttpCode     int    `json:"-"`
 	ErrorCode    string `json:"errorCode"`
@@ -25,13 +26,14 @@ func (err *PrimusApiError) Error() string {
 	return err.ErrorMessage
 }
 
+// Handle the error, convert it into a standardized error format, and return it to the Gin framework.
 func AbortWithApiError(c *gin.Context, err error) {
 	handleErrors(c, err)
-	rsp := cvtToErrResponse(err)
+	rsp := convertToErrResponse(err)
 	c.AbortWithStatusJSON(rsp.HttpCode, rsp)
 }
 
-func cvtToErrResponse(err error) PrimusApiError {
+func convertToErrResponse(err error) PrimusApiError {
 	var result *PrimusApiError
 	if errors.As(err, &result) {
 		return *result
@@ -69,7 +71,6 @@ func handleErrors(c *gin.Context, err error) {
 	}
 	for _, val := range errs {
 		if val != nil {
-			// 在 Gin 框架中，c.Error() 用于将错误信息与请求关联起来，并传递给日志记录中间件或其他处理错误的中间件
 			_ = c.Error(val)
 		}
 	}

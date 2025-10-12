@@ -7,7 +7,6 @@ package authority
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -41,10 +40,6 @@ func ParseCookie(c *gin.Context) error {
 		userId := c.GetHeader(common.UserId)
 		// only for internal user
 		if userId != "" && !commonconfig.IsUserTokenRequired() {
-			// Briefly: Maintain compatibility with the old user system for now, to be removed later.
-			if !isMD5(userId) {
-				userId = stringutil.MD5(userId)
-			}
 			c.Set(common.UserId, userId)
 			return nil
 		}
@@ -63,16 +58,11 @@ func parseCookie(c *gin.Context) error {
 		klog.ErrorS(err, "failed to validate user token", "token", tokenStr)
 		return fmt.Errorf("%s", InvalidToken)
 	}
-	if commonconfig.GetUserTokenExpire() >= 0 && time.Now().Unix() > token.Expire {
+	if commonconfig.GetUserTokenExpire() > 0 && time.Now().Unix() > token.Expire {
 		return fmt.Errorf("%s", TokenExpire)
 	}
 	c.Set(common.UserId, token.UserId)
 	return nil
-}
-
-func isMD5(s string) bool {
-	matched, _ := regexp.MatchString(`^[a-fA-F0-9]{32}$`, s)
-	return matched
 }
 
 func validateToken(token string) (*TokenItem, error) {
@@ -83,7 +73,7 @@ func validateToken(token string) (*TokenItem, error) {
 	token = stringutil.Base64Decode(token)
 	tokenPlain, err := inst.Decrypt(token)
 	if err != nil {
-		return nil, fmt.Errorf("fail to decrypt token")
+		return nil, fmt.Errorf("invalid token")
 	}
 
 	parts := strings.Split(tokenPlain, TokenDelim)
@@ -109,6 +99,9 @@ func validateToken(token string) (*TokenItem, error) {
 }
 
 func GenerateToken(item TokenItem) (string, error) {
+	if item.UserId == "" {
+		return "", fmt.Errorf("invalid token item parameters")
+	}
 	tokenStr := item.UserId + TokenDelim + strconv.FormatInt(item.Expire, 10) + TokenDelim + item.UserType
 	if !commonconfig.IsCryptoEnable() {
 		return tokenStr, nil
