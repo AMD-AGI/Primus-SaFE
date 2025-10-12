@@ -26,6 +26,6 @@ RUN apk add --no-cache \
 
 COPY --from=builder /app/app .
 
-COPY ./config.yaml /app/config.yaml
+COPY tools/sync-image/config.yaml /app/config.yaml
 
 CMD ["./app"]
