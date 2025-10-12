@@ -48,7 +48,6 @@ const (
 	DefaultMaxUnavailable      = "25%"
 	DefaultMaxMaxSurge         = "25%"
 	DefaultMaxFailover         = 50
-	DefaultWorkloadTTL         = 60
 )
 
 func AddWorkloadWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
@@ -246,26 +245,22 @@ func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Wo
 
 func (m *WorkloadMutator) mutateHealthCheck(workload *v1.Workload) {
 	if workload.Spec.Readiness != nil {
-		if workload.Spec.Readiness.InitialDelaySeconds == 0 {
-			workload.Spec.Readiness.InitialDelaySeconds = DefaultInitialDelaySeconds
-		}
-		if workload.Spec.Readiness.PeriodSeconds == 0 {
-			workload.Spec.Readiness.PeriodSeconds = DefaultPeriodSeconds
-		}
-		if workload.Spec.Readiness.FailureThreshold == 0 {
-			workload.Spec.Readiness.FailureThreshold = DefaultFailureThreshold
-		}
+		mutateHealthCheck(workload.Spec.Readiness)
 	}
 	if workload.Spec.Liveness != nil {
-		if workload.Spec.Liveness.InitialDelaySeconds == 0 {
-			workload.Spec.Liveness.InitialDelaySeconds = DefaultInitialDelaySeconds
-		}
-		if workload.Spec.Liveness.PeriodSeconds == 0 {
-			workload.Spec.Liveness.PeriodSeconds = DefaultPeriodSeconds
-		}
-		if workload.Spec.Liveness.FailureThreshold == 0 {
-			workload.Spec.Liveness.FailureThreshold = DefaultFailureThreshold
-		}
+		mutateHealthCheck(workload.Spec.Liveness)
+	}
+}
+
+func mutateHealthCheck(field *v1.HealthCheck) {
+	if field.InitialDelaySeconds == 0 {
+		field.InitialDelaySeconds = DefaultInitialDelaySeconds
+	}
+	if field.PeriodSeconds == 0 {
+		field.PeriodSeconds = DefaultPeriodSeconds
+	}
+	if field.FailureThreshold == 0 {
+		field.FailureThreshold = DefaultFailureThreshold
 	}
 }
 
@@ -278,6 +273,7 @@ func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 	}
 }
 
+// Check whether to enable hostNetwork; it should only be set to true if the replica count is greater than 1 and all GPU resources have been requested.
 func (m *WorkloadMutator) isHostNetworkEnabled(workload *v1.Workload, nf *v1.NodeFlavor) bool {
 	if workload.Spec.Resource.Replica <= 1 {
 		return false
@@ -453,7 +449,7 @@ func (v *WorkloadValidator) validateOnCreation(ctx context.Context, workload *v1
 	if err := validateDNSName(v1.GetDisplayName(workload)); err != nil {
 		return err
 	}
-	if err := v.validateResourceValid(workload); err != nil {
+	if err := v.validateResource(workload); err != nil {
 		return err
 	}
 	if err := v.validateScope(ctx, workload); err != nil {
@@ -585,7 +581,7 @@ func (v *WorkloadValidator) validateHealthCheck(workload *v1.Workload) error {
 	return nil
 }
 
-func (v *WorkloadValidator) validateResourceValid(workload *v1.Workload) error {
+func (v *WorkloadValidator) validateResource(workload *v1.Workload) error {
 	var errs []error
 	if workload.Spec.Resource.Replica <= 0 {
 		errs = append(errs, fmt.Errorf("the replica is zero"))
@@ -635,6 +631,7 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload
 	return validateResourceEnough(nf, &workload.Spec.Resource)
 }
 
+// Check whether the requested resources exceed the threshold limits, including the maximum resource limit per node and other configured thresholds.
 func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
 	availNodeResources := quantity.GetAvailableResource(nodeResources)
@@ -676,6 +673,7 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 	return nil
 }
 
+// Validate whether the resource template and task template corresponding to the specified kind in the workload exist.
 func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.Workload) error {
 	if _, err := getResourceTemplate(ctx, v.Client, workload.Spec.GroupVersionKind); err != nil {
 		return err
@@ -739,6 +737,7 @@ func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Wor
 	return nil
 }
 
+// A workload must be specified under a certain workspace, so it is necessary to check whether this workspace supports the given workload type.
 func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Workload) error {
 	if commonworkload.IsOpsJob(workload) {
 		return nil
