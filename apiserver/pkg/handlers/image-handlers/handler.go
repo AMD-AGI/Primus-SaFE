@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 	"net/http"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,7 +41,7 @@ func NewImageHandler(mgr ctrlruntime.Manager) (*ImageHandler, error) {
 	}
 	err = h.initHarbor(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("failed to init harbor: %w", err)
+		klog.Warningf("failed to init harbor: %v", err)
 	}
 	return h, nil
 }
