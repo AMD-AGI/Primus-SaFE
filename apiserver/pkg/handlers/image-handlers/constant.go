@@ -48,11 +48,11 @@ const (
 const (
 	StringValueTrue = "true"
 
-	ImportImageJobLabelKey = "primus-safe/image-import"
+	ImportImageJobLabelKey = "image-import"
 	// importimg image job labels
-	ImportImageSourceLabelKey = "primus-safe/image-import/source"
-	ImportImageTargetLabelKey = "primus-safe/image-import/target"
-	ImportImageOSArchLabelKey = "primus-safe/image-import/os-arch"
+	ImportImageSourceLabelKey = "image-import-source"
+	ImportImageTargetLabelKey = "image-import-target"
+	ImportImageOSArchLabelKey = "image-import-os-arch"
 
 	ImageStatusKey      = "status"
 	ImportImageStateKey = "state"
