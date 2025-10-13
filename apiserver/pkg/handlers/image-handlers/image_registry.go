@@ -83,12 +83,43 @@ func (h *ImageHandler) deleteImageRegistry(c *gin.Context) (interface{}, error) 
 	return nil, nil
 }
 
-func (h *ImageHandler) listImageRegistry(c *gin.Context) ([]*model.RegistryInfo, error) {
+func (h *ImageHandler) listImageRegistry(c *gin.Context) ([]*ImageRegistryInfo, error) {
 	page := &Pagination{}
 	if err := c.ShouldBindQuery(page); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
-	return h.dbClient.ListRegistryInfos(c, page.PageNum, page.PageSize)
+	dbResults, err := h.dbClient.ListRegistryInfos(c, page.PageNum, page.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	var results []*ImageRegistryInfo
+	for _, dbItem := range dbResults {
+		viewItem, err := h.cvtDBRegistryInfoToView(dbItem)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, viewItem)
+	}
+	return results, nil
+}
+
+func (h *ImageHandler) cvtDBRegistryInfoToView(info *model.RegistryInfo) (*ImageRegistryInfo, error) {
+	result := &ImageRegistryInfo{
+		Id:        info.ID,
+		Name:      info.Name,
+		URL:       info.URL,
+		Default:   info.Default,
+		CreatedAt: info.CreatedAt.Unix(),
+		UpdatedAt: info.UpdatedAt.Unix(),
+	}
+	if info.Username != "" {
+		u, err := crypto.NewCrypto().Decrypt(info.Username)
+		if err != nil {
+			return nil, err
+		}
+		result.Username = u
+	}
+	return result, nil
 }
 
 func (h *ImageHandler) upsertImageRegistryInfo(ctx context.Context, req *CreateRegistryRequest) (*model.RegistryInfo, error) {

@@ -169,3 +169,13 @@ type RegistryAuthItem struct {
 type ImportDetailResponse struct {
 	LayersDetail map[string]interface{} `json:"layersDetail"`
 }
+
+type ImageRegistryInfo struct {
+	Id        int32  `json:"id"`
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	Username  string `json:"username"`
+	Default   bool   `json:"default"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
