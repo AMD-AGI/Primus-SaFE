@@ -43,7 +43,8 @@ func upstreamData(domain, imageName string, data *UpstreamEvent) error {
 	}
 
 	encodedImageName := base64.URLEncoding.EncodeToString([]byte(imageName))
-	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf(importImageUpsteamPath, domain, encodedImageName), bytes.NewBuffer(jsonData))
+	url := fmt.Sprintf(importImageUpsteamPath, domain, encodedImageName)
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return err
 	}
@@ -56,7 +57,7 @@ func upstreamData(domain, imageName string, data *UpstreamEvent) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return fmt.Errorf("%s unexpected status code: %d", url, resp.StatusCode)
 	}
 
 	return nil
