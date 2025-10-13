@@ -253,7 +253,7 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 	}
 
 	var job *batchv1.Job
-	job, err = newImportImageJob(importImageJobName, "", imagePullSecrets, uid, importImageEnv, userName)
+	job, err = newImportImageJob(importImageJobName, SyncerImage, imagePullSecrets, uid, importImageEnv, userName)
 	if err != nil {
 		return nil, err
 	}

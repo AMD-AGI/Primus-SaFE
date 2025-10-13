@@ -63,3 +63,7 @@ const (
 const (
 	SyncImageProject = "sync"
 )
+
+const (
+	SyncerImage = "docker.io/primussafe/image-sync:202510121649"
+)
