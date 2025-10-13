@@ -150,8 +150,6 @@ func (r *ImageImportJobReconciler) getImportImagePodLogs(ctx context.Context, jo
 	}
 
 	pod := pods.Items[0]
-
-	// 获取 pod 日志
 	resp, err := r.k8sClient.CoreV1().Pods(job.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{}).Stream(ctx)
 	if err != nil {
 		return "", err
