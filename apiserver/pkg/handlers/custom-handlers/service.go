@@ -17,11 +17,15 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
+// GetWorkloadService: Obtain the service started by the data plane corresponding to this workload.
 func (h *Handler) GetWorkloadService(c *gin.Context) {
 	handle(c, h.getWorkloadService)
 }
 
-// Obtain the service started by the data plane corresponding to this workload.
+// getWorkloadService: retrieves the service specification for a workload from the data plane.
+// It validates the workload exists, authorizes the user's access to the workload's workspace,
+// obtains the appropriate Kubernetes client for the workload's cluster, and fetches the service
+// specification from the target namespace. Returns the service specification or an error.
 func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	name := c.GetString(types.Name)
 	if name == "" {

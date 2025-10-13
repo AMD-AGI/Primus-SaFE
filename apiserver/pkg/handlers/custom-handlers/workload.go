@@ -57,49 +57,74 @@ const (
 	BatchClone  WorkloadBatchAction = "clone"
 )
 
+// CreateWorkload: handles the creation of a new workload resource.
+// It parses the creation request, generates a workload object,
+// and creates it in the system. Returns the created workload ID on success.
 func (h *Handler) CreateWorkload(c *gin.Context) {
 	handle(c, h.createWorkload)
 }
 
+// ListWorkload: handles listing workload resources with filtering and pagination.
+// Supports both database and etcd backends for workload storage.
+// Returns a list of workloads matching the query criteria.
 func (h *Handler) ListWorkload(c *gin.Context) {
 	handle(c, h.listWorkload)
 }
 
+// GetWorkload: retrieves detailed information about a specific workload.
+// Supports both database and etcd backends for workload storage.
+// Returns complete workload information including status and configuration.
 func (h *Handler) GetWorkload(c *gin.Context) {
 	handle(c, h.getWorkload)
 }
 
+// DeleteWorkload: handles deletion of a single workload resource.
+// Performs both administrative deletion and database marking as deleted.
 func (h *Handler) DeleteWorkload(c *gin.Context) {
 	handle(c, h.deleteWorkload)
 }
 
+// DeleteWorkloads: handles batch deletion of multiple workload resources.
+// Processes multiple workload deletions concurrently.
 func (h *Handler) DeleteWorkloads(c *gin.Context) {
 	handle(c, h.deleteWorkloads)
 }
 
+// StopWorkload: handles stopping a single workload resource.
+// Marks the workload as stopped in both etcd and database.
 func (h *Handler) StopWorkload(c *gin.Context) {
 	handle(c, h.stopWorkload)
 }
 
+// StopWorkloads: handles batch stopping of multiple workload resources.
+// Processes multiple workload stops concurrently.
 func (h *Handler) StopWorkloads(c *gin.Context) {
 	handle(c, h.stopWorkloads)
 }
 
+// PatchWorkload: handles partial updates to a workload resource.
+// Supports updating specific fields like priority, resources, and configuration.
 func (h *Handler) PatchWorkload(c *gin.Context) {
 	handle(c, h.patchWorkload)
 }
 
+// CloneWorkloads: handles batch cloning of multiple workload resources.
+// Creates new workloads based on existing workload configurations.
 func (h *Handler) CloneWorkloads(c *gin.Context) {
 	handle(c, h.cloneWorkloads)
 }
 
+// GetWorkloadPodLog: retrieves logs from a specific pod associated with a workload.
+// Fetches pod logs from the Kubernetes cluster and returns them in a structured format.
 func (h *Handler) GetWorkloadPodLog(c *gin.Context) {
 	handle(c, h.getWorkloadPodLog)
 }
 
+// createWorkload: implements the workload creation logic.
+// Parses the request, generates a workload object, and creates it in the system.
 func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	req := &types.CreateWorkloadRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		return nil, err
 	}
@@ -116,6 +141,8 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	return h.createWorkloadImpl(c, workload, requestUser, roles)
 }
 
+// createWorkloadImpl: performs the actual workload creation in the system.
+// Handles authorization checks, workload creation in etcd, and initial phase setting.
 func (h *Handler) createWorkloadImpl(c *gin.Context, workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
 	var err error
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
@@ -139,6 +166,9 @@ func (h *Handler) createWorkloadImpl(c *gin.Context, workload *v1.Workload, requ
 	return &types.CreateWorkloadResponse{WorkloadId: workload.Name}, nil
 }
 
+// listWorkload: implements the workload listing logic.
+// Parses query parameters, builds database or etcd queries,
+// and returns workloads matching the criteria.
 func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -179,6 +209,8 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+// getWorkload: implements the logic for retrieving a single workload's detailed information.
+// Supports both database and etcd backends and includes authorization checks.
 func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -210,6 +242,8 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 	}
 }
 
+// deleteWorkload: implements single workload deletion logic.
+// Handles deletion from both etcd and database with proper authorization.
 func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -221,10 +255,14 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 	return h.deleteWorkloadImpl(c, name, requestUser, roles)
 }
 
+// deleteWorkloads: implements batch workload deletion logic.
+// Processes multiple workload deletions concurrently with error handling.
 func (h *Handler) deleteWorkloads(c *gin.Context) (interface{}, error) {
 	return h.handleBatchWorkloads(c, BatchDelete)
 }
 
+// deleteWorkloadImpl: performs the actual deletion of a workload.
+// Handles deletion from both etcd and database based on system configuration.
 func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
 	if err != nil {
@@ -257,6 +295,8 @@ func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v
 	return nil, nil
 }
 
+// deleteAdminWorkload: removes a workload from the Kubernetes cluster.
+// Sets the workload phase to stopped and deletes the resource from etcd.
 func (h *Handler) deleteAdminWorkload(ctx context.Context, adminWorkload *v1.Workload) error {
 	cond := &metav1.Condition{
 		Type:    string(v1.AdminStopped),
@@ -273,6 +313,8 @@ func (h *Handler) deleteAdminWorkload(ctx context.Context, adminWorkload *v1.Wor
 	return nil
 }
 
+// stopWorkload: implements single workload stopping logic.
+// Marks the workload as stopped in both etcd and database.
 func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -283,10 +325,14 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 	return h.stopWorkloadImpl(c, name, requestUser, roles)
 }
 
+// stopWorkloads: implements batch workload stopping logic.
+// Processes multiple workload stops concurrently with error handling.
 func (h *Handler) stopWorkloads(c *gin.Context) (interface{}, error) {
 	return h.handleBatchWorkloads(c, BatchStop)
 }
 
+// stopWorkloadImpl: performs the actual stopping of a workload.
+// Handles stopping in both etcd and database based on system configuration.
 func (h *Handler) stopWorkloadImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
 	if err != nil {
@@ -322,6 +368,8 @@ func (h *Handler) stopWorkloadImpl(c *gin.Context, name string, requestUser *v1.
 	return nil, nil
 }
 
+// patchWorkload: implements partial update logic for a workload.
+// Parses the patch request, validates authorization, and applies changes.
 func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -339,7 +387,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.PatchWorkloadRequest{}
-	if _, err = getBodyFromRequest(c.Request, req); err != nil {
+	if _, err = parseRequestBody(c.Request, req); err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 	if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, requestUser, roles); err != nil {
@@ -363,10 +411,14 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// cloneWorkloads: implements batch workload cloning logic.
+// Processes multiple workload clones concurrently with error handling.
 func (h *Handler) cloneWorkloads(c *gin.Context) (interface{}, error) {
 	return h.handleBatchWorkloads(c, BatchClone)
 }
 
+// cloneWorkloadImpl: performs the actual cloning of a workload.
+// Creates a new workload based on an existing workload's database record.
 func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
@@ -380,6 +432,8 @@ func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1
 	return h.createWorkloadImpl(c, workload, requestUser, roles)
 }
 
+// getWorkloadPodLog: implements the logic for retrieving pod logs for a workload.
+// Fetches logs from the Kubernetes cluster and formats them for the response.
 func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -413,6 +467,8 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+// patchPhase: updates the phase of a workload and optionally adds a condition.
+// Handles status updates including setting end time for stopped workloads.
 func (h *Handler) patchPhase(ctx context.Context, workload *v1.Workload,
 	phase v1.WorkloadPhase, cond *metav1.Condition) error {
 	patch := client.MergeFrom(workload.DeepCopy())
@@ -438,6 +494,8 @@ func (h *Handler) patchPhase(ctx context.Context, workload *v1.Workload,
 	return nil
 }
 
+// listAdminWorkloads: retrieves workloads directly from etcd with filtering.
+// Used when database functionality is disabled.
 func (h *Handler) listAdminWorkloads(c *gin.Context, query *types.ListWorkloadRequest) (interface{}, error) {
 	labelSelector := buildWorkloadLabelSelector(query)
 	workloadList := &v1.WorkloadList{}
@@ -481,6 +539,8 @@ func (h *Handler) listAdminWorkloads(c *gin.Context, query *types.ListWorkloadRe
 	return result, nil
 }
 
+// getAdminWorkload: retrieves a workload resource by ID from etcd.
+// Returns an error if the workload doesn't exist or the ID is empty.
 func (h *Handler) getAdminWorkload(ctx context.Context, workloadId string) (*v1.Workload, error) {
 	if workloadId == "" {
 		return nil, commonerrors.NewBadRequest("the workloadId is empty")
@@ -492,6 +552,8 @@ func (h *Handler) getAdminWorkload(ctx context.Context, workloadId string) (*v1.
 	return workload.DeepCopy(), nil
 }
 
+// getWorkloadForAuth: retrieves a workload for authorization purposes.
+// Supports both database and etcd backends and includes minimal information for auth checks.
 func (h *Handler) getWorkloadForAuth(ctx context.Context, workloadId string) (*v1.Workload, error) {
 	if !commonconfig.IsDBEnable() {
 		return h.getAdminWorkload(ctx, workloadId)
@@ -509,6 +571,8 @@ func (h *Handler) getWorkloadForAuth(ctx context.Context, workloadId string) (*v
 	return adminWorkload, nil
 }
 
+// getRunningWorkloads: retrieves workloads that are currently running.
+// Filters workloads based on cluster and workspace criteria.
 func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, workspaceNames []string) ([]*v1.Workload, error) {
 	filterFunc := func(w *v1.Workload) bool {
 		if w.IsEnd() || !v1.IsWorkloadDispatched(w) {
@@ -519,6 +583,8 @@ func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, w
 	return commonworkload.GetWorkloadsOfWorkspace(ctx, h.Client, clusterName, workspaceNames, filterFunc)
 }
 
+// authWorkloadAction: performs authorization checks for workload-related actions.
+// Validates if the requesting user has permission to perform the specified action on the workload.
 func (h *Handler) authWorkloadAction(c *gin.Context,
 	adminWorkload *v1.Workload, verb v1.RoleVerb, requestUser *v1.User, roles []*v1.Role) error {
 	var workspaces []string
@@ -540,6 +606,8 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 	return nil
 }
 
+// authWorkloadPriority: performs authorization checks for workload priority operations.
+// Validates if the requesting user has permission to set the specified priority level.
 func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workload,
 	verb v1.RoleVerb, priority int, requestUser *v1.User, roles []*v1.Role) error {
 	priorityKind := fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
@@ -556,6 +624,8 @@ func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workloa
 	return nil
 }
 
+// generateWorkload: creates a new workload object based on the creation request.
+// Populates workload metadata, specifications, and customer labels.
 func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -585,6 +655,8 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 	return workload, nil
 }
 
+// handleBatchWorkloads: processes batch operations on multiple workloads.
+// Supports delete, stop, and clone actions with concurrent execution.
 func (h *Handler) handleBatchWorkloads(c *gin.Context, action WorkloadBatchAction) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -593,7 +665,7 @@ func (h *Handler) handleBatchWorkloads(c *gin.Context, action WorkloadBatchActio
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 
 	req := &types.BatchWorkloadsRequest{}
-	if _, err = getBodyFromRequest(c.Request, req); err != nil {
+	if _, err = parseRequestBody(c.Request, req); err != nil {
 		return nil, err
 	}
 	count := len(req.WorkloadIds)
@@ -623,6 +695,7 @@ func (h *Handler) handleBatchWorkloads(c *gin.Context, action WorkloadBatchActio
 	return nil, nil
 }
 
+// genCustomerLabelsByNodes: generates customer labels based on specified nodes.
 func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
 	if len(nodeList) == 0 {
 		return
@@ -644,6 +717,8 @@ func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
 	workload.Spec.CustomerLabels[common.K8sHostName] = nodeNames
 }
 
+// parseListWorkloadQuery: parses and validates the query parameters for listing workloads.
+// Handles URL decoding and sets default values for pagination and sorting.
 func parseListWorkloadQuery(c *gin.Context) (*types.ListWorkloadRequest, error) {
 	query := &types.ListWorkloadRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
@@ -671,6 +746,8 @@ func parseListWorkloadQuery(c *gin.Context) (*types.ListWorkloadRequest, error) 
 	return query, nil
 }
 
+// parseGetPodLogQuery: parses and validates the query parameters for retrieving pod logs.
+// Sets default values for tail lines and container name if not specified.
 func parseGetPodLogQuery(c *gin.Context, mainContainerName string) (*types.GetPodLogRequest, error) {
 	query := &types.GetPodLogRequest{}
 	var err error
@@ -686,6 +763,8 @@ func parseGetPodLogQuery(c *gin.Context, mainContainerName string) (*types.GetPo
 	return query, nil
 }
 
+// cvtToListWorkloadSql: converts workload list query parameters into a database SQL query.
+// Builds WHERE conditions and ORDER BY clauses based on filter parameters.
 func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []string, error) {
 	dbTags := dbclient.GetWorkloadFieldTags()
 	dbSql := sqrl.And{
@@ -754,6 +833,8 @@ func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []str
 	return dbSql, orderBy, nil
 }
 
+// buildListWorkloadOrderBy: constructs the ORDER BY clause for workload listing queries.
+// Handles sorting by specified fields with proper NULL handling.
 func buildListWorkloadOrderBy(query *types.ListWorkloadRequest, dbTags map[string]string) []string {
 	var nullOrder string
 	if query.Order == dbclient.DESC {
@@ -781,7 +862,8 @@ func buildListWorkloadOrderBy(query *types.ListWorkloadRequest, dbTags map[strin
 	return orderBy
 }
 
-// Update workload via PatchWorkloadRequest.
+// updateWorkload: applies updates to a workload based on the patch request.
+// Handles changes to priority, resources, image, entrypoint, and other workload properties.
 func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest) error {
 	if req.Priority != nil {
 		adminWorkload.Spec.Priority = *req.Priority
@@ -829,7 +911,8 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	return nil
 }
 
-// Convert the workload object returned from the database into the content for API response.
+// cvtDBWorkloadToResponseItem: converts a database workload record to a response item format.
+// Maps database fields to the appropriate response structure with proper null value handling.
 func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 	w *dbclient.Workload) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
@@ -875,7 +958,8 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 	return result
 }
 
-// Convert the workload object returned from the database into the result of getWorkload
+// cvtDBWorkloadToGetResponse: converts a database workload record to a detailed response format.
+// Maps all database fields to the appropriate response structure including conditions, pods, etc.
 func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Workload) *types.GetWorkloadResponse {
 	result := &types.GetWorkloadResponse{
 		WorkloadResponseItem: h.cvtDBWorkloadToResponseItem(ctx, w),
@@ -929,7 +1013,8 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 	return result
 }
 
-// Convert the workload object from etcd into the result of getWorkload
+// cvtAdminWorkloadToGetResponse: converts an etcd workload object to a detailed response format.
+// Maps workload object fields to the appropriate response structure including status information.
 func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workload) *types.GetWorkloadResponse {
 	result := &types.GetWorkloadResponse{
 		WorkloadResponseItem:    cvtWorkloadToResponseItem(w),
@@ -960,6 +1045,8 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 	return result
 }
 
+// parseCustomerLabelsAndNodes: separates customer labels from node-specific labels.
+// Extracts node list from customer labels and returns remaining labels separately.
 func parseCustomerLabelsAndNodes(labels map[string]string) (map[string]string, []string) {
 	var nodeList []string
 	customerLabels := make(map[string]string)
@@ -973,7 +1060,8 @@ func parseCustomerLabelsAndNodes(labels map[string]string) (map[string]string, [
 	return customerLabels, nodeList
 }
 
-// Convert the workload object returned from the etcd into the content for API response.
+// cvtWorkloadToResponseItem: converts an etcd workload object to a response item format.
+// Maps workload object fields to the appropriate response structure for listing.
 func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
 		WorkloadId:       w.Name,
@@ -1010,6 +1098,8 @@ func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
 	return result
 }
 
+// buildSSHAddress: constructs the SSH address for accessing a workload pod.
+// Generates the appropriate SSH command based on system configuration and pod status.
 func (h *Handler) buildSSHAddress(ctx context.Context, pod *v1.WorkloadPod, userId, workspace string) string {
 	if !commonconfig.IsSSHEnable() || pod.Phase != corev1.PodRunning {
 		return ""
@@ -1052,6 +1142,8 @@ func (h *Handler) buildSSHAddress(ctx context.Context, pod *v1.WorkloadPod, user
 		commonconfig.GetSSHServerPort(), userId, pod.PodId, workspace, localIp)
 }
 
+// buildWorkloadLabelSelector: constructs a label selector based on workload list query parameters.
+// Used to filter workloads by workspace, cluster, user, and other criteria.
 func buildWorkloadLabelSelector(query *types.ListWorkloadRequest) labels.Selector {
 	var labelSelector = labels.NewSelector()
 	if query.WorkspaceId != "" {
@@ -1082,6 +1174,9 @@ func buildWorkloadLabelSelector(query *types.ListWorkloadRequest) labels.Selecto
 	}
 	return labelSelector
 }
+
+// generateWorkloadForAuth: creates a minimal workload object for authorization checks.
+// Includes only the necessary information for performing authorization validations.
 func generateWorkloadForAuth(name, userId, workspace, clusterId string) *v1.Workload {
 	return &v1.Workload{
 		TypeMeta: metav1.TypeMeta{
@@ -1101,7 +1196,8 @@ func generateWorkloadForAuth(name, userId, workspace, clusterId string) *v1.Work
 	}
 }
 
-// Convert the workload object returned from the database into a workload CR
+// cvtDBWorkloadToAdminWorkload: converts a database workload record to a workload CR object.
+// Used for cloning workloads from database records to create new workload objects.
 func cvtDBWorkloadToAdminWorkload(c *gin.Context, dbItem *dbclient.Workload) *v1.Workload {
 	result := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
