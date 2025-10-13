@@ -253,7 +253,7 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 	}
 
 	var job *batchv1.Job
-	job, err = newImportImageJob(importImageJobName, SyncerImage, imagePullSecrets, uid, importImageEnv, userName)
+	job, err = newImportImageJob(dbImage.ID, importImageJobName, SyncerImage, imagePullSecrets, uid, importImageEnv, userName)
 	if err != nil {
 		return nil, err
 	}
@@ -276,6 +276,7 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 }
 
 func newImportImageJob(
+	imageId int32,
 	jobName,
 	syncImage string,
 	imagePullSecrets []string,
@@ -297,13 +298,14 @@ func newImportImageJob(
 			Name:      jobName,
 			Namespace: namespace,
 			Annotations: map[string]string{
-				v1.UserNameAnnotation: userName,
+				v1.UserNameAnnotation:          userName,
+				ImportImageTargetAnnotationKey: env.DestImageName,
+				ImportImageSourceAnnotationKey: env.SourceImageName,
+				ImportImageOSArchAnnotationKey: env.OsArch,
 			},
 			Labels: map[string]string{
-				ImportImageJobLabelKey:    StringValueTrue,
-				ImportImageTargetLabelKey: env.DestImageName,
-				ImportImageSourceLabelKey: env.SourceImageName,
-				ImportImageOSArchLabelKey: env.OsArch,
+				ImportImageJobLabelKey:     StringValueTrue,
+				ImportImageImageIdLabelKey: strconv.Itoa(int(imageId)),
 			},
 		},
 		Spec: batchv1.JobSpec{

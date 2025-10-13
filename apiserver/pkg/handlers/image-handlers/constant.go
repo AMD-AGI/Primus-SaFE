@@ -48,11 +48,12 @@ const (
 const (
 	StringValueTrue = "true"
 
-	ImportImageJobLabelKey = "image-import"
-	// importimg image job labels
-	ImportImageSourceLabelKey = "image-import-source"
-	ImportImageTargetLabelKey = "image-import-target"
-	ImportImageOSArchLabelKey = "image-import-os-arch"
+	ImportImageJobLabelKey     = "image-import"
+	ImportImageImageIdLabelKey = "image-id"
+	// importimg image job Annotations
+	ImportImageSourceAnnotationKey = "image-import-source"
+	ImportImageTargetAnnotationKey = "image-import-target"
+	ImportImageOSArchAnnotationKey = "image-import-os-arch"
 
 	ImageStatusKey      = "status"
 	ImportImageStateKey = "state"
