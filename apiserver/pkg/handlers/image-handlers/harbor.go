@@ -39,14 +39,12 @@ type HarborStatistics struct {
 }
 
 func (h *ImageHandler) GetHarborStats(ctx *gin.Context) (*HarborStat, error) {
-	_, password, err := h.GetHarborCredentials(ctx)
+	_, endpoint, password, err := h.GetHarborCredentials(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get harbor credentials: %w", err)
 	}
-	harborHost := "harbor-core.harbor.svc.cluster.local"
 	username := "admin"
-
-	harborStats, err := h.getHarborStats(ctx, harborHost, username, password)
+	harborStats, err := h.getHarborStats(ctx, endpoint, username, password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get harbor health: %w", err)
 	}
@@ -54,7 +52,7 @@ func (h *ImageHandler) GetHarborStats(ctx *gin.Context) (*HarborStat, error) {
 }
 
 func (h *ImageHandler) initHarbor(ctx context.Context) error {
-	harborHost, password, err := h.GetHarborCredentials(ctx)
+	harborHost, endpoint, password, err := h.GetHarborCredentials(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get harbor credentials: %w", err)
 	}
@@ -63,7 +61,7 @@ func (h *ImageHandler) initHarbor(ctx context.Context) error {
 		return nil
 	}
 	username := "admin"
-	if err := h.ensureHarborProject(ctx, harborHost, username, password, SyncImageProject); err != nil {
+	if err := h.ensureHarborProject(ctx, endpoint, username, password, SyncImageProject); err != nil {
 		return fmt.Errorf("failed to ensure harbor project: %w", err)
 	}
 	err = h.setDefaultImageRegistry(ctx, harborHost, username, password)
@@ -126,11 +124,12 @@ func (h *ImageHandler) getHarborStats(ctx context.Context, harborHost, username,
 	}, nil
 }
 
-func (h *ImageHandler) GetHarborCredentials(ctx context.Context) (endpoint, password string, err error) {
+func (h *ImageHandler) GetHarborCredentials(ctx context.Context) (domain, endpoint, password string, err error) {
 	const (
 		namespace         = "harbor"
 		configMapName     = "harbor-core"
 		secretName        = "harbor-core"
+		serviceName       = "harbor-core"
 		configKeyEndpoint = "EXT_ENDPOINT"
 		secretKeyPassword = "HARBOR_ADMIN_PASSWORD"
 	)
@@ -139,35 +138,35 @@ func (h *ImageHandler) GetHarborCredentials(ctx context.Context) (endpoint, pass
 	var cm corev1.ConfigMap
 	if err = h.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm); err != nil {
 		if client.IgnoreNotFound(err) == nil {
-			return "", "", nil
+			return "", "", "", nil
 		}
-		return "", "", fmt.Errorf("failed to get configmap %s/%s: %w", namespace, configMapName, err)
+		return "", "", "", fmt.Errorf("failed to get configmap %s/%s: %w", namespace, configMapName, err)
 	}
 
 	endpoint, ok := cm.Data[configKeyEndpoint]
 	if !ok {
-		return "", "", fmt.Errorf("configmap %s/%s missing key %s", namespace, configMapName, configKeyEndpoint)
+		return "", "", "", fmt.Errorf("configmap %s/%s missing key %s", namespace, configMapName, configKeyEndpoint)
 	}
 
 	// 获取 Secret
 	var sec corev1.Secret
 	if err = h.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, &sec); err != nil {
-		return "", "", fmt.Errorf("failed to get secret %s/%s: %w", namespace, secretName, err)
+		return "", "", "", fmt.Errorf("failed to get secret %s/%s: %w", namespace, secretName, err)
 	}
 
 	pwBytes, ok := sec.Data[secretKeyPassword]
 	if !ok {
-		return "", "", fmt.Errorf("secret %s/%s missing key %s", namespace, secretName, secretKeyPassword)
+		return "", "", "", fmt.Errorf("secret %s/%s missing key %s", namespace, secretName, secretKeyPassword)
 	}
 
 	password = string(pwBytes)
-	domain := endpoint
+	domain = endpoint
 	if strings.HasPrefix(domain, "https://") {
 		domain = strings.TrimPrefix(endpoint, "https://")
 	} else if strings.HasPrefix(domain, "http://") {
 		domain = strings.TrimPrefix(endpoint, "http://")
 	}
-	return domain, password, nil
+	return domain, fmt.Sprintf("%s.%s.svc.cluster.local", serviceName, namespace), password, nil
 }
 func (h *ImageHandler) ensureHarborProject(ctx context.Context, harborHost, username, password, projectName string) error {
 	var project struct {
