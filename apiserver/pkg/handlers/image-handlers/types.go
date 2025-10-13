@@ -56,17 +56,8 @@ type ImportImageEnv struct {
 }
 
 type ImportImageServiceRequest struct {
-	Source string `json:"source"` // 同步时可选为: 完整路径和镜像路径； 录入时: 为完整镜像路径
-
-	// 用于同步 image
-	FullName            bool   `json:"fullName"`
-	SourceRegistry      string `json:"sourceRegistry,omitempty"` // 指定源仓库时使用
-	Destination         string `json:"destination"`
-	DestinationRegistry string `json:"destinationRegistry,omitempty"`
-
-	// 用于录入 image
-	Description string `json:"description"` // 描述
-	IsShare     bool   `json:"isShare"`     // 是否共享
+	Source         string `json:"source"`
+	SourceRegistry string `json:"sourceRegistry,omitempty"`
 }
 
 type ImportImageMetaInfo struct {

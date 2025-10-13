@@ -229,7 +229,7 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		SourceImageName: imageInfo.SourceImageName,
 		DestImageName:   imageInfo.DestImageName,
 		OsArch:          imageInfo.OsArch,
-		Description:     body.Description,
+		Description:     fmt.Sprintf("Import from %s", imageInfo.SourceImageName),
 	}
 
 	var relationDigest = map[string]interface{}{}
@@ -390,20 +390,13 @@ func generateImportImageJobName(uid string) string {
 
 // getFullImportName 获取完整的 image name
 func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageServiceRequest) (*ImportImageMetaInfo, error) {
-	// 构建完整路径
-	// sourceImageName, e.g: docker.io/library/nginx:latest
-	// destImageName, e.g: harbor.xcs.ai/01-ai/test/nginx:latest
 	var imageInfo = &ImportImageMetaInfo{
 		SourceImageName: req.Source,
-		DestImageName:   req.Destination,
 	}
 	imageInfo.Status = common.ImageImportingStatus
-	if req.FullName {
-		return imageInfo, nil
+	if req.SourceRegistry != "" {
+		imageInfo.SourceImageName = fmt.Sprintf("%s/%s", req.SourceRegistry, req.Source)
 	}
-	imageInfo.SourceImageName = fmt.Sprintf("%s/%s", req.SourceRegistry, req.Source)
-
-	// 获取完整的 desc image name
 	defaultPushRegistry, err := h.dbClient.GetDefaultRegistryInfo(c)
 	if err != nil {
 		klog.ErrorS(err, "GetPushRegistryInfo error")
@@ -412,8 +405,7 @@ func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageSer
 	if defaultPushRegistry == nil {
 		return nil, commonerrors.NewBadRequest("Default push registry not exist.Please contract your administrator")
 	}
-
-	imageInfo.DestImageName, err = generateTargetImageName(defaultPushRegistry.URL, req.Source)
+	imageInfo.DestImageName, err = generateTargetImageName(defaultPushRegistry.URL, imageInfo.SourceImageName)
 	if err != nil {
 		return nil, err
 	}
