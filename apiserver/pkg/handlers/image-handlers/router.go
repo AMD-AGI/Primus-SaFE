@@ -18,6 +18,9 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 		imageGroup.DELETE(":id", func(c *gin.Context) {
 			handle(c, h.deleteImage)
 		})
+		imageGroup.GET(":id/importing-details", func(c *gin.Context) {
+			handle(c, h.getImportingDetail)
+		})
 	}
 	imageImportGroup := e.Group("/api/v1/images:import")
 	{

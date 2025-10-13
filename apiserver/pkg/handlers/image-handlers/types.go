@@ -165,3 +165,7 @@ type RegistryAuth struct {
 type RegistryAuthItem struct {
 	Auth string `json:"auth"`
 }
+
+type ImportDetailResponse struct {
+	LayersDetail map[string]interface{} `json:"layersDetail"`
+}

@@ -123,6 +123,31 @@ func parseListImageQuery(c *gin.Context) (*ImageServiceRequest, error) {
 	return query, nil
 }
 
+func (h *ImageHandler) getImportingDetail(ctx *gin.Context) (*ImportDetailResponse, error) {
+	idStr := ctx.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest("invalid id: " + err.Error())
+	}
+	existImage, err := h.dbClient.GetImage(ctx, int32(id))
+	if err != nil {
+		return nil, err
+	}
+	if existImage == nil {
+		return nil, commonerrors.NewNotFound("get image by id", idStr)
+	}
+	importImage, err := h.dbClient.GetImportImageByImageID(ctx, existImage.ID)
+	if err != nil {
+		return nil, err
+	}
+	if importImage == nil {
+		return nil, commonerrors.NewNotFound("get import image by id", idStr)
+	}
+	return &ImportDetailResponse{
+		LayersDetail: importImage.Layer,
+	}, nil
+}
+
 func cvtImageToResponse(images []*model.Image, os, arch string) []GetImageResponseItem {
 	repoMap := map[string]int{}
 	res := make([]GetImageResponseItem, 0)
