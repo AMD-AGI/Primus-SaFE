@@ -19,7 +19,10 @@ const (
 	DefaultMaxRequestBodyBytes = int64(2 * 1024 * 1024)
 )
 
-// Read the HTTP request body with a size limit.
+// ReadBody: reads the HTTP request body with a size limit to prevent excessive memory consumption.
+// It uses a LimitedReader to restrict the maximum number of bytes that can be read.
+// Returns the request body data as bytes, or an error if reading fails or the body exceeds the size limit.
+// The request body is automatically closed after reading.
 func ReadBody(req *http.Request) ([]byte, error) {
 	defer req.Body.Close()
 	var lr *io.LimitedReader
@@ -40,6 +43,8 @@ func ReadBody(req *http.Request) ([]byte, error) {
 	return data, nil
 }
 
+// GetK8sClientFactory: retrieves a Kubernetes client factory for the specified cluster from the client manager.
+// Returns the client factory if found and valid, or an error if others
 func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
 	obj, _ := clientManager.Get(clusterId)
 	if obj == nil {

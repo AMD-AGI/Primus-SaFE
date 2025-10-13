@@ -26,13 +26,19 @@ func (err *PrimusApiError) Error() string {
 	return err.ErrorMessage
 }
 
-// Handle the error, convert it into a standardized error format, and return it to the Gin framework.
+// AbortWithApiError: handles the error, convert it into a standardized error format, and return it to the Gin framework.
+// It processes the error using handleErrors and converts it to a PrimusApiError response,
+// then aborts the request with a JSON error response.
 func AbortWithApiError(c *gin.Context, err error) {
 	handleErrors(c, err)
 	rsp := convertToErrResponse(err)
 	c.AbortWithStatusJSON(rsp.HttpCode, rsp)
 }
 
+// convertToErrResponse: converts an error into a standardized PrimusApiError format.
+// It first checks if the error is already a PrimusApiError, otherwise converts
+// standard Kubernetes API errors or other errors into appropriate error responses
+// with HTTP codes, error codes, and error messages.
 func convertToErrResponse(err error) PrimusApiError {
 	var result *PrimusApiError
 	if errors.As(err, &result) {
@@ -62,6 +68,9 @@ func convertToErrResponse(err error) PrimusApiError {
 	}
 }
 
+// handleErrors: processes single errors or error aggregates and adds them to the Gin context.
+// If the error is an aggregate, it processes each individual error,
+// otherwise it adds the single error to the context's error collection.
 func handleErrors(c *gin.Context, err error) {
 	var errs []error
 	if aggregate, ok := err.(utilerrors.Aggregate); ok {

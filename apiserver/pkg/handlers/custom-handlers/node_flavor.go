@@ -28,30 +28,44 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 )
 
+// CreateNodeFlavor: handles the creation of a new node flavor resource.
+// It authorizes the request, parses the creation request, generates a node flavor object,
+// and persists it in the k8s cluster. Returns the created flavor ID on success.
 func (h *Handler) CreateNodeFlavor(c *gin.Context) {
 	handle(c, h.createNodeFlavor)
 }
 
+// ListNodeFlavor: handles listing all node flavor resources.
+// It retrieves all node flavors, sorts them, and returns them with authorization filtering.
 func (h *Handler) ListNodeFlavor(c *gin.Context) {
 	handle(c, h.listNodeFlavor)
 }
 
+// GetNodeFlavor: retrieves detailed information about a specific node flavor.
 func (h *Handler) GetNodeFlavor(c *gin.Context) {
 	handle(c, h.getNodeFlavor)
 }
 
+// PatchNodeFlavor: handles partial updates to a node flavor resource.
+// Authorizes the request, parses update parameters, and applies changes to the specified node flavor.
 func (h *Handler) PatchNodeFlavor(c *gin.Context) {
 	handle(c, h.patchNodeFlavor)
 }
 
+// DeleteNodeFlavor: handles deletion of a node flavor resource.
+// Authorizes the request and removes the specified node flavor from the k8s cluster.
 func (h *Handler) DeleteNodeFlavor(c *gin.Context) {
 	handle(c, h.deleteNodeFlavor)
 }
 
+// GetNodeFlavorAvail: retrieves the available resources for a specific node flavor.
+// Calculates and returns the available resource quantities based on the configuration.
 func (h *Handler) GetNodeFlavorAvail(c *gin.Context) {
 	handle(c, h.getNodeFlavorAvail)
 }
 
+// createNodeFlavor: implements the node flavor creation logic.
+// Validates the request, generates a node flavor object, and persists it in the k8s cluster.
 func (h *Handler) createNodeFlavor(c *gin.Context) (interface{}, error) {
 	if err := h.auth.Authorize(authority.Input{
 		Context:      c.Request.Context(),
@@ -63,7 +77,7 @@ func (h *Handler) createNodeFlavor(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.CreateNodeFlavorRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
@@ -85,6 +99,8 @@ func (h *Handler) createNodeFlavor(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+// listNodeFlavor: implements the node flavor listing logic.
+// Retrieves all node flavors, applies authorization filtering, sorts them, and converts to response format.
 func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -129,6 +145,8 @@ func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+// getNodeFlavor: implements the logic for retrieving a single node flavor's information.
+// Gets the node flavor by ID and converts it to a response item format.
 func (h *Handler) getNodeFlavor(c *gin.Context) (interface{}, error) {
 	nf, err := h.getAdminNodeFlavor(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
@@ -145,6 +163,8 @@ func (h *Handler) getNodeFlavor(c *gin.Context) (interface{}, error) {
 	return cvtToNodeFlavorResponseItem(nf), nil
 }
 
+// patchNodeFlavor: implements partial update logic for a node flavor.
+// Parses the patch request, applies specified changes, and updates the node flavor.
 func (h *Handler) patchNodeFlavor(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(types.Name))
@@ -161,7 +181,7 @@ func (h *Handler) patchNodeFlavor(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.PatchNodeFlavorRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
@@ -178,6 +198,8 @@ func (h *Handler) patchNodeFlavor(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// deleteNodeFlavor: implements node flavor deletion logic.
+// Retrieves the node flavor and removes it from the k8s cluster.
 func (h *Handler) deleteNodeFlavor(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(types.Name))
@@ -199,6 +221,8 @@ func (h *Handler) deleteNodeFlavor(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// getAdminNodeFlavor: retrieves a node flavor resource by ID from the k8s cluster.
+// Returns an error if the node flavor doesn't exist or the ID is empty.
 func (h *Handler) getAdminNodeFlavor(ctx context.Context, flavorId string) (*v1.NodeFlavor, error) {
 	if flavorId == "" {
 		return nil, commonerrors.NewBadRequest("the nodeFlavorId is empty")
@@ -212,6 +236,9 @@ func (h *Handler) getAdminNodeFlavor(ctx context.Context, flavorId string) (*v1.
 	return nf.DeepCopy(), nil
 }
 
+// getNodeFlavorAvail: calculates and returns the available resources for a node flavor.
+// It computes the available resource quantities based on the node flavor specification
+// and system configuration limits.
 func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
 	nf, err := h.getAdminNodeFlavor(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
@@ -237,6 +264,9 @@ func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
 	return cvtToResourceList(availResource), nil
 }
 
+// updateNodeFlavor: applies updates to a node flavor based on the patch request.
+// Handles changes to CPU, GPU, memory, disk, and extended resources specifications.
+// Returns whether any updates were made and any error encountered.
 func (h *Handler) updateNodeFlavor(nf *v1.NodeFlavor, req *types.PatchNodeFlavorRequest) (bool, error) {
 	isShouldUpdate := false
 	if req.CPU != nil && !reflect.DeepEqual(nf.Spec.Cpu, *req.CPU) {
@@ -270,6 +300,8 @@ func (h *Handler) updateNodeFlavor(nf *v1.NodeFlavor, req *types.PatchNodeFlavor
 	return isShouldUpdate, nil
 }
 
+// generateNodeFlavor: creates a new node flavor object based on the creation request.
+// Populates the node flavor metadata and specification, including automatic ephemeral storage calculation.
 func generateNodeFlavor(c *gin.Context, req *types.CreateNodeFlavorRequest) (*v1.NodeFlavor, error) {
 	nf := &v1.NodeFlavor{
 		ObjectMeta: metav1.ObjectMeta{
@@ -289,6 +321,8 @@ func generateNodeFlavor(c *gin.Context, req *types.CreateNodeFlavorRequest) (*v1
 	return nf, nil
 }
 
+// cvtToNodeFlavorResponseItem: converts a node flavor object to a response item format.
+// Maps the node flavor specification to the appropriate response structure.
 func cvtToNodeFlavorResponseItem(nf *v1.NodeFlavor) types.NodeFlavorResponseItem {
 	result := types.NodeFlavorResponseItem{
 		FlavorId:       nf.Name,

@@ -15,7 +15,8 @@ import (
 )
 
 func InitCustomRouters(e *gin.Engine, h *Handler) {
-	group := e.Group(common.PrimusRouterCustomRootPath, Authorize(), Prepare())
+	// Custom API requires authentication and preprocessing.
+	group := e.Group(common.PrimusRouterCustomRootPath, authorize(), preprocess())
 	{
 		group.POST("workloads", h.CreateWorkload)
 		group.POST("workloads/clone", h.CloneWorkloads)
@@ -86,7 +87,8 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.POST(fmt.Sprintf("workloads/:%s/logs/:%s/context", types.Name, types.DocId), h.GetWorkloadLogContext)
 	}
 
-	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, Prepare())
+	// Custom API without authentication
+	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, preprocess())
 	{
 		noAuthGroup.GET("clusters", h.ListCluster)
 		noAuthGroup.GET(fmt.Sprintf("clusters/:%s", types.Name), h.GetCluster)

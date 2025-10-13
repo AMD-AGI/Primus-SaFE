@@ -19,6 +19,13 @@ const (
 	TimeRFC3339Milli = "2006-01-02T15:04:05.999Z"
 )
 
+func FormatRFC3339(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return ""
+	}
+	return t.Format(TimeRFC3339Short)
+}
+
 func CvtStrUnixToTime(strTime string) time.Time {
 	if strTime == "" {
 		return time.Time{}
@@ -28,13 +35,6 @@ func CvtStrUnixToTime(strTime string) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(intTime, 0).UTC()
-}
-
-func FormatRFC3339(t *time.Time) string {
-	if t == nil || t.IsZero() {
-		return ""
-	}
-	return t.Format(TimeRFC3339Short)
 }
 
 func CvtTimeToCronStandard(timeOnly string) (string, error) {
@@ -54,6 +54,17 @@ func CvtCronStandardToTime(scheduleStr string) (string, error) {
 	return fmt.Sprintf("%02s:%02s:00", values[1], values[0]), nil
 }
 
+func CvtStrToRFC3339Milli(timeStr string) (time.Time, error) {
+	if timeStr == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(TimeRFC3339Milli, timeStr)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return t.UTC(), nil
+}
+
 func ParseCronStandard(scheduleStr string) (cron.Schedule, float64, error) {
 	if scheduleStr == "" {
 		return nil, 0, fmt.Errorf("invalid input")
@@ -68,21 +79,4 @@ func ParseCronStandard(scheduleStr string) (cron.Schedule, float64, error) {
 	nextTime := schedule.Next(today.UTC())
 	interval := nextTime.Sub(today).Seconds()
 	return schedule, interval, nil
-}
-
-func CvtMilliSecToTime(milliseconds int64) time.Time {
-	seconds := milliseconds / 1000
-	nanoseconds := (milliseconds % 1000) * 1000000
-	return time.Unix(seconds, nanoseconds).UTC()
-}
-
-func CvtStrToRFC3339Milli(timeStr string) (time.Time, error) {
-	if timeStr == "" {
-		return time.Time{}, nil
-	}
-	t, err := time.Parse(TimeRFC3339Milli, timeStr)
-	if err != nil {
-		return time.Time{}, err
-	}
-	return t.UTC(), nil
 }

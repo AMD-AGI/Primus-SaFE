@@ -16,21 +16,25 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
+// GetEndpoint returns the endpoint address of the given cluster.
+// It first tries to get the endpoint from the Kubernetes Service associated with the cluster.
+// If the Service is not found or has no ports, it falls back to using the endpoint from the cluster status.
+// Returns an error if the cluster is nil, not ready, or no valid endpoint can be found.
 func GetEndpoint(ctx context.Context, cli client.Client, cluster *v1.Cluster) (string, error) {
 	if cluster == nil || !cluster.IsReady() {
 		return "", fmt.Errorf("cluster is not ready")
 	}
 	service := &corev1.Service{}
 	err := cli.Get(ctx, client.ObjectKey{Name: cluster.Name, Namespace: common.PrimusSafeNamespace}, service)
-	result := ""
 	if err == nil {
-		// result = fmt.Sprintf("https://%s.%s.svc", clusterName, common.PrimusSafeNamespace)
-		result = fmt.Sprintf("%s:%d", service.Spec.ClusterIP, service.Spec.Ports[0].Port)
-	} else {
-		if len(cluster.Status.ControlPlaneStatus.Endpoints) == 0 {
-			return "", fmt.Errorf("either the Service address or the Endpoint is empty")
+		if len(service.Spec.Ports) == 0 {
+			return "", fmt.Errorf("service ports are empty")
 		}
-		result = cluster.Status.ControlPlaneStatus.Endpoints[0]
+		// return fmt.Sprintf("https://%s.%s.svc", clusterName, common.PrimusSafeNamespace), nil
+		return fmt.Sprintf("%s:%d", service.Spec.ClusterIP, service.Spec.Ports[0].Port), nil
 	}
-	return result, nil
+	if len(cluster.Status.ControlPlaneStatus.Endpoints) == 0 {
+		return "", fmt.Errorf("either the Service address or the Endpoint is empty")
+	}
+	return cluster.Status.ControlPlaneStatus.Endpoints[0], nil
 }

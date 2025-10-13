@@ -26,6 +26,7 @@ import (
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -41,6 +42,9 @@ func (h *Handler) GetWorkloadLogContext(c *gin.Context) {
 	handle(c, h.getWorkloadLogContext)
 }
 
+// getWorkloadLog: retrieves logs for a specific workload from OpenSearch.
+// It will check whether the user has permission to access the logs.
+// Returns the search results or an error if any step fails.
 func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
@@ -71,6 +75,9 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 		"/_search", buildSearchBody(query, name))
 }
 
+// getServiceLog: retrieves logs for a specific service from OpenSearch.
+// Only system-adminer has permission to access the logs.
+// Returns the search results or an error if any step fails.
 func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
@@ -89,6 +96,9 @@ func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
 		"/_search", buildSearchBody(query, ""))
 }
 
+// getWorkloadLogContext: retrieves contextual logs for a specific workload from OpenSearch.
+// It will check whether the user has permission to access the logs.
+// Returns the contextual search results or an error if any step fails.
 func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
@@ -118,6 +128,9 @@ func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
 	return h.searchContextLog(queries, name)
 }
 
+// searchContextLog: performs concurrent OpenSearch queries to retrieve contextual logs for a workload.
+// It executes two parallel searches (before and after the target log) using the provided queries
+// Returns the combined search results or an error if any search fails.
 func (h *Handler) searchContextLog(queries []types.ListContextLogRequest, workloadId string) (*commonsearch.OpenSearchResponse, error) {
 	startTime := time.Now().UTC()
 	const count = 2
@@ -151,6 +164,10 @@ func (h *Handler) searchContextLog(queries []types.ListContextLogRequest, worklo
 	return result, nil
 }
 
+// buildSearchBody: constructs the OpenSearch query body for log searching.
+// It configures the query parameters including pagination, sorting by time,
+// time range filtering, label filters, keyword searches, and output fields.
+// Returns the serialized JSON byte array of the search request.
 func buildSearchBody(query *types.ListLogRequest, workloadId string) []byte {
 	req := &commonsearch.OpenSearchRequest{
 		From: query.Offset,
@@ -203,7 +220,7 @@ func buildLabelFilter(req *commonsearch.OpenSearchRequest, labelFilters map[stri
 }
 
 func buildMultiTermsFilter(req *commonsearch.OpenSearchRequest, key, values string) {
-	valueList := split(values, ",")
+	valueList := stringutil.Split(values, ",")
 	if len(valueList) == 0 {
 		return
 	}
@@ -225,7 +242,7 @@ func buildMultiTermsFilter(req *commonsearch.OpenSearchRequest, key, values stri
 func buildKeywords(req *commonsearch.OpenSearchRequest, query *types.ListLogRequest) {
 	// and search
 	for _, key := range query.Keywords {
-		words := split(key, " ")
+		words := stringutil.Split(key, " ")
 		if len(words) == 0 {
 			continue
 		}
@@ -307,6 +324,11 @@ func parseServiceLogQuery(c *gin.Context) (*types.ListLogRequest, error) {
 	return query, nil
 }
 
+// parseContextQuery: parses the context log query parameters for a workload.
+// It creates two queries - one for logs after the specified time (ascending order)
+// and one for logs before the specified time (descending order, limited by workload creation time).
+// This allows retrieving contextual logs around a specific log entry.
+// Returns a slice of ListContextLogRequest containing both queries or an error if parsing fails.
 func parseContextQuery(c *gin.Context, workload *v1.Workload) ([]types.ListContextLogRequest, error) {
 	docId := c.Param(types.DocId)
 	if docId == "" {
@@ -352,9 +374,14 @@ func parseContextQuery(c *gin.Context, workload *v1.Workload) ([]types.ListConte
 	return result, nil
 }
 
+// parseLogQuery: parses and validates the log query parameters from an HTTP request.
+// It handles pagination, sorting order, time range validation, and ensures all parameters
+// are within acceptable limits. For time range, it applies default values and constraints
+// based on the provided beginTime and endTime parameters.
+// Returns a validated ListLogRequest object or an error if validation fails.
 func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*types.ListLogRequest, error) {
 	query := &types.ListLogRequest{}
-	_, err := getBodyFromRequest(req, query)
+	_, err := parseRequestBody(req, query)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
@@ -408,6 +435,11 @@ func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*types.List
 	return query, nil
 }
 
+// addContextDoc: processes and adds contextual log documents to the search response.
+// It finds the specified document ID in the response, then extracts logs before or after
+// that document (based on isAsc flag) up to the specified limit. Each log entry is assigned
+// a line number for context (positive for forward context, negative for backward context).
+// The function updates the result response with the extracted documents and total count.
 func addContextDoc(result *commonsearch.OpenSearchResponse,
 	query types.ListContextLogRequest, response *commonsearch.OpenSearchResponse, isAsc bool) {
 	id := 0
@@ -433,19 +465,4 @@ func addContextDoc(result *commonsearch.OpenSearchResponse,
 		result.Hits.Hits = append(result.Hits.Hits, *doc)
 	}
 	result.Hits.Total.Value += count
-}
-
-func split(str, sep string) []string {
-	if len(str) == 0 {
-		return nil
-	}
-	strList := strings.Split(str, sep)
-	var result []string
-	for _, s := range strList {
-		if s = strings.TrimSpace(s); s == "" {
-			continue
-		}
-		result = append(result, s)
-	}
-	return result
 }

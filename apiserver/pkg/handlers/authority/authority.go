@@ -33,22 +33,41 @@ type Authorizer struct {
 	client.Client
 }
 
+// Input: represents the authorization request input parameters.
+// It contains all the necessary information to perform an authorization check,
+// including the resource being accessed, the action being performed,
+// and the user requesting access.
 type Input struct {
-	Context       context.Context
-	ResourceKind  string
+	// Context is the context for the authorization request, used for passing request-scoped values
+	Context context.Context
+
+	// ResourceKind is the kind of target resource being accessed (e.g., "cluster", "node", "workload")
+	ResourceKind string
+
+	// ResourceOwner is the owner of target resource, typically the user ID who owns the resource
 	ResourceOwner string
-	Resource      client.Object
-	Verb          v1.RoleVerb
-	// the workspace to which the resource belongs.
+
+	// Resource is the actual resource object being accessed, can be nil if only ResourceKind is known
+	Resource client.Object
+
+	// Verb is the action being performed on the resource (e.g., create, get, list, update, delete)
+	Verb v1.RoleVerb
+
+	// Workspaces is the list of workspace IDs to which the resource belongs
 	Workspaces []string
-	// user and userid are optional; only one needs to be provided.
-	// it is from the requesting end.
+
+	// UserId is the ID of the user making the request, used to fetch the User object if not provided
 	UserId string
-	User   *v1.User
-	// the request user's roles
+
+	// User is the user object making the request, can be nil if UserId is provided instead
+	User *v1.User
+
+	// Roles is the list of roles assigned to the requesting user
 	Roles []*v1.Role
 }
 
+// NewAuthorizer: creates a new Authorizer instance with the provided client.
+// Uses singleton pattern to ensure only one instance exists.
 func NewAuthorizer(cli client.Client) *Authorizer {
 	once.Do(func() {
 		instance = &Authorizer{
@@ -58,6 +77,9 @@ func NewAuthorizer(cli client.Client) *Authorizer {
 	return instance
 }
 
+// Authorize: performs authorization check for a user request.
+// It retrieves user and roles if not provided, then validates if the user
+// has permission to perform the requested action on the resource.
 func (a *Authorizer) Authorize(in Input) error {
 	if in.User == nil {
 		var err error
@@ -71,6 +93,8 @@ func (a *Authorizer) Authorize(in Input) error {
 	return a.authorize(in)
 }
 
+// AuthorizeSystemAdmin: checks if the user has system administrator privileges.
+// Returns an error if the user is not a system admin.
 func (a *Authorizer) AuthorizeSystemAdmin(in Input) error {
 	if in.User == nil {
 		var err error
@@ -84,6 +108,8 @@ func (a *Authorizer) AuthorizeSystemAdmin(in Input) error {
 	return nil
 }
 
+// GetRequestUser: retrieves a user object by userId from the k8s cluster.
+// Returns an error if the userId is empty or the user doesn't exist.
 func (a *Authorizer) GetRequestUser(ctx context.Context, userId string) (*v1.User, error) {
 	if userId == "" {
 		return nil, commonerrors.NewBadRequest("the request userId is empty")
@@ -96,6 +122,8 @@ func (a *Authorizer) GetRequestUser(ctx context.Context, userId string) (*v1.Use
 	return user, nil
 }
 
+// GetRoles: retrieves all roles associated with a user.
+// Fetches role objects based on the role names specified in the user spec.
 func (a *Authorizer) GetRoles(ctx context.Context, user *v1.User) []*v1.Role {
 	if user == nil {
 		return nil
@@ -113,6 +141,8 @@ func (a *Authorizer) GetRoles(ctx context.Context, user *v1.User) []*v1.Role {
 	return result
 }
 
+// authorize: is the core authorization logic that checks if a user has permission
+// to perform an action on a resource based on their roles and permissions.
 func (a *Authorizer) authorize(in Input) error {
 	if err := a.checkUserStatus(in.User); err != nil {
 		return err
@@ -131,6 +161,8 @@ func (a *Authorizer) authorize(in Input) error {
 		fmt.Sprintf("The user is not allowed to %s %s", in.Verb, resourceKind))
 }
 
+// checkUserStatus: verifies if the user account is in good standing.
+// Returns an error if the user is restricted.
 func (a *Authorizer) checkUserStatus(user *v1.User) error {
 	if user.IsRestricted() {
 		return commonerrors.NewForbidden(
@@ -139,6 +171,8 @@ func (a *Authorizer) checkUserStatus(user *v1.User) error {
 	return nil
 }
 
+// extractResourceInfo: extracts resource kind and name from the input.
+// Determines the resource type and identifier for authorization checks.
 func (a *Authorizer) extractResourceInfo(in Input) (resourceKind, resourceName string) {
 	resourceKind = in.ResourceKind
 	if resourceKind == "" {
@@ -152,6 +186,8 @@ func (a *Authorizer) extractResourceInfo(in Input) (resourceKind, resourceName s
 	return resourceKind, resourceName
 }
 
+// determineOwnership: checks if the user is the owner of the resource
+// or has workspace-level access to the resource.
 func (a *Authorizer) determineOwnership(in *Input) (isOwner bool, isWorkspaceUser bool) {
 	if in.ResourceOwner == "" {
 		in.ResourceOwner = v1.GetUserId(in.Resource)
@@ -168,6 +204,8 @@ func (a *Authorizer) determineOwnership(in *Input) (isOwner bool, isWorkspaceUse
 	return isOwner, isWorkspaceUser
 }
 
+// extendRolesWithWorkspaceAdmin: extends the user's roles with workspace admin role
+// if the user has administrative rights in the specified workspaces.
 func (a *Authorizer) extendRolesWithWorkspaceAdmin(in Input) []*v1.Role {
 	roles := make([]*v1.Role, 0, len(in.Roles)+1)
 	roles = append(roles, in.Roles...)
@@ -181,6 +219,8 @@ func (a *Authorizer) extendRolesWithWorkspaceAdmin(in Input) []*v1.Role {
 	return roles
 }
 
+// getPolicyRules: retrieves applicable policy rules from a role based on
+// resource type, ownership, and workspace membership.
 func (a *Authorizer) getPolicyRules(role *v1.Role,
 	resourceKind, resourceName string, isOwner, isWorkspaceUser bool) []*v1.PolicyRule {
 	var result []*v1.PolicyRule
@@ -217,6 +257,8 @@ func (a *Authorizer) getPolicyRules(role *v1.Role,
 	return result
 }
 
+// isMatchVerb: checks if any of the provided policy rules allow the specified verb/action.
+// Returns true if the verb is permitted by any rule, false otherwise.
 func isMatchVerb(rules []*v1.PolicyRule, verb v1.RoleVerb) bool {
 	for _, r := range rules {
 		for _, v := range r.Verbs {

@@ -176,7 +176,7 @@ func (r *AddonJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 }
 
 func (r *AddonJobReconciler) cleanupJobRelatedInfo(ctx context.Context, job *v1.OpsJob) error {
-	return commonjob.CleanupJobRelatedInfo(ctx, r.Client, job.Name)
+	return commonjob.CleanupJobRelatedResource(ctx, r.Client, job.Name)
 }
 
 // Observe the job status. Returns true if the expected state is met (no handling required), false otherwise.
