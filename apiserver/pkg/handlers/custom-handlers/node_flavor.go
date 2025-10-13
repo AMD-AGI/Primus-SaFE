@@ -130,7 +130,7 @@ func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) getNodeFlavor(c *gin.Context) (interface{}, error) {
-	nf, err := h.getAdminNodeFlavor(c.Request.Context(), c.GetString(types.Name))
+	nf, err := h.getAdminNodeFlavor(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func (h *Handler) getNodeFlavor(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) patchNodeFlavor(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(types.Name))
+	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func (h *Handler) patchNodeFlavor(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) deleteNodeFlavor(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(types.Name))
+	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +213,7 @@ func (h *Handler) getAdminNodeFlavor(ctx context.Context, name string) (*v1.Node
 }
 
 func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
-	nf, err := h.getAdminNodeFlavor(c.Request.Context(), c.GetString(types.Name))
+	nf, err := h.getAdminNodeFlavor(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}

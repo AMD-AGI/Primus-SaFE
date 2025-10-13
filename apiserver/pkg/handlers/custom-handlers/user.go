@@ -156,7 +156,7 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 	}
 
 	var targetUser *v1.User
-	targetUserId := c.GetString(types.Name)
+	targetUserId := c.GetString(common.Name)
 	if targetUserId == common.UserSelf {
 		targetUser = requestUser
 	} else {
@@ -179,7 +179,7 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	targetUserId := c.GetString(types.Name)
+	targetUserId := c.GetString(common.Name)
 	targetUser, err := h.getAdminUser(c.Request.Context(), targetUserId)
 	if err != nil {
 		return nil, err
@@ -289,7 +289,7 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	targetUser, err := h.getAdminUser(c.Request.Context(), c.GetString(types.Name))
+	targetUser, err := h.getAdminUser(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}

@@ -214,3 +214,16 @@ func (ws WorkloadSlice) Less(i, j int) bool {
 	}
 	return false
 }
+
+type (
+	GetWorkloadPodContainersResponse struct {
+		// 容器列表
+		Containers []GetWorkloadPodContainersItem `json:"containers"`
+		// 支持的shell, 应该允许用户自定义
+		Shells []string `json:"shells"`
+	}
+	GetWorkloadPodContainersItem struct {
+		// 容器名
+		Name string `json:"name"`
+	}
+)

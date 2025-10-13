@@ -135,7 +135,7 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("opsJobId is empty")
 	}
@@ -454,7 +454,7 @@ func cvtToListOpsJobSql(query *types.ListOpsJobRequest) sqrl.Sqlizer {
 }
 
 func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
-	jobId := c.GetString(types.Name)
+	jobId := c.GetString(common.Name)
 	if jobId == "" {
 		return nil, commonerrors.NewBadRequest("the jobId is empty")
 	}

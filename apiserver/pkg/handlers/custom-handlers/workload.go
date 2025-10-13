@@ -78,6 +78,10 @@ func (h *Handler) GetWorkloadPodLog(c *gin.Context) {
 	handle(c, h.getWorkloadPodLog)
 }
 
+func (h *Handler) GetWorkloadPodContainers(c *gin.Context) {
+	handle(c, h.getWorkloadPodContainers)
+}
+
 func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	req := &types.CreateWorkloadRequest{}
 	body, err := getBodyFromRequest(c.Request, req)
@@ -158,7 +162,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	ctx := c.Request.Context()
 	if commonconfig.IsDBEnable() {
 		dbWorkload, err := h.dbClient.GetWorkload(ctx, name)
@@ -189,7 +193,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -244,7 +248,7 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -286,7 +290,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -327,7 +331,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 
-	workload, err := h.getAdminWorkload(c.Request.Context(), c.GetString(types.Name))
+	workload, err := h.getAdminWorkload(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +343,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	podName := strings.TrimSpace(c.Param(types.PodId))
+	podName := strings.TrimSpace(c.Param(common.PodId))
 	podLogs, err := h.getPodLog(c, k8sClients.ClientSet(),
 		workload.Spec.Workspace, podName, v1.GetMainContainer(workload))
 	if err != nil {
@@ -1012,12 +1016,63 @@ func generateAuthWorkload(name, userId, workspace, clusterId string) *v1.Workloa
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			Labels: map[string]string{
-				v1.UserIdLabel:    userId,
-				v1.ClusterIdLabel: clusterId,
+				v1.UserIdLabel:      userId,
+				v1.ClusterIdLabel:   clusterId,
+				v1.WorkspaceIdLabel: workspace,
 			},
 		},
 		Spec: v1.WorkloadSpec{
 			Workspace: workspace,
 		},
 	}
+}
+
+func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+
+	var (
+		ctx           = c.Request.Context()
+		name          = c.GetString(common.Name)
+		podName       = strings.TrimSpace(c.Param(common.PodId))
+		adminWorkload *v1.Workload
+	)
+
+	if commonconfig.IsDBEnable() {
+		dbWorkload, err := h.dbClient.GetWorkload(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		adminWorkload = generateAuthWorkload(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+	} else {
+		adminWorkload, err = h.getAdminWorkload(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, requestUser, roles); err != nil {
+		return nil, err
+	}
+
+	k8sClients, err := apiutils.GetK8sClientFactory(h.clientManager, v1.GetClusterId(adminWorkload))
+	if err != nil {
+		return nil, err
+	}
+	pod, err := k8sClients.ClientSet().CoreV1().Pods(v1.GetWorkspaceId(adminWorkload)).Get(c.Request.Context(), podName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	containers := make([]types.GetWorkloadPodContainersItem, len(pod.Spec.Containers))
+	for index, container := range pod.Spec.Containers {
+		containers[index] = types.GetWorkloadPodContainersItem{Name: container.Name}
+	}
+
+	return &types.GetWorkloadPodContainersResponse{
+		Containers: containers,
+		Shells:     []string{"bash", "sh", "zsh"},
+	}, nil
 }

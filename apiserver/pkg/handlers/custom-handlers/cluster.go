@@ -157,7 +157,7 @@ func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
-	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
+	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
+	cluster, err := h.getAdminCluster(ctx, c.GetString(common.Name))
 	if err != nil {
 		klog.ErrorS(err, "failed to get admin cluster")
 		return nil, err
@@ -202,7 +202,7 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
+	cluster, err := h.getAdminCluster(ctx, c.GetString(common.Name))
 	if err != nil {
 		klog.ErrorS(err, "failed to get admin cluster")
 		return nil, err
@@ -255,7 +255,7 @@ func (h *Handler) updateCluster(ctx context.Context, cluster *v1.Cluster, req *t
 }
 
 func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
-	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
+	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +367,7 @@ func (h *Handler) removeNodesFromWorkspace(c *gin.Context, allNodeIds []string) 
 }
 
 func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
-	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
+	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}

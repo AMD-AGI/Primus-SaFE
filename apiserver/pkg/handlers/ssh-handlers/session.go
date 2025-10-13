@@ -13,6 +13,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"k8s.io/client-go/tools/remotecommand"
 	"net"
 	"sync"
 
@@ -397,4 +398,12 @@ func parseUint32(in []byte) (uint32, []byte, bool) {
 		return 0, nil, false
 	}
 	return binary.BigEndian.Uint32(in), in[4:], true
+}
+
+func (info *SessionInfo) Next() (size *remotecommand.TerminalSize) {
+	if v, ok := <-info.size; ok {
+		return v
+	} else {
+		return nil
+	}
 }

@@ -31,6 +31,11 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		return nil, err
 	}
 	customhandler.InitCustomRouters(engine, customHandler)
+	sshHandler, err := InitSshHandlers(context.Background(), mgr)
+	if err != nil {
+		return nil, err
+	}
+	sshhandler.InitWebShellRouters(engine, sshHandler)
 	return engine, nil
 }
 

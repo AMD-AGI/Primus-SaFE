@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	DESC = "desc"
-	ASC  = "asc"
+	DESC       = "desc"
+	ASC        = "asc"
+	CreateTime = "create_time"
 )
 
 type Workload struct {
@@ -140,4 +141,37 @@ func genInsertCommand(obj interface{}, format, ignoreTag string) string {
 func GetFieldTag(tags map[string]string, name string) string {
 	name = strings.ToLower(name)
 	return tags[name]
+}
+
+type PublicKey struct {
+	Id          int64       `db:"id"`
+	UserId      string      `db:"user_id"`
+	Description string      `db:"description"`
+	PublicKey   string      `db:"public_key"`
+	Status      bool        `db:"status"`
+	CreateTime  pq.NullTime `db:"create_time"`
+	UpdateTime  pq.NullTime `db:"update_time"`
+	DeleteTime  pq.NullTime `db:"delete_time"`
+}
+
+func GetPublicKeyFieldTags() map[string]string {
+	f := PublicKey{}
+	return getFieldTags(f)
+}
+
+type SshSessionRecords struct {
+	Id               int64       `db:"id"`
+	UserId           string      `db:"user_id"`
+	SshType          string      `db:"ssh_type"`
+	Namespace        string      `db:"namespace"`
+	PodId            string      `db:"pod_id"`
+	ContainerName    string      `db:"container_name"`
+	DisconnectReason string      `db:"disconnect_reason"`
+	DisconnectTime   pq.NullTime `db:"disconnect_time"`
+	CreateTime       pq.NullTime `db:"create_time"`
+}
+
+func GetSshSessionRecordsFieldTags() map[string]string {
+	f := SshSessionRecords{}
+	return getFieldTags(f)
 }

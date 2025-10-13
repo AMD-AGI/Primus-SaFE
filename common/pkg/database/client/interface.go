@@ -15,6 +15,8 @@ type Interface interface {
 	WorkloadInterface
 	FaultInterface
 	OpsJobInterface
+	PublicKeyInterface
+	SshSessionRecordsInterface
 }
 
 type WorkloadInterface interface {
@@ -40,4 +42,19 @@ type OpsJobInterface interface {
 	SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*OpsJob, error)
 	CountJobs(ctx context.Context, query sqrl.Sqlizer) (int, error)
 	SetOpsJobDeleted(ctx context.Context, opsJobId, userId string) error
+}
+
+type PublicKeyInterface interface {
+	InsertPublicKey(ctx context.Context, publicKey *PublicKey) error
+	SelectPublicKeys(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*PublicKey, error)
+	CountPublicKeys(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	DeletePublicKey(ctx context.Context, userId string, id int64) error
+	GetPublicKeyByUserId(ctx context.Context, userId string) ([]*PublicKey, error)
+	SetPublicKeyStatus(ctx context.Context, userId string, id int64, status bool) error
+	SetPublicKeyDescription(ctx context.Context, userId string, id int64, description string) error
+}
+
+type SshSessionRecordsInterface interface {
+	InsertSshSessionRecord(ctx context.Context, record *SshSessionRecords) (int64, error)
+	SetSshDisconnect(ctx context.Context, id int64, disconnectReason string) error
 }

@@ -85,7 +85,7 @@ func (h *Handler) deleteFault(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	id := c.GetString(types.Name)
+	id := c.GetString(common.Name)
 	err = h.dbClient.DeleteFault(c.Request.Context(), id)
 	if err != nil {
 		return nil, err
@@ -105,7 +105,7 @@ func (h *Handler) stopFault(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	id := c.GetString(types.Name)
+	id := c.GetString(common.Name)
 	faultList := &v1.FaultList{}
 	err := h.List(ctx, faultList)
 	if err != nil {

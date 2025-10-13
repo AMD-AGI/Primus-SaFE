@@ -188,7 +188,7 @@ func TestPatchNode(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPatch,
 		fmt.Sprintf("/api/v1/nodes/%s", adminNode.Name),
 		strings.NewReader(string(jsonutils.MarshalSilently(body))))
-	c.Set(types.Name, adminNode.Name)
+	c.Set(common.Name, adminNode.Name)
 	h.PatchNode(c)
 	assert.Equal(t, rsp.Code, http.StatusOK)
 	time.Sleep(time.Millisecond * 200)

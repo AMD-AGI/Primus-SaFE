@@ -6,9 +6,15 @@
 package ssh_handlers
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/gorilla/websocket"
+	"io"
+	"k8s.io/client-go/tools/remotecommand"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -26,37 +32,98 @@ import (
 type SshHandler struct {
 	ctx context.Context
 	client.Client
+	dbClient      dbclient.Interface
 	clientManager *commonutils.ObjectManager
 	config        *ssh.ServerConfig
 	auth          *authority.Authorizer
 	timeout       time.Duration
+	upgrader      *websocket.Upgrader
 }
 
+var (
+	once       sync.Once
+	sshHandler *SshHandler
+)
+
 func NewSshHandler(ctx context.Context, mgr ctrlruntime.Manager) (*SshHandler, error) {
-	// TODO: validate user's public-key
-	config := &ssh.ServerConfig{
-		NoClientAuth: true,
+	var err error
+	once.Do(func() {
+		klog.Infof("init ssh handler")
+
+		var dbClient *dbclient.Client
+		if commonconfig.IsDBEnable() {
+			if dbClient = dbclient.NewClient(); dbClient == nil {
+				err = fmt.Errorf("failed to new db client")
+				return
+			}
+		}
+
+		config := &ssh.ServerConfig{}
+		privateData := commonconfig.GetSSHRsaPrivate()
+		if len(privateData) == 0 {
+			err = fmt.Errorf("id_rsa is empty")
+			return
+		}
+		var private ssh.Signer
+		private, err = ssh.ParsePrivateKey([]byte(privateData))
+		if err != nil {
+			return
+		}
+		config.AddHostKey(private)
+
+		sshHandler = &SshHandler{
+			ctx:           ctx,
+			Client:        mgr.GetClient(),
+			dbClient:      dbClient,
+			clientManager: commonutils.NewObjectManagerSingleton(),
+			config:        config,
+			auth:          authority.NewAuthorizer(mgr.GetClient()),
+			timeout:       time.Hour * 48,
+			upgrader: &websocket.Upgrader{
+				HandshakeTimeout: 3 * time.Second,
+				ReadBufferSize:   4096,
+				WriteBufferSize:  4096,
+				CheckOrigin: func(r *http.Request) bool {
+					return true
+				},
+			},
+		}
+		sshHandler.config.PublicKeyCallback = sshHandler.publicCallback
+	})
+
+	return sshHandler, err
+}
+
+func (h *SshHandler) publicCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+	if !commonconfig.IsDBEnable() {
+		return nil, fmt.Errorf("db is not enable")
 	}
-	privateData := commonconfig.GetSSHRsaPrivate()
-	if len(privateData) == 0 {
-		return nil, fmt.Errorf("id_rsa is empty")
+	parsedUser, ok := ParseUserInfo(conn.User())
+	klog.Infof("parse user info: %+v, ok: %v", parsedUser, ok)
+	if !ok {
+		return nil, fmt.Errorf("invalid user")
 	}
 
-	private, err := ssh.ParsePrivateKey([]byte(privateData))
+	publicKeys, err := h.dbClient.GetPublicKeyByUserId(context.Background(), parsedUser.User)
 	if err != nil {
 		return nil, err
 	}
-	config.AddHostKey(private)
-
-	h := &SshHandler{
-		ctx:           ctx,
-		Client:        mgr.GetClient(),
-		clientManager: commonutils.NewObjectManagerSingleton(),
-		config:        config,
-		auth:          authority.NewAuthorizer(mgr.GetClient()),
-		timeout:       time.Hour * 48,
+	isFound := false
+	for _, p := range publicKeys {
+		pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(p.PublicKey))
+		if err != nil {
+			continue
+		}
+		if bytes.Equal(pub.Marshal(), key.Marshal()) {
+			isFound = true
+			break
+		}
 	}
-	return h, nil
+	if !isFound {
+		return nil, fmt.Errorf("invalid public key")
+	}
+
+	return nil, nil
 }
 
 func (h *SshHandler) HandleConnection(conn net.Conn) {
@@ -113,18 +180,76 @@ func (h *SshHandler) startSessionHandler(ctx context.Context, conn *ssh.ServerCo
 	s.handleRequests(reqs)
 }
 
-type UserInfo struct {
-	_         struct{} `regexp:"^"`
-	User      string   `regexp:"[a-zA-Z0-9][a-zA-Z0-9_-]*"`
-	_         struct{} `regexp:"\\."`
-	Pod       string   `regexp:"[a-zA-Z0-9][a-zA-Z0-9_-]*"`
-	_         struct{} `regexp:"\\."`
-	Namespace string   `regexp:"[a-zA-Z0-9][a-zA-Z0-9_-]*"`
-	_         struct{} `regexp:"$"`
+func (h *SshHandler) handleSession(s Session) {
+	userInfo, ok := ParseUserInfo(s.User())
+	if !ok {
+		sendError(s, fmt.Sprintf("Invalid user %v", s.User()))
+		return
+	}
+
+	sessionInfo := h.NewSessionInfo(s.Context(), userInfo, newSSHConn(s), 1800, 40, SSH)
+	if err := h.SessionConn(s.Context(), sessionInfo); err != nil {
+		sendError(s, err.Error())
+	}
+
+	return
 }
 
 func ParseUserInfo(user string) (*UserInfo, bool) {
 	info := &UserInfo{}
 	ok, _ := restructure.Find(info, user)
 	return info, ok
+}
+
+type SSHConn struct {
+	s          Session
+	exitReason string
+}
+
+func newSSHConn(s Session) Conn {
+	return &SSHConn{
+		s: s,
+	}
+}
+
+func (conn *SSHConn) Read(p []byte) (n int, err error) {
+	n, err = conn.s.Read(p)
+	if err != nil && err == io.EOF {
+		conn.exitReason = "User actively disconnected"
+	}
+	return n, err
+}
+
+func (conn *SSHConn) Write(p []byte) (n int, err error) {
+	return conn.s.Write(p)
+}
+
+func (conn *SSHConn) Close() error {
+	return conn.s.Close()
+}
+
+func (conn *SSHConn) ExitReason() string {
+	return conn.exitReason
+}
+
+func (conn *SSHConn) SetExitReason(reason string) {
+	conn.exitReason = reason
+}
+
+func (conn *SSHConn) WindowNotify(ctx context.Context, ch chan *remotecommand.TerminalSize) {
+	_, windowCh, ok := conn.s.Pty()
+	if !ok {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case window := <-windowCh:
+			ch <- &remotecommand.TerminalSize{
+				Width:  uint16(window.Width),
+				Height: uint16(window.Height),
+			}
+		}
+	}
 }

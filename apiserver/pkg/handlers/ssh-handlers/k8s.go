@@ -9,10 +9,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	client2 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -32,30 +37,22 @@ import (
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
-func (h *SshHandler) handleSession(s Session) {
-	userInfo, ok := ParseUserInfo(s.User())
-	if !ok {
-		sendError(s, fmt.Sprintf("Invalid user %v", s.User()))
-		return
-	}
-
-	workload, k8sClients, err := h.getWorkloadAndClients(s.Context(), userInfo)
+func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) error {
+	workload, k8sClients, err := h.getWorkloadAndClients(ctx, sessionInfo.userInfo)
 	if err != nil {
-		sendError(s, err.Error())
-		return
+		return err
 	}
-	if err = h.authUser(s.Context(), userInfo, workload); err != nil {
-		sendError(s, err.Error())
-		return
+	if err = h.authUser(ctx, sessionInfo.userInfo, workload); err != nil {
+		return err
 	}
 
 	req := k8sClients.ClientSet().CoreV1().RESTClient().Post().
 		Resource("pods").
-		Name(userInfo.Pod).
-		Namespace(userInfo.Namespace).
+		Name(sessionInfo.userInfo.Pod).
+		Namespace(sessionInfo.userInfo.Namespace).
 		SubResource("exec").VersionedParams(&corev1.PodExecOptions{
-		Container: v1.GetMainContainer(workload),
-		Command:   []string{"sh"},
+		Container: sessionInfo.userInfo.Container,
+		Command:   []string{sessionInfo.userInfo.CMD},
 		Stdin:     true,
 		Stdout:    true,
 		Stderr:    true,
@@ -64,14 +61,53 @@ func (h *SshHandler) handleSession(s Session) {
 
 	executor, err := remotecommand.NewSPDYExecutor(k8sClients.RestConfig(), "POST", req.URL())
 	if err != nil {
-		sendError(s, fmt.Sprintf("failed to create SPDY executor: %s", err.Error()))
-		return
+		return fmt.Errorf("failed to create SPDY executor: %v", err)
 	}
-	err = executor.StreamWithContext(s.Context(), remotecommand.StreamOptions{
-		Stdin:             s,
-		Stdout:            s,
-		Stderr:            s,
-		TerminalSizeQueue: nil,
+	sessionInfo.size <- &remotecommand.TerminalSize{
+		Width:  uint16(sessionInfo.cols),
+		Height: uint16(sessionInfo.rows),
+	}
+
+	go func() {
+		c := make(chan os.Signal)
+		signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
+		select {
+		case <-c:
+		case <-sessionInfo.cancelCtx.Done():
+		}
+		sessionInfo.cancelFunc()
+	}()
+
+	go sessionInfo.userConn.WindowNotify(ctx, sessionInfo.size)
+
+	_, err = sessionInfo.userConn.Write([]byte("Connection established\n"))
+	if err != nil {
+		return fmt.Errorf("user conn err: %v", err)
+	}
+
+	nowTime := dbutils.NullMetaV1Time(&metav1.Time{Time: time.Now().UTC()})
+	recordId, err := h.dbClient.InsertSshSessionRecord(ctx, &client2.SshSessionRecords{
+		UserId:        sessionInfo.userInfo.User,
+		SshType:       string(sessionInfo.sshType),
+		Namespace:     sessionInfo.userInfo.Namespace,
+		PodId:         sessionInfo.userInfo.Pod,
+		ContainerName: sessionInfo.userInfo.Container,
+		CreateTime:    nowTime,
+	})
+	if err != nil {
+		return fmt.Errorf("create ssh session record err: %v", err)
+	}
+	defer func() {
+		if err := h.dbClient.SetSshDisconnect(context.Background(), recordId, sessionInfo.userConn.ExitReason()); err != nil {
+			klog.Errorf("set ssh session record disconnect reason err: %v", err)
+		}
+	}()
+
+	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdin:             sessionInfo.userConn,
+		Stdout:            sessionInfo.userConn,
+		Stderr:            sessionInfo.userConn,
+		TerminalSizeQueue: sessionInfo,
 		Tty:               true,
 	})
 	if err != nil {
@@ -79,11 +115,15 @@ func (h *SshHandler) handleSession(s Session) {
 		if errors.Is(err, context.DeadlineExceeded) {
 			message = fmt.Sprintf("\r\n[INFO] Connection timed out (%f hour)", h.timeout.Hours())
 		} else {
-			message = err.Error()
+			message = fmt.Sprintf("The underlying connection is abnormally disconnected：%s", err.Error())
 		}
-		sendError(s, message)
+		sessionInfo.userConn.SetExitReason(message)
+		return err
 	}
-	klog.Infof("Connection to the Pod(%s/%s) has ended.", workload.Spec.Workspace, userInfo.Pod)
+	sessionInfo.userConn.SetExitReason("The underlying connection is disconnected normally")
+	klog.Infof("Connection to the Pod(%s/%s) has ended.", workload.Spec.Workspace, sessionInfo.userInfo.Pod)
+	_, err = sessionInfo.userConn.Write([]byte(fmt.Sprintf("ssh connection closed, reason: %s\n", sessionInfo.userConn.ExitReason())))
+	return nil
 }
 
 func (h *SshHandler) handleSftp(s Session) {

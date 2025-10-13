@@ -106,3 +106,34 @@ data:
     alter table workload add column if not exists workload_uid VARCHAR(36);
     alter table ops_job add column if not exists user_id VARCHAR(64);
     alter table workload add column if not exists ranks TEXT;
+
+    CREATE TABLE public_key (
+       id BIGSERIAL PRIMARY KEY,
+       user_id VARCHAR(64) NOT NULL,
+       description VARCHAR(100) NOT NULL,
+       public_key TEXT NOT NULL,
+       status BOOLEAN NOT NULL DEFAULT TRUE,
+       create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       update_time TIMESTAMPTZ,
+       delete_time TIMESTAMP
+    );
+
+    CREATE INDEX idx_publickey_userid ON public_key(user_id);
+    CREATE UNIQUE INDEX idx_publickey_userid_pubkey
+    ON public_key(user_id, public_key, delete_time);
+
+    CREATE TABLE ssh_session_records (
+       id BIGSERIAL PRIMARY KEY,
+       user_id VARCHAR(64) NOT NULL,
+       ssh_type VARCHAR(64) NOT NULL,
+       namespace VARCHAR(64) NOT NULL,
+       pod_id VARCHAR(255) NOT NULL,
+       container_name VARCHAR(255) NOT NULL,
+       disconnect_reason TEXT,
+       disconnect_time TIMESTAMPTZ,
+       create_time TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+
+
+
