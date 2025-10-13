@@ -15,7 +15,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
-func CleanupJobRelatedInfo(ctx context.Context, cli client.Client, opsJobId string) error {
+func CleanupJobRelatedResource(ctx context.Context, cli client.Client, opsJobId string) error {
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.OpsJobIdLabel: opsJobId})
 
 	workloadList := &v1.WorkloadList{}

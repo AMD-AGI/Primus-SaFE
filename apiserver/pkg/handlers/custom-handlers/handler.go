@@ -36,13 +36,22 @@ var (
 type Handler struct {
 	client.Client
 	clientSet     *kubernetes.Clientset
-	searchClient  *commonsearch.SearchClient
 	dbClient      dbclient.Interface
+	searchClient  *commonsearch.SearchClient
 	httpClient    httpclient.Interface
 	clientManager *commonutils.ObjectManager
 	auth          *authority.Authorizer
 }
 
+// NewHandler: creates a new Handler instance with the provided controller manager.
+// It initializes all required clients and components including:
+// - clientSet: Kubernetes clientset for direct API access
+// - dbClient: Database client (if database is enabled)
+// - searchClient: OpenSearch client used for log search
+// - httpClient: HTTP client for external requests
+// - clientManager: Object manager for dataplane client caching
+// - auth: Authorizer for access control
+// Returns the initialized Handler or an error if initialization fails.
 func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 	clientSet, err := kubernetes.NewForConfig(mgr.GetConfig())
 	if err != nil {
@@ -69,6 +78,8 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 
 type handleFunc func(*gin.Context) (interface{}, error)
 
+// handle: is a middleware function that executes the provided handler function and processes its response.
+// It handles errors by aborting the request with an API error, and formats successful responses
 func handle(c *gin.Context, fn handleFunc) {
 	response, err := fn(c)
 	if err != nil {
@@ -90,7 +101,11 @@ func handle(c *gin.Context, fn handleFunc) {
 	}
 }
 
-func getBodyFromRequest(req *http.Request, bodyStruct interface{}) ([]byte, error) {
+// parseRequestBody: reads the request body and unmarshals it into the provided struct.
+// It returns the raw body bytes and any error encountered during the process.
+// If the body is empty, it returns nil for both body and error.
+// If JSON unmarshaling fails, it returns a BadRequest error with the unmarshaling error details.
+func parseRequestBody(req *http.Request, bodyStruct interface{}) ([]byte, error) {
 	body, err := apiutils.ReadBody(req)
 	if err != nil {
 		return nil, err
@@ -104,6 +119,10 @@ func getBodyFromRequest(req *http.Request, bodyStruct interface{}) ([]byte, erro
 	return body, nil
 }
 
+// cvtToResourceList: converts a Kubernetes ResourceList to a custom ResourceList type.
+// It iterates through the resource list and converts each resource quantity to a numeric value.
+// Negative resource values are converted to 0 to ensure valid resource representations.
+// Returns the converted resource list or nil if the input list is empty.
 func cvtToResourceList(resourceList corev1.ResourceList) types.ResourceList {
 	if len(resourceList) == 0 {
 		return nil
@@ -119,6 +138,10 @@ func cvtToResourceList(resourceList corev1.ResourceList) types.ResourceList {
 	return result
 }
 
+// getAndSetUsername: retrieves the user information based on the user ID stored in the context
+// and sets the username in the context for further use.
+// Returns the user object and any error encountered during the process.
+// If no user ID is found in the context, it returns nil
 func (h *Handler) getAndSetUsername(c *gin.Context) (*v1.User, error) {
 	userId := c.GetString(common.UserId)
 	if userId == "" {

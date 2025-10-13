@@ -34,30 +34,49 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
+// CreateWorkspace: handles the creation of a new workspace resource.
+// It authorizes the request, parses the creation request, generates a workspace object,
+// and creates it in the system. Returns the created workspace ID on success.
 func (h *Handler) CreateWorkspace(c *gin.Context) {
 	handle(c, h.createWorkspace)
 }
 
+// ListWorkspace: handles listing workspace resources with filtering capabilities.
+// It retrieves workspaces based on query parameters, applies authorization filtering,
+// and returns them in a sorted list with detailed information.
 func (h *Handler) ListWorkspace(c *gin.Context) {
 	handle(c, h.listWorkspace)
 }
 
+// GetWorkspace: retrieves detailed information about a specific workspace.
+// It authorizes the request and returns comprehensive workspace details
+// including resource quotas and manager information.
 func (h *Handler) GetWorkspace(c *gin.Context) {
 	handle(c, h.getWorkspace)
 }
 
+// DeleteWorkspace: handles deletion of a workspace resource.
+// It authorizes the request and removes the specified workspace from the system.
 func (h *Handler) DeleteWorkspace(c *gin.Context) {
 	handle(c, h.deleteWorkspace)
 }
 
+// PatchWorkspace: handles partial updates to a workspace resource.
+// It authorizes the request, parses update parameters, and applies changes
+// to the specified workspace.
 func (h *Handler) PatchWorkspace(c *gin.Context) {
 	handle(c, h.patchWorkspace)
 }
 
+// ProcessWorkspaceNodes: handles adding or removing nodes from a workspace.
+// It parses the node processing request and updates the workspace with the specified nodes and action.
 func (h *Handler) ProcessWorkspaceNodes(c *gin.Context) {
 	handle(c, h.processWorkspaceNodes)
 }
 
+// createWorkspace: implements the workspace creation logic.
+// Parses the request, generates a workspace object with specified parameters,
+// and persists it in the system.
 func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -73,7 +92,7 @@ func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.CreateWorkspaceRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", string(body))
 		return nil, err
@@ -93,6 +112,9 @@ func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+// listWorkspace: implements the workspace listing logic.
+// Parses query parameters, builds label selectors, retrieves matching workspaces,
+// applies authorization filtering, sorts them, and converts to response format.
 func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -139,6 +161,9 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+// getWorkspace: implements the logic for retrieving a single workspace's detailed information.
+// Authorizes access to the workspace and returns comprehensive workspace details
+// including resource quotas and configuration.
 func (h *Handler) getWorkspace(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	workspace, err := h.getAdminWorkspace(ctx, c.GetString(types.Name))
@@ -162,6 +187,8 @@ func (h *Handler) getWorkspace(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+// deleteWorkspace: implements workspace deletion logic.
+// Authorizes the request and removes the specified workspace from the system.
 func (h *Handler) deleteWorkspace(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	workspace, err := h.getAdminWorkspace(ctx, c.GetString(types.Name))
@@ -185,6 +212,8 @@ func (h *Handler) deleteWorkspace(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// patchWorkspace: implements partial update logic for a workspace.
+// Parses the patch request and applies specified changes to the workspace.
 func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	workspace, err := h.getAdminWorkspace(ctx, c.GetString(types.Name))
@@ -202,7 +231,7 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.PatchWorkspaceRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
@@ -220,7 +249,9 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-// Update workload via PatchWorkspaceRequest.
+// updateWorkspace: applies updates to a workspace based on the patch request.
+// Handles changes to description, flavor, replica count, queue policy, scopes,
+// volumes, preemption settings, managers, default status, and image secrets.
 func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, req *types.PatchWorkspaceRequest) error {
 	if req.Description != nil {
 		v1.SetAnnotation(workspace, v1.DescriptionAnnotation, *req.Description)
@@ -257,6 +288,8 @@ func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, 
 	return nil
 }
 
+// updateWorkspaceImageSecrets: updates the image secrets associated with a workspace.
+// Retrieves secret objects by ID and updates the workspace's image secret references.
 func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1.Workspace, secretIds []string) error {
 	var imageSecrets []*corev1.ObjectReference
 	for _, id := range secretIds {
@@ -270,6 +303,8 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1
 	return nil
 }
 
+// getAdminWorkspace: retrieves a workspace resource by ID from the system.
+// Returns an error if the workspace doesn't exist or the ID is empty.
 func (h *Handler) getAdminWorkspace(ctx context.Context, workspaceId string) (*v1.Workspace, error) {
 	if workspaceId == "" {
 		return nil, commonerrors.NewBadRequest("the workspaceId is empty")
@@ -283,6 +318,8 @@ func (h *Handler) getAdminWorkspace(ctx context.Context, workspaceId string) (*v
 	return workspace.DeepCopy(), nil
 }
 
+// processWorkspaceNodes: handles the processing of nodes for a workspace.
+// Parses the request and updates the workspace with the specified node action.
 func (h *Handler) processWorkspaceNodes(c *gin.Context) (interface{}, error) {
 	req, err := parseProcessNodesRequest(c)
 	if err != nil {
@@ -291,7 +328,8 @@ func (h *Handler) processWorkspaceNodes(c *gin.Context) (interface{}, error) {
 	return nil, h.updateWorkspaceNodesAction(c, c.GetString(types.Name), req.Action, req.NodeIds)
 }
 
-// Convert the requested nodes and action into a node action to update the workspace.
+// updateWorkspaceNodesAction: converts requested nodes and action into a node action
+// to update the workspace
 func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action string, nodeIds []string) error {
 	nodeAction := commonnodes.BuildAction(action, nodeIds...)
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -320,6 +358,7 @@ func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action
 	return nil
 }
 
+// getWorkspaceDisplayName retrieves the display name of a workspace by ID.
 func (h *Handler) getWorkspaceDisplayName(ctx context.Context, workspaceId string) (string, error) {
 	workspace := &v1.Workspace{}
 	if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err != nil {
@@ -328,6 +367,8 @@ func (h *Handler) getWorkspaceDisplayName(ctx context.Context, workspaceId strin
 	return v1.GetDisplayName(workspace), nil
 }
 
+// generateWorkspace: creates a new workspace object based on the creation request.
+// Validates the request parameters and populates the workspace specification.
 func (h *Handler) generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRequest) (*v1.Workspace, error) {
 	workspace := &v1.Workspace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -363,6 +404,7 @@ func (h *Handler) generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRe
 	return workspace, nil
 }
 
+// parseListWorkspaceQuery: parses and validates the query parameters for workspace listing.
 func parseListWorkspaceQuery(c *gin.Context) (*types.ListWorkspaceRequest, error) {
 	query := &types.ListWorkspaceRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
@@ -371,6 +413,8 @@ func parseListWorkspaceQuery(c *gin.Context) (*types.ListWorkspaceRequest, error
 	return query, nil
 }
 
+// buildListWorkspaceSelector: constructs a label selector based on workspace list query parameters.
+// Used to filter workspaces by cluster ID criteria.
 func buildListWorkspaceSelector(query *types.ListWorkspaceRequest) (labels.Selector, error) {
 	var labelSelector = labels.NewSelector()
 	if query.ClusterId != "" {
@@ -380,6 +424,8 @@ func buildListWorkspaceSelector(query *types.ListWorkspaceRequest) (labels.Selec
 	return labelSelector, nil
 }
 
+// cvtToWorkspaceResponseItem: converts a workspace object to a response item format.
+// Includes basic workspace information like ID, name, cluster, flavor, and status.
 func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspace) types.WorkspaceResponseItem {
 	result := types.WorkspaceResponseItem{
 		WorkspaceId:   w.Name,
@@ -410,6 +456,8 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 	return result
 }
 
+// cvtToGetWorkspaceResponse: converts a workspace object to a detailed response format.
+// Includes comprehensive workspace information with resource quotas and secret IDs.
 func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.Workspace) (*types.GetWorkspaceResponse, error) {
 	result := &types.GetWorkspaceResponse{
 		WorkspaceResponseItem: h.cvtToWorkspaceResponseItem(ctx, workspace),
@@ -438,7 +486,8 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 	return result, nil
 }
 
-// Get the quota that has been used by the workspace.
+// getWorkspaceUsedQuota: calculates the quota that has been used by the workspace.
+// Aggregates resource usage from running workloads in the workspace.
 func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Workspace) (corev1.ResourceList, error) {
 	filterNode := func(nodeName string) bool {
 		n, err := h.getAdminNode(ctx, nodeName)

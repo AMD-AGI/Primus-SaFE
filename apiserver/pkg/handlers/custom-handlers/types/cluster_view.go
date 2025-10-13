@@ -45,9 +45,8 @@ type ClusterResponseItem struct {
 
 type GetClusterResponse struct {
 	ClusterResponseItem
-	Description string                       `json:"description"`
-	Endpoint    string                       `json:"endpoint"`
-	Storages    []BindingStorageResponseItem `json:"storage"`
+	Description string `json:"description"`
+	Endpoint    string `json:"endpoint"`
 	// The SSH secret name specified by the user, which must already exist
 	SSHSecretId string `json:"sshSecretId"`
 	// The Image secret name specified by the user, which must already exist

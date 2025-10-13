@@ -39,30 +39,50 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
+// CreateNode: handles the creation of a new node resource.
+// It authorizes the request, parses the request body, generates a node object,
+// and creates it in the system. Returns the created node ID on success.
 func (h *Handler) CreateNode(c *gin.Context) {
 	handle(c, h.createNode)
 }
 
+// ListNode: handles listing nodes based on query parameters.
+// Supports filtering, pagination, and brief response formats.
+// Returns a list of nodes that match the query criteria.
 func (h *Handler) ListNode(c *gin.Context) {
 	handle(c, h.listNode)
 }
 
+// GetNode: retrieves detailed information about a specific node.
+// Authorizes access to the node and returns comprehensive node details
+// including resource usage and workload information.
 func (h *Handler) GetNode(c *gin.Context) {
 	handle(c, h.getNode)
 }
 
+// PatchNode handles partial updates to a node resource.
+// Authorizes the request, parses update parameters, and applies changes
+// to the specified node with conflict retry logic.
 func (h *Handler) PatchNode(c *gin.Context) {
 	handle(c, h.patchNode)
 }
 
+// DeleteNode: handles deletion of a node resource.
+// Ensures the node is not bound to a cluster and authorizes the deletion
+// before removing the node from the system.
 func (h *Handler) DeleteNode(c *gin.Context) {
 	handle(c, h.deleteNode)
 }
 
+// GetNodePodLog retrieves logs from the pod associated with a node's management operations.
+// Authorizes access and fetches logs from the most recent management pod for the node.
 func (h *Handler) GetNodePodLog(c *gin.Context) {
 	handle(c, h.getNodePodLog)
 }
 
+// createNode implements the node creation logic.
+// Validates the request, generates a node object with specified parameters,
+// and persists it in the system.
 func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
 	if err := h.auth.Authorize(authority.Input{
 		Context:      c.Request.Context(),
@@ -74,7 +94,7 @@ func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.CreateNodeRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request")
 		return nil, commonerrors.NewBadRequest(err.Error())
@@ -95,6 +115,9 @@ func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+// listNode implements the node listing logic.
+// Parses query parameters, retrieves matching nodes, and builds
+// either a brief or detailed response based on the query.
 func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 	query, err := parseListNodeQuery(c)
 	if err != nil {
@@ -113,6 +136,9 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 	}
 }
 
+// listNodeByQuery retrieves nodes based on the provided query parameters.
+// Applies filtering, authorization checks, and pagination to return
+// a list of nodes that match the criteria.
 func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) (int, []*v1.Node, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -191,7 +217,8 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 	return totalCount, nodes, nil
 }
 
-// Construct a simplified list node return to improve performance and meet specific requirements.
+// buildListNodeBriefResponse: constructs a simplified response for node listings.
+// Provides basic node information to improve performance when full details are not needed.
 func buildListNodeBriefResponse(totalCount int, nodes []*v1.Node) (interface{}, error) {
 	result := &types.ListNodeBriefResponse{
 		TotalCount: totalCount,
@@ -207,6 +234,8 @@ func buildListNodeBriefResponse(totalCount int, nodes []*v1.Node) (interface{}, 
 	return result, nil
 }
 
+// buildListNodeResponse: constructs a detailed response for node listings.
+// Includes comprehensive node information with resource usage and workspace details.
 func (h *Handler) buildListNodeResponse(ctx context.Context,
 	query *types.ListNodeRequest, totalCount int, nodes []*v1.Node) (interface{}, error) {
 	allUsedResource, err := h.getAllUsedResourcePerNode(ctx, query)
@@ -232,6 +261,8 @@ func (h *Handler) buildListNodeResponse(ctx context.Context,
 	return result, nil
 }
 
+// getNode: implements the logic for retrieving a single node's detailed information.
+// Authorizes access, retrieves the node, and includes resource usage data.
 func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	node, err := h.getAdminNode(ctx, c.GetString(types.Name))
@@ -262,6 +293,8 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+// patchNode: implements partial update logic for a node.
+// Applies specified changes with conflict resolution and retry mechanisms.
 func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	nodeId := c.GetString(types.Name)
@@ -280,7 +313,7 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.PatchNodeRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
@@ -305,6 +338,8 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// deleteNode: implements node deletion logic.
+// Ensures the node is not bound to a cluster and removes it from the system.
 func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	node, err := h.getAdminNode(ctx, c.GetString(types.Name))
@@ -336,6 +371,8 @@ func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// getNodePodLog: implements the logic for retrieving node management pod logs.
+// Finds the relevant pod and returns its logs in a structured format.
 func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 	node, err := h.getAdminNode(c.Request.Context(), c.GetString(types.Name))
 	if err != nil {
@@ -378,6 +415,9 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 		Logs:      strings.Split(string(podLogs), "\n"),
 	}, nil
 }
+
+// getAdminNode: retrieves a node resource by name from the k8s cluster.
+// Returns an error if the node doesn't exist or the name is empty.
 func (h *Handler) getAdminNode(ctx context.Context, name string) (*v1.Node, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the nodeId is empty")
@@ -395,7 +435,7 @@ type resourceInfo struct {
 	workloads []types.WorkloadInfo
 }
 
-// Retrieves the amount of resources currently in use on each node.
+// getAllUsedResourcePerNode: retrieves the amount of resources currently in use on each node.
 // Returns a map with the node name as the key, and the value containing the resource usage and associated workload name
 func (h *Handler) getAllUsedResourcePerNode(ctx context.Context,
 	query *types.ListNodeRequest) (map[string]*resourceInfo, error) {
@@ -431,7 +471,8 @@ func (h *Handler) getAllUsedResourcePerNode(ctx context.Context,
 	return result, nil
 }
 
-// Retrieves the amount of resources currently in use on specified node.
+// getUsedResource: retrieves resource usage information for a specific node.
+// Calculates the resources currently consumed by workloads on the specified node.
 func (h *Handler) getUsedResource(ctx context.Context, node *v1.Node) (*resourceInfo, error) {
 	if v1.GetWorkspaceId(node) == "" {
 		return nil, nil
@@ -460,6 +501,8 @@ func (h *Handler) getUsedResource(ctx context.Context, node *v1.Node) (*resource
 	return result, nil
 }
 
+// generateNode: creates a new node object based on the creation request.
+// Validates the request parameters and create References for the flavors and templates used internally.
 func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, body []byte) (*v1.Node, error) {
 	node := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
@@ -497,6 +540,8 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 	return node, nil
 }
 
+// validateCreateNodeRequest: validates the parameters in a node creation request.
+// Ensures required fields like flavorId, privateIP, and SSHSecretId are provided.
 func validateCreateNodeRequest(req *types.CreateNodeRequest) error {
 	if req.FlavorId == "" {
 		return commonerrors.NewBadRequest("the flavorId of request is empty")
@@ -510,6 +555,8 @@ func validateCreateNodeRequest(req *types.CreateNodeRequest) error {
 	return nil
 }
 
+// buildNodeLabelSelector: constructs a label selector based on query parameters.
+// Used to filter nodes by cluster, workspace, or flavor criteria.
 func buildNodeLabelSelector(query *types.ListNodeRequest) (labels.Selector, error) {
 	var labelSelector = labels.NewSelector()
 	if query.ClusterId != nil {
@@ -538,6 +585,8 @@ func buildNodeLabelSelector(query *types.ListNodeRequest) (labels.Selector, erro
 	return labelSelector, nil
 }
 
+// parseListNodeQuery: parses and validates the query parameters for node listing.
+// Sets default values for pagination and ensures query parameters are valid.
 func parseListNodeQuery(c *gin.Context) (*types.ListNodeRequest, error) {
 	query := &types.ListNodeRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
@@ -549,6 +598,8 @@ func parseListNodeQuery(c *gin.Context) (*types.ListNodeRequest, error) {
 	return query, nil
 }
 
+// updateNode: applies updates to a node based on the patch request.
+// Handles label updates, taint modifications, flavor/template changes, and port updates.
 func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest) (bool, error) {
 	isShouldUpdate := false
 	nodesLabelAction := generateNodeLabelAction(node, req)
@@ -596,6 +647,8 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 	return isShouldUpdate, nil
 }
 
+// deleteRelatedFaults: removes fault resources associated with removed taints.
+// Ensures that faults corresponding to removed taints are cleaned up.
 func (h *Handler) deleteRelatedFaults(ctx context.Context, node *v1.Node, newTaints []corev1.Taint) error {
 	if node.GetSpecCluster() == "" {
 		return nil
@@ -626,6 +679,8 @@ func (h *Handler) deleteRelatedFaults(ctx context.Context, node *v1.Node, newTai
 	return nil
 }
 
+// generateNodeLabelAction: determines label changes needed for a node update.
+// Compares current and requested labels to generate add/remove actions.
 func generateNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]string {
 	nodesLabelAction := make(map[string]string)
 	if req.Labels != nil {
@@ -650,6 +705,8 @@ func generateNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[str
 	return nodesLabelAction
 }
 
+// cvtToNodeResponseItem: converts a node object to a response item format.
+// Includes resource availability, phase information, and workload details.
 func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeResponseItem {
 	isAvailable, message := n.CheckAvailable(false)
 	result := types.NodeResponseItem{
@@ -684,6 +741,8 @@ func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeRes
 	return result
 }
 
+// cvtToGetNodeResponse: converts a node object to a detailed response format.
+// Includes all node details, taints, labels, and template information.
 func cvtToGetNodeResponse(n *v1.Node, usedResource *resourceInfo) types.GetNodeResponse {
 	result := types.GetNodeResponse{
 		NodeResponseItem: cvtToNodeResponseItem(n, usedResource),
@@ -699,6 +758,8 @@ func cvtToGetNodeResponse(n *v1.Node, usedResource *resourceInfo) types.GetNodeR
 	return result
 }
 
+// getNodeCustomerLabels: extracts customer-defined labels from a node's label set.
+// Filters out system labels to return only user-defined labels.
 func getNodeCustomerLabels(labels map[string]string) map[string]string {
 	result := make(map[string]string)
 	for key, val := range labels {
@@ -710,6 +771,8 @@ func getNodeCustomerLabels(labels map[string]string) map[string]string {
 	return result
 }
 
+// getPrimusTaints: extracts Primus-specific taints from a list of taints.
+// Removes the Primus prefix and returns only the relevant taints.
 func getPrimusTaints(taints []corev1.Taint) []corev1.Taint {
 	var result []corev1.Taint
 	for i, t := range taints {

@@ -30,10 +30,13 @@ const (
 
 type TokenItem struct {
 	UserId   string
-	Expire   int64
 	UserType string
+	Expire   int64
 }
 
+// ParseCookie: parses and validates the user token from cookie of header.
+// It first tries to parse from cookie, and if that fails, checks for header-based authentication
+// for internal users when token requirement is disabled. Returns an unauthorized error if validation fails.
 func ParseCookie(c *gin.Context) error {
 	err := parseCookie(c)
 	if err != nil {
@@ -48,6 +51,9 @@ func ParseCookie(c *gin.Context) error {
 	return nil
 }
 
+// parseCookie: extracts and validates the user token from the request cookie.
+// It decrypts the token, checks expiration, and sets the user ID in the context.
+// Returns an error if the token is missing, invalid, or expired.
 func parseCookie(c *gin.Context) error {
 	tokenStr, err := c.Cookie(CookieToken)
 	if err != nil || tokenStr == "" {
@@ -65,6 +71,10 @@ func parseCookie(c *gin.Context) error {
 	return nil
 }
 
+// validateToken: decrypts and parses a token string into a TokenItem.
+// It validates the token format, decrypts it using the crypto module,
+// and ensures all parts are present and correctly formatted.
+// Returns the parsed TokenItem or an error if validation fails.
 func validateToken(token string) (*TokenItem, error) {
 	inst := crypto.NewCrypto()
 	if inst == nil {
@@ -98,6 +108,10 @@ func validateToken(token string) (*TokenItem, error) {
 	}, nil
 }
 
+// GenerateToken: creates a new authentication token for a user.
+// It constructs a token string with user ID, expiration time, and user type,
+// then encrypts it using the crypto module if encryption is enabled.
+// Returns the generated token string or an error if generation fails.
 func GenerateToken(item TokenItem) (string, error) {
 	if item.UserId == "" {
 		return "", fmt.Errorf("invalid token item parameters")

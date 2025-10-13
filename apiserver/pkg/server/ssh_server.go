@@ -15,6 +15,10 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const (
+	MaxSSHConnections = 10000
+)
+
 type SshHandler interface {
 	HandleConnection(net.Conn)
 }
@@ -35,15 +39,23 @@ type SshServer struct {
 	maxConnections int64
 }
 
-func NewSshServer(addr string, handler SshHandler, maxConns int64) *SshServer {
+// NewSshServer: creates a new SSH server instance with the specified address and handler.
+// It initializes the server with a default maximum connection limit of MaxSSHConnections.
+// Returns a pointer to the newly created SshServer.
+func NewSshServer(addr string, handler SshHandler) *SshServer {
 	return &SshServer{
 		Addr:           addr,
 		Handler:        handler,
-		maxConnections: maxConns,
+		maxConnections: MaxSSHConnections,
 	}
 }
 
-func (s *SshServer) ListenAndServe(ctx context.Context) error {
+// Start: starts the SSH server and begins listening for incoming connections.
+// It creates a TCP listener on the configured address and accepts incoming connections,
+// dispatching each connection to the handler in a separate goroutine.
+// The server respects the context for cancellation and handles shutdown gracefully.
+// Returns an error if the server fails to start or encounters an unrecoverable error.
+func (s *SshServer) Start(ctx context.Context) error {
 	cfg := net.ListenConfig{}
 	var err error
 	s.listener, err = cfg.Listen(ctx, "tcp", s.Addr)
@@ -82,6 +94,10 @@ func (s *SshServer) ListenAndServe(ctx context.Context) error {
 	}
 }
 
+// Shutdown: gracefully shuts down the SSH server by closing the listener.
+// It sets the shutdown flag and closes the underlying network listener,
+// preventing new connections from being accepted.
+// Returns an error if closing the listener fails.
 func (s *SshServer) Shutdown() error {
 	s.inShutdown.Store(true)
 	s.mu.Lock()

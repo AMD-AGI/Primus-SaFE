@@ -22,15 +22,6 @@ func Unmarshal(data []byte, v interface{}) error {
 	return nil
 }
 
-func UnmarshalWithCheck(data []byte, v interface{}) error {
-	d := json.NewDecoder(bytes.NewReader(data))
-	d.DisallowUnknownFields()
-	if err := d.Decode(v); err != nil {
-		return err
-	}
-	return nil
-}
-
 func MarshalSilently(v interface{}) []byte {
 	if v == nil {
 		return nil
