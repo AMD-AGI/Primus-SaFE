@@ -136,5 +136,6 @@ func (h *ImageHandler) cvtCreateRegistryRequestToRegistryInfo(req *CreateRegistr
 		URL:      req.Url,
 		Username: userName,
 		Password: password,
+		Default:  req.Default,
 	}, nil
 }
