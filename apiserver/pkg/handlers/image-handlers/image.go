@@ -267,6 +267,7 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		Arch:      importImageEnv.Arch,
 		JobName:   job.Name,
 		CreatedAt: time.Now().UTC(),
+		ImageID:   dbImage.ID,
 	}
 
 	if err := h.dbClient.UpsertImageImportJob(c, importImageInfo); err != nil {
