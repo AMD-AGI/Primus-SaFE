@@ -64,3 +64,4 @@ addon:
 global:
   domain: "safe-primus.ai"
   sub_domain: "tw325"
+  image_pull_secret: ""

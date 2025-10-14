@@ -66,6 +66,7 @@ elif [[ "$cluster_scale" == "large" ]]; then
   cpu=32000m
   memory=32Gi
 fi
+image_secret_name="$NAMESPACE-image"
 
 echo "========================================="
 echo "🔧 Step 2: install primus-safe admin plane"
@@ -92,6 +93,7 @@ sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
   sed -i '/^s3:/,/^[a-z]/ s#endpoint: ".*"#endpoint: "'"$s3_endpoint"'"#' "$values_yaml"
 fi
+sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$image_secret_name\"/" "$values_yaml"
 
 chart_name="primus-safe"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
@@ -123,6 +125,7 @@ cp "$src_values_yaml" "${values_yaml}"
 
 sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
+sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$image_secret_name\"/" "$values_yaml"
 
 install_or_upgrade_helm_chart "node-agent" "$values_yaml"
 

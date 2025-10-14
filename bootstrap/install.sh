@@ -16,6 +16,7 @@ if ! command -v kubectl &> /dev/null; then
   exit 1
 fi
 
+# Do not modify the value of namespace
 NAMESPACE="primus-safe"
 
 get_input_with_default() {
@@ -72,6 +73,7 @@ storage_class=$(get_input_with_default "Enter storage class($default_storage_cla
 sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
 support_lens=$(get_input_with_default "Support Primus-lens ? (y/n): " "n")
 support_s3=$(get_input_with_default "Support Primus-S3 ? (y/n): " "n")
+build_image_secret=$(get_input_with_default "Create image pull secret ? (y/n): " "n")
 opensearch_enable=$(convert_to_boolean "$support_lens")
 s3_enable=$(convert_to_boolean "$support_s3")
 s3_endpoint=""
@@ -80,6 +82,15 @@ if [[ "$s3_enable" == "true" ]]; then
   if [ -z "$s3_endpoint" ]; then
     s3_enable="false"
   fi
+fi
+
+image_registry=""
+image_username=""
+image_password=""
+if [[ "$build_image_secret" == "y" ]]; then
+  image_registry=$(get_input_with_default "Enter image registry (e.g. registry.example.com): " "")
+  image_username=$(get_input_with_default "Enter image registry username: " "")
+  image_password=$(get_input_with_default "Enter image registry password: " "")
 fi
 
 echo "✅ Ethernet nic: \"$ethernet_nic\""
@@ -91,6 +102,10 @@ echo "✅ Support Primus-lens: \"$opensearch_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Endpoint: \"$s3_endpoint\""
+fi
+if [[ "$build_image_secret" == "y" ]]; then
+  echo "✅ Image registry: \"$image_registry\""
+  echo "✅ Image username: \"$image_username\""
 fi
 echo
 
@@ -110,6 +125,25 @@ fi
 echo "========================================="
 echo "🔧 Step 2: install primus-safe admin plane"
 echo "========================================="
+
+image_secret_name="$NAMESPACE-image"
+if [[ "$build_image_secret" == "y" ]] && [[ -n "$image_registry" ]] && [[ -n "$image_username" ]] && [[ -n "$image_password" ]]; then
+  kubectl create secret docker-registry "$image_secret_name" \
+    --docker-server="$image_registry" \
+    --docker-username="$image_username" \
+    --docker-password="$image_password" \
+    --namespace="$NAMESPACE" \
+    --dry-run=client -o yaml | kubectl apply -f - \
+    && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" --overwrite
+else
+  kubectl create secret generic "$image_secret_name" \
+    --namespace="$NAMESPACE" \
+    --from-literal=.dockerconfigjson='{}' \
+    --type=kubernetes.io/dockerconfigjson \
+    --dry-run=client -o yaml | kubectl apply -f - \
+    && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" --overwrite
+fi
+echo "✅ Image pull secret $image_secret_name created in namespace \"$NAMESPACE\""
 
 if [[ "$support_lens" == "y" ]]; then
   export STORAGE_CLASS="$storage_class"
@@ -138,6 +172,7 @@ sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
   sed -i '/^s3:/,/^[a-z]/ s#endpoint: ".*"#endpoint: "'"$s3_endpoint"'"#' "$values_yaml"
 fi
+sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$image_secret_name\"/" "$values_yaml"
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
 echo "⏳ Waiting for Postgres Operator pod..."
@@ -181,6 +216,7 @@ cp "$src_values_yaml" "${values_yaml}"
 
 sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
+sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$image_secret_name\"/" "$values_yaml"
 
 install_or_upgrade_helm_chart "node-agent" "$values_yaml"
 
