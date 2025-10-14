@@ -4,7 +4,7 @@
 #
 
 node_agent:
-  image: "node-agent:202510101625"
+  image: "node-agent:202510141700"
 monitor:
   nccl_socket_ifname: "eno0"
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
