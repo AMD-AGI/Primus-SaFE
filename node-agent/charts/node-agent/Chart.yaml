@@ -4,6 +4,7 @@
 #
 
 apiVersion: v2
+# Do not modify the name arbitrarily
 name: node-agent
 description: A Helm chart for Kubernetes
 
