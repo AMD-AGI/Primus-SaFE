@@ -13,6 +13,7 @@ type ImageServiceRequest struct {
 	Tag      string `form:"tag" binding:"omitempty"`
 	Ready    bool   `form:"ready"  binding:"omitempty"`
 	UserName string `form:"userName" binding:"omitempty"`
+	Flat     bool   `form:"flat" binding:"omitempty"`
 }
 
 type ArtifactItem struct {
@@ -178,4 +179,17 @@ type ImageRegistryInfo struct {
 	Default   bool   `json:"default"`
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
+}
+
+type ListImageFlatResponse struct {
+	TotalCount int     `json:"totalCount"`
+	Items      []Image `json:"images,omitempty"`
+}
+
+type Image struct {
+	Id          int32  `json:"id"`
+	Tag         string `json:"tag"`
+	Description string `json:"description,omitempty"`
+	CreatedAt   int64  `json:"created_at"`
+	CreatedBy   string `json:"created_by"`
 }

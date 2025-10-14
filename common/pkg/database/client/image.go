@@ -18,6 +18,7 @@ type ImageFilter struct {
 	Order    string
 	PageNum  int
 	PageSize int
+	Ready    bool
 }
 
 // UpsertImage 插入或更新镜像记录
@@ -66,6 +67,9 @@ func (c *Client) SelectImages(ctx context.Context, filter *ImageFilter) ([]*mode
 	}
 	if filter.UserName != "" {
 		query = query.Where(q.CreatedBy.Eq(filter.UserName))
+	}
+	if filter.Ready {
+		query = query.Where(q.Status.Eq("Ready"))
 	}
 	count, err := query.Count()
 	if err != nil {

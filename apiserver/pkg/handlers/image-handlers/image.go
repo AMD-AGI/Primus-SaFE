@@ -90,10 +90,14 @@ func (h *ImageHandler) listImage(c *gin.Context) (interface{}, error) {
 		Order:    query.Order,
 		PageNum:  query.PageNum,
 		PageSize: query.PageSize,
+		Ready:    query.Ready,
 	})
 	if err != nil {
 		klog.ErrorS(err, "fail to SelectImages", "sql")
 		return nil, err
+	}
+	if query.Flat {
+
 	}
 
 	results := &GetImageResponse{
@@ -102,6 +106,20 @@ func (h *ImageHandler) listImage(c *gin.Context) (interface{}, error) {
 
 	results.Items = cvtImageToResponse(images, DefaultOS, DefaultArch)
 	return results, nil
+}
+
+func cvtImageToFlatResponse(images []*model.Image) []Image {
+	res := make([]Image, 0)
+	for _, image := range images {
+		res = append(res, Image{
+			Id:          int32(image.ID),
+			Tag:         image.Tag,
+			Description: image.Description,
+			CreatedBy:   image.CreatedBy,
+			CreatedAt:   image.CreatedAt.Unix(),
+		})
+	}
+	return res
 }
 
 func parseListImageQuery(c *gin.Context) (*ImageServiceRequest, error) {
@@ -119,6 +137,9 @@ func parseListImageQuery(c *gin.Context) (*ImageServiceRequest, error) {
 		query.OrderBy = dbClient.CreatedTime
 	} else {
 		query.OrderBy = strings.ToLower(query.OrderBy)
+	}
+	if query.Flat {
+		query.Ready = true
 	}
 	return query, nil
 }
