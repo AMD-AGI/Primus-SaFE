@@ -109,6 +109,7 @@ func (r *ImageImportJobReconciler) Reconcile(ctx context.Context, req ctrlruntim
 		status = common.ImageImportFailedStatus
 	}
 	existImage.Status = status
+	klog.Infof("Get ImageImportJob %s/%s status: %v", req.Namespace, req.Name, status)
 	err = r.dbClient.UpsertImage(ctx, existImage)
 	if err != nil {
 		klog.Errorf("Update Image %s status to %s failed: %v", existImage.Tag, status, err)
