@@ -153,7 +153,7 @@ spec:
           operator: Exists
       terminationGracePeriodSeconds: 10
       imagePullSecrets:
-        - name: {{ .Release.Name }}-image
+        - name: primus-safe-image
       volumes:
         - configMap:
             defaultMode: 256
