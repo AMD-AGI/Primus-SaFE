@@ -6,20 +6,26 @@
 package types
 
 type CreateNodeTemplateRequest struct {
-	Name           string   `json:"name"`
+	// Used to generate the node template id, which will do normalization processing, such as lowercase
+	Name string `json:"name"`
+	// List of addon-template id
 	AddOnTemplates []string `json:"addOnTemplates"`
 }
 
 type CreateNodeTemplateResponse struct {
+	// The NodeTemplate's id
 	Id string `json:"id"`
 }
 
 type ListNodeTemplateResponse struct {
+	// The total number of node templates, not limited by pagination
 	TotalCount int                        `json:"totalCount"`
 	Items      []NodeTemplateResponseItem `json:"items"`
 }
 
 type NodeTemplateResponseItem struct {
-	TemplateId     string   `json:"templateId"`
+	// The NodeTemplate's id
+	TemplateId string `json:"templateId"`
+	// List of addon-template id
 	AddOnTemplates []string `json:"addOnTemplates"`
 }

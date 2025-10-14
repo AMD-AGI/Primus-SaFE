@@ -10,75 +10,89 @@ import (
 )
 
 type CreateWorkspaceRequest struct {
-	Name        string `json:"name"`
-	ClusterId   string `json:"clusterId"`
+	// The workspace name(display only). Used for generate workspace id.
+	// The final ID is clusterId + "-" + name.
+	Name string `json:"name"`
+	// The cluster which workspace belongs to
+	ClusterId string `json:"clusterId"`
+	// The workspace description
 	Description string `json:"description,omitempty"`
-	// Queuing policy for tasks submitted in this workspace.
-	// All tasks currently share the same policy (no per-task customization). Default: fifo.
+	// Queuing policy for workloads submitted in this workspace.
+	// All workloads currently share the same policy, supports fifo (default) and balance.
+	// 1. "Fifo" means first-in, first-out: the workload that enters the queue first is served first.
+	//    If the front workload does not meet the conditions for dispatch, it will wait indefinitely,
+	//    and other tasks in the queue will also be blocked waiting.
+	// 2. "Balance" allows any workload that meets the resource conditions to be dispatched,
+	//    avoiding blockage by the front workload in the queue. However, it is still subject to priority constraints.
+	//    If a higher-priority task cannot be dispatched, lower-priority tasks will wait.
 	QueuePolicy string `json:"queuePolicy,omitempty"`
-	// node flavor id
+	// The node flavor id of workspace, A workspace supports only one node flavor
 	FlavorId string `json:"flavorId,omitempty"`
-	// node count
+	// The expected number of nodes in the workspace
 	Replica int `json:"replica,omitempty"`
 	// Service modules available in this space. support: Train/Infer/Authoring, No limitation if not specified
 	Scopes []v1.WorkspaceScope `json:"scopes,omitempty"`
-	// volumes used in this space
+	// Volumes used in this workspace
 	Volumes []v1.WorkspaceVolume `json:"volumes,omitempty"`
-	// Is preemption enabled
+	// Whether preemption is enabled. If enabled, higher-priority workload will preempt the lower-priority one
 	EnablePreempt bool `json:"enablePreempt"`
-	// the manager's user_id of workspace
+	// User id of the workspace administrator
 	Managers []string `json:"managers,omitempty"`
-	// Set the workspace as the default workspace (i.e., all users can access it).
+	// Set the workspace as the default workspace (i.e., all users can access it)
 	IsDefault bool `json:"isDefault,omitempty"`
-	// ImageSecretIds
+	// Workspace image secret ID, used for downloading images
 	ImageSecretIds []string `json:"imageSecretIds,omitempty"`
 }
 
 type CreateWorkspaceResponse struct {
+	// The workspace id
 	WorkspaceId string `json:"workspaceId"`
 }
 
 type ListWorkspaceRequest struct {
+	// Filter results by cluster id
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
 }
 
 type ListWorkspaceResponse struct {
+	// The total number of node templates, not limited by pagination
 	TotalCount int                     `json:"totalCount"`
 	Items      []WorkspaceResponseItem `json:"items"`
 }
 
 type WorkspaceResponseItem struct {
-	// workspace id
+	// The workspace id
 	WorkspaceId string `json:"workspaceId"`
-	// workspace name
+	// The workspace name
 	WorkspaceName string `json:"workspaceName"`
-	// workspace's cluster
+	// The cluster which workspace belongs to
 	ClusterId string `json:"clusterId"`
-	// node flavor id
+	// The node flavor id used by workspace
 	FlavorId string `json:"flavorId"`
-	// the creator's id
+	// User id of workspace creator
 	UserId string `json:"userId"`
-	// Target number of nodes
+	// The target expected number of nodes of workspace
 	TargetNode int `json:"targetNode"`
-	// current total node count
+	// The current total number of nodes
 	CurrentNode int `json:"currentNode"`
-	// abnormal node count
+	// The current total number of abnormal nodes
 	AbnormalNode int `json:"abnormalNode"`
-	// the status of workspace
+	// The status of workspace, such as Creating, Running, Abnormal, Deleting
 	Phase string `json:"phase"`
-	// creation time
+	// The workspace creation time
 	CreationTime string `json:"creationTime"`
-	// description of workspace
+	// The workspace description
 	Description string `json:"description"`
-	// Queuing policy for tasks submitted in this workspace.
+	// Queuing policy for workload submitted in this workspace
+	// Refer to the explanation of the same-named parameter in CreateWorkspaceRequest
 	QueuePolicy v1.WorkspaceQueuePolicy `json:"queuePolicy"`
-	// support service module: Train/Infer/Authoring, No limitation if not specified
+	// Support service module: Train/Infer/Authoring, No limitation if not specified
 	Scopes []v1.WorkspaceScope `json:"scopes"`
-	// the store volumes used by workspace
+	// The store volumes used by workspace
 	Volumes []v1.WorkspaceVolume `json:"volumes"`
-	// Is preemption enabled
+	// Whether preemption is enabled. If enabled, higher-priority workload will preempt the lower-priority one
 	EnablePreempt bool `json:"enablePreempt"`
-	// the manager's user_id
+	// User id of the workspace administrator
 	Managers []UserEntity `json:"managers"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault bool `json:"isDefault"`
@@ -86,42 +100,45 @@ type WorkspaceResponseItem struct {
 
 type GetWorkspaceResponse struct {
 	WorkspaceResponseItem
-	// the total resource of workspace
+	// The total resource of workspace
 	TotalQuota ResourceList `json:"totalQuota"`
-	// the available resource of workspace
+	// The available resource of workspace
 	AvailQuota ResourceList `json:"availQuota"`
-	// the faulty resources of workspace
+	// The abnormal resources of workspace
 	AbnormalQuota ResourceList `json:"abnormalQuota"`
-	// the used resources of workspace
+	// The used resources of workspace
 	UsedQuota ResourceList `json:"usedQuota"`
-	// ImageSecretIds
+	// Workspace image secret ID, used for downloading images
 	ImageSecretIds []string `json:"imageSecretIds"`
 }
 
 type PatchWorkspaceRequest struct {
-	// node flavor id
+	// The node flavor id used by workspace
 	FlavorId *string `json:"flavorId,omitempty"`
-	// total node count
+	// The expected total node count
 	Replica *int `json:"replica,omitempty"`
-	// Queuing policy for tasks submitted in this workspace. fifo/balance
+	// Queuing policy for tasks submitted in this workspace. such as fifo, balance
+	// Refer to the explanation of the same-named parameter in CreateWorkspaceRequest
 	QueuePolicy *v1.WorkspaceQueuePolicy `json:"queuePolicy,omitempty"`
-	// support service module: Train/Infer/Authoring, No limitation if not specified
+	// Support service module: Train/Infer/Authoring, No limitation if not specified
 	Scopes *[]v1.WorkspaceScope `json:"scopes,omitempty"`
-	// the store volumes used by workspace
+	// The store volumes used by workspace
 	Volumes *[]v1.WorkspaceVolume `json:"volumes,omitempty"`
-	// description
+	// The workspace description
 	Description *string `json:"description,omitempty"`
-	// EnablePreempt
+	// Whether preemption is enabled
 	EnablePreempt *bool `json:"enablePreempt,omitempty"`
-	// the managers for workspace
+	// User id of the workspace administrator
 	Managers *[]string `json:"managers,omitempty"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault *bool `json:"isDefault,omitempty"`
-	// ImageSecretIds
+	// Workspace image secret ID, used for downloading images
 	ImageSecretIds *[]string `json:"imageSecretIds,omitempty"`
 }
 
 type WorkspaceEntry struct {
-	Id   string `json:"id"`
+	// workspace id
+	Id string `json:"id"`
+	// workspace name
 	Name string `json:"name"`
 }

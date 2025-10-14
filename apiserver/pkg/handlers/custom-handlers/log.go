@@ -381,7 +381,7 @@ func parseContextQuery(c *gin.Context, workload *v1.Workload) ([]types.ListConte
 // Returns a validated ListLogRequest object or an error if validation fails.
 func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*types.ListLogRequest, error) {
 	query := &types.ListLogRequest{}
-	_, err := parseRequestBody(req, query)
+	_, err := parseRequestBody(req, &query.ListLogInput)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}

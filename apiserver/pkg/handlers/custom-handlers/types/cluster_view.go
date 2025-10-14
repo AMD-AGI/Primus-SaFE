@@ -13,74 +13,94 @@ type CreateClusterRequest struct {
 	v1.ControlPlane
 	// The cluster name specified by the user
 	Name string `json:"name"`
-	// The description for cluster
+	// The cluster's description
 	Description string `json:"description,omitempty"`
-	// The SSH secret name specified by the user, which must already exist
+	// The SSH secret id specified by the user, which must exist, used for node SSH login.
 	SSHSecretId string `json:"sshSecretId,omitempty"`
-	// The Image secret name specified by the user, which must already exist
+	// The Image secret id specified by the user, which must exist, used for docker pull
 	ImageSecretId string `json:"imageSecretId,omitempty"`
-	// The labels for cluster
+	// The cluster's labels
 	Labels map[string]string `json:"labels,omitempty"`
-	// Whether the cluster is under protection. When set to true, direct deletion is not allowed unless the label is first removed
+	// Whether the cluster is under protection. When set to true, direct deletion is not allowed unless the label is removed
 	IsProtected bool `json:"isProtected,omitempty"`
 }
 
 type CreateClusterResponse struct {
+	// The cluster's id
 	ClusterId string `json:"clusterId"`
 }
 
 type ListClusterResponse struct {
+	// The total number of clusters, not limited by pagination
 	TotalCount int                   `json:"totalCount"`
 	Items      []ClusterResponseItem `json:"items"`
 }
 
 type ClusterResponseItem struct {
-	ClusterId   string `json:"clusterId"`
-	UserId      string `json:"userId"`
-	Phase       string `json:"phase"`
-	IsProtected bool   `json:"isProtected"`
-	// cluster creation time
+	// The cluster's id
+	ClusterId string `json:"clusterId"`
+	// User id who created the cluster.
+	UserId string `json:"userId"`
+	// The cluster's status
+	Phase string `json:"phase"`
+	// Whether the cluster is under protection
+	IsProtected bool `json:"isProtected"`
+	// cluster's creation time
 	CreationTime string `json:"creationTime"`
 }
 
 type GetClusterResponse struct {
 	ClusterResponseItem
+	// The cluster's description
 	Description string `json:"description"`
-	Endpoint    string `json:"endpoint"`
-	// The SSH secret name specified by the user, which must already exist
+	// The Cluster access address, usually the service address
+	Endpoint string `json:"endpoint"`
+	// The SSH secret id specified by the user, which must exist
 	SSHSecretId string `json:"sshSecretId"`
-	// The Image secret name specified by the user, which must already exist
+	// The Image secret id specified by the user, which must exist
 	ImageSecretId string `json:"imageSecretId"`
-	// the nodes of control plane
-	Nodes              []string `json:"nodes"`
-	KubeSprayImage     *string  `json:"kubeSprayImage,omitempty"`
-	KubePodsSubnet     *string  `json:"kubePodsSubnet,omitempty"`
-	KubeServiceAddress *string  `json:"kubeServiceAddress,omitempty"`
-	// default is cilium
-	KubeNetworkPlugin *string           `json:"kubeNetworkPlugin,omitempty"`
-	KubeVersion       *string           `json:"kubernetesVersion,omitempty"`
+	// The nodes of control plane
+	Nodes []string `json:"nodes"`
+	// KubeSpray image name used for installation
+	KubeSprayImage *string `json:"kubeSprayImage,omitempty"`
+	// Subnet configuration
+	KubePodsSubnet *string `json:"kubePodsSubnet,omitempty"`
+	// Service Address configuration
+	KubeServiceAddress *string `json:"kubeServiceAddress,omitempty"`
+	// Network plugin, default is cilium
+	KubeNetworkPlugin *string `json:"kubeNetworkPlugin,omitempty"`
+	// Kubernetes version
+	KubeVersion *string `json:"kubernetesVersion,omitempty"`
+	// Some parameter settings for Kubernetes
 	KubeApiServerArgs map[string]string `json:"kubeApiServerArgs,omitempty"`
 }
 
 type ProcessNodesRequest struct {
+	// List of node ids to operate on.
 	NodeIds []string `json:"nodeIds"`
-	// add or remove
+	// The action taken on the node of cluster, such as add or remove
 	Action string `json:"action"`
 }
 
 type ProcessNodesResponse struct {
-	TotalCount   int `json:"totalCount"`
+	// Total number of nodes to be processed
+	TotalCount int `json:"totalCount"`
+	// Number of nodes processed successfully
 	SuccessCount int `json:"successCount"`
 }
 
 type GetClusterPodLogResponse struct {
+	// The cluster's id
 	ClusterId string `json:"clusterId"`
-	PodId     string `json:"podId"`
+	// Pod id used to create the cluster.
+	PodId string `json:"podId"`
 	// An array of log lines, returned in the same order as they appear in the original logs
 	Logs []string `json:"logs"`
 }
 
 type PatchClusterRequest struct {
-	IsProtected   *bool   `json:"isProtected,omitempty"`
+	// Whether the cluster is under protection, empty means do nothing
+	IsProtected *bool `json:"isProtected,omitempty"`
+	// The image secret id for cluster, empty means do nothing
 	ImageSecretId *string `json:"imageSecretId,omitempty"`
 }
