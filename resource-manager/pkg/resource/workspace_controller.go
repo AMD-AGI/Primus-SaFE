@@ -193,7 +193,7 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 		return err
 	}
 	r.removeExpectations(workspace.Name)
-	if err = r.updatePhase(ctx, workspace, v1.WorkspaceDeleted); err != nil {
+	if err = r.updatePhase(ctx, workspace, v1.WorkspaceDeleting); err != nil {
 		klog.ErrorS(err, "failed to update phase for workspace")
 		return err
 	}
