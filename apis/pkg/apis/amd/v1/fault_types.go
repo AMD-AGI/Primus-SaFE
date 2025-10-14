@@ -18,6 +18,7 @@ const (
 )
 
 type FaultNode struct {
+	// The cluster which fault belongs to
 	ClusterName string `json:"clusterName"`
 	// fault-associated k8s node name
 	K8sName string `json:"k8sName"`
