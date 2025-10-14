@@ -7,6 +7,7 @@ package custom_handlers
 
 import (
 	"fmt"
+
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 
 	"github.com/gin-gonic/gin"
@@ -39,7 +40,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.POST(fmt.Sprintf("faults/:%s/stop", common.Name), h.StopFault)
 
 		group.POST("nodetemplates", h.CreateNodeTemplate)
-		group.DELETE(fmt.Sprintf("nodetemplates/:%s", types.Name), h.DeleteNodeTemplate)
+		group.DELETE(fmt.Sprintf("nodetemplates/:%s", common.Name), h.DeleteNodeTemplate)
 		group.GET("nodetemplates", h.ListNodeTemplate)
 
 		group.POST("nodes", h.CreateNode)
@@ -72,14 +73,14 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 
 		group.POST("opsjobs", h.CreateOpsJob)
 		group.GET("opsjobs", h.ListOpsJob)
-		group.GET(fmt.Sprintf("opsjobs/:%s", types.Name), h.GetOpsJob)
-		group.DELETE(fmt.Sprintf("opsjobs/:%s", types.Name), h.DeleteOpsJob)
-		group.POST(fmt.Sprintf("opsjobs/:%s/stop", types.Name), h.StopOpsJob)
+		group.GET(fmt.Sprintf("opsjobs/:%s", common.Name), h.GetOpsJob)
+		group.DELETE(fmt.Sprintf("opsjobs/:%s", common.Name), h.DeleteOpsJob)
+		group.POST(fmt.Sprintf("opsjobs/:%s/stop", common.Name), h.StopOpsJob)
 
-		group.DELETE(fmt.Sprintf("users/:%s", types.Name), h.DeleteUser)
+		group.DELETE(fmt.Sprintf("users/:%s", common.Name), h.DeleteUser)
 		group.GET("users", h.ListUser)
-		group.PATCH(fmt.Sprintf("users/:%s", types.Name), h.PatchUser)
-		group.GET(fmt.Sprintf("users/:%s", types.Name), h.GetUser)
+		group.PATCH(fmt.Sprintf("users/:%s", common.Name), h.PatchUser)
+		group.GET(fmt.Sprintf("users/:%s", common.Name), h.GetUser)
 
 		group.POST(fmt.Sprintf("service/:%s/logs", common.Name), h.GetServiceLog)
 		group.POST(fmt.Sprintf("workloads/:%s/logs", common.Name), h.GetWorkloadLog)
