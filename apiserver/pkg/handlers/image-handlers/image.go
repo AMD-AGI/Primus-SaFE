@@ -97,7 +97,7 @@ func (h *ImageHandler) listImage(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if query.Flat {
-
+		return cvtImageToFlatResponse(images), nil
 	}
 
 	results := &GetImageResponse{
