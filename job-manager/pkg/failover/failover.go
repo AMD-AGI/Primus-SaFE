@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -51,7 +51,7 @@ func SetupFailoverController(mgr manager.Manager) error {
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workload{}, builder.WithPredicates(caredChangePredicate{})).
 		Watches(&v1.Fault{}, r.handleFaultEvent()).
-		Watches(&corev1.ConfigMap{}, r.updateConfig()).
+		Watches(&corev1.ConfigMap{}, r.handleConfigmapEvent()).
 		Complete(r)
 	if err != nil {
 		return err
@@ -111,6 +111,7 @@ func isDisableFailover(w *v1.Workload) bool {
 	if !v1.IsWorkloadDispatched(w) || w.IsEnd() {
 		return true
 	}
+	// Preemption is not subject to retry count limits.
 	if v1.IsWorkloadPreempted(w) {
 		return false
 	}
@@ -125,11 +126,7 @@ func (r *FailoverReconciler) handleFaultEvent() handler.EventHandler {
 		if fault.Status.Phase != v1.FaultPhaseSucceeded || fault.Spec.Node == nil {
 			return false
 		}
-		conf := getFailoverConfig(r.failoverConfig, strings.ToLower(fault.Spec.MonitorId))
-		if conf == nil || conf.Action != GlobalRestart {
-			return false
-		}
-		return true
+		return isMonitorIdExists(r.failoverConfig, strings.ToLower(fault.Spec.MonitorId))
 	}
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
@@ -164,7 +161,7 @@ func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1
 		if clusterInformer != nil {
 			return nil
 		}
-		return fmt.Errorf("failed to get cluster informer")
+		return fmt.Errorf("failed to get cluster's informer")
 	}, maxWaitTime, waitTime)
 	if err != nil || clusterInformer == nil {
 		return
@@ -231,14 +228,14 @@ func (r *FailoverReconciler) getWorkloadsByFault(ctx context.Context,
 	return workloadNames, nil
 }
 
-func (r *FailoverReconciler) updateConfig() handler.EventHandler {
+func (r *FailoverReconciler) handleConfigmapEvent() handler.EventHandler {
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
 			cm, ok := evt.Object.(*corev1.ConfigMap)
 			if !ok {
 				return
 			}
-			if cm.GetName() != FailoverConfigmapName || cm.GetNamespace() != common.PrimusSafeNamespace {
+			if cm.GetName() != common.PrimusFailover || cm.GetNamespace() != common.PrimusSafeNamespace {
 				return
 			}
 			addFailoverConfig(cm, r.failoverConfig)
@@ -249,10 +246,10 @@ func (r *FailoverReconciler) updateConfig() handler.EventHandler {
 			if !ok1 || !ok2 {
 				return
 			}
-			if oldCm.GetName() != FailoverConfigmapName || oldCm.GetNamespace() != common.PrimusSafeNamespace {
+			if oldCm.GetName() != common.PrimusFailover || oldCm.GetNamespace() != common.PrimusSafeNamespace {
 				return
 			}
-			if newCm.GetName() != FailoverConfigmapName || newCm.GetNamespace() != common.PrimusSafeNamespace {
+			if newCm.GetName() != common.PrimusFailover || newCm.GetNamespace() != common.PrimusSafeNamespace {
 				return
 			}
 			if reflect.DeepEqual(oldCm.Data, newCm.Data) {
@@ -265,7 +262,7 @@ func (r *FailoverReconciler) updateConfig() handler.EventHandler {
 			if !ok {
 				return
 			}
-			if cm.GetName() != FailoverConfigmapName || cm.GetNamespace() != common.PrimusSafeNamespace {
+			if cm.GetName() != common.PrimusFailover || cm.GetNamespace() != common.PrimusSafeNamespace {
 				return
 			}
 			r.failoverConfig.Clear()
@@ -278,12 +275,11 @@ func (r *FailoverReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 	if err := r.Get(ctx, req.NamespacedName, workload); err != nil {
 		if !apierrors.IsNotFound(err) {
 			klog.ErrorS(err, "failed to get admin workload")
-		} else {
-			err = nil
+			return ctrlruntime.Result{}, err
 		}
-		return ctrlruntime.Result{}, err
+		return ctrlruntime.Result{}, nil
 	}
-	if !workload.GetDeletionTimestamp().IsZero() {
+	if !workload.GetDeletionTimestamp().IsZero() || isDisableFailover(workload) {
 		return ctrlruntime.Result{}, nil
 	}
 	return r.handle(ctx, workload)

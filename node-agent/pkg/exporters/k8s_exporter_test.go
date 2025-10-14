@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -90,6 +90,7 @@ func TestDeleteCondition(t *testing.T) {
 	(*manager.queue).Add(msg)
 
 	time.Sleep(time.Millisecond * 200)
+	k8sNode = n.GetK8sNode()
 	assert.Equal(t, len(k8sNode.Status.Conditions), 0)
 
 	(*manager.queue).ShutDown()

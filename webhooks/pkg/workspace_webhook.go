@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -9,13 +9,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -30,6 +31,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -94,6 +96,9 @@ func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.W
 		return err
 	}
 	if err := m.mutateManagers(ctx, nil, workspace); err != nil {
+		return err
+	}
+	if err := m.mutateImageSecret(ctx, workspace); err != nil {
 		return err
 	}
 	return nil
@@ -227,7 +232,6 @@ func (m *WorkspaceMutator) mutateByNodeFlavor(ctx context.Context, workspace *v1
 		}
 		if nf != nil && nf.HasGpu() {
 			v1.SetAnnotation(workspace, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName)
-			v1.SetLabel(workspace, v1.GpuProductNameLabel, nf.Spec.Gpu.Product)
 		}
 	}
 	return nil
@@ -240,7 +244,11 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 	if oldCount <= newCount {
 		return nil
 	}
-	count := oldCount - newCount
+	if newCount >= oldWorkspace.CurrentReplica() {
+		return nil
+	}
+
+	count := oldWorkspace.CurrentReplica() - newCount
 	nodes, err := commonnodes.GetNodesForScalingDown(ctx, m.Client, newWorkspace.Name, count)
 	if err != nil {
 		return err
@@ -275,7 +283,7 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 			if v1.IsWorkloadEnablePreempt(w) {
 				continue
 			}
-			v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, "true")
+			v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr)
 		} else {
 			if !v1.IsWorkloadEnablePreempt(w) {
 				continue
@@ -336,6 +344,37 @@ func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, new
 	return nil
 }
 
+func (m *WorkspaceMutator) mutateImageSecret(ctx context.Context, workspace *v1.Workspace) error {
+	cluster, err := getCluster(ctx, m.Client, workspace.Spec.Cluster)
+	if err != nil {
+		return err
+	}
+	if cluster.Spec.ControlPlane.ImageSecret != nil {
+		if !workspace.HasImageSecret(cluster.Spec.ControlPlane.ImageSecret.Name) {
+			workspace.Spec.ImageSecrets = append(workspace.Spec.ImageSecrets,
+				cluster.Spec.ControlPlane.ImageSecret.DeepCopy())
+		}
+	}
+
+	var labelSelector = labels.NewSelector()
+	req1, _ := labels.NewRequirement(v1.SecretTypeLabel, selection.Equals, []string{string(v1.SecretImage)})
+	labelSelector = labelSelector.Add(*req1)
+	req2, _ := labels.NewRequirement(v1.SecretAllWorkspaceLabel, selection.Equals, []string{v1.TrueStr})
+	labelSelector = labelSelector.Add(*req2)
+	secretList := &corev1.SecretList{}
+	if err = m.List(ctx, secretList, &client.ListOptions{LabelSelector: labelSelector, Namespace: common.PrimusSafeNamespace}); err != nil {
+		return err
+	}
+	for _, secret := range secretList.Items {
+		if workspace.HasImageSecret(secret.Name) {
+			continue
+		}
+		workspace.Spec.ImageSecrets = append(workspace.Spec.ImageSecrets,
+			commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
+	}
+	return nil
+}
+
 type WorkspaceValidator struct {
 	client.Client
 	decoder admission.Decoder
@@ -376,7 +415,7 @@ func (v *WorkspaceValidator) validateOnCreation(ctx context.Context, workspace *
 	if err := validateDisplayName(v1.GetDisplayName(workspace)); err != nil {
 		return err
 	}
-	if err := v.validateResource(ctx, workspace); err != nil {
+	if err := v.validateRelatedResource(ctx, workspace); err != nil {
 		return err
 	}
 	return nil
@@ -393,7 +432,7 @@ func (v *WorkspaceValidator) validateOnUpdate(ctx context.Context, newWorkspace,
 		return err
 	}
 	if newWorkspace.Spec.Replica > oldWorkspace.Spec.Replica {
-		if err := v.validateResource(ctx, newWorkspace); err != nil {
+		if err := v.validateRelatedResource(ctx, newWorkspace); err != nil {
 			return err
 		}
 	}
@@ -436,7 +475,7 @@ func (v *WorkspaceValidator) validateRequiredParams(workspace *v1.Workspace) err
 	return nil
 }
 
-func (v *WorkspaceValidator) validateResource(ctx context.Context, workspace *v1.Workspace) error {
+func (v *WorkspaceValidator) validateRelatedResource(ctx context.Context, workspace *v1.Workspace) error {
 	if workspace.Spec.Replica <= 0 || workspace.Spec.NodeFlavor == "" {
 		return nil
 	}
@@ -521,15 +560,24 @@ func (v *WorkspaceValidator) validateImmutableFields(newWorkspace, oldWorkspace 
 }
 
 func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
-	if reflect.DeepEqual(oldWorkspace.Spec.Volumes, newWorkspace.Spec.Volumes) {
-		return nil
-	}
-	volumeId := ""
+	newVolumeSet := sets.NewSet()
 	for _, vol := range newWorkspace.Spec.Volumes {
 		if vol.Type == v1.HOSTPATH {
 			continue
 		}
-		volumeId = vol.GenFullVolumeId()
+		newVolumeSet.Insert(vol.GenFullVolumeId())
+	}
+
+	volumeId := ""
+	for _, vol := range oldWorkspace.Spec.Volumes {
+		if vol.Type == v1.HOSTPATH {
+			continue
+		}
+		id := vol.GenFullVolumeId()
+		if newVolumeSet.Has(id) {
+			continue
+		}
+		volumeId = id
 		break
 	}
 	if volumeId == "" {

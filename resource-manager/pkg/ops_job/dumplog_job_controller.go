@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -88,7 +88,7 @@ func SetupDumpLogJobController(ctx context.Context, mgr manager.Manager) error {
 
 	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, onJobRunning()))).
+			predicate.GenerationChangedPredicate{}, onFirstPhaseChanged()))).
 		Complete(r)
 	if err != nil {
 		return err
@@ -111,7 +111,11 @@ func (r *DumpLogJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
 
 func (r *DumpLogJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	if job.IsPending() {
-		return r.setJobRunning(ctx, job)
+		if err := r.setJobPhase(ctx, job, v1.OpsJobRunning); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		// ensure that job will be reconciled when it is timeout
+		return genRequeueAfterResult(job), nil
 	}
 	r.Add(job.Name)
 	return ctrlruntime.Result{}, nil

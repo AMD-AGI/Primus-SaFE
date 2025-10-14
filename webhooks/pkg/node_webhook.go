@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -112,6 +112,7 @@ func (m *NodeMutator) mutateMeta(_ context.Context, node *v1.Node) {
 	if v1.GetDisplayName(node) == "" {
 		v1.SetLabel(node, v1.DisplayNameLabel, node.GetSpecHostName())
 	}
+	v1.SetLabel(node, v1.NodeIdLabel, node.Name)
 	controllerutil.AddFinalizer(node, v1.NodeFinalizer)
 }
 
@@ -152,9 +153,6 @@ func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, node *v1.Node) boo
 	}
 	isChanged := false
 	if nf.HasGpu() {
-		if v1.SetLabel(node, v1.GpuProductNameLabel, nf.Spec.Gpu.Product) {
-			isChanged = true
-		}
 		if v1.SetAnnotation(node, v1.GpuResourceNameAnnotation, nf.Spec.Gpu.ResourceName) {
 			isChanged = true
 		}
@@ -162,9 +160,6 @@ func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, node *v1.Node) boo
 			isChanged = true
 		}
 	} else {
-		if v1.RemoveLabel(node, v1.GpuProductNameLabel) {
-			isChanged = true
-		}
 		if v1.RemoveAnnotation(node, v1.GpuResourceNameAnnotation) {
 			isChanged = true
 		}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -35,6 +35,8 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -112,28 +114,30 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 		m.mutateAuthoring(workload)
 	}
 
-	m.mutateResource(workload, workspace)
+	m.mutateCommon(ctx, workload, workspace)
 	m.mutateHealthCheck(workload)
 	m.mutateService(workload)
 	m.mutateMaxRetry(workload)
 	m.mutateEnv(nil, workload)
 	m.mutateTTLSeconds(workload)
-	m.mutateCommon(ctx, workload)
 	return true
 }
 
 func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) bool {
-	m.mutateResource(newWorkload, nil)
+	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
+	m.mutateCommon(ctx, newWorkload, workspace)
 	m.mutateEnv(oldWorkload, newWorkload)
-	m.mutateCommon(ctx, newWorkload)
 	return true
 }
 
-func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload) bool {
+func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
+	m.mutateResource(workload, workspace)
+	m.mutateHostpath(workload, workspace)
 	m.mutatePriority(workload)
 	m.mutateImage(workload)
 	m.mutateEntryPoint(workload)
 	m.mutateHostNetwork(ctx, workload)
+	m.mutateCustomerLabels(workload)
 	return true
 }
 
@@ -150,7 +154,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 		v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)
 		v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
 		if workspace.Spec.EnablePreempt {
-			v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, "true")
+			v1.SetAnnotation(workload, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr)
 		}
 	}
 
@@ -216,6 +220,28 @@ func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Wo
 		isChanged = true
 	}
 	return isChanged
+}
+
+func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Workspace) {
+	if len(workload.Spec.Hostpath) == 0 {
+		return
+	}
+	hostpathSet := sets.NewSet()
+	if workspace != nil {
+		for _, vol := range workspace.Spec.Volumes {
+			if vol.Type == v1.HOSTPATH {
+				hostpathSet.Insert(vol.HostPath)
+			}
+		}
+	}
+	hostpath := make([]string, 0, len(workload.Spec.Hostpath))
+	for _, path := range workload.Spec.Hostpath {
+		if !hostpathSet.Has(path) {
+			hostpath = append(hostpath, path)
+			hostpathSet.Insert(path)
+		}
+	}
+	workload.Spec.Hostpath = hostpath
 }
 
 func (m *WorkloadMutator) mutateHealthCheck(workload *v1.Workload) {
@@ -369,6 +395,21 @@ func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Wo
 	}
 }
 
+func (m *WorkloadMutator) mutateCustomerLabels(workload *v1.Workload) {
+	if len(workload.Spec.CustomerLabels) == 0 {
+		return
+	}
+	var toRemoveKeys []string
+	for key, val := range workload.Spec.CustomerLabels {
+		if key == "" || val == "" {
+			toRemoveKeys = append(toRemoveKeys, key)
+		}
+	}
+	for _, key := range toRemoveKeys {
+		delete(workload.Spec.CustomerLabels, key)
+	}
+}
+
 type WorkloadValidator struct {
 	client.Client
 	decoder admission.Decoder
@@ -479,6 +520,18 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if workload.Spec.GroupVersionKind.Empty() {
 		errs = append(errs, fmt.Errorf("the gvk is empty"))
 	}
+	if workload.Spec.Resource.Replica <= 0 {
+		errs = append(errs, fmt.Errorf("the replica is empty"))
+	}
+	if workload.Spec.Resource.CPU == "" {
+		errs = append(errs, fmt.Errorf("the cpu is empty"))
+	}
+	if workload.Spec.Resource.Memory == "" {
+		errs = append(errs, fmt.Errorf("the memory is empty"))
+	}
+	if workload.Spec.Resource.EphemeralStorage == "" {
+		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
+	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
 	}
@@ -543,6 +596,9 @@ func (v *WorkloadValidator) validateResourceValid(workload *v1.Workload) error {
 	if workload.Spec.Resource.Memory == "" {
 		errs = append(errs, fmt.Errorf("the memory is empty"))
 	}
+	if workload.Spec.Resource.EphemeralStorage == "" {
+		errs = append(errs, fmt.Errorf("the ephemeralStorage is empty"))
+	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err
 	}
@@ -576,12 +632,17 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload
 	if nf == nil {
 		return err
 	}
+	return validateResourceEnough(nf, &workload.Spec.Resource)
+}
+
+func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
 	availNodeResources := quantity.GetAvailableResource(nodeResources)
 
-	// Validate if the workload's resource requests exceed the per-node resource limits
-	podResources, err := commonworkload.GetPodResources(workload)
+	// Validate if the request resource requests exceed the per-node resource limits
+	podResources, err := commonworkload.GetPodResources(res)
 	if err != nil {
+		klog.ErrorS(err, "failed to get pod resource", "input", *res)
 		return err
 	}
 	if ok, key := quantity.IsSubResource(podResources, availNodeResources); !ok {
@@ -590,17 +651,19 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload
 				key, podResources, availNodeResources))
 	}
 
-	// Validate if the workload's share memory requests exceed the memory
-	shareMemQuantity, err := resource.ParseQuantity(workload.Spec.Resource.SharedMemory)
-	if err != nil {
-		return err
-	}
-	maxMemoryQuantity := availNodeResources[corev1.ResourceMemory]
-	if shareMemQuantity.Value() <= 0 || shareMemQuantity.Value() > maxMemoryQuantity.Value() {
-		return fmt.Errorf("invalid share memory")
+	// Validate if the share memory requests exceed the memory
+	if res.SharedMemory != "" {
+		shareMemQuantity, err := resource.ParseQuantity(res.SharedMemory)
+		if err != nil {
+			return err
+		}
+		maxMemoryQuantity := availNodeResources[corev1.ResourceMemory]
+		if shareMemQuantity.Value() <= 0 || shareMemQuantity.Value() > maxMemoryQuantity.Value() {
+			return fmt.Errorf("invalid share memory")
+		}
 	}
 
-	// Validate if the workload's ephemeral storage requests exceed the limit
+	// Validate if ephemeral storage requests exceed the limit
 	if !floatutil.FloatEqual(commonconfig.GetMaxEphemeralStorePercent(), 0) {
 		maxEphemeralStoreQuantity, _ := quantity.GetMaxEphemeralStoreQuantity(nodeResources)
 		requestQuantity, ok := podResources[corev1.ResourceEphemeralStorage]
@@ -652,7 +715,13 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 
 // Changes to the PyTorchJob are only allowed when the job is queued.
 func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Workload) error {
-	if commonworkload.IsApplication(newWorkload) || !v1.IsWorkloadScheduled(newWorkload) {
+	if !v1.IsWorkloadScheduled(newWorkload) {
+		return nil
+	}
+	if !sliceutil.EqualIgnoreOrder(oldWorkload.Spec.Hostpath, newWorkload.Spec.Hostpath) {
+		return commonerrors.NewForbidden("hostpath cannot be changed once the workload has been scheduled")
+	}
+	if commonworkload.IsApplication(newWorkload) {
 		return nil
 	}
 	if oldWorkload.Spec.EntryPoint != newWorkload.Spec.EntryPoint {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -24,9 +24,6 @@ func SetupOpsJobs(ctx context.Context, mgr manager.Manager) error {
 	}
 	if err := SetupPreflightJobController(mgr); err != nil {
 		return fmt.Errorf("preflight-job controller: %v", err)
-	}
-	if err := SetupDiagnoseJobController(mgr); err != nil {
-		return fmt.Errorf("diagnose-job controller: %v", err)
 	}
 	return nil
 }

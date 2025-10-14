@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -57,8 +57,7 @@ func NewAuthorizer(cli client.Client) *Authorizer {
 func (a *Authorizer) Authorize(in Input) error {
 	if in.User == nil {
 		var err error
-		in.User, err = a.GetRequestUser(in.Context, in.UserId)
-		if err != nil {
+		if in.User, err = a.GetRequestUser(in.Context, in.UserId); err != nil {
 			return err
 		}
 	}
@@ -69,11 +68,13 @@ func (a *Authorizer) Authorize(in Input) error {
 }
 
 func (a *Authorizer) AuthorizeSystemAdmin(in Input) error {
-	user, err := a.GetRequestUser(in.Context, in.UserId)
-	if err != nil {
-		return err
+	if in.User == nil {
+		var err error
+		if in.User, err = a.GetRequestUser(in.Context, in.UserId); err != nil {
+			return err
+		}
 	}
-	if !user.IsSystemAdmin() {
+	if !in.User.IsSystemAdmin() {
 		return commonerrors.NewForbidden(SystemAdminRequired)
 	}
 	return nil
@@ -161,7 +162,7 @@ func getPolicyRules(role *v1.Role, resourceKind, resourceName string, isOwner, i
 		isMatch := false
 		for _, n := range r.GrantedUsers {
 			switch n {
-			case AllResource:
+			case GrantedAllUser:
 				isMatch = true
 			case GrantedOwner:
 				if isOwner {

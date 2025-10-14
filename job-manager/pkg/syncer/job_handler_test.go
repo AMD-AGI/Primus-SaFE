@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -29,7 +29,7 @@ func TestPodWrapperSort(t *testing.T) {
 		},
 	}
 	sortWorkloadPods(workload)
-	assert.Equal(t, workload.Status.Pods[0].PodId, "p1")
-	assert.Equal(t, workload.Status.Pods[1].PodId, "p3")
-	assert.Equal(t, workload.Status.Pods[2].PodId, "p2")
+	assert.Equal(t, workload.Status.Pods[0].PodId, "p2")
+	assert.Equal(t, workload.Status.Pods[1].PodId, "p1")
+	assert.Equal(t, workload.Status.Pods[2].PodId, "p3")
 }

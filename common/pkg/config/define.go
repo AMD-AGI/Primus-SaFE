@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -75,8 +75,6 @@ const (
 	opsJobPrefix        = "ops_job."
 	opsJobTTLSecond     = opsJobPrefix + "ttl_second"
 	opsJobTimeoutSecond = opsJobPrefix + "timeout_second"
-	preflightImage      = opsJobPrefix + "preflight_image"
-	diagnoseImage       = opsJobPrefix + "diagnose_image"
 
 	// s3
 	s3Prefix     = "s3."

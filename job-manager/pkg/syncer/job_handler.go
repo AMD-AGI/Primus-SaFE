@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -50,8 +50,6 @@ func (r *SyncerReconciler) handleJob(ctx context.Context, msg *resourceMessage, 
 func (r *SyncerReconciler) handleJobImpl(ctx context.Context, msg *resourceMessage,
 	adminWorkload *v1.Workload, informer *ClusterInformer) (ctrlruntime.Result, error) {
 	if msg.action == ResourceDel {
-		klog.Infof("delete resource. name: %s/%s, kind: %s, dispatchCount: %d",
-			msg.namespace, msg.name, msg.gvk.Kind, msg.dispatchCount)
 		// wait until all pods are deleted
 		if !r.waitAllPodsDeleted(ctx, msg, informer) {
 			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil

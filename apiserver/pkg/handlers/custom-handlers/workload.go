@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -98,9 +98,13 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
+		klog.ErrorS(err, "failed to auth workload",
+			"workspace", workload.Spec.Workspace, "user", c.GetString(common.UserName))
 		return nil, err
 	}
 	if err = h.authWorkloadPriority(c, workload, v1.CreateVerb, req.Priority, requestUser, roles); err != nil {
+		klog.ErrorS(err, "failed to auth workload priority",
+			"priority", req.Priority, "user", c.GetString(common.UserName))
 		return nil, err
 	}
 
@@ -514,24 +518,17 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 			},
 		},
 	}
+
 	var err error
 	if err = json.Unmarshal(body, &workload.Spec); err != nil {
 		return nil, err
 	}
-	if len(workload.Spec.CustomerLabels) > 0 {
-		customerLabels := make(map[string]string)
-		for key, val := range workload.Spec.CustomerLabels {
-			if len(val) == 0 || key == common.K8sHostNameLabel {
-				continue
-			}
-			key = common.CustomerLabelPrefix + key
-			customerLabels[key] = val
-		}
-		workload.Spec.CustomerLabels = customerLabels
-	}
 	genCustomerLabelsByNodes(workload, req.NodeList)
-	if err = h.genWorkloadResourceByNodes(c.Request.Context(), workload, req.NodeList); err != nil {
-		return nil, err
+	if len(req.NodeList) > 0 {
+		workload.Spec.Resource.Replica = len(req.NodeList)
+	}
+	if req.WorkspaceId != "" {
+		workload.Spec.Workspace = req.WorkspaceId
 	}
 	return workload, nil
 }
@@ -540,6 +537,13 @@ func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
 	if len(nodeList) == 0 {
 		return
 	}
+	if len(workload.Spec.CustomerLabels) > 0 {
+		if _, ok := workload.Spec.CustomerLabels[common.K8sHostName]; ok {
+			return
+		}
+	} else {
+		workload.Spec.CustomerLabels = make(map[string]string)
+	}
 	nodeNames := ""
 	for i := range nodeList {
 		if i > 0 {
@@ -547,32 +551,7 @@ func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
 		}
 		nodeNames += nodeList[i]
 	}
-	if len(workload.Spec.CustomerLabels) == 0 {
-		workload.Spec.CustomerLabels = make(map[string]string)
-	}
-	workload.Spec.CustomerLabels[common.K8sHostNameLabel] = nodeNames
-}
-
-func (h *Handler) genWorkloadResourceByNodes(ctx context.Context, workload *v1.Workload, nodeList []string) error {
-	if len(nodeList) == 0 {
-		return nil
-	}
-	node, err := h.getAdminNode(ctx, nodeList[0])
-	if err != nil || node.Spec.NodeFlavor == nil {
-		return err
-	}
-	nf, err := h.getAdminNodeFlavor(ctx, node.Spec.NodeFlavor.Name)
-	if err != nil {
-		return err
-	}
-	workload.Spec.Resource.Replica = len(nodeList)
-	maxAvailResource := commonworkload.GenerateMaxAvailResource(nf)
-	workload.Spec.Resource.CPU = maxAvailResource.CPU
-	workload.Spec.Resource.Memory = maxAvailResource.Memory
-	workload.Spec.Resource.GPUName = maxAvailResource.GPUName
-	workload.Spec.Resource.GPU = maxAvailResource.GPU
-	workload.Spec.Resource.EphemeralStorage = maxAvailResource.EphemeralStorage
-	return nil
+	workload.Spec.CustomerLabels[common.K8sHostName] = nodeNames
 }
 
 func parseListWorkloadQuery(c *gin.Context) (*types.ListWorkloadRequest, error) {
@@ -716,8 +695,8 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	if req.Priority != nil {
 		adminWorkload.Spec.Priority = *req.Priority
 	}
-	if req.Replica != nil {
-		_, ok := adminWorkload.Spec.CustomerLabels[common.K8sHostNameLabel]
+	if req.Replica != nil && *req.Replica != adminWorkload.Spec.Resource.Replica {
+		_, ok := adminWorkload.Spec.CustomerLabels[common.K8sHostName]
 		if ok {
 			return commonerrors.NewBadRequest("cannot update replica when specifying nodes")
 		}
@@ -753,6 +732,9 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	if req.Env != nil {
 		adminWorkload.Spec.Env = *req.Env
 	}
+	if req.MaxRetry != nil {
+		adminWorkload.Spec.MaxRetry = *req.MaxRetry
+	}
 	return nil
 }
 
@@ -760,8 +742,8 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 	w *dbclient.Workload) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
 		WorkloadId:     w.WorkloadId,
-		Workspace:      w.Workspace,
-		Cluster:        w.Cluster,
+		WorkspaceId:    w.Workspace,
+		ClusterId:      w.Cluster,
 		Phase:          dbutils.ParseNullString(w.Phase),
 		CreationTime:   dbutils.ParseNullTimeToString(w.CreateTime),
 		StartTime:      dbutils.ParseNullTimeToString(w.StartTime),
@@ -822,7 +804,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 	if str := dbutils.ParseNullString(w.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
 		for i, p := range result.Pods {
-			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p.WorkloadPod, result.UserId, result.Workspace)
+			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p.WorkloadPod, result.UserId, result.WorkspaceId)
 		}
 	}
 	if str := dbutils.ParseNullString(w.Nodes); str != "" {
@@ -835,7 +817,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 		var customerLabels map[string]string
 		json.Unmarshal([]byte(str), &customerLabels)
 		if len(customerLabels) > 0 {
-			result.CustomerLabels, result.NodeList = handleCustomerLabels(customerLabels)
+			result.CustomerLabels, result.NodeList = handleWorkloadCustomerLabels(customerLabels)
 		}
 	}
 	if str := dbutils.ParseNullString(w.Liveness); str != "" {
@@ -873,10 +855,10 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 	result.Pods = make([]types.WorkloadPodWrapper, len(w.Status.Pods))
 	for i, p := range w.Status.Pods {
 		result.Pods[i].WorkloadPod = w.Status.Pods[i]
-		result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p, result.UserId, result.Workspace)
+		result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p, result.UserId, result.WorkspaceId)
 	}
 	if len(w.Spec.CustomerLabels) > 0 {
-		result.CustomerLabels, result.NodeList = handleCustomerLabels(w.Spec.CustomerLabels)
+		result.CustomerLabels, result.NodeList = handleWorkloadCustomerLabels(w.Spec.CustomerLabels)
 	}
 	if !commonworkload.IsAuthoring(w) {
 		result.EntryPoint = stringutil.Base64Decode(w.Spec.EntryPoint)
@@ -884,31 +866,29 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 	return result
 }
 
-func handleCustomerLabels(labels map[string]string) (map[string]string, []string) {
+func handleWorkloadCustomerLabels(labels map[string]string) (map[string]string, []string) {
 	var nodeList []string
-	result := make(map[string]string)
+	customerLabels := make(map[string]string)
 	for key, val := range labels {
-		if strings.HasPrefix(key, common.CustomerLabelPrefix) {
-			key = key[len(common.CustomerLabelPrefix):]
-		} else if key == common.K8sHostNameLabel {
+		if key == common.K8sHostName {
 			nodeList = strings.Split(val, " ")
-			continue
+		} else {
+			customerLabels[key] = val
 		}
-		result[key] = val
 	}
-	return result, nodeList
+	return customerLabels, nodeList
 }
 
 func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
 		WorkloadId:       w.Name,
-		Workspace:        w.Spec.Workspace,
+		WorkspaceId:      w.Spec.Workspace,
 		Resource:         w.Spec.Resource,
 		DisplayName:      v1.GetDisplayName(w),
 		Description:      v1.GetDescription(w),
 		UserId:           v1.GetUserId(w),
 		UserName:         v1.GetUserName(w),
-		Cluster:          v1.GetClusterId(w),
+		ClusterId:        v1.GetClusterId(w),
 		Phase:            string(w.Status.Phase),
 		Priority:         w.Spec.Priority,
 		CreationTime:     timeutil.FormatRFC3339(&w.CreationTimestamp.Time),

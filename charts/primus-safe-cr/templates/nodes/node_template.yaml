@@ -1,3 +1,8 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 apiVersion: amd.com/v1
 kind: NodeTemplate
 metadata:
@@ -18,12 +23,3 @@ spec:
     - set-max-sclk
     - sysctl-ulimit
     - sysctl-inotify
-    - install-libgtest
-    - install-linux-tools
-    - install-openmpi-bin
-    - install-rocm-validation
-    - install-babel-stream
-    - install-rccl-test
-    - install-roc-blas
-    - install-transfer-bench
-    - install-rdma

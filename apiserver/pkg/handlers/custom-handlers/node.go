@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -106,40 +106,42 @@ func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.getAndSetUsername(c)
-	if err != nil {
-		return nil, err
-	}
-
 	query, err := parseListNodeQuery(c)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse query")
 		return nil, err
 	}
-	labelSelector, err := buildNodeLabelSelector(query)
+	ctx := c.Request.Context()
+	totalCount, nodes, err := h.listNodeByQuery(c, query)
 	if err != nil {
 		return nil, err
 	}
-	ctx := c.Request.Context()
-	nodeList := &v1.NodeList{}
-	if err = h.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
-		klog.ErrorS(err, "failed to list admin nodes", "labelSelector", labelSelector)
-		return nil, err
+	if query.Brief {
+		return buildListNodeBriefResponse(totalCount, nodes)
+	} else {
+		return h.buildListNodeResponse(ctx, query, totalCount, nodes)
 	}
-	result := &types.ListNodeResponse{}
-	if len(nodeList.Items) == 0 {
-		return result, nil
+}
+
+func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) (int, []*v1.Node, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return 0, nil, err
 	}
 
-	allUsedResource, err := h.getAllUsedResourcePerNode(ctx, query)
+	labelSelector, err := buildNodeLabelSelector(query)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
+	nodeList := &v1.NodeList{}
+	ctx := c.Request.Context()
+	if err = h.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		return 0, nil, err
+	}
+
 	roles := h.auth.GetRoles(ctx, requestUser)
-	sort.Slice(nodeList.Items, func(i, j int) bool {
-		return nodeList.Items[i].Name < nodeList.Items[j].Name
-	})
-	for _, n := range nodeList.Items {
+	nodes := make([]*v1.Node, 0, len(nodeList.Items))
+	for i, n := range nodeList.Items {
 		if err = h.auth.Authorize(authority.Input{
 			Context:    ctx,
 			Resource:   &n,
@@ -150,16 +152,81 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 		}); err != nil {
 			continue
 		}
-		usedResource, _ := allUsedResource[n.Name]
-		item, err := h.cvtToNodeResponseItem(ctx, &n, usedResource)
-		if err != nil {
-			return nil, err
+		if query.Available != nil {
+			isAvailable, _ := n.CheckAvailable(false)
+			if *query.Available != isAvailable {
+				continue
+			}
+		}
+		if query.IsAddonsInstalled != nil {
+			if *query.IsAddonsInstalled != v1.IsNodeTemplateInstalled(&n) {
+				continue
+			}
+		}
+		nodes = append(nodes, &nodeList.Items[i])
+	}
+	if len(nodes) == 0 {
+		return 0, nil, nil
+	}
+
+	sort.Slice(nodes, func(i, j int) bool {
+		return nodes[i].Name < nodes[j].Name
+	})
+	totalCount := len(nodes)
+	if query.Limit >= 0 {
+		start := query.Offset
+		end := start + query.Limit
+		if start > totalCount {
+			return totalCount, nil, nil
+		}
+		if end > totalCount {
+			end = totalCount
+		}
+		return totalCount, nodes[start:end], nil
+	}
+	return totalCount, nodes, nil
+}
+
+func buildListNodeBriefResponse(totalCount int, nodes []*v1.Node) (interface{}, error) {
+	result := &types.ListNodeBriefResponse{
+		TotalCount: totalCount,
+	}
+	for _, n := range nodes {
+		item := types.NodeBriefResponseItem{
+			NodeId:     n.Name,
+			NodeName:   v1.GetDisplayName(n),
+			InternalIP: n.Spec.PrivateIP,
 		}
 		result.Items = append(result.Items, item)
-		result.TotalCount++
 	}
 	return result, nil
 }
+
+func (h *Handler) buildListNodeResponse(ctx context.Context,
+	query *types.ListNodeRequest, totalCount int, nodes []*v1.Node) (interface{}, error) {
+	allUsedResource, err := h.getAllUsedResourcePerNode(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	result := &types.ListNodeResponse{
+		TotalCount: totalCount,
+	}
+	for i, n := range nodes {
+		var item types.NodeResponseItem
+		usedResource, _ := allUsedResource[n.Name]
+		item = cvtToNodeResponseItem(n, usedResource)
+		if item.Workspace.Id != "" {
+			if i > 0 && item.Workspace.Id == result.Items[i-1].Workspace.Id {
+				item.Workspace.Name = result.Items[i-1].Workspace.Name
+			} else if item.Workspace.Name, err = h.getWorkspaceDisplayName(ctx, item.Workspace.Id); err != nil {
+				return nil, err
+			}
+		}
+		result.Items = append(result.Items, item)
+	}
+	return result, nil
+}
+
 func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	node, err := h.getAdminNode(ctx, c.GetString(common.Name))
@@ -181,9 +248,11 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to get used resource", "node", node.Name)
 		return nil, err
 	}
-	result, err := h.cvtToNodeResponseItem(c.Request.Context(), node, usedResource)
-	if err != nil {
-		return nil, err
+	result := cvtToGetNodeResponse(node, usedResource)
+	if result.Workspace.Id != "" {
+		if result.Workspace.Name, err = h.getWorkspaceDisplayName(ctx, result.Workspace.Id); err != nil {
+			return nil, err
+		}
 	}
 	return result, nil
 }
@@ -396,9 +465,9 @@ func (h *Handler) getAllUsedResourcePerNode(ctx context.Context,
 			}
 			info.resource = quantity.AddResource(info.resource, resList)
 			info.workloads = append(info.workloads, types.WorkloadInfo{
-				Id:        w.Name,
-				User:      v1.GetUserName(w),
-				Workspace: w.Spec.Workspace,
+				Id:          w.Name,
+				UserId:      v1.GetUserName(w),
+				WorkspaceId: w.Spec.Workspace,
 			})
 		}
 	}
@@ -426,9 +495,9 @@ func (h *Handler) getUsedResource(ctx context.Context, node *v1.Node) (*resource
 		}
 		result.resource = quantity.AddResource(result.resource, resList)
 		result.workloads = append(result.workloads, types.WorkloadInfo{
-			Id:        w.Name,
-			User:      v1.GetUserName(w),
-			Workspace: w.Spec.Workspace,
+			Id:          w.Name,
+			UserId:      v1.GetUserName(w),
+			WorkspaceId: w.Spec.Workspace,
 		})
 	}
 	return result, nil
@@ -448,21 +517,21 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 		return nil, err
 	}
 	ctx := c.Request.Context()
-	nf, err := h.getAdminNodeFlavor(ctx, req.FlavorName)
+	nf, err := h.getAdminNodeFlavor(ctx, req.FlavorId)
 	if err != nil {
 		return nil, err
 	}
 	node.Spec.NodeFlavor = commonutils.GenObjectReference(nf.TypeMeta, nf.ObjectMeta)
 
-	if req.TemplateName != "" {
-		nt, err := h.getAdminNodeTemplate(ctx, req.TemplateName)
+	if req.TemplateId != "" {
+		nt, err := h.getAdminNodeTemplate(ctx, req.TemplateId)
 		if err != nil {
 			return nil, err
 		}
 		node.Spec.NodeTemplate = commonutils.GenObjectReference(nt.TypeMeta, nt.ObjectMeta)
 	}
 
-	secret, err := h.getAdminSecret(ctx, req.SSHSecretName)
+	secret, err := h.getAdminSecret(ctx, req.SSHSecretId)
 	if err != nil {
 		return nil, err
 	}
@@ -478,40 +547,47 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 }
 
 func validateCreateNodeRequest(req *types.CreateNodeRequest) error {
-	if req.FlavorName == "" {
-		return commonerrors.NewBadRequest("the flavorName of request is empty")
+	if req.FlavorId == "" {
+		return commonerrors.NewBadRequest("the flavorId of request is empty")
 	}
 	if req.PrivateIP == "" {
 		return commonerrors.NewBadRequest("the privateIP of request is empty")
 	}
-	if req.SSHSecretName == "" {
-		return commonerrors.NewBadRequest("the sshSecretName of request is empty")
+	if req.SSHSecretId == "" {
+		return commonerrors.NewBadRequest("the sshSecretId of request is empty")
 	}
 	return nil
 }
 
 func buildNodeLabelSelector(query *types.ListNodeRequest) (labels.Selector, error) {
 	var labelSelector = labels.NewSelector()
-	var req1, req2, req3 *labels.Requirement
 	if query.ClusterId != nil {
+		var req *labels.Requirement
 		if *query.ClusterId == "" {
-			req1, _ = labels.NewRequirement(v1.ClusterIdLabel, selection.DoesNotExist, nil)
+			req, _ = labels.NewRequirement(v1.ClusterIdLabel, selection.DoesNotExist, nil)
 		} else {
-			req1, _ = labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{*query.ClusterId})
+			req, _ = labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{*query.ClusterId})
 		}
-		labelSelector = labelSelector.Add(*req1)
+		labelSelector = labelSelector.Add(*req)
 	}
 	if query.WorkspaceId != nil {
+		var req *labels.Requirement
 		if *query.WorkspaceId == "" {
-			req2, _ = labels.NewRequirement(v1.WorkspaceIdLabel, selection.DoesNotExist, nil)
+			req, _ = labels.NewRequirement(v1.WorkspaceIdLabel, selection.DoesNotExist, nil)
 		} else {
-			req2, _ = labels.NewRequirement(v1.WorkspaceIdLabel, selection.Equals, []string{*query.WorkspaceId})
+			req, _ = labels.NewRequirement(v1.WorkspaceIdLabel, selection.Equals, []string{*query.WorkspaceId})
 		}
-		labelSelector = labelSelector.Add(*req2)
+		labelSelector = labelSelector.Add(*req)
 	}
-	if query.NodeFlavor != nil {
-		req3, _ = labels.NewRequirement(v1.NodeFlavorIdLabel, selection.Equals, []string{*query.NodeFlavor})
-		labelSelector = labelSelector.Add(*req3)
+	if query.FlavorId != nil {
+		var req *labels.Requirement
+		req, _ = labels.NewRequirement(v1.NodeFlavorIdLabel, selection.Equals, []string{*query.FlavorId})
+		labelSelector = labelSelector.Add(*req)
+	}
+	if query.NodeId != nil {
+		var req *labels.Requirement
+		req, _ = labels.NewRequirement(v1.NodeIdLabel, selection.Equals, []string{*query.NodeId})
+		labelSelector = labelSelector.Add(*req)
 	}
 	return labelSelector, nil
 }
@@ -520,6 +596,9 @@ func parseListNodeQuery(c *gin.Context) (*types.ListNodeRequest, error) {
 	query := &types.ListNodeRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
+	}
+	if query.Limit == 0 {
+		query.Limit = types.DefaultQueryLimit
 	}
 	return query, nil
 }
@@ -542,9 +621,9 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 			isShouldUpdate = true
 		}
 	}
-	if req.NodeFlavor != nil && *req.NodeFlavor != "" &&
-		(node.Spec.NodeFlavor == nil || *req.NodeFlavor != node.Spec.NodeFlavor.Name) {
-		nf, err := h.getAdminNodeFlavor(ctx, *req.NodeFlavor)
+	if req.FlavorId != nil && *req.FlavorId != "" &&
+		(node.Spec.NodeFlavor == nil || *req.FlavorId != node.Spec.NodeFlavor.Name) {
+		nf, err := h.getAdminNodeFlavor(ctx, *req.FlavorId)
 		if err != nil {
 			return false, err
 		}
@@ -552,9 +631,9 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 		nodesLabelAction[v1.NodeFlavorIdLabel] = v1.NodeActionAdd
 		isShouldUpdate = true
 	}
-	if req.NodeTemplate != nil && *req.NodeTemplate != "" &&
-		(node.Spec.NodeTemplate == nil || *req.NodeTemplate != node.Spec.NodeTemplate.Name) {
-		nt, err := h.getAdminNodeTemplate(ctx, *req.NodeTemplate)
+	if req.TemplateId != nil && *req.TemplateId != "" &&
+		(node.Spec.NodeTemplate == nil || *req.TemplateId != node.Spec.NodeTemplate.Name) {
+		nt, err := h.getAdminNodeTemplate(ctx, *req.TemplateId)
 		if err != nil {
 			return false, err
 		}
@@ -610,13 +689,9 @@ func (h *Handler) deleteRelatedFaults(ctx context.Context, node *v1.Node, newTai
 func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]string {
 	nodesLabelAction := make(map[string]string)
 	if req.Labels != nil {
-		reqLabels := make(map[string]string)
-		for key, val := range *req.Labels {
-			reqLabels[common.CustomerLabelPrefix+key] = val
-		}
-		currentLabels := getCustomerLabels(node.Labels, false)
-		for key, val := range currentLabels {
-			val2, ok := reqLabels[key]
+		customerLabels := getNodeCustomerLabels(node.Labels)
+		for key, val := range customerLabels {
+			val2, ok := (*req.Labels)[key]
 			if !ok {
 				nodesLabelAction[key] = v1.NodeActionRemove
 				delete(node.Labels, key)
@@ -625,8 +700,8 @@ func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]s
 				v1.SetLabel(node, key, val2)
 			}
 		}
-		for key, val := range reqLabels {
-			if _, ok := currentLabels[key]; !ok {
+		for key, val := range *req.Labels {
+			if _, ok := customerLabels[key]; !ok {
 				nodesLabelAction[key] = v1.NodeActionAdd
 				v1.SetLabel(node, key, val)
 			}
@@ -635,40 +710,27 @@ func genNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]s
 	return nodesLabelAction
 }
 
-func (h *Handler) cvtToNodeResponseItem(ctx context.Context, n *v1.Node, usedResource *resourceInfo) (types.NodeResponseItem, error) {
-	avail, message := n.CheckAvailable(false)
+func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeResponseItem {
+	isAvailable, message := n.CheckAvailable(false)
 	result := types.NodeResponseItem{
-		NodeId:            n.Name,
-		DisplayName:       v1.GetDisplayName(n),
-		Cluster:           v1.GetClusterId(n),
+		NodeBriefResponseItem: types.NodeBriefResponseItem{
+			NodeId:     n.Name,
+			NodeName:   v1.GetDisplayName(n),
+			InternalIP: n.Spec.PrivateIP,
+		},
+		ClusterId:         v1.GetClusterId(n),
 		Phase:             string(n.Status.MachineStatus.Phase),
-		InternalIP:        n.Spec.PrivateIP,
-		BMCIP:             v1.GetNodeBMCIp(n),
-		NodeFlavor:        v1.GetNodeFlavorId(n),
-		Available:         avail,
+		Available:         isAvailable,
 		Message:           message,
-		Taints:            getPrimusTaints(n.Status.Taints),
 		TotalResources:    cvtToResourceList(n.Status.Resources),
-		CustomerLabels:    getCustomerLabels(n.Labels, true),
 		CreationTime:      timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
 		IsControlPlane:    v1.IsControlPlane(n),
 		IsAddonsInstalled: v1.IsNodeTemplateInstalled(n),
 	}
 	result.Workspace.Id = v1.GetWorkspaceId(n)
-	if result.Workspace.Id != "" {
-		workspace := &v1.Workspace{}
-		if err := h.Get(ctx, client.ObjectKey{Name: v1.GetWorkspaceId(n)}, workspace); err != nil {
-			return types.NodeResponseItem{}, err
-		} else {
-			result.Workspace.Name = v1.GetDisplayName(workspace)
-		}
-	}
 	if n.Status.ClusterStatus.Phase == v1.NodeManagedFailed || n.Status.ClusterStatus.Phase == v1.NodeUnmanagedFailed ||
 		n.Status.ClusterStatus.Phase == v1.NodeManaging || n.Status.ClusterStatus.Phase == v1.NodeUnmanaging {
 		result.Phase = string(n.Status.ClusterStatus.Phase)
-	}
-	if n.Spec.NodeTemplate != nil {
-		result.NodeTemplate = n.Spec.NodeTemplate.Name
 	}
 	var availResource corev1.ResourceList
 	if usedResource != nil && len(usedResource.resource) > 0 {
@@ -679,21 +741,32 @@ func (h *Handler) cvtToNodeResponseItem(ctx context.Context, n *v1.Node, usedRes
 		availResource = quantity.GetAvailableResource(n.Status.Resources)
 	}
 	result.AvailResources = cvtToResourceList(availResource)
-	lastStartupTime := timeutil.CvtStrUnixToTime(v1.GetNodeStartupTime(n))
-	result.LastStartupTime = timeutil.FormatRFC3339(&lastStartupTime)
-	return result, nil
+	return result
 }
 
-func getCustomerLabels(labels map[string]string, removePrefix bool) map[string]string {
+func cvtToGetNodeResponse(n *v1.Node, usedResource *resourceInfo) types.GetNodeResponse {
+	result := types.GetNodeResponse{
+		NodeResponseItem: cvtToNodeResponseItem(n, usedResource),
+	}
+	result.FlavorId = v1.GetNodeFlavorId(n)
+	result.BMCIP = v1.GetNodeBMCIp(n)
+	result.Taints = getPrimusTaints(n.Status.Taints)
+	result.CustomerLabels = getNodeCustomerLabels(n.Labels)
+	if n.Spec.NodeTemplate != nil {
+		result.TemplateId = n.Spec.NodeTemplate.Name
+	}
+	lastStartupTime := timeutil.CvtStrUnixToTime(v1.GetNodeStartupTime(n))
+	result.LastStartupTime = timeutil.FormatRFC3339(&lastStartupTime)
+	return result
+}
+
+func getNodeCustomerLabels(labels map[string]string) map[string]string {
 	result := make(map[string]string)
 	for key, val := range labels {
-		if strings.HasPrefix(key, common.CustomerLabelPrefix) {
-			if removePrefix {
-				result[key[len(common.CustomerLabelPrefix):]] = val
-			} else {
-				result[key] = val
-			}
+		if strings.HasPrefix(key, v1.PrimusSafePrefix) || key == v1.KubernetesControlPlane {
+			continue
 		}
+		result[key] = val
 	}
 	return result
 }

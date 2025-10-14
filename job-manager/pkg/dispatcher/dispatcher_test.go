@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -101,6 +101,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkHostNetwork(t, obj, workload, &templates[0])
 	checkTolerations(t, obj, workload, &templates[0])
 	checkPriorityClass(t, obj, workload, &templates[0])
+	checkImageSecrets(t, obj, &templates[0])
 	_, found, err := unstructured.NestedSlice(obj.Object, templates[1].PrePaths...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, false)
@@ -122,6 +123,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkHostNetwork(t, obj, workload, &templates[1])
 	checkTolerations(t, obj, workload, &templates[1])
 	checkPriorityClass(t, obj, workload, &templates[1])
+	checkImageSecrets(t, obj, &templates[1])
 	// fmt.Println(unstructuredutils.ToString(obj))
 }
 
@@ -442,7 +444,7 @@ func TestCreateK8sJob(t *testing.T) {
 	}
 	workload.Spec.Workspace = corev1.NamespaceDefault
 	workload.Spec.CustomerLabels = map[string]string{
-		common.K8sHostNameLabel: "node1",
+		common.K8sHostName: "node1",
 	}
 	workload.Spec.Resource.Replica = 2
 	v1.SetAnnotation(workload, v1.UserNameAnnotation, common.UserSystem)

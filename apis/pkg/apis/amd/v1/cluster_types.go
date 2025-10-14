@@ -140,9 +140,9 @@ type Cluster struct {
 }
 
 type ControlPlane struct {
-	// 控制节点
+	// the nodes of control plane
 	Nodes []string `json:"nodes"`
-	// SSH 登录节点证书
+	// for ssh
 	SSHSecret             *corev1.ObjectReference `json:"secret,omitempty"`
 	KubeSprayImage        *string                 `json:"kubeSprayImage,omitempty"`
 	ImageSecret           *corev1.ObjectReference `json:"imageSecret,omitempty"`

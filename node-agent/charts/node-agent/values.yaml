@@ -1,5 +1,10 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 node_agent:
-  image: "node-agent:202509242300"
+  image: "node-agent:202510141700"
 monitor:
   nccl_socket_ifname: "eno0"
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"

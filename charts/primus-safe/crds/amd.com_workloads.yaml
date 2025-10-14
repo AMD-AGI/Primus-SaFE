@@ -1,3 +1,8 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -65,6 +70,13 @@ spec:
                   version:
                     type: string
                 type: object
+              hostpath:
+                description: |-
+                  The workload will automatically mount the volumes defined in the workspace,
+                  and you can also define specific hostPath for mounting.
+                items:
+                  type: string
+                type: array
               image:
                 description: Workload image address
                 type: string

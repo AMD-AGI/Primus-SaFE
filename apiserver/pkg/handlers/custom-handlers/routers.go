@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -39,7 +39,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.POST(fmt.Sprintf("faults/:%s/stop", common.Name), h.StopFault)
 
 		group.POST("nodetemplates", h.CreateNodeTemplate)
-		group.DELETE("nodetemplates/:name", h.DeleteNodeTemplate)
+		group.DELETE(fmt.Sprintf("nodetemplates/:%s", types.Name), h.DeleteNodeTemplate)
 		group.GET("nodetemplates", h.ListNodeTemplate)
 
 		group.POST("nodes", h.CreateNode)
@@ -72,13 +72,14 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 
 		group.POST("opsjobs", h.CreateOpsJob)
 		group.GET("opsjobs", h.ListOpsJob)
-		group.GET("opsjobs/:name", h.GetOpsJob)
-		group.DELETE("opsjobs/:name", h.DeleteOpsJob)
+		group.GET(fmt.Sprintf("opsjobs/:%s", types.Name), h.GetOpsJob)
+		group.DELETE(fmt.Sprintf("opsjobs/:%s", types.Name), h.DeleteOpsJob)
+		group.POST(fmt.Sprintf("opsjobs/:%s/stop", types.Name), h.StopOpsJob)
 
-		group.DELETE("users/:name", h.DeleteUser)
+		group.DELETE(fmt.Sprintf("users/:%s", types.Name), h.DeleteUser)
 		group.GET("users", h.ListUser)
-		group.PATCH("users/:name", h.PatchUser)
-		group.GET("users/:name", h.GetUser)
+		group.PATCH(fmt.Sprintf("users/:%s", types.Name), h.PatchUser)
+		group.GET(fmt.Sprintf("users/:%s", types.Name), h.GetUser)
 
 		group.POST(fmt.Sprintf("service/:%s/logs", common.Name), h.GetServiceLog)
 		group.POST(fmt.Sprintf("workloads/:%s/logs", common.Name), h.GetWorkloadLog)

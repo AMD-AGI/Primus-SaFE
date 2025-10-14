@@ -53,7 +53,7 @@ type WorkspaceSpec struct {
 	QueuePolicy WorkspaceQueuePolicy `json:"queuePolicy,omitempty"`
 	// Service modules available in this space. No limitation if not specified.
 	Scopes []WorkspaceScope `json:"scopes,omitempty"`
-	// volumes used in this space
+	// volumes used in this workspace
 	Volumes []WorkspaceVolume `json:"volumes,omitempty"`
 	// Is preemption enabled. default is false
 	EnablePreempt bool `json:"enablePreempt,omitempty"`
@@ -61,12 +61,15 @@ type WorkspaceSpec struct {
 	Managers []string `json:"managers,omitempty"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault bool `json:"isDefault,omitempty"`
+	// image secrets for workspace use
+	ImageSecrets []*corev1.ObjectReference `json:"imageSecrets,omitempty"`
 }
 
 type WorkspaceVolume struct {
 	// The volume id, which is used to identify the volume.
 	Id int `json:"id"`
 	// The volume type, valid values includes: pfs/hostpath
+	// If PFS is configured, a PVC will be automatically created in the workspace.
 	Type WorkspaceVolumeType `json:"type"`
 	// Mount path to be used, equivalent to 'mountPath' in Kubernetes volume mounts.
 	// +required
@@ -157,6 +160,23 @@ func (w *Workspace) IsEnableFifo() bool {
 	return false
 }
 
-func (w *WorkspaceVolume) GenFullVolumeId() string {
-	return string(w.Type) + "-" + strconv.Itoa(w.Id)
+func (w *Workspace) CurrentReplica() int {
+	return w.Status.AvailableReplica + w.Status.AbnormalReplica
+}
+
+func (w *Workspace) HasImageSecret(name string) bool {
+	for _, secret := range w.Spec.ImageSecrets {
+		if secret.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (v *WorkspaceVolume) GenFullVolumeId() string {
+	return GenFullVolumeId(v.Type, v.Id)
+}
+
+func GenFullVolumeId(volumeType WorkspaceVolumeType, id int) string {
+	return string(volumeType) + "-" + strconv.Itoa(id)
 }

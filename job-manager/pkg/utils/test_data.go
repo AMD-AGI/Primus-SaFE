@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -355,8 +355,6 @@ spec:
         - name: shared-memory
           mountPath: /dev/shm
       dnsPolicy: ClusterFirstWithHostNet
-      imagePullSecrets:
-      - name: primus-safe-image
       initContainers:
       - command:
         - /bin/sh
@@ -601,14 +599,19 @@ var (
 			Replica:    3,
 			NodeFlavor: "nf1",
 			Volumes: []v1.WorkspaceVolume{{
+				Id:           1,
 				Type:         v1.PFS,
 				MountPath:    "/ceph",
 				StorageClass: "storage-cephfs",
 				Capacity:     "100Gi",
 			}, {
+				Id:        2,
 				Type:      v1.HOSTPATH,
 				MountPath: "/data",
 				HostPath:  "/apps",
+			}},
+			ImageSecrets: []*corev1.ObjectReference{{
+				Name: "test-image",
 			}},
 		},
 		Status: v1.WorkspaceStatus{

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -19,6 +19,8 @@ type CreateWorkloadRequest struct {
 	DisplayName string `json:"displayName"`
 	// workload description
 	Description string `json:"description,omitempty"`
+	// workspace's id
+	WorkspaceId string `json:"workspaceId,omitempty"`
 }
 
 type CreateWorkloadResponse struct {
@@ -67,9 +69,9 @@ type ListWorkloadResponse struct {
 type WorkloadResponseItem struct {
 	// workload id
 	WorkloadId string `json:"workloadId"`
-	// Requested workspace
-	Workspace string `json:"workspace"`
-	// Workload resource requirements
+	// the workspace which workload belongs
+	WorkspaceId string `json:"workspaceId"`
+	// workload resource requirements
 	Resource v1.WorkloadResource `json:"resource"`
 	// workload name (display only)
 	DisplayName string `json:"displayName"`
@@ -80,7 +82,7 @@ type WorkloadResponseItem struct {
 	// workload submitter's name
 	UserName string `json:"userName"`
 	// cluster to which the workload belongs
-	Cluster string `json:"cluster"`
+	ClusterId string `json:"cluster"`
 	// status of workload
 	Phase string `json:"phase"`
 	// Shows the reason if the workload is in pending status.
@@ -114,6 +116,7 @@ type WorkloadResponseItem struct {
 
 type GetWorkloadResponse struct {
 	WorkloadResponseItem
+	// The node specified by the user when creating the workload
 	NodeList []string `json:"nodeList"`
 	// Workload image address
 	Image string `json:"image"`
@@ -176,6 +179,8 @@ type PatchWorkloadRequest struct {
 	Description *string `json:"description,omitempty"`
 	// workload timeout in hours. Default is 0 (no timeout).
 	Timeout *int `json:"timeout,omitempty"`
+	// Failure retry limit
+	MaxRetry *int `json:"maxRetry,omitempty"`
 }
 
 type GetPodLogRequest struct {

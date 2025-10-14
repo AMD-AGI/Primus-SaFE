@@ -185,6 +185,13 @@ func (n *Node) GetSpecHostName() string {
 	return *n.Spec.Hostname
 }
 
+func (n *Node) GetSpecNodeFlavor() string {
+	if n == nil || n.Spec.NodeFlavor == nil {
+		return ""
+	}
+	return n.Spec.NodeFlavor.Name
+}
+
 func (n *Node) GetSpecPort() int32 {
 	if n == nil || n.Spec.Port == nil {
 		return 0

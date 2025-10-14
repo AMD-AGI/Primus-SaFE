@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -27,6 +27,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
@@ -100,8 +101,8 @@ func genMockNodeResource(cpu, mem, gpu int64) corev1.ResourceList {
 }
 
 func TestListNodes(t *testing.T) {
-	clusterId := "cluster"
-	nodeFlavorId := "nodeflavor"
+	clusterId := "test-cluster"
+	nodeFlavorId := "test-nodeflavor"
 	workspace := genMockWorkspace(clusterId, nodeFlavorId)
 	adminNode1 := genMockAdminNode(clusterId, workspace.Name, nodeFlavorId)
 	adminNode2 := genMockAdminNode(clusterId, workspace.Name, nodeFlavorId)
@@ -122,12 +123,15 @@ func TestListNodes(t *testing.T) {
 		AdminNodeName: adminNode2.Name,
 		K8sNodeName:   adminNode2.Name,
 	}}
-	adminClient := fake.NewClientBuilder().WithObjects(workspace, workload1, workload2, adminNode1, adminNode2).
+	user := genMockUser()
+	role := genMockRole()
+	fakeClient := fake.NewClientBuilder().WithObjects(workspace, workload1, workload2, adminNode1, adminNode2, user, role).
 		WithStatusSubresource(workload1, workload2).WithScheme(scheme.Scheme).Build()
 
-	h := Handler{Client: adminClient}
+	h := Handler{Client: fakeClient, auth: authority.NewAuthorizer(fakeClient)}
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
 	c.Request = httptest.NewRequest(http.MethodGet,
 		fmt.Sprintf("/api/v1/nodes?clusterId=%s&workspaceId=%s", clusterId, workspace.Name), nil)
 	h.ListNode(c)
@@ -142,7 +146,7 @@ func TestListNodes(t *testing.T) {
 	})
 
 	assert.Equal(t, result.Items[0].NodeId, adminNode1.Name)
-	assert.Equal(t, result.Items[0].Cluster, clusterId)
+	assert.Equal(t, result.Items[0].ClusterId, clusterId)
 	assert.Equal(t, result.Items[0].Workspace.Id, workspace.Name)
 	assert.Equal(t, result.Items[0].TotalResources["cpu"], int64(64))
 	assert.Equal(t, result.Items[0].TotalResources["memory"], int64(2*1024*1024*1024))
@@ -153,7 +157,7 @@ func TestListNodes(t *testing.T) {
 	assert.Equal(t, len(result.Items[0].Workloads), 2)
 
 	assert.Equal(t, result.Items[1].NodeId, adminNode2.Name)
-	assert.Equal(t, result.Items[1].Cluster, clusterId)
+	assert.Equal(t, result.Items[1].ClusterId, clusterId)
 	assert.Equal(t, result.Items[1].Workspace.Id, workspace.Name)
 	assert.Equal(t, result.Items[1].TotalResources["cpu"], int64(64))
 	assert.Equal(t, result.Items[1].TotalResources["memory"], int64(2*1024*1024*1024))
@@ -166,15 +170,18 @@ func TestListNodes(t *testing.T) {
 }
 
 func TestPatchNode(t *testing.T) {
-	clusterId := "cluster"
+	clusterId := "test-cluster"
 	nodeFlavor := genMockNodeFlavor()
+	user := genMockUser()
+	role := genMockRole()
 	adminNode := genMockAdminNode(clusterId, "", "test-node-flavor")
-	adminNode.Labels[common.CustomerLabelPrefix+"key1"] = "val1"
-	adminClient := fake.NewClientBuilder().WithObjects(nodeFlavor, adminNode).WithScheme(scheme.Scheme).Build()
+	adminNode.Labels["key1"] = "val1"
+	fakeClient := fake.NewClientBuilder().WithObjects(nodeFlavor, adminNode, user, role).WithScheme(scheme.Scheme).Build()
 
-	h := Handler{Client: adminClient}
+	h := Handler{Client: fakeClient, auth: authority.NewAuthorizer(fakeClient)}
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
+	c.Set(common.UserId, user.Name)
 	body := &types.PatchNodeRequest{
 		Labels: &map[string]string{
 			"key2": "val2",
@@ -183,7 +190,7 @@ func TestPatchNode(t *testing.T) {
 			Key:    "key1",
 			Effect: corev1.TaintEffectNoSchedule,
 		}},
-		NodeFlavor: &nodeFlavor.Name,
+		FlavorId: &nodeFlavor.Name,
 	}
 	c.Request = httptest.NewRequest(http.MethodPatch,
 		fmt.Sprintf("/api/v1/nodes/%s", adminNode.Name),
@@ -195,8 +202,8 @@ func TestPatchNode(t *testing.T) {
 
 	node2, err := h.getAdminNode(context.Background(), adminNode.Name)
 	assert.NilError(t, err)
-	assert.Equal(t, node2.Labels[common.CustomerLabelPrefix+"key1"], "")
-	assert.Equal(t, node2.Labels[common.CustomerLabelPrefix+"key2"], "val2")
+	assert.Equal(t, node2.Labels["key1"], "")
+	assert.Equal(t, node2.Labels["key2"], "val2")
 	assert.Equal(t, node2.Spec.NodeFlavor.Name, nodeFlavor.Name)
 	assert.Equal(t, len(node2.Spec.Taints), 1)
 	assert.Equal(t, node2.Spec.Taints[0].Key, commonfaults.GenerateTaintKey("key1"))
@@ -205,10 +212,10 @@ func TestPatchNode(t *testing.T) {
 	actionMap := make(map[string]string)
 	err = json.Unmarshal([]byte(actions), &actionMap)
 	assert.NilError(t, err)
-	val, ok := actionMap[common.CustomerLabelPrefix+"key1"]
+	val, ok := actionMap["key1"]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, val, v1.NodeActionRemove)
-	val, ok = actionMap[common.CustomerLabelPrefix+"key2"]
+	val, ok = actionMap["key2"]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, val, v1.NodeActionAdd)
 	val, ok = actionMap[v1.NodeFlavorIdLabel]

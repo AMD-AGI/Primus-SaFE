@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -86,24 +86,29 @@ func GetFaultFieldTags() map[string]string {
 }
 
 type OpsJob struct {
-	Id         int64          `db:"id"`
-	JobId      string         `db:"job_id"`
-	Cluster    string         `db:"cluster"`
-	Inputs     []byte         `db:"inputs"`
-	Type       string         `db:"type"`
-	Timeout    int            `db:"timeout"`
-	UserName   sql.NullString `db:"user_name"`
-	Workspace  sql.NullString `db:"workspace"`
-	CreateTime pq.NullTime    `db:"create_time"`
-	StartTime  pq.NullTime    `db:"start_time"`
-	EndTime    pq.NullTime    `db:"end_time"`
-	DeleteTime pq.NullTime    `db:"delete_time"`
-	Phase      sql.NullString `db:"phase"`
-	Conditions sql.NullString `db:"conditions"`
-	Outputs    sql.NullString `db:"outputs"`
-	Env        sql.NullString `db:"env"`
-	IsDeleted  bool           `db:"is_deleted"`
-	UserId     sql.NullString `db:"user_id"`
+	Id            int64          `db:"id"`
+	JobId         string         `db:"job_id"`
+	Cluster       string         `db:"cluster"`
+	Inputs        []byte         `db:"inputs"`
+	Type          string         `db:"type"`
+	Timeout       int            `db:"timeout"`
+	UserName      sql.NullString `db:"user_name"`
+	Workspace     sql.NullString `db:"workspace"`
+	CreateTime    pq.NullTime    `db:"create_time"`
+	StartTime     pq.NullTime    `db:"start_time"`
+	EndTime       pq.NullTime    `db:"end_time"`
+	DeleteTime    pq.NullTime    `db:"delete_time"`
+	Phase         sql.NullString `db:"phase"`
+	Conditions    sql.NullString `db:"conditions"`
+	Outputs       sql.NullString `db:"outputs"`
+	Env           sql.NullString `db:"env"`
+	IsDeleted     bool           `db:"is_deleted"`
+	UserId        sql.NullString `db:"user_id"`
+	Resource      sql.NullString `db:"resource"`
+	Image         sql.NullString `db:"image"`
+	EntryPoint    sql.NullString `db:"entrypoint"`
+	IsTolerateAll bool           `db:"is_tolerate_all"`
+	Hostpath      sql.NullString `db:"hostpath"`
 }
 
 func GetOpsJobFieldTags() map[string]string {

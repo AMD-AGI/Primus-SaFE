@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -326,7 +326,7 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 		return true
 	}
 
-	podResource, err := commonworkload.GetPodResources(adminWorkload)
+	podResource, err := commonworkload.GetPodResources(&adminWorkload.Spec.Resource)
 	if err != nil {
 		return false
 	}

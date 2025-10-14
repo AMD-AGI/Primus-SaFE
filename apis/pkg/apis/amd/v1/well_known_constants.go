@@ -18,8 +18,6 @@ const (
 
 	// general
 	DisplayNameLabel = PrimusSafePrefix + "display.name"
-	// Chip product name, e.g. AMD MI300X
-	GpuProductNameLabel = PrimusSafePrefix + "gpu.product.name"
 	// Corresponding resource names in Kubernetes ResourceList, such as amd.com/gpu or nvidia.com/gpu
 	GpuResourceNameAnnotation = PrimusSafePrefix + "gpu.resource.name"
 	// the label for Control-plane node
@@ -29,6 +27,7 @@ const (
 	DescriptionAnnotation   = PrimusSafePrefix + "description"
 	ProtectLabel            = PrimusSafePrefix + "protect"
 	MainContainerAnnotation = PrimusSafePrefix + "main.container"
+	ImageSecretAnnotation   = PrimusSafePrefix + "image.secret"
 
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."
@@ -43,6 +42,8 @@ const (
 	NodeIdLabel                     = NodePrefix + "id"
 	NodeBMCIpAnnotation             = NodePrefix + "bmcIp"
 	NodeBMCPasswordAnnotation       = NodePrefix + "bmcPassword"
+	NodeManageRebootLabel           = "manage.reboot"
+	NodeUnmanageNoRebootLabel       = "unmanage.noreboot"
 	NodeActionAdd                   = "add"
 	NodeActionRemove                = "remove"
 
@@ -103,8 +104,9 @@ const (
 	UserAvatarUrlAnnotation = UserPrefix + "avatar.url"
 
 	// secret
-	SecretPrefix    = PrimusSafePrefix + "secret."
-	SecretTypeLabel = SecretPrefix + "type"
+	SecretPrefix            = PrimusSafePrefix + "secret."
+	SecretTypeLabel         = SecretPrefix + "type"
+	SecretAllWorkspaceLabel = SecretPrefix + "all.workspace"
 
 	// exporter
 	ExporterFinalizer = PrimusSafeDomain + "exporter.finalizer"
@@ -123,10 +125,17 @@ const (
 	AddonFinalizer = AddonPrefix + "finalizer"
 )
 
+type SecretType string
+
 const (
 	Pending  Phase = "Pending"
 	Creating Phase = "Creating"
 	Ready    Phase = "Ready"
 	Unknown  Phase = "Unknown"
 	Deleted  Phase = "Deleted"
+
+	TrueStr = "true"
+
+	SecretImage SecretType = "image"
+	SecretSSH   SecretType = "ssh"
 )

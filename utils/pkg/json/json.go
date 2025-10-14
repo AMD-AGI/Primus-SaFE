@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -13,6 +13,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/yaml"
 )
+
+func Unmarshal(data []byte, v interface{}) error {
+	d := json.NewDecoder(bytes.NewReader(data))
+	if err := d.Decode(v); err != nil {
+		return err
+	}
+	return nil
+}
 
 func UnmarshalWithCheck(data []byte, v interface{}) error {
 	d := json.NewDecoder(bytes.NewReader(data))

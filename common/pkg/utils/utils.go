@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -31,6 +31,17 @@ func GenerateName(base string) string {
 	return fmt.Sprintf("%s-%s", base, utilrand.String(randomLength))
 }
 
+func GetBaseFromName(name string) string {
+	if len(name) <= randomLength+1 {
+		return name
+	}
+	lastIndex := len(name) - randomLength - 1
+	if name[lastIndex] != '-' {
+		return name
+	}
+	return name[:lastIndex]
+}
+
 func GenObjectReference(typeMeta metav1.TypeMeta, objMeta metav1.ObjectMeta) *corev1.ObjectReference {
 	return &corev1.ObjectReference{
 		Namespace:       objMeta.GetNamespace(),
@@ -42,6 +53,10 @@ func GenObjectReference(typeMeta metav1.TypeMeta, objMeta metav1.ObjectMeta) *co
 	}
 }
 
-func GeneratePriorityClass(clusterId, priorityClass string) string {
+func GenerateClusterPriorityClass(clusterId, priorityClass string) string {
 	return clusterId + "-" + priorityClass
+}
+
+func GenerateClusterSecret(clusterId, secretName string) string {
+	return clusterId + "-" + secretName
 }

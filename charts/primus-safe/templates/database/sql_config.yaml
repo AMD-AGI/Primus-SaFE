@@ -1,3 +1,8 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -106,6 +111,12 @@ data:
     alter table workload add column if not exists workload_uid VARCHAR(36);
     alter table ops_job add column if not exists user_id VARCHAR(64);
     alter table workload add column if not exists ranks TEXT;
+
+    alter table ops_job add column if not exists resource VARCHAR(1024);
+    alter table ops_job add column if not exists image VARCHAR(128);
+    alter table ops_job add column if not exists entrypoint TEXT;
+    alter table ops_job add column if not exists is_tolerate_all boolean default false;
+    alter table ops_job add column if not exists hostpath TEXT;
 
     CREATE TABLE public_key (
        id BIGSERIAL PRIMARY KEY,

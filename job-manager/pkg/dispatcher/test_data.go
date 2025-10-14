@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -185,8 +185,6 @@ data:
                       fieldRef:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 5
-              imagePullSecrets:
-                - name: test-image
         Worker:
           restartPolicy: Never
           template:
@@ -264,8 +262,6 @@ data:
                       fieldRef:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 5
-              imagePullSecrets:
-                - name: test-image
 `
 
 	TestJobTemplateConfig = `
@@ -313,6 +309,5 @@ data:
                   fieldRef:
                     fieldPath: metadata.labels
           terminationGracePeriodSeconds: 5
-          imagePullSecrets:
-          - name: test-image`
+`
 )

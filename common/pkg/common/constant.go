@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -8,6 +8,8 @@ package common
 const (
 	PrimusSafeNamespace        = "primus-safe"
 	PrimusFault                = "primus-safe-fault"
+	PrimusFailover             = "primus-safe-failover"
+	NodeAgentImageSecret       = "node-agent-image"
 	PrimusRouterCustomRootPath = "api/v1"
 
 	AuthoringKind   = "Authoring"
@@ -25,6 +27,7 @@ const (
 	NodeNameSelector    = "spec.nodeName="
 	KubeSystemNamespace = "kube-system"
 	KubePublicNamespace = "kube-public"
+	K8sHostName         = "kubernetes.io/hostname"
 	PytorchJobPortName  = "pytorchjob-port"
 	SSHPortName         = "ssh-port"
 
@@ -33,7 +36,6 @@ const (
 
 	AddonMonitorId     = "501"
 	PreflightMonitorId = "502"
-	DiagnoseMonitorId  = "503"
 
 	HighPriority    = "high-priority"
 	MedPriority     = "med-priority"
@@ -47,9 +49,6 @@ const (
 	NvidiaVfio           = "nvidia.com/gpu.deploy.vfio-manager"
 	AMDGpuIdentification = "feature.node.kubernetes.io/amd-gpu"
 	AmdGpu               = "amd.com/gpu"
-
-	CustomerLabelPrefix = "customer."
-	K8sHostNameLabel    = "kubernetes.io/hostname"
 
 	UserName              = "userName"
 	UserId                = "userId"

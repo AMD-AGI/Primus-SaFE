@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -48,7 +48,11 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 		return err
 	}
 	path = append(templatePath, "spec", "volumes")
-	if err = modifyVolumes(obj, workspace, path); err != nil {
+	if err = modifyVolumes(obj, adminWorkload, workspace, path); err != nil {
+		return err
+	}
+	path = append(templatePath, "spec", "imagePullSecrets")
+	if err = modifyImageSecrets(obj, adminWorkload, workspace, path); err != nil {
 		return err
 	}
 	path = append(templatePath, "spec", "priorityClassName")
@@ -129,7 +133,7 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 	}
 	env := buildEnvironment(adminWorkload)
 	modifyEnv(mainContainer, env, v1.IsEnableHostNetwork(adminWorkload))
-	modifyVolumeMounts(mainContainer, workspace)
+	modifyVolumeMounts(mainContainer, adminWorkload, workspace)
 	modifySecurityContext(mainContainer, adminWorkload)
 	mainContainer["ports"] = buildPorts(adminWorkload)
 	if healthz := buildHealthCheck(adminWorkload.Spec.Liveness); healthz != nil {
@@ -173,41 +177,68 @@ func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNe
 	mainContainer["env"] = currentEnv
 }
 
-func modifyVolumeMounts(mainContainer map[string]interface{}, workspace *v1.Workspace) {
-	if workspace == nil {
-		return
-	}
+func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workload, workspace *v1.Workspace) {
 	var volumeMounts []interface{}
 	volumeMountObjs, ok := mainContainer["volumeMounts"]
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
-	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm"))
-	for _, vol := range workspace.Spec.Volumes {
-		volumeMount := buildWorkspaceVolumeMount(vol, vol.GenFullVolumeId())
-		volumeMounts = append(volumeMounts, volumeMount...)
+	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", ""))
+	maxId := 0
+	if workspace != nil {
+		for _, vol := range workspace.Spec.Volumes {
+			if vol.Id > maxId {
+				maxId = vol.Id
+			}
+			if vol.MountPath != "" {
+				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath)
+				volumeMounts = append(volumeMounts, volumeMount)
+			}
+		}
+	}
+	for _, hostpath := range workload.Spec.Hostpath {
+		maxId++
+		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
+		volumeMount := buildVolumeMount(volumeName, hostpath, "")
+		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	mainContainer["volumeMounts"] = volumeMounts
 }
 
-func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path []string) error {
-	if workspace == nil || len(workspace.Spec.Volumes) == 0 {
-		return nil
-	}
+func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, path []string) error {
 	volumes, _, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
 		return err
 	}
 
-	for _, vol := range workspace.Spec.Volumes {
-		volumeName := vol.GenFullVolumeId()
-		var volume interface{}
-		if vol.Type == v1.HOSTPATH {
-			volume = buildHostPathVolume(volumeName, vol.HostPath)
-		} else {
-			volume = buildPvcVolume(volumeName)
+	maxId := 0
+	hasNewVolume := false
+	if workspace != nil {
+		for _, vol := range workspace.Spec.Volumes {
+			if vol.Id > maxId {
+				maxId = vol.Id
+			}
+			volumeName := vol.GenFullVolumeId()
+			var volume interface{}
+			if vol.Type == v1.HOSTPATH {
+				volume = buildHostPathVolume(volumeName, vol.HostPath)
+			} else {
+				volume = buildPvcVolume(volumeName)
+			}
+			volumes = append(volumes, volume)
+			hasNewVolume = true
 		}
+	}
+
+	for _, hostpath := range workload.Spec.Hostpath {
+		maxId++
+		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
+		volume := buildHostPathVolume(volumeName, hostpath)
 		volumes = append(volumes, volume)
+		hasNewVolume = true
+	}
+	if !hasNewVolume {
+		return nil
 	}
 	if err = unstructured.SetNestedSlice(obj.Object, volumes, path...); err != nil {
 		return err
@@ -215,9 +246,31 @@ func modifyVolumes(obj *unstructured.Unstructured, workspace *v1.Workspace, path
 	return nil
 }
 
+func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, path []string) error {
+	secrets, _, err := unstructured.NestedSlice(obj.Object, path...)
+	if err != nil {
+		return err
+	}
+
+	if workspace != nil {
+		for _, s := range workspace.Spec.ImageSecrets {
+			secrets = append(secrets, buildImageSecret(s.Name))
+		}
+	} else {
+		imageSecret := v1.GetAnnotation(workload, v1.ImageSecretAnnotation)
+		if imageSecret != "" {
+			secrets = append(secrets, buildImageSecret(imageSecret))
+		}
+	}
+	if err = unstructured.SetNestedSlice(obj.Object, secrets, path...); err != nil {
+		return err
+	}
+	return nil
+}
+
 func modifySecurityContext(mainContainer map[string]interface{}, workload *v1.Workload) {
 	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) &&
-		v1.GetOpsJobType(workload) != string(v1.OpsJobDiagnoseType) {
+		v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) {
 		return
 	}
 	mainContainer["securityContext"] = map[string]interface{}{
@@ -243,7 +296,7 @@ func modifyHostNetWork(obj *unstructured.Unstructured, adminWorkload *v1.Workloa
 
 func modifyByOpsJob(obj *unstructured.Unstructured, adminWorkload *v1.Workload, templatePath []string) error {
 	if v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobPreflightType) &&
-		v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobDiagnoseType) {
+		v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobPreflightType) {
 		return nil
 	}
 	path := append(templatePath, "spec", "hostPID")
@@ -317,7 +370,7 @@ func buildCommands(adminWorkload *v1.Workload) []interface{} {
 func buildEntryPoint(adminWorkload *v1.Workload) string {
 	result := ""
 	if commonworkload.IsOpsJob(adminWorkload) {
-		result = adminWorkload.Spec.EntryPoint
+		result = stringutil.Base64Decode(adminWorkload.Spec.EntryPoint)
 	} else {
 		result = Launcher + " '" + adminWorkload.Spec.EntryPoint + "'"
 	}
@@ -351,7 +404,7 @@ func buildEnvironment(adminWorkload *v1.Workload) []interface{} {
 	if adminWorkload.Spec.IsSupervised {
 		result = append(result, map[string]interface{}{
 			"name":  "ENABLE_SUPERVISE",
-			"value": "true",
+			"value": v1.TrueStr,
 		})
 		if commonconfig.GetWorkloadHangCheckInterval() > 0 {
 			result = append(result, map[string]interface{}{
@@ -412,25 +465,13 @@ func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {
 	}
 }
 
-func buildWorkspaceVolumeMount(vol v1.WorkspaceVolume, volumeName string) []interface{} {
-	var result []interface{}
-	if vol.MountPath != "" {
-		volMount := map[string]interface{}{
-			"mountPath": vol.MountPath,
-			"name":      volumeName,
-		}
-		if vol.SubPath != "" {
-			volMount["subPath"] = vol.SubPath
-		}
-		result = append(result, volMount)
-	}
-	return result
-}
-
-func buildVolumeMount(name, mountPath string) interface{} {
+func buildVolumeMount(name, mountPath, subPath string) interface{} {
 	volMount := map[string]interface{}{
 		"mountPath": mountPath,
 		"name":      name,
+	}
+	if subPath != "" {
+		volMount["subPath"] = subPath
 	}
 	return volMount
 }
@@ -510,6 +551,12 @@ func buildSelector(adminWorkload *v1.Workload) map[string]interface{} {
 	}
 }
 
+func buildImageSecret(secretId string) interface{} {
+	return map[string]interface{}{
+		"name": secretId,
+	}
+}
+
 func convertToStringMap(input map[string]interface{}) map[string]string {
 	result := make(map[string]string)
 	for key, value := range input {
@@ -538,8 +585,4 @@ func convertEnvsToStringMap(envs []interface{}) map[string]string {
 		result[name.(string)] = value.(string)
 	}
 	return result
-}
-
-func generateVolumeName(storageType string, id int) string {
-	return fmt.Sprintf("%s-%d", storageType, id)
 }

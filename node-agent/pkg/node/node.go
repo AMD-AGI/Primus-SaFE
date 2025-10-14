@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -229,7 +229,7 @@ func (n *Node) isAmdGpu() bool {
 		return false
 	}
 	val, ok := n.k8sNode.Labels[common.AMDGpuIdentification]
-	return ok && val == "true"
+	return ok && val == v1.TrueStr
 }
 
 func (n *Node) syncK8sNode() error {

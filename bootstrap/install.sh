@@ -1,5 +1,10 @@
 #!/bin/bash
 
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 set -euo pipefail
 if ! command -v helm &> /dev/null; then
   echo "Error: helm command not found. Please install it first."
@@ -69,6 +74,7 @@ support_lens=$(get_input_with_default "Support Primus-lens ? (y/n): " "n")
 support_s3=$(get_input_with_default "Support Primus-S3 ? (y/n): " "n")
 opensearch_enable=$(convert_to_boolean "$support_lens")
 s3_enable=$(convert_to_boolean "$support_s3")
+s3_endpoint=""
 if [[ "$s3_enable" == "true" ]]; then
   s3_endpoint=$(get_input_with_default "Enter S3 endpoint (empty to disable S3): " "")
   if [ -z "$s3_endpoint" ]; then
@@ -107,7 +113,7 @@ echo "========================================="
 
 if [[ "$support_lens" == "y" ]]; then
   export STORAGE_CLASS="$storage_class"
-  bash install-grafana.sh >/dev/null
+  bash install_grafana.sh >/dev/null
   echo "✅ grafana installed"
 fi
 

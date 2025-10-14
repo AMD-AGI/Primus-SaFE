@@ -1,3 +1,8 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
@@ -37,14 +42,23 @@ spec:
             type: object
           spec:
             properties:
-              cluster:
-                description: the cluster which the ops-job belongs to
+              entryPoint:
+                description: opsjob entryPoint, required in base64 encoding, only
+                  for preflight
                 type: string
               env:
                 additionalProperties:
                   type: string
                 description: environment variables
                 type: object
+              hostpath:
+                description: the hostpath for opsjob mounting.
+                items:
+                  type: string
+                type: array
+              image:
+                description: opsjob image address, only for preflight
+                type: string
               inputs:
                 description: The resource objects to be processed, e.g., node. Multiple
                   entries will be processed sequentially.
@@ -62,6 +76,42 @@ spec:
               isTolerateAll:
                 description: Indicates whether the job tolerates node taints
                 type: boolean
+              resource:
+                description: Opsjob resource requirements, only for preflight
+                properties:
+                  cpu:
+                    description: Requested CPU core count (e.g., 128)
+                    type: string
+                  ephemeralStorage:
+                    description: 'ephemeral-storage for pod，default: 50Gi'
+                    type: string
+                  gpu:
+                    description: Requested GPU card count (e.g., 8)
+                    type: string
+                  gpuName:
+                    description: This field is set internally to match the resource
+                      supported by the workspace. e.g. amd.com/gpu
+                    type: string
+                  memory:
+                    description: Requested Memory size (e.g., 128Gi)
+                    type: string
+                  rdmaResource:
+                    description: |-
+                      RDMA resource is effective only with hostNetwork enabled (default: 1).
+                      This field is set internally
+                    type: string
+                  replica:
+                    description: Number of requested nodes
+                    type: integer
+                  sharedMemory:
+                    description: 'Requested Shared Memory size (e.g., 128Gi). Used
+                      for sharing data between processes. default: Memory/2'
+                    type: string
+                required:
+                - cpu
+                - memory
+                - replica
+                type: object
               timeoutSecond:
                 description: ops-job Timeout (in seconds), Less than or equal to 0
                   means no timeout
@@ -73,7 +123,6 @@ spec:
                 description: 'the type of ops-job, valid values include: addon/preflight/dumplog'
                 type: string
             required:
-            - cluster
             - inputs
             - isTolerateAll
             - type

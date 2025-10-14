@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -229,27 +229,6 @@ func (r *ClusterBaseReconciler) guaranteeHostsConfigMapCreated(ctx context.Conte
 	}
 	klog.Info("hostsContent.Hosts length", len(hostsContent.Hosts))
 	return cm, nil
-}
-
-func (r *ClusterBaseReconciler) getPod(ctx context.Context, labelSelector client.MatchingLabels) (*corev1.Pod, error) {
-	list := new(corev1.PodList)
-	err := r.List(ctx, list, client.InNamespace(common.PrimusSafeNamespace), labelSelector)
-	if err != nil {
-		return nil, err
-	}
-	if len(list.Items) > 0 {
-		return &list.Items[0], nil
-	}
-	return nil, nil
-}
-
-func (r *ClusterBaseReconciler) getPodList(ctx context.Context, labelSelector client.MatchingLabels) ([]corev1.Pod, error) {
-	list := new(corev1.PodList)
-	err := r.List(ctx, list, client.InNamespace(common.PrimusSafeNamespace), labelSelector)
-	if err != nil {
-		return nil, err
-	}
-	return list.Items, nil
 }
 
 func (r *ClusterBaseReconciler) getCluster(ctx context.Context, clusterName string) (*v1.Cluster, error) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -19,40 +19,39 @@ import (
 func TestAddConfig(t *testing.T) {
 	cm1 := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      FailoverConfigmapName,
+			Name:      common.PrimusFailover,
 			Namespace: common.PrimusSafeNamespace,
 		},
 		Data: map[string]string{
-			"key11": `{"key": "key1", "action": "global_restart"}`,
-			"key22": `{"key": "key2", "action": "global_restart"}`,
+			"key11": `{"id": "key1"}`,
+			"key22": `{"id": "key2"}`,
 		},
 	}
 	configManager := commonutils.NewObjectManager()
 	addFailoverConfig(cm1, configManager)
 
-	config := getFailoverConfig(configManager, "key1")
-	assert.Equal(t, config != nil, true)
-	assert.Equal(t, config.Action, "global_restart")
-	config = getFailoverConfig(configManager, "key2")
-	assert.Equal(t, config != nil, true)
-	config = getFailoverConfig(configManager, "key3")
-	assert.Equal(t, config == nil, true)
+	ok := isMonitorIdExists(configManager, "key1")
+	assert.Equal(t, ok, true)
+	ok = isMonitorIdExists(configManager, "key2")
+	assert.Equal(t, ok, true)
+	ok = isMonitorIdExists(configManager, "key3")
+	assert.Equal(t, ok, false)
 
 	cm1 = &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      FailoverConfigmapName,
+			Name:      common.PrimusFailover,
 			Namespace: common.PrimusSafeNamespace,
 		},
 		Data: map[string]string{
-			"key11": `{"key": "key1", "action": "global_restart"}`,
-			"key33": `{"key": "key3", "action": "global_restart"}`,
+			"key11": `{"id": "key1"}`,
+			"key33": `{"id": "key3"}`,
 		},
 	}
 	addFailoverConfig(cm1, configManager)
-	config = getFailoverConfig(configManager, "key1")
-	assert.Equal(t, config != nil, true)
-	config = getFailoverConfig(configManager, "key2")
-	assert.Equal(t, config == nil, true)
-	config = getFailoverConfig(configManager, "key3")
-	assert.Equal(t, config != nil, true)
+	ok = isMonitorIdExists(configManager, "key1")
+	assert.Equal(t, ok, true)
+	ok = isMonitorIdExists(configManager, "key2")
+	assert.Equal(t, ok, false)
+	ok = isMonitorIdExists(configManager, "key3")
+	assert.Equal(t, ok, true)
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -229,14 +229,6 @@ func GetOpsJobTTLSecond() int {
 
 func GetOpsJobTimeoutSecond() int {
 	return getInt(opsJobTimeoutSecond, 0)
-}
-
-func GetPreflightImage() string {
-	return getString(preflightImage, "")
-}
-
-func GetDiagnoseImage() string {
-	return getString(diagnoseImage, "")
 }
 
 func IsS3Enable() bool {

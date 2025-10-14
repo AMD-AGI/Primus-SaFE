@@ -1,3 +1,8 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -68,8 +73,6 @@ data:
                path: /var/log
            - name: shared-data
              emptyDir: {}
-         imagePullSecrets:
-           - name: {{ .Release.Name }}-image
          terminationGracePeriodSeconds: 10
          restartPolicy: Always
          schedulerName: kube-scheduler-plugins
