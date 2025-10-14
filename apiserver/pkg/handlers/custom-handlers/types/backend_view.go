@@ -6,7 +6,10 @@
 package types
 
 type GetEnvResponse struct {
+	// Whether to enable log download.
 	EnableLogDownload bool `json:"enableLogDownload"`
-	EnableLog         bool `json:"enableLog"`
-	EnableSSH         bool `json:"enableSsh"`
+	// Whether to enable the entire logging functionality, including log download.
+	EnableLog bool `json:"enableLog"`
+	// Whether to enable ssh include webshell.
+	EnableSSH bool `json:"enableSsh"`
 }

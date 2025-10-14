@@ -10,36 +10,43 @@ import (
 )
 
 type CreateNodeRequest struct {
-	// node hostname. If not specified, it will be assigned the value of PrivateIP.
+	// Node hostname. If not specified, it will be assigned the value of PrivateIP
 	Hostname *string `json:"hostname,omitempty"`
-	// required
+	// Node private ip, required
 	PrivateIP string `json:"privateIP"`
-	// optional
+	// Node public IP, accessible from external networks
 	PublicIP string `json:"publicIP,omitempty"`
-	// SSH port，default 22
+	// SSH port，default is 22
 	Port *int32 `json:"port,omitempty"`
-	// node labels
+	// Node labels
 	Labels map[string]string `json:"labels,omitempty"`
-	// the id of node flavor
+	// Associated node flavor id
 	FlavorId string `json:"flavorId"`
-	// the id of node template
+	// Associated node template id
 	TemplateId string `json:"templateId"`
-	// the id of ssh secret
+	// The secret id for ssh
 	SSHSecretId string `json:"sshSecretId,omitempty"`
 }
 
 type CreateNodeResponse struct {
+	// The node's id
 	NodeId string `json:"nodeId"`
 }
 
 type ListNodeRequest struct {
-	WorkspaceId       *string `form:"workspaceId" binding:"omitempty,max=64"`
-	ClusterId         *string `form:"clusterId" binding:"omitempty,max=64"`
-	FlavorId          *string `form:"flavorId" binding:"omitempty,max=64"`
-	NodeId            *string `form:"nodeId" binding:"omitempty,max=64"`
-	Available         *bool   `form:"available" binding:"omitempty"`
-	IsAddonsInstalled *bool   `form:"isAddonsInstalled" binding:"omitempty"`
-	// If enabled, only the node ID, node Name and node IP will be returned.
+	// Filter results by workspace id
+	WorkspaceId *string `form:"workspaceId" binding:"omitempty,max=64"`
+	// Filter results by cluster id
+	ClusterId *string `form:"clusterId" binding:"omitempty,max=64"`
+	// Filter results by node flavor id
+	FlavorId *string `form:"flavorId" binding:"omitempty,max=64"`
+	// Filter results by node id
+	NodeId *string `form:"nodeId" binding:"omitempty,max=64"`
+	// Filter results based on node availability
+	Available *bool `form:"available" binding:"omitempty"`
+	// Filter results based on whether the node has the addon installed
+	IsAddonsInstalled *bool `form:"isAddonsInstalled" binding:"omitempty"`
+	// If enabled, only the node id, node Name and node IP will be returned.
 	Brief bool `form:"brief" binding:"omitempty"`
 	// Starting offset for the results. dfault is 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
@@ -63,6 +70,7 @@ func (req *ListNodeRequest) GetClusterId() string {
 }
 
 type ListNodeBriefResponse struct {
+	// TotalCount indicates the total number of faults, not limited by pagination
 	TotalCount int                     `json:"totalCount"`
 	Items      []NodeBriefResponseItem `json:"items"`
 }
@@ -77,25 +85,26 @@ type NodeBriefResponseItem struct {
 }
 
 type ListNodeResponse struct {
+	// TotalCount indicates the total number of faults, not limited by pagination
 	TotalCount int                `json:"totalCount"`
 	Items      []NodeResponseItem `json:"items"`
 }
 
 type NodeResponseItem struct {
 	NodeBriefResponseItem
-	// the node's cluster id
+	// The node's cluster id
 	ClusterId string `json:"clusterId"`
-	// the node's workspace
+	// The node's workspace id
 	Workspace WorkspaceEntry `json:"workspace"`
-	// the node's phase
+	// The node's phase, such as Ready, NotReady, ManagedFailed, SSHFailed, HostnameFailed
 	Phase string `json:"phase"`
 	// Indicates whether the node can be scheduled in the Kubernetes cluster.
 	Available bool `json:"available"`
 	// If a node is unavailable, provide the reason
 	Message string `json:"message,omitempty"`
-	// total resource of node
+	// Total resource of node
 	TotalResources ResourceList `json:"totalResources"`
-	// available resource of node
+	// Available resource of node
 	AvailResources ResourceList `json:"availResources"`
 	// Creation timestamp of the node
 	CreationTime string `json:"creationTime"`
@@ -109,40 +118,46 @@ type NodeResponseItem struct {
 
 type GetNodeResponse struct {
 	NodeResponseItem
-	// the nodes' flavor id
+	// The node flavor id
 	FlavorId string `json:"flavorId"`
-	// the nodes' template id
+	// The node template id
 	TemplateId string `json:"templateId"`
-	// the taints on node
+	// The taints on node
 	Taints []corev1.Taint `json:"taints"`
-	// the labels by customer
+	// The labels by customer
 	CustomerLabels map[string]string `json:"customerLabels"`
-	// the last startup time
+	// The last startup time on node
 	LastStartupTime string `json:"lastStartupTime"`
 }
 
 type WorkloadInfo struct {
-	// workload id
+	// Workload id
 	Id string `json:"id"`
-	// workload submitter
+	// User id of the workload submitter
 	UserId string `json:"userId"`
 	// Workspace that the workload belongs to
 	WorkspaceId string `json:"workspaceId"`
 }
 
 type PatchNodeRequest struct {
-	Taints     *[]corev1.Taint    `json:"taints,omitempty"`
-	Labels     *map[string]string `json:"labels,omitempty"`
-	FlavorId   *string            `json:"flavorId,omitempty"`
-	TemplateId *string            `json:"templateId,omitempty"`
-	Port       *int32             `json:"port,omitempty"`
+	// Taints to modify on the node
+	Taints *[]corev1.Taint `json:"taints,omitempty"`
+	// Labels to modify on the node.
+	Labels *map[string]string `json:"labels,omitempty"`
+	// Node Flavor id to modify on the node.
+	FlavorId *string `json:"flavorId,omitempty"`
+	// Node Template id to modify on the node.
+	TemplateId *string `json:"templateId,omitempty"`
+	// Node port for ssh
+	Port *int32 `json:"port,omitempty"`
 }
 
 type GetNodePodLogResponse struct {
+	// The cluster that the node belongs to
 	ClusterId string `json:"clusterId"`
-	// node id
+	// The Node id
 	NodeId string `json:"nodeId"`
-	// pod id
+	// Pod id used to create the node
 	PodId string `json:"podId"`
 	// An array of log lines, returned in the same order as they appear in the original logs
 	Logs []string `json:"logs"`

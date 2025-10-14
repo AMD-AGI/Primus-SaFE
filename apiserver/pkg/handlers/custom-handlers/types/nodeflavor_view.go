@@ -13,32 +13,39 @@ import (
 )
 
 type CreateNodeFlavorRequest struct {
-	// flavor's name
+	// Used to generate the node flavor id, which will do normalization processing, such as lowercase
 	Name string `json:"name"`
 	v1.NodeFlavorSpec
 }
 
 type CreateNodeFlavorResponse struct {
+	// The node flavor id
 	FlavorId string `json:"flavorId"`
 }
 
 type ListNodeFlavorResponse struct {
+	// The total number of node flavors, not limited by pagination
 	TotalCount int                      `json:"totalCount"`
 	Items      []NodeFlavorResponseItem `json:"items"`
 }
 
 type NodeFlavorResponseItem struct {
-	// flavor's id
+	// The node flavor id
 	FlavorId string `json:"flavorId"`
 	v1.NodeFlavorSpec
 }
 
 type PatchNodeFlavorRequest struct {
-	CPU      *v1.CpuChip        `json:"cpu,omitempty"`
-	Memory   *resource.Quantity `json:"memory,omitempty"`
-	Gpu      *v1.GpuChip        `json:"gpu,omitempty"`
-	RootDisk *v1.DiskFlavor     `json:"rootDisk,omitempty"`
-	DataDisk *v1.DiskFlavor     `json:"dataDisk,omitempty"`
+	// cpu to modify on the flavor
+	CPU *v1.CpuChip `json:"cpu,omitempty"`
+	// memory to modify on the flavor
+	Memory *resource.Quantity `json:"memory,omitempty"`
+	// gpu to modify on the flavor
+	Gpu *v1.GpuChip `json:"gpu,omitempty"`
+	// root-disk to modify on the flavor
+	RootDisk *v1.DiskFlavor `json:"rootDisk,omitempty"`
+	// data-disk to modify on the flavor
+	DataDisk *v1.DiskFlavor `json:"dataDisk,omitempty"`
 	// other extend parameters，e.g. rdma/hca
 	ExtendResources *corev1.ResourceList `json:"extendedResources,omitempty"`
 }
