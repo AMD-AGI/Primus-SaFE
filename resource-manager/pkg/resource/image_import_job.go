@@ -60,7 +60,7 @@ func filterImageImportJob(o client.Object) bool {
 	if o.GetLabels() == nil {
 		return false
 	}
-	_, exist := o.GetLabels()["primus-safe/image-import"]
+	_, exist := o.GetLabels()["image-import"]
 	return exist
 }
 
