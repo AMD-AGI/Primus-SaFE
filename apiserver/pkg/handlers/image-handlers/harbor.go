@@ -102,10 +102,6 @@ func (h *ImageHandler) setDefaultImageRegistry(ctx context.Context, url, usernam
 	if err != nil {
 		return err
 	}
-	err = h.refreshImagePullSecrets(ctx)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 

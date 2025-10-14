@@ -99,11 +99,9 @@ func (h *ImageHandler) listImage(c *gin.Context) (interface{}, error) {
 	if query.Flat {
 		return cvtImageToFlatResponse(images), nil
 	}
-
 	results := &GetImageResponse{
 		TotalCount: count,
 	}
-
 	results.Items = cvtImageToResponse(images, DefaultOS, DefaultArch)
 	return results, nil
 }
