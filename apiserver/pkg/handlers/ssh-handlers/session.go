@@ -200,12 +200,19 @@ func (s *session) handleShellOrExecRequest(req *ssh.Request) {
 		_ = req.Reply(false, nil)
 		return
 	}
-	var payload struct{ Value string }
-	if err := ssh.Unmarshal(req.Payload, &payload); err != nil {
-		_ = req.Reply(false, nil)
-		return
+
+	// If it's an "exec" request, payload contains a command.
+	var cmd string
+	if req.Type == sshReqExec {
+		var payload struct{ Value string }
+		if err := ssh.Unmarshal(req.Payload, &payload); err != nil {
+			_ = req.Reply(false, nil)
+			return
+		}
+		cmd = payload.Value
 	}
-	s.rawCmd = payload.Value
+
+	s.rawCmd = cmd
 	s.handled = true
 	_ = req.Reply(true, nil)
 
@@ -289,6 +296,7 @@ func (s *session) handlePtyRequest(req *ssh.Request) {
 	s.winch = make(chan Window, 1)
 	s.winch <- ptyReq.Window
 	_ = req.Reply(true, nil)
+	close(s.winch)
 }
 
 // handleWindowChangeRequest handles terminal window resize requests.
