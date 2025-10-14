@@ -25,7 +25,7 @@ var (
 )
 
 // NewSessionInfo creates a new SessionInfo instance for SSH or WebShell session.
-func (h *SshHandler) NewSessionInfo(ctx context.Context, userInfo *UserInfo, userConn Conn, rows, cols int, sshType SshType) *SessionInfo {
+func (h *SshHandler) NewSessionInfo(userInfo *UserInfo, userConn Conn, rows, cols int, sshType SshType, isPty bool) *SessionInfo {
 	return &SessionInfo{
 		sshType:  sshType,
 		size:     make(chan *remotecommand.TerminalSize, 10),
@@ -33,6 +33,7 @@ func (h *SshHandler) NewSessionInfo(ctx context.Context, userInfo *UserInfo, use
 		userInfo: userInfo,
 		rows:     rows,
 		cols:     cols,
+		isPty:    isPty,
 	}
 }
 
@@ -61,7 +62,7 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 	}
 	rows, _ := strconv.Atoi(req.Rows)
 	cols, _ := strconv.Atoi(req.Cols)
-	sessionInfo := h.NewSessionInfo(c.Request.Context(), userInfo, newWebsocketConn(conn), rows, cols, WebShell)
+	sessionInfo := h.NewSessionInfo(userInfo, newWebsocketConn(conn), rows, cols, WebShell, true)
 	if err := h.SessionConn(c.Request.Context(), sessionInfo); err != nil {
 		klog.Errorf("session conn err: %v", err)
 	}

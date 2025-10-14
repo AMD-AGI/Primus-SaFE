@@ -194,7 +194,8 @@ func (h *SshHandler) handleSession(s Session) {
 		return
 	}
 
-	sessionInfo := h.NewSessionInfo(s.Context(), userInfo, newSSHConn(s), 1800, 40, SSH)
+	_, _, isPty := s.Pty()
+	sessionInfo := h.NewSessionInfo(userInfo, newSSHConn(s), 1800, 40, SSH, isPty)
 	if err := h.SessionConn(s.Context(), sessionInfo); err != nil {
 		sendError(s, err.Error())
 	}

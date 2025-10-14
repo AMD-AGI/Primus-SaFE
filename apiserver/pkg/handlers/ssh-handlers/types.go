@@ -37,6 +37,7 @@ type SessionInfo struct {
 	userInfo *UserInfo
 	rows     int
 	cols     int
+	isPty    bool
 }
 
 // UserInfo contains parsed user information for session authentication.

@@ -49,14 +49,16 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		Resource("pods").
 		Name(sessionInfo.userInfo.Pod).
 		Namespace(sessionInfo.userInfo.Namespace).
-		SubResource("exec").VersionedParams(&corev1.PodExecOptions{
-		Container: sessionInfo.userInfo.Container,
-		Command:   []string{sessionInfo.userInfo.CMD},
-		Stdin:     true,
-		Stdout:    true,
-		Stderr:    true,
-		TTY:       true,
-	}, scheme.ParameterCodec)
+		SubResource("exec").
+		Timeout(time.Hour).
+		VersionedParams(&corev1.PodExecOptions{
+			Container: sessionInfo.userInfo.Container,
+			Command:   []string{sessionInfo.userInfo.CMD},
+			Stdin:     true,
+			Stdout:    true,
+			Stderr:    true,
+			TTY:       sessionInfo.isPty,
+		}, scheme.ParameterCodec)
 
 	executor, err := remotecommand.NewSPDYExecutor(k8sClients.RestConfig(), "POST", req.URL())
 	if err != nil {
@@ -97,7 +99,7 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		Stdout:            sessionInfo.userConn,
 		Stderr:            sessionInfo.userConn,
 		TerminalSizeQueue: sessionInfo,
-		Tty:               true,
+		Tty:               sessionInfo.isPty,
 	})
 	if err != nil {
 		message := ""
