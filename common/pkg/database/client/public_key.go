@@ -8,8 +8,9 @@ package client
 import (
 	"context"
 	"fmt"
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"time"
+
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 
 	sqrl "github.com/Masterminds/squirrel"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,12 +66,14 @@ func (c *Client) SelectPublicKeys(ctx context.Context, query sqrl.Sqlizer, order
 		return nil, err
 	}
 
-	sql, args, err := sqrl.Select("*").PlaceholderFormat(sqrl.Dollar).
+	builder := sqrl.Select("*").PlaceholderFormat(sqrl.Dollar).
 		From(TPublicKey).
-		Where(query).
-		OrderBy(orderBy...).
-		Limit(uint64(limit)).
-		Offset(uint64(offset)).ToSql()
+		Where(query)
+	if offset > 0 || limit > 0 {
+		builder = builder.Limit(uint64(limit)).
+			Offset(uint64(offset))
+	}
+	sql, args, err := builder.OrderBy(orderBy...).ToSql()
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +160,7 @@ func (c *Client) GetPublicKeyByUserId(ctx context.Context, userId string) ([]*Pu
 		sqrl.Eq{GetFieldTag(dbTags, "UserId"): userId},
 		sqrl.Eq{GetFieldTag(dbTags, "Status"): true},
 	}
-	publicKeys, err := c.SelectPublicKeys(ctx, dbSql, nil, 1, 0)
+	publicKeys, err := c.SelectPublicKeys(ctx, dbSql, nil, 0, 0)
 	if err != nil {
 		klog.ErrorS(err, "failed to select publicKey", "sql", dbutils.CvtToSqlStr(dbSql))
 		return nil, err
