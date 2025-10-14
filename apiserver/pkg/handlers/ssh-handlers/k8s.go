@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -35,6 +35,7 @@ import (
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
+// SessionConn establishes an SSH session to a Kubernetes pod and records the session.
 func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) error {
 	workload, k8sClients, err := h.getWorkloadAndClients(ctx, sessionInfo.userInfo)
 	if err != nil {
@@ -114,6 +115,7 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 	return nil
 }
 
+// handleSftp handles SFTP requests over SSH for a Kubernetes pod.
 func (h *SshHandler) handleSftp(s Session) {
 	userInfo, ok := ParseUserInfo(s.User())
 	if !ok {
@@ -164,6 +166,7 @@ func (h *SshHandler) handleSftp(s Session) {
 	}
 }
 
+// handleDirectIp handles direct IP forwarding requests over SSH.
 func (h *SshHandler) handleDirectIp(ctx context.Context, sshConn *ssh.ServerConn, newChan ssh.NewChannel) {
 	forwardData := forwardChannelData{}
 	if err := ssh.Unmarshal(newChan.ExtraData(), &forwardData); err != nil {
@@ -204,13 +207,7 @@ func (h *SshHandler) handleDirectIp(ctx context.Context, sshConn *ssh.ServerConn
 	}
 }
 
-type forwardChannelData struct {
-	DestAddr   string
-	DestPort   uint32
-	OriginAddr string
-	OriginPort uint32
-}
-
+// forward establishes port forwarding between SSH and Kubernetes pod.
 func (h *SshHandler) forward(ctx context.Context, dialer httpstream.Dialer,
 	forwardData forwardChannelData, newChan ssh.NewChannel) error {
 	ports := []string{fmt.Sprintf("%d:%d", forwardData.OriginPort, forwardData.DestPort)}
@@ -269,6 +266,7 @@ func (h *SshHandler) forward(ctx context.Context, dialer httpstream.Dialer,
 	return nil
 }
 
+// getWorkloadAndClients retrieves the workload and Kubernetes client factory for the user.
 func (h *SshHandler) getWorkloadAndClients(ctx context.Context, userInfo *UserInfo) (*v1.Workload, *commonclient.ClientFactory, error) {
 	workspace := &v1.Workspace{}
 	err := h.Get(ctx, client.ObjectKey{Name: userInfo.Namespace}, workspace)
@@ -302,6 +300,7 @@ func (h *SshHandler) getWorkloadAndClients(ctx context.Context, userInfo *UserIn
 	return workload, k8sClients, nil
 }
 
+// authUser authorizes the user for the given workload.
 func (h *SshHandler) authUser(ctx context.Context, userInfo *UserInfo, workload *v1.Workload) error {
 	if err := h.auth.Authorize(authority.Input{
 		Context:    ctx,
@@ -315,7 +314,16 @@ func (h *SshHandler) authUser(ctx context.Context, userInfo *UserInfo, workload 
 	return nil
 }
 
+// sendError writes an error message to the writer and logs it.
 func sendError(w io.Writer, msg string) {
 	klog.Error(msg)
 	_, _ = w.Write([]byte(msg + "\n"))
+}
+
+// forwardChannelData holds data for port forwarding.
+type forwardChannelData struct {
+	DestAddr   string
+	DestPort   uint32
+	OriginAddr string
+	OriginPort uint32
 }

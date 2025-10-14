@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package ssh_handlers
 
 import (
@@ -6,7 +11,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 )
 
-// Conn 用户与服务的交互连接.
+// Conn defines the interface for user-service interactive connections.
 type Conn interface {
 	Read(p []byte) (n int, err error)
 	Write(p []byte) (n int, err error)
@@ -16,13 +21,15 @@ type Conn interface {
 	WindowNotify(ctx context.Context, ch chan *remotecommand.TerminalSize)
 }
 
+// SshType represents the type of SSH connection.
 type SshType string
 
 const (
-	SSH      = "ssh"
-	WebShell = "webShell"
+	SSH      SshType = "ssh"
+	WebShell SshType = "webShell"
 )
 
+// SessionInfo holds information about an SSH or WebShell session.
 type SessionInfo struct {
 	sshType  SshType
 	size     chan *remotecommand.TerminalSize
@@ -32,6 +39,7 @@ type SessionInfo struct {
 	cols     int
 }
 
+// UserInfo contains parsed user information for session authentication.
 type UserInfo struct {
 	_         struct{} `regexp:"^"`
 	User      string   `regexp:"[a-zA-Z0-9][a-zA-Z0-9_-]*"`
@@ -46,6 +54,7 @@ type UserInfo struct {
 	_         struct{} `regexp:"$"`
 }
 
+// WebShellRequest represents a request to start a web shell session.
 type WebShellRequest struct {
 	NameSpace string `json:"nameSpace"`
 	Rows      string `json:"rows"`

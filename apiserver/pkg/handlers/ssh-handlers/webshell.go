@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package ssh_handlers
 
 import (
@@ -15,9 +20,11 @@ import (
 )
 
 var (
+	// EndOfTransmission is the end-of-transmission character for websocket close.
 	EndOfTransmission = "\u0004"
 )
 
+// NewSessionInfo creates a new SessionInfo instance for SSH or WebShell session.
 func (h *SshHandler) NewSessionInfo(ctx context.Context, userInfo *UserInfo, userConn Conn, rows, cols int, sshType SshType) *SessionInfo {
 	return &SessionInfo{
 		sshType:  sshType,
@@ -29,6 +36,7 @@ func (h *SshHandler) NewSessionInfo(ctx context.Context, userInfo *UserInfo, use
 	}
 }
 
+// WebShell handles the websocket connection for web shell access to a pod.
 func (h *SshHandler) WebShell(c *gin.Context) {
 	req := &WebShellRequest{
 		NameSpace: c.Query("namespace"),
@@ -65,25 +73,24 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 	return
 }
 
+// closeWebSocket sends a close frame and closes the websocket connection.
 func closeWebSocket(conn *websocket.Conn) error {
-	// 发送关闭帧
 	err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"))
 	if err != nil {
 		return err
 	}
-
-	// 等待一小段时间让对端收到关闭帧
 	time.Sleep(1 * time.Second)
-
 	return conn.Close()
 }
 
+// WebsocketConn implements Conn interface for websocket-based sessions.
 type WebsocketConn struct {
 	conn       *websocket.Conn
 	exitReason string
 	windowCh   chan *remotecommand.TerminalSize
 }
 
+// newWebsocketConn creates a new WebsocketConn from a websocket.Conn.
 func newWebsocketConn(conn *websocket.Conn) Conn {
 	return &WebsocketConn{
 		conn:     conn,
@@ -91,6 +98,7 @@ func newWebsocketConn(conn *websocket.Conn) Conn {
 	}
 }
 
+// Read reads data from the websocket connection.
 func (conn *WebsocketConn) Read(p []byte) (n int, err error) {
 	t, msg, erro := conn.conn.ReadMessage()
 	if t == websocket.CloseMessage {
@@ -129,7 +137,6 @@ func (conn *WebsocketConn) Read(p []byte) (n int, err error) {
 		return
 	}
 
-	// 非意外关闭
 	switch {
 	case websocket.IsCloseError(erro, websocket.CloseAbnormalClosure):
 		conn.exitReason = fmt.Sprintf("Abnormal disconnection on user side: %s", erro)
@@ -145,24 +152,29 @@ func (conn *WebsocketConn) Read(p []byte) (n int, err error) {
 	return copy(p, EndOfTransmission), fmt.Errorf("websocket CloseMessage")
 }
 
+// Write writes data to the websocket connection.
 func (conn *WebsocketConn) Write(p []byte) (n int, err error) {
 	err = conn.conn.WriteMessage(websocket.BinaryMessage, p)
 	return len(p), err
 }
 
+// Close closes the websocket connection.
 func (conn *WebsocketConn) Close() error {
 	_ = conn.conn.WriteMessage(websocket.CloseMessage, []byte{})
 	return conn.conn.Close()
 }
 
+// ExitReason returns the reason for session exit.
 func (conn *WebsocketConn) ExitReason() string {
 	return conn.exitReason
 }
 
+// SetExitReason sets the reason for session exit.
 func (conn *WebsocketConn) SetExitReason(reason string) {
 	conn.exitReason = reason
 }
 
+// WindowNotify notifies about terminal window size changes.
 func (conn *WebsocketConn) WindowNotify(ctx context.Context, ch chan *remotecommand.TerminalSize) {
 	for {
 		select {

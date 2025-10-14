@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -9,14 +9,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	"github.com/gorilla/websocket"
 	"io"
-	"k8s.io/client-go/tools/remotecommand"
 	"net"
 	"net/http"
 	"sync"
 	"time"
+
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/gorilla/websocket"
+	"k8s.io/client-go/tools/remotecommand"
 
 	"github.com/alexflint/go-restructure"
 	"golang.org/x/crypto/ssh"
@@ -29,6 +30,7 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
+// SshHandler handles SSH connections and related operations.
 type SshHandler struct {
 	ctx context.Context
 	client.Client
@@ -45,6 +47,7 @@ var (
 	sshHandler *SshHandler
 )
 
+// NewSshHandler creates and initializes a new SshHandler singleton.
 func NewSshHandler(ctx context.Context, mgr ctrlruntime.Manager) (*SshHandler, error) {
 	var err error
 	once.Do(func() {
@@ -94,6 +97,7 @@ func NewSshHandler(ctx context.Context, mgr ctrlruntime.Manager) (*SshHandler, e
 	return sshHandler, err
 }
 
+// publicCallback validates the public key for SSH authentication.
 func (h *SshHandler) publicCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, fmt.Errorf("db is not enable")
@@ -126,6 +130,7 @@ func (h *SshHandler) publicCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*
 	return nil, nil
 }
 
+// HandleConnection handles an incoming SSH connection.
 func (h *SshHandler) HandleConnection(conn net.Conn) {
 	sshConn, newChannel, reqs, err := ssh.NewServerConn(conn, h.config)
 	if err != nil {
@@ -161,6 +166,7 @@ func (h *SshHandler) HandleConnection(conn net.Conn) {
 	klog.Infof("ssh connection closed, user: %s, from %s", sshConn.User(), conn.RemoteAddr())
 }
 
+// startSessionHandler starts a session handler for an SSH channel.
 func (h *SshHandler) startSessionHandler(ctx context.Context, conn *ssh.ServerConn, newChan ssh.NewChannel) {
 	ch, reqs, err := newChan.Accept()
 	if err != nil {
@@ -180,6 +186,7 @@ func (h *SshHandler) startSessionHandler(ctx context.Context, conn *ssh.ServerCo
 	s.handleRequests(reqs)
 }
 
+// handleSession processes a session request for a user.
 func (h *SshHandler) handleSession(s Session) {
 	userInfo, ok := ParseUserInfo(s.User())
 	if !ok {
@@ -195,23 +202,27 @@ func (h *SshHandler) handleSession(s Session) {
 	return
 }
 
+// ParseUserInfo parses the user string into a UserInfo struct.
 func ParseUserInfo(user string) (*UserInfo, bool) {
 	info := &UserInfo{}
 	ok, _ := restructure.Find(info, user)
 	return info, ok
 }
 
+// SSHConn implements the Conn interface for SSH sessions.
 type SSHConn struct {
 	s          Session
 	exitReason string
 }
 
+// newSSHConn creates a new SSHConn from a Session.
 func newSSHConn(s Session) Conn {
 	return &SSHConn{
 		s: s,
 	}
 }
 
+// Read reads data from the SSH session.
 func (conn *SSHConn) Read(p []byte) (n int, err error) {
 	n, err = conn.s.Read(p)
 	if err != nil && err == io.EOF {
@@ -220,22 +231,27 @@ func (conn *SSHConn) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
+// Write writes data to the SSH session.
 func (conn *SSHConn) Write(p []byte) (n int, err error) {
 	return conn.s.Write(p)
 }
 
+// Close closes the SSH session.
 func (conn *SSHConn) Close() error {
 	return conn.s.Close()
 }
 
+// ExitReason returns the reason for session exit.
 func (conn *SSHConn) ExitReason() string {
 	return conn.exitReason
 }
 
+// SetExitReason sets the reason for session exit.
 func (conn *SSHConn) SetExitReason(reason string) {
 	conn.exitReason = reason
 }
 
+// WindowNotify notifies about terminal window size changes.
 func (conn *SSHConn) WindowNotify(ctx context.Context, ch chan *remotecommand.TerminalSize) {
 	_, windowCh, ok := conn.s.Pty()
 	if !ok {
