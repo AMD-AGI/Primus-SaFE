@@ -3,14 +3,15 @@ package ssh_handlers
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/klog/v2"
-	"strconv"
-	"strings"
-	"time"
 )
 
 var (
@@ -18,16 +19,13 @@ var (
 )
 
 func (h *SshHandler) NewSessionInfo(ctx context.Context, userInfo *UserInfo, userConn Conn, rows, cols int, sshType SshType) *SessionInfo {
-	cancelCtx, cancelFunc := context.WithCancel(ctx)
 	return &SessionInfo{
-		cancelCtx:  cancelCtx,
-		cancelFunc: cancelFunc,
-		sshType:    sshType,
-		size:       make(chan *remotecommand.TerminalSize, 10),
-		userConn:   userConn,
-		userInfo:   userInfo,
-		rows:       rows,
-		cols:       cols,
+		sshType:  sshType,
+		size:     make(chan *remotecommand.TerminalSize, 10),
+		userConn: userConn,
+		userInfo: userInfo,
+		rows:     rows,
+		cols:     cols,
 	}
 }
 

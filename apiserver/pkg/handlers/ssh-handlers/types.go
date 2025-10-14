@@ -2,6 +2,7 @@ package ssh_handlers
 
 import (
 	"context"
+
 	"k8s.io/client-go/tools/remotecommand"
 )
 
@@ -23,14 +24,12 @@ const (
 )
 
 type SessionInfo struct {
-	cancelCtx  context.Context
-	cancelFunc context.CancelFunc
-	sshType    SshType
-	size       chan *remotecommand.TerminalSize
-	userConn   Conn
-	userInfo   *UserInfo
-	rows       int
-	cols       int
+	sshType  SshType
+	size     chan *remotecommand.TerminalSize
+	userConn Conn
+	userInfo *UserInfo
+	rows     int
+	cols     int
 }
 
 type UserInfo struct {

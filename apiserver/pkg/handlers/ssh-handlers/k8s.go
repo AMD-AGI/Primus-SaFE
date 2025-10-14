@@ -9,16 +9,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	client2 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	"io"
 	"net"
 	"net/http"
-	"os"
-	"os/signal"
 	"strconv"
-	"syscall"
 	"time"
+
+	client2 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
@@ -67,16 +65,6 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		Width:  uint16(sessionInfo.cols),
 		Height: uint16(sessionInfo.rows),
 	}
-
-	go func() {
-		c := make(chan os.Signal)
-		signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
-		select {
-		case <-c:
-		case <-sessionInfo.cancelCtx.Done():
-		}
-		sessionInfo.cancelFunc()
-	}()
 
 	go sessionInfo.userConn.WindowNotify(ctx, sessionInfo.size)
 
