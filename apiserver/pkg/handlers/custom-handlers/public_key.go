@@ -1,7 +1,16 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package custom_handlers
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -14,31 +23,34 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
-	"strconv"
-	"strings"
-	"time"
 )
 
+// CreatePublicKey handles the creation of a new public key.
 func (h *Handler) CreatePublicKey(c *gin.Context) {
 	handle(c, h.createPublicKey)
 }
 
+// ListPublicKeys handles listing all public keys for the user.
 func (h *Handler) ListPublicKeys(c *gin.Context) {
 	handle(c, h.listPublicKeys)
 }
 
+// DeletePublicKey handles the deletion of a public key by ID.
 func (h *Handler) DeletePublicKey(c *gin.Context) {
 	handle(c, h.deletePublicKey)
 }
 
+// SetPublicKeyStatus handles updating the status of a public key.
 func (h *Handler) SetPublicKeyStatus(c *gin.Context) {
 	handle(c, h.setPublicKeyStatus)
 }
 
+// SetPublicKeyDescription handles updating the description of a public key.
 func (h *Handler) SetPublicKeyDescription(c *gin.Context) {
 	handle(c, h.setPublicKeyDescription)
 }
 
+// createPublicKey creates a new public key record in the database.
 func (h *Handler) createPublicKey(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
@@ -64,6 +76,7 @@ func (h *Handler) createPublicKey(c *gin.Context) (interface{}, error) {
 	return nil, err
 }
 
+// listPublicKeys lists all public keys for the current user.
 func (h *Handler) listPublicKeys(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	if !commonconfig.IsDBEnable() {
@@ -98,6 +111,7 @@ func (h *Handler) listPublicKeys(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+// deletePublicKey deletes a public key by its ID.
 func (h *Handler) deletePublicKey(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
@@ -117,6 +131,7 @@ func (h *Handler) deletePublicKey(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// setPublicKeyStatus sets the status of a public key.
 func (h *Handler) setPublicKeyStatus(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
@@ -140,6 +155,7 @@ func (h *Handler) setPublicKeyStatus(c *gin.Context) (interface{}, error) {
 	return nil, err
 }
 
+// setPublicKeyDescription sets the description of a public key.
 func (h *Handler) setPublicKeyDescription(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
@@ -163,6 +179,7 @@ func (h *Handler) setPublicKeyDescription(c *gin.Context) (interface{}, error) {
 	return nil, err
 }
 
+// cvtToPublicKeyResponse converts a PublicKey model to a response item.
 func cvtToPublicKeyResponse(k *dbclient.PublicKey) types.ListPublicKeysResponseItem {
 	result := types.ListPublicKeysResponseItem{
 		Id:          k.Id,
@@ -176,6 +193,7 @@ func cvtToPublicKeyResponse(k *dbclient.PublicKey) types.ListPublicKeysResponseI
 	return result
 }
 
+// parseListPublicKeyQuery parses the query parameters for listing public keys.
 func parseListPublicKeyQuery(c *gin.Context) (*types.ListPublicKeysRequest, error) {
 	query := &types.ListPublicKeysRequest{}
 	err := c.ShouldBindWith(&query, binding.Query)
@@ -197,6 +215,7 @@ func parseListPublicKeyQuery(c *gin.Context) (*types.ListPublicKeysRequest, erro
 	return query, nil
 }
 
+// cvtToListPublicKeysSql converts the query to SQL conditions and order by clause.
 func cvtToListPublicKeysSql(query *types.ListPublicKeysRequest) (sqrl.Sqlizer, []string, error) {
 	dbTags := dbclient.GetPublicKeyFieldTags()
 	dbSql := sqrl.And{
@@ -210,6 +229,7 @@ func cvtToListPublicKeysSql(query *types.ListPublicKeysRequest) (sqrl.Sqlizer, [
 	return dbSql, orderBy, nil
 }
 
+// buildListPublicKeysOrderBy builds the order by clause for listing public keys.
 func buildListPublicKeysOrderBy(query *types.ListPublicKeysRequest, dbTags map[string]string) []string {
 	var nullOrder string
 	if query.Order == dbclient.DESC {
