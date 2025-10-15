@@ -131,8 +131,10 @@ spec:
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-apiserver
+      {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:
-        - name: {{ .Release.Name }}-image
+        - name: {{ .Values.global.image_pull_secret }}
+      {{- end }}
       terminationGracePeriodSeconds: 10
       priorityClassName: system-cluster-critical
       restartPolicy: Always

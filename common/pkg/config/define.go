@@ -9,6 +9,7 @@ const (
 	// global
 	globalPrefix = "global."
 	rdmaName     = globalPrefix + "rdma_name"
+	imageSecret  = globalPrefix + "image_secret"
 
 	// crypto
 	cryptoPrefix     = "crypto."
