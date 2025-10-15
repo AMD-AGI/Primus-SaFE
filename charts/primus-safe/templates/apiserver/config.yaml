@@ -8,6 +8,7 @@ data:
   config.yaml: |
     global:
       rdma_name: {{ .Values.net.rdma_name }}
+      image_secret: {{ .Values.global.image_pull_secret }}
     crypto:
       enable: true
       secret_path: {{ default "/etc/secrets/crypto" (default .Values.crypto).secret_path }}
