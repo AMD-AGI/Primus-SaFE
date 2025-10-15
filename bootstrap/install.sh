@@ -127,23 +127,27 @@ echo "🔧 Step 2: install primus-safe admin plane"
 echo "========================================="
 
 image_secret_name="$NAMESPACE-image"
-if [[ "$build_image_secret" == "y" ]] && [[ -n "$image_registry" ]] && [[ -n "$image_username" ]] && [[ -n "$image_password" ]]; then
-  kubectl create secret docker-registry "$image_secret_name" \
-    --docker-server="$image_registry" \
-    --docker-username="$image_username" \
-    --docker-password="$image_password" \
-    --namespace="$NAMESPACE" \
-    --dry-run=client -o yaml | kubectl apply -f - \
-    && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" --overwrite
+if kubectl get secret "$image_secret_name" -n "$NAMESPACE" >/dev/null 2>&1; then
+  echo "⚠️ Image pull secret $image_secret_name already exists in namespace \"$NAMESPACE\", skipping creation"
 else
-  kubectl create secret generic "$image_secret_name" \
-    --namespace="$NAMESPACE" \
-    --from-literal=.dockerconfigjson='{}' \
-    --type=kubernetes.io/dockerconfigjson \
-    --dry-run=client -o yaml | kubectl apply -f - \
-    && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" --overwrite
+  if [[ "$build_image_secret" == "y" ]] && [[ -n "$image_registry" ]] && [[ -n "$image_username" ]] && [[ -n "$image_password" ]]; then
+    kubectl create secret docker-registry "$image_secret_name" \
+      --docker-server="$image_registry" \
+      --docker-username="$image_username" \
+      --docker-password="$image_password" \
+      --namespace="$NAMESPACE" \
+      --dry-run=client -o yaml | kubectl apply -f - \
+      && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" --overwrite
+  else
+    kubectl create secret generic "$image_secret_name" \
+      --namespace="$NAMESPACE" \
+      --from-literal=.dockerconfigjson='{}' \
+      --type=kubernetes.io/dockerconfigjson \
+      --dry-run=client -o yaml | kubectl apply -f - \
+      && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" --overwrite
+  fi
+  echo "✅ Image pull secret $image_secret_name created in namespace \"$NAMESPACE\""
 fi
-echo "✅ Image pull secret $image_secret_name created in namespace \"$NAMESPACE\""
 
 if [[ "$support_lens" == "y" ]]; then
   export STORAGE_CLASS="$storage_class"
