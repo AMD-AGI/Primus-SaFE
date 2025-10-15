@@ -183,11 +183,11 @@ func (r *NodeReconciler) observe(ctx context.Context, adminNode *v1.Node, k8sNod
 		return false, nil
 	}
 	// Observe whether the node has changed. If no changes are detected (ultimately returning true), exit NodeReconciler directly.
-	functions := []func(context.Context, *v1.Node) (bool, error){
+	functions := []func(context.Context, *v1.Node, *corev1.Node) (bool, error){
 		r.observeTaints, r.observeLabelAction, r.observeAnnotationAction, r.observeWorkspace, r.observeCluster,
 	}
 	for _, f := range functions {
-		ok, err := f(ctx, adminNode)
+		ok, err := f(ctx, adminNode, k8sNode)
 		if !ok || err != nil {
 			return false, err
 		}
@@ -195,7 +195,7 @@ func (r *NodeReconciler) observe(ctx context.Context, adminNode *v1.Node, k8sNod
 	return true, nil
 }
 
-func (r *NodeReconciler) observeTaints(_ context.Context, adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeTaints(_ context.Context, adminNode *v1.Node, _ *corev1.Node) (bool, error) {
 	var statusTaints []corev1.Taint
 	for i, t := range adminNode.Status.Taints {
 		if strings.HasPrefix(t.Key, v1.PrimusSafePrefix) {
@@ -205,36 +205,39 @@ func (r *NodeReconciler) observeTaints(_ context.Context, adminNode *v1.Node) (b
 	return commonfaults.IsTaintsEqualIgnoreOrder(adminNode.Spec.Taints, statusTaints), nil
 }
 
-func (r *NodeReconciler) observeLabelAction(_ context.Context, adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeLabelAction(_ context.Context, adminNode *v1.Node, _ *corev1.Node) (bool, error) {
 	if v1.GetNodeLabelAction(adminNode) == "" {
 		return true, nil
 	}
 	return false, nil
 }
 
-func (r *NodeReconciler) observeAnnotationAction(_ context.Context, adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeAnnotationAction(_ context.Context, adminNode *v1.Node, _ *corev1.Node) (bool, error) {
 	if v1.GetNodeAnnotationAction(adminNode) == "" {
 		return true, nil
 	}
 	return false, nil
 }
 
-func (r *NodeReconciler) observeWorkspace(_ context.Context, adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeWorkspace(_ context.Context, adminNode *v1.Node, _ *corev1.Node) (bool, error) {
 	if adminNode.GetSpecWorkspace() == v1.GetWorkspaceId(adminNode) {
 		return true, nil
 	}
 	return false, nil
 }
 
-func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (bool, error) {
 	if adminNode.GetSpecCluster() != v1.GetClusterId(adminNode) {
 		return false, nil
 	}
-	if adminNode.GetSpecCluster() != "" && !adminNode.IsManaged() {
-		return false, nil
-	}
-	if adminNode.GetSpecCluster() == "" && adminNode.IsManaged() {
-		return false, nil
+	if adminNode.GetSpecCluster() != "" {
+		if !adminNode.IsManaged() || k8sNode == nil || v1.GetClusterId(k8sNode) == "" {
+			return false, nil
+		}
+	} else {
+		if adminNode.IsManaged() || k8sNode != nil || v1.GetClusterId(k8sNode) != "" {
+			return false, nil
+		}
 	}
 	return true, nil
 }
@@ -460,7 +463,7 @@ func (r *NodeReconciler) updateAdminNode(ctx context.Context, adminNode *v1.Node
 	var result ctrlruntime.Result
 	n := client.MergeFrom(adminNode.DeepCopy())
 	if adminNode.GetSpecCluster() != "" {
-		if adminNode.IsManaged() {
+		if adminNode.IsManaged() && v1.GetClusterId(k8sNode) != "" {
 			return ctrlruntime.Result{}, nil
 		}
 		if err = r.syncClusterStatus(ctx, adminNode); err != nil {
@@ -484,6 +487,9 @@ func (r *NodeReconciler) updateAdminNode(ctx context.Context, adminNode *v1.Node
 }
 
 func (r *NodeReconciler) syncClusterStatus(ctx context.Context, node *v1.Node) error {
+	if node.IsManaged() {
+		return nil
+	}
 	if !isCommandSuccessful(node.Status.ClusterStatus.CommandStatus, utils.Authorize) {
 		sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 		if err != nil {
