@@ -30,6 +30,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
@@ -80,10 +81,6 @@ func (r *ClusterReconciler) caredChangePredicate() predicate.Predicate {
 			}
 			if !oldCluster.IsReady() && newCluster.IsReady() {
 				return true
-			}
-			if oldCluster.Spec.ControlPlane.ImageSecret != nil &&
-				newCluster.Spec.ControlPlane.ImageSecret == nil {
-				r.deleteDefaultImageSecret(context.Background(), oldCluster)
 			}
 			return false
 		},
@@ -194,7 +191,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	if result, err := r.guaranteePriorityClass(ctx, cluster); err != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
-	if err = r.guaranteeDefaultImageSecret(ctx, cluster); err != nil {
+	if err = r.guaranteeAllImageSecrets(ctx, cluster); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	return ctrlruntime.Result{}, nil
@@ -209,8 +206,8 @@ func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) err
 		klog.ErrorS(err, "failed to delete priority class")
 		return err
 	}
-	if err := r.deleteDefaultImageSecret(ctx, cluster); err != nil {
-		klog.ErrorS(err, "failed to delete default image secret")
+	if err := r.deleteAllImageSecrets(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to delete image secret")
 		return err
 	}
 	if err := utils.RemoveFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer); err != nil {
@@ -345,27 +342,40 @@ func genAllPriorityClass(clusterId string) []PriorityClass {
 	}
 }
 
-func (r *ClusterReconciler) guaranteeDefaultImageSecret(ctx context.Context, cluster *v1.Cluster) error {
-	imageSecret := cluster.Spec.ControlPlane.ImageSecret
-	if imageSecret == nil {
+func (r *ClusterReconciler) guaranteeAllImageSecrets(ctx context.Context, cluster *v1.Cluster) error {
+	if commonconfig.GetImageSecret() == "" {
 		return nil
 	}
+	targetNamespace := corev1.NamespaceDefault
+	targetName := commonutils.GenerateClusterSecret(cluster.Name, commonconfig.GetImageSecret())
+	if err := r.guaranteeImageSecret(ctx, cluster, targetName, targetNamespace); err != nil {
+		return err
+	}
+
+	targetNamespace = common.PrimusSafeNamespace
+	targetName = commonconfig.GetImageSecret()
+	if err := r.guaranteeImageSecret(ctx, cluster, targetName, targetNamespace); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *ClusterReconciler) guaranteeImageSecret(ctx context.Context, cluster *v1.Cluster, targetName, targetNamespace string) error {
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
 		return err
 	}
 	clientSet := k8sClients.ClientSet()
-
-	adminPlaneSecret := &corev1.Secret{}
-	err = r.Get(ctx, client.ObjectKey{Name: imageSecret.Name, Namespace: imageSecret.Namespace}, adminPlaneSecret)
+	adminPlaneSecret, err := r.getAdminImageSecret(ctx)
 	if err != nil {
 		return err
 	}
 
-	targetNamespace := corev1.NamespaceDefault
-	targetName := commonutils.GenerateClusterSecret(cluster.Name, imageSecret.Name)
 	dataPlaneSecret, err := clientSet.CoreV1().Secrets(targetNamespace).Get(ctx, targetName, metav1.GetOptions{})
 	if err == nil {
+		if dataPlaneSecret.UID == adminPlaneSecret.UID {
+			return nil
+		}
 		dataPlaneSecret.Type = adminPlaneSecret.Type
 		dataPlaneSecret.Data = adminPlaneSecret.Data
 		_, err = clientSet.CoreV1().Secrets(targetNamespace).Update(ctx, dataPlaneSecret, metav1.UpdateOptions{})
@@ -374,6 +384,9 @@ func (r *ClusterReconciler) guaranteeDefaultImageSecret(ctx context.Context, clu
 		}
 		klog.Infof("update the %s/%s secret", targetNamespace, targetName)
 	} else {
+		if err = r.createNamespace(ctx, targetNamespace, clientSet); err != nil {
+			return err
+		}
 		targetSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      targetName,
@@ -391,11 +404,7 @@ func (r *ClusterReconciler) guaranteeDefaultImageSecret(ctx context.Context, clu
 	return nil
 }
 
-func (r *ClusterReconciler) deleteDefaultImageSecret(ctx context.Context, cluster *v1.Cluster) error {
-	imageSecret := cluster.Spec.ControlPlane.ImageSecret
-	if imageSecret == nil {
-		return nil
-	}
+func (r *ClusterReconciler) deleteAllImageSecrets(ctx context.Context, cluster *v1.Cluster) error {
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
 		if !cluster.IsReady() {
@@ -403,7 +412,53 @@ func (r *ClusterReconciler) deleteDefaultImageSecret(ctx context.Context, cluste
 		}
 		return err
 	}
-	targetName := commonutils.GenerateClusterSecret(cluster.Name, imageSecret.Name)
+	targetName := commonutils.GenerateClusterSecret(cluster.Name, commonconfig.GetImageSecret())
 	err = k8sClients.ClientSet().CoreV1().Secrets(corev1.NamespaceDefault).Delete(ctx, targetName, metav1.DeleteOptions{})
-	return client.IgnoreNotFound(err)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	adminPlaneSecret, _ := r.getAdminImageSecret(ctx)
+	targetName = commonconfig.GetImageSecret()
+	dataPlaneSecret, err := k8sClients.ClientSet().CoreV1().Secrets(
+		common.PrimusSafeNamespace).Get(ctx, targetName, metav1.GetOptions{})
+	if err == nil && (adminPlaneSecret == nil || adminPlaneSecret.UID != dataPlaneSecret.UID) {
+		err = k8sClients.ClientSet().CoreV1().Secrets(common.PrimusSafeNamespace).Delete(ctx, targetName, metav1.DeleteOptions{})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *ClusterReconciler) createNamespace(ctx context.Context, name string, clientSet kubernetes.Interface) error {
+	if name == "" {
+		return fmt.Errorf("the name is empty")
+	}
+	_, err := clientSet.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
+	if err == nil {
+		return nil
+	}
+	namespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+	}
+	_, err = clientSet.CoreV1().Namespaces().Create(ctx, namespace, metav1.CreateOptions{})
+	if err != nil {
+		return client.IgnoreAlreadyExists(err)
+	}
+	klog.Infof("create namespace %s of dataplane", name)
+	return nil
+}
+
+func (r *ClusterReconciler) getAdminImageSecret(ctx context.Context) (*corev1.Secret, error) {
+	secret := &corev1.Secret{}
+	err := r.Get(ctx, client.ObjectKey{Name: commonconfig.GetImageSecret(),
+		Namespace: common.PrimusSafeNamespace}, secret)
+	if err != nil {
+		return nil, err
+	}
+	return secret, nil
 }

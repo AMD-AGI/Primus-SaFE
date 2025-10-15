@@ -70,10 +70,11 @@ type SecretResponseItem struct {
 type DockerConfigItem struct {
 	UserName string `json:"username"`
 	Password string `json:"password"`
+	Auth     string `json:"auth"`
 }
 
 type DockerConfig struct {
-	Auth map[string]DockerConfigItem `json:"auths"`
+	Auths map[string]DockerConfigItem `json:"auths"`
 }
 
 type PatchSecretRequest struct {

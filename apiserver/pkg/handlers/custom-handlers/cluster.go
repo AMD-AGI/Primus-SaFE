@@ -27,6 +27,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -146,8 +147,8 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 		v1.SetLabel(cluster, v1.ProtectLabel, "")
 	}
 
-	if cluster.Spec.ControlPlane.ImageSecret == nil && req.ImageSecretId != "" {
-		imageSecret, err := h.getAdminSecret(ctx, req.ImageSecretId)
+	if cluster.Spec.ControlPlane.ImageSecret == nil && commonconfig.GetImageSecret() != "" {
+		imageSecret, err := h.getAdminSecret(ctx, commonconfig.GetImageSecret())
 		if err != nil {
 			return nil, err
 		}
@@ -273,7 +274,7 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 
 // updateCluster: applies updates to a cluster based on the patch request.
 // Handles changes to cluster protection status and image secret references.
-func (h *Handler) updateCluster(ctx context.Context, cluster *v1.Cluster, req *types.PatchClusterRequest) (bool, error) {
+func (h *Handler) updateCluster(_ context.Context, cluster *v1.Cluster, req *types.PatchClusterRequest) (bool, error) {
 	isChanged := false
 	if req.IsProtected != nil && *req.IsProtected != v1.IsProtected(cluster) {
 		if *req.IsProtected {
@@ -281,14 +282,6 @@ func (h *Handler) updateCluster(ctx context.Context, cluster *v1.Cluster, req *t
 		} else {
 			v1.RemoveLabel(cluster, v1.ProtectLabel)
 		}
-		isChanged = true
-	}
-	if req.ImageSecretId != nil {
-		imageSecret, err := h.getAdminSecret(ctx, *req.ImageSecretId)
-		if err != nil {
-			return false, err
-		}
-		cluster.Spec.ControlPlane.ImageSecret = commonutils.GenObjectReference(imageSecret.TypeMeta, imageSecret.ObjectMeta)
 		isChanged = true
 	}
 	return isChanged, nil

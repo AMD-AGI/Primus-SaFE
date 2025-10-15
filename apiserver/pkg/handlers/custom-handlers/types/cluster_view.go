@@ -17,9 +17,7 @@ type CreateClusterRequest struct {
 	Description string `json:"description,omitempty"`
 	// The SSH secret id specified by the user, which must exist, used for node SSH login.
 	SSHSecretId string `json:"sshSecretId,omitempty"`
-	// The Image secret id specified by the user, which must exist, used for docker pull
-	ImageSecretId string `json:"imageSecretId,omitempty"`
-	// The cluster's labels
+	// The labels for cluster
 	Labels map[string]string `json:"labels,omitempty"`
 	// Whether the cluster is under protection. When set to true, direct deletion is not allowed unless the label is removed
 	IsProtected bool `json:"isProtected,omitempty"`
@@ -101,6 +99,4 @@ type GetClusterPodLogResponse struct {
 type PatchClusterRequest struct {
 	// Whether the cluster is under protection, empty means do nothing
 	IsProtected *bool `json:"isProtected,omitempty"`
-	// The image secret id for cluster, empty means do nothing
-	ImageSecretId *string `json:"imageSecretId,omitempty"`
 }
