@@ -350,17 +350,6 @@ func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, new
 // When a workspace is created, synchronize the cluster's image secret and
 // simultaneously synchronize the image secrets applied to all workspaces.
 func (m *WorkspaceMutator) mutateImageSecret(ctx context.Context, workspace *v1.Workspace) error {
-	cluster, err := getCluster(ctx, m.Client, workspace.Spec.Cluster)
-	if err != nil {
-		return err
-	}
-	if cluster.Spec.ControlPlane.ImageSecret != nil {
-		if !workspace.HasImageSecret(cluster.Spec.ControlPlane.ImageSecret.Name) {
-			workspace.Spec.ImageSecrets = append(workspace.Spec.ImageSecrets,
-				cluster.Spec.ControlPlane.ImageSecret.DeepCopy())
-		}
-	}
-
 	var labelSelector = labels.NewSelector()
 	req1, _ := labels.NewRequirement(v1.SecretTypeLabel, selection.Equals, []string{string(v1.SecretImage)})
 	labelSelector = labelSelector.Add(*req1)

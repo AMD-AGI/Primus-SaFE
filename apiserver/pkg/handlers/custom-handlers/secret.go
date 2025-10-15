@@ -89,7 +89,7 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	secret, err := generateSecret(c, req)
+	secret, err := generateSecret(req)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate secret")
 		return nil, err
@@ -405,7 +405,7 @@ func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secr
 
 // generateSecret: creates a new secret object based on the creation request.
 // Validates the request parameters and populates the secret metadata and data.
-func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Secret, error) {
+func generateSecret(req *types.CreateSecretRequest) (*corev1.Secret, error) {
 	if req.Name == "" {
 		return nil, commonerrors.NewBadRequest("the name is empty")
 	}
@@ -415,7 +415,6 @@ func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Sec
 			Namespace: common.PrimusSafeNamespace,
 			Labels: map[string]string{
 				v1.SecretTypeLabel: string(req.Type),
-				v1.UserIdLabel:     c.GetString(common.UserId),
 			},
 		},
 	}
@@ -446,11 +445,14 @@ func buildSecretData(reqType v1.SecretType, reqParams map[types.SecretParam]stri
 			}
 		}
 		secretType = corev1.SecretTypeDockerConfigJson
+		auth := stringutil.Base64Encode(fmt.Sprintf("%s:%s",
+			reqParams[types.UserNameParam], reqParams[types.PasswordParam]))
 		dockerConf := types.DockerConfig{
-			Auth: map[string]types.DockerConfigItem{
+			Auths: map[string]types.DockerConfigItem{
 				reqParams[types.ServerParam]: {
 					UserName: reqParams[types.UserNameParam],
 					Password: stringutil.Base64Decode(reqParams[types.PasswordParam]),
+					Auth:     auth,
 				},
 			},
 		}
@@ -498,8 +500,8 @@ func buildSecretLabelSelector(query *types.ListSecretRequest) labels.Selector {
 	var req1 *labels.Requirement
 	var labelSelector = labels.NewSelector()
 	if query.Type != "" {
-		types := strings.Split(query.Type, ",")
-		req1, _ = labels.NewRequirement(v1.SecretTypeLabel, selection.In, types)
+		typeList := strings.Split(query.Type, ",")
+		req1, _ = labels.NewRequirement(v1.SecretTypeLabel, selection.In, typeList)
 		labelSelector = labelSelector.Add(*req1)
 	}
 	return labelSelector
@@ -519,8 +521,8 @@ func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 	switch result.Type {
 	case string(v1.SecretImage):
 		dockerConf := &types.DockerConfig{}
-		if json.Unmarshal(secret.Data[types.DockerConfigJson], dockerConf) == nil && len(dockerConf.Auth) > 0 {
-			for k, v := range dockerConf.Auth {
+		if json.Unmarshal(secret.Data[types.DockerConfigJson], dockerConf) == nil {
+			for k, v := range dockerConf.Auths {
 				result.Params[types.ServerParam] = k
 				result.Params[types.UserNameParam] = v.UserName
 				result.Params[types.PasswordParam] = stringutil.Base64Encode(v.Password)
