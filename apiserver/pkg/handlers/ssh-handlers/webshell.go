@@ -107,6 +107,11 @@ func newWebsocketConn(conn *websocket.Conn) Conn {
 
 // Read reads data from the websocket connection.
 func (conn *WebsocketConn) Read(p []byte) (n int, err error) {
+	select {
+	case <-conn.closeCh:
+		return copy(p, EndOfTransmission), fmt.Errorf("websocket closed")
+	default:
+	}
 	t, msg, erro := conn.conn.ReadMessage()
 	if t == websocket.CloseMessage {
 		_ = conn.Close()
@@ -163,6 +168,11 @@ func (conn *WebsocketConn) Read(p []byte) (n int, err error) {
 
 // Write writes data to the websocket connection.
 func (conn *WebsocketConn) Write(p []byte) (n int, err error) {
+	select {
+	case <-conn.closeCh:
+		return 0, fmt.Errorf("websocket closed")
+	default:
+	}
 	err = conn.conn.WriteMessage(websocket.BinaryMessage, p)
 	return len(p), err
 }

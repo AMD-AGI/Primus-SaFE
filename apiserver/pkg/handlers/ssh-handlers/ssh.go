@@ -228,9 +228,14 @@ func newSSHConn(s Session) Conn {
 
 // Read reads data from the SSH session.
 func (conn *SSHConn) Read(p []byte) (n int, err error) {
+	select {
+	case <-conn.closeCh:
+		return 0, fmt.Errorf("ssh session closed")
+	default:
+	}
 	n, err = conn.s.Read(p)
 	if err != nil && err == io.EOF {
-		conn.exitReason = "User actively disconnected"
+		conn.SetExitReason("User actively disconnected")
 		_ = conn.Close()
 	}
 	return n, err
@@ -238,6 +243,11 @@ func (conn *SSHConn) Read(p []byte) (n int, err error) {
 
 // Write writes data to the SSH session.
 func (conn *SSHConn) Write(p []byte) (n int, err error) {
+	select {
+	case <-conn.closeCh:
+		return 0, fmt.Errorf("ssh session closed")
+	default:
+	}
 	return conn.s.Write(p)
 }
 
