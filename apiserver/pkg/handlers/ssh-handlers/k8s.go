@@ -94,24 +94,34 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		}
 	}()
 
-	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
-		Stdin:             sessionInfo.userConn,
-		Stdout:            sessionInfo.userConn,
-		Stderr:            sessionInfo.userConn,
-		TerminalSizeQueue: sessionInfo,
-		Tty:               sessionInfo.isPty,
-	})
-	if err != nil {
-		message := ""
-		if errors.Is(err, context.DeadlineExceeded) {
-			message = fmt.Sprintf("\r\n[INFO] Connection timed out (%f hour)", h.timeout.Hours())
-		} else {
-			message = fmt.Sprintf("The underlying connection is abnormally disconnected：%s", err.Error())
+	errCh := make(chan struct{})
+	go func(errCh chan struct{}) {
+		defer close(errCh)
+		err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+			Stdin:             sessionInfo.userConn,
+			Stdout:            sessionInfo.userConn,
+			Stderr:            sessionInfo.userConn,
+			TerminalSizeQueue: sessionInfo,
+			Tty:               sessionInfo.isPty,
+		})
+		message := "The underlying connection is disconnected normally"
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				message = fmt.Sprintf("\r\n[INFO] Connection timed out (%f hour)", h.timeout.Hours())
+			} else {
+				message = fmt.Sprintf("The underlying connection is abnormally disconnected：%s", err.Error())
+			}
 		}
 		sessionInfo.userConn.SetExitReason(message)
-		return err
+	}(errCh)
+
+	select {
+	case <-ctx.Done():
+		sessionInfo.userConn.SetExitReason(fmt.Sprintf("\r\n[INFO] Connection timed out (%f hour)", h.timeout.Hours()))
+	case <-errCh:
+	case <-sessionInfo.userConn.ClosedChan():
 	}
-	sessionInfo.userConn.SetExitReason("The underlying connection is disconnected normally")
+
 	klog.Infof("Connection to the Pod(%s/%s) has ended.", workload.Spec.Workspace, sessionInfo.userInfo.Pod)
 	_, err = sessionInfo.userConn.Write([]byte(fmt.Sprintf("ssh connection closed, reason: %s\n", sessionInfo.userConn.ExitReason())))
 	return nil

@@ -214,12 +214,15 @@ func ParseUserInfo(user string) (*UserInfo, bool) {
 type SSHConn struct {
 	s          Session
 	exitReason string
+	closeCh    chan struct{}
+	once       sync.Once
 }
 
 // newSSHConn creates a new SSHConn from a Session.
 func newSSHConn(s Session) Conn {
 	return &SSHConn{
-		s: s,
+		s:       s,
+		closeCh: make(chan struct{}),
 	}
 }
 
@@ -228,6 +231,7 @@ func (conn *SSHConn) Read(p []byte) (n int, err error) {
 	n, err = conn.s.Read(p)
 	if err != nil && err == io.EOF {
 		conn.exitReason = "User actively disconnected"
+		_ = conn.Close()
 	}
 	return n, err
 }
@@ -239,7 +243,10 @@ func (conn *SSHConn) Write(p []byte) (n int, err error) {
 
 // Close closes the SSH session.
 func (conn *SSHConn) Close() error {
-	return conn.s.Close()
+	conn.once.Do(func() {
+		close(conn.closeCh)
+	})
+	return nil
 }
 
 // ExitReason returns the reason for session exit.
@@ -269,4 +276,9 @@ func (conn *SSHConn) WindowNotify(ctx context.Context, ch chan *remotecommand.Te
 			}
 		}
 	}
+}
+
+// ClosedChan returns a channel that is closed when the connection is closed.
+func (conn *SSHConn) ClosedChan() chan struct{} {
+	return conn.closeCh
 }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -91,6 +92,8 @@ type WebsocketConn struct {
 	conn       *websocket.Conn
 	exitReason string
 	windowCh   chan *remotecommand.TerminalSize
+	closeCh    chan struct{}
+	once       sync.Once
 }
 
 // newWebsocketConn creates a new WebsocketConn from a websocket.Conn.
@@ -98,6 +101,7 @@ func newWebsocketConn(conn *websocket.Conn) Conn {
 	return &WebsocketConn{
 		conn:     conn,
 		windowCh: make(chan *remotecommand.TerminalSize, 10),
+		closeCh:  make(chan struct{}),
 	}
 }
 
@@ -105,6 +109,7 @@ func newWebsocketConn(conn *websocket.Conn) Conn {
 func (conn *WebsocketConn) Read(p []byte) (n int, err error) {
 	t, msg, erro := conn.conn.ReadMessage()
 	if t == websocket.CloseMessage {
+		_ = conn.Close()
 		return copy(p, EndOfTransmission), fmt.Errorf("websocket CloseMessage")
 	}
 
@@ -130,6 +135,7 @@ func (conn *WebsocketConn) Read(p []byte) (n int, err error) {
 		return n, nil
 	}
 
+	defer conn.Close()
 	if websocket.IsUnexpectedCloseError(erro,
 		websocket.CloseNormalClosure,
 		websocket.CloseGoingAway,
@@ -163,8 +169,11 @@ func (conn *WebsocketConn) Write(p []byte) (n int, err error) {
 
 // Close closes the websocket connection.
 func (conn *WebsocketConn) Close() error {
-	_ = conn.conn.WriteMessage(websocket.CloseMessage, []byte{})
-	return conn.conn.Close()
+	conn.once.Do(func() {
+		_ = conn.conn.WriteMessage(websocket.CloseMessage, []byte{})
+		close(conn.closeCh)
+	})
+	return nil
 }
 
 // ExitReason returns the reason for session exit.
@@ -187,4 +196,9 @@ func (conn *WebsocketConn) WindowNotify(ctx context.Context, ch chan *remotecomm
 			ch <- window
 		}
 	}
+}
+
+// ClosedChan returns a channel that is closed when the connection is closed.
+func (conn *WebsocketConn) ClosedChan() chan struct{} {
+	return conn.closeCh
 }

@@ -19,6 +19,7 @@ type Conn interface {
 	ExitReason() string
 	SetExitReason(reason string)
 	WindowNotify(ctx context.Context, ch chan *remotecommand.TerminalSize)
+	ClosedChan() chan struct{}
 }
 
 // SshType represents the type of SSH connection.
