@@ -20,28 +20,29 @@ const (
 type FaultNode struct {
 	// The cluster which fault belongs to
 	ClusterName string `json:"clusterName"`
-	// fault-associated k8s node name
+	// Fault-associated k8s node name
 	K8sName string `json:"k8sName"`
-	// fault-associated admin node name
+	// Fault-associated admin node name
 	AdminName string `json:"adminName"`
 }
 
 type FaultSpec struct {
-	// the ID used by NodeAgent for monitoring.
+	// The id used by NodeAgent for monitoring.
 	MonitorId string `json:"monitorId"`
-	// fault message
+	// Fault message
 	Message string `json:"message,omitempty"`
-	// node information related to the fault
+	// Node information related to the fault
 	Node *FaultNode `json:"node,omitempty"`
 	// Handling actions for the fault. e.g. reboot,taint
 	Action string `json:"action,omitempty"`
-	// whether the fault is auto repaired or not. default true
+	// Whether the fault is auto repaired or not. default true
 	IsAutoRepairEnabled bool `json:"isAutoRepairEnabled,omitempty"`
 }
 
 type FaultStatus struct {
+	// The status of fault, such as Succeeded, Failed
 	Phase FaultPhase `json:"phase,omitempty"`
-	// the last update time
+	// The last update time of fault
 	UpdateTime *metav1.Time `json:"updateTime,omitempty"`
 }
 

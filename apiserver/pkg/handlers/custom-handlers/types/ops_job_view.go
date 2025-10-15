@@ -36,7 +36,7 @@ type CreatePreflightRequest struct {
 	Resource *v1.WorkloadResource `json:"resource,omitempty"`
 	// Opsjob image address
 	Image *string `json:"image,omitempty"`
-	// Opsjob entryPoint, required in base64 encoding
+	// Opsjob entryPoint(startup command), required in base64 encoding
 	EntryPoint *string `json:"entryPoint,omitempty"`
 	// Environment variables
 	Env map[string]string `json:"env,omitempty"`
