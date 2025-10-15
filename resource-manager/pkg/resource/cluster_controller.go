@@ -30,6 +30,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
@@ -80,10 +81,6 @@ func (r *ClusterReconciler) caredChangePredicate() predicate.Predicate {
 			}
 			if !oldCluster.IsReady() && newCluster.IsReady() {
 				return true
-			}
-			if oldCluster.Spec.ControlPlane.ImageSecret != nil &&
-				newCluster.Spec.ControlPlane.ImageSecret == nil {
-				r.deleteDefaultImageSecret(context.Background(), oldCluster)
 			}
 			return false
 		},
@@ -204,10 +201,10 @@ func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) err
 	if err := r.resetNodesOfCluster(ctx, cluster.Name); err != nil {
 		return err
 	}
-	if err := r.deletePriorityClass(ctx, cluster.Name); err != nil {
+	if err := r.deletePriorityClass(ctx, cluster); err != nil {
 		return err
 	}
-	if err := r.deleteDefaultImageSecret(ctx, cluster); err != nil {
+	if err := r.deleteAllImageSecrets(ctx, cluster); err != nil {
 		return err
 	}
 	if err := utils.RemoveFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer); err != nil {
@@ -286,13 +283,16 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 	return ctrlruntime.Result{}, nil
 }
 
-func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, clusterId string) error {
-	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterId)
+func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1.Cluster) error {
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
-		return nil
+		if !cluster.IsReady() {
+			return nil
+		}
+		return err
 	}
 	clientSet := k8sClients.ClientSet()
-	allPriorityClass := genAllPriorityClass(clusterId)
+	allPriorityClass := genAllPriorityClass(cluster.Name)
 	for _, pc := range allPriorityClass {
 		if err = deletePriorityClass(ctx, clientSet, pc.name); err != nil {
 			return err
@@ -339,19 +339,17 @@ func genAllPriorityClass(clusterId string) []PriorityClass {
 }
 
 func (r *ClusterReconciler) guaranteeAllImageSecrets(ctx context.Context, cluster *v1.Cluster) error {
-	imageSecret := cluster.Spec.ControlPlane.ImageSecret
-	if imageSecret == nil {
+	if commonconfig.GetImageSecret() == "" {
 		return nil
 	}
-
 	targetNamespace := corev1.NamespaceDefault
-	targetName := commonutils.GenerateClusterSecret(cluster.Name, imageSecret.Name)
+	targetName := commonutils.GenerateClusterSecret(cluster.Name, commonconfig.GetImageSecret())
 	if err := r.guaranteeImageSecret(ctx, cluster, targetName, targetNamespace); err != nil {
 		return err
 	}
 
 	targetNamespace = common.PrimusSafeNamespace
-	targetName = common.NodeAgentImageSecret
+	targetName = commonconfig.GetImageSecret()
 	if err := r.guaranteeImageSecret(ctx, cluster, targetName, targetNamespace); err != nil {
 		return err
 	}
@@ -364,15 +362,16 @@ func (r *ClusterReconciler) guaranteeImageSecret(ctx context.Context, cluster *v
 		return err
 	}
 	clientSet := k8sClients.ClientSet()
-	adminPlaneSecret := &corev1.Secret{}
-	imageSecret := cluster.Spec.ControlPlane.ImageSecret
-	err = r.Get(ctx, client.ObjectKey{Name: imageSecret.Name, Namespace: imageSecret.Namespace}, adminPlaneSecret)
+	adminPlaneSecret, err := r.getAdminImageSecret(ctx)
 	if err != nil {
 		return err
 	}
 
 	dataPlaneSecret, err := clientSet.CoreV1().Secrets(targetNamespace).Get(ctx, targetName, metav1.GetOptions{})
 	if err == nil {
+		if dataPlaneSecret.UID == adminPlaneSecret.UID {
+			return nil
+		}
 		dataPlaneSecret.Type = adminPlaneSecret.Type
 		dataPlaneSecret.Data = adminPlaneSecret.Data
 		_, err = clientSet.CoreV1().Secrets(targetNamespace).Update(ctx, dataPlaneSecret, metav1.UpdateOptions{})
@@ -401,18 +400,32 @@ func (r *ClusterReconciler) guaranteeImageSecret(ctx context.Context, cluster *v
 	return nil
 }
 
-func (r *ClusterReconciler) deleteDefaultImageSecret(ctx context.Context, cluster *v1.Cluster) error {
-	imageSecret := cluster.Spec.ControlPlane.ImageSecret
-	if imageSecret == nil {
-		return nil
-	}
+func (r *ClusterReconciler) deleteAllImageSecrets(ctx context.Context, cluster *v1.Cluster) error {
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
+		if !cluster.IsReady() {
+			return nil
+		}
 		return err
 	}
-	targetName := commonutils.GenerateClusterSecret(cluster.Name, imageSecret.Name)
+	targetName := commonutils.GenerateClusterSecret(cluster.Name, commonconfig.GetImageSecret())
 	err = k8sClients.ClientSet().CoreV1().Secrets(corev1.NamespaceDefault).Delete(ctx, targetName, metav1.DeleteOptions{})
-	return client.IgnoreNotFound(err)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	adminPlaneSecret, _ := r.getAdminImageSecret(ctx)
+	targetName = commonconfig.GetImageSecret()
+	dataPlaneSecret, err := k8sClients.ClientSet().CoreV1().Secrets(
+		common.PrimusSafeNamespace).Get(ctx, targetName, metav1.GetOptions{})
+	if err == nil && (adminPlaneSecret == nil || adminPlaneSecret.UID != dataPlaneSecret.UID) {
+		err = k8sClients.ClientSet().CoreV1().Secrets(common.PrimusSafeNamespace).Delete(ctx, targetName, metav1.DeleteOptions{})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (r *ClusterReconciler) createNamespace(ctx context.Context, name string, clientSet kubernetes.Interface) error {
@@ -434,4 +447,14 @@ func (r *ClusterReconciler) createNamespace(ctx context.Context, name string, cl
 	}
 	klog.Infof("create namespace %s of dataplane", name)
 	return nil
+}
+
+func (r *ClusterReconciler) getAdminImageSecret(ctx context.Context) (*corev1.Secret, error) {
+	secret := &corev1.Secret{}
+	err := r.Get(ctx, client.ObjectKey{Name: commonconfig.GetImageSecret(),
+		Namespace: common.PrimusSafeNamespace}, secret)
+	if err != nil {
+		return nil, err
+	}
+	return secret, nil
 }

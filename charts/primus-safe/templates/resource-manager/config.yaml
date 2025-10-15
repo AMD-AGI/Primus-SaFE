@@ -8,6 +8,7 @@ data:
   config.yaml: |
     global:
       rdma_name: {{ .Values.net.rdma_name }}
+      image_secret: {{ .Values.global.image_pull_secret }}
     health_check:
       enable: {{ default true (default .Values.k8s).enable_health_check }}
       port: {{ default 8081 (default .Values.resource_manager).health_port }}

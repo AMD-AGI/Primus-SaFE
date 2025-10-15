@@ -152,8 +152,10 @@ spec:
         - effect: NoSchedule
           operator: Exists
       terminationGracePeriodSeconds: 10
+      {{- if .Values.node_agent.image_pull_secret }}
       imagePullSecrets:
-        - name: primus-safe-image
+        - name: {{ .Values.node_agent.image_pull_secret }}
+      {{- end }}
       volumes:
         - configMap:
             defaultMode: 256

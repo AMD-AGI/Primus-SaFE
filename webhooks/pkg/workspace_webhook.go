@@ -345,24 +345,13 @@ func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, new
 }
 
 func (m *WorkspaceMutator) mutateImageSecret(ctx context.Context, workspace *v1.Workspace) error {
-	cluster, err := getCluster(ctx, m.Client, workspace.Spec.Cluster)
-	if err != nil {
-		return err
-	}
-	if cluster.Spec.ControlPlane.ImageSecret != nil {
-		if !workspace.HasImageSecret(cluster.Spec.ControlPlane.ImageSecret.Name) {
-			workspace.Spec.ImageSecrets = append(workspace.Spec.ImageSecrets,
-				cluster.Spec.ControlPlane.ImageSecret.DeepCopy())
-		}
-	}
-
 	var labelSelector = labels.NewSelector()
 	req1, _ := labels.NewRequirement(v1.SecretTypeLabel, selection.Equals, []string{string(v1.SecretImage)})
 	labelSelector = labelSelector.Add(*req1)
 	req2, _ := labels.NewRequirement(v1.SecretAllWorkspaceLabel, selection.Equals, []string{v1.TrueStr})
 	labelSelector = labelSelector.Add(*req2)
 	secretList := &corev1.SecretList{}
-	if err = m.List(ctx, secretList, &client.ListOptions{LabelSelector: labelSelector, Namespace: common.PrimusSafeNamespace}); err != nil {
+	if err := m.List(ctx, secretList, &client.ListOptions{LabelSelector: labelSelector, Namespace: common.PrimusSafeNamespace}); err != nil {
 		return err
 	}
 	for _, secret := range secretList.Items {
