@@ -195,7 +195,7 @@ func cvtImageToResponse(images []*model.Image, os, arch string) []GetImageRespon
 			UserName:    image.CreatedBy,
 			Status:      image.Status,
 			Id:          int32(image.ID),
-			IncludeType: image.Source, // 1: sync, 2: input
+			IncludeType: image.Source,
 		}
 
 		if image.RelationDigest != nil {
@@ -253,7 +253,6 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	// 检查 image 是否已存在
 	existImageID, err := h.existImageVlid(c, imageInfo.DestImageName)
 	if err != nil {
 		return nil, err
@@ -279,8 +278,8 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 	var relationDigest = map[string]interface{}{}
 
 	defaultDigestItem := &RelationDigest{
-		Digest: "",             // 录入的镜像为空
-		Size:   imageInfo.Size, // 录入的时候会获取镜像大小，同步则是在同步过程中再获取
+		Digest: "",
+		Size:   imageInfo.Size,
 	}
 	relationDigest[importImageEnv.OsArch] = defaultDigestItem
 	dbImage := &model.Image{
@@ -424,7 +423,6 @@ func defaultSyncImageEnv() map[string]string {
 	kvmap[DestPassword] = ""
 	kvmap[DestTLSVerify] = "true"
 
-	// 传递时必填
 	kvmap[SrcImageEnv] = ""
 	kvmap[DestImageEnv] = ""
 	kvmap[UpstreamDomain] = ApiServiceName
@@ -435,7 +433,6 @@ func generateImportImageJobName(uid string) string {
 	return fmt.Sprintf("imptimg-%s-%016x", uid, xxhash.Sum64String(time.Now().String()))
 }
 
-// getFullImportName 获取完整的 image name
 func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageServiceRequest) (*ImportImageMetaInfo, error) {
 	var imageInfo = &ImportImageMetaInfo{
 		SourceImageName: req.Source,
@@ -492,7 +489,6 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 		return false
 	}
 
-	// 构造镜像引用
 	imageName = fmt.Sprintf("docker://%s", imageName)
 
 	// Parse the reference
@@ -518,22 +514,17 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 	}
 
 	var totalSize int64
-	// 处理manifest list的情况
 	if manifestType == imagespecv1.MediaTypeImageIndex || manifestType == manifestv5.DockerV2ListMediaType {
-		// 解析manifest list
 		var targetDigest imagedigest.Digest
-		// manifest list 大小进行累加
 		totalSize += int64(len(manifest))
 
 		if manifestType == imagespecv1.MediaTypeImageIndex {
-			// 处理OCI格式的manifest list
 			var index imagespecv1.Index
 			if err := json.Unmarshal(manifest, &index); err != nil {
 				klog.Errorf("Error parsing OCI index: %s", err)
 				return false
 			}
 
-			// 查找匹配的manifest
 			for _, m := range index.Manifests {
 				if m.Platform != nil &&
 					m.Platform.OS == os &&
@@ -543,14 +534,12 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 				}
 			}
 		} else {
-			// 处理Docker格式的manifest list
 			var schema2List manifestv5.Schema2List
 			if err := json.Unmarshal(manifest, &schema2List); err != nil {
 				klog.Errorf("Error parsing Docker manifest list: %s", err)
 				return false
 			}
 
-			// 查找匹配的manifest
 			for _, m := range schema2List.Manifests {
 				if m.Platform.OS == os &&
 					m.Platform.Architecture == arch {
@@ -564,7 +553,6 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 			return false
 		}
 
-		// 获取特定平台的manifest
 		manifest, manifestType, err = src.GetManifest(ctx, &targetDigest)
 		if err != nil {
 			klog.Errorf("Error getting platform-specific manifest: %s", err)
@@ -572,36 +560,28 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 		}
 	}
 
-	// manifest 大小进行累加
 	totalSize += int64(len(manifest))
-	// 根据manifest类型解析大小信息
 	switch manifestType {
 	case imagespecv1.MediaTypeImageManifest:
-		// OCI格式镜像
 		var v1Manifest imagespecv1.Manifest
 		if err := json.Unmarshal(manifest, &v1Manifest); err != nil {
 			klog.Errorf("Error parsing OCI manifest: %s", err)
 			return false
 		}
-		// 计算所有层的大小总和
 		for _, layer := range v1Manifest.Layers {
 			totalSize += layer.Size
 		}
-		// 加上配置文件大小
 		totalSize += v1Manifest.Config.Size
 
 	case manifestv5.DockerV2Schema2MediaType:
-		// Docker格式镜像
 		var v2Manifest manifestv5.Schema2
 		if err := json.Unmarshal(manifest, &v2Manifest); err != nil {
 			klog.Errorf("Error parsing Docker manifest: %s", err)
 			return false
 		}
-		// 计算所有层的大小总和
 		for _, layer := range v2Manifest.LayerInfos() {
 			totalSize += layer.Size
 		}
-		// 加上配置文件大小
 		totalSize += v2Manifest.ConfigInfo().Size
 	}
 
@@ -612,7 +592,6 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 }
 
 func (h *ImageHandler) getImageSystemCtx(ctx context.Context, hostName string, imageName string) (*v5types.SystemContext, error) {
-	// 创建系统上下文
 	var sysCtx = &v5types.SystemContext{DockerInsecureSkipTLSVerify: v5types.OptionalBoolTrue}
 	if strings.HasSuffix(hostName, "docker.io") {
 
@@ -628,7 +607,6 @@ func (h *ImageHandler) getImageSystemCtx(ctx context.Context, hostName string, i
 		}
 		sysCtx.DockerBearerRegistryToken = token
 	} else {
-		// 获取账号信息，如果有的话
 		accountInfo, err := h.dbClient.GetRegistryInfoByUrl(ctx, hostName)
 		if err != nil {
 			klog.Errorf("Error getting registry info, err is: %s \n", err)

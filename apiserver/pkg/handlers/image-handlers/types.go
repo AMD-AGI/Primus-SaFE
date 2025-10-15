@@ -27,7 +27,7 @@ type ArtifactItem struct {
 	Arch        string `json:"arch"`
 	Os          string `json:"os"`
 	Digest      string `json:"digest,omitempty"`
-	IncludeType string `json:"includeType"` // 1: 同步( sync ); 2: 录入( input )
+	IncludeType string `json:"includeType"`
 }
 
 type GetImageResponseItem struct {
@@ -48,8 +48,8 @@ type ImportImageResponse struct {
 }
 
 type ImportImageEnv struct {
-	SourceImageName string `json:"sourceImageName"` // 全名, e.g: docker.io/library/nginx:latest
-	DestImageName   string `json:"destImageName"`   // 全名, e.g: harbor.xcs.ai/01-ai/test/nginx:latest
+	SourceImageName string `json:"sourceImageName"` // full name, e.g: docker.io/library/nginx:latest
+	DestImageName   string `json:"destImageName"`   // full name, e.g: harbor.xcs.ai/01-ai/test/nginx:latest
 	OsArch          string `json:"osArch"`          // e.g: linux/amd64
 	Os              string `json:"os"`              // e.g: linux
 	Arch            string `json:"arch"`            // e.g: amd64

@@ -131,7 +131,6 @@ func (h *ImageHandler) GetHarborCredentials(ctx context.Context) (domain, endpoi
 		secretKeyPassword = "HARBOR_ADMIN_PASSWORD"
 	)
 
-	// 获取 ConfigMap
 	var cm corev1.ConfigMap
 	if err = h.Get(ctx, client.ObjectKey{Namespace: namespace, Name: configMapName}, &cm); err != nil {
 		if client.IgnoreNotFound(err) == nil {
@@ -145,7 +144,6 @@ func (h *ImageHandler) GetHarborCredentials(ctx context.Context) (domain, endpoi
 		return "", "", "", fmt.Errorf("configmap %s/%s missing key %s", namespace, configMapName, configKeyEndpoint)
 	}
 
-	// 获取 Secret
 	var sec corev1.Secret
 	if err = h.Get(ctx, client.ObjectKey{Namespace: namespace, Name: secretName}, &sec); err != nil {
 		return "", "", "", fmt.Errorf("failed to get secret %s/%s: %w", namespace, secretName, err)
@@ -255,7 +253,6 @@ func (h *ImageHandler) harborRequest(ctx context.Context, harborHost, path, user
 		return err
 	}
 
-	// 添加认证
 	if username != "" && password != "" {
 		req.SetBasicAuth(username, password)
 	}
@@ -279,7 +276,7 @@ func newHTTPClientSkipTLS() *http.Client {
 		Timeout: 8 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, // <- 跳过证书校验（不安全）
+				InsecureSkipVerify: true,
 			},
 		},
 	}
