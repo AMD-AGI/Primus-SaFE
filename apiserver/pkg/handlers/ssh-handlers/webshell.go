@@ -49,7 +49,7 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 
 	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		klog.Info("fail to upgrade websocket")
+		klog.Errorf("fail to upgrade websocket err: %v", err)
 		return
 	}
 	defer conn.Close()
