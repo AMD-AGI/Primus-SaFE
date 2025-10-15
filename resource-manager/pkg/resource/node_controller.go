@@ -470,7 +470,7 @@ func (r *NodeReconciler) updateAdminNode(ctx context.Context, adminNode *v1.Node
 			return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
 		}
 		result, err = r.manage(ctx, adminNode, k8sNode)
-	} else if adminNode.Status.ClusterStatus.Cluster != nil {
+	} else if adminNode.Status.ClusterStatus.Cluster != nil || v1.GetClusterId(k8sNode) != "" {
 		result, err = r.unmanage(ctx, adminNode, k8sNode)
 	} else {
 		return ctrlruntime.Result{}, nil
@@ -720,10 +720,16 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 	if commonfaults.HasPrimusSafeTaint(adminNode.Status.Taints) || v1.GetWorkspaceId(adminNode) != "" {
 		return ctrlruntime.Result{}, nil
 	}
-	clusterName := *adminNode.Status.ClusterStatus.Cluster
+
+	clusterId := ""
+	if adminNode.Status.ClusterStatus.Cluster != nil {
+		clusterId = *adminNode.Status.ClusterStatus.Cluster
+	} else {
+		clusterId = v1.GetClusterId(k8sNode)
+	}
 
 	if k8sNode == nil {
-		if pods, err := r.listPod(ctx, clusterName, adminNode.Name, string(v1.ClusterScaleDownAction)); err != nil {
+		if pods, err := r.listPod(ctx, clusterId, adminNode.Name, string(v1.ClusterScaleDownAction)); err != nil {
 			return ctrlruntime.Result{}, err
 		} else if len(pods) > 0 {
 			if err = r.Delete(ctx, &pods[0]); err != nil {
@@ -746,7 +752,7 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 	}
 
 	// delete all scaleup pod when doing scaledown
-	pods, err := r.listPod(ctx, clusterName, adminNode.Name, string(v1.ClusterScaleUpAction))
+	pods, err := r.listPod(ctx, clusterId, adminNode.Name, string(v1.ClusterScaleUpAction))
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -757,11 +763,11 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 		klog.Infof("delete pod(%s) for scaleUp", pod.Name)
 	}
 
-	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterName)
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterId)
 	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	return r.syncOrCreateScaleDownPod(ctx, k8sClients.ClientSet(), adminNode, k8sNode)
+	return r.syncOrCreateScaleDownPod(ctx, k8sClients.ClientSet(), adminNode, k8sNode, clusterId)
 }
 
 func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
@@ -783,8 +789,8 @@ func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
 }
 
 func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
-	clientSet kubernetes.Interface, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
-	cluster, err := r.getCluster(ctx, *adminNode.Status.ClusterStatus.Cluster)
+	clientSet kubernetes.Interface, adminNode *v1.Node, k8sNode *corev1.Node, clusterId string) (ctrlruntime.Result, error) {
+	cluster, err := r.getCluster(ctx, clusterId)
 	if err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
