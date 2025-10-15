@@ -57,6 +57,7 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 
 	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	conn.SetPingHandler(func(appData string) error {
+		klog.Infof("receive ping from client")
 		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
