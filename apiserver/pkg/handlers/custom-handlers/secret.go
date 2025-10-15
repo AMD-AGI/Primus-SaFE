@@ -71,7 +71,7 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	secret, err := generateSecret(c, req)
+	secret, err := generateSecret(req)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate secret")
 		return nil, err
@@ -363,7 +363,7 @@ func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secr
 	return secret, err
 }
 
-func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Secret, error) {
+func generateSecret(req *types.CreateSecretRequest) (*corev1.Secret, error) {
 	if req.Name == "" {
 		return nil, commonerrors.NewBadRequest("the secretName is empty")
 	}
@@ -373,7 +373,6 @@ func generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Sec
 			Namespace: common.PrimusSafeNamespace,
 			Labels: map[string]string{
 				v1.SecretTypeLabel: string(req.Type),
-				v1.UserIdLabel:     c.GetString(common.UserId),
 			},
 		},
 	}

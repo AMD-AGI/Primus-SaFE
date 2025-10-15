@@ -73,7 +73,6 @@ storage_class=$(get_input_with_default "Enter storage class($default_storage_cla
 sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
 support_lens=$(get_input_with_default "Support Primus-lens ? (y/n): " "n")
 support_s3=$(get_input_with_default "Support Primus-S3 ? (y/n): " "n")
-build_image_secret=$(get_input_with_default "Create image pull secret ? (y/n): " "n")
 opensearch_enable=$(convert_to_boolean "$support_lens")
 s3_enable=$(convert_to_boolean "$support_s3")
 s3_endpoint=""
@@ -84,6 +83,7 @@ if [[ "$s3_enable" == "true" ]]; then
   fi
 fi
 
+build_image_secret=$(get_input_with_default "Create image pull secret ? (y/n): " "n")
 image_registry=""
 image_username=""
 image_password=""
@@ -136,15 +136,15 @@ else
       --docker-username="$image_username" \
       --docker-password="$image_password" \
       --namespace="$NAMESPACE" \
-      --dry-run=client -o yaml | kubectl apply -f - \
-      && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" --overwrite
+      --dry-run=client -o yaml | kubectl create -f - \
+      && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" primus-safe.secret.all.workspace="true" --overwrite
   else
     kubectl create secret generic "$image_secret_name" \
       --namespace="$NAMESPACE" \
       --from-literal=.dockerconfigjson='{}' \
       --type=kubernetes.io/dockerconfigjson \
-      --dry-run=client -o yaml | kubectl apply -f - \
-      && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" --overwrite
+      --dry-run=client -o yaml | kubectl create -f - \
+      && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" primus-safe.secret.all.workspace="true" --overwrite
   fi
   echo "✅ Image pull secret $image_secret_name created in namespace \"$NAMESPACE\""
 fi
