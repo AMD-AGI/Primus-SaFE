@@ -56,11 +56,28 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 	defer conn.Close()
 
 	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-	conn.SetPingHandler(func(appData string) error {
-		klog.Infof("receive ping from client")
+	conn.SetPongHandler(func(appData string) error {
+		klog.Infof("receive pong from client")
 		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
+
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := conn.WriteMessage(websocket.PingMessage, []byte("PING")); err != nil {
+					klog.Errorf("write ping err: %v", err)
+					return
+				}
+				klog.Infof("send ping to client")
+			case <-c.Request.Context().Done():
+				return
+			}
+		}
+	}()
 
 	userInfo := &UserInfo{
 		User:      c.GetString(common.UserId),
