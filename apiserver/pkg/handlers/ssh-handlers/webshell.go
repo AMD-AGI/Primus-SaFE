@@ -52,6 +52,7 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 		klog.Info("fail to upgrade websocket")
 		return
 	}
+	defer conn.Close()
 
 	userInfo := &UserInfo{
 		User:      c.GetString(common.UserId),
@@ -81,7 +82,8 @@ func closeWebSocket(conn *websocket.Conn) error {
 		return err
 	}
 	time.Sleep(1 * time.Second)
-	return conn.Close()
+
+	return nil
 }
 
 // WebsocketConn implements Conn interface for websocket-based sessions.
