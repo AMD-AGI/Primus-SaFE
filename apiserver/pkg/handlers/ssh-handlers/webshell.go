@@ -55,6 +55,12 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 	}
 	defer conn.Close()
 
+	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetPingHandler(func(appData string) error {
+		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
 	userInfo := &UserInfo{
 		User:      c.GetString(common.UserId),
 		Pod:       strings.TrimSpace(c.Param(common.PodId)),
@@ -117,8 +123,14 @@ func (conn *WebsocketConn) Read(p []byte) (n int, err error) {
 		_ = conn.Close()
 		return copy(p, EndOfTransmission), fmt.Errorf("websocket CloseMessage")
 	}
+	_ = conn.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 
 	ps := string(msg)
+	if ps == "PONG" {
+		klog.Infof("websocket pong: %s", ps)
+		return copy(p, ""), nil
+	}
+
 	if strings.HasPrefix(ps, "RESIZE") {
 		stringList := strings.Split(ps, " ")
 		if len(stringList) == 3 && erro == nil {
