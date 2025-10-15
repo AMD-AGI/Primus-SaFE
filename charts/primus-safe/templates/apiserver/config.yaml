@@ -23,6 +23,7 @@ data:
       ephemeral_store_reserve_percent: {{ default 0.1 (default .Values.workspace).ephemeral_store_reserve_percent }}
     workload:
       max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
+      authoring_image: docker.io/primussafe/{{ .Values.authoring.image }}
     db:
       enable: {{ .Values.db.enable }}
       secret_path: {{ default "/etc/secrets/db" (default .Values.db).secret_path }}

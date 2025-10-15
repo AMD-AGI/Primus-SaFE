@@ -90,7 +90,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	}
 	workload, err := h.generateWorkload(c, req, body)
 	if err != nil {
-		return nil, err
+		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
@@ -518,6 +518,11 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 	var err error
 	if err = json.Unmarshal(body, &workload.Spec); err != nil {
 		return nil, err
+	}
+	if commonworkload.IsAuthoring(workload) {
+		if len(req.NodeList) > 1 {
+			return nil, fmt.Errorf("the authoring can only be created with one node")
+		}
 	}
 	genCustomerLabelsByNodes(workload, req.NodeList)
 	if len(req.NodeList) > 0 {

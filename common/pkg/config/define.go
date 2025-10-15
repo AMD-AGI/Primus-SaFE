@@ -50,6 +50,7 @@ const (
 	workloadHangCheckInterval = workloadPrefix + "hang_check_interval"
 	workloadEnableFailover    = workloadPrefix + "enable_failover"
 	workloadTTLSecond         = workloadPrefix + "ttl_second"
+	workloadAuthoringImage    = workloadPrefix + "authoring_image"
 
 	// opensearch
 	openSearchPrefix      = "opensearch."

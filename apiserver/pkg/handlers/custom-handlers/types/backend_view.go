@@ -6,7 +6,8 @@
 package types
 
 type GetEnvResponse struct {
-	EnableLogDownload bool `json:"enableLogDownload"`
-	EnableLog         bool `json:"enableLog"`
-	EnableSSH         bool `json:"enableSsh"`
+	EnableLogDownload bool   `json:"enableLogDownload"`
+	EnableLog         bool   `json:"enableLog"`
+	EnableSSH         bool   `json:"enableSsh"`
+	AuthoringImage    string `json:"authoringImage"`
 }
