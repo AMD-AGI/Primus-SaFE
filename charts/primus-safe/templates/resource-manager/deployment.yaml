@@ -105,8 +105,10 @@ spec:
             requests:
               cpu: {{ .Values.resource_manager.cpu }}
               memory: {{ .Values.resource_manager.memory }}
+      {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:
-      - name: {{ .Release.Name }}-image
+        - name: {{ .Values.global.image_pull_secret }}
+      {{- end }}
       volumes:
         {{- if .Values.db.enable }}
         - name: db-secret
