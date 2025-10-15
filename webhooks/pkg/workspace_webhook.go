@@ -98,9 +98,6 @@ func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.W
 	if err := m.mutateManagers(ctx, nil, workspace); err != nil {
 		return err
 	}
-	if err := m.mutateImageSecret(ctx, workspace); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -216,6 +213,9 @@ func (m *WorkspaceMutator) mutateVolumes(workspace *v1.Workspace) {
 
 func (m *WorkspaceMutator) mutateCommon(ctx context.Context, workspace *v1.Workspace) error {
 	if err := m.mutateByNodeFlavor(ctx, workspace); err != nil {
+		return err
+	}
+	if err := m.mutateImageSecret(ctx, workspace); err != nil {
 		return err
 	}
 	m.mutateVolumes(workspace)
