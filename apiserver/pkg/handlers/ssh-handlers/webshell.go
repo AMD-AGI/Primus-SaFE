@@ -57,7 +57,6 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 
 	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	conn.SetPongHandler(func(appData string) error {
-		klog.Infof("receive pong from client")
 		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
@@ -72,7 +71,6 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 					klog.Errorf("write ping err: %v", err)
 					return
 				}
-				klog.Infof("send ping to client")
 			case <-c.Request.Context().Done():
 				return
 			}
@@ -144,11 +142,6 @@ func (conn *WebsocketConn) Read(p []byte) (n int, err error) {
 	_ = conn.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 
 	ps := string(msg)
-	if ps == "PONG" {
-		klog.Infof("websocket pong: %s", ps)
-		return copy(p, ""), nil
-	}
-
 	if strings.HasPrefix(ps, "RESIZE") {
 		stringList := strings.Split(ps, " ")
 		if len(stringList) == 3 && erro == nil {
