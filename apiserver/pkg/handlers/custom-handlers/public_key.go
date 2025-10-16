@@ -11,6 +11,12 @@ import (
 	"strings"
 	"time"
 
+	sqrl "github.com/Masterminds/squirrel"
+	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
+
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -18,11 +24,6 @@ import (
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
-	sqrl "github.com/Masterminds/squirrel"
-	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/klog/v2"
 )
 
 // CreatePublicKey handles the creation of a new public key.
@@ -56,7 +57,7 @@ func (h *Handler) createPublicKey(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
 	req := &types.CreatePublicKeyRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "fail to parse create public key request", "body", string(body))
 		return nil, err
@@ -137,7 +138,7 @@ func (h *Handler) setPublicKeyStatus(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
 	req := &types.SetPublicKeyStatusRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "fail to parse create public key request", "body", string(body))
 		return nil, err
@@ -161,7 +162,7 @@ func (h *Handler) setPublicKeyDescription(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
 	req := &types.SetPublicKeyDescriptionRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "fail to parse create public key request", "body", string(body))
 		return nil, err

@@ -3,19 +3,21 @@ package image_handlers
 import (
 	"context"
 	"fmt"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/gin-gonic/gin"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/klog/v2"
-	"net/http"
-	ctrlruntime "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
@@ -84,7 +86,7 @@ func getBodyFromRequest(req *http.Request, bodyStruct interface{}) ([]byte, erro
 	if len(body) == 0 {
 		return nil, nil
 	}
-	if err = jsonutils.UnmarshalWithCheck(body, bodyStruct); err != nil {
+	if err = jsonutils.Unmarshal(body, bodyStruct); err != nil {
 		return body, commonerrors.NewBadRequest(err.Error())
 	}
 	return body, nil

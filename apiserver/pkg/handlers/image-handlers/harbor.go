@@ -6,13 +6,14 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"io"
-	corev1 "k8s.io/api/core/v1"
 	"net/http"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type HealthComponent struct {

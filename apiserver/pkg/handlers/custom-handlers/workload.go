@@ -255,7 +255,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	return h.deleteWorkloadImpl(c, name, requestUser, roles)
 }
 
@@ -325,7 +325,7 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	return h.stopWorkloadImpl(c, name, requestUser, roles)
 }
 
@@ -1206,7 +1206,6 @@ func generateWorkloadForAuth(name, userId, workspace, clusterId string) *v1.Work
 	}
 }
 
-<<<<<<< HEAD
 // cvtDBWorkloadToAdminWorkload: converts a database workload record to a workload CR object.
 // Used for cloning workloads from database records to create new workload objects.
 func cvtDBWorkloadToAdminWorkload(c *gin.Context, dbItem *dbclient.Workload) *v1.Workload {
@@ -1277,7 +1276,7 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		if err != nil {
 			return nil, err
 		}
-		adminWorkload = generateAuthWorkload(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+		adminWorkload = generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
 	} else {
 		adminWorkload, err = h.getAdminWorkload(ctx, name)
 		if err != nil {
