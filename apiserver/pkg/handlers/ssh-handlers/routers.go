@@ -8,9 +8,10 @@ package ssh_handlers
 import (
 	"fmt"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/gin-gonic/gin"
 )
 
 // InitWebShellRouters initializes the web shell related routes.
