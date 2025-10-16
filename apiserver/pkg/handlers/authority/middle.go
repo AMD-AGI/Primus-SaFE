@@ -8,13 +8,14 @@ package authority
 import (
 	"strings"
 
+	"github.com/gin-gonic/gin"
+
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/gin-gonic/gin"
 )
 
-// Prepare sets the trimmed value of the 'Name' parameter into the Gin context.
-func Prepare(_ ...string) gin.HandlerFunc {
+// Preprocess sets the trimmed value of the 'Name' parameter into the Gin context.
+func Preprocess(_ ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Set(common.Name, strings.TrimSpace(c.Param(common.Name)))
 	}
