@@ -34,7 +34,6 @@ const (
 	// leader_election
 	leaderElectionPrefix = "leader_election."
 	leaderElectionEnable = leaderElectionPrefix + "enable"
-	leaderElectionLock   = leaderElectionPrefix + "lock_namespace"
 
 	// workspace
 	workspacePrefix              = "workspace."
@@ -48,7 +47,6 @@ const (
 	// No configuration or a value of 0 indicates no limit.
 	maxEphemeralStorePercent  = workloadPrefix + "max_ephemeral_store_percent"
 	workloadHangCheckInterval = workloadPrefix + "hang_check_interval"
-	workloadEnableFailover    = workloadPrefix + "enable_failover"
 	workloadTTLSecond         = workloadPrefix + "ttl_second"
 	workloadAuthoringImage    = workloadPrefix + "authoring_image"
 

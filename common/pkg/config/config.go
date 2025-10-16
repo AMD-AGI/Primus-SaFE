@@ -88,10 +88,6 @@ func IsLeaderElectionEnable() bool {
 	return getBool(leaderElectionEnable, true)
 }
 
-func GetLeaderElectionLock() string {
-	return getString(leaderElectionLock, "default")
-}
-
 func GetServerPort() int {
 	return getInt(serverPort, 0)
 }
@@ -130,10 +126,6 @@ func GetMaxEphemeralStorePercent() float64 {
 
 func GetWorkloadHangCheckInterval() int {
 	return getInt(workloadHangCheckInterval, 0)
-}
-
-func IsWorkloadFailoverEnable() bool {
-	return getBool(workloadEnableFailover, true)
 }
 
 func GetWorkloadTTLSecond() int {

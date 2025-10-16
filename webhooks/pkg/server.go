@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonklog "github.com/AMD-AIG-AIMA/SAFE/common/pkg/klog"
@@ -152,7 +153,7 @@ func (s *Server) newCtrlManager() error {
 		},
 		LeaderElection:             commonconfig.IsLeaderElectionEnable(),
 		LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
-		LeaderElectionNamespace:    commonconfig.GetLeaderElectionLock(),
+		LeaderElectionNamespace:    common.PrimusSafeNamespace,
 		LeaderElectionID:           "primus-safe-webhooks",
 		HealthProbeBindAddress:     healthProbeAddress,
 		WebhookServer: webhook.NewServer(webhook.Options{
