@@ -44,20 +44,26 @@ spec:
             description: NodeFlavorSpec defines the desired state of NodeFlavor
             properties:
               cpu:
+                description: Cpu defines the CPU configuration of the node, including
+                  product name and quantity
                 properties:
                   product:
-                    description: e.g. AMD EPYC 9554
+                    description: Cpu product name, e.g. AMD EPYC 9554
                     type: string
                   quantity:
                     anyOf:
                     - type: integer
                     - type: string
+                    description: Cpu quantity, e.g. 16
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                 required:
                 - quantity
                 type: object
               dataDisk:
+                description: |-
+                  DataDisk is an optional field that defines the data disk configuration of the node
+                  Usually this refers to the disk size mounted on the node, such as an NVMe disk.
                 properties:
                   count:
                     type: integer
@@ -80,17 +86,22 @@ spec:
                   - type: string
                   pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                   x-kubernetes-int-or-string: true
-                description: ResourceList is a set of (resource name, quantity) pairs.
+                description: ExtendResources is an optional field that defines the
+                  extended resources list of the node, such as rdma and ephemeralStorage
                 type: object
               gpu:
+                description: |-
+                  Gpu is an optional field that defines the GPU configuration of the node,
+                  including product name, Kubernetes resource name, and quantity
                 properties:
                   product:
-                    description: e.g. AMD MI300X
+                    description: Gpu product name, e.g. AMD MI300X
                     type: string
                   quantity:
                     anyOf:
                     - type: integer
                     - type: string
+                    description: Gpu quantity, e.g. 8
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   resourceName:
@@ -105,9 +116,13 @@ spec:
                 anyOf:
                 - type: integer
                 - type: string
+                description: Memory defines the memory capacity of the node
                 pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                 x-kubernetes-int-or-string: true
               rootDisk:
+                description: |-
+                  RootDisk is an optional field that defines the root disk configuration of the node
+                  Usually this refers to the system disk size
                 properties:
                   count:
                     type: integer

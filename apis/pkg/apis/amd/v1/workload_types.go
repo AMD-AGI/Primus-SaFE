@@ -52,13 +52,13 @@ type WorkloadResource struct {
 	CPU string `json:"cpu"`
 	// Requested GPU card count (e.g., 8)
 	GPU string `json:"gpu,omitempty"`
-	// This field is set internally to match the resource supported by the workspace. e.g. amd.com/gpu
+	// This field is set internally. e.g. amd.com/gpu
 	GPUName string `json:"gpuName,omitempty"`
 	// Requested Memory size (e.g., 128Gi)
 	Memory string `json:"memory"`
 	// Requested Shared Memory size (e.g., 128Gi). Used for sharing data between processes. default: Memory/2
 	SharedMemory string `json:"sharedMemory,omitempty"`
-	// ephemeral-storage for pod，default: 50Gi
+	// Ephemeral-storage for pod. Default is 50Gi
 	EphemeralStorage string `json:"ephemeralStorage,omitempty"`
 	// RDMA resource is effective only with hostNetwork enabled (default: 1).
 	// This field is set internally
@@ -87,7 +87,7 @@ type Service struct {
 	NodePort int `json:"nodePort,omitempty"`
 	// Pod service listening port
 	TargetPort int `json:"targetPort"`
-	// ClusterIP or NodePort
+	// The type of service, such as ClusterIP, NodePort
 	ServiceType corev1.ServiceType `json:"serviceType"`
 	// Extended environment variable
 	Extends map[string]string `json:"extends,omitempty"`

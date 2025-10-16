@@ -29,18 +29,18 @@ const (
 )
 
 type UserSpec struct {
-	// user's type, required
+	// User type, required
 	Type UserType `json:"type"`
-	// user's password, base64 encoded, optional
+	// User password, base64 encoded, optional
 	Password string `json:"password,omitempty"`
 	// 0: normal; 1 frozen. default: 0
 	// +optional
 	RestrictedType UserRestrictedType `json:"restrictedType,omitempty"`
-	// user's role, such as system-admin/default
+	// User role, such as system-admin/default
 	// permission check passes if any single role is satisfied.
 	// +required
 	Roles []UserRole `json:"roles"`
-	// key is the resource name to be managed (e.g. workspace)
+	// The key of resources is the name to be managed (e.g. workspace)
 	// values are its corresponding values(e.g. workspace-id)"
 	// +optional
 	Resources map[string][]string `json:"resources,omitempty"`
