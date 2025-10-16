@@ -198,8 +198,6 @@ data:
     alter table image
         owner to "primus-safe";
 
-
-
     CREATE TABLE public_key (
        id BIGSERIAL PRIMARY KEY,
        user_id VARCHAR(64) NOT NULL,
@@ -214,6 +212,8 @@ data:
     CREATE INDEX idx_publickey_userid ON public_key(user_id);
     CREATE UNIQUE INDEX idx_publickey_userid_pubkey
     ON public_key(user_id, public_key, delete_time);
+    alter table public_key
+        owner to "primus-safe";
 
     CREATE TABLE ssh_session_records (
        id BIGSERIAL PRIMARY KEY,
@@ -226,6 +226,8 @@ data:
        disconnect_time TIMESTAMPTZ,
        create_time TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    alter table ssh_session_records
+        owner to "primus-safe";
 
 
 
