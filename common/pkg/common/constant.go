@@ -59,3 +59,9 @@ const (
 	Name                  = "name"
 	PodId                 = "podId"
 )
+
+const (
+	ImageImportReadyStatus  = "Ready"
+	ImageImportingStatus    = "Importing"
+	ImageImportFailedStatus = "Failed"
+)

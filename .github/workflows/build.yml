@@ -24,52 +24,52 @@ jobs:
       image_version: ${{ steps.get-image-version.outputs.image_version }}
       date_time: ${{ steps.get-current-time.outputs.date_time }}
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Calculate ImageVersion
-        id: get-image-version
-        run: |
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            TAG=${GITHUB_REF#refs/tags/}
-            echo "::set-output name=ImageVersion::$TAG"
-          else
-            echo "::set-output name=image_version::latest"
-          fi
-      - name: Get Current Time
-        id: get-current-time
-        run: |
-          FORMATTED_DATE=$(TZ='Asia/Shanghai' date +'%Y%m%d%H%M')
-          echo "::set-output name=date_time::$FORMATTED_DATE"
-      - name: Get changed files
-        id: changed-files
-        uses: tj-actions/changed-files@v40
-        with:
-          files_yaml: |
-            apiserver:
-              - apis/**
-              - apiserver/**
-              - common/**
-              - utils/**
-            resource_manager:
-              - apis/**
-              - resource-manager/**
-              - common/**
-              - utils/**
-            sync_image:
-              - tools/sync-image/**
-            telemetry_processor:
-              - modules/telemetry-processor/**
-              - modules/core/**
-            gpu_resource_exporter:
-              - modules/exporters/gpu-resource-exporter/**
-              - modules/core/**
-            system_tuner:
-              - modules/system-tuner/**
-            primus_safe_adapter:
-              - modules/adapter/primus-safe-adapter/**
-              - modules/core/**
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Calculate ImageVersion
+      id: get-image-version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "::set-output name=ImageVersion::$TAG"
+        else
+          echo "::set-output name=image_version::latest"
+        fi
+    - name: Get Current Time
+      id: get-current-time
+      run: |
+        FORMATTED_DATE=$(TZ='Asia/Shanghai' date +'%Y%m%d%H%M')
+        echo "::set-output name=date_time::$FORMATTED_DATE"
+    - name: Get changed files
+      id: changed-files
+      uses: tj-actions/changed-files@v40
+      with:
+        files_yaml: |
+          apiserver:
+            - apis/**
+            - apiserver/**
+            - common/**
+            - utils/**
+          resource_manager:
+            - apis/**
+            - resource-manager/**
+            - common/**
+            - utils/**
+          sync_image:
+            - tools/sync-image/**
+          telemetry_processor:
+            - modules/telemetry-processor/**
+            - modules/core/**
+          gpu_resource_exporter:
+            - modules/exporters/gpu-resource-exporter/**
+            - modules/core/**
+          system_tuner:
+            - modules/system-tuner/**
+          primus_safe_adapter:
+            - modules/adapter/primus-safe-adapter/**
+            - modules/core/**
   #####
   # apiserver
   #####
@@ -285,4 +285,5 @@ jobs:
             BUILDPATH=cmd/primus-safe-adapter
             BASEPATH=modules/adapter/primus-safe-adapter/
             APPNAME=primus-safe-adapter
+
 

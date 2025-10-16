@@ -1,0 +1,79 @@
+global:
+  debug: ${DEBUG}
+  tls_verify: ${GLOBAL_TLS_VERIFY}
+  policy_path: ""
+  insecure_policy: true
+  registries_dir_path: ""
+  override_arch: ${OVERRIDE_ARCH}
+  override_os: ${OVERRIDE_OS}
+  override_variant: ""
+  command_timeout: ${COMMAND_TIMEOUT}
+  registries_conf_path: ""
+  tmp_dir: ""
+
+deprecated_tls_verify:
+  tls_verify: false
+
+src_image:
+  docker_image_options:
+    global: {}
+    shared: 
+      auth_file_path: ""
+    deprecated_tls_verify: {}
+    auth_file_path: ${AUTH_FILE_PATH}
+    creds_option: ""
+    username: ${SOURCE_USERNAME}                          
+    password: ${SOURCE_PASSWORD}                            
+    registry_token: ""
+    docker_cert_path: ""
+    tls_verify: ${SOURCE_TLS_VERIFY}                         ## 源镜像仓库是否开启 TLS 验证
+    no_creds: false
+  shared_blob_dir: ""
+  docker_daemon_host: ""
+
+dest_image:
+  image_options:
+    docker_image_options:
+      global: {}
+      shared: 
+        auth_file_path: ""
+      deprecated_tls_verify: {}
+      auth_file_path: ${AUTH_FILE_PATH}
+      creds_option: ""
+      username: ${DESTINATION_USERNAME}                    
+      password: ${DESTINATION_PASSWORD}                     
+      registry_token: ""
+      docker_cert_path: ""
+      tls_verify: ${DESTINATION_TLS_VERIFY}
+      no_creds: false
+    shared_blob_dir: ""
+    docker_daemon_host: ""
+  dir_force_compression: false
+  dir_force_decompression: false
+  oci_accept_uncompressed_layers: false
+  compression_format: "gzip"
+  compression_level: 5
+  precompute_digests: false
+  image_dest_flag_prefix: ""
+
+retry_opts:
+  max_retry: 3
+  delay: 1
+
+## 签名暂时不用
+remove_signatures: false
+sign_by_fingerprint: ""
+sign_by_sigstore_param_file: ""
+sign_by_sigstore_private_key: ""
+sign_passphrase_file: ""
+format: ""
+source: ${SOURCE_TYPE}                                       ## docker or dir
+destination: ${DESTINATION_TYPE}                             ## docker or dir
+digest_file: ""
+scoped: false
+all: ${SYNC_ALL_ARCH}
+dry_run: false
+preserve_digests: false
+keep_going: false
+append_suffix: ""
+upstream_domain: ${UPSTREAM_DOMAIN}
