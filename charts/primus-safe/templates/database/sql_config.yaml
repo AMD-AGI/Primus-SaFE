@@ -117,3 +117,116 @@ data:
     alter table ops_job add column if not exists entrypoint TEXT;
     alter table ops_job add column if not exists is_tolerate_all boolean default false;
     alter table ops_job add column if not exists hostpath TEXT;
+
+    create table if not exists registry_info
+    (
+        id         serial
+            constraint registry_info_pk
+                primary key,
+        name       varchar(64),
+        url        varchar(256),
+        username   varchar(256),
+        password   varchar(256),
+        "default"  bool,
+        token      varchar(512),
+        created_at timestamptz,
+        updated_at timestamptz,
+        deleted_at timestamptz
+    );
+
+    alter table registry_info
+        owner to "primus-safe";
+
+    create table if not exists image_import_job
+    (
+        id         serial
+            constraint image_import_job_pk
+                primary key,
+        src_tag    varchar(256),
+        dst_name   varchar(256),
+        os         varchar(64),
+        arch       varchar(64),
+        job_name   varchar(128),
+        log        text,
+        layer      jsonb,
+        created_at timestamptz
+    );
+
+
+    alter table image_import_job
+        owner to "primus-safe";
+
+
+
+    create table if not exists image_digest
+    (
+        id           serial
+            constraint image_digest_pk
+                primary key,
+        size         bigint,
+        os           varchar(64),
+        architecture varchar(64),
+        digest       varchar(256),
+        type         varchar(64),
+        created_at   timestamp with time zone,
+        updated_at   timestamp with time zone,
+        deleted_at   timestamp with time zone
+    );
+
+
+    alter table image_digest
+        owner to "primus-safe";
+
+
+    create table if not exists image
+    (
+        id              serial
+            constraint image_pk
+                primary key,
+        tag             VARCHAR(128),
+        description     VARCHAR(1024),
+        source          varchar(128),
+        status          varchar(64),
+        relation_digest jsonb,
+        created_at      timestamp with time zone,
+        created_by      varchar(128),
+        updated_at      timestamp with time zone,
+        deleted_at      timestamp with time zone,
+        deleted_by      varchar(128)
+    );
+
+    alter table image
+        owner to "primus-safe";
+
+
+
+    CREATE TABLE public_key (
+       id BIGSERIAL PRIMARY KEY,
+       user_id VARCHAR(64) NOT NULL,
+       description VARCHAR(100) NOT NULL,
+       public_key TEXT NOT NULL,
+       status BOOLEAN NOT NULL DEFAULT TRUE,
+       create_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+       update_time TIMESTAMPTZ,
+       delete_time TIMESTAMP
+    );
+
+    CREATE INDEX idx_publickey_userid ON public_key(user_id);
+    CREATE UNIQUE INDEX idx_publickey_userid_pubkey
+    ON public_key(user_id, public_key, delete_time);
+
+    CREATE TABLE ssh_session_records (
+       id BIGSERIAL PRIMARY KEY,
+       user_id VARCHAR(64) NOT NULL,
+       ssh_type VARCHAR(64) NOT NULL,
+       namespace VARCHAR(64) NOT NULL,
+       pod_id VARCHAR(255) NOT NULL,
+       container_name VARCHAR(255) NOT NULL,
+       disconnect_reason TEXT,
+       disconnect_time TIMESTAMPTZ,
+       create_time TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+
+
+

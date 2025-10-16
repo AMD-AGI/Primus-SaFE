@@ -8,6 +8,9 @@ package utils
 import (
 	"database/sql"
 	"fmt"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 	"time"
 
 	sqrl "github.com/Masterminds/squirrel"
@@ -40,6 +43,33 @@ func Connect(cfg *DBConfig, driverName DBDriver) (*sqlx.DB, error) {
 	db.SetConnMaxIdleTime(cfg.MaxIdleTime)
 	db.SetConnMaxLifetime(cfg.MaxLifetime)
 	return db, nil
+}
+
+func ConnectGorm(cfg *DBConfig) (*gorm.DB, error) {
+	// init gorm
+	dsn := fmt.Sprintf("host=%s port=%v user=%s dbname=%s password=%s sslmode=%s", cfg.Host, cfg.Port, cfg.Username, cfg.DBName, cfg.Password, cfg.SSLMode)
+	dialector := postgres.Dialector{
+		Config: &postgres.Config{
+			DSN: dsn,
+		},
+	}
+	gormDB, err := gorm.Open(dialector, &gorm.Config{
+		NamingStrategy: schema.NamingStrategy{
+			SingularTable: true,
+		},
+		FullSaveAssociations:                     false,
+		PrepareStmt:                              false,
+		DisableAutomaticPing:                     false,
+		DisableForeignKeyConstraintWhenMigrating: false,
+		DisableNestedTransaction:                 false,
+		AllowGlobalUpdate:                        false,
+		QueryFields:                              false,
+		Plugins:                                  nil,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return gormDB, nil
 }
 
 func ParseNullString(str sql.NullString) string {

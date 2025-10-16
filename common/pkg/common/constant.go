@@ -9,7 +9,6 @@ const (
 	PrimusSafeNamespace        = "primus-safe"
 	PrimusFault                = "primus-safe-fault"
 	PrimusFailover             = "primus-safe-failover"
-	NodeAgentImageSecret       = "node-agent-image"
 	PrimusRouterCustomRootPath = "api/v1"
 
 	AuthoringKind   = "Authoring"
@@ -56,4 +55,12 @@ const (
 	UserSystem            = "system"
 	UserWorkspaces        = "workspaces"
 	UserManagedWorkspaces = "managedWorkspaces"
+	Name                  = "name"
+	PodId                 = "podId"
+)
+
+const (
+	ImageImportReadyStatus  = "Ready"
+	ImageImportingStatus    = "Importing"
+	ImageImportFailedStatus = "Failed"
 )

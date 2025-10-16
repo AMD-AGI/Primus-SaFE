@@ -9,4 +9,5 @@ use (
 	./job-manager
 	./webhooks
 	./utils
+	tools/sync-image
 )

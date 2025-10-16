@@ -190,7 +190,7 @@ func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 // getCluster: implements the logic for retrieving a single cluster's detailed information.
 // Gets the cluster by ID and converts it to a detailed response format.
 func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
-	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
+	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +203,7 @@ func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
 // Returns nil on successful deletion or an error if the check fails
 func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
+	cluster, err := h.getAdminCluster(ctx, c.GetString(common.Name))
 	if err != nil {
 		klog.ErrorS(err, "failed to get admin cluster")
 		return nil, err
@@ -241,7 +241,7 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 // Parses the patch request and applies specified changes to the cluster.
 func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	cluster, err := h.getAdminCluster(ctx, c.GetString(types.Name))
+	cluster, err := h.getAdminCluster(ctx, c.GetString(common.Name))
 	if err != nil {
 		klog.ErrorS(err, "failed to get admin cluster")
 		return nil, err
@@ -293,7 +293,7 @@ func (h *Handler) updateCluster(_ context.Context, cluster *v1.Cluster, req *typ
 // For node removal operations, it first removes nodes from their associated workspaces.
 // The function returns a ProcessNodesResponse with success/failure counts.
 func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
-	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
+	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -415,7 +415,7 @@ func (h *Handler) removeNodesFromWorkspace(c *gin.Context, allNodeIds []string) 
 // and returns them in a structured response format.
 // Returns a GetNodePodLogResponse or an error if any step in the process fails.
 func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
-	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(types.Name))
+	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}

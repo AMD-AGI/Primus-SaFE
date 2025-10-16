@@ -25,7 +25,7 @@ spec:
     {{- if .Values.ssh.enable }}
     - protocol: TCP
       port: {{ default 2222 (default .Values.ssh).port }}
-      targetPort:{{ default 2222 (default .Values.ssh).port }}
+      targetPort: {{ default 2222 (default .Values.ssh).port }}
       name: ssh-port
     {{- end }}
   type: NodePort

@@ -234,3 +234,14 @@ func (ws WorkloadSlice) Less(i, j int) bool {
 	}
 	return false
 }
+
+// GetWorkloadPodContainersResponse represents the response containing the list of containers and supported shells for a workload pod.
+type GetWorkloadPodContainersResponse struct {
+	Containers []GetWorkloadPodContainersItem `json:"containers"` // List of containers in the workload pod.
+	Shells     []string                       `json:"shells"`     // Supported shells, should allow user customization.
+}
+
+// GetWorkloadPodContainersItem represents a single container item in the response.
+type GetWorkloadPodContainersItem struct {
+	Name string `json:"name"` // Name of the container.
+}
