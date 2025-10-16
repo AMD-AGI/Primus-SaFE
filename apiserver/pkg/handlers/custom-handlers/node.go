@@ -229,7 +229,7 @@ func (h *Handler) buildListNodeResponse(ctx context.Context,
 
 func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	node, err := h.getAdminNode(ctx, c.GetString(types.Name))
+	node, err := h.getAdminNode(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +259,7 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	nodeId := c.GetString(types.Name)
+	nodeId := c.GetString(common.Name)
 	node, err := h.getAdminNode(ctx, nodeId)
 	if err != nil {
 		return nil, err
@@ -302,7 +302,7 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	node, err := h.getAdminNode(ctx, c.GetString(types.Name))
+	node, err := h.getAdminNode(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +332,7 @@ func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
-	node, err := h.getAdminNode(c.Request.Context(), c.GetString(types.Name))
+	node, err := h.getAdminNode(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +382,7 @@ func (h *Handler) restartNode(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	node, err := h.getAdminNode(c.Request.Context(), c.GetString(types.Name))
+	node, err := h.getAdminNode(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}

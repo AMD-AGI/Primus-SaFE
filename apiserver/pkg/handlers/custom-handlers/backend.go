@@ -22,5 +22,6 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 		EnableLog:         commonconfig.IsOpenSearchEnable(),
 		EnableLogDownload: commonconfig.IsS3Enable(),
 		EnableSSH:         commonconfig.IsSSHEnable(),
+		SSHPort:           commonconfig.GetSSHServerPort(),
 	}, nil
 }

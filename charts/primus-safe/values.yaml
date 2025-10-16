@@ -8,7 +8,7 @@ net:
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
   rdma_name: "rdma/hca"
 apiserver:
-  image: "apiserver:202510150930"
+  image: "apiserver:202510161106"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
@@ -45,7 +45,7 @@ opensearch:
   secret_path: "/etc/secrets/opensearch"
   endpoint: "primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200"
 ssh:
-  enable: false
+  enable: true
 user:
   token_required: false
 workspace:
