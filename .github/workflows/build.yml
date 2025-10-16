@@ -53,25 +53,25 @@ jobs:
           apiserver:
             - apis/**
             - apiserver/**
-            - charts/primus-safe/templates/apiserver
+            - charts/primus-safe/templates/apiserver/**
             - common/**
             - utils/**
           resource_manager:
             - apis/**
             - resource-manager/**
-            - charts/primus-safe/templates/resource-manager
+            - charts/primus-safe/templates/resource-manager/**
             - common/**
             - utils/**
           job_manager:
             - apis/**
             - job-manager/**
-            - charts/primus-safe/templates/job-manager
+            - charts/primus-safe/templates/job-manager/**
             - common/**
             - utils/**
           webhooks:
             - apis/**
             - webhooks/**
-            - charts/primus-safe/templates/webhooks
+            - charts/primus-safe/templates/webhooks/**
             - common/**
             - utils/**
           node_agent:
