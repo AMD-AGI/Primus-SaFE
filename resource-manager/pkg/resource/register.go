@@ -49,5 +49,8 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupAddonTemplateController(mgr); err != nil {
 		return fmt.Errorf("failed to set up addon controller: %+v", err)
 	}
+	if err := SetupImageImportJobReconciler(mgr); err != nil {
+		return fmt.Errorf("image import job controller: %v", err)
+	}
 	return nil
 }
