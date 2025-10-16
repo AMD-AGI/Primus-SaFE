@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, Advanced Micro Devices, Inc. All rights reserved.
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
  * See LICENSE for license information.
  */
 
@@ -8,8 +8,9 @@ package client
 import (
 	"context"
 	"fmt"
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"time"
+
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
