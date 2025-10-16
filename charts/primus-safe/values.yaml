@@ -8,12 +8,12 @@ net:
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
   rdma_name: "rdma/hca"
 apiserver:
-  image: "apiserver:202510161106"
+  image: "apiserver:202510161122"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
 resource_manager:
-  image: "resource-manager:202510151345"
+  image: "resource-manager:202510161122"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
