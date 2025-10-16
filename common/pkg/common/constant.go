@@ -9,7 +9,6 @@ const (
 	PrimusSafeNamespace        = "primus-safe"
 	PrimusFault                = "primus-safe-fault"
 	PrimusFailover             = "primus-safe-failover"
-	NodeAgentImageSecret       = "node-agent-image"
 	PrimusRouterCustomRootPath = "api/v1"
 
 	AuthoringKind   = "Authoring"

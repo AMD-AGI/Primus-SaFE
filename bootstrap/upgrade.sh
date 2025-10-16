@@ -72,6 +72,12 @@ echo "========================================="
 echo "🔧 Step 2: install primus-safe admin plane"
 echo "========================================="
 
+if [[ "$support_lens" == "y" ]]; then
+  export STORAGE_CLASS="$storage_class"
+  bash install_grafana.sh >/dev/null
+  echo "✅ grafana installed"
+fi
+
 cd ../charts/
 src_values_yaml="primus-safe/values.yaml"
 if [ ! -f "$src_values_yaml" ]; then
