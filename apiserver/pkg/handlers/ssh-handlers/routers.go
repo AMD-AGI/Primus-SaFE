@@ -15,7 +15,7 @@ import (
 
 // InitWebShellRouters initializes the web shell related routes.
 func InitWebShellRouters(e *gin.Engine, h *SshHandler) {
-	group := e.Group(common.PrimusRouterCustomRootPath, authority.Authorize(), authority.Prepare())
+	group := e.Group(common.PrimusRouterCustomRootPath, authority.Authorize(), authority.Preprocess())
 	{
 		group.GET(fmt.Sprintf("workloads/:%s/pods/:%s/webshell", common.Name, common.PodId), h.WebShell)
 	}
