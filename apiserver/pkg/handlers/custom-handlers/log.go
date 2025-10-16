@@ -45,7 +45,7 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the workloadId is empty")
 	}
@@ -93,7 +93,7 @@ func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the workloadId is empty")
 	}
@@ -291,7 +291,7 @@ func parseWorkloadLogQuery(c *gin.Context, workload *v1.Workload) (*types.ListLo
 }
 
 func parseServiceLogQuery(c *gin.Context) (*types.ListLogRequest, error) {
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the service name is empty")
 	}

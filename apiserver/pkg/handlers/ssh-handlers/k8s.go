@@ -15,6 +15,9 @@ import (
 	"strconv"
 	"time"
 
+	client2 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
+
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,60 +35,99 @@ import (
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
-func (h *SshHandler) handleSession(s Session) {
-	userInfo, ok := ParseUserInfo(s.User())
-	if !ok {
-		sendError(s, fmt.Sprintf("Invalid user %v", s.User()))
-		return
-	}
-
-	workload, k8sClients, err := h.getWorkloadAndClients(s.Context(), userInfo)
+// SessionConn establishes an SSH session to a Kubernetes pod and records the session.
+func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) error {
+	workload, k8sClients, err := h.getWorkloadAndClients(ctx, sessionInfo.userInfo)
 	if err != nil {
-		sendError(s, err.Error())
-		return
+		return err
 	}
-	if err = h.authUser(s.Context(), userInfo, workload); err != nil {
-		sendError(s, err.Error())
-		return
+	if err = h.authUser(ctx, sessionInfo.userInfo, workload); err != nil {
+		return err
 	}
 
 	req := k8sClients.ClientSet().CoreV1().RESTClient().Post().
 		Resource("pods").
-		Name(userInfo.Pod).
-		Namespace(userInfo.Namespace).
-		SubResource("exec").VersionedParams(&corev1.PodExecOptions{
-		Container: v1.GetMainContainer(workload),
-		Command:   []string{"sh"},
-		Stdin:     true,
-		Stdout:    true,
-		Stderr:    true,
-		TTY:       true,
-	}, scheme.ParameterCodec)
+		Name(sessionInfo.userInfo.Pod).
+		Namespace(sessionInfo.userInfo.Namespace).
+		SubResource("exec").
+		Timeout(time.Hour).
+		VersionedParams(&corev1.PodExecOptions{
+			Container: sessionInfo.userInfo.Container,
+			Command:   []string{sessionInfo.userInfo.CMD},
+			Stdin:     true,
+			Stdout:    true,
+			Stderr:    true,
+			TTY:       sessionInfo.isPty,
+		}, scheme.ParameterCodec)
 
 	executor, err := remotecommand.NewSPDYExecutor(k8sClients.RestConfig(), "POST", req.URL())
 	if err != nil {
-		sendError(s, fmt.Sprintf("failed to create SPDY executor: %s", err.Error()))
-		return
+		return fmt.Errorf("failed to create SPDY executor: %v", err)
 	}
-	err = executor.StreamWithContext(s.Context(), remotecommand.StreamOptions{
-		Stdin:             s,
-		Stdout:            s,
-		Stderr:            s,
-		TerminalSizeQueue: nil,
-		Tty:               true,
+	sessionInfo.size <- &remotecommand.TerminalSize{
+		Width:  uint16(sessionInfo.cols),
+		Height: uint16(sessionInfo.rows),
+	}
+
+	go sessionInfo.userConn.WindowNotify(ctx, sessionInfo.size)
+
+	_, err = sessionInfo.userConn.Write([]byte("Connection established\n"))
+	if err != nil {
+		return fmt.Errorf("user conn err: %v", err)
+	}
+
+	nowTime := dbutils.NullMetaV1Time(&metav1.Time{Time: time.Now().UTC()})
+	recordId, err := h.dbClient.InsertSshSessionRecord(ctx, &client2.SshSessionRecords{
+		UserId:        sessionInfo.userInfo.User,
+		SshType:       string(sessionInfo.sshType),
+		Namespace:     sessionInfo.userInfo.Namespace,
+		PodId:         sessionInfo.userInfo.Pod,
+		ContainerName: sessionInfo.userInfo.Container,
+		CreateTime:    nowTime,
 	})
 	if err != nil {
-		message := ""
-		if errors.Is(err, context.DeadlineExceeded) {
-			message = fmt.Sprintf("\r\n[INFO] Connection timed out (%f hour)", h.timeout.Hours())
-		} else {
-			message = err.Error()
-		}
-		sendError(s, message)
+		return fmt.Errorf("create ssh session record err: %v", err)
 	}
-	klog.Infof("Connection to the Pod(%s/%s) has ended.", workload.Spec.Workspace, userInfo.Pod)
+	defer func() {
+		if err := h.dbClient.SetSshDisconnect(context.Background(), recordId, sessionInfo.userConn.ExitReason()); err != nil {
+			klog.Errorf("set ssh session record disconnect reason err: %v", err)
+		}
+	}()
+
+	errCh := make(chan struct{})
+	go func(errCh chan struct{}) {
+		defer close(errCh)
+		err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+			Stdin:             sessionInfo.userConn,
+			Stdout:            sessionInfo.userConn,
+			Stderr:            sessionInfo.userConn,
+			TerminalSizeQueue: sessionInfo,
+			Tty:               sessionInfo.isPty,
+		})
+		message := "The underlying connection is disconnected normally"
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				message = fmt.Sprintf("\r\n[INFO] Connection timed out (%f hour)", h.timeout.Hours())
+			} else {
+				message = fmt.Sprintf("The underlying connection is abnormally disconnected：%s", err.Error())
+			}
+		}
+		sessionInfo.userConn.SetExitReason(message)
+	}(errCh)
+
+	select {
+	case <-ctx.Done():
+		sessionInfo.userConn.SetExitReason(fmt.Sprintf("\r\n[INFO] Connection timed out (%f hour)", h.timeout.Hours()))
+	case <-errCh:
+	case <-sessionInfo.userConn.ClosedChan():
+	}
+
+	klog.Infof("Connection to the Pod(%s/%s) has ended.", workload.Spec.Workspace, sessionInfo.userInfo.Pod)
+	_, err = sessionInfo.userConn.Write([]byte(fmt.Sprintf("ssh connection closed, reason: %s\n", sessionInfo.userConn.ExitReason())))
+	return nil
 }
 
+// handleSftp handles SFTP requests over SSH for a Kubernetes pod.
 func (h *SshHandler) handleSftp(s Session) {
 	userInfo, ok := ParseUserInfo(s.User())
 	if !ok {
@@ -136,6 +178,7 @@ func (h *SshHandler) handleSftp(s Session) {
 	}
 }
 
+// handleDirectIp handles direct IP forwarding requests over SSH.
 func (h *SshHandler) handleDirectIp(ctx context.Context, sshConn *ssh.ServerConn, newChan ssh.NewChannel) {
 	forwardData := forwardChannelData{}
 	if err := ssh.Unmarshal(newChan.ExtraData(), &forwardData); err != nil {
@@ -176,13 +219,7 @@ func (h *SshHandler) handleDirectIp(ctx context.Context, sshConn *ssh.ServerConn
 	}
 }
 
-type forwardChannelData struct {
-	DestAddr   string
-	DestPort   uint32
-	OriginAddr string
-	OriginPort uint32
-}
-
+// forward establishes port forwarding between SSH and Kubernetes pod.
 func (h *SshHandler) forward(ctx context.Context, dialer httpstream.Dialer,
 	forwardData forwardChannelData, newChan ssh.NewChannel) error {
 	ports := []string{fmt.Sprintf("%d:%d", forwardData.OriginPort, forwardData.DestPort)}
@@ -241,6 +278,7 @@ func (h *SshHandler) forward(ctx context.Context, dialer httpstream.Dialer,
 	return nil
 }
 
+// getWorkloadAndClients retrieves the workload and Kubernetes client factory for the user.
 func (h *SshHandler) getWorkloadAndClients(ctx context.Context, userInfo *UserInfo) (*v1.Workload, *commonclient.ClientFactory, error) {
 	workspace := &v1.Workspace{}
 	err := h.Get(ctx, client.ObjectKey{Name: userInfo.Namespace}, workspace)
@@ -274,6 +312,7 @@ func (h *SshHandler) getWorkloadAndClients(ctx context.Context, userInfo *UserIn
 	return workload, k8sClients, nil
 }
 
+// authUser authorizes the user for the given workload.
 func (h *SshHandler) authUser(ctx context.Context, userInfo *UserInfo, workload *v1.Workload) error {
 	if err := h.auth.Authorize(authority.Input{
 		Context:    ctx,
@@ -287,7 +326,16 @@ func (h *SshHandler) authUser(ctx context.Context, userInfo *UserInfo, workload 
 	return nil
 }
 
+// sendError writes an error message to the writer and logs it.
 func sendError(w io.Writer, msg string) {
 	klog.Error(msg)
 	_, _ = w.Write([]byte(msg + "\n"))
+}
+
+// forwardChannelData holds data for port forwarding.
+type forwardChannelData struct {
+	DestAddr   string
+	DestPort   uint32
+	OriginAddr string
+	OriginPort uint32
 }
