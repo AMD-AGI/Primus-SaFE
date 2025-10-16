@@ -7,47 +7,65 @@ apiVersion: v1
 data:
   config.yaml: |
     global:
+      # RDMA device name
       rdma_name: {{ .Values.net.rdma_name }}
+      # Image pull secret for primus-safe. If set to empty, the secret will not be used.
       image_secret: {{ .Values.global.image_pull_secret }}
     health_check:
+      # Whether to enable health check
       enable: {{ default true (default .Values.k8s).enable_health_check }}
+      # The port of health check
       port: {{ default 8081 (default .Values.resource_manager).health_port }}
     leader_election:
+      # LeaderElection determines whether or not to use leader election when starting the manager.
       enable: true
-      lock_namespace: "{{ .Release.Namespace }}"
     workspace:
+      # The percentage of memory reserved for the system.
       mem_reserve_percent: {{ default 0.02 (default .Values.workspace).mem_reserve_percent }}
+      # The percentage of cpu reserved for the system.
       cpu_reserve_percent: {{ default 0.06 (default .Values.workspace).cpu_reserve_percent }}
+      # The percentage of storage reserved for the system.
       ephemeral_store_reserve_percent: {{ default 0.1 (default .Values.workspace).ephemeral_store_reserve_percent }}
     workload:
+      # The maximum percentage of ephemeral storage that can be used by a workload.
       max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
     db:
+      # Whether to enable database, The database will store some historical data regarding workloads, faults, and ops jobs.
       enable: {{ .Values.db.enable }}
+      # The path of database secret
       secret_path: {{ default "/etc/secrets/db" (default .Values.db).secret_path }}
+      # The ssl mode of db
       ssl_mode: {{ default "require" (default .Values.db).ssl_mode }}
-      max_open_conns: {{ default 100 (default .Values.db).max_open_conns }}
-      max_idle_conns: {{ default 10 (default .Values.db).max_idle_conns }}
-      max_life_time_second: {{ default 600 (default .Values.db).max_life_time_second }}
-      max_idle_time_second: {{ default 100 (default .Values.db).max_idle_time_second }}
-      connect_timeout_second: {{ default 10 (default .Values.db).connect_timeout_second }}
-      request_timeout_second: {{ default 20 (default .Values.db).request_timeout_second }}
     opensearch:
+      # Whether to enable opensearch, it is used for log search.
       enable: {{ .Values.opensearch.enable }}
+      # The path of opensearch secret
       secret_path: {{ .Values.opensearch.secret_path }}
+      # The endpoint of opensearch
       endpoint: {{  .Values.opensearch.endpoint }}
+      # The prefix of index
       prefix: {{ .Values.opensearch.prefix }}
+      # OpenSearch username and password are optional; either use them or the secret above
       username: "{{ default "" (default .Values.opensearch).username }}"
       password: "{{ default "" (default .Values.opensearch).password }}"
     ops_job:
+      # The lifecycle of the opsjob after completion, in seconds. Default is 300.
       ttl_second: {{ default 300 (default .Values.ops_job).ttl_second }}
+      # The timeout of the opsjob, in seconds. Default is 3600.
       timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
     s3:
+      # Whether to enable s3, it is used to download logs
       enable: {{ .Values.s3.enable }}
+      # The path of s3 secret
       secret_path: {{ .Values.s3.secret_path }}
+      # The endpoint of s3
       endpoint: {{ .Values.s3.endpoint }}
+      # The default bucket used by s3
       bucket: {{ .Values.s3.bucket }}
+      # S3 access_key and secret_key are optional; either use them or the secret above
       access_key: "{{ default "" (default .Values.s3).access_key }}"
       secret_key: "{{ default "" (default .Values.s3).secret_key }}"
+      # The expire day of object in s3. This feature requires system support to be enabled and needs to be confirmed with the administrator.
       expire_day: 0
 {{- if .Values.addon }}
     addon:

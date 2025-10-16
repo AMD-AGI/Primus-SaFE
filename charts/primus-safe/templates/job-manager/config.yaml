@@ -7,23 +7,32 @@ apiVersion: v1
 data:
   config.yaml: |
     global:
+      # RDMA device name
       rdma_name: {{ .Values.net.rdma_name }}
     health_check:
+      # Whether to enable health check
       enable: {{ default true (default .Values.k8s).enable_health_check }}
+      # The port of health check
       port: {{ default 8083 (default .Values.job_manager).health_port }}
     leader_election:
+      # LeaderElection determines whether or not to use leader election when starting the manager.
       enable: true
-      lock_namespace: "{{ .Release.Namespace }}"
     workspace:
+      # The percentage of memory reserved for the system.
       mem_reserve_percent: {{ default 0.02 (default .Values.workspace).mem_reserve_percent }}
+      # The percentage of cpu reserved for the system.
       cpu_reserve_percent: {{ default 0.06 (default .Values.workspace).cpu_reserve_percent }}
+      # The percentage of storage reserved for the system.
       ephemeral_store_reserve_percent: {{ default 0.1 (default .Values.workspace).ephemeral_store_reserve_percent }}
     workload:
+      # The maximum percentage of ephemeral storage that can be used by a workload.
       max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
-      enable_failover: true
+      # If the workload has hang detection enabled, it is considered failed if no logs are generated within this interval, in seconds
       hang_check_interval: 1200
     ssh:
+      # Whether to enable ssh, Users can log in directly to their own pods.
       enable: {{ .Values.ssh.enable }}
+      # The secret for ssh, which contains the private key
       secret_path: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
 kind: ConfigMap
 metadata:
