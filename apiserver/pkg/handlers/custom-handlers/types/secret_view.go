@@ -26,11 +26,12 @@ const (
 type CreateSecretRequest struct {
 	// Secret name (display only), applicable only for SSH key usage
 	Name string `json:"name,omitempty"`
-	// secret type. crypto/image/ssh
+	// secret type. image/ssh
 	Type v1.SecretType `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
 	// the private key, public key and password need to be Base64 encoded
-	Params map[SecretParam]string `json:"params"`
+	// Multiple auths may be created for image secret, so the params is a slice
+	Params []map[SecretParam]string `json:"params"`
 	// Whether to bind the secret to all workspaces
 	BindAllWorkspaces bool `json:"bindAllWorkspaces,omitempty"`
 }
@@ -55,7 +56,7 @@ type SecretResponseItem struct {
 	SecretName string `json:"secretName"`
 	Type       string `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
-	Params map[SecretParam]string `json:"params"`
+	Params []map[SecretParam]string `json:"params"`
 	// Creation timestamp of the secret
 	CreationTime string `json:"creationTime"`
 	// Whether to bind the secret to all workspaces
@@ -75,7 +76,8 @@ type DockerConfig struct {
 type PatchSecretRequest struct {
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
 	// the private key, public key and password need to be Base64 encoded
-	Params map[SecretParam]string `json:"params,omitempty"`
+	// Multiple auths may be created for image secret, so the params is a slice
+	Params *[]map[SecretParam]string `json:"params,omitempty"`
 	// Whether to bind the secret to all workspaces
 	BindAllWorkspaces *bool `json:"bindAllWorkspaces,omitempty"`
 }
