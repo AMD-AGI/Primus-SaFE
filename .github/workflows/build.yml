@@ -16,6 +16,9 @@ jobs:
     outputs:
       is_build_apiserver: ${{ steps.changed-files.outputs.apiserver_any_changed }}
       is_build_resource_manager: ${{ steps.changed-files.outputs.resource_manager_any_changed }}
+      is_build_job_manager: ${{ steps.changed-files.outputs.job_manager_any_changed }}
+      is_build_webhooks: ${{ steps.changed-files.outputs.webhooks_any_changed }}
+      is_build_node_agent: ${{ steps.changed-files.outputs.node_agent_any_changed }}
       is_build_sync_image: ${{ steps.changed-files.outputs.sync_image_any_changed }}
       is_build_telemetry_processor:  ${{ steps.changed-files.outputs.telemetry_processor_any_changed }}
       is_build_gpu_resource_exporter: ${{ steps.changed-files.outputs.gpu_resource_exporter_any_changed }}
@@ -50,11 +53,29 @@ jobs:
           apiserver:
             - apis/**
             - apiserver/**
+            - charts/primus-safe/templates/apiserver
             - common/**
             - utils/**
           resource_manager:
             - apis/**
             - resource-manager/**
+            - charts/primus-safe/templates/resource-manager
+            - common/**
+            - utils/**
+          job_manager:
+            - apis/**
+            - job-manager/**
+            - charts/primus-safe/templates/job-manager
+            - common/**
+            - utils/**
+          webhooks:
+            - apis/**
+            - webhooks/**
+            - charts/primus-safe/templates/webhooks
+            - common/**
+            - utils/**
+          node_agent:
+            - node-agent/**
             - common/**
             - utils/**
           sync_image:
@@ -128,6 +149,93 @@ jobs:
           tags: |
             "primussafe/resource-manager:${{needs.detect-changes.outputs.image_version}}"
             "primussafe/resource-manager:${{needs.detect-changes.outputs.date_time}}"
+  #####
+  # job-manager
+  #####
+  build-job-manager:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is_build_job_manager == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
+      matrix: ${{ steps.build-and-push.outputs.matrix }}
+    timeout-minutes: 7200
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - uses: docker/login-action@v1
+        name: login-docker
+        with:
+          username: ${{ secrets.DOCKER_USERNAME  }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: '.'
+          file: job-manager/installer/Dockerfile
+          push: true
+          tags: |
+            "primussafe/job-manager:${{needs.detect-changes.outputs.image_version}}"
+            "primussafe/job-manager:${{needs.detect-changes.outputs.date_time}}"
+  #####
+  # webhooks
+  #####
+  build-webhooks:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is_build_webhooks == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
+      matrix: ${{ steps.build-and-push.outputs.matrix }}
+    timeout-minutes: 7200
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - uses: docker/login-action@v1
+        name: login-docker
+        with:
+          username: ${{ secrets.DOCKER_USERNAME  }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: '.'
+          file: webhooks/installer/Dockerfile
+          push: true
+          tags: |
+            "primussafe/webhooks:${{needs.detect-changes.outputs.image_version}}"
+            "primussafe/webhooks:${{needs.detect-changes.outputs.date_time}}"
+  #####
+  # node-agent
+  #####
+  build-node-agent:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is_build_node_agent == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
+      matrix: ${{ steps.build-and-push.outputs.matrix }}
+    timeout-minutes: 7200
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - uses: docker/login-action@v1
+        name: login-docker
+        with:
+          username: ${{ secrets.DOCKER_USERNAME  }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: '.'
+          file: node-agent/installer/Dockerfile
+          push: true
+          tags: |
+            "primussafe/node-agent:${{needs.detect-changes.outputs.image_version}}"
+            "primussafe/node-agent:${{needs.detect-changes.outputs.date_time}}"
   #####
   # sync-image
   #####
