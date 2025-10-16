@@ -72,7 +72,7 @@ echo "========================================="
 echo "🔧 Step 2: install primus-safe admin plane"
 echo "========================================="
 
-if [[ "$support_lens" == "y" ]]; then
+if [[ "$opensearch_enable" == "true" ]]; then
   export STORAGE_CLASS="$storage_class"
   bash install_grafana.sh >/dev/null
   echo "✅ grafana installed"
