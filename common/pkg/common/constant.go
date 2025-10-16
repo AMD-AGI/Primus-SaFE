@@ -57,3 +57,9 @@ const (
 	UserWorkspaces        = "workspaces"
 	UserManagedWorkspaces = "managedWorkspaces"
 )
+
+const (
+	ImageImportReadyStatus  = "Ready"
+	ImageImportingStatus    = "Importing"
+	ImageImportFailedStatus = "Failed"
+)

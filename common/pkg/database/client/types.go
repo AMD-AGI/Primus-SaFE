@@ -8,15 +8,18 @@ package client
 import (
 	"database/sql"
 	"fmt"
+	"github.com/lib/pq"
 	"reflect"
 	"strings"
-
-	"github.com/lib/pq"
 )
 
 const (
 	DESC = "desc"
 	ASC  = "asc"
+)
+
+const (
+	CreatedTime = "created_at"
 )
 
 type Workload struct {
