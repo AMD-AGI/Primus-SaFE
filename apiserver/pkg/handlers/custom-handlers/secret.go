@@ -167,7 +167,7 @@ func (h *Handler) getSecret(c *gin.Context) (interface{}, error) {
 	}); err != nil {
 		return nil, err
 	}
-	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(types.Name))
+	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +198,7 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(types.Name))
+	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -221,9 +221,9 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 
 // updateSecret: applies updates to a secret based on the patch request.
 func updateSecret(secret *corev1.Secret, req *types.PatchSecretRequest) error {
-	if len(req.Params) > 0 {
+	if req.Params != nil {
 		reqType := v1.SecretType(v1.GetSecretType(secret))
-		if err := buildSecretData(reqType, req.Params, secret); err != nil {
+		if err := buildSecretData(reqType, *req.Params, secret); err != nil {
 			return err
 		}
 	}
@@ -308,7 +308,7 @@ func (h *Handler) updateWorkspaceSecret(ctx context.Context, inputSecret *corev1
 // Removes the secret from the Kubernetes cluster and cleans up references
 // in associated clusters and workspaces.
 func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the secretId is empty")
 	}
@@ -422,7 +422,7 @@ func generateSecret(req *types.CreateSecretRequest) (*corev1.Secret, error) {
 		v1.SetLabel(secret, v1.SecretAllWorkspaceLabel, v1.TrueStr)
 	}
 	if err := buildSecretData(req.Type, req.Params, secret); err != nil {
-		return nil, err
+		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 	if req.Name != "" {
 		v1.SetLabel(secret, v1.DisplayNameLabel, req.Name)
@@ -432,49 +432,53 @@ func generateSecret(req *types.CreateSecretRequest) (*corev1.Secret, error) {
 
 // buildSecretData: constructs the secret data based on the secret type and parameters.
 // Handles different secret types (image, SSH) and formats the data appropriately.
-func buildSecretData(reqType v1.SecretType, reqParams map[types.SecretParam]string, secret *corev1.Secret) error {
+func buildSecretData(reqType v1.SecretType, allParams []map[types.SecretParam]string, secret *corev1.Secret) error {
 	var secretType corev1.SecretType
-	params := make(map[string][]byte)
+	data := make(map[string][]byte)
 
 	switch reqType {
 	case v1.SecretImage:
 		keys := []types.SecretParam{types.PasswordParam, types.UserNameParam, types.ServerParam}
-		for _, key := range keys {
-			if !existKey(reqParams, key) {
-				return fmt.Errorf("the %s is empty", key)
+		secretType = corev1.SecretTypeDockerConfigJson
+		dockerConf := types.DockerConfig{}
+		dockerConf.Auths = make(map[string]types.DockerConfigItem)
+		for _, params := range allParams {
+			for _, key := range keys {
+				if !existKey(params, key) {
+					return fmt.Errorf("the %s is empty", key)
+				}
+			}
+			auth := stringutil.Base64Encode(fmt.Sprintf("%s:%s",
+				params[types.UserNameParam], params[types.PasswordParam]))
+			dockerConf.Auths[params[types.ServerParam]] = types.DockerConfigItem{
+				UserName: params[types.UserNameParam],
+				Password: stringutil.Base64Decode(params[types.PasswordParam]),
+				Auth:     auth,
 			}
 		}
-		secretType = corev1.SecretTypeDockerConfigJson
-		auth := stringutil.Base64Encode(fmt.Sprintf("%s:%s",
-			reqParams[types.UserNameParam], reqParams[types.PasswordParam]))
-		dockerConf := types.DockerConfig{
-			Auths: map[string]types.DockerConfigItem{
-				reqParams[types.ServerParam]: {
-					UserName: reqParams[types.UserNameParam],
-					Password: stringutil.Base64Decode(reqParams[types.PasswordParam]),
-					Auth:     auth,
-				},
-			},
-		}
-		params[types.DockerConfigJson] = jsonutils.MarshalSilently(dockerConf)
+		data[types.DockerConfigJson] = jsonutils.MarshalSilently(dockerConf)
 	case v1.SecretSSH:
-		if !existKey(reqParams, types.UserNameParam) {
+		if len(allParams) == 0 {
+			return fmt.Errorf("the input params is empty")
+		}
+		params := allParams[0]
+		if !existKey(params, types.UserNameParam) {
 			return fmt.Errorf("the %s is empty", types.UserNameParam)
 		}
 		secretType = corev1.SecretTypeOpaque
-		params[string(types.UserNameParam)] = []byte(reqParams[types.UserNameParam])
-		if val, _ := reqParams[types.PasswordParam]; val != "" {
-			params[string(types.PasswordParam)] = []byte(reqParams[types.PasswordParam])
-		} else if existKey(reqParams, types.PublicKeyParam) && existKey(reqParams, types.PrivateKeyParam) {
-			params[types.SSHAuthKey] = []byte(stringutil.Base64Decode(reqParams[types.PrivateKeyParam]))
-			params[types.SSHAuthPubKey] = []byte(stringutil.Base64Decode(reqParams[types.PublicKeyParam]))
+		data[string(types.UserNameParam)] = []byte(params[types.UserNameParam])
+		if val, _ := params[types.PasswordParam]; val != "" {
+			data[string(types.PasswordParam)] = []byte(params[types.PasswordParam])
+		} else if existKey(params, types.PublicKeyParam) && existKey(params, types.PrivateKeyParam) {
+			data[types.SSHAuthKey] = []byte(stringutil.Base64Decode(params[types.PrivateKeyParam]))
+			data[types.SSHAuthPubKey] = []byte(stringutil.Base64Decode(params[types.PublicKeyParam]))
 		} else {
 			return fmt.Errorf("the password or keypair is empty")
 		}
 	default:
 		return fmt.Errorf("the secret type %s is not supported", reqType)
 	}
-	secret.Data = params
+	secret.Data = data
 	secret.Type = secretType
 	return nil
 }
@@ -517,22 +521,28 @@ func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 		CreationTime:      timeutil.FormatRFC3339(&secret.CreationTimestamp.Time),
 		BindAllWorkspaces: v1.IsSecretBindAllWorkspaces(secret),
 	}
-	result.Params = make(map[types.SecretParam]string)
+
 	switch result.Type {
 	case string(v1.SecretImage):
 		dockerConf := &types.DockerConfig{}
 		if json.Unmarshal(secret.Data[types.DockerConfigJson], dockerConf) == nil {
+			result.Params = make([]map[types.SecretParam]string, 0, len(dockerConf.Auths))
 			for k, v := range dockerConf.Auths {
-				result.Params[types.ServerParam] = k
-				result.Params[types.UserNameParam] = v.UserName
-				result.Params[types.PasswordParam] = stringutil.Base64Encode(v.Password)
+				params := make(map[types.SecretParam]string)
+				params[types.ServerParam] = k
+				params[types.UserNameParam] = v.UserName
+				params[types.PasswordParam] = stringutil.Base64Encode(v.Password)
+				result.Params = append(result.Params, params)
 				break
 			}
 		}
 	case string(v1.SecretSSH):
-		result.Params[types.UserNameParam] = string(secret.Data[string(types.UserNameParam)])
-		result.Params[types.PrivateKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthKey]))
-		result.Params[types.PublicKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthPubKey]))
+		result.Params = make([]map[types.SecretParam]string, 0, 1)
+		params := make(map[types.SecretParam]string)
+		params[types.UserNameParam] = string(secret.Data[string(types.UserNameParam)])
+		params[types.PrivateKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthKey]))
+		params[types.PublicKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthPubKey]))
+		result.Params = append(result.Params, params)
 	}
 	return result
 }

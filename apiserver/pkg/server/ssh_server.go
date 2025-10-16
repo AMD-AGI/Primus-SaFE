@@ -15,19 +15,20 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const (
-	MaxSSHConnections = 10000
-)
-
+// SshHandler defines an interface to handle an accepted connection.
 type SshHandler interface {
 	HandleConnection(net.Conn)
 }
 
+// SshServer represents a simple TCP server for SSH-like connections.
+// Addr optionally specifies the TCP address for the server to listen on,
+// in the form "host:port". Handler is invoked for each accepted connection.
 type SshServer struct {
 	// Addr optionally specifies the TCP address for the server to listen on,
-	// in the form "host:port"
-	Addr    string
-	Handler SshHandler //  handler to invoke
+	// in the form "host:port".
+	Addr string
+	// Handler is the handler to invoke for each accepted connection.
+	Handler SshHandler
 
 	listener   net.Listener
 	inShutdown atomic.Bool // true when server is in shutdown
@@ -46,7 +47,6 @@ func NewSshServer(addr string, handler SshHandler) *SshServer {
 	return &SshServer{
 		Addr:           addr,
 		Handler:        handler,
-		maxConnections: MaxSSHConnections,
 	}
 }
 
@@ -67,9 +67,11 @@ func (s *SshServer) Start(ctx context.Context) error {
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
+			// If server is shutting down, return nil to indicate graceful stop.
 			if s.inShutdown.Load() {
 				return nil
 			}
+			// If context was canceled, return nil.
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -79,18 +81,20 @@ func (s *SshServer) Start(ctx context.Context) error {
 				continue
 			}
 		}
-		if s.Handler != nil {
-			if s.maxConnections > 0 && atomic.LoadInt64(&s.connections) >= s.maxConnections {
-				conn.Close()
-				continue
-			}
-			atomic.AddInt64(&s.connections, 1)
-			go func() {
-				defer atomic.AddInt64(&s.connections, -1)
-				s.Handler.HandleConnection(conn)
-				conn.Close()
-			}()
+		// If no handler is provided, close the connection immediately.
+		if s.Handler == nil {
+			_ = conn.Close()
+			continue
 		}
+
+		// Capture the connection variable for the goroutine to avoid capturing
+		// the loop variable (which would lead to incorrect behavior).
+		c := conn
+		go func() {
+			// Ensure connection is closed when handler finishes.
+			defer c.Close()
+			s.Handler.HandleConnection(c)
+		}()
 	}
 }
 

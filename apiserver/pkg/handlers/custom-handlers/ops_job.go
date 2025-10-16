@@ -166,7 +166,7 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	isFound, err := h.deleteAdminOpsJob(c, name)
 	if err != nil {
 		return nil, err
@@ -195,7 +195,7 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 // stopOpsJob: implements ops job stopping logic.
 // It removes the job from the k8s cluster and cleans up related job resource.
 func (h *Handler) stopOpsJob(c *gin.Context) (interface{}, error) {
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	isFound, err := h.deleteAdminOpsJob(c, name)
 	if err != nil {
 		return nil, err
@@ -542,7 +542,7 @@ func cvtToListOpsJobSql(query *types.ListOpsJobRequest) sqrl.Sqlizer {
 // cvtToGetOpsJobSql: converts the get ops job request into an SQL query.
 // It builds a query to retrieve a specific job by ID, with user access restrictions if not system admin.
 func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
-	jobId := c.GetString(types.Name)
+	jobId := c.GetString(common.Name)
 	if jobId == "" {
 		return nil, commonerrors.NewBadRequest("the jobId is empty")
 	}

@@ -148,7 +148,7 @@ func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
 // getNodeFlavor: implements the logic for retrieving a single node flavor's information.
 // Gets the node flavor by ID and converts it to a response item format.
 func (h *Handler) getNodeFlavor(c *gin.Context) (interface{}, error) {
-	nf, err := h.getAdminNodeFlavor(c.Request.Context(), c.GetString(types.Name))
+	nf, err := h.getAdminNodeFlavor(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func (h *Handler) getNodeFlavor(c *gin.Context) (interface{}, error) {
 // Parses the patch request, applies specified changes, and updates the node flavor.
 func (h *Handler) patchNodeFlavor(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(types.Name))
+	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +202,7 @@ func (h *Handler) patchNodeFlavor(c *gin.Context) (interface{}, error) {
 // Retrieves the node flavor and removes it from the k8s cluster.
 func (h *Handler) deleteNodeFlavor(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(types.Name))
+	nf, err := h.getAdminNodeFlavor(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +240,7 @@ func (h *Handler) getAdminNodeFlavor(ctx context.Context, flavorId string) (*v1.
 // It computes the available resource quantities based on the node flavor specification
 // and system configuration limits.
 func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
-	nf, err := h.getAdminNodeFlavor(c.Request.Context(), c.GetString(types.Name))
+	nf, err := h.getAdminNodeFlavor(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}

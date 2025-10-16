@@ -7,6 +7,7 @@ package handlers
 
 import (
 	"context"
+	image_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -36,6 +37,16 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		return nil, err
 	}
 	customhandler.InitCustomRouters(engine, customHandler)
+	imageHanlder, err := image_handlers.NewImageHandler(mgr)
+	if err != nil {
+		return nil, err
+	}
+	image_handlers.InitImageRouter(engine, imageHanlder)
+	sshHandler, err := InitSshHandlers(context.Background(), mgr)
+	if err != nil {
+		return nil, err
+	}
+	sshhandler.InitWebShellRouters(engine, sshHandler)
 	return engine, nil
 }
 

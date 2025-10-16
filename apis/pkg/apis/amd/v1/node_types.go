@@ -174,7 +174,7 @@ func (n *Node) IsReady() bool {
 }
 
 func (n *Node) IsManaged() bool {
-	return n != nil && n.Status.ClusterStatus.Phase == NodeManaged
+	return n != nil && n.Status.ClusterStatus.Phase == NodeManaged && GetClusterId(n) != ""
 }
 
 func (n *Node) GetSpecCluster() string {

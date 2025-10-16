@@ -166,7 +166,7 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 // including resource quotas and configuration.
 func (h *Handler) getWorkspace(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	workspace, err := h.getAdminWorkspace(ctx, c.GetString(types.Name))
+	workspace, err := h.getAdminWorkspace(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (h *Handler) getWorkspace(c *gin.Context) (interface{}, error) {
 // Authorizes the request and removes the specified workspace from the system.
 func (h *Handler) deleteWorkspace(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	workspace, err := h.getAdminWorkspace(ctx, c.GetString(types.Name))
+	workspace, err := h.getAdminWorkspace(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +216,7 @@ func (h *Handler) deleteWorkspace(c *gin.Context) (interface{}, error) {
 // Parses the patch request and applies specified changes to the workspace.
 func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	workspace, err := h.getAdminWorkspace(ctx, c.GetString(types.Name))
+	workspace, err := h.getAdminWorkspace(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +325,7 @@ func (h *Handler) processWorkspaceNodes(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return nil, h.updateWorkspaceNodesAction(c, c.GetString(types.Name), req.Action, req.NodeIds)
+	return nil, h.updateWorkspaceNodesAction(c, c.GetString(common.Name), req.Action, req.NodeIds)
 }
 
 // updateWorkspaceNodesAction: converts requested nodes and action into a node action

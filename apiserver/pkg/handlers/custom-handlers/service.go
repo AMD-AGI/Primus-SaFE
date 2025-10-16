@@ -11,7 +11,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -27,7 +26,7 @@ func (h *Handler) GetWorkloadService(c *gin.Context) {
 // obtains the appropriate Kubernetes client for the workload's cluster, and fetches the service
 // specification from the target namespace. Returns the service specification or an error.
 func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the serviceId is empty")
 	}

@@ -138,6 +138,7 @@ else
       --namespace="$NAMESPACE" \
       --dry-run=client -o yaml | kubectl create -f - \
       && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" primus-safe.secret.all.workspace="true" --overwrite
+    echo "✅ Image pull secret($image_secret_name) created in namespace \"$NAMESPACE\""
   else
     kubectl create secret generic "$image_secret_name" \
       --namespace="$NAMESPACE" \
@@ -145,8 +146,8 @@ else
       --type=kubernetes.io/dockerconfigjson \
       --dry-run=client -o yaml | kubectl create -f - \
       && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" primus-safe.secret.all.workspace="true" --overwrite
+    echo "✅ Empty Image pull secret($image_secret_name) created in namespace \"$NAMESPACE\""
   fi
-  echo "✅ Image pull secret $image_secret_name created in namespace \"$NAMESPACE\""
 fi
 
 if [[ "$support_lens" == "y" ]]; then

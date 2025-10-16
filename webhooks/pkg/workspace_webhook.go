@@ -94,9 +94,6 @@ func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.W
 	if err := m.mutateCommon(ctx, nil, workspace); err != nil {
 		return err
 	}
-	if err := m.mutateImageSecret(ctx, workspace); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -220,6 +217,17 @@ func (m *WorkspaceMutator) mutateVolumes(workspace *v1.Workspace) {
 			workspace.Spec.Volumes[i].AccessMode = corev1.ReadWriteMany
 		}
 	}
+}
+
+func (m *WorkspaceMutator) mutateCommon(ctx context.Context, workspace *v1.Workspace) error {
+	if err := m.mutateByNodeFlavor(ctx, workspace); err != nil {
+		return err
+	}
+	if err := m.mutateImageSecret(ctx, workspace); err != nil {
+		return err
+	}
+	m.mutateVolumes(workspace)
+	return nil
 }
 
 func (m *WorkspaceMutator) mutateByNodeFlavor(ctx context.Context, workspace *v1.Workspace) error {

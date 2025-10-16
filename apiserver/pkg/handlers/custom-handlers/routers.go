@@ -8,6 +8,8 @@ package custom_handlers
 import (
 	"fmt"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
@@ -16,7 +18,7 @@ import (
 
 func InitCustomRouters(e *gin.Engine, h *Handler) {
 	// Custom API requires authentication and preprocessing.
-	group := e.Group(common.PrimusRouterCustomRootPath, authorize(), preprocess())
+	group := e.Group(common.PrimusRouterCustomRootPath, authority.Authorize(), authority.Prepare())
 	{
 		group.POST("workloads", h.CreateWorkload)
 		group.POST("workloads/clone", h.CloneWorkloads)
@@ -41,7 +43,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.GET("faults", h.ListFault)
 
 		group.POST("nodetemplates", h.CreateNodeTemplate)
-		group.DELETE(fmt.Sprintf("nodetemplates/:%s", types.Name), h.DeleteNodeTemplate)
+		group.DELETE(fmt.Sprintf("nodetemplates/:%s", common.Name), h.DeleteNodeTemplate)
 		group.GET("nodetemplates", h.ListNodeTemplate)
 
 		group.POST("nodes", h.CreateNode)
@@ -59,10 +61,10 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.GET("workspaces", h.ListWorkspace)
 
 		group.POST("clusters", h.CreateCluster)
-		group.POST(fmt.Sprintf("clusters/:%s/nodes", types.Name), h.ProcessClusterNodes)
-		group.DELETE(fmt.Sprintf("clusters/:%s", types.Name), h.DeleteCluster)
-		group.PATCH(fmt.Sprintf("clusters/:%s", types.Name), h.PatchCluster)
-		group.GET(fmt.Sprintf("clusters/:%s/logs", types.Name), h.GetClusterPodLog)
+		group.POST(fmt.Sprintf("clusters/:%s/nodes", common.Name), h.ProcessClusterNodes)
+		group.DELETE(fmt.Sprintf("clusters/:%s", common.Name), h.DeleteCluster)
+		group.PATCH(fmt.Sprintf("clusters/:%s", common.Name), h.PatchCluster)
+		group.GET(fmt.Sprintf("clusters/:%s/logs", common.Name), h.GetClusterPodLog)
 
 		group.POST("nodeflavors", h.CreateNodeFlavor)
 		group.DELETE(fmt.Sprintf("nodeflavors/:%s", types.Name), h.DeleteNodeFlavor)
@@ -82,16 +84,21 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.GET("users", h.ListUser)
 		group.GET(fmt.Sprintf("users/:%s", types.Name), h.GetUser)
 
-		group.POST(fmt.Sprintf("service/:%s/logs", types.Name), h.GetServiceLog)
-		group.POST(fmt.Sprintf("workloads/:%s/logs", types.Name), h.GetWorkloadLog)
-		group.POST(fmt.Sprintf("workloads/:%s/logs/:%s/context", types.Name, types.DocId), h.GetWorkloadLogContext)
+		group.POST(fmt.Sprintf("service/:%s/logs", common.Name), h.GetServiceLog)
+		group.POST(fmt.Sprintf("workloads/:%s/logs", common.Name), h.GetWorkloadLog)
+		group.POST(fmt.Sprintf("workloads/:%s/logs/:%s/context", common.Name, types.DocId), h.GetWorkloadLogContext)
+
+		group.POST("publickeys", h.CreatePublicKey)
+		group.DELETE("publickeys/:id", h.DeletePublicKey)
+		group.PATCH("publickeys/:id/status", h.SetPublicKeyStatus)
+		group.PATCH("publickeys/:id/description", h.SetPublicKeyDescription)
+		group.GET("publickeys", h.ListPublicKeys)
 	}
 
 	// Custom API without authentication
-	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, preprocess())
 	{
 		noAuthGroup.GET("clusters", h.ListCluster)
-		noAuthGroup.GET(fmt.Sprintf("clusters/:%s", types.Name), h.GetCluster)
+		noAuthGroup.GET(fmt.Sprintf("clusters/:%s", common.Name), h.GetCluster)
 
 		noAuthGroup.POST(fmt.Sprintf("login"), h.Login)
 		noAuthGroup.POST(fmt.Sprintf("logout"), h.Logout)

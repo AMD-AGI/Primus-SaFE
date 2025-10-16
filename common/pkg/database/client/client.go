@@ -7,6 +7,7 @@ package client
 
 import (
 	"fmt"
+	"gorm.io/gorm"
 	"sync"
 	"time"
 
@@ -25,7 +26,8 @@ var (
 )
 
 type Client struct {
-	db *sqlx.DB
+	db   *sqlx.DB
+	gorm *gorm.DB
 	*utils.DBConfig
 }
 
@@ -59,7 +61,8 @@ func NewClient() *Client {
 			klog.ErrorS(err, "failed to ping db")
 			return
 		}
-		instance = &Client{db: db, DBConfig: cfg}
+		gormDb, err := utils.ConnectGorm(cfg)
+		instance = &Client{db: db, DBConfig: cfg, gorm: gormDb}
 		klog.Infof("init db-client successfully! conn-timeout: %d(s), request-timeout: %d(s)",
 			cfg.ConnectTimeout, commonconfig.GetDBRequestTimeoutSecond())
 	})
