@@ -53,7 +53,7 @@ type ImportImageEnv struct {
 	OsArch          string `json:"osArch"`          // e.g: linux/amd64
 	Os              string `json:"os"`              // e.g: linux
 	Arch            string `json:"arch"`            // e.g: amd64
-	Description     string `json:"description"`     // 描述
+	Description     string `json:"description"`
 }
 
 type ImportImageServiceRequest struct {

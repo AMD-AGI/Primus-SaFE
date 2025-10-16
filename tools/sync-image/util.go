@@ -18,8 +18,6 @@ import (
 	"golang.org/x/term"
 )
 
-// parseManifestFormat parses format parameter for copy and sync command.
-// It returns string value to use as manifest MIME type
 func parseManifestFormat(manifestFormat string) (string, error) {
 	switch manifestFormat {
 	case "oci":
@@ -33,9 +31,6 @@ func parseManifestFormat(manifestFormat string) (string, error) {
 	}
 }
 
-// destinationReference creates an image reference using the provided transport.
-// It returns a image reference to be used as destination of an image copy and
-// any error encountered.
 func destinationReference(destination string, transport string) (types.ImageReference, error) {
 	var imageTransport types.ImageTransport
 
@@ -69,36 +64,19 @@ func destinationReference(destination string, transport string) (types.ImageRefe
 	return destRef, nil
 }
 
-// noteCloseFailure returns (possibly-nil) err modified to account for (non-nil) closeErr.
-// The error for closeErr is annotated with description (which is not a format string)
-// Typical usage:
-//
-//	defer func() {
-//		if err := something.Close(); err != nil {
-//			returnedErr = noteCloseFailure(returnedErr, "closing something", err)
-//		}
-//	}
 func noteCloseFailure(err error, description string, closeErr error) error {
-	// We don’t accept a Closer() and close it ourselves because signature.PolicyContext has .Destroy(), not .Close().
-	// This also makes it harder for a caller to do
-	//     defer noteCloseFailure(returnedErr, …)
-	// which doesn’t use the right value of returnedErr, and doesn’t update it.
+
 	if err == nil {
 		return fmt.Errorf("%s: %w", description, closeErr)
 	}
-	// In this case we prioritize the primary error for use with %w; closeErr is usually less relevant, or might be a consequence of the primary error.
 	return fmt.Errorf("%w (%s: %v)", err, description, closeErr)
 }
 
-// getImageTags lists all tags in a repository.
-// It returns a string slice of tags and any error encountered.
 func getImageTags(ctx context.Context, sysCtx *types.SystemContext, repoRef reference.Named) ([]string, error) {
 	name := repoRef.Name()
 	logrus.WithFields(logrus.Fields{
 		"image": name,
 	}).Info("Getting tags")
-	// Ugly: NewReference rejects IsNameOnly references, and GetRepositoryTags ignores the tag/digest.
-	// So, we use TagNameOnly here only to shut up NewReference
 	dockerRef, err := docker.NewReference(reference.TagNameOnly(repoRef))
 	if err != nil {
 		return nil, err // Should never happen for a reference with tag and no digest

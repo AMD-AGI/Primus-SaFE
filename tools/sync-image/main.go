@@ -277,7 +277,7 @@ func (opts *syncOptions) run(args []string, stdout io.Writer) (retErr error) {
 			}
 
 			var destRef types.ImageReference
-			if strings.HasSuffix(destination, destSuffix) { // 全量拼写，不需要再拼接， e.g: harbor.xcs.ai/01-ai/test/ollama/ollama:latest
+			if strings.HasSuffix(destination, destSuffix) { // e.g: harbor.xcs.ai/01-ai/test/ollama/ollama:latest
 				destRef, err = destinationReference(destination, opts.Destination)
 				if err != nil {
 					return

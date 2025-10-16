@@ -24,10 +24,8 @@ func parseTemplateConfig() (*syncOptions, error) {
 		return nil, err
 	}
 
-	// 替换 YAML 文件中的占位符
 	expandedYaml := os.ExpandEnv(string(data))
 
-	// 解析 YAML 数据
 	err = yaml.Unmarshal([]byte(expandedYaml), &config)
 	if err != nil {
 		logrus.Errorf("Error parsing YAML: %v", err)
