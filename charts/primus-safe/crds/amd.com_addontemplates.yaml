@@ -43,25 +43,25 @@ spec:
           spec:
             properties:
               action:
-                description: the action of addon (base64 encoded)
+                description: The installation action for this template (base64 encoded)
                 type: string
               category:
-                description: category of template. e.g. system/gpu
+                description: Category of template. e.g. system/gpu
                 type: string
               description:
-                description: the description of addon template
+                description: The description of template
                 type: string
               gpuChip:
-                description: target gpu chip(amd or nvidia), If left empty, it applies
+                description: Target gpu chip(amd or nvidia), If left empty, it applies
                   to all chip.
                 type: string
               helmDefaultNamespace:
                 type: string
               helmDefaultValues:
-                description: the default value for helm install
+                description: The default value for helm install
                 type: string
               icon:
-                description: icon url，base64 encoded
+                description: Icon url, base64 encoded
                 type: string
               required:
                 description: |-
@@ -69,13 +69,13 @@ spec:
                   If it is false, only an error log will be printed and the failure can be ignored.
                 type: boolean
               type:
-                description: type of template
+                description: Type of template
                 type: string
               url:
-                description: only for helm
+                description: The address for template, only for helm
                 type: string
               version:
-                description: version of template
+                description: Version of template
                 type: string
             required:
             - category
