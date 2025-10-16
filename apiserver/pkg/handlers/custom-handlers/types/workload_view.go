@@ -121,7 +121,7 @@ type GetWorkloadResponse struct {
 	// Workload image address
 	Image string `json:"image"`
 	// workload entryPoint, required in base64 encoding
-	EntryPoint string `json:"entryPoint"`
+	EntryPoint string `json:"entryPoint,omitempty"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised"`
 	// Failure retry limit. default: 0
