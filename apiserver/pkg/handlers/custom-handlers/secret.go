@@ -144,7 +144,7 @@ func (h *Handler) getSecret(c *gin.Context) (interface{}, error) {
 	}); err != nil {
 		return nil, err
 	}
-	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(types.Name))
+	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +172,7 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(types.Name))
+	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +273,7 @@ func (h *Handler) updateWorkspaceSecret(ctx context.Context, inputSecret *corev1
 }
 
 func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the secretId is not found")
 	}

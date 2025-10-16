@@ -94,7 +94,7 @@ func (h *Handler) listNodeTemplate(c *gin.Context) (interface{}, error) {
 }
 
 func (h *Handler) deleteNodeTemplate(c *gin.Context) (interface{}, error) {
-	name := c.GetString(types.Name)
+	name := c.GetString(common.Name)
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the nodeTemplateId is not found")
 	}
