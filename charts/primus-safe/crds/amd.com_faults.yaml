@@ -46,24 +46,25 @@ spec:
                 description: Handling actions for the fault. e.g. reboot,taint
                 type: string
               isAutoRepairEnabled:
-                description: whether the fault is auto repaired or not. default true
+                description: Whether the fault is auto repaired or not. default true
                 type: boolean
               message:
-                description: fault message
+                description: Fault message
                 type: string
               monitorId:
-                description: the ID used by NodeAgent for monitoring.
+                description: The id used by NodeAgent for monitoring.
                 type: string
               node:
-                description: node information related to the fault
+                description: Node information related to the fault
                 properties:
                   adminName:
-                    description: fault-associated admin node name
+                    description: Fault-associated admin node name
                     type: string
                   clusterName:
+                    description: The cluster which fault belongs to
                     type: string
                   k8sName:
-                    description: fault-associated k8s node name
+                    description: Fault-associated k8s node name
                     type: string
                 required:
                 - adminName
@@ -76,9 +77,10 @@ spec:
           status:
             properties:
               phase:
+                description: The status of fault, such as Succeeded, Failed
                 type: string
               updateTime:
-                description: the last update time
+                description: The last update time of fault
                 format: date-time
                 type: string
             type: object

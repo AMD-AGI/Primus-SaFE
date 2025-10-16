@@ -32,8 +32,12 @@ type WorkloadWrapper struct {
 func (r *SchedulerReconciler) preempt(ctx context.Context, requestWorkload *v1.Workload,
 	runningWorkloads []*v1.Workload, leftAvailResources corev1.ResourceList) (bool, error) {
 	targetWorkloads, err := r.preemptLowPriorityWorkloads(ctx, requestWorkload, leftAvailResources, runningWorkloads)
-	if err != nil || len(targetWorkloads) == 0 {
+	if err != nil {
 		return false, err
+	}
+	if len(targetWorkloads) == 0 {
+		klog.Infof("workoad %s: Unable to obtain sufficient workloads to preempt resources. request", requestWorkload.Name)
+		return false, nil
 	}
 	for _, w := range targetWorkloads {
 		patch := client.MergeFrom(w.DeepCopy())

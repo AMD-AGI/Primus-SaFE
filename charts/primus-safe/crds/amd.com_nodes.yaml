@@ -43,13 +43,16 @@ spec:
           spec:
             properties:
               cluster:
-                description: The name of the cluster that the node belongs to
+                description: |-
+                  The cluster which the node belongs to.
+                  If a value is set, it indicates that the node should be managed within the specified cluster,
+                  Otherwise, if set to an empty value, it indicates that the node should be unmanaged from the cluster.
                 type: string
               hostname:
-                description: node hostname
+                description: Node hostname
                 type: string
               nodeFlavor:
-                description: node flavor reference
+                description: Node flavor reference, required
                 properties:
                   apiVersion:
                     description: API version of the referent.
@@ -92,7 +95,7 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               nodeTemplate:
-                description: node template reference
+                description: Node template reference, required
                 properties:
                   apiVersion:
                     description: API version of the referent.
@@ -135,16 +138,17 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               port:
-                description: SSH port，default 22
+                description: SSH port，default is 22
                 format: int32
                 type: integer
               privateIP:
+                description: Node private ip, required
                 type: string
               publicIP:
-                description: option
+                description: Node public IP, accessible from external networks, optional
                 type: string
               secret:
-                description: secret for ssh
+                description: Secret for ssh
                 properties:
                   apiVersion:
                     description: API version of the referent.
@@ -218,7 +222,9 @@ spec:
                   type: object
                 type: array
               workspace:
-                description: The name of the workspace that the node belongs to
+                description: |-
+                  The workspace which the node belongs to. This is optional, a node can belong to no workspace.
+                  If a value is set, the node will be bound to the specified workspace; otherwise, it will be unbound.
                 type: string
             required:
             - nodeFlavor
@@ -229,19 +235,29 @@ spec:
             description: NodeStatus defines the observed state of Node.
             properties:
               clusterStatus:
+                description: The status of nodes in the cluster
                 properties:
                   cluster:
+                    description: |-
+                      The result of cluster binding (note that the cluster in spec represents the desired state,
+                      while this field represents the actual outcome of the operation).
                     type: string
                   commandStatus:
+                    description: The execution result of each install command.
                     items:
                       properties:
                         name:
+                          description: Operational command, such as authorize
                           type: string
                         phase:
+                          description: Operation result. such as Succeeded and Failed
                           type: string
                       type: object
                     type: array
                   phase:
+                    description: The status of nodes in the cluster, such as Ready,
+                      NotReady, Managing, Managed, ManagedFailed, Unmanaging, Unmanaged,
+                      UnmanagedFailed
                     type: string
                 type: object
               conditions:
@@ -279,27 +295,29 @@ spec:
                   type: object
                 type: array
               machineStatus:
+                description: The status of the physical node
                 properties:
                   commandStatus:
+                    description: Reserved field, currently unused.
                     items:
                       properties:
                         name:
+                          description: Operational command, such as authorize
                           type: string
                         phase:
+                          description: Operation result. such as Succeeded and Failed
                           type: string
                       type: object
                     type: array
                   hostName:
-                    description: HostName is the hostname of the machine node.
+                    description: The hostname of k8s node
                     type: string
                   phase:
+                    description: The status of the physical node, such as Ready, NotReady,
+                      SSHFailed, HostnameFailed
                     type: string
                   privateIP:
-                    description: PrivateIP is the private ip address of the machine
-                      node.
-                    type: string
-                  publicIP:
-                    description: PublicIP specifies the public IP.
+                    description: The internalIP of k8s node
                     type: string
                 type: object
               resources:
@@ -309,10 +327,10 @@ spec:
                   - type: string
                   pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                   x-kubernetes-int-or-string: true
-                description: all the resource of node
+                description: All resource information of the node
                 type: object
               taints:
-                description: taint automatically synchronized from the Kubernetes
+                description: Taint automatically synchronized from the Kubernetes
                   node
                 items:
                   description: |-
@@ -343,6 +361,7 @@ spec:
                   type: object
                 type: array
               unschedulable:
+                description: Indicates whether the node is unschedulable
                 type: boolean
             type: object
         type: object
