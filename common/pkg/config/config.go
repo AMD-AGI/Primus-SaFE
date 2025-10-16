@@ -288,6 +288,10 @@ func GetAddons(version *string) []string {
 	return getStrings(addonDefault)
 }
 
+func GetImageSecret() string {
+	return getString(imageSecret, "")
+}
+
 func GetUserTokenExpire() int {
 	return getInt(userTokenExpireSecond, -1)
 }

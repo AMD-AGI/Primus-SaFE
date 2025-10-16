@@ -27,8 +27,7 @@ const (
 	DescriptionAnnotation   = PrimusSafePrefix + "description"
 	ProtectLabel            = PrimusSafePrefix + "protect"
 	MainContainerAnnotation = PrimusSafePrefix + "main.container"
-	ImageSecretAnnotation   = PrimusSafePrefix + "image.secret"
-
+	
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."
 	NodeFinalizer = PrimusSafeDomain + "node.finalizer"

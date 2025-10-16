@@ -99,8 +99,10 @@ spec:
           secret:
             secretName: {{ .Release.Name }}-ssh-proxy
         {{- end }}
+      {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:
-        - name: {{ .Release.Name }}-image
+        - name: {{ .Values.global.image_pull_secret }}
+      {{- end }}
       terminationGracePeriodSeconds: 10
       priorityClassName: system-cluster-critical
       restartPolicy: Always

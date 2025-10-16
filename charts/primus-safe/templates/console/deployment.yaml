@@ -60,3 +60,10 @@ spec:
             requests:
               cpu: {{ .Values.web.cpu }}
               memory: {{ .Values.web.memory }}
+      {{- if .Values.global.image_pull_secret }}
+      imagePullSecrets:
+        - name: {{ .Values.global.image_pull_secret }}
+      {{- end }}
+      terminationGracePeriodSeconds: 10
+      priorityClassName: system-cluster-critical
+      restartPolicy: Always

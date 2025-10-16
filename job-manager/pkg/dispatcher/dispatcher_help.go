@@ -16,6 +16,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -52,7 +53,7 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 		return err
 	}
 	path = append(templatePath, "spec", "imagePullSecrets")
-	if err = modifyImageSecrets(obj, adminWorkload, workspace, path); err != nil {
+	if err = modifyImageSecrets(obj, workspace, path); err != nil {
 		return err
 	}
 	path = append(templatePath, "spec", "priorityClassName")
@@ -246,7 +247,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 	return nil
 }
 
-func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, path []string) error {
+func modifyImageSecrets(obj *unstructured.Unstructured, workspace *v1.Workspace, path []string) error {
 	secrets, _, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
 		return err
@@ -256,11 +257,9 @@ func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, w
 		for _, s := range workspace.Spec.ImageSecrets {
 			secrets = append(secrets, buildImageSecret(s.Name))
 		}
-	} else {
-		imageSecret := v1.GetAnnotation(workload, v1.ImageSecretAnnotation)
-		if imageSecret != "" {
-			secrets = append(secrets, buildImageSecret(imageSecret))
-		}
+	} else if commonconfig.GetImageSecret() != "" {
+		imageSecret := commonutils.GenerateClusterSecret(workspace.Spec.Cluster, commonconfig.GetImageSecret())
+		secrets = append(secrets, buildImageSecret(imageSecret))
 	}
 	if err = unstructured.SetNestedSlice(obj.Object, secrets, path...); err != nil {
 		return err

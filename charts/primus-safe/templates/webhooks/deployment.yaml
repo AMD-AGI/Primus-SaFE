@@ -97,8 +97,10 @@ spec:
             requests:
               cpu: {{ .Values.webhooks.cpu }}
               memory: {{ .Values.webhooks.memory }}
+      {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:
-      - name: {{ .Release.Name }}-image
+        - name: {{ .Values.global.image_pull_secret }}
+      {{- end }}
       volumes:
         - name: server-config
           configMap:
