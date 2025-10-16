@@ -8,7 +8,6 @@ package apiserver
 import (
 	"context"
 	"net"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -32,12 +31,6 @@ type SshServer struct {
 
 	listener   net.Listener
 	inShutdown atomic.Bool // true when server is in shutdown
-	mu         sync.Mutex
-
-	// current active number of connections
-	connections int64
-	// maxConnections is the limit for the maximum number of connections, where 0 means no limit.
-	maxConnections int64
 }
 
 // NewSshServer: creates a new SSH server instance with the specified address and handler.
@@ -45,8 +38,8 @@ type SshServer struct {
 // Returns a pointer to the newly created SshServer.
 func NewSshServer(addr string, handler SshHandler) *SshServer {
 	return &SshServer{
-		Addr:           addr,
-		Handler:        handler,
+		Addr:    addr,
+		Handler: handler,
 	}
 }
 
@@ -104,8 +97,6 @@ func (s *SshServer) Start(ctx context.Context) error {
 // Returns an error if closing the listener fails.
 func (s *SshServer) Shutdown() error {
 	s.inShutdown.Store(true)
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.listener != nil {
 		return s.listener.Close()
 	}

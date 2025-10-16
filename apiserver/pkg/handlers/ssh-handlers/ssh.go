@@ -15,18 +15,17 @@ import (
 	"sync"
 	"time"
 
-	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	"github.com/gorilla/websocket"
-	"k8s.io/client-go/tools/remotecommand"
-
 	"github.com/alexflint/go-restructure"
+	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/ssh"
+	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 

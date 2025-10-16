@@ -28,8 +28,6 @@ type CreateSecretRequest struct {
 	Name string `json:"name,omitempty"`
 	// The secret type, such as image, ssh
 	Type v1.SecretType `json:"type"`
-	// secret type. image/ssh
-	Type v1.SecretType `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
 	// the private key, public key and password need to be Base64 encoded
 	// Multiple auths may be created for image secret, so the params is a slice
