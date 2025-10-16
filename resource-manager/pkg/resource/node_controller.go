@@ -183,11 +183,11 @@ func (r *NodeReconciler) observe(ctx context.Context, adminNode *v1.Node, k8sNod
 		return false, nil
 	}
 	// Observe whether the node has changed. If no changes are detected (ultimately returning true), exit NodeReconciler directly.
-	functions := []func(context.Context, *v1.Node) (bool, error){
+	functions := []func(context.Context, *v1.Node, *corev1.Node) (bool, error){
 		r.observeTaints, r.observeLabelAction, r.observeAnnotationAction, r.observeWorkspace, r.observeCluster,
 	}
 	for _, f := range functions {
-		ok, err := f(ctx, adminNode)
+		ok, err := f(ctx, adminNode, k8sNode)
 		if !ok || err != nil {
 			return false, err
 		}
@@ -195,7 +195,7 @@ func (r *NodeReconciler) observe(ctx context.Context, adminNode *v1.Node, k8sNod
 	return true, nil
 }
 
-func (r *NodeReconciler) observeTaints(_ context.Context, adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeTaints(_ context.Context, adminNode *v1.Node, _ *corev1.Node) (bool, error) {
 	var statusTaints []corev1.Taint
 	for i, t := range adminNode.Status.Taints {
 		if strings.HasPrefix(t.Key, v1.PrimusSafePrefix) {
@@ -205,36 +205,39 @@ func (r *NodeReconciler) observeTaints(_ context.Context, adminNode *v1.Node) (b
 	return commonfaults.IsTaintsEqualIgnoreOrder(adminNode.Spec.Taints, statusTaints), nil
 }
 
-func (r *NodeReconciler) observeLabelAction(_ context.Context, adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeLabelAction(_ context.Context, adminNode *v1.Node, _ *corev1.Node) (bool, error) {
 	if v1.GetNodeLabelAction(adminNode) == "" {
 		return true, nil
 	}
 	return false, nil
 }
 
-func (r *NodeReconciler) observeAnnotationAction(_ context.Context, adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeAnnotationAction(_ context.Context, adminNode *v1.Node, _ *corev1.Node) (bool, error) {
 	if v1.GetNodeAnnotationAction(adminNode) == "" {
 		return true, nil
 	}
 	return false, nil
 }
 
-func (r *NodeReconciler) observeWorkspace(_ context.Context, adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeWorkspace(_ context.Context, adminNode *v1.Node, _ *corev1.Node) (bool, error) {
 	if adminNode.GetSpecWorkspace() == v1.GetWorkspaceId(adminNode) {
 		return true, nil
 	}
 	return false, nil
 }
 
-func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node) (bool, error) {
+func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (bool, error) {
 	if adminNode.GetSpecCluster() != v1.GetClusterId(adminNode) {
 		return false, nil
 	}
-	if adminNode.GetSpecCluster() != "" && !adminNode.IsManaged() {
-		return false, nil
-	}
-	if adminNode.GetSpecCluster() == "" && adminNode.IsManaged() {
-		return false, nil
+	if adminNode.GetSpecCluster() != "" {
+		if !adminNode.IsManaged() || k8sNode == nil || v1.GetClusterId(k8sNode) == "" {
+			return false, nil
+		}
+	} else {
+		if adminNode.IsManaged() || k8sNode != nil || v1.GetClusterId(k8sNode) != "" {
+			return false, nil
+		}
 	}
 	return true, nil
 }
@@ -460,14 +463,14 @@ func (r *NodeReconciler) updateAdminNode(ctx context.Context, adminNode *v1.Node
 	var result ctrlruntime.Result
 	n := client.MergeFrom(adminNode.DeepCopy())
 	if adminNode.GetSpecCluster() != "" {
-		if adminNode.IsManaged() {
+		if adminNode.IsManaged() && v1.GetClusterId(k8sNode) != "" {
 			return ctrlruntime.Result{}, nil
 		}
 		if err = r.syncClusterStatus(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
 		}
 		result, err = r.manage(ctx, adminNode, k8sNode)
-	} else if adminNode.Status.ClusterStatus.Cluster != nil {
+	} else if adminNode.Status.ClusterStatus.Cluster != nil || v1.GetClusterId(k8sNode) != "" {
 		result, err = r.unmanage(ctx, adminNode, k8sNode)
 	} else {
 		return ctrlruntime.Result{}, nil
@@ -484,6 +487,9 @@ func (r *NodeReconciler) updateAdminNode(ctx context.Context, adminNode *v1.Node
 }
 
 func (r *NodeReconciler) syncClusterStatus(ctx context.Context, node *v1.Node) error {
+	if node.IsManaged() {
+		return nil
+	}
 	if !isCommandSuccessful(node.Status.ClusterStatus.CommandStatus, utils.Authorize) {
 		sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 		if err != nil {
@@ -714,10 +720,16 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 	if commonfaults.HasPrimusSafeTaint(adminNode.Status.Taints) || v1.GetWorkspaceId(adminNode) != "" {
 		return ctrlruntime.Result{}, nil
 	}
-	clusterName := *adminNode.Status.ClusterStatus.Cluster
+
+	clusterId := ""
+	if adminNode.Status.ClusterStatus.Cluster != nil {
+		clusterId = *adminNode.Status.ClusterStatus.Cluster
+	} else {
+		clusterId = v1.GetClusterId(k8sNode)
+	}
 
 	if k8sNode == nil {
-		if pods, err := r.listPod(ctx, clusterName, adminNode.Name, string(v1.ClusterScaleDownAction)); err != nil {
+		if pods, err := r.listPod(ctx, clusterId, adminNode.Name, string(v1.ClusterScaleDownAction)); err != nil {
 			return ctrlruntime.Result{}, err
 		} else if len(pods) > 0 {
 			if err = r.Delete(ctx, &pods[0]); err != nil {
@@ -740,7 +752,7 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 	}
 
 	// delete all scaleup pod when doing scaledown
-	pods, err := r.listPod(ctx, clusterName, adminNode.Name, string(v1.ClusterScaleUpAction))
+	pods, err := r.listPod(ctx, clusterId, adminNode.Name, string(v1.ClusterScaleUpAction))
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -751,11 +763,11 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 		klog.Infof("delete pod(%s) for scaleUp", pod.Name)
 	}
 
-	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterName)
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterId)
 	if err != nil || !k8sClients.IsValid() {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	return r.syncOrCreateScaleDownPod(ctx, k8sClients.ClientSet(), adminNode, k8sNode)
+	return r.syncOrCreateScaleDownPod(ctx, k8sClients.ClientSet(), adminNode, k8sNode, clusterId)
 }
 
 func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
@@ -777,8 +789,8 @@ func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
 }
 
 func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
-	clientSet kubernetes.Interface, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
-	cluster, err := r.getCluster(ctx, *adminNode.Status.ClusterStatus.Cluster)
+	clientSet kubernetes.Interface, adminNode *v1.Node, k8sNode *corev1.Node, clusterId string) (ctrlruntime.Result, error) {
+	cluster, err := r.getCluster(ctx, clusterId)
 	if err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}

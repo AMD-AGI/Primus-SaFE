@@ -292,6 +292,10 @@ func GetImageSecret() string {
 	return getString(imageSecret, "")
 }
 
+func GetAuthoringImage() string {
+	return getString(workloadAuthoringImage, "")
+}
+
 func GetUserTokenExpire() int {
 	return getInt(userTokenExpireSecond, -1)
 }

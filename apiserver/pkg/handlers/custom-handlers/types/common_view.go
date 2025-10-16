@@ -6,9 +6,6 @@
 package types
 
 const (
-	Name  = "name"
-	PodId = "podId"
-
 	DefaultQueryLimit = 100
 	MaxRetry          = 3
 )

@@ -23,6 +23,7 @@ data:
     workload:
       ttl_second: {{ default 60 (default .Values.workload).ttl_second }}
       max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
+      authoring_image: docker.io/primussafe/{{ .Values.authoring.image }}
     ssh:
       enable: {{ .Values.ssh.enable }}
     ops_job:
