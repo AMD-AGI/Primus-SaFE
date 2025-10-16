@@ -35,8 +35,8 @@ const (
 )
 
 var (
-	SrcImage  = os.Getenv(SrcImageEnv)  // 完整路径 e.g: ollama/ollama:latest
-	DestImage = os.Getenv(DestImageEnv) // 完整前缀，不包含 image名称和tag， e.g: harbor.xcs.ai/01-ai/test/
+	SrcImage  = os.Getenv(SrcImageEnv)  //  e.g: ollama/ollama:latest
+	DestImage = os.Getenv(DestImageEnv) //  e.g: harbor.xcs.ai/01-ai/test/
 
 	defaultUserAgent = "01-ai/" + Version
 )
@@ -56,10 +56,8 @@ func main() {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
 
-	// 打印解析结果，包括嵌套 struct
 	logrus.Debugf("Parsed Configuration: %+v\n", config)
 
-	// 打印多重结构的数据
 	logrus.Debugf("Global Options: %+v\n", config.Global)
 	logrus.Debugf("Source Image Options: %+v\n", config.SrcImage.DockerImageOptions)
 	logrus.Debugf("Destination Image Options: %+v\n", config.DestImage.ImageOptions)
@@ -73,20 +71,18 @@ func main() {
 }
 
 func (opts *syncOptions) run(args []string, stdout io.Writer) (retErr error) {
-	// args 是位置参数：
-	// args[0]：registry.example.com/busybox（具体的源地址）
-	// args[1]：/media/usb（具体的目标地址）
+	// args[0]：registry.example.com/busybox
+	// args[1]：/media/usb
 	if len(args) != 2 {
 		return errors.New("exactly two arguments expected")
 	}
 	opts.DeprecatedTLSVerify.warnIfUsed([]string{"--src-tls-verify", "--dest-tls-verify"})
 
-	// 去除多余的 \n \t 空格
+	// remove \n \t
 	args = parseStr(args)
 
 	logrus.Infof("sync image from %s to %s", args[0], args[1])
 
-	// 签名策略配置，默认使用允许任何签名的策略
 	policyContext, err := opts.Global.getPolicyContext()
 	if err != nil {
 		return fmt.Errorf("error loading trust policy: %s", err)
@@ -113,14 +109,12 @@ func (opts *syncOptions) run(args []string, stdout io.Writer) (retErr error) {
 	opts.SrcImage.Global = opts.Global
 	opts.DestImage.Global = opts.Global
 
-	// 生成 source 配置信息和上下文管理
 	sourceCtx, err := opts.SrcImage.newSystemContext()
 	if err != nil {
 		return err
 	}
 
 	var manifestType string
-	// 镜像格式是否需要强制转换
 	if len(opts.Format) > 0 {
 		manifestType, err = parseManifestFormat(opts.Format)
 		if err != nil {
@@ -149,8 +143,6 @@ func (opts *syncOptions) run(args []string, stdout io.Writer) (retErr error) {
 	if err != nil {
 		return err
 	}
-
-	// 签名生成,暂时不做，也不需要配置,可预留，可删除
 
 	// c/image/copy.Image does allow creating both simple signing and sigstore signatures simultaneously,
 	// with independent passphrases, but that would make the CLI probably too confusing.
@@ -197,7 +189,7 @@ func (opts *syncOptions) run(args []string, stdout io.Writer) (retErr error) {
 		SignBySigstorePrivateKeyFile:          opts.SignBySigstorePrivateKey,
 		SignSigstorePrivateKeyPassphrase:      []byte(passphrase),
 		ReportWriter:                          stdout,
-		ProgressInterval:                      15, // 每隔 15 秒输出一次进度
+		ProgressInterval:                      15,
 		Progress:                              make(chan types.ProgressProperties),
 		DestinationCtx:                        destinationCtx,
 		ImageListSelection:                    imageListSelection,
@@ -233,7 +225,7 @@ func (opts *syncOptions) run(args []string, stdout io.Writer) (retErr error) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C: // 每隔 15 秒输出一次进度
+			case <-ticker.C:
 				if err := upstreamData(opts.UpstreamDomain, destination, data); err != nil {
 					logrus.WithError(err).Error("Error sending upsteam data")
 				}
@@ -290,7 +282,7 @@ func (opts *syncOptions) run(args []string, stdout io.Writer) (retErr error) {
 				if err != nil {
 					return
 				}
-			} else { // 非全量远程仓库连接，需要拼接， e.g: harbor.xcs.ai/01-ai/test/ollama -> harbor.xcs.ai/01-ai/test/ollama/ollama:latest
+			} else { //  e.g: harbor.xcs.ai/01-ai/test/ollama -> harbor.xcs.ai/01-ai/test/ollama/ollama:latest
 				destRef, err = destinationReference(path.Join(destination, destSuffix)+opts.AppendSuffix, opts.Destination)
 				if err != nil {
 					return err

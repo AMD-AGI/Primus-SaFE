@@ -14,7 +14,6 @@ import (
 var (
 	TransportDocker = docker.Transport.Name()
 	TransportDir    = directory.Transport.Name()
-	// 通过 yaml 配置信息进行同步，暂不支持
 	//TransportWithYaml = "yaml"
 )
 
