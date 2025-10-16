@@ -14,10 +14,12 @@ import (
 
 func TestParseSSHInfo(t *testing.T) {
 	info := &UserInfo{}
-	user := "root.primus-test-master-0.primus-safe-dev"
+	user := "root.primus-test-master-0.main.bash.primus-safe-dev"
 	ok, _ := restructure.Find(info, user)
 	assert.Equal(t, true, ok)
 	assert.Equal(t, "root", info.User)
 	assert.Equal(t, "primus-test-master-0", info.Pod)
+	assert.Equal(t, "main", info.Container)
+	assert.Equal(t, "bash", info.CMD)
 	assert.Equal(t, "primus-safe-dev", info.Namespace)
 }

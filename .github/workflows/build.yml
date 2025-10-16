@@ -1,0 +1,289 @@
+name: Build
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      is_build_apiserver: ${{ steps.changed-files.outputs.apiserver_any_changed }}
+      is_build_resource_manager: ${{ steps.changed-files.outputs.resource_manager_any_changed }}
+      is_build_sync_image: ${{ steps.changed-files.outputs.sync_image_any_changed }}
+      is_build_telemetry_processor:  ${{ steps.changed-files.outputs.telemetry_processor_any_changed }}
+      is_build_gpu_resource_exporter: ${{ steps.changed-files.outputs.gpu_resource_exporter_any_changed }}
+      is_build_system_tuner: ${{ steps.changed-files.outputs.system_tuner_any_changed }}
+      is_build_primus_safe_adapter: ${{ steps.changed-files.outputs.primus_safe_adapter_any_changed }}
+      image_version: ${{ steps.get-image-version.outputs.image_version }}
+      date_time: ${{ steps.get-current-time.outputs.date_time }}
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Calculate ImageVersion
+      id: get-image-version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "::set-output name=ImageVersion::$TAG"
+        else
+          echo "::set-output name=image_version::latest"
+        fi
+    - name: Get Current Time
+      id: get-current-time
+      run: |
+        FORMATTED_DATE=$(TZ='Asia/Shanghai' date +'%Y%m%d%H%M')
+        echo "::set-output name=date_time::$FORMATTED_DATE"
+    - name: Get changed files
+      id: changed-files
+      uses: tj-actions/changed-files@v40
+      with:
+        files_yaml: |
+          apiserver:
+            - apis/**
+            - apiserver/**
+            - common/**
+            - utils/**
+          resource_manager:
+            - apis/**
+            - resource-manager/**
+            - common/**
+            - utils/**
+          sync_image:
+            - tools/sync-image/**
+          telemetry_processor:
+            - modules/telemetry-processor/**
+            - modules/core/**
+          gpu_resource_exporter:
+            - modules/exporters/gpu-resource-exporter/**
+            - modules/core/**
+          system_tuner:
+            - modules/system-tuner/**
+          primus_safe_adapter:
+            - modules/adapter/primus-safe-adapter/**
+            - modules/core/**
+  #####
+  # apiserver
+  #####
+  build-apiserver:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is_build_apiserver == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
+      matrix: ${{ steps.build-and-push.outputs.matrix }}
+    timeout-minutes: 7200
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - uses: docker/login-action@v1
+        name: login-docker
+        with:
+          username: ${{ secrets.DOCKER_USERNAME  }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: '.'
+          file: apiserver/installer/Dockerfile
+          push: true
+          tags: |
+            "primussafe/apiserver:${{needs.detect-changes.outputs.image_version}}"
+            "primussafe/apiserver:${{needs.detect-changes.outputs.date_time}}"
+  #####
+  # resource-manager
+  #####
+  build-resource-manager:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is_build_resource_manager == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
+      matrix: ${{ steps.build-and-push.outputs.matrix }}
+    timeout-minutes: 7200
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - uses: docker/login-action@v1
+        name: login-docker
+        with:
+          username: ${{ secrets.DOCKER_USERNAME  }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: '.'
+          file: resource-manager/installer/Dockerfile
+          push: true
+          tags: |
+            "primussafe/resource-manager:${{needs.detect-changes.outputs.image_version}}"
+            "primussafe/resource-manager:${{needs.detect-changes.outputs.date_time}}"
+  #####
+  # sync-image
+  #####
+  build-sync-image:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is_build_sync_image == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
+      matrix: ${{ steps.build-and-push.outputs.matrix }}
+    timeout-minutes: 7200
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - uses: docker/login-action@v1
+        name: login-docker
+        with:
+          username: ${{ secrets.DOCKER_USERNAME  }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: '.'
+          file: tools/sync-image/Dockerfile
+          push: true
+          tags: |
+            "primussafe/image-sync:${{needs.detect-changes.outputs.image_version}}"
+            "primussafe/image-sync:${{needs.detect-changes.outputs.date_time}}"
+
+  #####
+  # telemetry-processor
+  #####
+  build-telemetry-processor:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is_build_telemetry_processor == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
+      matrix: ${{ steps.build-and-push.outputs.matrix }}
+    timeout-minutes: 7200
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - uses: docker/login-action@v1
+        name: login-docker
+        with:
+          username: ${{ secrets.DOCKER_USERNAME  }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: '.'
+          file: build/Dockerfile
+          push: true
+          tags: |
+            "primussafe/primus-lens-telemetry-processor:${{needs.detect-changes.outputs.image_version}}"
+            "primussafe/primus-lens-telemetry-processor:${{needs.detect-changes.outputs.date_time}}"
+          build-args: |
+            BUILDPATH=cmd/telemetry-processor
+            BASEPATH=modules/telemetry-processor/
+            APPNAME=telemetry-processor
+    #####
+  # gpu-resource-exporter
+  #####
+  build-gpu-resource-exporter:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is_build_gpu_resource_exporter == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
+      matrix: ${{ steps.build-and-push.outputs.matrix }}
+    timeout-minutes: 7200
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - uses: docker/login-action@v1
+        name: login-docker
+        with:
+          username: ${{ secrets.DOCKER_USERNAME  }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: '.'
+          file: build/Dockerfile
+          push: true
+          tags: |
+            "primussafe/primus-lens-gpu-resource-exporter:${{needs.detect-changes.outputs.image_version}}"
+            "primussafe/primus-lens-gpu-resource-exporter:${{needs.detect-changes.outputs.date_time}}"
+          build-args: |
+            BUILDPATH=cmd/gpu-resource-exporter
+            BASEPATH=modules/exporters/gpu-resource-exporter/
+            APPNAME=gpu-resource-exporter
+    #####
+    # system-tuner
+    #####
+  build-system-tuner:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is_build_system_tuner == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
+      matrix: ${{ steps.build-and-push.outputs.matrix }}
+    timeout-minutes: 7200
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - uses: docker/login-action@v1
+        name: login-docker
+        with:
+          username: ${{ secrets.DOCKER_USERNAME  }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: '.'
+          file: build/Dockerfile
+          push: true
+          tags: |
+            "primussafe/primus-lens-system-tuner:${{needs.detect-changes.outputs.image_version}}"
+            "primussafe/primus-lens-system-tuner:${{needs.detect-changes.outputs.date_time}}"
+          build-args: |
+            BUILDPATH=cmd/system-tuner
+            BASEPATH=modules/system-tuner/
+            APPNAME=system-tuner
+  build-primus-safe-adapter:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.is_build_primus_safe_adapter == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
+      matrix: ${{ steps.build-and-push.outputs.matrix }}
+    timeout-minutes: 7200
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - uses: docker/login-action@v1
+        name: login-docker
+        with:
+          username: ${{ secrets.DOCKER_USERNAME  }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: '.'
+          file: build/Dockerfile
+          push: true
+          tags: |
+            "primussafe/primus-safe-adapter:${{needs.detect-changes.outputs.image_version}}"
+            "primussafe/primus-safe-adapter:${{needs.detect-changes.outputs.date_time}}"
+          build-args: |
+            BUILDPATH=cmd/primus-safe-adapter
+            BASEPATH=modules/adapter/primus-safe-adapter/
+            APPNAME=primus-safe-adapter
+
+
