@@ -56,6 +56,8 @@ const (
 	UserSystem            = "system"
 	UserWorkspaces        = "workspaces"
 	UserManagedWorkspaces = "managedWorkspaces"
+	Name                  = "name"
+	PodId                 = "podId"
 )
 
 const (

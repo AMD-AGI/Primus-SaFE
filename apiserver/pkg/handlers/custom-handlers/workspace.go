@@ -139,7 +139,7 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) getWorkspace(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	workspace, err := h.getAdminWorkspace(ctx, c.GetString(types.Name))
+	workspace, err := h.getAdminWorkspace(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +162,7 @@ func (h *Handler) getWorkspace(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) deleteWorkspace(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	workspace, err := h.getAdminWorkspace(ctx, c.GetString(types.Name))
+	workspace, err := h.getAdminWorkspace(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +185,7 @@ func (h *Handler) deleteWorkspace(c *gin.Context) (interface{}, error) {
 
 func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	workspace, err := h.getAdminWorkspace(ctx, c.GetString(types.Name))
+	workspace, err := h.getAdminWorkspace(ctx, c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +285,7 @@ func (h *Handler) processWorkspaceNodes(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return nil, h.updateWorkspaceNodesAction(c, c.GetString(types.Name), req.Action, req.NodeIds)
+	return nil, h.updateWorkspaceNodesAction(c, c.GetString(common.Name), req.Action, req.NodeIds)
 }
 
 func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action string, nodeIds []string) error {
