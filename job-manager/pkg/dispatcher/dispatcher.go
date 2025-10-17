@@ -132,12 +132,13 @@ func (r *DispatcherReconciler) handle(ctx context.Context, workload *v1.Workload
 		return ctrlruntime.Result{}, err
 	}
 	obj, err := jobutils.GetObject(resourceInformer, workload.Name, workload.Spec.Workspace)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return ctrlruntime.Result{}, err
+	}
+
 	switch {
 	case !v1.IsWorkloadDispatched(workload):
-		if apierrors.IsNotFound(err) {
-			err = r.dispatch(ctx, workload, clusterInformer)
-		}
-		if err != nil {
+		if err = r.dispatch(ctx, workload, clusterInformer); err != nil {
 			break
 		}
 		if err = r.createService(ctx, workload, clusterInformer); err != nil {
@@ -161,7 +162,7 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 	if err := r.buildPort(ctx, adminWorkload); err != nil {
 		return err
 	}
-	k8sObject, err := r.createK8sObject(ctx, adminWorkload)
+	k8sObject, err := r.generateK8sObject(ctx, adminWorkload)
 	if err != nil {
 		klog.ErrorS(err, "failed to create k8s unstructured object. ",
 			"name", adminWorkload.Name, "gvk", adminWorkload.Spec.GroupVersionKind)
@@ -194,7 +195,7 @@ func (r *DispatcherReconciler) buildPort(ctx context.Context, workload *v1.Workl
 	return nil
 }
 
-func (r *DispatcherReconciler) createK8sObject(ctx context.Context,
+func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 	adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
 	workspace := &v1.Workspace{}
 	if adminWorkload.Spec.Workspace != corev1.NamespaceDefault {
