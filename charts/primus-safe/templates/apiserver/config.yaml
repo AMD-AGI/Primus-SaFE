@@ -58,6 +58,7 @@ data:
     ssh:
       # Whether to enable ssh, Users can log in directly to their own pods.
       enable: {{ .Values.ssh.enable }}
+      server_ip: "{{ default "" (default .Values.ssh).server_ip }}"
       # The port for ssh
       server_port: {{ default 2222 (default .Values.ssh).port }}
       # The secret for ssh, which contains the private key
