@@ -106,14 +106,9 @@ func (r *ClusterReconciler) reset(ctx context.Context, cluster *v1.Cluster, host
 		if err := r.patchKubeControlPlanNodes(ctx, cluster); err != nil {
 			return err
 		}
-		var ok bool
-		cluster.Finalizers, ok = slice.RemoveString(cluster.Finalizers, v1.ClusterFinalizer)
-		if !ok {
-			return nil
-		}
-		return r.Update(ctx, cluster)
-
+		return nil
 	}
+
 	c := client.MergeFrom(cluster.DeepCopy())
 	if cluster.Status.ControlPlaneStatus.Phase == v1.CreationFailed || cluster.Status.ControlPlaneStatus.Phase == v1.PendingPhase {
 		cluster.Status.ControlPlaneStatus.Phase = v1.DeletedPhase
