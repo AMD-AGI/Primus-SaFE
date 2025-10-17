@@ -8,7 +8,6 @@ package utils
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -20,6 +19,10 @@ const (
 	DefaultMaxRequestBodyBytes = int64(2 * 1024 * 1024)
 )
 
+// ReadBody: reads the HTTP request body with a size limit to prevent excessive memory consumption.
+// It uses a LimitedReader to restrict the maximum number of bytes that can be read.
+// Returns the request body data as bytes, or an error if reading fails or the body exceeds the size limit.
+// The request body is automatically closed after reading.
 func ReadBody(req *http.Request) ([]byte, error) {
 	defer req.Body.Close()
 	var lr *io.LimitedReader
@@ -28,7 +31,7 @@ func ReadBody(req *http.Request) ([]byte, error) {
 			R: req.Body,
 			N: DefaultMaxRequestBodyBytes + 1,
 		}
-		return ioutil.ReadAll(lr)
+		return io.ReadAll(lr)
 	}()
 	if err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())
@@ -40,10 +43,12 @@ func ReadBody(req *http.Request) ([]byte, error) {
 	return data, nil
 }
 
+// GetK8sClientFactory: retrieves a Kubernetes client factory for the specified cluster from the client manager.
+// Returns the client factory if found and valid, or an error if others
 func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
 	obj, _ := clientManager.Get(clusterId)
 	if obj == nil {
-		err := fmt.Errorf("the client of cluster %s is not found. pls retry later", clusterId)
+		err := fmt.Errorf("the client of cluster %s is not found. please retry later", clusterId)
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	k8sClients, ok := obj.(*commonclient.ClientFactory)

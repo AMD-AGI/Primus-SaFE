@@ -6,47 +6,48 @@
 package types
 
 type ListFaultRequest struct {
-	// Starting offset for the results. dfault is 0
+	// The starting offset for the results. Default is 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
-	// Limit the number of returned results. default is 100
+	// The maximum number of returned results. Default is 100
 	Limit int `form:"limit" binding:"omitempty,min=1"`
-	// Sort results by the specified field. default is create_time
+	// The field to sort results by. Default is "create_time"
 	SortBy string `form:"sortBy" binding:"omitempty"`
-	// default is desc
+	// The sorting order. Valid values are "desc" (default) or "asc"
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
-	// the node id
+	// Filter results by node id
 	NodeId string `form:"nodeId" binding:"omitempty,max=64"`
-	// the ID used by NodeAgent for monitoring
-	// If specifying multiple kind queries, separate them with commas
+	// Filter results by monitor id, which comes from the node agent
+	// For multiple ids, separate them with commas
 	MonitorId string `form:"monitorId" binding:"omitempty"`
-	// the cluster id
+	// Filter results by cluster id
 	ClusterId string `form:"clusterId" binding:"omitempty"`
-	// If set to true, only open faults are queried.
+	// If set to true, only return faults that are currently open
 	OnlyOpen bool `form:"onlyOpen" binding:"omitempty"`
 }
 
 type ListFaultResponse struct {
+	// TotalCount indicates the total number of faults, not limited by pagination.
 	TotalCount int                 `json:"totalCount"`
 	Items      []FaultResponseItem `json:"items"`
 }
 
 type FaultResponseItem struct {
-	// the uniq id of response
+	// The uniq id of fault
 	ID string `json:"id"`
-	// the node ID related to this fault
+	// The node id related to this fault
 	NodeId string `json:"nodeId"`
-	// the ID used by NodeAgent for monitoring.
+	// The id used by NodeAgent for monitoring.
 	MonitorId string `json:"monitorId"`
-	// fault message
+	// Fault message
 	Message string `json:"message"`
-	// the action of fault. e.g. taint
+	// The action taken on the fault, such as taint
 	Action string `json:"action"`
-	// the status of fault, including Succeeded/Failed
+	// The status of fault, including Succeeded/Failed
 	Phase string `json:"phase"`
-	// cluster id
+	// The cluster's id
 	ClusterId string `json:"clusterId"`
-	// the creation time of fault
+	// The creation time of fault
 	CreationTime string `json:"creationTime"`
-	// the deletion time of fault
+	// The deletion time of fault
 	DeletionTime string `json:"deletionTime"`
 }

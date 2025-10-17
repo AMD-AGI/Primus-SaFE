@@ -38,57 +38,70 @@ const (
 )
 
 type CommandStatus struct {
-	Name  string       `json:"name,omitempty"`
+	// Operational command, such as authorize
+	Name string `json:"name,omitempty"`
+	// Operation result. such as Succeeded and Failed
 	Phase CommandPhase `json:"phase,omitempty"`
 }
 
 type NodeSpec struct {
-	// The name of the cluster that the node belongs to
+	// The cluster which the node belongs to.
+	// If a value is set, it indicates that the node should be managed within the specified cluster,
+	// Otherwise, if set to an empty value, it indicates that the node should be unmanaged from the cluster.
 	Cluster *string `json:"cluster,omitempty"`
-	// The name of the workspace that the node belongs to
+	// The workspace which the node belongs to. This is optional, a node can belong to no workspace.
+	// If a value is set, the node will be bound to the specified workspace; otherwise, it will be unbound.
 	Workspace *string `json:"workspace,omitempty"`
-	// node flavor reference
+	// Node flavor reference, required
 	NodeFlavor *corev1.ObjectReference `json:"nodeFlavor"`
-	// node template reference
+	// Node template reference, required
 	NodeTemplate *corev1.ObjectReference `json:"nodeTemplate"`
-	// node hostname
-	Hostname  *string `json:"hostname,omitempty"`
-	PrivateIP string  `json:"privateIP,omitempty"`
-	// option
+	// Node hostname
+	Hostname *string `json:"hostname,omitempty"`
+	// Node private ip, required
+	PrivateIP string `json:"privateIP,omitempty"`
+	// Node public IP, accessible from external networks, optional
 	PublicIP string `json:"publicIP,omitempty"`
-	// SSH port，default 22
+	// SSH port，default is 22
 	Port *int32 `json:"port,omitempty"`
 	// The taint will be automatically synchronized to the Kubernetes node.
 	Taints []corev1.Taint `json:"taints,omitempty"`
-	// secret for ssh
+	// Secret for ssh
 	SSHSecret *corev1.ObjectReference `json:"secret"`
 }
 
 type NodeClusterStatus struct {
-	Phase         NodePhase       `json:"phase,omitempty"`
-	Cluster       *string         `json:"cluster,omitempty"`
+	// The status of nodes in the cluster, such as Ready, NotReady, Managing, Managed, ManagedFailed, Unmanaging, Unmanaged, UnmanagedFailed
+	Phase NodePhase `json:"phase,omitempty"`
+	// The result of cluster binding (note that the cluster in spec represents the desired state,
+	// while this field represents the actual outcome of the operation).
+	Cluster *string `json:"cluster,omitempty"`
+	// The execution result of each install command.
 	CommandStatus []CommandStatus `json:"commandStatus,omitempty"`
 }
 
 type MachineStatus struct {
-	// HostName is the hostname of the machine node.
-	HostName string    `json:"hostName,omitempty"`
-	Phase    NodePhase `json:"phase,omitempty"`
-	// PrivateIP is the private ip address of the machine node.
+	// The hostname of k8s node
+	HostName string `json:"hostName,omitempty"`
+	// The status of the physical node, such as Ready, NotReady, SSHFailed, HostnameFailed
+	Phase NodePhase `json:"phase,omitempty"`
+	// The internalIP of k8s node
 	PrivateIP string `json:"privateIP,omitempty"`
-	// PublicIP specifies the public IP.
-	PublicIP      string          `json:"publicIP,omitempty"`
+	// Reserved field, currently unused.
 	CommandStatus []CommandStatus `json:"commandStatus,omitempty"`
 }
 
 // NodeStatus defines the observed state of Node.
 type NodeStatus struct {
-	MachineStatus MachineStatus     `json:"machineStatus,omitempty"`
+	// The status of the physical node
+	MachineStatus MachineStatus `json:"machineStatus,omitempty"`
+	// The status of nodes in the cluster
 	ClusterStatus NodeClusterStatus `json:"clusterStatus,omitempty"`
-	Unschedulable bool              `json:"unschedulable,omitempty"`
-	// taint automatically synchronized from the Kubernetes node
+	// Indicates whether the node is unschedulable
+	Unschedulable bool `json:"unschedulable,omitempty"`
+	// Taint automatically synchronized from the Kubernetes node
 	Taints []corev1.Taint `json:"taints,omitempty"`
-	// all the resource of node
+	// All resource information of the node
 	Resources corev1.ResourceList `json:"resources,omitempty"`
 	// Node condition, automatically synchronized from the Kubernetes node
 	Conditions []corev1.NodeCondition `json:"conditions,omitempty"`

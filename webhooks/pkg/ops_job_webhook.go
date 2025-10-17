@@ -123,12 +123,12 @@ func (m *OpsJobMutator) mutateJobSpec(ctx context.Context, job *v1.OpsJob) {
 }
 
 func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) {
-	m.getAddonTemplates(ctx, job)
+	m.generateAddonTemplates(ctx, job)
 	m.removeDuplicates(job)
 	m.filterUnhealthyNodes(ctx, job)
 }
 
-func (m *OpsJobMutator) getAddonTemplates(ctx context.Context, job *v1.OpsJob) {
+func (m *OpsJobMutator) generateAddonTemplates(ctx context.Context, job *v1.OpsJob) {
 	param := job.GetParameter(v1.ParameterNodeTemplate)
 	if param == nil {
 		return
@@ -159,6 +159,7 @@ func (m *OpsJobMutator) removeDuplicates(job *v1.OpsJob) {
 	job.Spec.Inputs = uniqInputs
 }
 
+// For preflight jobs, if tolerate taints are not set, remove unhealthy nodes. Additionally, ignore preflight taints.
 func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob) {
 	if job.Spec.Type != v1.OpsJobPreflightType {
 		return
@@ -305,6 +306,27 @@ func (v *OpsJobValidator) validateNodeDuplicated(ctx context.Context, job *v1.Op
 	return nil
 }
 
+func (v *OpsJobValidator) validatePreflight(ctx context.Context, job *v1.OpsJob) error {
+	err := v.validateNodeDuplicated(ctx, job)
+	if err != nil {
+		return err
+	}
+	if job.Spec.Resource == nil {
+		return fmt.Errorf("the resource of job is empty")
+	}
+	if job.Spec.Image == nil || *job.Spec.Image == "" {
+		return fmt.Errorf("the image of job is empty")
+	}
+	if job.Spec.EntryPoint == nil || *job.Spec.EntryPoint == "" {
+		return fmt.Errorf("the entryPoint of job is empty")
+	}
+	nf, err := getNodeFlavor(ctx, v.Client, v1.GetNodeFlavorId(job))
+	if err != nil {
+		return err
+	}
+	return validateResourceEnough(nf, job.Spec.Resource)
+}
+
 func (v *OpsJobValidator) validateDumplog(ctx context.Context, job *v1.OpsJob) error {
 	currentJobs, err := v.listRelatedRunningJobs(ctx, v1.GetClusterId(job), []string{string(v1.OpsJobDumpLogType)})
 	if err != nil {
@@ -382,6 +404,7 @@ func (v *OpsJobValidator) hasDuplicateInput(params1, params2 []v1.Parameter, par
 	return false
 }
 
+// Find the running opsjob of the same type.
 func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster string, jobTypes []string) ([]v1.OpsJob, error) {
 	var labelSelector = labels.NewSelector()
 	req1, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{cluster})
@@ -403,6 +426,8 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster st
 	return result, nil
 }
 
+// Check whether the nodes involved in the ops job belong to the same cluster and the same node flavor.
+// Additionally, both cluster and node flavor must not be empty.
 func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
 	nodeParams := job.GetParameters(v1.ParameterNode)
 	clusterId := ""
@@ -429,25 +454,4 @@ func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) err
 		}
 	}
 	return nil
-}
-
-func (v *OpsJobValidator) validatePreflight(ctx context.Context, job *v1.OpsJob) error {
-	err := v.validateNodeDuplicated(ctx, job)
-	if err != nil {
-		return err
-	}
-	if job.Spec.Resource == nil {
-		return fmt.Errorf("the resource of job is empty")
-	}
-	if job.Spec.Image == nil || *job.Spec.Image == "" {
-		return fmt.Errorf("the image of job is empty")
-	}
-	if job.Spec.EntryPoint == nil || *job.Spec.EntryPoint == "" {
-		return fmt.Errorf("the entryPoint of job is empty")
-	}
-	nf, err := getNodeFlavor(ctx, v.Client, v1.GetNodeFlavorId(job))
-	if err != nil {
-		return err
-	}
-	return validateResourceEnough(nf, job.Spec.Resource)
 }

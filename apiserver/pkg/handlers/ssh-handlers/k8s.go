@@ -15,9 +15,6 @@ import (
 	"strconv"
 	"time"
 
-	client2 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
-
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +29,8 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
@@ -77,7 +76,7 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 	}
 
 	nowTime := dbutils.NullMetaV1Time(&metav1.Time{Time: time.Now().UTC()})
-	recordId, err := h.dbClient.InsertSshSessionRecord(ctx, &client2.SshSessionRecords{
+	recordId, err := h.dbClient.InsertSshSessionRecord(ctx, &dbclient.SshSessionRecords{
 		UserId:        sessionInfo.userInfo.User,
 		SshType:       string(sessionInfo.sshType),
 		Namespace:     sessionInfo.userInfo.Namespace,

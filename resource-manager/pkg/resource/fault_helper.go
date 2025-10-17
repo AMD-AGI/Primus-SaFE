@@ -161,7 +161,7 @@ func generateFaultOnCreation(node *v1.FaultNode,
 
 	return &v1.Fault{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: commonfaults.GenerateFaultName(node.AdminName, id),
+			Name: commonfaults.GenerateFaultId(node.AdminName, id),
 			Labels: map[string]string{
 				v1.ClusterIdLabel: node.ClusterName,
 				v1.NodeIdLabel:    node.AdminName,
@@ -188,7 +188,7 @@ func generateFaultOnDeletion(node *v1.FaultNode,
 	}
 	return &v1.Fault{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: commonfaults.GenerateFaultName(node.AdminName, id),
+			Name: commonfaults.GenerateFaultId(node.AdminName, id),
 			Labels: map[string]string{
 				v1.ClusterIdLabel: node.ClusterName,
 			},

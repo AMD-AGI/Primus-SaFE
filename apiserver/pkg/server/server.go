@@ -54,6 +54,9 @@ type Server struct {
 	isInited    bool
 }
 
+// NewServer: creates and initializes a new Server instance.
+// It sets up the signal handler context and calls the init method to configure the server.
+// Returns the initialized Server or an error if initialization fails.
 func NewServer() (*Server, error) {
 	s := &Server{
 		opts: &options.Options{},
@@ -65,6 +68,9 @@ func NewServer() (*Server, error) {
 	return s, nil
 }
 
+// init: performs the initial setup of the server including flag parsing,
+// logging initialization, configuration loading, and controller manager setup.
+// It also sets up the controllers and marks the server as initialized.
 func (s *Server) init() error {
 	gin.SetMode(gin.ReleaseMode)
 	var err error
@@ -92,6 +98,9 @@ func (s *Server) init() error {
 	return nil
 }
 
+// Start: begins the server operation by starting the controller manager,
+// HTTP server, and SSH server (if enabled) in separate goroutines.
+// It waits for a signal to stop and then calls Stop to shut down services.
 func (s *Server) Start() {
 	if !s.isInited {
 		klog.Errorf("please init api-server first")
@@ -107,7 +116,7 @@ func (s *Server) Start() {
 		}
 	}()
 	if !s.ctrlManager.GetCache().WaitForCacheSync(s.ctx) {
-		klog.Errorf("failed to WaitForCacheSync")
+		klog.Errorf("failed to WaitForCacheSync for controller manager")
 		os.Exit(-1)
 	}
 
@@ -129,9 +138,12 @@ func (s *Server) Start() {
 	s.Stop()
 }
 
+// Stop: gracefully shuts down the HTTP server and SSH server (if running).
+// It cancels the context, shuts down services, and flushes logs before exiting.
 func (s *Server) Stop() {
 	ctx, cancel := context.WithCancel(s.ctx)
 	defer cancel()
+	klog.Info("shutting down http server...")
 	if err := s.httpServer.Shutdown(ctx); err != nil {
 		klog.ErrorS(err, "failed to shutdown httpserver")
 	}
@@ -140,10 +152,12 @@ func (s *Server) Stop() {
 			klog.ErrorS(err, "failed to shutdown ssh-server")
 		}
 	}
-	klog.Info("api-server is stopped")
+	klog.Info("apiserver is stopped")
 	klog.Flush()
 }
 
+// initLogs: initializes the logging system with the specified log file path and size.
+// It also sets up the controller-runtime logger to use klog.
 func (s *Server) initLogs() error {
 	if err := commonklog.Init(s.opts.LogfilePath, s.opts.LogFileSize); err != nil {
 		return err
@@ -152,6 +166,7 @@ func (s *Server) initLogs() error {
 	return nil
 }
 
+// initConfig: loads the server configuration from the specified config file path.
 func (s *Server) initConfig() error {
 	fullPath, err := filepath.Abs(s.opts.Config)
 	if err != nil {
@@ -163,6 +178,9 @@ func (s *Server) initConfig() error {
 	return nil
 }
 
+// startHttpServer: initializes and starts the HTTP server.
+// It sets up the HTTP handlers, configures the server address based on the configured port,
+// and starts listening for HTTP requests.
 func (s *Server) startHttpServer() error {
 	if commonconfig.GetServerPort() <= 0 {
 		return fmt.Errorf("the apiserver port is not defined")
@@ -181,6 +199,9 @@ func (s *Server) startHttpServer() error {
 	return nil
 }
 
+// startSSHServer: initializes and starts the SSH server if SSH functionality is enabled.
+// It sets up the SSH handlers, configures the server address based on the configured port,
+// and starts listening for SSH connections.
 func (s *Server) startSSHServer() error {
 	if !commonconfig.IsSSHEnable() {
 		return nil
@@ -193,15 +214,18 @@ func (s *Server) startSSHServer() error {
 		return err
 	}
 	addr := fmt.Sprintf(":%d", commonconfig.GetSSHServerPort())
-	s.sshServer = &SshServer{Addr: addr, Handler: handler}
+	s.sshServer = NewSshServer(addr, handler)
 	klog.Infof("ssh-server listen port: %d", commonconfig.GetSSHServerPort())
-	if err = s.sshServer.ListenAndServe(s.ctx); err != nil {
+	if err = s.sshServer.Start(s.ctx); err != nil {
 		klog.ErrorS(err, "failed to start ssh server")
 		return err
 	}
 	return nil
 }
 
+// newCtrlManager: creates and configures a new controller manager.
+// It sets up the manager options including scheme, leader election, health probes,
+// and then creates and returns the manager instance.
 func newCtrlManager() (ctrlruntime.Manager, error) {
 	healthProbeAddress := ""
 	if commonconfig.IsHealthCheckEnabled() {

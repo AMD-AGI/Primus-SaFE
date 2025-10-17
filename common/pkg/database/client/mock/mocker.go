@@ -9,6 +9,7 @@ import (
 	reflect "reflect"
 
 	client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	model "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	squirrel "github.com/Masterminds/squirrel"
 	gomock "github.com/golang/mock/gomock"
 )
@@ -66,6 +67,21 @@ func (mr *MockInterfaceMockRecorder) CountJobs(ctx, query interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountJobs", reflect.TypeOf((*MockInterface)(nil).CountJobs), ctx, query)
 }
 
+// CountPublicKeys mocks base method.
+func (m *MockInterface) CountPublicKeys(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountPublicKeys", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountPublicKeys indicates an expected call of CountPublicKeys.
+func (mr *MockInterfaceMockRecorder) CountPublicKeys(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPublicKeys", reflect.TypeOf((*MockInterface)(nil).CountPublicKeys), ctx, query)
+}
+
 // CountWorkloads mocks base method.
 func (m *MockInterface) CountWorkloads(ctx context.Context, query squirrel.Sqlizer) (int, error) {
 	m.ctrl.T.Helper()
@@ -95,6 +111,77 @@ func (mr *MockInterfaceMockRecorder) DeleteFault(ctx, uid interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteFault", reflect.TypeOf((*MockInterface)(nil).DeleteFault), ctx, uid)
 }
 
+// DeleteImage mocks base method.
+func (m *MockInterface) DeleteImage(ctx context.Context, id int32, deletedBy string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteImage", ctx, id, deletedBy)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteImage indicates an expected call of DeleteImage.
+func (mr *MockInterfaceMockRecorder) DeleteImage(ctx, id, deletedBy interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteImage", reflect.TypeOf((*MockInterface)(nil).DeleteImage), ctx, id, deletedBy)
+}
+
+// DeleteImageDigest mocks base method.
+func (m *MockInterface) DeleteImageDigest(ctx context.Context, id int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteImageDigest", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteImageDigest indicates an expected call of DeleteImageDigest.
+func (mr *MockInterfaceMockRecorder) DeleteImageDigest(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteImageDigest", reflect.TypeOf((*MockInterface)(nil).DeleteImageDigest), ctx, id)
+}
+
+// DeletePublicKey mocks base method.
+func (m *MockInterface) DeletePublicKey(ctx context.Context, userId string, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePublicKey", ctx, userId, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePublicKey indicates an expected call of DeletePublicKey.
+func (mr *MockInterfaceMockRecorder) DeletePublicKey(ctx, userId, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePublicKey", reflect.TypeOf((*MockInterface)(nil).DeletePublicKey), ctx, userId, id)
+}
+
+// DeleteRegistryInfo mocks base method.
+func (m *MockInterface) DeleteRegistryInfo(ctx context.Context, id int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteRegistryInfo", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRegistryInfo indicates an expected call of DeleteRegistryInfo.
+func (mr *MockInterfaceMockRecorder) DeleteRegistryInfo(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRegistryInfo", reflect.TypeOf((*MockInterface)(nil).DeleteRegistryInfo), ctx, id)
+}
+
+// GetDefaultRegistryInfo mocks base method.
+func (m *MockInterface) GetDefaultRegistryInfo(ctx context.Context) (*model.RegistryInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDefaultRegistryInfo", ctx)
+	ret0, _ := ret[0].(*model.RegistryInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDefaultRegistryInfo indicates an expected call of GetDefaultRegistryInfo.
+func (mr *MockInterfaceMockRecorder) GetDefaultRegistryInfo(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDefaultRegistryInfo", reflect.TypeOf((*MockInterface)(nil).GetDefaultRegistryInfo), ctx)
+}
+
 // GetFault mocks base method.
 func (m *MockInterface) GetFault(ctx context.Context, uid string) (*client.Fault, error) {
 	m.ctrl.T.Helper()
@@ -108,6 +195,126 @@ func (m *MockInterface) GetFault(ctx context.Context, uid string) (*client.Fault
 func (mr *MockInterfaceMockRecorder) GetFault(ctx, uid interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFault", reflect.TypeOf((*MockInterface)(nil).GetFault), ctx, uid)
+}
+
+// GetImage mocks base method.
+func (m *MockInterface) GetImage(ctx context.Context, imageId int32) (*model.Image, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImage", ctx, imageId)
+	ret0, _ := ret[0].(*model.Image)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImage indicates an expected call of GetImage.
+func (mr *MockInterfaceMockRecorder) GetImage(ctx, imageId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImage", reflect.TypeOf((*MockInterface)(nil).GetImage), ctx, imageId)
+}
+
+// GetImageByTag mocks base method.
+func (m *MockInterface) GetImageByTag(ctx context.Context, tag string) (*model.Image, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImageByTag", ctx, tag)
+	ret0, _ := ret[0].(*model.Image)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImageByTag indicates an expected call of GetImageByTag.
+func (mr *MockInterfaceMockRecorder) GetImageByTag(ctx, tag interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImageByTag", reflect.TypeOf((*MockInterface)(nil).GetImageByTag), ctx, tag)
+}
+
+// GetImageImportJobByJobName mocks base method.
+func (m *MockInterface) GetImageImportJobByJobName(ctx context.Context, jobName string) (*model.ImageImportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImageImportJobByJobName", ctx, jobName)
+	ret0, _ := ret[0].(*model.ImageImportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImageImportJobByJobName indicates an expected call of GetImageImportJobByJobName.
+func (mr *MockInterfaceMockRecorder) GetImageImportJobByJobName(ctx, jobName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImageImportJobByJobName", reflect.TypeOf((*MockInterface)(nil).GetImageImportJobByJobName), ctx, jobName)
+}
+
+// GetImageImportJobByTag mocks base method.
+func (m *MockInterface) GetImageImportJobByTag(ctx context.Context, tag string) (*model.ImageImportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImageImportJobByTag", ctx, tag)
+	ret0, _ := ret[0].(*model.ImageImportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImageImportJobByTag indicates an expected call of GetImageImportJobByTag.
+func (mr *MockInterfaceMockRecorder) GetImageImportJobByTag(ctx, tag interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImageImportJobByTag", reflect.TypeOf((*MockInterface)(nil).GetImageImportJobByTag), ctx, tag)
+}
+
+// GetImportImageByImageID mocks base method.
+func (m *MockInterface) GetImportImageByImageID(ctx context.Context, imageID int32) (*model.ImageImportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImportImageByImageID", ctx, imageID)
+	ret0, _ := ret[0].(*model.ImageImportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImportImageByImageID indicates an expected call of GetImportImageByImageID.
+func (mr *MockInterfaceMockRecorder) GetImportImageByImageID(ctx, imageID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImportImageByImageID", reflect.TypeOf((*MockInterface)(nil).GetImportImageByImageID), ctx, imageID)
+}
+
+// GetPublicKeyByUserId mocks base method.
+func (m *MockInterface) GetPublicKeyByUserId(ctx context.Context, userId string) ([]*client.PublicKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPublicKeyByUserId", ctx, userId)
+	ret0, _ := ret[0].([]*client.PublicKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPublicKeyByUserId indicates an expected call of GetPublicKeyByUserId.
+func (mr *MockInterfaceMockRecorder) GetPublicKeyByUserId(ctx, userId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPublicKeyByUserId", reflect.TypeOf((*MockInterface)(nil).GetPublicKeyByUserId), ctx, userId)
+}
+
+// GetRegistryInfoById mocks base method.
+func (m *MockInterface) GetRegistryInfoById(ctx context.Context, id int32) (*model.RegistryInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRegistryInfoById", ctx, id)
+	ret0, _ := ret[0].(*model.RegistryInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRegistryInfoById indicates an expected call of GetRegistryInfoById.
+func (mr *MockInterfaceMockRecorder) GetRegistryInfoById(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRegistryInfoById", reflect.TypeOf((*MockInterface)(nil).GetRegistryInfoById), ctx, id)
+}
+
+// GetRegistryInfoByUrl mocks base method.
+func (m *MockInterface) GetRegistryInfoByUrl(ctx context.Context, url string) (*model.RegistryInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRegistryInfoByUrl", ctx, url)
+	ret0, _ := ret[0].(*model.RegistryInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRegistryInfoByUrl indicates an expected call of GetRegistryInfoByUrl.
+func (mr *MockInterfaceMockRecorder) GetRegistryInfoByUrl(ctx, url interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRegistryInfoByUrl", reflect.TypeOf((*MockInterface)(nil).GetRegistryInfoByUrl), ctx, url)
 }
 
 // GetWorkload mocks base method.
@@ -125,6 +332,50 @@ func (mr *MockInterfaceMockRecorder) GetWorkload(ctx, workloadId interface{}) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkload", reflect.TypeOf((*MockInterface)(nil).GetWorkload), ctx, workloadId)
 }
 
+// InsertPublicKey mocks base method.
+func (m *MockInterface) InsertPublicKey(ctx context.Context, publicKey *client.PublicKey) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertPublicKey", ctx, publicKey)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertPublicKey indicates an expected call of InsertPublicKey.
+func (mr *MockInterfaceMockRecorder) InsertPublicKey(ctx, publicKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPublicKey", reflect.TypeOf((*MockInterface)(nil).InsertPublicKey), ctx, publicKey)
+}
+
+// InsertSshSessionRecord mocks base method.
+func (m *MockInterface) InsertSshSessionRecord(ctx context.Context, record *client.SshSessionRecords) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertSshSessionRecord", ctx, record)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InsertSshSessionRecord indicates an expected call of InsertSshSessionRecord.
+func (mr *MockInterfaceMockRecorder) InsertSshSessionRecord(ctx, record interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSshSessionRecord", reflect.TypeOf((*MockInterface)(nil).InsertSshSessionRecord), ctx, record)
+}
+
+// ListRegistryInfos mocks base method.
+func (m *MockInterface) ListRegistryInfos(ctx context.Context, pageNum, pageSize int) ([]*model.RegistryInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRegistryInfos", ctx, pageNum, pageSize)
+	ret0, _ := ret[0].([]*model.RegistryInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRegistryInfos indicates an expected call of ListRegistryInfos.
+func (mr *MockInterfaceMockRecorder) ListRegistryInfos(ctx, pageNum, pageSize interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRegistryInfos", reflect.TypeOf((*MockInterface)(nil).ListRegistryInfos), ctx, pageNum, pageSize)
+}
+
 // SelectFaults mocks base method.
 func (m *MockInterface) SelectFaults(ctx context.Context, query squirrel.Sqlizer, sortBy, order string, limit, offset int) ([]*client.Fault, error) {
 	m.ctrl.T.Helper()
@@ -140,6 +391,22 @@ func (mr *MockInterfaceMockRecorder) SelectFaults(ctx, query, sortBy, order, lim
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectFaults", reflect.TypeOf((*MockInterface)(nil).SelectFaults), ctx, query, sortBy, order, limit, offset)
 }
 
+// SelectImages mocks base method.
+func (m *MockInterface) SelectImages(ctx context.Context, filter *client.ImageFilter) ([]*model.Image, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectImages", ctx, filter)
+	ret0, _ := ret[0].([]*model.Image)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// SelectImages indicates an expected call of SelectImages.
+func (mr *MockInterfaceMockRecorder) SelectImages(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectImages", reflect.TypeOf((*MockInterface)(nil).SelectImages), ctx, filter)
+}
+
 // SelectJobs mocks base method.
 func (m *MockInterface) SelectJobs(ctx context.Context, query squirrel.Sqlizer, sortBy, order string, limit, offset int) ([]*client.OpsJob, error) {
 	m.ctrl.T.Helper()
@@ -153,6 +420,21 @@ func (m *MockInterface) SelectJobs(ctx context.Context, query squirrel.Sqlizer, 
 func (mr *MockInterfaceMockRecorder) SelectJobs(ctx, query, sortBy, order, limit, offset interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectJobs", reflect.TypeOf((*MockInterface)(nil).SelectJobs), ctx, query, sortBy, order, limit, offset)
+}
+
+// SelectPublicKeys mocks base method.
+func (m *MockInterface) SelectPublicKeys(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.PublicKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectPublicKeys", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.PublicKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectPublicKeys indicates an expected call of SelectPublicKeys.
+func (mr *MockInterfaceMockRecorder) SelectPublicKeys(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectPublicKeys", reflect.TypeOf((*MockInterface)(nil).SelectPublicKeys), ctx, query, orderBy, limit, offset)
 }
 
 // SelectWorkloads mocks base method.
@@ -182,6 +464,48 @@ func (m *MockInterface) SetOpsJobDeleted(ctx context.Context, opsJobId, userId s
 func (mr *MockInterfaceMockRecorder) SetOpsJobDeleted(ctx, opsJobId, userId interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetOpsJobDeleted", reflect.TypeOf((*MockInterface)(nil).SetOpsJobDeleted), ctx, opsJobId, userId)
+}
+
+// SetPublicKeyDescription mocks base method.
+func (m *MockInterface) SetPublicKeyDescription(ctx context.Context, userId string, id int64, description string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPublicKeyDescription", ctx, userId, id, description)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPublicKeyDescription indicates an expected call of SetPublicKeyDescription.
+func (mr *MockInterfaceMockRecorder) SetPublicKeyDescription(ctx, userId, id, description interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPublicKeyDescription", reflect.TypeOf((*MockInterface)(nil).SetPublicKeyDescription), ctx, userId, id, description)
+}
+
+// SetPublicKeyStatus mocks base method.
+func (m *MockInterface) SetPublicKeyStatus(ctx context.Context, userId string, id int64, status bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPublicKeyStatus", ctx, userId, id, status)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPublicKeyStatus indicates an expected call of SetPublicKeyStatus.
+func (mr *MockInterfaceMockRecorder) SetPublicKeyStatus(ctx, userId, id, status interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPublicKeyStatus", reflect.TypeOf((*MockInterface)(nil).SetPublicKeyStatus), ctx, userId, id, status)
+}
+
+// SetSshDisconnect mocks base method.
+func (m *MockInterface) SetSshDisconnect(ctx context.Context, id int64, disconnectReason string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSshDisconnect", ctx, id, disconnectReason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSshDisconnect indicates an expected call of SetSshDisconnect.
+func (mr *MockInterfaceMockRecorder) SetSshDisconnect(ctx, id, disconnectReason interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSshDisconnect", reflect.TypeOf((*MockInterface)(nil).SetSshDisconnect), ctx, id, disconnectReason)
 }
 
 // SetWorkloadDeleted mocks base method.
@@ -226,6 +550,20 @@ func (mr *MockInterfaceMockRecorder) SetWorkloadStopped(ctx, workloadId interfac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetWorkloadStopped", reflect.TypeOf((*MockInterface)(nil).SetWorkloadStopped), ctx, workloadId)
 }
 
+// UpdateImageImportJob mocks base method.
+func (m *MockInterface) UpdateImageImportJob(ctx context.Context, job *model.ImageImportJob) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateImageImportJob", ctx, job)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateImageImportJob indicates an expected call of UpdateImageImportJob.
+func (mr *MockInterfaceMockRecorder) UpdateImageImportJob(ctx, job interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateImageImportJob", reflect.TypeOf((*MockInterface)(nil).UpdateImageImportJob), ctx, job)
+}
+
 // UpsertFault mocks base method.
 func (m *MockInterface) UpsertFault(ctx context.Context, fault *client.Fault) error {
 	m.ctrl.T.Helper()
@@ -240,6 +578,48 @@ func (mr *MockInterfaceMockRecorder) UpsertFault(ctx, fault interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertFault", reflect.TypeOf((*MockInterface)(nil).UpsertFault), ctx, fault)
 }
 
+// UpsertImage mocks base method.
+func (m *MockInterface) UpsertImage(ctx context.Context, image *model.Image) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertImage", ctx, image)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertImage indicates an expected call of UpsertImage.
+func (mr *MockInterfaceMockRecorder) UpsertImage(ctx, image interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertImage", reflect.TypeOf((*MockInterface)(nil).UpsertImage), ctx, image)
+}
+
+// UpsertImageDigest mocks base method.
+func (m *MockInterface) UpsertImageDigest(ctx context.Context, digest *model.ImageDigest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertImageDigest", ctx, digest)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertImageDigest indicates an expected call of UpsertImageDigest.
+func (mr *MockInterfaceMockRecorder) UpsertImageDigest(ctx, digest interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertImageDigest", reflect.TypeOf((*MockInterface)(nil).UpsertImageDigest), ctx, digest)
+}
+
+// UpsertImageImportJob mocks base method.
+func (m *MockInterface) UpsertImageImportJob(ctx context.Context, job *model.ImageImportJob) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertImageImportJob", ctx, job)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertImageImportJob indicates an expected call of UpsertImageImportJob.
+func (mr *MockInterfaceMockRecorder) UpsertImageImportJob(ctx, job interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertImageImportJob", reflect.TypeOf((*MockInterface)(nil).UpsertImageImportJob), ctx, job)
+}
+
 // UpsertJob mocks base method.
 func (m *MockInterface) UpsertJob(ctx context.Context, job *client.OpsJob) error {
 	m.ctrl.T.Helper()
@@ -252,6 +632,20 @@ func (m *MockInterface) UpsertJob(ctx context.Context, job *client.OpsJob) error
 func (mr *MockInterfaceMockRecorder) UpsertJob(ctx, job interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertJob", reflect.TypeOf((*MockInterface)(nil).UpsertJob), ctx, job)
+}
+
+// UpsertRegistryInfo mocks base method.
+func (m *MockInterface) UpsertRegistryInfo(ctx context.Context, registryInfo *model.RegistryInfo) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertRegistryInfo", ctx, registryInfo)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertRegistryInfo indicates an expected call of UpsertRegistryInfo.
+func (mr *MockInterfaceMockRecorder) UpsertRegistryInfo(ctx, registryInfo interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertRegistryInfo", reflect.TypeOf((*MockInterface)(nil).UpsertRegistryInfo), ctx, registryInfo)
 }
 
 // UpsertWorkload mocks base method.
@@ -567,4 +961,535 @@ func (m *MockOpsJobInterface) UpsertJob(ctx context.Context, job *client.OpsJob)
 func (mr *MockOpsJobInterfaceMockRecorder) UpsertJob(ctx, job interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertJob", reflect.TypeOf((*MockOpsJobInterface)(nil).UpsertJob), ctx, job)
+}
+
+// MockImageInterface is a mock of ImageInterface interface.
+type MockImageInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockImageInterfaceMockRecorder
+}
+
+// MockImageInterfaceMockRecorder is the mock recorder for MockImageInterface.
+type MockImageInterfaceMockRecorder struct {
+	mock *MockImageInterface
+}
+
+// NewMockImageInterface creates a new mock instance.
+func NewMockImageInterface(ctrl *gomock.Controller) *MockImageInterface {
+	mock := &MockImageInterface{ctrl: ctrl}
+	mock.recorder = &MockImageInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockImageInterface) EXPECT() *MockImageInterfaceMockRecorder {
+	return m.recorder
+}
+
+// DeleteImage mocks base method.
+func (m *MockImageInterface) DeleteImage(ctx context.Context, id int32, deletedBy string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteImage", ctx, id, deletedBy)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteImage indicates an expected call of DeleteImage.
+func (mr *MockImageInterfaceMockRecorder) DeleteImage(ctx, id, deletedBy interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteImage", reflect.TypeOf((*MockImageInterface)(nil).DeleteImage), ctx, id, deletedBy)
+}
+
+// GetImage mocks base method.
+func (m *MockImageInterface) GetImage(ctx context.Context, imageId int32) (*model.Image, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImage", ctx, imageId)
+	ret0, _ := ret[0].(*model.Image)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImage indicates an expected call of GetImage.
+func (mr *MockImageInterfaceMockRecorder) GetImage(ctx, imageId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImage", reflect.TypeOf((*MockImageInterface)(nil).GetImage), ctx, imageId)
+}
+
+// GetImageByTag mocks base method.
+func (m *MockImageInterface) GetImageByTag(ctx context.Context, tag string) (*model.Image, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImageByTag", ctx, tag)
+	ret0, _ := ret[0].(*model.Image)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImageByTag indicates an expected call of GetImageByTag.
+func (mr *MockImageInterfaceMockRecorder) GetImageByTag(ctx, tag interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImageByTag", reflect.TypeOf((*MockImageInterface)(nil).GetImageByTag), ctx, tag)
+}
+
+// SelectImages mocks base method.
+func (m *MockImageInterface) SelectImages(ctx context.Context, filter *client.ImageFilter) ([]*model.Image, int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectImages", ctx, filter)
+	ret0, _ := ret[0].([]*model.Image)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// SelectImages indicates an expected call of SelectImages.
+func (mr *MockImageInterfaceMockRecorder) SelectImages(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectImages", reflect.TypeOf((*MockImageInterface)(nil).SelectImages), ctx, filter)
+}
+
+// UpsertImage mocks base method.
+func (m *MockImageInterface) UpsertImage(ctx context.Context, image *model.Image) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertImage", ctx, image)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertImage indicates an expected call of UpsertImage.
+func (mr *MockImageInterfaceMockRecorder) UpsertImage(ctx, image interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertImage", reflect.TypeOf((*MockImageInterface)(nil).UpsertImage), ctx, image)
+}
+
+// MockImageDigestInterface is a mock of ImageDigestInterface interface.
+type MockImageDigestInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockImageDigestInterfaceMockRecorder
+}
+
+// MockImageDigestInterfaceMockRecorder is the mock recorder for MockImageDigestInterface.
+type MockImageDigestInterfaceMockRecorder struct {
+	mock *MockImageDigestInterface
+}
+
+// NewMockImageDigestInterface creates a new mock instance.
+func NewMockImageDigestInterface(ctrl *gomock.Controller) *MockImageDigestInterface {
+	mock := &MockImageDigestInterface{ctrl: ctrl}
+	mock.recorder = &MockImageDigestInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockImageDigestInterface) EXPECT() *MockImageDigestInterfaceMockRecorder {
+	return m.recorder
+}
+
+// DeleteImageDigest mocks base method.
+func (m *MockImageDigestInterface) DeleteImageDigest(ctx context.Context, id int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteImageDigest", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteImageDigest indicates an expected call of DeleteImageDigest.
+func (mr *MockImageDigestInterfaceMockRecorder) DeleteImageDigest(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteImageDigest", reflect.TypeOf((*MockImageDigestInterface)(nil).DeleteImageDigest), ctx, id)
+}
+
+// UpsertImageDigest mocks base method.
+func (m *MockImageDigestInterface) UpsertImageDigest(ctx context.Context, digest *model.ImageDigest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertImageDigest", ctx, digest)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertImageDigest indicates an expected call of UpsertImageDigest.
+func (mr *MockImageDigestInterfaceMockRecorder) UpsertImageDigest(ctx, digest interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertImageDigest", reflect.TypeOf((*MockImageDigestInterface)(nil).UpsertImageDigest), ctx, digest)
+}
+
+// MockImageImportJobInterface is a mock of ImageImportJobInterface interface.
+type MockImageImportJobInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockImageImportJobInterfaceMockRecorder
+}
+
+// MockImageImportJobInterfaceMockRecorder is the mock recorder for MockImageImportJobInterface.
+type MockImageImportJobInterfaceMockRecorder struct {
+	mock *MockImageImportJobInterface
+}
+
+// NewMockImageImportJobInterface creates a new mock instance.
+func NewMockImageImportJobInterface(ctrl *gomock.Controller) *MockImageImportJobInterface {
+	mock := &MockImageImportJobInterface{ctrl: ctrl}
+	mock.recorder = &MockImageImportJobInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockImageImportJobInterface) EXPECT() *MockImageImportJobInterfaceMockRecorder {
+	return m.recorder
+}
+
+// GetImageImportJobByJobName mocks base method.
+func (m *MockImageImportJobInterface) GetImageImportJobByJobName(ctx context.Context, jobName string) (*model.ImageImportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImageImportJobByJobName", ctx, jobName)
+	ret0, _ := ret[0].(*model.ImageImportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImageImportJobByJobName indicates an expected call of GetImageImportJobByJobName.
+func (mr *MockImageImportJobInterfaceMockRecorder) GetImageImportJobByJobName(ctx, jobName interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImageImportJobByJobName", reflect.TypeOf((*MockImageImportJobInterface)(nil).GetImageImportJobByJobName), ctx, jobName)
+}
+
+// GetImageImportJobByTag mocks base method.
+func (m *MockImageImportJobInterface) GetImageImportJobByTag(ctx context.Context, tag string) (*model.ImageImportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImageImportJobByTag", ctx, tag)
+	ret0, _ := ret[0].(*model.ImageImportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImageImportJobByTag indicates an expected call of GetImageImportJobByTag.
+func (mr *MockImageImportJobInterfaceMockRecorder) GetImageImportJobByTag(ctx, tag interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImageImportJobByTag", reflect.TypeOf((*MockImageImportJobInterface)(nil).GetImageImportJobByTag), ctx, tag)
+}
+
+// GetImportImageByImageID mocks base method.
+func (m *MockImageImportJobInterface) GetImportImageByImageID(ctx context.Context, imageID int32) (*model.ImageImportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImportImageByImageID", ctx, imageID)
+	ret0, _ := ret[0].(*model.ImageImportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImportImageByImageID indicates an expected call of GetImportImageByImageID.
+func (mr *MockImageImportJobInterfaceMockRecorder) GetImportImageByImageID(ctx, imageID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImportImageByImageID", reflect.TypeOf((*MockImageImportJobInterface)(nil).GetImportImageByImageID), ctx, imageID)
+}
+
+// UpdateImageImportJob mocks base method.
+func (m *MockImageImportJobInterface) UpdateImageImportJob(ctx context.Context, job *model.ImageImportJob) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateImageImportJob", ctx, job)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateImageImportJob indicates an expected call of UpdateImageImportJob.
+func (mr *MockImageImportJobInterfaceMockRecorder) UpdateImageImportJob(ctx, job interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateImageImportJob", reflect.TypeOf((*MockImageImportJobInterface)(nil).UpdateImageImportJob), ctx, job)
+}
+
+// UpsertImageImportJob mocks base method.
+func (m *MockImageImportJobInterface) UpsertImageImportJob(ctx context.Context, job *model.ImageImportJob) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertImageImportJob", ctx, job)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertImageImportJob indicates an expected call of UpsertImageImportJob.
+func (mr *MockImageImportJobInterfaceMockRecorder) UpsertImageImportJob(ctx, job interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertImageImportJob", reflect.TypeOf((*MockImageImportJobInterface)(nil).UpsertImageImportJob), ctx, job)
+}
+
+// MockRegistryInfoInterface is a mock of RegistryInfoInterface interface.
+type MockRegistryInfoInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockRegistryInfoInterfaceMockRecorder
+}
+
+// MockRegistryInfoInterfaceMockRecorder is the mock recorder for MockRegistryInfoInterface.
+type MockRegistryInfoInterfaceMockRecorder struct {
+	mock *MockRegistryInfoInterface
+}
+
+// NewMockRegistryInfoInterface creates a new mock instance.
+func NewMockRegistryInfoInterface(ctrl *gomock.Controller) *MockRegistryInfoInterface {
+	mock := &MockRegistryInfoInterface{ctrl: ctrl}
+	mock.recorder = &MockRegistryInfoInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockRegistryInfoInterface) EXPECT() *MockRegistryInfoInterfaceMockRecorder {
+	return m.recorder
+}
+
+// DeleteRegistryInfo mocks base method.
+func (m *MockRegistryInfoInterface) DeleteRegistryInfo(ctx context.Context, id int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteRegistryInfo", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteRegistryInfo indicates an expected call of DeleteRegistryInfo.
+func (mr *MockRegistryInfoInterfaceMockRecorder) DeleteRegistryInfo(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRegistryInfo", reflect.TypeOf((*MockRegistryInfoInterface)(nil).DeleteRegistryInfo), ctx, id)
+}
+
+// GetDefaultRegistryInfo mocks base method.
+func (m *MockRegistryInfoInterface) GetDefaultRegistryInfo(ctx context.Context) (*model.RegistryInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDefaultRegistryInfo", ctx)
+	ret0, _ := ret[0].(*model.RegistryInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDefaultRegistryInfo indicates an expected call of GetDefaultRegistryInfo.
+func (mr *MockRegistryInfoInterfaceMockRecorder) GetDefaultRegistryInfo(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDefaultRegistryInfo", reflect.TypeOf((*MockRegistryInfoInterface)(nil).GetDefaultRegistryInfo), ctx)
+}
+
+// GetRegistryInfoById mocks base method.
+func (m *MockRegistryInfoInterface) GetRegistryInfoById(ctx context.Context, id int32) (*model.RegistryInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRegistryInfoById", ctx, id)
+	ret0, _ := ret[0].(*model.RegistryInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRegistryInfoById indicates an expected call of GetRegistryInfoById.
+func (mr *MockRegistryInfoInterfaceMockRecorder) GetRegistryInfoById(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRegistryInfoById", reflect.TypeOf((*MockRegistryInfoInterface)(nil).GetRegistryInfoById), ctx, id)
+}
+
+// GetRegistryInfoByUrl mocks base method.
+func (m *MockRegistryInfoInterface) GetRegistryInfoByUrl(ctx context.Context, url string) (*model.RegistryInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetRegistryInfoByUrl", ctx, url)
+	ret0, _ := ret[0].(*model.RegistryInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetRegistryInfoByUrl indicates an expected call of GetRegistryInfoByUrl.
+func (mr *MockRegistryInfoInterfaceMockRecorder) GetRegistryInfoByUrl(ctx, url interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRegistryInfoByUrl", reflect.TypeOf((*MockRegistryInfoInterface)(nil).GetRegistryInfoByUrl), ctx, url)
+}
+
+// ListRegistryInfos mocks base method.
+func (m *MockRegistryInfoInterface) ListRegistryInfos(ctx context.Context, pageNum, pageSize int) ([]*model.RegistryInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRegistryInfos", ctx, pageNum, pageSize)
+	ret0, _ := ret[0].([]*model.RegistryInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRegistryInfos indicates an expected call of ListRegistryInfos.
+func (mr *MockRegistryInfoInterfaceMockRecorder) ListRegistryInfos(ctx, pageNum, pageSize interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRegistryInfos", reflect.TypeOf((*MockRegistryInfoInterface)(nil).ListRegistryInfos), ctx, pageNum, pageSize)
+}
+
+// UpsertRegistryInfo mocks base method.
+func (m *MockRegistryInfoInterface) UpsertRegistryInfo(ctx context.Context, registryInfo *model.RegistryInfo) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertRegistryInfo", ctx, registryInfo)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertRegistryInfo indicates an expected call of UpsertRegistryInfo.
+func (mr *MockRegistryInfoInterfaceMockRecorder) UpsertRegistryInfo(ctx, registryInfo interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertRegistryInfo", reflect.TypeOf((*MockRegistryInfoInterface)(nil).UpsertRegistryInfo), ctx, registryInfo)
+}
+
+// MockPublicKeyInterface is a mock of PublicKeyInterface interface.
+type MockPublicKeyInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockPublicKeyInterfaceMockRecorder
+}
+
+// MockPublicKeyInterfaceMockRecorder is the mock recorder for MockPublicKeyInterface.
+type MockPublicKeyInterfaceMockRecorder struct {
+	mock *MockPublicKeyInterface
+}
+
+// NewMockPublicKeyInterface creates a new mock instance.
+func NewMockPublicKeyInterface(ctrl *gomock.Controller) *MockPublicKeyInterface {
+	mock := &MockPublicKeyInterface{ctrl: ctrl}
+	mock.recorder = &MockPublicKeyInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockPublicKeyInterface) EXPECT() *MockPublicKeyInterfaceMockRecorder {
+	return m.recorder
+}
+
+// CountPublicKeys mocks base method.
+func (m *MockPublicKeyInterface) CountPublicKeys(ctx context.Context, query squirrel.Sqlizer) (int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountPublicKeys", ctx, query)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountPublicKeys indicates an expected call of CountPublicKeys.
+func (mr *MockPublicKeyInterfaceMockRecorder) CountPublicKeys(ctx, query interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPublicKeys", reflect.TypeOf((*MockPublicKeyInterface)(nil).CountPublicKeys), ctx, query)
+}
+
+// DeletePublicKey mocks base method.
+func (m *MockPublicKeyInterface) DeletePublicKey(ctx context.Context, userId string, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePublicKey", ctx, userId, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePublicKey indicates an expected call of DeletePublicKey.
+func (mr *MockPublicKeyInterfaceMockRecorder) DeletePublicKey(ctx, userId, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePublicKey", reflect.TypeOf((*MockPublicKeyInterface)(nil).DeletePublicKey), ctx, userId, id)
+}
+
+// GetPublicKeyByUserId mocks base method.
+func (m *MockPublicKeyInterface) GetPublicKeyByUserId(ctx context.Context, userId string) ([]*client.PublicKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPublicKeyByUserId", ctx, userId)
+	ret0, _ := ret[0].([]*client.PublicKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetPublicKeyByUserId indicates an expected call of GetPublicKeyByUserId.
+func (mr *MockPublicKeyInterfaceMockRecorder) GetPublicKeyByUserId(ctx, userId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPublicKeyByUserId", reflect.TypeOf((*MockPublicKeyInterface)(nil).GetPublicKeyByUserId), ctx, userId)
+}
+
+// InsertPublicKey mocks base method.
+func (m *MockPublicKeyInterface) InsertPublicKey(ctx context.Context, publicKey *client.PublicKey) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertPublicKey", ctx, publicKey)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertPublicKey indicates an expected call of InsertPublicKey.
+func (mr *MockPublicKeyInterfaceMockRecorder) InsertPublicKey(ctx, publicKey interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPublicKey", reflect.TypeOf((*MockPublicKeyInterface)(nil).InsertPublicKey), ctx, publicKey)
+}
+
+// SelectPublicKeys mocks base method.
+func (m *MockPublicKeyInterface) SelectPublicKeys(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.PublicKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectPublicKeys", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.PublicKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectPublicKeys indicates an expected call of SelectPublicKeys.
+func (mr *MockPublicKeyInterfaceMockRecorder) SelectPublicKeys(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectPublicKeys", reflect.TypeOf((*MockPublicKeyInterface)(nil).SelectPublicKeys), ctx, query, orderBy, limit, offset)
+}
+
+// SetPublicKeyDescription mocks base method.
+func (m *MockPublicKeyInterface) SetPublicKeyDescription(ctx context.Context, userId string, id int64, description string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPublicKeyDescription", ctx, userId, id, description)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPublicKeyDescription indicates an expected call of SetPublicKeyDescription.
+func (mr *MockPublicKeyInterfaceMockRecorder) SetPublicKeyDescription(ctx, userId, id, description interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPublicKeyDescription", reflect.TypeOf((*MockPublicKeyInterface)(nil).SetPublicKeyDescription), ctx, userId, id, description)
+}
+
+// SetPublicKeyStatus mocks base method.
+func (m *MockPublicKeyInterface) SetPublicKeyStatus(ctx context.Context, userId string, id int64, status bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetPublicKeyStatus", ctx, userId, id, status)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetPublicKeyStatus indicates an expected call of SetPublicKeyStatus.
+func (mr *MockPublicKeyInterfaceMockRecorder) SetPublicKeyStatus(ctx, userId, id, status interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPublicKeyStatus", reflect.TypeOf((*MockPublicKeyInterface)(nil).SetPublicKeyStatus), ctx, userId, id, status)
+}
+
+// MockSshSessionRecordsInterface is a mock of SshSessionRecordsInterface interface.
+type MockSshSessionRecordsInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockSshSessionRecordsInterfaceMockRecorder
+}
+
+// MockSshSessionRecordsInterfaceMockRecorder is the mock recorder for MockSshSessionRecordsInterface.
+type MockSshSessionRecordsInterfaceMockRecorder struct {
+	mock *MockSshSessionRecordsInterface
+}
+
+// NewMockSshSessionRecordsInterface creates a new mock instance.
+func NewMockSshSessionRecordsInterface(ctrl *gomock.Controller) *MockSshSessionRecordsInterface {
+	mock := &MockSshSessionRecordsInterface{ctrl: ctrl}
+	mock.recorder = &MockSshSessionRecordsInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockSshSessionRecordsInterface) EXPECT() *MockSshSessionRecordsInterfaceMockRecorder {
+	return m.recorder
+}
+
+// InsertSshSessionRecord mocks base method.
+func (m *MockSshSessionRecordsInterface) InsertSshSessionRecord(ctx context.Context, record *client.SshSessionRecords) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertSshSessionRecord", ctx, record)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InsertSshSessionRecord indicates an expected call of InsertSshSessionRecord.
+func (mr *MockSshSessionRecordsInterfaceMockRecorder) InsertSshSessionRecord(ctx, record interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertSshSessionRecord", reflect.TypeOf((*MockSshSessionRecordsInterface)(nil).InsertSshSessionRecord), ctx, record)
+}
+
+// SetSshDisconnect mocks base method.
+func (m *MockSshSessionRecordsInterface) SetSshDisconnect(ctx context.Context, id int64, disconnectReason string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSshDisconnect", ctx, id, disconnectReason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSshDisconnect indicates an expected call of SetSshDisconnect.
+func (mr *MockSshSessionRecordsInterfaceMockRecorder) SetSshDisconnect(ctx, id, disconnectReason interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSshDisconnect", reflect.TypeOf((*MockSshSessionRecordsInterface)(nil).SetSshDisconnect), ctx, id, disconnectReason)
 }

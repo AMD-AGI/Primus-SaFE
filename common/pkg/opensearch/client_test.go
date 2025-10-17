@@ -64,7 +64,7 @@ func TestQueryIndex(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := client.getQueryIndex(test.SinceTime, test.UntilTime)
+			result, err := client.generateQueryIndex(test.SinceTime, test.UntilTime)
 			assert.NilError(t, err)
 			assert.Equal(t, result, test.result)
 		})

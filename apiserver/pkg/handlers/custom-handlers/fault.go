@@ -26,18 +26,29 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
+// ListFault: handles the listing of fault records.
+// It authorizes the request, parses query parameters, and retrieves fault records from the database.
+// Returns a list of faults with pagination and filtering support.
 func (h *Handler) ListFault(c *gin.Context) {
 	handle(c, h.listFault)
 }
 
+// DeleteFault: handles the deletion of a fault record.
+// It first stops the fault (removes it from the k8s cluster) and then deletes the record from the database.
+// Returns nil on successful deletion or an error if any step fails.
 func (h *Handler) DeleteFault(c *gin.Context) {
 	handle(c, h.deleteFault)
 }
 
+// StopFault: handles removing a fault resource from the k8s cluster.
+// It performs authorization checks and deletes the fault resource from the cluster.
 func (h *Handler) StopFault(c *gin.Context) {
 	handle(c, h.stopFault)
 }
 
+// listFault: implements the logic for listing fault records from the database.
+// It checks if database functionality is enabled, authorizes the request,
+// parses query parameters, executes database queries, and formats the response.
 func (h *Handler) listFault(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
@@ -76,6 +87,9 @@ func (h *Handler) listFault(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+// deleteFault: handles the deletion of a fault record.
+// It first stops the fault (removes it from the k8s cluster) and then deletes the record from the database.
+// Returns nil on successful deletion or an error if any step fails.
 func (h *Handler) deleteFault(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
@@ -94,6 +108,9 @@ func (h *Handler) deleteFault(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// stopFault: removes a fault resource from the k8s cluster.
+// It performs authorization checks, lists all fault resources, finds the one matching the given ID,
+// and deletes it from the cluster. Returns nil on successful deletion
 func (h *Handler) stopFault(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	if err := h.auth.Authorize(authority.Input{
@@ -124,17 +141,21 @@ func (h *Handler) stopFault(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) getAdminFault(ctx context.Context, name string) (*v1.Fault, error) {
-	if name == "" {
+// getAdminFault: retrieves a fault resource by ID from the k8s cluster.
+// Returns the fault object or an error if the fault doesn't exist or the ID is empty.
+func (h *Handler) getAdminFault(ctx context.Context, faultId string) (*v1.Fault, error) {
+	if faultId == "" {
 		return nil, commonerrors.NewBadRequest("the faultId is empty")
 	}
 	fault := &v1.Fault{}
-	if err := h.Get(ctx, client.ObjectKey{Name: name}, fault); err != nil {
+	if err := h.Get(ctx, client.ObjectKey{Name: faultId}, fault); err != nil {
 		return nil, err
 	}
 	return fault.DeepCopy(), nil
 }
 
+// parseListFaultQuery: parses and validates the query parameters for listing faults.
+// Sets default values for pagination and sorting if not provided in the request.
 func parseListFaultQuery(c *gin.Context) (*types.ListFaultRequest, error) {
 	query := &types.ListFaultRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
@@ -154,6 +175,8 @@ func parseListFaultQuery(c *gin.Context) (*types.ListFaultRequest, error) {
 	return query, nil
 }
 
+// cvtToListFaultSql: converts the fault list query parameters into an SQL query.
+// Builds WHERE conditions based on filter parameters like monitor ID, cluster ID, node ID, and open status.
 func cvtToListFaultSql(query *types.ListFaultRequest) sqrl.Sqlizer {
 	dbTags := dbclient.GetFaultFieldTags()
 	monitorId := dbclient.GetFieldTag(dbTags, "MonitorId")
@@ -180,6 +203,8 @@ func cvtToListFaultSql(query *types.ListFaultRequest) sqrl.Sqlizer {
 	return dbSql
 }
 
+// cvtToFaultResponseItem: converts a database fault record to a response item format.
+// Maps database fields to the appropriate response structure.
 func cvtToFaultResponseItem(f *dbclient.Fault) types.FaultResponseItem {
 	return types.FaultResponseItem{
 		ID:           f.Uid,

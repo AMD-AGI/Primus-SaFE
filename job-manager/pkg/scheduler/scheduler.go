@@ -603,7 +603,7 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 		var resourceList corev1.ResourceList
 		var err error
 		if w.IsRunning() {
-			resourceList, err = commonworkload.GetActiveResources(w, filterFunc)
+			resourceList, _, err = commonworkload.GetActiveResources(w, filterFunc)
 		} else {
 			resourceList, err = commonworkload.CvtToResourceList(w)
 		}
