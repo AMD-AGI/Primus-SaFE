@@ -36,6 +36,11 @@ type SearchClient struct {
 	httpClient httpclient.Interface
 }
 
+// NewClient() *SearchClient
+// Create or return the singleton instance of SearchClient
+// Gets OpenSearch endpoint, index prefix, username and password from configuration
+// Initializes HTTP client
+// Returns: SearchClient instance
 func NewClient() *SearchClient {
 	once.Do(func() {
 		instance = &SearchClient{
@@ -49,8 +54,22 @@ func NewClient() *SearchClient {
 	return instance
 }
 
+// Search OpenSearch data by time range
+// Parameters:
+//
+//	sinceTime: Start time
+//	untilTime: End time
+//	uri: the endpoint of opensearch service
+//	body: Request body
+//
+// Returns:
+//
+//	[]byte: Response data
+//	error: Error information
+//
+// Function: Builds index names within time range, then sends POST request
 func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, uri string, body []byte) ([]byte, error) {
-	index, err := c.getQueryIndex(sinceTime, untilTime)
+	index, err := c.generateQueryIndex(sinceTime, untilTime)
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +79,19 @@ func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, uri str
 	return c.Request(index+uri, http.MethodPost, body)
 }
 
+// Send HTTP request to OpenSearch
+// Parameters:
+//
+//	uri: Full API path
+//	httpMethod: HTTP method (such as GET, POST, etc.)
+//	body: Request body data
+//
+// Returns:
+//
+//	[]byte: Response body data
+//	error: Error information
+//
+// Function: Builds HTTP request with authentication, sends request and processes response
 func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, error) {
 	if !strings.HasPrefix(uri, "/") {
 		uri = "/" + uri
@@ -81,7 +113,22 @@ func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, err
 	return resp.Body, nil
 }
 
-func (c *SearchClient) getQueryIndex(sinceTime, untilTime time.Time) (string, error) {
+// Generate OpenSearch index name based on time range
+// Parameters:
+//
+//	sinceTime: Start time
+//	untilTime: End time
+//
+// Returns:
+//
+//	string: Index name (may contain multiple indices or wildcard)
+//	error: Error information
+//
+// Logic:
+//  1. If start time equals end time, return single date index
+//  2. If time range exceeds 30 days, use wildcard *
+//  3. Otherwise generate all index names within date range, separated by comma
+func (c *SearchClient) generateQueryIndex(sinceTime, untilTime time.Time) (string, error) {
 	if sinceTime.Equal(untilTime) {
 		return c.prefix + sinceTime.Format(IndexDateFormat), nil
 	}

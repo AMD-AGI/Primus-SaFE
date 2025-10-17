@@ -190,7 +190,7 @@ func (r *OpsJobBaseReconciler) createFault(ctx context.Context,
 	}
 	fault := &v1.Fault{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: commonfaults.GenerateFaultName(adminNode.Name, monitorId),
+			Name: commonfaults.GenerateFaultId(adminNode.Name, monitorId),
 			Labels: map[string]string{
 				v1.ClusterIdLabel: v1.GetClusterId(job),
 				v1.NodeIdLabel:    adminNode.Name,
@@ -233,7 +233,7 @@ func (r *OpsJobBaseReconciler) getFaultConfig(ctx context.Context, monitorId str
 }
 
 func (r *OpsJobBaseReconciler) getFault(ctx context.Context, adminNodeName, monitorId string) (*v1.Fault, error) {
-	faultName := commonfaults.GenerateFaultName(adminNodeName, monitorId)
+	faultName := commonfaults.GenerateFaultId(adminNodeName, monitorId)
 	fault := &v1.Fault{}
 	err := r.Get(ctx, client.ObjectKey{Name: faultName}, fault)
 	if err != nil {
