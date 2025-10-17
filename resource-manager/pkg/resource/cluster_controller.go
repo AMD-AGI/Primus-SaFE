@@ -173,7 +173,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	if err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
-	if !cluster.DeletionTimestamp.IsZero() {
+	if cluster.Status.ControlPlaneStatus.Phase == v1.DeletedPhase {
 		return ctrlruntime.Result{}, r.delete(ctx, cluster)
 	}
 	if err = r.guaranteeClusterControlPlane(ctx, cluster); err != nil {
@@ -343,7 +343,7 @@ func genAllPriorityClass(clusterId string) []PriorityClass {
 }
 
 func (r *ClusterReconciler) guaranteeAllImageSecrets(ctx context.Context, cluster *v1.Cluster) error {
-	if commonconfig.GetImageSecret() == "" {
+	if commonconfig.GetImageSecret() == "" || !cluster.IsReady() {
 		return nil
 	}
 	targetNamespace := corev1.NamespaceDefault
