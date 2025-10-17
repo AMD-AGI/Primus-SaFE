@@ -23,6 +23,7 @@ const (
 	// ssh
 	sshPrefix     = "ssh."
 	sshEnable     = sshPrefix + "enable"
+	sshServerIP   = sshPrefix + "server_ip"
 	sshServerPort = sshPrefix + "server_port"
 	sshSecretPath = sshPrefix + "secret_path"
 
