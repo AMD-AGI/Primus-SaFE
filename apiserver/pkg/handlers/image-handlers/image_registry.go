@@ -2,12 +2,14 @@ package image_handlers
 
 import (
 	"context"
+	"strconv"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	"github.com/gin-gonic/gin"
-	"strconv"
-	"time"
 )
 
 func (h *ImageHandler) createImageRegistry(c *gin.Context) (*model.RegistryInfo, error) {

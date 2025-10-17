@@ -17,27 +17,30 @@ import (
 )
 
 func InitCustomRouters(e *gin.Engine, h *Handler) {
-	group := e.Group(common.PrimusRouterCustomRootPath, authority.Authorize(), authority.Prepare())
+	// Custom API requires authentication and preprocessing.
+	group := e.Group(common.PrimusRouterCustomRootPath, authority.Authorize(), authority.Preprocess())
 	{
 		group.POST("workloads", h.CreateWorkload)
+		group.POST("workloads/clone", h.CloneWorkloads)
+		group.POST("workloads/delete", h.DeleteWorkloads)
+		group.POST("workloads/stop", h.StopWorkloads)
+		group.POST(fmt.Sprintf("workloads/:%s/stop", common.Name), h.StopWorkload)
+		group.DELETE(fmt.Sprintf("workloads/:%s", common.Name), h.DeleteWorkload)
+		group.PATCH(fmt.Sprintf("workloads/:%s", common.Name), h.PatchWorkload)
 		group.GET("workloads", h.ListWorkload)
 		group.GET(fmt.Sprintf("workloads/:%s", common.Name), h.GetWorkload)
-		group.DELETE(fmt.Sprintf("workloads/:%s", common.Name), h.DeleteWorkload)
-		group.POST(fmt.Sprintf("workloads/:%s/stop", common.Name), h.StopWorkload)
-		group.PATCH(fmt.Sprintf("workloads/:%s", common.Name), h.PatchWorkload)
 		group.GET(fmt.Sprintf("workloads/:%s/service", common.Name), h.GetWorkloadService)
 		group.GET(fmt.Sprintf("workloads/:%s/pods/:%s/logs", common.Name, common.PodId), h.GetWorkloadPodLog)
-		group.GET(fmt.Sprintf("workloads/:%s/pods/:%s/containers", common.Name, common.PodId), h.GetWorkloadPodContainers)
 
 		group.POST("secrets", h.CreateSecret)
+		group.DELETE(fmt.Sprintf("secrets/:%s", common.Name), h.DeleteSecret)
+		group.PATCH(fmt.Sprintf("secrets/:%s", common.Name), h.PatchSecret)
 		group.GET("secrets", h.ListSecret)
 		group.GET(fmt.Sprintf("secrets/:%s", common.Name), h.GetSecret)
-		group.PATCH(fmt.Sprintf("secrets/:%s", common.Name), h.PatchSecret)
-		group.DELETE(fmt.Sprintf("secrets/:%s", common.Name), h.DeleteSecret)
 
-		group.GET("faults", h.ListFault)
-		group.DELETE(fmt.Sprintf("faults/:%s", common.Name), h.DeleteFault)
 		group.POST(fmt.Sprintf("faults/:%s/stop", common.Name), h.StopFault)
+		group.DELETE(fmt.Sprintf("faults/:%s", common.Name), h.DeleteFault)
+		group.GET("faults", h.ListFault)
 
 		group.POST("nodetemplates", h.CreateNodeTemplate)
 		group.DELETE(fmt.Sprintf("nodetemplates/:%s", common.Name), h.DeleteNodeTemplate)
@@ -45,18 +48,17 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 
 		group.POST("nodes", h.CreateNode)
 		group.DELETE(fmt.Sprintf("nodes/:%s", common.Name), h.DeleteNode)
+		group.PATCH(fmt.Sprintf("nodes/:%s", common.Name), h.PatchNode)
 		group.GET(fmt.Sprintf("nodes/:%s/logs", common.Name), h.GetNodePodLog)
 		group.GET("nodes", h.ListNode)
 		group.GET(fmt.Sprintf("nodes/:%s", common.Name), h.GetNode)
-		group.PATCH(fmt.Sprintf("nodes/:%s", common.Name), h.PatchNode)
-		group.POST(fmt.Sprintf("nodes/:%s/restart", common.Name), h.RestartNode)
 
 		group.POST("workspaces", h.CreateWorkspace)
+		group.POST(fmt.Sprintf("workspaces/:%s/nodes", common.Name), h.ProcessWorkspaceNodes)
 		group.DELETE(fmt.Sprintf("workspaces/:%s", common.Name), h.DeleteWorkspace)
 		group.PATCH(fmt.Sprintf("workspaces/:%s", common.Name), h.PatchWorkspace)
 		group.GET(fmt.Sprintf("workspaces/:%s", common.Name), h.GetWorkspace)
 		group.GET("workspaces", h.ListWorkspace)
-		group.POST(fmt.Sprintf("workspaces/:%s/nodes", common.Name), h.ProcessWorkspaceNodes)
 
 		group.POST("clusters", h.CreateCluster)
 		group.POST(fmt.Sprintf("clusters/:%s/nodes", common.Name), h.ProcessClusterNodes)
@@ -66,20 +68,20 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 
 		group.POST("nodeflavors", h.CreateNodeFlavor)
 		group.DELETE(fmt.Sprintf("nodeflavors/:%s", common.Name), h.DeleteNodeFlavor)
+		group.PATCH(fmt.Sprintf("nodeflavors/:%s", common.Name), h.PatchNodeFlavor)
 		group.GET("nodeflavors", h.ListNodeFlavor)
 		group.GET(fmt.Sprintf("nodeflavors/:%s", common.Name), h.GetNodeFlavor)
 		group.GET(fmt.Sprintf("nodeflavors/:%s/avail", common.Name), h.GetNodeFlavorAvail)
-		group.PATCH(fmt.Sprintf("nodeflavors/:%s", common.Name), h.PatchNodeFlavor)
 
 		group.POST("opsjobs", h.CreateOpsJob)
+		group.POST(fmt.Sprintf("opsjobs/:%s/stop", common.Name), h.StopOpsJob)
+		group.DELETE(fmt.Sprintf("opsjobs/:%s", common.Name), h.DeleteOpsJob)
 		group.GET("opsjobs", h.ListOpsJob)
 		group.GET(fmt.Sprintf("opsjobs/:%s", common.Name), h.GetOpsJob)
-		group.DELETE(fmt.Sprintf("opsjobs/:%s", common.Name), h.DeleteOpsJob)
-		group.POST(fmt.Sprintf("opsjobs/:%s/stop", common.Name), h.StopOpsJob)
 
 		group.DELETE(fmt.Sprintf("users/:%s", common.Name), h.DeleteUser)
-		group.GET("users", h.ListUser)
 		group.PATCH(fmt.Sprintf("users/:%s", common.Name), h.PatchUser)
+		group.GET("users", h.ListUser)
 		group.GET(fmt.Sprintf("users/:%s", common.Name), h.GetUser)
 
 		group.POST(fmt.Sprintf("service/:%s/logs", common.Name), h.GetServiceLog)
@@ -93,7 +95,8 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.GET("publickeys", h.ListPublicKeys)
 	}
 
-	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, authority.Prepare())
+	// Custom API without authentication
+	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, authority.Preprocess())
 	{
 		noAuthGroup.GET("clusters", h.ListCluster)
 		noAuthGroup.GET(fmt.Sprintf("clusters/:%s", common.Name), h.GetCluster)
@@ -101,7 +104,8 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		noAuthGroup.POST(fmt.Sprintf("login"), h.Login)
 		noAuthGroup.POST(fmt.Sprintf("logout"), h.Logout)
 
-		noAuthGroup.GET(fmt.Sprintf("/envs"), h.GetEnvs)
 		noAuthGroup.POST("users", h.CreateUser)
+
+		noAuthGroup.GET(fmt.Sprintf("/envs"), h.GetEnvs)
 	}
 }

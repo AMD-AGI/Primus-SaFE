@@ -158,7 +158,7 @@ func (m *UserMutator) mutateDefaultWorkspace(ctx context.Context, user *v1.User)
 func (m *UserMutator) mutateManagedWorkspace(ctx context.Context, user *v1.User) {
 	workspaceSet := sets.NewSet()
 	allWorkspaces := commonuser.GetManagedWorkspace(user)
-	var workspaces []string
+	workspaces := make([]string, 0, len(allWorkspaces))
 	for _, w := range allWorkspaces {
 		if workspaceSet.Has(w) {
 			continue
@@ -280,12 +280,12 @@ func (v *UserValidator) validateRoles(ctx context.Context, user *v1.User) error 
 	return nil
 }
 
-func getUser(ctx context.Context, cli client.Client, name string) (*v1.User, error) {
-	if name == "" {
+func getUser(ctx context.Context, cli client.Client, userId string) (*v1.User, error) {
+	if userId == "" {
 		return nil, fmt.Errorf("userId is empty")
 	}
 	user := &v1.User{}
-	if err := cli.Get(ctx, client.ObjectKey{Name: name}, user); err != nil {
+	if err := cli.Get(ctx, client.ObjectKey{Name: userId}, user); err != nil {
 		return nil, err
 	}
 	return user, nil

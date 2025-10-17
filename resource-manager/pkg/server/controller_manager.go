@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
@@ -50,7 +51,7 @@ func NewControllerManager(scheme *runtime.Scheme) (*ControllerManager, error) {
 		Scheme:                     scheme,
 		LeaderElection:             commonconfig.IsLeaderElectionEnable(),
 		LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
-		LeaderElectionNamespace:    commonconfig.GetLeaderElectionLock(),
+		LeaderElectionNamespace:    common.PrimusSafeNamespace,
 		LeaderElectionID:           "primus-resource-manager",
 		HealthProbeBindAddress:     healthProbeAddress,
 		Metrics: metricsserver.Options{

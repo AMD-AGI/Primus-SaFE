@@ -15,34 +15,38 @@ type CreateWorkloadRequest struct {
 	v1.WorkloadSpec
 	// When specifying nodes, the replica count corresponds to the number of nodes
 	NodeList []string `json:"nodeList,omitempty"`
-	// workload name (display only)
+	// The Workload name(display only). Used to generate the workload id,
+	// which will do normalization processing, such as lowercase and random suffix
 	DisplayName string `json:"displayName"`
-	// workload description
+	// The workload description
 	Description string `json:"description,omitempty"`
-	// workspace's id
+	// Workspace ID to which the workload is delivered
 	WorkspaceId string `json:"workspaceId,omitempty"`
 }
 
 type CreateWorkloadResponse struct {
+	// The workload id
 	WorkloadId string `json:"workloadId"`
 }
 
 type ListWorkloadRequest struct {
-	// workspace id
+	// Filter results by workspace id
 	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`
+	// Filter results by phase
 	// Valid values include: Succeeded,Failed,Pending,Running,Stopped
 	// If specifying multiple phase queries, separate them with commas
 	Phase string `form:"phase" binding:"omitempty"`
-	// cluster id
+	// Filter results by cluster id
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
-	// user id
+	// Filter results by user id
 	UserId string `form:"userId" binding:"omitempty,max=64"`
-	// workload submitter, Supports fuzzy matching
+	// Filter results by username, supports fuzzy matching
 	UserName string `form:"userName" binding:"omitempty"`
+	// Filter results by workload kind
 	// Valid values include: Deployment/PyTorchJob/StatefulSet/Authoring
 	// If specifying multiple kind queries, separate them with commas
 	Kind string `form:"kind" binding:"omitempty"`
-	// description, Supports fuzzy matching
+	// Filter results by workload description, supports fuzzy matching
 	Description string `form:"description" binding:"omitempty"`
 	// Starting offset for the results. dfault is 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
@@ -50,65 +54,67 @@ type ListWorkloadRequest struct {
 	Limit int `form:"limit" binding:"omitempty,min=1"`
 	// Sort results by the specified field. default is create_time
 	SortBy string `form:"sortBy" binding:"omitempty"`
-	// default is desc
+	// The sorting order. Valid values are "desc" (default) or "asc"
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
-	// Query the start time of the workload, based on the task's creation time.
+	// Query the start time of the workload, based on the workload creation time.
 	// e.g. '2006-01-02T15:04:05.000Z'
 	Since string `form:"since" binding:"omitempty"`
 	// Query the end time of the workload, similar to since
 	Until string `form:"until" binding:"omitempty"`
-	// workloadId, Supports fuzzy matching
+	// The workload id, Supports fuzzy matching
 	WorkloadId string `form:"workloadId" binding:"omitempty,max=64"`
 }
 
 type ListWorkloadResponse struct {
+	// The total number of node templates, not limited by pagination
 	TotalCount int                    `json:"totalCount"`
 	Items      []WorkloadResponseItem `json:"items"`
 }
 
 type WorkloadResponseItem struct {
-	// workload id
+	// The workload id
 	WorkloadId string `json:"workloadId"`
-	// the workspace which workload belongs
+	// The workspace which workload belongs to
 	WorkspaceId string `json:"workspaceId"`
-	// workload resource requirements
+	// The workload resource requirements
 	Resource v1.WorkloadResource `json:"resource"`
-	// workload name (display only)
+	// The workload name (display only)
 	DisplayName string `json:"displayName"`
-	// workload description
+	// The workload description
 	Description string `json:"description"`
-	// workload submitter's id
+	// The user id of workload submitter
 	UserId string `json:"userId"`
-	// workload submitter's name
+	// The username of workload submitter
 	UserName string `json:"userName"`
-	// cluster to which the workload belongs
+	// The cluster which the workload belongs to
 	ClusterId string `json:"cluster"`
-	// status of workload
+	// The status of workload, such as Succeeded, Failed, Pending, Running, Stopped, Updating
 	Phase string `json:"phase"`
 	// Shows the reason if the workload is in pending status.
 	Message string `json:"message"`
-	// Workload scheduling priority. Defaults to 0; valid range: 0–2
+	// Workload scheduling priority. Defaults is 0, valid range: 0–2
 	Priority int `json:"priority"`
-	// workload creation time
+	// The workload creation time
 	CreationTime string `json:"creationTime"`
-	// workload start time
+	// The workload start time
 	StartTime string `json:"startTime"`
-	// workload end time
+	// The workload end time
 	EndTime string `json:"endTime"`
-	// workload deletion time
+	// The workload deletion time
 	DeletionTime string `json:"deletionTime"`
-	// Seconds remaining before task timeout. Only applicable if a timeout is set.
+	// Seconds remaining before workload timeout. Only applicable if a timeout is set.
 	SecondsUntilTimeout int64 `json:"secondsUntilTimeout"`
-	// show the queue position of the workload if it is pending.
+	// Show the queue position of the workload if it is pending.
 	SchedulerOrder int `json:"schedulerOrder"`
-	// total dispatch count
+	// Total dispatch count of workload
 	DispatchCount int `json:"dispatchCount"`
 	// Indicates whether the workload tolerates node taints
-	IsTolerateAll    bool                `json:"isTolerateAll"`
+	IsTolerateAll bool `json:"isTolerateAll"`
+	// Defines the group, version, and kind of the workload. Currently, the group is not used
 	GroupVersionKind v1.GroupVersionKind `json:"groupVersionKind"`
 	// Workload timeout in hours. Default is 0 (no timeout).
 	Timeout *int `json:"timeout"`
-	// workload's UID
+	// Workload uid
 	WorkloadUid string `json:"workloadUid"`
 	// K8s object uid corresponding to the workload
 	K8sObjectUid string `json:"k8sObjectUid"`
@@ -118,17 +124,17 @@ type GetWorkloadResponse struct {
 	WorkloadResponseItem
 	// The node specified by the user when creating the workload
 	NodeList []string `json:"nodeList"`
-	// Workload image address
+	// The address of the image used by the workload
 	Image string `json:"image"`
-	// workload entryPoint, required in base64 encoding
-	EntryPoint string `json:"entryPoint,omitempty"`
+	// Workload startup command, required in base64 encoding
+	EntryPoint string `json:"entryPoint"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry"`
 	// The lifecycle of the workload after completion, in seconds. Default to 60.
 	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished"`
-	// detailed processing workflow of the workload
+	// Detailed processing workflow of the workload
 	Conditions []metav1.Condition `json:"conditions"`
 	// Pod info related to the workload
 	Pods []WorkloadPodWrapper `json:"pods"`
@@ -139,7 +145,7 @@ type GetWorkloadResponse struct {
 	// The workload will run on nodes with the user-specified labels.
 	// If multiple labels are specified, all of them must be satisfied.
 	CustomerLabels map[string]string `json:"customerLabels"`
-	// environment variables
+	// Environment variables
 	Env map[string]string `json:"env"`
 	// K8s liveness check. used for deployment/statefulSet
 	Liveness *v1.HealthCheck `json:"liveness,omitempty"`
@@ -151,53 +157,62 @@ type GetWorkloadResponse struct {
 
 type WorkloadPodWrapper struct {
 	v1.WorkloadPod
+	// SSH address to log in
 	SSHAddr string `json:"sshAddr,omitempty"`
 }
 
 type PatchWorkloadRequest struct {
-	// workload scheduling priority. valid range: 0–2
+	// Workload scheduling priority, valid range: 0–2
 	Priority *int `json:"priority,omitempty"`
 	// Requested replica count for the workload
 	Replica *int `json:"replica,omitempty"`
-	// cpu cores, e.g. 128
+	// Cpu cores, e.g. 128
 	CPU *string `json:"cpu,omitempty"`
-	// gpu card, e.g. 8
+	// Gpu card, e.g. 8
 	GPU *string `json:"gpu,omitempty"`
-	// memory size, e.g. 128Gi
+	// Memory size, e.g. 128Gi
 	Memory *string `json:"memory,omitempty"`
-	// pod storage size, e.g. 50Gi
+	// Pod storage size, e.g. 50Gi
 	EphemeralStorage *string `json:"ephemeralStorage,omitempty"`
-	// shared memory, e.g. 20Gi
+	// Shared memory, e.g. 20Gi
 	SharedMemory *string `json:"sharedMemory,omitempty"`
-	// the image used by workload
+	// The image address used by workload
 	Image *string `json:"image,omitempty"`
-	// workload entryPoint, required in base64 encoding
+	// Workload startup command, required in base64 encoding
 	EntryPoint *string `json:"entryPoint,omitempty"`
-	// environment variable for workload
+	// Environment variable for workload
 	Env *map[string]string `json:"env,omitempty"`
-	// workload description
+	// Workload description
 	Description *string `json:"description,omitempty"`
-	// workload timeout in hours. Default is 0 (no timeout).
+	// Workload timeout in hours. Default is 0 (no timeout).
 	Timeout *int `json:"timeout,omitempty"`
 	// Failure retry limit
 	MaxRetry *int `json:"maxRetry,omitempty"`
 }
 
 type GetPodLogRequest struct {
-	TailLines    int64  `form:"tailLines" binding:"omitempty,min=1" `
-	Container    string `form:"container" binding:"omitempty"`
-	SinceSeconds int64  `form:"sinceSeconds" binding:"omitempty"`
+	// Retrieve the last n lines of logs
+	TailLines int64 `form:"tailLines" binding:"omitempty,min=1"`
+	// Return logs for the corresponding container
+	Container string `form:"container" binding:"omitempty"`
+	// Start time for retrieving logs, in seconds
+	SinceSeconds int64 `form:"sinceSeconds" binding:"omitempty"`
 }
 
 type GetWorkloadPodLogResponse struct {
-	// workload id
+	// The workload id
 	WorkloadId string `json:"workloadId"`
-	// pod id
+	// The pod id
 	PodId string `json:"podId"`
-	// the namespace which the workload belongs to
+	// The namespace which the workload belongs to
 	Namespace string `json:"namespace"`
 	// An array of log lines, returned in the same order as they appear in the original logs
 	Logs []string `json:"logs"`
+}
+
+type BatchWorkloadsRequest struct {
+	// List of workload IDs to be processed
+	WorkloadIds []string `json:"workloadIds"`
 }
 
 type WorkloadSlice []v1.Workload

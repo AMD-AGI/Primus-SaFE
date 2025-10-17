@@ -52,13 +52,13 @@ type WorkloadResource struct {
 	CPU string `json:"cpu"`
 	// Requested GPU card count (e.g., 8)
 	GPU string `json:"gpu,omitempty"`
-	// This field is set internally to match the resource supported by the workspace. e.g. amd.com/gpu
+	// This field is set internally. e.g. amd.com/gpu
 	GPUName string `json:"gpuName,omitempty"`
 	// Requested Memory size (e.g., 128Gi)
 	Memory string `json:"memory"`
 	// Requested Shared Memory size (e.g., 128Gi). Used for sharing data between processes. default: Memory/2
 	SharedMemory string `json:"sharedMemory,omitempty"`
-	// ephemeral-storage for pod，default: 50Gi
+	// Ephemeral-storage for pod. Default is 50Gi
 	EphemeralStorage string `json:"ephemeralStorage,omitempty"`
 	// RDMA resource is effective only with hostNetwork enabled (default: 1).
 	// This field is set internally
@@ -66,15 +66,15 @@ type WorkloadResource struct {
 }
 
 type HealthCheck struct {
-	// the path for health check
+	// The path for health check
 	Path string `json:"path"`
 	// Service port for health detect
 	Port int `json:"port"`
-	// initial delay seconds. default: 600s
+	// Initial delay seconds. default is 600s
 	InitialDelaySeconds int `json:"initialDelaySeconds,omitempty"`
-	// period check interval. default: 3s
+	// Period check interval. default is 3s
 	PeriodSeconds int `json:"periodSeconds,omitempty"`
-	// Failure retry limit. default: 3
+	// Failure retry limit. default is 3
 	FailureThreshold int `json:"failureThreshold,omitempty"`
 }
 
@@ -83,11 +83,11 @@ type Service struct {
 	Protocol corev1.Protocol `json:"protocol"`
 	// Service port for external access
 	Port int `json:"port"`
-	// k8s node port
+	// K8s node port
 	NodePort int `json:"nodePort,omitempty"`
 	// Pod service listening port
 	TargetPort int `json:"targetPort"`
-	// ClusterIP/NodePort
+	// The type of service, such as ClusterIP, NodePort
 	ServiceType corev1.ServiceType `json:"serviceType"`
 	// Extended environment variable
 	Extends map[string]string `json:"extends,omitempty"`
@@ -96,30 +96,29 @@ type Service struct {
 type WorkloadSpec struct {
 	// Workload resource requirements
 	Resource WorkloadResource `json:"resource"`
-	// Requested workspace
+	// Requested workspace id
 	Workspace string `json:"workspace"`
-	// Workload image address
+	// The address of the image used by the workload
 	Image string `json:"image,omitempty"`
-	// workload entryPoint, required in base64 encoding
+	// Workload startup command, required in base64 encoding
 	EntryPoint string `json:"entryPoint,omitempty"`
-	// Environment variable for workload
-	// the port for job, This field is set internally
+	// The port for pytorch-job, This field is set internally
 	JobPort int `json:"jobPort,omitempty"`
-	// the port for ssh, This field is set internally
+	// The port for ssh, This field is set internally
 	SSHPort int `json:"sshPort,omitempty"`
-	// environment variables
+	// Environment variable for workload
 	Env map[string]string `json:"env,omitempty"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised,omitempty"`
 	// Group: An extension field that is not currently in use
 	// Version: version of workload, default value is v1
-	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default value is PyTorchJob
+	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default is PyTorchJob
 	GroupVersionKind `json:"groupVersionKind"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`
-	// Workload scheduling priority. Defaults to 0; valid range: 0–2
+	// Workload scheduling priority. Defaults is 0, valid range: 0–2
 	Priority int `json:"priority"`
-	// The lifecycle of the workload after completion, in seconds. Default to 60.
+	// The lifecycle of the workload after completion, in seconds. Default is 60.
 	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished,omitempty"`
 	// Workload timeout in hours. Default is 0 (no timeout).
 	Timeout *int `json:"timeout,omitempty"`
@@ -140,17 +139,17 @@ type WorkloadSpec struct {
 }
 
 type WorkloadStatus struct {
-	// workload start time
+	// Workload start time
 	StartTime *metav1.Time `json:"startTime,omitempty"`
-	// workload end time
+	// Workload end time
 	EndTime *metav1.Time `json:"endTime,omitempty"`
-	// Some status descriptions of the workload
+	// Detailed processing workflow of the workload
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// Pending，Running，Succeeded，Failed, Stopped, Error
+	// The status of workload, such as Pending, Running, Succeeded, Failed, Stopped, Updating
 	Phase WorkloadPhase `json:"phase,omitempty"`
 	// Some status descriptions of the workload. only for pending
 	Message string `json:"message,omitempty"`
-	// The current position of the workload in the queue
+	// The current position of the workload in the queue, only for pending
 	SchedulerOrder int `json:"schedulerOrder,omitempty"`
 	// Pod info related to the workload
 	Pods []WorkloadPod `json:"pods,omitempty"`
@@ -163,33 +162,37 @@ type WorkloadStatus struct {
 }
 
 type WorkloadPod struct {
-	// podId
+	// The podId
 	PodId string `json:"podId"`
-	// the Kubernetes node that the Pod is scheduled on
+	// The Kubernetes node that the Pod is scheduled on
 	K8sNodeName string `json:"k8sNodeName,omitempty"`
-	// the admin node that the Pod is scheduled on
+	// The admin node that the Pod is scheduled on
 	AdminNodeName string `json:"adminNodeName,omitempty"`
-	// pod status: Pending, Running, Succeeded, Failed, Unknown
+	// Pod status: Pending, Running, Succeeded, Failed, Unknown
 	Phase corev1.PodPhase `json:"phase,omitempty"`
 	// The node's IP address where the Pod is running
 	HostIp string `json:"hostIP,omitempty"`
 	// The pod's IP address where the Pod is running
 	PodIp string `json:"podIP,omitempty"`
-	// only for pytorch-job
+	// The rank of pod, only for pytorch-job
 	Rank string `json:"rank,omitempty"`
-	// pod start time
+	// Pod start time
 	StartTime string `json:"startTime,omitempty"`
-	// pod end time
+	// Pod end time
 	EndTime string `json:"endTime,omitempty"`
-	// container info
+	// Container info
 	Containers []Container `json:"containers,omitempty"`
 }
 
 type Container struct {
-	Name     string `json:"name"`
-	Reason   string `json:"reason,omitempty"`
-	Message  string `json:"message,omitempty"`
-	ExitCode int32  `json:"exitCode"`
+	// Container name
+	Name string `json:"name"`
+	// (brief) reason from the last termination of the container
+	Reason string `json:"reason,omitempty"`
+	// Message regarding the last termination of the container
+	Message string `json:"message,omitempty"`
+	// Exit status from the last termination of the container
+	ExitCode int32 `json:"exitCode"`
 }
 
 // +genclient

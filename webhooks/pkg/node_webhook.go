@@ -17,7 +17,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/pointer"
-	"k8s.io/utils/ptr"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -31,7 +30,8 @@ import (
 )
 
 const (
-	DefaultPort = 22
+	// Default node SSH port.
+	DefaultNodePort = 22
 )
 
 var (
@@ -98,12 +98,12 @@ func (m *NodeMutator) mutateOnUpdate(ctx context.Context, node *v1.Node) bool {
 func (m *NodeMutator) mutateSpec(_ context.Context, node *v1.Node) {
 	node.Spec.PrivateIP = strings.Trim(node.Spec.PrivateIP, " ")
 	if node.GetSpecHostName() == "" {
-		node.Spec.Hostname = ptr.To(node.Spec.PrivateIP)
+		node.Spec.Hostname = pointer.String(node.Spec.PrivateIP)
 	} else {
-		node.Spec.Hostname = ptr.To(strings.Trim(*node.Spec.Hostname, " "))
+		node.Spec.Hostname = pointer.String(strings.Trim(*node.Spec.Hostname, " "))
 	}
 	if node.Spec.Port == nil {
-		node.Spec.Port = pointer.Int32(DefaultPort)
+		node.Spec.Port = pointer.Int32(DefaultNodePort)
 	}
 }
 
@@ -275,8 +275,8 @@ func (v *NodeValidator) validateNodeSpec(ctx context.Context, node *v1.Node) err
 }
 
 func (v *NodeValidator) validateNodeWorkspace(ctx context.Context, node *v1.Node) error {
-	workspaceName := node.GetSpecWorkspace()
-	if _, err := getWorkspace(ctx, v.Client, workspaceName); err != nil {
+	workspaceId := node.GetSpecWorkspace()
+	if _, err := getWorkspace(ctx, v.Client, workspaceId); err != nil {
 		return err
 	}
 	return nil
@@ -348,12 +348,12 @@ func (v *NodeValidator) validateReadyWhenManaging(_ context.Context, newNode, ol
 	return nil
 }
 
-func getNode(ctx context.Context, cli client.Client, name string) (*v1.Node, error) {
-	if name == "" {
+func getNode(ctx context.Context, cli client.Client, nodeId string) (*v1.Node, error) {
+	if nodeId == "" {
 		return nil, nil
 	}
 	node := &v1.Node{}
-	if err := cli.Get(ctx, client.ObjectKey{Name: name}, node); err != nil {
+	if err := cli.Get(ctx, client.ObjectKey{Name: nodeId}, node); err != nil {
 		return nil, err
 	}
 	return node, nil

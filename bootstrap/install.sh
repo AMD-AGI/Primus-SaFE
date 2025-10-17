@@ -65,11 +65,13 @@ default_ethernet_nic="eno0"
 default_rdma_nic="rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
 default_cluster_scale="small"
 default_storage_class="local-path"
+default_ssh_server_ip=""
 
 ethernet_nic=$(get_input_with_default "Enter ethernet nic($default_ethernet_nic): " "$default_ethernet_nic")
 rdma_nic=$(get_input_with_default "Enter rdma nic($default_rdma_nic): " "$default_rdma_nic")
 cluster_scale=$(get_input_with_default "Enter cluster scale, choose 'small/medium/large' ($default_cluster_scale): " "$default_cluster_scale")
 storage_class=$(get_input_with_default "Enter storage class($default_storage_class): " "$default_storage_class")
+ssh_server_ip=$(get_input_with_default "Enter ssh server ip($default_ethernet_nic): " "$default_ethernet_nic")
 sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
 support_lens=$(get_input_with_default "Support Primus-lens ? (y/n): " "n")
 support_s3=$(get_input_with_default "Support Primus-S3 ? (y/n): " "n")
@@ -98,6 +100,7 @@ echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
 echo "✅ Cluster Name: \"$sub_domain\""
 echo "✅ Storage Class: \"$storage_class\""
+echo "✅ SSH Server IP: \"$ssh_server_ip\""
 echo "✅ Support Primus-lens: \"$opensearch_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
@@ -171,6 +174,9 @@ sed -i "s/replicas: [0-9]*/replicas: $replicas/" "$values_yaml"
 sed -i "s/^.*cpu:.*/  cpu: $cpu/" "$values_yaml"
 sed -i "s/^.*memory:.*/  memory: $memory/" "$values_yaml"
 sed -i "s/^.*storage_class:.*/  storage_class: \"$storage_class\"/" "$values_yaml"
+if [ -n "$ssh_server_ip" ]; then
+  sed -i '/ssh:/,/^[a-z]/ s/server_ip: .*/server_ip: '"$ssh_server_ip"'/' "$values_yaml"
+fi
 sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
 sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$opensearch_enable"'/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
@@ -233,6 +239,7 @@ ethernet_nic=$ethernet_nic
 rdma_nic=$rdma_nic
 cluster_scale=$cluster_scale
 storage_class=$storage_class
+ssh_server_ip=$ssh_server_ip
 sub_domain=$sub_domain
 opensearch_enable=$opensearch_enable
 s3_enable=$s3_enable

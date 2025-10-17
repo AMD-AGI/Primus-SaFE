@@ -59,13 +59,12 @@ func (m *ClusterMutator) Handle(ctx context.Context, req admission.Request) admi
 	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
-func (m *ClusterMutator) mutateOnCreation(_ context.Context, cluster *v1.Cluster) bool {
+func (m *ClusterMutator) mutateOnCreation(_ context.Context, cluster *v1.Cluster) {
 	cluster.Name = stringutil.NormalizeName(cluster.Name)
 	controllerutil.AddFinalizer(cluster, v1.ClusterFinalizer)
 	if cluster.Spec.ControlPlane.KubeNetworkPlugin == nil || *cluster.Spec.ControlPlane.KubeNetworkPlugin == "" {
 		cluster.Spec.ControlPlane.KubeNetworkPlugin = pointer.String(v1.CiliumNetworkPlugin)
 	}
-	return true
 }
 
 type ClusterValidator struct {
@@ -138,17 +137,18 @@ func (v *ClusterValidator) validateControlPlane(ctx context.Context, cluster *v1
 
 func (v *ClusterValidator) validateNodesInUse(ctx context.Context, cluster *v1.Cluster) error {
 	clusterList := &v1.ClusterList{}
-	if v.List(ctx, clusterList) == nil {
-		currentNodesSet := sets.NewSet()
-		for _, cl := range clusterList.Items {
-			for _, n := range cl.Spec.ControlPlane.Nodes {
-				currentNodesSet.Insert(n)
-			}
+	if err := v.List(ctx, clusterList); err != nil {
+		return err
+	}
+	currentNodesSet := sets.NewSet()
+	for _, cl := range clusterList.Items {
+		for _, n := range cl.Spec.ControlPlane.Nodes {
+			currentNodesSet.Insert(n)
 		}
-		for _, n := range cluster.Spec.ControlPlane.Nodes {
-			if currentNodesSet.Has(n) {
-				return commonerrors.NewAlreadyExist(fmt.Sprintf("the node(%s) is already in use", n))
-			}
+	}
+	for _, n := range cluster.Spec.ControlPlane.Nodes {
+		if currentNodesSet.Has(n) {
+			return commonerrors.NewAlreadyExist(fmt.Sprintf("the node(%s) is already in use", n))
 		}
 	}
 	return nil
@@ -169,12 +169,12 @@ func (v *ClusterValidator) validateImmutableFields(newCluster, oldCluster *v1.Cl
 	return nil
 }
 
-func getCluster(ctx context.Context, cli client.Client, name string) (*v1.Cluster, error) {
-	if name == "" {
+func getCluster(ctx context.Context, cli client.Client, clusterId string) (*v1.Cluster, error) {
+	if clusterId == "" {
 		return nil, nil
 	}
 	cluster := &v1.Cluster{}
-	if err := cli.Get(ctx, client.ObjectKey{Name: name}, cluster); err != nil {
+	if err := cli.Get(ctx, client.ObjectKey{Name: clusterId}, cluster); err != nil {
 		return nil, err
 	}
 	return cluster, nil

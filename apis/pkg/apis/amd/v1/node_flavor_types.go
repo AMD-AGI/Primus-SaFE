@@ -16,26 +16,37 @@ const (
 )
 
 type CpuChip struct {
-	// e.g. AMD EPYC 9554
-	Product  string            `json:"product,omitempty"`
+	// Cpu product name, e.g. AMD EPYC 9554
+	Product string `json:"product,omitempty"`
+	// Cpu quantity, e.g. 16
 	Quantity resource.Quantity `json:"quantity"`
 }
 
 type GpuChip struct {
-	// e.g. AMD MI300X
+	// Gpu product name, e.g. AMD MI300X
 	Product string `json:"product,omitempty"`
 	// Corresponding resource names in Kubernetes ResourceList, such as amd.com/gpu or nvidia.com/gpu
-	ResourceName string            `json:"resourceName"`
-	Quantity     resource.Quantity `json:"quantity"`
+	ResourceName string `json:"resourceName"`
+	// Gpu quantity, e.g. 8
+	Quantity resource.Quantity `json:"quantity"`
 }
 
 // NodeFlavorSpec defines the desired state of NodeFlavor
 type NodeFlavorSpec struct {
-	Cpu             CpuChip             `json:"cpu"`
-	Memory          resource.Quantity   `json:"memory"`
-	Gpu             *GpuChip            `json:"gpu,omitempty"`
-	RootDisk        *DiskFlavor         `json:"rootDisk,omitempty"`
-	DataDisk        *DiskFlavor         `json:"dataDisk,omitempty"`
+	// Cpu defines the CPU configuration of the node, including product name and quantity
+	Cpu CpuChip `json:"cpu"`
+	// Memory defines the memory capacity of the node
+	Memory resource.Quantity `json:"memory"`
+	// Gpu is an optional field that defines the GPU configuration of the node,
+	// including product name, Kubernetes resource name, and quantity
+	Gpu *GpuChip `json:"gpu,omitempty"`
+	// RootDisk is an optional field that defines the root disk configuration of the node
+	// Usually this refers to the system disk size
+	RootDisk *DiskFlavor `json:"rootDisk,omitempty"`
+	// DataDisk is an optional field that defines the data disk configuration of the node
+	// Usually this refers to the disk size mounted on the node, such as an NVMe disk.
+	DataDisk *DiskFlavor `json:"dataDisk,omitempty"`
+	// ExtendResources is an optional field that defines the extended resources list of the node, such as rdma and ephemeralStorage
 	ExtendResources corev1.ResourceList `json:"extendedResources,omitempty"`
 }
 

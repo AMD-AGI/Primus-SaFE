@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/dispatcher"
@@ -66,7 +67,7 @@ func newCtrlManager(scheme *runtime.Scheme) (ctrlruntime.Manager, error) {
 		Scheme:                     scheme,
 		LeaderElection:             commonconfig.IsLeaderElectionEnable(),
 		LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
-		LeaderElectionNamespace:    commonconfig.GetLeaderElectionLock(),
+		LeaderElectionNamespace:    common.PrimusSafeNamespace,
 		LeaderElectionID:           "primus-job-manager",
 		HealthProbeBindAddress:     healthProbeAddress,
 		Metrics: metricsserver.Options{
@@ -105,10 +106,8 @@ func (jm *JobManager) SetupControllers() error {
 	if err := dispatcher.SetupDispatcherController(jm.CtrlManager); err != nil {
 		return fmt.Errorf("dispatcher controller: %v", err)
 	}
-	if commonconfig.IsWorkloadFailoverEnable() {
-		if err := failover.SetupFailoverController(jm.CtrlManager); err != nil {
-			return fmt.Errorf("failover controller: %v", err)
-		}
+	if err := failover.SetupFailoverController(jm.CtrlManager); err != nil {
+		return fmt.Errorf("failover controller: %v", err)
 	}
 	if err := scheduler.SetupWorkloadTTLController(jm.CtrlManager); err != nil {
 		return fmt.Errorf("workload ttl controller: %v", err)

@@ -24,9 +24,9 @@ const (
 )
 
 type CreateSecretRequest struct {
-	// Secret name (display only), applicable only for SSH key usage
+	// Used to generate the secret id, which will do normalization processing, such as lowercase
 	Name string `json:"name,omitempty"`
-	// secret type. image/ssh
+	// The secret type, such as image, ssh
 	Type v1.SecretType `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
 	// the private key, public key and password need to be Base64 encoded
@@ -37,24 +37,29 @@ type CreateSecretRequest struct {
 }
 
 type CreateSecretResponse struct {
+	// The secret id
 	SecretId string `json:"secretId"`
 }
 
 type ListSecretRequest struct {
-	// secret type: ssh/image
+	// The secret type, such as ssh, image
 	// if specifying multiple phase queries, separate them with commas
 	Type string `form:"type" binding:"omitempty"`
 }
 
 type ListSecretResponse struct {
+	// The total number of node templates, not limited by pagination
 	TotalCount int                  `json:"totalCount"`
 	Items      []SecretResponseItem `json:"items,omitempty"`
 }
 
 type SecretResponseItem struct {
-	SecretId   string `json:"secretId"`
+	// The secret id
+	SecretId string `json:"secretId"`
+	// The secret name
 	SecretName string `json:"secretName"`
-	Type       string `json:"type"`
+	// The secret type, such as ssh, image
+	Type string `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
 	Params []map[SecretParam]string `json:"params"`
 	// Creation timestamp of the secret

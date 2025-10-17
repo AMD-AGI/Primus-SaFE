@@ -109,3 +109,21 @@ func ConvertToString(value interface{}) string {
 		return ""
 	}
 }
+
+// split: splits a string by the given separator and trims whitespace from each part.
+// Empty strings after trimming are filtered out from the result.
+// Returns a slice of non-empty, whitespace-trimmed strings or nil if the input string is empty.
+func Split(str, sep string) []string {
+	if len(str) == 0 {
+		return nil
+	}
+	strList := strings.Split(str, sep)
+	var result []string
+	for _, s := range strList {
+		if s = strings.TrimSpace(s); s == "" {
+			continue
+		}
+		result = append(result, s)
+	}
+	return result
+}

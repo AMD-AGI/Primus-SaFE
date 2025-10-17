@@ -116,11 +116,7 @@ func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.C
 		Labels:        map[string]string{},
 		ClusterName:   cluster.Name,
 		Controllers:   controllers,
-	}
-	if cluster.Spec.ClusterID != nil {
-		hostsContent.ClusterID = *cluster.Spec.ClusterID
-	} else {
-		hostsContent.ClusterID = "1.0.0.1"
+		ClusterID:     "1.0.0.1",
 	}
 	count := 0
 	for _, machine := range controllers {
