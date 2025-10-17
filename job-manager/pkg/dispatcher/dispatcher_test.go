@@ -86,7 +86,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestPytorchResourceTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.createK8sObject(context.Background(), workload)
+	obj, err := r.generateK8sObject(context.Background(), workload)
 	assert.NilError(t, err)
 	templates := jobutils.TestPytorchResourceTemplate.Spec.ResourceSpecs
 
@@ -110,7 +110,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	workload.Spec.Resource.Replica = 3
 	workload.Spec.IsTolerateAll = true
 	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
-	obj, err = r.createK8sObject(context.Background(), workload)
+	obj, err = r.generateK8sObject(context.Background(), workload)
 	assert.NilError(t, err)
 	checkResources(t, obj, workload, &templates[1], 2)
 	checkEnvs(t, obj, workload, &templates[1])
@@ -155,7 +155,7 @@ func TestCreateDeployment(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestDeploymentTemplate, workspace).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.createK8sObject(context.Background(), workload)
+	obj, err := r.generateK8sObject(context.Background(), workload)
 	assert.NilError(t, err)
 	templates := jobutils.TestDeploymentTemplate.Spec.ResourceSpecs
 
@@ -458,7 +458,7 @@ func TestCreateK8sJob(t *testing.T) {
 	adminClient := fake.NewClientBuilder().WithObjects(configmap, jobutils.TestJobTemplate).WithScheme(scheme).Build()
 
 	r := DispatcherReconciler{Client: adminClient}
-	obj, err := r.createK8sObject(context.Background(), workload)
+	obj, err := r.generateK8sObject(context.Background(), workload)
 	assert.NilError(t, err)
 	// fmt.Println(unstructuredutils.ToString(obj))
 

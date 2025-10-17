@@ -204,10 +204,6 @@ func (r *ClusterInformer) handleResource(_ context.Context, oldObj, newObj inter
 			msg.workloadId, msg.gvk.Kind, newUnstructured.GetGeneration(), msg.dispatchCount)
 	case ResourceDel:
 		if oldUnstructured, ok := oldObj.(*unstructured.Unstructured); ok {
-			if oldUnstructured.GetDeletionTimestamp().IsZero() {
-				klog.Errorf("A delete event was detected, but the object %s deletion timestamp is empty.", oldUnstructured.GetName())
-				return
-			}
 			klog.Infof("delete object: %s/%s, uid: %s, workload:%s, kind: %s, generation: %d, dispatch.cnt: %d",
 				oldUnstructured.GetNamespace(), oldUnstructured.GetName(), oldUnstructured.GetUID(),
 				msg.workloadId, msg.gvk.Kind, oldUnstructured.GetGeneration(), msg.dispatchCount)
