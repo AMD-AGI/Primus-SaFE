@@ -30,36 +30,62 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
+// CreateCluster: handles the creation of a new cluster resource.
+// It authorizes the request, parses the request body, generates a cluster object,
+// and creates it in the k8s cluster. Returns the created cluster ID on success.
 func (h *Handler) CreateCluster(c *gin.Context) {
 	handle(c, h.createCluster)
 }
 
+// ListCluster: handles listing all cluster resources.
+// Retrieves all clusters and returns them in a sorted list with basic information.
 func (h *Handler) ListCluster(c *gin.Context) {
 	handle(c, h.listCluster)
 }
 
+// GetCluster: retrieves detailed information about a specific cluster.
+// Returns comprehensive cluster details including configuration and status.
 func (h *Handler) GetCluster(c *gin.Context) {
 	handle(c, h.getCluster)
 }
 
+// DeleteCluster: handles the deletion of a cluster resource.
+// It performs authorization checks, validates that the cluster is not protected,
+// ensures no workloads are running on the cluster, and then deletes the cluster.
+// Returns nil on successful deletion or an error if the check fails
 func (h *Handler) DeleteCluster(c *gin.Context) {
 	handle(c, h.deleteCluster)
 }
 
+// PatchCluster: handles partial updates to a cluster resource.
+// Authorizes the request, parses update parameters, and applies changes to the specified cluster.
 func (h *Handler) PatchCluster(c *gin.Context) {
 	handle(c, h.patchCluster)
 }
 
+// ProcessClusterNodes: handles the addition or removal of nodes from a cluster.
+// It performs authorization checks, validates cluster readiness, and processes
+// each node according to the requested action (add/remove).
+// For node removal operations, it first removes nodes from their associated workspaces.
+// The function returns a ProcessNodesResponse with success/failure counts.
 func (h *Handler) ProcessClusterNodes(c *gin.Context) {
 	handle(c, h.processClusterNodes)
 }
 
+// GetClusterPodLog: retrieves the logs from the most recent pod associated with a cluster.
+// It performs authorization checks, finds the latest pod for the cluster, fetches its logs,
+// and returns them in a structured response format.
+// Returns a GetNodePodLogResponse or an error if any step in the process fails.
 func (h *Handler) GetClusterPodLog(c *gin.Context) {
 	handle(c, h.getClusterPodLog)
 }
 
+// createCluster: implements the cluster creation logic.
+// Authorizes the request, parses the creation request, generates a cluster object,
+// and persists it in the k8s cluster.
 func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
 	if err := h.auth.Authorize(authority.Input{
 		Context:      c.Request.Context(),
@@ -71,7 +97,7 @@ func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.CreateClusterRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
@@ -92,6 +118,8 @@ func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+// generateCluster: convert the CreateClusterRequest passed from the API into a v1.Cluster object,
+// then pass it to the createCluster function for invocation.
 func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterRequest, body []byte) (*v1.Cluster, error) {
 	ctx := c.Request.Context()
 	cluster := &v1.Cluster{
@@ -137,6 +165,8 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 	return cluster, nil
 }
 
+// listCluster: implements the cluster listing logic.
+// Retrieves all clusters, sorts them by name, and converts them to response items.
 func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	clusterList := &v1.ClusterList{}
@@ -157,6 +187,8 @@ func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+// getCluster: implements the logic for retrieving a single cluster's detailed information.
+// Gets the cluster by ID and converts it to a detailed response format.
 func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
 	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
@@ -165,6 +197,10 @@ func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
 	return cvtToGetClusterResponse(c.Request.Context(), h.Client, cluster), nil
 }
 
+// deleteCluster: handles the deletion of a cluster resource.
+// It performs authorization checks, validates that the cluster is not protected,
+// ensures no workloads are running on the cluster, and then deletes the cluster.
+// Returns nil on successful deletion or an error if the check fails
 func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	cluster, err := h.getAdminCluster(ctx, c.GetString(common.Name))
@@ -201,6 +237,8 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// patchCluster: implements partial update logic for a cluster.
+// Parses the patch request and applies specified changes to the cluster.
 func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	cluster, err := h.getAdminCluster(ctx, c.GetString(common.Name))
@@ -218,7 +256,7 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.PatchClusterRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
@@ -234,6 +272,8 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 	return nil, h.Update(ctx, cluster)
 }
 
+// updateCluster: applies updates to a cluster based on the patch request.
+// Handles changes to cluster protection status and image secret references.
 func (h *Handler) updateCluster(_ context.Context, cluster *v1.Cluster, req *types.PatchClusterRequest) (bool, error) {
 	isChanged := false
 	if req.IsProtected != nil && *req.IsProtected != v1.IsProtected(cluster) {
@@ -247,6 +287,11 @@ func (h *Handler) updateCluster(_ context.Context, cluster *v1.Cluster, req *typ
 	return isChanged, nil
 }
 
+// processClusterNodes: handles the addition or removal of nodes from a cluster.
+// It performs authorization checks, validates cluster readiness, and processes
+// each node according to the requested action (add/remove).
+// For node removal operations, it first removes nodes from their associated workspaces.
+// The function returns a ProcessNodesResponse with success/failure counts.
 func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
 	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
@@ -294,6 +339,11 @@ func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
 	return &response, nil
 }
 
+// processClusterNode: processes a single node for cluster operations (add/remove).
+// It updates the node's cluster assignment based on the specified action.
+// For NodeActionAdd, it assigns the node to the cluster.
+// For NodeActionRemove, it removes the node from the cluster.
+// The function handles conflict retries and validates node operations.
 func (h *Handler) processClusterNode(ctx context.Context, cluster *v1.Cluster, nodeId, action string) error {
 	specCluster := ""
 	if action == v1.NodeActionAdd {
@@ -306,17 +356,17 @@ func (h *Handler) processClusterNode(ctx context.Context, cluster *v1.Cluster, n
 		if err != nil {
 			return err
 		}
+		if adminNode.GetSpecCluster() == specCluster {
+			return nil
+		}
 		if action == v1.NodeActionRemove {
 			if v1.GetClusterId(adminNode) != cluster.Name {
-				return fmt.Errorf("The node does not belong to the specified cluster")
+				return fmt.Errorf("the node does not belong to the specified cluster")
 			}
 		} else {
 			if adminNode.GetSpecCluster() != "" && adminNode.GetSpecCluster() != specCluster {
-				return fmt.Errorf("The node belongs to another cluster")
+				return fmt.Errorf("the node belongs to another cluster")
 			}
-		}
-		if adminNode.GetSpecCluster() == specCluster {
-			return nil
 		}
 		if v1.IsControlPlane(adminNode) {
 			return fmt.Errorf("the control plane node can not be changed")
@@ -330,6 +380,8 @@ func (h *Handler) processClusterNode(ctx context.Context, cluster *v1.Cluster, n
 	return err
 }
 
+// removeNodesFromWorkspace: removes nodes from their associated workspaces.
+// It groups nodes by workspace ID and updates each workspace to remove the specified nodes.
 func (h *Handler) removeNodesFromWorkspace(c *gin.Context, allNodeIds []string) error {
 	nodeIdMap := make(map[string]*[]string)
 	for _, nodeId := range allNodeIds {
@@ -358,6 +410,10 @@ func (h *Handler) removeNodesFromWorkspace(c *gin.Context, allNodeIds []string) 
 	return nil
 }
 
+// getClusterPodLog: retrieves the logs from the most recent pod associated with a cluster.
+// It performs authorization checks, finds the latest pod for the cluster, fetches its logs,
+// and returns them in a structured response format.
+// Returns a GetNodePodLogResponse or an error if any step in the process fails.
 func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
 	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
@@ -366,12 +422,12 @@ func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
 	if err = h.auth.Authorize(authority.Input{
 		Context:  c.Request.Context(),
 		Resource: cluster,
-		// The pod-log is generated when the cluster is creating.
+		// The pod log is generated when the cluster is being created.
 		Verb:   v1.CreateVerb,
 		UserId: c.GetString(common.UserId),
 	}); err != nil {
 		if commonerrors.IsForbidden(err) {
-			return nil, commonerrors.NewForbidden("The user is not allowed to get cluster's log")
+			return nil, commonerrors.NewForbidden("the user is not allowed to get cluster's log")
 		}
 		return nil, err
 	}
@@ -379,7 +435,7 @@ func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterManageClusterLabel: cluster.Name})
 	podName, err := h.getLatestPodName(c, labelSelector)
 	if err != nil {
-		return nil, commonerrors.NewNotImplemented("Logging service is only available when creating cluster")
+		return nil, commonerrors.NewNotImplemented("logging service is only available when creating cluster")
 	}
 	podLogs, err := h.getPodLog(c, h.clientSet, common.PrimusSafeNamespace, podName, "")
 	if err != nil {
@@ -392,6 +448,9 @@ func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+// getLatestPodName: retrieves the name of the most recently created pod that matches the given label selector.
+// It lists all pods in the PrimusSafe namespace with the specified labels and returns the name of the newest one.
+// Returns an error if no pods are found or if there's an issue listing the pods.
 func (h *Handler) getLatestPodName(c *gin.Context, labelSelector labels.Selector) (string, error) {
 	listOptions := metav1.ListOptions{
 		LabelSelector: labelSelector.String(),
@@ -409,6 +468,10 @@ func (h *Handler) getLatestPodName(c *gin.Context, labelSelector labels.Selector
 	return podList.Items[0].Name, nil
 }
 
+// getPodLog: retrieves the logs from a specific pod in the given namespace.
+// It parses the log query parameters, constructs the log options, and fetches the logs
+// from the Kubernetes API server using the provided client.
+// Returns the raw log bytes or an error if the operation fails.
 func (h *Handler) getPodLog(c *gin.Context, clientSet kubernetes.Interface,
 	namespace, podName, mainContainerName string) ([]byte, error) {
 	query, err := parseGetPodLogQuery(c, mainContainerName)
@@ -431,12 +494,14 @@ func (h *Handler) getPodLog(c *gin.Context, clientSet kubernetes.Interface,
 	return podLogs, nil
 }
 
-func (h *Handler) getAdminCluster(ctx context.Context, name string) (*v1.Cluster, error) {
-	if name == "" {
+// getAdminCluster: retrieves a cluster resource by ID from the k8s cluster.
+// Returns an error if the cluster doesn't exist or the ID is empty.
+func (h *Handler) getAdminCluster(ctx context.Context, clusterId string) (*v1.Cluster, error) {
+	if clusterId == "" {
 		return nil, commonerrors.NewBadRequest("the clusterId is empty")
 	}
 	cluster := &v1.Cluster{}
-	err := h.Get(ctx, client.ObjectKey{Name: name}, cluster)
+	err := h.Get(ctx, client.ObjectKey{Name: clusterId}, cluster)
 	if err != nil {
 		klog.ErrorS(err, "failed to get admin cluster")
 		return nil, err
@@ -444,9 +509,11 @@ func (h *Handler) getAdminCluster(ctx context.Context, name string) (*v1.Cluster
 	return cluster.DeepCopy(), nil
 }
 
+// parseProcessNodesRequest: parses and validates the request for processing cluster nodes.
+// Ensures that node IDs and action are provided in the request.
 func parseProcessNodesRequest(c *gin.Context) (*types.ProcessNodesRequest, error) {
 	req := &types.ProcessNodesRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
@@ -460,12 +527,15 @@ func parseProcessNodesRequest(c *gin.Context) (*types.ProcessNodesRequest, error
 	return req, nil
 }
 
+// cvtToClusterResponseItem: converts a cluster object to a response item format.
+// Includes basic cluster information like ID, user, phase, protection status, and creation time.
 func cvtToClusterResponseItem(cluster *v1.Cluster) types.ClusterResponseItem {
 	result := types.ClusterResponseItem{
-		ClusterId:   cluster.Name,
-		UserId:      v1.GetUserId(cluster),
-		Phase:       string(cluster.Status.ControlPlaneStatus.Phase),
-		IsProtected: v1.IsProtected(cluster),
+		ClusterId:    cluster.Name,
+		UserId:       v1.GetUserId(cluster),
+		Phase:        string(cluster.Status.ControlPlaneStatus.Phase),
+		IsProtected:  v1.IsProtected(cluster),
+		CreationTime: timeutil.FormatRFC3339(&cluster.CreationTimestamp.Time),
 	}
 	if !cluster.GetDeletionTimestamp().IsZero() {
 		result.Phase = string(v1.DeletingPhase)
@@ -473,14 +543,26 @@ func cvtToClusterResponseItem(cluster *v1.Cluster) types.ClusterResponseItem {
 	return result
 }
 
+// cvtToGetClusterResponse: converts a cluster object to a detailed response format.
+// Includes all cluster details, configuration parameters, and status information.
 func cvtToGetClusterResponse(ctx context.Context, client client.Client, cluster *v1.Cluster) types.GetClusterResponse {
 	result := types.GetClusterResponse{
 		ClusterResponseItem: cvtToClusterResponseItem(cluster),
+		Description:         v1.GetDescription(cluster),
+		Nodes:               cluster.Spec.ControlPlane.Nodes,
+		KubeSprayImage:      cluster.Spec.ControlPlane.KubeSprayImage,
+		KubePodsSubnet:      cluster.Spec.ControlPlane.KubePodsSubnet,
+		KubeServiceAddress:  cluster.Spec.ControlPlane.KubeServiceAddress,
+		KubeNetworkPlugin:   cluster.Spec.ControlPlane.KubeNetworkPlugin,
+		KubeVersion:         cluster.Spec.ControlPlane.KubeVersion,
+		KubeApiServerArgs:   cluster.Spec.ControlPlane.KubeApiServerArgs,
 	}
 	if cluster.Spec.ControlPlane.ImageSecret != nil {
 		result.ImageSecretId = cluster.Spec.ControlPlane.ImageSecret.Name
 	}
+	if cluster.Spec.ControlPlane.SSHSecret != nil {
+		result.SSHSecretId = cluster.Spec.ControlPlane.SSHSecret.Name
+	}
 	result.Endpoint, _ = commoncluster.GetEndpoint(ctx, client, cluster)
-	result.Storages = cvtBindingStorageView(cluster.Status.StorageStatus)
 	return result
 }

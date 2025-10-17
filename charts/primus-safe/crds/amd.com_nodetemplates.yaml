@@ -43,7 +43,7 @@ spec:
           spec:
             properties:
               addOnTemplates:
-                description: Addon Template Name
+                description: The list of Addon Template id
                 items:
                   type: string
                 type: array

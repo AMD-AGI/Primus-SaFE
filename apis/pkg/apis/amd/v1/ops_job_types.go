@@ -44,38 +44,39 @@ type Parameter struct {
 }
 
 type OpsJobSpec struct {
-	// the type of ops-job, valid values include: addon/preflight/dumplog
+	// The type of ops-job, valid values include: addon/preflight/dumplog
 	Type OpsJobType `json:"type"`
 	// Opsjob resource requirements, only for preflight
 	Resource *WorkloadResource `json:"resource,omitempty"`
-	// opsjob image address, only for preflight
+	// Opsjob image address, only for preflight
 	Image *string `json:"image,omitempty"`
-	// opsjob entryPoint, required in base64 encoding, only for preflight
+	// Opsjob entryPoint(startup command), required in base64, only for preflight
 	EntryPoint *string `json:"entryPoint,omitempty"`
-	// The resource objects to be processed, e.g., node. Multiple entries will be processed sequentially.
+	// The resource objects to be processed, e.g., {{"name": "node", "value": "tus1-p8-g6"}}.
+	// Multiple entries will be processed sequentially.
 	Inputs []Parameter `json:"inputs"`
-	// the lifecycle of ops-job after it finishes
+	// The lifecycle of ops-job after it finishes
 	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
-	// ops-job Timeout (in seconds), Less than or equal to 0 means no timeout
+	// Opsjob Timeout (in seconds), Less than or equal to 0 means no timeout
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
-	// environment variables
+	// Environment variables
 	Env map[string]string `json:"env,omitempty"`
 	// Indicates whether the job tolerates node taints
 	IsTolerateAll bool `json:"isTolerateAll"`
-	// the hostpath for opsjob mounting.
+	// The hostpath for opsjob mounting.
 	Hostpath []string `json:"hostpath,omitempty"`
 }
 
 type OpsJobStatus struct {
-	// ops job's start time
+	// Opsjob start time
 	StartedAt *metav1.Time `json:"startedAt,omitempty"`
-	// ops job's end time
+	// Opsjob end time
 	FinishedAt *metav1.Time `json:"finishedAt,omitempty"`
-	// ops job's conditions
+	// Description of the job execution process
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// ops job's phase
+	// The job status: Succeeded/Failed/Running/Pending
 	Phase OpsJobPhase `json:"phase,omitempty"`
-	// ops job's output
+	// Opsjob output. For example, the download log URL or the preflight check results.
 	Outputs []Parameter `json:"outputs,omitempty"`
 }
 

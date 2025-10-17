@@ -198,23 +198,27 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 }
 
 func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) error {
-	if err := r.resetNodesOfCluster(ctx, cluster.Name); err != nil {
+	if err := r.resetNodesOfCluster(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to reset nodes of cluster")
 		return err
 	}
 	if err := r.deletePriorityClass(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to delete priority class")
 		return err
 	}
 	if err := r.deleteAllImageSecrets(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to delete image secret")
 		return err
 	}
 	if err := utils.RemoveFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer); err != nil {
+		klog.ErrorS(err, "failed to remove finalizer")
 		return err
 	}
 	return nil
 }
 
-func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, clusterName string) error {
-	req, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{clusterName})
+func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, cluster *v1.Cluster) error {
+	req, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{cluster.Name})
 	labelSelector := labels.NewSelector().Add(*req)
 	nodeList := &v1.NodeList{}
 	if err := r.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
@@ -235,7 +239,7 @@ func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, clusterName
 			klog.ErrorS(err, "failed to update node status")
 			return err
 		}
-		klog.Infof("reset the node(%s) after the cluster(%s) is deleted.", n.Name, clusterName)
+		klog.Infof("reset the node(%s) after the cluster(%s) is deleted.", n.Name, cluster.Name)
 	}
 	return nil
 }

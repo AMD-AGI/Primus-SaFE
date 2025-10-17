@@ -42,16 +42,10 @@ spec:
             type: object
           spec:
             properties:
-              clusterID:
-                description: |-
-                  INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-                  Important: Run "make" to regenerate code after modifying this file
-                type: string
               controlPlane:
                 properties:
                   imageSecret:
-                    description: ObjectReference contains enough information to let
-                      you inspect or modify the referred object.
+                    description: The Image secret used for download image
                     properties:
                       apiVersion:
                         description: API version of the referent.
@@ -96,20 +90,24 @@ spec:
                   kubeApiServerArgs:
                     additionalProperties:
                       type: string
+                    description: Some parameter settings for Kubernetes
                     type: object
                   kubeNetworkNodePrefix:
                     format: int32
                     type: integer
                   kubeNetworkPlugin:
-                    description: default is cilium
+                    description: Network plugin, default is cilium
                     type: string
                   kubePodsSubnet:
+                    description: Pod subnet configuration
                     type: string
                   kubeProxyMode:
                     type: string
                   kubeServiceAddress:
+                    description: Service Address configuration
                     type: string
                   kubeSprayImage:
+                    description: KubeSpray image name used for installation
                     type: string
                   kubeletConfigArgs:
                     additionalProperties:
@@ -122,16 +120,17 @@ spec:
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   kubernetesVersion:
+                    description: Kubernetes version
                     type: string
                   nodeLocalDNSIP:
                     type: string
                   nodes:
-                    description: the nodes of control plane
+                    description: The nodes of control plane
                     items:
                       type: string
                     type: array
                   secret:
-                    description: for ssh
+                    description: SSH secret for accessing cluster nodes
                     properties:
                       apiVersion:
                         description: API version of the referent.
@@ -177,6 +176,7 @@ spec:
                 - nodes
                 type: object
               storages:
+                description: Reserved field, logic not implemented currently
                 items:
                   properties:
                     erasureCoded:
@@ -241,9 +241,6 @@ spec:
           status:
             properties:
               controlPlaneStatus:
-                description: |-
-                  INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-                  Important: Run "make" to regenerate code after modifying this file
                 properties:
                   CAData:
                     description: |-
@@ -268,7 +265,7 @@ spec:
                     type: string
                 type: object
               storageStatus:
-                description: 存储状态
+                description: Reserved field, logic not implemented currently.
                 items:
                   properties:
                     accessKey:

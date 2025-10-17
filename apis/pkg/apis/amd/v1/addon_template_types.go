@@ -41,26 +41,26 @@ type AddonTemplate struct {
 }
 
 type AddonTemplateSpec struct {
-	// type of template
+	// Type of template
 	Type AddonTemplateType `json:"type,omitempty"`
-	// category of template. e.g. system/gpu
+	// Category of template. e.g. system/gpu
 	Category string `json:"category"`
-	// only for helm
+	// The address for template, only for helm
 	URL string `json:"url,omitempty"`
-	// version of template
+	// Version of template
 	Version string `json:"version,omitempty"`
-	// the description of addon template
+	// The description of template
 	Description string `json:"description,omitempty"`
-	// the action of addon (base64 encoded)
+	// The installation action for this template (base64 encoded)
 	Action string `json:"action,omitempty"`
-	// icon url，base64 encoded
+	// Icon url, base64 encoded
 	Icon string `json:"icon,omitempty"`
-	// target gpu chip(amd or nvidia), If left empty, it applies to all chip.
+	// Target gpu chip(amd or nvidia), If left empty, it applies to all chip.
 	GpuChip GpuChipType `json:"gpuChip,omitempty"`
 	// If it is true, installation failure will terminate the installation of other packages and raise an error.
 	// If it is false, only an error log will be printed and the failure can be ignored.
 	Required bool `json:"required,omitempty"`
-	// the default value for helm install
+	// The default value for helm install
 	HelmDefaultValues    string `json:"helmDefaultValues,omitempty"`
 	HelmDefaultNamespace string `json:"helmDefaultNamespace,omitempty"`
 }

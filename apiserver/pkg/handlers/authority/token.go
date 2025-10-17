@@ -7,7 +7,6 @@ package authority
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -31,20 +30,19 @@ const (
 
 type TokenItem struct {
 	UserId   string
-	Expire   int64
 	UserType string
+	Expire   int64
 }
 
+// ParseCookie: parses and validates the user token from cookie of header.
+// It first tries to parse from cookie, and if that fails, checks for header-based authentication
+// for internal users when token requirement is disabled. Returns an unauthorized error if validation fails.
 func ParseCookie(c *gin.Context) error {
 	err := parseCookie(c)
 	if err != nil {
 		userId := c.GetHeader(common.UserId)
 		// only for internal user
 		if userId != "" && !commonconfig.IsUserTokenRequired() {
-			// Briefly: Maintain compatibility with the old user system for now, to be removed later.
-			if !isMD5(userId) {
-				userId = stringutil.MD5(userId)
-			}
 			c.Set(common.UserId, userId)
 			return nil
 		}
@@ -53,6 +51,9 @@ func ParseCookie(c *gin.Context) error {
 	return nil
 }
 
+// parseCookie: extracts and validates the user token from the request cookie.
+// It decrypts the token, checks expiration, and sets the user ID in the context.
+// Returns an error if the token is missing, invalid, or expired.
 func parseCookie(c *gin.Context) error {
 	tokenStr, err := c.Cookie(CookieToken)
 	if err != nil || tokenStr == "" {
@@ -63,18 +64,17 @@ func parseCookie(c *gin.Context) error {
 		klog.ErrorS(err, "failed to validate user token", "token", tokenStr)
 		return fmt.Errorf("%s", InvalidToken)
 	}
-	if commonconfig.GetUserTokenExpire() >= 0 && time.Now().Unix() > token.Expire {
+	if commonconfig.GetUserTokenExpire() > 0 && time.Now().Unix() > token.Expire {
 		return fmt.Errorf("%s", TokenExpire)
 	}
 	c.Set(common.UserId, token.UserId)
 	return nil
 }
 
-func isMD5(s string) bool {
-	matched, _ := regexp.MatchString(`^[a-fA-F0-9]{32}$`, s)
-	return matched
-}
-
+// validateToken: decrypts and parses a token string into a TokenItem.
+// It validates the token format, decrypts it using the crypto module,
+// and ensures all parts are present and correctly formatted.
+// Returns the parsed TokenItem or an error if validation fails.
 func validateToken(token string) (*TokenItem, error) {
 	inst := crypto.NewCrypto()
 	if inst == nil {
@@ -83,7 +83,7 @@ func validateToken(token string) (*TokenItem, error) {
 	token = stringutil.Base64Decode(token)
 	tokenPlain, err := inst.Decrypt(token)
 	if err != nil {
-		return nil, fmt.Errorf("fail to decrypt token")
+		return nil, fmt.Errorf("invalid token")
 	}
 
 	parts := strings.Split(tokenPlain, TokenDelim)
@@ -108,7 +108,14 @@ func validateToken(token string) (*TokenItem, error) {
 	}, nil
 }
 
+// GenerateToken: creates a new authentication token for a user.
+// It constructs a token string with user ID, expiration time, and user type,
+// then encrypts it using the crypto module if encryption is enabled.
+// Returns the generated token string or an error if generation fails.
 func GenerateToken(item TokenItem) (string, error) {
+	if item.UserId == "" {
+		return "", fmt.Errorf("invalid token item parameters")
+	}
 	tokenStr := item.UserId + TokenDelim + strconv.FormatInt(item.Expire, 10) + TokenDelim + item.UserType
 	if !commonconfig.IsCryptoEnable() {
 		return tokenStr, nil

@@ -34,37 +34,59 @@ import (
 
 const (
 	FormContent = "application/x-www-form-urlencoded"
-	MaxTokenAge = 3600 * 24 * 365
+	// The lifecycle of the user token
+	MaxCookieTokenAge = 3600 * 24 * 365
 )
 
+// CreateUser: handles the creation of a new user resource.
+// It parses the creation request, generates a user object based on the requester's permissions,
+// and persists it in the k8s cluster. Returns the created user ID on success.
 func (h *Handler) CreateUser(c *gin.Context) {
 	handle(c, h.createUser)
 }
 
+// ListUser: handles listing user resources with filtering capabilities.
+// It retrieves users based on query parameters, applies authorization filtering,
+// and returns them in a sorted list with information about workspaces
+// that the user can access or manage.
 func (h *Handler) ListUser(c *gin.Context) {
 	handle(c, h.listUser)
 }
 
+// GetUser: retrieves detailed information about a specific user with appropriate authorization checks.
 func (h *Handler) GetUser(c *gin.Context) {
 	handle(c, h.getUser)
 }
 
+// PatchUser: handles partial updates to a user resource.
+// It authorizes the request based on the specific fields being updated,
+// parses update parameters, and applies changes to the specified user.
 func (h *Handler) PatchUser(c *gin.Context) {
 	handle(c, h.patchUser)
 }
 
+// DeleteUser: handles deletion of a user resource.
+// It authorizes the request and removes the specified user from the system.
 func (h *Handler) DeleteUser(c *gin.Context) {
 	handle(c, h.deleteUser)
 }
 
+// Login: handles user authentication and token generation.
+// Supports different login types and generates authentication tokens for successful logins.
+// Sets cookies for console-based logins.
 func (h *Handler) Login(c *gin.Context) {
 	handle(c, h.login)
 }
 
+// Logout: handles user logout by clearing authentication cookies.
+// Only applicable for requests from the console interface.
 func (h *Handler) Logout(c *gin.Context) {
 	handle(c, h.logout)
 }
 
+// createUser: implements the user creation logic.
+// Parses the request, generates a user object with appropriate permissions and settings,
+// and creates it in the system.
 func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -83,10 +105,13 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 	return &types.CreateUserResponse{Id: user.Name}, nil
 }
 
+// generateUser: creates a new user object based on the creation request.
+// Sets user metadata, roles, and properties based on the requester's permissions.
+// Handles password encoding and workspace assignments.
 func generateUser(req *types.CreateUserRequest, requestUser *v1.User) *v1.User {
 	user := &v1.User{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: commonuser.GetUserIdByName(req.Name),
+			Name: commonuser.GenerateUserIdByName(req.Name),
 			Annotations: map[string]string{
 				v1.UserNameAnnotation:      req.Name,
 				v1.UserEmailAnnotation:     req.Email,
@@ -110,6 +135,9 @@ func generateUser(req *types.CreateUserRequest, requestUser *v1.User) *v1.User {
 	return user
 }
 
+// listUser: implements the user listing logic.
+// Parses query parameters, builds label selectors, retrieves users from the system,
+// applies authorization filtering, sorts them, and converts to response format.
 func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -149,6 +177,8 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+// getUser: implements the logic for retrieving a single user's information.
+// Handles self-retrieval and other user retrieval with appropriate authorization checks.
 func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -171,9 +201,12 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 	return h.cvtToUserResponseItem(c.Request.Context(), targetUser), nil
 }
 
+// patchUser: implements partial update logic for a user.
+// Parses the patch request, validates authorization for the changes,
+// and applies specified updates to the user.
 func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	req := &types.PatchUserRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "fail to parse request data", "body", string(body))
 		return nil, err
@@ -185,7 +218,7 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	isChanged, err := h.checkPatchUser(c, targetUser, req)
+	isChanged, err := h.authUserUpdate(c, targetUser, req)
 	if !isChanged || err != nil {
 		return nil, err
 	}
@@ -219,7 +252,10 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) checkPatchUser(c *gin.Context, targetUser *v1.User, req *types.PatchUserRequest) (bool, error) {
+// authUserUpdate: validates authorization for user patch operations.
+// Checks if the requester has permission to make the requested changes
+// based on the fields being modified and the target user.
+func (h *Handler) authUserUpdate(c *gin.Context, targetUser *v1.User, req *types.PatchUserRequest) (bool, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return false, err
@@ -266,6 +302,9 @@ func (h *Handler) checkPatchUser(c *gin.Context, targetUser *v1.User, req *types
 	return isChanged, nil
 }
 
+// authUserAction: performs authorization checks for user-related actions.
+// Validates if the requesting user has permission to perform the specified action
+// on the target user, considering workspaces and resource types.
 func (h *Handler) authUserAction(c *gin.Context, requestUser, targetUser *v1.User,
 	workspaces []string, kind string, roles []*v1.Role, verb v1.RoleVerb) error {
 	if err := h.auth.Authorize(authority.Input{
@@ -283,6 +322,8 @@ func (h *Handler) authUserAction(c *gin.Context, requestUser, targetUser *v1.Use
 	return nil
 }
 
+// deleteUser: implements user deletion logic.
+// Authorizes the request and removes the specified user from the system.
 func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -303,12 +344,14 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-func (h *Handler) getAdminUser(ctx context.Context, name string) (*v1.User, error) {
-	if name == "" {
+// getAdminUser: retrieves a user resource by ID from the system.
+// Returns an error if the user doesn't exist or the ID is empty.
+func (h *Handler) getAdminUser(ctx context.Context, userId string) (*v1.User, error) {
+	if userId == "" {
 		return nil, commonerrors.NewBadRequest("the userId is empty")
 	}
 	user := &v1.User{}
-	err := h.Get(ctx, client.ObjectKey{Name: name}, user)
+	err := h.Get(ctx, client.ObjectKey{Name: userId}, user)
 	if err != nil {
 		klog.ErrorS(err, "failed to get user")
 		return nil, err
@@ -316,6 +359,8 @@ func (h *Handler) getAdminUser(ctx context.Context, name string) (*v1.User, erro
 	return user, nil
 }
 
+// login: implements user authentication logic.
+// Handles different login types and performs authentication based on the request type.
 func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	query, err := parseLoginQuery(c)
 	if err != nil {
@@ -336,11 +381,14 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+// performDefaultLogin: handles default user authentication.
+// Validates user credentials, generates authentication tokens, and sets cookies
+// for successful console-based logins.
 func (h *Handler) performDefaultLogin(c *gin.Context, query *types.UserLoginRequest) (*types.UserLoginResponse, error) {
 	if query.Name == "" {
 		return nil, commonerrors.NewBadRequest("the userName is empty")
 	}
-	userId := commonuser.GetUserIdByName(query.Name)
+	userId := commonuser.GenerateUserIdByName(query.Name)
 	user, err := h.getAdminUser(c.Request.Context(), userId)
 	if err != nil {
 		return nil, commonerrors.NewUserNotRegistered(query.Name)
@@ -380,19 +428,25 @@ func (h *Handler) performDefaultLogin(c *gin.Context, query *types.UserLoginRequ
 	return userInfo, nil
 }
 
+// setCookie: sets authentication cookies for logged-in users.
+// Configures cookie parameters including expiration time and domain based on user information.
 func setCookie(c *gin.Context, userInfo *types.UserLoginResponse) {
 	maxAge := 0
 	switch {
 	case userInfo.Expire < 0:
-		maxAge = MaxTokenAge
+		maxAge = MaxCookieTokenAge
 	case userInfo.Expire > 0:
 		maxAge = int(userInfo.Expire - time.Now().Unix())
 	default:
 	}
 	domain := "." + netutil.GetSecondLevelDomain(c.Request.Host)
 	c.SetCookie(authority.CookieToken, userInfo.Token, maxAge, "/", domain, false, true)
+	c.SetCookie(common.UserId, userInfo.Id, maxAge, "/", domain, false, true)
 }
 
+// cvtToUserResponseItem: converts a user object to a response item format.
+// Maps user properties to the appropriate response structure and includes
+// workspace information which user can access or manage
 func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) types.UserResponseItem {
 	result := types.UserResponseItem{
 		Id:             user.Name,
@@ -429,18 +483,21 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) type
 	return result
 }
 
-// only for request from console
+// logout: handles user logout by clearing authentication cookies.
+// Only applicable for requests from the console interface.
 func (h *Handler) logout(c *gin.Context) (interface{}, error) {
 	info := &types.UserLoginResponse{}
 	setCookie(c, info)
 	return nil, nil
 }
 
+// parseCreateUserQuery: parses and validates the user creation request.
+// Ensures required fields are present and validates based on requester permissions.
 func parseCreateUserQuery(requestUser *v1.User, c *gin.Context) (*types.CreateUserRequest, error) {
 	req := &types.CreateUserRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := parseRequestBody(c.Request, req)
 	if err != nil {
-		klog.ErrorS(err, "fail to getBodyFromRequest", "body", string(body))
+		klog.ErrorS(err, "fail to parseRequestBody", "body", string(body))
 		return nil, err
 	}
 	if requestUser == nil || !requestUser.IsSystemAdmin() {
@@ -451,6 +508,8 @@ func parseCreateUserQuery(requestUser *v1.User, c *gin.Context) (*types.CreateUs
 	return req, nil
 }
 
+// parseLoginQuery: parses and validates the user login request.
+// Handles both form-encoded and JSON request formats.
 func parseLoginQuery(c *gin.Context) (*types.UserLoginRequest, error) {
 	req := &types.UserLoginRequest{}
 	contentType := c.ContentType()
@@ -460,7 +519,7 @@ func parseLoginQuery(c *gin.Context) (*types.UserLoginRequest, error) {
 		req.Password = c.PostForm("password")
 		req.IsFromConsole = true
 	} else {
-		_, err := getBodyFromRequest(c.Request, req)
+		_, err := parseRequestBody(c.Request, req)
 		if err != nil {
 			return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 		}
@@ -469,6 +528,7 @@ func parseLoginQuery(c *gin.Context) (*types.UserLoginRequest, error) {
 	return req, nil
 }
 
+// parseListUserQuery: parses and validates the query parameters for listing users.
 func parseListUserQuery(c *gin.Context) (*types.ListUserRequest, error) {
 	query := &types.ListUserRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
@@ -477,25 +537,30 @@ func parseListUserQuery(c *gin.Context) (*types.ListUserRequest, error) {
 	return query, nil
 }
 
+// buildListUserSelector: constructs a label selector based on user list query parameters.
+// Used to filter users by name or email criteria.
 func buildListUserSelector(query *types.ListUserRequest) labels.Selector {
 	var labelSelector = labels.NewSelector()
 	if query.Name != "" {
-		name := query.Name
-		if unescape, err := url.QueryUnescape(name); err == nil {
-			name = unescape
-		}
-		userId := commonuser.GetUserIdByName(query.Name)
+		name := queryUnescape(query.Name)
+		userId := commonuser.GenerateUserIdByName(name)
 		req, _ := labels.NewRequirement(v1.UserIdLabel, selection.Equals, []string{userId})
 		labelSelector = labelSelector.Add(*req)
 	}
 	if query.Email != "" {
-		email := query.Email
-		if unescape, err := url.QueryUnescape(email); err == nil {
-			email = unescape
-		}
+		email := queryUnescape(query.Email)
 		emailMd5 := stringutil.MD5(email)
 		req, _ := labels.NewRequirement(v1.UserEmailMd5Label, selection.Equals, []string{emailMd5})
 		labelSelector = labelSelector.Add(*req)
 	}
 	return labelSelector
+}
+
+// queryUnescape: unescapes URL-encoded query parameters.
+// Returns the unescaped string or the original string if unescaping fails.
+func queryUnescape(input string) string {
+	if unescape, err := url.QueryUnescape(input); err == nil {
+		return unescape
+	}
+	return input
 }

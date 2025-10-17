@@ -136,6 +136,7 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, msg *resource
 	if len(podList.Items) == 0 {
 		return true
 	}
+	klog.Warningf("the pods of this workload %s still exist, this will retry again in 3 seconds.", msg.workloadId)
 	return false
 }
 

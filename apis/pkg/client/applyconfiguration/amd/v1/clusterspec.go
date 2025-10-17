@@ -9,7 +9,6 @@ package v1
 // ClusterSpecApplyConfiguration represents a declarative configuration of the ClusterSpec type for use
 // with apply.
 type ClusterSpecApplyConfiguration struct {
-	ClusterID    *string                         `json:"clusterID,omitempty"`
 	ControlPlane *ControlPlaneApplyConfiguration `json:"controlPlane,omitempty"`
 	Storages     []StorageApplyConfiguration     `json:"storages,omitempty"`
 }
@@ -18,14 +17,6 @@ type ClusterSpecApplyConfiguration struct {
 // apply.
 func ClusterSpec() *ClusterSpecApplyConfiguration {
 	return &ClusterSpecApplyConfiguration{}
-}
-
-// WithClusterID sets the ClusterID field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ClusterID field is set to the value of the last call.
-func (b *ClusterSpecApplyConfiguration) WithClusterID(value string) *ClusterSpecApplyConfiguration {
-	b.ClusterID = &value
-	return b
 }
 
 // WithControlPlane sets the ControlPlane field in the declarative configuration to the given value
