@@ -102,10 +102,18 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	if err != nil {
 		return err
 	}
-	gracePeriod := int64(300)
-	policy := metav1.DeletePropagationBackground
-	err = k8sClientFactory.DynamicClient().Resource(gvr).Namespace(obj.GetNamespace()).Delete(ctx, obj.GetName(),
-		metav1.DeleteOptions{GracePeriodSeconds: &gracePeriod, PropagationPolicy: &policy})
+	gracePeriod := int64(0)
+	if isWorkloadOrPod(obj.GroupVersionKind()) {
+		gracePeriod = 180
+	}
+	policy := metav1.DeletePropagationForeground
+	err = k8sClientFactory.DynamicClient().
+		Resource(gvr).
+		Namespace(obj.GetNamespace()).
+		Delete(ctx, obj.GetName(), metav1.DeleteOptions{
+			GracePeriodSeconds: &gracePeriod,
+			PropagationPolicy:  &policy,
+		})
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
@@ -240,4 +248,15 @@ func DeletePVC(ctx context.Context, name, namespace string, clientSet kubernetes
 	}
 	klog.Infof("delete persistent volume claims: %s/%s", namespace, name)
 	return nil
+}
+
+func isWorkloadOrPod(gvk schema.GroupVersionKind) bool {
+	switch gvk.Kind {
+	case "Pod",
+		"Deployment", "StatefulSet", "DaemonSet", "ReplicaSet",
+		"Job", "CronJob":
+		return true
+	default:
+		return false
+	}
 }
