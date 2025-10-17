@@ -96,6 +96,10 @@ func IsSSHEnable() bool {
 	return getBool(sshEnable, false)
 }
 
+func GetSSHServerIP() string {
+	return getString(sshServerIP, "")
+}
+
 func GetSSHServerPort() int {
 	return getInt(sshServerPort, 0)
 }
