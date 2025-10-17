@@ -94,7 +94,9 @@ sed -i "s/replicas: [0-9]*/replicas: $replicas/" "$values_yaml"
 sed -i "s/^.*cpu:.*/  cpu: $cpu/" "$values_yaml"
 sed -i "s/^.*memory:.*/  memory: $memory/" "$values_yaml"
 sed -i "s/^.*storage_class:.*/  storage_class: \"$storage_class\"/" "$values_yaml"
-sed -i '/ssh:/,/^[a-z]/ s/server_ip: .*/server_ip: '"$ssh_server_ip"'/' "$values_yaml"
+if [ -n "$ssh_server_ip" ]; then
+  sed -i '/ssh:/,/^[a-z]/ s/server_ip: .*/server_ip: '"$ssh_server_ip"'/' "$values_yaml"
+fi
 sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
 sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$opensearch_enable"'/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
