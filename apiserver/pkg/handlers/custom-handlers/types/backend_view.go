@@ -10,5 +10,6 @@ type GetEnvResponse struct {
 	EnableLog         bool   `json:"enableLog"`
 	EnableSSH         bool   `json:"enableSsh"`
 	AuthoringImage    string `json:"authoringImage"`
-	SSHPort           int  `json:"sshPort"`
+	SSHIP             string `json:"sshIP"`
+	SSHPort           int    `json:"sshPort"`
 }
