@@ -302,11 +302,11 @@ func (r *FailoverReconciler) handle(ctx context.Context, adminWorkload *v1.Workl
 	if v1.IsWorkloadPreempted(adminWorkload) {
 		message = "the workload is preempted"
 	} else {
-		message = "the workload does the failover"
+		message = "the workload is doing the failover"
 	}
 	if err = r.addFailoverCondition(ctx, adminWorkload, message); err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	klog.Infof("do failover, workload: %s", adminWorkload.Name)
+	klog.Infof("the workload %s is attempting to perform a failover", adminWorkload.Name)
 	return ctrlruntime.Result{}, nil
 }
