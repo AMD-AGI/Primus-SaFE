@@ -18,7 +18,7 @@ resource_manager:
   cpu: 2000m
   memory: 4Gi
 job_manager:
-  image: "job-manager:202510161814"
+  image: "job-manager:202510171039"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
@@ -28,7 +28,7 @@ webhooks:
   cpu: 2000m
   memory: 4Gi
 web:
-  image: "primus-safe-web:1.8.5"
+  image: "primus-safe-web:1.8.15"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
