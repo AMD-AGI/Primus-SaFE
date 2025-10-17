@@ -115,6 +115,9 @@ func (m *WorkspaceMutator) mutateCommon(ctx context.Context, oldWorkspace, newWo
 	if err := m.mutateByNodeFlavor(ctx, newWorkspace); err != nil {
 		return err
 	}
+	if err := m.mutateImageSecret(ctx, newWorkspace); err != nil {
+		return err
+	}
 	m.mutateVolumes(newWorkspace)
 	m.mutateQueuePolicy(newWorkspace)
 	if oldWorkspace == nil || oldWorkspace.Spec.EnablePreempt != newWorkspace.Spec.EnablePreempt {
@@ -217,17 +220,6 @@ func (m *WorkspaceMutator) mutateVolumes(workspace *v1.Workspace) {
 			workspace.Spec.Volumes[i].AccessMode = corev1.ReadWriteMany
 		}
 	}
-}
-
-func (m *WorkspaceMutator) mutateCommon(ctx context.Context, workspace *v1.Workspace) error {
-	if err := m.mutateByNodeFlavor(ctx, workspace); err != nil {
-		return err
-	}
-	if err := m.mutateImageSecret(ctx, workspace); err != nil {
-		return err
-	}
-	m.mutateVolumes(workspace)
-	return nil
 }
 
 func (m *WorkspaceMutator) mutateByNodeFlavor(ctx context.Context, workspace *v1.Workspace) error {
@@ -364,7 +356,7 @@ func (m *WorkspaceMutator) mutateImageSecret(ctx context.Context, workspace *v1.
 	req2, _ := labels.NewRequirement(v1.SecretAllWorkspaceLabel, selection.Equals, []string{v1.TrueStr})
 	labelSelector = labelSelector.Add(*req2)
 	secretList := &corev1.SecretList{}
-	if err = m.List(ctx, secretList, &client.ListOptions{LabelSelector: labelSelector,
+	if err := m.List(ctx, secretList, &client.ListOptions{LabelSelector: labelSelector,
 		Namespace: common.PrimusSafeNamespace}); err != nil {
 		return err
 	}
