@@ -42,6 +42,7 @@ data:
       username: "{{ default "" (default .Values.opensearch).username }}"
       password: "{{ default "" (default .Values.opensearch).password }}"
     ssh:
+      server_ip: "{{ default "" (default .Values.ssh).server_ip }}"
       server_port: {{ default 2222 (default .Values.ssh).port }}
       enable: {{ .Values.ssh.enable }}
       secret_path: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
