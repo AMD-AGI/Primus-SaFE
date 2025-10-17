@@ -16,4 +16,6 @@ type GetEnvResponse struct {
 	AuthoringImage string `json:"authoringImage"`
 	// The port for ssh
 	SSHPort int `json:"sshPort"`
+	// The ip for ssh
+	SSHIP string `json:"sshIP"`
 }
