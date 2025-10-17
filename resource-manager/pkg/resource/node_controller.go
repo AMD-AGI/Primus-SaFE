@@ -235,7 +235,7 @@ func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node, k
 			return false, nil
 		}
 	} else {
-		if adminNode.IsManaged() || k8sNode != nil || v1.GetClusterId(k8sNode) != "" {
+		if adminNode.IsManaged() || k8sNode != nil {
 			return false, nil
 		}
 	}
@@ -463,14 +463,14 @@ func (r *NodeReconciler) updateAdminNode(ctx context.Context, adminNode *v1.Node
 	var result ctrlruntime.Result
 	n := client.MergeFrom(adminNode.DeepCopy())
 	if adminNode.GetSpecCluster() != "" {
-		if adminNode.IsManaged() && v1.GetClusterId(k8sNode) != "" {
+		if adminNode.IsManaged() && (k8sNode != nil && v1.GetClusterId(k8sNode) != "") {
 			return ctrlruntime.Result{}, nil
 		}
 		if err = r.syncClusterStatus(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
 		}
 		result, err = r.manage(ctx, adminNode, k8sNode)
-	} else if adminNode.Status.ClusterStatus.Cluster != nil || v1.GetClusterId(k8sNode) != "" {
+	} else if adminNode.Status.ClusterStatus.Cluster != nil || (k8sNode != nil && v1.GetClusterId(k8sNode) != "") {
 		result, err = r.unmanage(ctx, adminNode, k8sNode)
 	} else {
 		return ctrlruntime.Result{}, nil
