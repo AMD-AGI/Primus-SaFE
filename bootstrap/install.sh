@@ -65,6 +65,7 @@ default_ethernet_nic="eno0"
 default_rdma_nic="rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
 default_cluster_scale="small"
 default_storage_class="local-path"
+default_ssh_server_ip=""
 
 ethernet_nic=$(get_input_with_default "Enter ethernet nic($default_ethernet_nic): " "$default_ethernet_nic")
 rdma_nic=$(get_input_with_default "Enter rdma nic($default_rdma_nic): " "$default_rdma_nic")
@@ -73,6 +74,7 @@ storage_class=$(get_input_with_default "Enter storage class($default_storage_cla
 sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
 support_lens=$(get_input_with_default "Support Primus-lens ? (y/n): " "n")
 support_s3=$(get_input_with_default "Support Primus-S3 ? (y/n): " "n")
+ssh_server_ip=$(get_input_with_default "Enter ssh server ip($default_ethernet_nic): " "$default_ethernet_nic")
 opensearch_enable=$(convert_to_boolean "$support_lens")
 s3_enable=$(convert_to_boolean "$support_s3")
 s3_endpoint=""
@@ -100,6 +102,7 @@ echo "✅ Cluster Name: \"$sub_domain\""
 echo "✅ Storage Class: \"$storage_class\""
 echo "✅ Support Primus-lens: \"$opensearch_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
+echo "✅ SSH Server IP: \"$ssh_server_ip\""
 if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Endpoint: \"$s3_endpoint\""
 fi
@@ -235,6 +238,7 @@ cluster_scale=$cluster_scale
 storage_class=$storage_class
 sub_domain=$sub_domain
 opensearch_enable=$opensearch_enable
+ssh_server_ip=$ssh_server_ip
 s3_enable=$s3_enable
 s3_endpoint=$s3_endpoint
 EOF
