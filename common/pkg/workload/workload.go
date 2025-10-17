@@ -115,14 +115,16 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 	return result, nil
 }
 
-// Returns the total resource consumption of the workload, filtering out stopped pods and applying node-level filters as specified.
-func GetActiveResources(workload *v1.Workload, filterNode func(nodeName string) bool) (corev1.ResourceList, error) {
+// getActiveResources: retrieves active resources based on the input workload.
+// It filters out terminated pods and applies node filtering criteria.
+// Returns the total resource amount and the involved nodes.
+func GetActiveResources(workload *v1.Workload, filterNode func(nodeName string) bool) (corev1.ResourceList, []string, error) {
 	if workload.Spec.Resource.Replica == 0 || len(workload.Status.Pods) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	podResources, err := GetPodResources(&workload.Spec.Resource)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	type podWrapper struct {
@@ -152,16 +154,18 @@ func GetActiveResources(workload *v1.Workload, filterNode func(nodeName string) 
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	result := make(corev1.ResourceList)
+	resources := make(corev1.ResourceList)
+	nodes := make([]string, 0, count)
 	for i := range podUsedResources {
 		if podUsedResources[i] == nil {
 			continue
 		}
-		result = quantity.AddResource(result, *podUsedResources[i])
+		resources = quantity.AddResource(resources, *podUsedResources[i])
+		nodes = append(nodes, workload.Status.Pods[i].AdminNodeName)
 	}
-	return result, nil
+	return resources, nodes, nil
 }
 
 func CvtToResourceList(w *v1.Workload) (corev1.ResourceList, error) {

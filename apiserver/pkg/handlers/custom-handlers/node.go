@@ -662,7 +662,7 @@ func (h *Handler) deleteRelatedFaults(ctx context.Context, node *v1.Node, newTai
 			continue
 		}
 		id := commonfaults.GetIdByTaintKey(t.Key)
-		faultId := commonfaults.GenerateFaultName(node.Name, id)
+		faultId := commonfaults.GenerateFaultId(node.Name, id)
 		fault, err := h.getAdminFault(ctx, faultId)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
