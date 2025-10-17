@@ -108,6 +108,8 @@ type GetWorkspaceResponse struct {
 	AbnormalQuota ResourceList `json:"abnormalQuota"`
 	// The used resources of workspace
 	UsedQuota ResourceList `json:"usedQuota"`
+	// The node currently in use has workloads running on it
+	UsedNode int
 	// Workspace image secret ID, used for downloading images
 	ImageSecretIds []string `json:"imageSecretIds"`
 }

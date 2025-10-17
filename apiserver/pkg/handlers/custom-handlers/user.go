@@ -441,6 +441,7 @@ func setCookie(c *gin.Context, userInfo *types.UserLoginResponse) {
 	}
 	domain := "." + netutil.GetSecondLevelDomain(c.Request.Host)
 	c.SetCookie(authority.CookieToken, userInfo.Token, maxAge, "/", domain, false, true)
+	c.SetCookie(common.UserId, userInfo.Id, maxAge, "/", domain, false, true)
 }
 
 // cvtToUserResponseItem: converts a user object to a response item format.

@@ -30,6 +30,7 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -472,11 +473,12 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 	result.TotalQuota = cvtToResourceList(workspace.Status.TotalResources)
 	result.AbnormalQuota = cvtToResourceList(abnormalQuota)
 
-	usedQuota, err := h.getWorkspaceUsedQuota(ctx, workspace)
+	usedQuota, usedNodeCount, err := h.getWorkspaceUsedQuota(ctx, workspace)
 	if err != nil {
 		return nil, err
 	}
 	result.UsedQuota = cvtToResourceList(usedQuota)
+	result.UsedNode = usedNodeCount
 
 	availQuota := workspace.Status.AvailableResources
 	result.AvailQuota = cvtToResourceList(quantity.SubResource(availQuota, usedQuota))
@@ -487,8 +489,8 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 }
 
 // getWorkspaceUsedQuota: calculates the quota that has been used by the workspace.
-// Aggregates resource usage from running workloads in the workspace.
-func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Workspace) (corev1.ResourceList, error) {
+// Aggregates resource usage from running workloads in the workspace. The number of associated nodes are also returned.
+func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Workspace) (corev1.ResourceList, int, error) {
 	filterNode := func(nodeName string) bool {
 		n, err := h.getAdminNode(ctx, nodeName)
 		if err != nil {
@@ -503,17 +505,21 @@ func (h *Handler) getWorkspaceUsedQuota(ctx context.Context, workspace *v1.Works
 	workspaceNames := []string{workspace.Name}
 	workloads, err := h.getRunningWorkloads(ctx, workspace.Spec.Cluster, workspaceNames)
 	if err != nil || len(workloads) == 0 {
-		return nil, err
+		return nil, 0, err
 	}
 	var usedQuota corev1.ResourceList
+	nodeSet := sets.NewSet()
 	for _, w := range workloads {
-		res, err := commonworkload.GetActiveResources(w, filterNode)
+		res, nodes, err := commonworkload.GetActiveResources(w, filterNode)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if res != nil {
 			usedQuota = quantity.AddResource(usedQuota, res)
+			for _, n := range nodes {
+				nodeSet.Insert(n)
+			}
 		}
 	}
-	return usedQuota, nil
+	return usedQuota, len(nodeSet), nil
 }

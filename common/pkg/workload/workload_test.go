@@ -282,7 +282,7 @@ func TestGetActiveResource(t *testing.T) {
 		}
 		return false
 	}
-	res, err := GetActiveResources(workload1, filterFunc)
+	res, _, err := GetActiveResources(workload1, filterFunc)
 	assert.NilError(t, err)
 	assert.Equal(t, res.Cpu().Value(), int64(8))
 	assert.Equal(t, res.Memory().Value(), int64(10))
