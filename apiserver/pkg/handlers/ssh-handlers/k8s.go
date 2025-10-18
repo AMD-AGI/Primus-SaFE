@@ -366,7 +366,7 @@ type forwardChannelData struct {
 }
 
 func IsShellCommand(cmd string) bool {
-	shells := []string{"sh", "bash", "zsh", "ash", "ksh", "csh", "tcsh"}
+	shells := []string{"sh", "bash", "zsh", "ash", "ksh", "csh", "tcsh", "bash --login -c bash"}
 	for _, shell := range shells {
 		if cmd == shell {
 			return true
