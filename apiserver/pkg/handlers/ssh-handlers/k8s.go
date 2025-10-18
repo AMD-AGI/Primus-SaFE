@@ -55,15 +55,16 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 	//	panic(fmt.Errorf("failed to create clientset: %v", err))
 	//}
 
+	isInteractive := sessionInfo.isPty || IsShellCommand(sessionInfo.userConn.RawCommand())
 	execOptions := &corev1.PodExecOptions{
 		Container: sessionInfo.userInfo.Container,
 		Command:   []string{sessionInfo.userInfo.CMD},
-		Stdin:     sessionInfo.isPty,
+		Stdin:     isInteractive,
 		Stdout:    true,
 		Stderr:    true,
 		TTY:       sessionInfo.isPty,
 	}
-	if !sessionInfo.isPty {
+	if !isInteractive {
 		execOptions.Command = append(execOptions.Command, "-c", sessionInfo.userConn.RawCommand())
 	}
 
@@ -85,7 +86,7 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		Height: uint16(sessionInfo.rows),
 	}
 
-	if sessionInfo.isPty {
+	if isInteractive {
 		go sessionInfo.userConn.WindowNotify(ctx, sessionInfo.size)
 	}
 
@@ -122,7 +123,7 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 			TerminalSizeQueue: sessionInfo,
 			Tty:               sessionInfo.isPty,
 		}
-		if !sessionInfo.isPty {
+		if !isInteractive {
 			options.Stdin = nil
 			options.TerminalSizeQueue = nil
 		}
@@ -362,4 +363,14 @@ type forwardChannelData struct {
 	DestPort   uint32
 	OriginAddr string
 	OriginPort uint32
+}
+
+func IsShellCommand(cmd string) bool {
+	shells := []string{"sh", "bash", "zsh", "ash", "ksh", "csh", "tcsh"}
+	for _, shell := range shells {
+		if cmd == shell {
+			return true
+		}
+	}
+	return false
 }
