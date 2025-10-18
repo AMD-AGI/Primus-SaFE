@@ -43,7 +43,19 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 	if err = h.authUser(ctx, sessionInfo.userInfo, workload); err != nil {
 		return err
 	}
-
+	//// 使用kubeconfig创建配置
+	//config, err := clientcmd.BuildConfigFromFlags("", "/home/xiaofei/.kube/config")
+	//if err != nil {
+	//	panic(fmt.Errorf("failed to build config: %v", err))
+	//}
+	//
+	//// 创建Kubernetes客户端
+	//clientset, err := kubernetes.NewForConfig(config)
+	//if err != nil {
+	//	panic(fmt.Errorf("failed to create clientset: %v", err))
+	//}
+	//
+	//req := clientset.CoreV1().RESTClient().Post().
 	req := k8sClients.ClientSet().CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(sessionInfo.userInfo.Pod).
@@ -53,7 +65,7 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		VersionedParams(&corev1.PodExecOptions{
 			Container: sessionInfo.userInfo.Container,
 			Command:   []string{sessionInfo.userInfo.CMD},
-			Stdin:     true,
+			Stdin:     sessionInfo.isPty,
 			Stdout:    true,
 			Stderr:    true,
 			TTY:       sessionInfo.isPty,
@@ -68,7 +80,9 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		Height: uint16(sessionInfo.rows),
 	}
 
-	go sessionInfo.userConn.WindowNotify(ctx, sessionInfo.size)
+	if sessionInfo.isPty {
+		go sessionInfo.userConn.WindowNotify(ctx, sessionInfo.size)
+	}
 
 	//_, err = sessionInfo.userConn.Write([]byte("Connection established\n"))
 	//if err != nil {
@@ -96,13 +110,18 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 	errCh := make(chan struct{})
 	go func(errCh chan struct{}) {
 		defer close(errCh)
-		err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+		options := remotecommand.StreamOptions{
 			Stdin:             sessionInfo.userConn,
 			Stdout:            sessionInfo.userConn,
 			Stderr:            sessionInfo.userConn,
 			TerminalSizeQueue: sessionInfo,
 			Tty:               sessionInfo.isPty,
-		})
+		}
+		if !sessionInfo.isPty {
+			options.Stdin = nil
+			options.TerminalSizeQueue = nil
+		}
+		err = executor.StreamWithContext(ctx, options)
 		message := "The underlying connection is disconnected normally"
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
