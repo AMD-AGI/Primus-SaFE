@@ -31,6 +31,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.GET(fmt.Sprintf("workloads/:%s", common.Name), h.GetWorkload)
 		group.GET(fmt.Sprintf("workloads/:%s/service", common.Name), h.GetWorkloadService)
 		group.GET(fmt.Sprintf("workloads/:%s/pods/:%s/logs", common.Name, common.PodId), h.GetWorkloadPodLog)
+		group.GET(fmt.Sprintf("workloads/:%s/pods/:%s/containers", common.Name, common.PodId), h.GetWorkloadPodContainers)
 
 		group.POST("secrets", h.CreateSecret)
 		group.DELETE(fmt.Sprintf("secrets/:%s", common.Name), h.DeleteSecret)
