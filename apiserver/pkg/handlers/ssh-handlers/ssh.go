@@ -292,7 +292,7 @@ func (conn *SSHConn) ClosedChan() chan struct{} {
 	return conn.closeCh
 }
 
-// Command returns the parsed command arguments.
-func (conn *SSHConn) Command() []string {
-	return conn.s.Command()
+// RawCommand returns the raw command string.
+func (conn *SSHConn) RawCommand() string {
+	return conn.s.RawCommand()
 }

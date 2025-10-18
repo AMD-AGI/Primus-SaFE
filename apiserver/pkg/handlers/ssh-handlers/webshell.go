@@ -237,7 +237,7 @@ func (conn *WebsocketConn) ClosedChan() chan struct{} {
 	return conn.closeCh
 }
 
-// Command returns the parsed command arguments.
-func (conn *WebsocketConn) Command() []string {
-	return []string{}
+// RawCommand returns the raw command string.
+func (conn *WebsocketConn) RawCommand() string {
+	return ""
 }

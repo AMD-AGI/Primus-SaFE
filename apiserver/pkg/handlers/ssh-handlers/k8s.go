@@ -63,8 +63,8 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		Stderr:    true,
 		TTY:       sessionInfo.isPty,
 	}
-	if len(sessionInfo.userConn.Command()) > 0 && !sessionInfo.isPty {
-		execOptions.Command = sessionInfo.userConn.Command()
+	if !sessionInfo.isPty {
+		execOptions.Command = append(execOptions.Command, "-c", sessionInfo.userConn.RawCommand())
 	}
 
 	//req := clientset.CoreV1().RESTClient().Post().
@@ -145,7 +145,8 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 	case <-sessionInfo.userConn.ClosedChan():
 	}
 
-	klog.Infof("Connection to the Pod(%s/%s) has ended.", workload.Spec.Workspace, sessionInfo.userInfo.Pod)
+	klog.Infof("Connection to the Pod(%s/%s) has ended, reason: %s", workload.Spec.Workspace,
+		sessionInfo.userInfo.Pod, sessionInfo.userConn.ExitReason())
 	//_, err = sessionInfo.userConn.Write([]byte(fmt.Sprintf("ssh connection closed, reason: %s\n", sessionInfo.userConn.ExitReason())))
 	return nil
 }
