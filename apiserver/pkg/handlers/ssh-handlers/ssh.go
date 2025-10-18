@@ -172,7 +172,6 @@ func (h *SshHandler) startSessionHandler(ctx context.Context, conn *ssh.ServerCo
 		klog.ErrorS(err, "failed to accept channel")
 		return
 	}
-	//fmt.Fprintf(ch, "\r\x1b[93mConnecting ...\x1b[0m\r\n")
 	s := &session{
 		ctx:     ctx,
 		Channel: ch,
