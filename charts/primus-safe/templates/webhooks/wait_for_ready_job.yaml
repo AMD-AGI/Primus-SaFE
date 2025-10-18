@@ -20,6 +20,10 @@ spec:
     spec:
       activeDeadlineSeconds: 300
       restartPolicy: Never
+      {{- if .Values.global.image_pull_secret }}
+      imagePullSecrets:
+        - name: {{ .Values.global.image_pull_secret }}
+      {{- end }}
       containers:
         - name: complete
           image: docker.io/library/busybox:latest

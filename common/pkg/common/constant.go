@@ -45,7 +45,6 @@ const (
 
 	NvidiaGpu            = "nvidia.com/gpu"
 	NvidiaIdentification = "nvidia.com/gpu.present"
-	NvidiaVfio           = "nvidia.com/gpu.deploy.vfio-manager"
 	AMDGpuIdentification = "feature.node.kubernetes.io/amd-gpu"
 	AmdGpu               = "amd.com/gpu"
 

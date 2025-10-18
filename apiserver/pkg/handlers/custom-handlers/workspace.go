@@ -429,22 +429,22 @@ func buildListWorkspaceSelector(query *types.ListWorkspaceRequest) (labels.Selec
 // Includes basic workspace information like ID, name, cluster, flavor, and status.
 func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspace) types.WorkspaceResponseItem {
 	result := types.WorkspaceResponseItem{
-		WorkspaceId:   w.Name,
-		WorkspaceName: v1.GetDisplayName(w),
-		ClusterId:     w.Spec.Cluster,
-		FlavorId:      w.Spec.NodeFlavor,
-		UserId:        v1.GetUserId(w),
-		TargetNode:    w.Spec.Replica,
-		CurrentNode:   w.CurrentReplica(),
-		Phase:         string(w.Status.Phase),
-		CreationTime:  timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
-		Description:   v1.GetDescription(w),
-		QueuePolicy:   w.Spec.QueuePolicy,
-		Scopes:        w.Spec.Scopes,
-		Volumes:       w.Spec.Volumes,
-		EnablePreempt: w.Spec.EnablePreempt,
-		AbnormalNode:  w.Status.AbnormalReplica,
-		IsDefault:     w.Spec.IsDefault,
+		WorkspaceId:       w.Name,
+		WorkspaceName:     v1.GetDisplayName(w),
+		ClusterId:         w.Spec.Cluster,
+		FlavorId:          w.Spec.NodeFlavor,
+		UserId:            v1.GetUserId(w),
+		TargetNodeCount:   w.Spec.Replica,
+		CurrentNodeCount:  w.CurrentReplica(),
+		AbnormalNodeCount: w.Status.AbnormalReplica,
+		Phase:             string(w.Status.Phase),
+		CreationTime:      timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
+		Description:       v1.GetDescription(w),
+		QueuePolicy:       w.Spec.QueuePolicy,
+		Scopes:            w.Spec.Scopes,
+		Volumes:           w.Spec.Volumes,
+		EnablePreempt:     w.Spec.EnablePreempt,
+		IsDefault:         w.Spec.IsDefault,
 	}
 	for _, m := range w.Spec.Managers {
 		user, err := h.getAdminUser(ctx, m)
@@ -469,7 +469,7 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 	}
 	nfResource := nf.ToResourceList(commonconfig.GetRdmaName())
 
-	abnormalQuota := quantity.MultiResource(nfResource, int64(result.AbnormalNode))
+	abnormalQuota := quantity.MultiResource(nfResource, int64(result.AbnormalNodeCount))
 	result.TotalQuota = cvtToResourceList(workspace.Status.TotalResources)
 	result.AbnormalQuota = cvtToResourceList(abnormalQuota)
 
@@ -478,7 +478,7 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 		return nil, err
 	}
 	result.UsedQuota = cvtToResourceList(usedQuota)
-	result.UsedNode = usedNodeCount
+	result.UsedNodeCount = usedNodeCount
 
 	availQuota := workspace.Status.AvailableResources
 	result.AvailQuota = cvtToResourceList(quantity.SubResource(availQuota, usedQuota))

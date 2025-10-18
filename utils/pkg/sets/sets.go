@@ -7,16 +7,19 @@ package sets
 
 type Set map[string]struct{}
 
+// NewSet creates and returns a new empty Set
 func NewSet() Set {
 	return make(Set)
 }
 
+// NewSetByKeys creates a new Set and inserts the provided keys into it
 func NewSetByKeys(keys ...string) Set {
 	set := NewSet()
 	set.Insert(keys...)
 	return set
 }
 
+// Insert adds one or more keys to the set and returns the set
 func (s Set) Insert(keys ...string) Set {
 	for _, key := range keys {
 		s[key] = struct{}{}
@@ -24,6 +27,7 @@ func (s Set) Insert(keys ...string) Set {
 	return s
 }
 
+// Delete removes one or more keys from the set and returns the set
 func (s Set) Delete(keys ...string) Set {
 	for _, key := range keys {
 		delete(s, key)
@@ -31,6 +35,7 @@ func (s Set) Delete(keys ...string) Set {
 	return s
 }
 
+// Has checks if a key exists in the set, returns false if set is nil
 func (s Set) Has(key string) bool {
 	if s == nil {
 		return false
@@ -39,15 +44,18 @@ func (s Set) Has(key string) bool {
 	return ok
 }
 
+// Len returns the number of elements in the set
 func (s Set) Len() int {
 	return len(s)
 }
 
+// Clear removes all elements from the set and returns the cleared set
 func (s Set) Clear() Set {
 	keysToDelete := s.UnsortedList()
 	return s.Delete(keysToDelete...)
 }
 
+// Clone creates and returns a copy of the set
 func (s Set) Clone() Set {
 	result := make(Set, len(s))
 	for key := range s {
@@ -109,6 +117,7 @@ func (s Set) Intersection(s2 Set) Set {
 	return result
 }
 
+// Equal checks if two sets have the same elements
 func (s Set) Equal(s2 Set) bool {
 	if len(s) != len(s2) {
 		return false
@@ -121,6 +130,7 @@ func (s Set) Equal(s2 Set) bool {
 	return true
 }
 
+// UnsortedList returns all elements in the set as a slice (order not guaranteed)
 func (s Set) UnsortedList() []string {
 	results := make([]string, 0, s.Len())
 	for k := range s {

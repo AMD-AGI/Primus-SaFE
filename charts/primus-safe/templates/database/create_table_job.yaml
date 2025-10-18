@@ -119,5 +119,9 @@ spec:
         - name: sql-scripts
           configMap:
             name: create-db-table
+      {{- if .Values.global.image_pull_secret }}
+      imagePullSecrets:
+        - name: {{ .Values.global.image_pull_secret }}
+      {{- end }}
       restartPolicy: Never
   backoffLimit: 0

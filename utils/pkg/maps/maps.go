@@ -5,7 +5,7 @@
 
 package maps
 
-// Difference returns a set of objects that are in m1 but not in m2
+// Difference returns a map containing key-value pairs that exist in m1 but not in m2
 func Difference(m1, m2 map[string]string) map[string]string {
 	result := make(map[string]string)
 	for key, value := range m1 {
@@ -16,7 +16,7 @@ func Difference(m1, m2 map[string]string) map[string]string {
 	return result
 }
 
-// Merge m1 into m2, preferring m1's values for duplicate keys
+// Merge combines two maps, with m1's values taking precedence over m2's values for duplicate keys
 func Merge(m1, m2 map[string]string) map[string]string {
 	result := make(map[string]string)
 	for key, value := range m2 {
@@ -28,6 +28,7 @@ func Merge(m1, m2 map[string]string) map[string]string {
 	return result
 }
 
+// EqualIgnoreOrder checks if two maps have the same key-value pairs regardless of order
 func EqualIgnoreOrder(m1, m2 map[string]string) bool {
 	if len(m1) != len(m2) {
 		return false
@@ -44,6 +45,7 @@ func EqualIgnoreOrder(m1, m2 map[string]string) bool {
 	return true
 }
 
+// CompareWithKeys compares specific keys between two maps
 func CompareWithKeys(m1, m2 map[string]string, keys []string) bool {
 	for _, key := range keys {
 		val1, ok1 := m1[key]
@@ -55,6 +57,7 @@ func CompareWithKeys(m1, m2 map[string]string, keys []string) bool {
 	return true
 }
 
+// Contain checks if m1 contains all key-value pairs from m2
 func Contain(m1, m2 map[string]string) bool {
 	if len(m2) == 0 {
 		return len(m1) == 0
@@ -68,6 +71,7 @@ func Contain(m1, m2 map[string]string) bool {
 	return true
 }
 
+// Copy creates a shallow copy of the given map
 func Copy(m map[string]string) map[string]string {
 	result := make(map[string]string)
 	for key, val := range m {
@@ -76,10 +80,11 @@ func Copy(m map[string]string) map[string]string {
 	return result
 }
 
-func RemoveValue(m map[string]string, input string) map[string]string {
+// RemoveValue removes all entries from the map where the value matches the input string
+func RemoveValue(m map[string]string, value string) map[string]string {
 	result := make(map[string]string)
 	for key, val := range m {
-		if val == input {
+		if val == value {
 			continue
 		}
 		result[key] = val
