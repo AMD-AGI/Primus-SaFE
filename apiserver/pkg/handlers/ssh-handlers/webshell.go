@@ -236,3 +236,8 @@ func (conn *WebsocketConn) WindowNotify(ctx context.Context, ch chan *remotecomm
 func (conn *WebsocketConn) ClosedChan() chan struct{} {
 	return conn.closeCh
 }
+
+// Command returns the parsed command arguments.
+func (conn *WebsocketConn) Command() []string {
+	return []string{}
+}

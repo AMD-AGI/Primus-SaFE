@@ -54,7 +54,19 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 	//if err != nil {
 	//	panic(fmt.Errorf("failed to create clientset: %v", err))
 	//}
-	//
+
+	execOptions := &corev1.PodExecOptions{
+		Container: sessionInfo.userInfo.Container,
+		Command:   []string{sessionInfo.userInfo.CMD},
+		Stdin:     sessionInfo.isPty,
+		Stdout:    true,
+		Stderr:    true,
+		TTY:       sessionInfo.isPty,
+	}
+	if len(sessionInfo.userConn.Command()) > 0 && !sessionInfo.isPty {
+		execOptions.Command = sessionInfo.userConn.Command()
+	}
+
 	//req := clientset.CoreV1().RESTClient().Post().
 	req := k8sClients.ClientSet().CoreV1().RESTClient().Post().
 		Resource("pods").
@@ -62,14 +74,7 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		Namespace(sessionInfo.userInfo.Namespace).
 		SubResource("exec").
 		Timeout(time.Hour).
-		VersionedParams(&corev1.PodExecOptions{
-			Container: sessionInfo.userInfo.Container,
-			Command:   []string{sessionInfo.userInfo.CMD},
-			Stdin:     sessionInfo.isPty,
-			Stdout:    true,
-			Stderr:    true,
-			TTY:       sessionInfo.isPty,
-		}, scheme.ParameterCodec)
+		VersionedParams(execOptions, scheme.ParameterCodec)
 
 	executor, err := remotecommand.NewSPDYExecutor(k8sClients.RestConfig(), "POST", req.URL())
 	if err != nil {

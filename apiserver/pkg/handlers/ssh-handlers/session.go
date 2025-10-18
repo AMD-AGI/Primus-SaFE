@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/google/shlex"
 	"golang.org/x/crypto/ssh"
 	"k8s.io/client-go/tools/remotecommand"
 )
@@ -78,6 +79,9 @@ type Session interface {
 
 	// Pty returns the pseudo-terminal information, window change channel, and existence flag.
 	Pty() (Pty, <-chan Window, bool)
+
+	// Command returns the parsed command arguments.
+	Command() []string
 }
 
 // ===========================
@@ -158,6 +162,12 @@ func (s *session) Pty() (Pty, <-chan Window, bool) {
 		return *s.pty, s.winch, true
 	}
 	return Pty{}, s.winch, false
+}
+
+// Command returns the parsed command arguments.
+func (s *session) Command() []string {
+	cmd, _ := shlex.Split(s.rawCmd)
+	return append([]string(nil), cmd...)
 }
 
 // ===========================

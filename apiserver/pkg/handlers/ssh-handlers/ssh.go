@@ -291,3 +291,8 @@ func (conn *SSHConn) WindowNotify(ctx context.Context, ch chan *remotecommand.Te
 func (conn *SSHConn) ClosedChan() chan struct{} {
 	return conn.closeCh
 }
+
+// Command returns the parsed command arguments.
+func (conn *SSHConn) Command() []string {
+	return conn.s.Command()
+}
