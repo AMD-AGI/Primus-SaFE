@@ -70,10 +70,10 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 
 	go sessionInfo.userConn.WindowNotify(ctx, sessionInfo.size)
 
-	_, err = sessionInfo.userConn.Write([]byte("Connection established\n"))
-	if err != nil {
-		return fmt.Errorf("user conn err: %v", err)
-	}
+	//_, err = sessionInfo.userConn.Write([]byte("Connection established\n"))
+	//if err != nil {
+	//	return fmt.Errorf("user conn err: %v", err)
+	//}
 
 	nowTime := dbutils.NullMetaV1Time(&metav1.Time{Time: time.Now().UTC()})
 	recordId, err := h.dbClient.InsertSshSessionRecord(ctx, &dbclient.SshSessionRecords{
@@ -122,7 +122,7 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 	}
 
 	klog.Infof("Connection to the Pod(%s/%s) has ended.", workload.Spec.Workspace, sessionInfo.userInfo.Pod)
-	_, err = sessionInfo.userConn.Write([]byte(fmt.Sprintf("ssh connection closed, reason: %s\n", sessionInfo.userConn.ExitReason())))
+	//_, err = sessionInfo.userConn.Write([]byte(fmt.Sprintf("ssh connection closed, reason: %s\n", sessionInfo.userConn.ExitReason())))
 	return nil
 }
 
