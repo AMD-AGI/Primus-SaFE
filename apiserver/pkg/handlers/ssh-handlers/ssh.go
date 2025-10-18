@@ -80,7 +80,7 @@ func NewSshHandler(ctx context.Context, mgr ctrlruntime.Manager) (*SshHandler, e
 			clientManager: commonutils.NewObjectManagerSingleton(),
 			config:        config,
 			auth:          authority.NewAuthorizer(mgr.GetClient()),
-			timeout:       time.Hour * 48,
+			timeout:       time.Hour * 12,
 			upgrader: &websocket.Upgrader{
 				HandshakeTimeout: 3 * time.Second,
 				ReadBufferSize:   4096,
@@ -234,6 +234,7 @@ func (conn *SSHConn) Read(p []byte) (n int, err error) {
 	}
 	n, err = conn.s.Read(p)
 	if err != nil && err == io.EOF {
+		time.Sleep(60 * time.Second)
 		conn.SetExitReason("User actively disconnected")
 		_ = conn.Close()
 	}
