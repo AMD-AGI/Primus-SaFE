@@ -22,6 +22,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -93,7 +94,7 @@ func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.CreateWorkspaceRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", string(body))
 		return nil, err
@@ -232,17 +233,17 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.PatchWorkspaceRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
 	}
 
-	patch := client.MergeFrom(workspace.DeepCopy())
+	originalWorkspace := client.MergeFrom(workspace.DeepCopy())
 	if err = h.updateWorkspace(ctx, workspace, req); err != nil {
 		return nil, err
 	}
-	if err = h.Patch(ctx, workspace, patch); err != nil {
+	if err = h.Patch(ctx, workspace, originalWorkspace); err != nil {
 		klog.ErrorS(err, "failed to patch workspace", "data", string(body))
 		return nil, err
 	}

@@ -180,7 +180,7 @@ func (m *WorkloadMutator) mutateGvk(workload *v1.Workload) {
 		workload.Spec.Kind = common.PytorchJobKind
 	}
 	if workload.Spec.Version == "" {
-		workload.Spec.Version = v1.SchemeGroupVersion.Version
+		workload.Spec.Version = common.DefaultVersion
 	}
 	// the group is not currently in use
 	workload.Spec.Group = ""

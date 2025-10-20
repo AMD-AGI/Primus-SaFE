@@ -18,6 +18,8 @@ const (
 	StatefulSetKind = "StatefulSet"
 	PodKind         = "Pod"
 	EventKind       = "Event"
+	ConfigmapKind   = "ConfigMap"
+	DefaultVersion  = "v1"
 
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"
@@ -29,6 +31,7 @@ const (
 	K8sHostName         = "kubernetes.io/hostname"
 	PytorchJobPortName  = "pytorchjob-port"
 	SSHPortName         = "ssh-port"
+	JsonContentType     = "application/json; charset=utf-8"
 
 	DefaultBurst = 1000
 	DefaultQPS   = 1000

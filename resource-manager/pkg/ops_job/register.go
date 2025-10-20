@@ -12,6 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
+// SetupOpsJobs initializes and registers all OpsJob controllers with the controller manager
 func SetupOpsJobs(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupJobTTLController(mgr); err != nil {
 		return fmt.Errorf("job-ttl controller: %v", err)

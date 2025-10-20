@@ -12,6 +12,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -20,9 +21,12 @@ import (
 )
 
 const (
+	// MaxTTLHour defines the maximum time-to-live in hours for deleted objects before they are ignored
 	MaxTTLHour = 48
 )
 
+// SetupExporters: initializes and registers all resource exporters with the controller manager
+// It sets up database clients and configures handlers for Workload, Fault, and OpsJob resources
 func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 	if !commonconfig.IsDBEnable() {
 		return nil
@@ -47,6 +51,7 @@ func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 				if err := dbClient.UpsertWorkload(ctx, dbWorkload); err != nil {
 					if !obj.GetDeletionTimestamp().IsZero() &&
 						time.Now().UTC().Sub(obj.GetDeletionTimestamp().Time).Hours() > MaxTTLHour {
+						klog.Errorf("failed to upsert workload(%s), ignore it: %v", dbWorkload.Id, err)
 						return nil
 					}
 					return err
@@ -58,7 +63,11 @@ func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 		{
 			gvk: v1.SchemeGroupVersion.WithKind(v1.FaultKind),
 			handler: func(ctx context.Context, obj *unstructured.Unstructured) error {
-				dbClient.UpsertFault(ctx, faultMapper(obj))
+				dbFault := faultMapper(obj)
+				if dbFault == nil {
+					return nil
+				}
+				dbClient.UpsertFault(ctx, dbFault)
 				return nil
 			},
 			filter: faultFilter,
@@ -66,7 +75,11 @@ func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 		{
 			gvk: v1.SchemeGroupVersion.WithKind(v1.OpsJobKind),
 			handler: func(ctx context.Context, obj *unstructured.Unstructured) error {
-				dbClient.UpsertJob(ctx, opsJobMapper(obj))
+				dbJob := opsJobMapper(obj)
+				if dbJob == nil {
+					return nil
+				}
+				dbClient.UpsertJob(ctx, dbJob)
 				return nil
 			},
 			filter: nil,

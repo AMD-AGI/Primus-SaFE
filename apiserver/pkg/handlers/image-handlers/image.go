@@ -24,6 +24,7 @@ import (
 	"k8s.io/utils/pointer"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -33,7 +34,7 @@ import (
 
 func (h *ImageHandler) createImage(c *gin.Context) (interface{}, error) {
 	req := &CreateImageRequest{}
-	body, err := getBodyFromRequest(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "fail to parse job request", "body", string(body))
 		return nil, err

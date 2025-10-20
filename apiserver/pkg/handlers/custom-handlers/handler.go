@@ -7,10 +7,11 @@ package custom_handlers
 
 import (
 	"fmt"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
-	"net/http"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -21,20 +22,15 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-)
-
-var (
-	jsonContentType = "application/json; charset=utf-8"
 )
 
 type Handler struct {
 	client.Client
-	clientSet     *kubernetes.Clientset
+	clientSet     kubernetes.Interface
 	dbClient      dbclient.Interface
 	searchClient  *commonsearch.SearchClient
 	httpClient    httpclient.Interface
@@ -52,7 +48,7 @@ type Handler struct {
 // - auth: Authorizer for access control
 // Returns the initialized Handler or an error if initialization fails.
 func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
-	clientSet, err := kubernetes.NewForConfig(mgr.GetConfig())
+	clientSet, err := k8sclient.NewClientSetWithRestConfig(mgr.GetConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -92,30 +88,12 @@ func handle(c *gin.Context, fn handleFunc) {
 	}
 	switch responseType := response.(type) {
 	case []byte:
-		c.Data(code, jsonContentType, responseType)
+		c.Data(code, common.JsonContentType, responseType)
 	case string:
-		c.Data(code, jsonContentType, []byte(responseType))
+		c.Data(code, common.JsonContentType, []byte(responseType))
 	default:
 		c.JSON(code, responseType)
 	}
-}
-
-// parseRequestBody: reads the request body and unmarshals it into the provided struct.
-// It returns the raw body bytes and any error encountered during the process.
-// If the body is empty, it returns nil for both body and error.
-// If JSON unmarshaling fails, it returns a BadRequest error with the unmarshaling error details.
-func parseRequestBody(req *http.Request, bodyStruct interface{}) ([]byte, error) {
-	body, err := apiutils.ReadBody(req)
-	if err != nil {
-		return nil, err
-	}
-	if len(body) == 0 {
-		return nil, nil
-	}
-	if err = jsonutils.Unmarshal(body, bodyStruct); err != nil {
-		return body, commonerrors.NewBadRequest(err.Error())
-	}
-	return body, nil
 }
 
 // cvtToResourceList: converts a Kubernetes ResourceList to a custom ResourceList type.

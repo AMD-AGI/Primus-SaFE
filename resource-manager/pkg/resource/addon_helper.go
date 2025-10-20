@@ -24,17 +24,15 @@ import (
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
 const (
-	userNameFormat = "system:serviceaccount:%s:%s"
-	helmDriver     = "secrets"
-	installedMsg   = "cannot re-use a name that is still in use"
-	Timeout        = time.Second * 30
-	MaxHistory     = 20
+	helmDriver   = "secrets"
+	installedMsg = "cannot re-use a name that is still in use"
+	Timeout      = time.Second * 30
+	MaxHistory   = 20
 )
 
 type Options struct {
@@ -46,34 +44,7 @@ type Options struct {
 // Option is a function that configures an RESTClientGetter.
 type Option func(*RESTClientGetter)
 
-func WithNamespace(namespace string) Option {
-	return func(c *RESTClientGetter) {
-		c.namespace = namespace
-	}
-}
-
-func WithImpersonate(serviceAccount, namespace string) Option {
-	return func(c *RESTClientGetter) {
-		if username := SetImpersonationConfig(c.cfg, namespace, serviceAccount); username != "" {
-			c.impersonate = username
-		}
-	}
-}
-
-func WithClientOptions(opts Options) Option {
-	return func(c *RESTClientGetter) {
-		c.cfg.Burst = opts.Burst
-		c.cfg.QPS = opts.QPS
-	}
-}
-
-func WithPersistent(persist bool) Option {
-	return func(c *RESTClientGetter) {
-		c.persistent = persist
-	}
-}
-
-// RESTClientGetter is a resource.RESTClientGetter that uses an
+// RESTClientGetter is a resource.RESTClientGetter that uses an in-memory REST config
 type RESTClientGetter struct {
 	namespace   string
 	impersonate string
@@ -102,19 +73,11 @@ func NewRESTClientGetter(cfg *rest.Config, opts ...Option) *RESTClientGetter {
 	g := &RESTClientGetter{
 		cfg: cfg,
 	}
-	for _, opts := range opts {
-		opts(g)
+	for _, opt := range opts {
+		opt(g)
 	}
 	g.setDefaults()
 	return g
-}
-
-func NewInClusterRESTClientGetter(opts ...Option) (*RESTClientGetter, error) {
-	cfg, err := ctrl.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get config for in-cluster REST client: %w", err)
-	}
-	return NewRESTClientGetter(cfg, opts...), nil
 }
 
 // ToRESTConfig returns the in-memory REST config.
@@ -148,6 +111,7 @@ func (c *RESTClientGetter) toPersistentDiscoveryClient() (discovery.CachedDiscov
 	return c.discoveryClient, nil
 }
 
+// ToDiscoveryClient: returns a memory cached discovery client
 func (c *RESTClientGetter) toDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
 	config, err := c.ToRESTConfig()
 	if err != nil {
@@ -184,6 +148,7 @@ func (c *RESTClientGetter) toPersistentRESTMapper() (meta.RESTMapper, error) {
 	return c.restMapper, nil
 }
 
+// ToRESTMapper returns a meta.RESTMapper using the discovery client
 func (c *RESTClientGetter) toRESTMapper() (meta.RESTMapper, error) {
 	discoveryClient, err := c.ToDiscoveryClient()
 	if err != nil {
@@ -193,6 +158,7 @@ func (c *RESTClientGetter) toRESTMapper() (meta.RESTMapper, error) {
 	return restmapper.NewShortcutExpander(mapper, discoveryClient, nil), nil
 }
 
+// ToRawKubeConfigLoader returns a clientcmd.ClientConfig
 func (c *RESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig {
 	if c.persistent {
 		return c.toPersistentRawKubeConfigLoader()
@@ -210,6 +176,7 @@ func (c *RESTClientGetter) toPersistentRawKubeConfigLoader() clientcmd.ClientCon
 	return c.clientCfg
 }
 
+// ToRawKubeConfigLoader returns a clientcmd.ClientConfig
 func (c *RESTClientGetter) toRawKubeConfigLoader() clientcmd.ClientConfig {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	loadingRules.DefaultClientConfig = &clientcmd.DefaultClientConfig
@@ -221,28 +188,16 @@ func (c *RESTClientGetter) toRawKubeConfigLoader() clientcmd.ClientConfig {
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
 }
 
-var DefaultServiceAccountName string
-
-func SetImpersonationConfig(cfg *rest.Config, namespace, serviceAccount string) string {
-	name := DefaultServiceAccountName
-	if serviceAccount != "" {
-		name = serviceAccount
-	}
-	if name != "" && namespace != "" {
-		username := fmt.Sprintf(userNameFormat, namespace, name)
-		cfg.Impersonate = rest.ImpersonationConfig{UserName: username}
-		return username
-	}
-	return ""
-}
-
+// ClustersGetter manages RESTClientGetter instances for different clusters
 type ClustersGetter struct {
 	sync.Mutex
 	getter map[string]*RESTClientGetter
 }
 
+// getCluster defines a function type for retrieving cluster REST config
 type getCluster func(ctx context.Context, cluster *corev1.ObjectReference) (*rest.Config, error)
 
+// get: retrieves or creates a RESTClientGetter for the specified cluster
 func (c *ClustersGetter) get(ctx context.Context, cluster *corev1.ObjectReference, get getCluster) (*RESTClientGetter, error) {
 	c.Lock()
 	defer c.Unlock()
@@ -264,6 +219,7 @@ func (c *ClustersGetter) get(ctx context.Context, cluster *corev1.ObjectReferenc
 	return getter, nil
 }
 
+// newDefaultRegistryClient: creates a new Helm registry client
 func newDefaultRegistryClient(plainHTTP bool, settings *cli.EnvSettings) (*registry.Client, error) {
 	opts := []registry.ClientOption{
 		registry.ClientOptDebug(settings.Debug),
@@ -283,7 +239,8 @@ func newDefaultRegistryClient(plainHTTP bool, settings *cli.EnvSettings) (*regis
 	return registryClient, nil
 }
 
-func ignoreUpgrade(addon *v1.Addon) bool {
+// shouldIgnoreUpgrade: determines whether a Helm upgrade should be skipped
+func shouldIgnoreUpgrade(addon *v1.Addon) bool {
 	if addon.Status.AddonSourceStatus.HelmRepositoryStatus == nil {
 		return true
 	}
@@ -292,17 +249,16 @@ func ignoreUpgrade(addon *v1.Addon) bool {
 		diff = func(values, values2 map[string]interface{}) bool {
 			for k, v := range values {
 				if val, ok := values2[k]; ok {
-					vall, ok := v.(map[string]interface{})
-					valll, okk := val.(map[string]interface{})
-					if ok && okk {
-						if !diff(valll, vall) {
+					obj1, ok1 := v.(map[string]interface{})
+					obj2, ok2 := val.(map[string]interface{})
+					if ok1 && ok2 {
+						if !diff(obj2, obj1) {
 							return false
 						}
 					} else {
-						str, ok := v.(string)
-						str2, ok2 := v.(string)
-						klog.Infof("compare %s %s", str, str2)
-						if ok && ok2 && str != str2 {
+						str1, ok1 := v.(string)
+						str2, ok2 := val.(string)
+						if ok1 && ok2 && str1 != str2 {
 							return false
 						}
 						if reflect.DeepEqual(v, val) {
@@ -334,14 +290,15 @@ func ignoreUpgrade(addon *v1.Addon) bool {
 	return true
 }
 
+// replaceValues merges values with base values, replacing existing values
 func replaceValues(values, base map[string]interface{}) map[string]interface{} {
 	for k, v := range base {
 		if val, ok := values[k]; ok {
-			vall, ok := v.(map[string]interface{})
-			if ok {
-				valll, okk := val.(map[string]interface{})
-				if okk {
-					values[k] = replaceValues(valll, vall)
+			obj1, ok1 := v.(map[string]interface{})
+			if ok1 {
+				obj2, ok2 := val.(map[string]interface{})
+				if ok2 {
+					values[k] = replaceValues(obj2, obj1)
 					continue
 				}
 			}
@@ -353,6 +310,7 @@ func replaceValues(values, base map[string]interface{}) map[string]interface{} {
 	return values
 }
 
+// rollbackValues merges rollback values with base values
 func rollbackValues(str string, base map[string]interface{}) string {
 	values := make(map[string]interface{})
 	err := yaml.Unmarshal([]byte(str), &values)
@@ -365,10 +323,10 @@ func rollbackValues(str string, base map[string]interface{}) string {
 	rollback = func(values, base map[string]interface{}) {
 		for k, v := range values {
 			if val, ok := base[k]; ok {
-				vall, ok := v.(map[string]interface{})
-				valll, okk := val.(map[string]interface{})
-				if ok && okk {
-					rollback(valll, vall)
+				obj1, ok1 := v.(map[string]interface{})
+				obj2, ok2 := val.(map[string]interface{})
+				if ok1 && ok2 {
+					rollback(obj2, obj1)
 					continue
 				} else {
 					values[k] = val

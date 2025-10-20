@@ -10,7 +10,7 @@ package v1
 // with apply.
 type HelmStatusApplyConfiguration struct {
 	Values     *string `json:"values,omitempty"`
-	ValuesYAMl *string `json:"valuesYaml,omitempty"`
+	ValuesYAML *string `json:"valuesYaml,omitempty"`
 }
 
 // HelmStatusApplyConfiguration constructs a declarative configuration of the HelmStatus type for use with
@@ -27,10 +27,10 @@ func (b *HelmStatusApplyConfiguration) WithValues(value string) *HelmStatusApply
 	return b
 }
 
-// WithValuesYAMl sets the ValuesYAMl field in the declarative configuration to the given value
+// WithValuesYAML sets the ValuesYAML field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ValuesYAMl field is set to the value of the last call.
-func (b *HelmStatusApplyConfiguration) WithValuesYAMl(value string) *HelmStatusApplyConfiguration {
-	b.ValuesYAMl = &value
+// If called multiple times, the ValuesYAML field is set to the value of the last call.
+func (b *HelmStatusApplyConfiguration) WithValuesYAML(value string) *HelmStatusApplyConfiguration {
+	b.ValuesYAML = &value
 	return b
 }
