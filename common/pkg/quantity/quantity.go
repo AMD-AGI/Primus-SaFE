@@ -307,7 +307,7 @@ func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore, rdmaResource s
 		if err != nil {
 			return nil, fmt.Errorf("%s, value: %s", err.Error(), gpu)
 		}
-		if gpuQuantity.Value() <= 0 {
+		if gpuQuantity.Value() < 0 {
 			return nil, fmt.Errorf("invalid gpu")
 		}
 		result[corev1.ResourceName(gpuName)] = gpuQuantity
@@ -329,7 +329,7 @@ func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore, rdmaResource s
 		if err != nil {
 			return nil, fmt.Errorf("%s, value: %s", err.Error(), rdmaResource)
 		}
-		if rdmaQuantity.Value() <= 0 {
+		if rdmaQuantity.Value() < 0 {
 			return nil, fmt.Errorf("invalid rdma resource")
 		}
 		result[corev1.ResourceName(commonconfig.GetRdmaName())] = rdmaQuantity

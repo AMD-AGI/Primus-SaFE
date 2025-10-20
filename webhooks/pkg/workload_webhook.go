@@ -200,10 +200,14 @@ func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
 
 func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Workspace) bool {
 	isChanged := false
-	if workload.Spec.Resource.GPU != "" && workspace != nil {
+	if workload.Spec.Resource.GPU == "0" {
+		workload.Spec.Resource.GPU = ""
+		isChanged = true
+	} else if workload.Spec.Resource.GPU != "" && workspace != nil {
 		workload.Spec.Resource.GPUName = v1.GetGpuResourceName(workspace)
 		isChanged = true
 	}
+	
 	if workload.Spec.Resource.SharedMemory == "" && workload.Spec.Resource.Memory != "" {
 		memQuantity, err := resource.ParseQuantity(workload.Spec.Resource.Memory)
 		if err == nil && memQuantity.Value() > 0 {
