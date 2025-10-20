@@ -78,6 +78,9 @@ type Session interface {
 
 	// Pty returns the pseudo-terminal information, window change channel, and existence flag.
 	Pty() (Pty, <-chan Window, bool)
+
+	// RawCommand returns the raw command string.
+	RawCommand() string
 }
 
 // ===========================
@@ -158,6 +161,11 @@ func (s *session) Pty() (Pty, <-chan Window, bool) {
 		return *s.pty, s.winch, true
 	}
 	return Pty{}, s.winch, false
+}
+
+// RawCommand returns the raw command string.
+func (s *session) RawCommand() string {
+	return s.rawCmd
 }
 
 // ===========================

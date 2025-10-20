@@ -236,3 +236,8 @@ func (conn *WebsocketConn) WindowNotify(ctx context.Context, ch chan *remotecomm
 func (conn *WebsocketConn) ClosedChan() chan struct{} {
 	return conn.closeCh
 }
+
+// RawCommand returns the raw command string.
+func (conn *WebsocketConn) RawCommand() string {
+	return ""
+}
