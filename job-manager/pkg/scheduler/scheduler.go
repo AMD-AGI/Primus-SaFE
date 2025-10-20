@@ -474,6 +474,17 @@ func (r *SchedulerReconciler) isCanSchedule(ctx context.Context, requestWorkload
 	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
 	var reason string
 	var err error
+
+	isReady, err := r.checkWorkloadDependencies(ctx, requestWorkload)
+	if err != nil {
+		return false, "", err
+	}
+	if !isReady {
+		reason = "Unmet workload dependencies"
+		klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
+		return false, reason, nil
+	}
+
 	isPreemptable := false
 	if !hasEnoughQuota {
 		reason = fmt.Sprintf("Insufficient total %s resources", formatResourceName(key))
@@ -494,6 +505,37 @@ func (r *SchedulerReconciler) isCanSchedule(ctx context.Context, requestWorkload
 		return false, reason, nil
 	}
 	return true, "", nil
+}
+
+// checkWorkloadDependencies checks whether all dependencies of the workload are satisfied.
+func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, workload *v1.Workload) (bool, error) {
+	isReady := true
+	isChange := false
+	for _, dep := range workload.Spec.Dependencies {
+		phase, ok := workload.Status.DependenciesPhase[dep]
+		if !ok {
+			depWorkload := &v1.Workload{}
+			if err := r.Get(ctx, client.ObjectKey{Name: dep, Namespace: workload.Namespace}, depWorkload); err != nil {
+				if apierrors.IsNotFound(err) {
+					return isReady, fmt.Errorf("the dependency workload(%s) is not found", dep)
+				}
+				return isReady, err
+			}
+			phase = depWorkload.Status.Phase
+			workload.Status.DependenciesPhase[dep] = phase
+			isChange = true
+		}
+		if phase != v1.WorkloadSucceeded {
+			isReady = false
+		}
+	}
+	if isChange {
+		if err := r.Status().Update(ctx, workload); err != nil {
+			return isReady, err
+		}
+	}
+
+	return isReady, nil
 }
 
 // Check if each node's available resources satisfy the workload's resource requests.
