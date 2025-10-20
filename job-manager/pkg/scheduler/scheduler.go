@@ -517,6 +517,11 @@ func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, wor
 			depWorkload := &v1.Workload{}
 			if err := r.Get(ctx, client.ObjectKey{Name: dep, Namespace: workload.Namespace}, depWorkload); err != nil {
 				if apierrors.IsNotFound(err) {
+					// workload not found default set failed
+					if err := jobutils.SetWorkloadFailed(ctx, r.Client, workload, fmt.Sprintf("dependency workload %s not found", dep)); err != nil {
+						klog.Errorf("failed to set workload %s dependency failed", workload.Name)
+						return true, err
+					}
 					return isReady, fmt.Errorf("the dependency workload(%s) is not found", dep)
 				}
 				return isReady, err
