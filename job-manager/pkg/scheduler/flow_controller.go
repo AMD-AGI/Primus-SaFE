@@ -121,7 +121,7 @@ func (r *WorkloadFlowController) setPhase(ctx context.Context, workload *v1.Work
 	if err := r.Get(context.Background(), types.NamespacedName{Name: depWorkloadId}, depWorkload); err != nil {
 		return true, err
 	}
-	depWorkload.Status.DependenciesPhase[workload.Name] = workload.Status.Phase
+	depWorkload.SetDependenciesPhase(workload.Name, workload.Status.Phase)
 	if workload.Status.Phase != v1.WorkloadSucceeded {
 		if err := utils.SetWorkloadFailed(ctx, r.Client, depWorkload, fmt.Sprintf("dependency workload %s failed", workload.Name)); err != nil {
 			return true, err

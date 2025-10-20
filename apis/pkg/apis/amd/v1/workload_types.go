@@ -323,3 +323,18 @@ func (w *Workload) SpecKind() string {
 func (w *Workload) SpecVersion() string {
 	return w.Spec.GroupVersionKind.Version
 }
+
+func (w *Workload) SetDependenciesPhase(workloadId string, phase WorkloadPhase) {
+	if w.Status.DependenciesPhase == nil {
+		w.Status.DependenciesPhase = make(map[string]WorkloadPhase)
+	}
+	w.Status.DependenciesPhase[workloadId] = phase
+}
+
+func (w *Workload) GetDependenciesPhase(workloadId string) (WorkloadPhase, bool) {
+	if w.Status.DependenciesPhase == nil {
+		return WorkloadPending, false
+	}
+	phase, ok := w.Status.DependenciesPhase[workloadId]
+	return phase, ok
+}

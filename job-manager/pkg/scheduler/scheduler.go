@@ -512,7 +512,7 @@ func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, wor
 	isReady := true
 	isChange := false
 	for _, dep := range workload.Spec.Dependencies {
-		phase, ok := workload.Status.DependenciesPhase[dep]
+		phase, ok := workload.GetDependenciesPhase(dep)
 		if !ok {
 			depWorkload := &v1.Workload{}
 			if err := r.Get(ctx, client.ObjectKey{Name: dep, Namespace: workload.Namespace}, depWorkload); err != nil {
@@ -522,7 +522,7 @@ func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, wor
 				return isReady, err
 			}
 			phase = depWorkload.Status.Phase
-			workload.Status.DependenciesPhase[dep] = phase
+			workload.SetDependenciesPhase(dep, workload.Status.Phase)
 			isChange = true
 		}
 		if phase != v1.WorkloadSucceeded {
