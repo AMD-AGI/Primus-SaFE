@@ -18,6 +18,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -57,7 +58,7 @@ func (h *Handler) createPublicKey(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
 	req := &types.CreatePublicKeyRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "fail to parse create public key request", "body", string(body))
 		return nil, err
@@ -138,7 +139,7 @@ func (h *Handler) setPublicKeyStatus(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
 	req := &types.SetPublicKeyStatusRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "fail to parse create public key request", "body", string(body))
 		return nil, err
@@ -162,7 +163,7 @@ func (h *Handler) setPublicKeyDescription(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
 	req := &types.SetPublicKeyDescriptionRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "fail to parse create public key request", "body", string(body))
 		return nil, err

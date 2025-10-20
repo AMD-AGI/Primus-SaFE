@@ -15,11 +15,12 @@ import (
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
 func mockWorkloadHandler(ctx context.Context, obj *unstructured.Unstructured) error {
 	Expect(obj.GetKind()).To(Equal(v1.WorkloadKind))
-	Expect(obj.GroupVersionKind().Version).To(Equal(v1.SchemeGroupVersion.Version))
+	Expect(obj.GroupVersionKind().Version).To(Equal(common.DefaultVersion))
 	Expect(obj.GroupVersionKind().Group).To(Equal(v1.SchemeGroupVersion.Group))
 	Expect(obj.GetName()).To(Equal(TestWorkloadData.Name))
 

@@ -25,6 +25,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -97,7 +98,7 @@ func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.CreateClusterRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
@@ -256,7 +257,7 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.PatchClusterRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
@@ -513,7 +514,7 @@ func (h *Handler) getAdminCluster(ctx context.Context, clusterId string) (*v1.Cl
 // Ensures that node IDs and action are provided in the request.
 func parseProcessNodesRequest(c *gin.Context) (*types.ProcessNodesRequest, error) {
 	req := &types.ProcessNodesRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err

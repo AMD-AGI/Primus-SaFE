@@ -12,13 +12,11 @@ import (
 	"fmt"
 	"time"
 
-	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -26,11 +24,19 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/secure"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 )
 
+const (
+	DefaultHttpServiePort = 443
+	DefaultApiserverPort  = 6443
+)
+
+// guaranteeClusterControlPlane: ensures the cluster control plane is in the desired state
+// It handles both creation and deletion of the control plane components
 func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cluster *v1.Cluster) error {
 	klog.Infof("cluster %s, phase %s", cluster.Name, cluster.Status.ControlPlaneStatus.Phase)
 	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
@@ -64,12 +70,12 @@ func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cl
 		if !cluster.DeletionTimestamp.IsZero() {
 			return r.reset(ctx, cluster, hostsContent)
 		}
-		if err := r.addFinalizer(ctx, cluster); err != nil {
+		if err = r.addFinalizer(ctx, cluster); err != nil {
 			return err
 		}
 
 		if cluster.Spec.ControlPlane.SSHSecret == nil {
-			err := r.generateSSHSecret(ctx, cluster)
+			err = r.generateSSHSecret(ctx, cluster)
 			if err != nil {
 				return err
 			}
@@ -79,14 +85,14 @@ func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cl
 			return err
 		}
 		if pod != nil {
-			c := client.MergeFrom(cluster.DeepCopy())
+			originalCluster := client.MergeFrom(cluster.DeepCopy())
 			cluster.Status.ControlPlaneStatus.Phase = v1.CreatingPhase
 			if pod.Status.Phase == corev1.PodSucceeded {
 				cluster.Status.ControlPlaneStatus.Phase = v1.CreatedPhase
 			} else if pod.Status.Phase == corev1.PodFailed {
 				cluster.Status.ControlPlaneStatus.Phase = v1.CreationFailed
 			}
-			if err := r.Status().Patch(ctx, cluster, c); err != nil {
+			if err = r.Status().Patch(ctx, cluster, originalCluster); err != nil {
 				return err
 			}
 		} else {
@@ -95,12 +101,14 @@ func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cl
 		return nil
 	}
 
-	if err := r.podClear(ctx, cluster); err != nil {
+	if err := r.clearPods(ctx, cluster); err != nil {
 		return err
 	}
 	return nil
 }
 
+// reset: handles the reset process for a cluster's control plane
+// It manages the deletion phase and reset worker pod creation
 func (r *ClusterReconciler) reset(ctx context.Context, cluster *v1.Cluster, hostsContent *HostTemplateContent) error {
 	if cluster.Status.ControlPlaneStatus.Phase == v1.DeletedPhase {
 		if err := r.patchKubeControlPlanNodes(ctx, cluster); err != nil {
@@ -109,7 +117,7 @@ func (r *ClusterReconciler) reset(ctx context.Context, cluster *v1.Cluster, host
 		return nil
 	}
 
-	c := client.MergeFrom(cluster.DeepCopy())
+	originalCluster := client.MergeFrom(cluster.DeepCopy())
 	if cluster.Status.ControlPlaneStatus.Phase == v1.CreationFailed || cluster.Status.ControlPlaneStatus.Phase == v1.PendingPhase {
 		cluster.Status.ControlPlaneStatus.Phase = v1.DeletedPhase
 	} else {
@@ -118,8 +126,8 @@ func (r *ClusterReconciler) reset(ctx context.Context, cluster *v1.Cluster, host
 			return err
 		}
 		_, err = r.guaranteeHostsConfigMapCreated(ctx, cluster.Name, metav1.OwnerReference{
-			APIVersion:         "v1",
-			Kind:               "Pod",
+			APIVersion:         common.DefaultVersion,
+			Kind:               common.PodKind,
 			Name:               pod.Name,
 			UID:                pod.UID,
 			Controller:         pointer.Bool(true),
@@ -136,10 +144,14 @@ func (r *ClusterReconciler) reset(ctx context.Context, cluster *v1.Cluster, host
 			cluster.Status.ControlPlaneStatus.Phase = v1.DeletingPhase
 		}
 	}
-	return r.Status().Patch(ctx, cluster, c)
+	return r.Status().Patch(ctx, cluster, originalCluster)
 }
 
+// getUsername: retrieves the username for SSH access to the cluster's control plane node
 func (r *ClusterReconciler) getUsername(ctx context.Context, cluster *v1.Cluster) (string, error) {
+	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
+		return "", fmt.Errorf("no control plane node specified")
+	}
 	node := &v1.Node{}
 	err := r.Get(ctx, types.NamespacedName{Name: cluster.Spec.ControlPlane.Nodes[0]}, node)
 	if err != nil {
@@ -148,6 +160,8 @@ func (r *ClusterReconciler) getUsername(ctx context.Context, cluster *v1.Cluster
 	return r.ClusterBaseReconciler.getUsername(ctx, node, cluster)
 }
 
+// guaranteeCreateWorkerPodCreated: ensures the worker pod for cluster creation is created
+// It checks for existing pods and creates a new one if needed
 func (r *ClusterReconciler) guaranteeCreateWorkerPodCreated(ctx context.Context, cluster *v1.Cluster, hostsContent *HostTemplateContent) (*corev1.Pod, error) {
 	pod := new(corev1.Pod)
 	err := r.Get(ctx, types.NamespacedName{Namespace: common.PrimusSafeNamespace, Name: fmt.Sprintf("%s-%s", cluster.Name, v1.ClusterCreateAction)}, pod)
@@ -157,9 +171,9 @@ func (r *ClusterReconciler) guaranteeCreateWorkerPodCreated(ctx context.Context,
 	if err == nil {
 		for _, owner := range pod.OwnerReferences {
 			if owner.Kind == cluster.Kind && owner.UID == cluster.UID {
-				_, err := r.guaranteeHostsConfigMapCreated(ctx, cluster.Name, metav1.OwnerReference{
-					APIVersion:         "v1",
-					Kind:               "Pod",
+				_, err = r.guaranteeHostsConfigMapCreated(ctx, cluster.Name, metav1.OwnerReference{
+					APIVersion:         common.DefaultVersion,
+					Kind:               common.PodKind,
 					Name:               pod.Name,
 					UID:                pod.UID,
 					Controller:         pointer.Bool(true),
@@ -187,13 +201,13 @@ func (r *ClusterReconciler) guaranteeCreateWorkerPodCreated(ctx context.Context,
 			UID:        m.UID,
 		})
 	}
-	if err := r.Create(ctx, pod); err != nil {
+	if err = r.Create(ctx, pod); err != nil {
 		return nil, err
 	}
 
 	_, err = r.guaranteeHostsConfigMapCreated(ctx, cluster.Name, metav1.OwnerReference{
-		APIVersion:         "v1",
-		Kind:               "Pod",
+		APIVersion:         common.DefaultVersion,
+		Kind:               common.PodKind,
 		Name:               pod.Name,
 		UID:                pod.UID,
 		Controller:         pointer.Bool(true),
@@ -205,6 +219,8 @@ func (r *ClusterReconciler) guaranteeCreateWorkerPodCreated(ctx context.Context,
 	return pod, nil
 }
 
+// guaranteeResetWorkPodCreated: ensures the worker pod for cluster reset is created
+// It checks for existing reset pods and creates a new one if needed
 func (r *ClusterReconciler) guaranteeResetWorkPodCreated(ctx context.Context, cluster *v1.Cluster, hostsContent *HostTemplateContent) (*corev1.Pod, error) {
 	labelSelector := client.MatchingLabels{v1.ClusterManageActionLabel: string(v1.ClusterResetAction), v1.ClusterManageClusterLabel: cluster.Name}
 	list := new(corev1.PodList)
@@ -221,12 +237,13 @@ func (r *ClusterReconciler) guaranteeResetWorkPodCreated(ctx context.Context, cl
 	}
 	cmd := getKubeSprayResetCMD(username, getKubeSprayEnv(cluster))
 	pod := generateWorkerPod(v1.ClusterResetAction, cluster, username, cmd, getKubesprayImage(cluster), cluster.Name, hostsContent)
-	if err := r.Create(ctx, pod); err != nil {
+	if err = r.Create(ctx, pod); err != nil {
 		return nil, err
 	}
 	return pod, nil
 }
 
+// getControllerPlaneNodes: retrieves all control plane nodes for the cluster
 func (r *ClusterReconciler) getControllerPlaneNodes(ctx context.Context, cluster *v1.Cluster) ([]*v1.Node, error) {
 	nodes := make([]*v1.Node, 0, len(cluster.Spec.ControlPlane.Nodes))
 	for _, v := range cluster.Spec.ControlPlane.Nodes {
@@ -239,6 +256,8 @@ func (r *ClusterReconciler) getControllerPlaneNodes(ctx context.Context, cluster
 	return nodes, nil
 }
 
+// fetchProvisionedClusterKubeConfig: fetches and stores the kubeconfig for a provisioned cluster
+// It connects via SSH to retrieve the config and validates it
 func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Context, cluster *v1.Cluster) error {
 	if cluster.Status.ControlPlaneStatus.Phase != v1.CreatedPhase && cluster.Status.ControlPlaneStatus.Phase != "" {
 		return nil
@@ -247,29 +266,17 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 		return nil
 	}
 	nodes, err := r.getControllerPlaneNodes(ctx, cluster)
-	if err != nil {
+	if err != nil || len(nodes) == 0 {
 		return err
-	}
-	if len(nodes) == 0 {
-		return nil
 	}
 	node := nodes[0]
-	sshConfig, err := utils.GetSSHConfig(ctx, r.Client, node)
+
+	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
+	defer sshClient.Close()
+
+	session, err := sshClient.NewSession()
 	if err != nil {
-		return err
-	}
-	port := node.Spec.Port
-	if port == nil {
-		p := int32(22)
-		port = &p
-	}
-	conn, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", node.Spec.PrivateIP, *port), sshConfig)
-	if err != nil {
-		return fmt.Errorf("failed to connect: %v", err)
-	}
-	session, err := conn.NewSession()
-	if err != nil {
-		return fmt.Errorf("new sesssion failed %s", err)
+		return fmt.Errorf("new session failed %s", err)
 	}
 	var b bytes.Buffer
 	session.Stdout = &b
@@ -287,8 +294,8 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 	if err != nil {
 		return fmt.Errorf("parse config failed %+v", err)
 	}
-	conf.Host = fmt.Sprintf("https://%s:6443", node.Spec.PrivateIP)
-	cli, err := kubernetes.NewForConfig(conf)
+	conf.Host = fmt.Sprintf("https://%s:%d", node.Spec.PrivateIP, DefaultApiserverPort)
+	cli, err := k8sclient.NewClientSetWithRestConfig(conf)
 	if err != nil {
 		klog.Errorf("NewForConfig failed %+v", err)
 		return nil
@@ -298,31 +305,32 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 		klog.Errorf("list node failed %+v", err)
 		return nil
 	}
-	c := client.MergeFrom(cluster.DeepCopy())
+	originalCluster := client.MergeFrom(cluster.DeepCopy())
 	cluster.Status.ControlPlaneStatus.CertData = base64.StdEncoding.EncodeToString(conf.CertData)
 	cluster.Status.ControlPlaneStatus.CAData = base64.StdEncoding.EncodeToString(conf.CAData)
 	cluster.Status.ControlPlaneStatus.KeyData = base64.StdEncoding.EncodeToString(conf.KeyData)
 	cluster.Status.ControlPlaneStatus.Endpoints = make([]string, 0, len(nodes))
 	for _, n := range nodes {
-		cluster.Status.ControlPlaneStatus.Endpoints = append(cluster.Status.ControlPlaneStatus.Endpoints, fmt.Sprintf("https://%s:6443", n.Spec.PrivateIP))
+		cluster.Status.ControlPlaneStatus.Endpoints = append(cluster.Status.ControlPlaneStatus.Endpoints,
+			fmt.Sprintf("https://%s:%d", n.Spec.PrivateIP, DefaultApiserverPort))
 	}
 	cluster.Status.ControlPlaneStatus.Phase = v1.ReadyPhase
-	if err := r.guaranteeService(ctx, cluster); err != nil {
+	if err = r.guaranteeService(ctx, cluster); err != nil {
 		return err
 	}
-	err = r.Status().Patch(ctx, cluster, c)
+	err = r.Status().Patch(ctx, cluster, originalCluster)
 	if err != nil {
 		return fmt.Errorf("failed load config%+v", err)
 	}
 	return nil
 }
 
+// addFinalizer: adds the cluster finalizer to the cluster resource if not already present
 func (r *ClusterReconciler) addFinalizer(ctx context.Context, cluster *v1.Cluster) error {
 	if slice.Contains(cluster.Finalizers, v1.ClusterFinalizer) {
 		return nil
 	}
 	cluster.Finalizers = append(cluster.Finalizers, v1.ClusterFinalizer)
-	klog.Info("addFinalizer", cluster.Finalizers)
 	err := r.Update(ctx, cluster)
 	if err != nil {
 		return fmt.Errorf("add cluster finalizer failed %+v", err)
@@ -330,13 +338,10 @@ func (r *ClusterReconciler) addFinalizer(ctx context.Context, cluster *v1.Cluste
 	return nil
 }
 
+// patchKubeControlPlanNodes: updates the control plane nodes with cluster ownership information
 func (r *ClusterReconciler) patchKubeControlPlanNodes(ctx context.Context, cluster *v1.Cluster) error {
-	nodes := new(v1.NodeList)
-	if err := r.List(ctx, nodes); err != nil {
-		return err
-	}
 	patch := func(ctx context.Context, name string) error {
-		node, err := r.getNode(ctx, nodes, name)
+		node, err := r.getNode(ctx, name)
 		if err != nil {
 			klog.Errorf("patch machine node failed %+v", err)
 			if errors.IsNotFound(err) {
@@ -354,6 +359,7 @@ func (r *ClusterReconciler) patchKubeControlPlanNodes(ctx context.Context, clust
 	return nil
 }
 
+// patchMachineNode: updates a node's cluster ownership and owner references
 func (r *ClusterReconciler) patchMachineNode(ctx context.Context, cluster *v1.Cluster, node *v1.Node) error {
 	if cluster.DeletionTimestamp.IsZero() {
 		if node.Labels == nil {
@@ -371,6 +377,7 @@ func (r *ClusterReconciler) patchMachineNode(ctx context.Context, cluster *v1.Cl
 	return r.Update(ctx, node)
 }
 
+// generateSSHSecret: creates an SSH secret for cluster access if it doesn't exist
 func (r *ClusterReconciler) generateSSHSecret(ctx context.Context, cluster *v1.Cluster) error {
 	secret := new(corev1.Secret)
 	err := r.Get(ctx, types.NamespacedName{
@@ -405,7 +412,7 @@ func (r *ClusterReconciler) generateSSHSecret(ctx context.Context, cluster *v1.C
 			utils.Authorize:    private,
 			utils.AuthorizePub: pub,
 		},
-		Type: "Opaque",
+		Type: corev1.SecretTypeOpaque,
 	}
 	err = r.Create(ctx, secret)
 	if err != nil {
@@ -417,7 +424,8 @@ func (r *ClusterReconciler) generateSSHSecret(ctx context.Context, cluster *v1.C
 	return nil
 }
 
-func (r *ClusterReconciler) podClear(ctx context.Context, cluster *v1.Cluster) error {
+// clearPods: cleans up succeeded pods that are older than one hour
+func (r *ClusterReconciler) clearPods(ctx context.Context, cluster *v1.Cluster) error {
 	labelSelector := client.MatchingLabels{v1.ClusterManageClusterLabel: cluster.Name}
 	list := new(corev1.PodList)
 	err := r.List(ctx, list, client.InNamespace(common.PrimusSafeNamespace), labelSelector)
@@ -438,6 +446,7 @@ func (r *ClusterReconciler) podClear(ctx context.Context, cluster *v1.Cluster) e
 	return nil
 }
 
+// guaranteeService: creates the Kubernetes service and endpoints for the cluster
 func (r *ClusterReconciler) guaranteeService(ctx context.Context, cluster *v1.Cluster) error {
 	if cluster.Status.ControlPlaneStatus.Phase != v1.ReadyPhase && cluster.Status.ControlPlaneStatus.Phase != v1.CreatedPhase {
 		return nil
@@ -478,7 +487,7 @@ func (r *ClusterReconciler) guaranteeService(ctx context.Context, cluster *v1.Cl
 					Ports: []corev1.EndpointPort{
 						{
 							Name:     "https",
-							Port:     6443,
+							Port:     DefaultApiserverPort,
 							Protocol: "TCP",
 						},
 					},
@@ -510,8 +519,8 @@ func (r *ClusterReconciler) guaranteeService(ctx context.Context, cluster *v1.Cl
 				Ports: []corev1.ServicePort{{
 					Name:       "https",
 					Protocol:   "TCP",
-					Port:       443,
-					TargetPort: intstr.IntOrString{IntVal: 6443},
+					Port:       DefaultHttpServiePort,
+					TargetPort: intstr.IntOrString{IntVal: DefaultApiserverPort},
 				}},
 				Type:            corev1.ServiceTypeClusterIP,
 				SessionAffinity: corev1.ServiceAffinityNone,

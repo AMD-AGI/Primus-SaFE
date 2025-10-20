@@ -70,6 +70,7 @@ type NodeK8sReconciler struct {
 	*commonctrl.Controller[*nodeQueueMessage]
 }
 
+// SetupNodeK8sController： initializes and registers the NodeK8sReconciler with the controller manager
 func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 	r := &NodeK8sReconciler{
 		ctx: ctx,
@@ -89,7 +90,7 @@ func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 		return err
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
-		For(&v1.Cluster{}, builder.WithPredicates(r.caredChangePredicate())).
+		For(&v1.Cluster{}, builder.WithPredicates(r.relevantChangePredicate())).
 		Complete(r)
 	if err != nil {
 		return err
@@ -98,7 +99,8 @@ func SetupNodeK8sController(ctx context.Context, mgr manager.Manager) error {
 	return nil
 }
 
-func (r *NodeK8sReconciler) caredChangePredicate() predicate.Predicate {
+// relevantChangePredicate: defines which Cluster changes should trigger node informer initialization
+func (r *NodeK8sReconciler) relevantChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			cluster, ok := e.Object.(*v1.Cluster)
@@ -126,6 +128,7 @@ func (r *NodeK8sReconciler) caredChangePredicate() predicate.Predicate {
 	}
 }
 
+// startNodeInformer: initializes and starts a node informer for the given cluster with retry logic
 func (r *NodeK8sReconciler) startNodeInformer(cluster *v1.Cluster) error {
 	const maxRetry = 100
 	waitTime := time.Millisecond * 200
@@ -153,6 +156,7 @@ func (r *NodeK8sReconciler) startNodeInformer(cluster *v1.Cluster) error {
 	return err
 }
 
+// nodeEventHandler: creates event handlers for Kubernetes node events (add, update, delete)
 func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFactory) cache.ResourceEventHandler {
 	check := func() {
 		if !k8sClients.IsValid() {
@@ -206,7 +210,7 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 				klog.Infof("cluster %s watch node %s managed, workspace %s",
 					k8sClients.Name(), newNode.Name, v1.GetWorkspaceId(newNode))
 				enqueue(oldNode, newNode, NodeManaged)
-			case newClusterId == k8sClients.Name() && r.isNodeCaredFieldChanged(oldNode, newNode):
+			case newClusterId == k8sClients.Name() && r.isRelevantFieldChanged(oldNode, newNode):
 				enqueue(oldNode, newNode, NodeUpdate)
 			}
 		},
@@ -223,6 +227,7 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 	}
 }
 
+// watchErrorHandler: handles errors from the Kubernetes watch connection and marks clients as invalid
 func watchErrorHandler(ctx context.Context, k8sClients *commonclient.ClientFactory) cache.WatchErrorHandler {
 	return func(reflector *cache.Reflector, err error) {
 		cache.DefaultWatchErrorHandler(ctx, reflector, err)
@@ -231,7 +236,8 @@ func watchErrorHandler(ctx context.Context, k8sClients *commonclient.ClientFacto
 	}
 }
 
-func (r *NodeK8sReconciler) isNodeCaredFieldChanged(oldNode, newNode *corev1.Node) bool {
+// isRelevantFieldChanged: checks if any watched fields in the Kubernetes Node have changed
+func (r *NodeK8sReconciler) isRelevantFieldChanged(oldNode, newNode *corev1.Node) bool {
 	if isConditionsChanged(oldNode.Status.Conditions, newNode.Status.Conditions) ||
 		!quantity.Equal(oldNode.Status.Allocatable, newNode.Status.Allocatable) ||
 		v1.GetNodeFlavorId(oldNode) != v1.GetNodeFlavorId(newNode) ||
@@ -243,10 +249,12 @@ func (r *NodeK8sReconciler) isNodeCaredFieldChanged(oldNode, newNode *corev1.Nod
 	return false
 }
 
+// Reconcile is the main control loop
 func (r *NodeK8sReconciler) Reconcile(_ context.Context, _ ctrlruntime.Request) (ctrlruntime.Result, error) {
 	return ctrlruntime.Result{}, nil
 }
 
+// start: initializes and runs the worker routines for processing node queue messages
 func (r *NodeK8sReconciler) start(ctx context.Context) error {
 	for i := 0; i < r.MaxConcurrent; i++ {
 		r.Run(ctx)
@@ -254,6 +262,7 @@ func (r *NodeK8sReconciler) start(ctx context.Context) error {
 	return nil
 }
 
+// Do: processes node queue messages and synchronizes node status between Kubernetes and admin nodes
 func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (ctrlruntime.Result, error) {
 	adminNode := new(v1.Node)
 	err := r.Get(ctx, apitypes.NamespacedName{Name: message.adminNodeName}, adminNode)
@@ -281,22 +290,23 @@ func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (
 	return ctrlruntime.Result{}, nil
 }
 
+// handleNodeUnmanaged: handles node unmanaged or deletion events by resetting admin node metadata and status
 func (r *NodeK8sReconciler) handleNodeUnmanaged(ctx context.Context, message *nodeQueueMessage, adminNode *v1.Node) error {
 	clusterName := message.clusterName
 	workspaceId := v1.GetWorkspaceId(adminNode)
 	deleteConcernedMeta(adminNode)
 	if err := r.Update(ctx, adminNode); err != nil {
-		klog.ErrorS(err, "failed to update node")
+		klog.ErrorS(err, "failed to update node", "node", adminNode.Name)
 		return err
 	}
 
-	patch := client.MergeFrom(adminNode.DeepCopy())
+	originalNode := client.MergeFrom(adminNode.DeepCopy())
 	adminNode.Status.Taints = nil
 	adminNode.Status.Resources = nil
 	adminNode.Status.Conditions = nil
 	adminNode.Status.Unschedulable = true
-	if err := r.Status().Patch(ctx, adminNode, patch); err != nil {
-		klog.ErrorS(err, "failed to update node status")
+	if err := r.Status().Patch(ctx, adminNode, originalNode); err != nil {
+		klog.ErrorS(err, "failed to update node status", "node", adminNode.Name)
 		return err
 	}
 	klog.Infof("reset adminNode metadata and status, name: %s, cluster: %s, workspace: %s",
@@ -304,6 +314,7 @@ func (r *NodeK8sReconciler) handleNodeUnmanaged(ctx context.Context, message *no
 	return nil
 }
 
+// handleNodeUpdate: handles node update events by synchronizing metadata, status, and processing faults
 func (r *NodeK8sReconciler) handleNodeUpdate(ctx context.Context, message *nodeQueueMessage, adminNode *v1.Node) error {
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, message.clusterName)
 	if err != nil || !k8sClients.IsValid() {
@@ -319,35 +330,36 @@ func (r *NodeK8sReconciler) handleNodeUpdate(ctx context.Context, message *nodeQ
 	if err = r.syncK8sStatus(ctx, adminNode, k8sNode); err != nil {
 		return err
 	}
-	if err = r.handleFault(ctx, adminNode, message); err != nil {
+	if err = r.processFault(ctx, adminNode, message); err != nil {
 		return err
 	}
 	return nil
 }
 
+// syncK8sMetadata: synchronizes labels and annotations from the Kubernetes node to the admin node
 func (r *NodeK8sReconciler) syncK8sMetadata(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) error {
-	isShouldUpdate := false
+	shouldUpdate := false
 	for _, k := range concernedK8sLabelKeys {
 		if v, ok := k8sNode.Labels[k]; ok {
 			if v1.SetLabel(adminNode, k, v) {
-				isShouldUpdate = true
+				shouldUpdate = true
 			}
 		} else if v1.RemoveLabel(adminNode, k) {
-			isShouldUpdate = true
+			shouldUpdate = true
 		}
 	}
 
 	for _, k := range concernedK8sAnnotationKeys {
 		if v, ok := k8sNode.Annotations[k]; ok {
 			if v1.SetAnnotation(adminNode, k, v) {
-				isShouldUpdate = true
+				shouldUpdate = true
 			}
 		} else if v1.RemoveAnnotation(adminNode, k) {
-			isShouldUpdate = true
+			shouldUpdate = true
 		}
 	}
 
-	if !isShouldUpdate {
+	if !shouldUpdate {
 		return nil
 	}
 	if err := r.Update(ctx, adminNode); err != nil {
@@ -356,14 +368,15 @@ func (r *NodeK8sReconciler) syncK8sMetadata(ctx context.Context, adminNode *v1.N
 	return nil
 }
 
+// syncK8sStatus: synchronizes status information from the Kubernetes node to the admin node
 func (r *NodeK8sReconciler) syncK8sStatus(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) error {
-	originNode := adminNode.DeepCopy()
+	originalNode := adminNode.DeepCopy()
 	adminNode.Status.MachineStatus.PrivateIP = commonnodes.GetInternalIp(k8sNode)
 	adminNode.Status.Unschedulable = k8sNode.Spec.Unschedulable
 	adminNode.Status.Taints = k8sNode.Spec.Taints
 	adminNode.Status.Conditions = k8sNode.Status.Conditions
 	adminNode.Status.Resources = quantity.GetConcernedResources(k8sNode.Status.Allocatable)
-	if !reflect.DeepEqual(originNode.Status, adminNode.Status) {
+	if !reflect.DeepEqual(originalNode.Status, adminNode.Status) {
 		if err := r.Status().Update(ctx, adminNode); err != nil {
 			klog.ErrorS(err, "failed to update node status", "name", adminNode.Name)
 			return err
@@ -372,7 +385,8 @@ func (r *NodeK8sReconciler) syncK8sStatus(ctx context.Context, adminNode *v1.Nod
 	return nil
 }
 
-func (r *NodeK8sReconciler) handleFault(ctx context.Context, adminNode *v1.Node, message *nodeQueueMessage) error {
+// processFault: processes node condition changes and creates or deletes faults accordingly
+func (r *NodeK8sReconciler) processFault(ctx context.Context, adminNode *v1.Node, message *nodeQueueMessage) error {
 	faultConfigMap, err := GetFaultConfigmap(ctx, r.Client)
 	if err != nil || len(faultConfigMap) == 0 {
 		return err
@@ -391,7 +405,7 @@ func (r *NodeK8sReconciler) handleFault(ctx context.Context, adminNode *v1.Node,
 		if ok && oldCondStatus == newCondition.Status {
 			continue
 		}
-		if isShouldCreateFault(newCondition) {
+		if shouldCreateFault(newCondition) {
 			if adminNode.GetSpecCluster() == "" {
 				continue
 			}
@@ -419,6 +433,7 @@ func (r *NodeK8sReconciler) handleFault(ctx context.Context, adminNode *v1.Node,
 	return nil
 }
 
+// deleteConcernedMeta: removes all concerned labels and annotations from the admin node
 func deleteConcernedMeta(adminNode *v1.Node) {
 	for _, k := range concernedK8sLabelKeys {
 		v1.RemoveLabel(adminNode, k)
@@ -428,6 +443,7 @@ func deleteConcernedMeta(adminNode *v1.Node) {
 	}
 }
 
+// isConcernedLabelsEqual: checks if the concerned labels and annotations are equal between two objects
 func isConcernedLabelsEqual(obj1, obj2 metav1.Object) bool {
 	if maps.CompareWithKeys(obj1.GetLabels(), obj2.GetLabels(), concernedK8sLabelKeys) &&
 		maps.CompareWithKeys(obj1.GetAnnotations(), obj2.GetAnnotations(), concernedK8sAnnotationKeys) {
@@ -436,10 +452,11 @@ func isConcernedLabelsEqual(obj1, obj2 metav1.Object) bool {
 	return false
 }
 
-func genFaultNodeByMessage(msg *nodeQueueMessage) *v1.FaultNode {
+// genFaultNodeByMessage: creates a FaultNode object from a node queue message
+func genFaultNodeByMessage(message *nodeQueueMessage) *v1.FaultNode {
 	return &v1.FaultNode{
-		K8sName:     msg.k8sNodeName,
-		AdminName:   msg.adminNodeName,
-		ClusterName: msg.clusterName,
+		K8sName:     message.k8sNodeName,
+		AdminName:   message.adminNodeName,
+		ClusterName: message.clusterName,
 	}
 }

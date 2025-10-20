@@ -563,7 +563,7 @@ func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
 // It ensures required fields like name, type, and inputs are provided.
 func parseCreateOpsJobRequest(c *gin.Context) (*types.BaseOpsJobRequest, []byte, error) {
 	req := &types.BaseOpsJobRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		return nil, nil, err
 	}

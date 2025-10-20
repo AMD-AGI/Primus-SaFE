@@ -25,6 +25,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -83,7 +84,7 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.CreateSecretRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, commonerrors.NewBadRequest(err.Error())
@@ -179,7 +180,7 @@ func (h *Handler) getSecret(c *gin.Context) (interface{}, error) {
 // and synchronizes changes with associated cluster and workspace resources.
 func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 	req := &types.PatchSecretRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, commonerrors.NewBadRequest(err.Error())

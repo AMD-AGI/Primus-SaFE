@@ -76,6 +76,11 @@ func (c *client) do(url, method string, body interface{}, headers ...string) (*R
 	return c.Do(req)
 }
 
+// Do executes the HTTP request with retry logic.
+// It attempts to send the request up to DefaultMaxTry times (2 attempts total).
+// If all attempts fail, it returns the last error encountered.
+// On success, it reads the response body and returns a Result containing
+// the status code, response body, and headers. The response body is automatically closed.
 func (c *client) Do(req *http.Request) (*Result, error) {
 	var rsp *http.Response
 	var err error
@@ -97,6 +102,10 @@ func (c *client) Do(req *http.Request) (*Result, error) {
 	return &Result{StatusCode: rsp.StatusCode, Body: data, Header: rsp.Header}, nil
 }
 
+// BuildRequest creates an HTTP request with the given URL, method, body, and headers.
+// It ensures the URL starts with "https://" and converts the body to an io.Reader.
+// Headers are set in pairs (key, value), and Content-Type is automatically set to "application/json".
+// Returns the constructed http.Request or an error if creation fails.
 func BuildRequest(url, method string, body interface{}, headers ...string) (*http.Request, error) {
 	if !strings.HasPrefix(url, "https://") {
 		url = "https://" + url
@@ -119,6 +128,13 @@ func BuildRequest(url, method string, body interface{}, headers ...string) (*htt
 	return request, nil
 }
 
+// cvtIOReader converts the given body interface{} to an io.Reader.
+// It handles different types of input:
+// - string: converts to strings.Reader
+// - io.Reader: returns as-is
+// - []byte: converts to bytes.Reader
+// - other types: marshals to JSON and converts to bytes.Reader
+// Returns an error if JSON marshaling fails for unknown types.
 func cvtIOReader(body interface{}) (io.Reader, error) {
 	if body == nil {
 		return nil, nil

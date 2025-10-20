@@ -47,7 +47,7 @@ func newNode(t *testing.T) (*Node, *fake.Clientset) {
 	opts := &types.Options{
 		NodeName: testNode.Name,
 	}
-	sleepTime = time.Millisecond * 100
+	SYNC_INTERVAL = time.Millisecond * 100
 	n, err := NewNodeWithClientSet(context.Background(), opts, fakeClientSet)
 	assert.NilError(t, err)
 	return n, fakeClientSet

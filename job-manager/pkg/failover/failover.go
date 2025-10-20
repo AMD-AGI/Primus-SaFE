@@ -49,7 +49,7 @@ func SetupFailoverController(mgr manager.Manager) error {
 		clusterInformers: commonutils.NewObjectManagerSingleton(),
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
-		For(&v1.Workload{}, builder.WithPredicates(caredChangePredicate{})).
+		For(&v1.Workload{}, builder.WithPredicates(relevantChangePredicate{})).
 		Watches(&v1.Fault{}, r.handleFaultEvent()).
 		Watches(&corev1.ConfigMap{}, r.handleConfigmapEvent()).
 		Complete(r)
@@ -60,11 +60,11 @@ func SetupFailoverController(mgr manager.Manager) error {
 	return nil
 }
 
-type caredChangePredicate struct {
+type relevantChangePredicate struct {
 	predicate.Funcs
 }
 
-func (caredChangePredicate) Create(e event.CreateEvent) bool {
+func (relevantChangePredicate) Create(e event.CreateEvent) bool {
 	w, ok := e.Object.(*v1.Workload)
 	if !ok {
 		return false
@@ -75,7 +75,7 @@ func (caredChangePredicate) Create(e event.CreateEvent) bool {
 	return false
 }
 
-func (caredChangePredicate) Update(e event.UpdateEvent) bool {
+func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 	oldWorkload, ok1 := e.ObjectOld.(*v1.Workload)
 	newWorkload, ok2 := e.ObjectNew.(*v1.Workload)
 	if !ok1 || !ok2 {

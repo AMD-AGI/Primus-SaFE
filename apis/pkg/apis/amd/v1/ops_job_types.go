@@ -132,8 +132,8 @@ func (job *OpsJob) IsTimeout() bool {
 	if job.Spec.TimeoutSecond <= 0 {
 		return false
 	}
-	costTime := time.Now().Unix() - job.CreationTimestamp.Unix()
-	return int(costTime) >= job.Spec.TimeoutSecond
+	elapsedSeconds := time.Now().Unix() - job.CreationTimestamp.Unix()
+	return int(elapsedSeconds) >= job.Spec.TimeoutSecond
 }
 
 func (job *OpsJob) GetLeftTime() int64 {

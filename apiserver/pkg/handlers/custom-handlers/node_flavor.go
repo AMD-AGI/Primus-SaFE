@@ -21,6 +21,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -77,7 +78,7 @@ func (h *Handler) createNodeFlavor(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.CreateNodeFlavorRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
@@ -181,17 +182,17 @@ func (h *Handler) patchNodeFlavor(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.PatchNodeFlavorRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
 	}
-	patch := client.MergeFrom(nf.DeepCopy())
+	originalNodeFlavor := client.MergeFrom(nf.DeepCopy())
 	isShouldUpdate, err := h.updateNodeFlavor(nf, req)
 	if err != nil || !isShouldUpdate {
 		return nil, err
 	}
-	if err = h.Patch(ctx, nf, patch); err != nil {
+	if err = h.Patch(ctx, nf, originalNodeFlavor); err != nil {
 		klog.ErrorS(err, "failed to patch nodeFlavor", "name", nf.Name)
 		return nil, err
 	}

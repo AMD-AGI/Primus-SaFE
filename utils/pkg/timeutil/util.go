@@ -19,6 +19,7 @@ const (
 	TimeRFC3339Milli = "2006-01-02T15:04:05.999Z"
 )
 
+// FormatRFC3339 formats a time pointer to RFC3339 short format, returns empty string if time is nil or zero
 func FormatRFC3339(t *time.Time) string {
 	if t == nil || t.IsZero() {
 		return ""
@@ -26,6 +27,7 @@ func FormatRFC3339(t *time.Time) string {
 	return t.Format(TimeRFC3339Short)
 }
 
+// CvtStrUnixToTime converts a Unix timestamp string to UTC time.Time
 func CvtStrUnixToTime(strTime string) time.Time {
 	if strTime == "" {
 		return time.Time{}
@@ -37,6 +39,7 @@ func CvtStrUnixToTime(strTime string) time.Time {
 	return time.Unix(intTime, 0).UTC()
 }
 
+// CvtTimeToCronStandard converts a time-only string to cron schedule format (minute hour * * *)
 func CvtTimeToCronStandard(timeOnly string) (string, error) {
 	t, err := time.Parse(time.TimeOnly, timeOnly)
 	if err != nil {
@@ -46,6 +49,7 @@ func CvtTimeToCronStandard(timeOnly string) (string, error) {
 	return scheduleStr, nil
 }
 
+// CvtCronStandardToTime converts a cron schedule string to time format (HH:MM:SS)
 func CvtCronStandardToTime(scheduleStr string) (string, error) {
 	values := strings.Split(scheduleStr, " ")
 	if len(values) != 5 {
@@ -54,6 +58,7 @@ func CvtCronStandardToTime(scheduleStr string) (string, error) {
 	return fmt.Sprintf("%02s:%02s:00", values[1], values[0]), nil
 }
 
+// CvtStrToRFC3339Milli converts a RFC3339 millisecond format string to UTC time.Time
 func CvtStrToRFC3339Milli(timeStr string) (time.Time, error) {
 	if timeStr == "" {
 		return time.Time{}, nil
@@ -65,6 +70,7 @@ func CvtStrToRFC3339Milli(timeStr string) (time.Time, error) {
 	return t.UTC(), nil
 }
 
+// ParseCronStandard parses a cron schedule string and calculates the interval in seconds until next execution
 func ParseCronStandard(scheduleStr string) (cron.Schedule, float64, error) {
 	if scheduleStr == "" {
 		return nil, 0, fmt.Errorf("invalid input")

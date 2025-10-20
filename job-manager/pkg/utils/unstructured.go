@@ -29,6 +29,7 @@ type K8sResourceStatus struct {
 	ActiveReplica int
 }
 
+// GetK8sResourceStatus: retrieves the status of a Kubernetes resource based on its unstructured object and resource template
 func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (*K8sResourceStatus, error) {
 	result := &K8sResourceStatus{}
 	var err error
@@ -56,6 +57,7 @@ func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 	return result, err
 }
 
+// getResourceStatusImpl: implements resource status retrieval based on resource template configuration
 func getResourceStatusImpl(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate, result *K8sResourceStatus) error {
 	if len(rt.Spec.ResourceStatus.PrePaths) == 0 {
 		return nil
@@ -87,6 +89,7 @@ func getResourceStatusImpl(unstructuredObj *unstructured.Unstructured, rt *v1.Re
 	return nil
 }
 
+// getStatefulSetStatus: determines the status of a StatefulSet based on its revision information
 func getStatefulSetStatus(obj map[string]interface{}, result *K8sResourceStatus) {
 	currentRevision := GetUnstructuredString(obj, []string{"status", "currentRevision"})
 	updateRevision := GetUnstructuredString(obj, []string{"status", "updateRevision"})
@@ -103,11 +106,12 @@ func getStatefulSetStatus(obj map[string]interface{}, result *K8sResourceStatus)
 	}
 }
 
+// getStatusByExpression: matches resource status based on phase expressions and message paths of resource-tempalte
 func getStatusByExpression(objects []map[string]interface{},
 	expression v1.PhaseExpression, messagePaths []string, result *K8sResourceStatus) bool {
 	match := func(obj map[string]interface{}, phase v1.PhaseExpression) bool {
 		for key, val := range phase.MatchExpressions {
-			val2 := getUnstructuredToString(obj, []string{key})
+			val2 := convertUnstructuredToString(obj, []string{key})
 			if val != val2 {
 				return false
 			}
@@ -129,6 +133,7 @@ func getStatusByExpression(objects []map[string]interface{},
 	return false
 }
 
+// buildMessage: constructs default status messages based on the phase
 func buildMessage(phase string) string {
 	switch phase {
 	case string(v1.K8sSucceeded):
@@ -142,7 +147,8 @@ func buildMessage(phase string) string {
 	}
 }
 
-func getUnstructuredToString(obj map[string]interface{}, paths []string) string {
+// convertUnstructuredToString: converts unstructured object field to string representation
+func convertUnstructuredToString(obj map[string]interface{}, paths []string) string {
 	if len(paths) == 0 {
 		return ""
 	}
@@ -153,6 +159,7 @@ func getUnstructuredToString(obj map[string]interface{}, paths []string) string 
 	return stringutil.ConvertToString(result)
 }
 
+// GetUnstructuredString: retrieves string value from unstructured object at specified paths
 func GetUnstructuredString(obj map[string]interface{}, paths []string) string {
 	if len(paths) == 0 {
 		return ""
@@ -164,6 +171,7 @@ func GetUnstructuredString(obj map[string]interface{}, paths []string) string {
 	return result
 }
 
+// GetUnstructuredInt: retrieves integer value from unstructured object at specified paths
 func GetUnstructuredInt(obj map[string]interface{}, paths []string) int64 {
 	if len(paths) == 0 {
 		return 0
@@ -175,7 +183,7 @@ func GetUnstructuredInt(obj map[string]interface{}, paths []string) int64 {
 	return result
 }
 
-// Retrieve the replica count and the resource specifications of the main container
+// GetResources: Retrieve the replica count and the resource specifications of the main container
 func GetResources(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer, gpuName string) ([]int64, []corev1.ResourceList, error) {
 	var replicaList []int64
@@ -238,7 +246,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 	return replicaList, resourceList, nil
 }
 
-// Retrieve the command of the main container
+// GetCommand: Retrieve the command of the main container
 func GetCommand(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) ([]string, error) {
 	for _, t := range rt.Spec.ResourceSpecs {
@@ -266,13 +274,13 @@ func GetCommand(unstructuredObj *unstructured.Unstructured,
 			if !ok {
 				return nil, fmt.Errorf("failed to find container command, path: %s", path)
 			}
-			objs, ok := commands.([]interface{})
+			commandList, ok := commands.([]interface{})
 			if !ok {
 				return nil, fmt.Errorf("failed to find container command, path: %s", path)
 			}
-			result := make([]string, 0, len(objs))
-			for i := range objs {
-				result = append(result, objs[i].(string))
+			result := make([]string, 0, len(commandList))
+			for i := range commandList {
+				result = append(result, commandList[i].(string))
 			}
 			return result, nil
 		}
@@ -280,7 +288,7 @@ func GetCommand(unstructuredObj *unstructured.Unstructured,
 	return nil, fmt.Errorf("no command found")
 }
 
-// Retrieve the image address of the main container
+// GetImage: Retrieve the image address of the main container
 func GetImage(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) (string, error) {
 	for _, t := range rt.Spec.ResourceSpecs {
@@ -314,6 +322,7 @@ func GetImage(unstructuredObj *unstructured.Unstructured,
 	return "", fmt.Errorf("no image found")
 }
 
+// GetMemoryStorageSize: retrieves the memory storage size from volume specifications
 func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (string, error) {
 	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
@@ -337,6 +346,7 @@ func GetMemoryStorageSize(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 	return "", fmt.Errorf("no share memory found")
 }
 
+// GetMemoryStorageVolume: finds the memory storage volume from a list of volumes
 func GetMemoryStorageVolume(volumes []interface{}) map[string]interface{} {
 	for i := range volumes {
 		volume, ok := volumes[i].(map[string]interface{})
@@ -360,6 +370,7 @@ func GetMemoryStorageVolume(volumes []interface{}) map[string]interface{} {
 	return nil
 }
 
+// GetSpecReplica: retrieves the specified replica count from the unstructured object
 func GetSpecReplica(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (int, error) {
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return 0, nil
@@ -383,6 +394,7 @@ func GetSpecReplica(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceT
 	return replica, nil
 }
 
+// GetActiveReplica: retrieves the active replica count from the unstructured object
 func GetActiveReplica(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (int, error) {
 	if len(rt.Spec.ActiveReplica.PrePaths) == 0 && rt.Spec.ActiveReplica.ReplicaPath == "" {
 		return 0, nil
@@ -390,7 +402,7 @@ func GetActiveReplica(unstructuredObj *unstructured.Unstructured, rt *v1.Resourc
 	return getReplica(unstructuredObj, rt.Spec.ActiveReplica.PrePaths, rt.Spec.ActiveReplica.ReplicaPath)
 }
 
-// Retrieve the priorityClassName
+// GetPriorityClassName: retrieves the priorityClassName from the unstructured object
 func GetPriorityClassName(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (string, error) {
 	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
@@ -409,6 +421,7 @@ func GetPriorityClassName(unstructuredObj *unstructured.Unstructured, rt *v1.Res
 	return "", fmt.Errorf("no priorityClassName found")
 }
 
+// getReplica: retrieves replica count based on pre-paths and replica path of resource template
 func getReplica(unstructuredObj *unstructured.Unstructured, prePaths []string, name string) (int, error) {
 	m, found, err := unstructured.NestedFieldNoCopy(unstructuredObj.Object, prePaths...)
 	if !found || err != nil {
@@ -447,6 +460,7 @@ func getReplica(unstructuredObj *unstructured.Unstructured, prePaths []string, n
 	return int(result), nil
 }
 
+// getIntValueByName: retrieves integer value by field name from objects
 func getIntValueByName(objects map[string]interface{}, name string) (int64, bool) {
 	obj, ok := objects[name]
 	if !ok {
@@ -459,7 +473,7 @@ func getIntValueByName(objects map[string]interface{}, name string) (int64, bool
 	return 0, true
 }
 
-// Retrieve the environment value of the main container
+// GetEnv: Retrieve the environment value of the main container
 func GetEnv(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) ([]interface{}, error) {
 	for _, t := range rt.Spec.ResourceSpecs {

@@ -31,13 +31,12 @@ import (
 )
 
 var (
-	nsenter = "nsenter --target 1 --mount --uts --ipc --net --pid --"
+	NSENTER = "nsenter --target 1 --mount --uts --ipc --net --pid --"
+
+	SYNC_INTERVAL = 3 * time.Second
 )
 
-var (
-	sleepTime = 3 * time.Second
-)
-
+// Node represents a Kubernetes node with additional functionality for monitoring and updating node status
 type Node struct {
 	ctx       context.Context
 	k8sNode   *corev1.Node
@@ -45,6 +44,7 @@ type Node struct {
 	k8sClient typedcorev1.CoreV1Interface
 }
 
+// NewNode creates a new Node instance using in-cluster Kubernetes client configuration
 func NewNode(ctx context.Context, opts *types.Options) (*Node, error) {
 	k8sClientSet, _, err := commonclient.NewClientSetInCluster()
 	if err != nil {
@@ -54,6 +54,7 @@ func NewNode(ctx context.Context, opts *types.Options) (*Node, error) {
 	return NewNodeWithClientSet(ctx, opts, k8sClientSet)
 }
 
+// NewNodeWithClientSet creates a new Node instance with a provided Kubernetes clientset
 func NewNodeWithClientSet(ctx context.Context, opts *types.Options, k8sClientSet kubernetes.Interface) (*Node, error) {
 	n := &Node{
 		ctx: ctx,
@@ -68,6 +69,7 @@ func NewNodeWithClientSet(ctx context.Context, opts *types.Options, k8sClientSet
 	return n, nil
 }
 
+// Start initializes and starts the node watcher goroutine
 func (n *Node) Start() error {
 	if n == nil || n.k8sNode == nil {
 		return fmt.Errorf("please initialize node first")
@@ -80,6 +82,7 @@ func (n *Node) Start() error {
 	return nil
 }
 
+// update runs continuously to sync node status at regular intervals
 func (n *Node) update() {
 	for {
 		select {
@@ -90,12 +93,12 @@ func (n *Node) update() {
 			return
 		default:
 			n.syncK8sNode()
-			time.Sleep(sleepTime)
+			time.Sleep(SYNC_INTERVAL)
 		}
 	}
 }
 
-// Use the shell command(uptime -s) to obtain the startup time of the node
+// updateStartTime updates the node's startup time by executing system commands(uptime -s)
 func (n *Node) updateStartTime() error {
 	loc, err := getLocation()
 	if err != nil {
@@ -115,6 +118,7 @@ func (n *Node) updateStartTime() error {
 	return nil
 }
 
+// FindConditionByType finds a node condition by its type string
 func (n *Node) FindConditionByType(conditionType string) *corev1.NodeCondition {
 	if n.k8sNode == nil {
 		return nil
@@ -127,6 +131,7 @@ func (n *Node) FindConditionByType(conditionType string) *corev1.NodeCondition {
 	return nil
 }
 
+// FindCondition finds a node condition using a custom comparison function
 func (n *Node) FindCondition(cond *corev1.NodeCondition, isCondEqual func(cond1, cond2 *corev1.NodeCondition) bool) *corev1.NodeCondition {
 	if n.k8sNode == nil {
 		return nil
@@ -139,6 +144,7 @@ func (n *Node) FindCondition(cond *corev1.NodeCondition, isCondEqual func(cond1,
 	return nil
 }
 
+// UpdateConditions updates the node's status conditions with retry logic for conflict handling
 func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
 	if n.k8sNode == nil {
 		return fmt.Errorf("please initialize node first")
@@ -169,6 +175,7 @@ func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
 	return err
 }
 
+// updateNodeStartTime updates the node's startup time label
 func (n *Node) updateNodeStartTime(startTime time.Time) error {
 	startTimeStr := strconv.FormatInt(startTime.Unix(), 10)
 	if v1.GetNodeStartupTime(n.k8sNode) == startTimeStr {
@@ -184,10 +191,12 @@ func (n *Node) updateNodeStartTime(startTime time.Time) error {
 	return nil
 }
 
+// GetK8sNode returns the current Kubernetes node object
 func (n *Node) GetK8sNode() *corev1.Node {
 	return n.k8sNode
 }
 
+// IsMatchGpuChip checks if the node's GPU chip matches the specified chip type
 func (n *Node) IsMatchGpuChip(chip string) bool {
 	switch chip {
 	case string(v1.AmdGpuChip):
@@ -201,6 +210,7 @@ func (n *Node) IsMatchGpuChip(chip string) bool {
 	}
 }
 
+// GetGpuQuantity returns the allocatable GPU quantity for the node
 func (n *Node) GetGpuQuantity() resource.Quantity {
 	if n.k8sNode == nil {
 		return resource.Quantity{}
@@ -215,15 +225,16 @@ func (n *Node) GetGpuQuantity() resource.Quantity {
 	return gpuQuantity
 }
 
+// isNvGpu checks if the node has NVIDIA GPU hardware
 func (n *Node) isNvGpu() bool {
 	if n.k8sNode == nil {
 		return false
 	}
-	_, ok1 := n.k8sNode.Labels[common.NvidiaIdentification]
-	_, ok2 := n.k8sNode.Labels[common.NvidiaVfio]
-	return ok1 && !ok2
+	_, ok := n.k8sNode.Labels[common.NvidiaIdentification]
+	return ok
 }
 
+// isAmdGpu checks if the node has AMD GPU hardware
 func (n *Node) isAmdGpu() bool {
 	if n.k8sNode == nil {
 		return false
@@ -232,6 +243,7 @@ func (n *Node) isAmdGpu() bool {
 	return ok && val == v1.TrueStr
 }
 
+// syncK8sNode synchronizes the local node cache with the latest version from Kubernetes API
 func (n *Node) syncK8sNode() error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -245,8 +257,9 @@ func (n *Node) syncK8sNode() error {
 	return nil
 }
 
+// getLocation retrieves the system timezone using "timedatectl" command
 func getLocation() (*time.Location, error) {
-	cmd := fmt.Sprintf(`%s timedatectl |grep "Time zone" |awk -F" " '{print $3}'`, nsenter)
+	cmd := fmt.Sprintf(`%s timedatectl |grep "Time zone" |awk -F" " '{print $3}'`, NSENTER)
 	statusCode, output := utils.ExecuteCommand(cmd, 0)
 	if statusCode != types.StatusOk {
 		return nil, fmt.Errorf("failed to execute command, output: %s", output)
@@ -265,8 +278,9 @@ func getLocation() (*time.Location, error) {
 	return loc, nil
 }
 
+// getUptime gets the system uptime using the "uptime -s" command
 func getUptime(loc *time.Location) (time.Time, error) {
-	cmd := fmt.Sprintf("%s uptime -s", nsenter)
+	cmd := fmt.Sprintf("%s uptime -s", NSENTER)
 	statusCode, output := utils.ExecuteCommand(cmd, 0)
 	if statusCode != types.StatusOk {
 		return time.Time{}, fmt.Errorf("failed to do 'uptime -s', output: %s", output)

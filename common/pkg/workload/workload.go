@@ -181,6 +181,7 @@ func GetActiveResources(workload *v1.Workload, filterNode func(nodeName string) 
 	count := len(workload.Status.Pods)
 	podUsedResources := make([]*corev1.ResourceList, count)
 	ch := make(chan *podWrapper, count)
+	defer close(ch)
 	for i := range workload.Status.Pods {
 		ch <- &podWrapper{
 			i:   i,
