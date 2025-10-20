@@ -52,7 +52,8 @@ data:
         customer_labels TEXT,
         service TEXT,
         liveness VARCHAR(128),
-        readiness VARCHAR(128)
+        readiness VARCHAR(128),
+        dependencies TEXT,
     );
 
     create index if not exists T_WORKLOAD_ID_INDEX on workload (workload_id);
