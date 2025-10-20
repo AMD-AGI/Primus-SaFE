@@ -80,7 +80,7 @@ func NewSshHandler(ctx context.Context, mgr ctrlruntime.Manager) (*SshHandler, e
 			clientManager: commonutils.NewObjectManagerSingleton(),
 			config:        config,
 			auth:          authority.NewAuthorizer(mgr.GetClient()),
-			timeout:       time.Hour * 48,
+			timeout:       time.Hour * 12,
 			upgrader: &websocket.Upgrader{
 				HandshakeTimeout: 3 * time.Second,
 				ReadBufferSize:   4096,
@@ -172,7 +172,6 @@ func (h *SshHandler) startSessionHandler(ctx context.Context, conn *ssh.ServerCo
 		klog.ErrorS(err, "failed to accept channel")
 		return
 	}
-	fmt.Fprintf(ch, "\r\x1b[93mConnecting ...\x1b[0m\r\n")
 	s := &session{
 		ctx:     ctx,
 		Channel: ch,
@@ -234,6 +233,7 @@ func (conn *SSHConn) Read(p []byte) (n int, err error) {
 	}
 	n, err = conn.s.Read(p)
 	if err != nil && err == io.EOF {
+		time.Sleep(60 * time.Second)
 		conn.SetExitReason("User actively disconnected")
 		_ = conn.Close()
 	}
@@ -290,4 +290,9 @@ func (conn *SSHConn) WindowNotify(ctx context.Context, ch chan *remotecommand.Te
 // ClosedChan returns a channel that is closed when the connection is closed.
 func (conn *SSHConn) ClosedChan() chan struct{} {
 	return conn.closeCh
+}
+
+// RawCommand returns the raw command string.
+func (conn *SSHConn) RawCommand() string {
+	return conn.s.RawCommand()
 }
