@@ -21,14 +21,18 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
+// Monitor represents a monitoring component that executes scripts on a schedule
+// and reports results through a queue
 type Monitor struct {
+	// The configuration of the monitor
 	config *MonitorConfig
-	queue  *types.MonitorQueue
-	// the full path of script
+	// The queue to report results, and then the exporter updates the node's condition.
+	queue *types.MonitorQueue
+	// The full path of script
 	scriptPath string
-	// it can control whether to exit this monitor
+	// Used to control whether to exit the monitor
 	tomb *channel.Tomb
-	// The node where the agent is currently running
+	// The node where the agent is currently running on
 	node *node.Node
 	// The monitor result will be reported only when it remains the same for max consecutive times(as specified by the configuration)
 	// It is only effective when the operation fails
@@ -40,23 +44,22 @@ type Monitor struct {
 type NodeInfo struct {
 	// Expected GPU count on each node
 	ExpectedGpuCount int `json:"expectedGpuCount"`
-	// The gpu count observed by the device plugin
+	// The gpu count observed by the k8s device plugin
 	ObservedGpuCount int `json:"observedGpuCount"`
 	// The name of the node
 	NodeName string `json:"nodeName"`
 }
 
+// NewMonitor creates a new Monitor instance with the given configuration
 func NewMonitor(config *MonitorConfig,
 	queue *types.MonitorQueue, node *node.Node, scriptPath string) *Monitor {
-	var err error
 	// read file from the specified path
 	fullPath := filepath.Join(scriptPath, config.Script)
 	if !utils.IsFileExist(fullPath) {
-		klog.ErrorS(err, "failed to load script")
+		klog.Errorf("failed to load script, path: %s", fullPath)
 		return nil
 	}
-
-	inst := &Monitor{
+	return &Monitor{
 		config:     config,
 		queue:      queue,
 		scriptPath: fullPath,
@@ -64,9 +67,9 @@ func NewMonitor(config *MonitorConfig,
 		node:       node,
 		isExited:   true,
 	}
-	return inst
 }
 
+// Start the monitoring process by the cron job
 func (m *Monitor) Start() {
 	if m == nil || !m.config.IsEnable() {
 		return
@@ -75,6 +78,7 @@ func (m *Monitor) Start() {
 	m.isExited = false
 }
 
+// Stop the monitoring process
 func (m *Monitor) Stop() {
 	if !m.IsExited() && m.tomb != nil {
 		m.tomb.Stop()
@@ -82,6 +86,7 @@ func (m *Monitor) Stop() {
 	m.isExited = true
 }
 
+// startCronJob: initializes and starts the cron scheduler for this monitor
 func (m *Monitor) startCronJob() {
 	start := time.Now().UTC()
 	defer func() {
@@ -109,6 +114,7 @@ func (m *Monitor) startCronJob() {
 	m.tomb.Done()
 }
 
+// Run: executes the monitoring script and processes the results. It implements the cron.Job interface.
 func (m *Monitor) Run() {
 	args := []string{m.scriptPath}
 	for _, arg := range m.config.Arguments {
@@ -141,10 +147,11 @@ func (m *Monitor) Run() {
 	}
 }
 
+// convertReservedWord: replaces reserved words in arguments with actual values
 func (m *Monitor) convertReservedWord(arg string) string {
 	switch arg {
 	case "$Node":
-		info := m.genNodeInfo()
+		info := m.generateNodeInfo()
 		if info == nil {
 			klog.Errorf("failed to build nodeInfo")
 			return ""
@@ -154,7 +161,8 @@ func (m *Monitor) convertReservedWord(arg string) string {
 	return arg
 }
 
-func (m *Monitor) genNodeInfo() *NodeInfo {
+// generateNodeInfo: generates NodeInfo structure with current node GPU information
+func (m *Monitor) generateNodeInfo() *NodeInfo {
 	if m.node == nil || m.node.GetK8sNode() == nil {
 		return nil
 	}
@@ -169,6 +177,7 @@ func (m *Monitor) genNodeInfo() *NodeInfo {
 	return info
 }
 
+// IsExited: returns whether the monitor has been stopped
 func (m *Monitor) IsExited() bool {
 	return m.isExited
 }

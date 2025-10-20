@@ -22,23 +22,24 @@ var (
 )
 
 type MonitorConfig struct {
-	// The unique ID identifier. e.g., "001"
+	// The unique ID. such as "001"
 	Id string `json:"id"`
 	// The name of the script to be executed
 	Script string `json:"script"`
-	// Execution interval, default "@every 30s"
+	// Execution interval, default is "@every 30s"
 	Cronjob string `json:"cronjob"`
-	// Timeout duration in seconds. default 300
+	// Timeout duration in seconds. default is 300
 	TimeoutSecond int `json:"timeoutSecond,omitempty"`
-	// It triggers when the condition is met N consecutive times. default 1
+	// If the value is greater than 0, the condition is only satisfied after n consecutive triggers.
 	// It is only effective when the operation fails
 	ConsecutiveCount int `json:"consecutiveCount,omitempty"`
-	// Supported chip vendor. If empty, it means no restrictions. e.g., "amd"
+	// Supported chip vendor. If empty, it means no restrictions. such as "amd"
 	Chip string `json:"chip,omitempty"`
-	// on/off. default "off"
+	// on/off. default is "off"
 	Toggle string `json:"toggle,omitempty"`
-	// The following reserved keywords will be automatically passed to the script by the system::
-	//   1. $Node: Node information, in json format, e.g., '{"nodeIp": "10.0.0.1", "nodeName": "testNode", "gpuSpecCount": 8}'
+	// Script execution input parameters can include reserved words. They will be automatically replaced by the system with specific content.
+	// The following words are currently supported:
+	//   1. $Node: Node information, in json format, such as '{"nodeName": "testNode", "expectedGpuCount": 8, "observedGpuCount": 8}'
 	Arguments []string `json:"arguments,omitempty"`
 }
 
@@ -71,13 +72,13 @@ func (conf *MonitorConfig) Validate() error {
 		return fmt.Errorf(MonitorIdPrompt)
 	}
 	if len(conf.Id) == 0 {
-		return fmt.Errorf("the id of config is not found")
+		return fmt.Errorf("the id of config is empty")
 	}
 	if len(conf.Script) == 0 {
-		return fmt.Errorf("the script of config is not found")
+		return fmt.Errorf("the script of config is empty")
 	}
 	if len(conf.Cronjob) == 0 {
-		return fmt.Errorf("the cronjob of config is not found")
+		return fmt.Errorf("the cronjob of config is empty")
 	}
 	return nil
 }

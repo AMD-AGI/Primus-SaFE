@@ -42,12 +42,13 @@ import (
 
 type WorkspaceReconciler struct {
 	*ClusterBaseReconciler
+	// holds all data-plane Kubernetes clients, with the key being cluster.id
 	clientManager *commonutils.ObjectManager
 	sync.RWMutex
 	// Maintain a map of ongoing operations
 	// key is workspace ID, value is the list of node IDs involved in the operation
 	expectations map[string]sets.Set
-	opt          *WorkspaceReconcilerOption
+	option       *WorkspaceReconcilerOption
 }
 
 type WorkspaceReconcilerOption struct {
@@ -55,6 +56,7 @@ type WorkspaceReconcilerOption struct {
 	nodeWait    time.Duration
 }
 
+// SetupWorkspaceController: initializes and registers the WorkspaceReconciler with the controller manager
 func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOption) error {
 	r := &WorkspaceReconciler{
 		ClusterBaseReconciler: &ClusterBaseReconciler{
@@ -62,14 +64,14 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 		},
 		clientManager: commonutils.NewObjectManagerSingleton(),
 		expectations:  make(map[string]sets.Set),
-		opt:           opt,
+		option:        opt,
 	}
 	if r.clientManager == nil {
 		return fmt.Errorf("failed to new clientManager")
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Workspace{}, builder.WithPredicates(predicate.Or(
-			r.caredChangePredicate(), predicate.GenerationChangedPredicate{}))).
+			r.relevantChangePredicate(), predicate.GenerationChangedPredicate{}))).
 		Watches(&v1.Node{}, r.handleNodeEvent()).
 		Complete(r)
 	if err != nil {
@@ -79,8 +81,9 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 	return nil
 }
 
-func (r *WorkspaceReconciler) caredChangePredicate() predicate.Predicate {
-	isCaredFieldChanged := func(oldWorkspace, newWorkspace *v1.Workspace) bool {
+// relevantChangePredicate: defines which Workspace changes should trigger reconciliation
+func (r *WorkspaceReconciler) relevantChangePredicate() predicate.Predicate {
+	isRelevantFieldChanged := func(oldWorkspace, newWorkspace *v1.Workspace) bool {
 		if oldWorkspace.Spec.Replica != newWorkspace.Spec.Replica ||
 			v1.GetWorkspaceNodesAction(oldWorkspace) == "" && v1.GetWorkspaceNodesAction(newWorkspace) != "" ||
 			(oldWorkspace.GetDeletionTimestamp().IsZero() && !newWorkspace.GetDeletionTimestamp().IsZero()) {
@@ -99,7 +102,7 @@ func (r *WorkspaceReconciler) caredChangePredicate() predicate.Predicate {
 			if !ok1 || !ok2 {
 				return false
 			}
-			return isCaredFieldChanged(oldWorkspace, newWorkspace)
+			return isRelevantFieldChanged(oldWorkspace, newWorkspace)
 		},
 		DeleteFunc: func(evt event.DeleteEvent) bool {
 			return false
@@ -110,8 +113,9 @@ func (r *WorkspaceReconciler) caredChangePredicate() predicate.Predicate {
 	}
 }
 
+// handleNodeEvent: creates an event handler that enqueues Workspace requests when related Node resources change
 func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
-	isCaredFieldChanged := func(oldNode, newNode *v1.Node) bool {
+	isRelevantFieldChanged := func(oldNode, newNode *v1.Node) bool {
 		if !reflect.DeepEqual(oldNode.Status.Resources, newNode.Status.Resources) ||
 			oldNode.IsAvailable(false) != newNode.IsAvailable(false) ||
 			v1.GetClusterId(oldNode) != v1.GetClusterId(newNode) ||
@@ -132,11 +136,11 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 	}
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
-			n, ok := evt.Object.(*v1.Node)
+			node, ok := evt.Object.(*v1.Node)
 			if !ok {
 				return
 			}
-			enqueue(q, n.Name, v1.GetWorkspaceId(n), true)
+			enqueue(q, node.Name, v1.GetWorkspaceId(node), true)
 		},
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
 			oldNode, ok1 := evt.ObjectOld.(*v1.Node)
@@ -147,20 +151,21 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 			if v1.GetWorkspaceId(oldNode) != v1.GetWorkspaceId(newNode) {
 				enqueue(q, newNode.Name, v1.GetWorkspaceId(oldNode), true)
 				enqueue(q, newNode.Name, v1.GetWorkspaceId(newNode), true)
-			} else if isCaredFieldChanged(oldNode, newNode) {
+			} else if isRelevantFieldChanged(oldNode, newNode) {
 				enqueue(q, newNode.Name, v1.GetWorkspaceId(newNode), false)
 			}
 		},
 		DeleteFunc: func(ctx context.Context, evt event.DeleteEvent, q v1.RequestWorkQueue) {
-			n, ok := evt.Object.(*v1.Node)
+			node, ok := evt.Object.(*v1.Node)
 			if !ok {
 				return
 			}
-			enqueue(q, n.Name, v1.GetWorkspaceId(n), true)
+			enqueue(q, node.Name, v1.GetWorkspaceId(node), true)
 		},
 	}
 }
 
+// Reconcile is the main control loop for Workspace resources
 func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	startTime := time.Now().UTC()
 	defer func() {
@@ -174,13 +179,14 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 	if !workspace.GetDeletionTimestamp().IsZero() {
 		return ctrlruntime.Result{}, r.delete(ctx, workspace)
 	}
-	result, err := r.handle(ctx, workspace)
+	result, err := r.processWorkspace(ctx, workspace)
 	if err != nil {
-		klog.ErrorS(err, "failed to handle workspace", "name", workspace.Name)
+		klog.ErrorS(err, "failed to process workspace", "name", workspace.Name)
 	}
 	return result, err
 }
 
+// delete: handles the deletion of a Workspace resource by unbinding nodes and removing finalizers
 func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspace) error {
 	var err error
 	nodeList := &v1.NodeList{}
@@ -200,25 +206,28 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 	return utils.RemoveFinalizer(ctx, r.Client, workspace, v1.WorkspaceFinalizer)
 }
 
+// updatePhase: updates the phase of a Workspace resource
 func (r *WorkspaceReconciler) updatePhase(ctx context.Context, workspace *v1.Workspace, phase v1.WorkspacePhase) error {
 	if workspace.Status.Phase == phase {
 		return nil
 	}
-	n := client.MergeFrom(workspace.DeepCopy())
+	originalWorkspace := client.MergeFrom(workspace.DeepCopy())
 	workspace.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 	workspace.Status.Phase = phase
-	if err := r.Status().Patch(ctx, workspace, n); err != nil {
+	if err := r.Status().Patch(ctx, workspace, originalWorkspace); err != nil {
 		return err
 	}
 	return nil
 }
 
+// setExpectations: sets the expected node operations for a Workspace
 func (r *WorkspaceReconciler) setExpectations(workspaceId string, nodeNames sets.Set) {
 	r.Lock()
 	defer r.Unlock()
 	r.expectations[workspaceId] = nodeNames
 }
 
+// meetExpectations: checks if all expected node operations for a Workspace have been completed
 func (r *WorkspaceReconciler) meetExpectations(workspaceId string) bool {
 	r.RLock()
 	defer r.RUnlock()
@@ -226,12 +235,14 @@ func (r *WorkspaceReconciler) meetExpectations(workspaceId string) bool {
 	return !ok || nodeNames.Len() == 0
 }
 
+// removeExpectations: removes the expectations for a Workspace
 func (r *WorkspaceReconciler) removeExpectations(workspaceId string) {
 	r.Lock()
 	defer r.Unlock()
 	delete(r.expectations, workspaceId)
 }
 
+// observeNode: marks a node operation as completed for a Workspace
 func (r *WorkspaceReconciler) observeNode(workspaceId, nodeName string) {
 	r.Lock()
 	defer r.Unlock()
@@ -243,7 +254,9 @@ func (r *WorkspaceReconciler) observeNode(workspaceId, nodeName string) {
 	r.expectations[workspaceId] = leftNodeNames
 }
 
-func (r *WorkspaceReconciler) handle(ctx context.Context, workspace *v1.Workspace) (ctrlruntime.Result, error) {
+// processWorkspace handles the main processing logic for a Workspace resource
+// include scaling up and scaling down nodes.
+func (r *WorkspaceReconciler) processWorkspace(ctx context.Context, workspace *v1.Workspace) (ctrlruntime.Result, error) {
 	if !r.meetExpectations(workspace.Name) {
 		return ctrlruntime.Result{}, nil
 	}
@@ -253,7 +266,7 @@ func (r *WorkspaceReconciler) handle(ctx context.Context, workspace *v1.Workspac
 	}
 
 	if v1.GetWorkspaceNodesAction(workspace) != "" {
-		isUpdated, err := r.handleNodesAction(ctx, workspace)
+		isUpdated, err := r.processNodesAction(ctx, workspace)
 		if err != nil || isUpdated {
 			return ctrlruntime.Result{}, err
 		}
@@ -283,6 +296,7 @@ func (r *WorkspaceReconciler) handle(ctx context.Context, workspace *v1.Workspac
 	return result, err
 }
 
+// scaleDown: handles scaling down a Workspace by unbinding nodes
 func (r *WorkspaceReconciler) scaleDown(ctx context.Context, workspace *v1.Workspace, count int) (ctrlruntime.Result, error) {
 	nodes, err := commonnodes.GetNodesForScalingDown(ctx, r.Client, workspace.Name, count)
 	if err != nil {
@@ -296,11 +310,12 @@ func (r *WorkspaceReconciler) scaleDown(ctx context.Context, workspace *v1.Works
 		}
 	}
 	if len(nodes) < count {
-		return ctrlruntime.Result{RequeueAfter: r.opt.nodeWait}, nil
+		return ctrlruntime.Result{RequeueAfter: r.option.nodeWait}, nil
 	}
 	return ctrlruntime.Result{}, nil
 }
 
+// scaleUp: handles scaling up a Workspace by binding new nodes
 func (r *WorkspaceReconciler) scaleUp(ctx context.Context, workspace *v1.Workspace, k8sClients *commonclient.ClientFactory, count int) (ctrlruntime.Result, error) {
 	if workspace.Status.Phase == "" {
 		if err := r.updatePhase(ctx, workspace, v1.WorkspaceCreating); err != nil {
@@ -312,8 +327,8 @@ func (r *WorkspaceReconciler) scaleUp(ctx context.Context, workspace *v1.Workspa
 		return ctrlruntime.Result{}, err
 	}
 	if len(nodes) == 0 {
-		klog.Infof("no nodes available to add. Waiting for %s seconds and then retrying.", r.opt.nodeWait.String())
-		return ctrlruntime.Result{RequeueAfter: r.opt.nodeWait}, nil
+		klog.Infof("no nodes available to add. Waiting for %s seconds and then retrying.", r.option.nodeWait.String())
+		return ctrlruntime.Result{RequeueAfter: r.option.nodeWait}, nil
 	}
 	targets := buildTargetList(nodes, workspace.Name)
 	klog.Infof("The workspace(%s) is starting to scale up. targets: %v, targets.len: %d", workspace.Name, targets, len(targets))
@@ -323,6 +338,7 @@ func (r *WorkspaceReconciler) scaleUp(ctx context.Context, workspace *v1.Workspa
 	return ctrlruntime.Result{}, nil
 }
 
+// getNodesForScalingUp: retrieves available nodes for scaling up a Workspace
 func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspace *v1.Workspace, k8sClients *commonclient.ClientFactory, count int) ([]*v1.Node, error) {
 	if workspace.Spec.NodeFlavor == "" {
 		return nil, nil
@@ -365,37 +381,39 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 	return result, nil
 }
 
+// sortNodesForScalingUp: sorts nodes based on priority for scaling up operations
 func sortNodesForScalingUp(k8sNodes []*corev1.Node) {
 	sort.Slice(k8sNodes, func(i, j int) bool {
-		ni, nj := k8sNodes[i], k8sNodes[j]
-		if !ni.GetDeletionTimestamp().IsZero() && nj.GetDeletionTimestamp().IsZero() {
+		nodeI, nodeJ := k8sNodes[i], k8sNodes[j]
+		if !nodeI.GetDeletionTimestamp().IsZero() && nodeJ.GetDeletionTimestamp().IsZero() {
 			return false
 		}
-		if !nj.GetDeletionTimestamp().IsZero() && ni.GetDeletionTimestamp().IsZero() {
+		if !nodeJ.GetDeletionTimestamp().IsZero() && nodeI.GetDeletionTimestamp().IsZero() {
 			return true
 		}
-		if ni.Spec.Unschedulable && !nj.Spec.Unschedulable {
+		if nodeI.Spec.Unschedulable && !nodeJ.Spec.Unschedulable {
 			return false
 		}
-		if nj.Spec.Unschedulable && !ni.Spec.Unschedulable {
+		if nodeJ.Spec.Unschedulable && !nodeI.Spec.Unschedulable {
 			return true
 		}
-		if len(ni.Spec.Taints) > 0 && len(nj.Spec.Taints) == 0 {
+		if len(nodeI.Spec.Taints) > 0 && len(nodeJ.Spec.Taints) == 0 {
 			return false
 		}
-		if len(nj.Spec.Taints) > 0 && len(ni.Spec.Taints) == 0 {
+		if len(nodeJ.Spec.Taints) > 0 && len(nodeI.Spec.Taints) == 0 {
 			return true
 		}
-		if v1.IsControlPlane(ni) && !v1.IsControlPlane(nj) {
+		if v1.IsControlPlane(nodeI) && !v1.IsControlPlane(nodeJ) {
 			return false
 		}
-		if !v1.IsControlPlane(ni) && v1.IsControlPlane(nj) {
+		if !v1.IsControlPlane(nodeI) && v1.IsControlPlane(nodeJ) {
 			return true
 		}
-		return strings.Compare(ni.Name, nj.Name) < 0
+		return strings.Compare(nodeI.Name, nodeJ.Name) < 0
 	})
 }
 
+// syncWorkspace: synchronizes the status of a Workspace with its bound nodes
 func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.Workspace) error {
 	if workspace.Spec.NodeFlavor == "" {
 		if isChanged := resetWorkspaceStatus(workspace); isChanged {
@@ -452,15 +470,17 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 	return nil
 }
 
-func (r *WorkspaceReconciler) handleNodesAction(ctx context.Context, w *v1.Workspace) (bool, error) {
+// processNodesAction: processes node binding/unbinding actions for a Workspace
+func (r *WorkspaceReconciler) processNodesAction(ctx context.Context, workspace *v1.Workspace) (bool, error) {
 	var actions map[string]string
-	if err := json.Unmarshal([]byte(v1.GetWorkspaceNodesAction(w)), &actions); err != nil || len(actions) == 0 {
+	if err := json.Unmarshal([]byte(v1.GetWorkspaceNodesAction(workspace)), &actions); err != nil || len(actions) == 0 {
 		if err != nil {
-			klog.ErrorS(err, "failed to unmarshal json. skip it", "data", v1.GetWorkspaceNodesAction(w))
+			klog.ErrorS(err, "failed to unmarshal json. skip it",
+				"data", v1.GetWorkspaceNodesAction(workspace))
 		}
-		return false, r.removeNodesAction(ctx, w)
+		return false, r.removeNodesAction(ctx, workspace)
 	}
-	klog.Infof("handle node action: %v", actions)
+	klog.Infof("process node action: %v", actions)
 
 	newActions := make(map[string]string)
 	adminNodes := make([]*v1.Node, 0, len(actions))
@@ -478,33 +498,35 @@ func (r *WorkspaceReconciler) handleNodesAction(ctx context.Context, w *v1.Works
 			}
 			newActions[node.Name] = ""
 		} else {
-			if v1.GetWorkspaceId(node) == w.Name {
+			if v1.GetWorkspaceId(node) == workspace.Name {
 				continue
 			}
-			newActions[node.Name] = w.Name
+			newActions[node.Name] = workspace.Name
 		}
 		adminNodes = append(adminNodes, node)
 	}
 	if len(adminNodes) == 0 {
-		return false, r.removeNodesAction(ctx, w)
+		return false, r.removeNodesAction(ctx, workspace)
 	}
-	if err := r.updateNodesBinding(ctx, w, adminNodes, newActions); err != nil {
+	if err := r.updateNodesBinding(ctx, workspace, adminNodes, newActions); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-func (r *WorkspaceReconciler) removeNodesAction(ctx context.Context, w *v1.Workspace) error {
-	if v1.GetWorkspaceNodesAction(w) == "" {
+// removeNodesAction: removes the node action annotation from a Workspace
+func (r *WorkspaceReconciler) removeNodesAction(ctx context.Context, workspace *v1.Workspace) error {
+	if v1.GetWorkspaceNodesAction(workspace) == "" {
 		return nil
 	}
-	delete(w.Annotations, v1.WorkspaceNodesAction)
-	if err := r.Update(ctx, w); err != nil {
+	delete(workspace.Annotations, v1.WorkspaceNodesAction)
+	if err := r.Update(ctx, workspace); err != nil {
 		return err
 	}
 	return nil
 }
 
+// updateNodesBinding: updates the binding of nodes to a Workspace
 func (r *WorkspaceReconciler) updateNodesBinding(ctx context.Context,
 	workspace *v1.Workspace, nodes []*v1.Node, targets map[string]string) error {
 	count := len(nodes)
@@ -512,6 +534,8 @@ func (r *WorkspaceReconciler) updateNodesBinding(ctx context.Context,
 		return nil
 	}
 	ch := make(chan *v1.Node, count)
+	defer close(ch)
+
 	nodeNames := sets.NewSet()
 	for i := 0; i < count; i++ {
 		nodeNames.Insert(nodes[i].Name)
@@ -534,19 +558,21 @@ func (r *WorkspaceReconciler) updateNodesBinding(ctx context.Context,
 	return nil
 }
 
-func (r *WorkspaceReconciler) updateSingleNodeBinding(ctx context.Context, n *v1.Node, target string) (bool, error) {
-	if n.Spec.Workspace != nil && *n.Spec.Workspace == target {
+// updateSingleNodeBinding: updates the binding of a single node to a Workspace
+func (r *WorkspaceReconciler) updateSingleNodeBinding(ctx context.Context, node *v1.Node, target string) (bool, error) {
+	if node.Spec.Workspace != nil && *node.Spec.Workspace == target {
 		return false, nil
 	}
-	n.Spec.Workspace = pointer.String(target)
-	klog.Infof("updateSingleNodeBinding, node: %s, target: %s", n.Name, target)
-	if err := r.Update(ctx, n); err != nil {
+	node.Spec.Workspace = pointer.String(target)
+	klog.Infof("updateSingleNodeBinding, node: %s, target: %s", node.Name, target)
+	if err := r.Update(ctx, node); err != nil {
 		klog.ErrorS(err, "failed to update node", "target", target)
 		return false, err
 	}
 	return true, nil
 }
 
+// resetWorkspaceStatus: resets the status of a Workspace when no node flavor is specified
 func resetWorkspaceStatus(workspace *v1.Workspace) bool {
 	isChanged := false
 	if workspace.Status.AvailableReplica != 0 {
@@ -572,6 +598,7 @@ func resetWorkspaceStatus(workspace *v1.Workspace) bool {
 	return isChanged
 }
 
+// buildTargetList: builds a map of node names to their target Workspace names
 func buildTargetList(nodes []*v1.Node, target string) map[string]string {
 	results := make(map[string]string)
 	for _, n := range nodes {

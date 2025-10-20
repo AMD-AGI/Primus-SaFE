@@ -6,6 +6,7 @@
 package exporters
 
 import (
+	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -17,18 +18,28 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 )
 
+// K8sExporter exports monitor messages by updating Kubernetes node conditions
 type K8sExporter struct {
+	// The node being monitored
 	node *node.Node
 }
 
+// Handle processes a monitor message by adding or removing node conditions
 func (ke *K8sExporter) Handle(msg *types.MonitorMessage) error {
+	if ke.node == nil || ke.node.GetK8sNode() == nil {
+		return fmt.Errorf("the node being monitored is empty")
+	}
 	var conditions []corev1.NodeCondition
 	var isChanged bool
-	if msg.StatusCode != types.StatusError {
-		conditions, isChanged = genDeleteConditions(ke.node.GetK8sNode(), msg)
-	} else {
-		conditions, isChanged = genAddConditions(ke.node.GetK8sNode(), msg)
+	switch msg.StatusCode {
+	case types.StatusError:
+		conditions, isChanged = generateAddConditions(ke.node.GetK8sNode(), msg)
+	case types.StatusDisable:
+		fallthrough
+	default:
+		conditions, isChanged = generateDeleteConditions(ke.node.GetK8sNode(), msg)
 	}
+
 	if !isChanged {
 		return nil
 	}
@@ -39,11 +50,13 @@ func (ke *K8sExporter) Handle(msg *types.MonitorMessage) error {
 	return err
 }
 
+// Name returns the name of this exporter for logging purposes
 func (ke *K8sExporter) Name() string {
 	return "k8sExporter"
 }
 
-func genAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.NodeCondition, bool) {
+// generateAddConditions: generates node conditions to add a taint for failed monitors
+func generateAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.NodeCondition, bool) {
 	results := make([]corev1.NodeCondition, 0, len(node.Status.Conditions)+1)
 	isFound := false
 	key := commonfaults.GenerateTaintKey(msg.Id)
@@ -71,18 +84,25 @@ func genAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.No
 	return results, true
 }
 
-func genDeleteConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.NodeCondition, bool) {
-	results := make([]corev1.NodeCondition, 0, len(node.Status.Conditions))
+// generateDeleteConditions: generates node conditions to remove a taint for successful monitors
+func generateDeleteConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.NodeCondition, bool) {
 	key := commonfaults.GenerateTaintKey(msg.Id)
+	found := false
+	for _, cond := range node.Status.Conditions {
+		if string(cond.Type) == key {
+			found = true
+			klog.Infof("gen deleting condition. key: %s, message: %s", cond.Type, cond.Message)
+			break
+		}
+	}
+	if !found {
+		return nil, false
+	}
+	results := make([]corev1.NodeCondition, 0, len(node.Status.Conditions)-1)
 	for i, cond := range node.Status.Conditions {
 		if string(cond.Type) != key {
 			results = append(results, node.Status.Conditions[i])
-		} else {
-			klog.Infof("gen deleting condition. key: %s, message: %s", cond.Type, cond.Message)
 		}
-	}
-	if len(results) == len(node.Status.Conditions) {
-		return nil, false
 	}
 	return results, true
 }

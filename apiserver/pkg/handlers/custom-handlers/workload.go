@@ -128,7 +128,7 @@ func (h *Handler) GetWorkloadPodContainers(c *gin.Context) {
 // Parses the request, generates a workload object, and creates it in the system.
 func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	req := &types.CreateWorkloadRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		return nil, err
 	}
@@ -150,12 +150,12 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 func (h *Handler) createWorkloadImpl(c *gin.Context, workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
 	var err error
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
-		klog.ErrorS(err, "failed to auth workload",
+		klog.ErrorS(err, "failed to auth workload", "workload", workload.Name,
 			"workspace", workload.Spec.Workspace, "user", c.GetString(common.UserName))
 		return nil, err
 	}
 	if err = h.authWorkloadPriority(c, workload, v1.CreateVerb, workload.Spec.Priority, requestUser, roles); err != nil {
-		klog.ErrorS(err, "failed to auth workload priority",
+		klog.ErrorS(err, "failed to auth workload priority", "workload", workload.Name,
 			"priority", workload.Spec.Priority, "user", c.GetString(common.UserName))
 		return nil, err
 	}
@@ -277,7 +277,8 @@ func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v
 		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
 			return nil, err
 		}
-		if err = h.deleteAdminWorkload(c.Request.Context(), adminWorkload); err != nil {
+		message := fmt.Sprintf("the workload is deleted by %s", c.GetString(common.UserName))
+		if err = h.deleteAdminWorkload(c.Request.Context(), adminWorkload, message); err != nil {
 			return nil, err
 		}
 	}
@@ -295,17 +296,18 @@ func (h *Handler) deleteWorkloadImpl(c *gin.Context, name string, requestUser *v
 			return nil, err
 		}
 	}
-	klog.Infof("delete workload %s", name)
+	klog.Infof("delete workload %s by user %s/%s",
+		name, c.GetString(common.UserName), c.GetString(common.UserId))
 	return nil, nil
 }
 
 // deleteAdminWorkload: removes a workload from the Kubernetes cluster.
 // Sets the workload phase to stopped and deletes the resource from etcd.
-func (h *Handler) deleteAdminWorkload(ctx context.Context, adminWorkload *v1.Workload) error {
+func (h *Handler) deleteAdminWorkload(ctx context.Context, adminWorkload *v1.Workload, message string) error {
 	cond := &metav1.Condition{
 		Type:    string(v1.AdminStopped),
 		Status:  metav1.ConditionTrue,
-		Message: "the workload is deleted",
+		Message: message,
 	}
 
 	if err := h.patchPhase(ctx, adminWorkload, v1.WorkloadStopped, cond); err != nil {
@@ -364,11 +366,13 @@ func (h *Handler) stopWorkloadImpl(c *gin.Context, name string, requestUser *v1.
 		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
 			return nil, err
 		}
-		if err = h.deleteAdminWorkload(c.Request.Context(), adminWorkload); err != nil {
+		message := fmt.Sprintf("the workload is stopped by %s", c.GetString(common.UserName))
+		if err = h.deleteAdminWorkload(c.Request.Context(), adminWorkload, message); err != nil {
 			return nil, err
 		}
 	}
-	klog.Infof("stop workload %s", name)
+	klog.Infof("stop workload %s by user %s/%s",
+		name, c.GetString(common.UserName), c.GetString(common.UserId))
 	return nil, nil
 }
 
@@ -391,7 +395,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.PatchWorkloadRequest{}
-	if _, err = parseRequestBody(c.Request, req); err != nil {
+	if _, err = apiutils.ParseRequestBody(c.Request, req); err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 	if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, requestUser, roles); err != nil {
@@ -403,11 +407,11 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		}
 	}
 
-	patch := client.MergeFrom(adminWorkload.DeepCopy())
+	originalWorkload := client.MergeFrom(adminWorkload.DeepCopy())
 	if err = updateWorkload(adminWorkload, req); err != nil {
 		return nil, err
 	}
-	if err = h.Patch(c.Request.Context(), adminWorkload, patch); err != nil {
+	if err = h.Patch(c.Request.Context(), adminWorkload, originalWorkload); err != nil {
 		return nil, err
 	}
 
@@ -475,7 +479,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 // Handles status updates including setting end time for stopped workloads.
 func (h *Handler) patchPhase(ctx context.Context, workload *v1.Workload,
 	phase v1.WorkloadPhase, cond *metav1.Condition) error {
-	patch := client.MergeFrom(workload.DeepCopy())
+	originalWorkload := client.MergeFrom(workload.DeepCopy())
 	if phase != "" {
 		workload.Status.Phase = phase
 		if phase == v1.WorkloadStopped && workload.Status.EndTime == nil {
@@ -492,7 +496,7 @@ func (h *Handler) patchPhase(ctx context.Context, workload *v1.Workload,
 			workload.Status.Conditions = append(workload.Status.Conditions, *cond)
 		}
 	}
-	if err := h.Status().Patch(ctx, workload, patch); err != nil {
+	if err := h.Status().Patch(ctx, workload, originalWorkload); err != nil {
 		return err
 	}
 	return nil
@@ -674,11 +678,12 @@ func (h *Handler) handleBatchWorkloads(c *gin.Context, action WorkloadBatchActio
 	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
 
 	req := &types.BatchWorkloadsRequest{}
-	if _, err = parseRequestBody(c.Request, req); err != nil {
+	if _, err = apiutils.ParseRequestBody(c.Request, req); err != nil {
 		return nil, err
 	}
 	count := len(req.WorkloadIds)
 	ch := make(chan string, count)
+	defer close(ch)
 	for _, id := range req.WorkloadIds {
 		ch <- id
 	}
@@ -828,7 +833,7 @@ func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []str
 		values := strings.Split(query.Kind, ",")
 		var sqlList []sqrl.Sqlizer
 		for _, val := range values {
-			gvk := v1.GroupVersionKind{Kind: val, Version: v1.SchemeGroupVersion.Version}
+			gvk := v1.GroupVersionKind{Kind: val, Version: common.DefaultVersion}
 			gvkStr := string(jsonutils.MarshalSilently(gvk))
 			sqlList = append(sqlList, sqrl.Eq{dbclient.GetFieldTag(dbTags, "GVK"): gvkStr})
 		}

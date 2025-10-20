@@ -24,13 +24,14 @@ type JobTTLController struct {
 	client.Client
 }
 
+// SetupJobTTLController initializes and registers the JobTTLController with the controller manager
 func SetupJobTTLController(mgr manager.Manager) error {
 	r := &JobTTLController{
 		Client: mgr.GetClient(),
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, r.caredChangePredicate()))).
+			predicate.GenerationChangedPredicate{}, r.relevantChangePredicate()))).
 		Complete(r)
 	if err != nil {
 		return err
@@ -39,7 +40,8 @@ func SetupJobTTLController(mgr manager.Manager) error {
 	return nil
 }
 
-func (r *JobTTLController) caredChangePredicate() predicate.Predicate {
+// relevantChangePredicate defines which OpsJob changes should trigger TTL reconciliation
+func (r *JobTTLController) relevantChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldJob, ok1 := e.ObjectOld.(*v1.OpsJob)
@@ -55,6 +57,7 @@ func (r *JobTTLController) caredChangePredicate() predicate.Predicate {
 	}
 }
 
+// Reconcile is the main control loop for OpsJob TTL management
 func (r *JobTTLController) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	startTime := time.Now().UTC()
 	defer func() {
@@ -71,14 +74,15 @@ func (r *JobTTLController) Reconcile(ctx context.Context, req ctrlruntime.Reques
 	if !job.IsEnd() || job.Spec.TTLSecondsAfterFinished == 0 {
 		return ctrlruntime.Result{}, nil
 	}
-	return r.handle(ctx, job)
+	return r.deleteExpiredJob(ctx, job)
 }
 
-func (r *JobTTLController) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
+// deleteExpiredJob: deletes jobs that have exceeded their TTL seconds after completion
+func (r *JobTTLController) deleteExpiredJob(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	nowTime := time.Now().Unix()
-	costTime := nowTime - job.Status.FinishedAt.Unix()
+	elapsedSeconds := nowTime - job.Status.FinishedAt.Unix()
 	var err error
-	if costTime >= int64(job.Spec.TTLSecondsAfterFinished) {
+	if elapsedSeconds >= int64(job.Spec.TTLSecondsAfterFinished) {
 		if err = r.Delete(ctx, job); err != nil {
 			klog.ErrorS(err, "failed to delete job")
 			return ctrlruntime.Result{}, client.IgnoreNotFound(err)
@@ -86,7 +90,7 @@ func (r *JobTTLController) handle(ctx context.Context, job *v1.OpsJob) (ctrlrunt
 			klog.Infof("delete job by ttl controller, name: %s", job.Name)
 		}
 	} else {
-		leftTime := int64(job.Spec.TTLSecondsAfterFinished) - costTime
+		leftTime := int64(job.Spec.TTLSecondsAfterFinished) - elapsedSeconds
 		return ctrlruntime.Result{RequeueAfter: time.Duration(leftTime) * time.Second}, nil
 	}
 	return ctrlruntime.Result{}, nil

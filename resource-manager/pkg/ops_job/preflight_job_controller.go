@@ -34,6 +34,7 @@ type PreflightJobReconciler struct {
 	sync.RWMutex
 }
 
+// SetupPreflightJobController: initializes and registers the PreflightJobReconciler with the controller manager
 func SetupPreflightJobController(mgr manager.Manager) error {
 	r := &PreflightJobReconciler{
 		OpsJobBaseReconciler: &OpsJobBaseReconciler{
@@ -42,7 +43,7 @@ func SetupPreflightJobController(mgr manager.Manager) error {
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, onFirstPhaseChanged()))).
+			predicate.GenerationChangedPredicate{}, onFirstPhaseChangedPredicate()))).
 		Watches(&v1.Workload{}, r.handleWorkloadEvent()).
 		Complete(r)
 	if err != nil {
@@ -52,6 +53,7 @@ func SetupPreflightJobController(mgr manager.Manager) error {
 	return nil
 }
 
+// handleWorkloadEvent: creates an event handler that watches Workload resource events
 func (r *PreflightJobReconciler) handleWorkloadEvent() handler.EventHandler {
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
@@ -75,14 +77,16 @@ func (r *PreflightJobReconciler) handleWorkloadEvent() handler.EventHandler {
 	}
 }
 
+// isPreflightWorkload: checks if a workload is a preflight job workload
 func isPreflightWorkload(workload *v1.Workload) bool {
-	opsJobId := v1.GetOpsJobId(workload)
-	if opsJobId != "" && v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
+	if v1.GetOpsJobId(workload) != "" &&
+		v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
 		return true
 	}
 	return false
 }
 
+// handleWorkloadEventImpl: handles workload events by updating the corresponding OpsJob status
 func (r *PreflightJobReconciler) handleWorkloadEventImpl(ctx context.Context, workload *v1.Workload) {
 	var phase v1.OpsJobPhase
 	completionMessage := ""
@@ -127,11 +131,13 @@ func (r *PreflightJobReconciler) handleWorkloadEventImpl(ctx context.Context, wo
 	}
 }
 
+// Reconcile is the main control loop for PreflightJob resources
 func (r *PreflightJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	clearFuncs := []ClearFunc{r.cleanupJobRelatedInfo}
 	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r, clearFuncs...)
 }
 
+// cleanupJobRelatedInfo: cleans up job-related resources
 func (r *PreflightJobReconciler) cleanupJobRelatedInfo(ctx context.Context, job *v1.OpsJob) error {
 	return commonjob.CleanupJobRelatedResource(ctx, r.Client, job.Name)
 }
@@ -141,19 +147,21 @@ func (r *PreflightJobReconciler) observe(_ context.Context, job *v1.OpsJob) (boo
 	return job.IsEnd(), nil
 }
 
+// filter: determines if the job should be processed by this preflight job reconciler
 func (r *PreflightJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
 	return job.Spec.Type != v1.OpsJobPreflightType
 }
 
+// handle: processes the preflight job by creating a corresponding workload
 func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	if job.Status.Phase == "" {
-		patch := client.MergeFrom(job.DeepCopy())
+		originalJob := client.MergeFrom(job.DeepCopy())
 		job.Status.Phase = v1.OpsJobPending
-		if err := r.Status().Patch(ctx, job, patch); err != nil {
+		if err := r.Status().Patch(ctx, job, originalJob); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		// ensure that job will be reconciled when it is timeout
-		return genRequeueAfterResult(job), nil
+		return newRequeueAfterResult(job), nil
 	}
 
 	workload := &v1.Workload{}
@@ -161,27 +169,29 @@ func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ct
 		return ctrlruntime.Result{}, nil
 	}
 	var err error
-	workload, err = r.genPreflightWorkload(ctx, job)
+	workload, err = r.generatePreflightWorkload(ctx, job)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	if err = r.Create(ctx, workload); err != nil {
 		return ctrlruntime.Result{}, client.IgnoreAlreadyExists(err)
 	}
+	klog.Infof("Processing preflight job %s for workload %s", job.Name, workload.Name)
 	return ctrlruntime.Result{}, nil
 }
 
-func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context, job *v1.OpsJob) (*v1.Workload, error) {
+// generatePreflightWorkload: generates a preflight workload based on the job specification
+func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, job *v1.OpsJob) (*v1.Workload, error) {
 	nodeParams := job.GetParameters(v1.ParameterNode)
 	if len(nodeParams) == 0 {
 		return nil, commonerrors.NewBadRequest("node parameter is empty")
 	}
 	nodeNames := ""
-	for i, p := range nodeParams {
+	for i, param := range nodeParams {
 		if i > 0 {
 			nodeNames += " "
 		}
-		nodeNames += p.Value
+		nodeNames += param.Value
 	}
 	node := &v1.Node{}
 	if err := r.Get(ctx, client.ObjectKey{Name: nodeParams[0].Value}, node); err != nil {
@@ -208,7 +218,7 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context, job *
 			Resource:   *job.Spec.Resource,
 			EntryPoint: *job.Spec.EntryPoint,
 			GroupVersionKind: v1.GroupVersionKind{
-				Version: v1.SchemeGroupVersion.Version,
+				Version: common.DefaultVersion,
 				Kind:    common.PytorchJobKind,
 			},
 			IsTolerateAll: job.Spec.IsTolerateAll,
@@ -231,25 +241,24 @@ func (r *PreflightJobReconciler) genPreflightWorkload(ctx context.Context, job *
 	return workload, nil
 }
 
+// getWorkloadCompletionMessage: extracts the completion message from a workload
 func getWorkloadCompletionMessage(workload *v1.Workload) string {
-	switch workload.Status.Phase {
-	case v1.WorkloadFailed, v1.WorkloadSucceeded:
+	// Handle stopped or deleted workloads first
+	if workload.Status.Phase == v1.WorkloadStopped || !workload.GetDeletionTimestamp().IsZero() {
+		return "workload is stopped"
+	}
+
+	// Extract message from containers for completed workloads
+	if workload.Status.Phase == v1.WorkloadFailed || workload.Status.Phase == v1.WorkloadSucceeded {
 		for _, pod := range workload.Status.Pods {
-			for _, c := range pod.Containers {
-				if c.Name != v1.GetMainContainer(workload) {
-					continue
-				}
-				if c.Message != "" {
-					return c.Message
+			for _, container := range pod.Containers {
+				if container.Name == v1.GetMainContainer(workload) && container.Message != "" {
+					return container.Message
 				}
 			}
 		}
-	case v1.WorkloadStopped:
-		return "workload is stopped"
-	default:
-		if !workload.GetDeletionTimestamp().IsZero() {
-			return "workload is stopped"
-		}
 	}
-	return ""
+
+	// Default message for unknown cases
+	return "unknown"
 }

@@ -102,15 +102,15 @@ func (r *SyncerReconciler) updatePendingMessage(ctx context.Context, adminWorklo
 		return nil
 	}
 
-	patch := client.MergeFrom(adminWorkload.DeepCopy())
+	originalWorkload := client.MergeFrom(adminWorkload.DeepCopy())
 	adminWorkload.Status.Message = message
-	if err := r.Status().Patch(ctx, adminWorkload, patch); err != nil {
+	if err := r.Status().Patch(ctx, adminWorkload, originalWorkload); err != nil {
 		return err
 	}
 	return nil
 }
 
-func isCaredPodEvent(obj *unstructured.Unstructured) bool {
+func isRelevantPodEvent(obj *unstructured.Unstructured) bool {
 	eventInvolvedKind := jobutils.GetUnstructuredString(obj.Object, eventInvolvedKindPath)
 	if eventInvolvedKind != common.PodKind {
 		return false

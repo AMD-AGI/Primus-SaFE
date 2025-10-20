@@ -128,6 +128,9 @@ func (m *WorkspaceMutator) mutateCommon(ctx context.Context, oldWorkspace, newWo
 	if err := m.mutateManagers(ctx, oldWorkspace, newWorkspace); err != nil {
 		return err
 	}
+	if err := m.mutateDefaultWorkspaceUsers(ctx, oldWorkspace, newWorkspace); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -280,7 +283,7 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 		return err
 	}
 	for _, w := range workloads {
-		patch := client.MergeFrom(w.DeepCopy())
+		originalWorkload := client.MergeFrom(w.DeepCopy())
 		if workspace.Spec.EnablePreempt {
 			if v1.IsWorkloadEnablePreempt(w) {
 				continue
@@ -292,8 +295,31 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 			}
 			v1.RemoveAnnotation(w, v1.WorkloadEnablePreemptAnnotation)
 		}
-		if err = m.Patch(ctx, w, patch); err != nil {
+		if err = m.Patch(ctx, w, originalWorkload); err != nil {
 			klog.ErrorS(err, "failed to patch workload")
+		}
+	}
+	return nil
+}
+
+// When the workspace is set to be accessible by everyone,
+// synchronize and update the user access list accordingly.
+func (m *WorkspaceMutator) mutateDefaultWorkspaceUsers(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
+	if !newWorkspace.Spec.IsDefault {
+		return nil
+	}
+	if oldWorkspace != nil && oldWorkspace.Spec.IsDefault {
+		return nil
+	}
+	userList := &v1.UserList{}
+	if err := m.List(ctx, userList); err != nil {
+		return err
+	}
+	for _, user := range userList.Items {
+		if commonuser.AddWorkspace(&user, newWorkspace.Name) {
+			if err := m.Update(ctx, &user); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

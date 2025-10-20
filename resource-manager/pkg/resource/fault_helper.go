@@ -23,33 +23,45 @@ import (
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 )
 
+// FaultAction defines the type of action to be taken for a fault
 type FaultAction string
 
 const (
+	// TaintAction represents the action of tainting a node
 	TaintAction FaultAction = "taint"
-
+	// NodeNotReady represents node not ready condition
 	NodeNotReady = "NotReady"
+
+	ToggleOn = "on"
 )
 
-var k8sNodeConditionTypes = map[corev1.NodeConditionType]bool{
-	corev1.NodeReady:              true,
-	corev1.NodeNetworkUnavailable: true,
-	corev1.NodeMemoryPressure:     true,
-	corev1.NodeDiskPressure:       true,
-	corev1.NodePIDPressure:        true,
+// k8sNodeConditionTypes： defines the set of standard Kubernetes node condition types
+var k8sNodeConditionTypes = map[corev1.NodeConditionType]struct{}{
+	corev1.NodeReady:              {},
+	corev1.NodeNetworkUnavailable: {},
+	corev1.NodeMemoryPressure:     {},
+	corev1.NodeDiskPressure:       {},
+	corev1.NodePIDPressure:        {},
 }
 
+// FaultConfig: represents the configuration for a fault
 type FaultConfig struct {
-	// A unique fault ID that is consistent with the ID used by NodeAgent for monitoring.
+	// Id is a unique fault ID that is consistent with the ID used by NodeAgent for monitoring
 	Id string `json:"id"`
-	// Actions for handling the fault, separated by commas if there are multiple.
+	// Action defines actions for handling the fault, separated by commas if there are multiple
 	Action FaultAction `json:"action,omitempty"`
-	// on/off. default "off"
+	// Toggle controls whether the fault is enabled (on/off), default is "off"
 	Toggle string `json:"toggle,omitempty"`
-	// whether the fault is auto repaired or not. default true
+	// whether the fault is auto repaired or not, default is true
 	IsAutoRepair *bool `json:"isAutoRepair,omitempty"`
 }
 
+// IsEnable: checks if the fault configuration is enabled
+func (c *FaultConfig) IsEnable() bool {
+	return c.Toggle == ToggleOn
+}
+
+// IsAutoRepairEnabled: checks if auto repair is enabled for this fault configuration
 func (c *FaultConfig) IsAutoRepairEnabled() bool {
 	if c.IsAutoRepair == nil {
 		return false
@@ -57,12 +69,8 @@ func (c *FaultConfig) IsAutoRepairEnabled() bool {
 	return *c.IsAutoRepair
 }
 
-func (c *FaultConfig) IsEnable() bool {
-	return c.Toggle == "on"
-}
-
-// retrieves the fault configuration from a ConfigMap.
-// The key is fault.id, and the value is the fault config.
+// GetFaultConfigmap: retrieves the fault configuration from a ConfigMap
+// Result: The key is fault.id, and the value is the fault config.
 func GetFaultConfigmap(ctx context.Context, cli client.Client) (map[string]*FaultConfig, error) {
 	configMap := &corev1.ConfigMap{}
 	err := cli.Get(ctx, client.ObjectKey{Name: common.PrimusFault, Namespace: common.PrimusSafeNamespace}, configMap)
@@ -72,6 +80,7 @@ func GetFaultConfigmap(ctx context.Context, cli client.Client) (map[string]*Faul
 	return parseFaultConfig(configMap), nil
 }
 
+// parseFaultConfig: parses fault configurations from a ConfigMap
 func parseFaultConfig(configMap *corev1.ConfigMap) map[string]*FaultConfig {
 	result := make(map[string]*FaultConfig)
 	for _, val := range configMap.Data {
@@ -80,7 +89,7 @@ func parseFaultConfig(configMap *corev1.ConfigMap) map[string]*FaultConfig {
 			klog.ErrorS(err, "failed to unmarshal fault config", "value", val)
 			continue
 		}
-		if conf.Toggle != "on" {
+		if conf.Toggle != ToggleOn {
 			continue
 		}
 		if conf.Id == "" {
@@ -95,7 +104,8 @@ func parseFaultConfig(configMap *corev1.ConfigMap) map[string]*FaultConfig {
 	return result
 }
 
-func isShouldCreateFault(cond corev1.NodeCondition) bool {
+// shouldCreateFault: determines whether a fault should be created based on node condition
+func shouldCreateFault(cond corev1.NodeCondition) bool {
 	switch {
 	case isK8sCondition(cond.Type):
 		if cond.Type == corev1.NodeReady {
@@ -111,15 +121,18 @@ func isShouldCreateFault(cond corev1.NodeCondition) bool {
 	return false
 }
 
+// isPrimusCondition: checks if a condition type is a Primus-specific condition
 func isPrimusCondition(condType corev1.NodeConditionType) bool {
 	return strings.HasPrefix(string(condType), v1.PrimusSafePrefix)
 }
 
+// isK8sCondition: checks if a condition type is a standard Kubernetes condition
 func isK8sCondition(condType corev1.NodeConditionType) bool {
 	_, ok := k8sNodeConditionTypes[condType]
 	return ok
 }
 
+// listFaults: lists faults matching the given label selector
 func listFaults(ctx context.Context, cli client.Client, labelSelector labels.Selector) ([]v1.Fault, error) {
 	faultList := &v1.FaultList{}
 	err := cli.List(ctx, faultList, &client.ListOptions{LabelSelector: labelSelector})
@@ -129,6 +142,7 @@ func listFaults(ctx context.Context, cli client.Client, labelSelector labels.Sel
 	return faultList.Items, nil
 }
 
+// createFault: creates a new fault resource
 func createFault(ctx context.Context, cli client.Client, fault *v1.Fault) error {
 	if err := cli.Create(ctx, fault); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
@@ -143,6 +157,7 @@ func createFault(ctx context.Context, cli client.Client, fault *v1.Fault) error 
 	return nil
 }
 
+// deleteFault: deletes a fault resource
 func deleteFault(ctx context.Context, cli client.Client, fault *v1.Fault) error {
 	if err := cli.Delete(ctx, fault); err != nil {
 		return client.IgnoreNotFound(err)
@@ -151,6 +166,7 @@ func deleteFault(ctx context.Context, cli client.Client, fault *v1.Fault) error 
 	return nil
 }
 
+// generateFaultOnCreation: generates a fault object when a new fault is detected
 func generateFaultOnCreation(node *v1.FaultNode,
 	cond corev1.NodeCondition, faultConfigMap map[string]*FaultConfig) *v1.Fault {
 	id := getIdByConditionType(cond.Type)
@@ -177,6 +193,7 @@ func generateFaultOnCreation(node *v1.FaultNode,
 	}
 }
 
+// generateFaultOnDeletion: generates a fault object when a fault is being deleted
 func generateFaultOnDeletion(node *v1.FaultNode,
 	cond corev1.NodeCondition, faultConfigMap map[string]*FaultConfig) *v1.Fault {
 	if !isPrimusCondition(cond.Type) && !isK8sCondition(cond.Type) {
@@ -200,6 +217,7 @@ func generateFaultOnDeletion(node *v1.FaultNode,
 	}
 }
 
+// getIdByConditionType: gets the fault ID based on the condition type
 func getIdByConditionType(condType corev1.NodeConditionType) string {
 	switch {
 	case isPrimusCondition(condType):
@@ -211,6 +229,9 @@ func getIdByConditionType(condType corev1.NodeConditionType) string {
 	}
 }
 
+// isValidFault: checks if the current fault matches any node condition.
+// A fault is considered valid if its MonitorId corresponds to one of the node's conditions.
+// If no match is found, the fault is invalid and should be deleted.
 func isValidFault(fault *v1.Fault, adminNode *v1.Node) bool {
 	for _, cond := range adminNode.Status.Conditions {
 		if getIdByConditionType(cond.Type) == fault.Spec.MonitorId {

@@ -14,6 +14,8 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// GenerateKey generates an RSA key pair with the specified bit size.
+// It returns the private key, public key, and any error encountered during generation.
 func GenerateKey(bits int) (*rsa.PrivateKey, *rsa.PublicKey, error) {
 	private, err := rsa.GenerateKey(rand.Reader, bits)
 	if err != nil {
@@ -22,6 +24,8 @@ func GenerateKey(bits int) (*rsa.PrivateKey, *rsa.PublicKey, error) {
 	return private, &private.PublicKey, nil
 }
 
+// EncodePrivateKey encodes an RSA private key into PEM format.
+// It returns the PEM-encoded byte slice of the private key.
 func EncodePrivateKey(private *rsa.PrivateKey) []byte {
 	return pem.EncodeToMemory(&pem.Block{
 		Bytes: x509.MarshalPKCS1PrivateKey(private),
@@ -29,6 +33,8 @@ func EncodePrivateKey(private *rsa.PrivateKey) []byte {
 	})
 }
 
+// MakeSSHKeyPair generates an SSH key pair (2048 bits) and returns both keys in PEM format.
+// It returns the private key, public key (in SSH authorized_keys format), and any error encountered.
 func MakeSSHKeyPair() ([]byte, []byte, error) {
 	pkey, pubkey, err := GenerateKey(2048)
 	if err != nil {
@@ -43,7 +49,8 @@ func MakeSSHKeyPair() ([]byte, []byte, error) {
 	return EncodePrivateKey(pkey), pub, nil
 }
 
-// EncodeSSHKey
+// EncodeSSHKey encodes an RSA public key into SSH authorized_keys format.
+// It converts the public key to SSH format and returns the marshaled authorized key bytes.
 func EncodeSSHKey(public *rsa.PublicKey) ([]byte, error) {
 	publicKey, err := ssh.NewPublicKey(public)
 	if err != nil {

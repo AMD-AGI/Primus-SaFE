@@ -72,11 +72,11 @@ type WorkspaceResponseItem struct {
 	// User id of workspace creator
 	UserId string `json:"userId"`
 	// The target expected number of nodes of workspace
-	TargetNode int `json:"targetNode"`
+	TargetNodeCount int `json:"targetNodeCount"`
 	// The current total number of nodes
-	CurrentNode int `json:"currentNode"`
+	CurrentNodeCount int `json:"currentNodeCount"`
 	// The current total number of abnormal nodes
-	AbnormalNode int `json:"abnormalNode"`
+	AbnormalNodeCount int `json:"abnormalNodeCount"`
 	// The status of workspace, such as Creating, Running, Abnormal, Deleting
 	Phase string `json:"phase"`
 	// The workspace creation time
@@ -109,7 +109,7 @@ type GetWorkspaceResponse struct {
 	// The used resources of workspace
 	UsedQuota ResourceList `json:"usedQuota"`
 	// The node currently in use has workloads running on it
-	UsedNode int
+	UsedNodeCount int `json:"usedNodeCount"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecretIds []string `json:"imageSecretIds"`
 }

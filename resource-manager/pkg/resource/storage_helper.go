@@ -28,14 +28,18 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
 const (
+	rookCephMonSecret    = "rook-ceph-mon"
+	rookCephMonEndpoints = "rook-ceph-mon-endpoints"
+
 	cephCSIRBDNamespace = "ceph-csi-rbd"
 	cephCSIRBDName      = "ceph-csi-config"
 	cephImage           = "quay.io/ceph/ceph:v18.2.2"
@@ -136,17 +140,18 @@ var nvmeResources = corev1.ResourceRequirements{
 
 type GetQueue func() v1.RequestWorkQueue
 
-func newStorageCluster(ctx context.Context, cluster *v1.Cluster, queue v1.RequestWorkQueue, stopCh chan struct{}) (*storageCluster, error) {
+// newStorageCluster: creates and initializes a new storageCluster with Kubernetes and Rook clients
+func newStorageCluster(ctx context.Context, cli client.Client, cluster *v1.Cluster, queue v1.RequestWorkQueue, stopCh chan struct{}) (*storageCluster, error) {
 	if queue == nil {
 		return nil, fmt.Errorf("queue is nil")
 	}
-	stat := cluster.Status.ControlPlaneStatus
-	_, config, err := k8sclient.NewClientSet(fmt.Sprintf("https://%s.%s.svc", cluster.Name, common.PrimusSafeNamespace),
-		stat.CertData, stat.KeyData, stat.CAData, true)
+	endpoint, err := commoncluster.GetEndpoint(ctx, cli, cluster)
 	if err != nil {
 		return nil, err
 	}
-	client, err := kubernetes.NewForConfig(config)
+
+	stat := cluster.Status.ControlPlaneStatus
+	client, config, err := k8sclient.NewClientSet(endpoint, stat.CertData, stat.KeyData, stat.CAData, true)
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +274,7 @@ func newStorageCluster(ctx context.Context, cluster *v1.Cluster, queue v1.Reques
 	return sc, nil
 }
 
+// get: retrieves a storageCluster by name from the storageClusters map
 func (s *storageClusters) get(name string) (*storageCluster, bool) {
 	s.Lock()
 	defer s.Unlock()
@@ -276,18 +282,21 @@ func (s *storageClusters) get(name string) (*storageCluster, bool) {
 	return sc, ok
 }
 
+// add: adds a storageCluster to the storageClusters map
 func (s *storageClusters) add(name string, sc *storageCluster) {
 	s.Lock()
 	defer s.Unlock()
 	s.clusters[name] = sc
 }
 
+// delete: removes a storageCluster from the storageClusters map
 func (s *storageClusters) delete(name string) {
 	s.Lock()
 	defer s.Unlock()
 	delete(s.clusters, name)
 }
 
+// getCephCluster: gets or creates a Ceph cluster for the given StorageCluster
 func (s *storageCluster) getCephCluster(ctx context.Context, cluster *v1.StorageCluster) (*rookv1.CephCluster, error) {
 	cephCluster, err := s.rookClientset.CephV1().CephClusters(cluster.Name).Get(ctx, cluster.Name, metav1.GetOptions{})
 	if err != nil {
@@ -314,7 +323,7 @@ func (s *storageCluster) getCephCluster(ctx context.Context, cluster *v1.Storage
 				}
 			}
 		}
-		err = permissions(ctx, s.clientset, cluster.Name)
+		err = createPermissions(ctx, s.clientset, cluster.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -553,9 +562,9 @@ func (s *storageCluster) getCephCluster(ctx context.Context, cluster *v1.Storage
 	}
 	cluster.Status.CephClusterStatus.Monitors = endpoints
 
-	secret, err := s.clientset.CoreV1().Secrets(cephCluster.Namespace).Get(ctx, "rook-ceph-mon", metav1.GetOptions{})
+	secret, err := s.clientset.CoreV1().Secrets(cephCluster.Namespace).Get(ctx, rookCephMonSecret, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("get secret %s failed %+v", "rook-ceph-mon", err)
+		return nil, fmt.Errorf("get secret %s failed %+v", rookCephMonSecret, err)
 	}
 	if string(secret.Data["ceph-secret"]) != cluster.Status.CephClusterStatus.SecretKey {
 		cluster.Status.CephClusterStatus.SecretKey = string(secret.Data["ceph-secret"])
@@ -564,6 +573,7 @@ func (s *storageCluster) getCephCluster(ctx context.Context, cluster *v1.Storage
 	return cephCluster, nil
 }
 
+// getCephNodes: gets the required number of Ceph nodes for the cluster
 func (s *storageCluster) getCephNodes(ctx context.Context, count int, cluster, flavor string) ([]rookv1.Node, error) {
 	nodes, err := s.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -628,6 +638,7 @@ func (s *storageCluster) getCephNodes(ctx context.Context, count int, cluster, f
 	return cephNodes, nil
 }
 
+// delete: handles the deletion of a StorageCluster and its associated resources
 func (s *storageCluster) delete(ctx context.Context, cluster *v1.StorageCluster, clusters *v1.ClusterList) error {
 	for _, kc := range clusters.Items {
 		for _, storage := range kc.Spec.Storages {
@@ -679,6 +690,7 @@ func (s *storageCluster) delete(ctx context.Context, cluster *v1.StorageCluster,
 	return nil
 }
 
+// getStorage: gets or creates storage resources based on storage type
 func (s *storageCluster) getStorage(ctx context.Context, cluster *v1.StorageCluster, kc *v1.Cluster, storage v1.Storage) (*v1.StorageStatus, error) {
 	name := fmt.Sprintf("%s-%s", kc.Name, storage.Name)
 	if cluster.Status.Phase != v1.Ready {
@@ -695,6 +707,7 @@ func (s *storageCluster) getStorage(ctx context.Context, cluster *v1.StorageClus
 	return &v1.StorageStatus{Storage: storage}, nil
 }
 
+// getObjectStore: gets or creates a Ceph object store for OBS storage type
 func (s *storageCluster) getObjectStore(ctx context.Context, cluster *v1.StorageCluster, obsName string, storage v1.Storage) (*v1.StorageStatus, error) {
 	username := storage.Name
 	namespace := cluster.Name
@@ -891,6 +904,7 @@ func (s *storageCluster) getObjectStore(ctx context.Context, cluster *v1.Storage
 	return status, nil
 }
 
+// getRBD: gets or creates a Ceph block pool for RBD storage type
 func (s *storageCluster) getRBD(ctx context.Context, cluster *v1.StorageCluster, name string, storage v1.Storage) (*v1.StorageStatus, error) {
 	namespace := cluster.Name
 	status := &v1.StorageStatus{
@@ -992,6 +1006,7 @@ func (s *storageCluster) getRBD(ctx context.Context, cluster *v1.StorageCluster,
 	return status, nil
 }
 
+// getFileSystem: gets or creates a Ceph filesystem for FS storage type
 func (s *storageCluster) getFileSystem(ctx context.Context, cluster *v1.StorageCluster, name string, storage v1.Storage) (*v1.StorageStatus, error) {
 	namespace := cluster.Name
 	status := &v1.StorageStatus{
@@ -1127,6 +1142,7 @@ func (s *storageCluster) getFileSystem(ctx context.Context, cluster *v1.StorageC
 	return status, nil
 }
 
+// deleteStorage: deletes storage resources based on storage type
 func (s *storageCluster) deleteStorage(ctx context.Context, cluster *v1.StorageCluster, kc *v1.Cluster, storage v1.Storage) error {
 	name := fmt.Sprintf("%s-%s", kc.Name, storage.Name)
 	klog.Infof("storageCluster %s deleteStorage name %s", cluster.Name, name)
@@ -1141,6 +1157,7 @@ func (s *storageCluster) deleteStorage(ctx context.Context, cluster *v1.StorageC
 	return nil
 }
 
+// deleteObjectStore: deletes a Ceph object store and its user
 func (s *storageCluster) deleteObjectStore(ctx context.Context, cluster *v1.StorageCluster, obsName, userName string) error {
 	klog.Infof("storageCluster deleteObjectStore obsName %s userName %s", obsName, userName)
 	namespace := cluster.Name
@@ -1155,6 +1172,7 @@ func (s *storageCluster) deleteObjectStore(ctx context.Context, cluster *v1.Stor
 	return nil
 }
 
+// deleteRBD: deletes a Ceph block pool
 func (s *storageCluster) deleteRBD(ctx context.Context, cluster *v1.StorageCluster, name string) error {
 	err := s.rookClientset.CephV1().CephBlockPools(cluster.Name).Delete(ctx, name, metav1.DeleteOptions{})
 	if err != nil && !errors.IsNotFound(err) {
@@ -1163,18 +1181,20 @@ func (s *storageCluster) deleteRBD(ctx context.Context, cluster *v1.StorageClust
 	return nil
 }
 
+// deleteFileSystem: deletes a Ceph filesystem
 func (s *storageCluster) deleteFileSystem(ctx context.Context, cluster *v1.StorageCluster, name string) error {
 	err := s.rookClientset.CephV1().CephFilesystems(cluster.Name).Delete(ctx, name, metav1.DeleteOptions{})
 	if err != nil && !errors.IsNotFound(err) {
-		return fmt.Errorf("failed to delete ceph block pool %s error  %v", cluster.Name, err)
+		return fmt.Errorf("failed to delete ceph filesystem %s error  %v", cluster.Name, err)
 	}
 	return nil
 }
 
+// getEndPoints: retrieves the Ceph monitor endpoints
 func (s *storageCluster) getEndPoints(ctx context.Context, namespace string) ([]string, error) {
-	cm, err := s.clientset.CoreV1().ConfigMaps(namespace).Get(ctx, "rook-ceph-mon-endpoints", metav1.GetOptions{})
+	cm, err := s.clientset.CoreV1().ConfigMaps(namespace).Get(ctx, rookCephMonEndpoints, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get config map %s errpr  %v", "rook-ceph-mon-endpoints", err)
+		return nil, fmt.Errorf("failed to get config map %s errpr  %v", rookCephMonEndpoints, err)
 	}
 	endpoints := make([]string, 0)
 	ep := strings.Split(cm.Data["data"], ",")
@@ -1187,7 +1207,8 @@ func (s *storageCluster) getEndPoints(ctx context.Context, namespace string) ([]
 	return endpoints, nil
 }
 
-func permissions(ctx context.Context, client kubernetes.Interface, namespace string) error {
+// createPermissions: creates the required RBAC resources for the storage cluster
+func createPermissions(ctx context.Context, client kubernetes.Interface, namespace string) error {
 	for _, sa := range serviceAccounts {
 		sa.Namespace = namespace
 		_, err := client.CoreV1().ServiceAccounts(namespace).Create(ctx, sa, metav1.CreateOptions{})
@@ -1234,6 +1255,7 @@ func permissions(ctx context.Context, client kubernetes.Interface, namespace str
 	return nil
 }
 
+// deletePermissions: deletes the RBAC resources for the storage cluster
 func deletePermissions(ctx context.Context, client kubernetes.Interface, namespace string) error {
 	for _, sa := range serviceAccounts {
 		sa.Namespace = namespace
@@ -1629,6 +1651,7 @@ func nodeAffinity(value string) *corev1.NodeAffinity {
 	}
 }
 
+// replicated: creates a ReplicatedSpec based on the storage configuration
 func replicated(storage v1.Storage) rookv1.ReplicatedSpec {
 	if storage.Replicated == nil {
 		return rookv1.ReplicatedSpec{
