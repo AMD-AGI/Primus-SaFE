@@ -85,6 +85,7 @@ func newClusterInformer(ctx context.Context, cluster *v1.Cluster,
 	if err != nil {
 		return nil, err
 	}
+	klog.Infof("create cluster informer, cluster: %s, endpoint: %s", cluster.Name, endpoint)
 	return &ClusterInformer{
 		ctx:               ctx,
 		name:              cluster.Name,
@@ -203,8 +204,8 @@ func (r *ClusterInformer) handleResource(_ context.Context, oldObj, newObj inter
 			msg.workloadId, msg.gvk.Kind, newUnstructured.GetGeneration(), msg.dispatchCount)
 	case ResourceDel:
 		if oldUnstructured, ok := oldObj.(*unstructured.Unstructured); ok {
-			klog.Infof("delete object: %s/%s, workload:%s, kind: %s, generation: %d, dispatch.cnt: %d",
-				oldUnstructured.GetNamespace(), oldUnstructured.GetName(),
+			klog.Infof("delete object: %s/%s, uid: %s, workload:%s, kind: %s, generation: %d, dispatch.cnt: %d",
+				oldUnstructured.GetNamespace(), oldUnstructured.GetName(), oldUnstructured.GetUID(),
 				msg.workloadId, msg.gvk.Kind, oldUnstructured.GetGeneration(), msg.dispatchCount)
 		}
 	}

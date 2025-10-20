@@ -13,11 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/klog/v2"
+
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
 var (
@@ -234,4 +235,9 @@ func (conn *WebsocketConn) WindowNotify(ctx context.Context, ch chan *remotecomm
 // ClosedChan returns a channel that is closed when the connection is closed.
 func (conn *WebsocketConn) ClosedChan() chan struct{} {
 	return conn.closeCh
+}
+
+// RawCommand returns the raw command string.
+func (conn *WebsocketConn) RawCommand() string {
+	return ""
 }

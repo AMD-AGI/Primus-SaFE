@@ -57,6 +57,8 @@ func (om *ObjectManager) AddOrReplace(id string, obj Object) {
 	om.objects[id] = obj
 }
 
+// Add: adds a new object to the manager.
+// if the object already exists, return the error
 func (om *ObjectManager) Add(id string, obj Object) error {
 	om.mu.Lock()
 	defer om.mu.Unlock()
@@ -82,6 +84,7 @@ func (om *ObjectManager) Delete(id string) error {
 	return nil
 }
 
+// Clear: clear all objects of the manager
 func (om *ObjectManager) Clear() {
 	om.mu.Lock()
 	defer om.mu.Unlock()
@@ -101,6 +104,7 @@ func (om *ObjectManager) Get(id string) (Object, bool) {
 	return obj, exists
 }
 
+// Has: checks if a object exists in the manager.
 func (om *ObjectManager) Has(id string) bool {
 	om.mu.RLock()
 	defer om.mu.RUnlock()

@@ -9,6 +9,7 @@ import (
 	"context"
 	"net"
 	"sync/atomic"
+	"time"
 
 	"k8s.io/klog/v2"
 )
@@ -32,10 +33,22 @@ type SshServer struct {
 	inShutdown atomic.Bool // true when server is in shutdown
 }
 
-// ListenAndServe starts listening on the configured address and serves connections.
-// The method returns when the provided context is done, when Shutdown is called,
-// or when a non-recoverable error occurs.
-func (s *SshServer) ListenAndServe(ctx context.Context) error {
+// NewSshServer: creates a new SSH server instance with the specified address and handler.
+// It initializes the server with a default maximum connection limit of MaxSSHConnections.
+// Returns a pointer to the newly created SshServer.
+func NewSshServer(addr string, handler SshHandler) *SshServer {
+	return &SshServer{
+		Addr:    addr,
+		Handler: handler,
+	}
+}
+
+// Start: starts the SSH server and begins listening for incoming connections.
+// It creates a TCP listener on the configured address and accepts incoming connections,
+// dispatching each connection to the handler in a separate goroutine.
+// The server respects the context for cancellation and handles shutdown gracefully.
+// Returns an error if the server fails to start or encounters an unrecoverable error.
+func (s *SshServer) Start(ctx context.Context) error {
 	cfg := net.ListenConfig{}
 	var err error
 	s.listener, err = cfg.Listen(ctx, "tcp", s.Addr)
@@ -54,13 +67,13 @@ func (s *SshServer) ListenAndServe(ctx context.Context) error {
 			// If context was canceled, return nil.
 			select {
 			case <-ctx.Done():
-				return nil
+				return ctx.Err()
 			default:
 				klog.ErrorS(err, "failed to accept connection")
+				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 		}
-
 		// If no handler is provided, close the connection immediately.
 		if s.Handler == nil {
 			_ = conn.Close()
@@ -78,8 +91,10 @@ func (s *SshServer) ListenAndServe(ctx context.Context) error {
 	}
 }
 
-// Shutdown marks the server as shutting down and closes the listener.
-// It returns the error from listener.Close() when applicable.
+// Shutdown: gracefully shuts down the SSH server by closing the listener.
+// It sets the shutdown flag and closes the underlying network listener,
+// preventing new connections from being accepted.
+// Returns an error if closing the listener fails.
 func (s *SshServer) Shutdown() error {
 	s.inShutdown.Store(true)
 	if s.listener != nil {

@@ -16,13 +16,14 @@ func (h *Handler) GetEnvs(c *gin.Context) {
 	handle(c, h.getEnvs)
 }
 
-// List the features supported by the backend
+// List the environment variables supported by the backend
 func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 	return types.GetEnvResponse{
 		EnableLog:         commonconfig.IsOpenSearchEnable(),
 		EnableLogDownload: commonconfig.IsS3Enable(),
 		EnableSSH:         commonconfig.IsSSHEnable(),
 		AuthoringImage:    commonconfig.GetAuthoringImage(),
+		SSHIP:             commonconfig.GetSSHServerIP(),
 		SSHPort:           commonconfig.GetSSHServerPort(),
 	}, nil
 }

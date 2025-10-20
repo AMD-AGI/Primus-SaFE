@@ -6,9 +6,16 @@
 package types
 
 type GetEnvResponse struct {
-	EnableLogDownload bool   `json:"enableLogDownload"`
-	EnableLog         bool   `json:"enableLog"`
-	EnableSSH         bool   `json:"enableSsh"`
-	AuthoringImage    string `json:"authoringImage"`
-	SSHPort           int  `json:"sshPort"`
+	// Whether to enable log download.
+	EnableLogDownload bool `json:"enableLogDownload"`
+	// Whether to enable the entire logging functionality, including log download.
+	EnableLog bool `json:"enableLog"`
+	// Whether to enable ssh include webshell.
+	EnableSSH bool `json:"enableSsh"`
+	// The image used for authoring.
+	AuthoringImage string `json:"authoringImage"`
+	// The port for ssh
+	SSHPort int `json:"sshPort"`
+	// The ip for ssh
+	SSHIP string `json:"sshIP"`
 }

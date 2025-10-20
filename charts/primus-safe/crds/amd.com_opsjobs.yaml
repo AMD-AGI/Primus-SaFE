@@ -43,25 +43,26 @@ spec:
           spec:
             properties:
               entryPoint:
-                description: opsjob entryPoint, required in base64 encoding, only
-                  for preflight
+                description: Opsjob entryPoint(startup command), required in base64,
+                  only for preflight
                 type: string
               env:
                 additionalProperties:
                   type: string
-                description: environment variables
+                description: Environment variables
                 type: object
               hostpath:
-                description: the hostpath for opsjob mounting.
+                description: The hostpath for opsjob mounting.
                 items:
                   type: string
                 type: array
               image:
-                description: opsjob image address, only for preflight
+                description: Opsjob image address, only for preflight
                 type: string
               inputs:
-                description: The resource objects to be processed, e.g., node. Multiple
-                  entries will be processed sequentially.
+                description: |-
+                  The resource objects to be processed, e.g., {{"name": "node", "value": "tus1-p8-g6"}}.
+                  Multiple entries will be processed sequentially.
                 items:
                   properties:
                     name:
@@ -83,14 +84,13 @@ spec:
                     description: Requested CPU core count (e.g., 128)
                     type: string
                   ephemeralStorage:
-                    description: 'ephemeral-storage for pod，default: 50Gi'
+                    description: Ephemeral-storage for pod. Default is 50Gi
                     type: string
                   gpu:
                     description: Requested GPU card count (e.g., 8)
                     type: string
                   gpuName:
-                    description: This field is set internally to match the resource
-                      supported by the workspace. e.g. amd.com/gpu
+                    description: This field is set internally. e.g. amd.com/gpu
                     type: string
                   memory:
                     description: Requested Memory size (e.g., 128Gi)
@@ -113,14 +113,14 @@ spec:
                 - replica
                 type: object
               timeoutSecond:
-                description: ops-job Timeout (in seconds), Less than or equal to 0
+                description: Opsjob Timeout (in seconds), Less than or equal to 0
                   means no timeout
                 type: integer
               ttlSecondsAfterFinished:
-                description: the lifecycle of ops-job after it finishes
+                description: The lifecycle of ops-job after it finishes
                 type: integer
               type:
-                description: 'the type of ops-job, valid values include: addon/preflight/dumplog'
+                description: 'The type of ops-job, valid values include: addon/preflight/dumplog'
                 type: string
             required:
             - inputs
@@ -130,7 +130,7 @@ spec:
           status:
             properties:
               conditions:
-                description: ops job's conditions
+                description: Description of the job execution process
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -187,11 +187,12 @@ spec:
                   type: object
                 type: array
               finishedAt:
-                description: ops job's end time
+                description: Opsjob end time
                 format: date-time
                 type: string
               outputs:
-                description: ops job's output
+                description: Opsjob output. For example, the download log URL or the
+                  preflight check results.
                 items:
                   properties:
                     name:
@@ -204,10 +205,10 @@ spec:
                   type: object
                 type: array
               phase:
-                description: ops job's phase
+                description: 'The job status: Succeeded/Failed/Running/Pending'
                 type: string
               startedAt:
-                description: ops job's start time
+                description: Opsjob start time
                 format: date-time
                 type: string
             type: object

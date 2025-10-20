@@ -94,9 +94,10 @@ func TestGetPolicyRules(t *testing.T) {
 		},
 	}
 
+	var a Authorizer
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rules := getPolicyRules(role, tt.resourceKind, tt.resourceName, tt.isOwner, tt.isWorkspaceUser)
+			rules := a.getPolicyRules(role, tt.resourceKind, tt.resourceName, tt.isOwner, tt.isWorkspaceUser)
 			assert.Len(t, rules, tt.expectedRulesLen)
 		})
 	}

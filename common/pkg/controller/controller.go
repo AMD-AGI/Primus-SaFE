@@ -14,18 +14,28 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 )
 
+// Custom controller structure including work queue, processor, and concurrency control parameters
 type Controller[T comparable] struct {
 	queue         workqueue.TypedRateLimitingInterface[T]
 	handler       Handler[T]
 	MaxConcurrent int
 }
 
+// Type definition for queue processing function
 type QueueHandler[T comparable] func(message T)
 
+// Controller processor interface defining actual business logic
 type Handler[T comparable] interface {
 	Do(ctx context.Context, message T) (ctrlruntime.Result, error)
 }
 
+// Create a new controller instance
+// Parameters:
+//
+//	h: Processor implementing the Handler interface
+//	concurrent: Maximum concurrent processing count
+//
+// Returns: Initialized Controller instance
 func NewController[T comparable](h Handler[T], concurrent int) *Controller[T] {
 	return &Controller[T]{
 		handler: h,
@@ -36,6 +46,7 @@ func NewController[T comparable](h Handler[T], concurrent int) *Controller[T] {
 	}
 }
 
+// Similar to the above, creates a new controller instance using the provided queue
 func NewControllerWithQueue[T comparable](h Handler[T], queue workqueue.TypedRateLimitingInterface[T], concurrent int) *Controller[T] {
 	return &Controller[T]{
 		handler:       h,
@@ -44,6 +55,12 @@ func NewControllerWithQueue[T comparable](h Handler[T], queue workqueue.TypedRat
 	}
 }
 
+// Start the controller run loop
+// Parameters:
+//
+//	ctx: Context for controlling goroutine lifecycle
+//
+// Functionality: Starts background goroutine to continuously process messages in the queue
 func (c *Controller[T]) Run(ctx context.Context) {
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
 		for {
@@ -54,6 +71,17 @@ func (c *Controller[T]) Run(ctx context.Context) {
 	}, time.Second*10)
 }
 
+// Process the next message in the queue
+// Parameters:
+//
+//	ctx: Context
+//
+// Return value:
+//
+//	true: Continue processing next message
+//	false: Stop processing (queue closed)
+//
+// Functionality: Gets message from queue and calls processor to handle it, decides whether to requeue based on result
 func (c *Controller[T]) processNext(ctx context.Context) bool {
 	req, shutdown := c.queue.Get()
 	if shutdown {
@@ -80,14 +108,25 @@ func (c *Controller[T]) processNext(ctx context.Context) bool {
 	return true
 }
 
+// Add message to processing queue
+// Parameters:
+//
+//	message: Message object to be processe
 func (c *Controller[T]) Add(message T) {
 	c.queue.Add(message)
 }
 
+// Add message to queue after specified delay
+// Parameters:
+//
+//	message: Message object to be processed
+//	duration: Delay time
 func (c *Controller[T]) AddAfter(message T, duration time.Duration) {
 	c.queue.AddAfter(message, duration)
 }
 
+// Get current queue length
+// Return value: Number of messages waiting to be processed in the queue
 func (c *Controller[T]) GetQueueSize() int {
 	return c.queue.Len()
 }

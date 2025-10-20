@@ -16,7 +16,6 @@ type MachineStatusApplyConfiguration struct {
 	HostName      *string                           `json:"hostName,omitempty"`
 	Phase         *amdv1.NodePhase                  `json:"phase,omitempty"`
 	PrivateIP     *string                           `json:"privateIP,omitempty"`
-	PublicIP      *string                           `json:"publicIP,omitempty"`
 	CommandStatus []CommandStatusApplyConfiguration `json:"commandStatus,omitempty"`
 }
 
@@ -47,14 +46,6 @@ func (b *MachineStatusApplyConfiguration) WithPhase(value amdv1.NodePhase) *Mach
 // If called multiple times, the PrivateIP field is set to the value of the last call.
 func (b *MachineStatusApplyConfiguration) WithPrivateIP(value string) *MachineStatusApplyConfiguration {
 	b.PrivateIP = &value
-	return b
-}
-
-// WithPublicIP sets the PublicIP field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the PublicIP field is set to the value of the last call.
-func (b *MachineStatusApplyConfiguration) WithPublicIP(value string) *MachineStatusApplyConfiguration {
-	b.PublicIP = &value
 	return b
 }
 

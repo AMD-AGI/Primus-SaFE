@@ -15,9 +15,6 @@ import (
 	"strconv"
 	"time"
 
-	client2 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
-
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +29,8 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
@@ -45,20 +44,26 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		return err
 	}
 
+	isInteractive := sessionInfo.isPty || IsShellCommand(sessionInfo.userConn.RawCommand())
+	execOptions := &corev1.PodExecOptions{
+		Container: sessionInfo.userInfo.Container,
+		Command:   []string{sessionInfo.userInfo.CMD},
+		Stdin:     isInteractive,
+		Stdout:    true,
+		Stderr:    true,
+		TTY:       sessionInfo.isPty,
+	}
+	if !isInteractive {
+		execOptions.Command = append(execOptions.Command, "-c", sessionInfo.userConn.RawCommand())
+	}
+
 	req := k8sClients.ClientSet().CoreV1().RESTClient().Post().
 		Resource("pods").
 		Name(sessionInfo.userInfo.Pod).
 		Namespace(sessionInfo.userInfo.Namespace).
 		SubResource("exec").
 		Timeout(time.Hour).
-		VersionedParams(&corev1.PodExecOptions{
-			Container: sessionInfo.userInfo.Container,
-			Command:   []string{sessionInfo.userInfo.CMD},
-			Stdin:     true,
-			Stdout:    true,
-			Stderr:    true,
-			TTY:       sessionInfo.isPty,
-		}, scheme.ParameterCodec)
+		VersionedParams(execOptions, scheme.ParameterCodec)
 
 	executor, err := remotecommand.NewSPDYExecutor(k8sClients.RestConfig(), "POST", req.URL())
 	if err != nil {
@@ -69,15 +74,12 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		Height: uint16(sessionInfo.rows),
 	}
 
-	go sessionInfo.userConn.WindowNotify(ctx, sessionInfo.size)
-
-	_, err = sessionInfo.userConn.Write([]byte("Connection established\n"))
-	if err != nil {
-		return fmt.Errorf("user conn err: %v", err)
+	if isInteractive {
+		go sessionInfo.userConn.WindowNotify(ctx, sessionInfo.size)
 	}
 
 	nowTime := dbutils.NullMetaV1Time(&metav1.Time{Time: time.Now().UTC()})
-	recordId, err := h.dbClient.InsertSshSessionRecord(ctx, &client2.SshSessionRecords{
+	recordId, err := h.dbClient.InsertSshSessionRecord(ctx, &dbclient.SshSessionRecords{
 		UserId:        sessionInfo.userInfo.User,
 		SshType:       string(sessionInfo.sshType),
 		Namespace:     sessionInfo.userInfo.Namespace,
@@ -97,13 +99,18 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 	errCh := make(chan struct{})
 	go func(errCh chan struct{}) {
 		defer close(errCh)
-		err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+		options := remotecommand.StreamOptions{
 			Stdin:             sessionInfo.userConn,
 			Stdout:            sessionInfo.userConn,
 			Stderr:            sessionInfo.userConn,
 			TerminalSizeQueue: sessionInfo,
 			Tty:               sessionInfo.isPty,
-		})
+		}
+		if !isInteractive {
+			options.Stdin = nil
+			options.TerminalSizeQueue = nil
+		}
+		err = executor.StreamWithContext(ctx, options)
 		message := "The underlying connection is disconnected normally"
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -122,8 +129,8 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 	case <-sessionInfo.userConn.ClosedChan():
 	}
 
-	klog.Infof("Connection to the Pod(%s/%s) has ended.", workload.Spec.Workspace, sessionInfo.userInfo.Pod)
-	_, err = sessionInfo.userConn.Write([]byte(fmt.Sprintf("ssh connection closed, reason: %s\n", sessionInfo.userConn.ExitReason())))
+	klog.Infof("Connection to the Pod(%s/%s) has ended, reason: %s", workload.Spec.Workspace,
+		sessionInfo.userInfo.Pod, sessionInfo.userConn.ExitReason())
 	return nil
 }
 
@@ -338,4 +345,14 @@ type forwardChannelData struct {
 	DestPort   uint32
 	OriginAddr string
 	OriginPort uint32
+}
+
+func IsShellCommand(cmd string) bool {
+	shells := []string{"sh", "bash", "zsh", "ash", "ksh", "csh", "tcsh", "bash --login -c bash"}
+	for _, shell := range shells {
+		if cmd == shell {
+			return true
+		}
+	}
+	return false
 }

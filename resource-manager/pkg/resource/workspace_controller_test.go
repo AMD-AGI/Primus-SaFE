@@ -87,7 +87,7 @@ func TestDeleteWorkspace(t *testing.T) {
 	assert.NilError(t, err)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: workspace.Name}, workspace)
 	assert.NilError(t, err)
-	assert.Equal(t, workspace.Status.Phase, v1.WorkspaceDeleted)
+	assert.Equal(t, workspace.Status.Phase, v1.WorkspaceDeleting)
 	assert.Equal(t, controllerutil.ContainsFinalizer(workspace, v1.WorkspaceFinalizer), false)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode1.Name}, adminNode1)
 	assert.NilError(t, err)

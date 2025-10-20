@@ -15,7 +15,18 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
-func CleanupJobRelatedInfo(ctx context.Context, cli client.Client, opsJobId string) error {
+// CleanupJobRelatedResource cleans up all resources related to a specific OpsJob
+// This function deletes all workloads and faults that are labeled with the given opsJobId
+// Parameters:
+//
+//	ctx: Context for the operation
+//	cli: Controller runtime client used to interact with Kubernetes API
+//	opsJobId: The ID of the OpsJob whose related resources need to be cleaned up
+//
+// Returns:
+//
+//	error: Any error encountered during the cleanup process, or nil if successful
+func CleanupJobRelatedResource(ctx context.Context, cli client.Client, opsJobId string) error {
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.OpsJobIdLabel: opsJobId})
 
 	workloadList := &v1.WorkloadList{}

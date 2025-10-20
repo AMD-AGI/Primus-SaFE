@@ -43,13 +43,14 @@ spec:
           spec:
             properties:
               cluster:
-                description: The name of the cluster that the workspace belongs to
+                description: The cluster that the workspace belongs to
                 type: string
               enablePreempt:
-                description: Is preemption enabled. default is false
+                description: Whether preemption is enabled. If enabled, higher-priority
+                  workload will preempt the lower-priority one
                 type: boolean
               imageSecrets:
-                description: image secrets for workspace use
+                description: Workspace image secret ID, used for downloading images
                 items:
                   description: ObjectReference contains enough information to let
                     you inspect or modify the referred object.
@@ -97,27 +98,34 @@ spec:
                 type: array
               isDefault:
                 description: Set the workspace as the default workspace (i.e., all
-                  users can access it).
+                  users can access it)
                 type: boolean
               managers:
-                description: the manager's user_id of workspace
+                description: User id of the workspace administrator
                 items:
                   type: string
                 type: array
               nodeFlavor:
-                description: node flavor id
+                description: The node flavor id of workspace, A workspace supports
+                  only one node flavor
                 type: string
               queuePolicy:
                 description: |-
-                  Queuing policy for tasks submitted in this workspace.
-                  All tasks currently share the same policy (no per-task customization). default is fifo.
+                  Queuing policy for workloads submitted in this workspace.
+                  All workloads currently share the same policy, supports fifo (default) and balance.
+                  1. "Fifo" means first-in, first-out: the workload that enters the queue first is served first.
+                     If the front workload does not meet the conditions for dispatch, it will wait indefinitely,
+                     and other tasks in the queue will also be blocked waiting.
+                  2. "Balance" allows any workload that meets the resource conditions to be dispatched,
+                     avoiding blockage by the front workload in the queue. However, it is still subject to priority constraints.
+                     If a higher-priority task cannot be dispatched, lower-priority tasks will wait.
                 type: string
               replica:
-                description: node count
+                description: The expected number of nodes in the workspace
                 type: integer
               scopes:
-                description: Service modules available in this space. No limitation
-                  if not specified.
+                description: 'Service modules available in this space. support: Train/Infer/Authoring,
+                  No limitation if not specified'
                 items:
                   enum:
                   - Train
@@ -126,7 +134,7 @@ spec:
                   type: string
                 type: array
               volumes:
-                description: volumes used in this workspace
+                description: Volumes used in this workspace
                 items:
                   properties:
                     accessMode:
@@ -178,8 +186,10 @@ spec:
           status:
             properties:
               abnormalReplica:
+                description: The abnormal node count of workspace
                 type: integer
               availableReplica:
+                description: The available node count of workspace
                 type: integer
               availableResources:
                 additionalProperties:
@@ -188,9 +198,11 @@ spec:
                   - type: string
                   pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                   x-kubernetes-int-or-string: true
-                description: ResourceList is a set of (resource name, quantity) pairs.
+                description: The available resource of workspace
                 type: object
               phase:
+                description: The status of workspace, such as Creating, Running, Abnormal,
+                  Deleting
                 type: string
               totalResources:
                 additionalProperties:
@@ -199,9 +211,10 @@ spec:
                   - type: string
                   pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                   x-kubernetes-int-or-string: true
-                description: ResourceList is a set of (resource name, quantity) pairs.
+                description: The total resource of workspace
                 type: object
               updateTime:
+                description: Last update time
                 format: date-time
                 type: string
             type: object

@@ -119,7 +119,7 @@ func (v *FaultValidator) validateOnCreation(fault *v1.Fault) error {
 	return nil
 }
 
-func (v *FaultValidator) validateOnUpdate(newFault, oldFault *v1.Fault) error {
+func (v *FaultValidator) validateOnUpdate(newFault, _ *v1.Fault) error {
 	if err := v.validateFaultSpec(newFault); err != nil {
 		return err
 	}

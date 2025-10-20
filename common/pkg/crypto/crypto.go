@@ -15,19 +15,27 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/crypto"
 )
 
+// Provides AES encryption/decryption functionality with singleton pattern
 type Crypto struct {
 	key string
 }
 
+// once - Ensures singleton instance creation
+// instance - Singleton instance of Crypto
 var (
 	once     sync.Once
 	instance *Crypto
 )
 
+// AESKeyLen - AES key length requirement (16 bytes for AES-128)
 const (
 	AESKeyLen = 16
 )
 
+// Create or return singleton Crypto instance
+// Initializes crypto key from configuration if crypto is enabled
+// Validates key length requirements
+// Returns: Singleton Crypto instance
 func NewCrypto() *Crypto {
 	once.Do(func() {
 		key := ""
@@ -35,7 +43,7 @@ func NewCrypto() *Crypto {
 			var err error
 			key = commonconfig.GetCryptoKey()
 			if key == "" {
-				klog.ErrorS(err, "failed to get crypto key")
+				klog.ErrorS(err, "failed to get private key for crypto")
 				return
 			} else if len(key) != AESKeyLen {
 				klog.ErrorS(err, fmt.Sprintf("invalid crypto key, the length must be %d", AESKeyLen))
@@ -49,6 +57,15 @@ func NewCrypto() *Crypto {
 	return instance
 }
 
+// Encrypt plaintext data using AES encryption
+// Parameters:
+//
+//	plainText: Byte array of data to encrypt
+//
+// Returns:
+//
+//	Encrypted string data or original string if crypto disabled
+//	Error if encryption fails or key is missing
 func (c *Crypto) Encrypt(plainText []byte) (string, error) {
 	if !commonconfig.IsCryptoEnable() {
 		return string(plainText), nil
@@ -59,6 +76,15 @@ func (c *Crypto) Encrypt(plainText []byte) (string, error) {
 	return crypto.Encrypt(plainText, []byte(c.key))
 }
 
+// Decrypt ciphertext data using AES decryption
+// Parameters:
+//
+//	ciphertext: Encrypted string data to decrypt
+//
+// Returns:
+//
+//	Decrypted string data or original string if crypto disabled
+//	Error if decryption fails or key is missing
 func (c *Crypto) Decrypt(ciphertext string) (string, error) {
 	if !commonconfig.IsCryptoEnable() {
 		return ciphertext, nil

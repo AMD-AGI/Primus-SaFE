@@ -2,10 +2,12 @@ package image_handlers
 
 import (
 	"encoding/base64"
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
-	"strconv"
+
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
 func (h *ImageHandler) updateImportProgress(c *gin.Context) (interface{}, error) {

@@ -12,90 +12,94 @@ import (
 )
 
 type CreateUserRequest struct {
-	// user's name
+	// The username, required
 	Name string `json:"name,omitempty"`
-	// user's mail
+	// The user mail
 	Email string `json:"email,omitempty"`
-	// user's type. includes: default, teams
+	// The user type, such as default, teams, required
 	Type v1.UserType `json:"type,omitempty"`
-	// the workspaces which user can access
-	Workspaces []string `json:"workspaces,omitempty"`
-	// password
+	// The user password
 	Password string `json:"password,omitempty"`
-	// user's avatar URL
+	// The workspaces which user can access
+	Workspaces []string `json:"workspaces,omitempty"`
+	// The user avatar URL
 	AvatarUrl string `json:"avatarUrl,omitempty"`
 }
 
 type CreateUserResponse struct {
+	// The user id
 	Id string `json:"id"`
 }
 
 type ListUserRequest struct {
-	// user's name
-	Name        string `form:"name" binding:"omitempty"`
-	Email       string `form:"email" binding:"omitempty"`
+	// The username
+	Name string `form:"name" binding:"omitempty"`
+	// The user mail
+	Email string `form:"email" binding:"omitempty"`
+	// Workspace id accessible to the user.
 	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`
 }
 
 type ListUserResponse struct {
+	// The total number of node templates, not limited by pagination
 	TotalCount int                `json:"totalCount"`
 	Items      []UserResponseItem `json:"items,omitempty"`
 }
 
 type UserResponseItem struct {
-	// user's id
+	// The user id
 	Id string `json:"id"`
-	// user's name
+	// The username
 	Name string `json:"name"`
-	// user's mail
+	// The user mail
 	Email string `json:"email"`
-	// user's type. value includes: default, teams
+	// The user type, such as default, teams
 	Type v1.UserType `json:"type"`
-	// system-admin, default
+	// The user's role, such as system-admin, default
 	Roles []v1.UserRole `json:"roles"`
-	// the workspace's name which user can access
+	// The workspace's id which user can access
 	Workspaces []WorkspaceEntry `json:"workspaces"`
-	// the workspace's name which user can manage
+	// The workspace's id which user can manage
 	ManagedWorkspaces []WorkspaceEntry `json:"managedWorkspaces"`
-	// user's creation time
+	// The user creation time
 	CreationTime string `json:"creationTime"`
-	// 0: normal; 1 frozen
+	// The User restriction type, 0: normal; 1 frozen
 	RestrictedType v1.UserRestrictedType `json:"restrictedType"`
-	// user's avatar URL
+	// The user avatar URL
 	AvatarUrl string `json:"avatarUrl,omitempty"`
 }
 
 type PatchUserRequest struct {
-	// system-admin, default
+	// The user role, such as system-admin, default
 	Roles *[]v1.UserRole `json:"roles,omitempty"`
-	// the workspaces which user can access
+	// The workspaces which user can access
 	Workspaces *[]string `json:"workspaces,omitempty"`
-	// user's avatar URL
+	// The user avatar URL
 	AvatarUrl *string `json:"avatarUrl,omitempty"`
-	// user's password
+	// The user password
 	Password *string `json:"password,omitempty"`
-	// 0: normal; 1 frozen
+	// The User restriction type, 0: normal; 1 frozen
 	RestrictedType *v1.UserRestrictedType `json:"restrictedType,omitempty"`
-	// user's email
+	// The user email
 	Email *string `json:"email,omitempty"`
 }
 
 type UserLoginRequest struct {
-	// teams or default
+	// The user type, such as default, teams
 	Type v1.UserType `json:"type,omitempty"`
-	// user's name
+	// The username
 	Name string `json:"name,omitempty"`
-	// user's password
+	// The user password
 	Password string `json:"password,omitempty"`
-	// whether the request is from console
+	// Whether the request is from console
 	IsFromConsole bool `json:"-"`
 }
 
 type UserLoginResponse struct {
 	UserResponseItem `json:",inline"`
-	// the timestamp when the user's token expires, in seconds.
+	// The timestamp when the user's token expires, in seconds.
 	Expire int64 `json:"expire"`
-	// user's token
+	// The user's token
 	Token string `json:"token"`
 }
 

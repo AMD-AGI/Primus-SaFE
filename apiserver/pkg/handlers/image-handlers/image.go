@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
-	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/cespare/xxhash/v2"
 	manifestv5 "github.com/containers/image/v5/manifest"
 	"github.com/containers/image/v5/transports/alltransports"
@@ -23,10 +22,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
-	"net/http"
-	"strconv"
-	"strings"
-	"time"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
+	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
 func (h *ImageHandler) createImage(c *gin.Context) (interface{}, error) {
