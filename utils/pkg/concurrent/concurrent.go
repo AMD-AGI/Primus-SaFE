@@ -9,6 +9,9 @@ import (
 	"sync"
 )
 
+// Exec executes the given function concurrently for the specified count.
+// It returns the number of successful executions and the first error encountered, if any.
+// The function uses goroutines and waits for all of them to complete before returning.
 func Exec(count int, fn func() error) (int, error) {
 	if count == 0 || fn == nil {
 		return 0, nil

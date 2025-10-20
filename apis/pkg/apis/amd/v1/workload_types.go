@@ -257,17 +257,17 @@ func (w *Workload) IsEnd() bool {
 	return false
 }
 
-func (w *Workload) CostTime() int64 {
-	var costTime time.Duration
+func (w *Workload) ElapsedTime() int64 {
+	var elapsedTime time.Duration
 	if w.IsEnd() {
 		if w.Status.EndTime == nil {
 			return 0
 		}
-		costTime = w.Status.EndTime.Time.Sub(w.CreationTimestamp.Time)
+		elapsedTime = w.Status.EndTime.Time.Sub(w.CreationTimestamp.Time)
 	} else {
-		costTime = time.Now().UTC().Sub(w.CreationTimestamp.Time)
+		elapsedTime = time.Now().UTC().Sub(w.CreationTimestamp.Time)
 	}
-	return int64(costTime.Seconds())
+	return int64(elapsedTime.Seconds())
 }
 
 func (w *Workload) EndTime() time.Time {

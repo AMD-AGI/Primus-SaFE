@@ -65,11 +65,7 @@ func NewClientSet(endpoint, certData, keyData, caData string,
 //	kubernetes.Interface: The Kubernetes client interface
 //	error: Any error encountered during client creation
 func NewClientSetWithRestConfig(cfg *rest.Config) (kubernetes.Interface, error) {
-	client, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
+	return kubernetes.NewForConfig(cfg)
 }
 
 // GetRestConfigInCluster retrieves the REST configuration for in-cluster Kubernetes access

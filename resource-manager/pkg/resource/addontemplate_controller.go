@@ -8,10 +8,7 @@ package resource
 import (
 	"context"
 	"strings"
-	"time"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"gopkg.in/yaml.v2"
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
@@ -23,13 +20,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
+// AddonTemplateController manages AddonTemplate resources by fetching and storing Helm chart default values
 type AddonTemplateController struct {
 	client.Client
 	getter *RESTClientGetter
 }
 
+// SetupAddonTemplateController initializes and registers the AddonTemplateController with the controller manager
 func SetupAddonTemplateController(mgr manager.Manager) error {
 	cfg, err := commonclient.GetRestConfigInCluster()
 	if err != nil {
@@ -51,11 +53,8 @@ func SetupAddonTemplateController(mgr manager.Manager) error {
 	return nil
 }
 
+// Reconcile processes AddonTemplate resources by fetching Helm chart default values and storing them in status
 func (r *AddonTemplateController) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	startTime := time.Now().UTC()
-	defer func() {
-		klog.Infof("Finished reconcile addon template %s cost (%v)", req.Name, time.Since(startTime))
-	}()
 	template := &v1.AddonTemplate{}
 	err := r.Get(ctx, req.NamespacedName, template)
 	if err != nil {
@@ -100,17 +99,17 @@ func (r *AddonTemplateController) Reconcile(ctx context.Context, req ctrlruntime
 		klog.Errorf("loading chart failed: %v", err)
 		return ctrlruntime.Result{}, nil
 	}
-	p := client.MergeFrom(template.DeepCopy())
+	originalTemplate := client.MergeFrom(template.DeepCopy())
 	values, err := yaml.Marshal(chart.Values)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	template.Status.HelmStatus.Values = string(values)
 	for _, raw := range chart.Raw {
-		if raw.Name == "values.yaml" {
-			template.Status.HelmStatus.ValuesYAMl = string(raw.Data)
+		if raw != nil && raw.Name == "values.yaml" {
+			template.Status.HelmStatus.ValuesYAML = string(raw.Data)
 
 		}
 	}
-	return ctrlruntime.Result{}, r.Status().Patch(ctx, template, p)
+	return ctrlruntime.Result{}, r.Status().Patch(ctx, template, originalTemplate)
 }

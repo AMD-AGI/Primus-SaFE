@@ -13,6 +13,9 @@ import (
 	"strings"
 )
 
+// GetLocalIp returns the local IP address of the machine.
+// It iterates through all network interfaces and returns the first non-loopback IPv4 address found.
+// Returns an error if no valid local IP address is found.
 func GetLocalIp() (string, error) {
 	addresses, err := net.InterfaceAddrs()
 	if err != nil {
@@ -28,6 +31,9 @@ func GetLocalIp() (string, error) {
 	return "", errors.New("failed to find the local ip address")
 }
 
+// ConvertIpToInt converts an IPv4 address string to its integer representation.
+// It splits the IP by dots, converts each part to integer, and combines them using bit shifting.
+// Returns 0 if any part of the IP cannot be converted to integer.
 func ConvertIpToInt(ip string) int {
 	values := strings.Split(ip, ".")
 	valuesInt := make([]int, len(values))
@@ -41,6 +47,9 @@ func ConvertIpToInt(ip string) int {
 	return (valuesInt[0] << 24) + (valuesInt[1] << 16) + (valuesInt[2] << 8) + valuesInt[3]
 }
 
+// GetHostname extracts and returns the hostname from a given URI.
+// It parses the URI using url.Parse and returns the hostname component.
+// Returns an empty string if the URI cannot be parsed.
 func GetHostname(uri string) string {
 	parsed, err := url.Parse(uri)
 	if err != nil {
@@ -49,6 +58,9 @@ func GetHostname(uri string) string {
 	return parsed.Hostname()
 }
 
+// GetSchemeHost extracts and returns the scheme and host portion of a URL.
+// It parses the URL and returns a string in the format "scheme://host".
+// Returns an empty string if the URL cannot be parsed or if scheme/host is missing.
 func GetSchemeHost(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
@@ -57,6 +69,10 @@ func GetSchemeHost(rawURL string) string {
 	return parsed.Scheme + "://" + parsed.Host
 }
 
+// GetSecondLevelDomain extracts and returns the second-level domain from a given URI.
+// For example, for "www.example.com", it returns "example.com".
+// Special cases like "127.0.0.1" and "localhost" are returned as-is.
+// Returns the original URI if it cannot be parsed or if it's already a short domain.
 func GetSecondLevelDomain(uri string) string {
 	hostname := GetHostname(uri)
 	if hostname == "" {

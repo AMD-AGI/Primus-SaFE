@@ -182,7 +182,7 @@ func (r *ClusterInformer) handleResource(_ context.Context, oldObj, newObj inter
 		dispatchCount: 0,
 	}
 	if newUnstructured.GetKind() == common.EventKind {
-		if isCaredPodEvent(newUnstructured) {
+		if isRelevantPodEvent(newUnstructured) {
 			r.handler(msg)
 		}
 		return

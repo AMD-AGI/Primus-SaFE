@@ -36,7 +36,7 @@ func newMockWorkspaceReconciler(adminClient client.Client) WorkspaceReconciler {
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: adminClient,
 		},
-		opt:           &defaultWorkspaceOption,
+		option:        &defaultWorkspaceOption,
 		expectations:  make(map[string]sets.Set),
 		clientManager: commonutils.NewObjectManagerSingleton(),
 	}
@@ -196,7 +196,7 @@ func TestWorkspaceNodesAction(t *testing.T) {
 		WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(adminClient)
 
-	_, err := r.handleNodesAction(context.Background(), workspace)
+	_, err := r.processNodesAction(context.Background(), workspace)
 	assert.NilError(t, err)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode1.Name}, adminNode1)
 	assert.NilError(t, err)

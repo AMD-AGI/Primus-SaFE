@@ -67,7 +67,7 @@ type AddonTemplateSpec struct {
 
 type HelmStatus struct {
 	Values     string `json:"values,omitempty"`
-	ValuesYAMl string `json:"valuesYaml,omitempty"`
+	ValuesYAML string `json:"valuesYaml,omitempty"`
 }
 
 type AddonTemplateStatus struct {

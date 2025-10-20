@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +14,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
 func SetupImageImportJobReconciler(mgr ctrlruntime.Manager) error {
@@ -33,7 +35,7 @@ func SetupImageImportJobReconciler(mgr ctrlruntime.Manager) error {
 			Client: mgr.GetClient(),
 		},
 		dbClient:  dbClient,
-		k8sClient: *clientSet,
+		k8sClient: clientSet,
 	}
 	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&batchv1.Job{}).
@@ -67,7 +69,7 @@ func filterImageImportJob(o client.Object) bool {
 type ImageImportJobReconciler struct {
 	*ClusterBaseReconciler
 	dbClient  dbclient.Interface
-	k8sClient kubernetes.Clientset
+	k8sClient kubernetes.Interface
 }
 
 func (r *ImageImportJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
