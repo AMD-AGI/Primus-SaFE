@@ -69,6 +69,7 @@ elif [[ "$cluster_scale" == "large" ]]; then
 fi
 IMAGE_PULL_SECRET="$NAMESPACE-image"
 
+echo
 echo "========================================="
 echo "🔧 Step 2: upgrade primus-safe admin plane"
 echo "========================================="
@@ -120,6 +121,7 @@ install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
 rm -f "$values_yaml"
 
+echo
 echo "========================================="
 echo "🔧 Step 3: upgrade primus-safe data plane"
 echo "========================================="
@@ -138,9 +140,9 @@ sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 
 install_or_upgrade_helm_chart "node-agent" "$values_yaml"
-
 rm -f "$values_yaml"
 
+echo
 echo "==============================="
 echo "🔧 Step 4: All completed!"
 echo "==============================="

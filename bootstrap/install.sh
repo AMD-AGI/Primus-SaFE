@@ -110,7 +110,6 @@ if [[ "$build_image_secret" == "y" ]]; then
   echo "✅ Image registry: \"$image_registry\""
   echo "✅ Image username: \"$image_username\""
 fi
-echo
 
 replicas=1
 cpu=2000m
@@ -125,6 +124,7 @@ elif [[ "$cluster_scale" == "large" ]]; then
   memory=32Gi
 fi
 
+echo
 echo "========================================="
 echo "🔧 Step 2: generate image-pull-secret"
 echo "========================================="
@@ -153,6 +153,7 @@ else
   fi
 fi
 
+echo
 echo "========================================="
 echo "🔧 Step 3: install grafana-operator"
 echo "========================================="
@@ -166,11 +167,11 @@ fi
 values_yaml="grafana-operator/.values.yaml"
 cp "$src_values_yaml" "${values_yaml}"
 
-sed -i "s/imagePullSecrets: \".*\"/imagePullSecrets: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
+sed -i "s/imagePullSecrets: \[\]/imagePullSecrets:\n  - name: $IMAGE_PULL_SECRET/" "$values_yaml"
 install_or_upgrade_helm_chart "grafana-operator" "$values_yaml"
-
 rm -f "$values_yaml"
 
+echo
 echo "========================================="
 echo "🔧 Step 4: install primus-safe admin plane"
 echo "========================================="
@@ -233,6 +234,7 @@ install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
 rm -f "$values_yaml"
 
+echo
 echo "========================================="
 echo "🔧 Step 5: install primus-safe data plane"
 echo "========================================="
@@ -251,9 +253,9 @@ sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 
 install_or_upgrade_helm_chart "node-agent" "$values_yaml"
-
 rm -f "$values_yaml"
 
+echo
 echo "========================================="
 echo "🔧 Step 6: All completed!"
 echo "========================================="
