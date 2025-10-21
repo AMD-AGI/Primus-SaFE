@@ -7,16 +7,21 @@
 
 set -e
 
+if ! command -v unzip &> /dev/null; then
+  sudo apt-get update
+  sudo apt-get install -y unzip
+fi
+
 MANIFEST_DIR="manifests"
-NAMESPACE="primus-safe"
+export NAMESPACE=$NAMESPACE
 PG_PASSWORD=$(kubectl get secret -n "primus-lens" primus-lens-pguser-primus-lens -o jsonpath="{.data.password}" | base64 -d)
 export PG_PASSWORD
+
 rm -rf grafana-operator
-git clone https://github.com/grafana/grafana-operator.git
+unzip ../charts/grafana-operator.zip -d . >/dev/null
 helm upgrade --install -n "$NAMESPACE" grafana-operator grafana-operator/deploy/helm/grafana-operator \
   -f "$MANIFEST_DIR/grafana-operator-values.yaml.tpl"
 rm -rf grafana-operator
-
 
 echo "Installing Grafana in namespace: $NAMESPACE"
 envsubst < "$MANIFEST_DIR/grafana.yaml.tpl" | kubectl apply -n "$NAMESPACE" -f -
