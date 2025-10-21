@@ -63,7 +63,7 @@ func CreateObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	obj, err = k8sClientFactory.DynamicClient().Resource(gvr).Namespace(obj.GetNamespace()).Create(
 		ctx, obj, metav1.CreateOptions{})
 	if err != nil {
-		return err
+		return client.IgnoreAlreadyExists(err)
 	}
 	klog.Infof("create k8s object, name: %s, namespace: %s, uid: %s, generation: %d",
 		obj.GetName(), obj.GetNamespace(), obj.GetUID(), obj.GetGeneration())

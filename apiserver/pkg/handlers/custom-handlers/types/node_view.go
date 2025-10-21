@@ -7,6 +7,8 @@ package types
 
 import (
 	corev1 "k8s.io/api/core/v1"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
 type CreateNodeRequest struct {
@@ -44,6 +46,9 @@ type ListNodeRequest struct {
 	NodeId *string `form:"nodeId" binding:"omitempty,max=64"`
 	// Filter results based on node availability
 	Available *bool `form:"available" binding:"omitempty"`
+	// Filter results based on node phase, such as Ready, SSHFailed, HostnameFailed, Managing, ManagedFailed, Unmanaging, UnmanagedFailed
+	// If specifying multiple kind queries, separate them with commas
+	Phase *v1.NodePhase `form:"phase" binding:"omitempty"`
 	// Filter results based on whether the node has the addon installed
 	IsAddonsInstalled *bool `form:"isAddonsInstalled" binding:"omitempty"`
 	// If enabled, only the node id, node Name and node IP will be returned.
@@ -96,7 +101,7 @@ type NodeResponseItem struct {
 	ClusterId string `json:"clusterId"`
 	// The node's workspace id
 	Workspace WorkspaceEntry `json:"workspace"`
-	// The node's phase, such as Ready, NotReady, ManagedFailed, SSHFailed, HostnameFailed
+	// The node's phase, such as Ready, SSHFailed, HostnameFailed, Managing, ManagedFailed, Unmanaging, UnmanagedFailed
 	Phase string `json:"phase"`
 	// Indicates whether the node can be scheduled in the Kubernetes cluster.
 	Available bool `json:"available"`
