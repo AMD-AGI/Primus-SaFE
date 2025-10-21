@@ -242,7 +242,7 @@ func desireEndpoint(ctx context.Context, clusterName string, client client.Clien
 			{
 				Name:     cfg.Scheme,
 				Protocol: corev1.ProtocolTCP,
-				Port:     9200,
+				Port:     cfg.NodePort,
 			},
 		},
 	}
