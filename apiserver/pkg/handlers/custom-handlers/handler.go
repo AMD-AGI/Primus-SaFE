@@ -7,10 +7,11 @@ package custom_handlers
 
 import (
 	"fmt"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
-	"net/http"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -22,7 +23,6 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -36,7 +36,6 @@ type Handler struct {
 	client.Client
 	clientSet     *kubernetes.Clientset
 	dbClient      dbclient.Interface
-	searchClient  *commonsearch.SearchClient
 	httpClient    httpclient.Interface
 	clientManager *commonutils.ObjectManager
 	auth          *authority.Authorizer
@@ -66,7 +65,6 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 	h := &Handler{
 		Client:        mgr.GetClient(),
 		clientSet:     clientSet,
-		searchClient:  commonsearch.NewClient(),
 		dbClient:      dbClient,
 		httpClient:    httpclient.NewHttpClient(),
 		clientManager: commonutils.NewObjectManagerSingleton(),
