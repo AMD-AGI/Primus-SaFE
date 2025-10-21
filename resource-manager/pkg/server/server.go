@@ -26,22 +26,27 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 )
 
+// scheme is the runtime scheme used by the controller manager
 var (
 	scheme = runtime.NewScheme()
 )
 
+// init: initializes the runtime scheme with required API types
 func init() {
 	utilruntime.Must(clientscheme.AddToScheme(scheme))
 	utilruntime.Must(v1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
+// Server: represents the main server process for the resource manager
+// It coordinates controllers, exporters, and manages the overall lifecycle
 type Server struct {
 	opts        *options.Options
 	ctrlManager *ControllerManager
 	isInited    bool
 }
 
+// NewServer: creates and initializes a new Server instance
 func NewServer() (*Server, error) {
 	s := &Server{
 		opts: &options.Options{},
@@ -52,6 +57,7 @@ func NewServer() (*Server, error) {
 	return s, nil
 }
 
+// init: performs server initialization including options parsing, logging, config loading, and controller setup
 func (s *Server) init() error {
 	var err error
 	if err = s.opts.InitFlags(); err != nil {
@@ -90,6 +96,7 @@ func (s *Server) init() error {
 	return nil
 }
 
+// Start: begins the server operation by starting the controller manager and waiting for shutdown signal
 func (s *Server) Start() {
 	if !s.isInited {
 		klog.Errorf("Please initialize the resource manager first")
@@ -102,14 +109,11 @@ func (s *Server) Start() {
 		return
 	}
 	s.ctrlManager.Wait()
-	s.Stop()
-}
-
-func (s *Server) Stop() {
 	klog.Infof("resource manager stopped")
 	klog.Flush()
 }
 
+// initLogs: initializes logging configuration and sets up the controller runtime logger
 func (s *Server) initLogs() error {
 	if err := commonklog.Init(s.opts.LogfilePath, s.opts.LogFileSize); err != nil {
 		return err
@@ -118,6 +122,7 @@ func (s *Server) initLogs() error {
 	return nil
 }
 
+// initConfig: loads and validates the server configuration from the specified file path
 func (s *Server) initConfig() error {
 	fullPath, err := filepath.Abs(s.opts.Config)
 	if err != nil {

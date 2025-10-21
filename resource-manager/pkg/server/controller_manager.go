@@ -26,11 +26,14 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 )
 
+// ControllerManager wraps the controller-runtime manager and provides lifecycle management
 type ControllerManager struct {
 	ctrlManager manager.Manager
 	ctx         context.Context
 }
 
+// NewControllerManager: creates and configures a new ControllerManager instance
+// It sets up leader election, health checks
 func NewControllerManager(scheme *runtime.Scheme) (*ControllerManager, error) {
 	cm := &ControllerManager{
 		ctx: ctrlruntime.SetupSignalHandler(),
@@ -82,6 +85,8 @@ func NewControllerManager(scheme *runtime.Scheme) (*ControllerManager, error) {
 	return cm, nil
 }
 
+// Start: begins the controller manager operation in a separate goroutine
+// It also waits for cache synchronization before returning
 func (cm *ControllerManager) Start() error {
 	go func() {
 		if err := cm.ctrlManager.Start(cm.ctx); err != nil {
@@ -93,9 +98,11 @@ func (cm *ControllerManager) Start() error {
 		klog.Errorf("failed to WaitForCacheSync")
 		os.Exit(-1)
 	}
+	klog.Info("Controller manager started successfully")
 	return nil
 }
 
+// Wait: blocks until the controller manager context is cancelled (shutdown signal)
 func (cm *ControllerManager) Wait() {
 	<-cm.ctx.Done()
 }

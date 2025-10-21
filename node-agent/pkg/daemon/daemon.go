@@ -8,7 +8,6 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"os"
 
 	apiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/client-go/util/workqueue"
@@ -21,17 +20,27 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/node-agent/pkg/types"
 )
 
+// Daemon represents the main daemon process for the node agent
+// It coordinates monitors, exporters, and manages the overall lifecycle
 type Daemon struct {
-	opts      *types.Options
-	queue     types.MonitorQueue
-	monitors  *monitors.MonitorManager
-	node      *node.Node
+	// Context for managing lifecycle
+	ctx context.Context
+	// Configuration options for the daemon
+	opts *types.Options
+	// Work queue for monitor result
+	queue types.MonitorQueue
+	// Manager for all monitors
+	monitors *monitors.MonitorManager
+	// The node being monitored
+	node *node.Node
+	// Manager for all exporters
 	exporters *exporters.ExporterManager
-	logfile   *os.File
-	ctx       context.Context
-	isInited  bool
+	// Flag indicating if daemon is initialized
+	isInited bool
 }
 
+// NewDaemon: creates and initializes a new Daemon instance
+// It sets up configuration, logging, node monitoring, and component managers
 func NewDaemon() (*Daemon, error) {
 	d := &Daemon{
 		opts: &types.Options{},
@@ -57,6 +66,7 @@ func NewDaemon() (*Daemon, error) {
 	return d, nil
 }
 
+// Start: begins the daemon operation by starting all components and waiting for shutdown signal
 func (d *Daemon) Start() {
 	if !d.isInited {
 		klog.Errorf("Please initialize the daemon first")
@@ -78,19 +88,17 @@ func (d *Daemon) Start() {
 	klog.Infof("node-agent daemon stopped")
 }
 
+// Stop gracefully shuts down the daemon and all its components
 func (d *Daemon) Stop() {
 	if d.monitors != nil {
 		d.monitors.Stop()
 	}
-	d.queue.ShutDown()
+	if d.queue != nil {
+		d.queue.ShutDownWithDrain()
+	}
 	if d.exporters != nil {
 		d.exporters.Stop()
 	}
 	klog.Infof("node-agent daemon stopped")
 	klog.Flush()
-	if d.logfile != nil {
-		if err := d.logfile.Close(); err != nil {
-			klog.ErrorS(err, "failed to close log")
-		}
-	}
 }

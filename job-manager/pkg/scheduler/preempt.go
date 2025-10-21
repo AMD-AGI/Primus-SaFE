@@ -20,13 +20,15 @@ import (
 )
 
 type WorkloadWrapper struct {
-	workload  *v1.Workload
+	// The underlying workload object
+	workload *v1.Workload
+	// Workload resource
 	resources corev1.ResourceList
-	// score: Gpu * 10 + Cpu/MaxCpu + Mem/MaxMem
+	// Resource score for sort. score = Gpu * 10 + Cpu/MaxCpu + Mem/MaxMem
 	resourceScore float64
 }
 
-// Perform preemption when the requested resources exceed the workspace left quota.
+// preempt: perform preemption when the requested resources exceed the workspace left quota.
 // target: lower-priority tasks within the same workspace.
 // Returns true if preemption is successful, false otherwise.
 func (r *SchedulerReconciler) preempt(ctx context.Context, requestWorkload *v1.Workload,
@@ -40,9 +42,9 @@ func (r *SchedulerReconciler) preempt(ctx context.Context, requestWorkload *v1.W
 		return false, nil
 	}
 	for _, w := range targetWorkloads {
-		patch := client.MergeFrom(w.DeepCopy())
+		originalWorkload := client.MergeFrom(w.DeepCopy())
 		v1.SetAnnotation(w, v1.WorkloadPreemptedAnnotation, time.Now().UTC().String())
-		if err = r.Patch(ctx, w, patch); err != nil {
+		if err = r.Patch(ctx, w, originalWorkload); err != nil {
 			klog.ErrorS(err, "failed to patch workload")
 			return false, err
 		}
@@ -51,7 +53,7 @@ func (r *SchedulerReconciler) preempt(ctx context.Context, requestWorkload *v1.W
 	return true, nil
 }
 
-// Preemption may occur when the requested resources exceed the remaining quota of the workspace.
+// preemptLowPriorityWorkloads: preemption may occur when the requested resources exceed the remaining quota of the workspace.
 // The preemption policy is: preemption must be enabled in the workspace,
 // and the sum of resources from all lower-priority tasks plus the remaining available resource can meet the high-priority task.
 func (r *SchedulerReconciler) preemptLowPriorityWorkloads(ctx context.Context, requestWorkload *v1.Workload,
@@ -90,7 +92,8 @@ func (r *SchedulerReconciler) preemptLowPriorityWorkloads(ctx context.Context, r
 	return nil, nil
 }
 
-func (r *SchedulerReconciler) isCanPreempt(requestWorkload *v1.Workload, runningWorkloads []*v1.Workload) bool {
+// isPreemptable: checks if a workload can preempt other running workloads based on priority
+func (r *SchedulerReconciler) isPreemptable(requestWorkload *v1.Workload, runningWorkloads []*v1.Workload) bool {
 	if !v1.IsWorkloadEnablePreempt(requestWorkload) {
 		return false
 	}
@@ -102,13 +105,14 @@ func (r *SchedulerReconciler) isCanPreempt(requestWorkload *v1.Workload, running
 	return false
 }
 
+// sortRunningWorkloads: sorts running workloads for preemption consideration
 func (r *SchedulerReconciler) sortRunningWorkloads(ctx context.Context,
-	reqWorkload *v1.Workload, runningWorkloads []*v1.Workload) (WorkloadWrapperSlice, error) {
+	requestWorkload *v1.Workload, runningWorkloads []*v1.Workload) (WorkloadWrapperSlice, error) {
 	if len(runningWorkloads) == 0 {
 		return nil, nil
 	}
 	nf := &v1.NodeFlavor{}
-	err := r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(reqWorkload)}, nf)
+	err := r.Get(ctx, client.ObjectKey{Name: v1.GetNodeFlavorId(requestWorkload)}, nf)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +122,7 @@ func (r *SchedulerReconciler) sortRunningWorkloads(ctx context.Context,
 		result = append(result, &WorkloadWrapper{
 			workload:      runningWorkloads[i],
 			resources:     resources,
-			resourceScore: buildResourceWeight(reqWorkload, resources, nf),
+			resourceScore: buildResourceWeight(requestWorkload, resources, nf),
 		})
 	}
 	sort.Sort(WorkloadWrapperSlice(result))
@@ -127,29 +131,29 @@ func (r *SchedulerReconciler) sortRunningWorkloads(ctx context.Context,
 
 type WorkloadWrapperSlice []*WorkloadWrapper
 
-func (ws WorkloadWrapperSlice) Len() int {
-	return len(ws)
+func (workloads WorkloadWrapperSlice) Len() int {
+	return len(workloads)
 }
 
-func (ws WorkloadWrapperSlice) Swap(i, j int) {
-	ws[i], ws[j] = ws[j], ws[i]
+func (workloads WorkloadWrapperSlice) Swap(i, j int) {
+	workloads[i], workloads[j] = workloads[j], workloads[i]
 }
 
-func (ws WorkloadWrapperSlice) Less(i, j int) bool {
-	if ws[i].workload.Spec.Priority < ws[j].workload.Spec.Priority {
+func (workloads WorkloadWrapperSlice) Less(i, j int) bool {
+	if workloads[i].workload.Spec.Priority < workloads[j].workload.Spec.Priority {
 		return true
-	} else if ws[i].workload.Spec.Priority > ws[j].workload.Spec.Priority {
+	} else if workloads[i].workload.Spec.Priority > workloads[j].workload.Spec.Priority {
 		return false
 	}
-	if ws[i].resourceScore > ws[j].resourceScore {
+	if workloads[i].resourceScore > workloads[j].resourceScore {
 		return true
-	} else if ws[i].resourceScore < ws[j].resourceScore {
+	} else if workloads[i].resourceScore < workloads[j].resourceScore {
 		return false
 	}
-	if ws[i].workload.CreationTimestamp.Time.After(ws[j].workload.CreationTimestamp.Time) {
+	if workloads[i].workload.CreationTimestamp.Time.After(workloads[j].workload.CreationTimestamp.Time) {
 		return true
-	} else if ws[i].workload.CreationTimestamp.Time.Before(ws[j].workload.CreationTimestamp.Time) {
+	} else if workloads[i].workload.CreationTimestamp.Time.Before(workloads[j].workload.CreationTimestamp.Time) {
 		return false
 	}
-	return ws[i].workload.Name < ws[j].workload.Name
+	return workloads[i].workload.Name < workloads[j].workload.Name
 }

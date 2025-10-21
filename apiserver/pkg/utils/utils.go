@@ -13,6 +13,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 const (
@@ -41,6 +42,24 @@ func ReadBody(req *http.Request) ([]byte, error) {
 			fmt.Sprintf("the max length is %d bytes", DefaultMaxRequestBodyBytes))
 	}
 	return data, nil
+}
+
+// ParseRequestBody: reads the request body and unmarshals it into the provided struct.
+// It returns the raw body bytes and any error encountered during the process.
+// If the body is empty, it returns nil for both body and error.
+// If JSON unmarshaling fails, it returns a BadRequest error with the unmarshaling error details.
+func ParseRequestBody(req *http.Request, bodyStruct interface{}) ([]byte, error) {
+	body, err := ReadBody(req)
+	if err != nil {
+		return nil, err
+	}
+	if len(body) == 0 {
+		return nil, nil
+	}
+	if err = jsonutils.Unmarshal(body, bodyStruct); err != nil {
+		return body, commonerrors.NewBadRequest(err.Error())
+	}
+	return body, nil
 }
 
 // GetK8sClientFactory: retrieves a Kubernetes client factory for the specified cluster from the client manager.

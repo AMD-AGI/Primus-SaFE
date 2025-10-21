@@ -18,17 +18,20 @@ const (
 	StatefulSetKind = "StatefulSet"
 	PodKind         = "Pod"
 	EventKind       = "Event"
+	ConfigmapKind   = "ConfigMap"
+	DefaultVersion  = "v1"
 
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"
 	HigressSSHPort   = 22
 
-	NodeNameSelector       = "spec.nodeName="
-	KubeSystemNamespace    = "kube-system"
-	KubePublicNamespace    = "kube-public"
-	K8sHostName            = "kubernetes.io/hostname"
-	PytorchJobPortName     = "pytorchjob-port"
-	SSHPortName            = "ssh-port"
+	NodeNameSelector    = "spec.nodeName="
+	KubeSystemNamespace = "kube-system"
+	KubePublicNamespace = "kube-public"
+	K8sHostName         = "kubernetes.io/hostname"
+	PytorchJobPortName  = "pytorchjob-port"
+	SSHPortName         = "ssh-port"
+	JsonContentType     = "application/json; charset=utf-8"
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 
 	DefaultBurst = 1000
@@ -46,7 +49,6 @@ const (
 
 	NvidiaGpu            = "nvidia.com/gpu"
 	NvidiaIdentification = "nvidia.com/gpu.present"
-	NvidiaVfio           = "nvidia.com/gpu.deploy.vfio-manager"
 	AMDGpuIdentification = "feature.node.kubernetes.io/amd-gpu"
 	AmdGpu               = "amd.com/gpu"
 

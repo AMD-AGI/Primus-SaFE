@@ -128,6 +128,8 @@ func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) {
 	m.filterUnhealthyNodes(ctx, job)
 }
 
+// generateAddonTemplates retrieves the NodeTemplate specified in the job's parameters and
+// appends its addon templates to the job's inputs as ParameterAddonTemplate parameters.
 func (m *OpsJobMutator) generateAddonTemplates(ctx context.Context, job *v1.OpsJob) {
 	param := job.GetParameter(v1.ParameterNodeTemplate)
 	if param == nil {
@@ -145,6 +147,8 @@ func (m *OpsJobMutator) generateAddonTemplates(ctx context.Context, job *v1.OpsJ
 	}
 }
 
+// removeDuplicates removes duplicate parameters from the job's inputs based on parameter name and value.
+// It ensures that each parameter with the same name and value combination appears only once in the inputs list.
 func (m *OpsJobMutator) removeDuplicates(job *v1.OpsJob) {
 	uniqMap := make(map[string]string)
 	uniqInputs := make([]v1.Parameter, 0, len(job.Spec.Inputs))
@@ -171,7 +175,7 @@ func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob
 			continue
 		}
 		node, err := getNode(ctx, m.Client, p.Value)
-		if err != nil || !node.IsReady() || !node.GetDeletionTimestamp().IsZero() {
+		if err != nil || !node.IsMachineReady() || !node.GetDeletionTimestamp().IsZero() {
 			continue
 		}
 		if job.Spec.IsTolerateAll {
@@ -289,6 +293,8 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 	return nil
 }
 
+// validateNodeDuplicated checks if there are any other running jobs of the same type that are using the same node inputs.
+// It prevents multiple jobs from running simultaneously on the same nodes to avoid conflicts and resource contention.
 func (v *OpsJobValidator) validateNodeDuplicated(ctx context.Context, job *v1.OpsJob) error {
 	currentJobs, err := v.listRelatedRunningJobs(ctx, v1.GetClusterId(job), []string{string(job.Spec.Type)})
 	if err != nil {
@@ -306,6 +312,8 @@ func (v *OpsJobValidator) validateNodeDuplicated(ctx context.Context, job *v1.Op
 	return nil
 }
 
+// validatePreflight validates the preflight job by checking for duplicate node inputs,
+// ensuring required fields are not empty, and verifying resource requirements do not exceed thresholds.
 func (v *OpsJobValidator) validatePreflight(ctx context.Context, job *v1.OpsJob) error {
 	err := v.validateNodeDuplicated(ctx, job)
 	if err != nil {
@@ -327,6 +335,9 @@ func (v *OpsJobValidator) validatePreflight(ctx context.Context, job *v1.OpsJob)
 	return validateResourceEnough(nf, job.Spec.Resource)
 }
 
+// validateDumplog validates the dumplog job by checking if there are any other running dumplog jobs
+// with the same workload input parameters. It prevents multiple dumplog jobs from running simultaneously
+// on the same workload to avoid conflicts and resource contention.
 func (v *OpsJobValidator) validateDumplog(ctx context.Context, job *v1.OpsJob) error {
 	currentJobs, err := v.listRelatedRunningJobs(ctx, v1.GetClusterId(job), []string{string(v1.OpsJobDumpLogType)})
 	if err != nil {
@@ -344,6 +355,7 @@ func (v *OpsJobValidator) validateDumplog(ctx context.Context, job *v1.OpsJob) e
 	return nil
 }
 
+// validateAddon validates addon jobs by checking for duplicate node usage and ensuring addon template parameters are present.
 func (v *OpsJobValidator) validateAddon(ctx context.Context, job *v1.OpsJob) error {
 	err := v.validateNodeDuplicated(ctx, job)
 	if err != nil {

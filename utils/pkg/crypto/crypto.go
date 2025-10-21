@@ -14,6 +14,9 @@ import (
 	"io"
 )
 
+// Encrypt encrypts the given plainText using AES-GCM encryption with the provided key.
+// It generates a random nonce for each encryption operation and returns the base64-encoded ciphertext.
+// The function returns an error if any step of the encryption process fails.
 func Encrypt(plainText []byte, key []byte) (string, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -31,6 +34,9 @@ func Encrypt(plainText []byte, key []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
+// Decrypt decrypts the given base64-encoded ciphertext using AES-GCM decryption with the provided key.
+// It extracts the nonce from the beginning of the ciphertext and decrypts the remaining data.
+// The function returns the decrypted plaintext bytes or an error if decryption fails.
 func Decrypt(ciphertext string, key []byte) ([]byte, error) {
 	ciphertextBytes, err := base64.StdEncoding.DecodeString(ciphertext)
 	if err != nil {

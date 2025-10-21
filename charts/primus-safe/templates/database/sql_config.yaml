@@ -227,6 +227,3 @@ data:
        create_time TIMESTAMPTZ NOT NULL DEFAULT now()
     );
 
-
-
-

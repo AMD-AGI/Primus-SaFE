@@ -199,3 +199,22 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+
+--------------------------------------------------------------------------------
+Third-Party Software and Licenses
+
+Primus-SaFE uses or references the following third-party projects:
+
+Component			   License			 Source
+jq			   		   MIT			     jq official site.
+bc			   		   GPL‑2.0‑or‑later	 GNU bc page.
+sed			   	       GPL‑3.0‑or‑later	 GNU sed page.
+awk			   		   GPL‑3.0‑or‑later	 mawk (AWK interpreter) home page.
+make				   GPL‑3.0‑or‑later	 GNU Make page.
+Helm				   Apache‑2.0		 Helm official site.
+Kubebuilder			   Apache‑2.0		 Kubebuilder repository.
+k8s.io/code-generator  Apache‑2.0		 Package docs on pkg.go.dev.
+grafana-operator	   Apache‑2.0		 Artifact Hub listing.
+
+User must comply with the respective licenses of these third-party projects when using or distributing Primus-SaFE.

@@ -179,7 +179,7 @@ func TestUpdateDeployment(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
-	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
+	err = updateUnstructuredObject(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	deployment := &appsv1.Deployment{}
 	err = unstructuredutils.ConvertUnstructuredToObject(workloadObj, deployment)
@@ -224,7 +224,7 @@ func TestUpdatePytorchJob(t *testing.T) {
 	}
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
-	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestPytorchResourceTemplate)
+	err = updateUnstructuredObject(workloadObj, adminWorkload, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
 
 	pytorchJob := &PytorchJob{}
@@ -266,7 +266,7 @@ func TestUpdatePytorchJobMaster(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	adminWorkload.Spec.Resource.RdmaResource = ""
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
-	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestPytorchResourceTemplate)
+	err = updateUnstructuredObject(workloadObj, adminWorkload, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
 
 	pytorchJob := &PytorchJob{}
@@ -374,7 +374,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
-	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
+	err = updateUnstructuredObject(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
 	assert.NilError(t, err)
@@ -396,7 +396,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 		"NCCL_SOCKET_IFNAME": "eth1",
 		"key":                "val",
 	}
-	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
+	err = updateUnstructuredObject(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
 	assert.NilError(t, err)
@@ -418,7 +418,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 		"NCCL_SOCKET_IFNAME": "eth1",
 		"key":                "",
 	}
-	err = updateUnstructuredObj(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
+	err = updateUnstructuredObject(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
 	assert.NilError(t, err)

@@ -30,6 +30,8 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
+// guaranteeStorage: ensures storage resources are properly configured for the cluster
+// It handles OBS, RBD, and FileSystem storage types
 func (r *ClusterReconciler) guaranteeStorage(ctx context.Context, cluster *v1.Cluster) (ctrlruntime.Result, error) {
 	if !cluster.IsReady() {
 		return ctrlruntime.Result{}, nil
@@ -69,6 +71,8 @@ func (r *ClusterReconciler) guaranteeStorage(ctx context.Context, cluster *v1.Cl
 	return ctrlruntime.Result{}, nil
 }
 
+// guaranteeOBS: ensures OBS (Object Storage Service) storage is properly configured
+// Creates endpoints, services, and secrets for OBS storage
 func (r *ClusterReconciler) guaranteeOBS(ctx context.Context, client kubernetes.Interface, cluster *v1.Cluster, index int) error {
 	storage := cluster.Status.StorageStatus[index]
 	name := storage.Name
@@ -196,6 +200,7 @@ func (r *ClusterReconciler) guaranteeOBS(ctx context.Context, client kubernetes.
 	return nil
 }
 
+// guaranteeNamespace: ensures a namespace exists in the cluster
 func (r *ClusterReconciler) guaranteeNamespace(ctx context.Context, client kubernetes.Interface, namespace string) error {
 	_, err := client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	if err != nil {
@@ -218,6 +223,7 @@ func (r *ClusterReconciler) guaranteeNamespace(ctx context.Context, client kuber
 	return nil
 }
 
+// updateCephCsiConfig: updates the Ceph CSI configuration ConfigMap with storage monitors
 func (r *ClusterReconciler) updateCephCsiConfig(ctx context.Context, client kubernetes.Interface, storage v1.StorageStatus, name, namespace string) error {
 	configMap, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -267,6 +273,8 @@ func (r *ClusterReconciler) updateCephCsiConfig(ctx context.Context, client kube
 	return nil
 }
 
+// guaranteeRBD ensures RBD (RADOS Block Device) storage is properly configured
+// Creates secrets and StorageClasses for RBD storage
 func (r *ClusterReconciler) guaranteeRBD(ctx context.Context, client kubernetes.Interface, cluster *v1.Cluster, index int) error {
 	storage := cluster.Status.StorageStatus[index]
 	if storage.Phase != v1.Ready {
@@ -380,6 +388,8 @@ func (r *ClusterReconciler) guaranteeRBD(ctx context.Context, client kubernetes.
 	return nil
 }
 
+// guaranteeFileSystem ensures FileSystem storage is properly configured
+// Creates secrets and StorageClasses for CephFS storage
 func (r *ClusterReconciler) guaranteeFileSystem(ctx context.Context, client kubernetes.Interface, cluster *v1.Cluster, index int) error {
 	storage := cluster.Status.StorageStatus[index]
 	if storage.Phase != v1.Ready {
@@ -504,6 +514,8 @@ func (r *ClusterReconciler) guaranteeFileSystem(ctx context.Context, client kube
 	return nil
 }
 
+// guaranteeDefaultAddon ensures default addons are installed in the cluster
+// Creates Addon resources based on cluster configuration
 func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *v1.Cluster) (ctrlruntime.Result, error) {
 	addons := config.GetAddons(cluster.Spec.ControlPlane.KubeVersion)
 	for _, addon := range addons {
@@ -582,9 +594,9 @@ func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *
 	return reconcile.Result{}, nil
 }
 
+// getComponentName extracts the component name from a full name by removing the part after the first dot
 func getComponentName(name string) string {
-	index := strings.Index(name, ".")
-	if index > 0 {
+	if index := strings.Index(name, "."); index > 0 {
 		return name[:index]
 	}
 	return name

@@ -40,7 +40,7 @@ func (r *SyncerReconciler) handleJob(ctx context.Context, msg *resourceMessage, 
 	}
 
 	result, err := r.handleJobImpl(ctx, msg, adminWorkload, informer)
-	if jobutils.IsNonRetryableError(err) {
+	if jobutils.IsUnrecoverableError(err) {
 		// Errors defined internally are fatal and lead to a terminal state without retry
 		err = jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, err.Error())
 	}
@@ -140,23 +140,23 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, msg *resource
 	return false
 }
 
-func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, originWorkload *v1.Workload,
+func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, originalWorkload *v1.Workload,
 	status *jobutils.K8sResourceStatus, msg *resourceMessage) (*v1.Workload, bool, error) {
-	if originWorkload.IsEnd() || status == nil || status.Phase == "" {
-		return originWorkload, false, nil
+	if originalWorkload.IsEnd() || status == nil || status.Phase == "" {
+		return originalWorkload, false, nil
 	}
-	adminWorkload := originWorkload.DeepCopy()
+	adminWorkload := originalWorkload.DeepCopy()
 	r.updateAdminWorkloadPhase(adminWorkload, status, msg)
 
 	switch {
 	case adminWorkload.IsPending():
 		if status.Phase != string(v1.K8sDeleted) &&
-			status.Phase != string(v1.K8sFailed) && originWorkload.IsPending() {
-			return originWorkload, false, nil
+			status.Phase != string(v1.K8sFailed) && originalWorkload.IsPending() {
+			return originalWorkload, false, nil
 		}
 	case adminWorkload.IsRunning():
 		if isNeedRetry := r.updateAdminWorkloadNodes(adminWorkload, msg); isNeedRetry {
-			return originWorkload, true, nil
+			return originalWorkload, true, nil
 		}
 	case adminWorkload.IsEnd():
 		if adminWorkload.Status.EndTime == nil {
@@ -172,8 +172,8 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 	}
 	adminWorkload.Status.K8sObjectUid = string(msg.uid)
 	updateWorkloadCondition(adminWorkload, status, msg.dispatchCount)
-	if reflect.DeepEqual(adminWorkload.Status, originWorkload.Status) {
-		return originWorkload, false, nil
+	if reflect.DeepEqual(adminWorkload.Status, originalWorkload.Status) {
+		return originalWorkload, false, nil
 	}
 	if err := r.Status().Update(ctx, adminWorkload); err != nil {
 		return nil, false, err
@@ -209,7 +209,7 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 }
 
 func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload, count int) error {
-	patch := client.MergeFrom(workload.DeepCopy())
+	originalWorkload := client.MergeFrom(workload.DeepCopy())
 	isStatusChanged := false
 	if len(workload.Status.Pods) > 0 {
 		workload.Status.Pods = nil
@@ -228,20 +228,20 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 		isStatusChanged = true
 	}
 	if isStatusChanged {
-		if err := r.Status().Patch(ctx, workload, patch); err != nil {
+		if err := r.Status().Patch(ctx, workload, originalWorkload); err != nil {
 			return err
 		}
 	}
 
 	if v1.IsWorkloadDispatched(workload) {
-		patch = client.MergeFrom(workload.DeepCopy())
+		originalWorkload = client.MergeFrom(workload.DeepCopy())
 		annotations := workload.GetAnnotations()
 		delete(annotations, v1.WorkloadDispatchedAnnotation)
 		delete(annotations, v1.WorkloadScheduledAnnotation)
 		// Upon rescheduling, the task is enqueued with high priority
 		annotations[v1.WorkloadReScheduledAnnotation] = ""
 		workload.SetAnnotations(annotations)
-		if err := r.Patch(ctx, workload, patch); err != nil {
+		if err := r.Patch(ctx, workload, originalWorkload); err != nil {
 			return err
 		}
 	}
@@ -297,14 +297,14 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 }
 
 func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, dispatchCount int) {
-	cond := jobutils.NewCondition(status.Phase, status.Message, commonworkload.GenerateDispatchReason(dispatchCount))
-	lastCond := adminWorkload.GetLastCondition()
-	if lastCond != nil && cond.Type == lastCond.Type && cond.Reason == lastCond.Reason {
-		*lastCond = *cond
-		return
-	}
-	adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *cond)
+	newCondition := jobutils.NewCondition(status.Phase, status.Message, commonworkload.GenerateDispatchReason(dispatchCount))
 	if commonworkload.IsApplication(adminWorkload) {
+		lastCondition := adminWorkload.GetLastCondition()
+		if lastCondition != nil && newCondition.Type == lastCondition.Type && newCondition.Reason == lastCondition.Reason {
+			*lastCondition = *newCondition
+			return
+		}
+		adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
 		// Only keep the latest 30 conditions
 		maxReserved := 30
 		if l := len(adminWorkload.Status.Conditions); l > maxReserved {
@@ -314,6 +314,13 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sRes
 				conditions = append(conditions, adminWorkload.Status.Conditions[i])
 			}
 			adminWorkload.Status.Conditions = conditions
+		}
+	} else {
+		currentCondition := jobutils.FindCondition(adminWorkload, newCondition)
+		if currentCondition != nil {
+			*currentCondition = *newCondition
+		} else {
+			adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
 		}
 	}
 }

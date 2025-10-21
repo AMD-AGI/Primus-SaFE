@@ -13,19 +13,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-)
-
-var (
-	jsonContentType = "application/json; charset=utf-8"
 )
 
 func NewImageHandler(mgr ctrlruntime.Manager) (*ImageHandler, error) {
-	clientSet, err := kubernetes.NewForConfig(mgr.GetConfig())
+	clientSet, err := k8sclient.NewClientSetWithRestConfig(mgr.GetConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +46,7 @@ func NewImageHandler(mgr ctrlruntime.Manager) (*ImageHandler, error) {
 
 type ImageHandler struct {
 	client.Client
-	clientSet  *kubernetes.Clientset
+	clientSet  kubernetes.Interface
 	dbClient   dbclient.Interface
 	httpClient httpclient.Interface
 }
@@ -70,26 +66,12 @@ func handle[T any](c *gin.Context, fn handleFunc[T]) {
 	}
 	switch rspType := any(rsp).(type) {
 	case []byte:
-		c.Data(code, jsonContentType, rspType)
+		c.Data(code, common.JsonContentType, rspType)
 	case string:
-		c.Data(code, jsonContentType, []byte(rspType))
+		c.Data(code, common.JsonContentType, []byte(rspType))
 	default:
 		c.JSON(code, rspType)
 	}
-}
-
-func getBodyFromRequest(req *http.Request, bodyStruct interface{}) ([]byte, error) {
-	body, err := apiutils.ReadBody(req)
-	if err != nil {
-		return nil, err
-	}
-	if len(body) == 0 {
-		return nil, nil
-	}
-	if err = jsonutils.Unmarshal(body, bodyStruct); err != nil {
-		return body, commonerrors.NewBadRequest(err.Error())
-	}
-	return body, nil
 }
 
 func (h *ImageHandler) listImagePullSecretsName(ctx context.Context, clusterClient client.Client, namespace string) ([]string, error) {

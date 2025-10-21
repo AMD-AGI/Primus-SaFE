@@ -25,6 +25,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
+// getNodeByInformer: retrieves a Kubernetes node by name using the informer client
 func getNodeByInformer(ctx context.Context, k8sClients *commonclient.ClientFactory, nodeName string) (*corev1.Node, error) {
 	if nodeName == "" {
 		return nil, fmt.Errorf("the node name is empty")
@@ -36,7 +37,7 @@ func getNodeByInformer(ctx context.Context, k8sClients *commonclient.ClientFacto
 	return result.DeepCopy(), nil
 }
 
-// If the SSH secret of the cluster is the same as that of the node, no authorization is required.
+// isNeedAuthorization: If the SSH secret of the cluster is the same as that of the node, no authorization is required.
 // Otherwise, cluster-level authorization is needed, and the cluster's secret should be returned.
 func isNeedAuthorization(ctx context.Context, cli client.Client, node *v1.Node, cluster *v1.Cluster) (bool, *corev1.Secret, error) {
 	var err error
@@ -62,7 +63,7 @@ func isNeedAuthorization(ctx context.Context, cli client.Client, node *v1.Node, 
 	return true, secret, nil
 }
 
-// checks if the cluster's public key exists on the node.
+// isAlreadyAuthorized: checks if the cluster's public key exists on the node.
 // Returns true if authorized (key exists), false otherwise.
 func isAlreadyAuthorized(username string, secret *corev1.Secret, sshClient *ssh.Client) (bool, error) {
 	session, err := sshClient.NewSession()
@@ -90,14 +91,17 @@ func isAlreadyAuthorized(username string, secret *corev1.Secret, sshClient *ssh.
 	return false, nil
 }
 
+// getKubeSprayScaleUpCMD: generates the command for scaling up a Kubernetes cluster node
 func getKubeSprayScaleUpCMD(user, node, env string) string {
 	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s scale.yml --limit=%s %s --become-user=root -b -vvv", utils.Authorize, node, env)
 }
 
+// getKubeSprayScaleDownCMD: generates the command for scaling down a Kubernetes cluster node
 func getKubeSprayScaleDownCMD(user, node, env string) string {
 	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s remove-node.yml -e node=%s -e skip_confirmation=yes -e reset_nodes=true -e allow_ungraceful_removal=false %s --become-user=root -b -vvv", utils.Authorize, node, env)
 }
 
+// getHostname: retrieves the hostname of the remote machine via SSH
 func getHostname(conn *ssh.Client) (string, error) {
 	session, err := conn.NewSession()
 	if err != nil {
@@ -111,6 +115,7 @@ func getHostname(conn *ssh.Client) (string, error) {
 	return strings.Replace(b.String(), "\n", "", -1), nil
 }
 
+// setHostname: sets the hostname of the remote machine via SSH
 func setHostname(conn *ssh.Client, hostname string) error {
 	session, err := conn.NewSession()
 	if err != nil {
@@ -124,6 +129,7 @@ func setHostname(conn *ssh.Client, hostname string) error {
 	return nil
 }
 
+// isCommandSuccessful: checks if a command with the given name has succeeded
 func isCommandSuccessful(status []v1.CommandStatus, name string) bool {
 	for _, v := range status {
 		if v.Name == name && v.Phase == v1.CommandSucceeded {
@@ -133,6 +139,7 @@ func isCommandSuccessful(status []v1.CommandStatus, name string) bool {
 	return false
 }
 
+// setCommandStatus: updates or adds a command status to the command status list
 func setCommandStatus(commandStatus []v1.CommandStatus, name string, phase v1.CommandPhase) []v1.CommandStatus {
 	for k, v := range commandStatus {
 		if v.Name == name {
@@ -147,6 +154,7 @@ func setCommandStatus(commandStatus []v1.CommandStatus, name string, phase v1.Co
 	return commandStatus
 }
 
+// isK8sNodeReady: checks if a Kubernetes node is in ready state
 func isK8sNodeReady(node *corev1.Node) bool {
 	for _, condition := range node.Status.Conditions {
 		if condition.Type == corev1.NodeReady && condition.Status != corev1.ConditionTrue {
@@ -156,6 +164,7 @@ func isK8sNodeReady(node *corev1.Node) bool {
 	return true
 }
 
+// isControlPlaneNode: determines if a node is a control plane node
 func isControlPlaneNode(node *v1.Node) bool {
 	if v1.IsControlPlane(node) {
 		return true
@@ -169,6 +178,7 @@ func isControlPlaneNode(node *v1.Node) bool {
 	return false
 }
 
+// isConditionsChanged: checks if node conditions have changed between old and new conditions
 func isConditionsChanged(oldConditions, newConditions []corev1.NodeCondition) bool {
 	if len(oldConditions) != len(newConditions) {
 		return true
@@ -187,6 +197,7 @@ func isConditionsChanged(oldConditions, newConditions []corev1.NodeCondition) bo
 	return false
 }
 
+// genNodeOwnerReference: generates an owner reference for a node
 func genNodeOwnerReference(node *v1.Node) metav1.OwnerReference {
 	return metav1.OwnerReference{
 		APIVersion:         node.APIVersion,

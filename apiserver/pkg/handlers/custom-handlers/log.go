@@ -20,6 +20,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -145,6 +146,7 @@ func (h *Handler) searchContextLog(queries []types.ListContextLogRequest, worklo
 	startTime := time.Now().UTC()
 	const count = 2
 	ch := make(chan types.ListContextLogRequest, count)
+	defer close(ch)
 	for i := range queries {
 		ch <- queries[i]
 	}
@@ -399,7 +401,7 @@ func parseContextQuery(c *gin.Context, workload *v1.Workload) ([]types.ListConte
 // Returns a validated ListLogRequest object or an error if validation fails.
 func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*types.ListLogRequest, error) {
 	query := &types.ListLogRequest{}
-	_, err := parseRequestBody(req, &query.ListLogInput)
+	_, err := apiutils.ParseRequestBody(req, &query.ListLogInput)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}

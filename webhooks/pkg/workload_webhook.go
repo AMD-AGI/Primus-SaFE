@@ -180,7 +180,7 @@ func (m *WorkloadMutator) mutateGvk(workload *v1.Workload) {
 		workload.Spec.Kind = common.PytorchJobKind
 	}
 	if workload.Spec.Version == "" {
-		workload.Spec.Version = v1.SchemeGroupVersion.Version
+		workload.Spec.Version = common.DefaultVersion
 	}
 	// the group is not currently in use
 	workload.Spec.Group = ""
@@ -200,10 +200,14 @@ func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
 
 func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Workspace) bool {
 	isChanged := false
-	if workload.Spec.Resource.GPU != "" && workspace != nil {
+	if workload.Spec.Resource.GPU == "0" {
+		workload.Spec.Resource.GPU = ""
+		isChanged = true
+	} else if workload.Spec.Resource.GPU != "" && workspace != nil {
 		workload.Spec.Resource.GPUName = v1.GetGpuResourceName(workspace)
 		isChanged = true
 	}
+	
 	if workload.Spec.Resource.SharedMemory == "" && workload.Spec.Resource.Memory != "" {
 		memQuantity, err := resource.ParseQuantity(workload.Spec.Resource.Memory)
 		if err == nil && memQuantity.Value() > 0 {
@@ -221,6 +225,8 @@ func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Wo
 	return isChanged
 }
 
+// mutateHostpath removes duplicate hostpath entries from workload that are already included in workspace.
+// Workloads inherit all hostpath volumes from their workspace by default
 func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Workspace) {
 	if len(workload.Spec.Hostpath) == 0 {
 		return
@@ -273,7 +279,8 @@ func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 	}
 }
 
-// Check whether to enable hostNetwork; it should only be set to true if the replica count is greater than 1 and all GPU resources have been requested.
+// Check whether to enable hostNetwork. It should only be set to true
+// if the replica count is greater than 1 and all GPU resources have been requested.
 func (m *WorkloadMutator) isHostNetworkEnabled(workload *v1.Workload, nf *v1.NodeFlavor) bool {
 	if workload.Spec.Resource.Replica <= 1 {
 		return false
@@ -369,6 +376,8 @@ func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
 	}
 }
 
+// mutateHostNetwork determines whether to enable host network for the workload based on replica count and GPU resources.
+// If host network is enabled and RDMA is configured, it also sets the RDMA resource requirements.
 func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Workload) {
 	flavorId := v1.GetNodeFlavorId(workload)
 	if flavorId == "" {
@@ -611,9 +620,6 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 			return commonerrors.NewNotFound(v1.WorkspaceKind, workload.Spec.Workspace)
 		}
 		return nil
-	}
-	if workspace.IsAbnormal() && !workload.Spec.IsTolerateAll {
-		return commonerrors.NewQuotaInsufficient(fmt.Sprintf("workspace %s is abnormal", workspace.Name))
 	}
 	if workload.Spec.Resource.Replica > workspace.Spec.Replica {
 		return commonerrors.NewQuotaInsufficient(

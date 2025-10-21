@@ -122,7 +122,7 @@ func TestNewNodeInfo(t *testing.T) {
 	monitor := newMonitor(t, "test.id", "echo hello;exit 0")
 	defer os.Remove(TestScriptPath)
 
-	nodeInfo := monitor.genNodeInfo()
+	nodeInfo := monitor.generateNodeInfo()
 	assert.Equal(t, nodeInfo != nil, true)
 	assert.Equal(t, nodeInfo.ExpectedGpuCount, 8)
 	assert.Equal(t, nodeInfo.ObservedGpuCount, 4)

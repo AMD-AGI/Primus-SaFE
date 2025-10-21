@@ -58,6 +58,7 @@ type DumpLogJobReconciler struct {
 	*controller.Controller[string]
 }
 
+// SetupDumpLogJobController: initializes and registers the DumpLogJobReconciler with the controller manager
 func SetupDumpLogJobController(ctx context.Context, mgr manager.Manager) error {
 	if !commonconfig.IsS3Enable() || !commonconfig.IsOpenSearchEnable() {
 		return nil
@@ -83,7 +84,7 @@ func SetupDumpLogJobController(ctx context.Context, mgr manager.Manager) error {
 
 	err = ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.OpsJob{}, builder.WithPredicates(predicate.Or(
-			predicate.GenerationChangedPredicate{}, onFirstPhaseChanged()))).
+			predicate.GenerationChangedPredicate{}, onFirstPhaseChangedPredicate()))).
 		Complete(r)
 	if err != nil {
 		return err
@@ -92,36 +93,42 @@ func SetupDumpLogJobController(ctx context.Context, mgr manager.Manager) error {
 	return nil
 }
 
+// Reconcile is the main control loop for DumpLogJob resources
 func (r *DumpLogJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r)
 }
 
+// observe: checks the job status for dump log operations
 func (r *DumpLogJobReconciler) observe(_ context.Context, _ *v1.OpsJob) (bool, error) {
 	return false, nil
 }
 
+// filter: determines if the job should be processed by this dump log reconciler
 func (r *DumpLogJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
 	return job.Spec.Type != v1.OpsJobDumpLogType
 }
 
+// handle: processes the dump log job by adding it to the work queue, trigger subsequent parallel processing using the Do interface.
 func (r *DumpLogJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	if job.IsPending() {
 		if err := r.setJobPhase(ctx, job, v1.OpsJobRunning); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		// ensure that job will be reconciled when it is timeout
-		return genRequeueAfterResult(job), nil
+		return newRequeueAfterResult(job), nil
 	}
 	r.Add(job.Name)
 	return ctrlruntime.Result{}, nil
 }
 
+// start: initializes and runs the worker routines for processing dump log jobs
 func (r *DumpLogJobReconciler) start(ctx context.Context) {
 	for i := 0; i < r.MaxConcurrent; i++ {
 		r.Run(ctx)
 	}
 }
 
+// Do: processes a dump log job by retrieving logs and uploading to S3
 func (r *DumpLogJobReconciler) Do(ctx context.Context, jobId string) (ctrlruntime.Result, error) {
 	job := &v1.OpsJob{}
 	if err := r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
@@ -131,7 +138,7 @@ func (r *DumpLogJobReconciler) Do(ctx context.Context, jobId string) (ctrlruntim
 		return ctrlruntime.Result{}, nil
 	}
 
-	result, err := r.do(ctx, job)
+	result, err := r.processDumpLogJob(ctx, job)
 	if err != nil {
 		klog.ErrorS(err, "failed to handle job", "job", jobId)
 		if utils.IsNonRetryableError(err) {
@@ -141,7 +148,8 @@ func (r *DumpLogJobReconciler) Do(ctx context.Context, jobId string) (ctrlruntim
 	return result, err
 }
 
-func (r *DumpLogJobReconciler) do(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
+// do: performs the main dump log operation including search, upload, and status update
+func (r *DumpLogJobReconciler) processDumpLogJob(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	workload, err := r.getInputWorkload(ctx, job)
 	if err != nil {
 		return ctrlruntime.Result{}, err
@@ -173,6 +181,7 @@ func (r *DumpLogJobReconciler) do(ctx context.Context, job *v1.OpsJob) (ctrlrunt
 	}
 
 	if err = r.setOutput(ctx, job, workload.workloadId); err == nil {
+		klog.Infof("Processing dumplog job %s for workload %s", job.Name, workload.workloadId)
 		return ctrlruntime.Result{}, nil
 	} else {
 		klog.Error(err, "failed to update job status")
@@ -180,6 +189,7 @@ func (r *DumpLogJobReconciler) do(ctx context.Context, job *v1.OpsJob) (ctrlrunt
 	}
 }
 
+// singleUpload: uploads log data in a single S3 operation
 func (r *DumpLogJobReconciler) singleUpload(ctx context.Context, job *v1.OpsJob,
 	workload *workloadInfo, searchResult *commonsearch.OpenSearchResponse) error {
 	content := serializeSearchResponse(searchResult)
@@ -191,6 +201,7 @@ func (r *DumpLogJobReconciler) singleUpload(ctx context.Context, job *v1.OpsJob,
 	return nil
 }
 
+// multiUpload: uploads large log data using S3 multipart upload
 func (r *DumpLogJobReconciler) multiUpload(
 	ctx context.Context,
 	client *commonsearch.SearchClient,
@@ -243,6 +254,7 @@ func (r *DumpLogJobReconciler) multiUpload(
 	return nil
 }
 
+// getInputWorkload: retrieves workload information from job parameters
 func (r *DumpLogJobReconciler) getInputWorkload(ctx context.Context, job *v1.OpsJob) (*workloadInfo, error) {
 	param := job.GetParameter(v1.ParameterWorkload)
 	if param == nil || param.Value == "" {
@@ -274,6 +286,7 @@ func (r *DumpLogJobReconciler) getInputWorkload(ctx context.Context, job *v1.Ops
 	return result, nil
 }
 
+// doSearch: performs log search in OpenSearch based on job and workload parameters
 func (r *DumpLogJobReconciler) doSearch(client *commonsearch.SearchClient, job *v1.OpsJob, workload *workloadInfo) (*commonsearch.OpenSearchResponse, error) {
 	body := buildSearchBody(job, workload)
 
@@ -294,8 +307,9 @@ func (r *DumpLogJobReconciler) doSearch(client *commonsearch.SearchClient, job *
 	return result, nil
 }
 
+// buildSearchBody: constructs the OpenSearch query body for log retrieval
 func buildSearchBody(job *v1.OpsJob, workload *workloadInfo) []byte {
-	req := &commonsearch.OpenSearchRequest{
+	searchRequest := &commonsearch.OpenSearchRequest{
 		Size: commonsearch.MaxDocsPerQuery,
 		Sort: []commonsearch.OpenSearchField{{
 			"@timestamp": map[string]interface{}{
@@ -303,7 +317,7 @@ func buildSearchBody(job *v1.OpsJob, workload *workloadInfo) []byte {
 			}},
 		},
 	}
-	req.Query.Bool.Must = []commonsearch.OpenSearchField{{
+	searchRequest.Query.Bool.Must = []commonsearch.OpenSearchField{{
 		"range": map[string]interface{}{
 			"@timestamp": map[string]string{
 				"gte": workload.startTime.Format(timeutil.TimeRFC3339Milli),
@@ -313,14 +327,14 @@ func buildSearchBody(job *v1.OpsJob, workload *workloadInfo) []byte {
 	}}
 
 	dispatchCntKey := strings.ReplaceAll(v1.WorkloadDispatchCntLabel, ".", "_")
-	req.Source = []string{
+	searchRequest.Source = []string{
 		commonsearch.TimeField, commonsearch.MessageField, commonsearch.StreamField, "kubernetes.host", "kubernetes.pod_name",
 		"kubernetes.labels.training_kubeflow_org/replica-index", "kubernetes.labels.training_kubeflow_org/replica-type",
 		fmt.Sprintf("kubernetes.labels.%s", dispatchCntKey),
 	}
 
 	workloadIdKey := strings.ReplaceAll(v1.WorkloadIdLabel, ".", "_")
-	req.Query.Bool.Filter = append(req.Query.Bool.Filter, commonsearch.OpenSearchField{
+	searchRequest.Query.Bool.Filter = append(searchRequest.Query.Bool.Filter, commonsearch.OpenSearchField{
 		"term": map[string]interface{}{
 			fmt.Sprintf("kubernetes.labels.%s.keyword", workloadIdKey): workload.workloadId,
 		},
@@ -337,16 +351,17 @@ func buildSearchBody(job *v1.OpsJob, workload *workloadInfo) []byte {
 		}
 	}
 	if len(nodes) > 0 {
-		req.Query.Bool.Must = append(req.Query.Bool.Must, commonsearch.OpenSearchField{
+		searchRequest.Query.Bool.Must = append(searchRequest.Query.Bool.Must, commonsearch.OpenSearchField{
 			"bool": map[string]interface{}{
 				"should": nodes,
 			},
 		})
 	}
 
-	return jsonutils.MarshalSilently(req)
+	return jsonutils.MarshalSilently(searchRequest)
 }
 
+// scroll: retrieves log data using OpenSearch scroll API
 func (r *DumpLogJobReconciler) scroll(client *commonsearch.SearchClient, job *v1.OpsJob, scrollId string,
 	logCh chan<- *commonsearch.OpenSearchResponse, errCh chan<- error) {
 	request := &commonsearch.OpenSearchScrollRequest{
@@ -383,6 +398,7 @@ func (r *DumpLogJobReconciler) scroll(client *commonsearch.SearchClient, job *v1
 	}
 }
 
+// dump: processes and uploads log data through S3 multipart upload
 func (r *DumpLogJobReconciler) dump(ctx context.Context, job *v1.OpsJob, param *commons3.MultiUploadParam,
 	logCh <-chan *commonsearch.OpenSearchResponse, errCh chan<- error, stopCh chan struct{}) {
 	param.PartNumber = 1
@@ -433,6 +449,7 @@ func (r *DumpLogJobReconciler) dump(ctx context.Context, job *v1.OpsJob, param *
 	}
 }
 
+// clearScroll: cleans up OpenSearch scroll context
 func (r *DumpLogJobReconciler) clearScroll(client *commonsearch.SearchClient, scrollId string) {
 	req := &commonsearch.OpenSearchScrollRequest{
 		ScrollId: scrollId,
@@ -444,6 +461,7 @@ func (r *DumpLogJobReconciler) clearScroll(client *commonsearch.SearchClient, sc
 	}
 }
 
+// setOutput: updates job status with the S3 presigned URL for log access
 func (r *DumpLogJobReconciler) setOutput(ctx context.Context, job *v1.OpsJob, workloadId string) error {
 	var expireDay int32 = 1
 	if commonconfig.GetS3ExpireDay() > 0 && expireDay > commonconfig.GetS3ExpireDay() {
@@ -471,21 +489,22 @@ func (r *DumpLogJobReconciler) setOutput(ctx context.Context, job *v1.OpsJob, wo
 	return nil
 }
 
+// serializeSearchResponse: converts OpenSearch response to formatted log string
 func serializeSearchResponse(data *commonsearch.OpenSearchResponse) string {
-	var sb strings.Builder
+	var logBuffer strings.Builder
 	for _, doc := range data.Hits.Hits {
-		sb.WriteString(doc.Source.Timestamp)
-		sb.WriteString(" ")
-		sb.WriteString(doc.Source.Kubernetes.Host)
-		sb.WriteString(" ")
+		logBuffer.WriteString(doc.Source.Timestamp)
+		logBuffer.WriteString(" ")
+		logBuffer.WriteString(doc.Source.Kubernetes.Host)
+		logBuffer.WriteString(" ")
 		if doc.Source.Kubernetes.Labels.ReplicaType != "" && doc.Source.Kubernetes.Labels.ReplicaIndex != "" {
-			sb.WriteString(doc.Source.Kubernetes.Labels.ReplicaType + "-" + doc.Source.Kubernetes.Labels.ReplicaIndex)
-			sb.WriteString(" ")
+			logBuffer.WriteString(doc.Source.Kubernetes.Labels.ReplicaType + "-" + doc.Source.Kubernetes.Labels.ReplicaIndex)
+			logBuffer.WriteString(" ")
 		}
-		sb.WriteString(doc.Source.Kubernetes.Labels.DispatchCount)
-		sb.WriteString(" ")
-		sb.WriteString(doc.Source.Message)
-		sb.WriteString("\n")
+		logBuffer.WriteString(doc.Source.Kubernetes.Labels.DispatchCount)
+		logBuffer.WriteString(" ")
+		logBuffer.WriteString(doc.Source.Message)
+		logBuffer.WriteString("\n")
 	}
-	return sb.String()
+	return logBuffer.String()
 }
