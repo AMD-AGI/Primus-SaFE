@@ -12,6 +12,7 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/klog/v2"
@@ -20,6 +21,15 @@ import (
 
 var (
 	multiClusterClients = map[string]*SearchClient{}
+)
+
+var schemes = &runtime.SchemeBuilder{
+	corev1.AddToScheme,
+	v1.AddToScheme,
+}
+
+var (
+	scheme *runtime.Scheme
 )
 
 func GetOpensearchClient(clusterName string) *SearchClient {
@@ -52,11 +62,18 @@ func (o opensearchSecretData) Validate() error {
 }
 
 func StartDiscover(ctx context.Context) error {
+	scheme = runtime.NewScheme()
+	err := schemes.AddToScheme(scheme)
+	if err != nil {
+		return err
+	}
 	cfg, err := commonclient.GetRestConfigInCluster()
 	if err != nil {
 		return err
 	}
-	controlPlaneClient, err := client.New(cfg, client.Options{})
+	controlPlaneClient, err := client.New(cfg, client.Options{
+		Scheme: scheme,
+	})
 	if err != nil {
 		return err
 	}
@@ -91,7 +108,9 @@ func doSync(ctx context.Context, controlPlaneClient client.Client, clientManager
 			klog.Errorf("Failed to get k8s client for cluster %s, err: %v", cluster.Name, err)
 			continue
 		}
-		controllerRuntimeClient, err := client.New(k8sClients.RestConfig(), client.Options{})
+		controllerRuntimeClient, err := client.New(k8sClients.RestConfig(), client.Options{
+			Scheme: scheme,
+		})
 		if err != nil {
 			klog.Errorf("Failed to get controller runtime client for cluster %s, err: %v", cluster.Name, err)
 			continue
