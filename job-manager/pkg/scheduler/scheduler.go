@@ -94,6 +94,9 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 			if v1.IsWorkloadScheduled(oldWorkload) != v1.IsWorkloadScheduled(newWorkload) {
 				return true
 			}
+			if len(oldWorkload.Status.DependenciesPhase) != len(newWorkload.Status.DependenciesPhase) {
+				return true
+			}
 			return false
 		},
 	}
@@ -530,7 +533,6 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	}
 	return true, "", nil
 }
-
 
 // checkWorkloadDependencies checks whether all dependencies of the workload are satisfied.
 func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, workload *v1.Workload) (bool, error) {
