@@ -172,6 +172,11 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 
 	roles := h.auth.GetRoles(ctx, requestUser)
 	nodes := make([]*v1.Node, 0, len(nodeList.Items))
+	var phases []string
+	if query.Phase != nil {
+		phases = strings.Split(string(*query.Phase), ",")
+	}
+
 	for i, n := range nodeList.Items {
 		if err = h.auth.Authorize(authority.Input{
 			Context:    ctx,
@@ -195,9 +200,7 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 			}
 		}
 		if query.Phase != nil {
-			values := strings.Split(string(*query.Phase), ",")
-			nodePhase := string(n.GetPhase())
-			if !slice.Contains(values, nodePhase) {
+			if !slice.Contains(phases, string(n.GetPhase())) {
 				continue
 			}
 		}
