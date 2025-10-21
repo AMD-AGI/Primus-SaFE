@@ -18,7 +18,7 @@ PG_PASSWORD=$(kubectl get secret -n "primus-lens" primus-lens-pguser-primus-lens
 export PG_PASSWORD
 
 rm -rf grafana-operator
-unzip ../charts/grafana-operator.zip -d . >/dev/null
+unzip ../charts/grafana-operator-v5.20.0.zip -d . >/dev/null
 helm upgrade --install -n "$NAMESPACE" grafana-operator grafana-operator/deploy/helm/grafana-operator \
   -f "$MANIFEST_DIR/grafana-operator-values.yaml.tpl"
 rm -rf grafana-operator
