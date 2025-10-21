@@ -37,6 +37,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -171,6 +172,11 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 
 	roles := h.auth.GetRoles(ctx, requestUser)
 	nodes := make([]*v1.Node, 0, len(nodeList.Items))
+	var phases []string
+	if query.Phase != nil {
+		phases = strings.Split(string(*query.Phase), ",")
+	}
+
 	for i, n := range nodeList.Items {
 		if err = h.auth.Authorize(authority.Input{
 			Context:    ctx,
@@ -190,6 +196,11 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 		}
 		if query.IsAddonsInstalled != nil {
 			if *query.IsAddonsInstalled != v1.IsNodeTemplateInstalled(&n) {
+				continue
+			}
+		}
+		if query.Phase != nil {
+			if !slice.Contains(phases, string(n.GetPhase())) {
 				continue
 			}
 		}
@@ -717,7 +728,7 @@ func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeRes
 			InternalIP: n.Spec.PrivateIP,
 		},
 		ClusterId:         v1.GetClusterId(n),
-		Phase:             string(n.Status.MachineStatus.Phase),
+		Phase:             string(n.GetPhase()),
 		Available:         isAvailable,
 		Message:           message,
 		TotalResources:    cvtToResourceList(n.Status.Resources),
@@ -726,10 +737,6 @@ func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeRes
 		IsAddonsInstalled: v1.IsNodeTemplateInstalled(n),
 	}
 	result.Workspace.Id = v1.GetWorkspaceId(n)
-	if n.Status.ClusterStatus.Phase == v1.NodeManagedFailed || n.Status.ClusterStatus.Phase == v1.NodeUnmanagedFailed ||
-		n.Status.ClusterStatus.Phase == v1.NodeManaging || n.Status.ClusterStatus.Phase == v1.NodeUnmanaging {
-		result.Phase = string(n.Status.ClusterStatus.Phase)
-	}
 	var availResource corev1.ResourceList
 	if usedResource != nil && len(usedResource.resource) > 0 {
 		availResource = quantity.GetAvailableResource(n.Status.Resources)
