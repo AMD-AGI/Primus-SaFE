@@ -9,7 +9,6 @@ set -e
 
 MANIFEST_DIR="manifests"
 export NAMESPACE=$NAMESPACE
-export IMAGE_PULL_SECRET="$IMAGE_PULL_SECRET"
 PG_PASSWORD=$(kubectl get secret -n "primus-lens" primus-lens-pguser-primus-lens -o jsonpath="{.data.password}" | base64 -d)
 export PG_PASSWORD
 
