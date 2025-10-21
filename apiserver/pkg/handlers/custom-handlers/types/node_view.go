@@ -47,6 +47,7 @@ type ListNodeRequest struct {
 	// Filter results based on node availability
 	Available *bool `form:"available" binding:"omitempty"`
 	// Filter results based on node phase, such as Ready, SSHFailed, HostnameFailed, Managing, ManagedFailed, Unmanaging, UnmanagedFailed
+	// If specifying multiple kind queries, separate them with commas
 	Phase *v1.NodePhase `form:"phase" binding:"omitempty"`
 	// Filter results based on whether the node has the addon installed
 	IsAddonsInstalled *bool `form:"isAddonsInstalled" binding:"omitempty"`

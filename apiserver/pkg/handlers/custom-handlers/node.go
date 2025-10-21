@@ -37,7 +37,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
@@ -195,7 +195,9 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 			}
 		}
 		if query.Phase != nil {
-			if !stringutil.StrCaseEqual(string(n.GetPhase()), string(*query.Phase)) {
+			values := strings.Split(string(*query.Phase), ",")
+			nodePhase := string(n.GetPhase())
+			if !slice.Contains(values, nodePhase) {
 				continue
 			}
 		}
