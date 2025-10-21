@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -842,7 +843,7 @@ func (r *SchedulerReconciler) enqueueDependents() handler.EventHandler {
 // setDependenciesPhase sets the phase of a dependent workload based on the status of its dependency.
 func (r *SchedulerReconciler) setDependenciesPhase(ctx context.Context, workload *v1.Workload, depWorkloadId string) (bool, error) {
 	depWorkload := new(v1.Workload)
-	if err := r.Get(context.Background(), types.NamespacedName{Name: depWorkloadId}, depWorkload); err != nil {
+	if err := r.Get(ctx, types.NamespacedName{Name: depWorkloadId}, depWorkload); err != nil {
 		return true, err
 	}
 	depWorkload.SetDependenciesPhase(workload.Name, workload.Status.Phase)
@@ -853,7 +854,9 @@ func (r *SchedulerReconciler) setDependenciesPhase(ctx context.Context, workload
 		return false, nil
 	}
 
-	if err := r.Status().Update(context.Background(), depWorkload); err != nil {
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		return r.Status().Update(ctx, depWorkload)
+	}); err != nil {
 		return true, err
 	}
 
