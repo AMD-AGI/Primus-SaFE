@@ -182,7 +182,7 @@ func syncOpensearchService(ctx context.Context, clusterName string, clusterClien
 	if client.IgnoreAlreadyExists(err) != nil {
 		return nil, err
 	}
-	endpoints, err := desireEndpoint(ctx, clusterName, controlPlaneClient, cfg)
+	endpoints, err := desireEndpoint(ctx, clusterName, clusterClient, cfg)
 	if err != nil {
 		return nil, err
 	}
