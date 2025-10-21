@@ -586,8 +586,10 @@ func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, wor
 				return isReady, err
 			}
 			phase = depWorkload.Status.Phase
-			workload.SetDependenciesPhase(dep, workload.Status.Phase)
-			isChange = true
+			if depWorkload.IsEnd() {
+				workload.SetDependenciesPhase(dep, workload.Status.Phase)
+				isChange = true
+			}
 		}
 		if phase != v1.WorkloadSucceeded {
 			isReady = false
