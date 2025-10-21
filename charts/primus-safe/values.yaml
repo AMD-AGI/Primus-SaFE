@@ -18,7 +18,7 @@ resource_manager:
   cpu: 2000m
   memory: 4Gi
 job_manager:
-  image: "job-manager:202510211759"
+  image: "job-manager:202510211952"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
