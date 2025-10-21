@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -45,7 +46,10 @@ const (
 
 type NodeReconciler struct {
 	*ClusterBaseReconciler
-	clientManager *commonutils.ObjectManager
+	clientManager       *commonutils.ObjectManager
+	machineStatusCache  map[string]time.Time
+	cacheMutex          sync.RWMutex
+	cacheExpireDuration time.Duration
 }
 
 // SetupNodeController: initializes and registers the NodeReconciler with the controller manager
@@ -54,7 +58,9 @@ func SetupNodeController(mgr manager.Manager) error {
 		ClusterBaseReconciler: &ClusterBaseReconciler{
 			Client: mgr.GetClient(),
 		},
-		clientManager: commonutils.NewObjectManagerSingleton(),
+		clientManager:       commonutils.NewObjectManagerSingleton(),
+		machineStatusCache:  make(map[string]time.Time),
+		cacheExpireDuration: time.Minute * 10,
 	}
 	if r.clientManager == nil {
 		return fmt.Errorf("failed to new clientManager")
@@ -145,11 +151,6 @@ func (r *NodeReconciler) handlePodEvent() handler.EventHandler {
 
 // Reconcile is the main control loop for Node resources
 func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	startTime := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("Finished %s reconcile %s, cost (%v)", v1.NodeKind, req.Name, time.Since(startTime))
-	}()
-
 	adminNode := new(v1.Node)
 	if err := r.Get(ctx, req.NamespacedName, adminNode); err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
@@ -157,13 +158,19 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request)
 	if !adminNode.GetDeletionTimestamp().IsZero() {
 		return ctrlruntime.Result{}, r.delete(ctx, adminNode)
 	}
-	result, err := r.syncMachineStatus(ctx, adminNode)
-	if err != nil || result.RequeueAfter > 0 {
-		return result, err
+
+	if r.shouldSyncMachineStatus(adminNode.Name) {
+		result, err := r.syncMachineStatus(ctx, adminNode)
+		if err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		r.updateMachineStatusCache(adminNode.Name)
+		if result.RequeueAfter > 0 {
+			return result, nil
+		}
 	}
 
-	var k8sNode *corev1.Node
-	k8sNode, result, err = r.getK8sNode(ctx, adminNode)
+	k8sNode, result, err := r.getK8sNode(ctx, adminNode)
 	if client.IgnoreNotFound(err) != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
@@ -1023,4 +1030,21 @@ func (r *NodeReconciler) executeSSHCommand(sshClient *ssh.Client, command string
 	}
 	klog.Infof("execute command, result %s", b.String())
 	return nil
+}
+
+func (r *NodeReconciler) shouldSyncMachineStatus(nodeName string) bool {
+	r.cacheMutex.RLock()
+	lastCheck, exists := r.machineStatusCache[nodeName]
+	r.cacheMutex.RUnlock()
+	if !exists {
+		return true
+	}
+	// If more than 10 minutes have passed since the last check, a recheck is required.
+	return time.Since(lastCheck) >= r.cacheExpireDuration
+}
+
+func (r *NodeReconciler) updateMachineStatusCache(nodeName string) {
+	r.cacheMutex.Lock()
+	r.machineStatusCache[nodeName] = time.Now()
+	r.cacheMutex.Unlock()
 }
