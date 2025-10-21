@@ -53,9 +53,8 @@ type workloadInfo struct {
 
 type DumpLogJobReconciler struct {
 	*OpsJobBaseReconciler
-	s3Client     commons3.Interface
-	dbClient     dbclient.Interface
-	searchClient *commonsearch.SearchClient
+	s3Client commons3.Interface
+	dbClient dbclient.Interface
 	*controller.Controller[string]
 }
 
@@ -73,15 +72,11 @@ func SetupDumpLogJobController(ctx context.Context, mgr manager.Manager) error {
 		OpsJobBaseReconciler: &OpsJobBaseReconciler{
 			Client: mgr.GetClient(),
 		},
-		s3Client:     s3Client,
-		dbClient:     dbclient.NewClient(),
-		searchClient: commonsearch.NewClient(),
+		s3Client: s3Client,
+		dbClient: dbclient.NewClient(),
 	}
 	if r.dbClient == nil {
 		return fmt.Errorf("failed to new db-client")
-	}
-	if r.searchClient == nil {
-		return fmt.Errorf("failed to new search-client")
 	}
 	r.Controller = controller.NewController[string](r, defaultConcurrent)
 	r.start(ctx)
@@ -151,8 +146,11 @@ func (r *DumpLogJobReconciler) do(ctx context.Context, job *v1.OpsJob) (ctrlrunt
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-
-	searchResult, err := r.doSearch(job, workload)
+	opensearchClient := commonsearch.GetOpensearchClient(workload.cluster)
+	if opensearchClient == nil {
+		return ctrlruntime.Result{}, commonerrors.NewInternalError("There is no OpenSearch in cluster " + workload.cluster)
+	}
+	searchResult, err := r.doSearch(opensearchClient, job, workload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -162,9 +160,9 @@ func (r *DumpLogJobReconciler) do(ctx context.Context, job *v1.OpsJob) (ctrlrunt
 	if searchResult.Hits.Total.Value <= commonsearch.MaxDocsPerQuery {
 		err = r.singleUpload(ctx, job, workload, searchResult)
 	} else {
-		err = r.multiUpload(ctx, job, workload, searchResult)
+		err = r.multiUpload(ctx, opensearchClient, job, workload, searchResult)
 	}
-	r.clearScroll(searchResult.ScrollId)
+	r.clearScroll(opensearchClient, searchResult.ScrollId)
 
 	if err != nil {
 		if err2 := r.s3Client.DeleteObject(ctx, workload.workloadId, 0); err2 != nil {
@@ -193,7 +191,10 @@ func (r *DumpLogJobReconciler) singleUpload(ctx context.Context, job *v1.OpsJob,
 	return nil
 }
 
-func (r *DumpLogJobReconciler) multiUpload(ctx context.Context, job *v1.OpsJob,
+func (r *DumpLogJobReconciler) multiUpload(
+	ctx context.Context,
+	client *commonsearch.SearchClient,
+	job *v1.OpsJob,
 	workload *workloadInfo, searchResult *commonsearch.OpenSearchResponse) error {
 	uploadId, err := r.s3Client.CreateMultiPartUpload(ctx, workload.workloadId, job.GetLeftTime())
 	if err != nil {
@@ -218,7 +219,7 @@ func (r *DumpLogJobReconciler) multiUpload(ctx context.Context, job *v1.OpsJob,
 			(searchResult.Hits.Total.Value/commonsearch.MaxDocsPerQuery)+1),
 	}
 	logCh <- searchResult
-	go r.scroll(job, searchResult.ScrollId, logCh, errCh)
+	go r.scroll(client, job, searchResult.ScrollId, logCh, errCh)
 	go r.dump(ctx, job, param, logCh, errCh, stopCh)
 
 	<-stopCh
@@ -273,9 +274,10 @@ func (r *DumpLogJobReconciler) getInputWorkload(ctx context.Context, job *v1.Ops
 	return result, nil
 }
 
-func (r *DumpLogJobReconciler) doSearch(job *v1.OpsJob, workload *workloadInfo) (*commonsearch.OpenSearchResponse, error) {
+func (r *DumpLogJobReconciler) doSearch(client *commonsearch.SearchClient, job *v1.OpsJob, workload *workloadInfo) (*commonsearch.OpenSearchResponse, error) {
 	body := buildSearchBody(job, workload)
-	data, err := r.searchClient.SearchByTimeRange(workload.startTime, workload.endTime,
+
+	data, err := client.SearchByTimeRange(workload.startTime, workload.endTime,
 		fmt.Sprintf("/_search?scroll=%s", contextTTL), body)
 	if err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())
@@ -345,7 +347,7 @@ func buildSearchBody(job *v1.OpsJob, workload *workloadInfo) []byte {
 	return jsonutils.MarshalSilently(req)
 }
 
-func (r *DumpLogJobReconciler) scroll(job *v1.OpsJob, scrollId string,
+func (r *DumpLogJobReconciler) scroll(client *commonsearch.SearchClient, job *v1.OpsJob, scrollId string,
 	logCh chan<- *commonsearch.OpenSearchResponse, errCh chan<- error) {
 	request := &commonsearch.OpenSearchScrollRequest{
 		Scroll:   contextTTL,
@@ -354,7 +356,7 @@ func (r *DumpLogJobReconciler) scroll(job *v1.OpsJob, scrollId string,
 	body := jsonutils.MarshalSilently(request)
 
 	for {
-		data, err := r.searchClient.Request("/_search/scroll", http.MethodPost, body)
+		data, err := client.Request("/_search/scroll", http.MethodPost, body)
 		response := new(commonsearch.OpenSearchResponse)
 		if err == nil {
 			err = json.Unmarshal(data, response)
@@ -431,12 +433,12 @@ func (r *DumpLogJobReconciler) dump(ctx context.Context, job *v1.OpsJob, param *
 	}
 }
 
-func (r *DumpLogJobReconciler) clearScroll(scrollId string) {
+func (r *DumpLogJobReconciler) clearScroll(client *commonsearch.SearchClient, scrollId string) {
 	req := &commonsearch.OpenSearchScrollRequest{
 		ScrollId: scrollId,
 	}
 	body := jsonutils.MarshalSilently(req)
-	_, err := r.searchClient.Request("/_search/scroll", http.MethodDelete, body)
+	_, err := client.Request("/_search/scroll", http.MethodDelete, body)
 	if err != nil {
 		klog.ErrorS(err, "failed to clear scroll")
 	}

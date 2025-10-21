@@ -58,6 +58,7 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if err = h.auth.Authorize(authority.Input{
 		Context:    c.Request.Context(),
 		Resource:   workload,
