@@ -283,7 +283,7 @@ func TestSyncMachineStatus(t *testing.T) {
 	assert.NilError(t, err)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode.Name}, adminNode)
 	assert.NilError(t, err)
-	assert.Equal(t, adminNode.IsReady(), true)
+	assert.Equal(t, adminNode.IsMachineReady(), true)
 	assert.Equal(t, adminNode.GetK8sNodeName(), adminNode.Name)
 }
 

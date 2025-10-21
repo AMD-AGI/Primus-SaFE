@@ -18,16 +18,18 @@ type NodePhase string
 const (
 	NodeKind = "Node"
 
+	// the phase of NodeClusterStatus
 	NodeManaging        NodePhase = "Managing"
 	NodeManaged         NodePhase = "Managed"
 	NodeManagedFailed   NodePhase = "ManagedFailed"
-	NodeReady           NodePhase = "Ready"
-	NodeNotReady        NodePhase = "NotReady"
 	NodeUnmanaging      NodePhase = "Unmanaging"
 	NodeUnmanaged       NodePhase = "Unmanaged"
 	NodeUnmanagedFailed NodePhase = "UnmanagedFailed"
-	NodeSSHFailed       NodePhase = "SSHFailed"
-	NodeHostnameFailed  NodePhase = "HostnameFailed"
+
+	// the phase of MachineStatus
+	NodeReady          NodePhase = "Ready"
+	NodeSSHFailed      NodePhase = "SSHFailed"
+	NodeHostnameFailed NodePhase = "HostnameFailed"
 )
 
 type CommandPhase string
@@ -71,7 +73,7 @@ type NodeSpec struct {
 }
 
 type NodeClusterStatus struct {
-	// The status of nodes in the cluster, such as Ready, NotReady, Managing, Managed, ManagedFailed, Unmanaging, Unmanaged, UnmanagedFailed
+	// The status of nodes in the cluster, such as Ready, Managing, Managed, ManagedFailed, Unmanaging, Unmanaged, UnmanagedFailed
 	Phase NodePhase `json:"phase,omitempty"`
 	// The result of cluster binding (note that the cluster in spec represents the desired state,
 	// while this field represents the actual outcome of the operation).
@@ -83,7 +85,7 @@ type NodeClusterStatus struct {
 type MachineStatus struct {
 	// The hostname of k8s node
 	HostName string `json:"hostName,omitempty"`
-	// The status of the physical node, such as Ready, NotReady, SSHFailed, HostnameFailed
+	// The status of the physical node, such as Ready, SSHFailed, HostnameFailed
 	Phase NodePhase `json:"phase,omitempty"`
 	// The internalIP of k8s node
 	PrivateIP string `json:"privateIP,omitempty"`
@@ -146,7 +148,7 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 	if n == nil {
 		return false, "node is empty"
 	}
-	if !n.IsReady() {
+	if !n.IsMachineReady() {
 		return false, "node's status is not ready"
 	}
 	if !n.IsManaged() {
@@ -169,7 +171,7 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 	return true, ""
 }
 
-func (n *Node) IsReady() bool {
+func (n *Node) IsMachineReady() bool {
 	return n != nil && n.Status.MachineStatus.Phase == NodeReady
 }
 
@@ -223,4 +225,19 @@ func (n *Node) GetK8sNodeName() string {
 		return *n.Spec.Hostname
 	}
 	return ""
+}
+
+// Get the node phase, taking into account both machine status and cluster status.
+func (n *Node) GetPhase() NodePhase {
+	if n == nil {
+		return ""
+	}
+	if !n.IsMachineReady() {
+		return n.Status.MachineStatus.Phase
+	}
+	if n.Status.ClusterStatus.Phase == NodeManagedFailed || n.Status.ClusterStatus.Phase == NodeUnmanagedFailed ||
+		n.Status.ClusterStatus.Phase == NodeManaging || n.Status.ClusterStatus.Phase == NodeUnmanaging {
+		return n.Status.ClusterStatus.Phase
+	}
+	return NodeReady
 }

@@ -17,7 +17,7 @@ if ! command -v kubectl &> /dev/null; then
 fi
 
 # Do not modify the value of namespace
-NAMESPACE="primus-safe"
+export NAMESPACE="primus-safe"
 
 get_input_with_default() {
   local prompt="$1"

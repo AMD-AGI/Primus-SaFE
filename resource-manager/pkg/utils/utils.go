@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
@@ -151,6 +152,7 @@ func GetSSHConfig(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.C
 		User:            username,
 		Auth:            []ssh.AuthMethod{},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         time.Second * 30,
 	}
 
 	if sshPrivateKeyData, ok := secret.Data[Authorize]; ok {
