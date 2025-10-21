@@ -140,13 +140,14 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, workload *v1
 		return ctrlruntime.Result{}, err
 	}
 	obj, err := jobutils.GetObject(resourceInformer, workload.Name, workload.Spec.Workspace)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return ctrlruntime.Result{}, err
-	}
 
 	switch {
 	case !v1.IsWorkloadDispatched(workload):
-		if err = r.dispatch(ctx, workload, clusterInformer); err != nil {
+		if apierrors.IsNotFound(err) {
+			if err = r.dispatch(ctx, workload, clusterInformer); err != nil {
+				break
+			}
+		} else if err != nil {
 			break
 		}
 		if err = r.createService(ctx, workload, clusterInformer); err != nil {
