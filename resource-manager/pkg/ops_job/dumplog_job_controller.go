@@ -171,7 +171,6 @@ func (r *DumpLogJobReconciler) processDumpLogJob(ctx context.Context, job *v1.Op
 		err = r.multiUpload(ctx, opensearchClient, job, workload, searchResult)
 	}
 	r.clearScroll(opensearchClient, searchResult.ScrollId)
-
 	if err != nil {
 		if err2 := r.s3Client.DeleteObject(ctx, workload.workloadId, 0); err2 != nil {
 			klog.ErrorS(err2, "failed to delete object", "object", workload.workloadId)
