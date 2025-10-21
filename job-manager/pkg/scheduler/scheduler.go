@@ -61,8 +61,18 @@ type SchedulerMessage struct {
 	WorkloadId  string
 }
 
-// SetupSchedulerController: initializes and registers the SchedulerReconciler with the controller manager
+// SetupSchedulerController initializes and registers the SchedulerReconciler with the controller manager。
 func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Workload{}, "spec.dependencies", func(object client.Object) []string {
+		workload := object.(*v1.Workload)
+		if len(workload.Spec.Dependencies) == 0 {
+			return nil
+		}
+		return workload.Spec.Dependencies
+	}); err != nil {
+		return fmt.Errorf("failed to setup field indexer for workload dependencies: %v", err)
+	}
+
 	r := &SchedulerReconciler{
 		Client:           mgr.GetClient(),
 		clusterInformers: commonutils.NewObjectManagerSingleton(),
