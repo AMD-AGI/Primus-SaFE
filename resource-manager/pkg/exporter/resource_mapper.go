@@ -22,6 +22,7 @@ import (
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
+// truncateString: truncates a string to the specified maximum length in runes
 func truncateString(s string, maxLength int) string {
 	if utf8.RuneCountInString(s) <= maxLength {
 		return s
@@ -31,6 +32,7 @@ func truncateString(s string, maxLength int) string {
 	return string(runes[:maxLength])
 }
 
+// workloadMapper: converts an unstructured workload object to a database workload model
 func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 	workload := &v1.Workload{}
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, workload)
@@ -118,6 +120,8 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 	return result
 }
 
+// workloadFilter: determines whether a workload update should be processed
+// Returns true if the update should be filtered out (ignored), false otherwise
 func workloadFilter(oldObj, newObj *unstructured.Unstructured) bool {
 	if oldObj == nil || newObj == nil {
 		return false
@@ -145,6 +149,7 @@ func workloadFilter(oldObj, newObj *unstructured.Unstructured) bool {
 	return false
 }
 
+// faultMapper: converts an unstructured fault object to a database fault model
 func faultMapper(obj *unstructured.Unstructured) *dbclient.Fault {
 	fault := &v1.Fault{}
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, fault)
@@ -172,6 +177,8 @@ func faultMapper(obj *unstructured.Unstructured) *dbclient.Fault {
 	return result
 }
 
+// faultFilter: determines whether a fault update should be processed
+// Returns true if the update should be filtered out (ignored), false otherwise
 func faultFilter(oldObj, newObj *unstructured.Unstructured) bool {
 	if oldObj == nil || newObj == nil {
 		return false
@@ -196,6 +203,7 @@ func faultFilter(oldObj, newObj *unstructured.Unstructured) bool {
 	return false
 }
 
+// opsJobMapper: converts an unstructured ops job object to a database ops job model
 func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 	job := &v1.OpsJob{}
 	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, job)
@@ -204,11 +212,11 @@ func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 		return nil
 	}
 
-	var inputs []string
+	inputs := make([]string, 0, len(job.Spec.Inputs))
 	for _, p := range job.Spec.Inputs {
 		inputs = append(inputs, v1.CvtParamToString(&p))
 	}
-	strInputs := fmt.Sprintf("{%s}", fmt.Sprintf("\"%s\"", strings.Join(inputs, "\",\"")))
+	strInputs := fmt.Sprintf("{\"%s\"}", strings.Join(inputs, "\",\""))
 	result := &dbclient.OpsJob{
 		JobId:         job.Name,
 		Cluster:       v1.GetClusterId(job),

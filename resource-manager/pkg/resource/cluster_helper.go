@@ -26,10 +26,17 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
+const (
+	DefaultKubeSprayImage        = "quay.io/kubespray/kubespray:v2.24.0"
+	KubeletStatusUpdateFrequency = "60s"
+)
+
+// ClusterBaseReconciler provides base functionality for cluster reconciliation operations
 type ClusterBaseReconciler struct {
 	client.Client
 }
 
+// getUsername: retrieves the SSH username for a node, checking cluster, node, and default secrets
 func (r *ClusterBaseReconciler) getUsername(ctx context.Context, node *v1.Node, cluster *v1.Cluster) (string, error) {
 	if cluster.Spec.ControlPlane.SSHSecret != nil {
 		secret := new(corev1.Secret)
@@ -71,15 +78,11 @@ func (r *ClusterBaseReconciler) getUsername(ctx context.Context, node *v1.Node, 
 	return username, nil
 }
 
-func (r *ClusterBaseReconciler) getNode(ctx context.Context, nodes *v1.NodeList, name string) (*v1.Node, error) {
-	for _, n := range nodes.Items {
-		if n.Name == name {
-			return n.DeepCopy(), nil
-		}
-	}
+// getNode: fetches node directly from the API
+func (r *ClusterBaseReconciler) getNode(ctx context.Context, nodeId string) (*v1.Node, error) {
 	node := new(v1.Node)
 	err := r.Get(ctx, apitypes.NamespacedName{
-		Name: name,
+		Name: nodeId,
 	}, node)
 	if err != nil {
 		return nil, err
@@ -87,11 +90,11 @@ func (r *ClusterBaseReconciler) getNode(ctx context.Context, nodes *v1.NodeList,
 	return node, nil
 }
 
+// generateHosts: creates host template content for cluster nodes, including controllers and optional worker
 func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.Cluster, worker *v1.Node) (*HostTemplateContent, error) {
 	controllers := make([]*v1.Node, 0, len(cluster.Spec.ControlPlane.Nodes))
 	for _, v := range cluster.Spec.ControlPlane.Nodes {
-		node := new(v1.Node)
-		err := r.Get(ctx, apitypes.NamespacedName{Name: v}, node)
+		node, err := r.getNode(ctx, v)
 		if err != nil {
 			return nil, err
 		}
@@ -143,8 +146,7 @@ func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.C
 		count++
 	}
 	if worker != nil {
-		node := new(v1.Node)
-		err := r.Get(ctx, apitypes.NamespacedName{Name: worker.Name}, node)
+		node, err := r.getNode(ctx, worker.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -176,6 +178,7 @@ func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.C
 	return hostsContent, nil
 }
 
+// guaranteeHostsConfigMapCreated: ensures a ConfigMap with host information is created or updated
 func (r *ClusterBaseReconciler) guaranteeHostsConfigMapCreated(ctx context.Context, name string, owner metav1.OwnerReference, hostsContent *HostTemplateContent) (*corev1.ConfigMap, error) {
 	kubesprayHostData := &strings.Builder{}
 	tmpl := template.Must(template.New("").Parse(kubesprayHostsTemplate))
@@ -196,8 +199,8 @@ func (r *ClusterBaseReconciler) guaranteeHostsConfigMapCreated(ctx context.Conte
 		}
 		cm = &corev1.ConfigMap{
 			TypeMeta: metav1.TypeMeta{
-				Kind:       "ConfigMap",
-				APIVersion: "v1",
+				Kind:       common.ConfigmapKind,
+				APIVersion: common.DefaultVersion,
 			},
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      name,
@@ -215,10 +218,10 @@ func (r *ClusterBaseReconciler) guaranteeHostsConfigMapCreated(ctx context.Conte
 			return nil, err
 		}
 	} else {
-		c := client.MergeFrom(cm.DeepCopy())
+		originalCM := client.MergeFrom(cm.DeepCopy())
 		cm.Data[HostsYaml] = strings.TrimSpace(kubesprayHostData.String())
 		cm.Data[Hosts] = strings.TrimSpace(hostData.String())
-		err = r.Patch(ctx, cm, c)
+		err = r.Patch(ctx, cm, originalCM)
 		if err != nil {
 			return nil, err
 		}
@@ -227,12 +230,13 @@ func (r *ClusterBaseReconciler) guaranteeHostsConfigMapCreated(ctx context.Conte
 	return cm, nil
 }
 
-func (r *ClusterBaseReconciler) getCluster(ctx context.Context, clusterName string) (*v1.Cluster, error) {
-	if clusterName == "" {
+// getCluster: retrieves a cluster by id from the API
+func (r *ClusterBaseReconciler) getCluster(ctx context.Context, clusterId string) (*v1.Cluster, error) {
+	if clusterId == "" {
 		return nil, nil
 	}
 	cluster := new(v1.Cluster)
-	err := r.Get(ctx, apitypes.NamespacedName{Name: clusterName}, cluster)
+	err := r.Get(ctx, apitypes.NamespacedName{Name: clusterId}, cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -252,9 +256,10 @@ const (
 )
 
 var DefaultKubeletConfigArgs = map[string]string{
-	"node-status-update-frequency": "60s",
+	"node-status-update-frequency": KubeletStatusUpdateFrequency,
 }
 
+// HostTemplateContent holds the data structure for host template generation
 type HostTemplateContent struct {
 	NodeAndIP     []string
 	MasterName    []string
@@ -268,6 +273,7 @@ type HostTemplateContent struct {
 	Controllers   []*v1.Node
 }
 
+// generateWorkerPod: creates a worker pod for cluster operations (create/reset)
 func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, username, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
 	name := cluster.Name + "-" + string(action)
 	hostsAlias := make([]corev1.HostAlias, 0, len(hostsContent.PodHostsAlias))
@@ -398,6 +404,7 @@ func generateWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, usern
 	return pod
 }
 
+// generateScaleWorkerPod: creates a worker pod for scaling operations
 func generateScaleWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, node *v1.Node, useName, cmd, image, config string, hostsContent *HostTemplateContent) *corev1.Pod {
 	pod := generateWorkerPod(action, cluster, useName, cmd, image, config, hostsContent)
 	name := fmt.Sprintf("%s-%s-%s", cluster.Name, node.Name, action)
@@ -414,10 +421,13 @@ func generateScaleWorkerPod(action v1.ClusterManageAction, cluster *v1.Cluster, 
 	})
 	return pod
 }
+
+// getKubeSprayCreateCMD: generates the command for creating a cluster with KubeSpray
 func getKubeSprayCreateCMD(user, env string) string {
 	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s cluster.yml --become-user=root %s -b -vvv", utils.Authorize, env)
 }
 
+// getKubeSprayHostsCMD: generates the command for setting up hosts file
 func getKubeSprayHostsCMD(user string) string {
 	cmd := fmt.Sprintf("ansible all -i hosts/hosts.yaml --private-key .ssh/%s -m copy -a \"src=inventory/hosts dest=/etc/hosts mode=u+x\" --become-user=root -b -vvv", utils.Authorize)
 	if user == "" || user == "root" {
@@ -427,6 +437,7 @@ func getKubeSprayHostsCMD(user string) string {
 		user, user, user, user, cmd)
 }
 
+// getKubeSprayEnv: generates environment variables for KubeSpray operations
 func getKubeSprayEnv(cluster *v1.Cluster) string {
 	cmd := ""
 	if cluster.Spec.ControlPlane.KubeVersion != nil {
@@ -459,17 +470,20 @@ func getKubeSprayEnv(cluster *v1.Cluster) string {
 	return cmd
 }
 
+// getKubeSprayResetCMD: generates the command for resetting a cluster with KubeSpray
 func getKubeSprayResetCMD(user, env string) string {
 	return fmt.Sprintf("ansible-playbook -i hosts/hosts.yaml --private-key .ssh/%s reset.yml -e reset_confirmation=yes %s --become-user=root -b -vvv", utils.Authorize, env)
 }
 
+// getKubesprayImage: returns the KubeSpray image to use, with fallback to default
 func getKubesprayImage(cluster *v1.Cluster) string {
 	if cluster.Spec.ControlPlane.KubeSprayImage != nil && *cluster.Spec.ControlPlane.KubeSprayImage != "" {
 		return *cluster.Spec.ControlPlane.KubeSprayImage
 	}
-	return "quay.io/kubespray/kubespray:v2.24.0"
+	return DefaultKubeSprayImage
 }
 
+// addOwnerReferences: adds cluster owner reference to a list if not already present
 func addOwnerReferences(references []metav1.OwnerReference, cluster *v1.Cluster) []metav1.OwnerReference {
 	for _, r := range references {
 		if r.UID == cluster.UID {
@@ -485,6 +499,7 @@ func addOwnerReferences(references []metav1.OwnerReference, cluster *v1.Cluster)
 	return references
 }
 
+// getNodeLabelsString: converts node labels to JSON string format
 func getNodeLabelsString(node *v1.Node) (string, bool) {
 	if node.Labels == nil {
 		return "", false
@@ -501,6 +516,7 @@ func getNodeLabelsString(node *v1.Node) (string, bool) {
 	return string(l), true
 }
 
+// createKubernetesClusterOwnerReference: creates an owner reference for a cluster
 func createKubernetesClusterOwnerReference(cluster *v1.Cluster) metav1.OwnerReference {
 	return metav1.OwnerReference{
 		APIVersion:         cluster.APIVersion,
@@ -512,6 +528,7 @@ func createKubernetesClusterOwnerReference(cluster *v1.Cluster) metav1.OwnerRefe
 	}
 }
 
+// isReadyMachineNode: checks if a machine node is in a ready state
 func isReadyMachineNode(node *v1.Node) bool {
 	if node.Status.MachineStatus.Phase == "" {
 		return false
@@ -525,6 +542,7 @@ func isReadyMachineNode(node *v1.Node) bool {
 	return true
 }
 
+// guaranteeControllerPlane: determines if control plane operations should be guaranteed
 func guaranteeControllerPlane(cluster *v1.Cluster) bool {
 	if !cluster.DeletionTimestamp.IsZero() {
 		return true

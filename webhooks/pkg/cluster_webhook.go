@@ -135,6 +135,8 @@ func (v *ClusterValidator) validateControlPlane(ctx context.Context, cluster *v1
 	return nil
 }
 
+// validateNodesInUse checks if any node in the cluster's control plane is already being used by another cluster.
+// If a node is found to be in use, it returns an error indicating the node is already existent.
 func (v *ClusterValidator) validateNodesInUse(ctx context.Context, cluster *v1.Cluster) error {
 	clusterList := &v1.ClusterList{}
 	if err := v.List(ctx, clusterList); err != nil {

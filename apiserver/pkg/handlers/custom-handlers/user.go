@@ -22,6 +22,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -206,7 +207,7 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 // and applies specified updates to the user.
 func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	req := &types.PatchUserRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "fail to parse request data", "body", string(body))
 		return nil, err
@@ -223,7 +224,7 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	patch := client.MergeFrom(targetUser.DeepCopy())
+	originalUser := client.MergeFrom(targetUser.DeepCopy())
 	if req.Workspaces != nil {
 		commonuser.AssignWorkspace(targetUser, *req.Workspaces...)
 	}
@@ -243,7 +244,7 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 		v1.SetLabel(targetUser, v1.UserEmailMd5Label, stringutil.MD5(*req.Email))
 		v1.SetAnnotation(targetUser, v1.UserEmailAnnotation, *req.Email)
 	}
-	if err = h.Patch(c.Request.Context(), targetUser, patch); err != nil {
+	if err = h.Patch(c.Request.Context(), targetUser, originalUser); err != nil {
 		klog.ErrorS(err, "fail to patch user", "body", string(body))
 		return nil, err
 	}
@@ -495,7 +496,7 @@ func (h *Handler) logout(c *gin.Context) (interface{}, error) {
 // Ensures required fields are present and validates based on requester permissions.
 func parseCreateUserQuery(requestUser *v1.User, c *gin.Context) (*types.CreateUserRequest, error) {
 	req := &types.CreateUserRequest{}
-	body, err := parseRequestBody(c.Request, req)
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "fail to parseRequestBody", "body", string(body))
 		return nil, err
@@ -519,7 +520,7 @@ func parseLoginQuery(c *gin.Context) (*types.UserLoginRequest, error) {
 		req.Password = c.PostForm("password")
 		req.IsFromConsole = true
 	} else {
-		_, err := parseRequestBody(c.Request, req)
+		_, err := apiutils.ParseRequestBody(c.Request, req)
 		if err != nil {
 			return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 		}

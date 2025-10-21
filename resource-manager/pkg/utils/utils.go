@@ -34,6 +34,7 @@ const (
 	AuthorizePub = "authorize.pub"
 )
 
+// RemoveOwnerReferences removes owner references with the specified UID from the given references
 func RemoveOwnerReferences(references []metav1.OwnerReference, uid types.UID) []metav1.OwnerReference {
 	newReferences := make([]metav1.OwnerReference, 0, len(references))
 	for k, r := range references {
@@ -44,6 +45,7 @@ func RemoveOwnerReferences(references []metav1.OwnerReference, uid types.UID) []
 	return newReferences
 }
 
+// RemoveFinalizer removes specified finalizers from the object and updates it
 func RemoveFinalizer(ctx context.Context, cli client.Client, obj client.Object, finalizer ...string) error {
 	var found bool
 	for _, val := range finalizer {
@@ -65,20 +67,21 @@ func RemoveFinalizer(ctx context.Context, cli client.Client, obj client.Object, 
 	return nil
 }
 
+// IncRetryCount increments the retry count annotation on the object and updates it
 func IncRetryCount(ctx context.Context, cli client.Client, obj client.Object, maxCount int) (int, error) {
 	count := v1.GetRetryCount(obj) + 1
 	if count > maxCount {
 		return count, nil
 	}
-	patch := client.MergeFrom(obj.DeepCopyObject().(client.Object))
+	originalObj := client.MergeFrom(obj.DeepCopyObject().(client.Object))
 	v1.SetAnnotation(obj, v1.RetryCountAnnotation, strconv.Itoa(count))
-	if err := cli.Patch(ctx, obj, patch); err != nil {
+	if err := cli.Patch(ctx, obj, originalObj); err != nil {
 		return 0, client.IgnoreNotFound(err)
 	}
 	return count, nil
 }
 
-// Ignore errors that cannot be fixed
+// IsNonRetryableError checks if an error is non-retryable (cannot be fixed by retrying)
 func IsNonRetryableError(err error) bool {
 	if err == nil {
 		return false
@@ -92,9 +95,10 @@ func IsNonRetryableError(err error) bool {
 	return false
 }
 
+// GetK8sClientFactory retrieves the Kubernetes client factory for the specified cluster
 func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
 	if clientManager == nil {
-		return nil, commonerrors.NewInternalError("client manager is emtpy")
+		return nil, commonerrors.NewInternalError("client manager is empty")
 	}
 	obj, _ := clientManager.Get(clusterId)
 	if obj == nil {
@@ -108,12 +112,15 @@ func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId str
 	return k8sClients, nil
 }
 
+// GetSSHClient creates an SSH client connection to the specified node
 func GetSSHClient(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.Client, error) {
 	config, err := GetSSHConfig(ctx, cli, node)
 	if err != nil {
 		return nil, err
 	}
-	// The port field is ensured to be non-empty by the webhook
+	if node.Spec.Port == nil {
+		return nil, commonerrors.NewInternalError("node port is not specified")
+	}
 	sshClient, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", node.Spec.PrivateIP, *node.Spec.Port), config)
 	if err != nil {
 		return nil, fmt.Errorf("ssh client failed to connect: %v", err)
@@ -121,6 +128,7 @@ func GetSSHClient(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.C
 	return sshClient, nil
 }
 
+// GetSSHConfig creates SSH client configuration from node's SSH secret
 func GetSSHConfig(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.ClientConfig, error) {
 	if node.Spec.SSHSecret == nil {
 		return nil, commonerrors.NewInternalError("failed to get SSH secret of node")

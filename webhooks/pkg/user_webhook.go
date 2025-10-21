@@ -39,7 +39,6 @@ func AddUserWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder adm
 	}})
 }
 
-// UserMutator works when create/update
 type UserMutator struct {
 	client.Client
 	decoder admission.Decoder
@@ -95,6 +94,11 @@ func (m *UserMutator) mutateMetadata(user *v1.User) {
 	metav1.SetMetaDataLabel(&user.ObjectMeta, v1.UserIdLabel, user.Name)
 }
 
+// mutateRoles handles user role mutations including:
+// 1. System admin users only keep SystemAdminRole
+// 2. Remove duplicate roles
+// 3. Filter out WorkspaceAdminRole (not allowed)
+// 4. Add DefaultRole for non-system admins if missing
 func (m *UserMutator) mutateRoles(user *v1.User) {
 	switch {
 	case user.IsSystemAdmin() && len(user.Spec.Roles) > 1:
@@ -118,6 +122,8 @@ func (m *UserMutator) mutateRoles(user *v1.User) {
 	}
 }
 
+// mutateWorkspace removes duplicate and non-existent workspaces from the user's workspace list.
+// It ensures that each workspace appears only once and that all workspaces actually exist.
 func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 	workspaceSet := sets.NewSet()
 	allWorkspaces := commonuser.GetWorkspace(user)
@@ -136,6 +142,8 @@ func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 	}
 }
 
+// mutateDefaultWorkspace adds default workspaces to users' workspace lists.
+// It ensures all users have access to workspaces marked as default (IsDefault=true).
 func (m *UserMutator) mutateDefaultWorkspace(ctx context.Context, user *v1.User) {
 	workspaceList := &v1.WorkspaceList{}
 	err := m.List(ctx, workspaceList)
@@ -155,6 +163,8 @@ func (m *UserMutator) mutateDefaultWorkspace(ctx context.Context, user *v1.User)
 	commonuser.AssignWorkspace(user, userWorkspaces...)
 }
 
+// mutateManagedWorkspace filters out non-existent or unauthorized workspaces from user's managed workspace list.
+// It ensures users can only manage workspaces they have access rights to and that actually exist.
 func (m *UserMutator) mutateManagedWorkspace(ctx context.Context, user *v1.User) {
 	workspaceSet := sets.NewSet()
 	allWorkspaces := commonuser.GetManagedWorkspace(user)
@@ -174,7 +184,6 @@ func (m *UserMutator) mutateManagedWorkspace(ctx context.Context, user *v1.User)
 	commonuser.AssignManagedWorkspace(user, workspaces...)
 }
 
-// UserValidator works when create/update
 type UserValidator struct {
 	client.Client
 	decoder admission.Decoder

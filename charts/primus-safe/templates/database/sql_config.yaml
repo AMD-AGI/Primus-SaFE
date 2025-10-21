@@ -230,6 +230,3 @@ data:
     alter table ssh_session_records
         owner to "primus-safe";
 
-
-
-

@@ -9,6 +9,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
+// ContainsStrings checks if all elements in slice2 exist in slice1
 func ContainsStrings(slice1, slice2 []string) bool {
 	if len(slice1) == 0 {
 		return false
@@ -33,6 +34,7 @@ func ContainsStrings(slice1, slice2 []string) bool {
 	return true
 }
 
+// EqualIgnoreOrder checks if two slices contain the same elements regardless of order
 func EqualIgnoreOrder(slice1, slice2 []string) bool {
 	if len(slice1) != len(slice2) {
 		return false
@@ -57,6 +59,7 @@ func EqualIgnoreOrder(slice1, slice2 []string) bool {
 	return true
 }
 
+// RemoveString removes all occurrences of a specific string from a slice
 func RemoveString(slice []string, s string) ([]string, bool) {
 	result := make([]string, 0, len(slice))
 	hasRemove := false
@@ -70,6 +73,7 @@ func RemoveString(slice []string, s string) ([]string, bool) {
 	return result, hasRemove
 }
 
+// RemoveStrings removes all occurrences of strings in slice2 from slice1
 func RemoveStrings(slice1, slice2 []string) ([]string, bool) {
 	switch len(slice2) {
 	case 0:
@@ -115,6 +119,7 @@ func AddAndDelDuplicates(slice1, slice2 []string) ([]string, bool) {
 	return result, hasAdd
 }
 
+// Copy creates a copy of the first n elements from the given slice
 func Copy(slice []string, n int) []string {
 	if n < 0 {
 		return nil
@@ -151,6 +156,7 @@ func Difference(slice1, slice2 []string) []string {
 	return result
 }
 
+// Contains checks if a specific value exists in a slice of comparable types
 func Contains[T comparable](s []T, v T) bool {
 	for _, elem := range s {
 		if elem == v {

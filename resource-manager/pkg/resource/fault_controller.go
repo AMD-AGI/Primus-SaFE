@@ -32,16 +32,21 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 )
 
+// FaultReconciler: reconciles Fault resources and manages their lifecycle
 type FaultReconciler struct {
 	*ClusterBaseReconciler
 	opt *FaultReconcilerOption
 }
 
+// FaultReconcilerOption: holds configuration options for the FaultReconciler
 type FaultReconcilerOption struct {
-	processWait   time.Duration
+	// Wait time between processing attempts
+	processWait time.Duration
+	// Maximum number of retry attempts
 	maxRetryCount int
 }
 
+// SetupFaultController: initializes and registers the FaultReconciler with the controller manager
 func SetupFaultController(mgr manager.Manager, opt *FaultReconcilerOption) error {
 	r := &FaultReconciler{
 		ClusterBaseReconciler: &ClusterBaseReconciler{
@@ -61,6 +66,7 @@ func SetupFaultController(mgr manager.Manager, opt *FaultReconcilerOption) error
 	return nil
 }
 
+// handleNodeEvent: handles node events that may affect fault reconciliation
 func (r *FaultReconciler) handleNodeEvent() handler.EventHandler {
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
@@ -101,6 +107,7 @@ func (r *FaultReconciler) handleNodeEvent() handler.EventHandler {
 	}
 }
 
+// handleConfigmapEvent: handles configmap events that may affect fault reconciliation
 func (r *FaultReconciler) handleConfigmapEvent() handler.EventHandler {
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, e event.CreateEvent, q v1.RequestWorkQueue) {
@@ -157,6 +164,7 @@ func (r *FaultReconciler) handleConfigmapEvent() handler.EventHandler {
 	}
 }
 
+// deleteFaults: deletes faults matching the given label selector with retry logic
 func (r *FaultReconciler) deleteFaults(ctx context.Context, labelSelector labels.Selector) error {
 	op := func() error {
 		faultList, err := listFaults(ctx, r.Client, labelSelector)
@@ -165,6 +173,7 @@ func (r *FaultReconciler) deleteFaults(ctx context.Context, labelSelector labels
 		}
 		for _, fault := range faultList {
 			if err = r.Delete(ctx, &fault); client.IgnoreNotFound(err) != nil {
+				klog.ErrorS(err, "failed to delete fault")
 				return err
 			}
 			klog.Infof("delete fault: %s", fault.Name)
@@ -175,6 +184,7 @@ func (r *FaultReconciler) deleteFaults(ctx context.Context, labelSelector labels
 	return err
 }
 
+// Reconcile: processes Fault resources to ensure they are in the desired state
 func (r *FaultReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	startTime := time.Now().UTC()
 	defer func() {
@@ -188,9 +198,10 @@ func (r *FaultReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request
 	if !fault.GetDeletionTimestamp().IsZero() {
 		return r.delete(ctx, fault)
 	}
-	return r.handle(ctx, fault)
+	return r.processFault(ctx, fault)
 }
 
+// delete: handles fault deletion by removing node taints and finalizers
 func (r *FaultReconciler) delete(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
 	err := r.removeNodeTaint(ctx, fault)
 	if err != nil && !utils.IsNonRetryableError(err) {
@@ -201,7 +212,8 @@ func (r *FaultReconciler) delete(ctx context.Context, fault *v1.Fault) (ctrlrunt
 	return ctrlruntime.Result{}, utils.RemoveFinalizer(ctx, r.Client, fault, v1.FaultFinalizer)
 }
 
-func (r *FaultReconciler) handle(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
+// processFault: processes a fault by adding or removing node taints based on fault action
+func (r *FaultReconciler) processFault(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
 	var err error
 	if fault.Spec.Action == "" {
 		err = r.removeNodeTaint(ctx, fault)
@@ -234,6 +246,7 @@ func (r *FaultReconciler) handle(ctx context.Context, fault *v1.Fault) (ctrlrunt
 	return ctrlruntime.Result{}, r.updatePhase(ctx, fault, phase)
 }
 
+// updatePhase: updates the fault's phase status
 func (r *FaultReconciler) updatePhase(ctx context.Context, fault *v1.Fault, phase v1.FaultPhase) error {
 	fault.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 	fault.Status.Phase = phase
@@ -244,6 +257,7 @@ func (r *FaultReconciler) updatePhase(ctx context.Context, fault *v1.Fault, phas
 	return nil
 }
 
+// taintNode: adds a taint to the node associated with the fault
 func (r *FaultReconciler) taintNode(ctx context.Context, fault *v1.Fault) error {
 	if fault.Spec.Node == nil {
 		return nil
@@ -277,6 +291,7 @@ func (r *FaultReconciler) taintNode(ctx context.Context, fault *v1.Fault) error 
 	return nil
 }
 
+// removeNodeTaint: removes the taint from the node associated with the fault
 func (r *FaultReconciler) removeNodeTaint(ctx context.Context, fault *v1.Fault) error {
 	if fault.Spec.Node == nil {
 		return nil
@@ -307,6 +322,7 @@ func (r *FaultReconciler) removeNodeTaint(ctx context.Context, fault *v1.Fault) 
 	return nil
 }
 
+// retry: handles fault retry logic by incrementing retry count and scheduling requeue
 func (r *FaultReconciler) retry(ctx context.Context, fault *v1.Fault) (ctrlruntime.Result, error) {
 	if fault == nil {
 		return ctrlruntime.Result{}, nil

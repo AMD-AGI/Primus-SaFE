@@ -16,6 +16,10 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: {{ .Release.Name }}
+      {{- if .Values.global.image_pull_secret }}
+      imagePullSecrets:
+        - name: {{ .Values.global.image_pull_secret }}
+      {{- end }}
       containers:
         - name: main
           image: docker.io/primussafe/kubectl:latest

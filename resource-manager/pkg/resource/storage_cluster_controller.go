@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
 type StorageClusterController struct {
@@ -36,6 +37,7 @@ type StorageClusterController struct {
 	queue                 v1.RequestWorkQueue
 }
 
+// SetupStorageClusterController initializes and registers the StorageClusterController with the controller manager
 func SetupStorageClusterController(mgr manager.Manager) error {
 	r := &StorageClusterController{
 		Client:                mgr.GetClient(),
@@ -53,6 +55,7 @@ func SetupStorageClusterController(mgr manager.Manager) error {
 	return nil
 }
 
+// handleClusterEvent: creates an event handler that enqueues StorageCluster requests when related Cluster resources change
 func (r *StorageClusterController) handleClusterEvent() handler.EventHandler {
 	enqueue := func(kc *v1.Cluster, queue v1.RequestWorkQueue) {
 		added := map[string]struct{}{}
@@ -105,113 +108,117 @@ func (r *StorageClusterController) handleClusterEvent() handler.EventHandler {
 	}
 }
 
+// Reconcile is the main control loop for StorageCluster resources
 func (r *StorageClusterController) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	/**
-	startTime := time.Now().UTC()
-	defer func() {
-		 klog.Infof("Finished reconcile storage cluster %s cost (%v)", req.Name, time.Since(startTime))
-	}()
-	*/
 	cluster := new(v1.StorageCluster)
 	err := r.Get(ctx, req.NamespacedName, cluster)
 	if err != nil {
-		if errors.IsNotFound(err) {
-			return ctrlruntime.Result{}, nil
-		}
-		return ctrlruntime.Result{}, err
+		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if err = r.addFinalizer(ctx, cluster); err != nil {
 		return ctrlruntime.Result{}, err
 	}
+
 	scluster, err := r.getStorageCluster(ctx, cluster)
 	if err != nil {
 		if errors.IsNotFound(err) && !cluster.DeletionTimestamp.IsZero() {
-			if err = r.removeFinalizer(ctx, cluster); err != nil {
+			if err = utils.RemoveFinalizer(ctx, r.Client, cluster); err != nil {
 				return ctrlruntime.Result{}, err
 			}
 			return ctrlruntime.Result{}, nil
 		}
-		klog.Errorf("Get StorageCluster failed %+v ", err)
+		klog.ErrorS(err, "failed to get StorageCluster")
 		return ctrlruntime.Result{Requeue: true, RequeueAfter: time.Second * 5}, nil
 	}
 	if scluster == nil {
 		return ctrlruntime.Result{}, fmt.Errorf("storage cluster %s not found", cluster.Name)
 	}
-	if err = r.addFinalizer(ctx, cluster); err != nil {
-		return ctrlruntime.Result{}, err
-	}
+
 	if !cluster.DeletionTimestamp.IsZero() {
-		clusters := new(v1.ClusterList)
-		err = r.List(ctx, clusters)
-		if err != nil {
-			return ctrlruntime.Result{}, fmt.Errorf("list storage cluster failed: %v", err)
-		}
-		if err = scluster.delete(ctx, cluster, clusters); err != nil {
-			return ctrlruntime.Result{}, err
-		}
-		if err = r.removeFinalizer(ctx, cluster); err != nil {
-			return ctrlruntime.Result{}, err
-		}
-		return ctrlruntime.Result{}, nil
+		return ctrlruntime.Result{}, r.delete(ctx, cluster, scluster)
 	}
-	c := client.MergeFrom(cluster.DeepCopy())
+
+	return ctrlruntime.Result{}, r.processCluster(ctx, cluster, scluster)
+}
+
+// delete: handles the deletion of a StorageCluster resource by cleaning up associated resources and removing the finalizer
+func (r *StorageClusterController) delete(ctx context.Context, cluster *v1.StorageCluster, scluster *storageCluster) error {
+	clusters := new(v1.ClusterList)
+	err := r.List(ctx, clusters)
+	if err != nil {
+		return fmt.Errorf("failed to list storage cluster: %v", err)
+	}
+	if err = scluster.delete(ctx, cluster, clusters); err != nil {
+		return err
+	}
+	if err = utils.RemoveFinalizer(ctx, r.Client, cluster); err != nil {
+		return err
+	}
+	return nil
+}
+
+// processCluster: handles the main processing logic for a StorageCluster resource
+func (r *StorageClusterController) processCluster(ctx context.Context, cluster *v1.StorageCluster, scluster *storageCluster) error {
+	originalCluster := client.MergeFrom(cluster.DeepCopy())
 	status := cluster.Status.DeepCopy()
 	cephCluster, err := scluster.getCephCluster(ctx, cluster)
 	if err != nil {
-		return ctrlruntime.Result{}, err
+		return err
 	}
 	if !reflect.DeepEqual(status, cluster.Status) {
-		err = r.Status().Patch(ctx, cluster, c)
+		err = r.Status().Patch(ctx, cluster, originalCluster)
 		if err != nil {
-			return ctrlruntime.Result{}, err
+			return err
 		}
 	}
-	if cephCluster.Status.Phase == rookv1.ConditionReady {
-		clusters := new(v1.ClusterList)
-		err = r.List(ctx, clusters)
-		if err != nil {
-			return ctrlruntime.Result{}, err
-		}
-		for _, cc := range clusters.Items {
-			kc := cc.DeepCopy()
-			oldStatus := kc.DeepCopy().Status.StorageStatus
-			for _, s := range kc.Spec.Storages {
-				if s.StorageCluster == cluster.Name {
-					stat, err := scluster.getStorage(ctx, cluster, kc, s)
-					if err != nil {
-						return ctrlruntime.Result{}, err
-					}
-					// klog.Infof("storage cluster %s status %+v", cluster.Name, stat)
-					updateStorageStatus(kc, *stat)
-				}
-			}
-			for _, stat := range kc.Status.StorageStatus {
-				if stat.StorageCluster == cluster.Name && stat.Ref == nil {
-					// klog.Infof("kubernetes cluster storage %s ", stat.Name)
-					if _, ok := kc.GetStorage(stat.Name); !ok {
-						err = scluster.deleteStorage(ctx, cluster, kc, v1.Storage{
-							Name:           stat.Name,
-							Type:           stat.Type,
-							StorageCluster: stat.StorageCluster,
-						})
-						if err != nil {
-							return ctrlruntime.Result{}, err
-						}
-						kc.DeleteStorageStatus(stat.Name)
-					}
-				}
-			}
-			if !reflect.DeepEqual(oldStatus, kc.Status.StorageStatus) {
-				err = r.Status().Update(ctx, kc)
+	if cephCluster.Status.Phase != rookv1.ConditionReady {
+		return nil
+	}
+	clusters := new(v1.ClusterList)
+	if err = r.List(ctx, clusters); err != nil {
+		return err
+	}
+
+	for _, cc := range clusters.Items {
+		kc := cc.DeepCopy()
+		oldStatus := kc.DeepCopy().Status.StorageStatus
+		for _, s := range kc.Spec.Storages {
+			if s.StorageCluster == cluster.Name {
+				stat, err := scluster.getStorage(ctx, cluster, kc, s)
 				if err != nil {
-					return ctrlruntime.Result{}, err
+					return err
+				}
+				// klog.Infof("storage cluster %s status %+v", cluster.Name, stat)
+				updateStorageStatus(kc, *stat)
+			}
+		}
+		for _, stat := range kc.Status.StorageStatus {
+			if stat.StorageCluster == cluster.Name && stat.Ref == nil {
+				// klog.Infof("kubernetes cluster storage %s ", stat.Name)
+				if _, ok := kc.GetStorage(stat.Name); !ok {
+					err = scluster.deleteStorage(ctx, cluster, kc, v1.Storage{
+						Name:           stat.Name,
+						Type:           stat.Type,
+						StorageCluster: stat.StorageCluster,
+					})
+					if err != nil {
+						return err
+					}
+					kc.DeleteStorageStatus(stat.Name)
 				}
 			}
 		}
+		if !reflect.DeepEqual(oldStatus, kc.Status.StorageStatus) {
+			err = r.Status().Update(ctx, kc)
+			if err != nil {
+				return err
+			}
+		}
 	}
-	return ctrlruntime.Result{}, nil
+	return nil
 }
 
+// updateCephCsiConfig: updates the Ceph CSI configuration with cluster monitor information
 func (r *StorageClusterController) updateCephCsiConfig(ctx context.Context, cluster *v1.StorageCluster, scluster *storageCluster) error {
 	configMap, err := scluster.clientset.CoreV1().ConfigMaps(cephCSIRBDNamespace).Get(ctx, cephCSIRBDName, metav1.GetOptions{})
 	if err != nil {
@@ -260,6 +267,7 @@ func (r *StorageClusterController) updateCephCsiConfig(ctx context.Context, clus
 	return nil
 }
 
+// getStorageClusterByName: retrieves a storage cluster by name, creating it if not found in cache
 func (r *StorageClusterController) getStorageClusterByName(ctx context.Context, name string) (*storageCluster, error) {
 	sc, ok := r.storageClusters.get(name)
 	if ok {
@@ -273,7 +281,7 @@ func (r *StorageClusterController) getStorageClusterByName(ctx context.Context, 
 	if r.queue == nil {
 		return nil, fmt.Errorf("queue is nil")
 	}
-	sc, err = newStorageCluster(ctx, cluster, r.queue, make(chan struct{}))
+	sc, err = newStorageCluster(ctx, r.Client, cluster, r.queue, make(chan struct{}))
 	if err != nil {
 		return nil, err
 	}
@@ -281,6 +289,7 @@ func (r *StorageClusterController) getStorageClusterByName(ctx context.Context, 
 	return sc, nil
 }
 
+// addFinalizer: adds the storage finalizer to the StorageCluster resource if not already present
 func (r *StorageClusterController) addFinalizer(ctx context.Context, cluster *v1.StorageCluster) error {
 	for _, v := range cluster.Finalizers {
 		if v == v1.StorageFinalizer {
@@ -292,20 +301,7 @@ func (r *StorageClusterController) addFinalizer(ctx context.Context, cluster *v1
 	return r.Update(ctx, cluster)
 }
 
-func (r *StorageClusterController) removeFinalizer(ctx context.Context, cluster *v1.StorageCluster) error {
-	var finalizers []string
-	for _, v := range cluster.Finalizers {
-		if v != v1.StorageFinalizer {
-			finalizers = append(finalizers, v)
-		}
-	}
-	if len(finalizers) == len(cluster.Finalizers) {
-		return nil
-	}
-	cluster.Finalizers = finalizers
-	return r.Update(ctx, cluster)
-}
-
+// getStorageCluster: retrieves the appropriate storage cluster based on StorageCluster spec or default configuration
 func (r *StorageClusterController) getStorageCluster(ctx context.Context, sc *v1.StorageCluster) (*storageCluster, error) {
 	if r.queue == nil {
 		return nil, fmt.Errorf("queue is nil")
@@ -321,7 +317,7 @@ func (r *StorageClusterController) getStorageCluster(ctx context.Context, sc *v1
 	list := new(v1.ClusterList)
 	err := r.List(ctx, list)
 	if err != nil {
-		return nil, fmt.Errorf("error getting default storage cluster: %v", err)
+		return nil, err
 	}
 
 	for _, cluster := range list.Items {
@@ -331,7 +327,7 @@ func (r *StorageClusterController) getStorageCluster(ctx context.Context, sc *v1
 				if ok {
 					return scluster, nil
 				}
-				scluster, err := newStorageCluster(ctx, &cluster, r.queue, make(chan struct{}))
+				scluster, err := newStorageCluster(ctx, r.Client, &cluster, r.queue, make(chan struct{}))
 				if err != nil {
 					return nil, fmt.Errorf("error getting default storage cluster: %v", err)
 				}
@@ -344,100 +340,7 @@ func (r *StorageClusterController) getStorageCluster(ctx context.Context, sc *v1
 	return nil, fmt.Errorf("error getting default storage cluster: %v", err)
 }
 
-// func (r *StorageClusterController) ensureAddon(ctx context.Context, cluster *v1.StorageCluster) (time.Duration, error) {
-// 	templates := new(v1.AddonTemplateList)
-// 	err := r.List(ctx, templates)
-// 	if err != nil {
-// 		return time.Duration(0), fmt.Errorf("error getting templates: %v", err)
-// 	}
-// 	var template *v1.AddonTemplate
-// 	for _, t := range templates.Items {
-// 		if t.Spec.Component == "rook-ceph" {
-// 			if template == nil {
-// 				template = t.DeepCopy()
-// 				continue
-// 			}
-// 			if t.Spec.Version > template.Spec.Version {
-// 				template = t.DeepCopy()
-// 			}
-// 		}
-// 	}
-// 	if template == nil {
-// 		return time.Minute, nil
-// 	}
-// 	c := new(v1.Cluster)
-// 	err = r.Get(ctx, types.NamespacedName{Name: cluster.Spec.Cluster}, c)
-// 	if err != nil {
-// 		return time.Duration(0), fmt.Errorf("error getting cluster : %v", err)
-// 	}
-// 	name := fmt.Sprintf("%s-%s", cluster.Spec.Cluster, template.Spec.Component)
-// 	addon := new(v1.Addon)
-// 	err = r.Get(ctx, types.NamespacedName{Name: name}, addon)
-// 	if err != nil {
-// 		if errors.IsNotFound(err) {
-// 			addon = &v1.Addon{
-// 				TypeMeta: metav1.TypeMeta{},
-// 				ObjectMeta: metav1.ObjectMeta{
-// 					Name: name,
-// 					OwnerReferences: []metav1.OwnerReference{
-// 						{
-// 							APIVersion:         c.APIVersion,
-// 							Kind:               c.Kind,
-// 							Name:               c.Name,
-// 							UID:                c.UID,
-// 							Controller:         pointer.BoolPtr(true),
-// 							BlockOwnerDeletion: pointer.BoolPtr(true),
-// 						},
-// 					},
-// 				},
-// 				Spec: v1.AddonSpec{
-// 					Cluster: &corev1.ObjectReference{
-// 						Kind:            c.Kind,
-// 						Namespace:       c.Namespace,
-// 						Name:            c.Name,
-// 						UID:             c.UID,
-// 						APIVersion:      c.APIVersion,
-// 						ResourceVersion: c.ResourceVersion,
-// 					},
-// 					Suspend: false,
-// 					Source: v1.AddonSource{
-// 						HelmRepository: &v1.HelmRepositorySpec{
-// 							HelmRepositorySpec: v1beta2.HelmRepositorySpec{},
-// 							ReleaseName:        template.Spec.Component,
-// 							PlainHTTP:          false,
-// 							ChartVersion:       "",
-// 							Namespace:          template.Spec.Component,
-// 							Values:             "",
-// 							PreviousVersion:    nil,
-// 							Template: &corev1.ObjectReference{
-// 								Kind:            template.Kind,
-// 								Namespace:       template.Namespace,
-// 								Name:            template.Name,
-// 								UID:             template.UID,
-// 								APIVersion:      template.APIVersion,
-// 								ResourceVersion: template.ResourceVersion,
-// 							},
-// 						},
-// 					},
-// 					Type:            "",
-// 					InvolvedObjects: nil,
-// 					RollingUpdate:   nil,
-// 				},
-// 				Status: v1.AddonStatus{},
-// 			}
-// 			err = r.Create(ctx, addon)
-// 			if err != nil {
-// 				return time.Duration(0), err
-// 			}
-// 		}
-// 		return time.Duration(0), fmt.Errorf("error getting addon: %v", err)
-// 	}
-// 	if addon.Status.Phase != v1.AddonRunning {
-// 		return time.Second * 10, nil
-// 	}
-// 	return time.Duration(0), nil
-// }
-
+// updateStorageStatus: updates the storage status in the Cluster resource
 func updateStorageStatus(kc *v1.Cluster, s v1.StorageStatus) {
 	for i, stats := range kc.Status.StorageStatus {
 		if stats.Name == s.Name {

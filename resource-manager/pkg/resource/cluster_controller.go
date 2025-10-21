@@ -17,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -36,11 +35,13 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
+// ClusterReconciler reconciles Cluster resources and manages their lifecycle
 type ClusterReconciler struct {
 	*ClusterBaseReconciler
 	clientManager *commonutils.ObjectManager
 }
 
+// SetupClusterController initializes and registers the ClusterReconciler with the controller manager
 func SetupClusterController(mgr manager.Manager) error {
 	r := &ClusterReconciler{
 		ClusterBaseReconciler: &ClusterBaseReconciler{
@@ -53,7 +54,7 @@ func SetupClusterController(mgr manager.Manager) error {
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
 		For(&v1.Cluster{}, builder.WithPredicates(predicate.Or(
-			predicate.ResourceVersionChangedPredicate{}, r.caredChangePredicate()))).
+			predicate.ResourceVersionChangedPredicate{}, r.relevantChangePredicate()))).
 		Watches(&corev1.Pod{}, r.handlePodEvent()).
 		Watches(&v1.Node{}, r.handleNodeEvent()).
 		Complete(r)
@@ -64,7 +65,8 @@ func SetupClusterController(mgr manager.Manager) error {
 	return nil
 }
 
-func (r *ClusterReconciler) caredChangePredicate() predicate.Predicate {
+// relevantChangePredicate: defines which cluster events should trigger reconciliation
+func (r *ClusterReconciler) relevantChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			cluster, ok := e.Object.(*v1.Cluster)
@@ -85,20 +87,12 @@ func (r *ClusterReconciler) caredChangePredicate() predicate.Predicate {
 			return false
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			cluster, ok := e.Object.(*v1.Cluster)
-			if !ok {
-				return false
-			}
-			if err := r.clientManager.Delete(cluster.Name); err != nil {
-				klog.ErrorS(err, "failed to delete cluster clients", "cluster", cluster.Name)
-			} else {
-				klog.Infof("delete cluster clients successfully. cluster: %s", cluster.Name)
-			}
 			return false
 		},
 	}
 }
 
+// handleNodeEvent: handles node events that may affect cluster reconciliation
 func (r *ClusterReconciler) handleNodeEvent() handler.EventHandler {
 	enqueue := func(node *v1.Node, q v1.RequestWorkQueue) {
 		for _, owner := range node.OwnerReferences {
@@ -131,6 +125,7 @@ func (r *ClusterReconciler) handleNodeEvent() handler.EventHandler {
 	}
 }
 
+// handlePodEvent: handles pod events that may affect cluster reconciliation
 func (r *ClusterReconciler) handlePodEvent() handler.EventHandler {
 	enqueue := func(pod *corev1.Pod, q v1.RequestWorkQueue) {
 		for _, owner := range pod.OwnerReferences {
@@ -163,6 +158,7 @@ func (r *ClusterReconciler) handlePodEvent() handler.EventHandler {
 	}
 }
 
+// Reconcile: processes Cluster resources to ensure they are in the desired state
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	startTime := time.Now().UTC()
 	defer func() {
@@ -197,6 +193,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	return ctrlruntime.Result{}, nil
 }
 
+// delete: handles cluster deletion by cleaning up associated resources
 func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) error {
 	if err := r.resetNodesOfCluster(ctx, cluster); err != nil {
 		klog.ErrorS(err, "failed to reset nodes of cluster")
@@ -210,6 +207,10 @@ func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) err
 		klog.ErrorS(err, "failed to delete image secret")
 		return err
 	}
+	if err := r.clientManager.Delete(cluster.Name); err != nil {
+		klog.ErrorS(err, "failed to delete cluster clients", "cluster", cluster.Name)
+		// During deletion, if the client is not found, the error will be ignored.
+	}
 	if err := utils.RemoveFinalizer(ctx, r.Client, cluster, v1.ClusterFinalizer); err != nil {
 		klog.ErrorS(err, "failed to remove finalizer")
 		return err
@@ -217,6 +218,7 @@ func (r *ClusterReconciler) delete(ctx context.Context, cluster *v1.Cluster) err
 	return nil
 }
 
+// resetNodesOfCluster: resets all nodes associated with a cluster after deletion
 func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, cluster *v1.Cluster) error {
 	req, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{cluster.Name})
 	labelSelector := labels.NewSelector().Add(*req)
@@ -244,6 +246,7 @@ func (r *ClusterReconciler) resetNodesOfCluster(ctx context.Context, cluster *v1
 	return nil
 }
 
+// guaranteeClientFactory: ensures a Kubernetes client factory is available for the cluster
 func (r *ClusterReconciler) guaranteeClientFactory(ctx context.Context, cluster *v1.Cluster) error {
 	if !cluster.IsReady() || r.clientManager.Has(cluster.Name) {
 		return nil
@@ -262,6 +265,7 @@ func (r *ClusterReconciler) guaranteeClientFactory(ctx context.Context, cluster 
 	return nil
 }
 
+// guaranteePriorityClass: ensures priority classes are created in the cluster
 func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster *v1.Cluster) (ctrlruntime.Result, error) {
 	if !cluster.IsReady() {
 		return ctrlruntime.Result{}, nil
@@ -279,61 +283,52 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 		} else if !apierrors.IsNotFound(err) {
 			return ctrlruntime.Result{}, err
 		}
-		desc := "This priority class should be used for primus-safe job only."
-		if err = createPriorityClass(ctx, clientSet, pc.name, desc, pc.value); err != nil {
+
+		priorityClass := &schedulingv1.PriorityClass{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: pc.name,
+			},
+			Value:       pc.value,
+			Description: "This priority class should be used for primus-safe job only.",
+		}
+		if _, err = clientSet.SchedulingV1().PriorityClasses().Create(
+			ctx, priorityClass, metav1.CreateOptions{}); err != nil {
 			return ctrlruntime.Result{}, err
 		}
+		klog.Infof("create PriorityClass, name: %s, value: %d", pc.name, pc.value)
 	}
 	return ctrlruntime.Result{}, nil
 }
 
+// deletePriorityClass: deletes priority classes from the cluster
 func (r *ClusterReconciler) deletePriorityClass(ctx context.Context, cluster *v1.Cluster) error {
+	//
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
-		if !cluster.IsReady() {
-			return nil
-		}
-		return err
+		// During deletion, if the client is not found, the error will be ignored.
+		return nil
 	}
 	clientSet := k8sClients.ClientSet()
 	allPriorityClass := genAllPriorityClass(cluster.Name)
 	for _, pc := range allPriorityClass {
-		if err = deletePriorityClass(ctx, clientSet, pc.name); err != nil {
+		if err = clientSet.SchedulingV1().PriorityClasses().Delete(ctx, pc.name, metav1.DeleteOptions{}); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
 			return err
 		}
+		klog.Infof("delete PriorityClass, name: %s", pc.name)
 	}
 	return nil
 }
 
-func createPriorityClass(ctx context.Context, clientSet kubernetes.Interface, name, description string, value int32) error {
-	priorityClass := &schedulingv1.PriorityClass{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-		Value:       value,
-		Description: description,
-	}
-	if _, err := clientSet.SchedulingV1().PriorityClasses().Create(
-		ctx, priorityClass, metav1.CreateOptions{}); err != nil {
-		return client.IgnoreAlreadyExists(err)
-	}
-	klog.Infof("create PriorityClass, name: %s, value: %d", name, value)
-	return nil
-}
-
-func deletePriorityClass(ctx context.Context, clientSet kubernetes.Interface, name string) error {
-	if err := clientSet.SchedulingV1().PriorityClasses().Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	klog.Infof("delete PriorityClass, name: %s", name)
-	return nil
-}
-
+// PriorityClass: represents a Kubernetes priority class configuration
 type PriorityClass struct {
 	name  string
 	value int32
 }
 
+// genAllPriorityClass: generates all required priority classes for a cluster
 func genAllPriorityClass(clusterId string) []PriorityClass {
 	return []PriorityClass{
 		{name: commonutils.GenerateClusterPriorityClass(clusterId, common.HighPriority), value: 10000},
@@ -342,6 +337,7 @@ func genAllPriorityClass(clusterId string) []PriorityClass {
 	}
 }
 
+// guaranteeAllImageSecrets: ensures image pull secrets are synchronized to the cluster
 func (r *ClusterReconciler) guaranteeAllImageSecrets(ctx context.Context, cluster *v1.Cluster) error {
 	if commonconfig.GetImageSecret() == "" || !cluster.IsReady() {
 		return nil
@@ -360,6 +356,7 @@ func (r *ClusterReconciler) guaranteeAllImageSecrets(ctx context.Context, cluste
 	return nil
 }
 
+// guaranteeImageSecret: ensures a specific image secret is synchronized to the cluster
 func (r *ClusterReconciler) guaranteeImageSecret(ctx context.Context, cluster *v1.Cluster, targetName, targetNamespace string) error {
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
@@ -384,7 +381,7 @@ func (r *ClusterReconciler) guaranteeImageSecret(ctx context.Context, cluster *v
 		}
 		klog.Infof("update the %s/%s secret", targetNamespace, targetName)
 	} else {
-		if err = r.createNamespace(ctx, targetNamespace, clientSet); err != nil {
+		if err = r.guaranteeNamespace(ctx, clientSet, targetNamespace); err != nil {
 			return err
 		}
 		targetSecret := &corev1.Secret{
@@ -404,13 +401,12 @@ func (r *ClusterReconciler) guaranteeImageSecret(ctx context.Context, cluster *v
 	return nil
 }
 
+// deleteAllImageSecrets: deletes image pull secrets from the cluster during cleanup
 func (r *ClusterReconciler) deleteAllImageSecrets(ctx context.Context, cluster *v1.Cluster) error {
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
-		if !cluster.IsReady() {
-			return nil
-		}
-		return err
+		// During deletion, if the client is not found, the error will be ignored.
+		return nil
 	}
 	targetName := commonutils.GenerateClusterSecret(cluster.Name, commonconfig.GetImageSecret())
 	err = k8sClients.ClientSet().CoreV1().Secrets(corev1.NamespaceDefault).Delete(ctx, targetName, metav1.DeleteOptions{})
@@ -432,27 +428,7 @@ func (r *ClusterReconciler) deleteAllImageSecrets(ctx context.Context, cluster *
 	return nil
 }
 
-func (r *ClusterReconciler) createNamespace(ctx context.Context, name string, clientSet kubernetes.Interface) error {
-	if name == "" {
-		return fmt.Errorf("the name is empty")
-	}
-	_, err := clientSet.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
-	if err == nil {
-		return nil
-	}
-	namespace := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-	}
-	_, err = clientSet.CoreV1().Namespaces().Create(ctx, namespace, metav1.CreateOptions{})
-	if err != nil {
-		return client.IgnoreAlreadyExists(err)
-	}
-	klog.Infof("create namespace %s of dataplane", name)
-	return nil
-}
-
+// getAdminImageSecret: retrieves the image pull secret from the admin plane
 func (r *ClusterReconciler) getAdminImageSecret(ctx context.Context) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}
 	err := r.Get(ctx, client.ObjectKey{Name: commonconfig.GetImageSecret(),
