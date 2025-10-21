@@ -157,17 +157,24 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request)
 	if !adminNode.GetDeletionTimestamp().IsZero() {
 		return ctrlruntime.Result{}, r.delete(ctx, adminNode)
 	}
-	k8sNode, result, err := r.getK8sNode(ctx, adminNode)
-	if client.IgnoreNotFound(err) != nil || result.RequeueAfter > 0 {
-		if client.IgnoreNotFound(err) != nil {
-			klog.ErrorS(err, "failed to get k8s node")
-		}
+	result, err := r.syncMachineStatus(ctx, adminNode)
+	if err != nil || result.RequeueAfter > 0 {
 		return result, err
 	}
-	if quit, err := r.observe(ctx, adminNode, k8sNode); quit || err != nil {
+
+	var k8sNode *corev1.Node
+	k8sNode, result, err = r.getK8sNode(ctx, adminNode)
+	if client.IgnoreNotFound(err) != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
+	if quit, err := r.observe(ctx, adminNode, k8sNode); err != nil || quit {
 		return ctrlruntime.Result{}, err
 	}
-	return r.processNode(ctx, adminNode, k8sNode)
+	if result, err = r.processNode(ctx, adminNode, k8sNode); err != nil || result.RequeueAfter > 0 {
+		return result, err
+	}
+	// Sync the machine's status every half hour.
+	return ctrlruntime.Result{RequeueAfter: time.Minute * 30}, nil
 }
 
 // delete: handles Node deletion by removing the finalizer
@@ -192,9 +199,6 @@ func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*c
 
 // observe: checks if any observed fields have changed and need updating
 func (r *NodeReconciler) observe(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (bool, error) {
-	if !adminNode.IsReady() || k8sNode == nil {
-		return false, nil
-	}
 	// Observe whether the node has changed. If no changes are detected (ultimately returning true), exit NodeReconciler directly.
 	functions := []func(context.Context, *v1.Node, *corev1.Node) (bool, error){
 		r.observeTaints, r.observeLabelAction, r.observeAnnotationAction, r.observeWorkspace, r.observeCluster,
@@ -262,7 +266,7 @@ func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node, k
 
 // processNode: handles the main processing logic for a Node
 func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
-	if !adminNode.IsReady() {
+	if !adminNode.IsMachineReady() {
 		return r.syncMachineStatus(ctx, adminNode)
 	}
 	if result, err := r.updateK8sNode(ctx, adminNode, k8sNode); err != nil || result.RequeueAfter > 0 {
@@ -276,13 +280,10 @@ func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8
 
 // syncMachineStatus: synchronizes the machine status of a Node via SSH
 func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) (ctrlruntime.Result, error) {
-	originalNode := client.MergeFrom(node.DeepCopy())
 	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
 		klog.ErrorS(err, "failed to get client for ssh", "node", node.Name)
-		node.Status.MachineStatus.Phase = v1.NodeSSHFailed
-		if err = r.Status().Patch(ctx, node, originalNode); err != nil {
-			klog.ErrorS(err, "failed to patch status", "node", node.Name)
+		if err = r.updateMachineStatus(ctx, node, "", v1.NodeSSHFailed); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
@@ -292,21 +293,33 @@ func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) (
 	hostname, err := r.syncHostname(node, sshClient)
 	if err != nil {
 		klog.ErrorS(err, "failed to sync hostname", "node", node.Name)
-		node.Status.MachineStatus.Phase = v1.NodeHostnameFailed
-		if err = r.Status().Patch(ctx, node, originalNode); err != nil {
-			klog.ErrorS(err, "failed to patch status", "node", node.Name)
+		if err = r.updateMachineStatus(ctx, node, "", v1.NodeHostnameFailed); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
 	}
-	node.Status.MachineStatus.HostName = hostname
-	node.Status.MachineStatus.Phase = v1.NodeReady
-	if err = r.Status().Patch(ctx, node, originalNode); err != nil {
-		klog.ErrorS(err, "failed to patch status", "node", node.Name)
+	if err = r.updateMachineStatus(ctx, node, hostname, v1.NodeReady); err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	klog.Infof("the node %s is ready", hostname)
 	return ctrlruntime.Result{}, nil
+}
+
+func (r *NodeReconciler) updateMachineStatus(ctx context.Context,
+	node *v1.Node, hostname string, phase v1.NodePhase) error {
+	if node.Status.MachineStatus.Phase == phase && node.Status.MachineStatus.HostName == hostname {
+		return nil
+	}
+	originalNode := client.MergeFrom(node.DeepCopy())
+	node.Status.MachineStatus.Phase = phase
+	if hostname != "" {
+		node.Status.MachineStatus.HostName = hostname
+	}
+	if err := r.Status().Patch(ctx, node, originalNode); err != nil {
+		klog.ErrorS(err, "failed to patch status", "node", node.Name)
+		return err
+	}
+	klog.Infof("update machine status, node=%s, phase=%s", node.Name, phase)
+	return nil
 }
 
 // syncHostname: synchronizes the hostname of a Node via SSH
@@ -533,11 +546,7 @@ func (r *NodeReconciler) syncClusterStatus(ctx context.Context, node *v1.Node) e
 	}
 
 	node.Status.ClusterStatus.Cluster = node.Spec.Cluster
-	if node.IsReady() {
-		node.Status.ClusterStatus.Phase = v1.NodeReady
-	} else {
-		node.Status.ClusterStatus.Phase = v1.NodeNotReady
-	}
+	node.Status.ClusterStatus.Phase = v1.NodeReady
 	return nil
 }
 
@@ -549,7 +558,8 @@ func (r *NodeReconciler) handleClusterAuthorization(ctx context.Context, node *v
 
 	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
-		klog.ErrorS(err, "failed to get client for ssh")
+		klog.ErrorS(err, "failed to get client for ssh", "node", node.Name)
+		r.updateMachineStatus(ctx, node, "", v1.NodeSSHFailed)
 		return err
 	}
 	defer sshClient.Close()
@@ -575,14 +585,15 @@ func (r *NodeReconciler) handleHarborCertificate(ctx context.Context, node *v1.N
 
 	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
-		klog.ErrorS(err, "failed to get client for ssh")
+		klog.ErrorS(err, "failed to get client for ssh", "node", node.Name)
+		r.updateMachineStatus(ctx, node, "", v1.NodeSSHFailed)
 		return err
 	}
 	defer sshClient.Close()
 
 	ok, err := r.installHarborCert(ctx, sshClient)
 	if err != nil {
-		klog.ErrorS(err, "failed to harbor ca ", "node", node.Name)
+		klog.ErrorS(err, "failed to install harbor cert", "node", node.Name)
 		node.Status.ClusterStatus.CommandStatus =
 			setCommandStatus(node.Status.ClusterStatus.CommandStatus, HarborCA, v1.CommandFailed)
 		return err
@@ -803,7 +814,7 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 		}
 		r.rebootNode(ctx, adminNode)
 		// The node will be rebooted. Need to retry getting the node status later
-		return ctrlruntime.Result{RequeueAfter: time.Second * 10}, nil
+		return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil
 	}
 
 	// delete all scaleup pod when doing scaledown
