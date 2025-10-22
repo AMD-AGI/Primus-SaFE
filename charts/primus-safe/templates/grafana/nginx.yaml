@@ -82,6 +82,13 @@ spec:
             - name: nginx-config
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
+          resources:
+            limits:
+              cpu: 2000m
+              memory: 1Gi
+            requests:
+              cpu: 2000m
+              memory: 1Gi
       volumes:
         - name: nginx-config
           configMap:
