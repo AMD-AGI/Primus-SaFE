@@ -32,6 +32,7 @@ const (
 	PytorchJobPortName  = "pytorchjob-port"
 	SSHPortName         = "ssh-port"
 	JsonContentType     = "application/json; charset=utf-8"
+	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 
 	DefaultBurst = 1000
 	DefaultQPS   = 1000
