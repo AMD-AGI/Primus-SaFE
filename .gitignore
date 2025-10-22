@@ -26,3 +26,4 @@ Dockerfile.cross
 charts/bin/*
 .venv
 .run
+.env
