@@ -8,9 +8,10 @@ package client
 import (
 	"database/sql"
 	"fmt"
-	"github.com/lib/pq"
 	"reflect"
 	"strings"
+
+	"github.com/lib/pq"
 )
 
 const (
@@ -61,6 +62,7 @@ type Workload struct {
 	K8sObjectUid   sql.NullString `db:"k8s_object_uid"`
 	WorkloadUId    sql.NullString `db:"workload_uid"`
 	Ranks          sql.NullString `db:"ranks"`
+	Dependencies   sql.NullString `db:"dependencies"`
 }
 
 func GetWorkloadFieldTags() map[string]string {

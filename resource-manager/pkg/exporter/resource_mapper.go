@@ -114,6 +114,9 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 	if workload.Spec.Readiness != nil {
 		result.Readiness = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Readiness)))
 	}
+	if len(workload.Spec.Dependencies) > 0 {
+		result.Dependencies = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Dependencies)))
+	}
 	return result
 }
 
