@@ -155,6 +155,10 @@ type GetWorkloadResponse struct {
 	Service *v1.Service `json:"service,omitempty"`
 	// Scheduled workload configuration
 	CronSchedules []v1.CronSchedule `json:"cronSchedules,omitempty"`
+	// Dependencies defines a list of other Workloads that must complete successfully
+	// before this Workload can start execution. If any dependency fails, this Workload
+	// will not be scheduled and is considered failed.
+	Dependencies []string `json:"dependencies,omitempty"`
 }
 
 type WorkloadPodWrapper struct {
