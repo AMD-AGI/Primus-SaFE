@@ -11,7 +11,6 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -68,13 +67,9 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 	}
 	condition := NewCondition(string(v1.AdminFailed), message, commonworkload.GenerateDispatchReason(dispatchCount))
 	workload.Status.Conditions = append(workload.Status.Conditions, *condition)
-
-	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		return cli.Status().Update(ctx, workload)
-	}); err != nil {
+	if err := cli.Status().Update(ctx, workload); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err
 	}
-
 	return nil
 }
