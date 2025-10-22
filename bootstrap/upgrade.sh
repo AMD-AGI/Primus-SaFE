@@ -48,7 +48,7 @@ echo "✅ Cluster Scale: \"$cluster_scale\""
 echo "✅ Cluster Name: \"$sub_domain\""
 echo "✅ Storage Class: \"$storage_class\""
 echo "✅ SSH Server IP: \"$ssh_server_ip\""
-echo "✅ Support Primus-lens: \"$opensearch_enable\""
+echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Endpoint: \"$s3_endpoint\""
@@ -61,23 +61,18 @@ memory=4Gi
 if [[ "$cluster_scale" == "medium" ]]; then
   replicas=2
   cpu=8000m
-  memory=16Gi
+  memory=8Gi
 elif [[ "$cluster_scale" == "large" ]]; then
   replicas=2
   cpu=32000m
-  memory=32Gi
+  memory=16Gi
 fi
-image_secret_name="$NAMESPACE-image"
+IMAGE_PULL_SECRET="$NAMESPACE-image"
 
+echo
 echo "========================================="
-echo "🔧 Step 2: install primus-safe admin plane"
+echo "🔧 Step 2: upgrade primus-safe admin plane"
 echo "========================================="
-
-if [[ "$opensearch_enable" == "true" ]]; then
-  export STORAGE_CLASS="$storage_class"
-  bash install_grafana.sh >/dev/null
-  echo "✅ grafana installed"
-fi
 
 cd ../charts/
 src_values_yaml="primus-safe/values.yaml"
@@ -98,12 +93,17 @@ if [ -n "$ssh_server_ip" ]; then
   sed -i '/ssh:/,/^[a-z]/ s/server_ip: .*/server_ip: '"$ssh_server_ip"'/' "$values_yaml"
 fi
 sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
-sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$opensearch_enable"'/' "$values_yaml"
+sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
   sed -i '/^s3:/,/^[a-z]/ s#endpoint: ".*"#endpoint: "'"$s3_endpoint"'"#' "$values_yaml"
 fi
-sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$image_secret_name\"/" "$values_yaml"
+sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
+if [[ "$lens_enable" == "true" ]]; then
+  pg_password=$(kubectl get secret -n "primus-lens" primus-lens-pguser-primus-lens -o jsonpath="{.data.password}" | base64 -d)
+  sed -i '/^grafana:/,/^[a-z]/ s#password: ".*"#password: "'"$pg_password"'"#' "$values_yaml"
+fi
+sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 
 
 chart_name="primus-safe"
@@ -121,8 +121,9 @@ install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
 rm -f "$values_yaml"
 
+echo
 echo "========================================="
-echo "🔧 Step 3: install primus-safe data plane"
+echo "🔧 Step 3: upgrade primus-safe data plane"
 echo "========================================="
 
 cd ../node-agent/charts/
@@ -136,12 +137,12 @@ cp "$src_values_yaml" "${values_yaml}"
 
 sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
-sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$image_secret_name\"/" "$values_yaml"
+sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 
 install_or_upgrade_helm_chart "node-agent" "$values_yaml"
-
 rm -f "$values_yaml"
 
+echo
 echo "==============================="
 echo "🔧 Step 4: All completed!"
 echo "==============================="

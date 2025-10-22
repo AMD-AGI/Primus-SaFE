@@ -28,17 +28,17 @@ spec:
         - name: repo1
           volume:
             volumeClaimSpec:
-              storageClassName: {{ .Values.db.storage_class }}
+              storageClassName: {{ .Values.global.storage_class }}
               accessModes:
-                - {{ if eq .Values.db.storage_class "juicefs" }}ReadWriteMany{{ else }}ReadWriteOnce{{ end }}
+                - {{ if eq .Values.global.storage_class "juicefs" }}ReadWriteMany{{ else }}ReadWriteOnce{{ end }}
               resources:
                 requests:
                   storage: 1024Gi
   instances:
     - dataVolumeClaimSpec:
-        storageClassName: {{ .Values.db.storage_class }}
+        storageClassName: {{ .Values.global.storage_class }}
         accessModes:
-          - {{ if eq .Values.db.storage_class "juicefs" }}ReadWriteMany{{ else }}ReadWriteOnce{{ end }}
+          - {{ if eq .Values.global.storage_class "juicefs" }}ReadWriteMany{{ else }}ReadWriteOnce{{ end }}
         resources:
           requests:
             storage: 500Gi

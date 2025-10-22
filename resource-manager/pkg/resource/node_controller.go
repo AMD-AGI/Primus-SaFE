@@ -60,7 +60,7 @@ func SetupNodeController(mgr manager.Manager) error {
 		},
 		clientManager:       commonutils.NewObjectManagerSingleton(),
 		machineStatusCache:  make(map[string]time.Time),
-		cacheExpireDuration: time.Minute * 10,
+		cacheExpireDuration: time.Minute * 25,
 	}
 	if r.clientManager == nil {
 		return fmt.Errorf("failed to new clientManager")

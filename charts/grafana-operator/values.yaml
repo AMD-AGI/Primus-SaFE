@@ -144,7 +144,13 @@ securityContext:
   runAsNonRoot: true
 
 # -- grafana operator container resources
-resources: {}
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 1000m
+    memory: 1Gi
 
 # -- pod priority class name
 priorityClassName: ""

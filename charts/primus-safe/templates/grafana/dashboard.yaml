@@ -1,7 +1,17 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
   name: general-workload-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   folder: "General"
   instanceSelector:
