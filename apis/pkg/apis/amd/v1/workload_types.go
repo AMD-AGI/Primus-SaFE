@@ -136,6 +136,10 @@ type WorkloadSpec struct {
 	// The workload will automatically mount the volumes defined in the workspace,
 	// and you can also define specific hostPath for mounting.
 	Hostpath []string `json:"hostpath,omitempty"`
+	// Dependencies defines a list of other Workloads that must complete successfully
+	// before this Workload can start execution. If any dependency fails, this Workload
+	// will not be scheduled and is considered failed.
+	Dependencies []string `json:"dependencies,omitempty"`
 }
 
 type WorkloadStatus struct {
@@ -159,6 +163,8 @@ type WorkloadStatus struct {
 	Ranks [][]string `json:"ranks,omitempty"`
 	// The corresponding UID applied to the Kubernetes object.
 	K8sObjectUid string `json:"k8sObjectUid,omitempty"`
+	// The phase of each dependency workload.
+	DependenciesPhase map[string]WorkloadPhase `json:"dependenciesPhase,omitempty"`
 }
 
 type WorkloadPod struct {
@@ -316,4 +322,21 @@ func (w *Workload) SpecKind() string {
 
 func (w *Workload) SpecVersion() string {
 	return w.Spec.GroupVersionKind.Version
+}
+
+// SetDependenciesPhase sets the phase of a dependency workload.
+func (w *Workload) SetDependenciesPhase(workloadId string, phase WorkloadPhase) {
+	if w.Status.DependenciesPhase == nil {
+		w.Status.DependenciesPhase = make(map[string]WorkloadPhase)
+	}
+	w.Status.DependenciesPhase[workloadId] = phase
+}
+
+// GetDependenciesPhase gets the phase of a dependency workload.
+func (w *Workload) GetDependenciesPhase(workloadId string) (WorkloadPhase, bool) {
+	if w.Status.DependenciesPhase == nil {
+		return WorkloadPending, false
+	}
+	phase, ok := w.Status.DependenciesPhase[workloadId]
+	return phase, ok
 }

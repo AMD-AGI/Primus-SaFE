@@ -352,7 +352,7 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 	k8sNodes := make([]*corev1.Node, 0, len(nodeList.Items))
 	adminNodeMap := make(map[string]*v1.Node)
 	for i, n := range nodeList.Items {
-		if !n.IsReady() || !n.IsManaged() {
+		if !n.IsMachineReady() || !n.IsManaged() {
 			continue
 		}
 		if v1.GetWorkspaceId(&n) != "" {

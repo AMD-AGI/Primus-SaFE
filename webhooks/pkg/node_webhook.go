@@ -236,9 +236,6 @@ func (v *NodeValidator) validateOnUpdate(ctx context.Context, newNode, oldNode *
 	if err := v.validateCommon(ctx, newNode); err != nil {
 		return err
 	}
-	if err := v.validateReadyWhenManaging(ctx, newNode, oldNode); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -337,17 +334,6 @@ func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error
 	}
 	return nil
 }
-
-// When a node is being managed by the cluster, it must be in the Ready state.
-func (v *NodeValidator) validateReadyWhenManaging(_ context.Context, newNode, oldNode *v1.Node) error {
-	if oldNode.GetSpecCluster() == "" && newNode.GetSpecCluster() != "" &&
-		oldNode.Status.MachineStatus.Phase != v1.NodeReady {
-		return commonerrors.NewNodeNotReady(
-			fmt.Sprintf("node %s is not ready. current state: %s", oldNode.Name, oldNode.Status.MachineStatus.Phase))
-	}
-	return nil
-}
-
 func getNode(ctx context.Context, cli client.Client, nodeId string) (*v1.Node, error) {
 	if nodeId == "" {
 		return nil, nil

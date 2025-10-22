@@ -98,7 +98,7 @@ func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.C
 		if err != nil {
 			return nil, err
 		}
-		if !isReadyMachineNode(node) {
+		if !node.IsMachineReady() {
 			klog.Infof("machine node %s not ready status is %s", node.Name, node.Status.MachineStatus.Phase)
 			continue
 		}
@@ -526,20 +526,6 @@ func createKubernetesClusterOwnerReference(cluster *v1.Cluster) metav1.OwnerRefe
 		Controller:         pointer.Bool(true),
 		BlockOwnerDeletion: pointer.Bool(true),
 	}
-}
-
-// isReadyMachineNode: checks if a machine node is in a ready state
-func isReadyMachineNode(node *v1.Node) bool {
-	if node.Status.MachineStatus.Phase == "" {
-		return false
-	}
-	if node.Status.MachineStatus.Phase == v1.NodeNotReady {
-		return false
-	}
-	if node.Status.MachineStatus.Phase == v1.NodeManagedFailed {
-		return false
-	}
-	return true
 }
 
 // guaranteeControllerPlane: determines if control plane operations should be guaranteed

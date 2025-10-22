@@ -297,14 +297,14 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 }
 
 func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, dispatchCount int) {
-	cond := jobutils.NewCondition(status.Phase, status.Message, commonworkload.GenerateDispatchReason(dispatchCount))
-	lastCond := adminWorkload.GetLastCondition()
-	if lastCond != nil && cond.Type == lastCond.Type && cond.Reason == lastCond.Reason {
-		*lastCond = *cond
-		return
-	}
-	adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *cond)
+	newCondition := jobutils.NewCondition(status.Phase, status.Message, commonworkload.GenerateDispatchReason(dispatchCount))
 	if commonworkload.IsApplication(adminWorkload) {
+		lastCondition := adminWorkload.GetLastCondition()
+		if lastCondition != nil && newCondition.Type == lastCondition.Type && newCondition.Reason == lastCondition.Reason {
+			*lastCondition = *newCondition
+			return
+		}
+		adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
 		// Only keep the latest 30 conditions
 		maxReserved := 30
 		if l := len(adminWorkload.Status.Conditions); l > maxReserved {
@@ -314,6 +314,13 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sRes
 				conditions = append(conditions, adminWorkload.Status.Conditions[i])
 			}
 			adminWorkload.Status.Conditions = conditions
+		}
+	} else {
+		currentCondition := jobutils.FindCondition(adminWorkload, newCondition)
+		if currentCondition != nil {
+			*currentCondition = *newCondition
+		} else {
+			adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
 		}
 	}
 }

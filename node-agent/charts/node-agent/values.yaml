@@ -4,7 +4,7 @@
 #
 
 node_agent:
-  image: "node-agent:202510201732"
+  image: "node-agent:202510220932"
   image_pull_secret: ""
 monitor:
   nccl_socket_ifname: "eno0"

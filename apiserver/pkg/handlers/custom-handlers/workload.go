@@ -1024,6 +1024,9 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 		json.Unmarshal([]byte(str), &result.Env)
 		result.Env = maps.RemoveValue(result.Env, "")
 	}
+	if str := dbutils.ParseNullString(w.Dependencies); str != "" {
+		json.Unmarshal([]byte(str), &result.Dependencies)
+	}
 	return result
 }
 

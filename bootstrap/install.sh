@@ -75,7 +75,7 @@ ssh_server_ip=$(get_input_with_default "Enter ssh server ip($default_ethernet_ni
 sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
 support_lens=$(get_input_with_default "Support Primus-lens ? (y/n): " "n")
 support_s3=$(get_input_with_default "Support Primus-S3 ? (y/n): " "n")
-opensearch_enable=$(convert_to_boolean "$support_lens")
+lens_enable=$(convert_to_boolean "$support_lens")
 s3_enable=$(convert_to_boolean "$support_s3")
 s3_endpoint=""
 if [[ "$s3_enable" == "true" ]]; then
@@ -101,7 +101,7 @@ echo "✅ Cluster Scale: \"$cluster_scale\""
 echo "✅ Cluster Name: \"$sub_domain\""
 echo "✅ Storage Class: \"$storage_class\""
 echo "✅ SSH Server IP: \"$ssh_server_ip\""
-echo "✅ Support Primus-lens: \"$opensearch_enable\""
+echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Endpoint: \"$s3_endpoint\""
@@ -110,7 +110,6 @@ if [[ "$build_image_secret" == "y" ]]; then
   echo "✅ Image registry: \"$image_registry\""
   echo "✅ Image username: \"$image_username\""
 fi
-echo
 
 replicas=1
 cpu=2000m
@@ -118,46 +117,64 @@ memory=4Gi
 if [[ "$cluster_scale" == "medium" ]]; then
   replicas=2
   cpu=8000m
-  memory=16Gi
+  memory=8Gi
 elif [[ "$cluster_scale" == "large" ]]; then
   replicas=2
   cpu=32000m
-  memory=32Gi
+  memory=16Gi
 fi
 
+echo
 echo "========================================="
-echo "🔧 Step 2: install primus-safe admin plane"
+echo "🔧 Step 2: generate image-pull-secret"
 echo "========================================="
 
-image_secret_name="$NAMESPACE-image"
-if kubectl get secret "$image_secret_name" -n "$NAMESPACE" >/dev/null 2>&1; then
-  echo "⚠️ Image pull secret $image_secret_name already exists in namespace \"$NAMESPACE\", skipping creation"
+IMAGE_PULL_SECRET="$NAMESPACE-image"
+if kubectl get secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" >/dev/null 2>&1; then
+  echo "⚠️ Image pull secret $IMAGE_PULL_SECRET already exists in namespace \"$NAMESPACE\", skipping creation"
 else
   if [[ "$build_image_secret" == "y" ]] && [[ -n "$image_registry" ]] && [[ -n "$image_username" ]] && [[ -n "$image_password" ]]; then
-    kubectl create secret docker-registry "$image_secret_name" \
+    kubectl create secret docker-registry "$IMAGE_PULL_SECRET" \
       --docker-server="$image_registry" \
       --docker-username="$image_username" \
       --docker-password="$image_password" \
       --namespace="$NAMESPACE" \
       --dry-run=client -o yaml | kubectl create -f - \
-      && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" primus-safe.secret.all.workspace="true" --overwrite
-    echo "✅ Image pull secret($image_secret_name) created in namespace \"$NAMESPACE\""
+      && kubectl label secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$IMAGE_PULL_SECRET" primus-safe.secret.all.workspace="true" --overwrite
+    echo "✅ Image pull secret($IMAGE_PULL_SECRET) created in namespace \"$NAMESPACE\""
   else
-    kubectl create secret generic "$image_secret_name" \
+    kubectl create secret generic "$IMAGE_PULL_SECRET" \
       --namespace="$NAMESPACE" \
       --from-literal=.dockerconfigjson='{}' \
       --type=kubernetes.io/dockerconfigjson \
       --dry-run=client -o yaml | kubectl create -f - \
-      && kubectl label secret "$image_secret_name" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$image_secret_name" primus-safe.secret.all.workspace="true" --overwrite
-    echo "✅ Empty Image pull secret($image_secret_name) created in namespace \"$NAMESPACE\""
+      && kubectl label secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$IMAGE_PULL_SECRET" primus-safe.secret.all.workspace="true" --overwrite
+    echo "✅ Empty Image pull secret($IMAGE_PULL_SECRET) created in namespace \"$NAMESPACE\""
   fi
 fi
 
-if [[ "$support_lens" == "y" ]]; then
-  export STORAGE_CLASS="$storage_class"
-  bash install_grafana.sh >/dev/null
-  echo "✅ grafana installed"
+echo
+echo "========================================="
+echo "🔧 Step 3: install grafana-operator"
+echo "========================================="
+
+cd ../charts/
+src_values_yaml="grafana-operator/values.yaml"
+if [ ! -f "$src_values_yaml" ]; then
+  echo "Error: $src_values_yaml does not exist"
+  exit 1
 fi
+values_yaml="grafana-operator/.values.yaml"
+cp "$src_values_yaml" "${values_yaml}"
+
+sed -i "s/imagePullSecrets: \[\]/imagePullSecrets:\n  - name: $IMAGE_PULL_SECRET/" "$values_yaml"
+install_or_upgrade_helm_chart "grafana-operator" "$values_yaml"
+rm -f "$values_yaml"
+
+echo
+echo "========================================="
+echo "🔧 Step 4: install primus-safe admin plane"
+echo "========================================="
 
 cd ../charts/
 src_values_yaml="primus-safe/values.yaml"
@@ -178,12 +195,17 @@ if [ -n "$ssh_server_ip" ]; then
   sed -i '/ssh:/,/^[a-z]/ s/server_ip: .*/server_ip: '"$ssh_server_ip"'/' "$values_yaml"
 fi
 sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
-sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$opensearch_enable"'/' "$values_yaml"
+sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
   sed -i '/^s3:/,/^[a-z]/ s#endpoint: ".*"#endpoint: "'"$s3_endpoint"'"#' "$values_yaml"
 fi
-sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$image_secret_name\"/" "$values_yaml"
+sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
+if [[ "$lens_enable" == "true" ]]; then
+  pg_password=$(kubectl get secret -n "primus-lens" primus-lens-pguser-primus-lens -o jsonpath="{.data.password}" | base64 -d)
+  sed -i '/^grafana:/,/^[a-z]/ s#password: ".*"#password: "'"$pg_password"'"#' "$values_yaml"
+fi
+sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
 echo "⏳ Waiting for Postgres Operator pod..."
@@ -212,8 +234,9 @@ install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
 rm -f "$values_yaml"
 
+echo
 echo "========================================="
-echo "🔧 Step 3: install primus-safe data plane"
+echo "🔧 Step 5: install primus-safe data plane"
 echo "========================================="
 
 cd ../node-agent/charts/
@@ -227,11 +250,15 @@ cp "$src_values_yaml" "${values_yaml}"
 
 sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
 sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
-sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$image_secret_name\"/" "$values_yaml"
+sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 
 install_or_upgrade_helm_chart "node-agent" "$values_yaml"
-
 rm -f "$values_yaml"
+
+echo
+echo "========================================="
+echo "🔧 Step 6: All completed!"
+echo "========================================="
 
 cd ../../bootstrap
 cat > .env <<EOF
@@ -241,11 +268,7 @@ cluster_scale=$cluster_scale
 storage_class=$storage_class
 ssh_server_ip=$ssh_server_ip
 sub_domain=$sub_domain
-opensearch_enable=$opensearch_enable
+lens_enable=$lens_enable
 s3_enable=$s3_enable
 s3_endpoint=$s3_endpoint
 EOF
-
-echo "==============================="
-echo "🔧 Step 4: All completed!"
-echo "==============================="
