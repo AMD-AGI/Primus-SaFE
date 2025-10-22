@@ -9,12 +9,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"k8s.io/klog/v2"
 
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 )
@@ -23,16 +21,38 @@ const (
 	IndexDateFormat = "2006.01.02"
 )
 
-var (
-	once     sync.Once
-	instance *SearchClient
-)
+type SearchClientConfig struct {
+	Username string
+	Password string
+	Endpoint string
+	Prefix   string
+}
+
+func (s SearchClientConfig) Equals(other SearchClientConfig) bool {
+	return s.Username == other.Username &&
+		s.Password == other.Password &&
+		s.Endpoint == other.Endpoint &&
+		s.Prefix == other.Prefix
+}
+
+func (s SearchClientConfig) Validate() error {
+	if s.Endpoint == "" {
+		return fmt.Errorf("opensearch endpoint is empty")
+	}
+	if s.Username == "" {
+		return fmt.Errorf("opensearch username is empty")
+	}
+	if s.Password == "" {
+		return fmt.Errorf("opensearch password is empty")
+	}
+	if s.Prefix == "" {
+		return fmt.Errorf("opensearch index prefix is empty")
+	}
+	return nil
+}
 
 type SearchClient struct {
-	username   string
-	password   string
-	endpoint   string
-	prefix     string
+	SearchClientConfig
 	httpClient httpclient.Interface
 }
 
@@ -41,17 +61,11 @@ type SearchClient struct {
 // Gets OpenSearch endpoint, index prefix, username and password from configuration
 // Initializes HTTP client
 // Returns: SearchClient instance
-func NewClient() *SearchClient {
-	once.Do(func() {
-		instance = &SearchClient{
-			endpoint:   commonconfig.GetOpenSearchEndpoint(),
-			prefix:     commonconfig.GetOpenSearchIndexPrefix(),
-			username:   commonconfig.GetOpenSearchUser(),
-			password:   commonconfig.GetOpenSearchPasswd(),
-			httpClient: httpclient.NewHttpClient(),
-		}
-	})
-	return instance
+func NewClient(cfg SearchClientConfig) *SearchClient {
+	return &SearchClient{
+		SearchClientConfig: cfg,
+		httpClient:         httpclient.NewHttpClient(),
+	}
 }
 
 // Search OpenSearch data by time range
@@ -96,13 +110,13 @@ func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, err
 	if !strings.HasPrefix(uri, "/") {
 		uri = "/" + uri
 	}
-	url := c.endpoint + uri
+	url := c.Endpoint + uri
 	klog.Infof("request to openSearch, url: %s, body: %s", url, body)
 	req, err := httpclient.BuildRequest(url, httpMethod, body)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	req.SetBasicAuth(c.username, c.password)
+	req.SetBasicAuth(c.Username, c.Password)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -130,13 +144,13 @@ func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, err
 //  3. Otherwise generate all index names within date range, separated by comma
 func (c *SearchClient) generateQueryIndex(sinceTime, untilTime time.Time) (string, error) {
 	if sinceTime.Equal(untilTime) {
-		return c.prefix + sinceTime.Format(IndexDateFormat), nil
+		return c.Prefix + sinceTime.Format(IndexDateFormat), nil
 	}
 
 	// If the time range is too large, use the wildcard * directly
 	days := int(untilTime.Sub(sinceTime).Hours() / 24)
 	if days >= 30 {
-		return c.prefix + "*", nil
+		return c.Prefix + "*", nil
 	}
 
 	sinceTime = sinceTime.Truncate(time.Hour * 24)
@@ -147,7 +161,7 @@ func (c *SearchClient) generateQueryIndex(sinceTime, untilTime time.Time) (strin
 		if result != "" {
 			result += ","
 		}
-		result += c.prefix + currentDate.Format(IndexDateFormat)
+		result += c.Prefix + currentDate.Format(IndexDateFormat)
 		currentDate = currentDate.AddDate(0, 0, 1)
 	}
 	return result, nil

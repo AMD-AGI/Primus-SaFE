@@ -23,7 +23,6 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
-	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 )
@@ -32,7 +31,6 @@ type Handler struct {
 	client.Client
 	clientSet     kubernetes.Interface
 	dbClient      dbclient.Interface
-	searchClient  *commonsearch.SearchClient
 	httpClient    httpclient.Interface
 	clientManager *commonutils.ObjectManager
 	auth          *authority.Authorizer
@@ -62,7 +60,6 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 	h := &Handler{
 		Client:        mgr.GetClient(),
 		clientSet:     clientSet,
-		searchClient:  commonsearch.NewClient(),
 		dbClient:      dbClient,
 		httpClient:    httpclient.NewHttpClient(),
 		clientManager: commonutils.NewObjectManagerSingleton(),
