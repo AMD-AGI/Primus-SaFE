@@ -15,16 +15,17 @@ import (
 // WorkloadStatusApplyConfiguration represents a declarative configuration of the WorkloadStatus type for use
 // with apply.
 type WorkloadStatusApplyConfiguration struct {
-	StartTime      *metav1.Time                                            `json:"startTime,omitempty"`
-	EndTime        *metav1.Time                                            `json:"endTime,omitempty"`
-	Conditions     []applyconfigurationsmetav1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	Phase          *amdv1.WorkloadPhase                                    `json:"phase,omitempty"`
-	Message        *string                                                 `json:"message,omitempty"`
-	SchedulerOrder *int                                                    `json:"schedulerOrder,omitempty"`
-	Pods           []WorkloadPodApplyConfiguration                         `json:"pods,omitempty"`
-	Nodes          [][]string                                              `json:"nodes,omitempty"`
-	Ranks          [][]string                                              `json:"ranks,omitempty"`
-	K8sObjectUid   *string                                                 `json:"k8sObjectUid,omitempty"`
+	StartTime         *metav1.Time                                            `json:"startTime,omitempty"`
+	EndTime           *metav1.Time                                            `json:"endTime,omitempty"`
+	Conditions        []applyconfigurationsmetav1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	Phase             *amdv1.WorkloadPhase                                    `json:"phase,omitempty"`
+	Message           *string                                                 `json:"message,omitempty"`
+	SchedulerOrder    *int                                                    `json:"schedulerOrder,omitempty"`
+	Pods              []WorkloadPodApplyConfiguration                         `json:"pods,omitempty"`
+	Nodes             [][]string                                              `json:"nodes,omitempty"`
+	Ranks             [][]string                                              `json:"ranks,omitempty"`
+	K8sObjectUid      *string                                                 `json:"k8sObjectUid,omitempty"`
+	DependenciesPhase map[string]amdv1.WorkloadPhase                          `json:"dependenciesPhase,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs a declarative configuration of the WorkloadStatus type for use with
@@ -124,5 +125,19 @@ func (b *WorkloadStatusApplyConfiguration) WithRanks(values ...[]string) *Worklo
 // If called multiple times, the K8sObjectUid field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithK8sObjectUid(value string) *WorkloadStatusApplyConfiguration {
 	b.K8sObjectUid = &value
+	return b
+}
+
+// WithDependenciesPhase puts the entries into the DependenciesPhase field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the DependenciesPhase field,
+// overwriting an existing map entries in DependenciesPhase field with the same key.
+func (b *WorkloadStatusApplyConfiguration) WithDependenciesPhase(entries map[string]amdv1.WorkloadPhase) *WorkloadStatusApplyConfiguration {
+	if b.DependenciesPhase == nil && len(entries) > 0 {
+		b.DependenciesPhase = make(map[string]amdv1.WorkloadPhase, len(entries))
+	}
+	for k, v := range entries {
+		b.DependenciesPhase[k] = v
+	}
 	return b
 }

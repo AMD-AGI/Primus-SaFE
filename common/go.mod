@@ -17,6 +17,7 @@ require (
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gen v0.3.27
 	gorm.io/gorm v1.30.0
+	gorm.io/plugin/dbresolver v1.6.0
 	gotest.tools v2.2.0+incompatible
 	k8s.io/apimachinery v0.33.1
 	k8s.io/client-go v0.33.1
@@ -63,7 +64,6 @@ require (
 	gorm.io/datatypes v1.2.4 // indirect
 	gorm.io/driver/mysql v1.5.7 // indirect
 	gorm.io/hints v1.1.0 // indirect
-	gorm.io/plugin/dbresolver v1.6.0 // indirect
 	k8s.io/apiextensions-apiserver v0.33.0 // indirect
 )
 

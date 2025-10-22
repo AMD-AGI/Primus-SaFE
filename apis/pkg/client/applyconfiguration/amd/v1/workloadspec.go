@@ -28,6 +28,7 @@ type WorkloadSpecApplyConfiguration struct {
 	Service                             *ServiceApplyConfiguration     `json:"service,omitempty"`
 	IsTolerateAll                       *bool                          `json:"isTolerateAll,omitempty"`
 	Hostpath                            []string                       `json:"hostpath,omitempty"`
+	Dependencies                        []string                       `json:"dependencies,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
@@ -223,6 +224,16 @@ func (b *WorkloadSpecApplyConfiguration) WithIsTolerateAll(value bool) *Workload
 func (b *WorkloadSpecApplyConfiguration) WithHostpath(values ...string) *WorkloadSpecApplyConfiguration {
 	for i := range values {
 		b.Hostpath = append(b.Hostpath, values[i])
+	}
+	return b
+}
+
+// WithDependencies adds the given value to the Dependencies field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Dependencies field.
+func (b *WorkloadSpecApplyConfiguration) WithDependencies(values ...string) *WorkloadSpecApplyConfiguration {
+	for i := range values {
+		b.Dependencies = append(b.Dependencies, values[i])
 	}
 	return b
 }
