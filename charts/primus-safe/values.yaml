@@ -2,7 +2,11 @@
 # Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
-
+global:
+  domain: "safe-primus.ai"
+  sub_domain: "tw325"
+  image_pull_secret: ""
+  storage_class: "local-path"
 net:
   nccl_socket_ifname: "eno0"
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
@@ -13,7 +17,7 @@ apiserver:
   cpu: 2000m
   memory: 4Gi
 resource_manager:
-  image: "resource-manager:202510212146"
+  image: "resource-manager:202510220914"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
@@ -38,7 +42,6 @@ preprocess:
   image: "preprocess:202510011436"
 db:
   enable: true
-  storage_class: "local-path"
 opensearch:
   enable: true
   prefix: "node-"
@@ -62,9 +65,8 @@ s3:
   secret_namespace: "juicefs-csi"
   secret_path: "/etc/secrets/s3"
   endpoint: "http://s3.safe.primus.ai"
+grafana:
+  enable: false
+  password: ""
 addon:
   default: cert-manager.v1.17.2,training-operator.1.9.2,network-operator.25.4.0,kube-scheduler-plugins-0.38.1
-global:
-  domain: "safe-primus.ai"
-  sub_domain: "tw325"
-  image_pull_secret: ""

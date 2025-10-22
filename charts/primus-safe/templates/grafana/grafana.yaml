@@ -1,9 +1,19 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+{{- if .Values.grafana.enable }}
 apiVersion: grafana.integreatly.org/v1beta1
 kind: Grafana
 metadata:
   name: grafana
+  namespace: {{ .Release.Namespace }}
   labels:
     system: primus-safe
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   config:
     paths:
@@ -28,8 +38,9 @@ spec:
   persistentVolumeClaim:
     spec:
       accessModes:
-        - "ReadWriteOnce"
+        - "{{ if eq .Values.global.storage_class "juicefs" }}ReadWriteMany{{ else }}ReadWriteOnce{{ end }}"
       resources:
         requests:
           storage: 1Gi
-      storageClassName: "${STORAGE_CLASS}"
+      storageClassName: "{{ .Values.global.storage_class }}"
+{{- end }}
