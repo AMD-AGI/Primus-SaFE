@@ -1,0 +1,20 @@
+apiVersion: v2
+name: grafana-operator
+description: Helm chart for the Grafana Operator
+# A chart can be either an 'application' or a 'library' chart.
+#
+# Application charts are a collection of templates that can be packaged into versioned archives
+# to be deployed.
+#
+# Library charts provide useful utilities or functions for the chart developer. They're included as
+# a dependency of application charts to inject those utilities and functions into the rendering
+# pipeline. Library charts do not define any templates and therefore cannot be deployed.
+type: application
+# We keep the version and appVersion in sync as most updates also include
+# changes to the CRDs which are bundled with the helm resources
+version: v5.20.0
+appVersion: "v5.20.0"
+dependencies:
+  - name: crds
+    version: "0.0.*"
+    condition: crds.immutable

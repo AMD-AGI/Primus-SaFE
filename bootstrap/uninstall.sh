@@ -9,6 +9,8 @@ helm uninstall primus-safe -n primus-safe
 
 helm uninstall primus-safe-cr -n primus-safe
 
+helm uninstall grafana-operator -n primus-safe
+
 helm uninstall primus-pgo -n primus-safe
 
 helm uninstall node-agent -n primus-safe

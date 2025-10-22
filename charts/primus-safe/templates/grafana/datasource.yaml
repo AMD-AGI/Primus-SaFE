@@ -1,7 +1,18 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+{{- if .Values.grafana.enable }}
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDatasource
 metadata:
   name: postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   instanceSelector:
     matchLabels:
@@ -19,7 +30,7 @@ spec:
       timescaledb: false
     access: proxy
     secureJsonData:
-      password: ${PG_PASSWORD}
+      password: {{ .Values.grafana.password }}
     url: primus-lens-ha.primus-lens.svc.cluster.local:5432
     user: primus-lens
 ---
@@ -27,6 +38,12 @@ apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDatasource
 metadata:
   name: prometheus
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
   instanceSelector:
     matchLabels:
@@ -40,3 +57,4 @@ spec:
     jsonData:
       "tlsSkipVerify": true
       "timeInterval": "5s"
+{{- end }}
