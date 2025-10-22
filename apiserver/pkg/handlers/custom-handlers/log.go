@@ -6,6 +6,7 @@
 package custom_handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -58,6 +59,7 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	if err = h.auth.Authorize(authority.Input{
 		Context:    c.Request.Context(),
 		Resource:   workload,
@@ -67,12 +69,16 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 	}); err != nil {
 		return nil, err
 	}
-
+	clusterId := v1.GetClusterId(workload)
 	query, err := parseWorkloadLogQuery(c, workload)
 	if err != nil {
 		return nil, err
 	}
-	return h.searchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
+	opensearchClient := commonsearch.GetOpensearchClient(clusterId)
+	if opensearchClient == nil {
+		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
+	}
+	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
 		"/_search", buildSearchBody(query, name))
 }
 
@@ -93,7 +99,11 @@ func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return h.searchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
+	opensearchClient := commonsearch.GetOpensearchClient("")
+	if opensearchClient == nil {
+		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + "")
+	}
+	return opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
 		"/_search", buildSearchBody(query, ""))
 }
 
@@ -140,12 +150,20 @@ func (h *Handler) searchContextLog(queries []types.ListContextLogRequest, worklo
 	for i := range queries {
 		ch <- queries[i]
 	}
-
+	workload, err := h.getWorkloadForAuth(context.Background(), workloadId)
+	if err != nil {
+		return nil, err
+	}
+	clusterId := v1.GetClusterId(workload)
+	opensearchClient := commonsearch.GetOpensearchClient(clusterId)
+	if opensearchClient == nil {
+		return nil, commonerrors.NewInternalError("There is no OpenSearch in cluster " + clusterId)
+	}
 	var response [count]commonsearch.OpenSearchResponse
-	_, err := concurrent.Exec(count, func() error {
+	_, err = concurrent.Exec(count, func() error {
 		wrapper := <-ch
 		query := wrapper.Query
-		resp, err := h.searchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
+		resp, err := opensearchClient.SearchByTimeRange(query.SinceTime, query.UntilTime,
 			"/_search", buildSearchBody(query, workloadId))
 		if err != nil {
 			return err
