@@ -324,6 +324,7 @@ func (w *Workload) SpecVersion() string {
 	return w.Spec.GroupVersionKind.Version
 }
 
+// SetDependenciesPhase sets the phase of a dependency workload.
 func (w *Workload) SetDependenciesPhase(workloadId string, phase WorkloadPhase) {
 	if w.Status.DependenciesPhase == nil {
 		w.Status.DependenciesPhase = make(map[string]WorkloadPhase)
@@ -331,6 +332,7 @@ func (w *Workload) SetDependenciesPhase(workloadId string, phase WorkloadPhase) 
 	w.Status.DependenciesPhase[workloadId] = phase
 }
 
+// GetDependenciesPhase gets the phase of a dependency workload.
 func (w *Workload) GetDependenciesPhase(workloadId string) (WorkloadPhase, bool) {
 	if w.Status.DependenciesPhase == nil {
 		return WorkloadPending, false

@@ -62,7 +62,7 @@ type SchedulerMessage struct {
 	WorkloadId  string
 }
 
-// SetupSchedulerController initializes and registers the SchedulerReconciler with the controller manager。
+// SetupSchedulerController initializes and registers the SchedulerReconciler with the controller manager.
 func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Workload{}, "spec.dependencies", func(object client.Object) []string {
 		workload := object.(*v1.Workload)
