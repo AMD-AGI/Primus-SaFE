@@ -2291,6 +2291,11 @@ func (in *WorkloadSpec) DeepCopyInto(out *WorkloadSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.Dependencies != nil {
+		in, out := &in.Dependencies, &out.Dependencies
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	return
 }
 
@@ -2349,6 +2354,13 @@ func (in *WorkloadStatus) DeepCopyInto(out *WorkloadStatus) {
 				*out = make([]string, len(*in))
 				copy(*out, *in)
 			}
+		}
+	}
+	if in.DependenciesPhase != nil {
+		in, out := &in.DependenciesPhase, &out.DependenciesPhase
+		*out = make(map[string]WorkloadPhase, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
 		}
 	}
 	return

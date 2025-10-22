@@ -49,6 +49,14 @@ spec:
                   The workload will run on nodes with the user-specified labels.
                   If multiple labels are specified, all of them must be satisfied.
                 type: object
+              dependencies:
+                description: |-
+                  Dependencies defines a list of other Workloads that must complete successfully
+                  before this Workload can start execution. If any dependency fails, this Workload
+                  will not be scheduled and is considered failed.
+                items:
+                  type: string
+                type: array
               entryPoint:
                 description: Workload startup command, required in base64 encoding
                 type: string
@@ -283,6 +291,11 @@ spec:
                   - type
                   type: object
                 type: array
+              dependenciesPhase:
+                additionalProperties:
+                  type: string
+                description: The phase of each dependency workload.
+                type: object
               endTime:
                 description: Workload end time
                 format: date-time

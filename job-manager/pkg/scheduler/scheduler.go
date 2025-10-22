@@ -16,6 +16,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -26,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -58,8 +62,18 @@ type SchedulerMessage struct {
 	WorkloadId  string
 }
 
-// SetupSchedulerController: initializes and registers the SchedulerReconciler with the controller manager
+// SetupSchedulerController initializes and registers the SchedulerReconciler with the controller manager.
 func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1.Workload{}, "spec.dependencies", func(object client.Object) []string {
+		workload := object.(*v1.Workload)
+		if len(workload.Spec.Dependencies) == 0 {
+			return nil
+		}
+		return workload.Spec.Dependencies
+	}); err != nil {
+		return fmt.Errorf("failed to setup field indexer for workload dependencies: %v", err)
+	}
+
 	r := &SchedulerReconciler{
 		Client:           mgr.GetClient(),
 		clusterInformers: commonutils.NewObjectManagerSingleton(),
@@ -71,6 +85,7 @@ func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
 		For(&v1.Workload{}, builder.WithPredicates(predicate.Or(
 			r.relevantChangePredicate(), predicate.GenerationChangedPredicate{}))).
 		Watches(&v1.Workspace{}, r.handleWorkspaceEvent()).
+		Watches(&v1.Workload{}, r.enqueueDependents(), builder.WithPredicates(r.caredFlowChangePredicate())).
 		Complete(r)
 	if err != nil {
 		return err
@@ -92,6 +107,26 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 				return true
 			}
 			if v1.IsWorkloadScheduled(oldWorkload) != v1.IsWorkloadScheduled(newWorkload) {
+				return true
+			}
+			if len(oldWorkload.Status.DependenciesPhase) != len(newWorkload.Status.DependenciesPhase) {
+				return true
+			}
+			return false
+		},
+	}
+}
+
+// caredFlowChangePredicate defines which Workspace changes should trigger scheduling reconciliation.
+func (r *SchedulerReconciler) caredFlowChangePredicate() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldWorkload, ok1 := e.ObjectOld.(*v1.Workload)
+			newWorkload, ok2 := e.ObjectNew.(*v1.Workload)
+			if !ok1 || !ok2 {
+				return false
+			}
+			if !oldWorkload.IsEnd() && newWorkload.IsEnd() {
 				return true
 			}
 			return false
@@ -498,6 +533,17 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
 	var reason string
 	var err error
+
+	isReady, err := r.checkWorkloadDependencies(ctx, requestWorkload)
+	if err != nil {
+		return false, "", err
+	}
+	if !isReady {
+		reason = "Unmet workload dependencies"
+		klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
+		return false, reason, nil
+	}
+
 	isPreemptable := false
 	if !hasEnoughQuota {
 		reason = fmt.Sprintf("Insufficient total %s resources", formatResourceName(key))
@@ -518,6 +564,44 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		return false, reason, nil
 	}
 	return true, "", nil
+}
+
+// checkWorkloadDependencies checks whether all dependencies of the workload are satisfied.
+func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, workload *v1.Workload) (bool, error) {
+	isReady := true
+	isChange := false
+	for _, dep := range workload.Spec.Dependencies {
+		phase, ok := workload.GetDependenciesPhase(dep)
+		if !ok {
+			depWorkload := &v1.Workload{}
+			if err := r.Get(ctx, client.ObjectKey{Name: dep, Namespace: workload.Namespace}, depWorkload); err != nil {
+				if apierrors.IsNotFound(err) {
+					// workload not found default set failed
+					if err := jobutils.SetWorkloadFailed(ctx, r.Client, workload, fmt.Sprintf("dependency workload %s not found", dep)); err != nil {
+						klog.Errorf("failed to set workload %s dependency failed", workload.Name)
+						return true, err
+					}
+					return isReady, fmt.Errorf("the dependency workload(%s) is not found", dep)
+				}
+				return isReady, err
+			}
+			phase = depWorkload.Status.Phase
+			if depWorkload.IsEnd() {
+				workload.SetDependenciesPhase(dep, workload.Status.Phase)
+				isChange = true
+			}
+		}
+		if phase != v1.WorkloadSucceeded {
+			isReady = false
+		}
+	}
+	if isChange {
+		if err := r.Status().Update(ctx, workload); err != nil {
+			return isReady, err
+		}
+	}
+
+	return isReady, nil
 }
 
 // checkNodeResources: check if each node's available resources satisfy the workload's resource requests.
@@ -723,4 +807,60 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads [
 		}
 		order++
 	}
+}
+
+// enqueueDependents creates an event handler that watches for changes in Workload resources.
+func (r *SchedulerReconciler) enqueueDependents() handler.EventHandler {
+	return handler.Funcs{
+		UpdateFunc: func(ctx context.Context, e event.TypedUpdateEvent[client.Object], w workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			oldWorkload, ok1 := e.ObjectOld.(*v1.Workload)
+			newWorkload, ok2 := e.ObjectNew.(*v1.Workload)
+			if !ok1 || !ok2 {
+				return
+			}
+			if !oldWorkload.IsEnd() && newWorkload.IsEnd() {
+				var dependents v1.WorkloadList
+				if err := r.List(ctx, &dependents, client.MatchingFields{"spec.dependencies": newWorkload.Name}); err != nil {
+					klog.Errorf("failed to list dependencies for workload %s: %v", newWorkload.Name, err)
+					return
+				}
+				for _, dep := range dependents.Items {
+					isAddQueue, err := r.setDependenciesPhase(ctx, newWorkload, dep.Name)
+					if err != nil {
+						klog.Errorf("failed to set dependency phase for workload %s in dependent workload %s: %v", newWorkload.Name, dep.Name, err)
+						continue
+					}
+					if isAddQueue {
+						depName := reconcile.Request{NamespacedName: types.NamespacedName{Name: dep.Name}}
+						klog.Infof("enqueue dependent workload %s of workload %s", depName, newWorkload.Name)
+						w.Add(depName)
+					}
+				}
+				return
+			}
+		},
+	}
+}
+
+// setDependenciesPhase sets the phase of a dependent workload based on the status of its dependency.
+func (r *SchedulerReconciler) setDependenciesPhase(ctx context.Context, workload *v1.Workload, depWorkloadId string) (bool, error) {
+	depWorkload := new(v1.Workload)
+	if err := r.Get(ctx, types.NamespacedName{Name: depWorkloadId}, depWorkload); err != nil {
+		return true, err
+	}
+	depWorkload.SetDependenciesPhase(workload.Name, workload.Status.Phase)
+	if workload.Status.Phase != v1.WorkloadSucceeded {
+		if err := jobutils.SetWorkloadFailed(ctx, r.Client, depWorkload, fmt.Sprintf("dependency workload %s failed", workload.Name)); err != nil {
+			return true, err
+		}
+		return false, nil
+	}
+
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		return r.Status().Update(ctx, depWorkload)
+	}); err != nil {
+		return true, err
+	}
+
+	return true, nil
 }
