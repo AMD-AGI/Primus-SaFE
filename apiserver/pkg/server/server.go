@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/gin-gonic/gin"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -92,6 +93,10 @@ func (s *Server) init() error {
 	}
 	if err = controllers.SetupControllers(s.ctx, s.ctrlManager); err != nil {
 		klog.ErrorS(err, "failed to setup controllers")
+		return err
+	}
+	if err = opensearch.StartDiscover(s.ctx); err != nil {
+		klog.ErrorS(err, "failed to start opensearch discovery")
 		return err
 	}
 	s.isInited = true
