@@ -910,6 +910,10 @@ func (in *MachineStatus) DeepCopyInto(out *MachineStatus) {
 		*out = make([]CommandStatus, len(*in))
 		copy(*out, *in)
 	}
+	if in.UpdateTime != nil {
+		in, out := &in.UpdateTime, &out.UpdateTime
+		*out = (*in).DeepCopy()
+	}
 	return
 }
 

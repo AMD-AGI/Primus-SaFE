@@ -153,6 +153,8 @@ type GetWorkloadResponse struct {
 	Readiness *v1.HealthCheck `json:"readiness,omitempty"`
 	// Service configuration
 	Service *v1.Service `json:"service,omitempty"`
+	// Scheduled workload configuration
+	CronSchedules []v1.CronSchedule `json:"cronSchedules,omitempty"`
 }
 
 type WorkloadPodWrapper struct {

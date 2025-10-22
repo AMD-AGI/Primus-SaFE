@@ -272,6 +272,9 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 	node := nodes[0]
 
 	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
+	if err != nil {
+		return err
+	}
 	defer sshClient.Close()
 
 	session, err := sshClient.NewSession()

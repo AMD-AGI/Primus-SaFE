@@ -93,6 +93,11 @@ type Service struct {
 	Extends map[string]string `json:"extends,omitempty"`
 }
 
+type CronSchedule struct {
+	// Cron expression for scheduled workloads, such as "0 1 23 10 *"
+	Schedule string `json:"schedule"`
+}
+
 type WorkloadSpec struct {
 	// Workload resource requirements
 	Resource WorkloadResource `json:"resource"`
@@ -136,6 +141,8 @@ type WorkloadSpec struct {
 	// The workload will automatically mount the volumes defined in the workspace,
 	// and you can also define specific hostPath for mounting.
 	Hostpath []string `json:"hostpath,omitempty"`
+	// Scheduled workload configuration
+	CronSchedules []CronSchedule `json:"cronSchedules,omitempty"`
 }
 
 type WorkloadStatus struct {
