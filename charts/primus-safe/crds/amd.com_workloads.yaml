@@ -233,7 +233,7 @@ spec:
                 description: The port for ssh, This field is set internally
                 type: integer
               timeout:
-                description: Workload timeout in hours. Default is 0 (no timeout).
+                description: Workload timeout in seconds. Default is 0 (no timeout).
                 type: integer
               ttlSecondsAfterFinished:
                 description: The lifecycle of the workload after completion, in seconds.
