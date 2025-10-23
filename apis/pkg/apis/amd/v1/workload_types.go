@@ -340,3 +340,21 @@ func (w *Workload) GetDependenciesPhase(workloadId string) (WorkloadPhase, bool)
 	phase, ok := w.Status.DependenciesPhase[workloadId]
 	return phase, ok
 }
+
+// IsDependenciesFinish checks if all dependencies are finished.
+func (w *Workload) IsDependenciesFinish() bool {
+	if w.IsEnd() {
+		return false
+	}
+	for _, dep := range w.Spec.Dependencies {
+		phase, ok := w.GetDependenciesPhase(dep)
+		if !ok {
+			return false
+		}
+		if phase != WorkloadSucceeded {
+			return false
+		}
+	}
+
+	return true
+}

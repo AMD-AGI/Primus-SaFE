@@ -103,7 +103,7 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 			if v1.IsWorkloadScheduled(oldWorkload) != v1.IsWorkloadScheduled(newWorkload) {
 				return true
 			}
-			if len(oldWorkload.Status.DependenciesPhase) != len(newWorkload.Status.DependenciesPhase) {
+			if !oldWorkload.IsDependenciesFinish() && newWorkload.IsDependenciesFinish() {
 				return true
 			}
 			return false
