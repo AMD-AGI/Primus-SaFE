@@ -42,6 +42,18 @@ spec:
             type: object
           spec:
             properties:
+              cronSchedules:
+                description: Scheduled workload configuration
+                items:
+                  properties:
+                    schedule:
+                      description: Cron expression for scheduled workloads, such as
+                        "0 1 23 10 *"
+                      type: string
+                  required:
+                  - schedule
+                  type: object
+                type: array
               customerLabels:
                 additionalProperties:
                   type: string
@@ -91,6 +103,10 @@ spec:
               isSupervised:
                 description: Supervision flag for the workload. When enabled, it performs
                   operations like hang detection
+                type: boolean
+              isSuspended:
+                description: If enabled, the workload will be suspended; when disabled,
+                  it will automatically resume its state and re-enter the queue.
                 type: boolean
               isTolerateAll:
                 description: Indicates whether the workload tolerates node taints
@@ -217,7 +233,7 @@ spec:
                 description: The port for ssh, This field is set internally
                 type: integer
               timeout:
-                description: Workload timeout in hours. Default is 0 (no timeout).
+                description: Workload timeout in seconds. Default is 0 (no timeout).
                 type: integer
               ttlSecondsAfterFinished:
                 description: The lifecycle of the workload after completion, in seconds.

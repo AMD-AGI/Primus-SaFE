@@ -58,6 +58,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.ControlPlaneStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("CpuChip"):
 		return &amdv1.CpuChipApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("CronSchedule"):
+		return &amdv1.CronScheduleApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("DiskFlavor"):
 		return &amdv1.DiskFlavorApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ErasureCodedSpec"):

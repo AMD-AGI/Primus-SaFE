@@ -188,8 +188,8 @@ func (h *Handler) patchNodeFlavor(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	originalNodeFlavor := client.MergeFrom(nf.DeepCopy())
-	isShouldUpdate, err := h.updateNodeFlavor(nf, req)
-	if err != nil || !isShouldUpdate {
+	shouldUpdate, err := h.updateNodeFlavor(nf, req)
+	if err != nil || !shouldUpdate {
 		return nil, err
 	}
 	if err = h.Patch(ctx, nf, originalNodeFlavor); err != nil {
@@ -269,36 +269,36 @@ func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
 // Handles changes to CPU, GPU, memory, disk, and extended resources specifications.
 // Returns whether any updates were made and any error encountered.
 func (h *Handler) updateNodeFlavor(nf *v1.NodeFlavor, req *types.PatchNodeFlavorRequest) (bool, error) {
-	isShouldUpdate := false
+	shouldUpdate := false
 	if req.CPU != nil && !reflect.DeepEqual(nf.Spec.Cpu, *req.CPU) {
 		nf.Spec.Cpu = *req.CPU
-		isShouldUpdate = true
+		shouldUpdate = true
 	}
 	if req.Gpu != nil && (nf.Spec.Gpu == nil || !reflect.DeepEqual(*nf.Spec.Gpu, *req.Gpu)) {
 		nf.Spec.Gpu = req.Gpu
-		isShouldUpdate = true
+		shouldUpdate = true
 	}
 	if req.Memory != nil && req.Memory.Value() != nf.Spec.Memory.Value() {
 		nf.Spec.Memory = *req.Memory
-		isShouldUpdate = true
+		shouldUpdate = true
 	}
 	if req.RootDisk != nil {
 		if nf.Spec.RootDisk == nil || !reflect.DeepEqual(*nf.Spec.RootDisk, *req.RootDisk) {
 			nf.Spec.RootDisk = req.RootDisk
-			isShouldUpdate = true
+			shouldUpdate = true
 		}
 	}
 	if req.DataDisk != nil {
 		if nf.Spec.DataDisk == nil || !reflect.DeepEqual(*nf.Spec.DataDisk, *req.DataDisk) {
 			nf.Spec.DataDisk = req.DataDisk
-			isShouldUpdate = true
+			shouldUpdate = true
 		}
 	}
 	if req.ExtendResources != nil && !reflect.DeepEqual(req.ExtendResources, nf.Spec.ExtendResources) {
 		nf.Spec.ExtendResources = *req.ExtendResources
-		isShouldUpdate = true
+		shouldUpdate = true
 	}
-	return isShouldUpdate, nil
+	return shouldUpdate, nil
 }
 
 // generateNodeFlavor: creates a new node flavor object based on the creation request.
@@ -314,10 +314,14 @@ func generateNodeFlavor(c *gin.Context, req *types.CreateNodeFlavorRequest) (*v1
 		},
 		Spec: req.NodeFlavorSpec,
 	}
-	_, ok := nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage]
-	if !ok && nf.Spec.RootDisk != nil && !nf.Spec.RootDisk.Quantity.IsZero() {
-		nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage] = *resource.NewQuantity(
-			nf.Spec.RootDisk.Quantity.Value()*int64(nf.Spec.RootDisk.Count), resource.BinarySI)
+	if nf.Spec.RootDisk != nil && !nf.Spec.RootDisk.Quantity.IsZero() {
+		if nf.Spec.ExtendResources == nil {
+			nf.Spec.ExtendResources = make(corev1.ResourceList)
+		}
+		if _, ok := nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage]; !ok {
+			nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage] = *resource.NewQuantity(
+				nf.Spec.RootDisk.Quantity.Value()*int64(nf.Spec.RootDisk.Count), resource.BinarySI)
+		}
 	}
 	return nf, nil
 }

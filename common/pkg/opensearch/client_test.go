@@ -17,7 +17,9 @@ func TestQueryIndex(t *testing.T) {
 	assert.NilError(t, err)
 
 	client := &SearchClient{
-		prefix: "node-",
+		SearchClientConfig: SearchClientConfig{
+			Prefix: "node-",
+		},
 	}
 	tests := []struct {
 		name      string
@@ -29,37 +31,37 @@ func TestQueryIndex(t *testing.T) {
 			"across 2 months",
 			endTime.Add(-time.Hour * 24 * 31),
 			endTime,
-			client.prefix + "*",
+			client.Prefix + "*",
 		},
 		{
 			"across 2 days",
 			endTime.Add(-time.Hour * 24 * 2),
 			endTime,
-			client.prefix + "2024.12.30" + "," + client.prefix + "2024.12.31" + "," + client.prefix + "2025.01.01",
+			client.Prefix + "2024.12.30" + "," + client.Prefix + "2024.12.31" + "," + client.Prefix + "2025.01.01",
 		},
 		{
 			"within the same day",
 			endTime.Add(-time.Hour * 2),
 			endTime,
-			client.prefix + "2025.01.01",
+			client.Prefix + "2025.01.01",
 		},
 		{
 			"with the same time",
 			endTime,
 			endTime,
-			client.prefix + "2025.01.01",
+			client.Prefix + "2025.01.01",
 		},
 		{
 			"across 0 o'clock",
 			endTime.Add(-time.Hour * 18),
 			endTime.Add(-time.Hour * 10).Add(time.Minute),
-			client.prefix + "2024.12.31" + "," + client.prefix + "2025.01.01",
+			client.Prefix + "2024.12.31" + "," + client.Prefix + "2025.01.01",
 		},
 		{
 			"at 0 o'clock",
 			endTime.Add(-time.Hour * 18),
 			endTime.Add(-time.Hour * 10),
-			client.prefix + "2024.12.31" + "," + client.prefix + "2025.01.01",
+			client.Prefix + "2024.12.31" + "," + client.Prefix + "2025.01.01",
 		},
 	}
 	for _, test := range tests {
