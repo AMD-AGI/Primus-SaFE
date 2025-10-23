@@ -8,10 +8,11 @@ package utils
 import (
 	"database/sql"
 	"fmt"
+	"time"
+
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
-	"time"
 
 	sqrl "github.com/Masterminds/squirrel"
 	"github.com/jmoiron/sqlx"
@@ -20,6 +21,7 @@ import (
 	"k8s.io/klog/v2"
 
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 type DBDriver string
@@ -81,7 +83,7 @@ func ParseNullString(str sql.NullString) string {
 
 func ParseNullTimeToString(t pq.NullTime) string {
 	if t.Valid && !t.Time.IsZero() {
-		return t.Time.Format(time.DateTime)
+		return timeutil.FormatRFC3339(&t.Time)
 	}
 	return ""
 }

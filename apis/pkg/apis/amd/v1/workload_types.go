@@ -115,6 +115,8 @@ type WorkloadSpec struct {
 	Env map[string]string `json:"env,omitempty"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised,omitempty"`
+	// If enabled, the workload will be suspended; when disabled, it will automatically resume its state and re-enter the queue.
+	IsSuspended bool `json:"isSuspended,omitempty"`
 	// Group: An extension field that is not currently in use
 	// Version: version of workload, default value is v1
 	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default is PyTorchJob
@@ -125,7 +127,7 @@ type WorkloadSpec struct {
 	Priority int `json:"priority"`
 	// The lifecycle of the workload after completion, in seconds. Default is 60.
 	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished,omitempty"`
-	// Workload timeout in hours. Default is 0 (no timeout).
+	// Workload timeout in seconds. Default is 0 (no timeout).
 	Timeout *int `json:"timeout,omitempty"`
 	// The workload will run on nodes with the user-specified labels.
 	// If multiple labels are specified, all of them must be satisfied.
@@ -141,12 +143,12 @@ type WorkloadSpec struct {
 	// The workload will automatically mount the volumes defined in the workspace,
 	// and you can also define specific hostPath for mounting.
 	Hostpath []string `json:"hostpath,omitempty"`
-	// Scheduled workload configuration
-	CronSchedules []CronSchedule `json:"cronSchedules,omitempty"`
 	// Dependencies defines a list of other Workloads that must complete successfully
 	// before this Workload can start execution. If any dependency fails, this Workload
 	// will not be scheduled and is considered failed.
 	Dependencies []string `json:"dependencies,omitempty"`
+	// Scheduled workload configuration
+	CronSchedules []CronSchedule `json:"cronSchedules,omitempty"`
 }
 
 type WorkloadStatus struct {
@@ -270,6 +272,10 @@ func (w *Workload) IsEnd() bool {
 	return false
 }
 
+func (w *Workload) IsSuspended() bool {
+	return w.Spec.IsSuspended
+}
+
 func (w *Workload) ElapsedTime() int64 {
 	var elapsedTime time.Duration
 	if w.IsEnd() {
@@ -294,8 +300,8 @@ func (w *Workload) IsTimeout() bool {
 	if w.GetTimeout() <= 0 || w.Status.StartTime == nil {
 		return false
 	}
-	duration := int(time.Now().UTC().Sub(w.Status.StartTime.Time).Hours())
-	return duration >= *w.Spec.Timeout
+	duration := int(time.Now().UTC().Sub(w.Status.StartTime.Time).Seconds())
+	return duration >= w.GetTimeout()
 }
 
 func (w *Workload) GetTimeout() int {

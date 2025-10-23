@@ -314,10 +314,14 @@ func generateNodeFlavor(c *gin.Context, req *types.CreateNodeFlavorRequest) (*v1
 		},
 		Spec: req.NodeFlavorSpec,
 	}
-	_, ok := nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage]
-	if !ok && nf.Spec.RootDisk != nil && !nf.Spec.RootDisk.Quantity.IsZero() {
-		nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage] = *resource.NewQuantity(
-			nf.Spec.RootDisk.Quantity.Value()*int64(nf.Spec.RootDisk.Count), resource.BinarySI)
+	if nf.Spec.RootDisk != nil && !nf.Spec.RootDisk.Quantity.IsZero() {
+		if nf.Spec.ExtendResources == nil {
+			nf.Spec.ExtendResources = make(corev1.ResourceList)
+		}
+		if _, ok := nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage]; !ok {
+			nf.Spec.ExtendResources[corev1.ResourceEphemeralStorage] = *resource.NewQuantity(
+				nf.Spec.RootDisk.Quantity.Value()*int64(nf.Spec.RootDisk.Count), resource.BinarySI)
+		}
 	}
 	return nf, nil
 }

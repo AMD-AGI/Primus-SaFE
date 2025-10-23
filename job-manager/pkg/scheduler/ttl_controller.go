@@ -124,7 +124,7 @@ func (r *WorkloadTTLController) handle(ctx context.Context, workload *v1.Workloa
 	case workload.Status.StartTime == nil:
 		break
 	case workload.GetTimeout() > 0:
-		timeoutStamp := workload.Status.StartTime.Add(time.Duration(workload.GetTimeout()) * time.Hour)
+		timeoutStamp := workload.Status.StartTime.Add(time.Duration(workload.GetTimeout()) * time.Second)
 		result.RequeueAfter = timeoutStamp.Sub(nowTime)
 	}
 	return result, err

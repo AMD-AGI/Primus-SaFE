@@ -53,13 +53,14 @@ const (
 type SchedulerReconciler struct {
 	client.Client
 	clusterInformers *commonutils.ObjectManager
+	// cronManager manages all cron jobs for workload scheduling
+	cronManager *CronJobManager
 	*controller.Controller[*SchedulerMessage]
 }
 
 type SchedulerMessage struct {
 	WorkspaceId string
 	ClusterId   string
-	WorkloadId  string
 }
 
 // SetupSchedulerController initializes and registers the SchedulerReconciler with the controller manager.
@@ -77,6 +78,7 @@ func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
 	r := &SchedulerReconciler{
 		Client:           mgr.GetClient(),
 		clusterInformers: commonutils.NewObjectManagerSingleton(),
+		cronManager:      newCronJobManager(mgr),
 	}
 	r.Controller = controller.NewController[*SchedulerMessage](r, 1)
 	r.start(ctx)
@@ -97,13 +99,29 @@ func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
 // relevantChangePredicate: defines which Workload changes should trigger scheduling reconciliation
 func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			workload, ok := e.Object.(*v1.Workload)
+			if !ok {
+				return false
+			}
+			if len(workload.Spec.CronSchedules) > 0 {
+				r.cronManager.addOrReplace(workload)
+			}
+			return true
+		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldWorkload, ok1 := e.ObjectOld.(*v1.Workload)
 			newWorkload, ok2 := e.ObjectNew.(*v1.Workload)
 			if !ok1 || !ok2 {
 				return false
 			}
+			if !reflect.DeepEqual(oldWorkload.Spec.CronSchedules, newWorkload.Spec.CronSchedules) {
+				r.cronManager.addOrReplace(newWorkload)
+			}
 			if !oldWorkload.IsEnd() && newWorkload.IsEnd() {
+				return true
+			}
+			if oldWorkload.IsSuspended() != newWorkload.IsSuspended() {
 				return true
 			}
 			if v1.IsWorkloadScheduled(oldWorkload) != v1.IsWorkloadScheduled(newWorkload) {
@@ -416,7 +434,6 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 	msg := &SchedulerMessage{
 		ClusterId:   v1.GetClusterId(workload),
 		WorkspaceId: workload.Spec.Workspace,
-		WorkloadId:  workload.Name,
 	}
 	r.Add(msg)
 	return ctrlruntime.Result{}, nil
@@ -424,6 +441,9 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 
 // delete: handles the deletion of a workload and its associated resources
 func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
+	if len(adminWorkload.Spec.CronSchedules) > 0 {
+		r.cronManager.remove(adminWorkload.Name)
+	}
 	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))
 	if err != nil {
 		klog.Errorf("failed to get cluster informer, clusterId: %s, workspaceId: %s, workloadId: %s",
@@ -504,8 +524,8 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 			unScheduledReasons[w.Name] = reason
 			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads,
 			// then break out of the queue directly and continue waiting.
-			if workspace.IsEnableFifo() ||
-				(i < len(schedulingWorkloads)-1 && w.Spec.Priority > schedulingWorkloads[i+1].Spec.Priority) {
+			if !w.IsSuspended() && (workspace.IsEnableFifo() ||
+				(i < len(schedulingWorkloads)-1 && w.Spec.Priority > schedulingWorkloads[i+1].Spec.Priority)) {
 				break
 			} else {
 				continue
@@ -530,16 +550,19 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 // canScheduleWorkload: checks if a workload can be scheduled based on resource availability
 func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWorkload *v1.Workload,
 	runningWorkloads []*v1.Workload, requestResources, leftResources corev1.ResourceList) (bool, string, error) {
+	if requestWorkload.IsSuspended() {
+		return false, "Suspended by the system", nil
+	}
 	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
 	var reason string
 	var err error
 
-	isReady, err := r.checkWorkloadDependencies(ctx, requestWorkload)
+	isDependencyReady, err := r.checkWorkloadDependencies(ctx, requestWorkload)
 	if err != nil {
 		return false, "", err
 	}
-	if !isReady {
-		reason = "Unmet workload dependencies"
+	if !isDependencyReady {
+		reason = "Dependency cannot be satisfied"
 		klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
 		return false, reason, nil
 	}
@@ -754,6 +777,7 @@ func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.
 	annotations[v1.WorkloadScheduledAnnotation] = time.Now().UTC().Format(time.RFC3339)
 	delete(annotations, v1.WorkloadReScheduledAnnotation)
 	workload.SetAnnotations(annotations)
+	workload.Spec.IsSuspended = false
 	if err := r.Patch(ctx, workload, originalWorkload); err != nil {
 		klog.ErrorS(err, "failed to patch workload", "name", workload.Name)
 		return err

@@ -99,7 +99,7 @@ func (m *Monitor) startCronJob() {
 		cron.SkipIfStillRunning(cron.DiscardLogger),
 	))
 
-	schedule, _, err := timeutil.ParseCronStandard(m.config.Cronjob)
+	schedule, _, err := timeutil.ParseCronString(m.config.Cronjob)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse cronjob schedule")
 		return

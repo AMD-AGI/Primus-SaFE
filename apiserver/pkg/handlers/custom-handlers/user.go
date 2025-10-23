@@ -31,6 +31,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
@@ -455,7 +456,7 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) type
 		Email:          v1.GetUserEmail(user),
 		Type:           user.Spec.Type,
 		Roles:          user.Spec.Roles,
-		CreationTime:   user.CreationTimestamp.Format(time.DateTime),
+		CreationTime:   timeutil.FormatRFC3339(&user.CreationTimestamp.Time),
 		RestrictedType: user.Spec.RestrictedType,
 		AvatarUrl:      v1.GetUserAvatarUrl(user),
 	}

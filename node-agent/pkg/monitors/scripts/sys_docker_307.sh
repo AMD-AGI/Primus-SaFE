@@ -7,8 +7,11 @@
 
 set -o pipefail
 
-nsenter --target 1 --mount --uts --ipc --net --pid -- ps aux | grep -q /usr/local/bin/containerd
+container_count=$(nsenter --target 1 --mount --uts --ipc --net --pid -- docker ps --format '{{.ID}}' | wc -l)
 if [ $? -ne 0 ]; then
-  echo "Error: /usr/local/bin/containerd is not running"
+  exit 2
+fi
+
+if [ "$container_count" -gt 0 ]; then
   exit 1
 fi
