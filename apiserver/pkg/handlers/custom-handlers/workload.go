@@ -1184,7 +1184,7 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 // parseScheduleTime validates the scheduler time format and checks if it's within the future one-year
 // Returns an error if the time format is invalid or the time is outside the valid range.
 func parseScheduleTime(inputScheduler string) error {
-	_, scheduleTime, err := timeutil.CvtTime3339ToCron(inputScheduler)
+	_, scheduleTime, err := timeutil.CvtTime3339ToCronStandard(inputScheduler)
 	if err != nil {
 		return err
 	}

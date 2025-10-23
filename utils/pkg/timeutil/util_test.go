@@ -15,7 +15,7 @@ import (
 
 func TestParseSchedule(t *testing.T) {
 	expr := "@every 90s"
-	schedule, err := ParseCronString(expr)
+	schedule, err := ParseCronStandard(expr)
 	assert.NilError(t, err)
 	testTime, err := time.Parse(time.DateTime, "2024-03-08 01:01:09")
 	assert.NilError(t, err)
@@ -24,7 +24,7 @@ func TestParseSchedule(t *testing.T) {
 	assert.Equal(t, nextTime.Sub(testTime).Seconds(), float64(90))
 
 	expr = "0 1 23 10 *"
-	schedule, err = ParseCronString(expr)
+	schedule, err = ParseCronStandard(expr)
 	assert.NilError(t, err)
 	now := time.Now()
 	testTime, err = time.Parse(time.DateTime, fmt.Sprintf("%d-10-22 00:00:00", now.Year()))
@@ -40,7 +40,7 @@ func TestParseSchedule(t *testing.T) {
 
 func TestCvtTime3339ToCronStandard(t *testing.T) {
 	timeStr := "2025-09-30T16:04:00.000Z"
-	scheduleStr, _, err := CvtTime3339ToCron(timeStr)
+	scheduleStr, _, err := CvtTime3339ToCronStandard(timeStr)
 	assert.NilError(t, err)
 	assert.Equal(t, scheduleStr, "4 16 30 9 *")
 }

@@ -61,8 +61,14 @@ func (m *CronJobManager) addOrReplace(workload *v1.Workload) {
 	cronJobs := make([]CronJob, 0, len(workload.Spec.CronSchedules))
 	// Create cron jobs for each schedule in the workload specification
 	for i, cs := range workload.Spec.CronSchedules {
+		cronStandard, _, err := timeutil.CvtTime3339ToCronStandard(cs.Schedule)
+		if err != nil {
+			klog.ErrorS(err, "failed to convert time to cron standard",
+				"workload", workload.Name, "schedule", cs.Schedule)
+			continue
+		}
 		// Parse the cron schedule string into a cron.Schedule
-		schedule, err := timeutil.ParseCronString(cs.Schedule)
+		schedule, err := timeutil.ParseCronStandard(cronStandard)
 		if err != nil {
 			klog.ErrorS(err, "failed to parse cron schedule",
 				"workload", workload.Name, "schedule", cs.Schedule)
@@ -84,8 +90,10 @@ func (m *CronJobManager) addOrReplace(workload *v1.Workload) {
 		cronJobs = append(cronJobs, cj)
 		klog.Infof("add cronjob for workload: %s, schedule: %s", workload.Name, cs.Schedule)
 	}
-	// Store the cron jobs in the manager's map
-	m.allCronJobs[workload.Name] = cronJobs
+	if len(cronJobs) > 0 {
+		// Store the cron jobs in the manager's map
+		m.allCronJobs[workload.Name] = cronJobs
+	}
 }
 
 // remove stops and removes all cron jobs associated with a workload ID
