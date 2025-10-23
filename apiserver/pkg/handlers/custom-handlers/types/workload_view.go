@@ -22,6 +22,8 @@ type CreateWorkloadRequest struct {
 	Description string `json:"description,omitempty"`
 	// Workspace ID to which the workload is delivered
 	WorkspaceId string `json:"workspaceId,omitempty"`
+	// Scheduled execution time, such as "2025-09-30T16:04:00.000Z"
+	SchedulerTime string `json:"schedulerTime,omitempty"`
 }
 
 type CreateWorkloadResponse struct {
@@ -112,7 +114,7 @@ type WorkloadResponseItem struct {
 	IsTolerateAll bool `json:"isTolerateAll"`
 	// Defines the group, version, and kind of the workload. Currently, the group is not used
 	GroupVersionKind v1.GroupVersionKind `json:"groupVersionKind"`
-	// Workload timeout in hours. Default is 0 (no timeout).
+	// Workload timeout in seconds. Default is 0 (no timeout).
 	Timeout *int `json:"timeout"`
 	// Workload uid
 	WorkloadUid string `json:"workloadUid"`
@@ -157,6 +159,8 @@ type GetWorkloadResponse struct {
 	// before this Workload can start execution. If any dependency fails, this Workload
 	// will not be scheduled and is considered failed.
 	Dependencies []string `json:"dependencies,omitempty"`
+	// Scheduled workload configuration
+	CronSchedules []v1.CronSchedule `json:"cronSchedules,omitempty"`
 }
 
 type WorkloadPodWrapper struct {
@@ -188,7 +192,7 @@ type PatchWorkloadRequest struct {
 	Env *map[string]string `json:"env,omitempty"`
 	// Workload description
 	Description *string `json:"description,omitempty"`
-	// Workload timeout in hours. Default is 0 (no timeout).
+	// Workload timeout in seconds. Default is 0 (no timeout).
 	Timeout *int `json:"timeout,omitempty"`
 	// Failure retry limit
 	MaxRetry *int `json:"maxRetry,omitempty"`

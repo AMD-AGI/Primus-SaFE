@@ -166,7 +166,7 @@ func (h *Handler) createWorkloadImpl(c *gin.Context, workload *v1.Workload, requ
 		return nil, err
 	}
 	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d",
-		workload.Name, c.GetString(common.UserName), c.GetString(common.UserId), workload.Spec.Priority, workload.Spec.Timeout)
+		workload.Name, c.GetString(common.UserName), c.GetString(common.UserId), workload.Spec.Priority, workload.GetTimeout())
 	return &types.CreateWorkloadResponse{WorkloadId: workload.Name}, nil
 }
 
@@ -665,6 +665,17 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 	if req.WorkspaceId != "" {
 		workload.Spec.Workspace = req.WorkspaceId
 	}
+	if req.SchedulerTime != "" {
+		scheduleStr, scheduleTime, err := timeutil.CvtTime3339ToCron(req.SchedulerTime)
+		if err != nil {
+			return nil, err
+		}
+		if !isValidSchedulerTime(scheduleTime) {
+			return nil, commonerrors.NewBadRequest(
+				"Invalid schedulerTime of request, it must be within one year in the future.")
+		}
+		workload.Spec.CronSchedules = []v1.CronSchedule{{Schedule: scheduleStr}}
+	}
 	return workload, nil
 }
 
@@ -1027,6 +1038,9 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 	if str := dbutils.ParseNullString(w.Dependencies); str != "" {
 		json.Unmarshal([]byte(str), &result.Dependencies)
 	}
+	if str := dbutils.ParseNullString(w.CronSchedules); str != "" {
+		json.Unmarshal([]byte(str), &result.CronSchedules)
+	}
 	return result
 }
 
@@ -1046,6 +1060,8 @@ func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workl
 		Liveness:                w.Spec.Liveness,
 		Readiness:               w.Spec.Readiness,
 		Env:                     w.Spec.Env,
+		Dependencies:            w.Spec.Dependencies,
+		CronSchedules:           w.Spec.CronSchedules,
 	}
 
 	result.Pods = make([]types.WorkloadPodWrapper, len(w.Status.Pods))
@@ -1102,8 +1118,8 @@ func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
 	}
 	if !w.Status.StartTime.IsZero() {
 		result.StartTime = timeutil.FormatRFC3339(&w.Status.StartTime.Time)
-		if w.Spec.Timeout != nil {
-			result.SecondsUntilTimeout = w.Status.StartTime.Unix() + int64(3600*w.GetTimeout()) - time.Now().Unix()
+		if w.GetTimeout() > 0 {
+			result.SecondsUntilTimeout = w.Status.StartTime.Unix() + int64(w.GetTimeout()) - time.Now().Unix()
 		}
 	}
 	if !w.Status.EndTime.IsZero() {
@@ -1239,16 +1255,17 @@ func cvtDBWorkloadToAdminWorkload(c *gin.Context, dbItem *dbclient.Workload) *v1
 			IsTolerateAll: dbItem.IsTolerateAll,
 		},
 	}
-	if dbItem.Timeout > 0 {
-		result.Spec.Timeout = pointer.Int(dbItem.Timeout)
-	}
-	if dbItem.TTLSecond > 0 {
-		result.Spec.TTLSecondsAfterFinished = pointer.Int(dbItem.TTLSecond)
-	}
-	json.Unmarshal([]byte(dbItem.GVK), &result.Spec.GroupVersionKind)
 	json.Unmarshal([]byte(dbItem.Resource), &result.Spec.Resource)
 	if str := dbutils.ParseNullString(dbItem.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Env)
+	}
+	json.Unmarshal([]byte(dbItem.GVK), &result.Spec.GroupVersionKind)
+
+	if dbItem.TTLSecond > 0 {
+		result.Spec.TTLSecondsAfterFinished = pointer.Int(dbItem.TTLSecond)
+	}
+	if dbItem.Timeout > 0 {
+		result.Spec.Timeout = pointer.Int(dbItem.Timeout)
 	}
 	if str := dbutils.ParseNullString(dbItem.CustomerLabels); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.CustomerLabels)
@@ -1261,6 +1278,12 @@ func cvtDBWorkloadToAdminWorkload(c *gin.Context, dbItem *dbclient.Workload) *v1
 	}
 	if str := dbutils.ParseNullString(dbItem.Service); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Service)
+	}
+	if str := dbutils.ParseNullString(dbItem.Dependencies); str != "" {
+		json.Unmarshal([]byte(str), &result.Spec.Dependencies)
+	}
+	if str := dbutils.ParseNullString(dbItem.CronSchedules); str != "" {
+		json.Unmarshal([]byte(str), &result.Spec.CronSchedules)
 	}
 	return result
 }
@@ -1313,4 +1336,13 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		Containers: containers,
 		Shells:     []string{"bash", "sh", "zsh"},
 	}, nil
+}
+
+func isValidSchedulerTime(target time.Time) bool {
+	now := time.Now()
+	if !target.After(now) {
+		return false
+	}
+	oneYearLaterMinusOneMin := now.AddDate(1, 0, 0).Add(-time.Minute)
+	return !target.After(oneYearLaterMinusOneMin)
 }

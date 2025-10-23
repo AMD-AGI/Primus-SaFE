@@ -91,6 +91,10 @@ jobs:
           primus_safe_adapter:
             - modules/adapter/primus-safe-adapter/**
             - modules/core/**
+        files_ignore_yaml: |      
+          node_agent:
+            - node-agent/charts/node-agent/values.yaml
+            - node-agent/charts/node-agent/Chart.yaml
   #####
   # apiserver
   #####

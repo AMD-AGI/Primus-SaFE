@@ -57,11 +57,9 @@ func (r *SyncerReconciler) deletePod(ctx context.Context,
 	}
 
 	// Specify the delete options (force delete)
-	deletePolicy := metav1.DeletePropagationForeground
 	gracePeriodSeconds := int64(0)
 	deleteOptions := metav1.DeleteOptions{
 		GracePeriodSeconds: &gracePeriodSeconds,
-		PropagationPolicy:  &deletePolicy,
 	}
 	err := clusterInformer.dataClientFactory.ClientSet().CoreV1().
 		Pods(obj.GetNamespace()).Delete(ctx, obj.GetName(), deleteOptions)

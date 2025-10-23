@@ -38,6 +38,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
@@ -119,6 +120,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateMaxRetry(workload)
 	m.mutateEnv(nil, workload)
 	m.mutateTTLSeconds(workload)
+	m.mutateSuspended(nil, workload)
 	return true
 }
 
@@ -126,6 +128,7 @@ func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWo
 	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
 	m.mutateCommon(ctx, newWorkload, workspace)
 	m.mutateEnv(oldWorkload, newWorkload)
+	m.mutateSuspended(oldWorkload, newWorkload)
 	return true
 }
 
@@ -207,7 +210,7 @@ func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Wo
 		workload.Spec.Resource.GPUName = v1.GetGpuResourceName(workspace)
 		isChanged = true
 	}
-	
+
 	if workload.Spec.Resource.SharedMemory == "" && workload.Spec.Resource.Memory != "" {
 		memQuantity, err := resource.ParseQuantity(workload.Spec.Resource.Memory)
 		if err == nil && memQuantity.Value() > 0 {
@@ -330,6 +333,7 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	if workload.Spec.Image == "" {
 		workload.Spec.Image = commonconfig.GetAuthoringImage()
 	}
+	workload.Spec.Dependencies = nil
 }
 
 func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {
@@ -418,6 +422,19 @@ func (m *WorkloadMutator) mutateCustomerLabels(workload *v1.Workload) {
 	}
 }
 
+func (m *WorkloadMutator) mutateSuspended(oldWorkload, newWorkload *v1.Workload) {
+	if v1.IsWorkloadScheduled(newWorkload) {
+		return
+	}
+	if oldWorkload == nil || len(oldWorkload.Spec.CronSchedules) == 0 {
+		if len(newWorkload.Spec.CronSchedules) > 0 {
+			newWorkload.Spec.IsSuspended = true
+		}
+	} else if len(newWorkload.Spec.CronSchedules) == 0 {
+		newWorkload.Spec.IsSuspended = false
+	}
+}
+
 type WorkloadValidator struct {
 	client.Client
 	decoder admission.Decoder
@@ -503,6 +520,9 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 		return err
 	}
 	if err := v.validateDisplayName(workload); err != nil {
+		return err
+	}
+	if err := v.validateCronSchedules(workload); err != nil {
 		return err
 	}
 	return nil
@@ -728,6 +748,10 @@ func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Wor
 	if !sliceutil.EqualIgnoreOrder(oldWorkload.Spec.Hostpath, newWorkload.Spec.Hostpath) {
 		return commonerrors.NewForbidden("hostpath cannot be changed once the workload has been scheduled")
 	}
+	if len(newWorkload.Spec.CronSchedules) > 0 &&
+		!reflect.DeepEqual(newWorkload.Spec.CronSchedules, oldWorkload.Spec.CronSchedules) {
+		return commonerrors.NewForbidden("cronSchedules cannot be changed once the workload has been scheduled")
+	}
 	if commonworkload.IsApplication(newWorkload) {
 		return nil
 	}
@@ -772,6 +796,18 @@ func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Work
 	if !hasFound {
 		return commonerrors.NewForbidden(
 			fmt.Sprintf("The workspace only supports %v and does not suuport %s", workspace.Spec.Scopes, scope))
+	}
+	return nil
+}
+
+func (v *WorkloadValidator) validateCronSchedules(workload *v1.Workload) error {
+	if len(workload.Spec.CronSchedules) == 0 {
+		return nil
+	}
+	for _, s := range workload.Spec.CronSchedules {
+		if _, err := timeutil.ParseCronString(s.Schedule); err != nil {
+			return err
+		}
 	}
 	return nil
 }

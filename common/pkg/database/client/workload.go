@@ -47,7 +47,8 @@ var (
 		    is_supervised = :is_supervised,
 		    is_tolerate_all = :is_tolerate_all,
 		    timeout = :timeout,
-		    k8s_object_uid = :k8s_object_uid  
+		    k8s_object_uid = :k8s_object_uid,
+		    cron_schedules = :cron_schedules 
 		WHERE workload_id = :workload_id`, TWorkload)
 )
 

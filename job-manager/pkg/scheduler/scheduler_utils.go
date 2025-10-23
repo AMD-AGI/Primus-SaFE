@@ -162,6 +162,11 @@ func (workloads WorkloadList) Swap(i, j int) {
 }
 
 func (workloads WorkloadList) Less(i, j int) bool {
+	if !workloads[i].IsSuspended() && workloads[j].IsSuspended() {
+		return true
+	} else if workloads[i].IsSuspended() && !workloads[j].IsSuspended() {
+		return false
+	}
 	if isReScheduledForFailover(workloads[i]) && !isReScheduledForFailover(workloads[j]) {
 		return true
 	} else if !isReScheduledForFailover(workloads[i]) && isReScheduledForFailover(workloads[j]) {

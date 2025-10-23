@@ -52,6 +52,7 @@ data:
   sys_kernel_lock_304: '{"script":"sys_kernel_lock_304.sh","id":"304","cronjob":"@every 30s","timeoutSecond":25,"toggle":"on"}'
   sys_acsctl_305: '{"script":"sys_acsctl_305.sh","id":"305","cronjob":"@every 600s","timeoutSecond":300,"toggle":"on"}'
   sys_boot_args_306: '{"script":"sys_boot_arguments_306.sh","id":"306","cronjob":"@every 600s","timeoutSecond":300,"chip":"amd","toggle":"on"}'
+  sys_docker_307: '{"script":"sys_docker_307.sh","id":"307","cronjob":"@every 60s","timeoutSecond":50,"toggle":"on"}'
   sys_pcie_link_308: '{"script":"sys_pcie_link_308.sh","id":"308","cronjob":"@every 300s","timeoutSecond":250,"chip":"amd","toggle":"on"}'
   # Disk: 4XX
   nfs_check_401: '{"script":"nfs_check_401.sh","id":"401","cronjob":"@every 60s","timeoutSecond":50,"toggle":"on","arguments":["{{ .Values.monitor.nfs_server }}","{{ .Values.monitor.nfs_path }}","{{ .Values.monitor.nfs_mount }}"]}'

@@ -63,6 +63,7 @@ type Workload struct {
 	WorkloadUId    sql.NullString `db:"workload_uid"`
 	Ranks          sql.NullString `db:"ranks"`
 	Dependencies   sql.NullString `db:"dependencies"`
+	CronSchedules  sql.NullString `db:"cron_schedules"`
 }
 
 func GetWorkloadFieldTags() map[string]string {

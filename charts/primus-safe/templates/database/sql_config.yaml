@@ -53,7 +53,7 @@ data:
         service TEXT,
         liveness VARCHAR(128),
         readiness VARCHAR(128),
-        dependencies TEXT,
+        dependencies TEXT
     );
 
     create index if not exists T_WORKLOAD_ID_INDEX on workload (workload_id);
@@ -61,6 +61,12 @@ data:
     create index if not exists T_WORKLOAD_DISPATCH_CNT_INDEX on workload (dispatch_count);
     create index if not exists T_WORKLOAD_WORKSPACE_INDEX on workload (workspace);
     create index if not exists T_WORKLOAD_ENDTIME_INDEX on workload (end_time);
+
+    alter table workload add column if not exists user_id VARCHAR(64);
+    alter table workload add column if not exists k8s_object_uid VARCHAR(36);
+    alter table workload add column if not exists workload_uid VARCHAR(36);
+    alter table workload add column if not exists ranks TEXT;
+    alter table workload add column if not exists cron_schedules TEXT;
 
     create table if not exists fault
     (
@@ -101,18 +107,13 @@ data:
         is_deleted boolean
     );
 
-    alter table ops_job add column if not exists env TEXT;
     create index if not exists T_JOB_ID_INDEX on ops_job (job_id);
     create index if not exists T_JOB_CREATE_TIME_INDEX on ops_job (create_time);
     create index if not exists T_JOB_PHASE_INDEX on ops_job (phase);
     create index if not exists T_JOB_PARAMS_INDEX on ops_job (inputs);
 
-    alter table workload add column if not exists user_id VARCHAR(64);
-    alter table workload add column if not exists k8s_object_uid VARCHAR(36);
-    alter table workload add column if not exists workload_uid VARCHAR(36);
+    alter table ops_job add column if not exists env TEXT;
     alter table ops_job add column if not exists user_id VARCHAR(64);
-    alter table workload add column if not exists ranks TEXT;
-
     alter table ops_job add column if not exists resource VARCHAR(1024);
     alter table ops_job add column if not exists image VARCHAR(128);
     alter table ops_job add column if not exists entrypoint TEXT;
@@ -153,11 +154,8 @@ data:
         created_at timestamptz
     );
 
-
     alter table image_import_job
         owner to "primus-safe";
-
-
 
     create table if not exists image_digest
     (
@@ -174,10 +172,8 @@ data:
         deleted_at   timestamp with time zone
     );
 
-
     alter table image_digest
         owner to "primus-safe";
-
 
     create table if not exists image
     (
@@ -211,10 +207,8 @@ data:
     );
 
     CREATE INDEX idx_publickey_userid ON public_key(user_id);
-    CREATE UNIQUE INDEX idx_publickey_userid_pubkey
-    ON public_key(user_id, public_key, delete_time);
-    alter table public_key
-        owner to "primus-safe";
+    CREATE UNIQUE INDEX idx_publickey_userid_pubkey ON public_key(user_id, public_key, delete_time);
+    alter table public_key owner to "primus-safe";
 
     CREATE TABLE ssh_session_records (
        id BIGSERIAL PRIMARY KEY,
@@ -227,6 +221,5 @@ data:
        disconnect_time TIMESTAMPTZ,
        create_time TIMESTAMPTZ NOT NULL DEFAULT now()
     );
-    alter table ssh_session_records
-        owner to "primus-safe";
 
+    alter table ssh_session_records owner to "primus-safe";

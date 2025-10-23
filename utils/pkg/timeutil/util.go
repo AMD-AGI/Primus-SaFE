@@ -19,7 +19,8 @@ const (
 	TimeRFC3339Milli = "2006-01-02T15:04:05.999Z"
 )
 
-// FormatRFC3339 formats a time pointer to RFC3339 short format, returns empty string if time is nil or zero
+// FormatRFC3339 converts a *time.Time to its string representation in RFC3339Short format.
+// Returns an empty string if the pointer is nil or points to a zero time value.
 func FormatRFC3339(t *time.Time) string {
 	if t == nil || t.IsZero() {
 		return ""
@@ -27,7 +28,7 @@ func FormatRFC3339(t *time.Time) string {
 	return t.Format(TimeRFC3339Short)
 }
 
-// CvtStrUnixToTime converts a Unix timestamp string to UTC time.Time
+// CvtStrUnixToTime converts a Unix timestamp string to time.Time
 func CvtStrUnixToTime(strTime string) time.Time {
 	if strTime == "" {
 		return time.Time{}
@@ -39,18 +40,30 @@ func CvtStrUnixToTime(strTime string) time.Time {
 	return time.Unix(intTime, 0).UTC()
 }
 
-// CvtTimeToCronStandard converts a time-only string to cron schedule format (minute hour * * *)
-func CvtTimeToCronStandard(timeOnly string) (string, error) {
-	t, err := time.Parse(time.TimeOnly, timeOnly)
+// CvtTime3339ToCron converts a time string in RFC3339 short format ("2006-01-02T15:04:05.000Z")
+// to cron standard schedule format ("minute hour day month *"), ignoring the date year
+// Returns an error if the input time string cannot be parsed.
+func CvtTime3339ToCron(timeOnly string) (string, time.Time, error) {
+	t, err := time.Parse(TimeRFC3339Milli, timeOnly)
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
-	scheduleStr := fmt.Sprintf("%d %d * * *", t.Minute(), t.Hour())
-	return scheduleStr, nil
+	scheduleStr := fmt.Sprintf("%d %d %d %d *", t.Minute(), t.Hour(), t.Day(), t.Month())
+	return scheduleStr, t, nil
 }
 
-// CvtCronStandardToTime converts a cron schedule string to time format (HH:MM:SS)
-func CvtCronStandardToTime(scheduleStr string) (string, error) {
+// CvtTimeOnlyToCron converts a time-only string("15:04:05") to cron schedule format (minute hour * * *)
+func CvtTimeOnlyToCron(timeOnly string) (string, time.Time, error) {
+	t, err := time.Parse(time.TimeOnly, timeOnly)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	scheduleStr := fmt.Sprintf("%d %d * * *", t.Minute(), t.Hour())
+	return scheduleStr, t, nil
+}
+
+// CvtCronToTime converts a cron schedule string (minute hour * * *) to time format (HH:MM:SS)
+func CvtCronToTime(scheduleStr string) (string, error) {
 	values := strings.Split(scheduleStr, " ")
 	if len(values) != 5 {
 		return "", fmt.Errorf("invalid cron schedule")
@@ -70,19 +83,14 @@ func CvtStrToRFC3339Milli(timeStr string) (time.Time, error) {
 	return t.UTC(), nil
 }
 
-// ParseCronStandard parses a cron schedule string and calculates the interval in seconds until next execution
-func ParseCronStandard(scheduleStr string) (cron.Schedule, float64, error) {
+// ParseCronString parses a cron schedule string
+func ParseCronString(scheduleStr string) (cron.Schedule, error) {
 	if scheduleStr == "" {
-		return nil, 0, fmt.Errorf("invalid input")
+		return nil, fmt.Errorf("invalid input")
 	}
 	schedule, err := cron.ParseStandard(scheduleStr)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	now := time.Now()
-	today := time.Date(now.Year(), now.Month(), now.Day(),
-		0, 0, 0, 0, time.UTC)
-	nextTime := schedule.Next(today.UTC())
-	interval := nextTime.Sub(today).Seconds()
-	return schedule, interval, nil
+	return schedule, nil
 }

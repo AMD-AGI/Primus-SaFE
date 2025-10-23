@@ -30,6 +30,7 @@ import (
 	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 func (h *ImageHandler) createImage(c *gin.Context) (interface{}, error) {
@@ -194,10 +195,10 @@ func cvtImageToResponse(images []*model.Image, os, arch string) []GetImageRespon
 		artifact := ArtifactItem{
 			ImageTag:    tag,
 			Description: image.Description,
-			CreatedTime: image.CreatedAt.Format(time.DateTime),
+			CreatedTime: timeutil.FormatRFC3339(&image.CreatedAt),
 			UserName:    image.CreatedBy,
 			Status:      image.Status,
-			Id:          int32(image.ID),
+			Id:          image.ID,
 			IncludeType: image.Source,
 		}
 
