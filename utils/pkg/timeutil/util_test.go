@@ -38,16 +38,6 @@ func TestParseSchedule(t *testing.T) {
 	assert.Equal(t, nextTime.Format(time.DateTime), fmt.Sprintf("%d-10-23 01:00:00", now.Year()+1))
 }
 
-func TestCvtTimeOnlyToCronStandard(t *testing.T) {
-	timeStr := "03:42:00"
-	scheduleStr, _, err := CvtTimeOnlyToCron(timeStr)
-	assert.NilError(t, err)
-
-	timeStr2, err := CvtCronToTime(scheduleStr)
-	assert.NilError(t, err)
-	assert.Equal(t, timeStr, timeStr2)
-}
-
 func TestCvtTime3339ToCronStandard(t *testing.T) {
 	timeStr := "2025-09-30T16:04:00.000Z"
 	scheduleStr, _, err := CvtTime3339ToCron(timeStr)

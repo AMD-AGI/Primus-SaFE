@@ -8,7 +8,6 @@ package timeutil
 import (
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -60,15 +59,6 @@ func CvtTimeOnlyToCron(timeOnly string) (string, time.Time, error) {
 	}
 	scheduleStr := fmt.Sprintf("%d %d * * *", t.Minute(), t.Hour())
 	return scheduleStr, t, nil
-}
-
-// CvtCronToTime converts a cron schedule string (minute hour * * *) to time format (HH:MM:SS)
-func CvtCronToTime(scheduleStr string) (string, error) {
-	values := strings.Split(scheduleStr, " ")
-	if len(values) != 5 {
-		return "", fmt.Errorf("invalid cron schedule")
-	}
-	return fmt.Sprintf("%02s:%02s:00", values[1], values[0]), nil
 }
 
 // CvtStrToRFC3339Milli converts a RFC3339 millisecond format string to UTC time.Time

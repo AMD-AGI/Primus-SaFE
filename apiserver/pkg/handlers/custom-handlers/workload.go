@@ -666,13 +666,9 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 		workload.Spec.Workspace = req.WorkspaceId
 	}
 	if req.SchedulerTime != "" {
-		scheduleStr, scheduleTime, err := timeutil.CvtTime3339ToCron(req.SchedulerTime)
+		scheduleStr, err := cvtSchedulerTimeToCron(req.SchedulerTime)
 		if err != nil {
 			return nil, err
-		}
-		if !isValidSchedulerTime(scheduleTime) {
-			return nil, commonerrors.NewBadRequest(
-				"Invalid schedulerTime of request, it must be within one year in the future.")
 		}
 		workload.Spec.CronSchedules = []v1.CronSchedule{{Schedule: scheduleStr}}
 	}
@@ -933,6 +929,13 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	if req.MaxRetry != nil {
 		adminWorkload.Spec.MaxRetry = *req.MaxRetry
 	}
+	if req.SchedulerTime != nil {
+		scheduleStr, err := cvtSchedulerTimeToCron(*req.SchedulerTime)
+		if err != nil {
+			return err
+		}
+		adminWorkload.Spec.CronSchedules = []v1.CronSchedule{{Schedule: scheduleStr}}
+	}
 	return nil
 }
 
@@ -1039,7 +1042,10 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 		json.Unmarshal([]byte(str), &result.Dependencies)
 	}
 	if str := dbutils.ParseNullString(w.CronSchedules); str != "" {
-		json.Unmarshal([]byte(str), &result.CronSchedules)
+		var cronSchedules []v1.CronSchedule
+		if json.Unmarshal([]byte(str), &cronSchedules) == nil {
+
+		}
 	}
 	return result
 }
@@ -1338,6 +1344,23 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 	}, nil
 }
 
+// cvtSchedulerTimeToCron converts a time string to cron schedule format and validates the time range.
+// Returns the cron schedule string on success, or an error if conversion fails or time is invalid.
+func cvtSchedulerTimeToCron(inputScheduler string) (string, error) {
+	scheduleStr, scheduleTime, err := timeutil.CvtTime3339ToCron(inputScheduler)
+	if err != nil {
+		return "", err
+	}
+	if !isValidSchedulerTime(scheduleTime) {
+		return "", commonerrors.NewBadRequest(
+			"Invalid schedulerTime of request, it must be within one year in the future.")
+	}
+	return scheduleStr, nil
+}
+
+// isValidSchedulerTime validates if the target time is within the acceptable scheduling range.
+// The valid range is: (now, now + one year - one minute]
+// Returns false if the target time is in the past or beyond the one-year limit.
 func isValidSchedulerTime(target time.Time) bool {
 	now := time.Now()
 	if !target.After(now) {

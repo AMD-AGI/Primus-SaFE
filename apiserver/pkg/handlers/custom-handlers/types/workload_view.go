@@ -159,8 +159,8 @@ type GetWorkloadResponse struct {
 	// before this Workload can start execution. If any dependency fails, this Workload
 	// will not be scheduled and is considered failed.
 	Dependencies []string `json:"dependencies,omitempty"`
-	// Scheduled workload configuration
-	CronSchedules []v1.CronSchedule `json:"cronSchedules,omitempty"`
+	// Scheduled execution time, such as "2025-09-30T16:04:00.000Z"
+	SchedulerTime string `json:"schedulerTime,omitempty"`
 }
 
 type WorkloadPodWrapper struct {
@@ -196,6 +196,8 @@ type PatchWorkloadRequest struct {
 	Timeout *int `json:"timeout,omitempty"`
 	// Failure retry limit
 	MaxRetry *int `json:"maxRetry,omitempty"`
+	// Scheduled execution time, such as "2025-09-30T16:04:00.000Z"
+	SchedulerTime *string `json:"schedulerTime,omitempty"`
 }
 
 type GetPodLogRequest struct {
