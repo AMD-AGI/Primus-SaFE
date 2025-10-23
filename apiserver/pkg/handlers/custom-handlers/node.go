@@ -13,6 +13,9 @@ import (
 	"strings"
 	"time"
 
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
+	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	corev1 "k8s.io/api/core/v1"
@@ -80,6 +83,11 @@ func (h *Handler) DeleteNode(c *gin.Context) {
 // Authorizes access and fetches logs from the most recent management pod for the node.
 func (h *Handler) GetNodePodLog(c *gin.Context) {
 	handle(c, h.getNodePodLog)
+}
+
+// ListNodeRebootLog retrieves reboot logs from the node's management operations.
+func (h *Handler) ListNodeRebootLog(c *gin.Context) {
+	handle(c, h.listNodeRebootLog)
 }
 
 // createNode implements the node creation logic.
@@ -426,6 +434,62 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 		PodId:     podName,
 		Logs:      strings.Split(string(podLogs), "\n"),
 	}, nil
+}
+
+// listNodeRebootLog implements the logic for retrieving node reboot logs.
+func (h *Handler) listNodeRebootLog(c *gin.Context) (interface{}, error) {
+	node, err := h.getAdminNode(c.Request.Context(), c.GetString(common.Name))
+	if err != nil {
+		return nil, err
+	}
+	if err = h.auth.Authorize(authority.Input{
+		Context:  c.Request.Context(),
+		Resource: node,
+		Verb:     v1.GetVerb,
+		UserId:   c.GetString(common.UserId),
+	}); err != nil {
+		if commonerrors.IsForbidden(err) {
+			return nil, commonerrors.NewForbidden("The user is not allowed to get node's log")
+		}
+		return nil, err
+	}
+
+	req := &types.ListNodeRebootLogRequest{}
+	if err := c.ShouldBindWith(req, binding.Query); err != nil {
+		klog.Errorf("failed to parse query err: %v", err)
+		return nil, err
+	}
+
+	dbTags := dbclient.GetOpsJobFieldTags()
+	createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
+	dbSql := sqrl.And{
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
+		sqrl.GtOrEq{createTime: req.SinceTime},
+		sqrl.LtOrEq{createTime: req.UntilTime},
+		sqrl.Expr("outputs::jsonb @> ?", fmt.Sprintf(`[{"value": "%s"}]`, node.Name)),
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "type"): v1.OpsJobRebootType},
+	}
+
+	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, req.SortBy, req.Order, req.Limit, req.Offset)
+	if err != nil {
+		return nil, err
+	}
+	count, err := h.dbClient.CountJobs(c.Request.Context(), dbSql)
+	if err != nil {
+		return nil, err
+	}
+	result := &types.ListNodeRebootLogResponse{
+		TotalCount: count,
+	}
+	for _, job := range jobs {
+		result.Items = append(result.Items, types.NodeRebootLogResponseItem{
+			UserId:     dbutils.ParseNullString(job.UserId),
+			UserName:   dbutils.ParseNullString(job.UserName),
+			CreateTime: dbutils.ParseNullTimeToString(job.CreateTime),
+		})
+	}
+
+	return result, nil
 }
 
 // getAdminNode: retrieves a node resource by name from the k8s cluster.

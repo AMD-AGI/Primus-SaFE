@@ -130,8 +130,8 @@ func (r *RebootJobReconciler) setJobOutput(ctx context.Context, jobId, nodeId st
 		return err
 	}
 	job.Status.Outputs = append(job.Status.Outputs, v1.Parameter{
-		Name:  nodeId,
-		Value: "",
+		Name:  v1.ParameterNode,
+		Value: nodeId,
 	})
 
 	return r.Status().Update(ctx, job)
