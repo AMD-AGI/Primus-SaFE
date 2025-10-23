@@ -272,6 +272,9 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 	node := nodes[0]
 
 	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
+	if err != nil {
+		return err
+	}
 	defer sshClient.Close()
 
 	session, err := sshClient.NewSession()
@@ -433,7 +436,7 @@ func (r *ClusterReconciler) clearPods(ctx context.Context, cluster *v1.Cluster) 
 		return err
 	}
 	for _, pod := range list.Items {
-		klog.Infof("pod: %s, phase: %s", pod.Name, pod.Status.Phase)
+		// klog.Infof("pod: %s, phase: %s", pod.Name, pod.Status.Phase)
 		if pod.Status.Phase != corev1.PodSucceeded {
 			continue
 		}

@@ -8,6 +8,7 @@ package v1
 
 import (
 	amdv1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // MachineStatusApplyConfiguration represents a declarative configuration of the MachineStatus type for use
@@ -17,6 +18,7 @@ type MachineStatusApplyConfiguration struct {
 	Phase         *amdv1.NodePhase                  `json:"phase,omitempty"`
 	PrivateIP     *string                           `json:"privateIP,omitempty"`
 	CommandStatus []CommandStatusApplyConfiguration `json:"commandStatus,omitempty"`
+	UpdateTime    *metav1.Time                      `json:"updateTime,omitempty"`
 }
 
 // MachineStatusApplyConfiguration constructs a declarative configuration of the MachineStatus type for use with
@@ -59,5 +61,13 @@ func (b *MachineStatusApplyConfiguration) WithCommandStatus(values ...*CommandSt
 		}
 		b.CommandStatus = append(b.CommandStatus, *values[i])
 	}
+	return b
+}
+
+// WithUpdateTime sets the UpdateTime field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the UpdateTime field is set to the value of the last call.
+func (b *MachineStatusApplyConfiguration) WithUpdateTime(value metav1.Time) *MachineStatusApplyConfiguration {
+	b.UpdateTime = &value
 	return b
 }

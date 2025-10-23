@@ -212,7 +212,7 @@ func NewUserNotRegistered(userId string) *apierrors.StatusError {
 		Status:  metav1.StatusFailure,
 		Code:    http.StatusUnauthorized,
 		Reason:  UserNotRegistered,
-		Message: fmt.Sprintf("the user(%s) is not registered", userId),
+		Message: fmt.Sprintf("the user(%s) is not registered or invalid userId", userId),
 	}}
 }
 

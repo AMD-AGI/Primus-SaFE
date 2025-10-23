@@ -333,8 +333,8 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 
 	maxRetry := 3
 	if err = backoff.ConflictRetry(func() error {
-		isShouldUpdate, innerErr := h.updateNode(ctx, node, req)
-		if innerErr != nil || !isShouldUpdate {
+		shouldUpdate, innerErr := h.updateNode(ctx, node, req)
+		if innerErr != nil || !shouldUpdate {
 			return innerErr
 		}
 		innerErr = h.Update(ctx, node)
@@ -613,10 +613,10 @@ func parseListNodeQuery(c *gin.Context) (*types.ListNodeRequest, error) {
 // updateNode: applies updates to a node based on the patch request.
 // Handles label updates, taint modifications, flavor/template changes, and port updates.
 func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest) (bool, error) {
-	isShouldUpdate := false
+	shouldUpdate := false
 	nodesLabelAction := generateNodeLabelAction(node, req)
 	if len(nodesLabelAction) > 0 {
-		isShouldUpdate = true
+		shouldUpdate = true
 	}
 	if req.Taints != nil {
 		for i, t := range *req.Taints {
@@ -627,7 +627,7 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 		}
 		if !commonfaults.IsTaintsEqualIgnoreOrder(*req.Taints, node.Spec.Taints) {
 			node.Spec.Taints = *req.Taints
-			isShouldUpdate = true
+			shouldUpdate = true
 		}
 	}
 	if req.FlavorId != nil && *req.FlavorId != "" &&
@@ -638,7 +638,7 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 		}
 		node.Spec.NodeFlavor = commonutils.GenObjectReference(nf.TypeMeta, nf.ObjectMeta)
 		nodesLabelAction[v1.NodeFlavorIdLabel] = v1.NodeActionAdd
-		isShouldUpdate = true
+		shouldUpdate = true
 	}
 	if req.TemplateId != nil && *req.TemplateId != "" &&
 		(node.Spec.NodeTemplate == nil || *req.TemplateId != node.Spec.NodeTemplate.Name) {
@@ -647,16 +647,20 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 			return false, err
 		}
 		node.Spec.NodeTemplate = commonutils.GenObjectReference(nt.TypeMeta, nt.ObjectMeta)
-		isShouldUpdate = true
+		shouldUpdate = true
 	}
 	if req.Port != nil && *req.Port > 0 && *req.Port != node.GetSpecPort() {
 		node.Spec.Port = pointer.Int32(*req.Port)
-		isShouldUpdate = true
+		shouldUpdate = true
+	}
+	if req.PrivateIP != nil && *req.PrivateIP != node.Spec.PrivateIP {
+		node.Spec.PrivateIP = *req.PrivateIP
+		shouldUpdate = true
 	}
 	if len(nodesLabelAction) > 0 {
 		v1.SetAnnotation(node, v1.NodeLabelAction, string(jsonutils.MarshalSilently(nodesLabelAction)))
 	}
-	return isShouldUpdate, nil
+	return shouldUpdate, nil
 }
 
 // deleteRelatedFaults: removes fault resources associated with removed taints.
