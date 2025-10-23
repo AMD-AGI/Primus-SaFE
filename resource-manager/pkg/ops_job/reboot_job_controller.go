@@ -93,7 +93,7 @@ func (r *RebootJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlr
 		}
 	}
 
-	return ctrlruntime.Result{}, nil
+	return ctrlruntime.Result{RequeueAfter: time.Minute}, nil
 }
 
 // execReboot executes the reboot command on the specified node.
@@ -152,9 +152,9 @@ func (r *RebootJobReconciler) executeSSHCommand(sshClient *ssh.Client, command s
 
 // getTheUnprocessedNodes returns the nodes that have not been processed by the job.
 func (r *RebootJobReconciler) getTheUnprocessedNodes(job *v1.OpsJob) ([]string, v1.OpsJobPhase) {
-	outputMap := make(map[string]string)
+	outputMap := make(map[string]struct{})
 	for _, output := range job.Status.Outputs {
-		outputMap[output.Name] = output.Value
+		outputMap[output.Value] = struct{}{}
 	}
 	var (
 		nodes []string
