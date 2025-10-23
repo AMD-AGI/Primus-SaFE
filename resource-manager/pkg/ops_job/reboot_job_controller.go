@@ -110,11 +110,8 @@ func (r *RebootJobReconciler) execReboot(ctx context.Context, jobId, nodeId stri
 	defer sshClient.Close()
 
 	cmd := "sudo reboot"
-	msg, err := r.executeSSHCommand(sshClient, cmd)
-	if err != nil {
-		return fmt.Errorf("failed to execute command '%s': %v", cmd, err)
-	}
-	klog.Infof("machine node %s reboot msg: %v", node.Name, msg)
+	_, _ = r.executeSSHCommand(sshClient, cmd)
+	klog.Infof("machine node %s reboot", node.Name)
 
 	if err = r.setJobOutput(ctx, jobId, nodeId); err != nil {
 		return err
