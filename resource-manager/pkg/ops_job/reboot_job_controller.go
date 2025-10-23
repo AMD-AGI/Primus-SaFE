@@ -63,7 +63,7 @@ func (r *RebootJobReconciler) observe(ctx context.Context, job *v1.OpsJob) (bool
 	case v1.OpsJobRunning:
 		return false, nil
 	case v1.OpsJobFailed, v1.OpsJobSucceeded:
-		if err := r.setJobCompleted(ctx, job, phase, "", nil); err != nil {
+		if err := r.setJobCompleted(ctx, job, phase, "", job.Status.Outputs); err != nil {
 			return false, err
 		}
 		return true, nil
