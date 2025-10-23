@@ -42,8 +42,8 @@ func CvtStrUnixToTime(strTime string) time.Time {
 // CvtTime3339ToCron converts a time string in RFC3339 short format ("2006-01-02T15:04:05.000Z")
 // to cron standard schedule format ("minute hour day month *"), ignoring the date year
 // Returns an error if the input time string cannot be parsed.
-func CvtTime3339ToCron(timeOnly string) (string, time.Time, error) {
-	t, err := time.Parse(TimeRFC3339Milli, timeOnly)
+func CvtTime3339ToCron(timeStr string) (string, time.Time, error) {
+	t, err := time.Parse(TimeRFC3339Milli, timeStr)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -52,8 +52,8 @@ func CvtTime3339ToCron(timeOnly string) (string, time.Time, error) {
 }
 
 // CvtTimeOnlyToCron converts a time-only string("15:04:05") to cron schedule format (minute hour * * *)
-func CvtTimeOnlyToCron(timeOnly string) (string, time.Time, error) {
-	t, err := time.Parse(time.TimeOnly, timeOnly)
+func CvtTimeOnlyToCron(timeStr string) (string, time.Time, error) {
+	t, err := time.Parse(time.TimeOnly, timeStr)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -70,7 +70,7 @@ func CvtStrToRFC3339Milli(timeStr string) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	return t.UTC(), nil
+	return t, nil
 }
 
 // ParseCronString parses a cron schedule string

@@ -500,16 +500,22 @@ func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v
 	var result ctrlruntime.Result
 	originalNode := client.MergeFrom(adminNode.DeepCopy())
 	if adminNode.GetSpecCluster() != "" {
+		if !adminNode.IsMachineReady() {
+			return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
+		}
 		if adminNode.IsManaged() && (k8sNode != nil && v1.GetClusterId(k8sNode) != "") {
 			return ctrlruntime.Result{}, nil
 		}
-		if !adminNode.IsMachineReady() || r.syncClusterStatus(ctx, adminNode) != nil {
+		if r.syncClusterStatus(ctx, adminNode) != nil {
 			return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
 		}
 		result, err = r.manage(ctx, adminNode, k8sNode)
-	} else if adminNode.Status.ClusterStatus.Cluster != nil || (k8sNode != nil && v1.GetClusterId(k8sNode) != "") {
+	} else if adminNode.Status.ClusterStatus.Cluster != nil || k8sNode != nil {
 		result, err = r.unmanage(ctx, adminNode, k8sNode)
 	} else {
+		if !adminNode.IsMachineReady() {
+			return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
+		}
 		return ctrlruntime.Result{}, nil
 	}
 	if err != nil {
@@ -652,7 +658,7 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		if err = r.installAddons(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		if err = r.deleteScaleUpPods(ctx, adminNode.GetSpecCluster(), adminNode.Name); err != nil {
+		if err = r.deletePods(ctx, adminNode.GetSpecCluster(), adminNode.Name, string(v1.ClusterScaleUpAction)); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
@@ -789,13 +795,8 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 	}
 
 	if k8sNode == nil {
-		if pods, err := r.listPod(ctx, clusterId, adminNode.Name, string(v1.ClusterScaleDownAction)); err != nil {
+		if err := r.deletePods(ctx, clusterId, adminNode.Name, string(v1.ClusterScaleDownAction)); err != nil {
 			return ctrlruntime.Result{}, err
-		} else if len(pods) > 0 {
-			if err = r.Delete(ctx, &pods[0]); err != nil {
-				return ctrlruntime.Result{}, err
-			}
-			klog.Infof("delete pod(%s) for scaleDown", pods[0].Name)
 		}
 		adminNode.Status = v1.NodeStatus{
 			ClusterStatus: v1.NodeClusterStatus{
@@ -810,9 +811,17 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 		// The node will be rebooted. Need to retry getting the node status later
 		return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil
 	}
+	// the node is deleting. try later
+	if !k8sNode.GetDeletionTimestamp().IsZero() {
+		return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
+	}
 
+	// An empty clusterId is an internal error and cannot be resolved by retrying, so return directly.
+	if clusterId == "" {
+		return ctrlruntime.Result{}, nil
+	}
 	// delete all scaleup pod when doing scaledown
-	if err := r.deleteScaleUpPods(ctx, clusterId, adminNode.Name); err != nil {
+	if err := r.deletePods(ctx, clusterId, adminNode.Name, string(v1.ClusterScaleUpAction)); err != nil {
 		return ctrlruntime.Result{}, err
 	}
 
@@ -999,9 +1008,9 @@ func (r *NodeReconciler) listPod(ctx context.Context, clusterName, nodeName, act
 	return list.Items, nil
 }
 
-// deleteScaleUpPods: deletes all scale-up Pods for the specified node
-func (r *NodeReconciler) deleteScaleUpPods(ctx context.Context, clusterId, nodeId string) error {
-	pods, err := r.listPod(ctx, clusterId, nodeId, string(v1.ClusterScaleUpAction))
+// deletePods: deletes all Pods for the specified node and action
+func (r *NodeReconciler) deletePods(ctx context.Context, clusterId, nodeId, action string) error {
+	pods, err := r.listPod(ctx, clusterId, nodeId, action)
 	if err != nil {
 		return err
 	}
@@ -1009,7 +1018,7 @@ func (r *NodeReconciler) deleteScaleUpPods(ctx context.Context, clusterId, nodeI
 		if err = r.Delete(ctx, &pod); client.IgnoreNotFound(err) != nil {
 			return err
 		}
-		klog.Infof("delete pod(%s) for scaleUp", pod.Name)
+		klog.Infof("delete pod(%s)", pod.Name)
 	}
 	return nil
 }
@@ -1039,7 +1048,7 @@ func shouldSyncMachineStatus(adminNode *v1.Node) bool {
 	if !adminNode.IsMachineReady() {
 		return true
 	}
-	if adminNode.Status.MachineStatus.UpdateTime != nil &&
+	if adminNode.Status.MachineStatus.UpdateTime == nil ||
 		time.Since(adminNode.Status.MachineStatus.UpdateTime.Time) >= machineCheckInterval {
 		return true
 	}

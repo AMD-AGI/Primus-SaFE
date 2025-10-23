@@ -15,6 +15,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 func genMockWorkload(clusterId, workspaceId string) *v1.Workload {
@@ -60,23 +61,24 @@ func genMockWorkload(clusterId, workspaceId string) *v1.Workload {
 	}
 }
 
-func TestIsValidSchedulerTime(t *testing.T) {
+func TestParseScheduleTime(t *testing.T) {
+	nowTime := time.Now().UTC()
 	tests := []struct {
 		name   string
 		t      time.Time
 		result bool
 	}{
-		{"Past time", time.Now().Add(-time.Hour), false},
-		{"Future 1 minute", time.Now().Add(time.Minute), true},
-		{"Future 6 months", time.Now().AddDate(0, 6, 0), true},
-		{"Almost 1 year but less 1 minute", time.Now().AddDate(1, 0, 0).Add(-time.Minute), true},
-		{"Exactly 1 year", time.Now().AddDate(1, 0, 0), false},
-		{"Over 1 year", time.Now().AddDate(1, 0, 0).Add(time.Minute), false},
-		{"now", time.Now(), false},
+		{"Past time", nowTime.Add(-time.Hour), false},
+		{"Future 1 minute", nowTime.Add(time.Minute), true},
+		{"Future 6 months", nowTime.AddDate(0, 6, 0), true},
+		{"Almost 1 year but less 1 minute", nowTime.AddDate(1, 0, 0).Add(-time.Minute), true},
+		{"Exactly 1 year", nowTime.AddDate(1, 0, 0), false},
+		{"Over 1 year", nowTime.AddDate(1, 0, 0).Add(time.Minute), false},
+		{"now", nowTime, false},
 	}
 
 	for _, tt := range tests {
-		result := isValidSchedulerTime(tt.t)
-		assert.Equal(t, tt.result, result)
+		err := parseScheduleTime(tt.t.Format(timeutil.TimeRFC3339Milli))
+		assert.Equal(t, tt.result, err == nil)
 	}
 }

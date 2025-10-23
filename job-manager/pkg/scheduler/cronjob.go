@@ -61,11 +61,16 @@ func (m *CronJobManager) addOrReplace(workload *v1.Workload) {
 	cronJobs := make([]CronJob, 0, len(workload.Spec.CronSchedules))
 	// Create cron jobs for each schedule in the workload specification
 	for i, cs := range workload.Spec.CronSchedules {
+		// Parse the cron schedule string into a cron.Schedule
+		schedule, err := timeutil.ParseCronString(cs.Schedule)
+		if err != nil {
+			klog.ErrorS(err, "failed to parse cron schedule",
+				"workload", workload.Name, "schedule", cs.Schedule)
+			continue
+		}
 		job := cron.New(cron.WithChain(
 			cron.SkipIfStillRunning(cron.DiscardLogger),
 		))
-		// Parse the cron schedule string into a cron.Schedule
-		schedule, _ := timeutil.ParseCronString(cs.Schedule)
 		cj := CronJob{
 			Client:     m.Client,
 			job:        job,

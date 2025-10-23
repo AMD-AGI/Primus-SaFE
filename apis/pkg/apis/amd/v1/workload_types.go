@@ -94,7 +94,7 @@ type Service struct {
 }
 
 type CronSchedule struct {
-	// Cron expression for scheduled workloads, such as "0 1 23 10 *"
+	// Scheduled execution time, such as "2025-09-30T16:04:00.000Z"
 	Schedule string `json:"schedule"`
 }
 
@@ -309,6 +309,13 @@ func (w *Workload) GetTimeout() int {
 		return 0
 	}
 	return *w.Spec.Timeout
+}
+
+func (w *Workload) GetTTLSecond() int {
+	if w.Spec.TTLSecondsAfterFinished == nil {
+		return 0
+	}
+	return *w.Spec.TTLSecondsAfterFinished
 }
 
 func (w *Workload) GetLastCondition() *metav1.Condition {

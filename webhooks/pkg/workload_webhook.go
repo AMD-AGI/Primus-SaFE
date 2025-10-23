@@ -38,7 +38,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
@@ -363,9 +362,6 @@ func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 }
 
 func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
-	if commonworkload.IsAuthoring(workload) {
-		return
-	}
 	if workload.Spec.TTLSecondsAfterFinished == nil {
 		workload.Spec.TTLSecondsAfterFinished = ptr.To(commonconfig.GetWorkloadTTLSecond())
 	}
@@ -520,9 +516,6 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 		return err
 	}
 	if err := v.validateDisplayName(workload); err != nil {
-		return err
-	}
-	if err := v.validateCronSchedules(workload); err != nil {
 		return err
 	}
 	return nil
@@ -796,18 +789,6 @@ func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Work
 	if !hasFound {
 		return commonerrors.NewForbidden(
 			fmt.Sprintf("The workspace only supports %v and does not suuport %s", workspace.Spec.Scopes, scope))
-	}
-	return nil
-}
-
-func (v *WorkloadValidator) validateCronSchedules(workload *v1.Workload) error {
-	if len(workload.Spec.CronSchedules) == 0 {
-		return nil
-	}
-	for _, s := range workload.Spec.CronSchedules {
-		if _, err := timeutil.ParseCronString(s.Schedule); err != nil {
-			return err
-		}
 	}
 	return nil
 }
