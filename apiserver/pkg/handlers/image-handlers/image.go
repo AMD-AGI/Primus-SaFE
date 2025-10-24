@@ -439,6 +439,9 @@ func generateImportImageJobName(uid string) string {
 func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageServiceRequest) (*ImportImageMetaInfo, error) {
 	var imageInfo = &ImportImageMetaInfo{
 		SourceImageName: req.Source,
+		OsArch:          fmt.Sprintf(OSArchFormat, DefaultOS, DefaultArch),
+		Os:              DefaultOS,
+		Arch:            DefaultArch,
 	}
 	imageInfo.Status = common.ImageImportingStatus
 	if req.SourceRegistry != "" {
@@ -455,6 +458,10 @@ func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageSer
 	imageInfo.DestImageName, err = generateTargetImageName(defaultPushRegistry.URL, imageInfo.SourceImageName)
 	if err != nil {
 		return nil, err
+	}
+
+	if !h.checkImageExistsUsingLibrary(c, req.Source, imageInfo) {
+		return nil, commonerrors.NewBadRequest("source image not exist")
 	}
 
 	return imageInfo, nil
