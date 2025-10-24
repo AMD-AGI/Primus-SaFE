@@ -12,7 +12,7 @@ net:
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
   rdma_name: "rdma/hca"
 apiserver:
-  image: "apiserver:202510232302"
+  image: "apiserver:202510241410"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
@@ -40,8 +40,6 @@ authoring:
   image: "sshd:202510131835"
 preprocess:
   image: "preprocess:202510011436"
-nginx:
-  image: "harbor.tw325.primus-safe.amd.com/sync/nginx:latest"
 db:
   enable: true
 opensearch:
