@@ -6,6 +6,7 @@ global:
   domain: "safe-primus.ai"
   sub_domain: "tw325"
   image_pull_secret: ""
+  image_repository: "docker.io"
   storage_class: "local-path"
 net:
   nccl_socket_ifname: "eno0"

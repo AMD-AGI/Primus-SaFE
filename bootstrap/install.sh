@@ -66,12 +66,14 @@ default_rdma_nic="rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
 default_cluster_scale="small"
 default_storage_class="local-path"
 default_ssh_server_ip=""
+default_proxy_image_registry="docker.io"
 
 ethernet_nic=$(get_input_with_default "Enter ethernet nic($default_ethernet_nic): " "$default_ethernet_nic")
 rdma_nic=$(get_input_with_default "Enter rdma nic($default_rdma_nic): " "$default_rdma_nic")
 cluster_scale=$(get_input_with_default "Enter cluster scale, choose 'small/medium/large' ($default_cluster_scale): " "$default_cluster_scale")
 storage_class=$(get_input_with_default "Enter storage class($default_storage_class): " "$default_storage_class")
-ssh_server_ip=$(get_input_with_default "Enter ssh server ip($default_ethernet_nic): " "$default_ethernet_nic")
+ssh_server_ip=$(get_input_with_default "Enter ssh server ip($default_ssh_server_ip): " "$default_ssh_server_ip")
+proxy_image_registry=$(get_input_with_default "Enter proxy image registry($default_proxy_image_registry): " "$default_proxy_image_registry")
 sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
 support_lens=$(get_input_with_default "Support Primus-lens ? (y/n): " "n")
 support_s3=$(get_input_with_default "Support Primus-S3 ? (y/n): " "n")
@@ -101,6 +103,7 @@ echo "✅ Cluster Scale: \"$cluster_scale\""
 echo "✅ Cluster Name: \"$sub_domain\""
 echo "✅ Storage Class: \"$storage_class\""
 echo "✅ SSH Server IP: \"$ssh_server_ip\""
+echo "✅ Proxy Image Registry: \"$proxy_image_registry\""
 echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
@@ -267,6 +270,7 @@ rdma_nic=$rdma_nic
 cluster_scale=$cluster_scale
 storage_class=$storage_class
 ssh_server_ip=$ssh_server_ip
+proxy_image_registry=$proxy_image_registry
 sub_domain=$sub_domain
 lens_enable=$lens_enable
 s3_enable=$s3_enable

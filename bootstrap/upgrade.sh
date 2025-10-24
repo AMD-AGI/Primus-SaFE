@@ -48,6 +48,7 @@ echo "✅ Cluster Scale: \"$cluster_scale\""
 echo "✅ Cluster Name: \"$sub_domain\""
 echo "✅ Storage Class: \"$storage_class\""
 echo "✅ SSH Server IP: \"$ssh_server_ip\""
+echo "✅ Proxy Image Registry: \"$proxy_image_registry\""
 echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
@@ -92,6 +93,7 @@ sed -i "s/^.*storage_class:.*/  storage_class: \"$storage_class\"/" "$values_yam
 if [ -n "$ssh_server_ip" ]; then
   sed -i '/ssh:/,/^[a-z]/ s/server_ip: .*/server_ip: '"$ssh_server_ip"'/' "$values_yaml"
 fi
+sed -i "s/image_repository: \".*\"/image_repository: \"$proxy_image_registry\"/" "$values_yaml"
 sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
 sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
