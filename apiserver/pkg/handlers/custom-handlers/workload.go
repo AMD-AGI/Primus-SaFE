@@ -908,6 +908,11 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
 	}
+	if startTime := dbutils.ParseNullTime(w.StartTime); !startTime.IsZero() {
+		result.RunTime = timeutil.FormatDuration(int64(time.Since(startTime).Seconds()))
+	} else {
+		result.RunTime = "0s"
+	}
 	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
 	json.Unmarshal([]byte(w.Resource), &result.Resource)
 	if w.Timeout > 0 {

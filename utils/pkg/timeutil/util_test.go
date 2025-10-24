@@ -55,3 +55,18 @@ func TestCvtStrToRFC3339Milli(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, time1.Unix(), time2.Unix())
 }
+
+func TestFormatDuration(t *testing.T) {
+	sec := 7500
+	str := FormatDuration(int64(sec))
+	assert.Equal(t, str, "2h5m")
+	sec = 61
+	str = FormatDuration(int64(sec))
+	assert.Equal(t, str, "1m1s")
+	sec = 3661
+	str = FormatDuration(int64(sec))
+	assert.Equal(t, str, "1h1m1s")
+	sec = 0
+	str = FormatDuration(int64(sec))
+	assert.Equal(t, str, "0s")
+}

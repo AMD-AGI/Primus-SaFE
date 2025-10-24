@@ -104,6 +104,8 @@ type WorkloadResponseItem struct {
 	EndTime string `json:"endTime"`
 	// The workload deletion time
 	DeletionTime string `json:"deletionTime"`
+	// The workload run time, Calculated from the start time. such as 1h2m3s or 1h15s
+	RunTime string `json:"runTime"`
 	// Seconds remaining before workload timeout. Only applicable if a timeout is set.
 	SecondsUntilTimeout int64 `json:"secondsUntilTimeout"`
 	// Show the queue position of the workload if it is pending.

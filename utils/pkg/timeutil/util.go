@@ -8,6 +8,7 @@ package timeutil
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -83,4 +84,35 @@ func ParseCronStandard(cronStandardSpec string) (cron.Schedule, error) {
 		return nil, err
 	}
 	return schedule, nil
+}
+
+// FormatDuration converts a duration in seconds to a human-readable string format.
+// The format includes hours, minutes, and seconds components, separated by spaces.
+// For example: "2h30m45s" or "1h15s"
+// If the input is negative, it returns an empty string.
+// If the input is zero, it returns "0s".
+func FormatDuration(seconds int64) string {
+	if seconds < 0 {
+		return ""
+	}
+
+	duration := time.Duration(seconds) * time.Second
+	hours := int64(duration.Hours())
+	minutes := int64(duration.Minutes()) % 60
+	secs := int64(duration.Seconds()) % 60
+
+	var parts []string
+	if hours > 0 {
+		parts = append(parts, fmt.Sprintf("%dh", hours))
+	}
+	if minutes > 0 {
+		parts = append(parts, fmt.Sprintf("%dm", minutes))
+	}
+	if secs > 0 || len(parts) == 0 {
+		parts = append(parts, fmt.Sprintf("%ds", secs))
+	}
+	if len(parts) == 0 {
+		return "0s"
+	}
+	return strings.Join(parts, "")
 }

@@ -74,7 +74,7 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: {{ .Values.nginx.image }}
+          image: docker.io/library/nginx:latest
           ports:
             - containerPort: 80
               hostPort: 80
