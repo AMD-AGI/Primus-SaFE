@@ -65,8 +65,8 @@ data:
                       value: "23"
                     - name: NCCL_IB_RETRY_CNT
                       value: "11"
-                   - name: NCCL_IB_GID_INDEX
-                     value: "3"
+                    - name: NCCL_IB_GID_INDEX
+                      value: "3"
                     - name: MAIN_CONTAINER_NAME
                       value: "pytorch"
                     - name: POD_NAME

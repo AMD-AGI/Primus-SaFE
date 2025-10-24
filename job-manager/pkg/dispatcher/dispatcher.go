@@ -227,6 +227,7 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 
 	result, err := r.getWorkloadTemplate(ctx, adminWorkload)
 	if err != nil {
+		klog.Error(err.Error())
 		return nil, err
 	}
 	if err = updateUnstructuredObject(result, adminWorkload, rt); err != nil {
@@ -261,7 +262,8 @@ func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWor
 	}
 	template, err := jsonutils.ParseYamlToJson(templateStr)
 	if err != nil {
-		return nil, commonerrors.NewInternalError(err.Error())
+		return nil, commonerrors.NewInternalError(
+			fmt.Sprintf("failed to parse template: %v", err.Error()))
 	}
 	return template, nil
 }
@@ -431,19 +433,19 @@ func updateUnstructuredObject(obj *unstructured.Unstructured, adminWorkload *v1.
 			continue
 		}
 		if err := updateHostNetwork(adminWorkload, obj, t); err != nil {
-			return err
+			return fmt.Errorf("failed to update host network: %v", err.Error())
 		}
 		if err := updateReplica(adminWorkload, obj, t, replica); err != nil {
-			return err
+			return fmt.Errorf("failed to update replica: %v", err.Error())
 		}
 		if err := updateMainContainer(adminWorkload, obj, t); err != nil {
-			return err
+			return fmt.Errorf("failed to update main container: %v", err.Error())
 		}
 		if err := updateSharedMemory(adminWorkload, obj, t); err != nil {
-			return err
+			return fmt.Errorf("failed to update shared memory: %v", err.Error())
 		}
 		if err := updatePriorityClass(adminWorkload, obj, t); err != nil {
-			return err
+			return fmt.Errorf("failed to update priority: %v", err.Error())
 		}
 	}
 	return nil

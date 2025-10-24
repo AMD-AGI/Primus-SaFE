@@ -37,49 +37,49 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 
 	path := append(templatePath, "metadata", "labels")
 	if err = modifyLabels(obj, adminWorkload, path); err != nil {
-		return err
+		return fmt.Errorf("failed to modify labels: %v", err.Error())
 	}
 	path = append(templatePath, "spec",
 		"affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	if err = modifyNodeSelectorTerms(obj, adminWorkload, path); err != nil {
-		return err
+		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "containers")
 	if err = modifyMainContainer(obj, adminWorkload, workspace, path); err != nil {
-		return err
+		return fmt.Errorf("failed to modify main container: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "volumes")
 	if err = modifyVolumes(obj, adminWorkload, workspace, path); err != nil {
-		return err
+		return fmt.Errorf("failed to modify volumes: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "imagePullSecrets")
 	if err = modifyImageSecrets(obj, workspace, path); err != nil {
-		return err
+		return fmt.Errorf("failed to modify image secrets: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "priorityClassName")
 	if err = modifyPriorityClass(obj, adminWorkload, path); err != nil {
-		return err
+		return fmt.Errorf("failed to modify priority: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "hostNetwork")
 	if err = modifyHostNetWork(obj, adminWorkload, path); err != nil {
-		return err
+		return fmt.Errorf("failed to modify host network: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "tolerations")
 	if err = modifyTolerations(obj, adminWorkload, path); err != nil {
-		return err
+		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
 	path = []string{"spec", "strategy"}
 	if err = modifyStrategy(obj, adminWorkload, path); err != nil {
-		return err
+		return fmt.Errorf("failed to modify strategy: %v", err.Error())
 	}
 	if adminWorkload.Spec.Service != nil {
 		path = []string{"spec", "selector"}
 		if err = modifySelector(obj, adminWorkload, path); err != nil {
-			return err
+			return fmt.Errorf("failed to modify selector: %v", err.Error())
 		}
 	}
 	if err = modifyByOpsJob(obj, adminWorkload, templatePath); err != nil {
-		return err
+		return fmt.Errorf("failed to modify by opsjob: %v", err.Error())
 	}
 	return nil
 }
