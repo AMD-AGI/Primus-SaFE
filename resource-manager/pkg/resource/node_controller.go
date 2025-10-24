@@ -253,7 +253,7 @@ func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node, k
 			return false, nil
 		}
 	} else {
-		if adminNode.Status.ClusterStatus.Cluster != nil || k8sNode != nil {
+		if adminNode.Status.ClusterStatus.Cluster != nil || v1.GetClusterId(adminNode) != "" || k8sNode != nil {
 			return false, nil
 		}
 	}
