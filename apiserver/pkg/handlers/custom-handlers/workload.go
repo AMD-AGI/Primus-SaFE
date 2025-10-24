@@ -563,13 +563,18 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workload,
 	verb v1.RoleVerb, priority int, requestUser *v1.User, roles []*v1.Role) error {
 	priorityKind := fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
+	resourceOwner := ""
+	if verb == v1.UpdateVerb {
+		resourceOwner = v1.GetUserId(adminWorkload)
+	}
 	if err := h.auth.Authorize(authority.Input{
-		Context:      c.Request.Context(),
-		ResourceKind: priorityKind,
-		Verb:         verb,
-		Workspaces:   []string{adminWorkload.Spec.Workspace},
-		User:         requestUser,
-		Roles:        roles,
+		Context:       c.Request.Context(),
+		ResourceKind:  priorityKind,
+		ResourceOwner: resourceOwner,
+		Verb:          verb,
+		Workspaces:    []string{adminWorkload.Spec.Workspace},
+		User:          requestUser,
+		Roles:         roles,
 	}); err != nil {
 		return err
 	}

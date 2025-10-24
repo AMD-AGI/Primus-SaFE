@@ -46,7 +46,7 @@ install_or_upgrade_helm_chart() {
   local values_yaml="$2"
   local chart_path="./$chart_name"
 
-  if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
+  if helm -n "$NAMESPACE" list | grep -q "^$chart_name"; then
       helm upgrade "$chart_name" "$chart_path" -n "$NAMESPACE" -f $values_yaml
   else
       helm install "$chart_name" "$chart_path" -n "$NAMESPACE" -f $values_yaml --create-namespace

@@ -500,23 +500,20 @@ func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v
 	var result ctrlruntime.Result
 	originalNode := client.MergeFrom(adminNode.DeepCopy())
 	if adminNode.GetSpecCluster() != "" {
-		if !adminNode.IsMachineReady() {
-			return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
-		}
-		if adminNode.IsManaged() && (k8sNode != nil && v1.GetClusterId(k8sNode) != "") {
+		result, err = r.manage(ctx, adminNode, k8sNode)
+	} else {
+		if adminNode.Status.ClusterStatus.Cluster != nil || k8sNode != nil {
+			result, err = r.unmanage(ctx, adminNode, k8sNode)
+		} else {
+			// Clean up any potentially leftover field.
+			if err = r.cleanupNodeLabelsAfterUnmanage(ctx, adminNode); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+			if !adminNode.IsMachineReady() {
+				return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
+			}
 			return ctrlruntime.Result{}, nil
 		}
-		if r.syncClusterStatus(ctx, adminNode) != nil {
-			return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
-		}
-		result, err = r.manage(ctx, adminNode, k8sNode)
-	} else if adminNode.Status.ClusterStatus.Cluster != nil || k8sNode != nil {
-		result, err = r.unmanage(ctx, adminNode, k8sNode)
-	} else {
-		if !adminNode.IsMachineReady() {
-			return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
-		}
-		return ctrlruntime.Result{}, nil
 	}
 	if err != nil {
 		klog.ErrorS(err, "failed to handle node", "node", adminNode.Name)
@@ -527,6 +524,27 @@ func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v
 		return ctrlruntime.Result{}, err
 	}
 	return result, nil
+}
+
+// cleanupNodeLabelsAfterUnmanage performs cleanup operations on a node after it has been unmanaged.
+// This function removes cluster and workspace labels from the node to ensure
+// clean state after the unmanage process is complete.
+// It updates the node resource if any changes were made.
+func (r *NodeReconciler) cleanupNodeLabelsAfterUnmanage(ctx context.Context, adminNode *v1.Node) error {
+	isChanged := false
+	if v1.GetClusterId(adminNode) != "" {
+		v1.RemoveLabel(adminNode, v1.ClusterIdLabel)
+		isChanged = true
+	}
+	if v1.GetWorkspaceId(adminNode) != "" {
+		v1.RemoveLabel(adminNode, v1.WorkspaceIdLabel)
+		adminNode.Spec.Workspace = nil
+		isChanged = true
+	}
+	if !isChanged {
+		return nil
+	}
+	return r.Update(ctx, adminNode)
 }
 
 // syncClusterStatus: synchronizes the cluster status of a Node by handling authorization and certificate installation
@@ -646,6 +664,17 @@ func (r *NodeReconciler) authorizeClusterAccess(ctx context.Context, node *v1.No
 
 // manage: handles the process of managing a Node in a Kubernetes cluster
 func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
+	if !adminNode.IsMachineReady() {
+		return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
+	}
+	// The goal has been achieved.
+	if adminNode.IsManaged() && (k8sNode != nil && v1.GetClusterId(k8sNode) != "") {
+		return ctrlruntime.Result{}, nil
+	}
+	if r.syncClusterStatus(ctx, adminNode) != nil {
+		return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
+	}
+
 	// if the Kubernetes node is already present, it means the node has been successfully managed.
 	if k8sNode != nil {
 		k8sClients, err := utils.GetK8sClientFactory(r.clientManager, adminNode.GetSpecCluster())
