@@ -63,7 +63,7 @@ metadata:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: primus-safe-nginx
@@ -74,7 +74,7 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: docker.io/library/nginx:latest
+          image: {{ .Values.nginx.image }}
           ports:
             - containerPort: 80
               hostPort: 80

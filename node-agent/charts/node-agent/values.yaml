@@ -4,7 +4,7 @@
 #
 
 node_agent:
-  image: "node-agent:202510231724"
+  image: "node-agent:202510240957"
   image_pull_secret: "primus-safe-image"
 monitor:
   nccl_socket_ifname: "eno0"
