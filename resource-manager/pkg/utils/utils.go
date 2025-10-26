@@ -104,7 +104,7 @@ func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId str
 	obj, _ := clientManager.Get(clusterId)
 	if obj == nil {
 		err := fmt.Errorf("the client for cluster %s is not found. pls retry later", clusterId)
-		klog.Error(err.Error())
+		//	klog.Error(err.Error())
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	k8sClients, ok := obj.(*commonclient.ClientFactory)

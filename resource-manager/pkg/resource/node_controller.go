@@ -1039,7 +1039,7 @@ func shouldSyncMachineStatus(adminNode *v1.Node) bool {
 	if !adminNode.IsMachineReady() {
 		return true
 	}
-	if adminNode.Status.MachineStatus.UpdateTime != nil &&
+	if adminNode.Status.MachineStatus.UpdateTime == nil ||
 		time.Since(adminNode.Status.MachineStatus.UpdateTime.Time) >= machineCheckInterval {
 		return true
 	}
