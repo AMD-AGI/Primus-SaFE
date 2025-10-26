@@ -109,10 +109,6 @@ spec:
                 description: Supervision flag for the workload. When enabled, it performs
                   operations like hang detection
                 type: boolean
-              isSuspended:
-                description: If enabled, the workload will be suspended; when disabled,
-                  it will automatically resume its state and re-enter the queue.
-                type: boolean
               isTolerateAll:
                 description: Indicates whether the workload tolerates node taints
                 type: boolean

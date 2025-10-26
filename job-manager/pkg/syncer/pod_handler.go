@@ -127,8 +127,8 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		PodIp:         pod.Status.PodIP,
 		Rank:          getMainContainerRank(adminWorkload, pod),
 	}
-	if !pod.Status.StartTime.IsZero() {
-		workloadPod.StartTime = timeutil.FormatRFC3339(&pod.Status.StartTime.Time)
+	if pod.Status.StartTime != nil && !pod.Status.StartTime.IsZero() {
+		workloadPod.StartTime = timeutil.FormatRFC3339(pod.Status.StartTime.Time)
 	}
 	buildPodTerminatedInfo(ctx,
 		clusterInformer.dataClientFactory.ClientSet(), adminWorkload, pod, &workloadPod)
@@ -221,7 +221,7 @@ func buildPodTerminatedInfo(ctx context.Context,
 		workloadPod.Containers = append(workloadPod.Containers, c)
 	}
 	if finishedTime != nil && !finishedTime.IsZero() {
-		workloadPod.EndTime = timeutil.FormatRFC3339(&finishedTime.Time)
+		workloadPod.EndTime = timeutil.FormatRFC3339(finishedTime.Time)
 	}
 }
 

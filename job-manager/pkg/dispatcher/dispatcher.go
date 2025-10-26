@@ -38,6 +38,7 @@ import (
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 // DispatcherReconciler: reconciles Workload objects and handles their dispatching to target clusters
@@ -285,7 +286,7 @@ func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1
 
 	if !v1.IsWorkloadDispatched(workload) {
 		originalWorkload := client.MergeFrom(workload.DeepCopy())
-		v1.SetAnnotation(workload, v1.WorkloadDispatchedAnnotation, time.Now().UTC().Format(time.RFC3339))
+		v1.SetAnnotation(workload, v1.WorkloadDispatchedAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
 		v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, buildDispatchCount(workload))
 		v1.RemoveAnnotation(workload, v1.WorkloadPreemptedAnnotation)
 		if err := r.Patch(ctx, workload, originalWorkload); err != nil {

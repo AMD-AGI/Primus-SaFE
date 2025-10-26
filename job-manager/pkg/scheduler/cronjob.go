@@ -117,7 +117,11 @@ func (m *CronJobManager) removeInternal(workloadId string) {
 	delete(m.allCronJobs, workloadId)
 }
 
-// execute is the function that gets called when a cron job is triggered
+// execute is the function that gets called when a cron job is triggered.
+// It performs the action specified in the cron job configuration.
+// Currently, it supports v1.CronStart action to resume suspended workloads.
+// Any errors during execution are logged using klog.
+
 func (cj *CronJob) execute() {
 	var err error
 	switch cj.config.Action {
@@ -129,7 +133,8 @@ func (cj *CronJob) execute() {
 	}
 }
 
-// doStart activates a suspended workload by setting IsSuspended to false
+// doStart activates a suspended workload by setting the cron job timestamp annotation.
+// It uses a retry mechanism to handle potential conflicts when updating the workload resource.
 func (cj *CronJob) doStart() error {
 	const maxRetry = 10
 	waitTime := time.Millisecond * 200
@@ -141,12 +146,13 @@ func (cj *CronJob) doStart() error {
 		if err != nil {
 			return client.IgnoreNotFound(err)
 		}
-		if !workload.IsSuspended() || v1.IsWorkloadScheduled(workload) {
+		if workload.HasScheduled() {
 			return nil
 		}
-		// Activate the workload by setting IsSuspended to false
-		workload.Spec.IsSuspended = false
-		if err = cj.Update(context.Background(), workload); err != nil {
+		originalWorkload := client.MergeFrom(workload.DeepCopy())
+		// Activate the workload by setting cronjob timestamp
+		v1.SetAnnotation(workload, v1.CronJobTimestampAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
+		if err = cj.Patch(context.Background(), workload, originalWorkload); err != nil {
 			return err
 		}
 		klog.Infof("activate workload %s by cronjob", workload.Name)

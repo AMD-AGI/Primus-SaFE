@@ -21,8 +21,8 @@ const (
 
 // FormatRFC3339 converts a *time.Time to its string representation in RFC3339Short format.
 // Returns an empty string if the pointer is nil or points to a zero time value.
-func FormatRFC3339(t *time.Time) string {
-	if t == nil || t.IsZero() {
+func FormatRFC3339(t time.Time) string {
+	if t.IsZero() {
 		return ""
 	}
 	return t.Format(TimeRFC3339Short)
@@ -44,7 +44,7 @@ func CvtStrUnixToTime(strTime string) time.Time {
 // to cron standard schedule format ("minute hour day month *"), ignoring the date year
 // Returns an error if the input time string cannot be parsed.
 func CvtTime3339ToCronStandard(timeStr string) (string, time.Time, error) {
-	t, err := time.Parse(TimeRFC3339Milli, timeStr)
+	t, err := CvtStrToRFC3339Milli(timeStr)
 	if err != nil {
 		return "", time.Time{}, err
 	}
@@ -65,7 +65,7 @@ func CvtTimeOnlyToCronStandard(timeStr string) (string, time.Time, error) {
 // CvtStrToRFC3339Milli converts a RFC3339 millisecond format string to UTC time.Time
 func CvtStrToRFC3339Milli(timeStr string) (time.Time, error) {
 	if timeStr == "" {
-		return time.Time{}, nil
+		return time.Time{}, fmt.Errorf("invalid input")
 	}
 	t, err := time.Parse(TimeRFC3339Milli, timeStr)
 	if err != nil {

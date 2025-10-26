@@ -121,8 +121,6 @@ type WorkloadSpec struct {
 	Env map[string]string `json:"env,omitempty"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised,omitempty"`
-	// If enabled, the workload will be suspended; when disabled, it will automatically resume its state and re-enter the queue.
-	IsSuspended bool `json:"isSuspended,omitempty"`
 	// Group: An extension field that is not currently in use
 	// Version: version of workload, default value is v1
 	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default is PyTorchJob
@@ -278,10 +276,6 @@ func (w *Workload) IsEnd() bool {
 	return false
 }
 
-func (w *Workload) IsSuspended() bool {
-	return w.Spec.IsSuspended
-}
-
 func (w *Workload) ElapsedTime() int64 {
 	var elapsedTime time.Duration
 	if w.IsEnd() {
@@ -365,4 +359,11 @@ func (w *Workload) GetDependenciesPhase(workloadId string) (WorkloadPhase, bool)
 	}
 	phase, ok := w.Status.DependenciesPhase[workloadId]
 	return phase, ok
+}
+
+func (w *Workload) HasScheduled() bool {
+	if IsWorkloadScheduled(w) || GetWorkloadDispatchCnt(w) > 0 {
+		return true
+	}
+	return false
 }
