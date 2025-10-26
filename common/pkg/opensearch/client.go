@@ -93,7 +93,7 @@ func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, uri str
 	return c.Request(index+uri, http.MethodPost, body)
 }
 
-// Send HTTP request to OpenSearch
+// Request : Send HTTP request to OpenSearch
 // Parameters:
 //
 //	uri: Full API path
