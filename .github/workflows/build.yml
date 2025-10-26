@@ -14,16 +14,7 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      is_build_apiserver: ${{ steps.changed-files.outputs.apiserver_any_changed }}
-      is_build_resource_manager: ${{ steps.changed-files.outputs.resource_manager_any_changed }}
-      is_build_job_manager: ${{ steps.changed-files.outputs.job_manager_any_changed }}
-      is_build_webhooks: ${{ steps.changed-files.outputs.webhooks_any_changed }}
-      is_build_node_agent: ${{ steps.changed-files.outputs.node_agent_any_changed }}
-      is_build_sync_image: ${{ steps.changed-files.outputs.sync_image_any_changed }}
-      is_build_telemetry_processor:  ${{ steps.changed-files.outputs.telemetry_processor_any_changed }}
-      is_build_gpu_resource_exporter: ${{ steps.changed-files.outputs.gpu_resource_exporter_any_changed }}
-      is_build_system_tuner: ${{ steps.changed-files.outputs.system_tuner_any_changed }}
-      is_build_primus_safe_adapter: ${{ steps.changed-files.outputs.primus_safe_adapter_any_changed }}
+      matrix: ${{ steps.generate-matrix.outputs.matrix }}
       image_version: ${{ steps.get-image-version.outputs.image_version }}
       date_time: ${{ steps.get-current-time.outputs.date_time }}
     steps:
