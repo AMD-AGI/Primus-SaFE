@@ -1,10 +1,13 @@
 ARG REGISTRY=docker.io
 ARG GO_VERSION=1.24.2
+ARG GOPROXY
 FROM golang:${GO_VERSION} AS builder
+
+ARG GOPROXY
 
 ENV LANG="en_US.UTF-8"
 ENV GO111MODULE="on"
-ENV GOPROXY="https://goproxy.cn,direct"
+ENV GOPROXY=${GOPROXY}
 ENV GOROOT="/usr/local/go"
 ENV GOBIN="/usr/local/go/bin"
 ENV CGO_ENABLED=0
