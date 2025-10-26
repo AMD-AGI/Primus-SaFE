@@ -140,6 +140,7 @@ jobs:
 
           buildah bud \
             --layers \
+            --build-arg GOPRIXY=https://goproxy.io,direct \
             --build-arg BUILDPATH=${{ matrix.buildpath }} \
             --build-arg BASEPATH=${{ matrix.basepath }} \
             --build-arg APPNAME=${{ matrix.name }} \
