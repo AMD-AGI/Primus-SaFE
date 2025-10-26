@@ -22,8 +22,6 @@ type CreateWorkloadRequest struct {
 	Description string `json:"description,omitempty"`
 	// Workspace ID to which the workload is delivered
 	WorkspaceId string `json:"workspaceId,omitempty"`
-	// Scheduled execution time, such as "2025-09-30T16:04:00.000Z"
-	SchedulerTime string `json:"schedulerTime,omitempty"`
 }
 
 type CreateWorkloadResponse struct {
@@ -161,8 +159,8 @@ type GetWorkloadResponse struct {
 	// before this Workload can start execution. If any dependency fails, this Workload
 	// will not be scheduled and is considered failed.
 	Dependencies []string `json:"dependencies,omitempty"`
-	// Scheduled execution time, such as "2025-09-30T16:04:00.000Z"
-	SchedulerTime string `json:"schedulerTime,omitempty"`
+	// Cron Job configuration
+	CronJobs []v1.CronJob `json:"cronJobs,omitempty"`
 }
 
 type WorkloadPodWrapper struct {
@@ -198,8 +196,8 @@ type PatchWorkloadRequest struct {
 	Timeout *int `json:"timeout,omitempty"`
 	// Failure retry limit
 	MaxRetry *int `json:"maxRetry,omitempty"`
-	// Scheduled execution time, such as "2025-09-30T16:04:00.000Z"
-	SchedulerTime *string `json:"schedulerTime,omitempty"`
+	// Cron Job configuration
+	CronJobs *[]v1.CronJob `json:"cronJobs,omitempty"`
 }
 
 type GetPodLogRequest struct {

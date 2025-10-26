@@ -14,6 +14,7 @@ import (
 )
 
 type WorkloadPhase string
+type CronAction string
 
 const (
 	WorkloadKind = "Workload"
@@ -27,6 +28,9 @@ const (
 	// only for deployment/statefulSet
 	WorkloadNotReady WorkloadPhase = "NotReady"
 	WorkloadStopped  WorkloadPhase = "Stopped"
+
+	CronStart CronAction = "start"
+	CronScale CronAction = "scale"
 )
 
 type WorkloadConditionType string
@@ -93,9 +97,11 @@ type Service struct {
 	Extends map[string]string `json:"extends,omitempty"`
 }
 
-type CronSchedule struct {
-	// Scheduled execution time, such as "2025-09-30T16:04:00.000Z"
+type CronJob struct {
+	// Scheduled execution time, such as "2025-09-30T16:04:00.000Z" or "0 3 * * *"
 	Schedule string `json:"schedule"`
+	// The action to take when the schedule is triggered. such as start or scale
+	Action CronAction `json:"action"`
 }
 
 type WorkloadSpec struct {
@@ -147,8 +153,8 @@ type WorkloadSpec struct {
 	// before this Workload can start execution. If any dependency fails, this Workload
 	// will not be scheduled and is considered failed.
 	Dependencies []string `json:"dependencies,omitempty"`
-	// Scheduled workload configuration
-	CronSchedules []CronSchedule `json:"cronSchedules,omitempty"`
+	// Cron Job configuration
+	CronJobs []CronJob `json:"cronJobs,omitempty"`
 }
 
 type WorkloadStatus struct {

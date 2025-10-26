@@ -104,7 +104,7 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 			if !ok {
 				return false
 			}
-			if len(workload.Spec.CronSchedules) > 0 {
+			if len(workload.Spec.CronJobs) > 0 {
 				r.cronManager.addOrReplace(workload)
 			}
 			return true
@@ -115,7 +115,7 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 			if !ok1 || !ok2 {
 				return false
 			}
-			if !reflect.DeepEqual(oldWorkload.Spec.CronSchedules, newWorkload.Spec.CronSchedules) {
+			if !reflect.DeepEqual(oldWorkload.Spec.CronJobs, newWorkload.Spec.CronJobs) {
 				r.cronManager.addOrReplace(newWorkload)
 			}
 			if !oldWorkload.IsEnd() && newWorkload.IsEnd() {
@@ -441,7 +441,7 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 
 // delete: handles the deletion of a workload and its associated resources
 func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
-	if len(adminWorkload.Spec.CronSchedules) > 0 {
+	if len(adminWorkload.Spec.CronJobs) > 0 {
 		r.cronManager.remove(adminWorkload.Name)
 	}
 	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))

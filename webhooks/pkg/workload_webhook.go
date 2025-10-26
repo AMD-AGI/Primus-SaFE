@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -38,6 +39,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
@@ -139,6 +141,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workloa
 	m.mutateEntryPoint(workload)
 	m.mutateHostNetwork(ctx, workload)
 	m.mutateCustomerLabels(workload)
+	m.mutateCronJobs(workload)
 	return true
 }
 
@@ -418,15 +421,32 @@ func (m *WorkloadMutator) mutateCustomerLabels(workload *v1.Workload) {
 	}
 }
 
+func (m *WorkloadMutator) mutateCronJobs(workload *v1.Workload) {
+	for i := range workload.Spec.CronJobs {
+		if workload.Spec.CronJobs[i].Action == "" {
+			workload.Spec.CronJobs[i].Action = v1.CronStart
+		}
+	}
+}
+
 func (m *WorkloadMutator) mutateSuspended(oldWorkload, newWorkload *v1.Workload) {
-	if v1.IsWorkloadScheduled(newWorkload) {
+	// Scheduled workloads, or workloads that have been scheduled before, will be ignored.
+	if v1.IsWorkloadScheduled(newWorkload) || v1.GetWorkloadDispatchCnt(newWorkload) > 1 {
 		return
 	}
-	if oldWorkload == nil || len(oldWorkload.Spec.CronSchedules) == 0 {
-		if len(newWorkload.Spec.CronSchedules) > 0 {
+	hasCronStart := func(workload *v1.Workload) bool {
+		for _, job := range workload.Spec.CronJobs {
+			if job.Action == v1.CronStart {
+				return true
+			}
+		}
+		return false
+	}
+	if oldWorkload == nil || !hasCronStart(oldWorkload) {
+		if hasCronStart(newWorkload) {
 			newWorkload.Spec.IsSuspended = true
 		}
-	} else if len(newWorkload.Spec.CronSchedules) == 0 {
+	} else if !hasCronStart(newWorkload) {
 		newWorkload.Spec.IsSuspended = false
 	}
 }
@@ -516,6 +536,9 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 		return err
 	}
 	if err := v.validateDisplayName(workload); err != nil {
+		return err
+	}
+	if err := v.validateCronJobs(workload); err != nil {
 		return err
 	}
 	return nil
@@ -741,10 +764,6 @@ func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Wor
 	if !sliceutil.EqualIgnoreOrder(oldWorkload.Spec.Hostpath, newWorkload.Spec.Hostpath) {
 		return commonerrors.NewForbidden("hostpath cannot be changed once the workload has been scheduled")
 	}
-	if len(newWorkload.Spec.CronSchedules) > 0 &&
-		!reflect.DeepEqual(newWorkload.Spec.CronSchedules, oldWorkload.Spec.CronSchedules) {
-		return commonerrors.NewForbidden("cronSchedules cannot be changed once the workload has been scheduled")
-	}
 	if commonworkload.IsApplication(newWorkload) {
 		return nil
 	}
@@ -789,6 +808,30 @@ func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Work
 	if !hasFound {
 		return commonerrors.NewForbidden(
 			fmt.Sprintf("The workspace only supports %v and does not suuport %s", workspace.Spec.Scopes, scope))
+	}
+	return nil
+}
+
+func (v *WorkloadValidator) validateCronJobs(workload *v1.Workload) error {
+	parseCronJob := func(job v1.CronJob) error {
+		_, scheduleTime, err := timeutil.CvtTime3339ToCronStandard(job.Schedule)
+		if err != nil {
+			return err
+		}
+		if job.Action == v1.CronStart {
+			now := time.Now().UTC()
+			oneYearLaterMinusOneMin := now.AddDate(1, 0, 0).Add(-time.Minute).UTC()
+			if !scheduleTime.After(now) || scheduleTime.After(oneYearLaterMinusOneMin) {
+				return commonerrors.NewBadRequest(
+					"Invalid schedulerTime of request, it must be within one year in the future.")
+			}
+		}
+		return nil
+	}
+	for _, cj := range workload.Spec.CronJobs {
+		if err := parseCronJob(cj); err != nil {
+			return err
+		}
 	}
 	return nil
 }

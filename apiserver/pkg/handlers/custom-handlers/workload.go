@@ -614,12 +614,6 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 	if req.WorkspaceId != "" {
 		workload.Spec.Workspace = req.WorkspaceId
 	}
-	if req.SchedulerTime != "" {
-		if err = parseScheduleTime(req.SchedulerTime); err != nil {
-			return nil, err
-		}
-		workload.Spec.CronSchedules = []v1.CronSchedule{{Schedule: req.SchedulerTime}}
-	}
 	return workload, nil
 }
 
@@ -877,11 +871,8 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	if req.MaxRetry != nil {
 		adminWorkload.Spec.MaxRetry = *req.MaxRetry
 	}
-	if req.SchedulerTime != nil {
-		if err := parseScheduleTime(*req.SchedulerTime); err != nil {
-			return err
-		}
-		adminWorkload.Spec.CronSchedules = []v1.CronSchedule{{Schedule: *req.SchedulerTime}}
+	if req.CronJobs != nil {
+		adminWorkload.Spec.CronJobs = *req.CronJobs
 	}
 	return nil
 }
@@ -993,11 +984,8 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 	if str := dbutils.ParseNullString(w.Dependencies); str != "" {
 		json.Unmarshal([]byte(str), &result.Dependencies)
 	}
-	if str := dbutils.ParseNullString(w.CronSchedules); str != "" {
-		var cronSchedules []v1.CronSchedule
-		if json.Unmarshal([]byte(str), &cronSchedules) == nil && len(cronSchedules) > 0 {
-			result.SchedulerTime = cronSchedules[0].Schedule
-		}
+	if str := dbutils.ParseNullString(w.CronJobs); str != "" {
+		json.Unmarshal([]byte(str), &result.CronJobs)
 	}
 	return result
 }
@@ -1135,8 +1123,8 @@ func cvtDBWorkloadToAdminWorkload(c *gin.Context, dbItem *dbclient.Workload) *v1
 	if str := dbutils.ParseNullString(dbItem.Dependencies); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Dependencies)
 	}
-	if str := dbutils.ParseNullString(dbItem.CronSchedules); str != "" {
-		json.Unmarshal([]byte(str), &result.Spec.CronSchedules)
+	if str := dbutils.ParseNullString(dbItem.CronJobs); str != "" {
+		json.Unmarshal([]byte(str), &result.Spec.CronJobs)
 	}
 	return result
 }
@@ -1189,20 +1177,4 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		Containers: containers,
 		Shells:     []string{"bash", "sh", "zsh"},
 	}, nil
-}
-
-// parseScheduleTime validates the scheduler time format and checks if it's within the future one-year
-// Returns an error if the time format is invalid or the time is outside the valid range.
-func parseScheduleTime(inputScheduler string) error {
-	_, scheduleTime, err := timeutil.CvtTime3339ToCronStandard(inputScheduler)
-	if err != nil {
-		return err
-	}
-	now := time.Now().UTC()
-	oneYearLaterMinusOneMin := now.AddDate(1, 0, 0).Add(-time.Minute).UTC()
-	if !scheduleTime.After(now) || scheduleTime.After(oneYearLaterMinusOneMin) {
-		return commonerrors.NewBadRequest(
-			"Invalid schedulerTime of request, it must be within one year in the future.")
-	}
-	return nil
 }
