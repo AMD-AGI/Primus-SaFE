@@ -36,6 +36,7 @@ jobs:
       run: |
         FORMATTED_DATE=$(TZ='Asia/Shanghai' date +'%Y%m%d%H%M')
         echo "::set-output name=date_time::$FORMATTED_DATE"
+        echo "Formatted date: $FORMATTED_DATE"
     - name: Get changed files
       id: changed-files
       uses: tj-actions/changed-files@v40
