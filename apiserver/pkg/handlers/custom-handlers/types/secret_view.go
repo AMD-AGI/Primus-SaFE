@@ -29,7 +29,8 @@ type CreateSecretRequest struct {
 	// The secret type, such as image, ssh
 	Type v1.SecretType `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
-	// the private key, public key and password need to be Base64 encoded
+	// the private key, public key and password need to be Base64 encoded.
+	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params []map[SecretParam]string `json:"params"`
 	// Whether to bind the secret to all workspaces
@@ -80,7 +81,8 @@ type DockerConfig struct {
 
 type PatchSecretRequest struct {
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
-	// the private key, public key and password need to be Base64 encoded
+	// the private key, public key and password need to be Base64 encoded.
+	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params *[]map[SecretParam]string `json:"params,omitempty"`
 	// Whether to bind the secret to all workspaces

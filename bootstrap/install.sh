@@ -46,7 +46,7 @@ install_or_upgrade_helm_chart() {
   local values_yaml="$2"
   local chart_path="./$chart_name"
 
-  if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
+  if helm -n "$NAMESPACE" list | grep -q "^$chart_name"; then
       helm upgrade "$chart_name" "$chart_path" -n "$NAMESPACE" -f $values_yaml
   else
       helm install "$chart_name" "$chart_path" -n "$NAMESPACE" -f $values_yaml --create-namespace
@@ -65,23 +65,31 @@ default_ethernet_nic="eno0"
 default_rdma_nic="rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
 default_cluster_scale="small"
 default_storage_class="local-path"
-default_ssh_server_ip=""
 
 ethernet_nic=$(get_input_with_default "Enter ethernet nic($default_ethernet_nic): " "$default_ethernet_nic")
 rdma_nic=$(get_input_with_default "Enter rdma nic($default_rdma_nic): " "$default_rdma_nic")
 cluster_scale=$(get_input_with_default "Enter cluster scale, choose 'small/medium/large' ($default_cluster_scale): " "$default_cluster_scale")
 storage_class=$(get_input_with_default "Enter storage class($default_storage_class): " "$default_storage_class")
-ssh_server_ip=$(get_input_with_default "Enter ssh server ip($default_ethernet_nic): " "$default_ethernet_nic")
-sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
 support_lens=$(get_input_with_default "Support Primus-lens ? (y/n): " "n")
-support_s3=$(get_input_with_default "Support Primus-S3 ? (y/n): " "n")
 lens_enable=$(convert_to_boolean "$support_lens")
+
+support_s3=$(get_input_with_default "Support Primus-S3 ? (y/n): " "n")
 s3_enable=$(convert_to_boolean "$support_s3")
 s3_endpoint=""
 if [[ "$s3_enable" == "true" ]]; then
   s3_endpoint=$(get_input_with_default "Enter S3 endpoint (empty to disable S3): " "")
   if [ -z "$s3_endpoint" ]; then
     s3_enable="false"
+  fi
+fi
+
+support_ssh=$(get_input_with_default "Support ssh ? (y/n): " "n")
+ssh_enable=$(convert_to_boolean "$support_ssh")
+ssh_server_ip=""
+if [[ "$ssh_enable" == "true" ]]; then
+  ssh_server_ip=$(get_input_with_default "Enter ssh server ip(empty to disable ssh): " "")
+  if [ -z "$ssh_server_ip" ]; then
+    ssh_enable="false"
   fi
 fi
 
@@ -95,20 +103,32 @@ if [[ "$build_image_secret" == "y" ]]; then
   image_password=$(get_input_with_default "Enter image registry password: " "")
 fi
 
+ingress=$(get_input_with_default "Enter the ingress name (nginx/higress): " "nginx")
+sub_domain=""
+if [[ "$ingress" == "higress" ]]; then
+  sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
+fi
+
 echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
-echo "✅ Cluster Name: \"$sub_domain\""
 echo "✅ Storage Class: \"$storage_class\""
-echo "✅ SSH Server IP: \"$ssh_server_ip\""
 echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Endpoint: \"$s3_endpoint\""
 fi
+echo "✅ Support ssh: \"$ssh_enable\""
+if [[ "$ssh_enable" == "true" ]]; then
+  echo "✅ SSH Server IP: \"$ssh_server_ip\""
+fi
 if [[ "$build_image_secret" == "y" ]]; then
   echo "✅ Image registry: \"$image_registry\""
   echo "✅ Image username: \"$image_username\""
+fi
+echo "✅ Ingress Name: \"$ingress\""
+if [[ "$ingress" == "higress" ]]; then
+  echo "✅ Cluster Name: \"$sub_domain\""
 fi
 
 replicas=1
@@ -191,10 +211,9 @@ sed -i "s/replicas: [0-9]*/replicas: $replicas/" "$values_yaml"
 sed -i "s/^.*cpu:.*/  cpu: $cpu/" "$values_yaml"
 sed -i "s/^.*memory:.*/  memory: $memory/" "$values_yaml"
 sed -i "s/^.*storage_class:.*/  storage_class: \"$storage_class\"/" "$values_yaml"
-if [ -n "$ssh_server_ip" ]; then
-  sed -i '/ssh:/,/^[a-z]/ s/server_ip: .*/server_ip: '"$ssh_server_ip"'/' "$values_yaml"
+if [[ "$ingress" == "higress" ]]; then
+  sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
 fi
-sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
 sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
@@ -206,6 +225,11 @@ if [[ "$lens_enable" == "true" ]]; then
   sed -i '/^grafana:/,/^[a-z]/ s#password: ".*"#password: "'"$pg_password"'"#' "$values_yaml"
 fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
+sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
+sed -i '/ssh:/,/^[a-z]/ s/enable: .*/enable: '"$ssh_enable"'/' "$values_yaml"
+if [[ "$ssh_enable" == "true" ]]; then
+  sed -i '/^ssh:/,/^[a-z]/ s#server_ip: ".*"#server_ip: "'"$ssh_server_ip"'"#' "$values_yaml"
+fi
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
 echo "⏳ Waiting for Postgres Operator pod..."
@@ -266,9 +290,11 @@ ethernet_nic=$ethernet_nic
 rdma_nic=$rdma_nic
 cluster_scale=$cluster_scale
 storage_class=$storage_class
-ssh_server_ip=$ssh_server_ip
-sub_domain=$sub_domain
 lens_enable=$lens_enable
 s3_enable=$s3_enable
 s3_endpoint=$s3_endpoint
+ingress=$ingress
+sub_domain=$sub_domain
+ssh_enable=$ssh_enable
+ssh_server_ip=$ssh_server_ip
 EOF

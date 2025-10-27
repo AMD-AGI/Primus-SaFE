@@ -4,8 +4,8 @@
 #
 
 node_agent:
-  image: "node-agent:202510231534"
-  image_pull_secret: ""
+  image: "node-agent:202510271109"
+  image_pull_secret: "primus-safe-image"
 monitor:
   nccl_socket_ifname: "eno0"
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"

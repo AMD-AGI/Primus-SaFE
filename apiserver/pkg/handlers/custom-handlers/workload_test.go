@@ -6,10 +6,8 @@
 package custom_handlers
 
 import (
-	"testing"
 	"time"
 
-	"gotest.tools/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -57,26 +55,5 @@ func genMockWorkload(clusterId, workspaceId string) *v1.Workload {
 		Status: v1.WorkloadStatus{
 			Phase: v1.WorkloadRunning,
 		},
-	}
-}
-
-func TestIsValidSchedulerTime(t *testing.T) {
-	tests := []struct {
-		name   string
-		t      time.Time
-		result bool
-	}{
-		{"Past time", time.Now().Add(-time.Hour), false},
-		{"Future 1 minute", time.Now().Add(time.Minute), true},
-		{"Future 6 months", time.Now().AddDate(0, 6, 0), true},
-		{"Almost 1 year but less 1 minute", time.Now().AddDate(1, 0, 0).Add(-time.Minute), true},
-		{"Exactly 1 year", time.Now().AddDate(1, 0, 0), false},
-		{"Over 1 year", time.Now().AddDate(1, 0, 0).Add(time.Minute), false},
-		{"now", time.Now(), false},
-	}
-
-	for _, tt := range tests {
-		result := isValidSchedulerTime(tt.t)
-		assert.Equal(t, tt.result, result)
 	}
 }

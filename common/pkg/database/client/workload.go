@@ -48,7 +48,7 @@ var (
 		    is_tolerate_all = :is_tolerate_all,
 		    timeout = :timeout,
 		    k8s_object_uid = :k8s_object_uid,
-		    cron_schedules = :cron_schedules 
+		    cron_jobs = :cron_jobs 
 		WHERE workload_id = :workload_id`, TWorkload)
 )
 

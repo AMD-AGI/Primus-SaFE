@@ -736,7 +736,7 @@ func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeRes
 		Available:         isAvailable,
 		Message:           message,
 		TotalResources:    cvtToResourceList(n.Status.Resources),
-		CreationTime:      timeutil.FormatRFC3339(&n.CreationTimestamp.Time),
+		CreationTime:      timeutil.FormatRFC3339(n.CreationTimestamp.Time),
 		IsControlPlane:    v1.IsControlPlane(n),
 		IsAddonsInstalled: v1.IsNodeTemplateInstalled(n),
 	}
@@ -766,7 +766,7 @@ func cvtToGetNodeResponse(n *v1.Node, usedResource *resourceInfo) types.GetNodeR
 		result.TemplateId = n.Spec.NodeTemplate.Name
 	}
 	lastStartupTime := timeutil.CvtStrUnixToTime(v1.GetNodeStartupTime(n))
-	result.LastStartupTime = timeutil.FormatRFC3339(&lastStartupTime)
+	result.LastStartupTime = timeutil.FormatRFC3339(lastStartupTime)
 	return result
 }
 

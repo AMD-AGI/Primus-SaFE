@@ -43,6 +43,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
@@ -104,7 +105,7 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 			if !ok {
 				return false
 			}
-			if len(workload.Spec.CronSchedules) > 0 {
+			if len(workload.Spec.CronJobs) > 0 {
 				r.cronManager.addOrReplace(workload)
 			}
 			return true
@@ -115,13 +116,13 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 			if !ok1 || !ok2 {
 				return false
 			}
-			if !reflect.DeepEqual(oldWorkload.Spec.CronSchedules, newWorkload.Spec.CronSchedules) {
+			if !reflect.DeepEqual(oldWorkload.Spec.CronJobs, newWorkload.Spec.CronJobs) {
 				r.cronManager.addOrReplace(newWorkload)
 			}
 			if !oldWorkload.IsEnd() && newWorkload.IsEnd() {
 				return true
 			}
-			if oldWorkload.IsSuspended() != newWorkload.IsSuspended() {
+			if v1.GetCronjobTimestamp(oldWorkload) != v1.GetCronjobTimestamp(newWorkload) {
 				return true
 			}
 			if v1.IsWorkloadScheduled(oldWorkload) != v1.IsWorkloadScheduled(newWorkload) {
@@ -441,7 +442,7 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 
 // delete: handles the deletion of a workload and its associated resources
 func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
-	if len(adminWorkload.Spec.CronSchedules) > 0 {
+	if len(adminWorkload.Spec.CronJobs) > 0 {
 		r.cronManager.remove(adminWorkload.Name)
 	}
 	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))
@@ -469,7 +470,7 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 	return ctrlruntime.Result{}, nil
 }
 
-// Start implement Runnable interface in controller runtime package.
+// Start implements Runnable interface in controller runtime package.
 func (r *SchedulerReconciler) start(ctx context.Context) {
 	for i := 0; i < r.MaxConcurrent; i++ {
 		r.Run(ctx)
@@ -524,7 +525,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 			unScheduledReasons[w.Name] = reason
 			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads,
 			// then break out of the queue directly and continue waiting.
-			if !w.IsSuspended() && (workspace.IsEnableFifo() ||
+			if reason != CronjobReason && (workspace.IsEnableFifo() ||
 				(i < len(schedulingWorkloads)-1 && w.Spec.Priority > schedulingWorkloads[i+1].Spec.Priority)) {
 				break
 			} else {
@@ -550,8 +551,13 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 // canScheduleWorkload: checks if a workload can be scheduled based on resource availability
 func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWorkload *v1.Workload,
 	runningWorkloads []*v1.Workload, requestResources, leftResources corev1.ResourceList) (bool, string, error) {
-	if requestWorkload.IsSuspended() {
-		return false, "Suspended by the system", nil
+	for _, job := range requestWorkload.Spec.CronJobs {
+		if job.Action == v1.CronStart {
+			scheduleTime, err := timeutil.CvtStrToRFC3339Milli(job.Schedule)
+			if err == nil && scheduleTime.After(time.Now().UTC()) {
+				return false, CronjobReason, nil
+			}
+		}
 	}
 	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
 	var reason string
@@ -562,7 +568,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		return false, "", err
 	}
 	if !isDependencyReady {
-		reason = "Dependency cannot be satisfied"
+		reason = DependencyReason
 		klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
 		return false, reason, nil
 	}
@@ -774,10 +780,9 @@ func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
-	annotations[v1.WorkloadScheduledAnnotation] = time.Now().UTC().Format(time.RFC3339)
+	annotations[v1.WorkloadScheduledAnnotation] = timeutil.FormatRFC3339(time.Now().UTC())
 	delete(annotations, v1.WorkloadReScheduledAnnotation)
 	workload.SetAnnotations(annotations)
-	workload.Spec.IsSuspended = false
 	if err := r.Patch(ctx, workload, originalWorkload); err != nil {
 		klog.ErrorS(err, "failed to patch workload", "name", workload.Name)
 		return err
