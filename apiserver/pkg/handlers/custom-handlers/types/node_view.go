@@ -157,6 +157,8 @@ type PatchNodeRequest struct {
 	TemplateId *string `json:"templateId,omitempty"`
 	// Node port for ssh
 	Port *int32 `json:"port,omitempty"`
+	// Node Private ip
+	PrivateIP *string `json:"privateIP,omitempty"`
 }
 
 type GetNodePodLogResponse struct {

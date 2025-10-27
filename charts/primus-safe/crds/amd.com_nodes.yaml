@@ -256,8 +256,7 @@ spec:
                     type: array
                   phase:
                     description: The status of nodes in the cluster, such as Ready,
-                      NotReady, Managing, Managed, ManagedFailed, Unmanaging, Unmanaged,
-                      UnmanagedFailed
+                      Managing, Managed, ManagedFailed, Unmanaging, Unmanaged, UnmanagedFailed
                     type: string
                 type: object
               conditions:
@@ -313,11 +312,15 @@ spec:
                     description: The hostname of k8s node
                     type: string
                   phase:
-                    description: The status of the physical node, such as Ready, NotReady,
-                      SSHFailed, HostnameFailed
+                    description: The status of the physical node, such as Ready, SSHFailed,
+                      HostnameFailed
                     type: string
                   privateIP:
                     description: The internalIP of k8s node
+                    type: string
+                  updateTime:
+                    description: Last update time
+                    format: date-time
                     type: string
                 type: object
               resources:

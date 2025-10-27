@@ -91,6 +91,8 @@ type MachineStatus struct {
 	PrivateIP string `json:"privateIP,omitempty"`
 	// Reserved field, currently unused.
 	CommandStatus []CommandStatus `json:"commandStatus,omitempty"`
+	// Last update time
+	UpdateTime *metav1.Time `json:"updateTime,omitempty"`
 }
 
 // NodeStatus defines the observed state of Node.

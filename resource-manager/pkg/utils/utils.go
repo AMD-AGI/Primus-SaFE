@@ -103,7 +103,8 @@ func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId str
 	}
 	obj, _ := clientManager.Get(clusterId)
 	if obj == nil {
-		err := fmt.Errorf("the client of cluster %s is not found. pls retry later", clusterId)
+		err := fmt.Errorf("the client for cluster %s is not found. pls retry later", clusterId)
+		//	klog.Error(err.Error())
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	k8sClients, ok := obj.(*commonclient.ClientFactory)
@@ -122,9 +123,10 @@ func GetSSHClient(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.C
 	if node.Spec.Port == nil {
 		return nil, commonerrors.NewInternalError("node port is not specified")
 	}
-	sshClient, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", node.Spec.PrivateIP, *node.Spec.Port), config)
+	addr := fmt.Sprintf("%s:%d", node.Spec.PrivateIP, *node.Spec.Port)
+	sshClient, err := ssh.Dial("tcp", addr, config)
 	if err != nil {
-		return nil, fmt.Errorf("ssh client failed to connect: %v", err)
+		return nil, fmt.Errorf("failed to connect %s via ssh: %v", addr, err)
 	}
 	return sshClient, nil
 }
@@ -152,7 +154,7 @@ func GetSSHConfig(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.C
 		User:            username,
 		Auth:            []ssh.AuthMethod{},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         time.Second * 30,
+		Timeout:         time.Second * 10,
 	}
 
 	if sshPrivateKeyData, ok := secret.Data[Authorize]; ok {

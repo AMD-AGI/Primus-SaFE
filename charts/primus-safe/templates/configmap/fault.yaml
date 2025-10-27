@@ -41,6 +41,7 @@ data:
   sys_kernel_lock_304: '{"id":"304","action":"taint","toggle":"on"}'
   sys_acsctl_305: '{"id":"305","toggle":"on"}'
   sys_boot_args_306: '{"id":"306","toggle":"on"}'
+  sys_docker_307: '{"id":"307","toggle":"on"}'
   sys_pcie_link_308: '{"id":"308","toggle":"on"}'
   # Disk: 4XX
   nfs_check_401: '{"id":"401","action":"taint","toggle":"on"}'

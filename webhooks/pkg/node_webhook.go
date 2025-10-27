@@ -332,8 +332,12 @@ func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error
 		oldNode.GetSpecWorkspace() != newNode.GetSpecWorkspace() {
 		return field.Forbidden(field.NewPath("spec").Key("workspace"), "immutable")
 	}
+	if oldNode.Spec.PrivateIP != newNode.Spec.PrivateIP && v1.IsControlPlane(newNode) {
+		return field.Forbidden(field.NewPath("spec").Key("privateIP"), "immutable")
+	}
 	return nil
 }
+
 func getNode(ctx context.Context, cli client.Client, nodeId string) (*v1.Node, error) {
 	if nodeId == "" {
 		return nil, nil
