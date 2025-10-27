@@ -241,8 +241,11 @@ func newDefaultRegistryClient(plainHTTP bool, settings *cli.EnvSettings) (*regis
 
 // shouldIgnoreUpgrade: determines whether a Helm upgrade should be skipped
 func shouldIgnoreUpgrade(addon *v1.Addon) bool {
-	if addon.Status.AddonSourceStatus.HelmRepositoryStatus == nil {
-		return true
+	if addon.Status.AddonSourceStatus.HelmRepositoryStatus != nil {
+		if addon.Status.AddonSourceStatus.HelmRepositoryStatus.Status == v1.AddonFailed ||
+			addon.Status.AddonSourceStatus.HelmRepositoryStatus.Status == v1.AddonError {
+			return false
+		}
 	}
 	if addon.Spec.AddonSource.HelmRepository.Values != "" {
 		var diff func(values, values2 map[string]interface{}) bool

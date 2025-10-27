@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v2"
 	"helm.sh/helm/v3/pkg/action"
@@ -58,6 +59,10 @@ func SetupAddonController(mgr manager.Manager) error {
 
 // Reconcile: processes Addon resources by installing, upgrading, or uninstalling Helm charts
 func (r *AddonController) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
+	startTime := time.Now().UTC()
+	defer func() {
+		klog.Infof("Finished reconcile addon %s cost (%v)", req.Name, time.Since(startTime))
+	}()
 	addon := &v1.Addon{}
 	err := r.Get(ctx, req.NamespacedName, addon)
 	if err != nil {

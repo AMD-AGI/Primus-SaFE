@@ -115,6 +115,11 @@ func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cl
 // reset: handles the reset process for a cluster's control plane
 // It manages the deletion phase and reset worker pod creation
 func (r *ClusterReconciler) reset(ctx context.Context, cluster *v1.Cluster, hostsContent *HostTemplateContent) error {
+	originalCluster := client.MergeFrom(cluster.DeepCopy())
+	if hostsContent == nil {
+		cluster.Status.ControlPlaneStatus.Phase = v1.DeletedPhase
+		return r.Status().Patch(ctx, cluster, originalCluster)
+	}
 	if cluster.Status.ControlPlaneStatus.Phase == v1.DeletedPhase {
 		if err := r.patchKubeControlPlanNodes(ctx, cluster); err != nil {
 			return err
@@ -122,7 +127,6 @@ func (r *ClusterReconciler) reset(ctx context.Context, cluster *v1.Cluster, host
 		return nil
 	}
 
-	originalCluster := client.MergeFrom(cluster.DeepCopy())
 	if cluster.Status.ControlPlaneStatus.Phase == v1.CreationFailed || cluster.Status.ControlPlaneStatus.Phase == v1.PendingPhase {
 		cluster.Status.ControlPlaneStatus.Phase = v1.DeletedPhase
 	} else {
@@ -141,6 +145,8 @@ func (r *ClusterReconciler) reset(ctx context.Context, cluster *v1.Cluster, host
 		if err != nil {
 			return err
 		}
+		originalCluster := client.MergeFrom(cluster.DeepCopy())
+
 		if pod.Status.Phase == corev1.PodSucceeded {
 			cluster.Status.ControlPlaneStatus.Phase = v1.DeletedPhase
 		} else if pod.Status.Phase == corev1.PodFailed {
@@ -374,10 +380,10 @@ func (r *ClusterReconciler) patchMachineNode(ctx context.Context, cluster *v1.Cl
 			node.Labels = map[string]string{}
 		}
 		node.Spec.Cluster = &cluster.Name
-		node.OwnerReferences = addOwnerReferences(node.OwnerReferences, cluster)
+		// node.OwnerReferences = addOwnerReferences(node.OwnerReferences, cluster)
 	} else if cluster.Status.ControlPlaneStatus.Phase == v1.DeletedPhase {
 		node.Spec.Cluster = nil
-		node.OwnerReferences = utils.RemoveOwnerReferences(node.OwnerReferences, cluster.UID)
+		// node.OwnerReferences = utils.RemoveOwnerReferences(node.OwnerReferences, cluster.UID)
 		klog.Infof("nodes %s remove  owner references", node.Name)
 	} else {
 		return nil

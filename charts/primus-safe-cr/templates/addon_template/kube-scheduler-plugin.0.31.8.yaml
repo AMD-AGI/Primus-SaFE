@@ -1,0 +1,23 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "kube-scheduler-plugins-0.38.1"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+  name: kube-scheduler-plugins-0.31.8
+spec:
+  category: plugin
+  description: Kubernetes scheduler plugin framework. 
+  url: oci://registry-1.docker.io/primussafe/scheduler-plugins
+  version: 0.31.8
+  type: helm
+  helmDefaultNamespace: kube-system
+
