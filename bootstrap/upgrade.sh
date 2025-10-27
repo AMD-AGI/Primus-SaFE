@@ -46,6 +46,7 @@ echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
 echo "✅ Storage Class: \"$storage_class\""
+echo "✅ Proxy Image Registry: \"$proxy_image_registry\""
 echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
@@ -113,6 +114,8 @@ sed -i '/ssh:/,/^[a-z]/ s/enable: .*/enable: '"$ssh_enable"'/' "$values_yaml"
 if [[ "$ssh_enable" == "true" ]]; then
   sed -i '/^ssh:/,/^[a-z]/ s#server_ip: ".*"#server_ip: "'"$ssh_server_ip"'"#' "$values_yaml"
 fi
+sed -i "s/image_repository: \".*\"/image_repository: \"$proxy_image_registry\"/" "$values_yaml"
+
 
 chart_name="primus-safe"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then

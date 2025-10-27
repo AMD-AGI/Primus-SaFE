@@ -50,7 +50,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: app
-          image: docker.io/primussafe/{{ .Values.web.image }}
+          image: {{ .Values.global.image_repository }}/primussafe/{{ .Values.web.image }}
           ports:
             - containerPort: 80
           resources:
