@@ -30,6 +30,10 @@ const (
 	opensearchEndpointTemplate = "%s://%s.%s.svc.cluster.local:9200"
 )
 
+var (
+	multiClusterClients = map[string]*SearchClient{}
+)
+
 var schemes = &runtime.SchemeBuilder{
 	corev1.AddToScheme,
 	v1.AddToScheme,
@@ -37,10 +41,6 @@ var schemes = &runtime.SchemeBuilder{
 
 var (
 	scheme *runtime.Scheme
-)
-
-var (
-	multiClusterClients = map[string]*SearchClient{}
 )
 
 func GetOpensearchClient(clusterName string) *SearchClient {

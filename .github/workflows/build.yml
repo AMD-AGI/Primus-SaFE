@@ -134,6 +134,7 @@ jobs:
           DOCKERIO_REPOSITORY: docker.io/primussafe
           HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
+          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
         run: |
           set -e
           echo "🚧 Building ${{ matrix.name }}..."
@@ -146,15 +147,17 @@ jobs:
             --build-arg APPNAME=${{ matrix.name }} \
             --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
             -t ${{ matrix.name }}:${IMAGE_VERSION} \
-            -t ${{ matrix.name }}:latest \
+            -t ${{ matrix.name }}:${DATE_TIME} \
             -f ${{ matrix.dockerfile_path }} .
 
           for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
-            echo "🚀 Pushing ${{ matrix.name }} to $repo... Image Version ${IMAGE_VERSION}"
+            echo "🚀 Pushing ${{ matrix.name }} to $repo..."
             buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${repo}/${{ matrix.name }}:${IMAGE_VERSION}
-            buildah tag ${{ matrix.name }}:latest ${repo}/${{ matrix.name }}:latest
+            buildah tag ${{ matrix.name }}:${DATE_TIME} ${repo}/${{ matrix.name }}:${DATE_TIME}
+            echo "Pushing tags: ${repo}/${{ matrix.name }}:${IMAGE_VERSION}"
             buildah push --tls-verify=false ${repo}/${{ matrix.name }}:${IMAGE_VERSION}
-            buildah push --tls-verify=false ${repo}/${{ matrix.name }}:latest
+            echo "Pushing tags: ${repo}/${{ matrix.name }}:${DATE_TIME}"
+            buildah push --tls-verify=false ${repo}/${{ matrix.name }}:${DATE_TIME}
           done
 
 
