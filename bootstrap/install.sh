@@ -94,6 +94,7 @@ if [[ "$build_image_secret" == "y" ]]; then
 fi
 
 ingress=$(get_input_with_default "Enter the ingress name (nginx/higress): " "nginx")
+sub_domain=""
 if [[ "$ingress" == "higress" ]]; then
   sub_domain=$(get_input_with_default "Enter domain name(lowercase with hyphen): " "amd")
 fi
