@@ -27,6 +27,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 type PreflightJobReconciler struct {
@@ -211,7 +212,7 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			Annotations: map[string]string{
 				v1.UserNameAnnotation: common.UserSystem,
 				// Dispatch the workload immediately, skipping the queue.
-				v1.WorkloadScheduledAnnotation: time.Now().UTC().Format(time.RFC3339),
+				v1.WorkloadScheduledAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
 			},
 		},
 		Spec: v1.WorkloadSpec{

@@ -519,7 +519,7 @@ func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 		SecretId:          secret.Name,
 		SecretName:        v1.GetDisplayName(secret),
 		Type:              v1.GetSecretType(secret),
-		CreationTime:      timeutil.FormatRFC3339(&secret.CreationTimestamp.Time),
+		CreationTime:      timeutil.FormatRFC3339(secret.CreationTimestamp.Time),
 		BindAllWorkspaces: v1.IsSecretBindAllWorkspaces(secret),
 	}
 

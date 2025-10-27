@@ -195,7 +195,7 @@ func cvtImageToResponse(images []*model.Image, os, arch string) []GetImageRespon
 		artifact := ArtifactItem{
 			ImageTag:    tag,
 			Description: image.Description,
-			CreatedTime: timeutil.FormatRFC3339(&image.CreatedAt),
+			CreatedTime: timeutil.FormatRFC3339(image.CreatedAt),
 			UserName:    image.CreatedBy,
 			Status:      image.Status,
 			Id:          image.ID,

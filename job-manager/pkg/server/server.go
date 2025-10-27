@@ -32,12 +32,17 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
+// Server represents the main server that manages the job manager lifecycle
 type Server struct {
 	opts       *options.Options
 	jobManager *JobManager
 	isInited   bool
 }
 
+// NewServer creates and initializes a new Server instance
+// Returns:
+//   - *Server: The initialized server instance
+//   - error: Any error encountered during initialization
 func NewServer() (*Server, error) {
 	s := &Server{
 		opts: &options.Options{},
@@ -48,6 +53,10 @@ func NewServer() (*Server, error) {
 	return s, nil
 }
 
+// init performs the initialization of the server components
+// Initializes flags, logs, config, and job manager
+// Returns:
+//   - error: Any error encountered during initialization
 func (s *Server) init() error {
 	var err error
 	if err = s.opts.InitFlags(); err != nil {
@@ -70,9 +79,11 @@ func (s *Server) init() error {
 	return nil
 }
 
+// Start begins the server operation by starting the job manager
+// This method blocks until the server is stopped
 func (s *Server) Start() {
 	if !s.isInited {
-		klog.Error("pls init job manager first!")
+		klog.Error("please init job manager first!")
 		return
 	}
 	klog.Infof("starting job manager")
@@ -84,11 +95,17 @@ func (s *Server) Start() {
 	s.Stop()
 }
 
+// Stop performs cleanup operations when the server shuts down
+// Flushes logs and logs the stop event
 func (s *Server) Stop() {
 	klog.Info("job manager stopped")
 	klog.Flush()
 }
 
+// initLogs initializes the logging system for the server
+// Configures log file path and size, and sets the controller runtime logger
+// Returns:
+//   - error: Any error encountered during log initialization
 func (s *Server) initLogs() error {
 	if err := commonklog.Init(s.opts.LogfilePath, s.opts.LogFileSize); err != nil {
 		return err
@@ -97,6 +114,10 @@ func (s *Server) initLogs() error {
 	return nil
 }
 
+// initConfig loads and initializes the server configuration
+// Resolves the absolute path of the config file and loads it
+// Returns:
+//   - error: Any error encountered during config initialization
 func (s *Server) initConfig() error {
 	fullPath, err := filepath.Abs(s.opts.Config)
 	if err != nil {

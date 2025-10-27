@@ -106,7 +106,7 @@ func (r *WorkloadTTLController) handle(ctx context.Context, workload *v1.Workloa
 
 	switch {
 	case workload.IsEnd():
-		ttlSeconds := *workload.Spec.TTLSecondsAfterFinished
+		ttlSeconds := workload.GetTTLSecond()
 		elapsedSeconds := ttlSeconds
 		if workload.Status.EndTime != nil {
 			elapsedSeconds = int(nowTime.Sub(workload.Status.EndTime.Time).Seconds())

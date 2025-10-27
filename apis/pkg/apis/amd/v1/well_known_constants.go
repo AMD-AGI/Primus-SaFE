@@ -27,7 +27,7 @@ const (
 	DescriptionAnnotation   = PrimusSafePrefix + "description"
 	ProtectLabel            = PrimusSafePrefix + "protect"
 	MainContainerAnnotation = PrimusSafePrefix + "main.container"
-	
+
 	// node
 	NodePrefix    = PrimusSafePrefix + "node."
 	NodeFinalizer = PrimusSafeDomain + "node.finalizer"
@@ -90,6 +90,7 @@ const (
 	WorkloadReScheduledAnnotation     = WorkloadPrefix + "rescheduled"
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
+	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."
