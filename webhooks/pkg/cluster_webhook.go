@@ -120,6 +120,9 @@ func (v *ClusterValidator) validateControlPlane(ctx context.Context, cluster *v1
 	if err := v.validateNodesInUse(ctx, cluster); err != nil {
 		return err
 	}
+	if err := v.validateNodesReady(ctx, cluster); err != nil {
+		return err
+	}
 	if cluster.Spec.ControlPlane.KubePodsSubnet == nil || *cluster.Spec.ControlPlane.KubePodsSubnet == "" {
 		return fmt.Errorf("the KubePodsSubnet of spec is empty")
 	}
@@ -151,6 +154,21 @@ func (v *ClusterValidator) validateNodesInUse(ctx context.Context, cluster *v1.C
 	for _, n := range cluster.Spec.ControlPlane.Nodes {
 		if currentNodesSet.Has(n) {
 			return commonerrors.NewAlreadyExist(fmt.Sprintf("the node(%s) is already in use", n))
+		}
+	}
+	return nil
+}
+
+// validateNodesReady checks if any node in the cluster's control plane is already ready.
+// If a node is not ready, it returns an error indicating Cluster creation failed.
+func (v *ClusterValidator) validateNodesReady(ctx context.Context, cluster *v1.Cluster) error {
+	for _, n := range cluster.Spec.ControlPlane.Nodes {
+		adminNode, err := getNode(ctx, v.Client, n)
+		if err != nil {
+			return err
+		}
+		if !adminNode.IsMachineReady() {
+			return commonerrors.NewForbidden(fmt.Sprintf("the node(%s) is not ready", n))
 		}
 	}
 	return nil

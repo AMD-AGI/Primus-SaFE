@@ -43,15 +43,18 @@ func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cl
 		return nil
 	}
 	if err := r.patchKubeControlPlanNodes(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to patch control plane nodes", "cluster", cluster.Name)
 		return err
 	}
 	if err := r.fetchProvisionedClusterKubeConfig(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to fetch cluster kubeconfig", "cluster", cluster.Name)
 		return err
 	}
 
 	if guaranteeControllerPlane(cluster) {
 		hostsContent, err := r.generateHosts(ctx, cluster, nil)
 		if err != nil {
+			klog.ErrorS(err, "failed to generate hosts content", "cluster", cluster.Name)
 			if !cluster.DeletionTimestamp.IsZero() {
 				klog.Infof("delete %s finalizer", v1.ClusterFinalizer)
 				var ok bool
@@ -77,11 +80,13 @@ func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cl
 		if cluster.Spec.ControlPlane.SSHSecret == nil {
 			err = r.generateSSHSecret(ctx, cluster)
 			if err != nil {
+				klog.ErrorS(err, "failed to generate ssh secret", "cluster", cluster.Name)
 				return err
 			}
 		}
 		pod, err := r.guaranteeCreateWorkerPodCreated(ctx, cluster, hostsContent)
 		if err != nil {
+			klog.ErrorS(err, "failed to create worker pod for cluster creation", "cluster", cluster.Name)
 			return err
 		}
 		if pod != nil {
@@ -285,12 +290,12 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 	session.Stdout = &b
 
 	if err = session.Run(fmt.Sprintf("sudo cat %s", ProvisionedKubeConfigPath)); err != nil {
-		klog.Infof("cluster get %s config failed  %v", ProvisionedKubeConfigPath, err)
+		klog.ErrorS(err, "failed to get %s config", ProvisionedKubeConfigPath, "cluster", cluster.Name)
 		return nil
 	}
 	config, err := clientcmd.Load(b.Bytes())
 	if err != nil {
-		klog.Errorf("load config failed %+v", err)
+		klog.ErrorS(err, "failed to load config", "cluster", cluster.Name)
 		return nil
 	}
 	conf, err := clientcmd.NewNonInteractiveClientConfig(*config, "", &clientcmd.ConfigOverrides{}, nil).ClientConfig()
@@ -300,12 +305,12 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 	conf.Host = fmt.Sprintf("https://%s:%d", node.Spec.PrivateIP, DefaultApiserverPort)
 	cli, err := k8sclient.NewClientSetWithRestConfig(conf)
 	if err != nil {
-		klog.Errorf("NewForConfig failed %+v", err)
+		klog.ErrorS(err, "failed to newForConfig", "cluster", cluster.Name)
 		return nil
 	}
 	_, err = cli.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		klog.Errorf("list node failed %+v", err)
+		klog.ErrorS(err, "failed to list node", "cluster", cluster.Name)
 		return nil
 	}
 	originalCluster := client.MergeFrom(cluster.DeepCopy())
