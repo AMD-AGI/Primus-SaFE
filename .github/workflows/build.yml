@@ -136,7 +136,7 @@ jobs:
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
         run: |
           set -e
-          echo "🚧 Building ${{ matrix.name }}..."
+          echo "🚧 Building ${{ matrix.name }}..." >> $GITHUB_OUTPUT
 
           buildah bud \
             --layers \
@@ -150,6 +150,7 @@ jobs:
             -f ${{ matrix.dockerfile_path }} .
 
           for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
+            echo "🚀 Pushing ${{ matrix.name }} to $repo... Image Version ${IMAGE_VERSION}" >> $GITHUB_OUTPUT
             buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${repo}/${{ matrix.name }}:${IMAGE_VERSION}
             buildah tag ${{ matrix.name }}:latest ${repo}/${{ matrix.name }}:latest
             buildah push --tls-verify=false ${repo}/${{ matrix.name }}:${IMAGE_VERSION}
