@@ -905,7 +905,12 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 		result.EndTime = result.DeletionTime
 	}
 	if startTime := dbutils.ParseNullTime(w.StartTime); !startTime.IsZero() {
-		result.RunTime = timeutil.FormatDuration(int64(time.Since(startTime).Seconds()))
+		endTime, err := timeutil.CvtStrToRFC3339Milli(result.EndTime)
+		nowTime := time.Now().UTC()
+		if err != nil || endTime.After(nowTime) {
+			endTime = nowTime
+		}
+		result.RunTime = timeutil.FormatDuration(int64(endTime.Sub(startTime).Seconds()))
 	} else {
 		result.RunTime = "0s"
 	}
@@ -918,6 +923,8 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 			if result.SecondsUntilTimeout < 0 {
 				result.SecondsUntilTimeout = 0
 			}
+		} else {
+			result.SecondsUntilTimeout = -1
 		}
 	}
 	if result.Phase == string(v1.WorkloadPending) {

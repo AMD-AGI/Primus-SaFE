@@ -48,6 +48,7 @@ func CvtTime3339ToCronStandard(timeStr string) (string, time.Time, error) {
 	if err != nil {
 		return "", time.Time{}, err
 	}
+	t = t.Truncate(time.Minute)
 	scheduleStr := fmt.Sprintf("%d %d %d %d *", t.Minute(), t.Hour(), t.Day(), t.Month())
 	return scheduleStr, t, nil
 }
@@ -62,14 +63,18 @@ func CvtTimeOnlyToCronStandard(timeStr string) (string, time.Time, error) {
 	return scheduleStr, t, nil
 }
 
-// CvtStrToRFC3339Milli converts a RFC3339 millisecond format string to UTC time.Time
+// CvtStrToRFC3339Milli converts a RFC3339 millisecond format string or RFC3339 short format string to UTC time.Time
+// Returns an error if the input time string cannot be parsed in either format.
 func CvtStrToRFC3339Milli(timeStr string) (time.Time, error) {
 	if timeStr == "" {
 		return time.Time{}, fmt.Errorf("invalid input")
 	}
 	t, err := time.Parse(TimeRFC3339Milli, timeStr)
 	if err != nil {
-		return time.Time{}, err
+		t, err = time.Parse(TimeRFC3339Short, timeStr)
+		if err != nil {
+			return time.Time{}, err
+		}
 	}
 	return t, nil
 }
