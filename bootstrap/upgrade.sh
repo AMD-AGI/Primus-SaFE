@@ -51,13 +51,13 @@ echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Endpoint: \"$s3_endpoint\""
 fi
-echo "✅ Ingress Name: \"$ingress\""
-if [[ "$ingress" == "higress" ]]; then
-  echo "✅ Domain Name: \"$sub_domain\""
-fi
 echo "✅ Support ssh: \"$ssh_enable\""
 if [[ "$ssh_enable" == "true" ]]; then
   echo "✅ SSH Server IP: \"$ssh_server_ip\""
+fi
+echo "✅ Ingress Name: \"$ingress\""
+if [[ "$ingress" == "higress" ]]; then
+  echo "✅ Domain Name: \"$sub_domain\""
 fi
 
 echo

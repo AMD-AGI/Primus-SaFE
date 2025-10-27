@@ -83,6 +83,16 @@ if [[ "$s3_enable" == "true" ]]; then
   fi
 fi
 
+support_ssh=$(get_input_with_default "Support ssh ? (y/n): " "n")
+ssh_enable=$(convert_to_boolean "$support_ssh")
+ssh_server_ip=""
+if [[ "$ssh_enable" == "true" ]]; then
+  ssh_server_ip=$(get_input_with_default "Enter ssh server ip(empty to disable ssh): " "")
+  if [ -z "$ssh_server_ip" ]; then
+    ssh_enable="false"
+  fi
+fi
+
 build_image_secret=$(get_input_with_default "Create image pull secret ? (y/n): " "n")
 image_registry=""
 image_username=""
@@ -99,16 +109,6 @@ if [[ "$ingress" == "higress" ]]; then
   sub_domain=$(get_input_with_default "Enter domain name(lowercase with hyphen): " "amd")
 fi
 
-support_ssh=$(get_input_with_default "Support ssh ? (y/n): " "n")
-ssh_enable=$(convert_to_boolean "$support_ssh")
-ssh_server_ip=""
-if [[ "$ssh_enable" == "true" ]]; then
-  ssh_server_ip=$(get_input_with_default "Enter ssh server ip(empty to disable ssh): " "")
-  if [ -z "$ssh_server_ip" ]; then
-    ssh_enable="false"
-  fi
-fi
-
 echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
@@ -118,6 +118,10 @@ echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Endpoint: \"$s3_endpoint\""
 fi
+echo "✅ Support ssh: \"$ssh_enable\""
+if [[ "$ssh_enable" == "true" ]]; then
+  echo "✅ SSH Server IP: \"$ssh_server_ip\""
+fi
 if [[ "$build_image_secret" == "y" ]]; then
   echo "✅ Image registry: \"$image_registry\""
   echo "✅ Image username: \"$image_username\""
@@ -125,10 +129,6 @@ fi
 echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
   echo "✅ Domain Name: \"$sub_domain\""
-fi
-echo "✅ Support ssh: \"$ssh_enable\""
-if [[ "$ssh_enable" == "true" ]]; then
-  echo "✅ SSH Server IP: \"$ssh_server_ip\""
 fi
 
 replicas=1
