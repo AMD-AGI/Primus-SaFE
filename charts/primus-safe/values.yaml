@@ -5,6 +5,7 @@
 global:
   domain: "safe-primus.ai"
   sub_domain: ""
+  image_registry: "docker.io"
   image_pull_secret: "primus-safe-image"
   storage_class: "local-path"
   ingress: "nginx"

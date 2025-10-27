@@ -93,7 +93,7 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: spec.nodeName
-          image: docker.io/primussafe/{{ .Values.node_agent.image }}
+          image: {{ .Values.node_agent.image_registry }}/primussafe/{{ .Values.node_agent.image }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/node-agent/run.sh"]
           name: node-agent

@@ -19,6 +19,23 @@ During installation, you will be prompted to input various parameters including 
 If you need to set up a Kubernetes cluster first, you can use our team's another open-source component:
 [Primus-SaFE-Bootstrap](https://github.com/AMD-AGI/Primus-SaFE-Bootstrap)
 
+### Upgrading Primus-SaFE
+
+If you have previously executed `install.sh` and want to upgrade your Primus-SaFE deployment, you can use the `upgrade.sh` script:
+
+```bash
+cd bootstrap
+./upgrade.sh
+```
+
+
+The `upgrade.sh` script will:
+- Load parameters from the existing `.env` file created during installation
+- Upgrade all Helm charts with the preserved configuration
+- Maintain your existing settings and customization
+
+> ⚠️ **Note**: The upgrade script only applies if `install.sh` has been previously executed and the environment configuration and code directory have not changed.
+
 ### System Requirements
 
 - Helm 3+
