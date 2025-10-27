@@ -45,18 +45,21 @@ fi
 echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
-echo "✅ Cluster Name: \"$sub_domain\""
 echo "✅ Storage Class: \"$storage_class\""
 echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Endpoint: \"$s3_endpoint\""
 fi
+echo "✅ Ingress Name: \"$ingress\""
+if [[ "$ingress" == "higress" ]]; then
+  echo "✅ Domain Name: \"$sub_domain\""
+fi
 echo "✅ Support ssh: \"$ssh_enable\""
 if [[ "$ssh_enable" == "true" ]]; then
-  echo "✅ SSH Server Ip: \"$ssh_server_ip\""
+  echo "✅ SSH Server IP: \"$ssh_server_ip\""
 fi
-echo "✅ Ingress: \"$ingress\""
+
 echo
 
 replicas=1

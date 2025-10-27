@@ -95,7 +95,7 @@ fi
 
 ingress=$(get_input_with_default "Enter the ingress name (nginx/higress): " "nginx")
 if [[ "$ingress" == "higress" ]]; then
-  sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
+  sub_domain=$(get_input_with_default "Enter domain name(lowercase with hyphen): " "amd")
 fi
 
 support_ssh=$(get_input_with_default "Support ssh ? (y/n): " "n")
@@ -111,9 +111,7 @@ fi
 echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
-echo "✅ Cluster Name: \"$sub_domain\""
 echo "✅ Storage Class: \"$storage_class\""
-echo "✅ SSH Server IP: \"$ssh_server_ip\""
 echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
@@ -122,6 +120,14 @@ fi
 if [[ "$build_image_secret" == "y" ]]; then
   echo "✅ Image registry: \"$image_registry\""
   echo "✅ Image username: \"$image_username\""
+fi
+echo "✅ Ingress Name: \"$ingress\""
+if [[ "$ingress" == "higress" ]]; then
+  echo "✅ Domain Name: \"$sub_domain\""
+fi
+echo "✅ Support ssh: \"$ssh_enable\""
+if [[ "$ssh_enable" == "true" ]]; then
+  echo "✅ SSH Server IP: \"$ssh_server_ip\""
 fi
 
 replicas=1
@@ -204,7 +210,9 @@ sed -i "s/replicas: [0-9]*/replicas: $replicas/" "$values_yaml"
 sed -i "s/^.*cpu:.*/  cpu: $cpu/" "$values_yaml"
 sed -i "s/^.*memory:.*/  memory: $memory/" "$values_yaml"
 sed -i "s/^.*storage_class:.*/  storage_class: \"$storage_class\"/" "$values_yaml"
-sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
+if [[ "$ingress" == "higress" ]]; then
+  sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
+fi
 sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
@@ -281,11 +289,11 @@ ethernet_nic=$ethernet_nic
 rdma_nic=$rdma_nic
 cluster_scale=$cluster_scale
 storage_class=$storage_class
-sub_domain=$sub_domain
 lens_enable=$lens_enable
 s3_enable=$s3_enable
 s3_endpoint=$s3_endpoint
+ingress=$ingress
+sub_domain=$sub_domain
 ssh_enable=$ssh_enable
 ssh_server_ip=$ssh_server_ip
-ingress=$ingress
 EOF
