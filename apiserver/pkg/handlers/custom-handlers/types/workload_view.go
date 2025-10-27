@@ -105,6 +105,7 @@ type WorkloadResponseItem struct {
 	// The workload run time, Calculated from the start time. such as 1h2m3s or 1h15s
 	RunTime string `json:"runTime"`
 	// Seconds remaining before workload timeout. Only applicable if a timeout is set.
+	// This is calculated from when the workload starts running. If it has not yet started, return -1.
 	SecondsUntilTimeout int64 `json:"secondsUntilTimeout"`
 	// Show the queue position of the workload if it is pending.
 	SchedulerOrder int `json:"schedulerOrder"`

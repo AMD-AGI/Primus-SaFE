@@ -99,6 +99,7 @@ type Service struct {
 
 type CronJob struct {
 	// Scheduled execution time, such as "2025-09-30T16:04:00.000Z" or "0 3 * * *"
+	// Note: Only minute-level input is supported; seconds are not supported.
 	Schedule string `json:"schedule"`
 	// The action to take when the schedule is triggered. such as start or scale
 	Action CronAction `json:"action"`
