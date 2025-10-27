@@ -83,7 +83,7 @@ func ParseNullString(str sql.NullString) string {
 
 func ParseNullTimeToString(t pq.NullTime) string {
 	if t.Valid && !t.Time.IsZero() {
-		return timeutil.FormatRFC3339(&t.Time)
+		return timeutil.FormatRFC3339(t.Time)
 	}
 	return ""
 }

@@ -19,7 +19,7 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
-// IsUnrecoverableError: checks if an error is non-retryable based on error type
+// IsUnrecoverableError checks if an error is non-retryable based on error type
 func IsUnrecoverableError(err error) bool {
 	if err == nil {
 		return false
@@ -33,7 +33,7 @@ func IsUnrecoverableError(err error) bool {
 	return false
 }
 
-// FindCondition: finds the condition of the workload and checks if there is one with the same type and reason
+// FindCondition finds the condition of the workload and checks if there is one with the same type and reason
 func FindCondition(workload *v1.Workload, condition *metav1.Condition) *metav1.Condition {
 	for i, currentCondition := range workload.Status.Conditions {
 		if currentCondition.Type == condition.Type && currentCondition.Reason == condition.Reason {
@@ -43,7 +43,7 @@ func FindCondition(workload *v1.Workload, condition *metav1.Condition) *metav1.C
 	return nil
 }
 
-// NewCondition: creates a new condition with the specified type, message, and reason
+// NewCondition creates a new condition with the specified type, message, and reason
 func NewCondition(conditionType, message, reason string) *metav1.Condition {
 	return &metav1.Condition{
 		Type:               conditionType,
@@ -54,7 +54,16 @@ func NewCondition(conditionType, message, reason string) *metav1.Condition {
 	}
 }
 
-// SetWorkloadFailed: sets the workload to failed state and updates its status
+// SetWorkloadFailed sets the workload to failed state and updates its status.
+// It adds a failure condition and sets the end time if not already set.
+// Parameters:
+//   - ctx: context for the operation
+//   - cli: kubernetes client for updating the workload
+//   - workload: the workload to set as failed
+//   - message: failure message to include in the condition
+// Returns:
+//   - error: any error encountered during the update
+
 func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Workload, message string) error {
 	workload.Status.Phase = v1.WorkloadFailed
 	if workload.Status.EndTime == nil {
@@ -63,6 +72,7 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 
 	dispatchCount := v1.GetWorkloadDispatchCnt(workload)
 	if dispatchCount == 0 {
+		// Default to 1 for initial failure
 		dispatchCount = 1
 	}
 	condition := NewCondition(string(v1.AdminFailed), message, commonworkload.GenerateDispatchReason(dispatchCount))

@@ -45,14 +45,21 @@ fi
 echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
-echo "✅ Cluster Name: \"$sub_domain\""
 echo "✅ Storage Class: \"$storage_class\""
-echo "✅ SSH Server IP: \"$ssh_server_ip\""
 echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Endpoint: \"$s3_endpoint\""
 fi
+echo "✅ Support ssh: \"$ssh_enable\""
+if [[ "$ssh_enable" == "true" ]]; then
+  echo "✅ SSH Server IP: \"$ssh_server_ip\""
+fi
+echo "✅ Ingress Name: \"$ingress\""
+if [[ "$ingress" == "higress" ]]; then
+  echo "✅ Cluster Name: \"$sub_domain\""
+fi
+
 echo
 
 replicas=1
@@ -89,9 +96,6 @@ sed -i "s/replicas: [0-9]*/replicas: $replicas/" "$values_yaml"
 sed -i "s/^.*cpu:.*/  cpu: $cpu/" "$values_yaml"
 sed -i "s/^.*memory:.*/  memory: $memory/" "$values_yaml"
 sed -i "s/^.*storage_class:.*/  storage_class: \"$storage_class\"/" "$values_yaml"
-if [ -n "$ssh_server_ip" ]; then
-  sed -i '/ssh:/,/^[a-z]/ s/server_ip: .*/server_ip: '"$ssh_server_ip"'/' "$values_yaml"
-fi
 sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
 sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
@@ -104,7 +108,11 @@ if [[ "$lens_enable" == "true" ]]; then
   sed -i '/^grafana:/,/^[a-z]/ s#password: ".*"#password: "'"$pg_password"'"#' "$values_yaml"
 fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
-
+sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
+sed -i '/ssh:/,/^[a-z]/ s/enable: .*/enable: '"$ssh_enable"'/' "$values_yaml"
+if [[ "$ssh_enable" == "true" ]]; then
+  sed -i '/^ssh:/,/^[a-z]/ s#server_ip: ".*"#server_ip: "'"$ssh_server_ip"'"#' "$values_yaml"
+fi
 
 chart_name="primus-safe"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then

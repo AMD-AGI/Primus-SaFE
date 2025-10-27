@@ -255,6 +255,10 @@ func GetSecretType(obj metav1.Object) string {
 	return GetLabel(obj, SecretTypeLabel)
 }
 
+func GetCronjobTimestamp(obj metav1.Object) string {
+	return GetAnnotation(obj, CronJobTimestampAnnotation)
+}
+
 func IsSecretBindAllWorkspaces(obj metav1.Object) bool {
 	return GetLabel(obj, SecretAllWorkspaceLabel) == TrueStr
 }

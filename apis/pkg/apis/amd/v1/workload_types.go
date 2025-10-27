@@ -14,6 +14,7 @@ import (
 )
 
 type WorkloadPhase string
+type CronAction string
 
 const (
 	WorkloadKind = "Workload"
@@ -27,6 +28,9 @@ const (
 	// only for deployment/statefulSet
 	WorkloadNotReady WorkloadPhase = "NotReady"
 	WorkloadStopped  WorkloadPhase = "Stopped"
+
+	CronStart CronAction = "start"
+	CronScale CronAction = "scale"
 )
 
 type WorkloadConditionType string
@@ -93,9 +97,11 @@ type Service struct {
 	Extends map[string]string `json:"extends,omitempty"`
 }
 
-type CronSchedule struct {
-	// Cron expression for scheduled workloads, such as "0 1 23 10 *"
+type CronJob struct {
+	// Scheduled execution time, such as "2025-09-30T16:04:00.000Z" or "0 3 * * *"
 	Schedule string `json:"schedule"`
+	// The action to take when the schedule is triggered. such as start or scale
+	Action CronAction `json:"action"`
 }
 
 type WorkloadSpec struct {
@@ -115,8 +121,6 @@ type WorkloadSpec struct {
 	Env map[string]string `json:"env,omitempty"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised,omitempty"`
-	// If enabled, the workload will be suspended; when disabled, it will automatically resume its state and re-enter the queue.
-	IsSuspended bool `json:"isSuspended,omitempty"`
 	// Group: An extension field that is not currently in use
 	// Version: version of workload, default value is v1
 	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default is PyTorchJob
@@ -147,8 +151,8 @@ type WorkloadSpec struct {
 	// before this Workload can start execution. If any dependency fails, this Workload
 	// will not be scheduled and is considered failed.
 	Dependencies []string `json:"dependencies,omitempty"`
-	// Scheduled workload configuration
-	CronSchedules []CronSchedule `json:"cronSchedules,omitempty"`
+	// Cron Job configuration
+	CronJobs []CronJob `json:"cronJobs,omitempty"`
 }
 
 type WorkloadStatus struct {
@@ -272,10 +276,6 @@ func (w *Workload) IsEnd() bool {
 	return false
 }
 
-func (w *Workload) IsSuspended() bool {
-	return w.Spec.IsSuspended
-}
-
 func (w *Workload) ElapsedTime() int64 {
 	var elapsedTime time.Duration
 	if w.IsEnd() {
@@ -309,6 +309,13 @@ func (w *Workload) GetTimeout() int {
 		return 0
 	}
 	return *w.Spec.Timeout
+}
+
+func (w *Workload) GetTTLSecond() int {
+	if w.Spec.TTLSecondsAfterFinished == nil {
+		return 0
+	}
+	return *w.Spec.TTLSecondsAfterFinished
 }
 
 func (w *Workload) GetLastCondition() *metav1.Condition {
@@ -352,6 +359,13 @@ func (w *Workload) GetDependenciesPhase(workloadId string) (WorkloadPhase, bool)
 	}
 	phase, ok := w.Status.DependenciesPhase[workloadId]
 	return phase, ok
+}
+
+func (w *Workload) HasScheduled() bool {
+	if IsWorkloadScheduled(w) || GetWorkloadDispatchCnt(w) > 0 {
+		return true
+	}
+	return false
 }
 
 // IsDependenciesFinish checks if all dependencies are finished.

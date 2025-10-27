@@ -2,7 +2,8 @@
 # Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
-{{- if .Values.grafana.enable }}
+
+{{- if eq .Values.global.ingress "nginx" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -63,7 +64,7 @@ metadata:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: primus-safe-nginx
