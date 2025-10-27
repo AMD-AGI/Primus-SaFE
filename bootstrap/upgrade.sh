@@ -57,7 +57,7 @@ if [[ "$ssh_enable" == "true" ]]; then
 fi
 echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
-  echo "✅ Domain Name: \"$sub_domain\""
+  echo "✅ Cluster Name: \"$sub_domain\""
 fi
 
 echo

@@ -106,7 +106,7 @@ fi
 ingress=$(get_input_with_default "Enter the ingress name (nginx/higress): " "nginx")
 sub_domain=""
 if [[ "$ingress" == "higress" ]]; then
-  sub_domain=$(get_input_with_default "Enter domain name(lowercase with hyphen): " "amd")
+  sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
 fi
 
 echo "✅ Ethernet nic: \"$ethernet_nic\""
@@ -128,7 +128,7 @@ if [[ "$build_image_secret" == "y" ]]; then
 fi
 echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
-  echo "✅ Domain Name: \"$sub_domain\""
+  echo "✅ Cluster Name: \"$sub_domain\""
 fi
 
 replicas=1
