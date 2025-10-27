@@ -51,7 +51,7 @@ spec:
       serviceAccountName: {{ .Release.Name }}
       containers:
         - name: {{ .Release.Name }}-webhooks
-          image: docker.io/primussafe/{{ .Values.webhooks.image }}
+          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.webhooks.image }}
           imagePullPolicy: Always
           command: ["/bin/sh", "/opt/primus-safe/webhooks/run.sh"]
           terminationMessagePath: /dev/termination-log

@@ -35,7 +35,7 @@ data:
       # The maximum percentage of ephemeral storage that can be used by a workload.
       max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
       # The default image for authoring
-      authoring_image: docker.io/primussafe/{{ .Values.authoring.image }}
+      authoring_image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.authoring.image }}
     db:
       # Whether to enable database, The database will store some historical data regarding workloads, faults, and ops jobs.
       enable: {{ .Values.db.enable }}
