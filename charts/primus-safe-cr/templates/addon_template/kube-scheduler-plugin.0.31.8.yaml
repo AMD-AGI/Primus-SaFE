@@ -12,12 +12,12 @@ metadata:
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-  name: kube-scheduler-plugins-0.38.1
+  name: kube-scheduler-plugins-0.31.8
 spec:
   category: plugin
   description: Kubernetes scheduler plugin framework. 
   url: oci://registry-1.docker.io/primussafe/scheduler-plugins
-  version: 0.38.1
+  version: 0.31.8
   type: helm
   helmDefaultNamespace: kube-system
 

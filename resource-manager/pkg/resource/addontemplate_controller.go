@@ -11,6 +11,7 @@ import (
 
 	"gopkg.in/yaml.v2"
 	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -63,53 +64,90 @@ func (r *AddonTemplateController) Reconcile(ctx context.Context, req ctrlruntime
 		}
 		return ctrlruntime.Result{}, err
 	}
+
 	if template.Spec.URL == "" || template.Status.HelmStatus.Values != "" {
 		return ctrlruntime.Result{}, nil
 	}
-	plainHTTP := false
-	settings := cli.New()
-	actionConfig := new(action.Configuration)
-	actionConfig.RegistryClient, err = newDefaultRegistryClient(plainHTTP, settings)
+
+	actionConfig, err := r.initializeActionConfig()
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
+
+	chart, err := r.fetchChart(template, actionConfig)
+	if err != nil {
+		klog.Errorf("loading chart failed: %v", err)
+		return ctrlruntime.Result{}, nil
+	}
+
+	return ctrlruntime.Result{}, r.updateTemplateStatus(ctx, template, chart)
+}
+
+// initializeActionConfig creates and initializes Helm action configuration
+func (r *AddonTemplateController) initializeActionConfig() (*action.Configuration, error) {
+	settings := cli.New()
 	settings.Debug = true
 
-	if err := actionConfig.Init(r.getter, v1.DefaultNamespace, helmDriver, klog.Infof); err != nil {
-		return ctrlruntime.Result{}, err
+	actionConfig := new(action.Configuration)
+	var err error
+	actionConfig.RegistryClient, err = newDefaultRegistryClient(false, settings)
+	if err != nil {
+		return nil, err
 	}
+
+	if err = actionConfig.Init(r.getter, v1.DefaultNamespace, helmDriver, klog.Infof); err != nil {
+		return nil, err
+	}
+
+	return actionConfig, nil
+}
+
+// fetchChart downloads and loads a Helm chart
+func (r *AddonTemplateController) fetchChart(template *v1.AddonTemplate, actionConfig *action.Configuration) (*chart.Chart, error) {
 	installClient := action.NewInstall(actionConfig)
 	installClient.Timeout = Timeout
 	installClient.Namespace = v1.DefaultNamespace
 	installClient.ReleaseName = template.Name
 	installClient.CreateNamespace = true
-	installClient.ChartPathOptions.PlainHTTP = plainHTTP
+	installClient.ChartPathOptions.PlainHTTP = false
 	installClient.ChartPathOptions.Version = template.Spec.Version
+
+	name := r.getChartName(template, installClient)
+	settings := cli.New()
+
+	chartRequested, err := installClient.ChartPathOptions.LocateChart(name, settings)
+	if err != nil {
+		return nil, err
+	}
+
+	return loader.Load(chartRequested)
+}
+
+// getChartName determines the chart name and configures repository URL if needed
+func (r *AddonTemplateController) getChartName(template *v1.AddonTemplate, installClient *action.Install) string {
 	name := template.Spec.URL
 	if !strings.HasPrefix(name, "oci://") {
 		name = template.Name
 		installClient.ChartPathOptions.RepoURL = template.Spec.URL
 	}
-	chartRequested, err := installClient.ChartPathOptions.LocateChart(name, settings)
-	if err != nil {
-		return ctrlruntime.Result{}, err
-	}
-	chart, err := loader.Load(chartRequested)
-	if err != nil {
-		klog.Errorf("loading chart failed: %v", err)
-		return ctrlruntime.Result{}, nil
-	}
+	return name
+}
+
+// updateTemplateStatus updates the template status with chart values
+func (r *AddonTemplateController) updateTemplateStatus(ctx context.Context, template *v1.AddonTemplate, chart *chart.Chart) error {
 	originalTemplate := client.MergeFrom(template.DeepCopy())
 	values, err := yaml.Marshal(chart.Values)
 	if err != nil {
-		return ctrlruntime.Result{}, err
+		return err
 	}
+
 	template.Status.HelmStatus.Values = string(values)
+
 	for _, raw := range chart.Raw {
 		if raw != nil && raw.Name == "values.yaml" {
 			template.Status.HelmStatus.ValuesYAML = string(raw.Data)
-
 		}
 	}
-	return ctrlruntime.Result{}, r.Status().Patch(ctx, template, originalTemplate)
+
+	return r.Status().Patch(ctx, template, originalTemplate)
 }

@@ -106,7 +106,7 @@ func (r *ClusterBaseReconciler) generateHosts(ctx context.Context, cluster *v1.C
 	}
 
 	if len(controllers) != len(cluster.Spec.ControlPlane.Nodes) {
-		return nil, nil
+		return nil, fmt.Errorf("The control plane node is not ready, please check the node status")
 	}
 
 	hostsContent := &HostTemplateContent{
@@ -484,20 +484,20 @@ func getKubesprayImage(cluster *v1.Cluster) string {
 }
 
 // addOwnerReferences: adds cluster owner reference to a list if not already present
-func addOwnerReferences(references []metav1.OwnerReference, cluster *v1.Cluster) []metav1.OwnerReference {
-	for _, r := range references {
-		if r.UID == cluster.UID {
-			return references
-		}
-	}
-	references = append(references, metav1.OwnerReference{
-		APIVersion: cluster.APIVersion,
-		Kind:       cluster.Kind,
-		Name:       cluster.Name,
-		UID:        cluster.UID,
-	})
-	return references
-}
+// func addOwnerReferences(references []metav1.OwnerReference, cluster *v1.Cluster) []metav1.OwnerReference {
+// 	for _, r := range references {
+// 		if r.UID == cluster.UID {
+// 			return references
+// 		}
+// 	}
+// 	references = append(references, metav1.OwnerReference{
+// 		APIVersion: cluster.APIVersion,
+// 		Kind:       cluster.Kind,
+// 		Name:       cluster.Name,
+// 		UID:        cluster.UID,
+// 	})
+// 	return references
+// }
 
 // getNodeLabelsString: converts node labels to JSON string format
 func getNodeLabelsString(node *v1.Node) (string, bool) {
