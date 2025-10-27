@@ -40,9 +40,10 @@ func TestParseSchedule(t *testing.T) {
 
 func TestCvtTime3339ToCronStandard(t *testing.T) {
 	timeStr := "2025-09-30T16:04:00.000Z"
-	scheduleStr, _, err := CvtTime3339ToCronStandard(timeStr)
+	scheduleStr, scheduleTime, err := CvtTime3339ToCronStandard(timeStr)
 	assert.NilError(t, err)
 	assert.Equal(t, scheduleStr, "4 16 30 9 *")
+	assert.Equal(t, FormatRFC3339(scheduleTime), "2025-09-30T16:04:00")
 }
 
 func TestCvtStrToRFC3339Milli(t *testing.T) {
@@ -52,6 +53,11 @@ func TestCvtStrToRFC3339Milli(t *testing.T) {
 
 	timeStr = "2025-08-18T09:41:01.950Z"
 	time2, err := CvtStrToRFC3339Milli(timeStr)
+	assert.NilError(t, err)
+	assert.Equal(t, time1.Unix(), time2.Unix())
+
+	timeStr = "2025-08-18T09:41:01"
+	time2, err = CvtStrToRFC3339Milli(timeStr)
 	assert.NilError(t, err)
 	assert.Equal(t, time1.Unix(), time2.Unix())
 }
