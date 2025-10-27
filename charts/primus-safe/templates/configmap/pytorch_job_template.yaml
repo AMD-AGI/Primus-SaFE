@@ -30,7 +30,7 @@ data:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
                 - name: preprocess
-                  image: docker.io/primussafe/{{ .Values.preprocess.image }}
+                  image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
                   imagePullPolicy: IfNotPresent
                   command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                   securityContext:
@@ -113,7 +113,7 @@ data:
               dnsPolicy: ClusterFirstWithHostNet
               initContainers:
                 - name: preprocess
-                  image: docker.io/primussafe/{{ .Values.preprocess.image }}
+                  image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.preprocess.image }}
                   imagePullPolicy: IfNotPresent
                   command: ["/bin/sh", "-c", "cp -r /preprocess/* /shared-data/"]
                   securityContext:
