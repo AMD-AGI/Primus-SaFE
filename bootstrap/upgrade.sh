@@ -114,7 +114,9 @@ sed -i '/ssh:/,/^[a-z]/ s/enable: .*/enable: '"$ssh_enable"'/' "$values_yaml"
 if [[ "$ssh_enable" == "true" ]]; then
   sed -i '/^ssh:/,/^[a-z]/ s#server_ip: ".*"#server_ip: "'"$ssh_server_ip"'"#' "$values_yaml"
 fi
-sed -i "s/image_repository: \".*\"/image_repository: \"$proxy_image_registry\"/" "$values_yaml"
+safe_image=$(printf '%s\n' "$proxy_image_registry" | sed 's/[&/\]/\\&/g')
+sed -i '/global:/,/^[a-z]/ s/image_repository: .*/image_repository: '"$safe_image"'/' "$values_yaml"
+
 
 
 chart_name="primus-safe"
