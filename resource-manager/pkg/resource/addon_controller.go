@@ -34,13 +34,13 @@ import (
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
-// AddonController: manages Helm addon installations and updates for clusters
+// AddonController manages Helm addon installations and updates for clusters
 type AddonController struct {
 	client.Client
 	clustersGetter *ClustersGetter
 }
 
-// SetupAddonController: initializes and registers the AddonController with the controller manager
+// SetupAddonController initializes and registers the AddonController with the controller manager
 func SetupAddonController(mgr manager.Manager) error {
 	addon := &AddonController{
 		Client: mgr.GetClient(),
@@ -57,7 +57,7 @@ func SetupAddonController(mgr manager.Manager) error {
 	return nil
 }
 
-// Reconcile: processes Addon resources by installing, upgrading, or uninstalling Helm charts
+// Reconcile processes Addon resources by installing, upgrading, or uninstalling Helm charts
 func (r *AddonController) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	startTime := time.Now().UTC()
 	defer func() {
@@ -77,7 +77,7 @@ func (r *AddonController) Reconcile(ctx context.Context, req ctrlruntime.Request
 	return ctrlruntime.Result{}, nil
 }
 
-// guaranteeHelmAddon: ensures the Helm addon is in the desired state based on its lifecycle
+// guaranteeHelmAddon ensures the Helm addon is in the desired state based on its lifecycle
 func (r *AddonController) guaranteeHelmAddon(ctx context.Context, addon *v1.Addon) error {
 	if addon.Spec.AddonSource.HelmRepository == nil {
 		return nil
@@ -113,7 +113,7 @@ func (r *AddonController) guaranteeHelmAddon(ctx context.Context, addon *v1.Addo
 	return r.helmUpgrade(ctx, addon)
 }
 
-// getHelm: retrieves Helm chart information from either template or direct specification
+// getHelm retrieves Helm chart information from either template or direct specification
 func (r *AddonController) getHelm(ctx context.Context, addon *v1.Addon) (string, string, string, string, error) {
 	if addon.Spec.AddonSource.HelmRepository.Template != nil {
 		template := new(v1.AddonTemplate)
@@ -137,7 +137,7 @@ func (r *AddonController) getHelm(ctx context.Context, addon *v1.Addon) (string,
 	return addon.Spec.AddonSource.HelmRepository.URL, "", addon.Spec.AddonSource.HelmRepository.ChartVersion, addon.Spec.AddonSource.HelmRepository.Values, nil
 }
 
-// helmInstall: installs a Helm chart for the addon
+// helmInstall installs a Helm chart for the addon
 func (r *AddonController) helmInstall(ctx context.Context, addon *v1.Addon) error {
 	name, url, version, values, err := r.getHelm(ctx, addon)
 	if err != nil {
@@ -187,7 +187,7 @@ func (r *AddonController) helmInstall(ctx context.Context, addon *v1.Addon) erro
 	return r.updateAddonHelmStatus(ctx, addon, resp)
 }
 
-// getActionConfig: creates and configures Helm action configuration for the addon's cluster
+// getActionConfig creates and configures Helm action configuration for the addon's cluster
 func (r *AddonController) getActionConfig(ctx context.Context, addon *v1.Addon) (*action.Configuration, *cli.EnvSettings, error) {
 	settings := cli.New()
 	actionConfig := new(action.Configuration)
@@ -197,23 +197,41 @@ func (r *AddonController) getActionConfig(ctx context.Context, addon *v1.Addon) 
 	return actionConfig, settings, nil
 }
 
-// helmUpgrade: upgrades an existing Helm release for the addon
+// helmUpgrade upgrades an existing Helm release for the addon
 func (r *AddonController) helmUpgrade(ctx context.Context, addon *v1.Addon) error {
 	if shouldIgnoreUpgrade(addon) {
-		if addon.Spec.AddonSource.HelmRepository.PreviousVersion != nil &&
-			addon.Status.AddonSourceStatus.HelmRepositoryStatus.PreviousVersion != *addon.Spec.AddonSource.HelmRepository.PreviousVersion {
-			return r.helmRollback(ctx, addon)
-		}
-		return r.helmStatus(ctx, addon)
+		return r.handleIgnoredUpgrade(ctx, addon)
 	}
+
 	name, url, version, values, err := r.getHelm(ctx, addon)
 	if err != nil {
 		return r.patchErrorStatus(ctx, addon, err)
 	}
-	actionConfig, settings, err := r.getActionConfig(ctx, addon)
+
+	upgradeClient, err := r.createUpgradeClient(ctx, addon, url, version)
 	if err != nil {
 		return err
 	}
+
+	return r.executeUpgrade(ctx, addon, upgradeClient, name, values)
+}
+
+// handleIgnoredUpgrade handles upgrade logic when upgrade should be ignored
+func (r *AddonController) handleIgnoredUpgrade(ctx context.Context, addon *v1.Addon) error {
+	if addon.Spec.AddonSource.HelmRepository.PreviousVersion != nil &&
+		addon.Status.AddonSourceStatus.HelmRepositoryStatus.PreviousVersion != *addon.Spec.AddonSource.HelmRepository.PreviousVersion {
+		return r.helmRollback(ctx, addon)
+	}
+	return r.helmStatus(ctx, addon)
+}
+
+// createUpgradeClient creates and configures a Helm upgrade client
+func (r *AddonController) createUpgradeClient(ctx context.Context, addon *v1.Addon, url, version string) (*action.Upgrade, error) {
+	actionConfig, _, err := r.getActionConfig(ctx, addon)
+	if err != nil {
+		return nil, err
+	}
+
 	upgradeClient := action.NewUpgrade(actionConfig)
 	upgradeClient.Install = true
 	upgradeClient.Timeout = Timeout
@@ -222,10 +240,17 @@ func (r *AddonController) helmUpgrade(ctx context.Context, addon *v1.Addon) erro
 	upgradeClient.PlainHTTP = addon.Spec.AddonSource.HelmRepository.PlainHTTP
 	upgradeClient.MaxHistory = MaxHistory
 	upgradeClient.InsecureSkipTLSverify = true
+
 	if url != "" {
 		upgradeClient.RepoURL = url
 	}
 
+	return upgradeClient, nil
+}
+
+// executeUpgrade executes the Helm upgrade operation
+func (r *AddonController) executeUpgrade(ctx context.Context, addon *v1.Addon, upgradeClient *action.Upgrade, name, values string) error {
+	settings := cli.New()
 	chartRequested, err := upgradeClient.ChartPathOptions.LocateChart(name, settings)
 	if err != nil {
 		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm install helm chart download failed %s", err))
@@ -235,6 +260,7 @@ func (r *AddonController) helmUpgrade(ctx context.Context, addon *v1.Addon) erro
 	if err != nil {
 		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm install helm chart load failed %s", err))
 	}
+
 	valuesMap := map[string]interface{}{}
 	if values != "" {
 		err = yaml.Unmarshal([]byte(values), valuesMap)
@@ -255,7 +281,7 @@ func (r *AddonController) helmUpgrade(ctx context.Context, addon *v1.Addon) erro
 	return r.updateAddonHelmStatus(ctx, addon, resp)
 }
 
-// helmRollback: rollback a Helm release to a previous version
+// helmRollback rollback a Helm release to a previous version
 func (r *AddonController) helmRollback(ctx context.Context, addon *v1.Addon) error {
 	if addon.Spec.AddonSource.HelmRepository.PreviousVersion == nil {
 		return r.helmStatus(ctx, addon)
@@ -292,7 +318,7 @@ func (r *AddonController) helmRollback(ctx context.Context, addon *v1.Addon) err
 	return r.Status().Patch(ctx, addon, originalAddon)
 }
 
-// helmUninstall: uninstalls the Helm chart for the addon
+// helmUninstall uninstalls the Helm chart for the addon
 func (r *AddonController) helmUninstall(ctx context.Context, addon *v1.Addon) error {
 	if addon.Spec.AddonSource.HelmRepository == nil {
 		return nil
@@ -322,7 +348,7 @@ func (r *AddonController) helmUninstall(ctx context.Context, addon *v1.Addon) er
 	return nil
 }
 
-// helmStatus: retrieves and updates the status of a Helm release
+// helmStatus retrieves and updates the status of a Helm release
 func (r *AddonController) helmStatus(ctx context.Context, addon *v1.Addon) error {
 	if addon.Spec.AddonSource.HelmRepository == nil {
 		return nil
@@ -351,7 +377,7 @@ func (r *AddonController) helmStatus(ctx context.Context, addon *v1.Addon) error
 	return r.updateAddonHelmStatus(ctx, addon, resp)
 }
 
-// updateAddonHelmStatus: updates the addon's status based on Helm release information
+// updateAddonHelmStatus updates the addon's status based on Helm release information
 func (r *AddonController) updateAddonHelmStatus(ctx context.Context, addon *v1.Addon, resp *release.Release) error {
 	originalAddon := client.MergeFrom(addon.DeepCopy())
 	if addon.Status.AddonSourceStatus.HelmRepositoryStatus == nil {
@@ -373,7 +399,7 @@ func (r *AddonController) updateAddonHelmStatus(ctx context.Context, addon *v1.A
 	return r.Status().Patch(ctx, addon, originalAddon)
 }
 
-// patchErrorStatus: updates the addon's status to indicate an error occurred
+// patchErrorStatus updates the addon's status to indicate an error occurred
 func (r *AddonController) patchErrorStatus(ctx context.Context, addon *v1.Addon, err error) error {
 	klog.Errorf("patch Error Status: %v", err)
 	originalAddon := client.MergeFrom(addon.DeepCopy())
@@ -386,12 +412,12 @@ func (r *AddonController) patchErrorStatus(ctx context.Context, addon *v1.Addon,
 	return err
 }
 
-// getter: retrieves or creates a REST client getter for the specified cluster
+// getter retrieves or creates a REST client getter for the specified cluster
 func (r *AddonController) getter(ctx context.Context, addon *v1.Addon) (*RESTClientGetter, error) {
 	return r.clustersGetter.get(ctx, addon.Spec.Cluster, r.getCluster)
 }
 
-// getCluster: retrieves the REST configuration for a cluster
+// getCluster retrieves the REST configuration for a cluster
 func (r *AddonController) getCluster(ctx context.Context, cluster *corev1.ObjectReference) (*rest.Config, error) {
 	c := new(v1.Cluster)
 	err := r.Get(ctx, types.NamespacedName{Name: cluster.Name}, c)
@@ -405,6 +431,7 @@ func (r *AddonController) getCluster(ctx context.Context, cluster *corev1.Object
 	return restCfg, err
 }
 
+// configureHelmClient configures the Helm client with registry and getter settings
 func (r *AddonController) configureHelmClient(ctx context.Context, actionConfig *action.Configuration, settings *cli.EnvSettings, addon *v1.Addon) error {
 	var err error
 	actionConfig.RegistryClient, err = newDefaultRegistryClient(addon.Spec.AddonSource.HelmRepository.PlainHTTP, settings)

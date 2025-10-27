@@ -29,19 +29,25 @@ import (
 )
 
 const (
-	helmDriver   = "secrets"
+	// helmDriver specifies the Helm storage driver
+	helmDriver = "secrets"
+	// installedMsg is the error message when trying to reuse an existing Helm release name
 	installedMsg = "cannot re-use a name that is still in use"
-	Timeout      = time.Second * 30
-	MaxHistory   = 20
+	// Timeout specifies the timeout for Helm operations
+	Timeout = time.Second * 30
+	// MaxHistory specifies the maximum number of Helm release versions to keep
+	MaxHistory = 20
 )
 
+// Options represents configuration options for a REST client
 type Options struct {
+	// QPS is the queries per second rate limit
 	QPS float32
-
+	// Burst is the maximum burst rate
 	Burst int
 }
 
-// Option is a function that configures an RESTClientGetter.
+// Option is a function that configures a RESTClientGetter
 type Option func(*RESTClientGetter)
 
 // RESTClientGetter is a resource.RESTClientGetter that uses an in-memory REST config
@@ -62,6 +68,7 @@ type RESTClientGetter struct {
 	clientCfgMu sync.Mutex
 }
 
+// setDefaults sets default values for the RESTClientGetter
 func (c *RESTClientGetter) setDefaults() {
 	if c.namespace == "" {
 		c.namespace = "default"
@@ -111,7 +118,7 @@ func (c *RESTClientGetter) toPersistentDiscoveryClient() (discovery.CachedDiscov
 	return c.discoveryClient, nil
 }
 
-// ToDiscoveryClient: returns a memory cached discovery client
+// toDiscoveryClient returns a memory cached discovery client
 func (c *RESTClientGetter) toDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
 	config, err := c.ToRESTConfig()
 	if err != nil {
@@ -148,7 +155,7 @@ func (c *RESTClientGetter) toPersistentRESTMapper() (meta.RESTMapper, error) {
 	return c.restMapper, nil
 }
 
-// ToRESTMapper returns a meta.RESTMapper using the discovery client
+// toRESTMapper returns a meta.RESTMapper using the discovery client
 func (c *RESTClientGetter) toRESTMapper() (meta.RESTMapper, error) {
 	discoveryClient, err := c.ToDiscoveryClient()
 	if err != nil {
@@ -197,7 +204,7 @@ type ClustersGetter struct {
 // getCluster defines a function type for retrieving cluster REST config
 type getCluster func(ctx context.Context, cluster *corev1.ObjectReference) (*rest.Config, error)
 
-// get: retrieves or creates a RESTClientGetter for the specified cluster
+// get retrieves or creates a RESTClientGetter for the specified cluster
 func (c *ClustersGetter) get(ctx context.Context, cluster *corev1.ObjectReference, get getCluster) (*RESTClientGetter, error) {
 	c.Lock()
 	defer c.Unlock()
@@ -219,7 +226,7 @@ func (c *ClustersGetter) get(ctx context.Context, cluster *corev1.ObjectReferenc
 	return getter, nil
 }
 
-// newDefaultRegistryClient: creates a new Helm registry client
+// newDefaultRegistryClient creates a new Helm registry client
 func newDefaultRegistryClient(plainHTTP bool, settings *cli.EnvSettings) (*registry.Client, error) {
 	opts := []registry.ClientOption{
 		registry.ClientOptDebug(settings.Debug),
@@ -239,58 +246,61 @@ func newDefaultRegistryClient(plainHTTP bool, settings *cli.EnvSettings) (*regis
 	return registryClient, nil
 }
 
-// shouldIgnoreUpgrade: determines whether a Helm upgrade should be skipped
+// shouldIgnoreUpgrade determines whether a Helm upgrade should be skipped
 func shouldIgnoreUpgrade(addon *v1.Addon) bool {
-	if addon.Status.AddonSourceStatus.HelmRepositoryStatus != nil {
-		if addon.Status.AddonSourceStatus.HelmRepositoryStatus.Status == v1.AddonFailed ||
-			addon.Status.AddonSourceStatus.HelmRepositoryStatus.Status == v1.AddonError {
-			return false
-		}
+	if !isStatusReady(addon) {
+		return false
 	}
-	if addon.Spec.AddonSource.HelmRepository.Values != "" {
-		var diff func(values, values2 map[string]interface{}) bool
-		diff = func(values, values2 map[string]interface{}) bool {
-			for k, v := range values {
-				if val, ok := values2[k]; ok {
-					obj1, ok1 := v.(map[string]interface{})
-					obj2, ok2 := val.(map[string]interface{})
-					if ok1 && ok2 {
-						if !diff(obj2, obj1) {
-							return false
-						}
-					} else {
-						str1, ok1 := v.(string)
-						str2, ok2 := val.(string)
-						if ok1 && ok2 && str1 != str2 {
-							return false
-						}
-						if reflect.DeepEqual(v, val) {
-							return false
-						}
-					}
-				} else {
-					return false
-				}
 
-			}
-			return true
-		}
-		values := make(map[string]interface{})
-		_ = yaml.Unmarshal([]byte(addon.Spec.AddonSource.HelmRepository.Values), &values)
-		values2 := make(map[string]interface{})
-		_ = yaml.Unmarshal([]byte(addon.Status.AddonSourceStatus.HelmRepositoryStatus.Values), &values2)
-		if !reflect.DeepEqual(values, values2) {
-			return false
-		}
-	}
-	if addon.Spec.AddonSource.HelmRepository.Template != nil && addon.Status.AddonSourceStatus.HelmRepositoryStatus.Template != nil &&
-		addon.Spec.AddonSource.HelmRepository.Template.Name != addon.Status.AddonSourceStatus.HelmRepositoryStatus.Template.Name {
+	if !areValuesEqual(addon) {
 		return false
 	}
-	if addon.Spec.AddonSource.HelmRepository.Template == nil && addon.Spec.AddonSource.HelmRepository.ChartVersion != addon.Status.AddonSourceStatus.HelmRepositoryStatus.ChartVersion {
+
+	if !isTemplateVersionEqual(addon) {
 		return false
 	}
-	return true
+
+	return isChartVersionEqual(addon)
+}
+
+// isStatusReady checks if the addon status is ready for upgrade
+func isStatusReady(addon *v1.Addon) bool {
+	if addon.Status.AddonSourceStatus.HelmRepositoryStatus == nil {
+		return true
+	}
+	status := addon.Status.AddonSourceStatus.HelmRepositoryStatus.Status
+	return status != v1.AddonFailed && status != v1.AddonError
+}
+
+// areValuesEqual compares the values between spec and status
+func areValuesEqual(addon *v1.Addon) bool {
+	if addon.Spec.AddonSource.HelmRepository.Values == "" {
+		return true
+	}
+
+	specValues := make(map[string]interface{})
+	_ = yaml.Unmarshal([]byte(addon.Spec.AddonSource.HelmRepository.Values), &specValues)
+
+	statusValues := make(map[string]interface{})
+	_ = yaml.Unmarshal([]byte(addon.Status.AddonSourceStatus.HelmRepositoryStatus.Values), &statusValues)
+
+	return reflect.DeepEqual(specValues, statusValues)
+}
+
+// isTemplateVersionEqual checks if template version matches
+func isTemplateVersionEqual(addon *v1.Addon) bool {
+	if addon.Spec.AddonSource.HelmRepository.Template == nil || addon.Status.AddonSourceStatus.HelmRepositoryStatus.Template == nil {
+		return true
+	}
+	return addon.Spec.AddonSource.HelmRepository.Template.Name == addon.Status.AddonSourceStatus.HelmRepositoryStatus.Template.Name
+}
+
+// isChartVersionEqual checks if chart version matches
+func isChartVersionEqual(addon *v1.Addon) bool {
+	if addon.Spec.AddonSource.HelmRepository.Template != nil {
+		return true
+	}
+	return addon.Spec.AddonSource.HelmRepository.ChartVersion == addon.Status.AddonSourceStatus.HelmRepositoryStatus.ChartVersion
 }
 
 // replaceValues merges values with base values, replacing existing values
