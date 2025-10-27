@@ -23,6 +23,11 @@ import (
 	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 )
 
+const (
+	CronjobReason    = "The Execution time has not been reached"
+	DependencyReason = "Dependency cannot be satisfied"
+)
+
 // NodeWrapper: wraps a node with its available resources and scoring for scheduling decisions
 type NodeWrapper struct {
 	// The underlying node object
@@ -162,11 +167,6 @@ func (workloads WorkloadList) Swap(i, j int) {
 }
 
 func (workloads WorkloadList) Less(i, j int) bool {
-	if !workloads[i].IsSuspended() && workloads[j].IsSuspended() {
-		return true
-	} else if workloads[i].IsSuspended() && !workloads[j].IsSuspended() {
-		return false
-	}
 	if isReScheduledForFailover(workloads[i]) && !isReScheduledForFailover(workloads[j]) {
 		return true
 	} else if !isReScheduledForFailover(workloads[i]) && isReScheduledForFailover(workloads[j]) {

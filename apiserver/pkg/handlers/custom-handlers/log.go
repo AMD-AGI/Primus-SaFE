@@ -427,11 +427,15 @@ func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*types.List
 			fmt.Sprintf("the order parameter only supports %s and %s", dbclient.ASC, dbclient.DESC))
 	}
 
-	if query.SinceTime, err = timeutil.CvtStrToRFC3339Milli(query.Since); err != nil {
-		return nil, err
+	if query.Since != "" {
+		if query.SinceTime, err = timeutil.CvtStrToRFC3339Milli(query.Since); err != nil {
+			return nil, err
+		}
 	}
-	if query.UntilTime, err = timeutil.CvtStrToRFC3339Milli(query.Until); err != nil {
-		return nil, err
+	if query.Until != "" {
+		if query.UntilTime, err = timeutil.CvtStrToRFC3339Milli(query.Until); err != nil {
+			return nil, err
+		}
 	}
 
 	if endTime.IsZero() {

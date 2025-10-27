@@ -27,8 +27,23 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
-func (r *SyncerReconciler) handleJob(ctx context.Context, msg *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
-	adminWorkload, err := r.getAdminWorkload(ctx, msg.workloadId)
+const (
+	MaxFailedPodsToShow = 3
+	MaxConditionHistory = 30
+)
+
+// handleJob processes job resource events and synchronizes status between data plane and admin plane
+// Manages the lifecycle of workload resources and handles failure scenarios
+// Parameters:
+//   - ctx: The context for the operation
+//   - msg: The resource message containing job event details
+//   - informer: The cluster informer for accessing resources
+//
+// Returns:
+//   - ctrlruntime.Result: The result of the handling
+//   - error: Any error encountered during processing
+func (r *SyncerReconciler) handleJob(ctx context.Context, message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
+	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
 	if adminWorkload == nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -39,7 +54,7 @@ func (r *SyncerReconciler) handleJob(ctx context.Context, msg *resourceMessage, 
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
 
-	result, err := r.handleJobImpl(ctx, msg, adminWorkload, informer)
+	result, err := r.handleJobImpl(ctx, message, adminWorkload, informer)
 	if jobutils.IsUnrecoverableError(err) {
 		// Errors defined internally are fatal and lead to a terminal state without retry
 		err = jobutils.SetWorkloadFailed(ctx, r.Client, adminWorkload, err.Error())
@@ -47,21 +62,32 @@ func (r *SyncerReconciler) handleJob(ctx context.Context, msg *resourceMessage, 
 	return result, err
 }
 
-func (r *SyncerReconciler) handleJobImpl(ctx context.Context, msg *resourceMessage,
+// handleJobImpl implements the core logic for handling job resource events
+// Processes resource creation, update, and deletion events
+// Parameters:
+//   - ctx: The context for the operation
+//   - msg: The resource message containing job event details
+//   - adminWorkload: The admin workload to update
+//   - informer: The cluster informer for accessing resources
+//
+// Returns:
+//   - ctrlruntime.Result: The result of the handling
+//   - error: Any error encountered during processing
+func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceMessage,
 	adminWorkload *v1.Workload, informer *ClusterInformer) (ctrlruntime.Result, error) {
-	if msg.action == ResourceDel {
+	if message.action == ResourceDel {
 		// wait until all pods are deleted
-		if !r.waitAllPodsDeleted(ctx, msg, informer) {
+		if !r.waitAllPodsDeleted(ctx, message, informer) {
 			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 		}
 	}
 
-	status, err := r.getK8sResourceStatus(ctx, msg, informer, adminWorkload)
+	status, err := r.getK8sResourceStatus(ctx, message, informer, adminWorkload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	var isNeedRetry bool
-	adminWorkload, isNeedRetry, err = r.updateAdminWorkloadStatus(ctx, adminWorkload, status, msg)
+	adminWorkload, isNeedRetry, err = r.updateAdminWorkloadStatus(ctx, adminWorkload, status, message)
 	if isNeedRetry {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
@@ -70,8 +96,8 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, msg *resourceMessa
 		return ctrlruntime.Result{}, err
 	}
 
-	if msg.action == ResourceDel && !adminWorkload.IsEnd() {
-		if err = r.reSchedule(ctx, adminWorkload, msg.dispatchCount); err != nil {
+	if message.action == ResourceDel && !adminWorkload.IsEnd() {
+		if err = r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
 			klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
 			return ctrlruntime.Result{}, err
 		}
@@ -79,33 +105,44 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, msg *resourceMessa
 	return ctrlruntime.Result{}, nil
 }
 
-func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, msg *resourceMessage,
+// getK8sResourceStatus retrieves the status of a Kubernetes resource
+// Extracts phase and message information from the resource
+// Parameters:
+//   - ctx: The context for the operation
+//   - message: The resource message containing job event details
+//   - clusterInformer: The cluster informer for accessing resources
+//   - adminWorkload: The admin workload for context
+//
+// Returns:
+//   - *jobutils.K8sResourceStatus: The resource status information
+//   - error: Any error encountered during retrieval
+func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, message *resourceMessage,
 	clusterInformer *ClusterInformer, adminWorkload *v1.Workload) (*jobutils.K8sResourceStatus, error) {
-	if msg.action == ResourceDel {
+	if message.action == ResourceDel {
 		return &jobutils.K8sResourceStatus{
 			Phase:   string(v1.K8sDeleted),
-			Message: fmt.Sprintf("%s %s is deleted", msg.gvk.Kind, msg.name),
+			Message: fmt.Sprintf("%s %s is deleted", message.gvk.Kind, message.name),
 		}, nil
 	}
 
-	informer, err := clusterInformer.GetResourceInformer(ctx, msg.gvk)
+	informer, err := clusterInformer.GetResourceInformer(ctx, message.gvk)
 	if err != nil {
 		klog.ErrorS(err, "failed to get resource informer")
 		return nil, err
 	}
-	k8sObject, err := jobutils.GetObject(informer, msg.name, msg.namespace)
+	k8sObject, err := jobutils.GetObject(informer, message.name, message.namespace)
 	if err != nil {
-		klog.ErrorS(err, "failed to get k8s object", "name", msg.name, "namespace", msg.namespace)
+		klog.ErrorS(err, "failed to get k8s object", "name", message.name, "namespace", message.namespace)
 		return nil, err
 	}
-	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, msg.gvk)
+	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, message.gvk)
 	if err != nil {
-		klog.ErrorS(err, "failed to get resource template", "name", msg.name, "kind", msg.gvk.Kind)
+		klog.ErrorS(err, "failed to get resource template", "name", message.name, "kind", message.gvk.Kind)
 		return nil, err
 	}
 	status, err := jobutils.GetK8sResourceStatus(k8sObject, rt)
 	if err != nil {
-		klog.ErrorS(err, "failed to get phase", "name", msg.name, "namespace", msg.namespace)
+		klog.ErrorS(err, "failed to get phase", "name", message.name, "namespace", message.namespace)
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
 	if status == nil {
@@ -121,32 +158,52 @@ func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, msg *resour
 	return status, nil
 }
 
-func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, msg *resourceMessage, informer *ClusterInformer) bool {
+// waitAllPodsDeleted checks if all pods associated with a workload have been deleted
+// Parameters:
+//   - ctx: The context for the operation
+//   - message: The resource message containing job event details
+//   - informer: The cluster informer for accessing resources
+//
+// Returns:
+//   - bool: True if all pods are deleted, false otherwise
+func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *resourceMessage, informer *ClusterInformer) bool {
 	labelSelector := metav1.LabelSelector{
-		MatchLabels: map[string]string{v1.WorkloadIdLabel: msg.workloadId},
+		MatchLabels: map[string]string{v1.WorkloadIdLabel: message.workloadId},
 	}
 	listOptions := metav1.ListOptions{
 		LabelSelector: metav1.FormatLabelSelector(&labelSelector),
 	}
-	podList, err := informer.dataClientFactory.ClientSet().CoreV1().Pods(msg.namespace).List(ctx, listOptions)
+	podList, err := informer.dataClientFactory.ClientSet().CoreV1().Pods(message.namespace).List(ctx, listOptions)
 	if err != nil {
-		klog.ErrorS(err, "failed to list pods", "workload", msg.workloadId, "namespace", msg.namespace)
+		klog.ErrorS(err, "failed to list pods", "workload", message.workloadId, "namespace", message.namespace)
 		return false
 	}
 	if len(podList.Items) == 0 {
 		return true
 	}
-	klog.Warningf("the pods of this workload %s still exist, this will retry again in 3 seconds.", msg.workloadId)
+	klog.Warningf("the pods of this workload %s still exist, this will retry again in 3 seconds.", message.workloadId)
 	return false
 }
 
+// updateAdminWorkloadStatus updates the admin workload status based on resource status
+// Manages workload phase transitions and condition updates
+// Parameters:
+//   - ctx: The context for the operation
+//   - originalWorkload: The original workload to compare against
+//   - status: The Kubernetes resource status
+//   - message: The resource message containing event details
+//
+// Returns:
+//   - *v1.Workload: The updated workload
+//   - bool: True if retry is needed, false otherwise
+//   - error: Any error encountered during update
 func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, originalWorkload *v1.Workload,
-	status *jobutils.K8sResourceStatus, msg *resourceMessage) (*v1.Workload, bool, error) {
+	status *jobutils.K8sResourceStatus, message *resourceMessage) (*v1.Workload, bool, error) {
 	if originalWorkload.IsEnd() || status == nil || status.Phase == "" {
 		return originalWorkload, false, nil
 	}
 	adminWorkload := originalWorkload.DeepCopy()
-	r.updateAdminWorkloadPhase(adminWorkload, status, msg)
+	r.updateAdminWorkloadPhase(adminWorkload, status, message)
 
 	switch {
 	case adminWorkload.IsPending():
@@ -155,14 +212,14 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 			return originalWorkload, false, nil
 		}
 	case adminWorkload.IsRunning():
-		if isNeedRetry := r.updateAdminWorkloadNodes(adminWorkload, msg); isNeedRetry {
+		if isNeedRetry := r.updateAdminWorkloadNodes(adminWorkload, message); isNeedRetry {
 			return originalWorkload, true, nil
 		}
 	case adminWorkload.IsEnd():
 		if adminWorkload.Status.EndTime == nil {
 			adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
 		}
-		r.updateAdminWorkloadNodes(adminWorkload, msg)
+		r.updateAdminWorkloadNodes(adminWorkload, message)
 	}
 	if adminWorkload.Status.StartTime == nil {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
@@ -170,8 +227,8 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 	if status.Phase != string(v1.K8sPending) && status.Phase != "" {
 		adminWorkload.Status.Message = ""
 	}
-	adminWorkload.Status.K8sObjectUid = string(msg.uid)
-	updateWorkloadCondition(adminWorkload, status, msg.dispatchCount)
+	adminWorkload.Status.K8sObjectUid = string(message.uid)
+	updateWorkloadCondition(adminWorkload, status, message.dispatchCount)
 	if reflect.DeepEqual(adminWorkload.Status, originalWorkload.Status) {
 		return originalWorkload, false, nil
 	}
@@ -179,21 +236,27 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		return nil, false, err
 	}
 	klog.Infof("update workload status, name: %s, phase: %s, dispatchCount: %d, k8s.status: %s",
-		adminWorkload.Name, adminWorkload.Status.Phase, msg.dispatchCount, jsonutils.MarshalSilently(status))
+		adminWorkload.Name, adminWorkload.Status.Phase, message.dispatchCount, jsonutils.MarshalSilently(status))
 	return adminWorkload, false, nil
 }
 
+// updateAdminWorkloadPhase updates the workload phase based on resource status
+// Maps Kubernetes resource phases to workload phases
+// Parameters:
+//   - adminWorkload: The workload to update
+//   - status: The Kubernetes resource status
+//   - message: The resource message containing event details
 func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
-	status *jobutils.K8sResourceStatus, msg *resourceMessage) {
+	status *jobutils.K8sResourceStatus, message *resourceMessage) {
 	switch v1.WorkloadConditionType(status.Phase) {
 	case v1.K8sPending:
 		adminWorkload.Status.Phase = v1.WorkloadPending
 	case v1.K8sSucceeded:
-		if isWorkloadEnd(adminWorkload, status, msg.dispatchCount) {
+		if isWorkloadEnd(adminWorkload, status, message.dispatchCount) {
 			adminWorkload.Status.Phase = v1.WorkloadSucceeded
 		}
 	case v1.K8sFailed, v1.K8sDeleted:
-		if isWorkloadEnd(adminWorkload, status, msg.dispatchCount) {
+		if isWorkloadEnd(adminWorkload, status, message.dispatchCount) {
 			adminWorkload.Status.Phase = v1.WorkloadFailed
 		} else if adminWorkload.IsRunning() && commonworkload.IsApplication(adminWorkload) {
 			adminWorkload.Status.Phase = v1.WorkloadNotReady
@@ -208,6 +271,15 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	}
 }
 
+// reSchedule handles workload rescheduling by resetting status and annotations
+// Clears workload state and marks for rescheduling
+// Parameters:
+//   - ctx: The context for the operation
+//   - workload: The workload to reschedule
+//   - count: The dispatch count for tracking
+//
+// Returns:
+//   - error: Any error encountered during rescheduling
 func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload, count int) error {
 	originalWorkload := client.MergeFrom(workload.DeepCopy())
 	isStatusChanged := false
@@ -249,14 +321,22 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 	return nil
 }
 
-func (r *SyncerReconciler) updateAdminWorkloadNodes(adminWorkload *v1.Workload, msg *resourceMessage) bool {
+// updateAdminWorkloadNodes updates the node information for a workload
+// Collects node assignments from workload pods
+// Parameters:
+//   - adminWorkload: The workload to update
+//   - message: The resource message containing event details
+//
+// Returns:
+//   - bool: True if retry is needed, false otherwise
+func (r *SyncerReconciler) updateAdminWorkloadNodes(adminWorkload *v1.Workload, message *resourceMessage) bool {
 	totalNodeCount := adminWorkload.Spec.Resource.Replica
 	if commonworkload.IsJob(adminWorkload) {
 		if adminWorkload.Spec.Resource.Replica != len(adminWorkload.Status.Pods) {
 			return true
 		}
 		// the nodes of admin workload are already updated
-		if len(adminWorkload.Status.Nodes) == msg.dispatchCount {
+		if len(adminWorkload.Status.Nodes) == message.dispatchCount {
 			return false
 		}
 	} else {
@@ -276,16 +356,20 @@ func (r *SyncerReconciler) updateAdminWorkloadNodes(adminWorkload *v1.Workload, 
 			nodeNameSet.Insert(p.K8sNodeName)
 		}
 	}
-	if len(adminWorkload.Status.Nodes) < msg.dispatchCount {
+	if len(adminWorkload.Status.Nodes) < message.dispatchCount {
 		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, nodeNames)
 		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, ranks)
-	} else if msg.dispatchCount > 0 {
-		adminWorkload.Status.Nodes[msg.dispatchCount-1] = nodeNames
-		adminWorkload.Status.Ranks[msg.dispatchCount-1] = ranks
+	} else if message.dispatchCount > 0 {
+		adminWorkload.Status.Nodes[message.dispatchCount-1] = nodeNames
+		adminWorkload.Status.Ranks[message.dispatchCount-1] = ranks
 	}
 	return false
 }
 
+// sortWorkloadPods sorts workload pods by host IP and pod ID
+// Ensures consistent ordering of pods for node assignment tracking
+// Parameters:
+//   - adminWorkload: The workload containing pods to sort
 func sortWorkloadPods(adminWorkload *v1.Workload) {
 	sort.Slice(adminWorkload.Status.Pods, func(i, j int) bool {
 		if adminWorkload.Status.Pods[i].HostIp == adminWorkload.Status.Pods[j].HostIp {
@@ -296,6 +380,12 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 	})
 }
 
+// updateWorkloadCondition updates workload conditions based on resource status
+// Manages condition history and ensures proper condition tracking
+// Parameters:
+//   - adminWorkload: The workload to update
+//   - status: The Kubernetes resource status
+//   - dispatchCount: The dispatch count for tracking
 func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, dispatchCount int) {
 	newCondition := jobutils.NewCondition(status.Phase, status.Message, commonworkload.GenerateDispatchReason(dispatchCount))
 	if commonworkload.IsApplication(adminWorkload) {
@@ -306,7 +396,7 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sRes
 		}
 		adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
 		// Only keep the latest 30 conditions
-		maxReserved := 30
+		maxReserved := MaxConditionHistory
 		if l := len(adminWorkload.Status.Conditions); l > maxReserved {
 			begin := l - maxReserved
 			conditions := make([]metav1.Condition, 0, maxReserved)
@@ -325,6 +415,15 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sRes
 	}
 }
 
+// isWorkloadEnd determines if a workload has reached its end state
+// Considers retry limits and failover settings
+// Parameters:
+//   - adminWorkload: The workload to check
+//   - status: The Kubernetes resource status
+//   - count: The current dispatch count
+//
+// Returns:
+//   - bool: True if workload should end, false otherwise
 func isWorkloadEnd(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, count int) bool {
 	if commonworkload.IsApplication(adminWorkload) || v1.IsWorkloadPreempted(adminWorkload) {
 		return false
@@ -342,6 +441,13 @@ func isWorkloadEnd(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatu
 	return false
 }
 
+// getFailedPodInfo extracts information about failed pods for error reporting
+// Collects details about up to 3 failed pods
+// Parameters:
+//   - workload: The workload containing pod information
+//
+// Returns:
+//   - string: JSON formatted failed pod information, or empty string if none
 func getFailedPodInfo(workload *v1.Workload) string {
 	type FailedPodInfo struct {
 		Pod       string       `json:"pod"`
@@ -367,7 +473,7 @@ func getFailedPodInfo(workload *v1.Workload) string {
 		}
 		result = append(result, info)
 		i++
-		if i >= 3 {
+		if i >= MaxFailedPodsToShow {
 			break
 		}
 	}

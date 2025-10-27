@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 
@@ -21,8 +20,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,7 +39,6 @@ import (
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -174,6 +170,9 @@ func (h *Handler) createWorkloadImpl(c *gin.Context, workload *v1.Workload, requ
 // Parses query parameters, builds database or etcd queries,
 // and returns workloads matching the criteria.
 func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
+	if !commonconfig.IsDBEnable() {
+		return nil, commonerrors.NewInternalError("the database function is not enabled")
+	}
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
@@ -187,9 +186,6 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	adminWorkload := generateWorkloadForAuth("", "", query.WorkspaceId, query.ClusterId)
 	if err = h.authWorkloadAction(c, adminWorkload, v1.ListVerb, requestUser, roles); err != nil {
 		return nil, err
-	}
-	if !commonconfig.IsDBEnable() {
-		return h.listAdminWorkloads(c, query)
 	}
 
 	dbSql, orderBy, err := cvtToListWorkloadSql(query)
@@ -216,6 +212,10 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 // getWorkload: implements the logic for retrieving a single workload's detailed information.
 // Supports both database and etcd backends and includes authorization checks.
 func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
+	if !commonconfig.IsDBEnable() {
+		return nil, commonerrors.NewInternalError("the database function is not enabled")
+	}
+
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
@@ -224,26 +224,15 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 
 	name := c.GetString(common.Name)
 	ctx := c.Request.Context()
-	if commonconfig.IsDBEnable() {
-		dbWorkload, err := h.dbClient.GetWorkload(ctx, name)
-		if err != nil {
-			return nil, err
-		}
-		adminWorkload := generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-		if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, requestUser, roles); err != nil {
-			return nil, err
-		}
-		return h.cvtDBWorkloadToGetResponse(ctx, dbWorkload), nil
-	} else {
-		adminWorkload, err := h.getAdminWorkload(ctx, name)
-		if err != nil {
-			return nil, err
-		}
-		if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, requestUser, roles); err != nil {
-			return nil, err
-		}
-		return h.cvtAdminWorkloadToGetResponse(ctx, adminWorkload), nil
+	dbWorkload, err := h.dbClient.GetWorkload(ctx, name)
+	if err != nil {
+		return nil, err
 	}
+	adminWorkload := generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, requestUser, roles); err != nil {
+		return nil, err
+	}
+	return h.cvtDBWorkloadToGetResponse(ctx, dbWorkload), nil
 }
 
 // deleteWorkload: implements single workload deletion logic.
@@ -422,15 +411,15 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 // cloneWorkloads: implements batch workload cloning logic.
 // Processes multiple workload clones concurrently with error handling.
 func (h *Handler) cloneWorkloads(c *gin.Context) (interface{}, error) {
+	if !commonconfig.IsDBEnable() {
+		return nil, commonerrors.NewInternalError("the database function is not enabled")
+	}
 	return h.handleBatchWorkloads(c, BatchClone)
 }
 
 // cloneWorkloadImpl: performs the actual cloning of a workload.
 // Creates a new workload based on an existing workload's database record.
 func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
-	if !commonconfig.IsDBEnable() {
-		return nil, commonerrors.NewInternalError("the database function is not enabled")
-	}
 	dbWorkload, err := h.dbClient.GetWorkload(c.Request.Context(), name)
 	if err != nil {
 		return nil, err
@@ -500,51 +489,6 @@ func (h *Handler) patchPhase(ctx context.Context, workload *v1.Workload,
 		return err
 	}
 	return nil
-}
-
-// listAdminWorkloads: retrieves workloads directly from etcd with filtering.
-// Used when database functionality is disabled.
-func (h *Handler) listAdminWorkloads(c *gin.Context, query *types.ListWorkloadRequest) (interface{}, error) {
-	labelSelector := buildWorkloadLabelSelector(query)
-	workloadList := &v1.WorkloadList{}
-	if err := h.List(c.Request.Context(), workloadList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
-		return nil, err
-	}
-	if len(workloadList.Items) > 0 {
-		sort.Sort(types.WorkloadSlice(workloadList.Items))
-	}
-	sinceTime, err := timeutil.CvtStrToRFC3339Milli(query.Since)
-	if err != nil {
-		return nil, err
-	}
-	untilTime, err := timeutil.CvtStrToRFC3339Milli(query.Until)
-	if err != nil {
-		return nil, err
-	}
-
-	result := &types.ListWorkloadResponse{}
-	for _, w := range workloadList.Items {
-		if query.Phase != "" {
-			values := strings.Split(query.Kind, ",")
-			if !slice.Contains(values, string(w.Status.Phase)) {
-				continue
-			}
-		}
-		if query.Description != "" {
-			if !strings.Contains(v1.GetDescription(&w), query.Description) {
-				continue
-			}
-		}
-		if !sinceTime.IsZero() && w.CreationTimestamp.Time.Before(sinceTime) {
-			continue
-		}
-		if !untilTime.IsZero() && w.CreationTimestamp.Time.After(untilTime) {
-			continue
-		}
-		result.Items = append(result.Items, cvtWorkloadToResponseItem(&w))
-	}
-	result.TotalCount = len(result.Items)
-	return result, nil
 }
 
 // getAdminWorkload: retrieves a workload resource by ID from etcd.
@@ -619,13 +563,18 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workload,
 	verb v1.RoleVerb, priority int, requestUser *v1.User, roles []*v1.Role) error {
 	priorityKind := fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
+	resourceOwner := ""
+	if verb == v1.UpdateVerb {
+		resourceOwner = v1.GetUserId(adminWorkload)
+	}
 	if err := h.auth.Authorize(authority.Input{
-		Context:      c.Request.Context(),
-		ResourceKind: priorityKind,
-		Verb:         verb,
-		Workspaces:   []string{adminWorkload.Spec.Workspace},
-		User:         requestUser,
-		Roles:        roles,
+		Context:       c.Request.Context(),
+		ResourceKind:  priorityKind,
+		ResourceOwner: resourceOwner,
+		Verb:          verb,
+		Workspaces:    []string{adminWorkload.Spec.Workspace},
+		User:          requestUser,
+		Roles:         roles,
 	}); err != nil {
 		return err
 	}
@@ -664,17 +613,6 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 	}
 	if req.WorkspaceId != "" {
 		workload.Spec.Workspace = req.WorkspaceId
-	}
-	if req.SchedulerTime != "" {
-		scheduleStr, scheduleTime, err := timeutil.CvtTime3339ToCron(req.SchedulerTime)
-		if err != nil {
-			return nil, err
-		}
-		if !isValidSchedulerTime(scheduleTime) {
-			return nil, commonerrors.NewBadRequest(
-				"Invalid schedulerTime of request, it must be within one year in the future.")
-		}
-		workload.Spec.CronSchedules = []v1.CronSchedule{{Schedule: scheduleStr}}
 	}
 	return workload, nil
 }
@@ -933,6 +871,9 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 	if req.MaxRetry != nil {
 		adminWorkload.Spec.MaxRetry = *req.MaxRetry
 	}
+	if req.CronJobs != nil {
+		adminWorkload.Spec.CronJobs = *req.CronJobs
+	}
 	return nil
 }
 
@@ -963,12 +904,17 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
 	}
+	if startTime := dbutils.ParseNullTime(w.StartTime); !startTime.IsZero() {
+		result.RunTime = timeutil.FormatDuration(int64(time.Since(startTime).Seconds()))
+	} else {
+		result.RunTime = "0s"
+	}
 	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
 	json.Unmarshal([]byte(w.Resource), &result.Resource)
 	if w.Timeout > 0 {
 		result.Timeout = pointer.Int(w.Timeout)
 		if t := dbutils.ParseNullTime(w.StartTime); !t.IsZero() {
-			result.SecondsUntilTimeout = t.Unix() + int64(3600*w.Timeout) - time.Now().Unix()
+			result.SecondsUntilTimeout = t.Unix() + int64(w.Timeout) - time.Now().Unix()
 			if result.SecondsUntilTimeout < 0 {
 				result.SecondsUntilTimeout = 0
 			}
@@ -1038,42 +984,8 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 	if str := dbutils.ParseNullString(w.Dependencies); str != "" {
 		json.Unmarshal([]byte(str), &result.Dependencies)
 	}
-	if str := dbutils.ParseNullString(w.CronSchedules); str != "" {
-		json.Unmarshal([]byte(str), &result.CronSchedules)
-	}
-	return result
-}
-
-// cvtAdminWorkloadToGetResponse: converts an etcd workload object to a detailed response format.
-// Maps workload object fields to the appropriate response structure including status information.
-func (h *Handler) cvtAdminWorkloadToGetResponse(ctx context.Context, w *v1.Workload) *types.GetWorkloadResponse {
-	result := &types.GetWorkloadResponse{
-		WorkloadResponseItem:    cvtWorkloadToResponseItem(w),
-		Image:                   w.Spec.Image,
-		IsSupervised:            w.Spec.IsSupervised,
-		MaxRetry:                w.Spec.MaxRetry,
-		Conditions:              w.Status.Conditions,
-		Nodes:                   w.Status.Nodes,
-		Ranks:                   w.Status.Ranks,
-		TTLSecondsAfterFinished: w.Spec.TTLSecondsAfterFinished,
-		Service:                 w.Spec.Service,
-		Liveness:                w.Spec.Liveness,
-		Readiness:               w.Spec.Readiness,
-		Env:                     w.Spec.Env,
-		Dependencies:            w.Spec.Dependencies,
-		CronSchedules:           w.Spec.CronSchedules,
-	}
-
-	result.Pods = make([]types.WorkloadPodWrapper, len(w.Status.Pods))
-	for i, p := range w.Status.Pods {
-		result.Pods[i].WorkloadPod = w.Status.Pods[i]
-		result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p, result.UserId, result.WorkspaceId)
-	}
-	if len(w.Spec.CustomerLabels) > 0 {
-		result.CustomerLabels, result.NodeList = parseCustomerLabelsAndNodes(w.Spec.CustomerLabels)
-	}
-	if !commonworkload.IsAuthoring(w) {
-		result.EntryPoint = stringutil.Base64Decode(w.Spec.EntryPoint)
+	if str := dbutils.ParseNullString(w.CronJobs); str != "" {
+		json.Unmarshal([]byte(str), &result.CronJobs)
 	}
 	return result
 }
@@ -1091,44 +1003,6 @@ func parseCustomerLabelsAndNodes(labels map[string]string) (map[string]string, [
 		}
 	}
 	return customerLabels, nodeList
-}
-
-// cvtWorkloadToResponseItem: converts an etcd workload object to a response item format.
-// Maps workload object fields to the appropriate response structure for listing.
-func cvtWorkloadToResponseItem(w *v1.Workload) types.WorkloadResponseItem {
-	result := types.WorkloadResponseItem{
-		WorkloadId:       w.Name,
-		WorkspaceId:      w.Spec.Workspace,
-		Resource:         w.Spec.Resource,
-		DisplayName:      v1.GetDisplayName(w),
-		Description:      v1.GetDescription(w),
-		UserId:           v1.GetUserId(w),
-		UserName:         v1.GetUserName(w),
-		ClusterId:        v1.GetClusterId(w),
-		Phase:            string(w.Status.Phase),
-		Priority:         w.Spec.Priority,
-		CreationTime:     timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
-		SchedulerOrder:   w.Status.SchedulerOrder,
-		DispatchCount:    v1.GetWorkloadDispatchCnt(w),
-		IsTolerateAll:    w.Spec.IsTolerateAll,
-		GroupVersionKind: w.Spec.GroupVersionKind,
-		Timeout:          w.Spec.Timeout,
-		WorkloadUid:      string(w.UID),
-		K8sObjectUid:     w.Status.K8sObjectUid,
-	}
-	if !w.Status.StartTime.IsZero() {
-		result.StartTime = timeutil.FormatRFC3339(&w.Status.StartTime.Time)
-		if w.GetTimeout() > 0 {
-			result.SecondsUntilTimeout = w.Status.StartTime.Unix() + int64(w.GetTimeout()) - time.Now().Unix()
-		}
-	}
-	if !w.Status.EndTime.IsZero() {
-		result.EndTime = timeutil.FormatRFC3339(&w.Status.EndTime.Time)
-	}
-	if result.Phase == string(v1.WorkloadPending) {
-		result.Message = w.Status.Message
-	}
-	return result
 }
 
 // buildSSHAddress: constructs the SSH address for accessing a workload pod.
@@ -1173,39 +1047,6 @@ func (h *Handler) buildSSHAddress(ctx context.Context, pod *v1.WorkloadPod, user
 	}
 	return fmt.Sprintf("ssh -p %d %s.%s.%s@%s",
 		commonconfig.GetSSHServerPort(), userId, pod.PodId, workspace, localIp)
-}
-
-// buildWorkloadLabelSelector: constructs a label selector based on workload list query parameters.
-// Used to filter workloads by workspace, cluster, user, and other criteria.
-func buildWorkloadLabelSelector(query *types.ListWorkloadRequest) labels.Selector {
-	var labelSelector = labels.NewSelector()
-	if query.WorkspaceId != "" {
-		req, _ := labels.NewRequirement(v1.WorkspaceIdLabel, selection.Equals, []string{query.WorkspaceId})
-		labelSelector = labelSelector.Add(*req)
-	}
-	if query.ClusterId != "" {
-		req, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{query.ClusterId})
-		labelSelector = labelSelector.Add(*req)
-	}
-	if query.UserName != "" {
-		nameMd5 := stringutil.MD5(query.UserName)
-		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.Equals, []string{nameMd5})
-		labelSelector = labelSelector.Add(*req)
-	} else {
-		nameMd5 := stringutil.MD5(common.UserSystem)
-		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.NotEquals, []string{nameMd5})
-		labelSelector = labelSelector.Add(*req)
-	}
-	if query.Kind != "" {
-		values := strings.Split(query.Kind, ",")
-		req, _ := labels.NewRequirement(v1.WorkloadKindLabel, selection.In, values)
-		labelSelector = labelSelector.Add(*req)
-	}
-	if query.UserId != "" {
-		req, _ := labels.NewRequirement(v1.UserIdLabel, selection.Equals, []string{query.UserId})
-		labelSelector = labelSelector.Add(*req)
-	}
-	return labelSelector
 }
 
 // generateWorkloadForAuth: creates a minimal workload object for authorization checks.
@@ -1282,8 +1123,8 @@ func cvtDBWorkloadToAdminWorkload(c *gin.Context, dbItem *dbclient.Workload) *v1
 	if str := dbutils.ParseNullString(dbItem.Dependencies); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Dependencies)
 	}
-	if str := dbutils.ParseNullString(dbItem.CronSchedules); str != "" {
-		json.Unmarshal([]byte(str), &result.Spec.CronSchedules)
+	if str := dbutils.ParseNullString(dbItem.CronJobs); str != "" {
+		json.Unmarshal([]byte(str), &result.Spec.CronJobs)
 	}
 	return result
 }
@@ -1336,13 +1177,4 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		Containers: containers,
 		Shells:     []string{"bash", "sh", "zsh"},
 	}, nil
-}
-
-func isValidSchedulerTime(target time.Time) bool {
-	now := time.Now()
-	if !target.After(now) {
-		return false
-	}
-	oneYearLaterMinusOneMin := now.AddDate(1, 0, 0).Add(-time.Minute)
-	return !target.After(oneYearLaterMinusOneMin)
 }

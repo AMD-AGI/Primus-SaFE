@@ -536,7 +536,7 @@ func cvtToClusterResponseItem(cluster *v1.Cluster) types.ClusterResponseItem {
 		UserId:       v1.GetUserId(cluster),
 		Phase:        string(cluster.Status.ControlPlaneStatus.Phase),
 		IsProtected:  v1.IsProtected(cluster),
-		CreationTime: timeutil.FormatRFC3339(&cluster.CreationTimestamp.Time),
+		CreationTime: timeutil.FormatRFC3339(cluster.CreationTimestamp.Time),
 	}
 	if !cluster.GetDeletionTimestamp().IsZero() {
 		result.Phase = string(v1.DeletingPhase)

@@ -48,6 +48,8 @@ type NodeInfo struct {
 	ObservedGpuCount int `json:"observedGpuCount"`
 	// The name of the node
 	NodeName string `json:"nodeName"`
+	// The workspace bound to the node
+	WorkspaceId string `json:"workspaceId"`
 }
 
 // NewMonitor creates a new Monitor instance with the given configuration
@@ -99,7 +101,7 @@ func (m *Monitor) startCronJob() {
 		cron.SkipIfStillRunning(cron.DiscardLogger),
 	))
 
-	schedule, err := timeutil.ParseCronString(m.config.Cronjob)
+	schedule, err := timeutil.ParseCronStandard(m.config.Cronjob)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse cronjob schedule")
 		return
@@ -168,6 +170,7 @@ func (m *Monitor) generateNodeInfo() *NodeInfo {
 	}
 	info := &NodeInfo{
 		NodeName:         m.node.GetK8sNode().Name,
+		WorkspaceId:      v1.GetWorkspaceId(m.node.GetK8sNode()),
 		ExpectedGpuCount: v1.GetNodeGpuCount(m.node.GetK8sNode()),
 	}
 	gpuQuantity := m.node.GetGpuQuantity()

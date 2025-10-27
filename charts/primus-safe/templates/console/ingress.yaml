@@ -2,7 +2,7 @@
 # Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
-
+{{- if eq .Values.global.ingress "higress" }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -34,3 +34,4 @@ spec:
     - hosts:
         - {{ .Values.global.sub_domain }}.{{ .Values.global.domain }}
       secretName: default
+{{- end }}

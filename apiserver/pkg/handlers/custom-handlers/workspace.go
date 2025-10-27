@@ -439,7 +439,7 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 		CurrentNodeCount:  w.CurrentReplica(),
 		AbnormalNodeCount: w.Status.AbnormalReplica,
 		Phase:             string(w.Status.Phase),
-		CreationTime:      timeutil.FormatRFC3339(&w.CreationTimestamp.Time),
+		CreationTime:      timeutil.FormatRFC3339(w.CreationTimestamp.Time),
 		Description:       v1.GetDescription(w),
 		QueuePolicy:       w.Spec.QueuePolicy,
 		Scopes:            w.Spec.Scopes,

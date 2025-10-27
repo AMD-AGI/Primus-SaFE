@@ -38,6 +38,7 @@ import (
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 // DispatcherReconciler: reconciles Workload objects and handles their dispatching to target clusters
@@ -227,6 +228,7 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 
 	result, err := r.getWorkloadTemplate(ctx, adminWorkload)
 	if err != nil {
+		klog.Error(err.Error())
 		return nil, err
 	}
 	if err = updateUnstructuredObject(result, adminWorkload, rt); err != nil {
@@ -261,7 +263,8 @@ func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWor
 	}
 	template, err := jsonutils.ParseYamlToJson(templateStr)
 	if err != nil {
-		return nil, commonerrors.NewInternalError(err.Error())
+		return nil, commonerrors.NewInternalError(
+			fmt.Sprintf("failed to parse template: %v", err.Error()))
 	}
 	return template, nil
 }
@@ -283,7 +286,7 @@ func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1
 
 	if !v1.IsWorkloadDispatched(workload) {
 		originalWorkload := client.MergeFrom(workload.DeepCopy())
-		v1.SetAnnotation(workload, v1.WorkloadDispatchedAnnotation, time.Now().UTC().Format(time.RFC3339))
+		v1.SetAnnotation(workload, v1.WorkloadDispatchedAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
 		v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, buildDispatchCount(workload))
 		v1.RemoveAnnotation(workload, v1.WorkloadPreemptedAnnotation)
 		if err := r.Patch(ctx, workload, originalWorkload); err != nil {
@@ -431,19 +434,19 @@ func updateUnstructuredObject(obj *unstructured.Unstructured, adminWorkload *v1.
 			continue
 		}
 		if err := updateHostNetwork(adminWorkload, obj, t); err != nil {
-			return err
+			return fmt.Errorf("failed to update host network: %v", err.Error())
 		}
 		if err := updateReplica(adminWorkload, obj, t, replica); err != nil {
-			return err
+			return fmt.Errorf("failed to update replica: %v", err.Error())
 		}
 		if err := updateMainContainer(adminWorkload, obj, t); err != nil {
-			return err
+			return fmt.Errorf("failed to update main container: %v", err.Error())
 		}
 		if err := updateSharedMemory(adminWorkload, obj, t); err != nil {
-			return err
+			return fmt.Errorf("failed to update shared memory: %v", err.Error())
 		}
 		if err := updatePriorityClass(adminWorkload, obj, t); err != nil {
-			return err
+			return fmt.Errorf("failed to update priority: %v", err.Error())
 		}
 	}
 	return nil
@@ -603,7 +606,7 @@ func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
 	templatePath := resourceSpec.GetTemplatePath()
 	path := append(templatePath, "spec", "hostNetwork")
-	return modifyHostNetWork(obj, adminWorkload, path)
+	return modifyHostNetwork(obj, adminWorkload, path)
 }
 
 // updatePriorityClass: updates the priority class configuration

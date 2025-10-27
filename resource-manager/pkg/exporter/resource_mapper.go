@@ -117,8 +117,8 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 	if len(workload.Spec.Dependencies) > 0 {
 		result.Dependencies = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Dependencies)))
 	}
-	if len(workload.Spec.CronSchedules) > 0 {
-		result.CronSchedules = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.CronSchedules)))
+	if len(workload.Spec.CronJobs) > 0 {
+		result.CronJobs = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.CronJobs)))
 	}
 	return result
 }
