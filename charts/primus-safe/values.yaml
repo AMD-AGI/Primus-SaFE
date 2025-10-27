@@ -7,6 +7,7 @@ global:
   sub_domain: "tw325"
   image_pull_secret: "primus-safe-image"
   storage_class: "local-path"
+  ingress: "nginx"
 net:
   nccl_socket_ifname: "eno0"
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"

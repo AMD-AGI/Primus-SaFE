@@ -606,7 +606,7 @@ func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
 	templatePath := resourceSpec.GetTemplatePath()
 	path := append(templatePath, "spec", "hostNetwork")
-	return modifyHostNetWork(obj, adminWorkload, path)
+	return modifyHostNetwork(obj, adminWorkload, path)
 }
 
 // updatePriorityClass: updates the priority class configuration

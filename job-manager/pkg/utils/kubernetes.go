@@ -26,7 +26,12 @@ import (
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
-// GetResourceTemplate: Retrieve the corresponding resource_template based on the workload's GVK.
+const (
+	DefaultTimeout      = 10 * time.Second
+	WorkloadGracePeriod = 180
+)
+
+// GetResourceTemplate Retrieve the corresponding resource_template based on the workload's GVK.
 func GetResourceTemplate(ctx context.Context, adminClient client.Client, gvk schema.GroupVersionKind) (*v1.ResourceTemplate, error) {
 	templateList := &v1.ResourceTemplateList{}
 	labelSelector := labels.SelectorFromSet(map[string]string{
@@ -41,7 +46,7 @@ func GetResourceTemplate(ctx context.Context, adminClient client.Client, gvk sch
 	return &templateList.Items[0], nil
 }
 
-// GenObjectReference: constructs a reference object pointing to a k8s object based on the workload
+// GenObjectReference constructs a reference object pointing to a k8s object based on the workload
 func GenObjectReference(ctx context.Context, adminClient client.Client, workload *v1.Workload) (*unstructured.Unstructured, error) {
 	rt, err := GetResourceTemplate(ctx, adminClient, workload.ToSchemaGVK())
 	if err != nil {
@@ -54,7 +59,7 @@ func GenObjectReference(ctx context.Context, adminClient client.Client, workload
 	return obj, nil
 }
 
-// CreateObject: creates a Kubernetes object using the dynamic client
+// CreateObject creates a Kubernetes object using the dynamic client
 func CreateObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, obj *unstructured.Unstructured) error {
 	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), obj.GroupVersionKind())
 	if err != nil {
@@ -70,7 +75,7 @@ func CreateObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	return nil
 }
 
-// UpdateObject: updates a Kubernetes object using the dynamic client
+// UpdateObject updates a Kubernetes object using the dynamic client
 func UpdateObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, obj *unstructured.Unstructured) error {
 	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), obj.GroupVersionKind())
 	if err != nil {
@@ -86,7 +91,7 @@ func UpdateObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	return nil
 }
 
-// GetObject: retrieves an object from the informer cache
+// GetObject retrieves an object from the informer cache
 func GetObject(informer informers.GenericInformer, name, namespace string) (*unstructured.Unstructured, error) {
 	obj, err := informer.Lister().ByNamespace(namespace).Get(name)
 	if err != nil {
@@ -94,12 +99,12 @@ func GetObject(informer informers.GenericInformer, name, namespace string) (*uns
 	}
 	unstructuredObj, ok := obj.(*unstructured.Unstructured)
 	if !ok {
-		return nil, commonerrors.NewInternalError("the object is invalid")
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("the object is not of type *unstructured.Unstructured, got %T", obj))
 	}
 	return unstructuredObj.DeepCopy(), nil
 }
 
-// DeleteObject: deletes a Kubernetes object with appropriate grace period and propagation policy
+// DeleteObject deletes a Kubernetes object with appropriate grace period and propagation policy
 func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, obj *unstructured.Unstructured) error {
 	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), obj.GroupVersionKind())
 	if err != nil {
@@ -107,7 +112,7 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	}
 	gracePeriod := int64(0)
 	if isWorkloadOrPod(obj.GroupVersionKind()) {
-		gracePeriod = 180
+		gracePeriod = WorkloadGracePeriod
 	}
 	policy := metav1.DeletePropagationForeground
 	err = k8sClientFactory.DynamicClient().
@@ -124,7 +129,7 @@ func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFact
 	return nil
 }
 
-// ConvertGVKToGVR: converts a GroupVersionKind to GroupVersionResource using the REST mapper
+// ConvertGVKToGVR converts a GroupVersionKind to GroupVersionResource using the REST mapper
 func ConvertGVKToGVR(mapper meta.RESTMapper, gvk schema.GroupVersionKind) (schema.GroupVersionResource, error) {
 	m, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
@@ -134,7 +139,7 @@ func ConvertGVKToGVR(mapper meta.RESTMapper, gvk schema.GroupVersionKind) (schem
 	return m.Resource, nil
 }
 
-// CreateNamespace: creates a Kubernetes namespace if it doesn't already exist
+// CreateNamespace creates a Kubernetes namespace if it doesn't already exist
 func CreateNamespace(ctx context.Context, name string, clientSet kubernetes.Interface) error {
 	if name == "" {
 		return fmt.Errorf("the name is empty")
@@ -148,7 +153,7 @@ func CreateNamespace(ctx context.Context, name string, clientSet kubernetes.Inte
 			Name: name,
 		},
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Second*10)
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
 	_, err = clientSet.CoreV1().Namespaces().Create(ctx, namespace, metav1.CreateOptions{})
 	if err != nil {
@@ -158,12 +163,12 @@ func CreateNamespace(ctx context.Context, name string, clientSet kubernetes.Inte
 	return nil
 }
 
-// DeleteNamespace: deletes a Kubernetes namespace
+// DeleteNamespace deletes a Kubernetes namespace
 func DeleteNamespace(ctx context.Context, name string, clientSet kubernetes.Interface) error {
 	if name == "" {
 		return fmt.Errorf("the name is empty")
 	}
-	timeoutCtx, cancel := context.WithTimeout(ctx, time.Second*10)
+	timeoutCtx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
 	err := clientSet.CoreV1().Namespaces().Delete(timeoutCtx, name, metav1.DeleteOptions{})
 	if err != nil {
@@ -173,7 +178,7 @@ func DeleteNamespace(ctx context.Context, name string, clientSet kubernetes.Inte
 	return nil
 }
 
-// CopySecret: copies a secret from admin plane to target namespace in the data plane
+// CopySecret copies a secret from admin plane to target namespace in the data plane
 func CopySecret(ctx context.Context, clientSet kubernetes.Interface,
 	adminPlaneSecret *corev1.Secret, targetNamespace string) error {
 	dataPlaneSecret := &corev1.Secret{
@@ -184,7 +189,7 @@ func CopySecret(ctx context.Context, clientSet kubernetes.Interface,
 		Type: adminPlaneSecret.Type,
 		Data: adminPlaneSecret.Data,
 	}
-	newContext, cancel := context.WithTimeout(ctx, time.Second*10)
+	newContext, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
 	_, err := clientSet.CoreV1().Secrets(targetNamespace).Create(newContext, dataPlaneSecret, metav1.CreateOptions{})
 	if err != nil {
@@ -194,7 +199,7 @@ func CopySecret(ctx context.Context, clientSet kubernetes.Interface,
 	return nil
 }
 
-// UpdateSecret: updates a secret in the target namespace in the data plane with admin plane secret data
+// UpdateSecret updates a secret in the target namespace in the data plane with admin plane secret data
 func UpdateSecret(ctx context.Context, clientSet kubernetes.Interface,
 	adminPlaneSecret *corev1.Secret, targetNamespace string) error {
 	dataPlaneSecret, err := clientSet.CoreV1().Secrets(targetNamespace).Get(
@@ -204,7 +209,7 @@ func UpdateSecret(ctx context.Context, clientSet kubernetes.Interface,
 	}
 	dataPlaneSecret.Type = adminPlaneSecret.Type
 	dataPlaneSecret.Data = adminPlaneSecret.Data
-	newContext, cancel := context.WithTimeout(ctx, time.Second*10)
+	newContext, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
 	_, err = clientSet.CoreV1().Secrets(targetNamespace).Update(newContext, dataPlaneSecret, metav1.UpdateOptions{})
 	if err != nil {
@@ -214,9 +219,9 @@ func UpdateSecret(ctx context.Context, clientSet kubernetes.Interface,
 	return nil
 }
 
-// DeleteSecret: deletes a secret from the target namespace in the data plane
+// DeleteSecret deletes a secret from the target namespace in the data plane
 func DeleteSecret(ctx context.Context, clientSet kubernetes.Interface, targetName, targetNamespace string) error {
-	newContext, cancel := context.WithTimeout(ctx, time.Second*10)
+	newContext, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
 	err := clientSet.CoreV1().Secrets(targetNamespace).Delete(newContext, targetName, metav1.DeleteOptions{})
 	if err != nil {
@@ -226,9 +231,9 @@ func DeleteSecret(ctx context.Context, clientSet kubernetes.Interface, targetNam
 	return nil
 }
 
-// CreatePVC: creates a PersistentVolumeClaim
+// CreatePVC creates a PersistentVolumeClaim
 func CreatePVC(ctx context.Context, pvc *corev1.PersistentVolumeClaim, clientSet kubernetes.Interface) error {
-	newContext, cancel := context.WithTimeout(ctx, time.Second*10)
+	newContext, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
 	var err error
 	pvc, err = clientSet.CoreV1().PersistentVolumeClaims(pvc.GetNamespace()).Create(newContext, pvc, metav1.CreateOptions{})
@@ -239,7 +244,7 @@ func CreatePVC(ctx context.Context, pvc *corev1.PersistentVolumeClaim, clientSet
 	return nil
 }
 
-// DeletePVC: deletes a PersistentVolumeClaim and removes its finalizers if present
+// DeletePVC deletes a PersistentVolumeClaim and removes its finalizers if present
 func DeletePVC(ctx context.Context, name, namespace string, clientSet kubernetes.Interface) error {
 	pvc, err := clientSet.CoreV1().PersistentVolumeClaims(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -261,7 +266,7 @@ func DeletePVC(ctx context.Context, name, namespace string, clientSet kubernetes
 	return nil
 }
 
-// isWorkloadOrPod: checks if the given GroupVersionKind represents a workload or pod resource
+// isWorkloadOrPod checks if the given GroupVersionKind represents a workload or pod resource
 func isWorkloadOrPod(gvk schema.GroupVersionKind) bool {
 	switch gvk.Kind {
 	case "Pod",

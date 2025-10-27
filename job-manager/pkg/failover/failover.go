@@ -36,16 +36,28 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 )
 
+const (
+	MaxRetryAttempts = 10
+	RetryWaitTime    = time.Millisecond * 200
+)
+
+// FailoverReconciler reconciles Workload objects for failover handling
 type FailoverReconciler struct {
 	client.Client
-	failoverConfig   *commonutils.ObjectManager
+	failoverConfigs  *commonutils.ObjectManager
 	clusterInformers *commonutils.ObjectManager
 }
 
+// SetupFailoverController initializes and registers the failover controller with the manager
+// Parameters:
+//   - mgr: The controller manager to register with
+//
+// Returns:
+//   - error: Any error encountered during setup
 func SetupFailoverController(mgr manager.Manager) error {
 	r := &FailoverReconciler{
 		Client:           mgr.GetClient(),
-		failoverConfig:   commonutils.NewObjectManager(),
+		failoverConfigs:  commonutils.NewObjectManager(),
 		clusterInformers: commonutils.NewObjectManagerSingleton(),
 	}
 	err := ctrlruntime.NewControllerManagedBy(mgr).
@@ -64,30 +76,48 @@ type relevantChangePredicate struct {
 	predicate.Funcs
 }
 
+// Create determines if a Create event should be processed for a Workload
+// Parameters:
+//   - e: The create event to evaluate
+//
+// Returns:
+//   - bool: True if the event should be processed, false otherwise
 func (relevantChangePredicate) Create(e event.CreateEvent) bool {
 	w, ok := e.Object.(*v1.Workload)
 	if !ok {
 		return false
 	}
-	if isNeedFailover(w) {
+	if isFailoverNeeded(w) {
 		return true
 	}
 	return false
 }
 
+// Update determines if an Update event should be processed for a Workload
+// Parameters:
+//   - e: The update event to evaluate
+//
+// Returns:
+//   - bool: True if the event should be processed, false otherwise
 func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 	oldWorkload, ok1 := e.ObjectOld.(*v1.Workload)
 	newWorkload, ok2 := e.ObjectNew.(*v1.Workload)
 	if !ok1 || !ok2 {
 		return false
 	}
-	if !isNeedFailover(oldWorkload) && isNeedFailover(newWorkload) {
+	if !isFailoverNeeded(oldWorkload) && isFailoverNeeded(newWorkload) {
 		return true
 	}
 	return false
 }
 
-func isNeedFailover(workload *v1.Workload) bool {
+// isFailoverNeeded checks if a workload needs failover handling
+// Parameters:
+//   - workload: The workload to check
+//
+// Returns:
+//   - bool: True if failover is needed, false otherwise
+func isFailoverNeeded(workload *v1.Workload) bool {
 	if isDisableFailover(workload) {
 		return false
 	}
@@ -104,29 +134,38 @@ func isNeedFailover(workload *v1.Workload) bool {
 	return false
 }
 
-func isDisableFailover(w *v1.Workload) bool {
-	if v1.IsWorkloadDisableFailover(w) {
+// isDisableFailover checks if failover is disabled for a workload
+// Parameters:
+//   - workload: The workload to check
+//
+// Returns:
+//   - bool: True if failover is disabled, false otherwise
+func isDisableFailover(workload *v1.Workload) bool {
+	if v1.IsWorkloadDisableFailover(workload) {
 		return true
 	}
-	if !v1.IsWorkloadDispatched(w) || w.IsEnd() {
+	if !v1.IsWorkloadDispatched(workload) || workload.IsEnd() {
 		return true
 	}
 	// Preemption is not subject to retry count limits.
-	if v1.IsWorkloadPreempted(w) {
+	if v1.IsWorkloadPreempted(workload) {
 		return false
 	}
-	if w.Spec.MaxRetry <= 0 || v1.GetWorkloadDispatchCnt(w) > w.Spec.MaxRetry {
+	if workload.Spec.MaxRetry <= 0 || v1.GetWorkloadDispatchCnt(workload) > workload.Spec.MaxRetry {
 		return true
 	}
 	return false
 }
 
+// handleFaultEvent creates an event handler for Fault resources
+// Returns:
+//   - handler.EventHandler: The event handler for Fault resources
 func (r *FailoverReconciler) handleFaultEvent() handler.EventHandler {
 	check := func(fault *v1.Fault) bool {
 		if fault.Status.Phase != v1.FaultPhaseSucceeded || fault.Spec.Node == nil {
 			return false
 		}
-		return isMonitorIdExists(r.failoverConfig, strings.ToLower(fault.Spec.MonitorId))
+		return isMonitorIdExists(r.failoverConfigs, strings.ToLower(fault.Spec.MonitorId))
 	}
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
@@ -146,34 +185,27 @@ func (r *FailoverReconciler) handleFaultEvent() handler.EventHandler {
 	}
 }
 
+// handleFaultEventImpl handles the actual processing of a Fault event
+// Parameters:
+//   - ctx: The context for the operation
+//   - fault: The fault that triggered the event
+//   - q: The work queue to add workload requests to
 func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1.Fault, q v1.RequestWorkQueue) {
 	message := fmt.Sprintf("the node %s has fault %s, detail: %s", fault.Spec.Node.K8sName,
 		commonfaults.GenerateTaintKey(fault.Spec.MonitorId), fault.Spec.Message)
 	klog.Infof("%s, try to do failover", message)
-	const maxRetry = 10
-	waitTime := time.Millisecond * 200
-	maxWaitTime := waitTime * maxRetry
 
-	var clusterInformer *syncer.ClusterInformer
-	clusterName := fault.Spec.Node.ClusterName
-	err := backoff.Retry(func() error {
-		clusterInformer, _ = syncer.GetClusterInformer(r.clusterInformers, clusterName)
-		if clusterInformer != nil {
-			return nil
-		}
-		return fmt.Errorf("failed to get cluster's informer")
-	}, maxWaitTime, waitTime)
-	if err != nil || clusterInformer == nil {
+	clusterInformer := r.getClusterInformer(fault.Spec.Node.ClusterName)
+	if clusterInformer == nil {
 		return
 	}
-
-	workloadNames, err := r.getWorkloadsByFault(ctx, clusterInformer, fault)
+	workloadNames, err := r.getWorkloadsOnFaultNode(ctx, clusterInformer, fault)
 	if err != nil {
 		return
 	}
 
 	f := func(name string) bool {
-		for i := 0; i < maxRetry; i++ {
+		for i := 0; i < MaxRetryAttempts; i++ {
 			workload := &v1.Workload{}
 			if err = r.Get(ctx, client.ObjectKey{Name: name}, workload); err != nil {
 				if apierrors.IsNotFound(err) {
@@ -185,7 +217,7 @@ func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1
 			} else if r.addFailoverCondition(ctx, workload, message) == nil {
 				break
 			}
-			time.Sleep(waitTime)
+			time.Sleep(RetryWaitTime)
 		}
 		return true
 	}
@@ -196,6 +228,36 @@ func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1
 	}
 }
 
+// getClusterInformer retrieves the cluster informer for a given fault's cluster with retry logic
+// Parameters:
+//   - fault: The fault containing cluster information
+//
+// Returns:
+//   - *syncer.ClusterInformer: The cluster informer for the specified cluster, or nil if failed
+func (r *FailoverReconciler) getClusterInformer(clusterId string) *syncer.ClusterInformer {
+	maxWaitTime := RetryWaitTime * MaxRetryAttempts
+	var clusterInformer *syncer.ClusterInformer
+	err := backoff.Retry(func() error {
+		clusterInformer, _ = syncer.GetClusterInformer(r.clusterInformers, clusterId)
+		if clusterInformer != nil {
+			return nil
+		}
+		return fmt.Errorf("failed to get cluster's informer")
+	}, maxWaitTime, RetryWaitTime)
+	if err != nil || clusterInformer == nil {
+		return nil
+	}
+	return clusterInformer
+}
+
+// addFailoverCondition adds a failover condition to a workload's status
+// Parameters:
+//   - ctx: The context for the operation
+//   - workload: The workload to update
+//   - message: The message for the condition
+//
+// Returns:
+//   - error: Any error encountered during the update
 func (r *FailoverReconciler) addFailoverCondition(ctx context.Context, workload *v1.Workload, message string) error {
 	reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload))
 	cond := jobutils.NewCondition(string(v1.AdminFailover), message, reason)
@@ -210,7 +272,16 @@ func (r *FailoverReconciler) addFailoverCondition(ctx context.Context, workload 
 	return nil
 }
 
-func (r *FailoverReconciler) getWorkloadsByFault(ctx context.Context,
+// getWorkloadsOnFaultNode retrieves workloads running on a faulty node
+// Parameters:
+//   - ctx: The context for the operation
+//   - clusterInformer: The cluster informer for the fault's cluster
+//   - fault: The fault containing node information
+//
+// Returns:
+//   - []string: Names of workloads running on the faulty node
+//   - error: Any error encountered during retrieval
+func (r *FailoverReconciler) getWorkloadsOnFaultNode(ctx context.Context,
 	clusterInformer *syncer.ClusterInformer, fault *v1.Fault) ([]string, error) {
 	adminNode := &v1.Node{}
 	if err := r.Get(ctx, client.ObjectKey{Name: fault.Spec.Node.AdminName}, adminNode); err != nil {
@@ -228,17 +299,23 @@ func (r *FailoverReconciler) getWorkloadsByFault(ctx context.Context,
 	return workloadNames, nil
 }
 
+// handleConfigmapEvent creates an event handler for ConfigMap resources
+// Returns:
+//   - handler.EventHandler: The event handler for ConfigMap resources
 func (r *FailoverReconciler) handleConfigmapEvent() handler.EventHandler {
+	isFailoverConfigMap := func(cm *corev1.ConfigMap) bool {
+		return cm.GetName() == common.PrimusFailover && cm.GetNamespace() == common.PrimusSafeNamespace
+	}
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
 			cm, ok := evt.Object.(*corev1.ConfigMap)
 			if !ok {
 				return
 			}
-			if cm.GetName() != common.PrimusFailover || cm.GetNamespace() != common.PrimusSafeNamespace {
+			if !isFailoverConfigMap(cm) {
 				return
 			}
-			addFailoverConfig(cm, r.failoverConfig)
+			addFailoverConfig(cm, r.failoverConfigs)
 		},
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
 			oldCm, ok1 := evt.ObjectOld.(*corev1.ConfigMap)
@@ -246,30 +323,35 @@ func (r *FailoverReconciler) handleConfigmapEvent() handler.EventHandler {
 			if !ok1 || !ok2 {
 				return
 			}
-			if oldCm.GetName() != common.PrimusFailover || oldCm.GetNamespace() != common.PrimusSafeNamespace {
-				return
-			}
-			if newCm.GetName() != common.PrimusFailover || newCm.GetNamespace() != common.PrimusSafeNamespace {
+			if !isFailoverConfigMap(oldCm) || !isFailoverConfigMap(newCm) {
 				return
 			}
 			if reflect.DeepEqual(oldCm.Data, newCm.Data) {
 				return
 			}
-			addFailoverConfig(newCm, r.failoverConfig)
+			addFailoverConfig(newCm, r.failoverConfigs)
 		},
 		DeleteFunc: func(ctx context.Context, evt event.DeleteEvent, q v1.RequestWorkQueue) {
 			cm, ok := evt.Object.(*corev1.ConfigMap)
 			if !ok {
 				return
 			}
-			if cm.GetName() != common.PrimusFailover || cm.GetNamespace() != common.PrimusSafeNamespace {
+			if !isFailoverConfigMap(cm) {
 				return
 			}
-			r.failoverConfig.Clear()
+			r.failoverConfigs.Clear()
 		},
 	}
 }
 
+// Reconcile is the main control loop for Workload resources that handles failover
+// Parameters:
+//   - ctx: The context for the operation
+//   - req: The reconcile request containing the workload name
+//
+// Returns:
+//   - ctrlruntime.Result: The result of the reconciliation
+//   - error: Any error encountered during reconciliation
 func (r *FailoverReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	workload := new(v1.Workload)
 	if err := r.Get(ctx, req.NamespacedName, workload); err != nil {
@@ -285,28 +367,36 @@ func (r *FailoverReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 	return r.handle(ctx, workload)
 }
 
-func (r *FailoverReconciler) handle(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
-	clusterInformer, _ := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(adminWorkload))
+// handle processes the failover logic for a workload
+// Parameters:
+//   - ctx: The context for the operation
+//   - workload: The workload to handle failover for
+//
+// Returns:
+//   - ctrlruntime.Result: The result of the handling
+//   - error: Any error encountered during handling
+func (r *FailoverReconciler) handle(ctx context.Context, workload *v1.Workload) (ctrlruntime.Result, error) {
+	clusterInformer, _ := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(workload))
 	if clusterInformer == nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
 	}
-	obj, err := jobutils.GenObjectReference(ctx, r.Client, adminWorkload)
+	obj, err := jobutils.GenObjectReference(ctx, r.Client, workload)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	if err = jobutils.DeleteObject(ctx, clusterInformer.ClientFactory(), obj); err != nil {
-		klog.ErrorS(err, "failed to delete k8s object", "name", adminWorkload.GetName())
+		klog.ErrorS(err, "failed to delete k8s object", "name", workload.GetName())
 		return ctrlruntime.Result{}, err
 	}
 	message := ""
-	if v1.IsWorkloadPreempted(adminWorkload) {
+	if v1.IsWorkloadPreempted(workload) {
 		message = "the workload is preempted"
 	} else {
 		message = "the workload is doing the failover"
 	}
-	if err = r.addFailoverCondition(ctx, adminWorkload, message); err != nil {
+	if err = r.addFailoverCondition(ctx, workload, message); err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	klog.Infof("the workload %s is attempting to perform a failover", adminWorkload.Name)
+	klog.Infof("the workload %s is attempting to perform a failover", workload.Name)
 	return ctrlruntime.Result{}, nil
 }

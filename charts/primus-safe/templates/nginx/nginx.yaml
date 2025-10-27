@@ -2,6 +2,8 @@
 # Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
+
+{{- if eq .Values.global.ingress "nginx" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -120,3 +122,4 @@ spec:
     app: primus-safe-nginx
   sessionAffinity: None
   type: NodePort
+{{- end }}

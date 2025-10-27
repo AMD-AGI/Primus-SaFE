@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	CronjobReason    = "The user's scheduled time has not been reached yet."
+	CronjobReason    = "The Execution time has not been reached"
 	DependencyReason = "Dependency cannot be satisfied"
 )
 

@@ -470,7 +470,7 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 	return ctrlruntime.Result{}, nil
 }
 
-// Start implement Runnable interface in controller runtime package.
+// Start implements Runnable interface in controller runtime package.
 func (r *SchedulerReconciler) start(ctx context.Context) {
 	for i := 0; i < r.MaxConcurrent; i++ {
 		r.Run(ctx)

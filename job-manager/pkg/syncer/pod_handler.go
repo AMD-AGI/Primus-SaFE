@@ -28,31 +28,56 @@ import (
 	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
 )
 
-func (r *SyncerReconciler) handlePod(ctx context.Context, msg *resourceMessage, clusterInformer *ClusterInformer) (ctrlruntime.Result, error) {
-	if msg.action == ResourceDel {
-		return ctrlruntime.Result{}, r.removeWorkloadPod(ctx, msg)
+const (
+	ForceDeleteDelaySeconds = 20
+	LogTailLines            = 1000
+)
+
+// handlePod processes Pod resource events (add, update, delete)
+// Manages the synchronization of pod status between data plane and admin plane
+// Parameters:
+//   - ctx: The context for the operation
+//   - message: The resource message containing pod event details
+//   - clusterInformer: The cluster informer for accessing resources
+//
+// Returns:
+//   - ctrlruntime.Result: The result of the handling
+//   - error: Any error encountered during processing
+func (r *SyncerReconciler) handlePod(ctx context.Context, message *resourceMessage, clusterInformer *ClusterInformer) (ctrlruntime.Result, error) {
+	if message.action == ResourceDel {
+		return ctrlruntime.Result{}, r.removeWorkloadPod(ctx, message)
 	}
-	informer, err := clusterInformer.GetResourceInformer(ctx, msg.gvk)
+	informer, err := clusterInformer.GetResourceInformer(ctx, message.gvk)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	obj, err := jobutils.GetObject(informer, msg.name, msg.namespace)
+	obj, err := jobutils.GetObject(informer, message.name, message.namespace)
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
 	if !obj.GetDeletionTimestamp().IsZero() {
-		if err = r.removeWorkloadPod(ctx, msg); err != nil {
+		if err = r.removeWorkloadPod(ctx, message); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 		return r.deletePod(ctx, obj, clusterInformer)
 	}
-	return r.updateWorkloadPod(ctx, obj, clusterInformer, msg.workloadId)
+	return r.updateWorkloadPod(ctx, obj, clusterInformer, message.workloadId)
 }
 
+// deletePod forcefully deletes a pod from the data plane
+// Implements a delayed force deletion strategy to avoid premature deletion
+// Parameters:
+//   - ctx: The context for the operation
+//   - obj: The unstructured pod object to delete
+//   - clusterInformer: The cluster informer for accessing the data plane client
+//
+// Returns:
+//   - ctrlruntime.Result: The result of the deletion
+//   - error: Any error encountered during deletion
 func (r *SyncerReconciler) deletePod(ctx context.Context,
 	obj *unstructured.Unstructured, clusterInformer *ClusterInformer) (ctrlruntime.Result, error) {
 	nowTime := time.Now().Unix()
-	if nowTime-obj.GetDeletionTimestamp().Unix() < 20 {
+	if nowTime-obj.GetDeletionTimestamp().Unix() < ForceDeleteDelaySeconds {
 		return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
 	}
 
@@ -76,6 +101,17 @@ func (r *SyncerReconciler) deletePod(ctx context.Context,
 	return ctrlruntime.Result{}, nil
 }
 
+// updateWorkloadPod updates the workload status based on pod information
+// Synchronizes pod details like phase, node assignment, and container status
+// Parameters:
+//   - ctx: The context for the operation
+//   - obj: The unstructured pod object
+//   - clusterInformer: The cluster informer for accessing resources
+//   - workloadId: The ID of the associated workload
+//
+// Returns:
+//   - ctrlruntime.Result: The result of the update
+//   - error: Any error encountered during update
 func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructured.Unstructured,
 	clusterInformer *ClusterInformer, workloadId string) (ctrlruntime.Result, error) {
 	pod := &corev1.Pod{}
@@ -148,6 +184,14 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	return ctrlruntime.Result{}, r.Status().Update(ctx, adminWorkload)
 }
 
+// getMainContainerRank retrieves the rank value from the main container's environment variables
+// Used for distributed training workloads to identify process rank
+// Parameters:
+//   - adminWorkload: The workload containing main container information
+//   - pod: The pod to extract rank from
+//
+// Returns:
+//   - string: The rank value, or empty string if not found
 func getMainContainerRank(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 	for _, container := range pod.Spec.Containers {
 		if container.Name != v1.GetMainContainer(adminWorkload) {
@@ -162,11 +206,19 @@ func getMainContainerRank(adminWorkload *v1.Workload, pod *corev1.Pod) string {
 	return ""
 }
 
-func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, msg *resourceMessage) error {
-	if msg.workloadId == "" {
+// removeWorkloadPod removes a pod entry from the workload status
+// Called when a pod is deleted to clean up the workload's pod list
+// Parameters:
+//   - ctx: The context for the operation
+//   - message: The resource message containing pod deletion details
+//
+// Returns:
+//   - error: Any error encountered during removal
+func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resourceMessage) error {
+	if message.workloadId == "" {
 		return nil
 	}
-	adminWorkload, err := r.getAdminWorkload(ctx, msg.workloadId)
+	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
 	if adminWorkload == nil {
 		return err
 	}
@@ -176,7 +228,7 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, msg *resourceM
 
 	id := -1
 	for i, p := range adminWorkload.Status.Pods {
-		if p.PodId == msg.name {
+		if p.PodId == message.name {
 			id = i
 			break
 		}
@@ -193,6 +245,14 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, msg *resourceM
 	return nil
 }
 
+// buildPodTerminatedInfo constructs termination information for a pod
+// Extracts container termination details and finished time for completed pods
+// Parameters:
+//   - ctx: The context for the operation
+//   - clientSet: The Kubernetes client set for log access
+//   - adminWorkload: The associated workload
+//   - pod: The pod to extract termination info from
+//   - workloadPod: The workload pod to populate with termination info
 func buildPodTerminatedInfo(ctx context.Context,
 	clientSet kubernetes.Interface, adminWorkload *v1.Workload, pod *corev1.Pod, workloadPod *v1.WorkloadPod) {
 	if pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed {
@@ -225,8 +285,18 @@ func buildPodTerminatedInfo(ctx context.Context,
 	}
 }
 
+// getPodLog retrieves and filters logs from a pod's main container
+// Extracts lines containing ERROR or SUCCESS markers for OpsJob workloads
+// Parameters:
+//   - ctx: The context for the operation
+//   - clientSet: The Kubernetes client set for log access
+//   - pod: The pod to retrieve logs from
+//   - mainContainerName: The name of the main container
+//
+// Returns:
+//   - string: Filtered log content as JSON, or empty string if no relevant logs
 func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod, mainContainerName string) string {
-	var tailLine int64 = 1000
+	var tailLine int64 = LogTailLines
 	opt := &corev1.PodLogOptions{
 		Container: mainContainerName,
 		TailLines: &tailLine,
@@ -237,6 +307,7 @@ func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.
 		return ""
 	}
 
+	// Scanner and bytes.Reader do not require explicit closing
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	var lines []string
 	for scanner.Scan() {
