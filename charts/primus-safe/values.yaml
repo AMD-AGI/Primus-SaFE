@@ -51,7 +51,7 @@ opensearch:
   secret_path: "/etc/secrets/opensearch"
   endpoint: "primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200"
 ssh:
-  enable: true
+  enable: false
   server_ip: ""
 user:
   token_required: false
