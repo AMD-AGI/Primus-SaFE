@@ -47,7 +47,6 @@ func (t *Topic) BuildMessage(ctx context.Context, data map[string]interface{}) (
 		Status:       topicData.Condition,
 		StatusColor:  getStatusColor(topicData.Condition),
 		ScheduleTime: topicData.Workload.CreationTimestamp.Time.Format(time.DateTime),
-		ErrorMessage: "",
 		JobURL:       getWorkloadUrl(topicData.Workload.Name),
 	}
 	if commonutils.StringsIn(topicData.Condition, []string{
