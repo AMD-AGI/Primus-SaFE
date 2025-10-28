@@ -82,7 +82,7 @@ type ListOpsJobInput struct {
 	// Query the end time of the job, similar to since. default is now
 	Until string `form:"until" binding:"omitempty"`
 	// The cluster which the job belongs to
-	ClusterId string `form:"clusterId" binding:"required,max=64"`
+	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
 	// The username of job submitter
 	UserName string `form:"userName" binding:"omitempty,max=64"`
 	// The job phase, such as Succeeded, Failed, Running, Pending

@@ -248,6 +248,8 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 		err = v.validatePreflight(ctx, job)
 	case v1.OpsJobDumpLogType:
 		err = v.validateDumplog(ctx, job)
+	case v1.OpsJobRebootType:
+
 	}
 	if err != nil {
 		return err
@@ -282,7 +284,7 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 	if len(job.Spec.Inputs) == 0 {
 		errs = append(errs, fmt.Errorf("the inputs of ops job are empty"))
 	}
-	if job.Spec.Type == v1.OpsJobAddonType || job.Spec.Type == v1.OpsJobPreflightType {
+	if job.Spec.Type == v1.OpsJobAddonType || job.Spec.Type == v1.OpsJobPreflightType || job.Spec.Type == v1.OpsJobRebootType {
 		if job.GetParameter(v1.ParameterNode) == nil {
 			errs = append(errs, fmt.Errorf("opsjob nodes are either empty or unhealthy"))
 		}
@@ -441,6 +443,9 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster st
 // Check whether the nodes involved in the ops job belong to the same cluster and the same node flavor.
 // Additionally, both cluster and node flavor must not be empty.
 func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
+	if job.Spec.Type == v1.OpsJobRebootType {
+		return nil
+	}
 	nodeParams := job.GetParameters(v1.ParameterNode)
 	clusterId := ""
 	nodeFlavor := ""
