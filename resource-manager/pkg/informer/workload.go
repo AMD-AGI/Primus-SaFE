@@ -51,7 +51,7 @@ func (w *WorkloadInformer) OnAdd(obj interface{}, isInInitialList bool) {
 		klog.Errorf("Failed to get user %s: %v", userId, err)
 		return
 	}
-	notifyData["user"] = user
+	notifyData["users"] = []*v1.User{user}
 
 	notificationManager := notification.GetNotificationManager()
 	err = notificationManager.SubmitNotification(ctx, model.TopicWorkload, uid, notifyData)
@@ -94,7 +94,7 @@ func (w *WorkloadInformer) OnUpdate(oldObj, newObj interface{}) {
 		klog.Errorf("Failed to get user %s: %v", userId, err)
 		return
 	}
-	notifyData["user"] = user
+	notifyData["users"] = []*v1.User{user}
 
 	// Submit notification
 	notificationManager := notification.GetNotificationManager()
