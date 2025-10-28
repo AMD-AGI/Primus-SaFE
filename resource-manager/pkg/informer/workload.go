@@ -2,13 +2,13 @@ package informer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/informers/externalversions"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/model"
-	"github.com/google/trillian/server/errors"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -115,7 +115,7 @@ func (w *WorkloadInformer) Register(factory externalversions.SharedInformerFacto
 	_, err := factory.Amd().V1().Workloads().Informer().AddEventHandler(w)
 	if err != nil {
 		klog.Errorf("Failed to register WorkloadInformer")
-		return errors.WrapError(err)
+		return errors.New(fmt.Sprintf("Failed to register WorkloadInformer for informer: %s", err))
 	}
 	return nil
 }
