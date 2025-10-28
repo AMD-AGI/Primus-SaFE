@@ -30,12 +30,12 @@ type CronJobManager struct {
 }
 
 // CronJob represents a single cron job that can activate a workload
-// It contains the cron scheduler, workload ID, and scheduling configuration
+// It contains the cron.Cron, workload ID, and scheduling configuration(defined by workload)
 type CronJob struct {
 	client.Client
-	job        *cron.Cron
+	cron       *cron.Cron
 	workloadId string
-	scheduler  v1.CronSchedule
+	config     v1.CronJob
 }
 
 // newCronJobManager creates and initializes a new CronJobManager
@@ -54,33 +54,46 @@ func (m *CronJobManager) addOrReplace(workload *v1.Workload) {
 	defer m.Unlock()
 	// Remove existing cron jobs for this workload (update logic)
 	m.removeInternal(workload.Name)
-	if len(workload.Spec.CronSchedules) == 0 {
+	if len(workload.Spec.CronJobs) == 0 {
 		return
 	}
 
-	cronJobs := make([]CronJob, 0, len(workload.Spec.CronSchedules))
+	cronJobs := make([]CronJob, 0, len(workload.Spec.CronJobs))
 	// Create cron jobs for each schedule in the workload specification
-	for i, cs := range workload.Spec.CronSchedules {
-		job := cron.New(cron.WithChain(
+	for i, cj := range workload.Spec.CronJobs {
+		cronStandard, _, err := timeutil.CvtTime3339ToCronStandard(cj.Schedule)
+		if err != nil {
+			klog.ErrorS(err, "failed to convert time to cron standard",
+				"workload", workload.Name, "schedule", cj.Schedule)
+			continue
+		}
+		// Parse the cron schedule string into a cron.Schedule
+		schedule, err := timeutil.ParseCronStandard(cronStandard)
+		if err != nil {
+			klog.ErrorS(err, "failed to parse cron schedule",
+				"workload", workload.Name, "schedule", cj.Schedule)
+			continue
+		}
+		c := cron.New(cron.WithChain(
 			cron.SkipIfStillRunning(cron.DiscardLogger),
 		))
-		// Parse the cron schedule string into a cron.Schedule
-		schedule, _ := timeutil.ParseCronString(cs.Schedule)
-		cj := CronJob{
+		cronJob := CronJob{
 			Client:     m.Client,
-			job:        job,
+			cron:       c,
 			workloadId: workload.Name,
-			scheduler:  workload.Spec.CronSchedules[i],
+			config:     workload.Spec.CronJobs[i],
 		}
 		// Schedule the execute function to run according to the parsed schedule
-		job.Schedule(schedule, cron.FuncJob(cj.execute))
-		// Start the cron scheduler
-		job.Start()
-		cronJobs = append(cronJobs, cj)
-		klog.Infof("add cronjob for workload: %s, schedule: %s", workload.Name, cs.Schedule)
+		c.Schedule(schedule, cron.FuncJob(cronJob.execute))
+		// Start the cron job
+		c.Start()
+		cronJobs = append(cronJobs, cronJob)
+		klog.Infof("add cronjob for workload: %s, schedule: %s", workload.Name, cj.Schedule)
 	}
-	// Store the cron jobs in the manager's map
-	m.allCronJobs[workload.Name] = cronJobs
+	if len(cronJobs) > 0 {
+		// Store the cron jobs in the manager's map
+		m.allCronJobs[workload.Name] = cronJobs
+	}
 }
 
 // remove stops and removes all cron jobs associated with a workload ID
@@ -99,14 +112,30 @@ func (m *CronJobManager) removeInternal(workloadId string) {
 		return
 	}
 	for i := range cronJobs {
-		cronJobs[i].job.Stop()
+		cronJobs[i].cron.Stop()
 	}
 	delete(m.allCronJobs, workloadId)
 }
 
-// execute is the function that gets called when a cron job is triggered
-// It activates a suspended workload by setting IsSuspended to false
+// execute is the function that gets called when a cron job is triggered.
+// It performs the action specified in the cron job configuration.
+// Currently, it supports v1.CronStart action to resume suspended workloads.
+// Any errors during execution are logged using klog.
+
 func (cj *CronJob) execute() {
+	var err error
+	switch cj.config.Action {
+	case v1.CronStart:
+		err = cj.doStart()
+	}
+	if err != nil {
+		klog.ErrorS(err, "failed to do cron-job", "workload", cj.workloadId)
+	}
+}
+
+// doStart activates a suspended workload by setting the cron job timestamp annotation.
+// It uses a retry mechanism to handle potential conflicts when updating the workload resource.
+func (cj *CronJob) doStart() error {
 	const maxRetry = 10
 	waitTime := time.Millisecond * 200
 	maxWaitTime := waitTime * maxRetry
@@ -117,18 +146,17 @@ func (cj *CronJob) execute() {
 		if err != nil {
 			return client.IgnoreNotFound(err)
 		}
-		if !workload.IsSuspended() || v1.IsWorkloadScheduled(workload) {
+		if workload.HasScheduled() {
 			return nil
 		}
-		// Activate the workload by setting IsSuspended to false
-		workload.Spec.IsSuspended = false
-		if err = cj.Update(context.Background(), workload); err != nil {
+		originalWorkload := client.MergeFrom(workload.DeepCopy())
+		// Activate the workload by setting cronjob timestamp
+		v1.SetAnnotation(workload, v1.CronJobTimestampAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
+		if err = cj.Patch(context.Background(), workload, originalWorkload); err != nil {
 			return err
 		}
 		klog.Infof("activate workload %s by cronjob", workload.Name)
 		return nil
 	}, maxWaitTime, waitTime)
-	if err != nil {
-		klog.ErrorS(err, "failed to cron-schedule", "workload", cj.workloadId)
-	}
+	return err
 }

@@ -22,8 +22,6 @@ type CreateWorkloadRequest struct {
 	Description string `json:"description,omitempty"`
 	// Workspace ID to which the workload is delivered
 	WorkspaceId string `json:"workspaceId,omitempty"`
-	// Scheduled execution time, such as "2025-09-30T16:04:00.000Z"
-	SchedulerTime string `json:"schedulerTime,omitempty"`
 }
 
 type CreateWorkloadResponse struct {
@@ -104,7 +102,10 @@ type WorkloadResponseItem struct {
 	EndTime string `json:"endTime"`
 	// The workload deletion time
 	DeletionTime string `json:"deletionTime"`
+	// The workload run time, Calculated from the start time. such as 1h2m3s or 1h15s
+	RunTime string `json:"runTime"`
 	// Seconds remaining before workload timeout. Only applicable if a timeout is set.
+	// This is calculated from when the workload starts running. If it has not yet started, return -1.
 	SecondsUntilTimeout int64 `json:"secondsUntilTimeout"`
 	// Show the queue position of the workload if it is pending.
 	SchedulerOrder int `json:"schedulerOrder"`
@@ -159,8 +160,8 @@ type GetWorkloadResponse struct {
 	// before this Workload can start execution. If any dependency fails, this Workload
 	// will not be scheduled and is considered failed.
 	Dependencies []string `json:"dependencies,omitempty"`
-	// Scheduled workload configuration
-	CronSchedules []v1.CronSchedule `json:"cronSchedules,omitempty"`
+	// Cron Job configuration
+	CronJobs []v1.CronJob `json:"cronJobs,omitempty"`
 }
 
 type WorkloadPodWrapper struct {
@@ -196,6 +197,8 @@ type PatchWorkloadRequest struct {
 	Timeout *int `json:"timeout,omitempty"`
 	// Failure retry limit
 	MaxRetry *int `json:"maxRetry,omitempty"`
+	// Cron Job configuration
+	CronJobs *[]v1.CronJob `json:"cronJobs,omitempty"`
 }
 
 type GetPodLogRequest struct {

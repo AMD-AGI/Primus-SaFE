@@ -17,20 +17,19 @@ type WorkloadSpecApplyConfiguration struct {
 	SSHPort                             *int                                `json:"sshPort,omitempty"`
 	Env                                 map[string]string                   `json:"env,omitempty"`
 	IsSupervised                        *bool                               `json:"isSupervised,omitempty"`
-	IsSuspended                         *bool                               `json:"isSuspended,omitempty"`
 	*GroupVersionKindApplyConfiguration `json:"groupVersionKind,omitempty"`
-	MaxRetry                            *int                             `json:"maxRetry,omitempty"`
-	Priority                            *int                             `json:"priority,omitempty"`
-	TTLSecondsAfterFinished             *int                             `json:"ttlSecondsAfterFinished,omitempty"`
-	Timeout                             *int                             `json:"timeout,omitempty"`
-	CustomerLabels                      map[string]string                `json:"customerLabels,omitempty"`
-	Liveness                            *HealthCheckApplyConfiguration   `json:"liveness,omitempty"`
-	Readiness                           *HealthCheckApplyConfiguration   `json:"readiness,omitempty"`
-	Service                             *ServiceApplyConfiguration       `json:"service,omitempty"`
-	IsTolerateAll                       *bool                            `json:"isTolerateAll,omitempty"`
-	Hostpath                            []string                         `json:"hostpath,omitempty"`
-	Dependencies                        []string                         `json:"dependencies,omitempty"`
-	CronSchedules                       []CronScheduleApplyConfiguration `json:"cronSchedules,omitempty"`
+	MaxRetry                            *int                           `json:"maxRetry,omitempty"`
+	Priority                            *int                           `json:"priority,omitempty"`
+	TTLSecondsAfterFinished             *int                           `json:"ttlSecondsAfterFinished,omitempty"`
+	Timeout                             *int                           `json:"timeout,omitempty"`
+	CustomerLabels                      map[string]string              `json:"customerLabels,omitempty"`
+	Liveness                            *HealthCheckApplyConfiguration `json:"liveness,omitempty"`
+	Readiness                           *HealthCheckApplyConfiguration `json:"readiness,omitempty"`
+	Service                             *ServiceApplyConfiguration     `json:"service,omitempty"`
+	IsTolerateAll                       *bool                          `json:"isTolerateAll,omitempty"`
+	Hostpath                            []string                       `json:"hostpath,omitempty"`
+	Dependencies                        []string                       `json:"dependencies,omitempty"`
+	CronJobs                            []CronJobApplyConfiguration    `json:"cronJobs,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
@@ -106,14 +105,6 @@ func (b *WorkloadSpecApplyConfiguration) WithEnv(entries map[string]string) *Wor
 // If called multiple times, the IsSupervised field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithIsSupervised(value bool) *WorkloadSpecApplyConfiguration {
 	b.IsSupervised = &value
-	return b
-}
-
-// WithIsSuspended sets the IsSuspended field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the IsSuspended field is set to the value of the last call.
-func (b *WorkloadSpecApplyConfiguration) WithIsSuspended(value bool) *WorkloadSpecApplyConfiguration {
-	b.IsSuspended = &value
 	return b
 }
 
@@ -248,15 +239,15 @@ func (b *WorkloadSpecApplyConfiguration) WithDependencies(values ...string) *Wor
 	return b
 }
 
-// WithCronSchedules adds the given value to the CronSchedules field in the declarative configuration
+// WithCronJobs adds the given value to the CronJobs field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the CronSchedules field.
-func (b *WorkloadSpecApplyConfiguration) WithCronSchedules(values ...*CronScheduleApplyConfiguration) *WorkloadSpecApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the CronJobs field.
+func (b *WorkloadSpecApplyConfiguration) WithCronJobs(values ...*CronJobApplyConfiguration) *WorkloadSpecApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
-			panic("nil value passed to WithCronSchedules")
+			panic("nil value passed to WithCronJobs")
 		}
-		b.CronSchedules = append(b.CronSchedules, *values[i])
+		b.CronJobs = append(b.CronJobs, *values[i])
 	}
 	return b
 }

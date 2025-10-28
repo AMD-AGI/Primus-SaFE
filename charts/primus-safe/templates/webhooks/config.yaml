@@ -33,7 +33,7 @@ data:
       # The maximum percentage of ephemeral storage that can be used by a workload.
       max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
       # The default image for authoring
-      authoring_image: docker.io/primussafe/{{ .Values.authoring.image }}
+      authoring_image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.authoring.image }}
     ssh:
       # Whether to enable ssh, Users can log in directly to their own pods.
       enable: {{ .Values.ssh.enable }}

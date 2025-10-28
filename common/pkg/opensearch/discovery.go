@@ -23,6 +23,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	opensearchConfigNamespace  = "primus-safe"
+	opensearchConfigSecretName = "primus-safe-opensearch-config"
+	opensearchEndpointTemplate = "%s://%s.%s.svc.cluster.local:9200"
+)
+
 var (
 	multiClusterClients = map[string]*SearchClient{}
 )
@@ -42,12 +48,6 @@ func GetOpensearchClient(clusterName string) *SearchClient {
 	}
 	return nil
 }
-
-const (
-	opensearchConfigNamespace  = "primus-safe"
-	opensearchConfigSecretName = "primus-safe-opensearch-config"
-	opensearchEndpointTemplate = "%s://%s.%s.svc.cluster.local:9200"
-)
 
 type opensearchSecretData struct {
 	NodePort int32  `json:"nodePort"`
