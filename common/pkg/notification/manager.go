@@ -108,11 +108,13 @@ func (m *Manager) SubmitMessage(ctx context.Context, data *model.Notification) e
 	for _, msg := range messages {
 		channelNames := msg.GetChannels()
 		for _, chName := range channelNames {
+			klog.Infof("Sending message to channel: %s", chName)
 			ch, exists := m.channels[chName]
 			if !exists {
 				continue
 			}
 			if err := ch.Send(ctx, msg); err != nil {
+				klog.Errorf("failed to send message to channel %s: %v", chName, err)
 				return err
 			}
 		}

@@ -31,7 +31,7 @@ func (t *Topic) Filter(data map[string]interface{}) bool {
 		}) {
 			return true
 		}
-		klog.Infof("Topic %s does not match filter", t.Name())
+		klog.Infof("Topic %s does not match filter.Current condition %s", t.Name(), condition)
 	} else {
 		klog.Infof("No condition found in data or condition is not a string")
 	}
@@ -76,6 +76,10 @@ func (t *Topic) BuildMessage(ctx context.Context, data map[string]interface{}) (
 			Content: emailContent,
 			To:      extractUserEmails(topicData.Users),
 		},
+	}
+	if len(message.Email.To) == 0 {
+		klog.Warningf("No email recipients found for workload %s", topicData.Workload.Name)
+		return nil, nil
 	}
 	return []*model.Message{message}, nil
 }
