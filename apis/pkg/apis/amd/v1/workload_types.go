@@ -368,3 +368,21 @@ func (w *Workload) HasScheduled() bool {
 	}
 	return false
 }
+
+// IsDependenciesFinish checks if all dependencies are finished.
+func (w *Workload) IsDependenciesFinish() bool {
+	if w.IsEnd() {
+		return false
+	}
+	for _, dep := range w.Spec.Dependencies {
+		phase, ok := w.GetDependenciesPhase(dep)
+		if !ok {
+			return false
+		}
+		if phase != WorkloadSucceeded {
+			return false
+		}
+	}
+
+	return true
+}
