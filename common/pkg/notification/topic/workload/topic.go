@@ -31,9 +31,6 @@ func (t *Topic) Filter(data map[string]interface{}) bool {
 		}) {
 			return true
 		}
-		klog.Infof("Topic %s does not match filter.Current condition %s", t.Name(), condition)
-	} else {
-		klog.Infof("No condition found in data or condition is not a string")
 	}
 	return false
 }
@@ -44,8 +41,6 @@ func (t *Topic) BuildMessage(ctx context.Context, data map[string]interface{}) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert data to TopicData: %w", err)
 	}
-	klog.Infof("topic data users %+v", topicData.Users)
-	klog.Infof("topic data workload %+v", topicData.Workload)
 	emailData := EmailData{
 		JobName:      topicData.Workload.Name,
 		Status:       topicData.Condition,
@@ -127,12 +122,9 @@ func getStatusColor(status string) string {
 func extractUserEmails(users []*v1.User) []string {
 	emails := []string{}
 	for _, user := range users {
-		klog.Infof("Extracting emails for user %s.User metadata %+v", user.Name, user.ObjectMeta)
 		email := v1.GetUserEmail(user)
 		if email != "" {
 			emails = append(emails, email)
-		} else {
-			klog.Infof("Skipping email for user %s.", user.Name)
 		}
 	}
 	return emails

@@ -48,11 +48,9 @@ type Manager struct {
 
 func (m *Manager) SubmitNotification(ctx context.Context, topic, uid string, data map[string]interface{}) error {
 	if t, ok := m.topics[topic]; !ok {
-		klog.Infof("No topic found for topic: %s", topic)
 		return nil
 	} else {
 		if !t.Filter(data) {
-			klog.Infof("Topic %s does not match filter", topic)
 			return nil
 		}
 	}
@@ -75,6 +73,12 @@ func (m *Manager) doListenNotifications(ctx context.Context) {
 		if err != nil {
 			klog.Errorf("failed to listen notifications: %v", err)
 		}
+		select {
+		case <-ctx.Done():
+			klog.Infof("notification manager stopping")
+			return
+		default:
+		}
 		time.Sleep(5 * time.Second)
 	}
 }
@@ -84,9 +88,7 @@ func (m *Manager) listenNotifications(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	klog.Infof("unprocessed notifications: %d", len(unprocessed))
 	for _, notification := range unprocessed {
-		klog.Infof("unprocessed notification: %s", notification.UID)
 		if err := m.SubmitMessage(ctx, notification); err != nil {
 			return err
 		}
@@ -108,11 +110,9 @@ func (m *Manager) SubmitMessage(ctx context.Context, data *model.Notification) e
 		klog.Errorf("failed to build message for topic %s: %v", data.Topic, err)
 		return err
 	}
-	klog.Infof("messages: %+v", messages)
 	for _, msg := range messages {
 		channelNames := msg.GetChannels()
 		for _, chName := range channelNames {
-			klog.Infof("Sending message to channel: %s", chName)
 			ch, exists := m.channels[chName]
 			if !exists {
 				klog.Warningf("channel %s does not exist", chName)
