@@ -44,14 +44,8 @@ func (t *Topic) BuildMessage(ctx context.Context, data map[string]interface{}) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert data to TopicData: %w", err)
 	}
-	if commonutils.StringsIn(topicData.Condition, []string{
-		string(v1.AdminScheduled),
-		string(v1.K8sPending),
-		string(v1.K8sUpdating),
-		string(v1.K8sDeleted),
-	}) {
-		return nil, nil // no need to send email for these statuses
-	}
+	klog.Infof("topic data users %+v", topicData.Users)
+	klog.Infof("topic data workload %+v", topicData.Workload)
 	emailData := EmailData{
 		JobName:      topicData.Workload.Name,
 		Status:       topicData.Condition,
@@ -69,7 +63,6 @@ func (t *Topic) BuildMessage(ctx context.Context, data map[string]interface{}) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to render email template: %w", err)
 	}
-
 	message := &model.Message{
 		Email: &model.EmailMessage{
 			Title:   fmt.Sprintf("Workload %s - %s", topicData.Workload.Name, topicData.Condition),
