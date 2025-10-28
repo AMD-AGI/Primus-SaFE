@@ -53,7 +53,6 @@ func (w *WorkloadInformer) OnAdd(obj interface{}, isInInitialList bool) {
 	}
 	notifyData["user"] = user
 
-	// Submit notification
 	notificationManager := notification.GetNotificationManager()
 	err = notificationManager.SubmitNotification(ctx, model.TopicWorkload, uid, notifyData)
 	if err != nil {
