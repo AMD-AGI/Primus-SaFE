@@ -1,13 +1,15 @@
 package informer
 
 import (
+	"context"
+
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/informers/externalversions"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func InitInformer(cfg *rest.Config, controllerRuntimeClient client.Client) error {
+func InitInformer(ctx context.Context, cfg *rest.Config, controllerRuntimeClient client.Client) error {
 	versionedClient, err := versioned.NewForConfig(cfg)
 	if err != nil {
 		return err
@@ -18,5 +20,6 @@ func InitInformer(cfg *rest.Config, controllerRuntimeClient client.Client) error
 	if err != nil {
 		return err
 	}
+	factory.Start(ctx.Done())
 	return nil
 }

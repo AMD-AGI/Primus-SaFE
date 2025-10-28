@@ -99,7 +99,7 @@ func (s *Server) init() error {
 			klog.ErrorS(err, "failed to initialize notification manager")
 			return err
 		}
-		if err = informer.InitInformer(s.ctrlManager.ctrlManager.GetConfig(), s.ctrlManager.ctrlManager.GetClient()); err != nil {
+		if err = informer.InitInformer(s.ctrlManager.ctx, s.ctrlManager.ctrlManager.GetConfig(), s.ctrlManager.ctrlManager.GetClient()); err != nil {
 			klog.ErrorS(err, "failed to initialize informer")
 			return err
 		}
