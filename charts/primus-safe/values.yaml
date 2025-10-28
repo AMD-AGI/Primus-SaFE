@@ -5,8 +5,8 @@
 global:
   domain: "safe-primus.ai"
   sub_domain: ""
+  image_registry: "docker.io"
   image_pull_secret: "primus-safe-image"
-  image_repository: "docker.io"
   storage_class: "local-path"
   ingress: "nginx"
 net:
@@ -14,27 +14,27 @@ net:
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
   rdma_name: "rdma/hca"
 apiserver:
-  image: "apiserver:202510221056"
+  image: "apiserver:202510271605"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
 resource_manager:
-  image: "resource-manager:202510221056"
+  image: "resource-manager:202510271605"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
 job_manager:
-  image: "job-manager:202510221056"
+  image: "job-manager:202510271605"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
 webhooks:
-  image: "webhooks:202510221056"
+  image: "webhooks:202510271605"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
 web:
-  image: "primus-safe-web:1.10.1"
+  image: "primus-safe-web:1.11.0"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
@@ -52,7 +52,7 @@ opensearch:
   secret_path: "/etc/secrets/opensearch"
   endpoint: "primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200"
 ssh:
-  enable: true
+  enable: false
   server_ip: ""
 user:
   token_required: false
@@ -71,4 +71,4 @@ grafana:
   enable: false
   password: ""
 addon:
-  default: cert-manager.v1.17.2,training-operator.1.9.2,network-operator.25.4.0,kube-scheduler-plugins-0.38.1
+  default: cert-manager.v1.17.2,training-operator.1.9.2,network-operator.25.4.0,kube-scheduler-plugins-0.31.8,amd-gpu-operator-charts-v1.4.0，csi-wekafsplugin.2.7.7

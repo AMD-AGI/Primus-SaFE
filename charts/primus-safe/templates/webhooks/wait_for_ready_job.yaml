@@ -26,11 +26,11 @@ spec:
       {{- end }}
       containers:
         - name: complete
-          image: {{ .Values.global.image_repository }}/library/busybox:latest
+          image: {{ .Values.global.image_registry }}/library/busybox:latest
           command: ["sh", "-c", "echo webhook is ready."]
       initContainers:
         - name: wait
-          image: {{ .Values.global.image_repository }}/curlimages/curl:latest
+          image: {{ .Values.global.image_registry }}/curlimages/curl:latest
           command:
             - sh
             - -c

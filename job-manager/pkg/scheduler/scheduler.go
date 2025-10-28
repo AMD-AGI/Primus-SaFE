@@ -535,7 +535,7 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	runningWorkloads []*v1.Workload, requestResources, leftResources corev1.ResourceList) (bool, string, error) {
 	for _, job := range requestWorkload.Spec.CronJobs {
 		if job.Action == v1.CronStart {
-			scheduleTime, err := timeutil.CvtStrToRFC3339Milli(job.Schedule)
+			_, scheduleTime, err := timeutil.CvtTime3339ToCronStandard(job.Schedule)
 			if err == nil && scheduleTime.After(time.Now().UTC()) {
 				return false, CronjobReason, nil
 			}
