@@ -196,6 +196,9 @@ func (s *session) handleRequests(reqs <-chan *ssh.Request) {
 			_ = req.Reply(false, nil)
 		}
 	}
+	if s.winch != nil {
+		close(s.winch)
+	}
 }
 
 // ===========================
@@ -304,7 +307,6 @@ func (s *session) handlePtyRequest(req *ssh.Request) {
 	s.winch = make(chan Window, 1)
 	s.winch <- ptyReq.Window
 	_ = req.Reply(true, nil)
-	close(s.winch)
 }
 
 // handleWindowChangeRequest handles terminal window resize requests.
