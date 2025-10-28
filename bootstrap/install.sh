@@ -70,7 +70,6 @@ ethernet_nic=$(get_input_with_default "Enter ethernet nic($default_ethernet_nic)
 rdma_nic=$(get_input_with_default "Enter rdma nic($default_rdma_nic): " "$default_rdma_nic")
 cluster_scale=$(get_input_with_default "Enter cluster scale, choose 'small/medium/large' ($default_cluster_scale): " "$default_cluster_scale")
 storage_class=$(get_input_with_default "Enter storage class($default_storage_class): " "$default_storage_class")
-sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
 support_lens=$(get_input_with_default "Support Primus-lens ? (y/n): " "n")
 lens_enable=$(convert_to_boolean "$support_lens")
 
