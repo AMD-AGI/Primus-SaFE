@@ -26,5 +26,8 @@ func SetupOpsJobs(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupPreflightJobController(mgr); err != nil {
 		return fmt.Errorf("preflight-job controller: %v", err)
 	}
+	if err := SetupRebootJobController(mgr); err != nil {
+		return fmt.Errorf("reboot-job controller: %v", err)
+	}
 	return nil
 }

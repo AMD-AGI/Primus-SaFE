@@ -6,6 +6,8 @@
 package types
 
 import (
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -168,4 +170,31 @@ type GetNodePodLogResponse struct {
 	PodId string `json:"podId"`
 	// An array of log lines, returned in the same order as they appear in the original logs
 	Logs []string `json:"logs"`
+}
+
+type ListNodeRebootLogRequest struct {
+	// Start timestamp of the query
+	SinceTime time.Time `form:"sinceTime" binding:"omitempty"`
+	// End timestamp of the query
+	UntilTime time.Time `form:"untilTime" binding:"omitempty"`
+	// Starting offset for the results. dfault is 0
+	Offset int `form:"offset" binding:"omitempty,min=0"`
+	// Limit the number of returned results. default is 100
+	// If set to -1, all results will be returned.
+	Limit int `form:"limit" binding:"omitempty"`
+	// Sort results by the specified field. default is create_time
+	SortBy string `form:"sortBy" binding:"omitempty"`
+	// The sorting order. Valid values are "desc" (default) or "asc"
+	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
+}
+
+type ListNodeRebootLogResponse struct {
+	// TotalCount indicates the total number of faults, not limited by pagination
+	TotalCount int                         `json:"totalCount"`
+	Items      []NodeRebootLogResponseItem `json:"items"`
+}
+type NodeRebootLogResponseItem struct {
+	UserId     string `json:"userId"`
+	UserName   string `json:"userName"`
+	CreateTime string `json:"createTime"`
 }

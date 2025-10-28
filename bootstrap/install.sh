@@ -85,13 +85,6 @@ fi
 
 support_ssh=$(get_input_with_default "Support ssh ? (y/n): " "n")
 ssh_enable=$(convert_to_boolean "$support_ssh")
-ssh_server_ip=""
-if [[ "$ssh_enable" == "true" ]]; then
-  ssh_server_ip=$(get_input_with_default "Enter ssh server ip(empty to disable ssh): " "")
-  if [ -z "$ssh_server_ip" ]; then
-    ssh_enable="false"
-  fi
-fi
 
 build_image_secret=$(get_input_with_default "Create image pull secret ? (y/n): " "n")
 image_registry=""
@@ -119,9 +112,6 @@ if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Endpoint: \"$s3_endpoint\""
 fi
 echo "✅ Support ssh: \"$ssh_enable\""
-if [[ "$ssh_enable" == "true" ]]; then
-  echo "✅ SSH Server IP: \"$ssh_server_ip\""
-fi
 if [[ "$build_image_secret" == "y" ]]; then
   echo "✅ Image registry: \"$image_registry\""
   echo "✅ Image username: \"$image_username\""
@@ -227,9 +217,7 @@ fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
 sed -i '/ssh:/,/^[a-z]/ s/enable: .*/enable: '"$ssh_enable"'/' "$values_yaml"
-if [[ "$ssh_enable" == "true" ]]; then
-  sed -i '/^ssh:/,/^[a-z]/ s#server_ip: ".*"#server_ip: "'"$ssh_server_ip"'"#' "$values_yaml"
-fi
+
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
 echo "⏳ Waiting for Postgres Operator pod..."
@@ -296,5 +284,4 @@ s3_endpoint=$s3_endpoint
 ingress=$ingress
 sub_domain=$sub_domain
 ssh_enable=$ssh_enable
-ssh_server_ip=$ssh_server_ip
 EOF
