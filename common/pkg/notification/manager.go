@@ -84,7 +84,9 @@ func (m *Manager) listenNotifications(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	klog.Infof("unprocessed notifications: %d", len(unprocessed))
 	for _, notification := range unprocessed {
+		klog.Infof("unprocessed notification: %s", notification.UID)
 		if err := m.SubmitMessage(ctx, notification); err != nil {
 			return err
 		}
@@ -105,6 +107,7 @@ func (m *Manager) SubmitMessage(ctx context.Context, data *model.Notification) e
 	if err != nil {
 		return err
 	}
+	klog.Infof("messages: %+v", messages)
 	for _, msg := range messages {
 		channelNames := msg.GetChannels()
 		for _, chName := range channelNames {
