@@ -33,7 +33,6 @@ func (w *WorkloadInformer) OnAdd(obj interface{}, isInInitialList bool) {
 		return
 	}
 	ctx := context.Background()
-	// Find newest condition and notify
 	if len(workload.Status.Conditions) == 0 {
 		return
 	}
