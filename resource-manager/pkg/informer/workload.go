@@ -29,7 +29,7 @@ func (w *WorkloadInformer) OnAdd(obj interface{}, isInInitialList bool) {
 		klog.Errorf("Failed to convert obj to Workload")
 		return
 	}
-	if !isInInitialList {
+	if isInInitialList {
 		return
 	}
 	ctx := context.Background()
