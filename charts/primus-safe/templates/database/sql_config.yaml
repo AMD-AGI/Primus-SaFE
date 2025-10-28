@@ -151,6 +151,7 @@ data:
         job_name   varchar(128),
         log        text,
         layer      jsonb,
+        image_id   integer,
         created_at timestamptz
     );
 
