@@ -43,7 +43,7 @@ func (e *EmailChannel) Send(ctx context.Context, message *model.Message) error {
 	m.SetHeader("From", e.cfg.From)
 	m.SetHeader("To", msg.To...)
 	m.SetHeader("Subject", msg.Title)
-	m.SetBody("text/plain", msg.Content)
+	m.SetBody("text/html", msg.Content)
 
 	// 创建 gomail Dialer
 	d := gomail.NewDialer(e.cfg.SMTPHost, e.cfg.SMTPPort, e.cfg.Username, e.cfg.Password)
