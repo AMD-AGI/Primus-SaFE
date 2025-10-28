@@ -134,9 +134,12 @@ func getStatusColor(status string) string {
 func extractUserEmails(users []*v1.User) []string {
 	emails := []string{}
 	for _, user := range users {
+		klog.Infof("Extracting emails for user %s.User metadata %+v", user.Name, user.ObjectMeta)
 		email := v1.GetUserEmail(user)
 		if email != "" {
 			emails = append(emails, email)
+		} else {
+			klog.Infof("Skipping email for user %s.", user.Name)
 		}
 	}
 	return emails
