@@ -65,15 +65,11 @@ default_ethernet_nic="eno0"
 default_rdma_nic="rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
 default_cluster_scale="small"
 default_storage_class="local-path"
-default_ssh_server_ip=""
-default_proxy_image_registry="docker.io"
 
 ethernet_nic=$(get_input_with_default "Enter ethernet nic($default_ethernet_nic): " "$default_ethernet_nic")
 rdma_nic=$(get_input_with_default "Enter rdma nic($default_rdma_nic): " "$default_rdma_nic")
 cluster_scale=$(get_input_with_default "Enter cluster scale, choose 'small/medium/large' ($default_cluster_scale): " "$default_cluster_scale")
 storage_class=$(get_input_with_default "Enter storage class($default_storage_class): " "$default_storage_class")
-ssh_server_ip=$(get_input_with_default "Enter ssh server ip($default_ssh_server_ip): " "$default_ssh_server_ip")
-proxy_image_registry=$(get_input_with_default "Enter proxy image registry($default_proxy_image_registry): " "$default_proxy_image_registry")
 sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
 support_lens=$(get_input_with_default "Support Primus-lens ? (y/n): " "n")
 lens_enable=$(convert_to_boolean "$support_lens")
@@ -90,13 +86,6 @@ fi
 
 support_ssh=$(get_input_with_default "Support ssh ? (y/n): " "n")
 ssh_enable=$(convert_to_boolean "$support_ssh")
-ssh_server_ip=""
-if [[ "$ssh_enable" == "true" ]]; then
-  ssh_server_ip=$(get_input_with_default "Enter ssh server ip(empty to disable ssh): " "")
-  if [ -z "$ssh_server_ip" ]; then
-    ssh_enable="false"
-  fi
-fi
 
 build_image_secret=$(get_input_with_default "Create image pull secret ? (y/n): " "n")
 image_registry=""
@@ -118,16 +107,12 @@ echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
 echo "✅ Storage Class: \"$storage_class\""
-echo "✅ Proxy Image Registry: \"$proxy_image_registry\""
 echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Endpoint: \"$s3_endpoint\""
 fi
 echo "✅ Support ssh: \"$ssh_enable\""
-if [[ "$ssh_enable" == "true" ]]; then
-  echo "✅ SSH Server IP: \"$ssh_server_ip\""
-fi
 if [[ "$build_image_secret" == "y" ]]; then
   echo "✅ Image registry: \"$image_registry\""
   echo "✅ Image username: \"$image_username\""
@@ -233,9 +218,7 @@ fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
 sed -i '/ssh:/,/^[a-z]/ s/enable: .*/enable: '"$ssh_enable"'/' "$values_yaml"
-if [[ "$ssh_enable" == "true" ]]; then
-  sed -i '/^ssh:/,/^[a-z]/ s#server_ip: ".*"#server_ip: "'"$ssh_server_ip"'"#' "$values_yaml"
-fi
+
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
 echo "⏳ Waiting for Postgres Operator pod..."
@@ -302,6 +285,4 @@ s3_endpoint=$s3_endpoint
 ingress=$ingress
 sub_domain=$sub_domain
 ssh_enable=$ssh_enable
-ssh_server_ip=$ssh_server_ip
-proxy_image_registry=$proxy_image_registry
 EOF
