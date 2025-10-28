@@ -81,10 +81,6 @@ const (
 	s3Prefix     = "s3."
 	s3Enable     = s3Prefix + "enable"
 	s3SecretPath = s3Prefix + "secret_path"
-	s3Endpoint   = s3Prefix + "endpoint"
-	s3Bucket     = s3Prefix + "bucket"
-	s3AccessKey  = "access_key"
-	s3SecretKey  = "secret_key"
 	s3ExpireDay  = s3Prefix + "expire_day"
 
 	// addon

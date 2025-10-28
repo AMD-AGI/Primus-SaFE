@@ -19,10 +19,10 @@ type CreateWorkspaceRequest struct {
 	Description string `json:"description,omitempty"`
 	// Queuing policy for workloads submitted in this workspace.
 	// All workloads currently share the same policy, supports fifo (default) and balance.
-	// 1. "Fifo" means first-in, first-out: the workload that enters the queue first is served first.
+	// 1. "fifo" means first-in, first-out: the workload that enters the queue first is served first.
 	//    If the front workload does not meet the conditions for dispatch, it will wait indefinitely,
 	//    and other tasks in the queue will also be blocked waiting.
-	// 2. "Balance" allows any workload that meets the resource conditions to be dispatched,
+	// 2. "balance" allows any workload that meets the resource conditions to be dispatched,
 	//    avoiding blockage by the front workload in the queue. However, it is still subject to priority constraints.
 	//    If a higher-priority task cannot be dispatched, lower-priority tasks will wait.
 	QueuePolicy string `json:"queuePolicy,omitempty"`

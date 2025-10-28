@@ -232,25 +232,19 @@ func IsS3Enable() bool {
 }
 
 func GetS3AccessKey() string {
-	if ak := getString(s3Prefix+s3AccessKey, ""); ak != "" {
-		return ak
-	}
-	return getFromFile(s3SecretPath, s3AccessKey)
+	return getFromFile(s3SecretPath, "access_key")
 }
 
 func GetS3SecretKey() string {
-	if sk := getString(s3Prefix+s3SecretKey, ""); sk != "" {
-		return sk
-	}
-	return getFromFile(s3SecretPath, s3SecretKey)
+	return getFromFile(s3SecretPath, "secret_key")
 }
 
 func GetS3Bucket() string {
-	return getString(s3Bucket, "")
+	return getFromFile(s3SecretPath, "bucket")
 }
 
 func GetS3Endpoint() string {
-	return getString(s3Endpoint, "")
+	return getFromFile(s3SecretPath, "endpoint")
 }
 
 func GetS3ExpireDay() int32 {

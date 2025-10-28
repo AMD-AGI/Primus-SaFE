@@ -65,14 +65,9 @@ spec:
               mountPath: {{ default "/etc/secrets/db" (default .Values.db).secret_path }}
               readOnly: true
             {{- end }}
-            {{- if and .Values.s3.enable (or (empty .Values.s3.access_key) (empty .Values.s3.secret_key)) }}
+            {{- if .Values.s3.enable }}
             - name: s3-secret
-              mountPath: {{ .Values.s3.secret_path }}/access_key
-              subPath: "access-key"
-              readOnly: true
-            - name: s3-secret
-              mountPath: {{ .Values.s3.secret_path }}/secret_key
-              subPath: "secret-key"
+              mountPath: {{ .Values.s3.secret_path }}
               readOnly: true
             {{- end }}
             {{- if and .Values.opensearch.enable (or (empty .Values.opensearch.username) (empty .Values.opensearch.password)) }}
@@ -115,7 +110,7 @@ spec:
           secret:
             secretName: {{ .Release.Name }}-pguser-{{ .Release.Name }}
         {{- end }}
-        {{- if and .Values.s3.enable (or (empty .Values.s3.access_key) (empty .Values.s3.secret_key)) }}
+        {{- if .Values.s3.enable }}
         - name: s3-secret
           secret:
             secretName: {{ .Values.s3.secret }}

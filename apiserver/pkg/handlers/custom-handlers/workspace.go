@@ -8,6 +8,7 @@ package custom_handlers
 import (
 	"context"
 	"sort"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -388,7 +389,7 @@ func (h *Handler) generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRe
 			Cluster:       req.ClusterId,
 			NodeFlavor:    req.FlavorId,
 			Replica:       req.Replica,
-			QueuePolicy:   v1.WorkspaceQueuePolicy(req.QueuePolicy),
+			QueuePolicy:   v1.WorkspaceQueuePolicy(strings.ToLower(req.QueuePolicy)),
 			Volumes:       req.Volumes,
 			Scopes:        req.Scopes,
 			EnablePreempt: req.EnablePreempt,

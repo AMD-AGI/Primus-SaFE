@@ -48,17 +48,11 @@ echo "✅ Cluster Scale: \"$cluster_scale\""
 echo "✅ Storage Class: \"$storage_class\""
 echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
-if [[ "$s3_enable" == "true" ]]; then
-  echo "✅ S3 Endpoint: \"$s3_endpoint\""
-fi
-echo "✅ Support ssh: \"$ssh_enable\""
-if [[ "$ssh_enable" == "true" ]]; then
-  echo "✅ SSH Server IP: \"$ssh_server_ip\""
-fi
 echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
   echo "✅ Cluster Name: \"$sub_domain\""
 fi
+ echo "✅ SSH Server IP: \"$ssh_server_ip\""
 
 echo
 
@@ -75,6 +69,7 @@ elif [[ "$cluster_scale" == "large" ]]; then
   memory=16Gi
 fi
 IMAGE_PULL_SECRET="$NAMESPACE-image"
+S3_SECRET="$NAMESPACE-s3"
 
 echo
 echo "========================================="
@@ -100,7 +95,7 @@ sed -i "s/^.*sub_domain:.*/  sub_domain: \"$sub_domain\"/" "$values_yaml"
 sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
-  sed -i '/^s3:/,/^[a-z]/ s#endpoint: ".*"#endpoint: "'"$s3_endpoint"'"#' "$values_yaml"
+  sed -i '/^s3:/,/^[a-z]/ s#secret: ".*"#secret: "'"$S3_SECRET"'"#' "$values_yaml"
 fi
 sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
 if [[ "$lens_enable" == "true" ]]; then
@@ -109,10 +104,7 @@ if [[ "$lens_enable" == "true" ]]; then
 fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
-sed -i '/ssh:/,/^[a-z]/ s/enable: .*/enable: '"$ssh_enable"'/' "$values_yaml"
-if [[ "$ssh_enable" == "true" ]]; then
-  sed -i '/^ssh:/,/^[a-z]/ s#server_ip: ".*"#server_ip: "'"$ssh_server_ip"'"#' "$values_yaml"
-fi
+sed -i '/^ssh:/,/^[a-z]/ s#server_ip: ".*"#server_ip: "'"$ssh_server_ip"'"#' "$values_yaml"
 
 chart_name="primus-safe"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
