@@ -105,6 +105,7 @@ func (m *Manager) SubmitMessage(ctx context.Context, data *model.Notification) e
 	}
 	messages, err := t.BuildMessage(ctx, data.Data)
 	if err != nil {
+		klog.Errorf("failed to build message for topic %s: %v", data.Topic, err)
 		return err
 	}
 	klog.Infof("messages: %+v", messages)
@@ -114,6 +115,7 @@ func (m *Manager) SubmitMessage(ctx context.Context, data *model.Notification) e
 			klog.Infof("Sending message to channel: %s", chName)
 			ch, exists := m.channels[chName]
 			if !exists {
+				klog.Warningf("channel %s does not exist", chName)
 				continue
 			}
 			if err := ch.Send(ctx, msg); err != nil {
