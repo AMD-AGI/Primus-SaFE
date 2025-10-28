@@ -34,7 +34,7 @@ webhooks:
   cpu: 2000m
   memory: 4Gi
 web:
-  image: "primus-safe-web:1.11.6"
+  image: "primus-safe-web:1.11.7"
   replicas: 1
   cpu: 2000m
   memory: 4Gi
