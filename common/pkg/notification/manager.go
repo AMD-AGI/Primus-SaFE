@@ -48,15 +48,18 @@ type Manager struct {
 
 func (m *Manager) SubmitNotification(ctx context.Context, topic, uid string, data map[string]interface{}) error {
 	if t, ok := m.topics[topic]; !ok {
+		klog.Infof("No topic found for topic: %s", topic)
 		return nil
 	} else {
 		if !t.Filter(data) {
+			klog.Infof("Topic %s does not match filter", topic)
 			return nil
 		}
 	}
 	notification := &model.Notification{
 		Data:      data,
-		Method:    topic,
+		Topic:     topic,
+		UID:       uid,
 		CreatedAt: time.Now(),
 	}
 	return m.dbClient.SubmitNotification(ctx, notification)
@@ -86,7 +89,7 @@ func (m *Manager) listenNotifications(ctx context.Context) error {
 			return err
 		}
 		notification.SentAt = time.Now()
-		if err := m.dbClient.SubmitNotification(ctx, notification); err != nil {
+		if err := m.dbClient.UpdateNotification(ctx, notification); err != nil {
 			return err
 		}
 	}
@@ -94,7 +97,7 @@ func (m *Manager) listenNotifications(ctx context.Context) error {
 }
 
 func (m *Manager) SubmitMessage(ctx context.Context, data *model.Notification) error {
-	t, exists := m.topics[data.Method]
+	t, exists := m.topics[data.Topic]
 	if !exists {
 		return nil
 	}

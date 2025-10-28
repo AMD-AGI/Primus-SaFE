@@ -66,6 +66,7 @@ func newWorkload(db *gorm.DB, opts ...gen.DOOption) workload {
 	_workload.Ranks = field.NewString(tableName, "ranks")
 	_workload.Dependencies = field.NewString(tableName, "dependencies")
 	_workload.CronSchedules = field.NewString(tableName, "cron_schedules")
+	_workload.CronJobs = field.NewString(tableName, "cron_jobs")
 
 	_workload.fillFieldMap()
 
@@ -115,6 +116,7 @@ type workload struct {
 	Ranks          field.String
 	Dependencies   field.String
 	CronSchedules  field.String
+	CronJobs       field.String
 
 	fieldMap map[string]field.Expr
 }
@@ -170,6 +172,7 @@ func (w *workload) updateTableName(table string) *workload {
 	w.Ranks = field.NewString(table, "ranks")
 	w.Dependencies = field.NewString(table, "dependencies")
 	w.CronSchedules = field.NewString(table, "cron_schedules")
+	w.CronJobs = field.NewString(table, "cron_jobs")
 
 	w.fillFieldMap()
 
@@ -194,7 +197,7 @@ func (w *workload) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (w *workload) fillFieldMap() {
-	w.fieldMap = make(map[string]field.Expr, 39)
+	w.fieldMap = make(map[string]field.Expr, 40)
 	w.fieldMap["id"] = w.ID
 	w.fieldMap["workload_id"] = w.WorkloadID
 	w.fieldMap["display_name"] = w.DisplayName
@@ -234,6 +237,7 @@ func (w *workload) fillFieldMap() {
 	w.fieldMap["ranks"] = w.Ranks
 	w.fieldMap["dependencies"] = w.Dependencies
 	w.fieldMap["cron_schedules"] = w.CronSchedules
+	w.fieldMap["cron_jobs"] = w.CronJobs
 }
 
 func (w workload) clone(db *gorm.DB) workload {

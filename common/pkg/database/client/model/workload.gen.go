@@ -51,6 +51,7 @@ type Workload struct {
 	Ranks          string    `gorm:"column:ranks" json:"ranks"`
 	Dependencies   string    `gorm:"column:dependencies" json:"dependencies"`
 	CronSchedules  string    `gorm:"column:cron_schedules" json:"cron_schedules"`
+	CronJobs       string    `gorm:"column:cron_jobs" json:"cron_jobs"`
 }
 
 // TableName Workload's table name

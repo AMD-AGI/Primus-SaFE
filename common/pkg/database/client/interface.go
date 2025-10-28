@@ -99,4 +99,5 @@ type SshSessionRecordsInterface interface {
 type NotificationInterface interface {
 	SubmitNotification(ctx context.Context, data *model.Notification) error
 	ListUnprocessedNotifications(ctx context.Context) ([]*model.Notification, error)
+	UpdateNotification(ctx context.Context, data *model.Notification) error
 }

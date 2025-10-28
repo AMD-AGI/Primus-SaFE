@@ -12,15 +12,10 @@ const TableNameNotification = "notification"
 
 // Notification mapped from table <notification>
 type Notification struct {
-	ID        int32     `gorm:"column:id;not null" json:"id"`
-	Kind      string    `gorm:"column:kind" json:"kind"`
-	Name      string    `gorm:"column:name" json:"name"`
-	UID       string    `gorm:"column:uid" json:"uid"`
-	Channel   string    `gorm:"column:channel" json:"channel"`
+	ID        int32     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	Topic     string    `gorm:"column:topic" json:"topic"`
 	Data      ExtType   `gorm:"column:data" json:"data"`
-	Status    string    `gorm:"column:status" json:"status"`
-	Method    string    `gorm:"column:method" json:"method"`
-	Error     string    `gorm:"column:error" json:"error"`
+	UID       string    `gorm:"column:uid" json:"uid"`
 	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
 	SentAt    time.Time `gorm:"column:sent_at" json:"sent_at"`
 }

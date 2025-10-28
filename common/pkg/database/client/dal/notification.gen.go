@@ -28,14 +28,9 @@ func newNotification(db *gorm.DB, opts ...gen.DOOption) notification {
 	tableName := _notification.notificationDo.TableName()
 	_notification.ALL = field.NewAsterisk(tableName)
 	_notification.ID = field.NewInt32(tableName, "id")
-	_notification.Kind = field.NewString(tableName, "kind")
-	_notification.Name = field.NewString(tableName, "name")
-	_notification.UID = field.NewString(tableName, "uid")
-	_notification.Channel = field.NewString(tableName, "channel")
+	_notification.Topic = field.NewString(tableName, "topic")
 	_notification.Data = field.NewField(tableName, "data")
-	_notification.Status = field.NewString(tableName, "status")
-	_notification.Method = field.NewString(tableName, "method")
-	_notification.Error = field.NewString(tableName, "error")
+	_notification.UID = field.NewString(tableName, "uid")
 	_notification.CreatedAt = field.NewTime(tableName, "created_at")
 	_notification.SentAt = field.NewTime(tableName, "sent_at")
 
@@ -49,14 +44,9 @@ type notification struct {
 
 	ALL       field.Asterisk
 	ID        field.Int32
-	Kind      field.String
-	Name      field.String
-	UID       field.String
-	Channel   field.String
+	Topic     field.String
 	Data      field.Field
-	Status    field.String
-	Method    field.String
-	Error     field.String
+	UID       field.String
 	CreatedAt field.Time
 	SentAt    field.Time
 
@@ -76,14 +66,9 @@ func (n notification) As(alias string) *notification {
 func (n *notification) updateTableName(table string) *notification {
 	n.ALL = field.NewAsterisk(table)
 	n.ID = field.NewInt32(table, "id")
-	n.Kind = field.NewString(table, "kind")
-	n.Name = field.NewString(table, "name")
-	n.UID = field.NewString(table, "uid")
-	n.Channel = field.NewString(table, "channel")
+	n.Topic = field.NewString(table, "topic")
 	n.Data = field.NewField(table, "data")
-	n.Status = field.NewString(table, "status")
-	n.Method = field.NewString(table, "method")
-	n.Error = field.NewString(table, "error")
+	n.UID = field.NewString(table, "uid")
 	n.CreatedAt = field.NewTime(table, "created_at")
 	n.SentAt = field.NewTime(table, "sent_at")
 
@@ -114,16 +99,11 @@ func (n *notification) GetFieldByName(fieldName string) (field.OrderExpr, bool) 
 }
 
 func (n *notification) fillFieldMap() {
-	n.fieldMap = make(map[string]field.Expr, 11)
+	n.fieldMap = make(map[string]field.Expr, 6)
 	n.fieldMap["id"] = n.ID
-	n.fieldMap["kind"] = n.Kind
-	n.fieldMap["name"] = n.Name
-	n.fieldMap["uid"] = n.UID
-	n.fieldMap["channel"] = n.Channel
+	n.fieldMap["topic"] = n.Topic
 	n.fieldMap["data"] = n.Data
-	n.fieldMap["status"] = n.Status
-	n.fieldMap["method"] = n.Method
-	n.fieldMap["error"] = n.Error
+	n.fieldMap["uid"] = n.UID
 	n.fieldMap["created_at"] = n.CreatedAt
 	n.fieldMap["sent_at"] = n.SentAt
 }
