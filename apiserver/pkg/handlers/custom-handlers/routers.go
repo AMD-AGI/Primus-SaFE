@@ -51,6 +51,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.DELETE(fmt.Sprintf("nodes/:%s", common.Name), h.DeleteNode)
 		group.PATCH(fmt.Sprintf("nodes/:%s", common.Name), h.PatchNode)
 		group.GET(fmt.Sprintf("nodes/:%s/logs", common.Name), h.GetNodePodLog)
+		group.GET(fmt.Sprintf("nodes/:%s/reboot/logs", common.Name), h.ListNodeRebootLog)
 		group.GET("nodes", h.ListNode)
 		group.GET(fmt.Sprintf("nodes/:%s", common.Name), h.GetNode)
 

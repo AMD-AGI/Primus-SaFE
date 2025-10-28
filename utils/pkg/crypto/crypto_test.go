@@ -16,6 +16,7 @@ func TestCrypto(t *testing.T) {
 	message := "weilei-1756370912"
 	ciphertext, err := Encrypt([]byte(message), []byte(key))
 	assert.NilError(t, err)
+
 	decryptedMessage, err := Decrypt(ciphertext, []byte(key))
 	assert.NilError(t, err)
 	assert.Equal(t, message, string(decryptedMessage))

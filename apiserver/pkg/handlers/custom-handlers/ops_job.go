@@ -90,6 +90,8 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 		job, err = h.generatePreflightJob(c, body)
 	case v1.OpsJobDumpLogType:
 		job, err = h.generateDumpLogJob(c, body)
+	case v1.OpsJobRebootType:
+		job, err = h.generateRebootJob(c, body)
 	default:
 		err = fmt.Errorf("unsupported ops job type(%s)", req.Type)
 	}
@@ -356,6 +358,29 @@ func (h *Handler) generateDumpLogJob(c *gin.Context, body []byte) (*v1.OpsJob, e
 	}
 	v1.SetLabel(job, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	return job, nil
+}
+
+// generateRebootJob create a reboot-type ops job.
+func (h *Handler) generateRebootJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.auth.Authorize(authority.Input{
+		Context:      c.Request.Context(),
+		ResourceKind: v1.NodeKind,
+		Verb:         v1.UpdateVerb,
+		User:         requestUser,
+	}); err != nil {
+		return nil, err
+	}
+
+	req := &types.BaseOpsJobRequest{}
+	if err = jsonutils.Unmarshal(body, req); err != nil {
+		return nil, err
+	}
+
+	return genDefaultOpsJob(c, req), nil
 }
 
 // genDefaultOpsJob: creates a default ops job object with common properties.
