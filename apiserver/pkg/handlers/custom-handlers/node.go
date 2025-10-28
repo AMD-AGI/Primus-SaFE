@@ -464,10 +464,14 @@ func (h *Handler) listNodeRebootLog(c *gin.Context) (interface{}, error) {
 	createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
-		sqrl.GtOrEq{createTime: req.SinceTime},
-		sqrl.LtOrEq{createTime: req.UntilTime},
 		sqrl.Expr("outputs::jsonb @> ?", fmt.Sprintf(`[{"value": "%s"}]`, node.Name)),
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "type"): v1.OpsJobRebootType},
+	}
+	if !req.SinceTime.IsZero() {
+		dbSql = append(dbSql, sqrl.GtOrEq{createTime: req.SinceTime})
+	}
+	if !req.UntilTime.IsZero() {
+		dbSql = append(dbSql, sqrl.LtOrEq{createTime: req.UntilTime})
 	}
 
 	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, req.SortBy, req.Order, req.Limit, req.Offset)
