@@ -9,6 +9,7 @@ import (
 	"time"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/model"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"k8s.io/klog/v2"
@@ -47,7 +48,7 @@ func (t *Topic) BuildMessage(ctx context.Context, data map[string]interface{}) (
 		StatusColor:  getStatusColor(topicData.Condition),
 		ScheduleTime: topicData.Workload.CreationTimestamp.Time.Format(time.DateTime),
 		ErrorMessage: "",
-		JobURL:       "", // TODO: generate workload URL
+		JobURL:       getWorkloadUrl(topicData.Workload.Name),
 	}
 	if commonutils.StringsIn(topicData.Condition, []string{
 		string(v1.K8sFailed), string(v1.AdminFailed), string(v1.AdminFailover),
@@ -60,7 +61,7 @@ func (t *Topic) BuildMessage(ctx context.Context, data map[string]interface{}) (
 	}
 	message := &model.Message{
 		Email: &model.EmailMessage{
-			Title:   fmt.Sprintf("Workload %s - %s", topicData.Workload.Name, topicData.Condition),
+			Title:   fmt.Sprintf("【Primus Safe】Workload %s ( %s )", topicData.Condition, topicData.Workload.Name),
 			Content: emailContent,
 			To:      extractUserEmails(topicData.Users),
 		},
@@ -128,4 +129,8 @@ func extractUserEmails(users []*v1.User) []string {
 		}
 	}
 	return emails
+}
+
+func getWorkloadUrl(workloadId string) string {
+	return fmt.Sprintf("%s/training/detail?id=%s", commonconfig.GetSystemBaseUrl(), workloadId)
 }

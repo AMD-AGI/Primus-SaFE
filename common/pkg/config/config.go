@@ -307,3 +307,7 @@ func IsNotificationEnable() bool {
 func GetNotificationConfig() string {
 	return getFromFile(notificationSecretPath, "config")
 }
+
+func GetSystemBaseUrl() string {
+	return getString(systemBaseUrl, "")
+}
