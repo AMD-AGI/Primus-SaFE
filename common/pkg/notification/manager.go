@@ -1,0 +1,117 @@
+package notification
+
+import (
+	"context"
+	"time"
+
+	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/channel"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/topic"
+	"k8s.io/klog/v2"
+)
+
+var (
+	singleton *Manager
+)
+
+func GetNotificationManager() *Manager {
+	return singleton
+}
+
+func InitNotificationManager(ctx context.Context, configFile string) error {
+	conf, err := channel.ReadConfigFromFile(configFile)
+	if err != nil {
+		return err
+	}
+	channels, err := channel.InitChannels(ctx, conf)
+	if err != nil {
+		return err
+	}
+	topics := topic.NewTopics()
+	databaseClient := dbClient.NewClient()
+	singleton = &Manager{
+		channels: channels,
+		topics:   topics,
+		dbClient: databaseClient,
+	}
+	singleton.Start(ctx)
+	return nil
+}
+
+type Manager struct {
+	channels map[string]channel.Channel
+	topics   map[string]topic.Topic
+	dbClient *dbClient.Client
+}
+
+func (m *Manager) SubmitNotification(ctx context.Context, topic, uid string, data map[string]interface{}) error {
+	if t, ok := m.topics[topic]; !ok {
+		return nil
+	} else {
+		if !t.Filter(data) {
+			return nil
+		}
+	}
+	notification := &model.Notification{
+		Data:      data,
+		Method:    topic,
+		CreatedAt: time.Now(),
+	}
+	return m.dbClient.SubmitNotification(ctx, notification)
+}
+
+func (m *Manager) Start(ctx context.Context) {
+	go m.doListenNotifications(ctx)
+}
+
+func (m *Manager) doListenNotifications(ctx context.Context) {
+	for {
+		err := m.listenNotifications(ctx)
+		if err != nil {
+			klog.Errorf("failed to listen notifications: %v", err)
+		}
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func (m *Manager) listenNotifications(ctx context.Context) error {
+	unprocessed, err := m.dbClient.ListUnprocessedNotifications(ctx)
+	if err != nil {
+		return err
+	}
+	for _, notification := range unprocessed {
+		if err := m.SubmitMessage(ctx, notification); err != nil {
+			return err
+		}
+		notification.SentAt = time.Now()
+		if err := m.dbClient.SubmitNotification(ctx, notification); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *Manager) SubmitMessage(ctx context.Context, data *model.Notification) error {
+	t, exists := m.topics[data.Method]
+	if !exists {
+		return nil
+	}
+	messages, err := t.BuildMessage(ctx, data.Data)
+	if err != nil {
+		return err
+	}
+	for _, msg := range messages {
+		channelNames := msg.GetChannels()
+		for _, chName := range channelNames {
+			ch, exists := m.channels[chName]
+			if !exists {
+				continue
+			}
+			if err := ch.Send(ctx, msg); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

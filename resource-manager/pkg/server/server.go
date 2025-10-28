@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/informer"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientscheme "k8s.io/client-go/kubernetes/scheme"
@@ -91,6 +93,16 @@ func (s *Server) init() error {
 	if err = commonsearch.StartDiscover(s.ctrlManager.ctx); err != nil {
 		klog.ErrorS(err, "failed to start opensearch discovery")
 		return err
+	}
+	if commonconfig.IsNotificationEnable() {
+		if err = notification.InitNotificationManager(s.ctrlManager.ctx, commonconfig.GetNotificationConfig()); err != nil {
+			klog.ErrorS(err, "failed to initialize notification manager")
+			return err
+		}
+		if err = informer.InitInformer(s.ctrlManager.ctrlManager.GetConfig(), s.ctrlManager.ctrlManager.GetClient()); err != nil {
+			klog.ErrorS(err, "failed to initialize informer")
+			return err
+		}
 	}
 	s.isInited = true
 	return nil

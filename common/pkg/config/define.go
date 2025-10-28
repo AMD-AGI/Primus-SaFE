@@ -95,4 +95,9 @@ const (
 	userPrefix            = "user."
 	userTokenRequired     = userPrefix + "token_required"
 	userTokenExpireSecond = userPrefix + "token_expire"
+
+	// notification
+	notificationPrefix     = "notification."
+	notificationEnable     = notificationPrefix + "enable"
+	notificationSecretPath = notificationPrefix + "secret_path"
 )

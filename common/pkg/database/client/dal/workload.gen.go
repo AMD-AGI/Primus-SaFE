@@ -64,6 +64,8 @@ func newWorkload(db *gorm.DB, opts ...gen.DOOption) workload {
 	_workload.K8sObjectUID = field.NewString(tableName, "k8s_object_uid")
 	_workload.WorkloadUID = field.NewString(tableName, "workload_uid")
 	_workload.Ranks = field.NewString(tableName, "ranks")
+	_workload.Dependencies = field.NewString(tableName, "dependencies")
+	_workload.CronSchedules = field.NewString(tableName, "cron_schedules")
 
 	_workload.fillFieldMap()
 
@@ -111,6 +113,8 @@ type workload struct {
 	K8sObjectUID   field.String
 	WorkloadUID    field.String
 	Ranks          field.String
+	Dependencies   field.String
+	CronSchedules  field.String
 
 	fieldMap map[string]field.Expr
 }
@@ -164,6 +168,8 @@ func (w *workload) updateTableName(table string) *workload {
 	w.K8sObjectUID = field.NewString(table, "k8s_object_uid")
 	w.WorkloadUID = field.NewString(table, "workload_uid")
 	w.Ranks = field.NewString(table, "ranks")
+	w.Dependencies = field.NewString(table, "dependencies")
+	w.CronSchedules = field.NewString(table, "cron_schedules")
 
 	w.fillFieldMap()
 
@@ -188,7 +194,7 @@ func (w *workload) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (w *workload) fillFieldMap() {
-	w.fieldMap = make(map[string]field.Expr, 37)
+	w.fieldMap = make(map[string]field.Expr, 39)
 	w.fieldMap["id"] = w.ID
 	w.fieldMap["workload_id"] = w.WorkloadID
 	w.fieldMap["display_name"] = w.DisplayName
@@ -226,6 +232,8 @@ func (w *workload) fillFieldMap() {
 	w.fieldMap["k8s_object_uid"] = w.K8sObjectUID
 	w.fieldMap["workload_uid"] = w.WorkloadUID
 	w.fieldMap["ranks"] = w.Ranks
+	w.fieldMap["dependencies"] = w.Dependencies
+	w.fieldMap["cron_schedules"] = w.CronSchedules
 }
 
 func (w workload) clone(db *gorm.DB) workload {
