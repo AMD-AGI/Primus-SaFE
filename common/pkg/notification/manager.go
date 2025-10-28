@@ -20,6 +20,7 @@ func GetNotificationManager() *Manager {
 }
 
 func InitNotificationManager(ctx context.Context, configFile string) error {
+	klog.Infof("Notification manager initializing with config file: %s", configFile)
 	conf, err := channel.ReadConfigFromFile(configFile)
 	if err != nil {
 		return err
