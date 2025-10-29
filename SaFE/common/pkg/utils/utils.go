@@ -47,13 +47,17 @@ func GenerateName(base string) string {
 
 // GetBaseFromName extracts the base name from a generated name by removing the random suffix
 // Parameters:
-//   name: Generated name containing base and random suffix
+//
+//	name: Generated name containing base and random suffix
+//
 // Returns:
-//   Base name without random suffix, or original name if format doesn't match
+//
+//	Base name without random suffix, or original name if format doesn't match
+//
 // Logic:
-//   1. Check if name length is sufficient to contain random suffix
-//   2. Verify the expected hyphen separator exists at the correct position
-//   3. Return the base portion before the separator
+//  1. Check if name length is sufficient to contain random suffix
+//  2. Verify the expected hyphen separator exists at the correct position
+//  3. Return the base portion before the separator
 func GetBaseFromName(name string) string {
 	if len(name) <= randomLength+1 {
 		return name
@@ -67,10 +71,13 @@ func GetBaseFromName(name string) string {
 
 // GenObjectReference creates an ObjectReference from TypeMeta and ObjectMeta
 // Parameters:
-//   typeMeta: Type metadata containing APIVersion and Kind
-//   objMeta: Object metadata containing namespace, name, UID, and resource version
+//
+//	typeMeta: Type metadata containing APIVersion and Kind
+//	objMeta: Object metadata containing namespace, name, UID, and resource version
+//
 // Returns:
-//   Pointer to corev1.ObjectReference populated with the provided metadat
+//
+//	Pointer to corev1.ObjectReference populated with the provided metadat
 func GenObjectReference(typeMeta metav1.TypeMeta, objMeta metav1.ObjectMeta) *corev1.ObjectReference {
 	return &corev1.ObjectReference{
 		Namespace:       objMeta.GetNamespace(),
@@ -84,30 +91,39 @@ func GenObjectReference(typeMeta metav1.TypeMeta, objMeta metav1.ObjectMeta) *co
 
 // GenerateClusterPriorityClass creates a cluster-specific priority class name
 // Parameters:
-//   clusterId: Cluster identifier
-//   priorityClass: Base priority class name
+//
+//	clusterId: Cluster identifier
+//	priorityClass: Base priority class name
+//
 // Returns:
-//   Combined string in format "clusterId-priorityClass"
+//
+//	Combined string in format "clusterId-priorityClass"
 func GenerateClusterPriorityClass(clusterId, priorityClass string) string {
 	return clusterId + "-" + priorityClass
 }
 
 // GenerateClusterSecret creates a cluster-specific secret name
 // Parameters:
-//   clusterId: Cluster identifier
-//   secretName: Base secret name
+//
+//	clusterId: Cluster identifier
+//	secretName: Base secret name
+//
 // Returns:
-//   Combined string in format "clusterId-secretName
+//
+//	Combined string in format "clusterId-secretName
 func GenerateClusterSecret(clusterId, secretName string) string {
 	return clusterId + "-" + secretName
 }
 
 // TransMapToStruct converts a map to a struct using JSON serialization
 // Parameters:
-//   m: Input map with string keys and interface{} values
-//   out: Pointer to the output struct where data will be unmarshaled
+//
+//	m: Input map with string keys and interface{} values
+//	out: Pointer to the output struct where data will be unmarshaled
+//
 // Returns:
-//   Error if serialization or deserialization fails, nil otherwise
+//
+//	Error if serialization or deserialization fails, nil otherwise
 func TransMapToStruct(m map[string]interface{}, out interface{}) error {
 	jsonBytes, err := json.Marshal(m)
 	if err != nil {
@@ -122,10 +138,13 @@ func TransMapToStruct(m map[string]interface{}, out interface{}) error {
 
 // StringsIn checks if a string is present in a slice of strings
 // Parameters:
-//   strs: Slice of strings to search
-//   str: String to find
+//
+//	strs: Slice of strings to search
+//	str: String to find
+//
 // Returns:
-//   True if str is found in strs, false otherwise
+//
+//	True if str is found in strs, false otherwise
 func StringsIn(str string, strs []string) bool {
 	for _, s := range strs {
 		if s == str {
