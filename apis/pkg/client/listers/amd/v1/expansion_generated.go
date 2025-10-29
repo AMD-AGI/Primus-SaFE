@@ -86,14 +86,6 @@ type RoleListerExpansion interface{}
 // RoleNamespaceLister.
 type RoleNamespaceListerExpansion interface{}
 
-// StorageClusterListerExpansion allows custom methods to be added to
-// StorageClusterLister.
-type StorageClusterListerExpansion interface{}
-
-// StorageClusterNamespaceListerExpansion allows custom methods to be added to
-// StorageClusterNamespaceLister.
-type StorageClusterNamespaceListerExpansion interface{}
-
 // UserListerExpansion allows custom methods to be added to
 // UserLister.
 type UserListerExpansion interface{}

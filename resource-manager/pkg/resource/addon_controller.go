@@ -149,7 +149,7 @@ func (r *AddonController) helmInstall(ctx context.Context, addon *v1.Addon) erro
 	}
 	installClient := action.NewInstall(actionConfig)
 	installClient.Timeout = Timeout
-	installClient.Namespace = addon.GetReleaseNamespace()
+	installClient.Namespace = GetReleaseNamespace(addon)
 	installClient.ReleaseName = addon.Spec.AddonSource.HelmRepository.ReleaseName
 	installClient.CreateNamespace = true
 	installClient.Version = version
@@ -235,7 +235,7 @@ func (r *AddonController) createUpgradeClient(ctx context.Context, addon *v1.Add
 	upgradeClient := action.NewUpgrade(actionConfig)
 	upgradeClient.Install = true
 	upgradeClient.Timeout = Timeout
-	upgradeClient.Namespace = addon.GetReleaseNamespace()
+	upgradeClient.Namespace = GetReleaseNamespace(addon)
 	upgradeClient.Version = version
 	upgradeClient.PlainHTTP = addon.Spec.AddonSource.HelmRepository.PlainHTTP
 	upgradeClient.MaxHistory = MaxHistory
@@ -443,7 +443,7 @@ func (r *AddonController) configureHelmClient(ctx context.Context, actionConfig 
 		return err
 	}
 
-	if err = actionConfig.Init(getter, addon.GetReleaseNamespace(), helmDriver, klog.Infof); err != nil {
+	if err = actionConfig.Init(getter, GetReleaseNamespace(addon), helmDriver, klog.Infof); err != nil {
 		return fmt.Errorf("helm initializ action failed %s", err)
 	}
 	settings.KubeInsecureSkipTLSVerify = true

@@ -26,7 +26,6 @@ type AmdV1Interface interface {
 	OpsJobsGetter
 	ResourceTemplatesGetter
 	RolesGetter
-	StorageClustersGetter
 	UsersGetter
 	WorkloadsGetter
 	WorkspacesGetter
@@ -75,10 +74,6 @@ func (c *AmdV1Client) ResourceTemplates(namespace string) ResourceTemplateInterf
 
 func (c *AmdV1Client) Roles(namespace string) RoleInterface {
 	return newRoles(c, namespace)
-}
-
-func (c *AmdV1Client) StorageClusters(namespace string) StorageClusterInterface {
-	return newStorageClusters(c, namespace)
 }
 
 func (c *AmdV1Client) Users(namespace string) UserInterface {
