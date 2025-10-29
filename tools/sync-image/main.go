@@ -1,6 +1,6 @@
 package main
 
-// 使用的是 skopeo 的方式进行数据同步
+// Using skopeo for data synchronization
 // https://github.com/containers/skopeo/blob/main/cmd/skopeo/sync.go
 
 import (

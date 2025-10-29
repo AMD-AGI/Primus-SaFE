@@ -69,7 +69,7 @@ func main() {
 	} else {
 		outPath = filepath.Join(filepath.Dir(g.OutPath), g.ModelPkgPath)
 	}
-	// 写入custom type file
+	// Write custom type file
 	customFilePath := fmt.Sprintf("%s/ext_type.go", outPath)
 	err = os.WriteFile(customFilePath, []byte(customTypeFileContent), 0644)
 	if err != nil {

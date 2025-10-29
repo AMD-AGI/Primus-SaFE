@@ -229,7 +229,7 @@ func getControlPlaneNode(ctx context.Context, c client.Client) ([]*corev1.Node, 
 }
 
 func desireEndpoint(ctx context.Context, clusterName string, client client.Client, cfg *opensearchSecretData) (*corev1.Endpoints, error) {
-	// 获取master节点
+	// Get master nodes
 	masterNodes, err := getControlPlaneNode(ctx, client)
 	if err != nil {
 		return nil, err
