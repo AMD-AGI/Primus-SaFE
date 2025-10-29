@@ -235,7 +235,7 @@ func (v *NodeValidator) Handle(ctx context.Context, req admission.Request) admis
 	return admission.Allowed("")
 }
 
-// validateOnCreation validates OnCreation.
+// validateOnCreation validates node display name and spec on creation.
 func (v *NodeValidator) validateOnCreation(ctx context.Context, node *v1.Node) error {
 	if err := v.validateCommon(ctx, node); err != nil {
 		return err
@@ -243,7 +243,7 @@ func (v *NodeValidator) validateOnCreation(ctx context.Context, node *v1.Node) e
 	return nil
 }
 
-// validateOnUpdate validates OnUpdate.
+// validateOnUpdate validates immutable fields and common spec on update.
 func (v *NodeValidator) validateOnUpdate(ctx context.Context, newNode, oldNode *v1.Node) error {
 	if err := v.validateImmutableFields(newNode, oldNode); err != nil {
 		return err
@@ -254,7 +254,7 @@ func (v *NodeValidator) validateOnUpdate(ctx context.Context, newNode, oldNode *
 	return nil
 }
 
-// validateCommon validates Common.
+// validateCommon validates display name and node spec.
 func (v *NodeValidator) validateCommon(ctx context.Context, node *v1.Node) error {
 	if err := validateDisplayName(v1.GetDisplayName(node)); err != nil {
 		return err
@@ -265,7 +265,7 @@ func (v *NodeValidator) validateCommon(ctx context.Context, node *v1.Node) error
 	return nil
 }
 
-// validateNodeSpec validates NodeSpec.
+// validateNodeSpec validates workspace, flavor, SSH, port, IP and taints configuration.
 func (v *NodeValidator) validateNodeSpec(ctx context.Context, node *v1.Node) error {
 	if err := v.validateNodeWorkspace(ctx, node); err != nil {
 		return err
@@ -288,7 +288,7 @@ func (v *NodeValidator) validateNodeSpec(ctx context.Context, node *v1.Node) err
 	return nil
 }
 
-// validateNodeWorkspace validates NodeWorkspace.
+// validateNodeWorkspace ensures the workspace exists.
 func (v *NodeValidator) validateNodeWorkspace(ctx context.Context, node *v1.Node) error {
 	workspaceId := node.GetSpecWorkspace()
 	if _, err := getWorkspace(ctx, v.Client, workspaceId); err != nil {
@@ -297,7 +297,7 @@ func (v *NodeValidator) validateNodeWorkspace(ctx context.Context, node *v1.Node
 	return nil
 }
 
-// validateNodeFlavor validates NodeFlavor.
+// validateNodeFlavor ensures the node flavor exists.
 func (v *NodeValidator) validateNodeFlavor(ctx context.Context, node *v1.Node) error {
 	if node.Spec.NodeFlavor == nil {
 		return commonerrors.NewBadRequest("the flavor of node is not found")
@@ -309,7 +309,7 @@ func (v *NodeValidator) validateNodeFlavor(ctx context.Context, node *v1.Node) e
 	return nil
 }
 
-// validateNodeSSH validates NodeSSH.
+// validateNodeSSH ensures SSH secret is configured.
 func (v *NodeValidator) validateNodeSSH(_ context.Context, node *v1.Node) error {
 	if node.Spec.SSHSecret == nil {
 		return commonerrors.NewBadRequest("the ssh secret of node is not found")
@@ -317,7 +317,7 @@ func (v *NodeValidator) validateNodeSSH(_ context.Context, node *v1.Node) error 
 	return nil
 }
 
-// validateNodeTaints validates NodeTaints.
+// validateNodeTaints checks for duplicate taints and validates taint effects.
 func (v *NodeValidator) validateNodeTaints(node *v1.Node) error {
 	taintSet := sets.NewSet()
 	for _, t := range node.Spec.Taints {
@@ -341,7 +341,7 @@ func (v *NodeValidator) validateNodeTaints(node *v1.Node) error {
 	return nil
 }
 
-// validateImmutableFields validates ImmutableFields.
+// validateImmutableFields ensures hostname, cluster and workspace cannot be modified.
 func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error {
 	if oldNode.GetSpecHostName() != newNode.GetSpecHostName() {
 		return field.Forbidden(field.NewPath("spec").Key("hostname"), "immutable")

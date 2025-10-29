@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -66,6 +66,7 @@ type ResourceTemplateValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
+
 // Handle validates resource template resources on create, update, and delete operations.
 func (v *ResourceTemplateValidator) Handle(_ context.Context, req admission.Request) admission.Response {
 	rt := &v1.ResourceTemplate{}
@@ -87,7 +88,7 @@ func (v *ResourceTemplateValidator) Handle(_ context.Context, req admission.Requ
 	return admission.Allowed("")
 }
 
-// validate validates the resource.
+// validate ensures the resource template has valid spec configuration.
 func (v *ResourceTemplateValidator) validate(rt *v1.ResourceTemplate) error {
 	if err := v.validateTemplate(rt); err != nil {
 		return err
@@ -115,7 +116,8 @@ func (v *ResourceTemplateValidator) validateTemplate(rt *v1.ResourceTemplate) er
 // getResourceTemplate retrieves the requested information.
 func getResourceTemplate(ctx context.Context, cli client.Client, gvk v1.GroupVersionKind) (*v1.ResourceTemplate, error) {
 	labelSelector := labels.SelectorFromSet(map[string]string{
-		v1.WorkloadKindLabel: gvk.Kind, v1.WorkloadVersionLabel: gvk.Version})
+		v1.WorkloadKindLabel: gvk.Kind, v1.WorkloadVersionLabel: gvk.Version,
+	})
 	rtl := &v1.ResourceTemplateList{}
 	err := cli.List(ctx, rtl, &client.ListOptions{LabelSelector: labelSelector})
 	if err != nil {

@@ -17,7 +17,7 @@ func (h *Handler) GetEnvs(c *gin.Context) {
 	handle(c, h.getEnvs)
 }
 
-// List the environment variables supported by the backend
+// getEnvs lists the environment variables supported by the backend.
 func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 	return types.GetEnvResponse{
 		EnableLog:         commonconfig.IsOpenSearchEnable(),

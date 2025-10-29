@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -71,6 +71,7 @@ type RoleValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
+
 // Handle validates role resources on create, update, and delete operations.
 func (v *RoleValidator) Handle(_ context.Context, req admission.Request) admission.Response {
 	role := &v1.Role{}
@@ -92,7 +93,7 @@ func (v *RoleValidator) Handle(_ context.Context, req admission.Request) admissi
 	return admission.Allowed("")
 }
 
-// validate validates the resource.
+// validate ensures role has valid rules with non-empty resources and verbs.
 func (v *RoleValidator) validate(role *v1.Role) error {
 	if len(role.Rules) == 0 {
 		return fmt.Errorf("invalid rules of role")
