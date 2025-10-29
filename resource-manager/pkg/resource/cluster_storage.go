@@ -30,7 +30,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
-// guaranteeStorage: ensures storage resources are properly configured for the cluster
+// guaranteeStorage ensures storage resources are properly configured for the cluster
 // It handles OBS, RBD, and FileSystem storage types
 func (r *ClusterReconciler) guaranteeStorage(ctx context.Context, cluster *v1.Cluster) (ctrlruntime.Result, error) {
 	if !cluster.IsReady() {
@@ -71,7 +71,7 @@ func (r *ClusterReconciler) guaranteeStorage(ctx context.Context, cluster *v1.Cl
 	return ctrlruntime.Result{}, nil
 }
 
-// guaranteeOBS: ensures OBS (Object Storage Service) storage is properly configured
+// guaranteeOBS ensures OBS (Object Storage Service) storage is properly configured
 // Creates endpoints, services, and secrets for OBS storage
 func (r *ClusterReconciler) guaranteeOBS(ctx context.Context, client kubernetes.Interface, cluster *v1.Cluster, index int) error {
 	storage := cluster.Status.StorageStatus[index]
@@ -200,7 +200,7 @@ func (r *ClusterReconciler) guaranteeOBS(ctx context.Context, client kubernetes.
 	return nil
 }
 
-// guaranteeNamespace: ensures a namespace exists in the cluster
+// guaranteeNamespace ensures a namespace exists in the cluster
 func (r *ClusterReconciler) guaranteeNamespace(ctx context.Context, client kubernetes.Interface, namespace string) error {
 	_, err := client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	if err != nil {
@@ -223,7 +223,7 @@ func (r *ClusterReconciler) guaranteeNamespace(ctx context.Context, client kuber
 	return nil
 }
 
-// updateCephCsiConfig: updates the Ceph CSI configuration ConfigMap with storage monitors
+// updateCephCsiConfig updates the Ceph CSI configuration ConfigMap with storage monitors
 func (r *ClusterReconciler) updateCephCsiConfig(ctx context.Context, client kubernetes.Interface, storage v1.StorageStatus, name, namespace string) error {
 	configMap, err := client.CoreV1().ConfigMaps(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {

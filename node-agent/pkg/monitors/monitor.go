@@ -88,7 +88,7 @@ func (m *Monitor) Stop() {
 	m.isExited = true
 }
 
-// startCronJob: initializes and starts the cron scheduler for this monitor
+// startCronJob initializes and starts the cron scheduler for this monitor
 func (m *Monitor) startCronJob() {
 	start := time.Now().UTC()
 	defer func() {
@@ -116,7 +116,7 @@ func (m *Monitor) startCronJob() {
 	m.tomb.Done()
 }
 
-// Run: executes the monitoring script and processes the results. It implements the cron.Job interface.
+// Run executes the monitoring script and processes the results. It implements the cron.Job interface.
 func (m *Monitor) Run() {
 	args := []string{m.scriptPath}
 	for _, arg := range m.config.Arguments {
@@ -149,7 +149,7 @@ func (m *Monitor) Run() {
 	}
 }
 
-// convertReservedWord: replaces reserved words in arguments with actual values
+// convertReservedWord replaces reserved words in arguments with actual values
 func (m *Monitor) convertReservedWord(arg string) string {
 	switch arg {
 	case "$Node":
@@ -163,7 +163,7 @@ func (m *Monitor) convertReservedWord(arg string) string {
 	return arg
 }
 
-// generateNodeInfo: generates NodeInfo structure with current node GPU information
+// generateNodeInfo generates NodeInfo structure with current node GPU information
 func (m *Monitor) generateNodeInfo() *NodeInfo {
 	if m.node == nil || m.node.GetK8sNode() == nil {
 		return nil
@@ -180,7 +180,7 @@ func (m *Monitor) generateNodeInfo() *NodeInfo {
 	return info
 }
 
-// IsExited: returns whether the monitor has been stopped
+// IsExited returns whether the monitor has been stopped
 func (m *Monitor) IsExited() bool {
 	return m.isExited
 }

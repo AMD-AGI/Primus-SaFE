@@ -7,11 +7,11 @@ package client
 
 import (
 	"fmt"
-	"gorm.io/gorm"
 	"sync"
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"gorm.io/gorm"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/klog/v2"
 
@@ -25,11 +25,21 @@ var (
 	instance *Client
 )
 
+// Client represents a database client that manages both sqlx and gorm database connections.
+// It encapsulates the database configuration and provides methods to interact with the database.
 type Client struct {
-	db   *sqlx.DB
-	gorm *gorm.DB
-	*utils.DBConfig
+	db              *sqlx.DB // sqlx database instance
+	gorm            *gorm.DB // gorm ORM database instance
+	*utils.DBConfig          // Embedded database configuration
 }
+
+// NewClient creates a singleton instance of the database Client.
+// It initializes the database configuration from common configuration,
+// validates the parameters, establishes connections using both sqlx and gorm
+// The initialization happens only once even if called multiple times.
+//
+// Returns:
+//   - *Client: Singleton database client instance
 
 func NewClient() *Client {
 	once.Do(func() {
@@ -69,6 +79,8 @@ func NewClient() *Client {
 	return instance
 }
 
+// Close closes the database connection and releases associated resources.
+// It attempts to close the sqlx database connection pool and logs any errors that occur.
 func (c *Client) Close() {
 	err := c.db.Close()
 	if err != nil {
@@ -76,6 +88,13 @@ func (c *Client) Close() {
 	}
 }
 
+// getDB returns the underlying sqlx database connection.
+// It checks if the client has been properly initialized and returns
+// an unsafe connection from the connection pool.
+//
+// Returns:
+//   - *sqlx.DB: Database connection pool
+//   - error: Error if client is not initialized
 func (c *Client) getDB() (*sqlx.DB, error) {
 	if c.db == nil {
 		return nil, commonerrors.NewInternalError("The client of db has not been initialized")
@@ -83,6 +102,15 @@ func (c *Client) getDB() (*sqlx.DB, error) {
 	return c.db.Unsafe(), nil
 }
 
+// checkParams validates that all required database configuration parameters are present.
+// It checks for the presence of database name, username, password, host, SSL mode, and port.
+// Returns an aggregated error if any required parameters are missing.
+//
+// Parameters:
+//   - cfg: Database configuration to validate
+//
+// Returns:
+//   - error: Aggregated error containing all missing parameter errors, or nil if all parameters are present
 func checkParams(cfg *utils.DBConfig) error {
 	var errs []error
 	if cfg.DBName == "" {

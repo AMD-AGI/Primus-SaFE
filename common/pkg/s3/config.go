@@ -71,11 +71,10 @@ func GetConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	config := &Config{
+	return &Config{
 		Config: cfg,
 		Bucket: pointer.String(commonconfig.GetS3Bucket()),
-	}
-	return config, nil
+	}, nil
 }
 
 // GetS3Config returns the underlying AWS SDK configuration from the Config struct.

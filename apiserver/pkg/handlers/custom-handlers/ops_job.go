@@ -445,8 +445,7 @@ func (h *Handler) getNodesOfWorkload(ctx context.Context, workloadId string) ([]
 		}
 		if str := dbutils.ParseNullString(workload.Nodes); str != "" {
 			var nodes [][]string
-			json.Unmarshal([]byte(str), &nodes)
-			if len(nodes) > 0 {
+			if json.Unmarshal([]byte(str), &nodes) == nil && len(nodes) > 0 {
 				return nodes[len(nodes)-1], nil
 			}
 		}

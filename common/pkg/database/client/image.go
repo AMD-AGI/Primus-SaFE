@@ -9,11 +9,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"gorm.io/gorm"
+	"k8s.io/klog/v2"
+
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/dal"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	"gorm.io/gorm"
-	"k8s.io/klog/v2"
 )
 
 type ImageFilter struct {
@@ -117,7 +119,7 @@ func (c *Client) GetImage(ctx context.Context, imageId int32) (*model.Image, err
 }
 
 // DeleteImage 逻辑删除镜像
-func (c *Client) DeleteImage(ctx context.Context, id int32, deletedBy string) error {
+func (c *Client) DeleteImage(ctx context.Context, id int32, _ string) error {
 	q := dal.Use(c.gorm).Image
 	img, err := q.WithContext(ctx).Where(q.ID.Eq(id), q.DeletedAt.IsNull()).First()
 	if err != nil {

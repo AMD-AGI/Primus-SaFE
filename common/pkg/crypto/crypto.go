@@ -32,7 +32,7 @@ const (
 	AESKeyLen = 16
 )
 
-// Create or return singleton Crypto instance
+// NewCrypto create or return singleton Crypto instance
 // Initializes crypto key from configuration if crypto is enabled
 // Validates key length requirements
 // Returns: Singleton Crypto instance
