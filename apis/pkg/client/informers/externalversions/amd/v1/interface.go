@@ -32,8 +32,6 @@ type Interface interface {
 	ResourceTemplates() ResourceTemplateInformer
 	// Roles returns a RoleInformer.
 	Roles() RoleInformer
-	// StorageClusters returns a StorageClusterInformer.
-	StorageClusters() StorageClusterInformer
 	// Users returns a UserInformer.
 	Users() UserInformer
 	// Workloads returns a WorkloadInformer.
@@ -101,11 +99,6 @@ func (v *version) ResourceTemplates() ResourceTemplateInformer {
 // Roles returns a RoleInformer.
 func (v *version) Roles() RoleInformer {
 	return &roleInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
-}
-
-// StorageClusters returns a StorageClusterInformer.
-func (v *version) StorageClusters() StorageClusterInformer {
-	return &storageClusterInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Users returns a UserInformer.

@@ -9,6 +9,7 @@ metadata:
   labels:
     primus-safe.display.name: "training-operator.1.9.2"
     app.kubernetes.io/managed-by: Helm
+    primus-safe.addon.default: ""
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}

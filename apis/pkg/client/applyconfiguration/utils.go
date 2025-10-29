@@ -38,10 +38,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.AddonTemplateSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("AddonTemplateStatus"):
 		return &amdv1.AddonTemplateStatusApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("Capacity"):
-		return &amdv1.CapacityApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("CephClusterStatus"):
-		return &amdv1.CephClusterStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Cluster"):
 		return &amdv1.ClusterApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ClusterSpec"):
@@ -132,12 +128,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.ServiceApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Storage"):
 		return &amdv1.StorageApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("StorageCluster"):
-		return &amdv1.StorageClusterApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("StorageClusterSpec"):
-		return &amdv1.StorageClusterSpecApplyConfiguration{}
-	case v1.SchemeGroupVersion.WithKind("StorageClusterStatus"):
-		return &amdv1.StorageClusterStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("StorageStatus"):
 		return &amdv1.StorageStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("User"):
