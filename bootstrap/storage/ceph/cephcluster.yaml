@@ -1,0 +1,86 @@
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: rook-ceph
+  namespace: rook-ceph
+spec:
+  cephVersion:
+    image: quay.io/ceph/ceph:v19.2.2
+  cleanupPolicy:
+    sanitizeDisks:
+      dataSource: zero
+      iteration: 1
+      method: quick
+  crashCollector: {}
+  csi:
+    cephfs: {}
+    readAffinity:
+      enabled: false
+  dashboard:
+    enabled: true
+    ssl: true
+  dataDirHostPath: /var/lib/rook
+  disruptionManagement:
+    managePodBudgets: true
+    osdMaintenanceTimeout: 30
+  external: {}
+  healthCheck:
+    daemonHealth:
+      mon:
+        interval: 45s
+      osd:
+        interval: 1m0s
+      status:
+        interval: 1m0s
+    livenessProbe:
+      mgr: {}
+      mon: {}
+      osd: {}
+    startupProbe:
+      mgr: {}
+      mon: {}
+      osd: {}
+  logCollector:
+    enabled: true
+    maxLogSize: 500M
+    periodicity: daily
+  mgr:
+    count: 3
+    modules:
+    - enabled: true
+      name: rook
+      settings: {}
+  mon:
+    count: 3
+  monitoring:
+    exporter:
+      perfCountersPrioLimit: 5
+      statsPeriodSeconds: 5
+  network:
+    connections:
+      encryption:
+        enabled: false
+      compression:
+        enabled: false
+      requireMsgr2: false
+    hostNetwork: true
+  # storage: # cluster level storage configuration and selection
+  #   useAllNodes: true
+  #   useAllDevices: true
+    # nodes:
+    #   - name: "172.17.4.201"
+    #     devices: # specific devices to use for storage can be specified for each node
+    #       - name: "sdb"
+  priorityClassNames:
+    mgr: system-cluster-critical
+    mon: system-node-critical
+    osd: system-node-critical
+  security:
+    keyRotation:
+      enabled: false
+    kms: {}
+  storage:
+    useAllNodes: true
+    useAllDevices: true
+    config:
+    onlyApplyOSDPlacement: false

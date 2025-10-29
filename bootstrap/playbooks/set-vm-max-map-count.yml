@@ -1,0 +1,14 @@
+---
+- name: Set vm.max_map_count for all hosts
+  hosts: all
+  become: true
+  tasks:
+    - name: Ensure vm.max_map_count is set in /etc/sysctl.conf
+      lineinfile:
+        path: /etc/sysctl.conf
+        regexp: '^vm.max_map_count'
+        line: 'vm.max_map_count=262144'
+        state: present
+
+    - name: Apply sysctl settings
+      command: sysctl -p
