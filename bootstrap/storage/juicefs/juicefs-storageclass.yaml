@@ -1,0 +1,33 @@
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: juicefs
+  namespace: rook-ceph
+spec:
+  failureDomain: host
+  replicated:
+    size: 2
+  parameters:
+    pg_num: "1024"      
+    pg_num_min: "1024"
+---
+allowVolumeExpansion: true
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+  name: juicefs
+parameters:
+  csi.storage.k8s.io/controller-expand-secret-name: juicefs-secret
+  csi.storage.k8s.io/controller-expand-secret-namespace: juicefs-csi
+  csi.storage.k8s.io/node-publish-secret-name: juicefs-secret
+  csi.storage.k8s.io/node-publish-secret-namespace: juicefs-csi
+  csi.storage.k8s.io/node-stage-secret-name: juicefs-secret
+  csi.storage.k8s.io/node-stage-secret-namespace: juicefs-csi
+  csi.storage.k8s.io/provisioner-secret-name: juicefs-secret
+  csi.storage.k8s.io/provisioner-secret-namespace: juicefs-csi
+  fsType: juicefs
+provisioner: csi.juicefs.com
+reclaimPolicy: Delete
+volumeBindingMode: Immediate

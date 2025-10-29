@@ -1,0 +1,23 @@
+[all]
+  smc300x-ccs-aus-a16-10 ansible_host=10.235.192.66 ip=10.235.192.66
+  smc300x-ccs-aus-a16-19 ansible_host=10.235.192.47 ip=10.235.192.47
+  smc300x-ccs-aus-a17-10 ansible_host=10.235.192.68 ip=10.235.192.68
+
+[kube_control_plane]
+  smc300x-ccs-aus-a16-10
+  smc300x-ccs-aus-a16-19
+  smc300x-ccs-aus-a17-10
+
+[etcd]
+  smc300x-ccs-aus-a16-10
+  smc300x-ccs-aus-a16-19
+  smc300x-ccs-aus-a17-10
+
+[kube_node]
+  smc300x-ccs-aus-a16-10
+  smc300x-ccs-aus-a16-19
+  smc300x-ccs-aus-a17-10
+
+[k8s-cluster:children]
+  kube_node
+  kube_control_plane

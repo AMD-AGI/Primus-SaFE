@@ -1,0 +1,51 @@
+# Default values for scheduler-plugins-as-a-second-scheduler.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+scheduler:
+  name: kube-scheduler-plugins
+  image: primussafe/kube-scheduler:202509051543
+  command:
+  - /bin/kube-scheduler
+  replicaCount: 1
+  leaderElect: true
+  priorityClassName: ""
+  resources: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+
+controller:
+  name: kube-scheduler-plugins-controller
+  image: registry.k8s.io/scheduler-plugins/controller:v0.31.8
+  replicaCount: 1
+  leaderElect: false
+  priorityClassName: ""
+  resources: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+
+# LoadVariationRiskBalancing and TargetLoadPacking are not enabled by default
+# as they need extra RBAC privileges on metrics.k8s.io.
+
+plugins:
+  enabled: ["Coscheduling","CapacityScheduling","NodeResourceTopologyMatch","NodeResourcesAllocatable"]
+  disabled: ["PrioritySort"] # only in-tree plugins need to be defined here
+
+# Customize the enabled plugins' config.
+# Refer to the "pluginConfig" section of manifests/<plugin>/scheduler-config.yaml.
+# For example, for Coscheduling plugin, you want to customize the permit waiting timeout to 10 seconds:
+pluginConfig:
+- name: Coscheduling
+  args:
+    permitWaitingTimeSeconds: 10 # default is 60
+# Or, customize the other plugins
+# - name: NodeResourceTopologyMatch
+#   args:
+#     scoringStrategy:
+#       type: MostAllocated # default is LeastAllocated
+#- name: SySched
+#  args:
+#    defaultProfileNamespace: "default"
+#    defaultProfileName: "full-seccomp"

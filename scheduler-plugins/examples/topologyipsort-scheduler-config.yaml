@@ -1,0 +1,28 @@
+apiVersion: kubescheduler.config.k8s.io/v1
+kind: KubeSchedulerConfiguration
+leaderElection:
+  leaderElect: false
+clientConnection:
+  kubeconfig: ""
+profiles:
+- schedulerName: topology-ip-scheduler
+  plugins:
+    multiPoint:
+      enabled:
+      - name: TopologyIPSort
+    queueSort:
+      enabled:
+      - name: TopologyIPSort
+      disabled:
+      - name: "*"
+    score:
+      enabled:
+      - name: TopologyIPSort
+      disabled:
+      - name: "*"
+    permit:
+      enabled:
+      - name: TopologyIPSort
+    postFilter:
+      enabled:
+      - name: TopologyIPSort 

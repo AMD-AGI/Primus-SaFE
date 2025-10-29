@@ -1,0 +1,465 @@
+# Default values for juicefs-csi
+# This is a YAML-formatted file
+# Declare variables to be passed into your templates
+
+# Overrides the chart's computed name
+# nameOverride: ""
+# Overrides the chart's computed fullname
+# fullnameOverride: ""
+
+image:
+  repository: primussafe/juicefs-csi-driver
+  tag: "ceph-squid"
+  pullPolicy: ""
+
+dashboardImage:
+  repository: juicedata/csi-dashboard
+  tag: "v0.28.1"
+  pullPolicy: ""
+
+sidecars:
+  livenessProbeImage:
+    repository: registry.k8s.io/sig-storage/livenessprobe
+    tag: "v2.12.0"
+    pullPolicy: ""
+  nodeDriverRegistrarImage:
+    repository: registry.k8s.io/sig-storage/csi-node-driver-registrar
+    tag: "v2.9.0"
+    pullPolicy: ""
+  csiProvisionerImage:
+    repository: registry.k8s.io/sig-storage/csi-provisioner
+    tag: "v2.2.2"
+    pullPolicy: ""
+  csiResizerImage:
+    repository: registry.k8s.io/sig-storage/csi-resizer
+    tag: "v1.9.0"
+    pullPolicy: ""
+
+imagePullSecrets: {}
+
+# The way JuiceFS Client runs. choose between:
+# - mountpod: default, run JuiceFS Client in an independent pod
+# - sidecar: run JuiceFS Client as a sidecar container in the same pod with application
+# - process: run JuiceFS Client as a process in the JuiceFS CSI node service
+# - serverless: a special "sidecar" mode that requires no privilege, creates no hostPath volumes, to allow full serverless deployment
+# Ref: https://juicefs.com/docs/csi/introduction/
+mountMode: mountpod
+
+# The name of the JuiceFS CSI driver
+driverName: "csi.juicefs.com"
+
+# This file contains the configuration options for the JuiceFS CSI driver
+# Ref: https://juicefs.com/docs/zh/csi/guide/configurations#configmap
+globalConfig:
+  # Set to false to disable global config
+  enabled: true
+
+  # Set to true to manage global config by Helm
+  # If set to false:
+  #    1. the global config will only be applied in the first installation, and will not be updated or deleted by Helm
+  #    2. if you want to update it, you need to edit the configmap directly, or use csi-dashboard
+  manageByHelm: true
+
+  # Set to true to schedule mount pod to node with via nodeSelector, rather than nodeName
+  enableNodeSelector: false
+  
+  # The mountPodPatch section defines the mount pod spec
+  # Each item will be recursively merged into PVC settings according to its pvcSelector
+  # If pvcSelector isn't set, the patch will be applied to all PVCs
+  # Variable templates are supported, e.g.  ${MOUNT_POINT}, ${SUB_PATH}, ${VOLUME_ID}
+  mountPodPatch:
+
+    # Example configurations:
+    # - pvcSelector:
+    #     matchLabels:
+    #       disable-host-network: "true"
+    #   hostNetwork: false
+  
+    # - pvcSelector:
+    #     matchLabels:
+    #       apply-labels: "true"
+    #   labels:
+    #     custom-labels: "asasasa"
+  
+    # - pvcSelector:
+    #     matchLabels:
+    #       custom-resources: "true"
+    #   resources:
+    #     requests:
+    #       cpu: 100m
+    #       memory: 512Mi
+
+    # - pvcSelector:
+    #     matchLabels:
+    #       custom-image: "true"
+    #   eeMountImage: "juicedata/mount:ee-5.0.17-0c63dc5"
+    #   ceMountImage: "juicedata/mount:ce-v1.2.0"
+  
+    # - pvcSelector:
+    #     matchLabels:
+    #       custom-liveness: "true"
+    #   livenessProbe:
+    #     exec:
+    #       command:
+    #       - stat
+    #       - ${MOUNT_POINT}/${SUB_PATH}
+    #     failureThreshold: 3
+    #     initialDelaySeconds: 10
+    #     periodSeconds: 5
+    #     successThreshold: 1
+
+# For some environment without DNS server and want to use /etc/hosts instead
+# - ip: "127.0.0.1"
+#   hostnames:
+#   - "s3.juicefs.local"
+#   - "redis.juicefs.local"
+hostAliases: []
+
+# The kubelet working directory, can be set using --root-dir when starting kubelet
+kubeletDir: /var/lib/kubelet
+
+# JuiceFS mount directory
+jfsMountDir: /var/lib/juicefs/volume
+# JuiceFS config directory
+jfsConfigDir: /var/lib/juicefs/config
+
+# Specifies whether JuiceFS is being deployed in an immutable Kubernetes environment.
+# Immutable environments, such as Talos Linux, have read-only paths in the host filesystem.
+immutable: false
+
+dnsPolicy: ClusterFirstWithHostNet
+dnsConfig: {}
+# Example config which uses the AWS nameservers
+# dnsPolicy: "None"
+# dnsConfig:
+#   nameservers:
+#     - 169.254.169.253
+
+serviceAccount:
+  controller:
+    # Specifies whether a service account of controller should be created
+    create: true
+    # Annotations to add to the service account
+    annotations: {}
+    # The name of the service account to use
+    name: "juicefs-csi-controller-sa"
+  node:
+    # Specifies whether a service account of node service should be created
+    create: true
+    # Annotations to add to the service account
+    annotations: {}
+    # The name of the service account to use
+    name: "juicefs-csi-node-sa"
+  dashboard:
+    # Specifies whether a service account of dashboard should be created
+    create: true
+    # Annotations to add to the service account
+    annotations: {}
+    # The name of the service account to use
+    name: "juicefs-csi-dashboard-sa"
+
+controller:
+  enabled: true
+  # Enable verbose logging
+  debug: false
+  leaderElection:
+    # Enable leader election for controller, ref: https://juicefs.com/docs/csi/administration/going-production#leader-election
+    enabled: true
+    # The namespace where the leader election resource lives. Defaults to the pod namespace if not set
+    leaderElectionNamespace: ""
+    # The duration that non-leader candidates will wait to force acquire leadership. This is measured against time of last observed ack
+    # Defaults to 15s, if not set
+    leaseDuration: ""
+    # The duration that the acting control-plane will retry refreshing leadership before giving up
+  # Enable provisioner of controller service, must be set to true when pathPattern is used
+  # Ref: https://juicefs.com/docs/csi/guide/pv/#using-path-pattern
+  provisioner: true
+  # Cache client auth config file in user's secret, only applicable to JuiceFS EE
+  cacheClientConf: true
+  replicas: 2
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+  # Grace period to allow the CSI Controller pod to shutdown before it is killed
+  terminationGracePeriodSeconds: 30
+  labels: {}
+  annotations: {}
+  metricsPort: "9567"
+  # Affinity for CSI Controller pod
+  affinity: {}
+  # Node selector for CSI Controller pod
+  nodeSelector: {}
+  # Tolerations for CSI Controller pod
+  tolerations:
+  - key: CriticalAddonsOnly
+    operator: Exists
+  # CSI Controller service
+  service:
+    port: 9909
+    type: ClusterIP
+  # PriorityClass name for CSI Controller pod
+  priorityClassName: system-cluster-critical
+  # -- Extra envs of CSI Controller
+  # Example:
+  #  - name: ENABLE_APISERVER_LIST_CACHE
+  #    value: "true"
+  envs: []
+
+node:
+  # CSI Node Service will be deployed in every node
+  enabled: true
+  # Enable verbose logging
+  debug: false
+  hostNetwork: false
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 512Mi
+  # When set true, enable application pods using same sc share the same mount pod
+  storageClassShareMount: false
+  # When set true, disable mount pods preempt application pods when in resource pressure
+  mountPodNonPreempting: false
+  # Grace period to allow the CSI Node Service pods to shutdown before it is killed
+  terminationGracePeriodSeconds: 30
+  labels: {}
+  annotations: {}
+  metricsPort: "9567"
+  # Affinity for CSI Node Service pods
+  affinity: {}
+  # Node selector for CSI Node Service pods, ref: https://juicefs.com/docs/csi/guide/resource-optimization#csi-node-node-selector
+  nodeSelector: {}
+  # Tolerations for CSI Node Service pods
+  tolerations:
+  - key: CriticalAddonsOnly
+    operator: Exists
+  # PriorityClass name for CSI Node Service pods
+  priorityClassName: system-node-critical
+  # -- Extra envs of CSI Node
+  # Example:
+  #  - name: ENABLE_APISERVER_LIST_CACHE
+  #    value: "true"
+  envs: []
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 50%
+  ifPollingKubelet: true
+  livenessProbe:
+    failureThreshold: 5
+    httpGet:
+      path: /healthz
+      port: 9909  # numeric value only
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 3
+
+# Expose CSI Driver metrics
+metrics:
+  enabled: false
+  port: 8080
+  service:
+    annotations: {}
+    # prometheus.io/scrape: "true"
+    # prometheus.io/port: "8080"
+    servicePort: 8080
+
+dashboard:
+  # CSI Dashboard helps with CSI Driver observation, enabled by default
+  enabled: true
+
+  # Enable manager for dashboard
+  # If enabled, the dashboard will watch and cache k8s resources in the dashboard, which is used to achieve better performance and more features.
+  # If disabled, directly obtain resources from the k8s API server when the user accesses the dashboard, which will reduce the pressure on the API server under large-scale clusters.
+  enableManager: true
+
+  # Basic auth for dashboard
+  auth:
+    enabled: false
+    # Set existingSecret to indicate whether to use an existing secret. If it is empty, a corresponding secret will be created according to the plain text configuration.
+    existingSecret: ""
+    username: admin
+    password: admin
+
+  replicas: 1
+  leaderElection:
+    # Enable leader election for dashboard.
+    enabled: false
+    # The namespace where the leader election resource lives. Defaults to the pod namespace if not set
+    leaderElectionNamespace: ""
+    # The duration that non-leader candidates will wait to force acquire leadership. This is measured against time of last observed ack
+    # Defaults to 15s, if not set
+    leaseDuration: ""
+    # The duration that the acting control-plane will retry refreshing leadership before giving up
+  hostNetwork: false
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 200Mi
+  labels: {}
+  annotations: {}
+  affinity: {}
+  nodeSelector: {}
+  tolerations:
+  - key: CriticalAddonsOnly
+    operator: Exists
+  service:
+    port: 8088
+    type: ClusterIP
+  ingress:
+    enabled: false
+    className: "nginx"
+    annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+    hosts:
+    - host: ""
+      paths:
+      - path: /
+        pathType: ImplementationSpecific
+    tls: []
+    #  - secretName: chart-example-tls
+    #    hosts:
+    #      - chart-example.local
+  priorityClassName: system-node-critical
+  envs: []
+
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 25%
+      
+  # Configure the pod level securityContext.
+  podSecurityContext: {}
+
+  # Configure SecurityContext for Pod.
+  # Ensure that required linux capability to bind port number below 1024 is assigned (`CAP_NET_BIND_SERVICE`).
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+  
+  hostAliases: []
+  # - ip: "127.0.0.1"
+  #   hostnames:
+  #   - "foo.local"
+  #   - "bar.local"
+
+# Override mount image, ref: https://juicefs.com/docs/csi/guide/custom-image/
+defaultMountImage:
+  ce: ""
+  ee: ""
+
+webhook:
+  # Setup the webhook using cert-manager
+  certManager:
+    enabled: true
+  # Helm will auto-generate these fields
+  caBundlePEM: |
+
+  crtPEM: |
+
+  keyPEM: |
+
+  # It is recommended that admission webhooks should evaluate as quickly as possible (typically in milliseconds),
+  # since they add to API request latency. It is encouraged to use a small timeout for webhooks
+  # https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#timeouts
+  timeoutSeconds: 5
+  # FailurePolicy defines how unrecognized errors and timeout errors from the admission webhook are handled
+  # https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#failure-policy
+  FailurePolicy: Fail
+
+validatingWebhook:
+  enabled: false
+  # It is recommended that admission webhooks should evaluate as quickly as possible (typically in milliseconds),
+  # since they add to API request latency. It is encouraged to use a small timeout for webhooks
+  # https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#timeouts
+  timeoutSeconds: 5
+  # FailurePolicy defines how unrecognized errors and timeout errors from the admission webhook are handled
+  # https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/#failure-policy
+  FailurePolicy: Ignore
+
+# For production environment, manually create & manage storageClass outside Helm is recommended, ref: https://juicefs.com/docs/csi/guide/pv#create-storage-class
+storageClasses:
+- name: "juicefs-sc"
+  # Set to true to actually create this StorageClass
+  enabled: false
+  # Set existingSecret to indicate whether to use an existing secret. If it is empty, a corresponding secret will be created according to the plain text configuration.
+  existingSecret: ""
+  # Either Retain or Delete, ref: https://juicefs.com/docs/csi/guide/resource-optimization#reclaim-policy
+  reclaimPolicy: Retain
+  # Set to true to allow PVC expansion
+  allowVolumeExpansion: true
+  # Additional annotations for this StorageClass, e.g. make it default
+  # annotations:
+  #   storageclass.kubernetes.io/is-default-class: "true"
+
+  backend:
+    # The JuiceFS file system name
+    name: ""
+    # Connection URL for metadata engine (e.g. Redis), for community edition use only, ref: https://juicefs.com/docs/community/databases_for_metadata
+    metaurl: ""
+    # Object storage type, such as s3, gs, oss, for community edition use only, ref: https://juicefs.com/docs/community/how_to_setup_object_storage
+    storage: ""
+    # Bucket URL, for community edition use only, ref: https://juicefs.com/docs/community/how_to_setup_object_storage
+    bucket: ""
+    # Token for JuiceFS Enterprise Edition token, ref: https://juicefs.com/docs/cloud/acl
+    token: ""
+    # Access key for object storage
+    accessKey: ""
+    # Secret key for object storage
+    secretKey: ""
+    # Environment variables for the JuiceFS Client
+    # Example: {"a": "b"}
+    # Ref: https://juicefs.com/docs/csi/guide/pv#volume-credentials
+    envs: ""
+    # Extra files for the mount pod, ref: https://juicefs.com/docs/csi/guide/pv/#mount-pod-extra-files
+    configs: ""
+    # The number of days which files are kept in the trash, for community edition use only, ref: https://juicefs.com/docs/community/security/trash
+    trashDays: ""
+    # Options passed to the "juicefs format" or "juicefs auth" command, depending on which edition you're using
+    # Example: block-size=4096,capacity=10
+    # Ref: https://juicefs.com/docs/community/command_reference#format and https://juicefs.com/docs/cloud/reference/commands_reference#auth
+    formatOptions: ""
+
+  # Options for the "juicefs mount" command
+  # Example:
+  # - debug
+  # - cache-size=2048
+  # - cache-dir=/var/foo
+  # Ref: https://juicefs.com/docs/community/command_reference#mount and https://juicefs.com/docs/cloud/reference/commands_reference#mount
+  mountOptions:
+
+  # Customize PV directory format, ref: https://juicefs.com/docs/csi/guide/pv#using-path-pattern
+  # If enabled, controller.provisioner must be set to true
+  # Example: "${.PVC.namespace}-${.PVC.name}"
+  pathPattern: ""
+
+  # Using PVC as JuiceFS cache path, ref: https://juicefs.com/docs/csi/guide/cache#use-pvc-as-cache-path
+  cachePVC: ""
+
+  mountPod:
+    # Mount pod resource requests & limits
+    resources:
+      limits:
+        cpu: 5000m
+        memory: 5Gi
+      requests:
+        cpu: 1000m
+        memory: 1Gi
+    # Override mount pod image, ref: https://juicefs.com/docs/csi/guide/custom-image
+    image: ""
+    # Set annotations for the mount pod
+    annotations: {}
+
