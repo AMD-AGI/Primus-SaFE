@@ -69,7 +69,7 @@ func (n *NodeInfoJob) runForSingleNode(ctx context.Context, nodeName string, cli
 		Status:            k8sUtil.NodeStatus(*k8sNode),
 		CreatedAt:         time.Now(),
 		UpdatedAt:         time.Now(),
-		CPU:               "", // TODO CPU信息等待agent获取
+		CPU:               "", // TODO CPU information awaiting agent retrieval
 		CPUCount:          int32(node.GetCPUCount(*k8sNode)),
 		Memory:            node.GetMemorySizeHumanReadable(*k8sNode),
 		K8sVersion:        "1.23.1",

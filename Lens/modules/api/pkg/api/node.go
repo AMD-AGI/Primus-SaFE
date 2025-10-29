@@ -46,7 +46,7 @@ func getClusterGPUUtilization(c *gin.Context) {
 func getGpuUsageHistory(c *gin.Context) {
 	startStr := c.Query("start")
 	endStr := c.Query("end")
-	stepStr := c.DefaultQuery("step", "60") // 默认为60秒
+	stepStr := c.DefaultQuery("step", "60") // Default is 60 seconds
 
 	startUnix, err := strconv.ParseInt(startStr, 10, 64)
 	if err != nil {
@@ -247,7 +247,7 @@ func getNodeGpuMetrics(ctx *gin.Context) {
 	nodeName := ctx.Param("name")
 	startStr := ctx.Query("start")
 	endStr := ctx.Query("end")
-	stepStr := ctx.DefaultQuery("step", "60") // 默认为60秒
+	stepStr := ctx.DefaultQuery("step", "60") // Default is 60 seconds
 
 	startUnix, err := strconv.ParseInt(startStr, 10, 64)
 	if err != nil {

@@ -28,7 +28,7 @@ func GetGpuConsumerInfo(ctx context.Context, clientSets *clientsets.K8SClientSet
 		podAvgUsage, err := CalculateNodeGpuUsage(ctx, pod.Spec.NodeName, storageClientSets, vendor) //TODO temporary use node avg usage.
 		topOwner, parents, err := traceTopOwner(ctx, clientSets.ControllerRuntimeClient, &pod)
 		if err != nil {
-			// 忽略无法追溯的 Pod（例如 Job 被清理了）
+			// Ignore Pods that cannot be traced (e.g., Job has been cleaned up)
 			continue
 		}
 
@@ -37,7 +37,7 @@ func GetGpuConsumerInfo(ctx context.Context, clientSets *clientsets.K8SClientSet
 			Name:      pod.Name,
 			Namespace: pod.Namespace,
 			Node:      pod.Spec.NodeName,
-			Devices:   []string{}, // TODO: 从 containerd 获取绑定的 GPU UUID
+			Devices:   []string{}, // TODO: Get bound GPU UUID from containerd
 			Stat: model.GpuStat{
 				GpuRequest:     gpuRequest,
 				GpuUtilization: podAvgUsage * 100,
@@ -97,13 +97,13 @@ func traceTopOwner(
 	for {
 		obj, err := k8sUtil.GetOwnerObject(ctx, k8sClient, owner, namespace)
 		if err != nil {
-			// 对象可能已经被删除，比如 Job 过期被 GC
+			// Object may have been deleted, such as Job expired and GC'd
 			return &owner, chain, nil
 		}
 
 		nextOwners := obj.GetOwnerReferences()
 		if len(nextOwners) == 0 {
-			// 当前 owner 是顶层控制器
+			// Current owner is the top-level controller
 			return &owner, chain, nil
 		}
 
