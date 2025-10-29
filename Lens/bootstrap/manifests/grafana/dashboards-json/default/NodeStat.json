@@ -1,0 +1,1284 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 2,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "count(gpu_health{primus_lens_node_name=\"$node\"} == 1)",
+          "legendFormat": "Healthy GPU",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "#EAB839",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 3,
+        "y": 0
+      },
+      "id": 12,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "avg(gpu_utilization{primus_lens_node_name=\"$node\"})",
+          "legendFormat": "GPU Utilization",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 6,
+        "y": 0
+      },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "node_k8s_gpu_allocation_rate{primus_lens_node_name=\"$node\"}",
+          "legendFormat": "GPU Allocation Rate",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 9,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(gpu_ecc_correct_total{primus_lens_node_name=\"$node\"})",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Correctable",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(gpu_ecc_uncorrect_total{primus_lens_node_name=\"$node\"})",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Uncorrectable",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "binBps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 14,
+        "y": 0
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(gpu_xgmi_link_rx{primus_lens_node_name=\"$node\"}[1m])) + sum(rate(gpu_xgmi_link_tx{primus_lens_node_name=\"$node\"}[1m]))",
+          "legendFormat": "XGMI Bandwidth",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 17,
+        "y": 0
+      },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(increase(rdma_stat_tx_roce_only_bytes{primus_lens_node_name=\"$node\"}[1m])) + sum(increase(rdma_stat_rx_roce_only_bytes{primus_lens_node_name=\"$node\"}[1m]))",
+          "legendFormat": "RDMA Bandwidth",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "MBs"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 3,
+        "x": 20,
+        "y": 0
+      },
+      "id": 11,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "sum(pcie_bandwidth{primus_lens_node_name=\"$node\"})",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "PCIE Bandwidth",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "GPU Utilization"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "percentage",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "#EAB839",
+                      "value": 70
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "max",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Vram Utilization"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "gauge",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "max",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Power Usage"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "watt"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "gauge",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "#EAB839",
+                      "value": 550
+                    },
+                    {
+                      "color": "red",
+                      "value": 700
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 181
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Temperature"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "#EAB839",
+                      "value": 60
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gpu_id"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 60
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PCIE Bandwidth"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "MBs"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "XGMI TX"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "binBps"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "XGMI RX"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "binBps"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 23,
+        "x": 0,
+        "y": 5
+      },
+      "id": 8,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "gpu_utilization{primus_lens_node_name=\"$node\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "GPU Utilization",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "100 - gpu_free_vram{primus_lens_node_name=\"$node\"}/gpu_total_vram{primus_lens_node_name=\"$node\"} * 100",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "GPU Vram Utilization",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "gpu_power_usage{primus_lens_node_name=\"$node\"}",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Power Usage",
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "gpu_junction_temperature{primus_lens_node_name=\"$node\"}",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Temperature",
+          "range": false,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "gpu_ecc_correct_total{primus_lens_node_name=\"$node\"}",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Correctable Error",
+          "range": false,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "gpu_ecc_uncorrect_total{primus_lens_node_name=\"$node\"}",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "Uncorrectable Error",
+          "range": false,
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "pcie_bandwidth{primus_lens_node_name=\"$node\"}",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "rate(gpu_xgmi_link_tx{primus_lens_node_name=\"$node\"}[1m])",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "H"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "exemplar": false,
+          "expr": "rate(gpu_xgmi_link_rx{primus_lens_node_name=\"$node\"}[1m])",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "I"
+        }
+      ],
+      "title": "Gpu Stat",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "gpu_id",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "Time 6": true,
+              "Time 7": true,
+              "Time 8": true,
+              "Time 9": true,
+              "Value #E": true,
+              "Value #F": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "__name__ 3": true,
+              "__name__ 4": true,
+              "__name__ 5": true,
+              "__name__ 6": true,
+              "__name__ 7": true,
+              "__name__ 8": true,
+              "app": true,
+              "card_model 1": true,
+              "card_model 2": true,
+              "card_model 3": true,
+              "card_model 4": true,
+              "card_model 5": true,
+              "card_model 6": true,
+              "card_model 7": true,
+              "card_model 8": true,
+              "container 1": true,
+              "container 2": true,
+              "container 3": true,
+              "container 4": true,
+              "container 5": true,
+              "container 6": true,
+              "container 7": true,
+              "container 8": true,
+              "endpoint 1": true,
+              "endpoint 2": true,
+              "endpoint 3": true,
+              "endpoint 4": true,
+              "endpoint 5": true,
+              "endpoint 6": true,
+              "endpoint 7": true,
+              "endpoint 8": true,
+              "exported_app": true,
+              "exported_job": true,
+              "exported_primus_lens_node_name": true,
+              "gpu_compute_partition_type 1": true,
+              "gpu_compute_partition_type 2": true,
+              "gpu_compute_partition_type 3": true,
+              "gpu_compute_partition_type 4": true,
+              "gpu_compute_partition_type 5": true,
+              "gpu_compute_partition_type 6": true,
+              "gpu_compute_partition_type 7": true,
+              "gpu_compute_partition_type 8": true,
+              "gpu_memory_partition_type 1": true,
+              "gpu_memory_partition_type 2": true,
+              "gpu_memory_partition_type 3": true,
+              "gpu_memory_partition_type 4": true,
+              "gpu_memory_partition_type 5": true,
+              "gpu_memory_partition_type 6": true,
+              "gpu_memory_partition_type 7": true,
+              "gpu_memory_partition_type 8": true,
+              "gpu_partition_id 1": true,
+              "gpu_partition_id 2": true,
+              "gpu_partition_id 3": true,
+              "gpu_partition_id 4": true,
+              "gpu_partition_id 5": true,
+              "gpu_partition_id 6": true,
+              "gpu_partition_id 7": true,
+              "gpu_partition_id 8": true,
+              "hostname 1": true,
+              "hostname 2": true,
+              "hostname 3": true,
+              "hostname 4": true,
+              "hostname 5": true,
+              "hostname 6": true,
+              "hostname 7": true,
+              "hostname 8": true,
+              "instance 1": true,
+              "instance 2": true,
+              "instance 3": true,
+              "instance 4": true,
+              "instance 5": true,
+              "instance 6": true,
+              "instance 7": true,
+              "instance 8": true,
+              "instance 9": true,
+              "job 1": true,
+              "job 2": true,
+              "job 3": true,
+              "job 4": true,
+              "job 5": true,
+              "job 6": true,
+              "job 7": true,
+              "job 8": true,
+              "job 9": true,
+              "link_index 1": true,
+              "link_index 2": true,
+              "namespace 1": true,
+              "namespace 2": true,
+              "namespace 3": true,
+              "namespace 4": true,
+              "namespace 5": true,
+              "namespace 6": true,
+              "namespace 7": true,
+              "namespace 8": true,
+              "namespace 9": true,
+              "pod 1": true,
+              "pod 2": true,
+              "pod 3": true,
+              "pod 4": true,
+              "pod 5": true,
+              "pod 6": true,
+              "pod 7": true,
+              "pod 8": true,
+              "pod 9": true,
+              "primus_lens_cluster 1": true,
+              "primus_lens_cluster 2": true,
+              "primus_lens_cluster 3": true,
+              "primus_lens_cluster 4": true,
+              "primus_lens_cluster 5": true,
+              "primus_lens_cluster 6": true,
+              "primus_lens_cluster 7": true,
+              "primus_lens_cluster 8": true,
+              "primus_lens_cluster 9": true,
+              "primus_lens_node_name 1": true,
+              "primus_lens_node_name 2": true,
+              "primus_lens_node_name 3": true,
+              "primus_lens_node_name 4": true,
+              "primus_lens_node_name 5": true,
+              "primus_lens_node_name 6": true,
+              "primus_lens_node_name 7": true,
+              "primus_lens_node_name 8": true,
+              "primus_lens_node_name 9": true,
+              "serial_number 1": true,
+              "serial_number 2": true,
+              "serial_number 3": true,
+              "serial_number 4": true,
+              "serial_number 5": true,
+              "serial_number 6": true,
+              "serial_number 7": true,
+              "serial_number 8": true,
+              "service 1": true,
+              "service 2": true,
+              "service 3": true,
+              "service 4": true,
+              "service 5": true,
+              "service 6": true,
+              "service 7": true,
+              "service 8": true,
+              "vmagent_primus_lengs 1": true,
+              "vmagent_primus_lengs 2": true,
+              "vmagent_primus_lengs 3": true,
+              "vmagent_primus_lengs 4": true,
+              "vmagent_primus_lengs 5": true,
+              "vmagent_primus_lengs 6": true,
+              "vmagent_primus_lengs 7": true,
+              "vmagent_primus_lengs 8": true,
+              "vmagent_primus_lengs 9": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "Time 1": 10,
+              "Time 2": 20,
+              "Time 3": 37,
+              "Time 4": 55,
+              "Time 5": 73,
+              "Time 6": 91,
+              "Time 7": 109,
+              "Time 8": 127,
+              "Time 9": 146,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5,
+              "Value #F": 6,
+              "Value #G": 7,
+              "Value #H": 8,
+              "Value #I": 9,
+              "__name__ 1": 11,
+              "__name__ 2": 38,
+              "__name__ 3": 56,
+              "__name__ 4": 74,
+              "__name__ 5": 92,
+              "__name__ 6": 110,
+              "__name__ 7": 128,
+              "__name__ 8": 147,
+              "app": 12,
+              "card_model 1": 21,
+              "card_model 2": 39,
+              "card_model 3": 57,
+              "card_model 4": 75,
+              "card_model 5": 93,
+              "card_model 6": 111,
+              "card_model 7": 129,
+              "card_model 8": 148,
+              "container 1": 22,
+              "container 2": 40,
+              "container 3": 58,
+              "container 4": 76,
+              "container 5": 94,
+              "container 6": 112,
+              "container 7": 130,
+              "container 8": 149,
+              "endpoint 1": 23,
+              "endpoint 2": 41,
+              "endpoint 3": 59,
+              "endpoint 4": 77,
+              "endpoint 5": 95,
+              "endpoint 6": 113,
+              "endpoint 7": 131,
+              "endpoint 8": 150,
+              "gpu_compute_partition_type 1": 24,
+              "gpu_compute_partition_type 2": 42,
+              "gpu_compute_partition_type 3": 60,
+              "gpu_compute_partition_type 4": 78,
+              "gpu_compute_partition_type 5": 96,
+              "gpu_compute_partition_type 6": 114,
+              "gpu_compute_partition_type 7": 132,
+              "gpu_compute_partition_type 8": 151,
+              "gpu_id": 0,
+              "gpu_memory_partition_type 1": 25,
+              "gpu_memory_partition_type 2": 43,
+              "gpu_memory_partition_type 3": 61,
+              "gpu_memory_partition_type 4": 79,
+              "gpu_memory_partition_type 5": 97,
+              "gpu_memory_partition_type 6": 115,
+              "gpu_memory_partition_type 7": 133,
+              "gpu_memory_partition_type 8": 152,
+              "gpu_partition_id 1": 26,
+              "gpu_partition_id 2": 44,
+              "gpu_partition_id 3": 62,
+              "gpu_partition_id 4": 80,
+              "gpu_partition_id 5": 98,
+              "gpu_partition_id 6": 116,
+              "gpu_partition_id 7": 134,
+              "gpu_partition_id 8": 153,
+              "hostname 1": 27,
+              "hostname 2": 45,
+              "hostname 3": 63,
+              "hostname 4": 81,
+              "hostname 5": 99,
+              "hostname 6": 117,
+              "hostname 7": 135,
+              "hostname 8": 154,
+              "instance 1": 13,
+              "instance 2": 28,
+              "instance 3": 46,
+              "instance 4": 64,
+              "instance 5": 82,
+              "instance 6": 100,
+              "instance 7": 118,
+              "instance 8": 136,
+              "instance 9": 155,
+              "job 1": 14,
+              "job 2": 29,
+              "job 3": 47,
+              "job 4": 65,
+              "job 5": 83,
+              "job 6": 101,
+              "job 7": 119,
+              "job 8": 137,
+              "job 9": 156,
+              "link_index 1": 138,
+              "link_index 2": 157,
+              "namespace 1": 15,
+              "namespace 2": 30,
+              "namespace 3": 48,
+              "namespace 4": 66,
+              "namespace 5": 84,
+              "namespace 6": 102,
+              "namespace 7": 120,
+              "namespace 8": 139,
+              "namespace 9": 158,
+              "pod 1": 16,
+              "pod 2": 31,
+              "pod 3": 49,
+              "pod 4": 67,
+              "pod 5": 85,
+              "pod 6": 103,
+              "pod 7": 121,
+              "pod 8": 140,
+              "pod 9": 159,
+              "primus_lens_cluster 1": 17,
+              "primus_lens_cluster 2": 32,
+              "primus_lens_cluster 3": 50,
+              "primus_lens_cluster 4": 68,
+              "primus_lens_cluster 5": 86,
+              "primus_lens_cluster 6": 104,
+              "primus_lens_cluster 7": 122,
+              "primus_lens_cluster 8": 141,
+              "primus_lens_cluster 9": 160,
+              "primus_lens_node_name 1": 18,
+              "primus_lens_node_name 2": 33,
+              "primus_lens_node_name 3": 51,
+              "primus_lens_node_name 4": 69,
+              "primus_lens_node_name 5": 87,
+              "primus_lens_node_name 6": 105,
+              "primus_lens_node_name 7": 123,
+              "primus_lens_node_name 8": 142,
+              "primus_lens_node_name 9": 161,
+              "serial_number 1": 34,
+              "serial_number 2": 52,
+              "serial_number 3": 70,
+              "serial_number 4": 88,
+              "serial_number 5": 106,
+              "serial_number 6": 124,
+              "serial_number 7": 143,
+              "serial_number 8": 162,
+              "service 1": 35,
+              "service 2": 53,
+              "service 3": 71,
+              "service 4": 89,
+              "service 5": 107,
+              "service 6": 125,
+              "service 7": 144,
+              "service 8": 163,
+              "vmagent_primus_lengs 1": 19,
+              "vmagent_primus_lengs 2": 36,
+              "vmagent_primus_lengs 3": 54,
+              "vmagent_primus_lengs 4": 72,
+              "vmagent_primus_lengs 5": 90,
+              "vmagent_primus_lengs 6": 108,
+              "vmagent_primus_lengs 7": 126,
+              "vmagent_primus_lengs 8": 145,
+              "vmagent_primus_lengs 9": 164
+            },
+            "renameByName": {
+              "Value #A": "GPU Utilization",
+              "Value #B": "Vram Utilization",
+              "Value #C": "Power Usage",
+              "Value #D": "Temperature",
+              "Value #E": "Correctable Error",
+              "Value #F": "Uncorrectable Error",
+              "Value #G": "PCIE Bandwidth",
+              "Value #H": "XGMI TX",
+              "Value #I": "XGMI RX"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 41,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "prometheus",
+          "value": "bey3tuf5f7cw0e"
+        },
+        "name": "Datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "text": "chi2531",
+          "value": "chi2531"
+        },
+        "definition": "label_values(gpu_health,primus_lens_node_name)",
+        "name": "node",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(gpu_health,primus_lens_node_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "NodeStat",
+  "uid": "node-stat",
+  "version": 1
+}

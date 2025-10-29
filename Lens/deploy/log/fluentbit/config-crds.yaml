@@ -1,0 +1,86 @@
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterInput
+metadata:
+  name: primus-lens-pod-logs
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+spec:
+  tail:
+    tag: kube-log.*
+    path: /var/log/containers/*.log
+    excludePath: /var/log/containers/fluent-bit*
+    parser: cri
+    memBufLimit: 50MB
+    skipLongLines: true
+    skipEmptyLines: true
+    refreshIntervalSeconds: 3
+---
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterFilter
+metadata:
+  name: kubernetes-meta
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+spec:
+  match: kube-log.*
+  filters:
+    - kubernetes:
+        kubeURL: https://kubernetes.default.svc.cluster.local:443
+        kubeCAFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        kubeTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubeTagPrefix: kube-log.var.log.containers.
+        mergeLog: true
+        mergeLogKey: log_processed
+        k8sLoggingParser: true
+        k8sLoggingExclude: false
+        cacheUseDockerId: true
+        annotations: false
+        useKubelet: false
+        kubeletPort: 10250
+        tlsVerify: false
+        bufferSize: "0"
+
+---
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterOutput
+metadata:
+  name: opensearch
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+spec:
+  match: kube-log.*
+  opensearch:
+    host: primus-lens-logs-nodes.primus-lens.svc.cluster.local
+    port: 9200
+    tls:
+      verify: false
+    logstashFormat: true
+    logstashPrefix: node
+    suppressTypeName: true
+    traceError: true
+    replaceDots: true
+    timeKeyNanos: true
+    httpUser:
+      valueFrom:
+        secretKeyRef:
+          name: primus-lens-logs-admin-password
+          key: username
+    httpPassword:
+      valueFrom:
+        secretKeyRef:
+          name: primus-lens-logs-admin-password
+          key: password
+---
+apiVersion: fluentbit.fluent.io/v1alpha2
+kind: ClusterOutput
+metadata:
+  name: primus-lens-log-processor
+  labels:
+    fluentbit.fluent.io/enabled: "true"
+spec:
+  match: "*"
+  http:
+    host: primus-lens-telemetry-processor.primus-lens.svc.cluster.local
+    port: 8989
+    uri: v1/logs
+    format: json
