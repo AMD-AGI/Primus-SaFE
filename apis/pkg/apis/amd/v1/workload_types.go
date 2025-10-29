@@ -83,7 +83,7 @@ type HealthCheck struct {
 }
 
 type Service struct {
-	// TCP/UDP
+	// TCP(default) or UDP
 	Protocol corev1.Protocol `json:"protocol"`
 	// Service port for external access
 	Port int `json:"port"`
@@ -200,7 +200,7 @@ type WorkloadPod struct {
 	StartTime string `json:"startTime,omitempty"`
 	// Pod end time
 	EndTime string `json:"endTime,omitempty"`
-	// Container info
+	// The Container info of pod
 	Containers []Container `json:"containers,omitempty"`
 }
 

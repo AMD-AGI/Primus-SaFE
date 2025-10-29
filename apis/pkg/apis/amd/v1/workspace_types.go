@@ -72,7 +72,7 @@ type WorkspaceSpec struct {
 }
 
 type WorkspaceVolume struct {
-	// The volume id, which is used to identify the volume.
+	// The volume id, which is used to identify the volume. This field is set internally.
 	Id int `json:"id"`
 	// The volume type, valid values includes: pfs/hostpath
 	// If PFS is configured, a PVC will be automatically created in the workspace.
@@ -88,7 +88,7 @@ type WorkspaceVolume struct {
 	// Capacity size, such as 100Gi. This is a required parameter when creating a PVC (PersistentVolumeClaim).
 	Capacity string `json:"capacity,omitempty"`
 	// selector is a label query over volumes to consider for binding.
-	// It cannot be used together with storageClassName. If both are set, the selector takes priority
+	// It cannot be used together with storageClass. If both are set, the selector takes priority
 	Selector map[string]string `json:"selector,omitempty"`
 	// Responsible for automatic PV creation
 	StorageClass string `json:"storageClass,omitempty"`

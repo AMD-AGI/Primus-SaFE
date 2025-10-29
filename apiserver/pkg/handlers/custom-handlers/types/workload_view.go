@@ -13,8 +13,8 @@ import (
 
 type CreateWorkloadRequest struct {
 	v1.WorkloadSpec
-	// When specifying nodes, the replica count corresponds to the number of nodes
-	NodeList []string `json:"nodeList,omitempty"`
+	// When specifying a workload run on nodes, the replica count will be overwritten with the node count.
+	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
 	// The Workload name(display only). Used to generate the workload id,
 	// which will do normalization processing, such as lowercase and random suffix
 	DisplayName string `json:"displayName"`
@@ -87,7 +87,7 @@ type WorkloadResponseItem struct {
 	// The username of workload submitter
 	UserName string `json:"userName"`
 	// The cluster which the workload belongs to
-	ClusterId string `json:"cluster"`
+	ClusterId string `json:"clusterId"`
 	// The status of workload, such as Succeeded, Failed, Pending, Running, Stopped, Updating
 	Phase string `json:"phase"`
 	// Shows the reason if the workload is in pending status.
@@ -103,7 +103,7 @@ type WorkloadResponseItem struct {
 	// The workload deletion time
 	DeletionTime string `json:"deletionTime"`
 	// The workload run time, Calculated from the start time. such as 1h2m3s or 1h15s
-	RunTime string `json:"runTime"`
+	RunTime string `json:"runtime"`
 	// Seconds remaining before workload timeout. Only applicable if a timeout is set.
 	// This is calculated from when the workload starts running. If it has not yet started, return -1.
 	SecondsUntilTimeout int64 `json:"secondsUntilTimeout"`
@@ -126,7 +126,7 @@ type WorkloadResponseItem struct {
 type GetWorkloadResponse struct {
 	WorkloadResponseItem
 	// The node specified by the user when creating the workload
-	NodeList []string `json:"nodeList"`
+	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
 	// The address of the image used by the workload
 	Image string `json:"image"`
 	// Workload startup command, required in base64 encoding
@@ -202,7 +202,7 @@ type PatchWorkloadRequest struct {
 }
 
 type GetPodLogRequest struct {
-	// Retrieve the last n lines of logs
+	// Retrieve the last n lines of logs. Default is 1000
 	TailLines int64 `form:"tailLines" binding:"omitempty,min=1"`
 	// Return logs for the corresponding container
 	Container string `form:"container" binding:"omitempty"`

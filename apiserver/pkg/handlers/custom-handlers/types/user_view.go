@@ -16,7 +16,7 @@ type CreateUserRequest struct {
 	Name string `json:"name,omitempty"`
 	// The user mail
 	Email string `json:"email,omitempty"`
-	// The user type, such as default, teams, required
+	// The user type, such as default, teams
 	Type v1.UserType `json:"type,omitempty"`
 	// The user password
 	Password string `json:"password,omitempty"`
@@ -32,9 +32,9 @@ type CreateUserResponse struct {
 }
 
 type ListUserRequest struct {
-	// The username
+	// The username, will be QueryEscape processed
 	Name string `form:"name" binding:"omitempty"`
-	// The user mail
+	// The user mail, will be QueryEscape processed
 	Email string `form:"email" binding:"omitempty"`
 	// Workspace id accessible to the user.
 	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`

@@ -49,10 +49,7 @@ func (r *ClusterReconciler) relevantChangePredicate() predicate.Predicate {
 			if !ok || !cluster.IsReady() {
 				return false
 			}
-			if err := r.addClientFactory(r.ctx, cluster); err != nil {
-				klog.Errorf("failed to add cluster clients, err: %v", err)
-			}
-			return false
+			return true
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldCluster, ok1 := e.ObjectOld.(*v1.Cluster)
@@ -60,33 +57,55 @@ func (r *ClusterReconciler) relevantChangePredicate() predicate.Predicate {
 			if !ok1 || !ok2 {
 				return false
 			}
-			if !oldCluster.IsReady() && newCluster.IsReady() {
-				if err := r.addClientFactory(r.ctx, newCluster); err != nil {
-					klog.Errorf("failed to add cluster clients, err: %v", err)
-				}
+			if (!oldCluster.IsReady() && newCluster.IsReady()) ||
+				(oldCluster.GetDeletionTimestamp().IsZero() && !newCluster.GetDeletionTimestamp().IsZero()) {
+				return true
 			}
 			return false
 		},
 		DeleteFunc: func(e event.DeleteEvent) bool {
-			cluster, ok := e.Object.(*v1.Cluster)
+			_, ok := e.Object.(*v1.Cluster)
 			if !ok {
 				return false
 			}
-			if mgr := commonutils.NewObjectManagerSingleton(); mgr != nil {
-				if err := mgr.Delete(cluster.Name); err != nil {
-					klog.Errorf("failed to delete cluster clients, err: %v", err)
-				}
-			}
-			return false
+			return true
 		},
 	}
 }
 
-func (r *ClusterReconciler) Reconcile(_ context.Context, _ ctrlruntime.Request) (ctrlruntime.Result, error) {
+func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
+	cluster := new(v1.Cluster)
+	err := r.Get(ctx, req.NamespacedName, cluster)
+	if err != nil {
+		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
+	}
+	if !cluster.GetDeletionTimestamp().IsZero() {
+		return ctrlruntime.Result{}, r.deleteClientFactory(cluster)
+	}
+	if err = r.addClientFactory(r.ctx, cluster); err != nil {
+		klog.Errorf("failed to add cluster clients, err: %v", err)
+		return ctrlruntime.Result{}, err
+	}
 	return ctrlruntime.Result{}, nil
 }
 
+func (r *ClusterReconciler) deleteClientFactory(cluster *v1.Cluster) error {
+	mgr := commonutils.NewObjectManagerSingleton()
+	if mgr == nil {
+		return nil
+	}
+	if err := mgr.Delete(cluster.Name); err != nil {
+		klog.Errorf("failed to delete cluster clients, err: %v", err)
+		return err
+	}
+	klog.Infof("delete cluster %s clients", cluster.Name)
+	return nil
+}
+
 func (r *ClusterReconciler) addClientFactory(ctx context.Context, cluster *v1.Cluster) error {
+	if !cluster.IsReady() {
+		return nil
+	}
 	clientManager := commonutils.NewObjectManagerSingleton()
 	if clientManager == nil {
 		return fmt.Errorf("failed to initialize cluster client manager for cluster %s", cluster.Name)
@@ -106,5 +125,6 @@ func (r *ClusterReconciler) addClientFactory(ctx context.Context, cluster *v1.Cl
 		return err
 	}
 	clientManager.AddOrReplace(cluster.Name, k8sClientFactory)
+	klog.Infof("add cluster %s clients", cluster.Name)
 	return nil
 }

@@ -603,13 +603,13 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 		return nil, err
 	}
 	if commonworkload.IsAuthoring(workload) {
-		if len(req.NodeList) > 1 {
+		if len(req.SpecifiedNodes) > 1 {
 			return nil, fmt.Errorf("the authoring can only be created with one node")
 		}
 	}
-	genCustomerLabelsByNodes(workload, req.NodeList)
-	if len(req.NodeList) > 0 {
-		workload.Spec.Resource.Replica = len(req.NodeList)
+	genCustomerLabelsByNodes(workload, req.SpecifiedNodes)
+	if len(req.SpecifiedNodes) > 0 {
+		workload.Spec.Resource.Replica = len(req.SpecifiedNodes)
 	}
 	if req.WorkspaceId != "" {
 		workload.Spec.Workspace = req.WorkspaceId
@@ -972,7 +972,7 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 		var customerLabels map[string]string
 		json.Unmarshal([]byte(str), &customerLabels)
 		if len(customerLabels) > 0 {
-			result.CustomerLabels, result.NodeList = parseCustomerLabelsAndNodes(customerLabels)
+			result.CustomerLabels, result.SpecifiedNodes = parseCustomerLabelsAndNodes(customerLabels)
 		}
 	}
 	if str := dbutils.ParseNullString(w.Liveness); str != "" {
