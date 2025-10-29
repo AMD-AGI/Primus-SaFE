@@ -55,7 +55,7 @@ func SetupStorageClusterController(mgr manager.Manager) error {
 	return nil
 }
 
-// handleClusterEvent: creates an event handler that enqueues StorageCluster requests when related Cluster resources change
+// handleClusterEvent creates an event handler that enqueues StorageCluster requests when related Cluster resources change
 func (r *StorageClusterController) handleClusterEvent() handler.EventHandler {
 	enqueue := func(kc *v1.Cluster, queue v1.RequestWorkQueue) {
 		added := map[string]struct{}{}
@@ -141,7 +141,7 @@ func (r *StorageClusterController) Reconcile(ctx context.Context, req ctrlruntim
 	return ctrlruntime.Result{}, r.processCluster(ctx, cluster, scluster)
 }
 
-// delete: handles the deletion of a StorageCluster resource by cleaning up associated resources and removing the finalizer
+// delete handles the deletion of a StorageCluster resource by cleaning up associated resources and removing the finalizer
 func (r *StorageClusterController) delete(ctx context.Context, cluster *v1.StorageCluster, scluster *storageCluster) error {
 	clusters := new(v1.ClusterList)
 	err := r.List(ctx, clusters)
@@ -157,7 +157,7 @@ func (r *StorageClusterController) delete(ctx context.Context, cluster *v1.Stora
 	return nil
 }
 
-// processCluster: handles the main processing logic for a StorageCluster resource
+// processCluster handles the main processing logic for a StorageCluster resource
 func (r *StorageClusterController) processCluster(ctx context.Context, cluster *v1.StorageCluster, scluster *storageCluster) error {
 	originalCluster := client.MergeFrom(cluster.DeepCopy())
 	status := cluster.Status.DeepCopy()
@@ -218,7 +218,7 @@ func (r *StorageClusterController) processCluster(ctx context.Context, cluster *
 	return nil
 }
 
-// updateCephCsiConfig: updates the Ceph CSI configuration with cluster monitor information
+// updateCephCsiConfig updates the Ceph CSI configuration with cluster monitor information
 func (r *StorageClusterController) updateCephCsiConfig(ctx context.Context, cluster *v1.StorageCluster, scluster *storageCluster) error {
 	configMap, err := scluster.clientset.CoreV1().ConfigMaps(cephCSIRBDNamespace).Get(ctx, cephCSIRBDName, metav1.GetOptions{})
 	if err != nil {
@@ -267,7 +267,7 @@ func (r *StorageClusterController) updateCephCsiConfig(ctx context.Context, clus
 	return nil
 }
 
-// getStorageClusterByName: retrieves a storage cluster by name, creating it if not found in cache
+// getStorageClusterByName retrieves a storage cluster by name, creating it if not found in cache
 func (r *StorageClusterController) getStorageClusterByName(ctx context.Context, name string) (*storageCluster, error) {
 	sc, ok := r.storageClusters.get(name)
 	if ok {
@@ -289,7 +289,7 @@ func (r *StorageClusterController) getStorageClusterByName(ctx context.Context, 
 	return sc, nil
 }
 
-// addFinalizer: adds the storage finalizer to the StorageCluster resource if not already present
+// addFinalizer adds the storage finalizer to the StorageCluster resource if not already present
 func (r *StorageClusterController) addFinalizer(ctx context.Context, cluster *v1.StorageCluster) error {
 	for _, v := range cluster.Finalizers {
 		if v == v1.StorageFinalizer {
@@ -301,7 +301,7 @@ func (r *StorageClusterController) addFinalizer(ctx context.Context, cluster *v1
 	return r.Update(ctx, cluster)
 }
 
-// getStorageCluster: retrieves the appropriate storage cluster based on StorageCluster spec or default configuration
+// getStorageCluster retrieves the appropriate storage cluster based on StorageCluster spec or default configuration
 func (r *StorageClusterController) getStorageCluster(ctx context.Context, sc *v1.StorageCluster) (*storageCluster, error) {
 	if r.queue == nil {
 		return nil, fmt.Errorf("queue is nil")
@@ -340,7 +340,7 @@ func (r *StorageClusterController) getStorageCluster(ctx context.Context, sc *v1
 	return nil, fmt.Errorf("error getting default storage cluster: %v", err)
 }
 
-// updateStorageStatus: updates the storage status in the Cluster resource
+// updateStorageStatus updates the storage status in the Cluster resource
 func updateStorageStatus(kc *v1.Cluster, s v1.StorageStatus) {
 	for i, stats := range kc.Status.StorageStatus {
 		if stats.Name == s.Name {

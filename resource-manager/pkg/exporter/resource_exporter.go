@@ -27,15 +27,15 @@ import (
 	commonctrl "github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 )
 
-// ResourceFilter: defines a function type for filtering resource updates
+// ResourceFilter defines a function type for filtering resource updates
 // Returns true if the update should be filtered out (ignored), false otherwise
 type ResourceFilter func(objectOld, objectNew *unstructured.Unstructured) bool
 
-// ResourceHandler: defines a function type for handling resource objects
+// ResourceHandler defines a function type for handling resource objects
 // Processes the resource object and returns any error encountered
 type ResourceHandler func(ctx context.Context, object *unstructured.Unstructured) error
 
-// ResourceExporter: exports Kubernetes resources by watching for changes and processing them
+// ResourceExporter exports Kubernetes resources by watching for changes and processing them
 type ResourceExporter struct {
 	// Kubernetes client for API operations
 	client.Client
@@ -47,7 +47,7 @@ type ResourceExporter struct {
 	handler ResourceHandler
 }
 
-// addExporter: creates and registers a new ResourceExporter with the controller manager
+// addExporter creates and registers a new ResourceExporter with the controller manager
 // It sets up watches for the specified resource type and configures filtering and handling
 func addExporter(ctx context.Context, mgr manager.Manager, gvk schema.GroupVersionKind,
 	resourceHandler ResourceHandler, resourceFilter ResourceFilter) error {
@@ -107,13 +107,13 @@ func addExporter(ctx context.Context, mgr manager.Manager, gvk schema.GroupVersi
 	return nil
 }
 
-// Reconcile: adds the resource to the processing queue when a change is detected
+// Reconcile adds the resource to the processing queue when a change is detected
 func (r *ResourceExporter) Reconcile(_ context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	r.Controller.Add(req.NamespacedName)
 	return ctrlruntime.Result{}, nil
 }
 
-// start: initializes and starts the worker goroutines for processing resources
+// start initializes and starts the worker goroutines for processing resources
 func (r *ResourceExporter) start(ctx context.Context) error {
 	for i := 0; i < r.MaxConcurrent; i++ {
 		r.Run(ctx)
@@ -121,7 +121,7 @@ func (r *ResourceExporter) start(ctx context.Context) error {
 	return nil
 }
 
-// getObject: retrieves an unstructured object by its namespaced name
+// getObject retrieves an unstructured object by its namespaced name
 func (r *ResourceExporter) getObject(ctx context.Context, objKey types.NamespacedName) (*unstructured.Unstructured, error) {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(r.gvk)
@@ -131,7 +131,7 @@ func (r *ResourceExporter) getObject(ctx context.Context, objKey types.Namespace
 	return obj, nil
 }
 
-// Do: processes a resource object by calling the handler and managing finalizers
+// Do processes a resource object by calling the handler and managing finalizers
 func (r *ResourceExporter) Do(ctx context.Context, msg types.NamespacedName) (ctrlruntime.Result, error) {
 	obj, err := r.getObject(ctx, types.NamespacedName{Name: msg.Name, Namespace: msg.Namespace})
 	if err != nil {
@@ -159,7 +159,7 @@ func (r *ResourceExporter) Do(ctx context.Context, msg types.NamespacedName) (ct
 	return ctrlruntime.Result{}, nil
 }
 
-// addFinalizer: adds the exporter finalizer to the object if it doesn't already exist
+// addFinalizer adds the exporter finalizer to the object if it doesn't already exist
 // It uses a patch operation to update the object's metadata
 func (r *ResourceExporter) addFinalizer(ctx context.Context, object *unstructured.Unstructured) error {
 	if ctrlutil.ContainsFinalizer(object, v1.ExporterFinalizer) {
@@ -170,7 +170,7 @@ func (r *ResourceExporter) addFinalizer(ctx context.Context, object *unstructure
 	return r.Patch(ctx, object, originalObject)
 }
 
-// removeFinalizer: removes the exporter finalizer from the object if it exists
+// removeFinalizer removes the exporter finalizer from the object if it exists
 // It uses a patch operation to update the object's metadata
 func (r *ResourceExporter) removeFinalizer(ctx context.Context, object *unstructured.Unstructured) error {
 	if !ctrlutil.ContainsFinalizer(object, v1.ExporterFinalizer) {

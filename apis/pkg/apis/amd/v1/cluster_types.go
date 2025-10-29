@@ -14,7 +14,7 @@ import (
 const (
 	ClusterKind = "Cluster"
 
-	CiliumNetworkPlugin = "cilium"
+	FlannelNetworkPlugin = "flannel"
 )
 
 type (
@@ -142,7 +142,7 @@ type ControlPlane struct {
 	// Service Address configuration
 	KubeServiceAddress    *string `json:"kubeServiceAddress,omitempty"`
 	KubeNetworkNodePrefix *uint32 `json:"kubeNetworkNodePrefix,omitempty"`
-	// Network plugin, default is cilium
+	// Network plugin, default is flannel
 	KubeNetworkPlugin *string `json:"kubeNetworkPlugin,omitempty"`
 	// Kubernetes version
 	KubeVersion    *string `json:"kubernetesVersion,omitempty"`

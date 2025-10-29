@@ -50,7 +50,7 @@ type NodeReconciler struct {
 	clientManager *commonutils.ObjectManager
 }
 
-// SetupNodeController: initializes and registers the NodeReconciler with the controller manager
+// SetupNodeController initializes and registers the NodeReconciler with the controller manager
 func SetupNodeController(mgr manager.Manager) error {
 	r := &NodeReconciler{
 		ClusterBaseReconciler: &ClusterBaseReconciler{
@@ -73,7 +73,7 @@ func SetupNodeController(mgr manager.Manager) error {
 	return nil
 }
 
-// relevantChangePredicate: defines which Node changes should trigger reconciliation
+// relevantChangePredicate defines which Node changes should trigger reconciliation
 func (r *NodeReconciler) relevantChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
@@ -97,7 +97,7 @@ func (r *NodeReconciler) relevantChangePredicate() predicate.Predicate {
 	}
 }
 
-// isNodeRelevantFieldChanged: checks if any watched fields in the Node have changed
+// isNodeRelevantFieldChanged checks if any watched fields in the Node have changed
 func (r *NodeReconciler) isNodeRelevantFieldChanged(oldNode, newNode *v1.Node) bool {
 	if v1.GetClusterId(oldNode) != v1.GetClusterId(newNode) ||
 		v1.GetWorkspaceId(oldNode) != v1.GetWorkspaceId(newNode) ||
@@ -112,7 +112,7 @@ func (r *NodeReconciler) isNodeRelevantFieldChanged(oldNode, newNode *v1.Node) b
 	return false
 }
 
-// handlePodEvent: creates an event handler that enqueues Node requests when related Pods change
+// handlePodEvent creates an event handler that enqueues Node requests when related Pods change
 func (r *NodeReconciler) handlePodEvent() handler.EventHandler {
 	enqueue := func(pod *corev1.Pod, q v1.RequestWorkQueue) {
 		for _, owner := range pod.OwnerReferences {
@@ -169,12 +169,12 @@ func (r *NodeReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request)
 	return ctrlruntime.Result{RequeueAfter: machineCheckInterval}, nil
 }
 
-// delete: handles Node deletion by removing the finalizer
+// delete handles Node deletion by removing the finalizer
 func (r *NodeReconciler) delete(ctx context.Context, adminNode *v1.Node) error {
 	return utils.RemoveFinalizer(ctx, r.Client, adminNode, v1.NodeFinalizer)
 }
 
-// getK8sNode: retrieves the Kubernetes Node object in the data plane associated with the admin Node
+// getK8sNode retrieves the Kubernetes Node object in the data plane associated with the admin Node
 func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*corev1.Node, ctrlruntime.Result, error) {
 	clusterName := getClusterId(adminNode)
 	k8sNodeName := adminNode.GetK8sNodeName()
@@ -189,7 +189,7 @@ func (r *NodeReconciler) getK8sNode(ctx context.Context, adminNode *v1.Node) (*c
 	return k8sNode, ctrlruntime.Result{}, err
 }
 
-// observe: checks if any observed fields have changed and need updating Or
+// observe checks if any observed fields have changed and need updating Or
 // if the specified time interval has been exceeded, a recheck is required.
 func (r *NodeReconciler) observe(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (bool, error) {
 	if shouldSyncMachineStatus(adminNode) {
@@ -208,7 +208,7 @@ func (r *NodeReconciler) observe(ctx context.Context, adminNode *v1.Node, k8sNod
 	return true, nil
 }
 
-// observeTaints: checks if taints need to be synchronized
+// observeTaints checks if taints need to be synchronized
 func (r *NodeReconciler) observeTaints(_ context.Context, adminNode *v1.Node, _ *corev1.Node) (bool, error) {
 	var statusTaints []corev1.Taint
 	for i, t := range adminNode.Status.Taints {
@@ -219,7 +219,7 @@ func (r *NodeReconciler) observeTaints(_ context.Context, adminNode *v1.Node, _ 
 	return commonfaults.IsTaintsEqualIgnoreOrder(adminNode.Spec.Taints, statusTaints), nil
 }
 
-// observeLabelAction: checks if label actions need to be processed
+// observeLabelAction checks if label actions need to be processed
 func (r *NodeReconciler) observeLabelAction(_ context.Context, adminNode *v1.Node, _ *corev1.Node) (bool, error) {
 	if v1.GetNodeLabelAction(adminNode) == "" {
 		return true, nil
@@ -227,7 +227,7 @@ func (r *NodeReconciler) observeLabelAction(_ context.Context, adminNode *v1.Nod
 	return false, nil
 }
 
-// observeAnnotationAction: checks if annotation actions need to be processed
+// observeAnnotationAction checks if annotation actions need to be processed
 func (r *NodeReconciler) observeAnnotationAction(_ context.Context, adminNode *v1.Node, _ *corev1.Node) (bool, error) {
 	if v1.GetNodeAnnotationAction(adminNode) == "" {
 		return true, nil
@@ -235,7 +235,7 @@ func (r *NodeReconciler) observeAnnotationAction(_ context.Context, adminNode *v
 	return false, nil
 }
 
-// observeWorkspace: checks if workspace information needs to be synchronized
+// observeWorkspace checks if workspace information needs to be synchronized
 func (r *NodeReconciler) observeWorkspace(_ context.Context, adminNode *v1.Node, _ *corev1.Node) (bool, error) {
 	if adminNode.GetSpecWorkspace() == v1.GetWorkspaceId(adminNode) {
 		return true, nil
@@ -243,7 +243,7 @@ func (r *NodeReconciler) observeWorkspace(_ context.Context, adminNode *v1.Node,
 	return false, nil
 }
 
-// observeCluster: checks if cluster information needs to be synchronized
+// observeCluster checks if cluster information needs to be synchronized
 func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (bool, error) {
 	if adminNode.GetSpecCluster() != v1.GetClusterId(adminNode) {
 		return false, nil
@@ -260,7 +260,7 @@ func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node, k
 	return true, nil
 }
 
-// processNode: handles the main processing logic for a Node
+// processNode handles the main processing logic for a Node
 func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	if result, err := r.updateK8sNode(ctx, adminNode, k8sNode); err != nil || result.RequeueAfter > 0 {
 		if err != nil {
@@ -276,7 +276,7 @@ func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8
 	return r.processNodeManagement(ctx, adminNode, k8sNode)
 }
 
-// syncMachineStatus: synchronizes the machine status of a Node via SSH
+// syncMachineStatus synchronizes the machine status of a Node via SSH
 func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) error {
 	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
@@ -297,6 +297,18 @@ func (r *NodeReconciler) syncMachineStatus(ctx context.Context, node *v1.Node) e
 	return r.updateMachineStatus(ctx, node, hostname, v1.NodeReady)
 }
 
+// updateMachineStatus updates the machine status of a Node resource.
+// It only performs the update if there are actual changes. The function patches the Node status
+// with the new phase, hostname, and update time.
+//
+// Parameters:
+//   - ctx: Context for the operation
+//   - node: The Node resource to update
+//   - hostname: The hostname to set in the machine status (can be empty)
+//   - phase: The NodePhase to set in the machine status
+//
+// Returns:
+//   - error: Any error that occurred during the status update, or nil on success
 func (r *NodeReconciler) updateMachineStatus(ctx context.Context,
 	node *v1.Node, hostname string, phase v1.NodePhase) error {
 	if node.Status.MachineStatus.Phase == phase && node.Status.MachineStatus.HostName == hostname {
@@ -316,7 +328,7 @@ func (r *NodeReconciler) updateMachineStatus(ctx context.Context,
 	return nil
 }
 
-// syncHostname: synchronizes the hostname of a Node via SSH
+// syncHostname synchronizes the hostname of a Node via SSH
 func (r *NodeReconciler) syncHostname(node *v1.Node, client *ssh.Client) (string, error) {
 	if node.Status.MachineStatus.HostName != "" && node.Status.MachineStatus.HostName == node.GetSpecHostName() {
 		return node.Status.MachineStatus.HostName, nil
@@ -337,7 +349,7 @@ func (r *NodeReconciler) syncHostname(node *v1.Node, client *ssh.Client) (string
 	return hostname, nil
 }
 
-// updateK8sNode: updates the Kubernetes Node object in the data plane with changes from the admin Node
+// updateK8sNode updates the Kubernetes Node object in the data plane with changes from the admin Node
 func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	clusterName := getClusterId(adminNode)
 	if k8sNode == nil || clusterName == "" {
@@ -376,7 +388,7 @@ func (r *NodeReconciler) updateK8sNode(ctx context.Context, adminNode *v1.Node, 
 	return ctrlruntime.Result{}, nil
 }
 
-// updateK8sNodeTaints: updates taints on the Kubernetes Node in the data plane
+// updateK8sNodeTaints updates taints on the Kubernetes Node in the data plane
 func (r *NodeReconciler) updateK8sNodeTaints(adminNode *v1.Node, k8sNode *corev1.Node) bool {
 	var reservedTaints []corev1.Taint
 	for i, t := range k8sNode.Spec.Taints {
@@ -394,7 +406,7 @@ func (r *NodeReconciler) updateK8sNodeTaints(adminNode *v1.Node, k8sNode *corev1
 	return true
 }
 
-// clearConditions: removes node conditions that correspond to removed taints
+// clearConditions removes node conditions that correspond to removed taints
 func clearConditions(ctx context.Context, k8sClient kubernetes.Interface, k8sNode *corev1.Node) error {
 	specTaintsSet := sets.NewSet()
 	for _, t := range k8sNode.Spec.Taints {
@@ -429,7 +441,7 @@ func clearConditions(ctx context.Context, k8sClient kubernetes.Interface, k8sNod
 	return nil
 }
 
-// updateK8sNodeLabels: updates labels on the Kubernetes Node based on label actions of admin node
+// updateK8sNodeLabels updates labels on the Kubernetes Node based on label actions of admin node
 func (r *NodeReconciler) updateK8sNodeLabels(adminNode *v1.Node, k8sNode *corev1.Node) bool {
 	actionData := v1.GetNodeLabelAction(adminNode)
 	getLabels := func(obj metav1.Object) map[string]string {
@@ -441,7 +453,7 @@ func (r *NodeReconciler) updateK8sNodeLabels(adminNode *v1.Node, k8sNode *corev1
 	return r.updateK8sNodeByAction(adminNode, k8sNode, actionData, getLabels)
 }
 
-// updateK8sNodeAnnotations: updates annotations on the Kubernetes Node based on annotation actions of admin node
+// updateK8sNodeAnnotations updates annotations on the Kubernetes Node based on annotation actions of admin node
 func (r *NodeReconciler) updateK8sNodeAnnotations(adminNode *v1.Node, k8sNode *corev1.Node) bool {
 	actionData := v1.GetNodeAnnotationAction(adminNode)
 	getAnnotations := func(obj metav1.Object) map[string]string {
@@ -453,7 +465,7 @@ func (r *NodeReconciler) updateK8sNodeAnnotations(adminNode *v1.Node, k8sNode *c
 	return r.updateK8sNodeByAction(adminNode, k8sNode, actionData, getAnnotations)
 }
 
-// updateK8sNodeByAction: updates Node labels or annotations based on action specifications
+// updateK8sNodeByAction updates Node labels or annotations based on action specifications
 func (r *NodeReconciler) updateK8sNodeByAction(adminNode *v1.Node, k8sNode *corev1.Node,
 	actionData string, getLabels func(obj metav1.Object) map[string]string) bool {
 	actionMap := make(map[string]string)
@@ -479,7 +491,7 @@ func (r *NodeReconciler) updateK8sNodeByAction(adminNode *v1.Node, k8sNode *core
 	return shouldUpdate
 }
 
-// updateK8sNodeWorkspace: updates the workspace label on the Kubernetes Node in the data plane
+// updateK8sNodeWorkspace updates the workspace label on the Kubernetes Node in the data plane
 func (r *NodeReconciler) updateK8sNodeWorkspace(adminNode *v1.Node, k8sNode *corev1.Node) bool {
 	workspace := adminNode.GetSpecWorkspace()
 	if workspace == v1.GetLabel(k8sNode, v1.WorkspaceIdLabel) {
@@ -495,6 +507,19 @@ func (r *NodeReconciler) updateK8sNodeWorkspace(adminNode *v1.Node, k8sNode *cor
 	return true
 }
 
+// processNodeManagement handles the management or unmanagement of a Node resource.
+// It determines whether a node should be managed (added to a cluster) or unmanaged (removed from a cluster)
+// based on the node's cluster specification and current status. The function orchestrates the appropriate
+// management operation and updates the node's status accordingly.
+//
+// Parameters:
+//   - ctx: Context for the operation
+//   - adminNode: The Node resource to process
+//   - k8sNode: The corresponding Kubernetes Node object in the data plane (can be nil)
+//
+// Returns:
+//   - ctrlruntime.Result: The result of the reconciliation operation, including requeue information
+//   - error: Any error that occurred during processing, or nil on success
 func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	var err error
 	var result ctrlruntime.Result
@@ -547,7 +572,7 @@ func (r *NodeReconciler) cleanupNodeLabelsAfterUnmanage(ctx context.Context, adm
 	return r.Update(ctx, adminNode)
 }
 
-// syncClusterStatus: synchronizes the cluster status of a Node by handling authorization and certificate installation
+// syncClusterStatus synchronizes the cluster status of a Node by handling authorization and certificate installation
 func (r *NodeReconciler) syncClusterStatus(ctx context.Context, node *v1.Node) error {
 	if node.IsManaged() {
 		return nil
@@ -568,7 +593,7 @@ func (r *NodeReconciler) syncClusterStatus(ctx context.Context, node *v1.Node) e
 	return nil
 }
 
-// handleClusterAuthorization: handles SSH authorization for cluster access
+// handleClusterAuthorization handles SSH authorization for cluster access
 func (r *NodeReconciler) handleClusterAuthorization(ctx context.Context, node *v1.Node) error {
 	if isCommandSuccessful(node.Status.ClusterStatus.CommandStatus, utils.Authorize) {
 		return nil
@@ -595,7 +620,7 @@ func (r *NodeReconciler) handleClusterAuthorization(ctx context.Context, node *v
 	return nil
 }
 
-// handleHarborCertificate: handles Harbor CA certificate installation on the node
+// handleHarborCertificate handles Harbor CA certificate installation on the node
 func (r *NodeReconciler) handleHarborCertificate(ctx context.Context, node *v1.Node) error {
 	if isCommandSuccessful(node.Status.ClusterStatus.CommandStatus, HarborCA) {
 		return nil
@@ -624,7 +649,7 @@ func (r *NodeReconciler) handleHarborCertificate(ctx context.Context, node *v1.N
 	return nil
 }
 
-// authorizeClusterAccess: sets up SSH authorization for cluster access
+// authorizeClusterAccess sets up SSH authorization for cluster access
 func (r *NodeReconciler) authorizeClusterAccess(ctx context.Context, node *v1.Node, sshClient *ssh.Client) error {
 	if node.GetSpecCluster() == "" {
 		return nil
@@ -662,7 +687,7 @@ func (r *NodeReconciler) authorizeClusterAccess(ctx context.Context, node *v1.No
 	return nil
 }
 
-// manage: handles the process of managing a Node in a Kubernetes cluster
+// manage handles the process of managing a Node in a Kubernetes cluster
 func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	if !adminNode.IsMachineReady() {
 		return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
@@ -704,7 +729,7 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 	return r.syncOrCreateScaleUpPod(ctx, adminNode)
 }
 
-// syncControlPlaneNodeStatus: synchronizes the status of control plane nodes
+// syncControlPlaneNodeStatus synchronizes the status of control plane nodes
 func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context, adminNode *v1.Node) error {
 	pods, err := r.listPod(ctx, adminNode.GetSpecCluster(), "", string(v1.ClusterCreateAction))
 	if err != nil {
@@ -718,7 +743,7 @@ func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context, adminNo
 	return nil
 }
 
-// syncLabelsToK8sNode: synchronizes labels from the admin Node to the Kubernetes Node
+// syncLabelsToK8sNode synchronizes labels from the admin Node to the Kubernetes Node
 func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	clientSet kubernetes.Interface, adminNode *v1.Node, k8sNode *corev1.Node) error {
 	labels := map[string]string{}
@@ -758,7 +783,7 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	return nil
 }
 
-// syncOrCreateScaleUpPod: synchronizes or creates a scale-up Pod for the Node when managing
+// syncOrCreateScaleUpPod synchronizes or creates a scale-up Pod for the Node when managing
 func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *v1.Node) (ctrlruntime.Result, error) {
 	pods, err := r.listPod(ctx, adminNode.GetSpecCluster(), adminNode.Name, string(v1.ClusterScaleUpAction))
 	if err != nil {
@@ -806,7 +831,7 @@ func (r *NodeReconciler) syncOrCreateScaleUpPod(ctx context.Context, adminNode *
 	return ctrlruntime.Result{}, nil
 }
 
-// unmanage: handles the process of unmanaging a Node from a Kubernetes cluster
+// unmanage handles the process of unmanaging a Node from a Kubernetes cluster
 func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	if isControlPlaneNode(adminNode) {
 		return ctrlruntime.Result{}, nil
@@ -861,7 +886,7 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 	return r.syncOrCreateScaleDownPod(ctx, k8sClients.ClientSet(), adminNode, k8sNode, clusterId)
 }
 
-// rebootNode: reboots the Node via SSH
+// rebootNode reboots the Node via SSH
 func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
 	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
@@ -877,7 +902,7 @@ func (r *NodeReconciler) rebootNode(ctx context.Context, node *v1.Node) {
 	klog.Infof("machine node %s rebooted", node.Name)
 }
 
-// syncOrCreateScaleDownPod: synchronizes or creates a scale-down Pod for the Node when unmanaging
+// syncOrCreateScaleDownPod synchronizes or creates a scale-down Pod for the Node when unmanaging
 func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 	clientSet kubernetes.Interface, adminNode *v1.Node, k8sNode *corev1.Node, clusterId string) (ctrlruntime.Result, error) {
 	cluster, err := r.getCluster(ctx, clusterId)
@@ -933,6 +958,17 @@ func (r *NodeReconciler) syncOrCreateScaleDownPod(ctx context.Context,
 	return ctrlruntime.Result{}, nil
 }
 
+// forceDeleteK8sNode forcefully deletes a Kubernetes Node resource with immediate deletion (grace period of 0).
+// This function is used when a node needs to be removed immediately from the Kubernetes cluster,
+// typically during unmanagement operations when the node is in an unhealthy state.
+//
+// Parameters:
+//   - ctx: Context for the operation
+//   - clientSet: Kubernetes client interface for making API calls
+//   - nodeName: Name of the Kubernetes Node to delete
+//
+// Returns:
+//   - error: Any error that occurred during the deletion, or nil on success
 func forceDeleteK8sNode(ctx context.Context,
 	clientSet kubernetes.Interface, nodeName string) error {
 	gracePeriodSeconds := int64(0)
@@ -946,7 +982,7 @@ func forceDeleteK8sNode(ctx context.Context,
 	return nil
 }
 
-// getClusterId: retrieves the cluster ID for a Node
+// getClusterId retrieves the cluster ID for a Node
 func getClusterId(adminNode *v1.Node) string {
 	clusterId := adminNode.GetSpecCluster()
 	if clusterId == "" {
@@ -955,7 +991,7 @@ func getClusterId(adminNode *v1.Node) string {
 	return clusterId
 }
 
-// installHarborCert: installs the Harbor CA certificate on the Node
+// installHarborCert installs the Harbor CA certificate on the Node
 func (r *NodeReconciler) installHarborCert(ctx context.Context, sshClient *ssh.Client) (bool, error) {
 	secret := new(corev1.Secret)
 	err := r.Get(ctx, types.NamespacedName{
@@ -983,7 +1019,7 @@ func (r *NodeReconciler) installHarborCert(ctx context.Context, sshClient *ssh.C
 	return true, nil
 }
 
-// installAddons: installs addons on the Node by creating an OpsJob
+// installAddons installs addons on the Node by creating an OpsJob
 func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) error {
 	if adminNode.Spec.NodeTemplate == nil || v1.IsNodeTemplateInstalled(adminNode) {
 		return nil
@@ -1020,7 +1056,7 @@ func (r *NodeReconciler) installAddons(ctx context.Context, adminNode *v1.Node) 
 	return nil
 }
 
-// listPod: lists Pods matching the specified criteria
+// listPod lists Pods matching the specified criteria
 func (r *NodeReconciler) listPod(ctx context.Context, clusterName, nodeName, action string) ([]corev1.Pod, error) {
 	labelSelector := client.MatchingLabels{
 		v1.ClusterManageClusterLabel: clusterName,
@@ -1037,7 +1073,7 @@ func (r *NodeReconciler) listPod(ctx context.Context, clusterName, nodeName, act
 	return list.Items, nil
 }
 
-// deletePods: deletes all Pods for the specified node and action
+// deletePods deletes all Pods for the specified node and action
 func (r *NodeReconciler) deletePods(ctx context.Context, clusterId, nodeId, action string) error {
 	pods, err := r.listPod(ctx, clusterId, nodeId, action)
 	if err != nil {

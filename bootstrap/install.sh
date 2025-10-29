@@ -73,18 +73,19 @@ storage_class=$(get_input_with_default "Enter storage class($default_storage_cla
 support_lens=$(get_input_with_default "Support Primus-lens ? (y/n): " "n")
 lens_enable=$(convert_to_boolean "$support_lens")
 
-support_s3=$(get_input_with_default "Support Primus-S3 ? (y/n): " "n")
+support_s3=$(get_input_with_default "Support S3 ? (y/n): " "n")
 s3_enable=$(convert_to_boolean "$support_s3")
 s3_endpoint=""
+s3_bucket=""
+s3_access_key=""
+s3_secret_key=""
 if [[ "$s3_enable" == "true" ]]; then
   s3_endpoint=$(get_input_with_default "Enter S3 endpoint (empty to disable S3): " "")
-  if [ -z "$s3_endpoint" ]; then
-    s3_enable="false"
-  fi
+  s3_bucket=$(get_input_with_default "Enter S3 bucket(empty to disable S3): " "")
+  s3_access_key=$(get_input_with_default "Enter S3 access-key(empty to disable S3): " "")
+  s3_secret_key=$(get_input_with_default "Enter S3 secret-key(empty to disable S3): " "")
 fi
 
-support_ssh=$(get_input_with_default "Support ssh ? (y/n): " "n")
-ssh_enable=$(convert_to_boolean "$support_ssh")
 
 build_image_secret=$(get_input_with_default "Create image pull secret ? (y/n): " "n")
 image_registry=""
@@ -110,8 +111,11 @@ echo "✅ Support Primus-lens: \"$lens_enable\""
 echo "✅ Support Primus-s3: \"$s3_enable\""
 if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Endpoint: \"$s3_endpoint\""
+  echo "✅ S3 Bucket: \"$s3_bucket\""
+  echo "✅ S3 Access Key: \"$s3_access_key\""
+  echo "✅ S3 Secret Key: \"$s3_secret_key\""
 fi
-echo "✅ Support ssh: \"$ssh_enable\""
+
 if [[ "$build_image_secret" == "y" ]]; then
   echo "✅ Image registry: \"$image_registry\""
   echo "✅ Image username: \"$image_username\""
@@ -135,9 +139,9 @@ elif [[ "$cluster_scale" == "large" ]]; then
 fi
 
 echo
-echo "========================================="
-echo "🔧 Step 2: generate image-pull-secret"
-echo "========================================="
+echo "===================================================="
+echo "🔧 Step 2: generate image-pull-secret and s3-secret"
+echo "===================================================="
 
 IMAGE_PULL_SECRET="$NAMESPACE-image"
 if kubectl get secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" >/dev/null 2>&1; then
@@ -160,6 +164,24 @@ else
       --dry-run=client -o yaml | kubectl create -f - \
       && kubectl label secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$IMAGE_PULL_SECRET" primus-safe.secret.all.workspace="true" --overwrite
     echo "✅ Empty Image pull secret($IMAGE_PULL_SECRET) created in namespace \"$NAMESPACE\""
+  fi
+fi
+
+S3_SECRET="$NAMESPACE-s3"
+if kubectl get secret "$S3_SECRET" -n "$NAMESPACE" >/dev/null 2>&1; then
+  echo "⚠️ Image pull secret $S3_SECRET already exists in namespace \"$NAMESPACE\", skipping creation"
+else
+  if [[ "$s3_enable" == "true" ]] && [[ -n "$s3_endpoint" ]] && [[ -n "$s3_bucket" ]] && [[ -n "$s3_access_key" ]] && [[ -n "$s3_secret_key" ]]; then
+    kubectl create secret generic $S3_SECRET \
+      --namespace=$NAMESPACE \
+      --from-literal=access_key="$s3_access_key" \
+      --from-literal=bucket="$s3_bucket" \
+      --from-literal=endpoint="$s3_endpoint" \
+      --from-literal=secret_key="$s3_secret_key" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    echo "✅ S3 secret($S3_SECRET) created in namespace \"$NAMESPACE\""
+  else
+    s3_enable="false"
   fi
 fi
 
@@ -207,7 +229,7 @@ fi
 sed -i '/opensearch:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
 sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
-  sed -i '/^s3:/,/^[a-z]/ s#endpoint: ".*"#endpoint: "'"$s3_endpoint"'"#' "$values_yaml"
+  sed -i '/^s3:/,/^[a-z]/ s#secret: ".*"#secret: "'"$S3_SECRET"'"#' "$values_yaml"
 fi
 sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: '"$lens_enable"'/' "$values_yaml"
 if [[ "$lens_enable" == "true" ]]; then
@@ -216,8 +238,6 @@ if [[ "$lens_enable" == "true" ]]; then
 fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
-sed -i '/ssh:/,/^[a-z]/ s/enable: .*/enable: '"$ssh_enable"'/' "$values_yaml"
-
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
 echo "⏳ Waiting for Postgres Operator pod..."
@@ -280,8 +300,6 @@ cluster_scale=$cluster_scale
 storage_class=$storage_class
 lens_enable=$lens_enable
 s3_enable=$s3_enable
-s3_endpoint=$s3_endpoint
 ingress=$ingress
 sub_domain=$sub_domain
-ssh_enable=$ssh_enable
 EOF

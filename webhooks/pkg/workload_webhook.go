@@ -279,6 +279,8 @@ func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 	}
 	if workload.Spec.Service.Protocol != "" {
 		workload.Spec.Service.Protocol = corev1.Protocol(strings.ToUpper(string(workload.Spec.Service.Protocol)))
+	} else {
+		workload.Spec.Service.Protocol = corev1.ProtocolTCP
 	}
 }
 

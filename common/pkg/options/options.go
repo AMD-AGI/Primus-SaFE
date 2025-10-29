@@ -18,6 +18,16 @@ type Options struct {
 	SSHKeyFilePath string
 }
 
+// InitFlags initializes the command line flags for the application.
+// It sets up the following flags:
+//
+//	-config: Path to the primus-safe config.yaml (required)
+//	-kube_config: Path to the kubectl config
+//	-log_file_size: Maximum size of the log file in megabytes (default: 0, unlimited)
+//	-log_file_path: Path to the log file
+//
+// After parsing flags, it validates that the config path is provided.
+// Returns an error if the options struct is nil or if the required -config flag is not provided.
 func (opt *Options) InitFlags() error {
 	if opt == nil {
 		return fmt.Errorf("the options is not initialized")

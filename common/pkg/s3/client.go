@@ -36,7 +36,7 @@ type Client struct {
 	s3Client *s3.Client
 }
 
-// Create a new S3 client instance
+// NewClient create a new S3 client instance
 // Parameters:
 //
 //	ctx: Context
@@ -66,7 +66,7 @@ func NewClient(ctx context.Context, opt Option) (Interface, error) {
 	return cli, nil
 }
 
-// Create S3 client based on configuration
+// newFromConfig create S3 client based on configuration
 // Parameters:
 //
 //	config: S3 configuration information
@@ -96,7 +96,7 @@ func newFromConfig(config *Config, opt Option) (*Client, error) {
 	return cli, nil
 }
 
-// Check if S3 bucket exists
+// checkBucketExisted check if S3 bucket exists
 // Parameters:
 //
 //	ctx: Context
@@ -117,7 +117,7 @@ func (c *Client) checkBucketExisted(ctx context.Context) error {
 	return nil
 }
 
-// Set bucket lifecycle rules
+// setLifecycleRule set bucket lifecycle rules
 // Parameters:
 //
 //	ctx: Context
@@ -152,7 +152,7 @@ func (c *Client) setLifecycleRule(ctx context.Context) error {
 	return err
 }
 
-// Create multipart upload task
+// CreateMultiPartUpload create multipart upload task
 // Parameters:
 //
 //	ctx: Context
@@ -180,7 +180,7 @@ func (c *Client) CreateMultiPartUpload(ctx context.Context, key string, timeout 
 	return *resp.UploadId, nil
 }
 
-// Perform multipart upload
+// MultiPartUpload perform multipart upload
 // Parameters:
 //
 //	ctx: Context
@@ -217,7 +217,7 @@ func (c *Client) MultiPartUpload(ctx context.Context, param *MultiUploadParam, t
 	return nil
 }
 
-// Complete multipart upload
+// CompleteMultiPartUpload complete multipart upload
 // Parameters:
 //
 //	ctx: Context
@@ -249,7 +249,7 @@ func (c *Client) CompleteMultiPartUpload(ctx context.Context,
 	return c.s3Client.CompleteMultipartUpload(timeoutCtx, input)
 }
 
-// Cancel multipart upload task
+// AbortMultiPartUpload cancel multipart upload task
 // Parameters:
 //
 //	ctx: Context
@@ -278,7 +278,7 @@ func (c *Client) AbortMultiPartUpload(ctx context.Context, param *MultiUploadPar
 	return err
 }
 
-// Upload object to S3 bucket
+// PutObject upload object to S3 bucket
 // Parameters:
 //
 //	ctx: Context
@@ -308,7 +308,7 @@ func (c *Client) PutObject(ctx context.Context, key, value string, timeout int64
 	return c.s3Client.PutObject(timeoutCtx, input)
 }
 
-// Delete object from S3 bucket
+// DeleteObject delete object from S3 bucket
 // Parameters:
 //
 //	ctx: Context
@@ -338,7 +338,7 @@ func (c *Client) DeleteObject(ctx context.Context, key string, timeout int64) er
 	return nil
 }
 
-// Generate presigned URL for temporary object access
+// GeneratePresignedURL generate presigned URL for temporary object access
 // Parameters:
 //
 //	ctx: Context
@@ -364,7 +364,7 @@ func (c *Client) GeneratePresignedURL(ctx context.Context, key string, expireDay
 	return resp.URL, nil
 }
 
-// Add subdirectory prefix to object key name
+// WithPrefixKey add subdirectory prefix to object key name
 // Parameters:
 //
 //	key: Original object key name
@@ -376,7 +376,7 @@ func (c *Client) WithPrefixKey(key string) string {
 	return c.opt.Subdir + key
 }
 
-// Add optional timeout to context
+// WithOptionalTimeout add optional timeout to context
 // Parameters:
 //
 //	parent: Parent context

@@ -165,6 +165,7 @@ func (r *SyncerReconciler) handle(ctx context.Context, cluster *v1.Cluster) erro
 	for _, rt := range rtList.Items {
 		if err = informer.addResourceTemplate(rt.ToSchemaGVK()); err != nil {
 			klog.ErrorS(err, "failed to add resource template", "cluster", cluster.Name, "rt", rt)
+			return err
 		}
 	}
 	r.clusterInformers.AddOrReplace(cluster.Name, informer)
