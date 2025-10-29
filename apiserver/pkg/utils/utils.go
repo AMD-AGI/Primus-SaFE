@@ -11,8 +11,6 @@ import (
 	"net/http"
 
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
@@ -60,19 +58,4 @@ func ParseRequestBody(req *http.Request, bodyStruct interface{}) ([]byte, error)
 		return body, commonerrors.NewBadRequest(err.Error())
 	}
 	return body, nil
-}
-
-// GetK8sClientFactory: retrieves a Kubernetes client factory for the specified cluster from the client manager.
-// Returns the client factory if found and valid, or an error if others
-func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
-	obj, _ := clientManager.Get(clusterId)
-	if obj == nil {
-		err := fmt.Errorf("the client of cluster %s is not found. please retry later", clusterId)
-		return nil, commonerrors.NewInternalError(err.Error())
-	}
-	k8sClients, ok := obj.(*commonclient.ClientFactory)
-	if !ok {
-		return nil, commonerrors.NewInternalError("the object type is not matched")
-	}
-	return k8sClients, nil
 }

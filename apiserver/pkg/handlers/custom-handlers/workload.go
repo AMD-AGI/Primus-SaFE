@@ -446,7 +446,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	k8sClients, err := apiutils.GetK8sClientFactory(h.clientManager, v1.GetClusterId(workload))
+	k8sClients, err := commonutils.GetK8sClientFactory(h.clientManager, v1.GetClusterId(workload))
 	if err != nil {
 		return nil, err
 	}
@@ -1167,7 +1167,7 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 		return nil, err
 	}
 
-	k8sClients, err := apiutils.GetK8sClientFactory(h.clientManager, v1.GetClusterId(adminWorkload))
+	k8sClients, err := commonutils.GetK8sClientFactory(h.clientManager, v1.GetClusterId(adminWorkload))
 	if err != nil {
 		return nil, err
 	}

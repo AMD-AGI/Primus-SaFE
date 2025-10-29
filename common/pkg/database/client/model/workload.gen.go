@@ -49,6 +49,9 @@ type Workload struct {
 	K8sObjectUID   string    `gorm:"column:k8s_object_uid" json:"k8s_object_uid"`
 	WorkloadUID    string    `gorm:"column:workload_uid" json:"workload_uid"`
 	Ranks          string    `gorm:"column:ranks" json:"ranks"`
+	Dependencies   string    `gorm:"column:dependencies" json:"dependencies"`
+	CronSchedules  string    `gorm:"column:cron_schedules" json:"cron_schedules"`
+	CronJobs       string    `gorm:"column:cron_jobs" json:"cron_jobs"`
 }
 
 // TableName Workload's table name

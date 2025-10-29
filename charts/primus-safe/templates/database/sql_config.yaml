@@ -224,3 +224,21 @@ data:
     );
 
     alter table ssh_session_records owner to "primus-safe";
+    create table notification
+    (
+        id         serial,
+        kind       varchar(64),
+        name       varchar(64),
+        uid        varchar(64),
+        channel    varchar(32),
+        data       jsonb,
+        status     varchar(32),
+        method     varchar(32),
+        error      text,
+        created_at timestamptz,
+        sent_at    timestamptz
+    );
+
+
+    alter table notification
+        owner to "primus-safe";

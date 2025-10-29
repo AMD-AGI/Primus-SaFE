@@ -121,7 +121,7 @@ func (b *WorkspaceSpecApplyConfiguration) WithImageSecrets(values ...*corev1.Obj
 		if values[i] == nil {
 			panic("nil value passed to WithImageSecrets")
 		}
-		b.ImageSecrets = append(b.ImageSecrets, *values[i])
+		b.ImageSecrets = append(b.ImageSecrets, values[i])
 	}
 	return b
 }

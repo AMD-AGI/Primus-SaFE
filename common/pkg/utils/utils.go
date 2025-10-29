@@ -6,6 +6,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -99,4 +100,37 @@ func GenerateClusterPriorityClass(clusterId, priorityClass string) string {
 //   Combined string in format "clusterId-secretName
 func GenerateClusterSecret(clusterId, secretName string) string {
 	return clusterId + "-" + secretName
+}
+
+// TransMapToStruct converts a map to a struct using JSON serialization
+// Parameters:
+//   m: Input map with string keys and interface{} values
+//   out: Pointer to the output struct where data will be unmarshaled
+// Returns:
+//   Error if serialization or deserialization fails, nil otherwise
+func TransMapToStruct(m map[string]interface{}, out interface{}) error {
+	jsonBytes, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal(jsonBytes, out)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// StringsIn checks if a string is present in a slice of strings
+// Parameters:
+//   strs: Slice of strings to search
+//   str: String to find
+// Returns:
+//   True if str is found in strs, false otherwise
+func StringsIn(str string, strs []string) bool {
+	for _, s := range strs {
+		if s == str {
+			return true
+		}
+	}
+	return false
 }
