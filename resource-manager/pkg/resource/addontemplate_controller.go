@@ -95,7 +95,7 @@ func (r *AddonTemplateController) initializeActionConfig() (*action.Configuratio
 		return nil, err
 	}
 
-	if err = actionConfig.Init(r.getter, v1.DefaultNamespace, helmDriver, klog.Infof); err != nil {
+	if err = actionConfig.Init(r.getter, DefaultNamespace, helmDriver, klog.Infof); err != nil {
 		return nil, err
 	}
 
@@ -106,7 +106,7 @@ func (r *AddonTemplateController) initializeActionConfig() (*action.Configuratio
 func (r *AddonTemplateController) fetchChart(template *v1.AddonTemplate, actionConfig *action.Configuration) (*chart.Chart, error) {
 	installClient := action.NewInstall(actionConfig)
 	installClient.Timeout = Timeout
-	installClient.Namespace = v1.DefaultNamespace
+	installClient.Namespace = DefaultNamespace
 	installClient.ReleaseName = template.Name
 	installClient.CreateNamespace = true
 	installClient.ChartPathOptions.PlainHTTP = false

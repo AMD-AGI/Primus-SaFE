@@ -10,18 +10,25 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -501,6 +508,7 @@ func (r *ClusterReconciler) patchMachineNode(ctx context.Context, cluster *v1.Cl
 		if node.Labels == nil {
 			node.Labels = map[string]string{}
 		}
+		node.Labels[v1.KubernetesControlPlane] = ""
 		node.Spec.Cluster = &cluster.Name
 	} else if cluster.Status.ControlPlaneStatus.Phase == v1.DeletedPhase {
 		node.Spec.Cluster = nil
@@ -706,4 +714,123 @@ func (r *ClusterReconciler) guaranteeServiceResource(ctx context.Context, cluste
 	}
 
 	return nil
+}
+
+// guaranteeNamespace: ensures a namespace exists in the cluster
+func (r *ClusterReconciler) guaranteeNamespace(ctx context.Context, client kubernetes.Interface, namespace string) error {
+	_, err := client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		ns := &corev1.Namespace{
+			TypeMeta: metav1.TypeMeta{},
+			ObjectMeta: metav1.ObjectMeta{
+				Name: namespace,
+			},
+			Spec:   corev1.NamespaceSpec{},
+			Status: corev1.NamespaceStatus{},
+		}
+		_, err = client.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// guaranteeDefaultAddon ensures default addons are installed in the cluster
+// Creates Addon resources based on cluster configuration
+func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *v1.Cluster) (ctrlruntime.Result, error) {
+	selector := labels.NewSelector()
+	labelsArr := []string{""}
+	if cluster.Spec.ControlPlane.KubeVersion != nil {
+		labelsArr = append(labelsArr, *cluster.Spec.ControlPlane.KubeVersion)
+	}
+	req, err := labels.NewRequirement(v1.AddonDefaultLabel, selection.In, labelsArr)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("new requirement failed %+v", err)
+	}
+	selector = selector.Add(*req)
+	templates := new(v1.AddonTemplateList)
+	err = r.List(ctx, templates, &client.ListOptions{
+		LabelSelector: selector,
+	})
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("list addon templates failed %+v", err)
+	}
+	for _, template := range templates.Items {
+		component := getComponentName(template.Name)
+		name := fmt.Sprintf("%s-%s", cluster.Name, component)
+		addon := new(v1.Addon)
+		err = r.Get(ctx, types.NamespacedName{Name: name}, addon)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				namespace := template.Spec.HelmDefaultNamespace
+				if namespace == "" {
+					namespace = "default"
+				}
+				addon = &v1.Addon{
+					TypeMeta: metav1.TypeMeta{},
+					ObjectMeta: metav1.ObjectMeta{
+						Name: name,
+						OwnerReferences: []metav1.OwnerReference{
+							{
+								APIVersion:         cluster.APIVersion,
+								Kind:               cluster.Kind,
+								Name:               cluster.Name,
+								UID:                cluster.UID,
+								Controller:         pointer.Bool(true),
+								BlockOwnerDeletion: pointer.Bool(true),
+							},
+						},
+					},
+					Spec: v1.AddonSpec{
+						Cluster: &corev1.ObjectReference{
+							Kind:            cluster.Kind,
+							Namespace:       cluster.Namespace,
+							Name:            cluster.Name,
+							UID:             cluster.UID,
+							APIVersion:      cluster.APIVersion,
+							ResourceVersion: cluster.ResourceVersion,
+						},
+						AddonSource: v1.AddonSource{
+							HelmRepository: &v1.HelmRepository{
+								ReleaseName:     component,
+								PlainHTTP:       false,
+								ChartVersion:    "",
+								Namespace:       namespace,
+								Values:          "",
+								PreviousVersion: nil,
+								Template: &corev1.ObjectReference{
+									Kind:            template.Kind,
+									Namespace:       template.Namespace,
+									Name:            template.Name,
+									UID:             template.UID,
+									APIVersion:      template.APIVersion,
+									ResourceVersion: template.ResourceVersion,
+								},
+							},
+						},
+					},
+					Status: v1.AddonStatus{},
+				}
+				err = r.Create(ctx, addon)
+				if err != nil {
+					return reconcile.Result{}, fmt.Errorf("create addon %s failed %+v", name, err)
+				}
+				continue
+			}
+			klog.Errorf("get addon template %s failed %+v", addon, err)
+		}
+	}
+	return reconcile.Result{}, nil
+}
+
+// getComponentName extracts the component name from a full name by removing the part after the first dot
+func getComponentName(name string) string {
+	if index := strings.Index(name, "."); index > 0 {
+		return name[:index]
+	}
+	return name
 }

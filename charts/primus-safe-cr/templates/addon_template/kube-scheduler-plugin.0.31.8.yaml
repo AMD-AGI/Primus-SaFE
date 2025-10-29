@@ -7,12 +7,13 @@ apiVersion: amd.com/v1
 kind: AddonTemplate
 metadata:
   labels:
-    primus-safe.display.name: "kube-scheduler-plugins-0.38.1"
+    primus-safe.display.name: "kube-scheduler-plugins.0.38.1"
     app.kubernetes.io/managed-by: Helm
+    primus-safe.addon.default: ""
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-  name: kube-scheduler-plugins-0.31.8
+  name: kube-scheduler-plugins.0.31.8
 spec:
   category: plugin
   description: Kubernetes scheduler plugin framework. 

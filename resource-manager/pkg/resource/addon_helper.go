@@ -36,7 +36,8 @@ const (
 	// Timeout specifies the timeout for Helm operations
 	Timeout = time.Second * 30
 	// MaxHistory specifies the maximum number of Helm release versions to keep
-	MaxHistory = 20
+	MaxHistory       = 20
+	DefaultNamespace = "primus-safe"
 )
 
 // Options represents configuration options for a REST client
@@ -355,4 +356,11 @@ func rollbackValues(str string, base map[string]interface{}) string {
 		return ""
 	}
 	return string(data)
+}
+
+func GetReleaseNamespace(addon *v1.Addon) string {
+	if addon.Spec.AddonSource.HelmRepository.Namespace != "" {
+		return addon.Spec.AddonSource.HelmRepository.Namespace
+	}
+	return DefaultNamespace
 }
