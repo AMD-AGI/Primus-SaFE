@@ -6,10 +6,13 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification"
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/informer"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientscheme "k8s.io/client-go/kubernetes/scheme"
@@ -92,6 +95,10 @@ func (s *Server) init() error {
 		klog.ErrorS(err, "failed to start opensearch discovery")
 		return err
 	}
+	if err = s.ctrlManager.ctrlManager.Add(&NotificationRunner{ctrlManager: s.ctrlManager}); err != nil {
+		klog.ErrorS(err, "failed to add notification runner to controller manager")
+		return err
+	}
 	s.isInited = true
 	return nil
 }
@@ -132,4 +139,24 @@ func (s *Server) initConfig() error {
 		return fmt.Errorf("config path: %s, err: %v", fullPath, err)
 	}
 	return nil
+}
+
+type NotificationRunner struct {
+	ctrlManager *ControllerManager
+}
+
+func (n *NotificationRunner) Start(ctx context.Context) error {
+	klog.Infof("starting notification runner")
+	var err error
+	if commonconfig.IsNotificationEnable() {
+		if err = notification.InitNotificationManager(n.ctrlManager.ctx, commonconfig.GetNotificationConfig()); err != nil {
+			klog.ErrorS(err, "failed to initialize notification manager")
+			return err
+		}
+		if err = informer.InitInformer(n.ctrlManager.ctx, n.ctrlManager.ctrlManager.GetConfig(), n.ctrlManager.ctrlManager.GetClient()); err != nil {
+			klog.ErrorS(err, "failed to initialize informer")
+			return err
+		}
+	}
+	return err
 }

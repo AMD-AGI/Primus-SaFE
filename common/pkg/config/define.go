@@ -7,10 +7,10 @@ package config
 
 const (
 	// global
-	globalPrefix = "global."
-	rdmaName     = globalPrefix + "rdma_name"
-	imageSecret  = globalPrefix + "image_secret"
-
+	globalPrefix  = "global."
+	rdmaName      = globalPrefix + "rdma_name"
+	imageSecret   = globalPrefix + "image_secret"
+	systemBaseUrl = globalPrefix + "system_base_url"
 	// crypto
 	cryptoPrefix     = "crypto."
 	cryptoEnable     = cryptoPrefix + "enable"
@@ -91,4 +91,9 @@ const (
 	userPrefix            = "user."
 	userTokenRequired     = userPrefix + "token_required"
 	userTokenExpireSecond = userPrefix + "token_expire"
+
+	// notification
+	notificationPrefix     = "notification."
+	notificationEnable     = notificationPrefix + "enable"
+	notificationSecretPath = notificationPrefix + "secret_path"
 )

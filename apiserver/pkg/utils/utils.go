@@ -11,8 +11,6 @@ import (
 	"net/http"
 
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 

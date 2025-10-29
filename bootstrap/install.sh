@@ -86,6 +86,7 @@ if [[ "$s3_enable" == "true" ]]; then
   s3_secret_key=$(get_input_with_default "Enter S3 secret-key(empty to disable S3): " "")
 fi
 
+
 build_image_secret=$(get_input_with_default "Create image pull secret ? (y/n): " "n")
 image_registry=""
 image_username=""
@@ -101,8 +102,6 @@ sub_domain=""
 if [[ "$ingress" == "higress" ]]; then
   sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
 fi
-
-ssh_server_ip=$(get_input_with_default "Enter ssh server ip(empty to disable ssh): " "")
 
 echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
@@ -125,7 +124,6 @@ echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
   echo "✅ Cluster Name: \"$sub_domain\""
 fi
-echo "✅ SSH Server IP: \"$ssh_server_ip\""
 
 replicas=1
 cpu=2000m
@@ -240,7 +238,6 @@ if [[ "$lens_enable" == "true" ]]; then
 fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
-sed -i '/^ssh:/,/^[a-z]/ s#server_ip: ".*"#server_ip: "'"$ssh_server_ip"'"#' "$values_yaml"
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
 echo "⏳ Waiting for Postgres Operator pod..."
@@ -305,5 +302,4 @@ lens_enable=$lens_enable
 s3_enable=$s3_enable
 ingress=$ingress
 sub_domain=$sub_domain
-ssh_server_ip=$ssh_server_ip
 EOF

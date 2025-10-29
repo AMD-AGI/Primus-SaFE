@@ -10,6 +10,10 @@ import (
 	"fmt"
 	"time"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,11 +22,7 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 const (
@@ -109,7 +109,7 @@ func doSync(ctx context.Context, controlPlaneClient client.Client, clientManager
 	}
 	newClients := map[string]*SearchClient{}
 	for _, cluster := range clusterList.Items {
-		k8sClients, err := apiutils.GetK8sClientFactory(clientManager, cluster.Name)
+		k8sClients, err := commonutils.GetK8sClientFactory(clientManager, cluster.Name)
 		if err != nil {
 			klog.Errorf("Failed to get k8s client for cluster %s, err: %v", cluster.Name, err)
 			continue
