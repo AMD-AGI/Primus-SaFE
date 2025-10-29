@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"time"
 
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,7 +29,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
-	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
@@ -294,7 +294,7 @@ func (h *SshHandler) getWorkloadAndClients(ctx context.Context, userInfo *UserIn
 		return nil, nil, err
 	}
 
-	k8sClients, err := apiutils.GetK8sClientFactory(h.clientManager, workspace.Spec.Cluster)
+	k8sClients, err := commonutils.GetK8sClientFactory(h.clientManager, workspace.Spec.Cluster)
 	if err != nil {
 		return nil, nil, err
 	}

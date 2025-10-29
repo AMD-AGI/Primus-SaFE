@@ -6,12 +6,12 @@
 package custom_handlers
 
 import (
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/gin-gonic/gin"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
-	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
@@ -46,7 +46,7 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 	}); err != nil {
 		return nil, err
 	}
-	k8sClients, err := apiutils.GetK8sClientFactory(h.clientManager, v1.GetClusterId(adminWorkload))
+	k8sClients, err := commonutils.GetK8sClientFactory(h.clientManager, v1.GetClusterId(adminWorkload))
 	if err != nil {
 		return nil, err
 	}

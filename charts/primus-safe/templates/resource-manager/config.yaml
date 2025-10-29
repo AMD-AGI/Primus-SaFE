@@ -11,6 +11,8 @@ data:
       rdma_name: {{ .Values.net.rdma_name }}
       # Image pull secret for primus-safe. If set to empty, the secret will not be used.
       image_secret: {{ .Values.global.image_pull_secret }}
+    notification:
+      enable: false
     health_check:
       # Whether to enable health check
       enable: {{ default true (default .Values.k8s).enable_health_check }}

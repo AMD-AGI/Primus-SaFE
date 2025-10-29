@@ -7,6 +7,7 @@ package client
 
 import (
 	"context"
+
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 
 	sqrl "github.com/Masterminds/squirrel"
@@ -22,6 +23,7 @@ type Interface interface {
 	RegistryInfoInterface
 	PublicKeyInterface
 	SshSessionRecordsInterface
+	NotificationInterface
 }
 
 type WorkloadInterface interface {
@@ -92,4 +94,10 @@ type PublicKeyInterface interface {
 type SshSessionRecordsInterface interface {
 	InsertSshSessionRecord(ctx context.Context, record *SshSessionRecords) (int64, error)
 	SetSshDisconnect(ctx context.Context, id int64, disconnectReason string) error
+}
+
+type NotificationInterface interface {
+	SubmitNotification(ctx context.Context, data *model.Notification) error
+	ListUnprocessedNotifications(ctx context.Context) ([]*model.Notification, error)
+	UpdateNotification(ctx context.Context, data *model.Notification) error
 }
