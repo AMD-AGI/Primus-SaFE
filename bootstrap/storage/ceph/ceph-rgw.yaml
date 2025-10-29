@@ -1,0 +1,58 @@
+apiVersion: ceph.rook.io/v1
+kind: CephObjectStore
+metadata:
+  name: object-store
+  namespace: rook-ceph
+spec:
+  dataPool:
+    application: ""
+    erasureCoded:
+      codingChunks: 0
+      dataChunks: 0
+    failureDomain: host
+    mirroring: {}
+    parameters:
+      compression_mode: none
+    quotas: {}
+    replicated:
+      size: 2
+    statusCheck:
+      mirror: {}
+  gateway:
+    hostNetwork: true
+    instances: 1
+    port: 80
+    priorityClassName: system-cluster-critical
+    resources: {}
+  healthCheck:
+    readinessProbe: {}
+    startupProbe: {}
+  metadataPool:
+    application: ""
+    erasureCoded:
+      codingChunks: 0
+      dataChunks: 0
+    failureDomain: host
+    mirroring: {}
+    parameters:
+      compression_mode: none
+    quotas: {}
+    replicated:
+      size: 2
+    statusCheck:
+      mirror: {}
+  sharedPools:
+    dataPoolName: ""
+    metadataPoolName: ""
+    preserveRadosNamespaceDataOnDelete: false
+  zone:
+    name: ""
+---
+apiVersion: ceph.rook.io/v1
+kind: CephObjectStoreUser
+metadata:
+  name: admin-user
+  namespace: rook-ceph
+spec:
+  displayName: admin
+  store: object-store

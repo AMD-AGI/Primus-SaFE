@@ -1,0 +1,28 @@
+apiVersion: kubescheduler.config.k8s.io/v1
+kind: KubeSchedulerConfiguration
+leaderElection:
+  leaderElect: false
+clientConnection:
+  kubeconfig: "/home/zhanglei/.kube/config"
+profiles:
+- schedulerName: kube-scheduler-plugins
+  plugins:
+    multiPoint:
+      enabled:
+      - name: Coscheduling
+      - name: TopologyIPSort
+    queueSort:
+      enabled:
+      - name: TopologyIPSort
+      disabled:
+      - name: "*"
+    score:
+      enabled:
+      - name: TopologyIPSort
+      disabled:
+      - name: "*"
+  pluginConfig:
+  - name: Coscheduling
+    args:
+      permitWaitingTimeSeconds: 10
+    
