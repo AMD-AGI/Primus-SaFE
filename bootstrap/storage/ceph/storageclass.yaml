@@ -1,0 +1,33 @@
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: rbd
+  namespace: rook-ceph
+spec:
+  failureDomain: host
+  replicated:
+    size: 2
+---
+allowVolumeExpansion: true
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+  name: rbd
+parameters:
+  clusterID: dc287686-fa4a-47a6-acf5-10bb4c61cbcf
+  csi.storage.k8s.io/controller-expand-secret-name: storage-rbd
+  csi.storage.k8s.io/controller-expand-secret-namespace: default
+  csi.storage.k8s.io/fstype: xfs
+  csi.storage.k8s.io/node-stage-secret-name: storage-rbd
+  csi.storage.k8s.io/node-stage-secret-namespace: default
+  csi.storage.k8s.io/provisioner-secret-name: storage-rbd
+  csi.storage.k8s.io/provisioner-secret-namespace: default
+  imageFeatures: layering
+  pool:  rbd
+provisioner: rbd.csi.ceph.com
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+
+

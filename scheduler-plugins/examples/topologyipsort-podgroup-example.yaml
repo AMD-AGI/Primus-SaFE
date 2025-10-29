@@ -1,0 +1,93 @@
+apiVersion: scheduling.x-k8s.io/v1alpha1
+kind: PodGroup
+metadata:
+  name: example-group
+  namespace: default
+spec:
+  # Minimum number of pods that must be scheduled for the group to start
+  minMember: 3
+  # Optional: minimum resources required for the group
+  minResources:
+    cpu: "1"
+    memory: "1Gi"
+  # Optional: maximum time to wait for scheduling
+  scheduleTimeoutSeconds: 300
+---
+# Example of a distributed training job with multiple pods
+apiVersion: v1
+kind: Pod
+metadata:
+  name: training-master
+  namespace: default
+  labels:
+    scheduling.x-k8s.io/pod-group: example-group
+    training.kubeflow.org/replica-type: master
+    training.kubeflow.org/replica-index: "0"
+spec:
+  schedulerName: topology-ip-scheduler
+  containers:
+  - name: training
+    image: training:latest
+    command: ["python", "train.py"]
+    env:
+    - name: ROLE
+      value: "master"
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: training-worker-0
+  namespace: default
+  labels:
+    scheduling.x-k8s.io/pod-group: example-group
+    training.kubeflow.org/replica-type: worker
+    training.kubeflow.org/replica-index: "0"
+spec:
+  schedulerName: topology-ip-scheduler
+  containers:
+  - name: training
+    image: training:latest
+    command: ["python", "train.py"]
+    env:
+    - name: ROLE
+      value: "worker"
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: training-worker-1
+  namespace: default
+  labels:
+    scheduling.x-k8s.io/pod-group: example-group
+    training.kubeflow.org/replica-type: worker
+    training.kubeflow.org/replica-index: "1"
+spec:
+  schedulerName: topology-ip-scheduler
+  containers:
+  - name: training
+    image: training:latest
+    command: ["python", "train.py"]
+    env:
+    - name: ROLE
+      value: "worker"
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m" 
