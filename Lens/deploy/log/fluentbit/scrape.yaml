@@ -1,0 +1,19 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: fluent-bit
+  namespace: primus-lens
+  labels:
+    app.kubernetes.io/name: fluent-bit
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fluent-bit
+      app.kubernetes.io/managed-by: Helm
+  namespaceSelector:
+    matchNames:
+      - primus-lens
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /api/v2/metrics
