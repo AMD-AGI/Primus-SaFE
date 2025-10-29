@@ -119,8 +119,9 @@ const (
 	OpsJobFinalizer                 = PrimusSafeDomain + "ops.job.finalizer"
 
 	// addon
-	AddonPrefix    = PrimusSafePrefix + "addon."
-	AddonFinalizer = AddonPrefix + "finalizer"
+	AddonPrefix       = PrimusSafePrefix + "addon."
+	AddonFinalizer    = AddonPrefix + "finalizer"
+	AddonDefaultLabel = AddonPrefix + "default"
 )
 
 type SecretType string

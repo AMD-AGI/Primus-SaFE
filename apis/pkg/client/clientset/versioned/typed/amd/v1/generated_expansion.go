@@ -26,8 +26,6 @@ type ResourceTemplateExpansion interface{}
 
 type RoleExpansion interface{}
 
-type StorageClusterExpansion interface{}
-
 type UserExpansion interface{}
 
 type WorkloadExpansion interface{}

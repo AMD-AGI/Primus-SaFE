@@ -102,10 +102,3 @@ type HelmRepositoryStatus struct {
 func init() {
 	SchemeBuilder.Register(&Addon{}, &AddonList{})
 }
-
-func (a Addon) GetReleaseNamespace() string {
-	if a.Spec.AddonSource.HelmRepository.Namespace != "" {
-		return a.Spec.AddonSource.HelmRepository.Namespace
-	}
-	return DefaultNamespace
-}
