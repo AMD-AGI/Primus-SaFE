@@ -1,0 +1,37 @@
+apiVersion: postgres-operator.crunchydata.com/v1beta1
+kind: PostgresCluster
+metadata:
+  name: primus-lens
+  namespace: primus-lens
+spec:
+  config:
+    parameters:
+      max_connections: "500"
+  backups:
+    pgbackrest:
+      repos:
+        - name: repo1
+          volume:
+            volumeClaimSpec:
+              storageClassName: rbd
+              accessModes:
+                - ReadWriteOnce
+              resources:
+                requests:
+                  storage: 1024Gi
+  instances:
+    - dataVolumeClaimSpec:
+        storageClassName: rbd
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 500Gi
+      name: lens
+      replicas: 2
+  monitoring:
+    pgmonitor:
+      exporter:
+        image: "registry.developers.crunchydata.com/crunchydata/crunchy-postgres-exporter:ubi8-0.16.0-1"
+  port: 5432
+  postgresVersion: 17
