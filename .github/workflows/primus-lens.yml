@@ -1,4 +1,4 @@
-name: Build
+name: Primus-Lens-Build
 on:
   push:
     branches:
@@ -130,7 +130,8 @@ jobs:
             --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
             -t ${{ matrix.name }}:${IMAGE_VERSION} \
             -t ${{ matrix.name }}:latest \
-            -f build/Dockerfile .
+            -f Lens/ci/Dockerfile .
+          
 
           for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
             buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${repo}/${{ matrix.name }}:${IMAGE_VERSION}
