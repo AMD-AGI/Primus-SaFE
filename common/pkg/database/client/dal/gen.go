@@ -17,41 +17,50 @@ import (
 
 func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 	return &Query{
-		db:             db,
-		Fault:          newFault(db, opts...),
-		Image:          newImage(db, opts...),
-		ImageDigest:    newImageDigest(db, opts...),
-		ImageImportJob: newImageImportJob(db, opts...),
-		OpsJob:         newOpsJob(db, opts...),
-		RegistryInfo:   newRegistryInfo(db, opts...),
-		Workload:       newWorkload(db, opts...),
+		db:                db,
+		Fault:             newFault(db, opts...),
+		Image:             newImage(db, opts...),
+		ImageDigest:       newImageDigest(db, opts...),
+		ImageImportJob:    newImageImportJob(db, opts...),
+		Notification:      newNotification(db, opts...),
+		OpsJob:            newOpsJob(db, opts...),
+		PublicKey:         newPublicKey(db, opts...),
+		RegistryInfo:      newRegistryInfo(db, opts...),
+		SSHSessionRecords: newSSHSessionRecords(db, opts...),
+		Workload:          newWorkload(db, opts...),
 	}
 }
 
 type Query struct {
 	db *gorm.DB
 
-	Fault          fault
-	Image          image
-	ImageDigest    imageDigest
-	ImageImportJob imageImportJob
-	OpsJob         opsJob
-	RegistryInfo   registryInfo
-	Workload       workload
+	Fault             fault
+	Image             image
+	ImageDigest       imageDigest
+	ImageImportJob    imageImportJob
+	Notification      notification
+	OpsJob            opsJob
+	PublicKey         publicKey
+	RegistryInfo      registryInfo
+	SSHSessionRecords sSHSessionRecords
+	Workload          workload
 }
 
 func (q *Query) Available() bool { return q.db != nil }
 
 func (q *Query) clone(db *gorm.DB) *Query {
 	return &Query{
-		db:             db,
-		Fault:          q.Fault.clone(db),
-		Image:          q.Image.clone(db),
-		ImageDigest:    q.ImageDigest.clone(db),
-		ImageImportJob: q.ImageImportJob.clone(db),
-		OpsJob:         q.OpsJob.clone(db),
-		RegistryInfo:   q.RegistryInfo.clone(db),
-		Workload:       q.Workload.clone(db),
+		db:                db,
+		Fault:             q.Fault.clone(db),
+		Image:             q.Image.clone(db),
+		ImageDigest:       q.ImageDigest.clone(db),
+		ImageImportJob:    q.ImageImportJob.clone(db),
+		Notification:      q.Notification.clone(db),
+		OpsJob:            q.OpsJob.clone(db),
+		PublicKey:         q.PublicKey.clone(db),
+		RegistryInfo:      q.RegistryInfo.clone(db),
+		SSHSessionRecords: q.SSHSessionRecords.clone(db),
+		Workload:          q.Workload.clone(db),
 	}
 }
 
@@ -65,36 +74,45 @@ func (q *Query) WriteDB() *Query {
 
 func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 	return &Query{
-		db:             db,
-		Fault:          q.Fault.replaceDB(db),
-		Image:          q.Image.replaceDB(db),
-		ImageDigest:    q.ImageDigest.replaceDB(db),
-		ImageImportJob: q.ImageImportJob.replaceDB(db),
-		OpsJob:         q.OpsJob.replaceDB(db),
-		RegistryInfo:   q.RegistryInfo.replaceDB(db),
-		Workload:       q.Workload.replaceDB(db),
+		db:                db,
+		Fault:             q.Fault.replaceDB(db),
+		Image:             q.Image.replaceDB(db),
+		ImageDigest:       q.ImageDigest.replaceDB(db),
+		ImageImportJob:    q.ImageImportJob.replaceDB(db),
+		Notification:      q.Notification.replaceDB(db),
+		OpsJob:            q.OpsJob.replaceDB(db),
+		PublicKey:         q.PublicKey.replaceDB(db),
+		RegistryInfo:      q.RegistryInfo.replaceDB(db),
+		SSHSessionRecords: q.SSHSessionRecords.replaceDB(db),
+		Workload:          q.Workload.replaceDB(db),
 	}
 }
 
 type queryCtx struct {
-	Fault          *faultDo
-	Image          *imageDo
-	ImageDigest    *imageDigestDo
-	ImageImportJob *imageImportJobDo
-	OpsJob         *opsJobDo
-	RegistryInfo   *registryInfoDo
-	Workload       *workloadDo
+	Fault             *faultDo
+	Image             *imageDo
+	ImageDigest       *imageDigestDo
+	ImageImportJob    *imageImportJobDo
+	Notification      *notificationDo
+	OpsJob            *opsJobDo
+	PublicKey         *publicKeyDo
+	RegistryInfo      *registryInfoDo
+	SSHSessionRecords *sSHSessionRecordsDo
+	Workload          *workloadDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
 	return &queryCtx{
-		Fault:          q.Fault.WithContext(ctx),
-		Image:          q.Image.WithContext(ctx),
-		ImageDigest:    q.ImageDigest.WithContext(ctx),
-		ImageImportJob: q.ImageImportJob.WithContext(ctx),
-		OpsJob:         q.OpsJob.WithContext(ctx),
-		RegistryInfo:   q.RegistryInfo.WithContext(ctx),
-		Workload:       q.Workload.WithContext(ctx),
+		Fault:             q.Fault.WithContext(ctx),
+		Image:             q.Image.WithContext(ctx),
+		ImageDigest:       q.ImageDigest.WithContext(ctx),
+		ImageImportJob:    q.ImageImportJob.WithContext(ctx),
+		Notification:      q.Notification.WithContext(ctx),
+		OpsJob:            q.OpsJob.WithContext(ctx),
+		PublicKey:         q.PublicKey.WithContext(ctx),
+		RegistryInfo:      q.RegistryInfo.WithContext(ctx),
+		SSHSessionRecords: q.SSHSessionRecords.WithContext(ctx),
+		Workload:          q.Workload.WithContext(ctx),
 	}
 }
 

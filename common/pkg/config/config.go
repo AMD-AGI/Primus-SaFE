@@ -299,3 +299,15 @@ func GetUserTokenExpire() int {
 func IsUserTokenRequired() bool {
 	return getBool(userTokenRequired, true)
 }
+
+func IsNotificationEnable() bool {
+	return getBool(notificationEnable, true)
+}
+
+func GetNotificationConfig() string {
+	return getFromFile(notificationSecretPath, "config")
+}
+
+func GetSystemBaseUrl() string {
+	return getString(systemBaseUrl, "")
+}
