@@ -44,7 +44,7 @@ type FaultResponseItem struct {
 	Action string `json:"action"`
 	// The status of fault, including Succeeded/Failed
 	Phase string `json:"phase"`
-	// The cluster's id
+	// The cluster id
 	ClusterId string `json:"clusterId"`
 	// The creation time of fault
 	CreationTime string `json:"creationTime"`

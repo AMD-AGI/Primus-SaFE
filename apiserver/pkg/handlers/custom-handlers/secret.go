@@ -35,7 +35,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-// CreateSecret: handles the creation of a new secret resource.
+// CreateSecret handles the creation of a new secret resource.
 // It authorizes the request, parses the creation request, generates a secret object,
 // creates it in the Kubernetes cluster, and updates associated workspace secrets.
 // Returns the created secret ID on success.
@@ -43,34 +43,34 @@ func (h *Handler) CreateSecret(c *gin.Context) {
 	handle(c, h.createSecret)
 }
 
-// ListSecret: handles listing secret resources with filtering capabilities.
+// ListSecret handles listing secret resources with filtering capabilities.
 // It retrieves secrets based on query parameters, applies authorization filtering,
 // and returns them in a sorted list.
 func (h *Handler) ListSecret(c *gin.Context) {
 	handle(c, h.listSecret)
 }
 
-// GetSecret: retrieves detailed information about a specific secret.
+// GetSecret retrieves detailed information about a specific secret.
 // It authorizes the request and returns the secret's complete information.
 func (h *Handler) GetSecret(c *gin.Context) {
 	handle(c, h.getSecret)
 }
 
-// PatchSecret: handles partial updates to a secret resource.
+// PatchSecret handles partial updates to a secret resource.
 // It authorizes the request, parses update parameters, applies changes,
 // and updates the secret along with associated cluster and workspace resources.
 func (h *Handler) PatchSecret(c *gin.Context) {
 	handle(c, h.patchSecret)
 }
 
-// DeleteSecret: handles deletion of a secret resource.
+// DeleteSecret handles deletion of a secret resource.
 // It authorizes the request, removes the secret from the Kubernetes cluster,
 // and cleans up references in associated clusters and workspaces.
 func (h *Handler) DeleteSecret(c *gin.Context) {
 	handle(c, h.deleteSecret)
 }
 
-// createSecret: implements the secret creation logic.
+// createSecret implements the secret creation logic.
 // Validates the request, generates a secret object, creates it in the cluster,
 // and updates workspace secret associations.
 func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
@@ -110,7 +110,7 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
-// listSecret: implements the secret listing logic.
+// listSecret implements the secret listing logic.
 // Parses query parameters, builds label selectors, retrieves secrets from the cluster,
 // applies authorization filtering, sorts them, and converts to response format.
 func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
@@ -153,7 +153,7 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
-// getSecret: implements the logic for retrieving a single secret's information.
+// getSecret implements the logic for retrieving a single secret's information.
 // Authorizes the request and retrieves the secret by name from the cluster.
 func (h *Handler) getSecret(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
@@ -175,7 +175,7 @@ func (h *Handler) getSecret(c *gin.Context) (interface{}, error) {
 	return cvtToSecretResponseItem(secret), nil
 }
 
-// patchSecret: implements partial update logic for a secret.
+// patchSecret implements partial update logic for a secret.
 // Parses the patch request, applies specified changes, updates the secret in the cluster,
 // and synchronizes changes with associated cluster and workspace resources.
 func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
@@ -220,7 +220,7 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-// updateSecret: applies updates to a secret based on the patch request.
+// updateSecret applies updates to a secret based on the patch request.
 func updateSecret(secret *corev1.Secret, req *types.PatchSecretRequest) error {
 	if req.Params != nil {
 		reqType := v1.SecretType(v1.GetSecretType(secret))
@@ -238,7 +238,7 @@ func updateSecret(secret *corev1.Secret, req *types.PatchSecretRequest) error {
 	return nil
 }
 
-// updateClusterSecret: updates cluster resources that reference the specified secret.
+// updateClusterSecret updates cluster resources that reference the specified secret.
 // If any cluster references the secret and the resource version has changed,
 // it updates the cluster's reference to point to the new secret version.
 func (h *Handler) updateClusterSecret(ctx context.Context, secret *corev1.Secret) error {
@@ -262,7 +262,7 @@ func (h *Handler) updateClusterSecret(ctx context.Context, secret *corev1.Secret
 	return nil
 }
 
-// updateWorkspaceSecret: updates workspace resources to synchronize secret references.
+// updateWorkspaceSecret updates workspace resources to synchronize secret references.
 // Ensures all workspaces that should reference the secret have up-to-date references,
 // including handling the bind-all-workspaces flag.
 func (h *Handler) updateWorkspaceSecret(ctx context.Context, inputSecret *corev1.Secret) error {
@@ -305,7 +305,7 @@ func (h *Handler) updateWorkspaceSecret(ctx context.Context, inputSecret *corev1
 	return nil
 }
 
-// deleteSecret: implements secret deletion logic.
+// deleteSecret implements secret deletion logic.
 // Removes the secret from the Kubernetes cluster and cleans up references
 // in associated clusters and workspaces.
 func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
@@ -341,7 +341,7 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-// deleteClusterSecret: removes secret references from cluster resources.
+// deleteClusterSecret removes secret references from cluster resources.
 // Clears image secret references in clusters that reference the deleted secret.
 func (h *Handler) deleteClusterSecret(ctx context.Context, secretId string) error {
 	clusterList := &v1.ClusterList{}
@@ -362,7 +362,7 @@ func (h *Handler) deleteClusterSecret(ctx context.Context, secretId string) erro
 	return nil
 }
 
-// deleteWorkspaceSecret: removes secret references from workspace resources.
+// deleteWorkspaceSecret removes secret references from workspace resources.
 // Cleans up image secret references in workspaces that reference the deleted secret.
 func (h *Handler) deleteWorkspaceSecret(ctx context.Context, secretId string) error {
 	if err := backoff.ConflictRetry(func() error {
@@ -393,7 +393,7 @@ func (h *Handler) deleteWorkspaceSecret(ctx context.Context, secretId string) er
 	return nil
 }
 
-// getAdminSecret: retrieves a secret resource by name from the Kubernetes cluster.
+// getAdminSecret retrieves a secret resource by name from the Kubernetes cluster.
 // Returns the secret object or an error if retrieval fails.
 func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secret, error) {
 	secret, err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(
@@ -404,7 +404,7 @@ func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secr
 	return secret, err
 }
 
-// generateSecret: creates a new secret object based on the creation request.
+// generateSecret creates a new secret object based on the creation request.
 // Validates the request parameters and populates the secret metadata and data.
 func generateSecret(req *types.CreateSecretRequest) (*corev1.Secret, error) {
 	if req.Name == "" {
@@ -431,7 +431,7 @@ func generateSecret(req *types.CreateSecretRequest) (*corev1.Secret, error) {
 	return secret, nil
 }
 
-// buildSecretData: constructs the secret data based on the secret type and parameters.
+// buildSecretData constructs the secret data based on the secret type and parameters.
 // Handles different secret types (image, SSH) and formats the data appropriately.
 func buildSecretData(reqType v1.SecretType, allParams []map[types.SecretParam]string, secret *corev1.Secret) error {
 	var secretType corev1.SecretType
@@ -484,13 +484,13 @@ func buildSecretData(reqType v1.SecretType, allParams []map[types.SecretParam]st
 	return nil
 }
 
-// existKey: checks if a key exists in the parameters map and has a non-empty value.
+// existKey checks if a key exists in the parameters map and has a non-empty value.
 func existKey(params map[types.SecretParam]string, key types.SecretParam) bool {
 	val, _ := params[key]
 	return val != ""
 }
 
-// parseListSecretQuery: parses and validates the query parameters for listing secrets.
+// parseListSecretQuery parses and validates the query parameters for listing secrets.
 func parseListSecretQuery(c *gin.Context) (*types.ListSecretRequest, error) {
 	query := &types.ListSecretRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
@@ -499,7 +499,7 @@ func parseListSecretQuery(c *gin.Context) (*types.ListSecretRequest, error) {
 	return query, nil
 }
 
-// buildSecretLabelSelector: constructs a label selector based on query parameters.
+// buildSecretLabelSelector constructs a label selector based on query parameters.
 // Used to filter secrets by type criteria.
 func buildSecretLabelSelector(query *types.ListSecretRequest) labels.Selector {
 	var req1 *labels.Requirement
@@ -512,7 +512,7 @@ func buildSecretLabelSelector(query *types.ListSecretRequest) labels.Selector {
 	return labelSelector
 }
 
-// cvtToSecretResponseItem: converts a secret object to a response item format.
+// cvtToSecretResponseItem converts a secret object to a response item format.
 // Maps the secret data to the appropriate response structure with proper value handling.
 func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 	result := types.SecretResponseItem{

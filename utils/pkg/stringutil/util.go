@@ -112,12 +112,12 @@ func ConvertToString(value interface{}) string {
 	case bool:
 		return fmt.Sprintf("%t", v)
 	default:
-		// 如果类型不是上述任何一种，返回其类型名称
+		// Return empty string if type is not any of the above
 		return ""
 	}
 }
 
-// splits a string by the given separator and trims whitespace from each part.
+// Split splits a string by the given separator and trims whitespace from each part.
 // Empty strings after trimming are filtered out from the result.
 // Returns a slice of non-empty, whitespace-trimmed strings or nil if the input string is empty.
 func Split(str, sep string) []string {

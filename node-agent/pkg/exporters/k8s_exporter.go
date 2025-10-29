@@ -55,7 +55,7 @@ func (ke *K8sExporter) Name() string {
 	return "k8sExporter"
 }
 
-// generateAddConditions: generates node conditions to add a taint for failed monitors
+// generateAddConditions generates node conditions to add a taint for failed monitors
 func generateAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.NodeCondition, bool) {
 	results := make([]corev1.NodeCondition, 0, len(node.Status.Conditions)+1)
 	isFound := false
@@ -84,7 +84,7 @@ func generateAddConditions(node *corev1.Node, msg *types.MonitorMessage) ([]core
 	return results, true
 }
 
-// generateDeleteConditions: generates node conditions to remove a taint for successful monitors
+// generateDeleteConditions generates node conditions to remove a taint for successful monitors
 func generateDeleteConditions(node *corev1.Node, msg *types.MonitorMessage) ([]corev1.NodeCondition, bool) {
 	key := commonfaults.GenerateTaintKey(msg.Id)
 	found := false

@@ -16,7 +16,7 @@ type CreateUserRequest struct {
 	Name string `json:"name,omitempty"`
 	// The user mail
 	Email string `json:"email,omitempty"`
-	// The user type, such as default, teams, required
+	// The user type, such as default, teams
 	Type v1.UserType `json:"type,omitempty"`
 	// The user password
 	Password string `json:"password,omitempty"`
@@ -32,9 +32,9 @@ type CreateUserResponse struct {
 }
 
 type ListUserRequest struct {
-	// The username
+	// The username, will be QueryEscape processed
 	Name string `form:"name" binding:"omitempty"`
-	// The user mail
+	// The user mail, will be QueryEscape processed
 	Email string `form:"email" binding:"omitempty"`
 	// Workspace id accessible to the user.
 	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`
@@ -55,11 +55,11 @@ type UserResponseItem struct {
 	Email string `json:"email"`
 	// The user type, such as default, teams
 	Type v1.UserType `json:"type"`
-	// The user's role, such as system-admin, default
+	// The user role, such as system-admin, default
 	Roles []v1.UserRole `json:"roles"`
-	// The workspace's id which user can access
+	// The workspaces which user can access
 	Workspaces []WorkspaceEntry `json:"workspaces"`
-	// The workspace's id which user can manage
+	// The workspaces which user can manage
 	ManagedWorkspaces []WorkspaceEntry `json:"managedWorkspaces"`
 	// The user creation time
 	CreationTime string `json:"creationTime"`
@@ -97,9 +97,9 @@ type UserLoginRequest struct {
 
 type UserLoginResponse struct {
 	UserResponseItem `json:",inline"`
-	// The timestamp when the user's token expires, in seconds.
+	// The timestamp when the user token expires, in seconds.
 	Expire int64 `json:"expire"`
-	// The user's token
+	// The user token
 	Token string `json:"token"`
 }
 

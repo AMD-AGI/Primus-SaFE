@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package image_handlers
 
 import (
@@ -230,8 +235,8 @@ func (h *ImageHandler) harborDo(ctx context.Context, harborHost, path, username,
 		req.SetBasicAuth(username, password)
 	}
 
-	client := newHTTPClientSkipTLS()
-	resp, err := client.Do(req)
+	httpClient := newHTTPClientSkipTLS()
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%s request failed: %w", method, err)
 	}
@@ -258,8 +263,8 @@ func (h *ImageHandler) harborRequest(ctx context.Context, harborHost, path, user
 		req.SetBasicAuth(username, password)
 	}
 
-	client := newHTTPClientSkipTLS()
-	resp, err := client.Do(req)
+	httpClient := newHTTPClientSkipTLS()
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}

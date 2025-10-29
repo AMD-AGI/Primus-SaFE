@@ -28,6 +28,15 @@ type SearchClientConfig struct {
 	Prefix   string
 }
 
+// Equals compares two SearchClientConfig instances for equality.
+// It checks if all fields (Username, Password, Endpoint, and Prefix) are identical between
+// the current config and the other config.
+//
+// Parameters:
+//   - other: SearchClientConfig to compare with the current instance
+//
+// Returns:
+//   - bool: true if all fields are equal, false otherwis
 func (s SearchClientConfig) Equals(other SearchClientConfig) bool {
 	return s.Username == other.Username &&
 		s.Password == other.Password &&
@@ -35,6 +44,12 @@ func (s SearchClientConfig) Equals(other SearchClientConfig) bool {
 		s.Prefix == other.Prefix
 }
 
+// Validate checks if all required fields in the SearchClientConfig are properly set.
+// It verifies that Endpoint, Username, Password, and Prefix are all non-empty.
+//
+// Returns:
+//   - error: nil if all fields are valid, otherwise returns an error with a descriptive message
+//     indicating which field is missing or empt
 func (s SearchClientConfig) Validate() error {
 	if s.Endpoint == "" {
 		return fmt.Errorf("opensearch endpoint is empty")
@@ -56,8 +71,7 @@ type SearchClient struct {
 	httpClient httpclient.Interface
 }
 
-// NewClient() *SearchClient
-// Create or return the singleton instance of SearchClient
+// NewClient create or return the singleton instance of SearchClient
 // Gets OpenSearch endpoint, index prefix, username and password from configuration
 // Initializes HTTP client
 // Returns: SearchClient instance
@@ -68,7 +82,7 @@ func NewClient(cfg SearchClientConfig) *SearchClient {
 	}
 }
 
-// Search OpenSearch data by time range
+// SearchByTimeRange search openSearch data by time range
 // Parameters:
 //
 //	sinceTime: Start time
@@ -93,7 +107,7 @@ func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, uri str
 	return c.Request(index+uri, http.MethodPost, body)
 }
 
-// Request : Send HTTP request to OpenSearch
+// Request send HTTP request to OpenSearch
 // Parameters:
 //
 //	uri: Full API path
@@ -127,7 +141,7 @@ func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, err
 	return resp.Body, nil
 }
 
-// Generate OpenSearch index name based on time range
+// generateQueryIndex generate OpenSearch index name based on time range
 // Parameters:
 //
 //	sinceTime: Start time

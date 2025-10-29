@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package image_handlers
 
 import (
@@ -651,7 +656,7 @@ func (h *ImageHandler) getImageSystemCtx(ctx context.Context, hostName string, i
 	return sysCtx, nil
 }
 
-func (h *ImageHandler) fetchDockerToken(ctx context.Context, imagePath string) (string, error) {
+func (h *ImageHandler) fetchDockerToken(_ context.Context, imagePath string) (string, error) {
 	url := fmt.Sprintf("https://auth.docker.io/token?service=registry.docker.io&scope=repository:%s:pull", imagePath)
 	resp, err := h.httpClient.Get(url)
 	if err != nil {

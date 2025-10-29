@@ -55,7 +55,7 @@ type Server struct {
 	isInited    bool
 }
 
-// NewServer: creates and initializes a new Server instance.
+// NewServer creates and initializes a new Server instance.
 // It sets up the signal handler context and calls the init method to configure the server.
 // Returns the initialized Server or an error if initialization fails.
 func NewServer() (*Server, error) {
@@ -69,7 +69,7 @@ func NewServer() (*Server, error) {
 	return s, nil
 }
 
-// init: performs the initial setup of the server including flag parsing,
+// init performs the initial setup of the server including flag parsing,
 // logging initialization, configuration loading, and controller manager setup.
 // It also sets up the controllers and marks the server as initialized.
 func (s *Server) init() error {
@@ -103,7 +103,7 @@ func (s *Server) init() error {
 	return nil
 }
 
-// Start: begins the server operation by starting the controller manager,
+// Start begins the server operation by starting the controller manager,
 // HTTP server, and SSH server (if enabled) in separate goroutines.
 // It waits for a signal to stop and then calls Stop to shut down services.
 func (s *Server) Start() {
@@ -143,7 +143,7 @@ func (s *Server) Start() {
 	s.Stop()
 }
 
-// Stop: gracefully shuts down the HTTP server and SSH server (if running).
+// Stop gracefully shuts down the HTTP server and SSH server (if running).
 // It cancels the context, shuts down services, and flushes logs before exiting.
 func (s *Server) Stop() {
 	ctx, cancel := context.WithCancel(s.ctx)
@@ -161,7 +161,7 @@ func (s *Server) Stop() {
 	klog.Flush()
 }
 
-// initLogs: initializes the logging system with the specified log file path and size.
+// initLogs initializes the logging system with the specified log file path and size.
 // It also sets up the controller-runtime logger to use klog.
 func (s *Server) initLogs() error {
 	if err := commonklog.Init(s.opts.LogfilePath, s.opts.LogFileSize); err != nil {
@@ -171,7 +171,7 @@ func (s *Server) initLogs() error {
 	return nil
 }
 
-// initConfig: loads the server configuration from the specified config file path.
+// initConfig loads the server configuration from the specified config file path.
 func (s *Server) initConfig() error {
 	fullPath, err := filepath.Abs(s.opts.Config)
 	if err != nil {
@@ -183,7 +183,7 @@ func (s *Server) initConfig() error {
 	return nil
 }
 
-// startHttpServer: initializes and starts the HTTP server.
+// startHttpServer initializes and starts the HTTP server.
 // It sets up the HTTP handlers, configures the server address based on the configured port,
 // and starts listening for HTTP requests.
 func (s *Server) startHttpServer() error {
@@ -204,7 +204,7 @@ func (s *Server) startHttpServer() error {
 	return nil
 }
 
-// startSSHServer: initializes and starts the SSH server if SSH functionality is enabled.
+// startSSHServer initializes and starts the SSH server if SSH functionality is enabled.
 // It sets up the SSH handlers, configures the server address based on the configured port,
 // and starts listening for SSH connections.
 func (s *Server) startSSHServer() error {
@@ -228,7 +228,7 @@ func (s *Server) startSSHServer() error {
 	return nil
 }
 
-// newCtrlManager: creates and configures a new controller manager.
+// newCtrlManager creates and configures a new controller manager.
 // It sets up the manager options including scheme, leader election, health probes,
 // and then creates and returns the manager instance.
 func newCtrlManager() (ctrlruntime.Manager, error) {

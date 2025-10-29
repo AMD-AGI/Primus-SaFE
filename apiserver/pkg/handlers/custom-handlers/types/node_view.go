@@ -20,7 +20,7 @@ type CreateNodeRequest struct {
 	PrivateIP string `json:"privateIP"`
 	// Node public IP, accessible from external networks
 	PublicIP string `json:"publicIP,omitempty"`
-	// SSH port，default is 22
+	// SSH port, default is 22
 	Port *int32 `json:"port,omitempty"`
 	// Node labels
 	Labels map[string]string `json:"labels,omitempty"`
@@ -33,7 +33,7 @@ type CreateNodeRequest struct {
 }
 
 type CreateNodeResponse struct {
-	// The node's id
+	// The node id
 	NodeId string `json:"nodeId"`
 }
 
@@ -55,10 +55,9 @@ type ListNodeRequest struct {
 	IsAddonsInstalled *bool `form:"isAddonsInstalled" binding:"omitempty"`
 	// If enabled, only the node id, node Name and node IP will be returned.
 	Brief bool `form:"brief" binding:"omitempty"`
-	// Starting offset for the results. dfault is 0
+	// Starting offset for the results. dfault: 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
-	// Limit the number of returned results. default is 100
-	// If set to -1, all results will be returned.
+	// Limit the number of returned results. default: 100, -1 for all
 	Limit int `form:"limit" binding:"omitempty"`
 }
 
@@ -85,7 +84,7 @@ type ListNodeBriefResponse struct {
 type NodeBriefResponseItem struct {
 	// node id
 	NodeId string `json:"nodeId"`
-	// node display name
+	// node name
 	NodeName string `json:"nodeName"`
 	// the internal ip of k8s cluster
 	InternalIP string `json:"internalIP"`
@@ -99,11 +98,11 @@ type ListNodeResponse struct {
 
 type NodeResponseItem struct {
 	NodeBriefResponseItem
-	// The node's cluster id
+	// The cluster id of node
 	ClusterId string `json:"clusterId"`
-	// The node's workspace id
+	// The workspace id and name of node
 	Workspace WorkspaceEntry `json:"workspace"`
-	// The node's phase, such as Ready, SSHFailed, HostnameFailed, Managing, ManagedFailed, Unmanaging, UnmanagedFailed
+	// The node phase, such as Ready, SSHFailed, HostnameFailed, Managing, ManagedFailed, Unmanaging, UnmanagedFailed
 	Phase string `json:"phase"`
 	// Indicates whether the node can be scheduled in the Kubernetes cluster.
 	Available bool `json:"available"`

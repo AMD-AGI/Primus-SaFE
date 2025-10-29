@@ -33,7 +33,7 @@ type SshServer struct {
 	inShutdown atomic.Bool // true when server is in shutdown
 }
 
-// NewSshServer: creates a new SSH server instance with the specified address and handler.
+// NewSshServer creates a new SSH server instance with the specified address and handler.
 // It initializes the server with a default maximum connection limit of MaxSSHConnections.
 // Returns a pointer to the newly created SshServer.
 func NewSshServer(addr string, handler SshHandler) *SshServer {
@@ -43,7 +43,7 @@ func NewSshServer(addr string, handler SshHandler) *SshServer {
 	}
 }
 
-// Start: starts the SSH server and begins listening for incoming connections.
+// Start starts the SSH server and begins listening for incoming connections.
 // It creates a TCP listener on the configured address and accepts incoming connections,
 // dispatching each connection to the handler in a separate goroutine.
 // The server respects the context for cancellation and handles shutdown gracefully.
@@ -91,7 +91,7 @@ func (s *SshServer) Start(ctx context.Context) error {
 	}
 }
 
-// Shutdown: gracefully shuts down the SSH server by closing the listener.
+// Shutdown gracefully shuts down the SSH server by closing the listener.
 // It sets the shutdown flag and closes the underlying network listener,
 // preventing new connections from being accepted.
 // Returns an error if closing the listener fails.

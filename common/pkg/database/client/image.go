@@ -1,14 +1,21 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package client
 
 import (
 	"context"
 	"errors"
 	"fmt"
+
+	"gorm.io/gorm"
+	"k8s.io/klog/v2"
+
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/dal"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	"gorm.io/gorm"
-	"k8s.io/klog/v2"
 )
 
 type ImageFilter struct {
@@ -21,7 +28,7 @@ type ImageFilter struct {
 	Ready    bool
 }
 
-// UpsertImage 插入或更新镜像记录
+// UpsertImage inserts or updates an image record.
 func (c *Client) UpsertImage(ctx context.Context, img *model.Image) error {
 	if img == nil {
 		return commonerrors.NewBadRequest("the input is empty")
@@ -111,7 +118,7 @@ func (c *Client) GetImage(ctx context.Context, imageId int32) (*model.Image, err
 	return img, nil
 }
 
-// DeleteImage 逻辑删除镜像
+// DeleteImage performs a soft delete of an image
 func (c *Client) DeleteImage(ctx context.Context, id int32, deletedBy string) error {
 	q := dal.Use(c.gorm).Image
 	img, err := q.WithContext(ctx).Where(q.ID.Eq(id), q.DeletedAt.IsNull()).First()

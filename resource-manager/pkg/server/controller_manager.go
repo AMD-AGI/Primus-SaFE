@@ -32,7 +32,7 @@ type ControllerManager struct {
 	ctx         context.Context
 }
 
-// NewControllerManager: creates and configures a new ControllerManager instance
+// NewControllerManager creates and configures a new ControllerManager instance
 // It sets up leader election, health checks
 func NewControllerManager(scheme *runtime.Scheme) (*ControllerManager, error) {
 	cm := &ControllerManager{
@@ -85,7 +85,7 @@ func NewControllerManager(scheme *runtime.Scheme) (*ControllerManager, error) {
 	return cm, nil
 }
 
-// Start: begins the controller manager operation in a separate goroutine
+// Start begins the controller manager operation in a separate goroutine
 // It also waits for cache synchronization before returning
 func (cm *ControllerManager) Start() error {
 	go func() {
@@ -102,7 +102,7 @@ func (cm *ControllerManager) Start() error {
 	return nil
 }
 
-// Wait: blocks until the controller manager context is cancelled (shutdown signal)
+// Wait blocks until the controller manager context is cancelled (shutdown signal)
 func (cm *ControllerManager) Wait() {
 	<-cm.ctx.Done()
 }

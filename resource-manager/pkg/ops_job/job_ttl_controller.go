@@ -77,7 +77,7 @@ func (r *JobTTLController) Reconcile(ctx context.Context, req ctrlruntime.Reques
 	return r.deleteExpiredJob(ctx, job)
 }
 
-// deleteExpiredJob: deletes jobs that have exceeded their TTL seconds after completion
+// deleteExpiredJob deletes jobs that have exceeded their TTL seconds after completion
 func (r *JobTTLController) deleteExpiredJob(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	nowTime := time.Now().Unix()
 	elapsedSeconds := nowTime - job.Status.FinishedAt.Unix()

@@ -29,7 +29,7 @@ type Handler[T comparable] interface {
 	Do(ctx context.Context, message T) (ctrlruntime.Result, error)
 }
 
-// Create a new controller instance
+// NewController create a new controller instance
 // Parameters:
 //
 //	h: Processor implementing the Handler interface
@@ -46,7 +46,7 @@ func NewController[T comparable](h Handler[T], concurrent int) *Controller[T] {
 	}
 }
 
-// Similar to the above, creates a new controller instance using the provided queue
+// NewControllerWithQueue similar to the above, creates a new controller instance using the provided queue
 func NewControllerWithQueue[T comparable](h Handler[T], queue workqueue.TypedRateLimitingInterface[T], concurrent int) *Controller[T] {
 	return &Controller[T]{
 		handler:       h,
@@ -55,7 +55,7 @@ func NewControllerWithQueue[T comparable](h Handler[T], queue workqueue.TypedRat
 	}
 }
 
-// Start the controller run loop
+// Run start the controller run loop
 // Parameters:
 //
 //	ctx: Context for controlling goroutine lifecycle
@@ -71,7 +71,7 @@ func (c *Controller[T]) Run(ctx context.Context) {
 	}, time.Second*10)
 }
 
-// Process the next message in the queue
+// processNext process the next message in the queue
 // Parameters:
 //
 //	ctx: Context
@@ -108,7 +108,7 @@ func (c *Controller[T]) processNext(ctx context.Context) bool {
 	return true
 }
 
-// Add message to processing queue
+// Add add message to processing queue
 // Parameters:
 //
 //	message: Message object to be processe
@@ -116,7 +116,7 @@ func (c *Controller[T]) Add(message T) {
 	c.queue.Add(message)
 }
 
-// Add message to queue after specified delay
+// AddAfter add message to queue after specified delay
 // Parameters:
 //
 //	message: Message object to be processed
@@ -125,7 +125,7 @@ func (c *Controller[T]) AddAfter(message T, duration time.Duration) {
 	c.queue.AddAfter(message, duration)
 }
 
-// Get current queue length
+// GetQueueSize get current queue length
 // Return value: Number of messages waiting to be processed in the queue
 func (c *Controller[T]) GetQueueSize() int {
 	return c.queue.Len()

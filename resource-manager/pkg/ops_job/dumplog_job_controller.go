@@ -58,7 +58,7 @@ type DumpLogJobReconciler struct {
 	*controller.Controller[string]
 }
 
-// SetupDumpLogJobController: initializes and registers the DumpLogJobReconciler with the controller manager
+// SetupDumpLogJobController initializes and registers the DumpLogJobReconciler with the controller manager
 func SetupDumpLogJobController(ctx context.Context, mgr manager.Manager) error {
 	if !commonconfig.IsS3Enable() || !commonconfig.IsOpenSearchEnable() {
 		return nil
@@ -98,17 +98,17 @@ func (r *DumpLogJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r)
 }
 
-// observe: checks the job status for dump log operations
+// observe checks the job status for dump log operations
 func (r *DumpLogJobReconciler) observe(_ context.Context, _ *v1.OpsJob) (bool, error) {
 	return false, nil
 }
 
-// filter: determines if the job should be processed by this dump log reconciler
+// filter determines if the job should be processed by this dump log reconciler
 func (r *DumpLogJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
 	return job.Spec.Type != v1.OpsJobDumpLogType
 }
 
-// handle: processes the dump log job by adding it to the work queue, trigger subsequent parallel processing using the Do interface.
+// handle processes the dump log job by adding it to the work queue, trigger subsequent parallel processing using the Do interface.
 func (r *DumpLogJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	if job.IsPending() {
 		if err := r.setJobPhase(ctx, job, v1.OpsJobRunning); err != nil {
@@ -121,14 +121,14 @@ func (r *DumpLogJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrl
 	return ctrlruntime.Result{}, nil
 }
 
-// start: initializes and runs the worker routines for processing dump log jobs
+// start initializes and runs the worker routines for processing dump log jobs
 func (r *DumpLogJobReconciler) start(ctx context.Context) {
 	for i := 0; i < r.MaxConcurrent; i++ {
 		r.Run(ctx)
 	}
 }
 
-// Do: processes a dump log job by retrieving logs and uploading to S3
+// Do processes a dump log job by retrieving logs and uploading to S3
 func (r *DumpLogJobReconciler) Do(ctx context.Context, jobId string) (ctrlruntime.Result, error) {
 	job := &v1.OpsJob{}
 	if err := r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
@@ -148,7 +148,7 @@ func (r *DumpLogJobReconciler) Do(ctx context.Context, jobId string) (ctrlruntim
 	return result, err
 }
 
-// do: performs the main dump log operation including search, upload, and status update
+// do performs the main dump log operation including search, upload, and status update
 func (r *DumpLogJobReconciler) processDumpLogJob(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	workload, err := r.getInputWorkload(ctx, job)
 	if err != nil {
@@ -188,7 +188,7 @@ func (r *DumpLogJobReconciler) processDumpLogJob(ctx context.Context, job *v1.Op
 	}
 }
 
-// singleUpload: uploads log data in a single S3 operation
+// singleUpload uploads log data in a single S3 operation
 func (r *DumpLogJobReconciler) singleUpload(ctx context.Context, job *v1.OpsJob,
 	workload *workloadInfo, searchResult *commonsearch.OpenSearchResponse) error {
 	content := serializeSearchResponse(searchResult)
@@ -200,7 +200,7 @@ func (r *DumpLogJobReconciler) singleUpload(ctx context.Context, job *v1.OpsJob,
 	return nil
 }
 
-// multiUpload: uploads large log data using S3 multipart upload
+// multiUpload uploads large log data using S3 multipart upload
 func (r *DumpLogJobReconciler) multiUpload(
 	ctx context.Context,
 	client *commonsearch.SearchClient,
@@ -253,7 +253,7 @@ func (r *DumpLogJobReconciler) multiUpload(
 	return nil
 }
 
-// getInputWorkload: retrieves workload information from job parameters
+// getInputWorkload retrieves workload information from job parameters
 func (r *DumpLogJobReconciler) getInputWorkload(ctx context.Context, job *v1.OpsJob) (*workloadInfo, error) {
 	param := job.GetParameter(v1.ParameterWorkload)
 	if param == nil || param.Value == "" {
@@ -285,7 +285,7 @@ func (r *DumpLogJobReconciler) getInputWorkload(ctx context.Context, job *v1.Ops
 	return result, nil
 }
 
-// doSearch: performs log search in OpenSearch based on job and workload parameters
+// doSearch performs log search in OpenSearch based on job and workload parameters
 func (r *DumpLogJobReconciler) doSearch(client *commonsearch.SearchClient, job *v1.OpsJob, workload *workloadInfo) (*commonsearch.OpenSearchResponse, error) {
 	body := buildSearchBody(job, workload)
 
@@ -306,7 +306,7 @@ func (r *DumpLogJobReconciler) doSearch(client *commonsearch.SearchClient, job *
 	return result, nil
 }
 
-// buildSearchBody: constructs the OpenSearch query body for log retrieval
+// buildSearchBody constructs the OpenSearch query body for log retrieval
 func buildSearchBody(job *v1.OpsJob, workload *workloadInfo) []byte {
 	searchRequest := &commonsearch.OpenSearchRequest{
 		Size: commonsearch.MaxDocsPerQuery,
@@ -360,7 +360,7 @@ func buildSearchBody(job *v1.OpsJob, workload *workloadInfo) []byte {
 	return jsonutils.MarshalSilently(searchRequest)
 }
 
-// scroll: retrieves log data using OpenSearch scroll API
+// scroll retrieves log data using OpenSearch scroll API
 func (r *DumpLogJobReconciler) scroll(client *commonsearch.SearchClient, job *v1.OpsJob, scrollId string,
 	logCh chan<- *commonsearch.OpenSearchResponse, errCh chan<- error) {
 	request := &commonsearch.OpenSearchScrollRequest{
@@ -397,7 +397,7 @@ func (r *DumpLogJobReconciler) scroll(client *commonsearch.SearchClient, job *v1
 	}
 }
 
-// dump: processes and uploads log data through S3 multipart upload
+// dump processes and uploads log data through S3 multipart upload
 func (r *DumpLogJobReconciler) dump(ctx context.Context, job *v1.OpsJob, param *commons3.MultiUploadParam,
 	logCh <-chan *commonsearch.OpenSearchResponse, errCh chan<- error, stopCh chan struct{}) {
 	param.PartNumber = 1
@@ -448,7 +448,7 @@ func (r *DumpLogJobReconciler) dump(ctx context.Context, job *v1.OpsJob, param *
 	}
 }
 
-// clearScroll: cleans up OpenSearch scroll context
+// clearScroll cleans up OpenSearch scroll context
 func (r *DumpLogJobReconciler) clearScroll(client *commonsearch.SearchClient, scrollId string) {
 	req := &commonsearch.OpenSearchScrollRequest{
 		ScrollId: scrollId,
@@ -460,7 +460,7 @@ func (r *DumpLogJobReconciler) clearScroll(client *commonsearch.SearchClient, sc
 	}
 }
 
-// setOutput: updates job status with the S3 presigned URL for log access
+// setOutput updates job status with the S3 presigned URL for log access
 func (r *DumpLogJobReconciler) setOutput(ctx context.Context, job *v1.OpsJob, workloadId string) error {
 	var expireDay int32 = 1
 	if commonconfig.GetS3ExpireDay() > 0 && expireDay > commonconfig.GetS3ExpireDay() {
@@ -488,7 +488,7 @@ func (r *DumpLogJobReconciler) setOutput(ctx context.Context, job *v1.OpsJob, wo
 	return nil
 }
 
-// serializeSearchResponse: converts OpenSearch response to formatted log string
+// serializeSearchResponse converts OpenSearch response to formatted log string
 func serializeSearchResponse(data *commonsearch.OpenSearchResponse) string {
 	var logBuffer strings.Builder
 	for _, doc := range data.Hits.Hits {

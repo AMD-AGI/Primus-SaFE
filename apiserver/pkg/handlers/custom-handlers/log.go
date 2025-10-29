@@ -44,7 +44,7 @@ func (h *Handler) GetWorkloadLogContext(c *gin.Context) {
 	handle(c, h.getWorkloadLogContext)
 }
 
-// getWorkloadLog: retrieves logs for a specific workload from OpenSearch.
+// getWorkloadLog retrieves logs for a specific workload from OpenSearch.
 // It will check whether the user has permission to access the logs.
 // Returns the search results or an error if any step fails.
 func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
@@ -82,7 +82,7 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 		"/_search", buildSearchBody(query, name))
 }
 
-// getServiceLog: retrieves logs for a specific service from OpenSearch.
+// getServiceLog retrieves logs for a specific service from OpenSearch.
 // Only system-adminer has permission to access the logs.
 // Returns the search results or an error if any step fails.
 func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
@@ -107,7 +107,7 @@ func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
 		"/_search", buildSearchBody(query, ""))
 }
 
-// getWorkloadLogContext: retrieves contextual logs for a specific workload from OpenSearch.
+// getWorkloadLogContext retrieves contextual logs for a specific workload from OpenSearch.
 // It will check whether the user has permission to access the logs.
 // Returns the contextual search results or an error if any step fails.
 func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
@@ -139,7 +139,7 @@ func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
 	return h.searchContextLog(queries, name)
 }
 
-// searchContextLog: performs concurrent OpenSearch queries to retrieve contextual logs for a workload.
+// searchContextLog performs concurrent OpenSearch queries to retrieve contextual logs for a workload.
 // It executes two parallel searches (before and after the target log) using the provided queries
 // Returns the combined search results or an error if any search fails.
 func (h *Handler) searchContextLog(queries []types.ListContextLogRequest, workloadId string) (*commonsearch.OpenSearchResponse, error) {
@@ -184,7 +184,7 @@ func (h *Handler) searchContextLog(queries []types.ListContextLogRequest, worklo
 	return result, nil
 }
 
-// buildSearchBody: constructs the OpenSearch query body for log searching.
+// buildSearchBody constructs the OpenSearch query body for log searching.
 // It configures the query parameters including pagination, sorting by time,
 // time range filtering, label filters, keyword searches, and output fields.
 // Returns the serialized JSON byte array of the search request.
@@ -344,7 +344,7 @@ func parseServiceLogQuery(c *gin.Context) (*types.ListLogRequest, error) {
 	return query, nil
 }
 
-// parseContextQuery: parses the context log query parameters for a workload.
+// parseContextQuery parses the context log query parameters for a workload.
 // It creates two queries - one for logs after the specified time (ascending order)
 // and one for logs before the specified time (descending order, limited by workload creation time).
 // This allows retrieving contextual logs around a specific log entry.
@@ -394,7 +394,7 @@ func parseContextQuery(c *gin.Context, workload *v1.Workload) ([]types.ListConte
 	return result, nil
 }
 
-// parseLogQuery: parses and validates the log query parameters from an HTTP request.
+// parseLogQuery parses and validates the log query parameters from an HTTP request.
 // It handles pagination, sorting order, time range validation, and ensures all parameters
 // are within acceptable limits. For time range, it applies default values and constraints
 // based on the provided beginTime and endTime parameters.
@@ -459,7 +459,7 @@ func parseLogQuery(req *http.Request, beginTime, endTime time.Time) (*types.List
 	return query, nil
 }
 
-// addContextDoc: processes and adds contextual log documents to the search response.
+// addContextDoc processes and adds contextual log documents to the search response.
 // It finds the specified document ID in the response, then extracts logs before or after
 // that document (based on isAsc flag) up to the specified limit. Each log entry is assigned
 // a line number for context (positive for forward context, negative for backward context).

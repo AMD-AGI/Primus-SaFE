@@ -21,6 +21,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 )
 
 const (
@@ -228,7 +230,6 @@ func getControlPlaneNode(ctx context.Context, c client.Client) ([]*corev1.Node, 
 }
 
 func desireEndpoint(ctx context.Context, clusterName string, client client.Client, cfg *opensearchSecretData) (*corev1.Endpoints, error) {
-	// 获取master节点
 	masterNodes, err := getControlPlaneNode(ctx, client)
 	if err != nil {
 		return nil, err

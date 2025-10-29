@@ -36,7 +36,7 @@ type Handler struct {
 	auth          *authority.Authorizer
 }
 
-// NewHandler: creates a new Handler instance with the provided controller manager.
+// NewHandler creates a new Handler instance with the provided controller manager.
 // It initializes all required clients and components including:
 // - clientSet: Kubernetes clientset for direct API access
 // - dbClient: Database client (if database is enabled)
@@ -70,7 +70,7 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 
 type handleFunc func(*gin.Context) (interface{}, error)
 
-// handle: is a middleware function that executes the provided handler function and processes its response.
+// handle is a middleware function that executes the provided handler function and processes its response.
 // It handles errors by aborting the request with an API error, and formats successful responses
 func handle(c *gin.Context, fn handleFunc) {
 	response, err := fn(c)
@@ -93,7 +93,7 @@ func handle(c *gin.Context, fn handleFunc) {
 	}
 }
 
-// cvtToResourceList: converts a Kubernetes ResourceList to a custom ResourceList type.
+// cvtToResourceList converts a Kubernetes ResourceList to a custom ResourceList type.
 // It iterates through the resource list and converts each resource quantity to a numeric value.
 // Negative resource values are converted to 0 to ensure valid resource representations.
 // Returns the converted resource list or nil if the input list is empty.
@@ -112,7 +112,7 @@ func cvtToResourceList(resourceList corev1.ResourceList) types.ResourceList {
 	return result
 }
 
-// getAndSetUsername: retrieves the user information based on the user ID stored in the context
+// getAndSetUsername retrieves the user information based on the user ID stored in the context
 // and sets the username in the context for further use.
 // Returns the user object and any error encountered during the process.
 // If no user ID is found in the context, it returns nil
