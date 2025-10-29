@@ -18,7 +18,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
-// InitHttpHandlers: initializes the HTTP handlers for the API server.
+// InitHttpHandlers initializes the HTTP handlers for the API server.
 // It creates a new Gin engine, sets up middleware including logging, recovery, and CORS,
 // initializes custom API routes.
 // Returns the configured Gin engine or an error if initialization fails.
@@ -47,7 +47,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	return engine, nil
 }
 
-// InitSshHandlers: initializes the SSH handlers for the API server.
+// InitSshHandlers initializes the SSH handlers for the API server.
 // It creates and returns a new SSH handler instance configured with the provided manager.
 // Returns the SSH handler or an error if initialization fails.
 func InitSshHandlers(ctx context.Context, mgr ctrlruntime.Manager) (*sshhandler.SshHandler, error) {

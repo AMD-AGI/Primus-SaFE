@@ -3,72 +3,116 @@
 # See LICENSE for license information.
 #
 global:
+  # Domain and sub_domain are mainly used for console access
   domain: "safe-primus.ai"
   sub_domain: ""
+  # Image registry address where management components are uploaded
   image_registry: "docker.io"
+  # Secret used for image downloading, created via install.sh
   image_pull_secret: "primus-safe-image"
+  # Kubernetes storage class for persistent storage
   storage_class: "local-path"
+  # Ingress component name selected during install.sh
   ingress: "nginx"
 net:
+  # Network interface for NCCL socket communication
   nccl_socket_ifname: "eno0"
+  # RDMA network interfaces for high-performance communication
   nccl_ib_hca: "rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7"
+  # RDMA resource name
   rdma_name: "rdma/hca"
 apiserver:
-  image: "apiserver:202510281901"
+  # Apiserver component image version
+  image: "apiserver:202510271634"
+  # Number of replicas for apiserver deployment
   replicas: 1
+  # CPU resources allocated to apiserver
   cpu: 2000m
+  # Memory resources allocated to apiserver
   memory: 4Gi
 resource_manager:
-  image: "resource-manager:202510281332"
+  # Resource manager component image version
+  image: "resource-manager:202510271634"
+  # Number of replicas for resource manager deployment
   replicas: 1
+  # CPU resources allocated to resource manager
   cpu: 2000m
+  # Memory resources allocated to resource manager
   memory: 4Gi
 job_manager:
-  image: "job-manager:202510281332"
+  # Job manager component image version
+  image: "job-manager:202510271634"
+  # Number of replicas for job manager deployment
   replicas: 1
+  # CPU resources allocated to job manager
   cpu: 2000m
+  # Memory resources allocated to job manager
   memory: 4Gi
 webhooks:
-  image: "webhooks:202510281332"
+  # Webhooks component image version
+  image: "webhooks:202510271634"
+  # Number of replicas for webhooks deployment
   replicas: 1
+  # CPU resources allocated to webhooks
   cpu: 2000m
+  # Memory resources allocated to webhooks
   memory: 4Gi
 web:
-  image: "primus-safe-web:1.11.7"
+  # Web console component image version
+  image: "primus-safe-web:1.11.0"
+  # Number of replicas for web console deployment
   replicas: 1
+  # CPU resources allocated to web console
   cpu: 2000m
+  # Memory resources allocated to web console
   memory: 4Gi
 authoring:
+  # Authoring environment image version
   image: "sshd:202510131835"
 preprocess:
+  # Preprocessing component image version. used for pytorch-job etc.
   image: "preprocess:202510011436"
 db:
+  # Enable database for historical job queries, defaults to true
   enable: true
 opensearch:
+  # Enable Opensearch for log querying (part of primus-lens)
   enable: true
+  # Prefix for Opensearch nodes
   prefix: "node-"
+  # Secret containing Opensearch credentials
   secret: "primus-lens-logs-admin-password"
+  # Namespace where Opensearch secret is located
   secret_namespace: "primus-lens"
+  # Path to mount Opensearch secret
   secret_path: "/etc/secrets/opensearch"
+  # Opensearch endpoint address
   endpoint: "primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200"
 ssh:
-  enable: false
+  # Enable SSH access to user containers
+  enable: true
+  # SSH server IP for jump server access
   server_ip: ""
 user:
+  # Require token for user access, can be disabled in internal networks
   token_required: false
 workspace:
+  # Reserved system resources for management components
   mem_reserve_percent: 0.05
   cpu_reserve_percent: 0.1
   ephemeral_store_reserve_percent: 0.05
 s3:
+  # Enable S3 service access, mainly used for log downloading
   enable: false
-  bucket: "juicefs"
-  secret: "juicefs-secret"
-  secret_namespace: "juicefs-csi"
+  # Secret containing S3 access key and secret key, bucket and endpoint
+  secret: "primus-safe-s3"
+  # Path to mount S3 secret
   secret_path: "/etc/secrets/s3"
-  endpoint: "http://s3.safe.primus.ai"
 grafana:
+  # Enable Grafana for monitoring metrics display (requires primus-lens)
   enable: false
+  # Grafana password
   password: ""
 addon:
+  # Default components installed with the system
   default: cert-manager.v1.17.2,training-operator.1.9.2,network-operator.25.4.0,kube-scheduler-plugins-0.31.8,amd-gpu-operator-charts-v1.4.0，csi-wekafsplugin.2.7.7

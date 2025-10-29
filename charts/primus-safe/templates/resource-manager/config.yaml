@@ -60,13 +60,6 @@ data:
       enable: {{ .Values.s3.enable }}
       # The path of s3 secret
       secret_path: {{ .Values.s3.secret_path }}
-      # The endpoint of s3
-      endpoint: {{ .Values.s3.endpoint }}
-      # The default bucket used by s3
-      bucket: {{ .Values.s3.bucket }}
-      # S3 access_key and secret_key are optional; either use them or the secret above
-      access_key: "{{ default "" (default .Values.s3).access_key }}"
-      secret_key: "{{ default "" (default .Values.s3).secret_key }}"
       # The expire day of object in s3. This feature requires system support to be enabled and needs to be confirmed with the administrator.
       expire_day: 0
 {{- if .Values.addon }}

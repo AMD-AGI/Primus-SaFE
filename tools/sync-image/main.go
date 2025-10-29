@@ -1,6 +1,11 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package main
 
-// 使用的是 skopeo 的方式进行数据同步
+// Using skopeo for data synchronization
 // https://github.com/containers/skopeo/blob/main/cmd/skopeo/sync.go
 
 import (
@@ -167,7 +172,7 @@ func (opts *syncOptions) run(args []string, stdout io.Writer) (retErr error) {
 
 	var signers []*signer.Signer
 	if opts.SignBySigstoreParamFile != "" {
-		signer, err := sigstore.NewSignerFromParameterFile(opts.SignBySigstoreParamFile, &sigstore.Options{
+		inst, err := sigstore.NewSignerFromParameterFile(opts.SignBySigstoreParamFile, &sigstore.Options{
 			PrivateKeyPassphrasePrompt: func(keyFile string) (string, error) {
 				return promptForPassphrase(keyFile, os.Stdin, os.Stdout)
 			},
@@ -177,8 +182,8 @@ func (opts *syncOptions) run(args []string, stdout io.Writer) (retErr error) {
 		if err != nil {
 			return fmt.Errorf("error using --sign-by-sigstore: %s", err)
 		}
-		defer signer.Close()
-		signers = append(signers, signer)
+		defer inst.Close()
+		signers = append(signers, inst)
 	}
 
 	options := copy.Options{

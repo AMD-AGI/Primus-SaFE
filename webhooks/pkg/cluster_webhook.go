@@ -63,7 +63,7 @@ func (m *ClusterMutator) mutateOnCreation(_ context.Context, cluster *v1.Cluster
 	cluster.Name = stringutil.NormalizeName(cluster.Name)
 	controllerutil.AddFinalizer(cluster, v1.ClusterFinalizer)
 	if cluster.Spec.ControlPlane.KubeNetworkPlugin == nil || *cluster.Spec.ControlPlane.KubeNetworkPlugin == "" {
-		cluster.Spec.ControlPlane.KubeNetworkPlugin = pointer.String(v1.CiliumNetworkPlugin)
+		cluster.Spec.ControlPlane.KubeNetworkPlugin = pointer.String(v1.FlannelNetworkPlugin)
 	}
 }
 

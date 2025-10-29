@@ -39,7 +39,7 @@ type Daemon struct {
 	isInited bool
 }
 
-// NewDaemon: creates and initializes a new Daemon instance
+// NewDaemon creates and initializes a new Daemon instance
 // It sets up configuration, logging, node monitoring, and component managers
 func NewDaemon() (*Daemon, error) {
 	d := &Daemon{
@@ -66,7 +66,7 @@ func NewDaemon() (*Daemon, error) {
 	return d, nil
 }
 
-// Start: begins the daemon operation by starting all components and waiting for shutdown signal
+// Start begins the daemon operation by starting all components and waiting for shutdown signal
 func (d *Daemon) Start() {
 	if !d.isInited {
 		klog.Errorf("Please initialize the daemon first")

@@ -40,4 +40,5 @@ if [ "$#" -ge 2 ]; then
   done
 fi
 
+echo "A Docker process exists"
 exit 1

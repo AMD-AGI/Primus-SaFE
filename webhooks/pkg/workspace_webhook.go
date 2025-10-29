@@ -568,7 +568,7 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 	return nil
 }
 
-// Check fields that cannot be modified.
+// validateImmutableFields Check fields that cannot be modified.
 func (v *WorkspaceValidator) validateImmutableFields(newWorkspace, oldWorkspace *v1.Workspace) error {
 	if newWorkspace.Spec.Cluster != "" && newWorkspace.Spec.Cluster != oldWorkspace.Spec.Cluster {
 		return field.Forbidden(field.NewPath("spec").Key("cluster"), "immutable")
@@ -581,7 +581,7 @@ func (v *WorkspaceValidator) validateImmutableFields(newWorkspace, oldWorkspace 
 	return nil
 }
 
-// When a volume is removed, check whether any workload is currently using it.
+// validateVolumeRemoved When a volume is removed, check whether any workload is currently using it.
 // Note: that only PVC volumes are checked here; hostPath volumes are ignored.
 func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
 	newVolumeSet := sets.NewSet()
@@ -623,7 +623,7 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorks
 	return nil
 }
 
-// When there is a nodesAction targeting nodes, check whether the operation's targets are valid,
+// validateNodesAction when there is a nodesAction targeting nodes, check whether the operation's targets are valid,
 // for example, whether they belong to the same cluster,
 // and whether the workspace corresponding to the nodes to be bound or unbound is correct.
 func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
@@ -680,7 +680,7 @@ func parseNodesAction(w *v1.Workspace) (map[string]string, error) {
 	return actions, nil
 }
 
-// Check whether there are any tasks running on the node to be removed
+// validateNodesRemoved check whether there are any tasks running on the node to be removed
 func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace *v1.Workspace, nodeNames []string) error {
 	if len(nodeNames) == 0 {
 		return nil

@@ -34,26 +34,26 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-// CreateCluster: handles the creation of a new cluster resource.
+// CreateCluster handles the creation of a new cluster resource.
 // It authorizes the request, parses the request body, generates a cluster object,
 // and creates it in the k8s cluster. Returns the created cluster ID on success.
 func (h *Handler) CreateCluster(c *gin.Context) {
 	handle(c, h.createCluster)
 }
 
-// ListCluster: handles listing all cluster resources.
+// ListCluster handles listing all cluster resources.
 // Retrieves all clusters and returns them in a sorted list with basic information.
 func (h *Handler) ListCluster(c *gin.Context) {
 	handle(c, h.listCluster)
 }
 
-// GetCluster: retrieves detailed information about a specific cluster.
+// GetCluster retrieves detailed information about a specific cluster.
 // Returns comprehensive cluster details including configuration and status.
 func (h *Handler) GetCluster(c *gin.Context) {
 	handle(c, h.getCluster)
 }
 
-// DeleteCluster: handles the deletion of a cluster resource.
+// DeleteCluster handles the deletion of a cluster resource.
 // It performs authorization checks, validates that the cluster is not protected,
 // ensures no workloads are running on the cluster, and then deletes the cluster.
 // Returns nil on successful deletion or an error if the check fails
@@ -61,13 +61,13 @@ func (h *Handler) DeleteCluster(c *gin.Context) {
 	handle(c, h.deleteCluster)
 }
 
-// PatchCluster: handles partial updates to a cluster resource.
+// PatchCluster handles partial updates to a cluster resource.
 // Authorizes the request, parses update parameters, and applies changes to the specified cluster.
 func (h *Handler) PatchCluster(c *gin.Context) {
 	handle(c, h.patchCluster)
 }
 
-// ProcessClusterNodes: handles the addition or removal of nodes from a cluster.
+// ProcessClusterNodes handles the addition or removal of nodes from a cluster.
 // It performs authorization checks, validates cluster readiness, and processes
 // each node according to the requested action (add/remove).
 // For node removal operations, it first removes nodes from their associated workspaces.
@@ -76,7 +76,7 @@ func (h *Handler) ProcessClusterNodes(c *gin.Context) {
 	handle(c, h.processClusterNodes)
 }
 
-// GetClusterPodLog: retrieves the logs from the most recent pod associated with a cluster.
+// GetClusterPodLog retrieves the logs from the most recent pod associated with a cluster.
 // It performs authorization checks, finds the latest pod for the cluster, fetches its logs,
 // and returns them in a structured response format.
 // Returns a GetNodePodLogResponse or an error if any step in the process fails.
@@ -84,7 +84,7 @@ func (h *Handler) GetClusterPodLog(c *gin.Context) {
 	handle(c, h.getClusterPodLog)
 }
 
-// createCluster: implements the cluster creation logic.
+// createCluster implements the cluster creation logic.
 // Authorizes the request, parses the creation request, generates a cluster object,
 // and persists it in the k8s cluster.
 func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
@@ -119,7 +119,7 @@ func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
-// generateCluster: convert the CreateClusterRequest passed from the API into a v1.Cluster object,
+// generateCluster convert the CreateClusterRequest passed from the API into a v1.Cluster object,
 // then pass it to the createCluster function for invocation.
 func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterRequest, body []byte) (*v1.Cluster, error) {
 	ctx := c.Request.Context()
@@ -166,7 +166,7 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 	return cluster, nil
 }
 
-// listCluster: implements the cluster listing logic.
+// listCluster implements the cluster listing logic.
 // Retrieves all clusters, sorts them by name, and converts them to response items.
 func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
@@ -188,7 +188,7 @@ func (h *Handler) listCluster(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
-// getCluster: implements the logic for retrieving a single cluster's detailed information.
+// getCluster implements the logic for retrieving a single cluster's detailed information.
 // Gets the cluster by ID and converts it to a detailed response format.
 func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
 	cluster, err := h.getAdminCluster(c.Request.Context(), c.GetString(common.Name))
@@ -198,7 +198,7 @@ func (h *Handler) getCluster(c *gin.Context) (interface{}, error) {
 	return cvtToGetClusterResponse(c.Request.Context(), h.Client, cluster), nil
 }
 
-// deleteCluster: handles the deletion of a cluster resource.
+// deleteCluster handles the deletion of a cluster resource.
 // It performs authorization checks, validates that the cluster is not protected,
 // ensures no workloads are running on the cluster, and then deletes the cluster.
 // Returns nil on successful deletion or an error if the check fails
@@ -238,7 +238,7 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-// patchCluster: implements partial update logic for a cluster.
+// patchCluster implements partial update logic for a cluster.
 // Parses the patch request and applies specified changes to the cluster.
 func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
@@ -273,7 +273,7 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 	return nil, h.Update(ctx, cluster)
 }
 
-// updateCluster: applies updates to a cluster based on the patch request.
+// updateCluster applies updates to a cluster based on the patch request.
 // Handles changes to cluster protection status and image secret references.
 func (h *Handler) updateCluster(_ context.Context, cluster *v1.Cluster, req *types.PatchClusterRequest) (bool, error) {
 	isChanged := false
@@ -288,7 +288,7 @@ func (h *Handler) updateCluster(_ context.Context, cluster *v1.Cluster, req *typ
 	return isChanged, nil
 }
 
-// processClusterNodes: handles the addition or removal of nodes from a cluster.
+// processClusterNodes handles the addition or removal of nodes from a cluster.
 // It performs authorization checks, validates cluster readiness, and processes
 // each node according to the requested action (add/remove).
 // For node removal operations, it first removes nodes from their associated workspaces.
@@ -340,7 +340,7 @@ func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
 	return &response, nil
 }
 
-// processClusterNode: processes a single node for cluster operations (add/remove).
+// processClusterNode processes a single node for cluster operations (add/remove).
 // It updates the node's cluster assignment based on the specified action.
 // For NodeActionAdd, it assigns the node to the cluster.
 // For NodeActionRemove, it removes the node from the cluster.
@@ -381,7 +381,7 @@ func (h *Handler) processClusterNode(ctx context.Context, cluster *v1.Cluster, n
 	return err
 }
 
-// removeNodesFromWorkspace: removes nodes from their associated workspaces.
+// removeNodesFromWorkspace removes nodes from their associated workspaces.
 // It groups nodes by workspace ID and updates each workspace to remove the specified nodes.
 func (h *Handler) removeNodesFromWorkspace(c *gin.Context, allNodeIds []string) error {
 	nodeIdMap := make(map[string]*[]string)
@@ -411,7 +411,7 @@ func (h *Handler) removeNodesFromWorkspace(c *gin.Context, allNodeIds []string) 
 	return nil
 }
 
-// getClusterPodLog: retrieves the logs from the most recent pod associated with a cluster.
+// getClusterPodLog retrieves the logs from the most recent pod associated with a cluster.
 // It performs authorization checks, finds the latest pod for the cluster, fetches its logs,
 // and returns them in a structured response format.
 // Returns a GetNodePodLogResponse or an error if any step in the process fails.
@@ -449,7 +449,7 @@ func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
-// getLatestPodName: retrieves the name of the most recently created pod that matches the given label selector.
+// getLatestPodName retrieves the name of the most recently created pod that matches the given label selector.
 // It lists all pods in the PrimusSafe namespace with the specified labels and returns the name of the newest one.
 // Returns an error if no pods are found or if there's an issue listing the pods.
 func (h *Handler) getLatestPodName(c *gin.Context, labelSelector labels.Selector) (string, error) {
@@ -469,7 +469,7 @@ func (h *Handler) getLatestPodName(c *gin.Context, labelSelector labels.Selector
 	return podList.Items[0].Name, nil
 }
 
-// getPodLog: retrieves the logs from a specific pod in the given namespace.
+// getPodLog retrieves the logs from a specific pod in the given namespace.
 // It parses the log query parameters, constructs the log options, and fetches the logs
 // from the Kubernetes API server using the provided client.
 // Returns the raw log bytes or an error if the operation fails.
@@ -495,7 +495,7 @@ func (h *Handler) getPodLog(c *gin.Context, clientSet kubernetes.Interface,
 	return podLogs, nil
 }
 
-// getAdminCluster: retrieves a cluster resource by ID from the k8s cluster.
+// getAdminCluster retrieves a cluster resource by ID from the k8s cluster.
 // Returns an error if the cluster doesn't exist or the ID is empty.
 func (h *Handler) getAdminCluster(ctx context.Context, clusterId string) (*v1.Cluster, error) {
 	if clusterId == "" {
@@ -510,7 +510,7 @@ func (h *Handler) getAdminCluster(ctx context.Context, clusterId string) (*v1.Cl
 	return cluster.DeepCopy(), nil
 }
 
-// parseProcessNodesRequest: parses and validates the request for processing cluster nodes.
+// parseProcessNodesRequest parses and validates the request for processing cluster nodes.
 // Ensures that node IDs and action are provided in the request.
 func parseProcessNodesRequest(c *gin.Context) (*types.ProcessNodesRequest, error) {
 	req := &types.ProcessNodesRequest{}
@@ -528,7 +528,7 @@ func parseProcessNodesRequest(c *gin.Context) (*types.ProcessNodesRequest, error
 	return req, nil
 }
 
-// cvtToClusterResponseItem: converts a cluster object to a response item format.
+// cvtToClusterResponseItem converts a cluster object to a response item format.
 // Includes basic cluster information like ID, user, phase, protection status, and creation time.
 func cvtToClusterResponseItem(cluster *v1.Cluster) types.ClusterResponseItem {
 	result := types.ClusterResponseItem{
@@ -544,7 +544,7 @@ func cvtToClusterResponseItem(cluster *v1.Cluster) types.ClusterResponseItem {
 	return result
 }
 
-// cvtToGetClusterResponse: converts a cluster object to a detailed response format.
+// cvtToGetClusterResponse converts a cluster object to a detailed response format.
 // Includes all cluster details, configuration parameters, and status information.
 func cvtToGetClusterResponse(ctx context.Context, client client.Client, cluster *v1.Cluster) types.GetClusterResponse {
 	result := types.GetClusterResponse{

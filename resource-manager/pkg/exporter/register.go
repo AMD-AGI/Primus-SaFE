@@ -25,7 +25,7 @@ const (
 	MaxTTLHour = 48
 )
 
-// SetupExporters: initializes and registers all resource exporters with the controller manager
+// SetupExporters initializes and registers all resource exporters with the controller manager
 // It sets up database clients and configures handlers for Workload, Fault, and OpsJob resources
 func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 	if !commonconfig.IsDBEnable() {
