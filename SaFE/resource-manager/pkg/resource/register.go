@@ -24,7 +24,7 @@ var (
 	}
 )
 
-// SetupControllers initializes and registers all resource controllers with the controller manager
+// SetupControllers initializes and registers all resource controllers with the controller manager.
 func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupClusterController(mgr); err != nil {
 		return fmt.Errorf("cluster controller: %v", err)

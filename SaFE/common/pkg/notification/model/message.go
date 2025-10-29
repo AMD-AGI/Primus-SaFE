@@ -12,6 +12,7 @@ type Message struct {
 	Email *EmailMessage
 }
 
+// GetChannels returns the list of channels for message delivery.
 func (m Message) GetChannels() []string {
 	channels := []string{}
 	if m.Email != nil {

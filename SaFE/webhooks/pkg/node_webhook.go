@@ -23,22 +23,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
 const (
-	// Default node SSH port.
+	// DefaultNodePort Default node SSH port.
 	DefaultNodePort = 22
 )
 
-var (
-	SupportedTaintEffect = []corev1.TaintEffect{corev1.TaintEffectNoSchedule,
-		corev1.TaintEffectPreferNoSchedule, corev1.TaintEffectNoExecute}
-)
+var SupportedTaintEffect = []corev1.TaintEffect{
+	corev1.TaintEffectNoSchedule,
+	corev1.TaintEffectPreferNoSchedule, corev1.TaintEffectNoExecute,
+}
 
+// AddNodeWebhook registers the node validation and mutation webhooks.
 func AddNodeWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.NodeKind), &webhook.Admission{Handler: &NodeMutator{
 		Client:  mgr.GetClient(),
@@ -50,11 +51,13 @@ func AddNodeWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder adm
 	}})
 }
 
+// NodeMutator handles mutation logic for Node resources.
 type NodeMutator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle processes node creation requests and applies default values and normalizations.
 func (m *NodeMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	if req.Operation == admissionv1.Delete {
 		return admission.Allowed("")
@@ -84,6 +87,7 @@ func (m *NodeMutator) Handle(ctx context.Context, req admission.Request) admissi
 	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
+// mutateOnCreation applies default values and normalizations during creation.
 func (m *NodeMutator) mutateOnCreation(ctx context.Context, node *v1.Node) bool {
 	m.mutateSpec(ctx, node)
 	m.mutateMeta(ctx, node)
@@ -91,10 +95,12 @@ func (m *NodeMutator) mutateOnCreation(ctx context.Context, node *v1.Node) bool 
 	return true
 }
 
+// mutateOnUpdate applies mutations during updates.
 func (m *NodeMutator) mutateOnUpdate(ctx context.Context, node *v1.Node) bool {
 	return m.mutateCommon(ctx, node)
 }
 
+// mutateSpec applies mutations to the resource.
 func (m *NodeMutator) mutateSpec(_ context.Context, node *v1.Node) {
 	node.Spec.PrivateIP = strings.Trim(node.Spec.PrivateIP, " ")
 	if node.GetSpecHostName() == "" {
@@ -107,6 +113,7 @@ func (m *NodeMutator) mutateSpec(_ context.Context, node *v1.Node) {
 	}
 }
 
+// mutateMeta applies mutations to the resource.
 func (m *NodeMutator) mutateMeta(_ context.Context, node *v1.Node) {
 	node.Name = stringutil.NormalizeName(node.GetSpecHostName())
 	if v1.GetDisplayName(node) == "" {
@@ -116,6 +123,7 @@ func (m *NodeMutator) mutateMeta(_ context.Context, node *v1.Node) {
 	controllerutil.AddFinalizer(node, v1.NodeFinalizer)
 }
 
+// mutateCommon applies mutations to the resource.
 func (m *NodeMutator) mutateCommon(ctx context.Context, node *v1.Node) bool {
 	isChanged := false
 	if m.mutateLabels(node) {
@@ -130,6 +138,7 @@ func (m *NodeMutator) mutateCommon(ctx context.Context, node *v1.Node) bool {
 	return isChanged
 }
 
+// mutateLabels applies mutations to the resource.
 func (m *NodeMutator) mutateLabels(node *v1.Node) bool {
 	isChanged := false
 	if node.Spec.NodeFlavor != nil {
@@ -146,6 +155,7 @@ func (m *NodeMutator) mutateLabels(node *v1.Node) bool {
 	return isChanged
 }
 
+// mutateByNodeFlavor applies mutations to the resource.
 func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, node *v1.Node) bool {
 	nf, _ := getNodeFlavor(ctx, m.Client, v1.GetNodeFlavorId(node))
 	if nf == nil {
@@ -170,6 +180,7 @@ func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, node *v1.Node) boo
 	return isChanged
 }
 
+// mutateTaints applies mutations to the resource.
 func (m *NodeMutator) mutateTaints(node *v1.Node) bool {
 	isChanged := false
 	if node.GetSpecCluster() == "" {
@@ -189,11 +200,13 @@ func (m *NodeMutator) mutateTaints(node *v1.Node) bool {
 	return isChanged
 }
 
+// NodeValidator validates Node resources on create and update operations.
 type NodeValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle validates node resources on create, update, and delete operations.
 func (v *NodeValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	node := &v1.Node{}
 	var err error
@@ -222,6 +235,7 @@ func (v *NodeValidator) Handle(ctx context.Context, req admission.Request) admis
 	return admission.Allowed("")
 }
 
+// validateOnCreation validates OnCreation.
 func (v *NodeValidator) validateOnCreation(ctx context.Context, node *v1.Node) error {
 	if err := v.validateCommon(ctx, node); err != nil {
 		return err
@@ -229,6 +243,7 @@ func (v *NodeValidator) validateOnCreation(ctx context.Context, node *v1.Node) e
 	return nil
 }
 
+// validateOnUpdate validates OnUpdate.
 func (v *NodeValidator) validateOnUpdate(ctx context.Context, newNode, oldNode *v1.Node) error {
 	if err := v.validateImmutableFields(newNode, oldNode); err != nil {
 		return err
@@ -239,6 +254,7 @@ func (v *NodeValidator) validateOnUpdate(ctx context.Context, newNode, oldNode *
 	return nil
 }
 
+// validateCommon validates Common.
 func (v *NodeValidator) validateCommon(ctx context.Context, node *v1.Node) error {
 	if err := validateDisplayName(v1.GetDisplayName(node)); err != nil {
 		return err
@@ -249,6 +265,7 @@ func (v *NodeValidator) validateCommon(ctx context.Context, node *v1.Node) error
 	return nil
 }
 
+// validateNodeSpec validates NodeSpec.
 func (v *NodeValidator) validateNodeSpec(ctx context.Context, node *v1.Node) error {
 	if err := v.validateNodeWorkspace(ctx, node); err != nil {
 		return err
@@ -271,6 +288,7 @@ func (v *NodeValidator) validateNodeSpec(ctx context.Context, node *v1.Node) err
 	return nil
 }
 
+// validateNodeWorkspace validates NodeWorkspace.
 func (v *NodeValidator) validateNodeWorkspace(ctx context.Context, node *v1.Node) error {
 	workspaceId := node.GetSpecWorkspace()
 	if _, err := getWorkspace(ctx, v.Client, workspaceId); err != nil {
@@ -279,6 +297,7 @@ func (v *NodeValidator) validateNodeWorkspace(ctx context.Context, node *v1.Node
 	return nil
 }
 
+// validateNodeFlavor validates NodeFlavor.
 func (v *NodeValidator) validateNodeFlavor(ctx context.Context, node *v1.Node) error {
 	if node.Spec.NodeFlavor == nil {
 		return commonerrors.NewBadRequest("the flavor of node is not found")
@@ -290,6 +309,7 @@ func (v *NodeValidator) validateNodeFlavor(ctx context.Context, node *v1.Node) e
 	return nil
 }
 
+// validateNodeSSH validates NodeSSH.
 func (v *NodeValidator) validateNodeSSH(_ context.Context, node *v1.Node) error {
 	if node.Spec.SSHSecret == nil {
 		return commonerrors.NewBadRequest("the ssh secret of node is not found")
@@ -297,6 +317,7 @@ func (v *NodeValidator) validateNodeSSH(_ context.Context, node *v1.Node) error 
 	return nil
 }
 
+// validateNodeTaints validates NodeTaints.
 func (v *NodeValidator) validateNodeTaints(node *v1.Node) error {
 	taintSet := sets.NewSet()
 	for _, t := range node.Spec.Taints {
@@ -320,6 +341,7 @@ func (v *NodeValidator) validateNodeTaints(node *v1.Node) error {
 	return nil
 }
 
+// validateImmutableFields validates ImmutableFields.
 func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error {
 	if oldNode.GetSpecHostName() != newNode.GetSpecHostName() {
 		return field.Forbidden(field.NewPath("spec").Key("hostname"), "immutable")
@@ -338,6 +360,7 @@ func (v *NodeValidator) validateImmutableFields(newNode, oldNode *v1.Node) error
 	return nil
 }
 
+// getNode retrieves the requested information.
 func getNode(ctx context.Context, cli client.Client, nodeId string) (*v1.Node, error) {
 	if nodeId == "" {
 		return nil, nil

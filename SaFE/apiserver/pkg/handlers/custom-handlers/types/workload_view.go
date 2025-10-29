@@ -228,14 +228,17 @@ type BatchWorkloadsRequest struct {
 
 type WorkloadSlice []v1.Workload
 
+// Len implements sort.Interface by returning the length of the slice.
 func (ws WorkloadSlice) Len() int {
 	return len(ws)
 }
 
+// Swap implements sort.Interface by swapping elements at the given indices.
 func (ws WorkloadSlice) Swap(i, j int) {
 	ws[i], ws[j] = ws[j], ws[i]
 }
 
+// Less implements sort.Interface for sorting.
 func (ws WorkloadSlice) Less(i, j int) bool {
 	if ws[i].CreationTimestamp.Time.Before(ws[j].CreationTimestamp.Time) {
 		return true

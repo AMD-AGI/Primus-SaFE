@@ -21,8 +21,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 )
 
 const (
@@ -44,6 +42,7 @@ var (
 	scheme *runtime.Scheme
 )
 
+// GetOpensearchClient retrieves or creates an OpenSearch client for the specified cluster.
 func GetOpensearchClient(clusterName string) *SearchClient {
 	if searchClient, exists := multiClusterClients[clusterName]; exists {
 		return searchClient
@@ -60,6 +59,7 @@ type opensearchSecretData struct {
 	Prefix   string `json:"index_prefix"`
 }
 
+// Validate checks if the search client configuration is valid.
 func (o opensearchSecretData) Validate() error {
 	if o.Service == "" || o.Scheme == "" || o.Username == "" || o.Password == "" || o.Prefix == "" {
 		return fmt.Errorf("invalid values for opensearch secret")
@@ -67,6 +67,7 @@ func (o opensearchSecretData) Validate() error {
 	return nil
 }
 
+// StartDiscover starts the OpenSearch cluster discovery process.
 func StartDiscover(ctx context.Context) error {
 	scheme = runtime.NewScheme()
 	err := schemes.AddToScheme(scheme)
@@ -90,6 +91,7 @@ func StartDiscover(ctx context.Context) error {
 	return nil
 }
 
+// syncLoop synchronizes Loop state with the desired configuration.
 func syncLoop(ctx context.Context, controlPlaneClient client.Client, clientManager *commonutils.ObjectManager) {
 	for {
 		err := doSync(ctx, controlPlaneClient, clientManager)
@@ -141,6 +143,7 @@ func doSync(ctx context.Context, controlPlaneClient client.Client, clientManager
 	return nil
 }
 
+// initOpensearchClient initializes OpensearchClient with default values.
 func initOpensearchClient(ctx context.Context, clusterName string, clusterClient client.Client, controlPlaneClient client.Client) (*SearchClient, error) {
 	if searchClient, exists := multiClusterClients[clusterName]; exists {
 		return searchClient, nil

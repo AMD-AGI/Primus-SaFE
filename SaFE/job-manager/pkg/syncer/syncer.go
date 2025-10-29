@@ -37,14 +37,8 @@ type SyncerReconciler struct {
 	*controller.Controller[*resourceMessage]
 }
 
-// SetupSyncerController initializes and registers the syncer controller with the manager
-// Sets up watches for Cluster and ResourceTemplate resources
-// Parameters:
-//   - ctx: The context for the controller
-//   - mgr: The controller manager to register with
-//
-// Returns:
-//   - error: Any error encountered during setup
+// SetupSyncerController initializes and registers the syncer controller with the manager.
+// Sets up watches for Cluster and ResourceTemplate resources.
 func SetupSyncerController(ctx context.Context, mgr manager.Manager) error {
 	r := &SyncerReconciler{
 		ctx:              ctx,
@@ -67,10 +61,7 @@ func SetupSyncerController(ctx context.Context, mgr manager.Manager) error {
 	return nil
 }
 
-// resourceTemplateHandler creates an event handler for ResourceTemplate resources
-// Handles create and delete events to add/remove resource templates from cluster informers
-// Returns:
-//   - handler.EventHandler: The event handler for ResourceTemplate resources
+// resourceTemplateHandler handles the processing logic for the request.
 func (r *SyncerReconciler) resourceTemplateHandler() handler.EventHandler {
 	handle := func(rt *v1.ResourceTemplate, doAdd bool) {
 		keys, objs := r.clusterInformers.GetAll()
@@ -106,15 +97,8 @@ func (r *SyncerReconciler) resourceTemplateHandler() handler.EventHandler {
 	}
 }
 
-// Reconcile is the main control loop for Cluster resources
-// Manages cluster informers based on cluster lifecycle events
-// Parameters:
-//   - ctx: The context for the operation
-//   - request: The reconcile request containing the cluster name
-//
-// Returns:
-//   - ctrlruntime.Result: The result of the reconciliation
-//   - error: Any error encountered during reconciliation
+// Reconcile is the main control loop for Cluster resources.
+// Manages cluster informers based on cluster lifecycle events.
 func (r *SyncerReconciler) Reconcile(ctx context.Context, request ctrlruntime.Request) (ctrlruntime.Result, error) {
 	c := new(v1.Cluster)
 	if err := r.Get(ctx, request.NamespacedName, c); err != nil {
@@ -133,24 +117,13 @@ func (r *SyncerReconciler) Reconcile(ctx context.Context, request ctrlruntime.Re
 	return ctrlruntime.Result{}, nil
 }
 
-// observe checks if a cluster informer already exists for the given cluster
-// Parameters:
-//   - c: The cluster to check
-//
-// Returns:
-//   - bool: True if informer exists, false otherwise
+// observe checks if a cluster informer already exists for the given cluster.
 func (r *SyncerReconciler) observe(c *v1.Cluster) bool {
 	_, ok := r.clusterInformers.Get(c.Name)
 	return ok
 }
 
-// handle processes a cluster by creating a new cluster informer and initializing resource templates
-// Parameters:
-//   - ctx: The context for the operation
-//   - cluster: The cluster to process
-//
-// Returns:
-//   - error: Any error encountered during processing
+// handle processes a cluster by creating a new cluster informer and initializing resource templates.
 func (r *SyncerReconciler) handle(ctx context.Context, cluster *v1.Cluster) error {
 	informer, err := newClusterInformer(r.ctx, cluster, r.Client, r.Add)
 	if err != nil {
@@ -173,22 +146,15 @@ func (r *SyncerReconciler) handle(ctx context.Context, cluster *v1.Cluster) erro
 	return nil
 }
 
-// deleteClusterInformer removes and cleans up a cluster informer
-// Parameters:
-//   - clusterId: The ID of the cluster whose informer should be deleted
+// deleteClusterInformer removes and cleans up a cluster informer.
 func (r *SyncerReconciler) deleteClusterInformer(clusterId string) {
 	if r.clusterInformers.Delete(clusterId) == nil {
 		klog.Infof("delete cluster informer, name: %s", clusterId)
 	}
 }
 
-// start implements the Runnable interface in controller runtime package
-// Launches worker goroutines for processing resource messages
-// Parameters:
-//   - ctx: The context for the operation
-//
-// Returns:
-//   - error: Always returns nil in current implementation
+// start implements the Runnable interface in controller runtime package.
+// Launches worker goroutines for processing resource messages.
 func (r *SyncerReconciler) start(ctx context.Context) error {
 	for i := 0; i < r.MaxConcurrent; i++ {
 		r.Run(ctx)
@@ -196,16 +162,9 @@ func (r *SyncerReconciler) start(ctx context.Context) error {
 	return nil
 }
 
-// Do processes resource messages from cluster informers
-// Routes messages to appropriate handlers based on resource type
-// it implements the interface of common.controller
-// Parameters:
-//   - ctx: The context for the operation
-//   - message: The resource message to process
-//
-// Returns:
-//   - ctrlruntime.Result: The result of the processing
-//   - error: Any error encountered during processing
+// Do processes resource messages from cluster informers.
+// Routes messages to appropriate handlers based on resource type.
+// it implements the interface of common.controller.
 func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ctrlruntime.Result, error) {
 	informer, err := GetClusterInformer(r.clusterInformers, message.cluster)
 	if err != nil {
@@ -227,14 +186,7 @@ func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ct
 	return result, err
 }
 
-// getAdminWorkload retrieves an admin workload by ID
-// Parameters:
-//   - ctx: The context for the operation
-//   - workloadId: The ID of the workload to retrieve
-//
-// Returns:
-//   - *v1.Workload: The retrieved workload, or nil if not found
-//   - error: Any error encountered during retrieval
+// getAdminWorkload retrieves an admin workload by ID.
 func (r *SyncerReconciler) getAdminWorkload(ctx context.Context, workloadId string) (*v1.Workload, error) {
 	adminWorkload := &v1.Workload{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: workloadId}, adminWorkload); err != nil {

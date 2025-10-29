@@ -60,7 +60,7 @@ const (
 	NodeNotFound = PrimusPrefix + "03002"
 )
 
-// returns true if the specified error reason is primus error.
+// IsPrimus returns true if the condition is met.
 func IsPrimus(err error) bool {
 	if err == nil {
 		return false
@@ -68,22 +68,27 @@ func IsPrimus(err error) bool {
 	return strings.HasPrefix(string(apierrors.ReasonForError(err)), PrimusPrefix)
 }
 
+// IsAlreadyExist checks if an error indicates a resource already exists.
 func IsAlreadyExist(err error) bool {
 	return apierrors.ReasonForError(err) == AlreadyExist
 }
 
+// IsBadRequest checks if an error indicates an invalid request.
 func IsBadRequest(err error) bool {
 	return apierrors.ReasonForError(err) == BadRequest
 }
 
+// IsInternal checks if an error is an internal server error.
 func IsInternal(err error) bool {
 	return apierrors.ReasonForError(err) == InternalError
 }
 
+// IsForbidden checks if an error indicates a forbidden operation.
 func IsForbidden(err error) bool {
 	return apierrors.ReasonForError(err) == Forbidden
 }
 
+// IsNotFound checks if an error indicates a resource was not found.
 func IsNotFound(err error) bool {
 	reason := apierrors.ReasonForError(err)
 	if reason == NotFound || reason == WorkloadNotFound || reason == WorkspaceNotFound ||
@@ -93,6 +98,7 @@ func IsNotFound(err error) bool {
 	return false
 }
 
+// IgnoreFound returns nil if the error is a not-found error, otherwise returns the error.
 func IgnoreFound(err error) error {
 	if err == nil || IsNotFound(err) {
 		return nil
@@ -100,6 +106,7 @@ func IgnoreFound(err error) error {
 	return err
 }
 
+// GetErrorCode extracts the error code from a Primus error.
 func GetErrorCode(err error) string {
 	if err == nil || !IsPrimus(err) {
 		return ""
@@ -107,6 +114,7 @@ func GetErrorCode(err error) string {
 	return string(apierrors.ReasonForError(err))
 }
 
+// NewBadRequest creates a new bad request error with the given message.
 func NewBadRequest(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
@@ -116,6 +124,7 @@ func NewBadRequest(message string) *apierrors.StatusError {
 	}}
 }
 
+// NewInternalError creates a new internal server error with the given message.
 func NewInternalError(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
@@ -125,6 +134,7 @@ func NewInternalError(message string) *apierrors.StatusError {
 	}}
 }
 
+// NewAlreadyExist creates a new "already exists" error with the given message.
 func NewAlreadyExist(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
@@ -134,6 +144,7 @@ func NewAlreadyExist(message string) *apierrors.StatusError {
 	}}
 }
 
+// NewForbidden creates a new forbidden error with the given message.
 func NewForbidden(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
@@ -143,6 +154,7 @@ func NewForbidden(message string) *apierrors.StatusError {
 	}}
 }
 
+// NotFoundErrorCode generates a not-found error code for the specified resource kind.
 func NotFoundErrorCode(kind string) metav1.StatusReason {
 	switch kind {
 	case v1.WorkloadKind:
@@ -158,6 +170,7 @@ func NotFoundErrorCode(kind string) metav1.StatusReason {
 	}
 }
 
+// NewNotFound creates a new not-found error for the specified resource.
 func NewNotFound(kind, name string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status: metav1.StatusFailure,
@@ -171,6 +184,7 @@ func NewNotFound(kind, name string) *apierrors.StatusError {
 	}}
 }
 
+// NewNotFoundWithMessage creates a new not-found error with a custom message.
 func NewNotFoundWithMessage(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
@@ -180,6 +194,7 @@ func NewNotFoundWithMessage(message string) *apierrors.StatusError {
 	}}
 }
 
+// NewRequestEntityTooLargeError creates a new request entity too large error.
 func NewRequestEntityTooLargeError(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
@@ -189,6 +204,7 @@ func NewRequestEntityTooLargeError(message string) *apierrors.StatusError {
 	}}
 }
 
+// NewQuotaInsufficient creates a new quota insufficient error.
 func NewQuotaInsufficient(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
@@ -198,6 +214,7 @@ func NewQuotaInsufficient(message string) *apierrors.StatusError {
 	}}
 }
 
+// NewUnauthorized creates a new unauthorized error.
 func NewUnauthorized(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
@@ -207,6 +224,7 @@ func NewUnauthorized(message string) *apierrors.StatusError {
 	}}
 }
 
+// NewUserNotRegistered creates a new user not registered error.
 func NewUserNotRegistered(userId string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
@@ -216,6 +234,7 @@ func NewUserNotRegistered(userId string) *apierrors.StatusError {
 	}}
 }
 
+// NewResourceProcessing creates a new resource processing error.
 func NewResourceProcessing(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
@@ -225,6 +244,7 @@ func NewResourceProcessing(message string) *apierrors.StatusError {
 	}}
 }
 
+// NewNodeNotReady creates a new node not ready error.
 func NewNodeNotReady(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,
@@ -234,6 +254,7 @@ func NewNodeNotReady(message string) *apierrors.StatusError {
 	}}
 }
 
+// NewNotImplemented creates a new not implemented error.
 func NewNotImplemented(message string) *apierrors.StatusError {
 	return &apierrors.StatusError{ErrStatus: metav1.Status{
 		Status:  metav1.StatusFailure,

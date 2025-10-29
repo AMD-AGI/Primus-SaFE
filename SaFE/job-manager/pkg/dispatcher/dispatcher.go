@@ -41,13 +41,13 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-// DispatcherReconciler: reconciles Workload objects and handles their dispatching to target clusters
+// DispatcherReconciler reconciles Workload objects and handles their dispatching to target clusters.
 type DispatcherReconciler struct {
 	client.Client
 	clusterInformers *commonutils.ObjectManager
 }
 
-// SetupDispatcherController: initializes and registers the dispatcher controller with the manager
+// SetupDispatcherController initializes and registers the dispatcher controller with the manager.
 func SetupDispatcherController(mgr manager.Manager) error {
 	r := &DispatcherReconciler{
 		Client:           mgr.GetClient(),
@@ -67,7 +67,7 @@ type relevantChangePredicate struct {
 	predicate.Funcs
 }
 
-// Create: determines if a Create event should be processed for a Workload
+// Create determines if a Create event should be processed for a Workload.
 func (relevantChangePredicate) Create(e event.CreateEvent) bool {
 	w, ok := e.Object.(*v1.Workload)
 	if !ok {
@@ -79,7 +79,7 @@ func (relevantChangePredicate) Create(e event.CreateEvent) bool {
 	return false
 }
 
-// Update: determines if an Update event should be processed for a Workload
+// Update determines if an Update event should be processed for a Workload.
 func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 	oldWorkload, ok1 := e.ObjectOld.(*v1.Workload)
 	newWorkload, ok2 := e.ObjectNew.(*v1.Workload)
@@ -105,7 +105,7 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 	return false
 }
 
-// Reconcile is the main control loop for Workload resources that triggers dispatching
+// Reconcile is the main control loop for Workload resources that triggers dispatching.
 func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	workload := new(v1.Workload)
 	if err := r.Get(ctx, req.NamespacedName, workload); err != nil {
@@ -124,9 +124,7 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	return result, err
 }
 
-// processWorkload: process workloads based on their status: if a workload has not yet been dispatched to the Kubernetes cluster,
-// create the corresponding resource object according to the workload and configured workload-template, then deploy it to the target data-plane cluster.
-// If the workload has already been dispatched, an update operation can be performed (specifically for Deployment and StatefulSet).
+// processWorkload processes a workload resource and updates its state.
 func (r *DispatcherReconciler) processWorkload(ctx context.Context, workload *v1.Workload) (ctrlruntime.Result, error) {
 	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(workload))
 	if err != nil {
@@ -166,7 +164,7 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, workload *v1
 	return ctrlruntime.Result{}, err
 }
 
-// dispatch: creates and deploys the Kubernetes object in the data plane for the workload
+// dispatch creates and deploys the Kubernetes object in the data plane for the workload.
 func (r *DispatcherReconciler) dispatch(ctx context.Context,
 	adminWorkload *v1.Workload, clusterInformer *syncer.ClusterInformer) error {
 	// To prevent port conflicts when retrying, the port must be regenerated each time
@@ -185,7 +183,7 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 	return nil
 }
 
-// generateUniquePorts: generates unique job and SSH ports for the workload to avoid conflicts
+// generateUniquePorts generates unique job and SSH ports for the workload to avoid conflicts.
 func (r *DispatcherReconciler) generateUniquePorts(ctx context.Context, workload *v1.Workload) error {
 	rand.Seed(time.Now().UnixNano())
 	ports := make(map[int]bool)
@@ -210,7 +208,7 @@ func (r *DispatcherReconciler) generateUniquePorts(ctx context.Context, workload
 	return nil
 }
 
-// generateK8sObject: creates the unstructured Kubernetes object from the workload specification
+// generateK8sObject creates the unstructured Kubernetes object from the workload specification.
 func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 	adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
 	workspace := &v1.Workspace{}
@@ -250,7 +248,7 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 	return result, nil
 }
 
-// getWorkloadTemplate: retrieves the workload template configuration based on its version and kind
+// getWorkloadTemplate retrieves the workload template configuration based on its version and kind.
 func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWorkload *v1.Workload) (*unstructured.Unstructured, error) {
 	templateConfig, err := commonworkload.GetWorkloadTemplate(ctx, r.Client, adminWorkload)
 	if err != nil {
@@ -269,7 +267,7 @@ func (r *DispatcherReconciler) getWorkloadTemplate(ctx context.Context, adminWor
 	return template, nil
 }
 
-// patchDispatched: updates a workload's status to indicate it has been dispatched
+// patchDispatched updates a workload's status to indicate it has been dispatched.
 func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1.Workload) error {
 	reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload) + 1)
 	cond := jobutils.NewCondition(string(v1.AdminDispatched), "the workload is dispatched", reason)
@@ -297,7 +295,7 @@ func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1
 	return nil
 }
 
-// updateK8sObject: updates the existing Kubernetes object when workload specs change
+// updateK8sObject updates the existing Kubernetes object when workload specs change.
 func (r *DispatcherReconciler) updateK8sObject(ctx context.Context, adminWorkload *v1.Workload,
 	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) error {
 	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
@@ -333,7 +331,7 @@ func (r *DispatcherReconciler) updateK8sObject(ctx context.Context, adminWorkloa
 	return nil
 }
 
-// isResourceChanged: checks if the resource requirements of the workload have changed
+// isResourceChanged checks if the resource requirements of the workload have changed.
 func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
 	replicaList, resourceList, err := jobutils.GetResources(obj, rt,
 		v1.GetMainContainer(adminWorkload), adminWorkload.Spec.Resource.GPUName)
@@ -359,7 +357,7 @@ func isResourceChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructure
 	return false
 }
 
-// isImageChanged: checks if the container image of the workload has changed
+// isImageChanged checks if the container image of the workload has changed.
 func isImageChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
 	image, err := jobutils.GetImage(obj, rt, v1.GetMainContainer(adminWorkload))
 	if err != nil {
@@ -369,7 +367,7 @@ func isImageChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, 
 	return adminWorkload.Spec.Image != image
 }
 
-// isEntryPointChanged: checks if the entry point/command of the workload has changed
+// isEntryPointChanged checks if the entry point/command of the workload has changed.
 func isEntryPointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
 	commands, err := jobutils.GetCommand(obj, rt, v1.GetMainContainer(adminWorkload))
 	if err != nil {
@@ -383,7 +381,7 @@ func isEntryPointChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructu
 	return cmd != commands[len(commands)-1]
 }
 
-// isEnvChanged: checks if the environment variables of the workload have changed
+// isEnvChanged checks if the environment variables of the workload have changed.
 func isEnvChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
 	mainContainerName := v1.GetMainContainer(adminWorkload)
 	currentEnvs, err := jobutils.GetEnv(obj, rt, mainContainerName)
@@ -395,7 +393,7 @@ func isEnvChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt
 	return !maps.Contain(currentEnvsMap, adminWorkload.Spec.Env)
 }
 
-// isSharedMemoryChanged: checks if the shared memory configuration of the workload has changed
+// isSharedMemoryChanged checks if the shared memory configuration of the workload has changed.
 func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
 	memoryStorageSize, err := jobutils.GetMemoryStorageSize(obj, rt)
 	if err != nil {
@@ -407,7 +405,7 @@ func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 	return memoryStorageSize != adminWorkload.Spec.Resource.SharedMemory
 }
 
-// isPriorityClassChanged: checks if the priority of the workload has changed
+// isPriorityClassChanged checks if the priority of the workload has changed.
 func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
 	priorityClassName, err := jobutils.GetPriorityClassName(obj, rt)
 	if err != nil {
@@ -416,7 +414,7 @@ func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstru
 	return commonworkload.GeneratePriorityClass(adminWorkload) != priorityClassName
 }
 
-// updateUnstructuredObject: updates the unstructured object with workload specifications
+// updateUnstructuredObject updates the unstructured object with workload specifications.
 func updateUnstructuredObject(obj *unstructured.Unstructured, adminWorkload *v1.Workload, rt *v1.ResourceTemplate) error {
 	var preAllocatedReplica int64 = 0
 	for _, t := range rt.Spec.ResourceSpecs {
@@ -452,7 +450,7 @@ func updateUnstructuredObject(obj *unstructured.Unstructured, adminWorkload *v1.
 	return nil
 }
 
-// updateReplica: updates the replica count in the unstructured object
+// updateReplica updates the replica count in the unstructured object.
 func updateReplica(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
 	path := resourceSpec.PrePaths
@@ -474,7 +472,7 @@ func updateReplica(adminWorkload *v1.Workload,
 	return nil
 }
 
-// updateMainContainer: updates the main container configuration in the unstructured object
+// updateMainContainer updates the main container configuration in the unstructured object.
 func updateMainContainer(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
 	templatePath := resourceSpec.GetTemplatePath()
@@ -507,7 +505,7 @@ func updateMainContainer(adminWorkload *v1.Workload,
 	return nil
 }
 
-// updateContainerEnv: updates environment variables in the container
+// updateContainerEnv updates environment variables in the container.
 func updateContainerEnv(adminWorkload *v1.Workload, mainContainer map[string]interface{}) {
 	var currentEnv []interface{}
 	envObjs, ok := mainContainer["env"]
@@ -568,7 +566,7 @@ func updateContainerEnv(adminWorkload *v1.Workload, mainContainer map[string]int
 	mainContainer["env"] = newEnv
 }
 
-// updateSharedMemory: updates the shared memory volume configuration
+// updateSharedMemory updates the shared memory volume configuration.
 func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.TemplatePaths...)
@@ -601,7 +599,7 @@ func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructur
 	return nil
 }
 
-// updateHostNetwork: updates the host network configuration
+// updateHostNetwork updates the host network configuration.
 func updateHostNetwork(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
 	templatePath := resourceSpec.GetTemplatePath()
@@ -609,7 +607,7 @@ func updateHostNetwork(adminWorkload *v1.Workload,
 	return modifyHostNetwork(obj, adminWorkload, path)
 }
 
-// updatePriorityClass: updates the priority class configuration
+// updatePriorityClass updates the priority class configuration.
 func updatePriorityClass(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
 	templatePath := resourceSpec.GetTemplatePath()
@@ -617,7 +615,7 @@ func updatePriorityClass(adminWorkload *v1.Workload,
 	return modifyPriorityClass(obj, adminWorkload, path)
 }
 
-// createService: creates a Kubernetes Service for the workload if specified
+// createService creates a Kubernetes Service for the workload if specified.
 func (r *DispatcherReconciler) createService(ctx context.Context,
 	adminWorkload *v1.Workload, clusterInformer *syncer.ClusterInformer) error {
 	if adminWorkload.Spec.Service == nil {
@@ -671,8 +669,8 @@ func (r *DispatcherReconciler) createService(ctx context.Context,
 	return nil
 }
 
-// generateRandomPort: generates a random port number within the specified range
-// with a maximum of 200 retry attempts to avoid infinite loops
+// generateRandomPort generates a random port number within the specified range.
+// with a maximum of 200 retry attempts to avoid infinite loops.
 func generateRandomPort(ports map[int]bool) int {
 	maxRetries := 200
 	for i := 0; i < maxRetries; i++ {
@@ -687,13 +685,13 @@ func generateRandomPort(ports map[int]bool) int {
 	return 0
 }
 
-// buildDispatchCount: generates the dispatch count as a string
+// buildDispatchCount generates the dispatch count as a string.
 func buildDispatchCount(w *v1.Workload) string {
 	// The count for the first dispatch is 1, so it needs to be incremented by 1 here.
 	return strconv.Itoa(v1.GetWorkloadDispatchCnt(w) + 1)
 }
 
-// isDispatchingJob: checks if a workload is ready to be dispatched
+// isDispatchingJob checks if a workload is ready to be dispatched.
 func isDispatchingJob(w *v1.Workload) bool {
 	if v1.IsWorkloadScheduled(w) && !v1.IsWorkloadDispatched(w) {
 		return true

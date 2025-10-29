@@ -90,6 +90,7 @@ func init() {
 	SchemeBuilder.Register(&NodeFlavor{}, &NodeFlavorList{})
 }
 
+// HasGpu returns true if the node flavor includes GPU resources.
 func (nf *NodeFlavor) HasGpu() bool {
 	if nf != nil && nf.Spec.Gpu != nil && !nf.Spec.Gpu.Quantity.IsZero() {
 		return true
@@ -97,6 +98,7 @@ func (nf *NodeFlavor) HasGpu() bool {
 	return false
 }
 
+// ToResourceList converts node flavor resources to a Kubernetes ResourceList.
 func (nf *NodeFlavor) ToResourceList(rdmaName string) corev1.ResourceList {
 	if nf == nil {
 		return nil

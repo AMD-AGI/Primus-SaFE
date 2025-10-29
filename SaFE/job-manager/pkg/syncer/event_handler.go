@@ -22,7 +22,7 @@ import (
 const (
 	PullingReason = "Pulling"
 	PulledReason  = "Pulled"
-	
+
 	AlreadyExistsMessage = "already exists"
 	PullingImageMessage  = "Pulling image"
 )
@@ -40,16 +40,8 @@ var (
 	workloadIdPath = []string{"metadata", "labels", v1.WorkloadIdLabel}
 )
 
-// handleEvent processes Kubernetes Event resources and updates corresponding workload status
-// It retrieves the event object, finds the associated workload, and updates pending messages
-// Parameters:
-//   - ctx: The context for the operation
-//   - msg: The resource message containing event details
-//   - informer: The cluster informer for accessing resources
-//
-// Returns:
-//   - ctrlruntime.Result: The result of the handling
-//   - error: Any error encountered during processing
+// handleEvent processes Kubernetes Event resources and updates corresponding workload status.
+// It retrieves the event object, finds the associated workload, and updates pending messages.
 func (r *SyncerReconciler) handleEvent(ctx context.Context, message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
 	eventInformer, err := informer.GetResourceInformer(ctx, message.gvk)
 	if err != nil {
@@ -69,16 +61,8 @@ func (r *SyncerReconciler) handleEvent(ctx context.Context, message *resourceMes
 	return ctrlruntime.Result{}, nil
 }
 
-// getAdminWorkloadByEvent retrieves the admin workload associated with an event
-// It traverses from event -> pod -> workload to find the corresponding workload
-// Parameters:
-//   - ctx: The context for the operation
-//   - informer: The cluster informer for accessing resources
-//   - eventObj: The event object to process
-//
-// Returns:
-//   - *v1.Workload: The associated admin workload, or nil if not found
-//   - error: Any error encountered during retrieval
+// getAdminWorkloadByEvent retrieves the admin workload associated with an event.
+// It traverses from event -> pod -> workload to find the corresponding workload.
 func (r *SyncerReconciler) getAdminWorkloadByEvent(ctx context.Context,
 	informer *ClusterInformer, eventObj *unstructured.Unstructured) (*v1.Workload, error) {
 	podName := jobutils.GetUnstructuredString(eventObj.Object, eventInvolvedNamePath)
@@ -104,15 +88,8 @@ func (r *SyncerReconciler) getAdminWorkloadByEvent(ctx context.Context,
 	return r.getAdminWorkload(ctx, workloadId)
 }
 
-// updatePendingMessage updates the pending message status of a workload based on event information
-// Only processes workloads in Pending state
-// Parameters:
-//   - ctx: The context for the operation
-//   - adminWorkload: The workload to update
-//   - eventObj: The event object containing message information
-//
-// Returns:
-//   - error: Any error encountered during update
+// updatePendingMessage updates the pending message status of a workload based on event information.
+// Only processes workloads in Pending state.
 func (r *SyncerReconciler) updatePendingMessage(ctx context.Context, adminWorkload *v1.Workload, eventObj *unstructured.Unstructured) error {
 	// At present, processing is focused on the Pending state
 	if !adminWorkload.IsPending() {
@@ -143,13 +120,8 @@ func (r *SyncerReconciler) updatePendingMessage(ctx context.Context, adminWorklo
 	return nil
 }
 
-// isRelevantPodEvent determines if a Pod event is relevant for processing
-// Filters events based on type and reason to focus on significant events
-// Parameters:
-//   - obj: The unstructured event object to evaluate
-//
-// Returns:
-//   - bool: True if the event is relevant, false otherwise
+// isRelevantPodEvent determines if a Pod event is relevant for processing.
+// Filters events based on type and reason to focus on significant events.
 func isRelevantPodEvent(obj *unstructured.Unstructured) bool {
 	eventInvolvedKind := jobutils.GetUnstructuredString(obj.Object, eventInvolvedKindPath)
 	if eventInvolvedKind != common.PodKind {

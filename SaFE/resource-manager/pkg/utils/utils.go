@@ -35,7 +35,7 @@ const (
 	AuthorizePub = "authorize.pub"
 )
 
-// RemoveOwnerReferences removes owner references with the specified UID from the given references
+// RemoveOwnerReferences removes owner references with the specified UID from the given references.
 func RemoveOwnerReferences(references []metav1.OwnerReference, uid types.UID) []metav1.OwnerReference {
 	newReferences := make([]metav1.OwnerReference, 0, len(references))
 	for k, r := range references {
@@ -46,7 +46,7 @@ func RemoveOwnerReferences(references []metav1.OwnerReference, uid types.UID) []
 	return newReferences
 }
 
-// RemoveFinalizer removes specified finalizers from the object and updates it
+// RemoveFinalizer removes specified finalizers from the object and updates it.
 func RemoveFinalizer(ctx context.Context, cli client.Client, obj client.Object, finalizer ...string) error {
 	var found bool
 	for _, val := range finalizer {
@@ -68,7 +68,7 @@ func RemoveFinalizer(ctx context.Context, cli client.Client, obj client.Object, 
 	return nil
 }
 
-// IncRetryCount increments the retry count annotation on the object and updates it
+// IncRetryCount increments the retry count annotation on the object and updates it.
 func IncRetryCount(ctx context.Context, cli client.Client, obj client.Object, maxCount int) (int, error) {
 	count := v1.GetRetryCount(obj) + 1
 	if count > maxCount {
@@ -82,7 +82,7 @@ func IncRetryCount(ctx context.Context, cli client.Client, obj client.Object, ma
 	return count, nil
 }
 
-// IsNonRetryableError checks if an error is non-retryable (cannot be fixed by retrying)
+// IsNonRetryableError checks if an error is non-retryable (cannot be fixed by retrying).
 func IsNonRetryableError(err error) bool {
 	if err == nil {
 		return false
@@ -96,7 +96,7 @@ func IsNonRetryableError(err error) bool {
 	return false
 }
 
-// GetK8sClientFactory retrieves the Kubernetes client factory for the specified cluster
+// GetK8sClientFactory retrieves the Kubernetes client factory for the specified cluster.
 func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
 	if clientManager == nil {
 		return nil, commonerrors.NewInternalError("client manager is empty")
@@ -114,7 +114,7 @@ func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId str
 	return k8sClients, nil
 }
 
-// GetSSHClient creates an SSH client connection to the specified node
+// GetSSHClient creates an SSH client connection to the specified node.
 func GetSSHClient(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.Client, error) {
 	config, err := GetSSHConfig(ctx, cli, node)
 	if err != nil {
@@ -131,7 +131,7 @@ func GetSSHClient(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.C
 	return sshClient, nil
 }
 
-// GetSSHConfig creates SSH client configuration from node's SSH secret
+// GetSSHConfig creates SSH client configuration from node's SSH secret.
 func GetSSHConfig(ctx context.Context, cli client.Client, node *v1.Node) (*ssh.ClientConfig, error) {
 	if node.Spec.SSHSecret == nil {
 		return nil, commonerrors.NewInternalError("failed to get SSH secret of node")

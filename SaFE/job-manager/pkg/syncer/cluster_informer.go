@@ -74,16 +74,7 @@ type resourceMessage struct {
 	dispatchCount int
 }
 
-// newClusterInformer creates and initializes a new ClusterInformer instance
-// Parameters:
-//   - ctx: The context for the informer
-//   - cluster: The cluster configuration
-//   - adminClient: The admin plane client
-//   - handler: The resource event handler
-//
-// Returns:
-//   - *ClusterInformer: The initialized cluster informer
-//   - error: Any error encountered during initialization
+// newClusterInformer creates and initializes a new ClusterInformer instance.
 func newClusterInformer(ctx context.Context, cluster *v1.Cluster,
 	adminClient client.Client, handler ResourceHandler) (*ClusterInformer, error) {
 	controlPlane := &cluster.Status.ControlPlaneStatus
@@ -110,21 +101,12 @@ func newClusterInformer(ctx context.Context, cluster *v1.Cluster,
 	}, nil
 }
 
-// ClientFactory returns the data plane client factory
-// Returns:
-//   - *commonclient.ClientFactory: The client factory for data plane operations
+// ClientFactory returns the data plane client factory.
 func (r *ClusterInformer) ClientFactory() *commonclient.ClientFactory {
 	return r.dataClientFactory
 }
 
-// GetResourceInformer retrieves the resource informer for a given GVK
-// Parameters:
-//   - ctx: The context for the operation
-//   - gvk: The GroupVersionKind of the resource
-//
-// Returns:
-//   - informers.GenericInformer: The resource informer
-//   - error: Any error encountered during retrieval
+// GetResourceInformer retrieves the resource informer for a given GVK.
 func (r *ClusterInformer) GetResourceInformer(ctx context.Context, gvk schema.GroupVersionKind) (informers.GenericInformer, error) {
 	informer := r.getResourceInformer(gvk)
 	if informer != nil {
@@ -136,12 +118,7 @@ func (r *ClusterInformer) GetResourceInformer(ctx context.Context, gvk schema.Gr
 	return nil, fmt.Errorf("failed to find informer, gvk: %v", gvk)
 }
 
-// getResourceInformer retrieves the internal resource informer for a given GVK
-// Parameters:
-//   - gvk: The GroupVersionKind of the resource
-//
-// Returns:
-//   - *resourceInformer: The internal resource informer, or nil if not found
+// getResourceInformer retrieves the internal resource informer for a given GVK.
 func (r *ClusterInformer) getResourceInformer(gvk schema.GroupVersionKind) *resourceInformer {
 	obj, ok := r.resourceInformers.Get(gvk.String())
 	if !ok {
@@ -154,12 +131,7 @@ func (r *ClusterInformer) getResourceInformer(gvk schema.GroupVersionKind) *reso
 	return informer
 }
 
-// addResourceTemplate adds a resource template and creates corresponding informer
-// Parameters:
-//   - gvk: The GroupVersionKind of the resource
-//
-// Returns:
-//   - error: Any error encountered during addition
+// addResourceTemplate adds a resource template and creates corresponding informer.
 func (r *ClusterInformer) addResourceTemplate(gvk schema.GroupVersionKind) error {
 	if r.resourceInformers.Has(gvk.String()) {
 		return nil
@@ -201,12 +173,7 @@ func (r *ClusterInformer) addResourceTemplate(gvk schema.GroupVersionKind) error
 	return nil
 }
 
-// handleResource processes resource events (add, update, delete)
-// Parameters:
-//   - ctx: The context for the operation (unused)
-//   - oldObj: The old object (for update/delete)
-//   - newObj: The new object (for add/update)
-//   - action: The action type (ResourceAdd, ResourceUpdate, ResourceDel)
+// handleResource processes resource events (add, update, delete).
 func (r *ClusterInformer) handleResource(_ context.Context, oldObj, newObj interface{}, action string) {
 	newUnstructured, ok := newObj.(*unstructured.Unstructured)
 	if !ok {
@@ -252,9 +219,7 @@ func (r *ClusterInformer) handleResource(_ context.Context, oldObj, newObj inter
 	r.handler(msg)
 }
 
-// delResourceTemplate removes a resource template and its corresponding informer
-// Parameters:
-//   - gvk: The GroupVersionKind of the resource to remove
+// delResourceTemplate removes a resource template and its corresponding informer.
 func (r *ClusterInformer) delResourceTemplate(gvk schema.GroupVersionKind) {
 	if err := r.resourceInformers.Delete(gvk.String()); err != nil {
 		klog.ErrorS(err, "failed to delete resource informer", "gvk", gvk)
@@ -262,25 +227,19 @@ func (r *ClusterInformer) delResourceTemplate(gvk schema.GroupVersionKind) {
 	klog.Infof("delete resource informer, cluster: %s, gvk: %s", r.name, gvk.String())
 }
 
-// Release cleans up all resources associated with the ClusterInformer
-// it implements the interface of commonutils.Object
-// Returns:
-//   - error: Always returns nil in current implementation
+// Release cleans up all resources associated with the ClusterInformer.
+// it implements the interface of commonutils.Object.
 func (r *ClusterInformer) Release() error {
 	r.resourceInformers.Clear()
 	return nil
 }
 
-// start begins running the informer in a separate goroutine
+// start begins running the informer in a separate goroutine.
 func (r *resourceInformer) start() {
 	go r.Informer().Run(r.context.Done())
 }
 
-// Release cleans up resources associated with the resourceInformer
-// Cancels the context and marks the informer as exited
-// it implements the interface of commonutils.Object
-// Returns:
-//   - error: Always returns nil in current implementation
+// Release cleans up resources associated with the resourceInformer.
 func (r *resourceInformer) Release() error {
 	if r.isExited {
 		return nil
@@ -290,14 +249,7 @@ func (r *resourceInformer) Release() error {
 	return nil
 }
 
-// GetClusterInformer retrieves a ClusterInformer by name from the ObjectManager
-// Parameters:
-//   - clusterInformers: The ObjectManager containing cluster informers
-//   - name: The name of the cluster informer to retrieve
-//
-// Returns:
-//   - *ClusterInformer: The retrieved cluster informer
-//   - error: Any error encountered during retrieval
+// GetClusterInformer retrieves a ClusterInformer by name from the ObjectManager.
 func GetClusterInformer(clusterInformers *commonutils.ObjectManager, name string) (*ClusterInformer, error) {
 	obj, ok := clusterInformers.Get(name)
 	if !ok {

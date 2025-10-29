@@ -13,8 +13,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-type WorkloadPhase string
-type CronAction string
+type (
+	WorkloadPhase string
+	CronAction    string
+)
 
 const (
 	WorkloadKind = "Workload"
@@ -245,6 +247,7 @@ func init() {
 	SchemeBuilder.Register(&Workload{}, &WorkloadList{})
 }
 
+// IsPending returns true if the operations job is pending execution.
 func (w *Workload) IsPending() bool {
 	if w.Status.Phase == "" || w.Status.Phase == WorkloadPending {
 		return true
@@ -252,6 +255,7 @@ func (w *Workload) IsPending() bool {
 	return false
 }
 
+// IsRunning returns true if the workload is in Running phase.
 func (w *Workload) IsRunning() bool {
 	if w.Status.Phase == WorkloadRunning {
 		return true
@@ -259,6 +263,7 @@ func (w *Workload) IsRunning() bool {
 	return false
 }
 
+// IsStopped returns whether the tomb has been stopped.
 func (w *Workload) IsStopped() bool {
 	if w.Status.Phase == WorkloadStopped {
 		return true
@@ -266,6 +271,7 @@ func (w *Workload) IsStopped() bool {
 	return false
 }
 
+// IsEnd returns true if the fault has ended (completed or failed).
 func (w *Workload) IsEnd() bool {
 	if w.Status.Phase == WorkloadSucceeded ||
 		w.Status.Phase == WorkloadFailed {
@@ -277,6 +283,7 @@ func (w *Workload) IsEnd() bool {
 	return false
 }
 
+// ElapsedTime returns the elapsed time in seconds from workload creation to completion or current time.
 func (w *Workload) ElapsedTime() int64 {
 	var elapsedTime time.Duration
 	if w.IsEnd() {
@@ -290,6 +297,7 @@ func (w *Workload) ElapsedTime() int64 {
 	return int64(elapsedTime.Seconds())
 }
 
+// EndTime returns the workload end time, or zero time if not set.
 func (w *Workload) EndTime() time.Time {
 	if w.Status.EndTime == nil || w.Status.EndTime.IsZero() {
 		return time.Time{}
@@ -297,6 +305,7 @@ func (w *Workload) EndTime() time.Time {
 	return w.Status.EndTime.Time
 }
 
+// IsTimeout returns true if the operations job has timed out.
 func (w *Workload) IsTimeout() bool {
 	if w.GetTimeout() <= 0 || w.Status.StartTime == nil {
 		return false
@@ -305,6 +314,7 @@ func (w *Workload) IsTimeout() bool {
 	return duration >= w.GetTimeout()
 }
 
+// GetTimeout returns the timeout value in seconds for the workload.
 func (w *Workload) GetTimeout() int {
 	if w.Spec.Timeout == nil {
 		return 0
@@ -312,6 +322,7 @@ func (w *Workload) GetTimeout() int {
 	return *w.Spec.Timeout
 }
 
+// GetTTLSecond returns the TTL (time to live) in seconds for the workload after completion.
 func (w *Workload) GetTTLSecond() int {
 	if w.Spec.TTLSecondsAfterFinished == nil {
 		return 0
@@ -319,6 +330,7 @@ func (w *Workload) GetTTLSecond() int {
 	return *w.Spec.TTLSecondsAfterFinished
 }
 
+// GetLastCondition returns the most recent condition in the workload status.
 func (w *Workload) GetLastCondition() *metav1.Condition {
 	l := len(w.Status.Conditions)
 	if l == 0 {
@@ -327,20 +339,24 @@ func (w *Workload) GetLastCondition() *metav1.Condition {
 	return &w.Status.Conditions[l-1]
 }
 
+// IsPodRunning returns true if the pod is in Running phase.
 func IsPodRunning(p *WorkloadPod) bool {
 	return corev1.PodSucceeded != p.Phase &&
 		corev1.PodFailed != p.Phase &&
 		p.K8sNodeName != ""
 }
 
+// ToSchemaGVK converts the resource template GVK to schema.GroupVersionKind.
 func (w *Workload) ToSchemaGVK() schema.GroupVersionKind {
 	return w.Spec.GroupVersionKind.ToSchema()
 }
 
+// SpecKind returns the kind string from the resource spec.
 func (w *Workload) SpecKind() string {
 	return w.Spec.GroupVersionKind.Kind
 }
 
+// SpecVersion returns the version string from the workload spec.
 func (w *Workload) SpecVersion() string {
 	return w.Spec.GroupVersionKind.Version
 }
@@ -362,6 +378,7 @@ func (w *Workload) GetDependenciesPhase(workloadId string) (WorkloadPhase, bool)
 	return phase, ok
 }
 
+// HasScheduled checks if the workload has been scheduled at least once.
 func (w *Workload) HasScheduled() bool {
 	if IsWorkloadScheduled(w) || GetWorkloadDispatchCnt(w) > 0 {
 		return true

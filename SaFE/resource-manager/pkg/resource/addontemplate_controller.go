@@ -26,13 +26,13 @@ import (
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
-// AddonTemplateController manages AddonTemplate resources by fetching and storing Helm chart default values
+// AddonTemplateController manages AddonTemplate resources by fetching and storing Helm chart default values.
 type AddonTemplateController struct {
 	client.Client
 	getter *RESTClientGetter
 }
 
-// SetupAddonTemplateController initializes and registers the AddonTemplateController with the controller manager
+// SetupAddonTemplateController initializes and registers the AddonTemplateController with the controller manager.
 func SetupAddonTemplateController(mgr manager.Manager) error {
 	cfg, err := commonclient.GetRestConfigInCluster()
 	if err != nil {
@@ -54,7 +54,7 @@ func SetupAddonTemplateController(mgr manager.Manager) error {
 	return nil
 }
 
-// Reconcile processes AddonTemplate resources by fetching Helm chart default values and storing them in status
+// Reconcile processes AddonTemplate resources by fetching Helm chart default values and storing them in status.
 func (r *AddonTemplateController) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	template := &v1.AddonTemplate{}
 	err := r.Get(ctx, req.NamespacedName, template)
@@ -83,7 +83,7 @@ func (r *AddonTemplateController) Reconcile(ctx context.Context, req ctrlruntime
 	return ctrlruntime.Result{}, r.updateTemplateStatus(ctx, template, chart)
 }
 
-// initializeActionConfig creates and initializes Helm action configuration
+// initializeActionConfig creates and initializes Helm action configuration.
 func (r *AddonTemplateController) initializeActionConfig() (*action.Configuration, error) {
 	settings := cli.New()
 	settings.Debug = true
@@ -102,7 +102,7 @@ func (r *AddonTemplateController) initializeActionConfig() (*action.Configuratio
 	return actionConfig, nil
 }
 
-// fetchChart downloads and loads a Helm chart
+// fetchChart downloads and loads a Helm chart.
 func (r *AddonTemplateController) fetchChart(template *v1.AddonTemplate, actionConfig *action.Configuration) (*chart.Chart, error) {
 	installClient := action.NewInstall(actionConfig)
 	installClient.Timeout = Timeout
@@ -123,7 +123,7 @@ func (r *AddonTemplateController) fetchChart(template *v1.AddonTemplate, actionC
 	return loader.Load(chartRequested)
 }
 
-// getChartName determines the chart name and configures repository URL if needed
+// getChartName determines the chart name and configures repository URL if needed.
 func (r *AddonTemplateController) getChartName(template *v1.AddonTemplate, installClient *action.Install) string {
 	name := template.Spec.URL
 	if !strings.HasPrefix(name, "oci://") {
@@ -133,7 +133,7 @@ func (r *AddonTemplateController) getChartName(template *v1.AddonTemplate, insta
 	return name
 }
 
-// updateTemplateStatus updates the template status with chart values
+// updateTemplateStatus updates the template status with chart values.
 func (r *AddonTemplateController) updateTemplateStatus(ctx context.Context, template *v1.AddonTemplate, chart *chart.Chart) error {
 	originalTemplate := client.MergeFrom(template.DeepCopy())
 	values, err := yaml.Marshal(chart.Values)

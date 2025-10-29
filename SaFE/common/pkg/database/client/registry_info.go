@@ -14,6 +14,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// UpsertRegistryInfo performs the UpsertRegistryInfo operation.
 func (c *Client) UpsertRegistryInfo(ctx context.Context, registryInfo *model.RegistryInfo) error {
 	if registryInfo == nil {
 		return errors.New("the input is empty")
@@ -40,6 +41,7 @@ func (c *Client) UpsertRegistryInfo(ctx context.Context, registryInfo *model.Reg
 	return nil
 }
 
+// GetRegistryInfoById returns the RegistryInfoById value.
 func (c *Client) GetRegistryInfoById(ctx context.Context, id int32) (*model.RegistryInfo, error) {
 	q := dal.Use(c.gorm).RegistryInfo
 	item, err := q.WithContext(ctx).Where(q.ID.Eq(id)).First()
@@ -53,6 +55,7 @@ func (c *Client) GetRegistryInfoById(ctx context.Context, id int32) (*model.Regi
 	return item, nil
 }
 
+// GetDefaultRegistryInfo returns the DefaultRegistryInfo value.
 func (c *Client) GetDefaultRegistryInfo(ctx context.Context) (*model.RegistryInfo, error) {
 	q := dal.Use(c.gorm).RegistryInfo
 	item, err := q.WithContext(ctx).Where(q.Default.Is(true)).First()
@@ -66,6 +69,7 @@ func (c *Client) GetDefaultRegistryInfo(ctx context.Context) (*model.RegistryInf
 	return item, nil
 }
 
+// GetRegistryInfoByUrl returns the RegistryInfoByUrl value.
 func (c *Client) GetRegistryInfoByUrl(ctx context.Context, url string) (*model.RegistryInfo, error) {
 	q := dal.Use(c.gorm).RegistryInfo
 	item, err := q.WithContext(ctx).Where(q.URL.Eq(url)).First()
@@ -78,6 +82,7 @@ func (c *Client) GetRegistryInfoByUrl(ctx context.Context, url string) (*model.R
 	return item, nil
 }
 
+// DeleteRegistryInfo removes the specified item.
 func (c *Client) DeleteRegistryInfo(ctx context.Context, id int32) error {
 	q := dal.Use(c.gorm).RegistryInfo
 	_, err := q.WithContext(ctx).Where(q.ID.Eq(int32(id))).Delete()
@@ -88,6 +93,7 @@ func (c *Client) DeleteRegistryInfo(ctx context.Context, id int32) error {
 	return nil
 }
 
+// ListRegistryInfos retrieves a list of resources.
 func (c *Client) ListRegistryInfos(ctx context.Context, pageNum, pageSize int) ([]*model.RegistryInfo, error) {
 	q := dal.Use(c.gorm).RegistryInfo
 	query := q.WithContext(ctx).Order(q.ID.Desc())

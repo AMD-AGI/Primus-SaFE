@@ -21,6 +21,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
+// AddRoleWebhook registers the role validation and mutation webhooks.
 func AddRoleWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.RoleKind), &webhook.Admission{Handler: &RoleMutator{
 		Client:  mgr.GetClient(),
@@ -32,11 +33,13 @@ func AddRoleWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder adm
 	}})
 }
 
+// RoleMutator handles mutation logic for Role resources.
 type RoleMutator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle processes role creation requests and applies normalizations.
 func (m *RoleMutator) Handle(_ context.Context, req admission.Request) admission.Response {
 	if req.Operation != admissionv1.Create {
 		return admission.Allowed("")
@@ -53,6 +56,7 @@ func (m *RoleMutator) Handle(_ context.Context, req admission.Request) admission
 	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
+// mutateOnCreation applies default values and normalizations during creation.
 func (m *RoleMutator) mutateOnCreation(role *v1.Role) {
 	role.Name = stringutil.NormalizeName(role.Name)
 	for i := range role.Rules {
@@ -62,11 +66,12 @@ func (m *RoleMutator) mutateOnCreation(role *v1.Role) {
 	}
 }
 
+// RoleValidator validates Role resources on create and update operations.
 type RoleValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
-
+// Handle validates role resources on create, update, and delete operations.
 func (v *RoleValidator) Handle(_ context.Context, req admission.Request) admission.Response {
 	role := &v1.Role{}
 	var err error
@@ -87,6 +92,7 @@ func (v *RoleValidator) Handle(_ context.Context, req admission.Request) admissi
 	return admission.Allowed("")
 }
 
+// validate validates the resource.
 func (v *RoleValidator) validate(role *v1.Role) error {
 	if len(role.Rules) == 0 {
 		return fmt.Errorf("invalid rules of role")

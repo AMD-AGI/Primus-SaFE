@@ -21,6 +21,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
+// AddResourceTemplateWebhook registers the resource template validation and mutation webhooks.
 func AddResourceTemplateWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.ResourceTemplateKind), &webhook.Admission{Handler: &ResourceTemplateMutator{
 		Client:  mgr.GetClient(),
@@ -32,11 +33,13 @@ func AddResourceTemplateWebhook(mgr ctrlruntime.Manager, server *webhook.Server,
 	}})
 }
 
+// ResourceTemplateMutator handles mutation logic for ResourceTemplate resources.
 type ResourceTemplateMutator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle processes resource template creation requests and applies normalizations.
 func (m *ResourceTemplateMutator) Handle(_ context.Context, req admission.Request) admission.Response {
 	if req.Operation != admissionv1.Create {
 		return admission.Allowed("")
@@ -53,15 +56,17 @@ func (m *ResourceTemplateMutator) Handle(_ context.Context, req admission.Reques
 	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
+// mutateOnCreation applies default values and normalizations during creation.
 func (m *ResourceTemplateMutator) mutateOnCreation(rt *v1.ResourceTemplate) {
 	rt.Name = stringutil.NormalizeName(rt.Name)
 }
 
+// ResourceTemplateValidator validates ResourceTemplate resources on create and update operations.
 type ResourceTemplateValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
-
+// Handle validates resource template resources on create, update, and delete operations.
 func (v *ResourceTemplateValidator) Handle(_ context.Context, req admission.Request) admission.Response {
 	rt := &v1.ResourceTemplate{}
 	var err error
@@ -82,6 +87,7 @@ func (v *ResourceTemplateValidator) Handle(_ context.Context, req admission.Requ
 	return admission.Allowed("")
 }
 
+// validate validates the resource.
 func (v *ResourceTemplateValidator) validate(rt *v1.ResourceTemplate) error {
 	if err := v.validateTemplate(rt); err != nil {
 		return err
@@ -89,7 +95,7 @@ func (v *ResourceTemplateValidator) validate(rt *v1.ResourceTemplate) error {
 	return nil
 }
 
-// Check template, only one replica can have a null value.
+// validateTemplate ensures only one resource spec can have an empty replica field.
 func (v *ResourceTemplateValidator) validateTemplate(rt *v1.ResourceTemplate) error {
 	if len(rt.Spec.ResourceSpecs) <= 1 {
 		return nil
@@ -106,6 +112,7 @@ func (v *ResourceTemplateValidator) validateTemplate(rt *v1.ResourceTemplate) er
 	return nil
 }
 
+// getResourceTemplate retrieves the requested information.
 func getResourceTemplate(ctx context.Context, cli client.Client, gvk v1.GroupVersionKind) (*v1.ResourceTemplate, error) {
 	labelSelector := labels.SelectorFromSet(map[string]string{
 		v1.WorkloadKindLabel: gvk.Kind, v1.WorkloadVersionLabel: gvk.Version})

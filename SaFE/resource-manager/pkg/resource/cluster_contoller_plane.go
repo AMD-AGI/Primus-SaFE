@@ -71,7 +71,7 @@ func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cl
 	return r.clearPods(ctx, cluster)
 }
 
-// handleControlPlaneCreation manages the creation workflow for control plane
+// handleControlPlaneCreation manages the creation workflow for control plane.
 func (r *ClusterReconciler) handleControlPlaneCreation(ctx context.Context, cluster *v1.Cluster) error {
 	hostsContent, err := r.generateHosts(ctx, cluster, nil)
 	if err != nil {
@@ -98,7 +98,7 @@ func (r *ClusterReconciler) handleControlPlaneCreation(ctx context.Context, clus
 	return r.createControlPlanePod(ctx, cluster, hostsContent)
 }
 
-// removeFinalizer removes the cluster finalizer during deletion
+// removeFinalizer removes the cluster finalizer during deletion.
 func (r *ClusterReconciler) removeFinalizer(ctx context.Context, cluster *v1.Cluster) error {
 	klog.Infof("delete %s finalizer", v1.ClusterFinalizer)
 	var ok bool
@@ -109,7 +109,7 @@ func (r *ClusterReconciler) removeFinalizer(ctx context.Context, cluster *v1.Clu
 	return r.Update(ctx, cluster)
 }
 
-// createControlPlanePod creates and manages the worker pod for cluster creation
+// createControlPlanePod creates and manages the worker pod for cluster creation.
 func (r *ClusterReconciler) createControlPlanePod(ctx context.Context, cluster *v1.Cluster, hostsContent *HostTemplateContent) error {
 	if cluster.Spec.ControlPlane.SSHSecret == nil {
 		if err := r.generateSSHSecret(ctx, cluster); err != nil {
@@ -131,7 +131,7 @@ func (r *ClusterReconciler) createControlPlanePod(ctx context.Context, cluster *
 	return r.updatePodStatus(ctx, cluster, pod)
 }
 
-// updatePodStatus updates cluster phase based on pod status
+// updatePodStatus updates cluster phase based on pod status.
 func (r *ClusterReconciler) updatePodStatus(ctx context.Context, cluster *v1.Cluster, pod *corev1.Pod) error {
 	originalCluster := client.MergeFrom(cluster.DeepCopy())
 	cluster.Status.ControlPlaneStatus.Phase = v1.CreatingPhase
@@ -167,7 +167,7 @@ func (r *ClusterReconciler) reset(ctx context.Context, cluster *v1.Cluster, host
 	return r.handleResetPodCreation(ctx, cluster, originalCluster, hostsContent)
 }
 
-// handleResetPodCreation creates reset worker pod and updates cluster status
+// handleResetPodCreation creates reset worker pod and updates cluster status.
 func (r *ClusterReconciler) handleResetPodCreation(ctx context.Context, cluster *v1.Cluster, originalCluster client.Patch, hostsContent *HostTemplateContent) error {
 	pod, err := r.guaranteeResetWorkPodCreated(ctx, cluster, hostsContent)
 	if err != nil {
@@ -191,7 +191,7 @@ func (r *ClusterReconciler) handleResetPodCreation(ctx context.Context, cluster 
 	return r.Status().Patch(ctx, cluster, originalCluster)
 }
 
-// updateResetPhase updates cluster phase based on reset pod status
+// updateResetPhase updates cluster phase based on reset pod status.
 func (r *ClusterReconciler) updateResetPhase(cluster *v1.Cluster, pod *corev1.Pod) {
 	if pod.Status.Phase == corev1.PodSucceeded {
 		cluster.Status.ControlPlaneStatus.Phase = v1.DeletedPhase
@@ -202,7 +202,7 @@ func (r *ClusterReconciler) updateResetPhase(cluster *v1.Cluster, pod *corev1.Po
 	}
 }
 
-// getUsername retrieves the username for SSH access to the cluster's control plane node
+// getUsername retrieves the username for SSH access to the cluster's control plane node.
 func (r *ClusterReconciler) getUsername(ctx context.Context, cluster *v1.Cluster) (string, error) {
 	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
 		return "", fmt.Errorf("no control plane node specified")
@@ -235,7 +235,7 @@ func (r *ClusterReconciler) guaranteeCreateWorkerPodCreated(ctx context.Context,
 	return r.createNewWorkerPod(ctx, cluster, hostsContent)
 }
 
-// handleExistingPod processes an existing pod and creates hosts configmap if valid
+// handleExistingPod processes an existing pod and creates hosts configmap if valid.
 func (r *ClusterReconciler) handleExistingPod(ctx context.Context, cluster *v1.Cluster, pod *corev1.Pod, hostsContent *HostTemplateContent) (*corev1.Pod, error) {
 	for _, owner := range pod.OwnerReferences {
 		if owner.Kind == cluster.Kind && owner.UID == cluster.UID {
@@ -255,7 +255,7 @@ func (r *ClusterReconciler) handleExistingPod(ctx context.Context, cluster *v1.C
 	return nil, r.Delete(ctx, pod)
 }
 
-// createNewWorkerPod creates a new worker pod for cluster creation
+// createNewWorkerPod creates a new worker pod for cluster creation.
 func (r *ClusterReconciler) createNewWorkerPod(ctx context.Context, cluster *v1.Cluster, hostsContent *HostTemplateContent) (*corev1.Pod, error) {
 	username, err := r.getUsername(ctx, cluster)
 	if err != nil {
@@ -287,7 +287,7 @@ func (r *ClusterReconciler) createNewWorkerPod(ctx context.Context, cluster *v1.
 	return pod, nil
 }
 
-// addOwnerReferences adds owner references to the pod from hosts content
+// addOwnerReferences adds owner references to the pod from hosts content.
 func (r *ClusterReconciler) addOwnerReferences(pod *corev1.Pod, hostsContent *HostTemplateContent) {
 	for _, m := range hostsContent.Controllers {
 		pod.OwnerReferences = append(pod.OwnerReferences, metav1.OwnerReference{
@@ -320,7 +320,7 @@ func (r *ClusterReconciler) guaranteeResetWorkPodCreated(ctx context.Context, cl
 	return r.createResetPod(ctx, cluster, hostsContent)
 }
 
-// createResetPod creates a new reset worker pod
+// createResetPod creates a new reset worker pod.
 func (r *ClusterReconciler) createResetPod(ctx context.Context, cluster *v1.Cluster, hostsContent *HostTemplateContent) (*corev1.Pod, error) {
 	username, err := r.getUsername(ctx, cluster)
 	if err != nil {
@@ -337,7 +337,7 @@ func (r *ClusterReconciler) createResetPod(ctx context.Context, cluster *v1.Clus
 	return pod, nil
 }
 
-// getControllerPlaneNodes retrieves all control plane nodes for the cluster
+// getControllerPlaneNodes retrieves all control plane nodes for the cluster.
 func (r *ClusterReconciler) getControllerPlaneNodes(ctx context.Context, cluster *v1.Cluster) ([]*v1.Node, error) {
 	nodes := make([]*v1.Node, 0, len(cluster.Spec.ControlPlane.Nodes))
 
@@ -372,7 +372,7 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 	return r.updateClusterKubeConfig(ctx, cluster, nodes, config)
 }
 
-// shouldFetchKubeConfig determines if kubeconfig should be fetched
+// shouldFetchKubeConfig determines if kubeconfig should be fetched.
 func (r *ClusterReconciler) shouldFetchKubeConfig(cluster *v1.Cluster) bool {
 	if cluster.Status.ControlPlaneStatus.Phase != v1.CreatedPhase && cluster.Status.ControlPlaneStatus.Phase != "" {
 		return false
@@ -385,7 +385,7 @@ func (r *ClusterReconciler) shouldFetchKubeConfig(cluster *v1.Cluster) bool {
 	return !hasData
 }
 
-// fetchConfigFromSSH retrieves and validates kubeconfig via SSH
+// fetchConfigFromSSH retrieves and validates kubeconfig via SSH.
 func (r *ClusterReconciler) fetchConfigFromSSH(ctx context.Context, node *v1.Node) (*rest.Config, error) {
 	sshClient, err := utils.GetSSHClient(ctx, r.Client, node)
 	if err != nil {
@@ -422,7 +422,7 @@ func (r *ClusterReconciler) fetchConfigFromSSH(ctx context.Context, node *v1.Nod
 	return conf, err
 }
 
-// updateClusterKubeConfig updates cluster status with kubeconfig data
+// updateClusterKubeConfig updates cluster status with kubeconfig data.
 func (r *ClusterReconciler) updateClusterKubeConfig(ctx context.Context, cluster *v1.Cluster, nodes []*v1.Node, restConfig *rest.Config) error {
 	if restConfig == nil {
 		return nil
@@ -464,7 +464,7 @@ func (r *ClusterReconciler) updateClusterKubeConfig(ctx context.Context, cluster
 	return nil
 }
 
-// addFinalizer adds the cluster finalizer to the cluster resource if not already present
+// addFinalizer adds the cluster finalizer to the cluster resource if not already present.
 func (r *ClusterReconciler) addFinalizer(ctx context.Context, cluster *v1.Cluster) error {
 	if slice.Contains(cluster.Finalizers, v1.ClusterFinalizer) {
 		return nil
@@ -479,7 +479,7 @@ func (r *ClusterReconciler) addFinalizer(ctx context.Context, cluster *v1.Cluste
 	return nil
 }
 
-// patchKubeControlPlanNodes updates the control plane nodes with cluster ownership information
+// patchKubeControlPlanNodes updates the control plane nodes with cluster ownership information.
 func (r *ClusterReconciler) patchKubeControlPlanNodes(ctx context.Context, cluster *v1.Cluster) error {
 	patch := func(ctx context.Context, name string) error {
 		node, err := r.getNode(ctx, name)
@@ -502,7 +502,7 @@ func (r *ClusterReconciler) patchKubeControlPlanNodes(ctx context.Context, clust
 	return nil
 }
 
-// patchMachineNode updates a node's cluster ownership and owner references
+// patchMachineNode updates a node's cluster ownership and owner references.
 func (r *ClusterReconciler) patchMachineNode(ctx context.Context, cluster *v1.Cluster, node *v1.Node) error {
 	if cluster.DeletionTimestamp.IsZero() {
 		if node.Labels == nil {
@@ -520,7 +520,7 @@ func (r *ClusterReconciler) patchMachineNode(ctx context.Context, cluster *v1.Cl
 	return r.Update(ctx, node)
 }
 
-// generateSSHSecret creates an SSH secret for cluster access if it doesn't exist
+// generateSSHSecret creates an SSH secret for cluster access if it doesn't exist.
 func (r *ClusterReconciler) generateSSHSecret(ctx context.Context, cluster *v1.Cluster) error {
 	secret := new(corev1.Secret)
 	err := r.Get(ctx, types.NamespacedName{
@@ -562,7 +562,7 @@ func (r *ClusterReconciler) generateSSHSecret(ctx context.Context, cluster *v1.C
 	return nil
 }
 
-// createSSHKeyPair creates SSH key pair for the cluster
+// createSSHKeyPair creates SSH key pair for the cluster.
 func (r *ClusterReconciler) createSSHKeyPair(ctx context.Context, cluster *v1.Cluster) (string, []byte, []byte, error) {
 	node := new(v1.Node)
 	err := r.Get(ctx, types.NamespacedName{Name: cluster.Spec.ControlPlane.Nodes[0]}, node)
@@ -583,7 +583,7 @@ func (r *ClusterReconciler) createSSHKeyPair(ctx context.Context, cluster *v1.Cl
 	return username, private, pub, nil
 }
 
-// clearPods cleans up succeeded pods that are older than one hour
+// clearPods cleans up succeeded pods that are older than one hour.
 func (r *ClusterReconciler) clearPods(ctx context.Context, cluster *v1.Cluster) error {
 	labelSelector := client.MatchingLabels{v1.ClusterManageClusterLabel: cluster.Name}
 	list := new(corev1.PodList)
@@ -607,7 +607,7 @@ func (r *ClusterReconciler) clearPods(ctx context.Context, cluster *v1.Cluster) 
 	return nil
 }
 
-// guaranteeService creates the Kubernetes service and endpoints for the cluster
+// guaranteeService creates the Kubernetes service and endpoints for the cluster.
 func (r *ClusterReconciler) guaranteeService(ctx context.Context, cluster *v1.Cluster) error {
 	if cluster.Status.ControlPlaneStatus.Phase != v1.ReadyPhase && cluster.Status.ControlPlaneStatus.Phase != v1.CreatedPhase {
 		return nil
@@ -629,7 +629,7 @@ func (r *ClusterReconciler) guaranteeService(ctx context.Context, cluster *v1.Cl
 	return r.guaranteeServiceResource(ctx, cluster)
 }
 
-// guaranteeEndpoints creates the endpoints resource for the cluster
+// guaranteeEndpoints creates the endpoints resource for the cluster.
 func (r *ClusterReconciler) guaranteeEndpoints(ctx context.Context, cluster *v1.Cluster, nodes []*v1.Node) error {
 	endpoint := new(corev1.Endpoints)
 	err := r.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: common.PrimusSafeNamespace}, endpoint)
@@ -675,7 +675,7 @@ func (r *ClusterReconciler) guaranteeEndpoints(ctx context.Context, cluster *v1.
 	return nil
 }
 
-// guaranteeServiceResource creates the service resource for the cluster
+// guaranteeServiceResource creates the service resource for the cluster.
 func (r *ClusterReconciler) guaranteeServiceResource(ctx context.Context, cluster *v1.Cluster) error {
 	service := new(corev1.Service)
 	err := r.Get(ctx, types.NamespacedName{
@@ -716,7 +716,7 @@ func (r *ClusterReconciler) guaranteeServiceResource(ctx context.Context, cluste
 	return nil
 }
 
-// guaranteeNamespace: ensures a namespace exists in the cluster
+// guaranteeNamespace: ensures a namespace exists in the cluster.
 func (r *ClusterReconciler) guaranteeNamespace(ctx context.Context, client kubernetes.Interface, namespace string) error {
 	_, err := client.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	if err != nil {
@@ -827,7 +827,7 @@ func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *
 	return reconcile.Result{}, nil
 }
 
-// getComponentName extracts the component name from a full name by removing the part after the first dot
+// getComponentName extracts the component name from a full name by removing the part after the first dot.
 func getComponentName(name string) string {
 	if index := strings.Index(name, "."); index > 0 {
 		return name[:index]

@@ -56,12 +56,12 @@ type FaultConfig struct {
 	IsAutoRepair *bool `json:"isAutoRepair,omitempty"`
 }
 
-// IsEnable checks if the fault configuration is enabled
+// IsEnable checks if the fault configuration is enabled.
 func (c *FaultConfig) IsEnable() bool {
 	return c.Toggle == ToggleOn
 }
 
-// IsAutoRepairEnabled checks if auto repair is enabled for this fault configuration
+// IsAutoRepairEnabled checks if auto repair is enabled for this fault configuration.
 func (c *FaultConfig) IsAutoRepairEnabled() bool {
 	if c.IsAutoRepair == nil {
 		return false
@@ -70,15 +70,6 @@ func (c *FaultConfig) IsAutoRepairEnabled() bool {
 }
 
 // GetFaultConfigmap retrieves the fault configuration from a ConfigMap in the specified namespace.
-//
-// Parameters:
-//   - ctx: Context for the operation
-//   - cli: Kubernetes client for accessing the API
-//
-// Returns:
-//   - map[string]*FaultConfig: A map where the key is the monitor Id of fault and the value is the fault configuration
-//   - error: Any error encountered during the operation, or nil on success
-
 func GetFaultConfigmap(ctx context.Context, cli client.Client) (map[string]*FaultConfig, error) {
 	configMap := &corev1.ConfigMap{}
 	err := cli.Get(ctx, client.ObjectKey{Name: common.PrimusFault, Namespace: common.PrimusSafeNamespace}, configMap)
@@ -88,7 +79,7 @@ func GetFaultConfigmap(ctx context.Context, cli client.Client) (map[string]*Faul
 	return parseFaultConfig(configMap), nil
 }
 
-// parseFaultConfig parses fault configurations from a ConfigMap
+// parseFaultConfig parses fault configurations from a ConfigMap.
 func parseFaultConfig(configMap *corev1.ConfigMap) map[string]*FaultConfig {
 	result := make(map[string]*FaultConfig)
 	for _, val := range configMap.Data {
@@ -112,7 +103,7 @@ func parseFaultConfig(configMap *corev1.ConfigMap) map[string]*FaultConfig {
 	return result
 }
 
-// shouldCreateFault determines whether a fault should be created based on node condition
+// shouldCreateFault determines whether a fault should be created based on node condition.
 func shouldCreateFault(cond corev1.NodeCondition) bool {
 	switch {
 	case isK8sCondition(cond.Type):
@@ -129,18 +120,18 @@ func shouldCreateFault(cond corev1.NodeCondition) bool {
 	return false
 }
 
-// isPrimusCondition checks if a condition type is a Primus-specific condition
+// isPrimusCondition checks if a condition type is a Primus-specific condition.
 func isPrimusCondition(condType corev1.NodeConditionType) bool {
 	return strings.HasPrefix(string(condType), v1.PrimusSafePrefix)
 }
 
-// isK8sCondition checks if a condition type is a standard Kubernetes condition
+// isK8sCondition checks if a condition type is a standard Kubernetes condition.
 func isK8sCondition(condType corev1.NodeConditionType) bool {
 	_, ok := k8sNodeConditionTypes[condType]
 	return ok
 }
 
-// listFaults lists faults matching the given label selector
+// listFaults lists faults matching the given label selector.
 func listFaults(ctx context.Context, cli client.Client, labelSelector labels.Selector) ([]v1.Fault, error) {
 	faultList := &v1.FaultList{}
 	err := cli.List(ctx, faultList, &client.ListOptions{LabelSelector: labelSelector})
@@ -150,7 +141,7 @@ func listFaults(ctx context.Context, cli client.Client, labelSelector labels.Sel
 	return faultList.Items, nil
 }
 
-// createFault creates a new fault resource
+// createFault creates a new fault resource.
 func createFault(ctx context.Context, cli client.Client, fault *v1.Fault) error {
 	if err := cli.Create(ctx, fault); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
@@ -165,7 +156,7 @@ func createFault(ctx context.Context, cli client.Client, fault *v1.Fault) error 
 	return nil
 }
 
-// deleteFault deletes a fault resource
+// deleteFault deletes a fault resource.
 func deleteFault(ctx context.Context, cli client.Client, fault *v1.Fault) error {
 	if err := cli.Delete(ctx, fault); err != nil {
 		return client.IgnoreNotFound(err)
@@ -174,7 +165,7 @@ func deleteFault(ctx context.Context, cli client.Client, fault *v1.Fault) error 
 	return nil
 }
 
-// generateFaultOnCreation generates a fault object when a new fault is detected
+// generateFaultOnCreation generates a fault object when a new fault is detected.
 func generateFaultOnCreation(node *v1.FaultNode,
 	cond corev1.NodeCondition, faultConfigMap map[string]*FaultConfig) *v1.Fault {
 	id := getIdByConditionType(cond.Type)
@@ -201,7 +192,7 @@ func generateFaultOnCreation(node *v1.FaultNode,
 	}
 }
 
-// generateFaultOnDeletion generates a fault object when a fault is being deleted
+// generateFaultOnDeletion generates a fault object when a fault is being deleted.
 func generateFaultOnDeletion(node *v1.FaultNode,
 	cond corev1.NodeCondition, faultConfigMap map[string]*FaultConfig) *v1.Fault {
 	if !isPrimusCondition(cond.Type) && !isK8sCondition(cond.Type) {
@@ -225,7 +216,7 @@ func generateFaultOnDeletion(node *v1.FaultNode,
 	}
 }
 
-// getIdByConditionType gets the fault ID based on the condition type
+// getIdByConditionType gets the fault ID based on the condition type.
 func getIdByConditionType(condType corev1.NodeConditionType) string {
 	switch {
 	case isPrimusCondition(condType):

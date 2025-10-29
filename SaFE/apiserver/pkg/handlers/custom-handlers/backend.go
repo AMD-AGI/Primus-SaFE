@@ -12,6 +12,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
+// GetEnvs retrieves environment configuration values for the system.
 func (h *Handler) GetEnvs(c *gin.Context) {
 	handle(c, h.getEnvs)
 }

@@ -18,6 +18,7 @@ import (
 	"golang.org/x/term"
 )
 
+// parseManifestFormat converts a manifest format string ('oci', 'v2s1', 'v2s2') to its media type.
 func parseManifestFormat(manifestFormat string) (string, error) {
 	switch manifestFormat {
 	case "oci":
@@ -31,6 +32,8 @@ func parseManifestFormat(manifestFormat string) (string, error) {
 	}
 }
 
+// destinationReference creates an image reference for the destination.
+// For directory transport, it creates the destination directory if it doesn't exist.
 func destinationReference(destination string, transport string) (types.ImageReference, error) {
 	var imageTransport types.ImageTransport
 
@@ -47,7 +50,7 @@ func destinationReference(destination string, transport string) (types.ImageRefe
 			return nil, fmt.Errorf("Destination directory could not be used: %w", err)
 		}
 		// the directory holding the image must be created here
-		if err = os.MkdirAll(destination, 0755); err != nil {
+		if err = os.MkdirAll(destination, 0o755); err != nil {
 			return nil, fmt.Errorf("Error creating directory for image %s: %w", destination, err)
 		}
 		imageTransport = directory.Transport
@@ -64,14 +67,15 @@ func destinationReference(destination string, transport string) (types.ImageRefe
 	return destRef, nil
 }
 
+// noteCloseFailure combines an existing error with a close error.
 func noteCloseFailure(err error, description string, closeErr error) error {
-
 	if err == nil {
 		return fmt.Errorf("%s: %w", description, closeErr)
 	}
 	return fmt.Errorf("%w (%s: %v)", err, description, closeErr)
 }
 
+// getImageTags retrieves all available tags for a container image repository using Docker registry API.
 func getImageTags(ctx context.Context, sysCtx *types.SystemContext, repoRef reference.Named) ([]string, error) {
 	name := repoRef.Name()
 	logrus.WithFields(logrus.Fields{
@@ -89,6 +93,7 @@ func getImageTags(ctx context.Context, sysCtx *types.SystemContext, repoRef refe
 	return tags, nil
 }
 
+// reqValid validates that source and destination are valid transport types and not both 'dir'.
 func reqValid(source, destination string) error {
 	// validate source and destination options
 	if len(source) == 0 {
@@ -111,7 +116,7 @@ func reqValid(source, destination string) error {
 	return nil
 }
 
-// promptForPassphrase interactively prompts for a passphrase related to privateKeyFile
+// promptForPassphrase interactively prompts for a passphrase related to privateKeyFile.
 func promptForPassphrase(privateKeyFile string, stdin, stdout *os.File) (string, error) {
 	stdinFd := int(stdin.Fd())
 	if !term.IsTerminal(stdinFd) {
@@ -127,6 +132,7 @@ func promptForPassphrase(privateKeyFile string, stdin, stdout *os.File) (string,
 	return string(passphrase), nil
 }
 
+// getDockerAuth creates a Docker authentication configuration from credentials in "username:password" format.
 func getDockerAuth(creds string) (*types.DockerAuthConfig, error) {
 	username, password, err := parseCreds(creds)
 	if err != nil {
@@ -138,6 +144,7 @@ func getDockerAuth(creds string) (*types.DockerAuthConfig, error) {
 	}, nil
 }
 
+// parseCreds parses credentials in "username:password" format and returns username and password separately.
 func parseCreds(creds string) (string, string, error) {
 	if creds == "" {
 		return "", "", errors.New("credentials can't be empty")

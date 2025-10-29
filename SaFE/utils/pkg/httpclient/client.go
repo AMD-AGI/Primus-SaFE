@@ -33,14 +33,7 @@ var (
 	instance *client
 )
 
-// NewHttpClient creates a singleton instance of the HTTP client with custom configuration.
-// It configures the client with:
-// - Default timeout of 30 seconds
-// - TLS configuration with InsecureSkipVerify set to true (skips SSL certificate verification)
-// - Custom transport settings including connection pooling and timeouts
-//
-// Returns:
-//   - Interface: An instance of the HTTP client interface
+// NewHttpClient creates and returns a singleton instance of HttpClient.
 func NewHttpClient() Interface {
 	once.Do(func() {
 		instance = &client{
@@ -64,74 +57,30 @@ func NewHttpClient() Interface {
 
 // Get sends an HTTP GET request to the specified URL with optional headers.
 // It's a convenience method that calls the do method with GET method.
-//
-// Parameters:
-//   - url: The URL to send the request to
-//   - headers: Optional header key-value pairs
-//
-// Returns:
-//   - *Result: The HTTP response result
-//   - error: Any error that occurred during the reques
 func (c *client) Get(url string, headers ...string) (*Result, error) {
 	return c.do(url, http.MethodGet, nil, headers...)
 }
 
 // Post sends an HTTP POST request to the specified URL with a body and optional headers.
 // It's a convenience method that calls the do method with POST method.
-//
-// Parameters:
-//   - url: The URL to send the request to
-//   - body: The request body (can be string, []byte, io.Reader, or struct)
-//   - headers: Optional header key-value pairs
-//
-// Returns:
-//   - *Result: The HTTP response result
-//   - error: Any error that occurred during the reques
 func (c *client) Post(url string, body interface{}, headers ...string) (*Result, error) {
 	return c.do(url, http.MethodPost, body, headers...)
 }
 
 // Put sends an HTTP PUT request to the specified URL with a body and optional headers.
 // It's a convenience method that calls the do method with PUT method.
-//
-// Parameters:
-//   - url: The URL to send the request to
-//   - body: The request body (can be string, []byte, io.Reader, or struct)
-//   - headers: Optional header key-value pairs
-//
-// Returns:
-//   - *Result: The HTTP response result
-//   - error: Any error that occurred during the reques
 func (c *client) Put(url string, body interface{}, headers ...string) (*Result, error) {
 	return c.do(url, http.MethodPut, body, headers...)
 }
 
 // Delete sends an HTTP DELETE request to the specified URL with optional headers.
 // It's a convenience method that calls the do method with DELETE method.
-//
-// Parameters:
-//   - url: The URL to send the request to
-//   - headers: Optional header key-value pairs
-//
-// Returns:
-//   - *Result: The HTTP response result
-//   - error: Any error that occurred during the reques
 func (c *client) Delete(url string, headers ...string) (*Result, error) {
 	return c.do(url, http.MethodDelete, nil, headers...)
 }
 
 // do is the internal method that performs HTTP requests for all HTTP methods.
 // It builds the request using BuildRequest and executes it using the Do method.
-//
-// Parameters:
-//   - url: The URL to send the request to
-//   - method: The HTTP method (GET, POST, PUT, DELETE, etc.)
-//   - body: The request body (can be nil for methods without body)
-//   - headers: Optional header key-value pairs
-//
-// Returns:
-//   - *Result: The HTTP response result
-//   - error: Any error that occurred during the reques
 func (c *client) do(url, method string, body interface{}, headers ...string) (*Result, error) {
 	req, err := BuildRequest(url, method, body, headers...)
 	if err != nil {
@@ -141,10 +90,6 @@ func (c *client) do(url, method string, body interface{}, headers ...string) (*R
 }
 
 // Do executes the HTTP request with retry logic.
-// It attempts to send the request up to DefaultMaxTry times (2 attempts total).
-// If all attempts fail, it returns the last error encountered.
-// On success, it reads the response body and returns a Result containing
-// the status code, response body, and headers. The response body is automatically closed.
 func (c *client) Do(req *http.Request) (*Result, error) {
 	var rsp *http.Response
 	var err error
@@ -166,10 +111,7 @@ func (c *client) Do(req *http.Request) (*Result, error) {
 	return &Result{StatusCode: rsp.StatusCode, Body: data, Header: rsp.Header}, nil
 }
 
-// BuildRequest creates an HTTP request with the given URL, method, body, and headers.
-// It ensures the URL starts with "https://" and converts the body to an io.Reader.
-// Headers are set in pairs (key, value), and Content-Type is automatically set to "application/json".
-// Returns the constructed http.Request or an error if creation fails.
+// BuildRequest builds and returns the constructed object.
 func BuildRequest(url, method string, body interface{}, headers ...string) (*http.Request, error) {
 	if !strings.HasPrefix(url, "https://") {
 		url = "https://" + url
@@ -193,12 +135,6 @@ func BuildRequest(url, method string, body interface{}, headers ...string) (*htt
 }
 
 // cvtIOReader converts the given body interface{} to an io.Reader.
-// It handles different types of input:
-// - string: converts to strings.Reader
-// - io.Reader: returns as-is
-// - []byte: converts to bytes.Reader
-// - other types: marshals to JSON and converts to bytes.Reader
-// Returns an error if JSON marshaling fails for unknown types.
 func cvtIOReader(body interface{}) (io.Reader, error) {
 	if body == nil {
 		return nil, nil

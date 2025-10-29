@@ -13,6 +13,7 @@ type Topic interface {
 	Filter(data map[string]interface{}) bool
 }
 
+// NewTopics creates and returns all supported notification topics.
 func NewTopics() map[string]Topic {
 	topics := make(map[string]Topic)
 	workloadTopic := &workload.Topic{}

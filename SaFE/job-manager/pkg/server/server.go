@@ -26,6 +26,7 @@ var (
 	scheme = runtime.NewScheme()
 )
 
+// init initializes  with default values.
 func init() {
 	utilruntime.Must(clientscheme.AddToScheme(scheme))
 	utilruntime.Must(v1.AddToScheme(scheme))
@@ -39,10 +40,7 @@ type Server struct {
 	isInited   bool
 }
 
-// NewServer creates and initializes a new Server instance
-// Returns:
-//   - *Server: The initialized server instance
-//   - error: Any error encountered during initialization
+// NewServer creates and returns a new Server instance.
 func NewServer() (*Server, error) {
 	s := &Server{
 		opts: &options.Options{},
@@ -53,10 +51,7 @@ func NewServer() (*Server, error) {
 	return s, nil
 }
 
-// init performs the initialization of the server components
-// Initializes flags, logs, config, and job manager
-// Returns:
-//   - error: Any error encountered during initialization
+// init performs the initialization of the server components.
 func (s *Server) init() error {
 	var err error
 	if err = s.opts.InitFlags(); err != nil {
@@ -79,8 +74,8 @@ func (s *Server) init() error {
 	return nil
 }
 
-// Start begins the server operation by starting the job manager
-// This method blocks until the server is stopped
+// Start begins the server operation by starting the job manager.
+// This method blocks until the server is stopped.
 func (s *Server) Start() {
 	if !s.isInited {
 		klog.Error("please init job manager first!")
@@ -95,17 +90,14 @@ func (s *Server) Start() {
 	s.Stop()
 }
 
-// Stop performs cleanup operations when the server shuts down
-// Flushes logs and logs the stop event
+// Stop performs cleanup operations when the server shuts down.
+// Flushes logs and logs the stop event.
 func (s *Server) Stop() {
 	klog.Info("job manager stopped")
 	klog.Flush()
 }
 
-// initLogs initializes the logging system for the server
-// Configures log file path and size, and sets the controller runtime logger
-// Returns:
-//   - error: Any error encountered during log initialization
+// initLogs initializes Logs with default values.
 func (s *Server) initLogs() error {
 	if err := commonklog.Init(s.opts.LogfilePath, s.opts.LogFileSize); err != nil {
 		return err
@@ -114,10 +106,7 @@ func (s *Server) initLogs() error {
 	return nil
 }
 
-// initConfig loads and initializes the server configuration
-// Resolves the absolute path of the config file and loads it
-// Returns:
-//   - error: Any error encountered during config initialization
+// initConfig initializes Config with default values.
 func (s *Server) initConfig() error {
 	fullPath, err := filepath.Abs(s.opts.Config)
 	if err != nil {

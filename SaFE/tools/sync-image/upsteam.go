@@ -23,6 +23,7 @@ var (
 	client = NewClient()
 )
 
+// NewClient creates a new OpenSearch client with the provided configuration.
 func NewClient() *http.Client {
 	return &http.Client{
 		Timeout: DefaultTimeout,
