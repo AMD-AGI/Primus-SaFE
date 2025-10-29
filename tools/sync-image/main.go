@@ -5,6 +5,7 @@
 
 package main
 
+// Using skopeo for data synchronization
 // https://github.com/containers/skopeo/blob/main/cmd/skopeo/sync.go
 
 import (

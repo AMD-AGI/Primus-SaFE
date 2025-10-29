@@ -54,7 +54,7 @@ func (c *Client) GetImageDigestById(ctx context.Context, id int32) (*model.Image
 	return item, nil
 }
 
-// DeleteImageDigest 逻辑删除
+// DeleteImageDigest performs a soft delete of an image digest.
 func (c *Client) DeleteImageDigest(ctx context.Context, id int32) error {
 	q := dal.Use(c.gorm).ImageDigest
 	_, err := q.WithContext(ctx).Where(q.ID.Eq(int32(id))).Delete()

@@ -112,7 +112,7 @@ func ConvertToString(value interface{}) string {
 	case bool:
 		return fmt.Sprintf("%t", v)
 	default:
-		// 如果类型不是上述任何一种，返回其类型名称
+		// Return empty string if type is not any of the above
 		return ""
 	}
 }
