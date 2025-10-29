@@ -1,0 +1,68 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vminsert
+  namespace: primus-lens
+spec:
+  ingressClassName: higress
+  rules:
+    - host: vminsert.vultr.lens-primus.ai
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vminsert-primus-lens-metrics
+                port:
+                  number: 8480
+  tls:
+    - hosts:
+        - vminsert.vultr.lens-primus.ai
+      secretName: default
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vmselect
+  namespace: primus-lens
+spec:
+  ingressClassName: higress
+  rules:
+    - host: vmselect.vultr.lens-primus.ai
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vmselect-primus-lens-metrics
+                port:
+                  number: 8481
+  tls:
+    - hosts:
+        - vmselect.vultr.lens-primus.ai
+      secretName: default
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vmagent
+  namespace: primus-lens
+spec:
+  ingressClassName: higress
+  rules:
+    - host: vmagent.vultr.lens-primus.ai
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vmagent-primus-lens-vm
+                port:
+                  number: 8429
+  tls:
+    - hosts:
+        - vmagent.vultr.lens-primus.ai
+      secretName: default

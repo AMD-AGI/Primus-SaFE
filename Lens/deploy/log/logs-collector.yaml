@@ -1,0 +1,32 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-logs
+  namespace: primus-lens
+spec:
+  mode: deployment
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc: {}
+          http: {}
+
+    processors:
+      batch: {}
+
+    exporters:
+      opensearch:
+        endpoints: ["https://primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200"]
+        index: logs
+        user: "admin"         # 如果你配置了用户名密码
+        password: "admin"     # 请注意安全性，建议用 secret 管理
+        tls:
+          insecure: true      # 若是 http 或自签名证书
+
+    service:
+      pipelines:
+        logs:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [opensearch]

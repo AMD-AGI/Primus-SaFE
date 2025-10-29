@@ -1,0 +1,2197 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 3,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${Datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_utilization{primus_lens_node_name=\"$node\"} ",
+          "legendFormat": "GPU {{gpu_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "GPU Utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${Datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "palette-classic-by-name"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "100 - (gpu_package_power{primus_lens_node_name=\"$node\"}/gpu_total_vram{primus_lens_node_name=\"$node\"} * 100)",
+          "legendFormat": "GPU{{gpu_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Vram Utilization",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${Datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "watt"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_package_power{primus_lens_node_name=\"$node\"} ",
+          "legendFormat": "GPU {{gpu_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "GPU Package Power",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${Datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "log": 2,
+              "type": "symlog"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "decmbytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_total_vram{primus_lens_node_name=\"$node\"} - gpu_free_vram{primus_lens_node_name=\"$node\"}",
+          "legendFormat": "GPU{{gpu_id}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "max(gpu_total_vram{primus_lens_node_name=\"$node\"} )",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Vram Total",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Vram Usage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${Datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_athub{primus_lens_node_name=\"$node\"} > 0",
+          "legendFormat": "ECC Corret ATHUB GPU{{gpu_id}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_bif{primus_lens_node_name=\"$node\"}> 0",
+          "hide": false,
+          "legendFormat": "ECC Corret BIF GPU{{gpu_id}}",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_df{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret DF GPU{{gpu_id}}",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_fuse{primus_lens_node_name=\"$node\"}> 0",
+          "hide": false,
+          "legendFormat": "ECC Corret FUSE GPU{{gpu_id}}",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_gfx{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret GFX GPU{{gpu_id}}",
+          "range": true,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_hdp{primus_lens_node_name=\"$node\"}> 0",
+          "hide": false,
+          "legendFormat": "ECC Corret HDP GPU{{gpu_id}}",
+          "range": true,
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_ih{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret IH GPU{{gpu_id}}",
+          "range": true,
+          "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_jpeg{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret JPEG GPU{{gpu_id}}",
+          "range": true,
+          "refId": "H"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_mca{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret MCA GPU{{gpu_id}}",
+          "range": true,
+          "refId": "I"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_mmhub{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret MMHUB GPU{{gpu_id}}",
+          "range": true,
+          "refId": "J"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_mp0{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret MP0 GPU{{gpu_id}}",
+          "range": true,
+          "refId": "K"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_mp1{primus_lens_node_name=\"$node\"}> 0",
+          "hide": false,
+          "legendFormat": "ECC Corret MP1 GPU{{gpu_id}}",
+          "range": true,
+          "refId": "L"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_mpio{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret MPIO GPU{{gpu_id}}",
+          "range": true,
+          "refId": "M"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_sdma{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret SDMA GPU{{gpu_id}}",
+          "range": true,
+          "refId": "N"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_sem{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret SEM GPU{{gpu_id}}",
+          "range": true,
+          "refId": "O"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_smn{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret SMN GPU{{gpu_id}}",
+          "range": true,
+          "refId": "P"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "sgpu_ecc_correct_total{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret Total GPU{{gpu_id}}",
+          "range": true,
+          "refId": "Q"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_umc{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret UMC GPU{{gpu_id}}",
+          "range": true,
+          "refId": "R"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_vcn{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret VCN GPU{{gpu_id}}",
+          "range": true,
+          "refId": "S"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_correct_xgmi_wafl{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC Corret WAFL GPU{{gpu_id}}",
+          "range": true,
+          "refId": "T"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_athub{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret ATHUB GPU{{gpu_id}}",
+          "range": true,
+          "refId": "U"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_bif{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret BIF GPU{{gpu_id}}",
+          "range": true,
+          "refId": "V"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_df{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret DF GPU{{gpu_id}}",
+          "range": true,
+          "refId": "W"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_fuse{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret FUSE GPU{{gpu_id}}",
+          "range": true,
+          "refId": "X"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_gfx{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret GFX GPU{{gpu_id}}",
+          "range": true,
+          "refId": "Y"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_hdp{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret HDP GPU{{gpu_id}}",
+          "range": true,
+          "refId": "Z"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_ih{primus_lens_node_name=\"$node\"}> 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret IH GPU{{gpu_id}}",
+          "range": true,
+          "refId": "AA"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_jpeg{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret JPEG GPU{{gpu_id}}",
+          "range": true,
+          "refId": "AB"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_mca{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret MCA GPU{{gpu_id}}",
+          "range": true,
+          "refId": "AC"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_mmhub{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret MMHUB GPU{{gpu_id}}",
+          "range": true,
+          "refId": "AD"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_mp0{primus_lens_node_name=\"$node\"}> 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret MP0 GPU{{gpu_id}}",
+          "range": true,
+          "refId": "AE"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_mp1{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret MP1 GPU{{gpu_id}}",
+          "range": true,
+          "refId": "AF"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_mpio{primus_lens_node_name=\"$node\"}> 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret MPIO GPU{{gpu_id}}",
+          "range": true,
+          "refId": "AG"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_sdma{primus_lens_node_name=\"$node\"}> 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret SDMA GPU{{gpu_id}}",
+          "range": true,
+          "refId": "AH"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_sem{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret SEM GPU{{gpu_id}}",
+          "range": true,
+          "refId": "AI"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_smn{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret SMN GPU{{gpu_id}}",
+          "range": true,
+          "refId": "AJ"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_total{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret Tota GPUl{{gpu_id}}",
+          "range": true,
+          "refId": "AK"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_umc{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret UMC GPU{{gpu_id}}",
+          "range": true,
+          "refId": "AL"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_vcn{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret VCN GPU{{gpu_id}}",
+          "range": true,
+          "refId": "AM"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "gpu_ecc_uncorrect_xgmi_wafl{primus_lens_node_name=\"$node\"} > 0",
+          "hide": false,
+          "legendFormat": "ECC UnCorret WAFL GPU{{gpu_id}}",
+          "range": true,
+          "refId": "AN"
+        }
+      ],
+      "title": "GPU Errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "KiBs"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.2",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(gpu_xgmi_link_tx{primus_lens_node_name=\"$node\"}[1m])) by (gpu_id)",
+          "legendFormat": "GPU {{gpu_id}} TX",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(gpu_xgmi_link_rx{primus_lens_node_name=\"$node\"}[1m])) by (gpu_id)",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "GPU {{gpu_id}} RX",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "XGMI Bandwidth",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "MiBs"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.2",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(pcie_bandwidth{primus_lens_node_name=\"$node\"}[1m])) by (gpu_id)",
+          "legendFormat": "GPU {{gpu_id}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "PCIE Bandwidth",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "binBps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.2",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "rate(rdma_stat_tx_roce_only_bytes{primus_lens_node_name=\"$node\"}[1m])",
+          "legendFormat": "{{device}} Tx",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "rate(rdma_stat_rx_roce_only_bytes{primus_lens_node_name=\"$node\"}[1m])",
+          "hide": false,
+          "legendFormat": "{{device}} Rx",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "RDMA Bandwidth",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.2",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "rate(rdma_stat_tx_pkts{primus_lens_node_name=\"$node\"}[1m])",
+          "legendFormat": "{{device}} Tx",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "rate(rdma_stat_rx_pkts{primus_lens_node_name=\"$node\"}[1m])",
+          "hide": false,
+          "legendFormat": "{{device}} Rx",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "RDMA Packets/s",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${Datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_rx_roce_discards{primus_lens_node_name=\"$node\"}) > 0",
+          "legendFormat": "RX Roce Discards:{{device}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_tx_roce_discards{primus_lens_node_name=\"$node\"}) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "TX Roce Discards:{{device}}",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_tx_roce_errors{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "TX Roce Errors:{{device}}",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_rx_roce_errors{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "RX Roce Errors:{{device}}",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_seq_err_naks_rcvd{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "NAK(Seq err):{{device}}",
+          "range": true,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_rnr_naks_rcvd{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "NAK(RNR):{{device}}",
+          "range": true,
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_missing_resp{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Missing Resp:{{device}}",
+          "range": true,
+          "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_to_retransmits{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "ReTransmit:{{device}}",
+          "range": true,
+          "refId": "H"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_max_retry_exceeded{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "MaxRetryExceeded:{{device}}",
+          "range": true,
+          "refId": "I"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_missing_resp{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "MissingResp:{{device}}",
+          "range": true,
+          "refId": "J"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_unrecoverable_err{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "UnrecoverableErr:{{device}}",
+          "range": true,
+          "refId": "K"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_local_qp_op_err{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "LocalQpOpErr:{{device}}",
+          "range": true,
+          "refId": "L"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_local_protection_err{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "LocalProtectionErr:{{device}}",
+          "range": true,
+          "refId": "M"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_remote_access_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "RemoteAccessErr:{{device}}",
+          "range": true,
+          "refId": "N"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_remote_invalid_req_err{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "RemoteInvalidReqErr:{{device}}",
+          "range": true,
+          "refId": "O"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_remote_op_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "RemoteOpErr:{{device}}",
+          "range": true,
+          "refId": "P"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_opcode_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Opcode Err:{{device}}",
+          "range": true,
+          "refId": "Q"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_rx_domain_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Rx Domain Err:{{device}}",
+          "range": true,
+          "refId": "R"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_rx_no_perm{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Rx No Perm:{{device}}",
+          "range": true,
+          "refId": "S"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_rx_range_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Rx Range Err:{{device}}",
+          "range": true,
+          "refId": "T"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_tx_domain_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Tx Domain Err:{{device}}",
+          "range": true,
+          "refId": "U"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_tx_no_perm{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Tx No Perm:{{device}}",
+          "range": true,
+          "refId": "V"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_tx_range_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Tx Range Err:{{device}}",
+          "range": true,
+          "refId": "W"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_rem_inv_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Rem Inv Err:{{device}}",
+          "range": true,
+          "refId": "X"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_mem_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Mem Err:{{device}}",
+          "range": true,
+          "refId": "Y"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_srq_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Srq Err:{{device}}",
+          "range": true,
+          "refId": "Z"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_cmp_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Cmp Err:{{device}}",
+          "range": true,
+          "refId": "AA"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_wqe_format_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Wqe Err:{{device}}",
+          "range": true,
+          "refId": "AB"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_cq_load_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Cq Load Err:{{device}}",
+          "range": true,
+          "refId": "AC"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_srq_load_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Srq Load Err:{{device}}",
+          "range": true,
+          "refId": "AD"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_tx_pci_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Tx Pci Err:{{device}}",
+          "range": true,
+          "refId": "AE"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_rx_pci_err{primus_lens_node_name=\"$node\"}[1m]) > 0 ",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Rx Pci Err:{{device}}",
+          "range": true,
+          "refId": "AF"
+        }
+      ],
+      "title": "RDMA Errors",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${Datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.0.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_dup_req{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "legendFormat": "DupReq:{{device}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_exceed_max{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "ResExceedMax:{{device}}",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_length_mismatch{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "ResLengthMismatch:{{device}}",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_exceeds_wqe{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "ResExceedsWqe:{{device}}",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_rx_invalid_rkey{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Rx Invalid Rkey:{{device}}",
+          "range": true,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_tx_invalid_rkey{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Tx Invalid Rkey:{{device}}",
+          "range": true,
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_irrq_oflow{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Irrq Oflow:{{device}}",
+          "range": true,
+          "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_unsup_opcode{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Unsupported OpCode:{{device}}",
+          "range": true,
+          "refId": "H"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_unaligned_atomic{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Unaligned Atomic:{{device}}",
+          "range": true,
+          "refId": "I"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_missing_resp{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "MissingResp:{{device}}",
+          "range": true,
+          "refId": "J"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${Datasource}"
+          },
+          "editorMode": "code",
+          "expr": "increase(rdma_stat_res_invalid_dup_rkey{primus_lens_node_name=\"$node\"}[1m]) > 0",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "Res Invalid Dup Rkey:{{device}}",
+          "range": true,
+          "refId": "K"
+        }
+      ],
+      "title": "RDMA Exceptions",
+      "type": "timeseries"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 41,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "prometheus",
+          "value": "bey3tuf5f7cw0e"
+        },
+        "name": "Datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "text": "chi2531",
+          "value": "chi2531"
+        },
+        "definition": "label_values(gpu_health,primus_lens_node_name)",
+        "name": "node",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(gpu_health,primus_lens_node_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "NodeHistory",
+  "uid": "node-history",
+  "version": 1
+}

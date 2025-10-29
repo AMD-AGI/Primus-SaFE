@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    higress.io/destination: grafana.primus-lens.svc.cluster.local:80
+    higress.io/ignore-path-case: "false"
+    higress.io/ssl-redirect: "true"
+  labels:
+    higress.io/domain_grafana.amd.primus.ai: "true"
+    higress.io/resource-definer: higress
+  name: grafana.amd.primus.ai
+  namespace: higress-system
+spec:
+  ingressClassName: higress
+  rules:
+  - host: grafana.amd.primus.ai
+    http:
+      paths:
+      - backend:
+          resource:
+            apiGroup: networking.higress.io
+            kind: McpBridge
+            name: default
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - grafana.amd.primus.ai
+    secretName: default

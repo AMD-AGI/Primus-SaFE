@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package exporter;
+option go_package = "github.com/AMD-AGI/primus-lens/core/pkg/pb/exporter";
+
+import "google/protobuf/struct.proto";
+
+message ContainerEvent {
+  string type = 1; // "snapshot" | "update" | "delete"
+  string container_id = 2;
+  google.protobuf.Struct data = 3;
+  string node = 4;
+}
+
+service ExporterService {
+  rpc StreamContainerEvents(stream ContainerEvent) returns (stream ContainerEvent);
+  rpc StreamDockerContainerEvents(stream ContainerEvent) returns (stream ContainerEvent);
+}
