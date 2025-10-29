@@ -44,7 +44,7 @@ func NewObjectManagerSingleton() *ObjectManager {
 	return objectManager
 }
 
-// Add: adds a new object to the manager.
+// AddOrReplace adds a new object to the manager.
 // if the object already exists, the old one will be released and replaced
 func (om *ObjectManager) AddOrReplace(id string, obj Object) {
 	om.mu.Lock()
@@ -57,7 +57,7 @@ func (om *ObjectManager) AddOrReplace(id string, obj Object) {
 	om.objects[id] = obj
 }
 
-// Add: adds a new object to the manager.
+// Add adds a new object to the manager.
 // if the object already exists, return the error
 func (om *ObjectManager) Add(id string, obj Object) error {
 	om.mu.Lock()
@@ -69,7 +69,7 @@ func (om *ObjectManager) Add(id string, obj Object) error {
 	return nil
 }
 
-// Delete: deletes a object from the manager and calls its release method.
+// Delete deletes a object from the manager and calls its release method.
 func (om *ObjectManager) Delete(id string) error {
 	om.mu.Lock()
 	defer om.mu.Unlock()
@@ -84,7 +84,7 @@ func (om *ObjectManager) Delete(id string) error {
 	return nil
 }
 
-// Clear: clear all objects of the manager
+// Clear clear all objects of the manager
 func (om *ObjectManager) Clear() {
 	om.mu.Lock()
 	defer om.mu.Unlock()
@@ -96,7 +96,7 @@ func (om *ObjectManager) Clear() {
 	clear(om.objects)
 }
 
-// Get: retrieves a object by id.
+// Get retrieves a object by id.
 func (om *ObjectManager) Get(id string) (Object, bool) {
 	om.mu.RLock()
 	defer om.mu.RUnlock()
@@ -104,7 +104,7 @@ func (om *ObjectManager) Get(id string) (Object, bool) {
 	return obj, exists
 }
 
-// Has: checks if a object exists in the manager.
+// Has checks if a object exists in the manager.
 func (om *ObjectManager) Has(id string) bool {
 	om.mu.RLock()
 	defer om.mu.RUnlock()
@@ -112,7 +112,7 @@ func (om *ObjectManager) Has(id string) bool {
 	return exists
 }
 
-// Objects retrieves all Objects and keys
+// GetAll retrieves all Objects and keys
 func (om *ObjectManager) GetAll() ([]string, []Object) {
 	om.mu.RLock()
 	defer om.mu.RUnlock()
@@ -125,6 +125,7 @@ func (om *ObjectManager) GetAll() ([]string, []Object) {
 	return keys, objs
 }
 
+// Len returns the number of objects currently managed by the ObjectManager
 func (om *ObjectManager) Len() int {
 	om.mu.RLock()
 	defer om.mu.RUnlock()

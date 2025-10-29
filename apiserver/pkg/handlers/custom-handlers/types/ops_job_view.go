@@ -47,7 +47,7 @@ type CreatePreflightRequest struct {
 type CreateAddonRequest struct {
 	BaseOpsJobRequest
 	// The number of nodes to process simultaneously during the addon upgrade. default 1
-	// If the number exceeds the job's limit, it will be capped to the maximum available node count.
+	// If the number exceeds the job limit, it will be capped to the maximum available node count.
 	BatchCount int `json:"batchCount,omitempty"`
 	// Job Success Ratio: A percentage value used during the addon upgrade.
 	// The job is marked as successful if the number of successfully upgraded nodes exceeds total nodes * ratio.
@@ -66,7 +66,7 @@ type CreateOpsJobResponse struct {
 	JobId string `json:"jobId"`
 }
 
-// ListOpsJobInput: The query input by the user for listing ops jobs
+// ListOpsJobInput The query input by the user for listing ops jobs
 type ListOpsJobInput struct {
 	// Starting offset for the results. dfault is 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
@@ -76,7 +76,7 @@ type ListOpsJobInput struct {
 	SortBy string `form:"sortBy" binding:"omitempty"`
 	// The sorting order. Valid values are "desc" (default) or "asc"
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
-	// Query the start time of the job, based on the job's creation time.
+	// Query the start time of the job, based on the job creation time.
 	// e.g. '2006-01-02T15:04:05.000Z'. default is until - 720h
 	Since string `form:"since" binding:"omitempty"`
 	// Query the end time of the job, similar to since. default is now
@@ -91,7 +91,7 @@ type ListOpsJobInput struct {
 	Type v1.OpsJobType `form:"type" binding:"omitempty,max=64"`
 }
 
-// ListOpsJobRequest: internal use
+// ListOpsJobRequest internal use
 type ListOpsJobRequest struct {
 	ListOpsJobInput
 	// Start timestamp of the query

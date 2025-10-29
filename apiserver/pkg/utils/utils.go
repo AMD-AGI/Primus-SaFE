@@ -20,7 +20,7 @@ const (
 	DefaultMaxRequestBodyBytes = int64(2 * 1024 * 1024)
 )
 
-// ReadBody: reads the HTTP request body with a size limit to prevent excessive memory consumption.
+// ReadBody reads the HTTP request body with a size limit to prevent excessive memory consumption.
 // It uses a LimitedReader to restrict the maximum number of bytes that can be read.
 // Returns the request body data as bytes, or an error if reading fails or the body exceeds the size limit.
 // The request body is automatically closed after reading.
@@ -44,7 +44,7 @@ func ReadBody(req *http.Request) ([]byte, error) {
 	return data, nil
 }
 
-// ParseRequestBody: reads the request body and unmarshals it into the provided struct.
+// ParseRequestBody reads the request body and unmarshals it into the provided struct.
 // It returns the raw body bytes and any error encountered during the process.
 // If the body is empty, it returns nil for both body and error.
 // If JSON unmarshaling fails, it returns a BadRequest error with the unmarshaling error details.
@@ -62,7 +62,7 @@ func ParseRequestBody(req *http.Request, bodyStruct interface{}) ([]byte, error)
 	return body, nil
 }
 
-// GetK8sClientFactory: retrieves a Kubernetes client factory for the specified cluster from the client manager.
+// GetK8sClientFactory retrieves a Kubernetes client factory for the specified cluster from the client manager.
 // Returns the client factory if found and valid, or an error if others
 func GetK8sClientFactory(clientManager *commonutils.ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
 	obj, _ := clientManager.Get(clusterId)

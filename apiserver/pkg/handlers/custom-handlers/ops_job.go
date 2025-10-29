@@ -38,35 +38,35 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
-// CreateOpsJob: handles the creation of a new ops job resource.
+// CreateOpsJob handles the creation of a new ops job resource.
 // It parses the request, generates the appropriate job type, and creates it in the system.
 // Returns the created job ID on success.
 func (h *Handler) CreateOpsJob(c *gin.Context) {
 	handle(c, h.createOpsJob)
 }
 
-// ListOpsJob: handles listing ops job resources with filtering and pagination.
+// ListOpsJob handles listing ops job resources with filtering and pagination.
 // It queries the database for ops jobs based on provided query parameters.
 // Returns a list of ops jobs matching the criteria.
 func (h *Handler) ListOpsJob(c *gin.Context) {
 	handle(c, h.listOpsJob)
 }
 
-// GetOpsJob: retrieves detailed information about a specific ops job.
+// GetOpsJob retrieves detailed information about a specific ops job.
 // It queries the database for the specified job and returns its complete information.
 // Returns an error if the job is not found.
 func (h *Handler) GetOpsJob(c *gin.Context) {
 	handle(c, h.getOpsJob)
 }
 
-// DeleteOpsJob: handles deletion of an ops job resource.
+// DeleteOpsJob handles deletion of an ops job resource.
 // It removes the job from both the k8s cluster and database (if enabled),
 // and cleans up any related job resource.
 func (h *Handler) DeleteOpsJob(c *gin.Context) {
 	handle(c, h.deleteOpsJob)
 }
 
-// StopOpsJob: handles stopping an ops job resource.
+// StopOpsJob handles stopping an ops job resource.
 // It removes the job from the k8s cluster and cleans up related job information.
 func (h *Handler) StopOpsJob(c *gin.Context) {
 	handle(c, h.stopOpsJob)
@@ -106,7 +106,7 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 	return &types.CreateOpsJobResponse{JobId: job.Name}, nil
 }
 
-// listOpsJob: implements the ops job listing logic.
+// listOpsJob implements the ops job listing logic.
 // It checks if database functionality is enabled, parses query parameters,
 // executes database queries, and formats the response.
 func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
@@ -137,7 +137,7 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
-// getOpsJob: implements the logic for retrieving a single ops job's detailed information.
+// getOpsJob implements the logic for retrieving a single ops job's detailed information.
 // It queries the database for the specified job and converts it to a response format.
 // Returns an error if the job is not found or database is not enabled.
 func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
@@ -158,7 +158,7 @@ func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 	return cvtToGetOpsJobResponse(jobs[0]), nil
 }
 
-// deleteOpsJob: implements ops job deletion logic.
+// deleteOpsJob implements ops job deletion logic.
 // It removes the job from the k8s cluster, marks it as deleted in the database (if enabled),
 // and cleans up any related job information.
 func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
@@ -193,7 +193,7 @@ func (h *Handler) deleteOpsJob(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-// stopOpsJob: implements ops job stopping logic.
+// stopOpsJob implements ops job stopping logic.
 // It removes the job from the k8s cluster and cleans up related job resource.
 func (h *Handler) stopOpsJob(c *gin.Context) (interface{}, error) {
 	name := c.GetString(common.Name)
@@ -211,7 +211,7 @@ func (h *Handler) stopOpsJob(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-// deleteAdminOpsJob: removes an ops job resource from the k8s cluster.
+// deleteAdminOpsJob removes an ops job resource from the k8s cluster.
 // It performs authorization checks, retrieves the job, and deletes it from the cluster.
 // Returns true if the job was found and deleted, false if not found.
 func (h *Handler) deleteAdminOpsJob(c *gin.Context, opsJobId string) (bool, error) {
@@ -239,7 +239,7 @@ func (h *Handler) deleteAdminOpsJob(c *gin.Context, opsJobId string) (bool, erro
 	return true, nil
 }
 
-// generateAddonJob: creates an addon-type ops job.
+// generateAddonJob creates an addon-type ops job.
 // It authorizes the request, parses addon-specific parameters,
 // and generates a job object with appropriate annotations.
 func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
@@ -280,7 +280,7 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 	return job, nil
 }
 
-// generatePreflightJob: creates a preflight-type ops job.
+// generatePreflightJob creates a preflight-type ops job.
 // It authorizes the request for system admin, parses preflight-specific parameters,
 // and generates a job object with resource, image, and entrypoint specifications.
 func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
@@ -313,7 +313,7 @@ func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob,
 	return job, nil
 }
 
-// generateDumpLogJob: creates a dump log-type ops job.
+// generateDumpLogJob creates a dump log-type ops job.
 // It checks if logging and S3 functionality are enabled, authorizes the request,
 // validates workload access, and generates a job object with appropriate labels.
 func (h *Handler) generateDumpLogJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
@@ -358,7 +358,7 @@ func (h *Handler) generateDumpLogJob(c *gin.Context, body []byte) (*v1.OpsJob, e
 	return job, nil
 }
 
-// genDefaultOpsJob: creates a default ops job object with common properties.
+// genDefaultOpsJob creates a default ops job object with common properties.
 // It sets up the job metadata including name, labels, annotations, and basic specifications.
 func genDefaultOpsJob(c *gin.Context, req *types.BaseOpsJobRequest) *v1.OpsJob {
 	job := &v1.OpsJob{
@@ -386,7 +386,7 @@ func genDefaultOpsJob(c *gin.Context, req *types.BaseOpsJobRequest) *v1.OpsJob {
 	return job
 }
 
-// generateOpsJobNodesInput: generates node parameters for an ops job based on the specified scope.
+// generateOpsJobNodesInput generates node parameters for an ops job based on the specified scope.
 // It determines the target nodes by resolving the job's scope parameter (workload, workspace, or cluster)
 // and populates the job inputs with the corresponding node names. Nodes in the excludedNodes(parameter of request) list
 // are filtered out. The function ensures that ops jobs are ultimately executed on a per-node basis.
@@ -435,7 +435,7 @@ func (h *Handler) generateOpsJobNodesInput(ctx context.Context, job *v1.OpsJob, 
 	return nil
 }
 
-// getNodesOfWorkload: retrieves the list of nodes associated with a workload.
+// getNodesOfWorkload retrieves the list of nodes associated with a workload.
 // It queries either the database or k8s cluster based on configuration to get node information.
 func (h *Handler) getNodesOfWorkload(ctx context.Context, workloadId string) ([]string, error) {
 	if commonconfig.IsDBEnable() {
@@ -462,7 +462,7 @@ func (h *Handler) getNodesOfWorkload(ctx context.Context, workloadId string) ([]
 	return nil, nil
 }
 
-// parseListOpsJobQuery: parses and validates the query parameters for listing ops jobs.
+// parseListOpsJobQuery parses and validates the query parameters for listing ops jobs.
 // It sets default values, validates time ranges, and handles authorization for system admin vs regular users.
 func (h *Handler) parseListOpsJobQuery(c *gin.Context) (*types.ListOpsJobRequest, error) {
 	query := &types.ListOpsJobRequest{}
@@ -511,7 +511,7 @@ func (h *Handler) parseListOpsJobQuery(c *gin.Context) (*types.ListOpsJobRequest
 	return query, nil
 }
 
-// cvtToListOpsJobSql: converts the ops job list query parameters into an SQL query.
+// cvtToListOpsJobSql converts the ops job list query parameters into an SQL query.
 // It builds WHERE conditions based on filter parameters like cluster ID, phase, job type, user, and time range.
 func cvtToListOpsJobSql(query *types.ListOpsJobRequest) sqrl.Sqlizer {
 	dbTags := dbclient.GetOpsJobFieldTags()
@@ -540,7 +540,7 @@ func cvtToListOpsJobSql(query *types.ListOpsJobRequest) sqrl.Sqlizer {
 	return dbSql
 }
 
-// cvtToGetOpsJobSql: converts the get ops job request into an SQL query.
+// cvtToGetOpsJobSql converts the get ops job request into an SQL query.
 // It builds a query to retrieve a specific job by ID, with user access restrictions if not system admin.
 func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
 	jobId := c.GetString(common.Name)
@@ -560,7 +560,7 @@ func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
 	return dbSql, nil
 }
 
-// parseCreateOpsJobRequest: parses and validates the request for creating an ops job.
+// parseCreateOpsJobRequest parses and validates the request for creating an ops job.
 // It ensures required fields like name, type, and inputs are provided.
 func parseCreateOpsJobRequest(c *gin.Context) (*types.BaseOpsJobRequest, []byte, error) {
 	req := &types.BaseOpsJobRequest{}
@@ -580,7 +580,7 @@ func parseCreateOpsJobRequest(c *gin.Context) (*types.BaseOpsJobRequest, []byte,
 	return req, body, nil
 }
 
-// cvtToOpsJobResponseItem: converts a database ops job record to a response item format.
+// cvtToOpsJobResponseItem converts a database ops job record to a response item format.
 // Maps database fields to the appropriate response structure with proper null value handling.
 func cvtToOpsJobResponseItem(job *dbclient.OpsJob) types.OpsJobResponseItem {
 	result := types.OpsJobResponseItem{
@@ -604,7 +604,7 @@ func cvtToOpsJobResponseItem(job *dbclient.OpsJob) types.OpsJobResponseItem {
 	return result
 }
 
-// cvtToGetOpsJobResponse: converts a database ops job record to a detailed response format.
+// cvtToGetOpsJobResponse converts a database ops job record to a detailed response format.
 // Maps all database fields to the appropriate response structure including conditions, inputs, outputs, etc.
 func cvtToGetOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponse {
 	result := types.GetOpsJobResponse{
@@ -636,7 +636,7 @@ func cvtToGetOpsJobResponse(job *dbclient.OpsJob) types.GetOpsJobResponse {
 	return result
 }
 
-// deserializeParams: converts a serialized parameter string into a slice of Parameter objects.
+// deserializeParams converts a serialized parameter string into a slice of Parameter objects.
 // It parses the string representation of parameters and converts them to structured format.
 func deserializeParams(strInput string) []v1.Parameter {
 	if len(strInput) <= 1 {

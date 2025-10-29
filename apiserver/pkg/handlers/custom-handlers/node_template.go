@@ -22,26 +22,26 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
-// CreateNodeTemplate: handles the creation of a new node template resource.
+// CreateNodeTemplate handles the creation of a new node template resource.
 // It authorizes the request, parses the creation request, generates a node template object,
 // and persists it in the k8s cluster. Returns the created template ID on success.
 func (h *Handler) CreateNodeTemplate(c *gin.Context) {
 	handle(c, h.createNodeTemplate)
 }
 
-// ListNodeTemplate: handles listing all node template resources.
+// ListNodeTemplate handles listing all node template resources.
 // It retrieves all node templates, applies authorization filtering, and returns them in a list.
 func (h *Handler) ListNodeTemplate(c *gin.Context) {
 	handle(c, h.listNodeTemplate)
 }
 
-// DeleteNodeTemplate: handles deletion of a node template resource.
+// DeleteNodeTemplate handles deletion of a node template resource.
 // It authorizes the request and removes the specified node template from the k8s cluster.
 func (h *Handler) DeleteNodeTemplate(c *gin.Context) {
 	handle(c, h.deleteNodeTemplate)
 }
 
-// createNodeTemplate: implements the node template creation logic.
+// createNodeTemplate implements the node template creation logic.
 // Validates the request, generates a node template object, and persists it in the k8s cluster.
 func (h *Handler) createNodeTemplate(c *gin.Context) (interface{}, error) {
 	if err := h.auth.Authorize(authority.Input{
@@ -68,7 +68,7 @@ func (h *Handler) createNodeTemplate(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
-// listNodeTemplate: implements the node template listing logic.
+// listNodeTemplate implements the node template listing logic.
 // Retrieves all node templates, applies authorization filtering, and converts them to response format.
 func (h *Handler) listNodeTemplate(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
@@ -105,7 +105,7 @@ func (h *Handler) listNodeTemplate(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
-// deleteNodeTemplate: implements node template deletion logic.
+// deleteNodeTemplate implements node template deletion logic.
 // Retrieves the node template by name and removes it from the k8s cluster.
 func (h *Handler) deleteNodeTemplate(c *gin.Context) (interface{}, error) {
 	name := c.GetString(common.Name)
@@ -128,7 +128,7 @@ func (h *Handler) deleteNodeTemplate(c *gin.Context) (interface{}, error) {
 	return nil, h.Delete(ctx, nt)
 }
 
-// getAdminNodeTemplate: retrieves a node template resource by name from the k8s cluster.
+// getAdminNodeTemplate retrieves a node template resource by name from the k8s cluster.
 // Returns an error if the node template doesn't exist or the name is empty.
 func (h *Handler) getAdminNodeTemplate(ctx context.Context, name string) (*v1.NodeTemplate, error) {
 	if name == "" {
@@ -143,7 +143,7 @@ func (h *Handler) getAdminNodeTemplate(ctx context.Context, name string) (*v1.No
 	return nt.DeepCopy(), nil
 }
 
-// generateNodeTemplate: creates a new node template object based on the creation request.
+// generateNodeTemplate creates a new node template object based on the creation request.
 // Normalizes the template name and populates the node template metadata and specification.
 func generateNodeTemplate(c *gin.Context, req *types.CreateNodeTemplateRequest) *v1.NodeTemplate {
 	return &v1.NodeTemplate{

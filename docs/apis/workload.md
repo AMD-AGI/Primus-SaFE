@@ -333,9 +333,9 @@ GET /api/v1/workloads/{workloadId}
       "startTime": "string",
       // Pod end time
       "endTime": "string",
-      // The node's IP address where the Pod is running
+      // The node IP address where the Pod is running
       "hostIP": "string",
-      // The pod's IP address where the Pod is running
+      // The pod IP address where the Pod is running
       "podIP": "string",
       // The rank of pod, only for pytorch-job
       "rank": "string",
@@ -362,7 +362,7 @@ GET /api/v1/workloads/{workloadId}
       "string"
     ]
   ],
-  // The node's rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above.
+  // The rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above.
   "ranks": [
     [
       "string"

@@ -13,7 +13,7 @@ type CreateNodeTemplateRequest struct {
 }
 
 type CreateNodeTemplateResponse struct {
-	// The NodeTemplate's id
+	// The NodeTemplate id
 	Id string `json:"id"`
 }
 
@@ -24,7 +24,7 @@ type ListNodeTemplateResponse struct {
 }
 
 type NodeTemplateResponseItem struct {
-	// The NodeTemplate's id
+	// The NodeTemplate id
 	TemplateId string `json:"templateId"`
 	// List of addon-template id
 	AddOnTemplates []string `json:"addOnTemplates"`

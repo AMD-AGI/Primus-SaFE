@@ -10,11 +10,6 @@ import (
 	"fmt"
 	"time"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -22,6 +17,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 const (
@@ -229,7 +230,6 @@ func getControlPlaneNode(ctx context.Context, c client.Client) ([]*corev1.Node, 
 }
 
 func desireEndpoint(ctx context.Context, clusterName string, client client.Client, cfg *opensearchSecretData) (*corev1.Endpoints, error) {
-	// 获取master节点
 	masterNodes, err := getControlPlaneNode(ctx, client)
 	if err != nil {
 		return nil, err

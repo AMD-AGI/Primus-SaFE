@@ -13,7 +13,7 @@ type CreateClusterRequest struct {
 	v1.ControlPlane
 	// The cluster name specified by the user
 	Name string `json:"name"`
-	// The cluster's description
+	// The cluster description
 	Description string `json:"description,omitempty"`
 	// The SSH secret id specified by the user, which must exist, used for node SSH login.
 	SSHSecretId string `json:"sshSecretId,omitempty"`
@@ -24,7 +24,7 @@ type CreateClusterRequest struct {
 }
 
 type CreateClusterResponse struct {
-	// The cluster's id
+	// The cluster id
 	ClusterId string `json:"clusterId"`
 }
 
@@ -35,21 +35,21 @@ type ListClusterResponse struct {
 }
 
 type ClusterResponseItem struct {
-	// The cluster's id
+	// The cluster id
 	ClusterId string `json:"clusterId"`
 	// User id who created the cluster.
 	UserId string `json:"userId"`
-	// The cluster's status, such as Ready,Creating,Failed,Deleting
+	// The cluster status, such as Ready,Creating,Failed,Deleting
 	Phase string `json:"phase"`
 	// Whether the cluster is under protection
 	IsProtected bool `json:"isProtected"`
-	// The Cluster's creation time, such as  "2025-07-08T10:31:46"
+	// The Cluster creation time, such as "2025-07-08T10:31:46"
 	CreationTime string `json:"creationTime"`
 }
 
 type GetClusterResponse struct {
 	ClusterResponseItem
-	// The cluster's description
+	// The cluster description
 	Description string `json:"description"`
 	// The endpoint of cluster control plane. such as "10.0.0.1:443"
 	Endpoint string `json:"endpoint"`
@@ -88,7 +88,7 @@ type ProcessNodesResponse struct {
 }
 
 type GetClusterPodLogResponse struct {
-	// The cluster's id
+	// The cluster id
 	ClusterId string `json:"clusterId"`
 	// Pod id used to create the cluster.
 	PodId string `json:"podId"`

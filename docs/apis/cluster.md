@@ -27,7 +27,7 @@ Content-Type: application/json
 ```json
 {
   "name": "string", 	         // The cluster name specified by the user
-  "description": "string",       // The cluster's description
+  "description": "string",       // The cluster description
   "sshSecretId": "string",       // The SSH secret id specified by the user, which must exist, used for node SSH login.
   "labels": {                    // The labels for cluster
     "key": "string"
@@ -50,7 +50,7 @@ Content-Type: application/json
 #### Response (CreateClusterResponse)
 ```json
 {
-  "clusterId": "string"  // The cluster's id
+  "clusterId": "string"  // The cluster id
 }
 ```
 
@@ -69,11 +69,11 @@ GET /api/v1/clusters
   "totalCount": 0,              // The total number of clusters, not limited by pagination
   "items": [
     {
-      "clusterId": "string",    // The cluster's id
+      "clusterId": "string",    // The cluster id
       "userId": "string",       // User id who created the cluster.
-      "phase": "string",        // The cluster's status
+      "phase": "string",        // The cluster status
       "isProtected": true,  	// Whether the cluster is under protection
-      "creationTime": "string"  // cluster's creation time
+      "creationTime": "string"  // The cluster creation time
     }
   ]
 }
@@ -91,12 +91,12 @@ GET /api/v1/clusters/{clusterId}
 #### Response (GetClusterResponse)
 ```json
 {
-  "clusterId": "string",           // The cluster's id
+  "clusterId": "string",           // The cluster id
   "userId": "string",              // User who created the cluster.
-  "phase": "string",	           // The cluster's status, such as Ready,Creating,Failed,Deleting
+  "phase": "string",	           // The cluster status, such as Ready,Creating,Failed,Deleting
   "isProtected": true,          // Whether the cluster is under protection
-  "creationTime": "string", 	   // The cluster's creation time, such as  "2025-07-08T10:31:46"
-  "description": "string",         // The cluster's description
+  "creationTime": "string", 	   // The cluster creation time, such as  "2025-07-08T10:31:46"
+  "description": "string",         // The cluster description
   "endpoint": "string",            // The endpoint of cluster control plane. such as "10.0.0.1:443"
   "sshSecretId": "string",         // The secret id for node ssh specified by the user
   "imageSecretId": "string",       // The secret id for pulling image specified by the user
@@ -183,7 +183,7 @@ GET /api/v1/clusters/{clusterId}/logs
 #### Response (GetClusterPodLogResponse)
 ```json
 {
-  "clusterId": "string",  // The cluster's id
+  "clusterId": "string",  // The cluster id
   "podId": "string",      // Pod id used to create the cluster.
   "logs": ["string"]      // An array of log lines, returned in the same order as they appear in the original logs
 }

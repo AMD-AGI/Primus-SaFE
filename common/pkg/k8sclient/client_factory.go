@@ -28,7 +28,7 @@ const (
 	EnableDynamicInformer InformerType = 2
 )
 
-// ClientFactory - Kubernetes client factory structure for managing cluster connections and Informers
+// ClientFactory kubernetes client factory structure for managing cluster connections and Informers
 type ClientFactory struct {
 	ctx context.Context
 	// Factory name, typically refers to cluster name
@@ -52,8 +52,7 @@ type ClientFactory struct {
 	invalidReason string
 }
 
-// NewClientFactory(ctx context.Context, name, endpoint, certData, keyData, caData string, informerType InformerType) (*ClientFactory, error)
-// Create new client factory instance
+// NewClientFactoryWithOnlyClient create new client factory instance
 // Parameters:
 //
 //	ctx: Context
@@ -110,7 +109,7 @@ func NewClientFactory(ctx context.Context, name, endpoint, certData,
 	return factory, nil
 }
 
-// Create factory instance with client only (without Informer)
+// NewClientFactoryWithOnlyClient create factory instance with client only (without Informer)
 func NewClientFactoryWithOnlyClient(ctx context.Context, name string, clientSet kubernetes.Interface) *ClientFactory {
 	return &ClientFactory{
 		ctx:       ctx,
@@ -120,13 +119,13 @@ func NewClientFactoryWithOnlyClient(ctx context.Context, name string, clientSet 
 	}
 }
 
-// Get factory name
+// Name get factory name
 // Returns: Factory name string
 func (f *ClientFactory) Name() string {
 	return f.name
 }
 
-// Release factory resources, stop Informer (if enabled)
+// Release release factory resources, stop Informer (if enabled)
 // Returns: Error information
 func (f *ClientFactory) Release() error {
 	if f.informerType == EnableInformer || f.informerType == EnableDynamicInformer {
@@ -135,13 +134,13 @@ func (f *ClientFactory) Release() error {
 	return nil
 }
 
-// Check if factory is valid
+// IsValid check if factory is valid
 // Returns: true if valid, false if invalid
 func (f *ClientFactory) IsValid() bool {
 	return f.valid
 }
 
-// Set factory validity status and reason
+// SetValid set factory validity status and reason
 // Parameters:
 //
 //	valid: Validity status
@@ -151,28 +150,28 @@ func (f *ClientFactory) SetValid(valid bool, msg string) {
 	f.invalidReason = msg
 }
 
-// Get Kubernetes client interface
+// ClientSet get Kubernetes client interface
 // Returns: kubernetes.Interface client interface
 func (f *ClientFactory) ClientSet() kubernetes.Interface {
 	return f.clientSet
 }
 
-// Get REST config
+// RestConfig get REST config
 func (f *ClientFactory) RestConfig() *rest.Config {
 	return f.restConfig
 }
 
-// Get dynamic client
+// DynamicClient get dynamic client
 func (f *ClientFactory) DynamicClient() *dynamic.DynamicClient {
 	return f.dynamicClient
 }
 
-// Get REST mapper (for dynamic Informer)
+// Mapper get REST mapper (for dynamic Informer)
 func (f *ClientFactory) Mapper() meta.RESTMapper {
 	return f.mapper
 }
 
-// Get shared Informer factory (only available when standard Informer is enabled)
+// SharedInformerFactory get shared Informer factory (only available when standard Informer is enabled)
 // Returns: informers.SharedInformerFactory
 func (f *ClientFactory) SharedInformerFactory() informers.SharedInformerFactory {
 	if f.informerType != EnableInformer {
@@ -181,7 +180,7 @@ func (f *ClientFactory) SharedInformerFactory() informers.SharedInformerFactory 
 	return f.sharedInformerFactory
 }
 
-// Get dynamic shared Informer factory (only available when dynamic Informer is enabled)
+// DynamicSharedInformerFactory get dynamic shared Informer factory (only available when dynamic Informer is enabled)
 // Returns: dynamicinformer.DynamicSharedInformerFactory
 func (f *ClientFactory) DynamicSharedInformerFactory() dynamicinformer.DynamicSharedInformerFactory {
 	if f.informerType != EnableDynamicInformer {
@@ -190,7 +189,7 @@ func (f *ClientFactory) DynamicSharedInformerFactory() dynamicinformer.DynamicSh
 	return f.dynamicSharedInformerFactory
 }
 
-// Get reason for factory invalidity
+// GetInvalidReason get reason for factory invalidity
 func (f *ClientFactory) GetInvalidReason() string {
 	return f.invalidReason
 }
@@ -205,7 +204,7 @@ func (f *ClientFactory) StartInformer() {
 	}
 }
 
-// Wait for Informer cache sync to complete
+// WaitForCacheSync wait for Informer cache sync to complete
 func (f *ClientFactory) WaitForCacheSync() {
 	switch f.informerType {
 	case EnableInformer:
@@ -215,7 +214,7 @@ func (f *ClientFactory) WaitForCacheSync() {
 	}
 }
 
-// Stop Informer factory, close stopCh channel
+// StopInformer stop Informer factory, close stopCh channel
 func (f *ClientFactory) StopInformer() {
 	if f.stopCh != nil && !channel.IsChannelClosed(f.stopCh) {
 		close(f.stopCh)
