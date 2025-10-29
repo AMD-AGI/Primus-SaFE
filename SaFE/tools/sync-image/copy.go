@@ -84,12 +84,12 @@ func imagesToCopy(source string, transport string, sourceCtx *types.SystemContex
 			if len(desc.ImageRefs) == 0 {
 				return descriptors, fmt.Errorf("No images to sync found in %q", source)
 			}
-	}
-	descriptors = append(descriptors, desc)
+		}
+		descriptors = append(descriptors, desc)
 
-	// dir and yaml-based sync are not supported yet
+		// dir and yaml-based sync are not supported yet
 
-	// case directory.Transport.Name():
+		// case directory.Transport.Name():
 		// 	desc := repoDescriptor{
 		// 		Context: sourceCtx,
 		// 	}

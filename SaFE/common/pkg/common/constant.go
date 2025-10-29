@@ -25,13 +25,13 @@ const (
 	HigressGateway   = "higress-gateway"
 	HigressSSHPort   = 22
 
-	NodeNameSelector    = "spec.nodeName="
-	KubeSystemNamespace = "kube-system"
-	KubePublicNamespace = "kube-public"
-	K8sHostName         = "kubernetes.io/hostname"
-	PytorchJobPortName  = "pytorchjob-port"
-	SSHPortName         = "ssh-port"
-	JsonContentType     = "application/json; charset=utf-8"
+	NodeNameSelector       = "spec.nodeName="
+	KubeSystemNamespace    = "kube-system"
+	KubePublicNamespace    = "kube-public"
+	K8sHostName            = "kubernetes.io/hostname"
+	PytorchJobPortName     = "pytorchjob-port"
+	SSHPortName            = "ssh-port"
+	JsonContentType        = "application/json; charset=utf-8"
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 
 	DefaultBurst = 1000
