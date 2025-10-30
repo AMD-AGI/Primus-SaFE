@@ -1,0 +1,90 @@
+---
+- name: Install Docker CE and containerd only if missing
+  hosts: all
+  become: true
+  vars:
+    docker_mirror: "https://download.docker.com/linux"
+    docker_package_state: present
+
+  tasks:
+    - name: Check if docker command exists
+      ansible.builtin.command: which docker
+      register: docker_check
+      ignore_errors: true
+
+    - name: Check if containerd command exists
+      ansible.builtin.command: which containerd
+      register: containerd_check
+      ignore_errors: true
+
+    - name: Show current docker/containerd status
+      ansible.builtin.debug:
+        msg:
+          - "Docker present: {{ docker_check.rc == 0 }}"
+          - "Containerd present: {{ containerd_check.rc == 0 }}"
+
+    - name: Install dependency packages
+      package:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: yes
+
+    - name: Add Docker GPG key (Debian/Ubuntu)
+      ansible.builtin.shell: |
+        mkdir -p /etc/apt/keyrings
+        curl -fsSL {{ docker_mirror }}/{{ ansible_distribution | lower }}/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      args:
+        creates: /etc/apt/keyrings/docker.gpg
+      when: ansible_os_family == "Debian"
+
+    - name: Add Docker repository (Debian/Ubuntu)
+      ansible.builtin.shell: |
+        echo \
+          "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+          {{ docker_mirror }}/{{ ansible_distribution | lower }} \
+          {{ ansible_distribution_release }} stable" \
+          > /etc/apt/sources.list.d/docker.list
+      when: ansible_os_family == "Debian"
+
+    - name: Add Docker repository (RHEL/CentOS)
+      ansible.builtin.yum_repository:
+        name: docker-ce-stable
+        description: Docker CE Stable - $releasever
+        baseurl: "https://download.docker.com/linux/centos/$releasever/$basearch/stable"
+        gpgcheck: yes
+        gpgkey: https://download.docker.com/linux/centos/gpg
+      when: ansible_os_family == "RedHat"
+    - name: Install Docker (only if missing)
+      package:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - docker-compose-plugin
+        state: "{{ docker_package_state }}"
+        update_cache: yes
+      when: docker_check.rc != 0
+    - name: Install containerd (only if missing)
+      package:
+        name:
+          - containerd.io
+        state: "{{ docker_package_state }}"
+        update_cache: yes
+      when: containerd_check.rc != 0
+
+    - name: Enable and start Docker service (if installed)
+      service:
+        name: docker
+        state: started
+        enabled: true
+      when: docker_check.rc != 0
+
+    - name: Enable and start containerd service (if installed)
+      service:
+        name: containerd
+        state: started
+        enabled: true
+      when: containerd_check.rc != 0
