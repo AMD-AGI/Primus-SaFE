@@ -1,0 +1,10 @@
+
+- hosts: all
+  vars:
+    workspace: '{{ workspace | default(/opt/primus-bench) }}'
+  tasks:
+  - name: Tail remote log on first node only
+    shell: docker logs -f primusbench
+    async: 3600
+    poll: 1
+    run_once: true

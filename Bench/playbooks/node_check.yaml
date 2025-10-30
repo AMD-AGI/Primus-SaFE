@@ -1,0 +1,12 @@
+- hosts: all
+  vars:
+    workspace: '{{ workspace | default(/opt/primus-bench) }}'
+  tasks:
+    - name: Run node check script
+      shell: |
+        ADD_LOG_HEADER=true \
+        bash run.sh  2>&1 | tee /tmp/node.log
+      args:
+        chdir: '{{ workspace }}/preflight/node'
+      async: 0
+      poll: 0
