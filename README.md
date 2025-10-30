@@ -368,8 +368,6 @@ spec:
 
 Primus-SaFE is under active development. Planned enhancements include:
 
-### Near-Term (Next 6 Months)
-
 - **Enhanced AMD Hardware Support**:
   - MI450 series GPU integration
   - Latest ROCm stack compatibility
