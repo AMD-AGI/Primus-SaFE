@@ -24,7 +24,7 @@ type CreateNodeFlavorResponse struct {
 }
 
 type ListNodeFlavorResponse struct {
-	// The total number of node flavors, not limited by pagination
+	// The total number of node flavors
 	TotalCount int                      `json:"totalCount"`
 	Items      []NodeFlavorResponseItem `json:"items"`
 }

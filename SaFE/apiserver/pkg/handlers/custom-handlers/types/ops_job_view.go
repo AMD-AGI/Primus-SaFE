@@ -53,7 +53,7 @@ type CreateAddonRequest struct {
 	// The job is marked as successful if the number of successfully upgraded nodes exceeds total nodes * ratio.
 	// default: 1
 	AvailableRatio *float64 `json:"availableRatio,omitempty"`
-	// When enabled, the operation will wait until the node is idle, only to addon
+	// When enabled, the operation will wait until the node is idle(no workloads), only to addon
 	SecurityUpgrade bool `json:"securityUpgrade,omitempty"`
 }
 
@@ -83,11 +83,11 @@ type ListOpsJobInput struct {
 	Until string `form:"until" binding:"omitempty"`
 	// The cluster which the job belongs to
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
-	// The username of job submitter
+	// Filter by submitter username (fuzzy match)
 	UserName string `form:"userName" binding:"omitempty,max=64"`
 	// The job phase, e.g. Succeeded, Failed, Running, Pending
 	Phase v1.OpsJobPhase `form:"phase" binding:"omitempty"`
-	// The job type, e.g. addon, dumplog, preflight
+	// The job type, e.g. addon, dumplog, preflight, reboot
 	Type v1.OpsJobType `form:"type" binding:"omitempty,max=64"`
 }
 
@@ -121,7 +121,7 @@ type OpsJobResponseItem struct {
 	UserId string `json:"userId"`
 	// The username of job submitter
 	UserName string `json:"userName"`
-	// The job type, e.g. addon, dumplog, preflight
+	// The job type, e.g. addon, dumplog, preflight, reboot
 	Type v1.OpsJobType `json:"type"`
 	// The job status: Succeeded/Failed/Running/Pending
 	Phase v1.OpsJobPhase `json:"phase"`

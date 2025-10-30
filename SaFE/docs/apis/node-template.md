@@ -13,42 +13,37 @@ Node template defines the software environment configuration for nodes, includin
 **Request Example**:
 ```json
 {
-  "name": "ubuntu-gpu-v1",
-  "displayName": "Ubuntu GPU Template",
-  "description": "Ubuntu 22.04 with NVIDIA drivers",
-  "addons": [
-    {
-      "name": "nvidia-driver",
-      "version": "535.129.03"
-    },
-    {
-      "name": "cuda",
-      "version": "12.2"
-    }
+  "templateId": "node-template-v1",
+  "addOnTemplates": [
+    "disable-os-upgrade",
+    "enable-cpu-performance",
+    "sysctl-inotify"
   ]
 }
 ```
 
-**Response**: `{ "templateId": "ubuntu-gpu-v1" }`
+**Response**: `{ "id": "node-template-v1" }`
 
 ---
 
 ### 2. List Node Templates
 
-**Endpoint**: `GET /api/custom/nodetemplates`
+**Endpoint**: `GET /api/v1/nodetemplates`
 
 **Authentication Required**: Yes
 
 **Response Example**:
 ```json
 {
-  "totalCount": 2,
+  "totalCount": 1,
   "items": [
     {
-      "templateId": "ubuntu-gpu-v1",
-      "displayName": "Ubuntu GPU Template",
-      "description": "Ubuntu 22.04 with NVIDIA drivers",
-      "creationTime": "2025-01-10T08:00:00.000Z"
+      "templateId": "node-template-v1",
+      "addOnTemplates": [
+        "disable-os-upgrade",
+        "enable-cpu-performance",
+        "sysctl-inotify"
+      ]
     }
   ]
 }
@@ -58,11 +53,10 @@ Node template defines the software environment configuration for nodes, includin
 
 ### 3. Delete Node Template
 
-**Endpoint**: `DELETE /api/custom/nodetemplates/:name`
+**Endpoint**: `DELETE /api/v1/nodetemplates/{TemplateId}`
 
 **Authentication Required**: Yes
 
-**Prerequisites**: No nodes using this template
 
 **Response**: 200 OK with no response body
 
@@ -70,6 +64,6 @@ Node template defines the software environment configuration for nodes, includin
 
 ## Notes
 
-- Node templates define software to be installed during node initialization
-- Cannot be modified after creation, need to delete and recreate
-- Templates in use cannot be deleted
+- Node templates define software to be installed when a node is managed into the cluster
+- Addons can also be manually installed by specifying nodes using opsjob.
+- The addon is auto-registered with Safe and currently doesn't support dynamic creation.
