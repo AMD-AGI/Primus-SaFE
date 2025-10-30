@@ -36,7 +36,6 @@ DISTROLESS_BASE_IMAGE?=gcr.io/distroless/static:nonroot
 EXTRA_ARGS=""
 
 # VERSION is the scheduler's version
-#
 # The RELEASE_VERSION variable can have one of two formats:
 # v20201009-v0.18.800-46-g939c1c0 - automated build for a commit(not a tag) and also a local build
 # v20200521-v0.18.800             - automated build for a tag
