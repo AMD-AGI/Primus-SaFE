@@ -4,7 +4,6 @@
 *.dll
 *.so
 *.dylib
-bin/*
 Dockerfile.cross
 
 # Test binary, built with `go test -c`
@@ -23,7 +22,8 @@ Dockerfile.cross
 *.swo
 *~
 *.tgz
-charts/bin/*
 .venv
 .run
 .env
+
+SaFE/charts/bin/*

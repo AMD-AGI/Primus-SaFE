@@ -8,7 +8,7 @@ User management API provides user registration, authentication, and permission m
 
 Create a new user account.
 
-**Endpoint**: `POST /api/custom/users`
+**Endpoint**: `POST /api/v1/users`
 
 **Authentication Required**: No (Public endpoint)
 
@@ -32,7 +32,7 @@ Create a new user account.
 | name | string | Yes | Username (unique) |
 | email | string | No | Email address |
 | password | string | Yes* | Password (required for regular user registration) |
-| type | string | No | User type: default/teams, only system admin can specify |
+| type | string | No | User type: default/(To be extended), only system admin can specify |
 | workspaces | []string | No | List of accessible workspace IDs (only system admin can specify) |
 | avatarUrl | string | No | Avatar URL |
 
@@ -50,7 +50,7 @@ Create a new user account.
 
 User authentication and access token retrieval.
 
-**Endpoint**: `POST /api/custom/login`
+**Endpoint**: `POST /api/v1/login`
 
 **Authentication Required**: No (Public endpoint)
 
@@ -66,11 +66,11 @@ User authentication and access token retrieval.
 
 **Field Description**:
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| name | string | Yes | Username |
-| password | string | Yes | Password |
-| type | string | No | Login type: default/teams |
+| Field | Type | Required | Description               |
+|-------|------|----------|---------------------------|
+| name | string | Yes | Username                  |
+| password | string | Yes | Password                  |
+| type | string | No | Login type: default/other |
 
 **Response Example**:
 
@@ -88,7 +88,7 @@ User authentication and access token retrieval.
     }
   ],
   "managedWorkspaces": [],
-  "creationTime": "2025-01-10T08:00:00.000Z",
+  "creationTime": "2025-01-10T08:00:00",
   "restrictedType": 0,
   "avatarUrl": "https://example.com/avatar.jpg",
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -96,13 +96,37 @@ User authentication and access token retrieval.
 }
 ```
 
+**Response Field Description**:
+
+| Field | Type | Description                                              |
+|-------|------|----------------------------------------------------------|
+| id | string | User ID                                                  |
+| name | string | Username                                                 |
+| email | string | Email address                                            |
+| type | string | User type: default/other                                 |
+| roles | []string | User roles. e.g. system-admin, default                   |
+| workspaces | []object | Workspaces the user can access (non-admin only)          |
+| managedWorkspaces | []object | Workspaces the user can manage (non-admin only)          |
+| creationTime | string | User creation time (RFC3339)                             |
+| restrictedType | int | Restriction: 0 normal, 1 frozen                          |
+| avatarUrl | string | Avatar URL                                               |
+| token | string | User token, encrypted internally.                        |
+| expire | int | Token expire time (Unix seconds) |
+
+Nested workspace object:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | string | Workspace ID |
+| name | string | Workspace name |
+
 ---
 
 ### 3. User Logout
 
 Clear user session (Web Console only).
 
-**Endpoint**: `POST /api/custom/logout`
+**Endpoint**: `POST /api/v1/logout`
 
 **Authentication Required**: No
 
@@ -114,7 +138,7 @@ Clear user session (Web Console only).
 
 Get user list with filtering support.
 
-**Endpoint**: `GET /api/custom/users`
+**Endpoint**: `GET /api/v1/users`
 
 **Authentication Required**: Yes
 
@@ -150,13 +174,17 @@ Get user list with filtering support.
           "name": "dev-team"
         }
       ],
-      "creationTime": "2025-01-10T08:00:00.000Z",
+      "creationTime": "2025-01-10T08:00:00",
       "restrictedType": 0,
       "avatarUrl": "https://example.com/avatar.jpg"
     }
   ]
 }
 ```
+**Field Description**:
+
+The response fields are consistent with the "User Login" response above.
+
 
 ---
 
@@ -164,7 +192,7 @@ Get user list with filtering support.
 
 Get detailed information about a specific user or current user.
 
-**Endpoint**: `GET /api/custom/users/:name`
+**Endpoint**: `GET /api/v1/users/:name`
 
 **Authentication Required**: Yes
 
@@ -190,11 +218,14 @@ Get detailed information about a specific user or current user.
     }
   ],
   "managedWorkspaces": [],
-  "creationTime": "2025-01-10T08:00:00.000Z",
+  "creationTime": "2025-01-10T08:00:00",
   "restrictedType": 0,
   "avatarUrl": "https://example.com/avatar.jpg"
 }
 ```
+**Field Description**:
+
+The response fields are consistent with the "User Login" response above.
 
 ---
 
@@ -202,7 +233,7 @@ Get detailed information about a specific user or current user.
 
 Update user information or permissions.
 
-**Endpoint**: `PATCH /api/custom/users/:name`
+**Endpoint**: `PATCH /api/v1/users/{UserId}`
 
 **Authentication Required**: Yes
 
@@ -210,7 +241,7 @@ Update user information or permissions.
 
 | Parameter | Description |
 |-----------|-------------|
-| name | User ID |
+| UserId | User ID |
 
 **Request Parameters**:
 
@@ -248,7 +279,7 @@ Update user information or permissions.
 
 Delete a specific user.
 
-**Endpoint**: `DELETE /api/custom/users/:name`
+**Endpoint**: `DELETE /api/v1/users/{UserId}`
 
 **Authentication Required**: Yes
 
@@ -256,7 +287,7 @@ Delete a specific user.
 
 | Parameter | Description |
 |-----------|-------------|
-| name | User ID |
+| UserId | User ID |
 
 **Permission Requirements**: System administrator
 
@@ -266,43 +297,46 @@ Delete a specific user.
 
 ## User Types
 
-| Type | Description |
-|------|-------------|
-| default | Default user, uses username/password authentication |
-| teams | Enterprise user, uses third-party authentication |
+| Type    | Description                                                      |
+|---------|------------------------------------------------------------------|
+| default | Default user, uses username/password authentication              |
+| other   | Enterprise user, uses third-party authentication, to be extended |
 
 ## User Roles
 
-| Role | Description | Permissions |
-|------|-------------|-------------|
-| system-admin | System administrator | Full control, can manage all resources |
-| default | Regular user | Can only access authorized workspaces |
+| Role | Description | Permissions                                             |
+|------|-------------|---------------------------------------------------------|
+| system-admin | System administrator | Full control, can manage all resources                  |
+| default | Regular user | Can only access authorized workspaces or other resource |
 
 ## User Restriction Types
 
 | Type | Description |
 |------|-------------|
 | 0 | Normal status |
-| 1 | Frozen status (cannot login or use system) |
+| 1 | Frozen status (cannot use system) |
 
 ## Workspace Permissions
 
 ### Regular Access (workspaces)
 Users can in these workspaces:
 - Submit and manage their own workloads
+- Can view others' workloads in the same workspace, but not modify or delete them.
 - View workspace information and resource usage
+- Can only create workloads with low or medium priority
 
 ### Manager Permissions (managedWorkspaces)
 Workspace managers can:
-- Manage all users' workloads in the workspace
+- Manage all users' workloads in the workspace, including deleting workloads
 - Modify workspace configuration
-- View all users' resource usage
+- Grant another user permission to access the workspace 
+- Can create workloads with the highest priority
 
 ## Token
 
-- **Format**: Base64-encoded JWT token
+- **Format**: Custom token, encrypted internally
 - **Validity**: Specified in `expire` field in login response (Unix timestamp)
-- **Usage**: Add `Authorization: Bearer <token>` in request header
+- **Usage**: Add `Cookie: Token=xxx` in request header
 - **Storage**: Web Console uses Cookie for automatic management, API calls need manual management
 
 ## Notes
@@ -310,5 +344,4 @@ Workspace managers can:
 1. **Username Uniqueness**: Username must be unique in the system
 2. **Password Security**: Recommend using strong passwords, system stores Base64 encoded passwords
 3. **Permission Inheritance**: System administrators have all permissions, no workspace configuration needed
-4. **Self-Registration**: Regular users have no workspace access permissions after registration, need admin authorization
-5. **Email Verification**: System uses MD5 hash of email as identifier for quick lookup
+4. **Self-Registration**: Regular users have no workspace(except for public workspaces) access permissions after registration, need admin authorization

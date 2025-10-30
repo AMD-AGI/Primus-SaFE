@@ -32,11 +32,11 @@ type CreateUserResponse struct {
 }
 
 type ListUserRequest struct {
-	// The username, will be QueryEscape processed
+	// Filter by username (URL encoded)
 	Name string `form:"name" binding:"omitempty"`
-	// User mail, will be QueryEscape processed
+	// Filter by email (URL encoded)
 	Email string `form:"email" binding:"omitempty"`
-	// Workspace ID accessible to the user.
+	// Filter by workspace (returns users with access to this workspace)
 	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`
 }
 
@@ -99,7 +99,7 @@ type UserLoginResponse struct {
 	UserResponseItem `json:",inline"`
 	// The timestamp when the user token expires, in seconds.
 	Expire int64 `json:"expire"`
-	// User token
+	// User token, encrypted internally.
 	Token string `json:"token"`
 }
 

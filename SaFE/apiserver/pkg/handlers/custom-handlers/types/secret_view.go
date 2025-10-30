@@ -33,7 +33,7 @@ type CreateSecretRequest struct {
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params []map[SecretParam]string `json:"params"`
-	// Whether to bind the secret to all workspaces
+	// Whether to bind the secret to all workspaces, only for image secret
 	BindAllWorkspaces bool `json:"bindAllWorkspaces,omitempty"`
 }
 
@@ -85,6 +85,6 @@ type PatchSecretRequest struct {
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params *[]map[SecretParam]string `json:"params,omitempty"`
-	// Whether to bind the secret to all workspaces
+	// Whether to bind the secret to all workspaces, only for image secret
 	BindAllWorkspaces *bool `json:"bindAllWorkspaces,omitempty"`
 }
