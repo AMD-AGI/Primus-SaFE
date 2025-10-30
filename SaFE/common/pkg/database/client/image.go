@@ -53,6 +53,7 @@ func (c *Client) UpsertImage(ctx context.Context, img *model.Image) error {
 	return nil
 }
 
+// GetImageByTag returns the ImageByTag value.
 func (c *Client) GetImageByTag(ctx context.Context, tag string) (*model.Image, error) {
 	q := dal.Use(c.gorm).Image
 	img, err := q.WithContext(ctx).Where(q.Tag.Eq(tag), q.DeletedAt.IsNull()).First()
@@ -66,6 +67,7 @@ func (c *Client) GetImageByTag(ctx context.Context, tag string) (*model.Image, e
 	return img, nil
 }
 
+// SelectImages performs the SelectImages operation.
 func (c *Client) SelectImages(ctx context.Context, filter *ImageFilter) ([]*model.Image, int, error) {
 	q := dal.Use(c.gorm).Image
 	query := q.WithContext(ctx).Where(q.DeletedAt.IsNull())
@@ -105,6 +107,7 @@ func (c *Client) SelectImages(ctx context.Context, filter *ImageFilter) ([]*mode
 	return images, int(count), nil
 }
 
+// GetImage returns the Image value.
 func (c *Client) GetImage(ctx context.Context, imageId int32) (*model.Image, error) {
 	q := dal.Use(c.gorm).Image
 	img, err := q.WithContext(ctx).Where(q.ID.Eq(imageId), q.DeletedAt.IsNull()).First()
@@ -118,7 +121,7 @@ func (c *Client) GetImage(ctx context.Context, imageId int32) (*model.Image, err
 	return img, nil
 }
 
-// DeleteImage performs a soft delete of an image
+// DeleteImage performs a soft delete of an image.
 func (c *Client) DeleteImage(ctx context.Context, id int32, deletedBy string) error {
 	q := dal.Use(c.gorm).Image
 	img, err := q.WithContext(ctx).Where(q.ID.Eq(id), q.DeletedAt.IsNull()).First()

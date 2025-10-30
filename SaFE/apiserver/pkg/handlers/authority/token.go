@@ -34,9 +34,7 @@ type TokenItem struct {
 	Expire   int64
 }
 
-// ParseCookie parses and validates the user token from cookie of header.
-// It first tries to parse from cookie, and if that fails, checks for header-based authentication
-// for internal users when token requirement is disabled. Returns an unauthorized error if validation fails.
+// ParseCookie parses the input data.
 func ParseCookie(c *gin.Context) error {
 	err := parseCookie(c)
 	if err != nil {
@@ -71,10 +69,7 @@ func parseCookie(c *gin.Context) error {
 	return nil
 }
 
-// validateToken decrypts and parses a token string into a TokenItem.
-// It validates the token format, decrypts it using the crypto module,
-// and ensures all parts are present and correctly formatted.
-// Returns the parsed TokenItem or an error if validation fails.
+// validateToken validates Token and returns an error if validation fails.
 func validateToken(token string) (*TokenItem, error) {
 	inst := crypto.NewCrypto()
 	if inst == nil {

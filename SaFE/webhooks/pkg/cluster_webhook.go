@@ -26,6 +26,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
+// AddClusterWebhook registers the cluster validation and mutation webhooks.
 func AddClusterWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.ClusterKind), &webhook.Admission{Handler: &ClusterMutator{
 		Client:  mgr.GetClient(),
@@ -37,11 +38,13 @@ func AddClusterWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder 
 	}})
 }
 
+// ClusterMutator handles mutation logic for Cluster resources on creation.
 type ClusterMutator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle processes cluster creation requests and applies default network plugin and finalizer.
 func (m *ClusterMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	if req.Operation != admissionv1.Create {
 		return admission.Allowed("")
@@ -59,6 +62,7 @@ func (m *ClusterMutator) Handle(ctx context.Context, req admission.Request) admi
 	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
+// mutateOnCreation applies default values and normalizations to the cluster during creation.
 func (m *ClusterMutator) mutateOnCreation(_ context.Context, cluster *v1.Cluster) {
 	cluster.Name = stringutil.NormalizeName(cluster.Name)
 	controllerutil.AddFinalizer(cluster, v1.ClusterFinalizer)
@@ -67,11 +71,13 @@ func (m *ClusterMutator) mutateOnCreation(_ context.Context, cluster *v1.Cluster
 	}
 }
 
+// ClusterValidator validates Cluster resources on create, update, and delete operations.
 type ClusterValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle validates cluster resources on create, update, and delete operations.
 func (v *ClusterValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	cluster := &v1.Cluster{}
 	var err error
@@ -103,6 +109,7 @@ func (v *ClusterValidator) Handle(ctx context.Context, req admission.Request) ad
 	return admission.Allowed("")
 }
 
+// validateOnCreation validates cluster display name and control plane configuration on creation.
 func (v *ClusterValidator) validateOnCreation(ctx context.Context, cluster *v1.Cluster) error {
 	if err := validateDisplayName(v1.GetDisplayName(cluster)); err != nil {
 		return err
@@ -113,6 +120,7 @@ func (v *ClusterValidator) validateOnCreation(ctx context.Context, cluster *v1.C
 	return nil
 }
 
+// validateControlPlane validates control plane nodes and network configuration.
 func (v *ClusterValidator) validateControlPlane(ctx context.Context, cluster *v1.Cluster) error {
 	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
 		return fmt.Errorf("the KubeControlPlane nodes of spec are empty")
@@ -138,8 +146,7 @@ func (v *ClusterValidator) validateControlPlane(ctx context.Context, cluster *v1
 	return nil
 }
 
-// validateNodesInUse checks if any node in the cluster's control plane is already being used by another cluster.
-// If a node is found to be in use, it returns an error indicating the node is already existent.
+// validateNodesInUse ensures the nodes are not already used by other clusters.
 func (v *ClusterValidator) validateNodesInUse(ctx context.Context, cluster *v1.Cluster) error {
 	clusterList := &v1.ClusterList{}
 	if err := v.List(ctx, clusterList); err != nil {
@@ -159,8 +166,7 @@ func (v *ClusterValidator) validateNodesInUse(ctx context.Context, cluster *v1.C
 	return nil
 }
 
-// validateNodesReady checks if any node in the cluster's control plane is already ready.
-// If a node is not ready, it returns an error indicating Cluster creation failed.
+// validateNodesReady ensures all control plane nodes are in ready state.
 func (v *ClusterValidator) validateNodesReady(ctx context.Context, cluster *v1.Cluster) error {
 	for _, n := range cluster.Spec.ControlPlane.Nodes {
 		adminNode, err := getNode(ctx, v.Client, n)
@@ -174,6 +180,7 @@ func (v *ClusterValidator) validateNodesReady(ctx context.Context, cluster *v1.C
 	return nil
 }
 
+// validateOnUpdate validates immutable fields are not changed during cluster update.
 func (v *ClusterValidator) validateOnUpdate(newCluster, oldCluster *v1.Cluster) error {
 	if err := v.validateImmutableFields(newCluster, oldCluster); err != nil {
 		return err
@@ -181,6 +188,7 @@ func (v *ClusterValidator) validateOnUpdate(newCluster, oldCluster *v1.Cluster) 
 	return nil
 }
 
+// validateImmutableFields ensures control plane nodes cannot be modified.
 func (v *ClusterValidator) validateImmutableFields(newCluster, oldCluster *v1.Cluster) error {
 	if !slice.EqualIgnoreOrder(newCluster.Spec.ControlPlane.Nodes, oldCluster.Spec.ControlPlane.Nodes) {
 		return field.Forbidden(field.NewPath("spec").Key("controlPlane").
@@ -189,6 +197,7 @@ func (v *ClusterValidator) validateImmutableFields(newCluster, oldCluster *v1.Cl
 	return nil
 }
 
+// getCluster retrieves the requested information.
 func getCluster(ctx context.Context, cli client.Client, clusterId string) (*v1.Cluster, error) {
 	if clusterId == "" {
 		return nil, nil

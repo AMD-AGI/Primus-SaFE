@@ -20,6 +20,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
+// SetupImageImportJobReconciler sets up the image import job reconciler.
 func SetupImageImportJobReconciler(mgr ctrlruntime.Manager) error {
 	if !commonconfig.IsDBEnable() {
 		return nil
@@ -58,6 +59,8 @@ func SetupImageImportJobReconciler(mgr ctrlruntime.Manager) error {
 	return nil
 }
 
+// filterImageImportJob filters jobs by checking if they have the "image-import" label.
+// Returns true if the object has the label, false otherwise.
 func filterImageImportJob(o client.Object) bool {
 	if o.GetLabels() == nil {
 		return false
@@ -66,12 +69,17 @@ func filterImageImportJob(o client.Object) bool {
 	return exist
 }
 
+// ImageImportJobReconciler reconciles image import Job objects.
+// It monitors Kubernetes jobs tagged with "image-import" label and synchronizes their status to the database.
 type ImageImportJobReconciler struct {
 	*ClusterBaseReconciler
 	dbClient  dbclient.Interface
 	k8sClient kubernetes.Interface
 }
 
+// Reconcile reconciles image import jobs by monitoring their status and updating the database.
+// It tracks job progress (importing, ready, failed) and retrieves pod logs when jobs fail.
+// The reconciliation updates both the image status and the import job record in the database.
 func (r *ImageImportJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	job := &batchv1.Job{}
 	err := r.Client.Get(ctx, req.NamespacedName, job)
@@ -133,6 +141,9 @@ func (r *ImageImportJobReconciler) Reconcile(ctx context.Context, req ctrlruntim
 	return ctrlruntime.Result{}, nil
 }
 
+// getImportImagePodLogs retrieves the logs from the pod associated with an image import job.
+// It finds the pod using the job's label selector and streams the complete log output.
+// Returns an error if the pod cannot be found or if there are multiple pods (expects exactly one).
 func (r *ImageImportJobReconciler) getImportImagePodLogs(ctx context.Context, job *batchv1.Job) (string, error) {
 	labelSelect, err := metav1.LabelSelectorAsSelector(job.Spec.Selector)
 	if err != nil {

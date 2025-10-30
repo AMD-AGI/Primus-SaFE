@@ -60,6 +60,7 @@ type ListNodeRequest struct {
 	Limit int `form:"limit" binding:"omitempty"`
 }
 
+// GetWorkspaceId returns the workspace ID from the request.
 func (req *ListNodeRequest) GetWorkspaceId() string {
 	if req == nil || req.WorkspaceId == nil {
 		return ""
@@ -67,6 +68,7 @@ func (req *ListNodeRequest) GetWorkspaceId() string {
 	return *req.WorkspaceId
 }
 
+// GetClusterId returns the cluster ID from the request.
 func (req *ListNodeRequest) GetClusterId() string {
 	if req == nil || req.ClusterId == nil {
 		return ""

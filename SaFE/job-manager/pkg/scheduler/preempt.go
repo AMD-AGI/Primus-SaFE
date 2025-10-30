@@ -92,7 +92,7 @@ func (r *SchedulerReconciler) preemptLowPriorityWorkloads(ctx context.Context, r
 	return nil, nil
 }
 
-// isPreemptable: checks if a workload can preempt other running workloads based on priority
+// isPreemptable checks if a workload can preempt other running workloads based on priority.
 func (r *SchedulerReconciler) isPreemptable(requestWorkload *v1.Workload, runningWorkloads []*v1.Workload) bool {
 	if !v1.IsWorkloadEnablePreempt(requestWorkload) {
 		return false
@@ -105,7 +105,7 @@ func (r *SchedulerReconciler) isPreemptable(requestWorkload *v1.Workload, runnin
 	return false
 }
 
-// sortRunningWorkloads: sorts running workloads for preemption consideration
+// sortRunningWorkloads sorts running workloads for preemption consideration.
 func (r *SchedulerReconciler) sortRunningWorkloads(ctx context.Context,
 	requestWorkload *v1.Workload, runningWorkloads []*v1.Workload) (WorkloadWrapperSlice, error) {
 	if len(runningWorkloads) == 0 {
@@ -131,14 +131,17 @@ func (r *SchedulerReconciler) sortRunningWorkloads(ctx context.Context,
 
 type WorkloadWrapperSlice []*WorkloadWrapper
 
+// Len implements sort.Interface by returning the length of the slice.
 func (workloads WorkloadWrapperSlice) Len() int {
 	return len(workloads)
 }
 
+// Swap implements sort.Interface by swapping elements at the given indices.
 func (workloads WorkloadWrapperSlice) Swap(i, j int) {
 	workloads[i], workloads[j] = workloads[j], workloads[i]
 }
 
+// Less implements sort.Interface for sorting.
 func (workloads WorkloadWrapperSlice) Less(i, j int) bool {
 	if workloads[i].workload.Spec.Priority < workloads[j].workload.Spec.Priority {
 		return true

@@ -35,6 +35,7 @@ func (t *Tomb) Done() {
 	close(t.done)
 }
 
+// IsStopped returns whether the tomb has been stopped.
 func (t *Tomb) IsStopped() bool {
 	return IsChannelClosed(t.stop)
 }

@@ -29,14 +29,6 @@ type SearchClientConfig struct {
 }
 
 // Equals compares two SearchClientConfig instances for equality.
-// It checks if all fields (Username, Password, Endpoint, and Prefix) are identical between
-// the current config and the other config.
-//
-// Parameters:
-//   - other: SearchClientConfig to compare with the current instance
-//
-// Returns:
-//   - bool: true if all fields are equal, false otherwis
 func (s SearchClientConfig) Equals(other SearchClientConfig) bool {
 	return s.Username == other.Username &&
 		s.Password == other.Password &&
@@ -44,12 +36,7 @@ func (s SearchClientConfig) Equals(other SearchClientConfig) bool {
 		s.Prefix == other.Prefix
 }
 
-// Validate checks if all required fields in the SearchClientConfig are properly set.
-// It verifies that Endpoint, Username, Password, and Prefix are all non-empty.
-//
-// Returns:
-//   - error: nil if all fields are valid, otherwise returns an error with a descriptive message
-//     indicating which field is missing or empt
+// Validate validates the input parameters.
 func (s SearchClientConfig) Validate() error {
 	if s.Endpoint == "" {
 		return fmt.Errorf("opensearch endpoint is empty")
@@ -71,10 +58,7 @@ type SearchClient struct {
 	httpClient httpclient.Interface
 }
 
-// NewClient create or return the singleton instance of SearchClient
-// Gets OpenSearch endpoint, index prefix, username and password from configuration
-// Initializes HTTP client
-// Returns: SearchClient instance
+// NewClient create or return the singleton instance of SearchClient.
 func NewClient(cfg SearchClientConfig) *SearchClient {
 	return &SearchClient{
 		SearchClientConfig: cfg,
@@ -82,20 +66,7 @@ func NewClient(cfg SearchClientConfig) *SearchClient {
 	}
 }
 
-// SearchByTimeRange search openSearch data by time range
-// Parameters:
-//
-//	sinceTime: Start time
-//	untilTime: End time
-//	uri: the endpoint of opensearch service
-//	body: Request body
-//
-// Returns:
-//
-//	[]byte: Response data
-//	error: Error information
-//
-// Function: Builds index names within time range, then sends POST request
+// SearchByTimeRange search openSearch data by time range.
 func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, uri string, body []byte) ([]byte, error) {
 	index, err := c.generateQueryIndex(sinceTime, untilTime)
 	if err != nil {
@@ -107,19 +78,7 @@ func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, uri str
 	return c.Request(index+uri, http.MethodPost, body)
 }
 
-// Request send HTTP request to OpenSearch
-// Parameters:
-//
-//	uri: Full API path
-//	httpMethod: HTTP method (e.g. GET, POST, etc.)
-//	body: Request body data
-//
-// Returns:
-//
-//	[]byte: Response body data
-//	error: Error information
-//
-// Function: Builds HTTP request with authentication, sends request and processes response
+// Request send HTTP request to OpenSearch.
 func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, error) {
 	if !strings.HasPrefix(uri, "/") {
 		uri = "/" + uri
@@ -141,21 +100,7 @@ func (c *SearchClient) Request(uri, httpMethod string, body []byte) ([]byte, err
 	return resp.Body, nil
 }
 
-// generateQueryIndex generate OpenSearch index name based on time range
-// Parameters:
-//
-//	sinceTime: Start time
-//	untilTime: End time
-//
-// Returns:
-//
-//	string: Index name (may contain multiple indices or wildcard)
-//	error: Error information
-//
-// Logic:
-//  1. If start time equals end time, return single date index
-//  2. If time range exceeds 30 days, use wildcard *
-//  3. Otherwise generate all index names within date range, separated by comma
+// generateQueryIndex generate OpenSearch index name based on time range.
 func (c *SearchClient) generateQueryIndex(sinceTime, untilTime time.Time) (string, error) {
 	if sinceTime.Equal(untilTime) {
 		return c.Prefix + sinceTime.Format(IndexDateFormat), nil

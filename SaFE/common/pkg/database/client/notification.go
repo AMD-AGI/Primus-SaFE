@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// SubmitNotification submits a notification to be processed and sent.
 func (c *Client) SubmitNotification(ctx context.Context, data *model.Notification) error {
 	q := dal.Use(c.gorm).Notification
 	existNotification, err := q.WithContext(ctx).Where(q.UID.Eq(data.UID), q.Topic.Eq(data.Topic)).First()
@@ -25,12 +26,14 @@ func (c *Client) SubmitNotification(ctx context.Context, data *model.Notificatio
 	return q.WithContext(ctx).Create(data)
 }
 
+// UpdateNotification updates the specified resource.
 func (c *Client) UpdateNotification(ctx context.Context, data *model.Notification) error {
 	q := dal.Use(c.gorm).Notification
 	err := q.WithContext(ctx).Where(q.ID.Eq(data.ID)).Save(data)
 	return err
 }
 
+// ListUnprocessedNotifications retrieves a list of resources.
 func (c *Client) ListUnprocessedNotifications(ctx context.Context) ([]*model.Notification, error) {
 	q := dal.Use(c.gorm).Notification
 	return q.WithContext(ctx).Where(q.SentAt.Eq(time.Time{})).Find()

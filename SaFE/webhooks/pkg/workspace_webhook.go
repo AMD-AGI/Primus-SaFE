@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
@@ -39,6 +39,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
+// AddWorkspaceWebhook registers the workspace validation and mutation webhooks.
 func AddWorkspaceWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.WorkspaceKind), &webhook.Admission{Handler: &WorkspaceMutator{
 		Client:  mgr.GetClient(),
@@ -50,11 +51,13 @@ func AddWorkspaceWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decode
 	}})
 }
 
+// WorkspaceMutator handles mutation logic for Workspace resources.
 type WorkspaceMutator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle processes workspace admission requests and applies mutations on create and update.
 func (m *WorkspaceMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	if req.Operation == admissionv1.Delete {
 		return admission.Allowed("")
@@ -87,6 +90,7 @@ func (m *WorkspaceMutator) Handle(ctx context.Context, req admission.Request) ad
 	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
+// mutateOnCreation applies default values and normalizations during creation.
 func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.Workspace) error {
 	if err := m.mutateMeta(ctx, workspace); err != nil {
 		return err
@@ -97,6 +101,7 @@ func (m *WorkspaceMutator) mutateOnCreation(ctx context.Context, workspace *v1.W
 	return nil
 }
 
+// mutateOnUpdate applies mutations during updates.
 func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	if err := m.mutateCommon(ctx, oldWorkspace, newWorkspace); err != nil {
 		return err
@@ -111,6 +116,7 @@ func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, new
 	return nil
 }
 
+// mutateCommon applies node flavor, image secrets, volumes, queue policy, preemption and manager mutations.
 func (m *WorkspaceMutator) mutateCommon(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	if err := m.mutateByNodeFlavor(ctx, newWorkspace); err != nil {
 		return err
@@ -134,6 +140,7 @@ func (m *WorkspaceMutator) mutateCommon(ctx context.Context, oldWorkspace, newWo
 	return nil
 }
 
+// mutateMeta sets workspace name, labels, finalizer and owner references.
 func (m *WorkspaceMutator) mutateMeta(ctx context.Context, workspace *v1.Workspace) error {
 	workspace.Name = stringutil.NormalizeName(workspace.Name)
 	if workspace.Spec.Cluster != "" {
@@ -153,7 +160,7 @@ func (m *WorkspaceMutator) mutateMeta(ctx context.Context, workspace *v1.Workspa
 	return nil
 }
 
-// If there is a nodesAction on the workspace targeting node operations, modify the corresponding replica accordingly.
+// mutateNodesAction adjusts workspace replica count based on node add/remove actions.
 func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	if oldWorkspace.Spec.Replica != newWorkspace.Spec.Replica {
 		return fmt.Errorf("the operation of specifying nodes and the modification of " +
@@ -196,12 +203,14 @@ func (m *WorkspaceMutator) mutateNodesAction(ctx context.Context, oldWorkspace, 
 	return nil
 }
 
+// mutateQueuePolicy sets default queue policy to FIFO if not specified.
 func (m *WorkspaceMutator) mutateQueuePolicy(workspace *v1.Workspace) {
 	if workspace.Spec.QueuePolicy == "" {
 		workspace.Spec.QueuePolicy = v1.QueueFifoPolicy
 	}
 }
 
+// mutateVolumes assigns IDs, normalizes paths and sets default access modes for volumes.
 func (m *WorkspaceMutator) mutateVolumes(workspace *v1.Workspace) {
 	maxId := 0
 	for _, vol := range workspace.Spec.Volumes {
@@ -225,6 +234,7 @@ func (m *WorkspaceMutator) mutateVolumes(workspace *v1.Workspace) {
 	}
 }
 
+// mutateByNodeFlavor resets replica if node flavor is empty, or sets GPU resource annotation if available.
 func (m *WorkspaceMutator) mutateByNodeFlavor(ctx context.Context, workspace *v1.Workspace) error {
 	if workspace.Spec.NodeFlavor == "" {
 		workspace.Spec.Replica = 0
@@ -240,7 +250,7 @@ func (m *WorkspaceMutator) mutateByNodeFlavor(ctx context.Context, workspace *v1
 	return nil
 }
 
-// A scale-down operation is performed by deleting specific nodes via nodeAction.
+// mutateScaleDown selects nodes for removal when workspace replica is decreased.
 func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	oldCount := oldWorkspace.Spec.Replica
 	newCount := newWorkspace.Spec.Replica
@@ -268,8 +278,7 @@ func (m *WorkspaceMutator) mutateScaleDown(ctx context.Context, oldWorkspace, ne
 	return nil
 }
 
-// When preemption is enabled or disabled for a workspace,
-// simultaneously update the workloads within it to enable or disable preemption accordingly.
+// mutatePreempt propagates workspace preemption settings to all non-terminated workloads.
 func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Workspace) error {
 	filterFunc := func(w *v1.Workload) bool {
 		if w.IsEnd() {
@@ -302,8 +311,7 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 	return nil
 }
 
-// When the workspace is set to be accessible by everyone,
-// synchronize and update the user access list accordingly.
+// mutateDefaultWorkspaceUsers adds workspace access to all users when marked as default.
 func (m *WorkspaceMutator) mutateDefaultWorkspaceUsers(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	if !newWorkspace.Spec.IsDefault {
 		return nil
@@ -325,7 +333,7 @@ func (m *WorkspaceMutator) mutateDefaultWorkspaceUsers(ctx context.Context, oldW
 	return nil
 }
 
-// If the managers on the workspace are modified, update the user attribute of the corresponding manager
+// mutateManagers synchronizes manager changes by updating user attributes when workspace managers are added or removed.
 func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	var currentManagers []string
 	if oldWorkspace != nil {
@@ -373,17 +381,18 @@ func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, new
 	return nil
 }
 
-// When a workspace is created, synchronize the cluster's image secret and
-// simultaneously synchronize the image secrets applied to all workspaces.
+// mutateImageSecret adds all-workspace image secrets to the workspace.
 func (m *WorkspaceMutator) mutateImageSecret(ctx context.Context, workspace *v1.Workspace) error {
-	var labelSelector = labels.NewSelector()
+	labelSelector := labels.NewSelector()
 	req1, _ := labels.NewRequirement(v1.SecretTypeLabel, selection.Equals, []string{string(v1.SecretImage)})
 	labelSelector = labelSelector.Add(*req1)
 	req2, _ := labels.NewRequirement(v1.SecretAllWorkspaceLabel, selection.Equals, []string{v1.TrueStr})
 	labelSelector = labelSelector.Add(*req2)
 	secretList := &corev1.SecretList{}
-	if err := m.List(ctx, secretList, &client.ListOptions{LabelSelector: labelSelector,
-		Namespace: common.PrimusSafeNamespace}); err != nil {
+	if err := m.List(ctx, secretList, &client.ListOptions{
+		LabelSelector: labelSelector,
+		Namespace:     common.PrimusSafeNamespace,
+	}); err != nil {
 		return err
 	}
 	for _, secret := range secretList.Items {
@@ -396,11 +405,13 @@ func (m *WorkspaceMutator) mutateImageSecret(ctx context.Context, workspace *v1.
 	return nil
 }
 
+// WorkspaceValidator validates Workspace resources on create and update operations.
 type WorkspaceValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle validates workspace resources on create, update, and delete operations.
 func (v *WorkspaceValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	workspace := &v1.Workspace{}
 	var err error
@@ -429,6 +440,7 @@ func (v *WorkspaceValidator) Handle(ctx context.Context, req admission.Request) 
 	return admission.Allowed("")
 }
 
+// validateOnCreation validates workspace required params, volumes and related resources on creation.
 func (v *WorkspaceValidator) validateOnCreation(ctx context.Context, workspace *v1.Workspace) error {
 	if err := v.validateCommon(ctx, workspace, nil); err != nil {
 		return err
@@ -436,6 +448,7 @@ func (v *WorkspaceValidator) validateOnCreation(ctx context.Context, workspace *
 	return nil
 }
 
+// validateOnUpdate validates immutable fields, common params, node actions and volume changes on update.
 func (v *WorkspaceValidator) validateOnUpdate(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
 	if err := v.validateImmutableFields(newWorkspace, oldWorkspace); err != nil {
 		return err
@@ -452,6 +465,7 @@ func (v *WorkspaceValidator) validateOnUpdate(ctx context.Context, newWorkspace,
 	return nil
 }
 
+// validateCommon validates required params, volumes, display name and related resources.
 func (v *WorkspaceValidator) validateCommon(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
 	if err := v.validateRequiredParams(newWorkspace); err != nil {
 		return err
@@ -470,7 +484,7 @@ func (v *WorkspaceValidator) validateCommon(ctx context.Context, newWorkspace, o
 	return nil
 }
 
-// Check whether the required fields of the workspace are empty.
+// validateRequiredParams ensures cluster, queue policy, workspace name and display name are valid.
 func (v *WorkspaceValidator) validateRequiredParams(workspace *v1.Workspace) error {
 	var errs []error
 	if workspace.Spec.Cluster == "" || v1.GetClusterId(workspace) == "" {
@@ -494,7 +508,7 @@ func (v *WorkspaceValidator) validateRequiredParams(workspace *v1.Workspace) err
 	return nil
 }
 
-// Check whether the node flavor and cluster associated with the workspace exist.
+// validateRelatedResource ensures the node flavor and cluster referenced by the workspace exist.
 func (v *WorkspaceValidator) validateRelatedResource(ctx context.Context, workspace *v1.Workspace) error {
 	if workspace.Spec.Replica <= 0 || workspace.Spec.NodeFlavor == "" {
 		return nil
@@ -510,7 +524,7 @@ func (v *WorkspaceValidator) validateRelatedResource(ctx context.Context, worksp
 	return nil
 }
 
-// Check whether the volume fields on the workspace are valid.
+// validateVolumes validates volume types, capacity, access modes and ensures immutable fields are not changed.
 func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Workspace) error {
 	oldVolumeMap := make(map[string]v1.WorkspaceVolume)
 	if oldWorkspace != nil {
@@ -519,8 +533,10 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 		}
 	}
 	supportedTypes := []v1.WorkspaceVolumeType{v1.HOSTPATH, v1.PFS}
-	supportedAccessMode := []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce,
-		corev1.ReadWriteMany, corev1.ReadOnlyMany, corev1.ReadWriteOncePod}
+	supportedAccessMode := []corev1.PersistentVolumeAccessMode{
+		corev1.ReadWriteOnce,
+		corev1.ReadWriteMany, corev1.ReadOnlyMany, corev1.ReadWriteOncePod,
+	}
 
 	for _, vol := range newWorkspace.Spec.Volumes {
 		if vol.MountPath == "" {
@@ -568,7 +584,7 @@ func (v *WorkspaceValidator) validateVolumes(newWorkspace, oldWorkspace *v1.Work
 	return nil
 }
 
-// validateImmutableFields Check fields that cannot be modified.
+// validateImmutableFields ensures cluster and node flavor cannot be modified after creation.
 func (v *WorkspaceValidator) validateImmutableFields(newWorkspace, oldWorkspace *v1.Workspace) error {
 	if newWorkspace.Spec.Cluster != "" && newWorkspace.Spec.Cluster != oldWorkspace.Spec.Cluster {
 		return field.Forbidden(field.NewPath("spec").Key("cluster"), "immutable")
@@ -581,8 +597,8 @@ func (v *WorkspaceValidator) validateImmutableFields(newWorkspace, oldWorkspace 
 	return nil
 }
 
-// validateVolumeRemoved When a volume is removed, check whether any workload is currently using it.
-// Note: that only PVC volumes are checked here; hostPath volumes are ignored.
+// validateVolumeRemoved ensures PVC volumes in use by workloads are not removed.
+// Note: hostPath volumes are ignored in this check.
 func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
 	newVolumeSet := sets.NewSet()
 	for _, vol := range newWorkspace.Spec.Volumes {
@@ -623,9 +639,8 @@ func (v *WorkspaceValidator) validateVolumeRemoved(ctx context.Context, newWorks
 	return nil
 }
 
-// validateNodesAction when there is a nodesAction targeting nodes, check whether the operation's targets are valid,
-// for example, whether they belong to the same cluster,
-// and whether the workspace corresponding to the nodes to be bound or unbound is correct.
+// validateNodesAction validates node operations ensuring nodes belong to the same cluster.
+// It also checks if nodes being bound or unbound have the correct workspace assignment.
 func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspace, oldWorkspace *v1.Workspace) error {
 	oldActions, _ := parseNodesAction(oldWorkspace)
 	newActions, err := parseNodesAction(newWorkspace)
@@ -664,6 +679,7 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 	return nil
 }
 
+// parseNodesAction parses the workspace nodes action annotation into a map of node names to actions.
 func parseNodesAction(w *v1.Workspace) (map[string]string, error) {
 	actionsStr := v1.GetWorkspaceNodesAction(w)
 	if actionsStr == "" {
@@ -680,7 +696,7 @@ func parseNodesAction(w *v1.Workspace) (map[string]string, error) {
 	return actions, nil
 }
 
-// validateNodesRemoved check whether there are any tasks running on the node to be removed
+// validateNodesRemoved ensures no running workloads are using the nodes to be removed.
 func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace *v1.Workspace, nodeNames []string) error {
 	if len(nodeNames) == 0 {
 		return nil
@@ -713,7 +729,7 @@ func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace
 	return nil
 }
 
-// Get the workspace; if it is the default workspace (typically used internally by preflight), return empty.
+// getWorkspace retrieves a workspace by ID, returning nil for default or empty workspace IDs.
 func getWorkspace(ctx context.Context, cli client.Client, workspaceId string) (*v1.Workspace, error) {
 	if workspaceId == corev1.NamespaceDefault || workspaceId == "" {
 		return nil, nil

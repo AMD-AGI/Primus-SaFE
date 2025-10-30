@@ -18,10 +18,12 @@ import (
 type Topic struct {
 }
 
+// Name returns the name of the client factory.
 func (t *Topic) Name() string {
 	return model.TopicWorkload
 }
 
+// Filter determines if the notification should be sent based on the data.
 func (t *Topic) Filter(data map[string]interface{}) bool {
 	if condition, ok := data["condition"].(string); ok {
 		if !commonutils.StringsIn(condition, []string{
@@ -36,6 +38,7 @@ func (t *Topic) Filter(data map[string]interface{}) bool {
 	return false
 }
 
+// BuildMessage constructs a notification message from the provided data.
 func (t *Topic) BuildMessage(ctx context.Context, data map[string]interface{}) ([]*model.Message, error) {
 	topicData := &TopicData{}
 	err := commonutils.TransMapToStruct(data, topicData)

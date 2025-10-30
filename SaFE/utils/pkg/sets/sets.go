@@ -7,19 +7,19 @@ package sets
 
 type Set map[string]struct{}
 
-// NewSet creates and returns a new empty Set
+// NewSet creates and returns a new empty Set.
 func NewSet() Set {
 	return make(Set)
 }
 
-// NewSetByKeys creates a new Set and inserts the provided keys into it
+// NewSetByKeys creates a new Set and inserts the provided keys into it.
 func NewSetByKeys(keys ...string) Set {
 	set := NewSet()
 	set.Insert(keys...)
 	return set
 }
 
-// Insert adds one or more keys to the set and returns the set
+// Insert adds one or more keys to the set and returns the set.
 func (s Set) Insert(keys ...string) Set {
 	for _, key := range keys {
 		s[key] = struct{}{}
@@ -27,7 +27,7 @@ func (s Set) Insert(keys ...string) Set {
 	return s
 }
 
-// Delete removes one or more keys from the set and returns the set
+// Delete removes one or more keys from the set and returns the set.
 func (s Set) Delete(keys ...string) Set {
 	for _, key := range keys {
 		delete(s, key)
@@ -35,7 +35,7 @@ func (s Set) Delete(keys ...string) Set {
 	return s
 }
 
-// Has checks if a key exists in the set, returns false if set is nil
+// Has checks if a key exists in the set, returns false if set is nil.
 func (s Set) Has(key string) bool {
 	if s == nil {
 		return false
@@ -44,18 +44,18 @@ func (s Set) Has(key string) bool {
 	return ok
 }
 
-// Len returns the number of elements in the set
+// Len returns the number of elements in the set.
 func (s Set) Len() int {
 	return len(s)
 }
 
-// Clear removes all elements from the set and returns the cleared set
+// Clear removes all elements from the set and returns the cleared set.
 func (s Set) Clear() Set {
 	keysToDelete := s.UnsortedList()
 	return s.Delete(keysToDelete...)
 }
 
-// Clone creates and returns a copy of the set
+// Clone creates and returns a copy of the set.
 func (s Set) Clone() Set {
 	result := make(Set, len(s))
 	for key := range s {
@@ -69,7 +69,7 @@ func (s Set) Clone() Set {
 // s1 = {a1, a2, a3}
 // s2 = {a1, a2, a4, a5}
 // s1.Difference(s2) = {a3}
-// s2.Difference(s1) = {a4, a5}
+// s2.Difference(s1) = {a4, a5}.
 func (s Set) Difference(s2 Set) Set {
 	result := NewSet()
 	for key := range s {
@@ -85,7 +85,7 @@ func (s Set) Difference(s2 Set) Set {
 // s1 = {a1, a2}
 // s2 = {a3, a4}
 // s1.Union(s2) = {a1, a2, a3, a4}
-// s2.Union(s1) = {a1, a2, a3, a4}
+// s2.Union(s1) = {a1, a2, a3, a4}.
 func (s Set) Union(s2 Set) Set {
 	result := s.Clone()
 	for key := range s2 {
@@ -98,7 +98,7 @@ func (s Set) Union(s2 Set) Set {
 // For example:
 // s1 = {a1, a2}
 // s2 = {a2, a3}
-// s1.Intersection(s2) = {a2}
+// s1.Intersection(s2) = {a2}.
 func (s Set) Intersection(s2 Set) Set {
 	var walk, other Set
 	result := NewSet()
@@ -117,7 +117,7 @@ func (s Set) Intersection(s2 Set) Set {
 	return result
 }
 
-// Equal checks if two sets have the same elements
+// Equal checks if two sets have the same elements.
 func (s Set) Equal(s2 Set) bool {
 	if len(s) != len(s2) {
 		return false
@@ -130,7 +130,7 @@ func (s Set) Equal(s2 Set) bool {
 	return true
 }
 
-// UnsortedList returns all elements in the set as a slice (order not guaranteed)
+// UnsortedList returns all elements in the set as a slice (order not guaranteed).
 func (s Set) UnsortedList() []string {
 	results := make([]string, 0, s.Len())
 	for k := range s {

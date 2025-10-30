@@ -110,6 +110,7 @@ type UserEntity struct {
 
 type UserSlice []v1.User
 
+// Less implements sort.Interface for sorting.
 func (users UserSlice) Less(i, j int) bool {
 	if users[i].CreationTimestamp.Time.Equal(users[j].CreationTimestamp.Time) {
 		return strings.Compare(users[i].Name, users[j].Name) < 0
@@ -117,10 +118,12 @@ func (users UserSlice) Less(i, j int) bool {
 	return users[i].CreationTimestamp.Time.Before(users[j].CreationTimestamp.Time)
 }
 
+// Len implements sort.Interface by returning the length of the slice.
 func (users UserSlice) Len() int {
 	return len(users)
 }
 
+// Swap implements sort.Interface by swapping elements at the given indices.
 func (users UserSlice) Swap(i, j int) {
 	users[i], users[j] = users[j], users[i]
 }

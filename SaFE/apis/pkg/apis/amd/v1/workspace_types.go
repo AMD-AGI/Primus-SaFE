@@ -144,6 +144,7 @@ func init() {
 	SchemeBuilder.Register(&Workspace{}, &WorkspaceList{})
 }
 
+// IsEnd returns true if the fault has ended (completed or failed).
 func (w *Workspace) IsEnd() bool {
 	if w.Status.Phase == WorkspaceRunning || w.Status.Phase == WorkspaceAbnormal {
 		return true
@@ -151,6 +152,7 @@ func (w *Workspace) IsEnd() bool {
 	return false
 }
 
+// IsAbnormal returns true if the condition is met.
 func (w *Workspace) IsAbnormal() bool {
 	if w.Status.Phase == WorkspaceAbnormal {
 		return true
@@ -158,6 +160,7 @@ func (w *Workspace) IsAbnormal() bool {
 	return false
 }
 
+// IsPending returns true if the operations job is pending execution.
 func (w *Workspace) IsPending() bool {
 	if w.Status.Phase == "" || w.Status.Phase == WorkspaceCreating {
 		return true
@@ -165,6 +168,7 @@ func (w *Workspace) IsPending() bool {
 	return false
 }
 
+// IsEnableFifo returns true if the condition is met.
 func (w *Workspace) IsEnableFifo() bool {
 	if w.Spec.QueuePolicy == "" || w.Spec.QueuePolicy == QueueFifoPolicy {
 		return true
@@ -172,6 +176,7 @@ func (w *Workspace) IsEnableFifo() bool {
 	return false
 }
 
+// CurrentReplica returns the current number of replicas in the workspace.
 func (w *Workspace) CurrentReplica() int {
 	return w.Status.AvailableReplica + w.Status.AbnormalReplica
 }

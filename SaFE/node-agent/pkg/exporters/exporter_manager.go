@@ -37,7 +37,7 @@ type ExporterManager struct {
 	isExited bool
 }
 
-// NewExporterManager creates a new ExporterManager instance and registers default exporters
+// NewExporterManager creates a new ExporterManager instance and registers default exporters.
 func NewExporterManager(queue *types.MonitorQueue, node *node.Node) *ExporterManager {
 	m := &ExporterManager{
 		queue: queue,
@@ -47,12 +47,12 @@ func NewExporterManager(queue *types.MonitorQueue, node *node.Node) *ExporterMan
 	return m
 }
 
-// Register adds a new exporter to the manager
+// Register adds a new exporter to the manager.
 func (m *ExporterManager) Register(e Exporter) {
 	m.exporters = append(m.exporters, e)
 }
 
-// Start begins the message dispatching process in a separate goroutine
+// Start begins the message dispatching process in a separate goroutine.
 func (m *ExporterManager) Start() {
 	go func() {
 		m.isExited = false
@@ -72,7 +72,7 @@ func (m *ExporterManager) Start() {
 	}()
 }
 
-// Stop terminates the exporter manager and all registered exporters
+// Stop terminates the exporter manager and all registered exporters.
 func (m *ExporterManager) Stop() {
 	if m.isExited {
 		return
@@ -81,12 +81,12 @@ func (m *ExporterManager) Stop() {
 	m.isExited = true
 }
 
-// IsExited returns whether the exporter manager has been stopped
+// IsExited returns whether the exporter manager has been stopped.
 func (m *ExporterManager) IsExited() bool {
 	return m.isExited
 }
 
-// Dispatch retrieves a message from the queue and sends it to all registered exporters
+// Dispatch retrieves a message from the queue and sends it to all registered exporters.
 func (m *ExporterManager) Dispatch() bool {
 	message, shutdown := (*m.queue).Get()
 	if shutdown {

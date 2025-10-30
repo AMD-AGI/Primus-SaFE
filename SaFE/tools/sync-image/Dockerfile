@@ -2,7 +2,7 @@ FROM golang:1.23.4-alpine AS builder
 
 WORKDIR /app
 
-COPY tools/sync-image .
+COPY SaFE/tools/sync-image .
 
 RUN go mod tidy
 
@@ -24,6 +24,6 @@ RUN apk add --no-cache \
 
 COPY --from=builder /app/app .
 
-COPY tools/sync-image/config.yaml /app/config.yaml
+COPY SaFE/tools/sync-image/config.yaml /app/config.yaml
 
 CMD ["./app"]

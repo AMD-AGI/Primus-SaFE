@@ -9,6 +9,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// InitInformer initializes Kubernetes informers for resource monitoring.
 func InitInformer(ctx context.Context, cfg *rest.Config, controllerRuntimeClient client.Client) error {
 	versionedClient, err := versioned.NewForConfig(cfg)
 	if err != nil {

@@ -22,6 +22,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
+// AddFaultWebhook registers the fault validation and mutation webhooks.
 func AddFaultWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.FaultKind), &webhook.Admission{Handler: &FaultMutator{
 		Client:  mgr.GetClient(),
@@ -33,11 +34,13 @@ func AddFaultWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder ad
 	}})
 }
 
+// FaultMutator handles mutation logic for Fault resources.
 type FaultMutator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle processes fault creation requests and applies default values and normalizations.
 func (m *FaultMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	if req.Operation != admissionv1.Create {
 		return admission.Allowed("")
@@ -55,6 +58,7 @@ func (m *FaultMutator) Handle(ctx context.Context, req admission.Request) admiss
 	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
+// mutateOnCreation applies default values and normalizations during creation.
 func (m *FaultMutator) mutateOnCreation(ctx context.Context, fault *v1.Fault) {
 	fault.Name = stringutil.NormalizeName(fault.Name)
 	v1.SetLabel(fault, v1.ClusterIdLabel, fault.Spec.Node.ClusterName)
@@ -76,11 +80,12 @@ func (m *FaultMutator) mutateOnCreation(ctx context.Context, fault *v1.Fault) {
 	}
 }
 
+// FaultValidator validates Fault resources on create and update operations.
 type FaultValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
-
+// Handle validates fault resources on create, update, and delete operations.
 func (v *FaultValidator) Handle(_ context.Context, req admission.Request) admission.Response {
 	fault := &v1.Fault{}
 	var err error
@@ -109,6 +114,7 @@ func (v *FaultValidator) Handle(_ context.Context, req admission.Request) admiss
 	return admission.Allowed("")
 }
 
+// validateOnCreation validates fault spec and display name on creation.
 func (v *FaultValidator) validateOnCreation(fault *v1.Fault) error {
 	if err := v.validateFaultSpec(fault); err != nil {
 		return err
@@ -119,6 +125,7 @@ func (v *FaultValidator) validateOnCreation(fault *v1.Fault) error {
 	return nil
 }
 
+// validateOnUpdate validates fault spec on update.
 func (v *FaultValidator) validateOnUpdate(newFault, _ *v1.Fault) error {
 	if err := v.validateFaultSpec(newFault); err != nil {
 		return err
@@ -126,6 +133,7 @@ func (v *FaultValidator) validateOnUpdate(newFault, _ *v1.Fault) error {
 	return nil
 }
 
+// validateFaultSpec validates monitor ID and node configuration in fault spec.
 func (v *FaultValidator) validateFaultSpec(fault *v1.Fault) error {
 	if fault.Spec.MonitorId == "" {
 		return fmt.Errorf("the id of spec is empty")

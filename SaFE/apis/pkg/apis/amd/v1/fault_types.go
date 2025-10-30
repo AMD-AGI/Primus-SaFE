@@ -76,6 +76,7 @@ func init() {
 	SchemeBuilder.Register(&Fault{}, &FaultList{})
 }
 
+// IsEnd returns true if the fault has ended (completed or failed).
 func (f *Fault) IsEnd() bool {
 	if f != nil && f.Status.Phase != "" {
 		return true

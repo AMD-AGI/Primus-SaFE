@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// NewWorkloadInformer creates a new workload informer instance.
 func NewWorkloadInformer(c client.Client) *WorkloadInformer {
 	return &WorkloadInformer{
 		Client: c,
@@ -23,6 +24,7 @@ type WorkloadInformer struct {
 	client.Client
 }
 
+// OnAdd is called when a workload is added.
 func (w *WorkloadInformer) OnAdd(obj interface{}, isInInitialList bool) {
 	workload, ok := obj.(*v1.Workload)
 	if !ok {
@@ -61,6 +63,7 @@ func (w *WorkloadInformer) OnAdd(obj interface{}, isInInitialList bool) {
 	}
 }
 
+// OnUpdate is called when a workload is updated.
 func (w *WorkloadInformer) OnUpdate(oldObj, newObj interface{}) {
 	workload, ok := newObj.(*v1.Workload)
 	if !ok {
@@ -105,10 +108,12 @@ func (w *WorkloadInformer) OnUpdate(oldObj, newObj interface{}) {
 	}
 }
 
+// OnDelete is called when a workload is deleted.
 func (w *WorkloadInformer) OnDelete(obj interface{}) {
 	return
 }
 
+// Register registers the informer with the factory.
 func (w *WorkloadInformer) Register(factory externalversions.SharedInformerFactory) error {
 	_, err := factory.Amd().V1().Workloads().Informer().AddEventHandler(w)
 	if err != nil {

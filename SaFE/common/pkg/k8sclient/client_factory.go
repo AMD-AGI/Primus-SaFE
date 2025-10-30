@@ -52,23 +52,10 @@ type ClientFactory struct {
 	invalidReason string
 }
 
-// NewClientFactoryWithOnlyClient create new client factory instance
-// Parameters:
-//
-//	ctx: Context
-//	name: Factory name, typically refers to cluster name
-//	endpoint: Kubernetes API server endpoint
-//	certData: Base64 encoded client certificate data
-//	keyData: Base64 encoded client key data
-//	caData: Base64 encoded CA certificate data
-//	informerType: Informer type enum definition. 0: disable informer; 1: sharedInformer; 2 dynamicSharedInformer
-//
-// Returns:
-//
-//	*ClientFactory: Client factory instance
-//	error: Error information
+// NewClientFactory creates a new client factory.
 func NewClientFactory(ctx context.Context, name, endpoint, certData,
-	keyData, caData string, informerType InformerType) (*ClientFactory, error) {
+	keyData, caData string, informerType InformerType,
+) (*ClientFactory, error) {
 	clientSet, restCfg, err := NewClientSet(endpoint, certData, keyData, caData, true)
 	if err != nil {
 		return nil, err
@@ -109,7 +96,7 @@ func NewClientFactory(ctx context.Context, name, endpoint, certData,
 	return factory, nil
 }
 
-// NewClientFactoryWithOnlyClient create factory instance with client only (without Informer)
+// NewClientFactoryWithOnlyClient create factory instance with client only (without Informer).
 func NewClientFactoryWithOnlyClient(ctx context.Context, name string, clientSet kubernetes.Interface) *ClientFactory {
 	return &ClientFactory{
 		ctx:       ctx,
@@ -119,14 +106,12 @@ func NewClientFactoryWithOnlyClient(ctx context.Context, name string, clientSet 
 	}
 }
 
-// Name get factory name
-// Returns: Factory name string
+// Name get factory name.
 func (f *ClientFactory) Name() string {
 	return f.name
 }
 
-// Release release factory resources, stop Informer (if enabled)
-// Returns: Error information
+// Release factory resources, stop Informer (if enabled).
 func (f *ClientFactory) Release() error {
 	if f.informerType == EnableInformer || f.informerType == EnableDynamicInformer {
 		f.StopInformer()
@@ -134,45 +119,38 @@ func (f *ClientFactory) Release() error {
 	return nil
 }
 
-// IsValid check if factory is valid
-// Returns: true if valid, false if invalid
+// IsValid returns true if the condition is met.
 func (f *ClientFactory) IsValid() bool {
 	return f.valid
 }
 
-// SetValid set factory validity status and reason
-// Parameters:
-//
-//	valid: Validity status
-//	msg: Invalid reason information
+// SetValid set factory validity status and reason.
 func (f *ClientFactory) SetValid(valid bool, msg string) {
 	f.valid = valid
 	f.invalidReason = msg
 }
 
-// ClientSet get Kubernetes client interface
-// Returns: kubernetes.Interface client interface
+// ClientSet get Kubernetes client interface.
 func (f *ClientFactory) ClientSet() kubernetes.Interface {
 	return f.clientSet
 }
 
-// RestConfig get REST config
+// RestConfig get REST config.
 func (f *ClientFactory) RestConfig() *rest.Config {
 	return f.restConfig
 }
 
-// DynamicClient get dynamic client
+// DynamicClient get dynamic client.
 func (f *ClientFactory) DynamicClient() *dynamic.DynamicClient {
 	return f.dynamicClient
 }
 
-// Mapper get REST mapper (for dynamic Informer)
+// Mapper get REST mapper (for dynamic Informer).
 func (f *ClientFactory) Mapper() meta.RESTMapper {
 	return f.mapper
 }
 
-// SharedInformerFactory get shared Informer factory (only available when standard Informer is enabled)
-// Returns: informers.SharedInformerFactory
+// SharedInformerFactory get shared Informer factory (only available when standard Informer is enabled).
 func (f *ClientFactory) SharedInformerFactory() informers.SharedInformerFactory {
 	if f.informerType != EnableInformer {
 		return nil
@@ -180,8 +158,7 @@ func (f *ClientFactory) SharedInformerFactory() informers.SharedInformerFactory 
 	return f.sharedInformerFactory
 }
 
-// DynamicSharedInformerFactory get dynamic shared Informer factory (only available when dynamic Informer is enabled)
-// Returns: dynamicinformer.DynamicSharedInformerFactory
+// DynamicSharedInformerFactory get dynamic shared Informer factory (only available when dynamic Informer is enabled).
 func (f *ClientFactory) DynamicSharedInformerFactory() dynamicinformer.DynamicSharedInformerFactory {
 	if f.informerType != EnableDynamicInformer {
 		return nil
@@ -189,12 +166,12 @@ func (f *ClientFactory) DynamicSharedInformerFactory() dynamicinformer.DynamicSh
 	return f.dynamicSharedInformerFactory
 }
 
-// GetInvalidReason get reason for factory invalidity
+// GetInvalidReason get reason for factory invalidity.
 func (f *ClientFactory) GetInvalidReason() string {
 	return f.invalidReason
 }
 
-// Start Informer factory (start corresponding Informer based on type)
+// StartInformer Start Informer factory (start corresponding Informer based on type).
 func (f *ClientFactory) StartInformer() {
 	switch f.informerType {
 	case EnableInformer:
@@ -204,7 +181,7 @@ func (f *ClientFactory) StartInformer() {
 	}
 }
 
-// WaitForCacheSync wait for Informer cache sync to complete
+// WaitForCacheSync wait for Informer cache sync to complete.
 func (f *ClientFactory) WaitForCacheSync() {
 	switch f.informerType {
 	case EnableInformer:
@@ -214,7 +191,7 @@ func (f *ClientFactory) WaitForCacheSync() {
 	}
 }
 
-// StopInformer stop Informer factory, close stopCh channel
+// StopInformer stop Informer factory, close stopCh channel.
 func (f *ClientFactory) StopInformer() {
 	if f.stopCh != nil && !channel.IsChannelClosed(f.stopCh) {
 		close(f.stopCh)

@@ -29,14 +29,14 @@ type ObjectManager struct {
 	mu      sync.RWMutex
 }
 
+// NewObjectManager creates a new ObjectManager instance.
 func NewObjectManager() *ObjectManager {
 	return &ObjectManager{
 		objects: make(map[string]Object),
 	}
 }
 
-// NewObjectManagerSingleton creates and returns a new ObjectManager.
-// It is a singleton, with only one instance running per service
+// NewObjectManagerSingleton creates and returns a singleton instance of ObjectManagerSingleton.
 func NewObjectManagerSingleton() *ObjectManager {
 	once.Do(func() {
 		objectManager = &ObjectManager{
@@ -86,7 +86,7 @@ func (om *ObjectManager) Delete(id string) error {
 	return nil
 }
 
-// Clear clear all objects of the manager
+// Clear all objects of the manager.
 func (om *ObjectManager) Clear() {
 	om.mu.Lock()
 	defer om.mu.Unlock()
@@ -114,7 +114,7 @@ func (om *ObjectManager) Has(id string) bool {
 	return exists
 }
 
-// GetAll retrieves all Objects and keys
+// GetAll retrieves all Objects and keys.
 func (om *ObjectManager) GetAll() ([]string, []Object) {
 	om.mu.RLock()
 	defer om.mu.RUnlock()
@@ -127,7 +127,7 @@ func (om *ObjectManager) GetAll() ([]string, []Object) {
 	return keys, objs
 }
 
-// Len returns the number of objects currently managed by the ObjectManager
+// Len returns the number of objects currently managed by the ObjectManager.
 func (om *ObjectManager) Len() int {
 	om.mu.RLock()
 	defer om.mu.RUnlock()

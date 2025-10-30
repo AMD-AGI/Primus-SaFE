@@ -627,8 +627,7 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 	return node, nil
 }
 
-// validateCreateNodeRequest validates the parameters in a node creation request.
-// Ensures required fields like flavorId, privateIP, and SSHSecretId are provided.
+// validateCreateNodeRequest validates CreateNodeRequest and returns an error if validation fails.
 func validateCreateNodeRequest(req *types.CreateNodeRequest) error {
 	if req.FlavorId == "" {
 		return commonerrors.NewBadRequest("the flavorId of request is empty")

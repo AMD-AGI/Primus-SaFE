@@ -26,6 +26,7 @@ var (
 	insertSshSessionRecordFormat = `INSERT INTO ` + TPSshSessionRecord + ` (%s) VALUES (%s) RETURNING id;`
 )
 
+// InsertSshSessionRecord performs the InsertSshSessionRecord operation.
 func (c *Client) InsertSshSessionRecord(ctx context.Context, record *SshSessionRecords) (int64, error) {
 	var insertId int64
 	if record == nil {
@@ -50,6 +51,7 @@ func (c *Client) InsertSshSessionRecord(ctx context.Context, record *SshSessionR
 	return insertId, err
 }
 
+// SetSshDisconnect sets the SshDisconnect value.
 func (c *Client) SetSshDisconnect(ctx context.Context, id int64, disconnectReason string) error {
 	db, err := c.getDB()
 	if err != nil {

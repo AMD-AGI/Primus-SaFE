@@ -12,6 +12,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// GetDirWatcher creates a file system watcher for the specified directory.
 func GetDirWatcher(directoryPath string) (*fsnotify.Watcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -28,6 +29,7 @@ func GetDirWatcher(directoryPath string) (*fsnotify.Watcher, error) {
 	return watcher, nil
 }
 
+// WriteFile writes content to a file with specified permissions.
 func WriteFile(filename, content string, perm os.FileMode) error {
 	f, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
@@ -47,6 +49,7 @@ func WriteFile(filename, content string, perm os.FileMode) error {
 	return nil
 }
 
+// IsFileExist checks if a file exists.
 func IsFileExist(filename string) bool {
 	info, err := os.Stat(filename)
 	if os.IsNotExist(err) {

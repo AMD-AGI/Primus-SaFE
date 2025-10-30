@@ -43,18 +43,22 @@ type MonitorConfig struct {
 	Arguments []string `json:"arguments,omitempty"`
 }
 
+// IsEnable returns whether the monitor is enabled.
 func (conf *MonitorConfig) IsEnable() bool {
 	return conf.Toggle == "on"
 }
 
+// Disabled marks the monitor as disabled.
 func (conf *MonitorConfig) Disabled() {
 	conf.Toggle = "off"
 }
 
+// Enabled marks the monitor as enabled.
 func (conf *MonitorConfig) Enabled() {
 	conf.Toggle = "on"
 }
 
+// SetDefaults sets default values for the monitor configuration.
 func (conf *MonitorConfig) SetDefaults() {
 	if conf.Cronjob == "" {
 		conf.Cronjob = "@every 30s"
@@ -67,6 +71,7 @@ func (conf *MonitorConfig) SetDefaults() {
 	}
 }
 
+// Validate checks if the search client configuration is valid.
 func (conf *MonitorConfig) Validate() error {
 	if !MonitorIdRegexp.MatchString(conf.Id) {
 		return fmt.Errorf(MonitorIdPrompt)
