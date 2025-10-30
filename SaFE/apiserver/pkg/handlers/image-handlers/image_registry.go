@@ -140,7 +140,7 @@ func (h *ImageHandler) upsertImageRegistryInfo(ctx context.Context, req *CreateR
 	if err != nil {
 		return nil, err
 	}
-	return existInfo, nil
+	return newInfo, nil
 }
 
 func (h *ImageHandler) cvtCreateRegistryRequestToRegistryInfo(req *CreateRegistryRequest) (*model.RegistryInfo, error) {

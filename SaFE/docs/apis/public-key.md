@@ -1,12 +1,22 @@
 # PublicKey API
 
-Public key management API for managing users' SSH public keys for passwordless login.
+## Overview
+The PublicKey API provides management capabilities for users' SSH public keys, enabling secure passwordless authentication to workload containers. The API allows users to register, manage, and control multiple SSH public keys, which are used for establishing secure shell connections to running Pods. Public keys follow the OpenSSH standard and can be enabled or disabled individually, providing flexible access control without requiring password-based authentication.
+
+### Core Concepts
+
+A public key is an SSH credential used for passwordless authentication, with the following key characteristics:
+
+* Passwordless Authentication: Enables secure SSH access to workload Pods without requiring password input.
+* Multi-Key Support: Users can register and manage multiple public keys for different devices or purposes.
+* Key Status Control: Individual keys can be enabled or disabled, providing granular access control.
+* OpenSSH Compatibility: Supports standard OpenSSH public key formats (RSA, ECDSA, Ed25519) for broad compatibility.
 
 ## API List
 
 ### 1. Create Public Key
 
-**Endpoint**: `POST /api/custom/publickeys`
+**Endpoint**: `POST /api/v1/publickeys`
 
 **Authentication Required**: Yes
 
@@ -25,9 +35,15 @@ Public key management API for managing users' SSH public keys for passwordless l
 
 ### 2. List Public Keys
 
-**Endpoint**: `GET /api/custom/publickeys`
+**Endpoint**: `GET /api/v1/publickeys`
 
 **Authentication Required**: Yes
+
+**Query Parameters**:
+- `offset`: Pagination offset, default 0
+- `limit`: Records per page, default 10
+- `sortBy`: Sort field (e.g., createTime, updateTime)
+- `order`: Sort order, asc/desc
 
 **Response Example**:
 ```json
@@ -51,7 +67,7 @@ Public key management API for managing users' SSH public keys for passwordless l
 
 ### 3. Delete Public Key
 
-**Endpoint**: `DELETE /api/custom/publickeys/:id`
+**Endpoint**: `DELETE /api/v1/publickeys/:id`
 
 **Authentication Required**: Yes
 
@@ -61,7 +77,7 @@ Public key management API for managing users' SSH public keys for passwordless l
 
 ### 4. Update Public Key Status
 
-**Endpoint**: `PATCH /api/custom/publickeys/:id/status`
+**Endpoint**: `PATCH /api/v1/publickeys/:id/status`
 
 **Authentication Required**: Yes
 
@@ -77,7 +93,7 @@ Public key management API for managing users' SSH public keys for passwordless l
 
 ### 5. Update Public Key Description
 
-**Endpoint**: `PATCH /api/custom/publickeys/:id/description`
+**Endpoint**: `PATCH /api/v1/publickeys/:id/description`
 
 **Authentication Required**: Yes
 

@@ -241,13 +241,11 @@ func decodeJsonb(data map[string]interface{}, to interface{}) error {
 		return err
 	}
 	return json.Unmarshal(jsonBytes, to)
-
 }
 
 func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 	var err error
-	var resp = &ImportImageResponse{}
-
+	resp := &ImportImageResponse{}
 	body := &ImportImageServiceRequest{}
 	if err = c.ShouldBindJSON(&body); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
@@ -277,15 +275,14 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	var importImageEnv = &ImportImageEnv{
+	importImageEnv := &ImportImageEnv{
 		SourceImageName: imageInfo.SourceImageName,
 		DestImageName:   imageInfo.DestImageName,
 		OsArch:          imageInfo.OsArch,
 		Description:     fmt.Sprintf("Import from %s", imageInfo.SourceImageName),
 	}
 
-	var relationDigest = map[string]interface{}{}
-
+	relationDigest := map[string]interface{}{}
 	defaultDigestItem := &RelationDigest{
 		Digest: "",
 		Size:   imageInfo.Size,
@@ -335,7 +332,8 @@ func newImportImageJob(
 	imagePullSecrets []string,
 	uid string,
 	env *ImportImageEnv,
-	userName string) (*batchv1.Job, error) {
+	userName string,
+) (*batchv1.Job, error) {
 	namespace := DefaultNamespace
 	envs := defaultSyncImageEnv()
 	if len(env.OsArch) > 0 && env.OsArch != OsArchAll {
@@ -443,7 +441,7 @@ func generateImportImageJobName(uid string) string {
 }
 
 func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageServiceRequest) (*ImportImageMetaInfo, error) {
-	var imageInfo = &ImportImageMetaInfo{
+	imageInfo := &ImportImageMetaInfo{
 		SourceImageName: req.Source,
 		OsArch:          fmt.Sprintf(OSArchFormat, DefaultOS, DefaultArch),
 		Os:              DefaultOS,
@@ -497,7 +495,7 @@ func (h *ImageHandler) existImageVlid(c context.Context, destImageName string) (
 func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageName string, imageInfo *ImportImageMetaInfo) bool {
 	list := strings.Split(imageInfo.OsArch, "/")
 	hostName := strings.Split(imageName, "/")[0]
-	var os, arch = list[0], list[1]
+	os, arch := list[0], list[1]
 
 	sysCtx, err := h.getImageSystemCtx(ctx, hostName, imageName)
 	if err != nil {
@@ -608,7 +606,7 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 }
 
 func (h *ImageHandler) getImageSystemCtx(ctx context.Context, hostName string, imageName string) (*v5types.SystemContext, error) {
-	var sysCtx = &v5types.SystemContext{DockerInsecureSkipTLSVerify: v5types.OptionalBoolTrue}
+	sysCtx := &v5types.SystemContext{DockerInsecureSkipTLSVerify: v5types.OptionalBoolTrue}
 	if strings.HasSuffix(hostName, "docker.io") {
 
 		// library/alpine:latest
