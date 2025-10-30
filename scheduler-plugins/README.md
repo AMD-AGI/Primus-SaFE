@@ -34,7 +34,7 @@ A topology-aware scheduler plugin that optimizes pod placement based on node IP 
 1. **Clone the repository:**
    ```bash
    git clone <repository-url>
-   cd kube-scheduler-plugins
+   cd scheduler-plugins
    ```
 
 2. **Install using Helm:**

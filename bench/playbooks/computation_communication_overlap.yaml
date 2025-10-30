@@ -1,0 +1,35 @@
+- hosts: all
+  vars:
+    workspace: '{{ workspace | default(/opt/primus-bench) }}'
+  tasks:
+    - name: Collect all node IPs from inventory
+      set_fact:
+        nodes: "{{ groups['all'] | list }}"
+    - name: Run network check script
+      shell: |
+        LOG={{ output_dir }}/{{ inventory_hostname}}
+        mkdir -p $LOG
+        echo $LOG
+        NNODES={{ nodes | length }} \
+        WORLD_SIZE={{ nodes | length }} \
+        LOCAL_WORLD_SIZE={{ nodes | length }} \
+        RANK={{ nodes.index(inventory_hostname) }} \
+        LOCAL_RANK={{ nodes.index(inventory_hostname) }} \
+        NODE_RANK={{ nodes.index(inventory_hostname) }} \
+        MASTER_ADDR={{ nodes | first }} \
+        MASTER_PORT={{ master_port}} \
+        bash computation-communication-overlap.sh 2>&1 | tee $LOG/cco.log
+      args:
+        chdir: '{{ workspace }}/benchmarks/micro_benchmarks'
+        executable: /bin/bash
+- name: Fetch Results
+  hosts: "{{ groups['all'][0] }}"
+  gather_facts: no
+  vars:
+    workspace: "{{ workspace | default('/opt/primus-bench') }}"
+  tasks:
+    - name: Fetch overlap_results.json from first node
+      fetch:
+        src: "{{ workspace }}/benchmarks/micro_benchmarks/overlap_results.json"
+        dest: '{{ output_dir }}/'
+        flat: yes
