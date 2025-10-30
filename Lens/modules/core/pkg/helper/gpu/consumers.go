@@ -81,6 +81,7 @@ func GetGpuConsumerInfo(ctx context.Context, clientSets *clientsets.K8SClientSet
 	return result, nil
 }
 
+// traceTopOwner traces the top owner of the pod
 func traceTopOwner(
 	ctx context.Context,
 	k8sClient client.Client,

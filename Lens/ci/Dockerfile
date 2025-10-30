@@ -47,7 +47,7 @@ WORKDIR /root/
 RUN echo "APPNAME: $APPNAME"
 
 COPY --from=builder /app/$BASEPATH/$APPNAME .
-COPY --from=builder /app/Lens/ci/build/run.sh .
+COPY --from=builder /app/Lens/ci/run.sh .
 RUN chmod +x run.sh
 
 
