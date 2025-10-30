@@ -92,22 +92,22 @@ jobs:
       run: |
         MATRIX='{"include":['
         if [[ "${{ steps.changed-files.outputs.apiserver_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"apiserver","basepath":"apiserver",dockerfile_path:"apiserver/installer/Dockerfile"},'
+          MATRIX+='{"name":"apiserver","basepath":"SaFE/apiserver",dockerfile_path:"SaFE/apiserver/installer/Dockerfile"},'
         fi
         if [[ "${{ steps.changed-files.outputs.resource_manager_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"resource-manager","basepath":"resource-manager",dockerfile_path:"resource-manager/installer/Dockerfile"},'
+          MATRIX+='{"name":"resource-manager","basepath":"SaFE/resource-manager",dockerfile_path:"SaFE/resource-manager/installer/Dockerfile"},'
         fi
         if [[ "${{ steps.changed-files.outputs.job_manager_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"job-manager","basepath":"job-manager",dockerfile_path:"job-manager/installer/Dockerfile"},'
+          MATRIX+='{"name":"job-manager","basepath":"SaFE/job-manager",dockerfile_path:"SaFE/job-manager/installer/Dockerfile"},'
         fi
         if [[ "${{ steps.changed-files.outputs.webhooks_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"webhooks","basepath":"webhooks",dockerfile_path:"webhooks/installer/Dockerfile"},'
+          MATRIX+='{"name":"webhooks","basepath":"SaFE/webhooks",dockerfile_path:"SaFE/webhooks/installer/Dockerfile"},'
         fi
         if [[ "${{ steps.changed-files.outputs.node_agent_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"node-agent","basepath":"node-agent",dockerfile_path:"node-agent/installer/Dockerfile"},'
+          MATRIX+='{"name":"node-agent","basepath":"SaFE/node-agent",dockerfile_path:"SaFE/node-agent/installer/Dockerfile"},'
         fi
         if [[ "${{ steps.changed-files.outputs.sync_image_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"sync-image","basepath":"tools/sync-image",dockerfile_path:"tools/sync-image/Dockerfile"},'
+          MATRIX+='{"name":"sync-image","basepath":"SaFE/tools/sync-image",dockerfile_path:"SaFE/tools/sync-image/Dockerfile"},'
         fi
         MATRIX=${MATRIX%,} # remove trailing comma
         MATRIX+=']}'

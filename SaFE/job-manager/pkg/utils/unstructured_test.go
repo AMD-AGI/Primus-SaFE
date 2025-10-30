@@ -20,7 +20,6 @@ func addK8sJobCond(t *testing.T, pytorchJob *unstructured.Unstructured, cond map
 	object := pytorchJob.Object
 	conditions, _, err := unstructured.NestedSlice(object, "status", "conditions")
 	assert.NilError(t, err)
-
 	conditions = append(conditions, cond)
 	err = unstructured.SetNestedSlice(object, conditions, "status", "conditions")
 	assert.NilError(t, err)
