@@ -62,7 +62,7 @@ curl -X POST http://api.example.com/api/v1/login \
 ### 2. Create Workload
 
 ```bash
-curl -X POST http://api.example.com/api/custom/workloads \
+curl -X POST http://api.example.com/api/v1/workloads \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
