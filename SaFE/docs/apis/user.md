@@ -336,7 +336,7 @@ Workspace managers can:
 
 - **Format**: Custom token, encrypted internally
 - **Validity**: Specified in `expire` field in login response (Unix timestamp)
-- **Usage**: Add `Cookie: Token=xxx` in request header
+- **Usage**: Add `Authorization: Bearer <token>` in request header
 - **Storage**: Web Console uses Cookie for automatic management, API calls need manual management
 
 ## Notes
