@@ -178,7 +178,7 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 		return err
 	}
 	if err = jobutils.CreateObject(ctx, clusterInformer.ClientFactory(), k8sObject); err != nil {
-		return commonerrors.NewInternalError(err.Error())
+		return err
 	}
 	return nil
 }
