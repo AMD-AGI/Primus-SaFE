@@ -46,6 +46,11 @@ func GetK8SClientSetByClusterName(clusterName string) (*K8SClientSet, error) {
 	return k8sClientSet, nil
 }
 
+// GetAllClusterK8SClients gets all cluster K8S clientsets
+func GetAllClusterK8SClients() map[string]*K8SClientSet {
+	return multiClusterK8S
+}
+
 func initK8SClientSets(ctx context.Context, multiCluster bool) error {
 	err := initCurrentClusterK8SClientSet(ctx)
 	if err != nil {
@@ -87,6 +92,11 @@ func initK8SClientSetByConfig(k8sCfg *rest.Config) (*K8SClientSet, error) {
 	clientSet.Clientsets = kubernetes.NewForConfigOrDie(k8sCfg)
 	clientSet.Dynamic = dynamic.NewForConfigOrDie(k8sCfg)
 	return clientSet, nil
+}
+
+// InitK8SClientSetByConfig exported method for initializing K8S clientset from config
+func InitK8SClientSetByConfig(k8sCfg *rest.Config) (*K8SClientSet, error) {
+	return initK8SClientSetByConfig(k8sCfg)
 }
 
 func doLoadMultiClusterK8SClientSet(ctx context.Context) {

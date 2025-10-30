@@ -7,7 +7,7 @@ on:
       - '**'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
       id: get-current-time
       run: |
         FORMATTED_DATE=$(TZ='Asia/Shanghai' date +'%Y%m%d%H%M')
-        echo "::set-output name=date_time::$FORMATTED_DATE"
+        echo "date_time=$FORMATTED_DATE" >> $GITHUB_OUTPUT
     - name: Get changed files
       id: changed-files
       uses: tj-actions/changed-files@v40
@@ -63,6 +63,9 @@ jobs:
             - Lens/modules/core/**
           primus_safe_adapter:
             - Lens/modules/adapter/primus-safe-adapter/**
+            - Lens/modules/core/**
+          multi_cluster_config_exporter:
+            - Lens/modules/exporters/multi-cluster-config-exporter/**
             - Lens/modules/core/**
     - name: Generate matrix
       id: generate-matrix
@@ -92,6 +95,9 @@ jobs:
           if [[ "${{ steps.changed-files.outputs.primus_safe_adapter_any_changed }}" == "true" ]]; then
             MATRIX+='{"name":"primus-safe-adapter","buildpath":"cmd/primus-safe-adapter","basepath":"Lens/modules/adapter/primus-safe-adapter/"},'
           fi
+          if [[ "${{ steps.changed-files.outputs.multi_cluster_config_exporter_any_changed }}" == "true" ]]; then
+            MATRIX+='{"name":"multi-cluster-config-exporter","buildpath":"cmd/multi-cluster-config-exporter","basepath":"Lens/modules/exporters/multi-cluster-config-exporter/"},'
+          fi
           MATRIX=${MATRIX%,} # remove trailing comma
           MATRIX+=']}'
           echo "Generated matrix: $MATRIX"
@@ -99,8 +105,6 @@ jobs:
   build:
     needs: detect-changes
     runs-on: primus-safe-tw
-    outputs:
-      primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
     timeout-minutes: 7200
     strategy:
       fail-fast: false
