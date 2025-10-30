@@ -15,8 +15,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// GetGpuConsumerInfo gets the gpu consumer info
 func GetGpuConsumerInfo(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSets *clientsets.StorageClientSet, vendor metadata.GpuVendor) ([]model.TopLevelGpuResource, error) {
-	// TODO get device binding info from containerd.
 	pods, err := GetGpuAllocatedPods(ctx, clientSets, vendor)
 	if err != nil {
 		return nil, err
