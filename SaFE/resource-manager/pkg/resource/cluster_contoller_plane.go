@@ -739,8 +739,8 @@ func (r *ClusterReconciler) guaranteeNamespace(ctx context.Context, client kuber
 	return nil
 }
 
-// guaranteeDefaultAddon ensures default addons are installed in the cluster
-// Creates Addon resources based on cluster configuration
+// guaranteeDefaultAddon ensures default addons are installed in the cluster.
+// Creates Addon resources based on cluster configuration.
 func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *v1.Cluster) (ctrlruntime.Result, error) {
 	selector := labels.NewSelector()
 	labelsArr := []string{""}
