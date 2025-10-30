@@ -1,40 +1,45 @@
 # Primus-SaFE
 
-Primus-SaFE(Stability and Fault Endurance) is a cloud-native framework for large-scale foundation-model training and inference. Built on Kubernetes, container networking, elastic storage, and service meshes, it delivers elastic scheduling, fast failure recovery, and automatic health checks—minimising downtime from node loss, network jitter, or checkpoint overhead and boosting overall goodput (the share of compute that truly advances the model). SaFE weaves Megatron, ROCm-optimised components, and proprietary fault-tolerance logic directly into the training stack, transparently handling parameter re-sharding, micro-batch replay, and asynchronous gradient sync to keep goodput above 90 % even on thousand-GPU, multi-day runs. It supports pre-training, post-training (SFT/LoRA), and reinforcement-learning workflows, offers multi-tenant isolation and observability, and lets model teams focus on algorithmic progress while SaFE owns stability and efficiency.
+Primus-SaFE(Stability and Fault Endurance) is a cloud-native framework for large-scale foundation model training and inference. Built on Kubernetes and related technologies, it provides elastic scheduling, fast failure recovery, and automatic health checks.
 
-## 📦 Installation Instructions
+It minimizes downtime caused by node failures, network fluctuations, and checkpoint overhead, thereby improving effective compute utilization (goodput). It offers multi-tenant isolation and observability so model teams can focus on algorithmic progress while SaFE takes care of stability and efficiency.
 
-Use the following script to install Primus-SaFE with one command:
+In short: a highly available, high‑performance platform for large‑model training that lets users focus on modeling instead of underlying stability.
+
+## 📦 Installation
+
+Quick installation with one command:
 
 ```bash
 cd bootstrap
 ./install.sh
 ```
 
+Notes and full parameter explanations are available in the installation docs:
 
-> ⚠️ **Note**: The installation script must be executed on a Kubernetes master node.
+- Network, storage, optional components (S3, monitoring), image pull secrets, and ingress: see `docs/installation/install.md`
+- The script saves your selections to `.env` for future upgrades
 
-During installation, you will be prompted to input various parameters including network configuration, storage class, and feature module enablement. The installer will automatically deploy all required components.
+Requirements:
 
-If you need to set up a Kubernetes cluster first, you can use our team's another open-source component:
-[Primus-SaFE-Bootstrap](https://github.com/AMD-AGI/Primus-SaFE-Bootstrap)
+- Run on a Kubernetes control-plane node
+- Kubernetes 1.21+, kubectl, Helm 3+
 
-### Upgrading Primus-SaFE
+If you need to bootstrap a Kubernetes cluster first, see: [Primus-SaFE-Bootstrap](https://github.com/AMD-AGI/Primus-SaFE/tree/main/Bootstrap)
 
-If you have previously executed `install.sh` and want to upgrade your Primus-SaFE deployment, you can use the `upgrade.sh` script:
+### 🔄 Upgrade
 
 ```bash
 cd bootstrap
 ./upgrade.sh
 ```
 
+Summary (see `docs/installation/upgrade.md` for details):
 
-The `upgrade.sh` script will:
-- Load parameters from the existing `.env` file created during installation
-- Upgrade all Helm charts with the preserved configuration
-- Maintain your existing settings and customization
-
-> ⚠️ **Note**: The upgrade script only applies if `install.sh` has been previously executed and the environment configuration and code directory have not changed.
+- Reuses `.env` from install; does not prompt for parameters
+- Update image tags in `charts/primus-safe/values.yaml` before upgrading
+- Build and push custom images as needed
+- Upgrades admin plane (charts/CRDs/RBAC/webhooks) and node-agent, preserving settings
 
 ### System Requirements
 
@@ -90,6 +95,12 @@ Node-level agent service:
 - Fault detection: Timely identification of node failures and configuration anomalies
 - Automatic reporting: Reporting node conditions to the central management system
 - Self-healing capabilities: Attempting to fix common node issues
+
+## 📚 API Documentation
+
+All API references live under `docs/apis`. Start here:
+- Overview and index: `docs/apis/index.md`
+
 
 ## 🛠️ Key Features
 
