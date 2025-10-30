@@ -44,7 +44,7 @@ type ClientFactory struct {
 	// Used to stop informer factory
 	stopCh chan struct{}
 	// Informer type enum definition. 0: disable informer; 1: sharedInformer; 2 dynamicSharedInformer
-	// Default is 0
+	// default 0
 	informerType InformerType
 	// Whether the ClientFactory is valid
 	valid bool

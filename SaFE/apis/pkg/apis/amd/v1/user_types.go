@@ -36,7 +36,7 @@ type UserSpec struct {
 	// 0: normal; 1 frozen. default: 0
 	// +optional
 	RestrictedType UserRestrictedType `json:"restrictedType,omitempty"`
-	// User role, such as system-admin/default
+	// User role, e.g. system-admin/default
 	// permission check passes if any single role is satisfied.
 	// +required
 	Roles []UserRole `json:"roles"`

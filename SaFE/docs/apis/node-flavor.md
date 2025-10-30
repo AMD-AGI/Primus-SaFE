@@ -1,12 +1,14 @@
 # NodeFlavor API
 
-Node flavor defines the hardware resource configuration of nodes.
+## Overview
+
+NodeFlavor defines a node's hardware configuration, such as CPU, GPU, memory, storage, and network resources. It represents a description of the expected configuration for a node
 
 ## API List
 
 ### 1. Create Node Flavor
 
-**Endpoint**: `POST /api/custom/nodeflavors`
+**Endpoint**: `POST /api/v1/nodeflavors`
 
 **Authentication Required**: Yes
 
@@ -30,7 +32,7 @@ Node flavor defines the hardware resource configuration of nodes.
 
 ### 2. List Node Flavors
 
-**Endpoint**: `GET /api/custom/nodeflavors`
+**Endpoint**: `GET /api/v1/nodeflavors`
 
 **Authentication Required**: Yes
 
@@ -56,7 +58,7 @@ Node flavor defines the hardware resource configuration of nodes.
 
 ### 3. Get Node Flavor Details
 
-**Endpoint**: `GET /api/custom/nodeflavors/:name`
+**Endpoint**: `GET /api/v1/nodeflavors/:name`
 
 **Authentication Required**: Yes
 
@@ -64,7 +66,7 @@ Node flavor defines the hardware resource configuration of nodes.
 
 ### 4. Update Node Flavor
 
-**Endpoint**: `PATCH /api/custom/nodeflavors/:name`
+**Endpoint**: `PATCH /api/v1/nodeflavors/:name`
 
 **Authentication Required**: Yes
 
@@ -75,16 +77,19 @@ Node flavor defines the hardware resource configuration of nodes.
   "cpu": "256"
 }
 ```
+**Response**: 200 OK with no response body
 
 ---
 
 ### 5. Delete Node Flavor
 
-**Endpoint**: `DELETE /api/custom/nodeflavors/:name`
+**Endpoint**: `DELETE /api/v1/nodeflavors/:name`
 
 **Authentication Required**: Yes
 
 **Prerequisites**: No nodes using this flavor
+
+**Response**: 200 OK with no response body
 
 ---
 
@@ -92,7 +97,7 @@ Node flavor defines the hardware resource configuration of nodes.
 
 Check how many nodes can use this flavor.
 
-**Endpoint**: `GET /api/custom/nodeflavors/:name/avail`
+**Endpoint**: `GET /api/v1/nodeflavors/:name/avail`
 
 **Authentication Required**: Yes
 

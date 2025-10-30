@@ -6,14 +6,14 @@
 package types
 
 type CreateNodeTemplateRequest struct {
-	// Used to generate the node template id, which will do normalization processing, such as lowercase
+	// Used to generate the node template ID, which will do normalization processing, e.g. lowercase
 	Name string `json:"name"`
-	// List of addon-template id
+	// List of addon-template ID
 	AddOnTemplates []string `json:"addOnTemplates"`
 }
 
 type CreateNodeTemplateResponse struct {
-	// The NodeTemplate id
+	// NodeTemplate ID
 	Id string `json:"id"`
 }
 
@@ -24,8 +24,8 @@ type ListNodeTemplateResponse struct {
 }
 
 type NodeTemplateResponseItem struct {
-	// The NodeTemplate id
+	// NodeTemplate ID
 	TemplateId string `json:"templateId"`
-	// List of addon-template id
+	// List of addon-template ID
 	AddOnTemplates []string `json:"addOnTemplates"`
 }

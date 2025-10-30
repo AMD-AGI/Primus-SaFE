@@ -64,6 +64,8 @@ Node template defines the software environment configuration for nodes, includin
 
 **Prerequisites**: No nodes using this template
 
+**Response**: 200 OK with no response body
+
 ---
 
 ## Notes

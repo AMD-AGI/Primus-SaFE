@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -26,6 +24,9 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -839,7 +840,7 @@ func cvtToGetNodeResponse(n *v1.Node, usedResource *resourceInfo) types.GetNodeR
 	}
 	result.FlavorId = v1.GetNodeFlavorId(n)
 	result.Taints = getPrimusTaints(n.Status.Taints)
-	result.CustomerLabels = getNodeCustomerLabels(n.Labels)
+	result.Labels = getNodeCustomerLabels(n.Labels)
 	if n.Spec.NodeTemplate != nil {
 		result.TemplateId = n.Spec.NodeTemplate.Name
 	}

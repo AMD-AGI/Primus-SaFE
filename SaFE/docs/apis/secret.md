@@ -228,7 +228,7 @@ Update secret authentication information or binding settings.
 
 **Field Description**: All fields are optional, only provided fields will be updated
 
-**Response**: No content (204)
+**Response**: 200 OK with no response body
 
 ---
 
@@ -248,7 +248,7 @@ Delete a specific secret.
 
 **Prerequisites**: Secret is not being used by any cluster or node
 
-**Response**: No content (204)
+**Response**: 200 OK with no response body
 
 ---
 

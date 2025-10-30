@@ -50,9 +50,9 @@ type FaultConfig struct {
 	Id string `json:"id"`
 	// Action defines actions for handling the fault, separated by commas if there are multiple
 	Action FaultAction `json:"action,omitempty"`
-	// Toggle controls whether the fault is enabled (on/off), default is "off"
+	// Toggle controls whether the fault is enabled (on/off), default "off"
 	Toggle string `json:"toggle,omitempty"`
-	// whether the fault is auto repaired or not, default is true
+	// whether the fault is auto repaired or not, default true
 	IsAutoRepair *bool `json:"isAutoRepair,omitempty"`
 }
 

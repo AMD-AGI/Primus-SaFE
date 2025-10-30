@@ -19,7 +19,7 @@ Public key management API for managing users' SSH public keys for passwordless l
 }
 ```
 
-**Response**: Empty response on success (HTTP 200)
+**Response**: 200 OK with no response body
 
 ---
 
@@ -55,7 +55,7 @@ Public key management API for managing users' SSH public keys for passwordless l
 
 **Authentication Required**: Yes
 
-**Response**: Empty response on success (HTTP 200)
+**Response**: 200 OK with no response body
 
 ---
 
@@ -71,7 +71,7 @@ Public key management API for managing users' SSH public keys for passwordless l
 - `true`: Active, can be used
 - `false`: Disabled, cannot be used
 
-**Response**: Empty response on success (HTTP 200)
+**Response**: 200 OK with no response body
 
 ---
 
@@ -83,7 +83,7 @@ Public key management API for managing users' SSH public keys for passwordless l
 
 **Request**: `{ "description": "New description" }`
 
-**Response**: Empty response on success (HTTP 200)
+**Response**: 200 OK with no response body
 
 ---
 

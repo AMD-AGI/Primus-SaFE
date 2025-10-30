@@ -1,4 +1,4 @@
-# Workspace API Documentation
+# Workspace API
 
 ## Overview
 
@@ -8,280 +8,413 @@ These APIs allow users to create, list, retrieve, update, and delete workspaces,
 
 Note: Each workload is submitted to a specified workspace.
 
-## API Endpoints
+## API List
 
-### Create Workspace
-```
-POST /api/v1/workspaces
-```
+### 1. Create Workspace
 
+Create a new workspace in a cluster.
 
-Creates a new workspace with specified configuration.
+**Endpoint**: `POST /api/v1/workspaces`
 
-**Request Body:**
+**Authentication Required**: Yes
+
+**Request Parameters**:
+
 ```json
 {
-  // The workspace name(display only). Used for generate workspace id.
-  // The final ID is clusterId + "-" + name.
-  "name": "string",
-  // The cluster which workspace belongs to
-  "clusterId": "string",
-  // The workspace description
-  "description": "string",
-  // Queuing policy for workloads submitted in this workspace.
-  // All workloads currently share the same policy, supports fifo (default) and balance.
-  // 1. "fifo" means first-in, first-out: the workload that enters the queue first is served first.
-  //    If the front workload does not meet the conditions for dispatch, it will wait indefinitely,
-  //    and other tasks in the queue will also be blocked waiting.
-  // 2. "balance" allows any workload that meets the resource conditions to be dispatched,
-  //    avoiding blockage by the front workload in the queue. However, it is still subject to priority constraints.
-  //    If a higher-priority task cannot be dispatched, lower-priority tasks will wait.
-  "queuePolicy": "string",
-  // The node flavor id of workspace, A workspace supports only one node flavor
-  "flavorId": "string",
-  // The expected number of nodes in the workspace
-  "replica": 0,
-  // Service modules available in this space. support: Train/Infer/Authoring, No limitation if not specified
+  "name": "ai-team",
+  "clusterId": "prod-cluster",
+  "description": "AI team workspace",
+  "flavorId": "gpu-large",
+  "replica": 4,
+  "queuePolicy": "fifo",
   "scopes": ["Train", "Infer", "Authoring"],
-  // Volumes used in this workspace
   "volumes": [
     {
-      // access mode, default is ReadWriteMany
       "accessMode": "ReadWriteMany",
-      // The following parameters are used for PVC creation. If using hostPath mounting, they are not required.
-      // Capacity size, such as 100Gi. This is a required parameter when creating a PVC (PersistentVolumeClaim).
       "capacity": "100Ti",
-      // Mount path to be used, equivalent to 'mountPath' in Kubernetes volume mounts.
-      // +required
-      "mountPath": "/my_path",
-      // selector is a label query over volumes to consider for binding.
-      // It cannot be used together with storageClass. If both are set, the selector takes priority
+      "mountPath": "/mnt/data",
       "selector": {
         "pfs-name": "test-pv"
       },
-      // Responsible for automatic PV creation
       "storageClass": "rbd",
-      // The volume type, valid values includes: pfs/hostpath
-      // If PFS is configured, a PVC will be automatically created in the workspace.
       "type": "pfs"
     }, {
       "accessMode": "ReadWriteMany",
-      // Path on the host to mount. Required when volume type is hostpath
       "hostPath": "/home",
       "mountPath": "/home",
       "type": "hostpath"
     }
   ],
-  // Whether preemption is enabled. If enabled, higher-priority workload will preempt the lower-priority one
-  "enablePreempt": true,
-  // User id of the workspace administrator
-  "managers": ["string"],
-  // Set the workspace as the default workspace (i.e., all users can access it)
+  "enablePreempt": false,
+  "managers": ["user-001", "user-002"],
   "isDefault": true,
-  // Workspace image secret ID, used for downloading images
-  "imageSecretIds": ["string"]
+  "imageSecretIds": ["image-secret-001"]
 }
 ```
 
+**Field Description**:
 
-**Response:**
+| Field | Type | Required | Description                                                                                                                              |
+|-------|------|----------|------------------------------------------------------------------------------------------------------------------------------------------|
+| name | string | Yes | Workspace name                                                                                                                           |
+| clusterId | string | Yes | The cluster which workspace belongs to                                                                                                   |
+| description | string | No | Workspace description                                                                                                                    |
+| flavorId | string | Yes | Node flavor ID                                                                                                                           |
+| replica | int | No | Expected number of nodes                                                                                                                 |
+| queuePolicy | string | No | Queue policy: fifo (first-in-first-out)/balance (load balancing), default fifo                                                           |
+| scopes | []string | No | Supported service modules: Train/Infer/Authoring, no limitation if not specified                                                         |
+| volumes | []object | No | Storage volume configuration list                                                                                                        |
+| enablePreempt | bool | No | Whether to enable preemption, default false.  If enabled, higher-priority workload will preempt the lower-priority one in this workspace |
+| managers | []string | No | List of manager user IDs                                                                                                                 |
+| isDefault | bool | No | Whether to set as default workspace (accessible to all users)                                                                            |
+| imageSecretIds | []string | No | List of image pull secret IDs                                                                                                            |
+
+**Volume Configuration**:
+
+| Field | Type   | Required | Description                                                                                                  |
+|-------|--------|----------|--------------------------------------------------------------------------------------------------------------|
+| type | string | Yes | Volume type: pfs/hostpath. If pfs is configured, a PVC will be automatically created in the workspace.       |
+| mountPath | string | Yes | Mount path to be used, equivalent to 'mountPath' in Kubernetes volume mounts                                 |
+| hostPath | string | No | Path on the host to mount (required when type=hostpath)                                                      |
+| accessMode | string | No | Access mode, default ReadWriteMany                                                                           |
+| capacity | string | No | Capacity size, such as 100Gi. This is a required parameter when creating a PVC (type=pfs)                    |
+| selector | object | No | Selector is a label query over volumes to consider for binding. It cannot be used together with storageClass |
+| storageClass | string | No | esponsible for automatic PV creation                                                                         |
+
+**Response Example**:
+
 ```json
 {
-  // The workspace id
-  "workspaceId": "string"
+  "workspaceId": "prod-cluster-ai-team"
 }
 ```
 
+**Field Description**:
 
-### List Workspaces
-```
-GET /api/v1/workspaces?clusterId={clusterId}
-```
+| Field | Type | Description            |
+|-------|------|------------------------|
+| workspaceId | string | Generated workspace ID |
 
 
-Retrieves a list of workspaces with optional filtering by cluster ID.
+---
 
-**Query Parameters:**
-- `clusterId` (optional): Filter results by cluster ID
+### 2. List Workspaces
 
-**Response:**
+Get workspace list with cluster filtering support.
+
+**Endpoint**: `GET /api/v1/workspaces`
+
+**Authentication Required**: Yes
+
+**Query Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| clusterId | string | No | Filter by cluster ID |
+
+**Response Example**:
+
 ```json
 {
-  // The total number of node templates, not limited by pagination
-  "totalCount": 0,
+  "totalCount": 5,
   "items": [
     {
-      // The workspace id
-      "workspaceId": "string",
-      // The workspace name
-      "workspaceName": "string",
-      // The cluster which workspace belongs to
-      "clusterId": "string",
-      // The node flavor id used by workspace
-      "flavorId": "string",
-      // User id of workspace creator
-      "userId": "string",
-      // The target expected number of nodes of workspace
-      "targetNodeCount": 0,
-      // The current total number of nodes
-      "currentNodeCount": 0,
-      // The current total number of abnormal nodes
+      "workspaceId": "prod-cluster-ai-team",
+      "workspaceName": "ai-team",
+      "clusterId": "prod-cluster",
+      "flavorId": "gpu-large",
+      "userId": "user-001",
+      "targetNodeCount": 4,
+      "currentNodeCount": 4,
       "abnormalNodeCount": 0,
-      // The status of workspace, such as Creating, Running, Abnormal, Deleting
-      "phase": "string",
-      // The workspace creation time
-      "creationTime": "string",
-      // The workspace description
-      "description": "string",
-      // Queuing policy for workload submitted in this workspace
-      // Refer to the explanation of the same-named parameter in CreateWorkspaceRequest
-      "queuePolicy": "string",
-      // Support service module: Train/Infer/Authoring, No limitation if not specified
+      "phase": "Running",
+      "creationTime": "2025-01-12T09:00:00",
+      "description": "AI team workspace",
+      "queuePolicy": "fifo",
       "scopes": ["Train", "Infer", "Authoring"],
-      // The store volumes used by workspace.  Refer to the explanation of the same-named parameter in CreateWorkspaceRequest
-      "volumes": [],
-      // Whether preemption is enabled. If enabled, higher-priority workload will preempt the lower-priority one
-      "enablePreempt": true,
-      // User id of the workspace administrator
-      "managers": [{"id": "string", "name": "string"}],
-      // Set the workspace as the default workspace (i.e., all users can access it).
-      "isDefault": true
+      "volumes": [
+        {
+          "accessMode": "ReadWriteMany",
+          "capacity": "100Ti",
+          "mountPath": "/mnt/data",
+          "storageClass": "rbd",
+          "type": "pfs"
+        }, {
+          "accessMode": "ReadWriteMany",
+          "hostPath": "/home",
+          "mountPath": "/home",
+          "type": "hostpath"
+        }
+      ],
+      "enablePreempt": false,
+      "managers": [
+        {
+          "id": "user-001",
+          "name": "zhangsan"
+        }
+      ],
+      "isDefault": false
     }
   ]
 }
 ```
 
+**Field Description**:
 
-### Get Workspace
-```
-GET /api/v1/workspaces/{workspaceId}
-```
+Only fields not already covered by "Create Workspace" are listed below. Other fields share the same meaning as in the creation request.
 
 
-Retrieves detailed information about a specific workspace.
+| Field         | Type  | Description                                                         |
+|---------------|-------|---------------------------------------------------------------------|
+| totalCount    | int   | The total number of workspaces                                      |
+| workspaceId   | string | Workspace ID                                                        |
+| workspaceName | string | Workspace name                                                      |
+| userId        | string | User id of workspace creator                                        |
+| targetNodeCount | int   | The target expected number of nodes in workspace                    |
+| currentNodeCount | int   | The current total number of nodes                                   |
+| abnormalNodeCount | int   | The current total number of abnormal nodes                          |
+| phase    | string | The status of workspace, e.g. Creating, Running, Abnormal, Deleting |
+| creationTime  | string | The workspace creation time                                         |
 
-**Response:**
+---
+
+### 3. Get Workspace Details
+
+Get detailed information about a specific workspace, including resource quotas.
+
+**Endpoint**: `GET /api/v1/workspaces/{WorkspaceId}`
+
+**Authentication Required**: Yes
+
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| WorkspaceId | Workspace ID |
+
+**Response Example**:
+
 ```json
 {
-  // The workspace id
-  "workspaceId": "string",
-  // The workspace name
-  "workspaceName": "string",
-  // The cluster which workspace belongs to
-  "clusterId": "string",
-  // The node flavor id used by workspace
-  "flavorId": "string",
-  // User id of workspace creator
-  "userId": "string",
-  // The target expected number of nodes of workspace
-  "targetNodeCount": 0,
-  // The current total number of nodes
-  "currentNodeCount": 0,
-  // The current total number of abnormal nodes
+  "workspaceId": "prod-cluster-ai-team",
+  "workspaceName": "ai-team",
+  "clusterId": "prod-cluster",
+  "flavorId": "gpu-large",
+  "userId": "user-001",
+  "targetNodeCount": 4,
+  "currentNodeCount": 4,
   "abnormalNodeCount": 0,
-  // The status of workspace, such as Creating, Running, Abnormal, Deleting
-  "phase": "string",
-  // The workspace creation time
-  "creationTime": "string",
-  // The workspace description
-  "description": "string",
-  // Queuing policy for workload submitted in this workspace
-  // Refer to the explanation of the same-named parameter in CreateWorkspaceRequest
-  "queuePolicy": "string",
-  // Support service module: Train/Infer/Authoring, No limitation if not specified
+  "phase": "Running",
+  "creationTime": "2025-01-12T09:00:00.000Z",
+  "description": "AI team workspace",
+  "queuePolicy": "fifo",
   "scopes": ["Train", "Infer", "Authoring"],
-  // The store volumes used by workspace.  Refer to the explanation of the same-named parameter in CreateWorkspaceRequest
-  "volumes": [],
-  // Whether preemption is enabled. If enabled, higher-priority workload will preempt the lower-priority one
-  "enablePreempt": true,
-  // User id of the workspace administrator
-  "managers": [{"id": "string", "name": "string"}],
-  // Set the workspace as the default workspace (i.e., all users can access it).
-  "isDefault": true,
-  // The total resource of workspace
+  "volumes": [
+    {
+      "accessMode": "ReadWriteMany",
+      "capacity": "100Ti",
+      "mountPath": "/mnt/data",
+      "storageClass": "rbd",
+      "type": "pfs"
+    }, {
+      "accessMode": "ReadWriteMany",
+      "hostPath": "/home",
+      "mountPath": "/home",
+      "type": "hostpath"
+    }
+  ],
+  "enablePreempt": false,
+  "managers": [
+    {
+      "id": "user-001",
+      "name": "zhangsan"
+    }
+  ],
+  "isDefault": false,
   "totalQuota": {
-    "amd.com/gpu": 1896,
-    "cpu": 30322,
-    "ephemeral-storage": 3275467021067664,
-    "memory": 767056934719488,
-    "rdma/hca": 237000
+    "amd.com/gpu": 1024,
+    "cpu": 12288,
+    "ephemeral-storage": 1407374883553280,
+    "memory": 140737488355328,
+    "rdma/hca": 128000
   },
-  // The available resource of workspace
-  "availQuota": {},
-  // The abnormal resources of workspace
-  "abnormalQuota": {},
-  // The used resources of workspace
-  "usedQuota": {},
-  // The node currently in use has workloads running on it
-  "usedNodeCount": 0,
-  // Workspace image secret ID, used for downloading images
-  "imageSecretIds": ["string"]
+  "availQuota": {
+    "amd.com/gpu": 512,
+    "cpu": 6144,
+    "ephemeral-storage": 703687441776640,
+    "memory": 70368744177664,
+    "rdma/hca": 64000
+  },
+  "usedQuota": {
+    "amd.com/gpu": 512,
+    "cpu": 6144,
+    "ephemeral-storage": 703687441776640,
+    "memory": 70368744177664,
+    "rdma/hca": 64000
+  },
+  "abnormalQuota": {
+    "amd.com/gpu": 0,
+    "cpu": 0,
+    "ephemeral-storage": 0,
+    "memory": 0,
+    "rdma/hca": 0
+  },
+  "usedNodeCount": 64,
+  "imageSecretIds": ["image-secret-001"]
 }
 ```
 
+**Field Description**:
 
-### Update Workspace
-```
-PATCH /api/v1/workspaces/{workspaceId}
-```
+Only fields not already covered by "List Workspace" are listed below. Other fields share the same meaning as in the creation request or list response.
 
 
-Partially updates a workspace with specified fields.
+| Field         | Type   | Description                                                           |
+|---------------|--------|-----------------------------------------------------------------------|
+| totalQuota    | object | Total resources in the workspace: resource names and their quantities |
+| availQuota   | object | The available resource of workspace                                   |
+| abnormalQuota | object | The abnormal resources of workspace                                   |
+| usedQuota        | object | The used resources of workspace                                       |
+| usedNodeCount | int    | The node currently in use has workloads running on it                 |
+---
 
-**Request Body:**
+### 4. Update Workspace
+
+Update workspace configuration.
+
+**Endpoint**: `PATCH /api/v1/workspaces/{WorkspaceId}`
+
+**Authentication Required**: Yes
+
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| WorkspaceId | Workspace ID |
+
+**Request Parameters**:
+
 ```json
 {
-  // The node flavor id used by workspace
-  "flavorId": "string",
-  // The expected total node count
-  "replica": 0,
-  // Queuing policy for tasks submitted in this workspace. such as fifo, balance
-  // Refer to the explanation of the same-named parameter in CreateWorkspaceRequest
-  "queuePolicy": "string",
-  // Support service module: Train/Infer/Authoring, No limitation if not specified
-  "scopes": ["Train", "Infer", "Authoring"],
-  // The store volumes used by workspace, Refer to the explanation of the same-named parameter in CreateWorkspaceRequest
+  "description": "New description",
+  "flavorId": "gpu-xlarge",
+  "replica": 8,
+  "queuePolicy": "balance",
+  "scopes": ["Train", "Infer"],
   "volumes": [],
-  // The workspace description
-  "description": "string",
-  // Whether preemption is enabled
   "enablePreempt": true,
-  // User id of the workspace administrator
-  "managers": ["string"],
-  // Set the workspace as the default workspace (i.e., all users can access it).
-  "isDefault": true,
-  // Workspace image secret ID, used for downloading images
-  "imageSecretIds": ["string"]
+  "managers": ["user-001", "user-003"],
+  "isDefault": false,
+  "imageSecretIds": ["image-secret-001", "image-secret-002"]
 }
 ```
 
+**Field Description**: 
 
-**Response:** No content
+All fields are optional, only provided fields will be updated
 
-### Delete Workspace
-```
-DELETE /api/v1/workspaces/{workspaceId}
-```
+All parameters have the same meaning as the corresponding parameters in "Create Workspace".
 
+**Response**: 200 OK with no response body
 
-Deletes a specific workspace.
+---
 
-**Response:** No content
+### 5. Delete Workspace
 
-### Process Workspace Nodes
-```
-POST /api/v1/workspaces/{workspaceId}/nodes
-```
+Delete a specific workspace.
 
+**Endpoint**: `DELETE /api/v1/workspaces/{WorkspaceId}`
 
-Adds or removes nodes from a workspace.
+**Authentication Required**: Yes
 
-**Request Body:**
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| WorkspaceId | Workspace ID |
+
+**Prerequisites**: No running workloads in the workspace
+
+**Response**: 200 OK with no response body
+
+---
+
+### 6. Manage Workspace Nodes
+
+Add or remove nodes from a workspace.
+
+**Endpoint**: `POST /api/v1/workspaces/{WorkspaceId}/nodes`
+
+**Authentication Required**: Yes
+
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| WorkspaceId | Workspace ID |
+
+**Request Parameters**:
+
 ```json
 {
-  // List of node ids to operate on.
-  "action": "add|remove",
-  // List of node ids to operate on.
-  "nodeIds": ["string"]
+  "nodeIds": ["node-004", "node-005"],
+  "action": "add"
 }
 ```
+
+**Field Description**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| nodeIds | []string | Yes | List of node IDs |
+| action | string | Yes | Action type: add/remove |
+
+**Response**: 200 OK with no response body
+
+---
+
+## Workspace Status
+
+| Status | Description                      |
+|--------|----------------------------------|
+| Creating | Being created                    |
+| Running | Running                          |
+| Abnormal | Abnormal (all nodes unavailable) |
+| Deleting | Being deleted                    |
+
+## Queue Policy
+
+### FIFO (First-In-First-Out)
+- Workloads in queue execute in submission order
+- If front task lacks resources, subsequent tasks wait
+- Suitable for fair scheduling scenarios
+
+### Balance (Load Balancing)
+- Any task meeting resource conditions can be scheduled
+- Avoids front task blocking
+- Still subject to priority constraints
+- Suitable for resource utilization priority scenarios
+
+## Service Modules
+
+| Module | Description |
+|--------|-------------|
+| Train | Training tasks |
+| Infer | Inference services |
+| Authoring | Development environment |
+
+## Resource Quota
+
+- **totalQuota**: Total workspace quota (number of nodes × node flavor)
+- **availQuota**: Available quota (total quota - used quota - abnormal quota)
+- **usedQuota**: Quota used by workloads
+- **abnormalQuota**: Quota occupied by abnormal nodes
+
+## Notes
+
+1. **Workspace Naming**: Actual ID is `{clusterId}-{name}`
+2. **Node Flavor**: One workspace can only use one node flavor
+3. **Default Workspace**: When set as default, all users can access it
+4. **Manager Permissions**: Managers can manage all resources in the workspace
+5. **Preemption Mechanism**: When enabled, high priority tasks can preempt low priority task resources

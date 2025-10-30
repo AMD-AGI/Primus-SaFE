@@ -66,7 +66,7 @@ Operational job API for managing system operational tasks.
 
 **Authentication Required**: Yes
 
-**Response**: Empty response on success (HTTP 200)
+**Response**: 200 OK with no response body
 
 ---
 
@@ -76,7 +76,7 @@ Operational job API for managing system operational tasks.
 
 **Authentication Required**: Yes
 
-**Response**: Empty response on success (HTTP 200)
+**Response**: 200 OK with no response body
 
 ---
 

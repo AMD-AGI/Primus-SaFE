@@ -47,7 +47,7 @@ type ClusterInformer struct {
 	dataClientFactory *commonclient.ClientFactory
 	// used to process Kubernetes resource events
 	handler ResourceHandler
-	// Informer cache for cluster resources such as Pod, Job, and Event.
+	// Informer cache for cluster resources e.g. Pod, Job, and Event.
 	// Key is the GVK, value is the informer instance.
 	// it is controlled by resource template
 	resourceInformers *commonutils.ObjectManager

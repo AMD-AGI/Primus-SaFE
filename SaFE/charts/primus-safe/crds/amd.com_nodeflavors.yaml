@@ -63,7 +63,7 @@ spec:
               dataDisk:
                 description: |-
                   DataDisk is an optional field that defines the data disk configuration of the node
-                  Usually this refers to the disk size mounted on the node, such as an NVMe disk.
+                  Usually this refers to the disk size mounted on the node, e.g. an NVMe disk.
                 properties:
                   count:
                     type: integer
@@ -87,7 +87,7 @@ spec:
                   pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                   x-kubernetes-int-or-string: true
                 description: ExtendResources is an optional field that defines the
-                  extended resources list of the node, such as rdma and ephemeralStorage
+                  extended resources list of the node, e.g. rdma and ephemeralStorage
                 type: object
               gpu:
                 description: |-
@@ -106,7 +106,7 @@ spec:
                     x-kubernetes-int-or-string: true
                   resourceName:
                     description: Corresponding resource names in Kubernetes ResourceList,
-                      such as amd.com/gpu or nvidia.com/gpu
+                      e.g. amd.com/gpu or nvidia.com/gpu
                     type: string
                 required:
                 - quantity

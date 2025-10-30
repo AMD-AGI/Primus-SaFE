@@ -95,7 +95,7 @@ Image registry management API for configuring external image registries.
 **Path Parameters**:
 - `id`: Registry ID
 
-**Response**: Empty response on success (HTTP 200)
+**Response**: 200 OK with no response body
 
 ---
 

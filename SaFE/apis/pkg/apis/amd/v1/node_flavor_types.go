@@ -25,7 +25,7 @@ type CpuChip struct {
 type GpuChip struct {
 	// Gpu product name, e.g. AMD MI300X
 	Product string `json:"product,omitempty"`
-	// Corresponding resource names in Kubernetes ResourceList, such as amd.com/gpu or nvidia.com/gpu
+	// Corresponding resource names in Kubernetes ResourceList, e.g. amd.com/gpu or nvidia.com/gpu
 	ResourceName string `json:"resourceName"`
 	// Gpu quantity, e.g. 8
 	Quantity resource.Quantity `json:"quantity"`
@@ -44,9 +44,9 @@ type NodeFlavorSpec struct {
 	// Usually this refers to the system disk size
 	RootDisk *DiskFlavor `json:"rootDisk,omitempty"`
 	// DataDisk is an optional field that defines the data disk configuration of the node
-	// Usually this refers to the disk size mounted on the node, such as an NVMe disk.
+	// Usually this refers to the disk size mounted on the node, e.g. an NVMe disk.
 	DataDisk *DiskFlavor `json:"dataDisk,omitempty"`
-	// ExtendResources is an optional field that defines the extended resources list of the node, such as rdma and ephemeralStorage
+	// ExtendResources is an optional field that defines the extended resources list of the node, e.g. rdma and ephemeralStorage
 	ExtendResources corev1.ResourceList `json:"extendedResources,omitempty"`
 }
 

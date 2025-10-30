@@ -75,7 +75,7 @@ Image management API for managing and importing container images.
 **Path Parameters**:
 - `id`: Image ID
 
-**Response**: Empty response on success (HTTP 200)
+**Response**: 200 OK with no response body
 
 ---
 

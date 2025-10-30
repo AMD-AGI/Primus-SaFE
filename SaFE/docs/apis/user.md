@@ -106,7 +106,7 @@ Clear user session (Web Console only).
 
 **Authentication Required**: No
 
-**Response**: No content (204)
+**Response**: 200 OK with no response body
 
 ---
 
@@ -240,7 +240,7 @@ Update user information or permissions.
 - Updating roles and workspaces requires system admin permission
 - Users can update their own password, email and avatar
 
-**Response**: No content (204)
+**Response**: 200 OK with no response body
 
 ---
 
@@ -260,7 +260,7 @@ Delete a specific user.
 
 **Permission Requirements**: System administrator
 
-**Response**: No content (204)
+**Response**: 200 OK with no response body
 
 ---
 

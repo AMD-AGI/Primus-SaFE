@@ -138,7 +138,7 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               port:
-                description: SSH port，default is 22
+                description: SSH port，default 22
                 format: int32
                 type: integer
               privateIP:
@@ -247,16 +247,16 @@ spec:
                     items:
                       properties:
                         name:
-                          description: Operational command, such as authorize
+                          description: Operational command, e.g. authorize
                           type: string
                         phase:
-                          description: Operation result. such as Succeeded and Failed
+                          description: Operation result. e.g. Succeeded and Failed
                           type: string
                       type: object
                     type: array
                   phase:
-                    description: The status of nodes in the cluster, such as Ready,
-                      Managing, Managed, ManagedFailed, Unmanaging, Unmanaged, UnmanagedFailed
+                    description: The status of nodes in the cluster, e.g. Ready, Managing,
+                      Managed, ManagedFailed, Unmanaging, Unmanaged, UnmanagedFailed
                     type: string
                 type: object
               conditions:
@@ -301,10 +301,10 @@ spec:
                     items:
                       properties:
                         name:
-                          description: Operational command, such as authorize
+                          description: Operational command, e.g. authorize
                           type: string
                         phase:
-                          description: Operation result. such as Succeeded and Failed
+                          description: Operation result. e.g. Succeeded and Failed
                           type: string
                       type: object
                     type: array
@@ -312,7 +312,7 @@ spec:
                     description: The hostname of k8s node
                     type: string
                   phase:
-                    description: The status of the physical node, such as Ready, SSHFailed,
+                    description: The status of the physical node, e.g. Ready, SSHFailed,
                       HostnameFailed
                     type: string
                   privateIP:

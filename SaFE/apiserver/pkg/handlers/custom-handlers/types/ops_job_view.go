@@ -14,9 +14,9 @@ import (
 )
 
 type BaseOpsJobRequest struct {
-	// Used to generate the ops job id, which will do normalization processing, such as lowercase and random suffix
+	// Used to generate the ops job ID, which will do normalization processing, e.g. lowercase and random suffix
 	Name string `json:"name"`
-	// The opsjob type, such as addon, dumplog, preflight
+	// Opsjob type, e.g. addon, dumplog, preflight
 	Type v1.OpsJobType `json:"type"`
 	// The resource objects to be processed. e.g. {{"name": "node", "value": "tus1-p8-g6"}}
 	Inputs []v1.Parameter `json:"inputs"`
@@ -26,7 +26,7 @@ type BaseOpsJobRequest struct {
 	TTLSecondsAfterFinished int `json:"ttlSecondsAfterFinished,omitempty"`
 	// Nodes to be excluded, not participating in the ops job
 	ExcludedNodes []string `json:"excludedNodes,omitempty"`
-	// Indicates whether the job tolerates node taints. default is false
+	// Indicates whether the job tolerates node taints. default false
 	IsTolerateAll bool `json:"isTolerateAll"`
 }
 
@@ -62,32 +62,32 @@ type CreateDumplogRequest struct {
 }
 
 type CreateOpsJobResponse struct {
-	// The ops job id
+	// Ops job ID
 	JobId string `json:"jobId"`
 }
 
 // ListOpsJobInput The query input by the user for listing ops jobs
 type ListOpsJobInput struct {
-	// Starting offset for the results. dfault is 0
+	// Starting offset for the results. default 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
-	// Limit the number of returned results. default is 100
+	// Limit the number of returned results. default 100
 	Limit int `form:"limit" binding:"omitempty,min=1"`
-	// Sort results by the specified field. default is create_time
+	// Sort results by the specified field. default create_time
 	SortBy string `form:"sortBy" binding:"omitempty"`
 	// The sorting order. Valid values are "desc" (default) or "asc"
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
 	// Query the start time of the job, based on the job creation time.
-	// e.g. '2006-01-02T15:04:05.000Z'. default is until - 720h
+	// e.g. '2006-01-02T15:04:05.000Z'. default until - 720h
 	Since string `form:"since" binding:"omitempty"`
-	// Query the end time of the job, similar to since. default is now
+	// Query the end time of the job, similar to since. default now
 	Until string `form:"until" binding:"omitempty"`
 	// The cluster which the job belongs to
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
 	// The username of job submitter
 	UserName string `form:"userName" binding:"omitempty,max=64"`
-	// The job phase, such as Succeeded, Failed, Running, Pending
+	// The job phase, e.g. Succeeded, Failed, Running, Pending
 	Phase v1.OpsJobPhase `form:"phase" binding:"omitempty"`
-	// The job type, such as addon, dumplog, preflight
+	// The job type, e.g. addon, dumplog, preflight
 	Type v1.OpsJobType `form:"type" binding:"omitempty,max=64"`
 }
 
@@ -98,18 +98,18 @@ type ListOpsJobRequest struct {
 	SinceTime time.Time
 	// End timestamp of the query
 	UntilTime time.Time
-	// The user id of list-job submitter
+	// The user ID of list-job submitter
 	UserId string
 }
 
 type ListOpsJobResponse struct {
-	// The total number of node templates, not limited by pagination
+	// The total number of ops jobs, not limited by pagination
 	TotalCount int                  `json:"totalCount"`
 	Items      []OpsJobResponseItem `json:"items"`
 }
 
 type OpsJobResponseItem struct {
-	// The job id
+	// The job ID
 	JobId string `json:"jobId"`
 	// The job name
 	JobName string `json:"jobName"`
@@ -117,11 +117,11 @@ type OpsJobResponseItem struct {
 	ClusterId string `json:"clusterId"`
 	// The workspace which the job belongs to
 	WorkspaceId string `json:"workspaceId"`
-	// The user id of job submitter
+	// The user ID of job submitter
 	UserId string `json:"userId"`
 	// The username of job submitter
 	UserName string `json:"userName"`
-	// The job type, such as addon, dumplog, preflight
+	// The job type, e.g. addon, dumplog, preflight
 	Type v1.OpsJobType `json:"type"`
 	// The job status: Succeeded/Failed/Running/Pending
 	Phase v1.OpsJobPhase `json:"phase"`
@@ -153,7 +153,7 @@ type GetOpsJobResponse struct {
 	Image string `json:"image"`
 	// Opsjob entryPoint, required in base64 encoding, only for preflight
 	EntryPoint string `json:"entryPoint"`
-	// Indicates whether the job tolerates node taints. default is false
+	// Indicates whether the job tolerates node taints. default false
 	IsTolerateAll bool `json:"isTolerateAll"`
 	// The hostpath for opsjob mounting.
 	Hostpath []string `json:"hostpath"`

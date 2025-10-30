@@ -84,7 +84,7 @@ spec:
                     description: Requested CPU core count (e.g., 128)
                     type: string
                   ephemeralStorage:
-                    description: Ephemeral-storage for pod. Default is 50Gi
+                    description: Ephemeral-storage for pod. default 50Gi
                     type: string
                   gpu:
                     description: Requested GPU card count (e.g., 8)

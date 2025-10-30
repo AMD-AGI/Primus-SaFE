@@ -40,9 +40,9 @@ const (
 )
 
 type CommandStatus struct {
-	// Operational command, such as authorize
+	// Operational command, e.g. authorize
 	Name string `json:"name,omitempty"`
-	// Operation result. such as Succeeded and Failed
+	// Operation result. e.g. Succeeded and Failed
 	Phase CommandPhase `json:"phase,omitempty"`
 }
 
@@ -64,7 +64,7 @@ type NodeSpec struct {
 	PrivateIP string `json:"privateIP,omitempty"`
 	// Node public IP, accessible from external networks, optional
 	PublicIP string `json:"publicIP,omitempty"`
-	// SSH port，default is 22
+	// SSH port，default 22
 	Port *int32 `json:"port,omitempty"`
 	// The taint will be automatically synchronized to the Kubernetes node.
 	Taints []corev1.Taint `json:"taints,omitempty"`
@@ -73,7 +73,7 @@ type NodeSpec struct {
 }
 
 type NodeClusterStatus struct {
-	// The status of nodes in the cluster, such as Ready, Managing, Managed, ManagedFailed, Unmanaging, Unmanaged, UnmanagedFailed
+	// The status of nodes in the cluster, e.g. Ready, Managing, Managed, ManagedFailed, Unmanaging, Unmanaged, UnmanagedFailed
 	Phase NodePhase `json:"phase,omitempty"`
 	// The result of cluster binding (note that the cluster in spec represents the desired state,
 	// while this field represents the actual outcome of the operation).
@@ -85,7 +85,7 @@ type NodeClusterStatus struct {
 type MachineStatus struct {
 	// The hostname of k8s node
 	HostName string `json:"hostName,omitempty"`
-	// The status of the physical node, such as Ready, SSHFailed, HostnameFailed
+	// The status of the physical node, e.g. Ready, SSHFailed, HostnameFailed
 	Phase NodePhase `json:"phase,omitempty"`
 	// The internalIP of k8s node
 	PrivateIP string `json:"privateIP,omitempty"`

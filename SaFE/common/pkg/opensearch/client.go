@@ -111,7 +111,7 @@ func (c *SearchClient) SearchByTimeRange(sinceTime, untilTime time.Time, uri str
 // Parameters:
 //
 //	uri: Full API path
-//	httpMethod: HTTP method (such as GET, POST, etc.)
+//	httpMethod: HTTP method (e.g. GET, POST, etc.)
 //	body: Request body data
 //
 // Returns:

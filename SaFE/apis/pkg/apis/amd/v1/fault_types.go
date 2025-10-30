@@ -40,7 +40,7 @@ type FaultSpec struct {
 }
 
 type FaultStatus struct {
-	// The status of fault, such as Succeeded, Failed
+	// The status of fault, e.g. Succeeded, Failed
 	Phase FaultPhase `json:"phase,omitempty"`
 	// The last update time of fault
 	UpdateTime *metav1.Time `json:"updateTime,omitempty"`
