@@ -294,13 +294,13 @@ func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, 
 // updateWorkspaceImageSecrets updates the image secrets associated with a workspace.
 // Retrieves secret objects by ID and updates the workspace's image secret references.
 func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1.Workspace, secretIds []string) error {
-	var imageSecrets []*corev1.ObjectReference
+	var imageSecrets []corev1.ObjectReference
 	for _, id := range secretIds {
 		secret, err := h.getAdminSecret(ctx, id)
 		if err != nil {
 			return err
 		}
-		imageSecrets = append(imageSecrets, commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
+		imageSecrets = append(imageSecrets, *commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
 	}
 	workspace.Spec.ImageSecrets = imageSecrets
 	return nil

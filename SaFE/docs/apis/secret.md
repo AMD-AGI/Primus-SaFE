@@ -8,7 +8,7 @@ Secret management API for managing SSH keys and image registry authentication in
 
 Create new SSH key or image registry secret.
 
-**Endpoint**: `POST /api/custom/secrets`
+**Endpoint**: `POST /api/v1/secrets`
 
 **Authentication Required**: Yes
 
@@ -110,7 +110,7 @@ Create new SSH key or image registry secret.
 
 Get secret list with type filtering support.
 
-**Endpoint**: `GET /api/custom/secrets`
+**Endpoint**: `GET /api/v1/secrets`
 
 **Authentication Required**: Yes
 
@@ -165,7 +165,7 @@ Get secret list with type filtering support.
 
 Get detailed information about a specific secret.
 
-**Endpoint**: `GET /api/custom/secrets/:name`
+**Endpoint**: `GET /api/v1/secrets/:name`
 
 **Authentication Required**: Yes
 
@@ -201,7 +201,7 @@ Get detailed information about a specific secret.
 
 Update secret authentication information or binding settings.
 
-**Endpoint**: `PATCH /api/custom/secrets/:name`
+**Endpoint**: `PATCH /api/v1/secrets/:name`
 
 **Authentication Required**: Yes
 
@@ -236,7 +236,7 @@ Update secret authentication information or binding settings.
 
 Delete a specific secret.
 
-**Endpoint**: `DELETE /api/custom/secrets/:name`
+**Endpoint**: `DELETE /api/v1/secrets/:name`
 
 **Authentication Required**: Yes
 

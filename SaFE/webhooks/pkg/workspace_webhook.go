@@ -400,7 +400,7 @@ func (m *WorkspaceMutator) mutateImageSecret(ctx context.Context, workspace *v1.
 			continue
 		}
 		workspace.Spec.ImageSecrets = append(workspace.Spec.ImageSecrets,
-			commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
+			*commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
 	}
 	return nil
 }

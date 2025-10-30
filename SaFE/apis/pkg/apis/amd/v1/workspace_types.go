@@ -68,7 +68,7 @@ type WorkspaceSpec struct {
 	// Set the workspace as the default workspace (i.e., all users can access it)
 	IsDefault bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images
-	ImageSecrets []*corev1.ObjectReference `json:"imageSecrets,omitempty"`
+	ImageSecrets []corev1.ObjectReference `json:"imageSecrets,omitempty"`
 }
 
 type WorkspaceVolume struct {
