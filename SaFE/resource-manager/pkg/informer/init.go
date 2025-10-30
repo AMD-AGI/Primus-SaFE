@@ -1,12 +1,18 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package informer
 
 import (
 	"context"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned"
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/informers/externalversions"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned"
+	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/informers/externalversions"
 )
 
 // InitInformer initializes Kubernetes informers for resource monitoring.

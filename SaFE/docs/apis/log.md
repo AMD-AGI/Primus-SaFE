@@ -6,7 +6,7 @@ Log query API provides log query capabilities for workloads and services.
 
 ### 1. Get Workload Logs
 
-Query aggregated workload logs (based on Elasticsearch).
+Query aggregated workload logs (based on OpenSearch).
 
 **Endpoint**: `POST /api/v1/workloads/{WorkloadId}/logs`
 
@@ -122,7 +122,7 @@ Query parameters are the same as above (Get Workload Logs).
 
 ### Keyword Search
 - Case sensitive
-- Supports `span_query` for open-search: spaces between keywords enable proximity searches within the text.
+- Supports `span_query` for OpenSearch: spaces between keywords enable proximity searches within the text.
 
 ### Limitations
 - Single query returns maximum 10,000 log lines
@@ -130,6 +130,6 @@ Query parameters are the same as above (Get Workload Logs).
 
 ## Notes
 
-- Log query function depends on open-search
+- Log query function depends on OpenSearch
 - Logs are retained for 30 days by default
 - Large log queries may impact performance

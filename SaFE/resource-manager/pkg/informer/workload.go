@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package informer
 
 import (
@@ -5,12 +10,13 @@ import (
 	"errors"
 	"fmt"
 
+	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/informers/externalversions"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/model"
-	"k8s.io/klog/v2"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // NewWorkloadInformer creates a new workload informer instance.
