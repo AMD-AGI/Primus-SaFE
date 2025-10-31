@@ -34,9 +34,7 @@ type TokenItem struct {
 	Expire   int64
 }
 
-// ParseCookie parses and validates the user token from cookie of header.
-// It first tries to parse from cookie, and if that fails, checks for header-based authentication
-// for internal users when token requirement is disabled. Returns an unauthorized error if validation fails.
+// ParseCookie parses the input data.
 func ParseCookie(c *gin.Context) error {
 	err := parseCookie(c)
 	if err != nil {
@@ -56,8 +54,11 @@ func ParseCookie(c *gin.Context) error {
 // Returns an error if the token is missing, invalid, or expired.
 func parseCookie(c *gin.Context) error {
 	tokenStr, err := c.Cookie(CookieToken)
-	if err != nil || tokenStr == "" {
-		return fmt.Errorf("http: cookie %s not present", CookieToken)
+	if err != nil {
+		tokenStr = getAuthToken(c)
+	}
+	if tokenStr == "" {
+		return fmt.Errorf("token not present")
 	}
 	token, err := validateToken(tokenStr)
 	if err != nil {
@@ -71,10 +72,21 @@ func parseCookie(c *gin.Context) error {
 	return nil
 }
 
-// validateToken decrypts and parses a token string into a TokenItem.
-// It validates the token format, decrypts it using the crypto module,
-// and ensures all parts are present and correctly formatted.
-// Returns the parsed TokenItem or an error if validation fails.
+// getAuthToken extracts the Bearer token from the Authorization header.
+// Returns the token string if valid, otherwise returns an empty string.
+func getAuthToken(c *gin.Context) string {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		return ""
+	}
+	return parts[1]
+}
+
+// validateToken validates Token and returns an error if validation fails.
 func validateToken(token string) (*TokenItem, error) {
 	inst := crypto.NewCrypto()
 	if inst == nil {

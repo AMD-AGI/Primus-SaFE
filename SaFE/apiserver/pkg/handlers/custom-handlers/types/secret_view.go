@@ -24,42 +24,42 @@ const (
 )
 
 type CreateSecretRequest struct {
-	// Used to generate the secret id, which will do normalization processing, such as lowercase
+	// Used to generate the secret ID, which will do normalization processing, e.g. lowercase
 	Name string `json:"name,omitempty"`
-	// The secret type, such as image, ssh
+	// Secret type, e.g. image, ssh
 	Type v1.SecretType `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
 	// the private key, public key and password need to be Base64 encoded.
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params []map[SecretParam]string `json:"params"`
-	// Whether to bind the secret to all workspaces
+	// Whether to bind the secret to all workspaces, only for image secret
 	BindAllWorkspaces bool `json:"bindAllWorkspaces,omitempty"`
 }
 
 type CreateSecretResponse struct {
-	// The secret id
+	// Secret ID
 	SecretId string `json:"secretId"`
 }
 
 type ListSecretRequest struct {
-	// The secret type, such as ssh, image
+	// Secret type, e.g. ssh, image
 	// if specifying multiple phase queries, separate them with commas
 	Type string `form:"type" binding:"omitempty"`
 }
 
 type ListSecretResponse struct {
-	// The total number of node templates, not limited by pagination
+	// The total number of secrets, not limited by pagination
 	TotalCount int                  `json:"totalCount"`
 	Items      []SecretResponseItem `json:"items,omitempty"`
 }
 
 type SecretResponseItem struct {
-	// The secret id
+	// Secret ID
 	SecretId string `json:"secretId"`
-	// The secret name
+	// Secret name
 	SecretName string `json:"secretName"`
-	// The secret type, such as ssh, image
+	// Secret type, e.g. ssh, image
 	Type string `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
 	Params []map[SecretParam]string `json:"params"`
@@ -85,6 +85,6 @@ type PatchSecretRequest struct {
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params *[]map[SecretParam]string `json:"params,omitempty"`
-	// Whether to bind the secret to all workspaces
+	// Whether to bind the secret to all workspaces, only for image secret
 	BindAllWorkspaces *bool `json:"bindAllWorkspaces,omitempty"`
 }

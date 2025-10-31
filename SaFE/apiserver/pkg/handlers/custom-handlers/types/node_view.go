@@ -14,53 +14,53 @@ import (
 )
 
 type CreateNodeRequest struct {
-	// Node hostname. If not specified, it will be assigned the value of PrivateIP
+	// Node hostname, uses privateIP if not specified
 	Hostname *string `json:"hostname,omitempty"`
 	// Node private ip, required
 	PrivateIP string `json:"privateIP"`
 	// Node public IP, accessible from external networks
 	PublicIP string `json:"publicIP,omitempty"`
-	// SSH port, default is 22
+	// SSH port, default 22
 	Port *int32 `json:"port,omitempty"`
 	// Node labels
 	Labels map[string]string `json:"labels,omitempty"`
-	// Associated node flavor id
+	// Associated node flavor ID
 	FlavorId string `json:"flavorId"`
-	// Associated node template id
+	// Associated node template ID (for addon installation)
 	TemplateId string `json:"templateId"`
-	// The secret id for ssh
+	// The secret ID for ssh
 	SSHSecretId string `json:"sshSecretId,omitempty"`
 }
 
 type CreateNodeResponse struct {
-	// The node id
+	// Node ID
 	NodeId string `json:"nodeId"`
 }
 
 type ListNodeRequest struct {
-	// Filter results by workspace id
+	// Filter results by workspace ID
 	WorkspaceId *string `form:"workspaceId" binding:"omitempty,max=64"`
-	// Filter results by cluster id
+	// Filter results by cluster ID
 	ClusterId *string `form:"clusterId" binding:"omitempty,max=64"`
-	// Filter results by node flavor id
+	// Filter results by node flavor ID
 	FlavorId *string `form:"flavorId" binding:"omitempty,max=64"`
-	// Filter results by node id
+	// Filter results by node ID
 	NodeId *string `form:"nodeId" binding:"omitempty,max=64"`
 	// Filter results based on node availability
 	Available *bool `form:"available" binding:"omitempty"`
-	// Filter results based on node phase, such as Ready, SSHFailed, HostnameFailed, Managing, ManagedFailed, Unmanaging, UnmanagedFailed
-	// If specifying multiple kind queries, separate them with commas
+	// Filter by status (comma-separated),  e.g. Ready, SSHFailed, HostnameFailed, Managing, ManagedFailed, Unmanaging, UnmanagedFailed
 	Phase *v1.NodePhase `form:"phase" binding:"omitempty"`
 	// Filter results based on whether the node has the addon installed
 	IsAddonsInstalled *bool `form:"isAddonsInstalled" binding:"omitempty"`
-	// If enabled, only the node id, node Name and node IP will be returned.
+	// If enabled, only the node ID, node Name and node IP will be returned.
 	Brief bool `form:"brief" binding:"omitempty"`
-	// Starting offset for the results. dfault: 0
+	// Starting offset for the results. default: 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
 	// Limit the number of returned results. default: 100, -1 for all
 	Limit int `form:"limit" binding:"omitempty"`
 }
 
+// GetWorkspaceId returns the workspace ID from the request.
 func (req *ListNodeRequest) GetWorkspaceId() string {
 	if req == nil || req.WorkspaceId == nil {
 		return ""
@@ -68,6 +68,7 @@ func (req *ListNodeRequest) GetWorkspaceId() string {
 	return *req.WorkspaceId
 }
 
+// GetClusterId returns the cluster ID from the request.
 func (req *ListNodeRequest) GetClusterId() string {
 	if req == nil || req.ClusterId == nil {
 		return ""
@@ -76,33 +77,33 @@ func (req *ListNodeRequest) GetClusterId() string {
 }
 
 type ListNodeBriefResponse struct {
-	// TotalCount indicates the total number of faults, not limited by pagination
+	// TotalCount indicates the total number of nodes, not limited by pagination
 	TotalCount int                     `json:"totalCount"`
 	Items      []NodeBriefResponseItem `json:"items"`
 }
 
 type NodeBriefResponseItem struct {
-	// node id
+	// Node ID
 	NodeId string `json:"nodeId"`
-	// node name
+	// Node name
 	NodeName string `json:"nodeName"`
-	// the internal ip of k8s cluster
+	// The internal ip of k8s cluster
 	InternalIP string `json:"internalIP"`
 }
 
 type ListNodeResponse struct {
-	// TotalCount indicates the total number of faults, not limited by pagination
+	// TotalCount indicates the total number of nodes, not limited by pagination
 	TotalCount int                `json:"totalCount"`
 	Items      []NodeResponseItem `json:"items"`
 }
 
 type NodeResponseItem struct {
 	NodeBriefResponseItem
-	// The cluster id of node
+	// The cluster ID of node
 	ClusterId string `json:"clusterId"`
-	// The workspace id and name of node
+	// The workspace ID and name of node
 	Workspace WorkspaceEntry `json:"workspace"`
-	// The node phase, such as Ready, SSHFailed, HostnameFailed, Managing, ManagedFailed, Unmanaging, UnmanagedFailed
+	// Node phase, e.g. Ready, SSHFailed, HostnameFailed, Managing, ManagedFailed, Unmanaging, UnmanagedFailed
 	Phase string `json:"phase"`
 	// Indicates whether the node can be scheduled in the Kubernetes cluster.
 	Available bool `json:"available"`
@@ -112,34 +113,34 @@ type NodeResponseItem struct {
 	TotalResources ResourceList `json:"totalResources"`
 	// Available resource of node
 	AvailResources ResourceList `json:"availResources"`
-	// Creation timestamp of the node
+	// Creation timestamp of the node (RFC3339Short)
 	CreationTime string `json:"creationTime"`
 	// Running workloads information on the node
 	Workloads []WorkloadInfo `json:"workloads"`
 	// Indicates whether the node is the control plane node in the Kubernetes cluster.
 	IsControlPlane bool `json:"isControlPlane"`
-	// Indicates whether the addons of node template are installed.
+	// Indicates whether the addons of node-template are installed.
 	IsAddonsInstalled bool `json:"isAddonsInstalled"`
 }
 
 type GetNodeResponse struct {
 	NodeResponseItem
-	// The node flavor id
+	// Node flavor ID
 	FlavorId string `json:"flavorId"`
-	// The node template id
+	// Node template ID
 	TemplateId string `json:"templateId"`
 	// The taints on node
 	Taints []corev1.Taint `json:"taints"`
 	// The labels by customer
-	CustomerLabels map[string]string `json:"customerLabels"`
-	// The last startup time on node
+	Labels map[string]string `json:"labels"`
+	// The last startup time on node (RFC3339Short)
 	LastStartupTime string `json:"lastStartupTime"`
 }
 
 type WorkloadInfo struct {
-	// Workload id
+	// Workload ID
 	Id string `json:"id"`
-	// User id of the workload submitter
+	// User ID of the workload submitter
 	UserId string `json:"userId"`
 	// Workspace that the workload belongs to
 	WorkspaceId string `json:"workspaceId"`
@@ -150,9 +151,9 @@ type PatchNodeRequest struct {
 	Taints *[]corev1.Taint `json:"taints,omitempty"`
 	// Labels to modify on the node.
 	Labels *map[string]string `json:"labels,omitempty"`
-	// Node Flavor id to modify on the node.
+	// Node Flavor ID to modify on the node.
 	FlavorId *string `json:"flavorId,omitempty"`
-	// Node Template id to modify on the node.
+	// Node Template ID to modify on the node.
 	TemplateId *string `json:"templateId,omitempty"`
 	// Node port for ssh
 	Port *int32 `json:"port,omitempty"`
@@ -163,7 +164,7 @@ type PatchNodeRequest struct {
 type GetNodePodLogResponse struct {
 	// The cluster that the node belongs to
 	ClusterId string `json:"clusterId"`
-	// The Node id
+	// Node ID
 	NodeId string `json:"nodeId"`
 	// Pod id used to create the node
 	PodId string `json:"podId"`
@@ -172,23 +173,23 @@ type GetNodePodLogResponse struct {
 }
 
 type ListNodeRebootLogRequest struct {
-	// Start timestamp of the query
+	// Start timestamp of the query (RFC3339)
 	SinceTime time.Time `form:"sinceTime" binding:"omitempty"`
-	// End timestamp of the query
+	// End timestamp of the query (RFC3339)
 	UntilTime time.Time `form:"untilTime" binding:"omitempty"`
-	// Starting offset for the results. dfault is 0
+	// Starting offset for the results. default 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
-	// Limit the number of returned results. default is 100
+	// Limit the number of returned results. default 100
 	// If set to -1, all results will be returned.
 	Limit int `form:"limit" binding:"omitempty"`
-	// Sort results by the specified field. default is create_time
+	// Sort results by the specified field. default create_time
 	SortBy string `form:"sortBy" binding:"omitempty"`
 	// The sorting order. Valid values are "desc" (default) or "asc"
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
 }
 
 type ListNodeRebootLogResponse struct {
-	// TotalCount indicates the total number of faults, not limited by pagination
+	// TotalCount indicates the total number of nodes, not limited by pagination
 	TotalCount int                         `json:"totalCount"`
 	Items      []NodeRebootLogResponseItem `json:"items"`
 }

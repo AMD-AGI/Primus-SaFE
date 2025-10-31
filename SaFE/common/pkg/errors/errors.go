@@ -21,11 +21,6 @@ type Error struct {
 }
 
 // Error implements the error interface and returns a formatted error string.
-// If InnerError exists, it includes the inner error details along with code, message and stack trace.
-// Otherwise, it returns code, message and full stack trace information.
-//
-// Returns:
-//   - string: Formatted error string containing all error details
 func (e *Error) Error() string {
 	if e.InnerError == nil {
 		return fmt.Sprintf(" code %s.message %s \nstack %s", e.Code, e.Message, e.GetStackString())
@@ -34,11 +29,6 @@ func (e *Error) Error() string {
 }
 
 // GetTopStackString returns the top frame of the stack trace as a formatted string.
-// It extracts file name, line number, and function name from the first stack frame.
-// The function name is simplified by removing package path prefix.
-//
-// Returns:
-//   - string: Formatted string in format "filename:line functionName
 func (e *Error) GetTopStackString() string {
 	if len(e.Stack) == 0 {
 		return ""
@@ -56,11 +46,6 @@ func (e *Error) GetTopStackString() string {
 }
 
 // GetStackString returns the complete stack trace as a formatted string.
-// It iterates through all stack frames and formats each with file name, line number and function name.
-// Function names are simplified by removing package path prefixes.
-//
-// Returns:
-//   - string: Formatted string containing all stack frames, one per lin
 func (e *Error) GetStackString() string {
 	result := ""
 	for _, frame := range e.Stack {
@@ -78,39 +63,18 @@ func (e *Error) GetStackString() string {
 }
 
 // WithCode sets the error code and returns the Error instance for chaining.
-// Enables fluent interface pattern for setting error properties.
-//
-// Parameters:
-//   - code: Error code string for categorizing the error
-//
-// Returns:
-//   - *Error: Pointer to the current Error instance
 func (e *Error) WithCode(code string) *Error {
 	e.Code = code
 	return e
 }
 
 // WithMessage sets the error message and returns the Error instance for chaining.
-// Enables fluent interface pattern for setting error properties.
-//
-// Parameters:
-//   - message: Human-readable error message
-//
-// Returns:
-//   - *Error: Pointer to the current Error instance
 func (e *Error) WithMessage(message string) *Error {
 	e.Message = message
 	return e
 }
 
 // WithError sets the inner error and returns the Error instance for chaining.
-// Enables fluent interface pattern for wrapping underlying errors.
-//
-// Parameters:
-//   - err: The underlying error to wrap
-//
-// Returns:
-//   - *Error: Pointer to the current Error instance
 func (e *Error) WithError(err error) *Error {
 	e.InnerError = err
 	return e

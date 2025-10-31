@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package topic
 
 import (
@@ -13,6 +18,7 @@ type Topic interface {
 	Filter(data map[string]interface{}) bool
 }
 
+// NewTopics creates and returns all supported notification topics.
 func NewTopics() map[string]Topic {
 	topics := make(map[string]Topic)
 	workloadTopic := &workload.Topic{}

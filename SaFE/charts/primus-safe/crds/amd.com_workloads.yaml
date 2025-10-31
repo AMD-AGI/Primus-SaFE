@@ -48,11 +48,12 @@ spec:
                   properties:
                     action:
                       description: The action to take when the schedule is triggered.
-                        such as start or scale
+                        e.g. start or scale
                       type: string
                     schedule:
-                      description: Scheduled execution time, such as "2025-09-30T16:04:00.000Z"
-                        or "0 3 * * *"
+                      description: |-
+                        Scheduled execution time, e.g. "2025-09-30T16:04:00.000Z" or "0 3 * * *"
+                        Note: Only minute-level input is supported; seconds are not supported.
                       type: string
                   required:
                   - action
@@ -86,7 +87,7 @@ spec:
                 description: |-
                   Group: An extension field that is not currently in use
                   Version: version of workload, default value is v1
-                  Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default is PyTorchJob
+                  Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default PyTorchJob
                 properties:
                   group:
                     type: string
@@ -119,19 +120,19 @@ spec:
                 description: K8s liveness check. used for deployment/statefulSet
                 properties:
                   failureThreshold:
-                    description: Failure retry limit. default is 3
+                    description: Failure retry limit. default 3
                     type: integer
                   initialDelaySeconds:
-                    description: Initial delay seconds. default is 600s
+                    description: Initial delay seconds. default 600s
                     type: integer
                   path:
-                    description: The path for health check
+                    description: Liveness probe HTTP path
                     type: string
                   periodSeconds:
-                    description: Period check interval. default is 3s
+                    description: Period check interval. default 3s
                     type: integer
                   port:
-                    description: Service port for health detect
+                    description: Liveness probe port
                     type: integer
                 required:
                 - path
@@ -148,19 +149,19 @@ spec:
                 description: K8s readiness check. used for deployment/statefulSet
                 properties:
                   failureThreshold:
-                    description: Failure retry limit. default is 3
+                    description: Failure retry limit. default 3
                     type: integer
                   initialDelaySeconds:
-                    description: Initial delay seconds. default is 600s
+                    description: Initial delay seconds. default 600s
                     type: integer
                   path:
-                    description: The path for health check
+                    description: Liveness probe HTTP path
                     type: string
                   periodSeconds:
-                    description: Period check interval. default is 3s
+                    description: Period check interval. default 3s
                     type: integer
                   port:
-                    description: Service port for health detect
+                    description: Liveness probe port
                     type: integer
                 required:
                 - path
@@ -173,7 +174,7 @@ spec:
                     description: Requested CPU core count (e.g., 128)
                     type: string
                   ephemeralStorage:
-                    description: Ephemeral-storage for pod. Default is 50Gi
+                    description: Ephemeral-storage for pod. default 50Gi
                     type: string
                   gpu:
                     description: Requested GPU card count (e.g., 8)
@@ -210,19 +211,19 @@ spec:
                     description: Extended environment variable
                     type: object
                   nodePort:
-                    description: K8s node port
+                    description: Service NodePort (for NodePort type)
                     type: integer
                   port:
                     description: Service port for external access
                     type: integer
                   protocol:
-                    description: TCP/UDP
+                    description: Service protocol, e.g. TCP/UDP, default TCP
                     type: string
                   serviceType:
-                    description: The type of service, such as ClusterIP, NodePort
+                    description: Service type, e.g. ClusterIP/NodePort/LoadBalancer
                     type: string
                   targetPort:
-                    description: Pod service listening port
+                    description: Target container port
                     type: integer
                 required:
                 - port
@@ -234,11 +235,11 @@ spec:
                 description: The port for ssh, This field is set internally
                 type: integer
               timeout:
-                description: Workload timeout in seconds. Default is 0 (no timeout).
+                description: Workload timeout in seconds. default 0 (no timeout).
                 type: integer
               ttlSecondsAfterFinished:
                 description: The lifecycle of the workload after completion, in seconds.
-                  Default is 60.
+                  default 60.
                 type: integer
               workspace:
                 description: Requested workspace id
@@ -332,7 +333,7 @@ spec:
                   type: array
                 type: array
               phase:
-                description: The status of workload, such as Pending, Running, Succeeded,
+                description: The status of workload, e.g. Pending, Running, Succeeded,
                   Failed, Stopped, Updating
                 type: string
               pods:
@@ -343,7 +344,7 @@ spec:
                       description: The admin node that the Pod is scheduled on
                       type: string
                     containers:
-                      description: Container info
+                      description: The Container info of pod
                       items:
                         properties:
                           exitCode:

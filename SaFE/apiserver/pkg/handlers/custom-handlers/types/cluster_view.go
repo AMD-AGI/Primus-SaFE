@@ -11,11 +11,11 @@ import (
 
 type CreateClusterRequest struct {
 	v1.ControlPlane
-	// The cluster name specified by the user
+	// Cluster name specified by the user
 	Name string `json:"name"`
-	// The cluster description
+	// Cluster description
 	Description string `json:"description,omitempty"`
-	// The SSH secret id specified by the user, which must exist, used for node SSH login.
+	// The SSH secret ID specified by the user, which must exist, used for node SSH login.
 	SSHSecretId string `json:"sshSecretId,omitempty"`
 	// The labels for cluster
 	Labels map[string]string `json:"labels,omitempty"`
@@ -24,59 +24,59 @@ type CreateClusterRequest struct {
 }
 
 type CreateClusterResponse struct {
-	// The cluster id
+	// Cluster ID
 	ClusterId string `json:"clusterId"`
 }
 
 type ListClusterResponse struct {
-	// The total number of clusters, not limited by pagination
+	// The total number of clusters
 	TotalCount int                   `json:"totalCount"`
 	Items      []ClusterResponseItem `json:"items"`
 }
 
 type ClusterResponseItem struct {
-	// The cluster id
+	// Cluster ID
 	ClusterId string `json:"clusterId"`
-	// User id who created the cluster.
+	// User ID who created the cluster.
 	UserId string `json:"userId"`
-	// The cluster status, such as Ready,Creating,Failed,Deleting
+	// Cluster status, e.g. Ready,Creating,Failed,Deleting
 	Phase string `json:"phase"`
 	// Whether the cluster is under protection
 	IsProtected bool `json:"isProtected"`
-	// The Cluster creation time, such as "2025-07-08T10:31:46"
+	// Cluster creation time(RFC3339Short), e.g. "2025-07-08T10:31:46"
 	CreationTime string `json:"creationTime"`
 }
 
 type GetClusterResponse struct {
 	ClusterResponseItem
-	// The cluster description
+	// Cluster description
 	Description string `json:"description"`
-	// The endpoint of cluster control plane. such as "10.0.0.1:443"
+	// The endpoint of cluster control plane. e.g. "10.0.0.1:443"
 	Endpoint string `json:"endpoint"`
-	// The secret id for node ssh specified by the user
+	// The secret ID for node ssh specified by the user
 	SSHSecretId string `json:"sshSecretId"`
-	// The secret id for pulling image specified by the user
+	// The secret ID for pulling image specified by the user
 	ImageSecretId string `json:"imageSecretId"`
 	// The nodes of control plane
 	Nodes []string `json:"nodes"`
-	// KubeSpray image name used for installation. such as "docker.io/your-group/kubespray:20200530"
+	// KubeSpray image name used for installation. e.g. "docker.io/your-group/kubespray:20200530"
 	KubeSprayImage *string `json:"kubeSprayImage,omitempty"`
-	// Subnet configuration, such as "10.0.0.0/16"
+	// Subnet configuration, e.g. "10.0.0.0/16"
 	KubePodsSubnet *string `json:"kubePodsSubnet,omitempty"`
-	// Service Address configuration, such as "10.254.0.0/16"
+	// Service Address configuration, e.g. "10.254.0.0/16"
 	KubeServiceAddress *string `json:"kubeServiceAddress,omitempty"`
-	// Network plugin, default is flannel
+	// Network plugin, default flannel
 	KubeNetworkPlugin *string `json:"kubeNetworkPlugin,omitempty"`
-	// Kubernetes version, such as "1.32.5"
+	// Kubernetes version, e.g. "1.32.5"
 	KubeVersion *string `json:"kubernetesVersion,omitempty"`
 	// Some settings for Kubernetes
 	KubeApiServerArgs map[string]string `json:"kubeApiServerArgs,omitempty"`
 }
 
 type ProcessNodesRequest struct {
-	// List of node ids to operate on.
+	// List of node IDs to operate on.
 	NodeIds []string `json:"nodeIds"`
-	// The action taken on the node of cluster, such as add or remove
+	// Action type: add/remove
 	Action string `json:"action"`
 }
 
@@ -88,15 +88,15 @@ type ProcessNodesResponse struct {
 }
 
 type GetClusterPodLogResponse struct {
-	// The cluster id
+	// Cluster ID
 	ClusterId string `json:"clusterId"`
-	// Pod id used to create the cluster.
+	// Pod ID used to create the cluster.
 	PodId string `json:"podId"`
 	// An array of log lines, returned in the same order as they appear in the original logs
 	Logs []string `json:"logs"`
 }
 
 type PatchClusterRequest struct {
-	// Whether the cluster is under protection, empty means do nothing
+	// Whether Cluster is under protection, empty means do nothing
 	IsProtected *bool `json:"isProtected,omitempty"`
 }

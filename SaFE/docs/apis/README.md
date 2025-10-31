@@ -9,8 +9,8 @@ Welcome to the Primus-SaFE API documentation. This documentation provides comple
 
 ### Core Business APIs
 
-#### Workload Management
-- [workload.md](./workload.md) - Workload API (training, inference, deployment)
+#### Resource Management
+- [workload.md](./workload.md) - Workload API
 - [cluster.md](./cluster.md) - Cluster API
 - [workspace.md](./workspace.md) - Workspace API
 
@@ -27,7 +27,6 @@ Welcome to the Primus-SaFE API documentation. This documentation provides comple
 #### Operations
 - [fault.md](./fault.md) - Fault Injection API
 - [ops-job.md](./ops-job.md) - Operational Job API
-- [service.md](./service.md) - Service API
 - [log.md](./log.md) - Log Query API
 
 ### Image Management APIs
@@ -43,7 +42,7 @@ Welcome to the Primus-SaFE API documentation. This documentation provides comple
 
 ```bash
 # Register user
-curl -X POST http://api.example.com/api/custom/users \
+curl -X POST http://api.example.com/api/v1/users \
   -H "Content-Type: application/json" \
   -d '{
     "name": "zhangsan",
@@ -52,7 +51,7 @@ curl -X POST http://api.example.com/api/custom/users \
   }'
 
 # Login to get token
-curl -X POST http://api.example.com/api/custom/login \
+curl -X POST http://api.example.com/api/v1/login \
   -H "Content-Type: application/json" \
   -d '{
     "name": "zhangsan",
@@ -63,7 +62,7 @@ curl -X POST http://api.example.com/api/custom/login \
 ### 2. Create Workload
 
 ```bash
-curl -X POST http://api.example.com/api/custom/workloads \
+curl -X POST http://api.example.com/api/v1/workloads \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -74,6 +73,7 @@ curl -X POST http://api.example.com/api/custom/workloads \
       "version": "v1"
     },
     "image": "pytorch/pytorch:2.0",
+    "entryPoint": "YmFzaCBydW4uc2gK",
     "resource": {
       "cpu": "16",
       "gpu": "2",
@@ -86,7 +86,7 @@ curl -X POST http://api.example.com/api/custom/workloads \
 ### 3. Query Workload Status
 
 ```bash
-curl -X GET "http://api.example.com/api/custom/workloads?workspaceId=workspace-001" \
+curl -X GET "http://api.example.com/api/v1/workloads?workspaceId=workspace-001" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
@@ -115,8 +115,8 @@ API error response format:
 
 ```json
 {
-  "code": 400,
-  "message": "Detailed error message"
+  "errorCode": "Primus.xxx",
+  "errorMessage": ""
 }
 ```
 
@@ -130,8 +130,7 @@ Common error codes:
 ## Best Practices
 
 ### 1. Resource Naming
-- Use meaningful names
-- Avoid special characters
+- Use DNS-compliant names: letters, numbers, and hyphens only
 - Maintain consistent naming style
 
 ### 2. Error Retry
@@ -147,91 +146,17 @@ Common error codes:
 - Use batch interfaces for batch operations
 - Avoid large number of requests in short time
 
-## Code Examples
-
-### Python
-
-```python
-import requests
-
-# Login
-response = requests.post(
-    'http://api.example.com/api/custom/login',
-    json={'name': 'zhangsan', 'password': 'Password123!'}
-)
-token = response.json()['token']
-
-# Create workload
-headers = {'Authorization': f'Bearer {token}'}
-workload = {
-    'displayName': 'my-job',
-    'workspaceId': 'workspace-001',
-    'groupVersionKind': {'kind': 'PyTorchJob', 'version': 'v1'},
-    'image': 'pytorch/pytorch:2.0',
-    'resource': {'cpu': '16', 'gpu': '2', 'memory': '64Gi', 'replica': 1}
-}
-response = requests.post(
-    'http://api.example.com/api/custom/workloads',
-    headers=headers,
-    json=workload
-)
-print(response.json())
-```
-
-### Go
-
-```go
-package main
-
-import (
-    "bytes"
-    "encoding/json"
-    "net/http"
-)
-
-type LoginRequest struct {
-    Name     string `json:"name"`
-    Password string `json:"password"`
-}
-
-type LoginResponse struct {
-    Token string `json:"token"`
-}
-
-func main() {
-    // Login
-    loginReq := LoginRequest{Name: "zhangsan", Password: "Password123!"}
-    body, _ := json.Marshal(loginReq)
-    
-    resp, _ := http.Post(
-        "http://api.example.com/api/custom/login",
-        "application/json",
-        bytes.NewBuffer(body),
-    )
-    
-    var loginResp LoginResponse
-    json.NewDecoder(resp.Body).Decode(&loginResp)
-    
-    // Use token to access API
-    req, _ := http.NewRequest("GET", "http://api.example.com/api/custom/workloads", nil)
-    req.Header.Set("Authorization", "Bearer "+loginResp.Token)
-    
-    client := &http.Client{}
-    client.Do(req)
-}
-```
 
 ## Changelog
 
-- **2025-01** - Initial release
+- **2025-10** - Initial release
 
 ## Getting Help
 
 For questions, please:
 1. Check relevant sections in this documentation
-2. Contact technical support: support@amd.com
-3. Submit issues: [GitHub Issues](https://github.com/AMD-AIG-AIMA/SAFE/issues)
+2. Submit issues: [GitHub Issues](https://github.com/AMD-AGI/Primus-SaFE)
 
 ## License
 
-Copyright (C) 2025 Advanced Micro Devices, Inc. All rights reserved.
+Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.

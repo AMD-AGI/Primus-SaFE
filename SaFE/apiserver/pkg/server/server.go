@@ -55,9 +55,7 @@ type Server struct {
 	isInited    bool
 }
 
-// NewServer creates and initializes a new Server instance.
-// It sets up the signal handler context and calls the init method to configure the server.
-// Returns the initialized Server or an error if initialization fails.
+// NewServer creates and returns a new Server instance.
 func NewServer() (*Server, error) {
 	s := &Server{
 		opts: &options.Options{},

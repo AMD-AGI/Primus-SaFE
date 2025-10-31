@@ -97,7 +97,7 @@ func (m *CronJobManager) addOrReplace(workload *v1.Workload) {
 }
 
 // remove stops and removes all cron jobs associated with a workload ID
-// It locks the manager, stops all cron jobs, and removes them from the internal map
+// It locks the manager, stops all cron jobs, and removes them from the internal map.
 func (m *CronJobManager) remove(workloadId string) {
 	m.Lock()
 	defer m.Unlock()
@@ -121,7 +121,6 @@ func (m *CronJobManager) removeInternal(workloadId string) {
 // It performs the action specified in the cron job configuration.
 // Currently, it supports v1.CronStart action to resume suspended workloads.
 // Any errors during execution are logged using klog.
-
 func (cj *CronJob) execute() {
 	var err error
 	switch cj.config.Action {

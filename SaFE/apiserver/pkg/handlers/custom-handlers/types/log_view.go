@@ -15,27 +15,25 @@ const (
 
 // The query input by the user for searching logs
 type ListLogInput struct {
-	// Start timestamp of the query, default is one day ago. e.g.: '2006-01-02T15:04:05.000Z'
+	// Start timestamp of the query (RFC3339 with milliseconds),
+	// default depends on workload creation time or last 7 days.
+	// e.g.: '2006-01-02T15:04:05.000Z'
 	Since string `json:"since,omitempty"`
-	// End timestamp of the query, default is current time.
+	// End timestamp of the query (RFC3339 with milliseconds), default now
 	Until string `json:"until,omitempty"`
-	// Starting offset for the results, default is 0
+	// Pagination offset, default 0; must be >= 0 and < max docs(10000)
 	Offset int `json:"offset,omitempty"`
-	// The maximum number of returned results, default is 100
+	// Page size, default 100; constrained by max docs-per-query
 	Limit int `json:"limit,omitempty"`
-	// The sorting order. Valid values are "desc" (default) or "asc"
+	// Time sort order: asc/desc; default asc
 	Order string `json:"order,omitempty"`
-	// Search for the given keywords. Multiple entries are treated as AND conditions.
-	// Example: ["key1", "key2"]
+	// Search for the given keywords. And Search. e.g. ["key1", "key2"]
 	Keywords []string `json:"keywords,omitempty"`
-	// Use the specified pod names for filtering.
-	// Multiple entries are separated by commas, and treated as OR conditions
+	// Filter by pod names (comma-separated, OR filter)
 	PodNames string `json:"podNames,omitempty"`
-	// Run number to filter by. Default 0 means all
+	// Filter by workload dispatch/run number; 0 means all
 	DispatchCount int `json:"dispatchCount,omitempty"`
-	// Kubernetes node name used for filtering.
-	// Multiple entries are separated by commas, and treated as OR conditions
-	// If both PodNames and NodeNames are set, only PodNames will take effect.
+	// Filter by node names (comma-separated, OR filter); ignored if podNames is set
 	NodeNames string `json:"nodeNames,omitempty"`
 }
 
@@ -57,6 +55,6 @@ type ListContextLogRequest struct {
 	Id int
 	// The maximum number of returned results
 	Limit int
-	// Input the specified document id to retrieve the log context of that document.
+	// Input the specified document ID to retrieve the log context of that document.
 	DocId string
 }

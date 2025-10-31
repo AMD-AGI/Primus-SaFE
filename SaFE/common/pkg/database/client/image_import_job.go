@@ -16,6 +16,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 )
 
+// GetImageImportJobByJobName returns the ImageImportJobByJobName value.
 func (c *Client) GetImageImportJobByJobName(ctx context.Context, jobName string) (*model.ImageImportJob, error) {
 	q := dal.Use(c.gorm).ImageImportJob
 	item, err := q.WithContext(ctx).Where(q.JobName.Eq(jobName)).First()
@@ -28,6 +29,7 @@ func (c *Client) GetImageImportJobByJobName(ctx context.Context, jobName string)
 	return item, nil
 }
 
+// GetImageImportJobByTag returns the ImageImportJobByTag value.
 func (c *Client) GetImageImportJobByTag(ctx context.Context, tag string) (*model.ImageImportJob, error) {
 	q := dal.Use(c.gorm).ImageImportJob
 	item, err := q.WithContext(ctx).Where(q.DstName.Eq(tag)).First()
@@ -40,6 +42,7 @@ func (c *Client) GetImageImportJobByTag(ctx context.Context, tag string) (*model
 	return item, nil
 }
 
+// GetImageImportJobByID returns the ImageImportJobByID value.
 func (c *Client) GetImageImportJobByID(ctx context.Context, id int32) (*model.ImageImportJob, error) {
 	q := dal.Use(c.gorm).ImageImportJob
 	item, err := q.WithContext(ctx).Where(q.ID.Eq(id)).First()
@@ -52,6 +55,7 @@ func (c *Client) GetImageImportJobByID(ctx context.Context, id int32) (*model.Im
 	return item, nil
 }
 
+// UpsertImageImportJob performs the UpsertImageImportJob operation.
 func (c *Client) UpsertImageImportJob(ctx context.Context, job *model.ImageImportJob) error {
 	exist, err := c.GetImageImportJobByID(ctx, job.ID)
 	if err != nil {
@@ -72,6 +76,7 @@ func (c *Client) UpsertImageImportJob(ctx context.Context, job *model.ImageImpor
 	return nil
 }
 
+// GetImportImageByImageID returns the ImportImageByImageID value.
 func (c *Client) GetImportImageByImageID(ctx context.Context, imageID int32) (*model.ImageImportJob, error) {
 	q := dal.Use(c.gorm).ImageImportJob
 	item, err := q.WithContext(ctx).Where(q.ImageID.Eq(imageID)).First()
@@ -84,6 +89,7 @@ func (c *Client) GetImportImageByImageID(ctx context.Context, imageID int32) (*m
 	return item, nil
 }
 
+// UpdateImageImportJob updates the specified resource.
 func (c *Client) UpdateImageImportJob(ctx context.Context, job *model.ImageImportJob) error {
 	err := dal.Use(c.gorm).ImageImportJob.WithContext(ctx).Save(job)
 	if err != nil {

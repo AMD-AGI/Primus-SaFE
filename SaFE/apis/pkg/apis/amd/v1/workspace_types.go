@@ -68,7 +68,7 @@ type WorkspaceSpec struct {
 	// Set the workspace as the default workspace (i.e., all users can access it)
 	IsDefault bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images
-	ImageSecrets []*corev1.ObjectReference `json:"imageSecrets,omitempty"`
+	ImageSecrets []corev1.ObjectReference `json:"imageSecrets,omitempty"`
 }
 
 type WorkspaceVolume struct {
@@ -85,14 +85,14 @@ type WorkspaceVolume struct {
 	HostPath string `json:"hostPath,omitempty"`
 
 	// The following parameters are used for PVC creation. If using hostPath mounting, they are not required.
-	// Capacity size, such as 100Gi. This is a required parameter when creating a PVC (PersistentVolumeClaim).
+	// Capacity size, e.g. 100Gi. This is a required parameter when creating a PVC (PersistentVolumeClaim).
 	Capacity string `json:"capacity,omitempty"`
 	// selector is a label query over volumes to consider for binding.
 	// It cannot be used together with storageClass. If both are set, the selector takes priority
 	Selector map[string]string `json:"selector,omitempty"`
 	// Responsible for automatic PV creation
 	StorageClass string `json:"storageClass,omitempty"`
-	// access mode, default is ReadWriteMany
+	// access mode, default ReadWriteMany
 	AccessMode corev1.PersistentVolumeAccessMode `json:"accessMode,omitempty"`
 	// equivalent to 'subPath' in Kubernetes volume mounts
 	// +optional
@@ -100,7 +100,7 @@ type WorkspaceVolume struct {
 }
 
 type WorkspaceStatus struct {
-	// The status of workspace, such as Creating, Running, Abnormal, Deleting
+	// The status of workspace, e.g. Creating, Running, Abnormal, Deleting
 	Phase WorkspacePhase `json:"phase,omitempty"`
 	// The total resource of workspace
 	TotalResources corev1.ResourceList `json:"totalResources,omitempty"`
@@ -144,6 +144,7 @@ func init() {
 	SchemeBuilder.Register(&Workspace{}, &WorkspaceList{})
 }
 
+// IsEnd returns true if the fault has ended (completed or failed).
 func (w *Workspace) IsEnd() bool {
 	if w.Status.Phase == WorkspaceRunning || w.Status.Phase == WorkspaceAbnormal {
 		return true
@@ -151,6 +152,7 @@ func (w *Workspace) IsEnd() bool {
 	return false
 }
 
+// IsAbnormal returns true if the condition is met.
 func (w *Workspace) IsAbnormal() bool {
 	if w.Status.Phase == WorkspaceAbnormal {
 		return true
@@ -158,6 +160,7 @@ func (w *Workspace) IsAbnormal() bool {
 	return false
 }
 
+// IsPending returns true if the operations job is pending execution.
 func (w *Workspace) IsPending() bool {
 	if w.Status.Phase == "" || w.Status.Phase == WorkspaceCreating {
 		return true
@@ -165,6 +168,7 @@ func (w *Workspace) IsPending() bool {
 	return false
 }
 
+// IsEnableFifo returns true if the condition is met.
 func (w *Workspace) IsEnableFifo() bool {
 	if w.Spec.QueuePolicy == "" || w.Spec.QueuePolicy == QueueFifoPolicy {
 		return true
@@ -172,6 +176,7 @@ func (w *Workspace) IsEnableFifo() bool {
 	return false
 }
 
+// CurrentReplica returns the current number of replicas in the workspace.
 func (w *Workspace) CurrentReplica() int {
 	return w.Status.AvailableReplica + w.Status.AbnormalReplica
 }

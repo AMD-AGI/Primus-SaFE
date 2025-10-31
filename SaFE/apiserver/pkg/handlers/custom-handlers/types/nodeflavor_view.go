@@ -13,24 +13,24 @@ import (
 )
 
 type CreateNodeFlavorRequest struct {
-	// Used to generate the node flavor id, which will do normalization processing, such as lowercase
+	// Used to generate the node flavor ID, which will do normalization processing, e.g. lowercase
 	Name string `json:"name"`
 	v1.NodeFlavorSpec
 }
 
 type CreateNodeFlavorResponse struct {
-	// The node flavor id
+	// Node flavor ID
 	FlavorId string `json:"flavorId"`
 }
 
 type ListNodeFlavorResponse struct {
-	// The total number of node flavors, not limited by pagination
+	// The total number of node flavors
 	TotalCount int                      `json:"totalCount"`
 	Items      []NodeFlavorResponseItem `json:"items"`
 }
 
 type NodeFlavorResponseItem struct {
-	// The node flavor id
+	// Node flavor ID
 	FlavorId string `json:"flavorId"`
 	v1.NodeFlavorSpec
 }

@@ -28,7 +28,7 @@ const (
 	DependencyReason = "Dependency cannot be satisfied"
 )
 
-// NodeWrapper: wraps a node with its available resources and scoring for scheduling decisions
+// NodeWrapper wraps a node with its available resources and scoring for scheduling decisions
 type NodeWrapper struct {
 	// The underlying node object
 	node *v1.Node
@@ -38,7 +38,7 @@ type NodeWrapper struct {
 	resourceScore float64
 }
 
-// getAvailableResourcesPerNode: Get the remaining resources on each node in the current workspace.
+// getAvailableResourcesPerNode Get the remaining resources on each node in the current workspace.
 // The returned map has keys of node name and values representing the available resource.
 func getAvailableResourcesPerNode(ctx context.Context, cli client.Client,
 	requestWorkload *v1.Workload, runningWorkloads []*v1.Workload) ([]NodeWrapper, error) {
@@ -87,7 +87,7 @@ func getAvailableResourcesPerNode(ctx context.Context, cli client.Client,
 	return result, nil
 }
 
-// buildReason: constructs a reason message for workload scheduling failure
+// buildReason constructs a reason message for workload scheduling failure.
 func buildReason(workload *v1.Workload, podResources corev1.ResourceList, nodes []*NodeWrapper) string {
 	reason := ""
 	if len(nodes) == 0 {
@@ -108,7 +108,7 @@ func buildReason(workload *v1.Workload, podResources corev1.ResourceList, nodes 
 	return reason
 }
 
-// formatResourceName: formats resource names for display purposes
+// formatResourceName formats resource names for display purposes.
 func formatResourceName(key string) string {
 	if key == common.NvidiaGpu || key == common.AmdGpu {
 		return "gpu"
@@ -116,7 +116,7 @@ func formatResourceName(key string) string {
 	return key
 }
 
-// isMatchNodeLabel: checks if a node matches the workload's customer labels
+// isMatchNodeLabel checks if a node matches the workload's customer labels.
 func isMatchNodeLabel(node *v1.Node, workload *v1.Workload) bool {
 	for key, val := range workload.Spec.CustomerLabels {
 		if key == common.K8sHostName {
@@ -131,7 +131,7 @@ func isMatchNodeLabel(node *v1.Node, workload *v1.Workload) bool {
 	return true
 }
 
-// buildResourceWeight: calculates resource weight score for node selection
+// buildResourceWeight calculates resource weight score for node selection.
 func buildResourceWeight(workload *v1.Workload, resources corev1.ResourceList, nodeFlavor *v1.NodeFlavor) float64 {
 	if workload == nil {
 		return 0
@@ -155,17 +155,19 @@ func buildResourceWeight(workload *v1.Workload, resources corev1.ResourceList, n
 	return weight
 }
 
-// compares two workloads for sorting (sort interface implementation)
 type WorkloadList []*v1.Workload
 
+// Len implements sort.Interface by returning the length of the slice.
 func (workloads WorkloadList) Len() int {
 	return len(workloads)
 }
 
+// Swap implements sort.Interface by swapping elements at the given indices.
 func (workloads WorkloadList) Swap(i, j int) {
 	workloads[i], workloads[j] = workloads[j], workloads[i]
 }
 
+// Less implements sort.Interface for sorting.
 func (workloads WorkloadList) Less(i, j int) bool {
 	if isReScheduledForFailover(workloads[i]) && !isReScheduledForFailover(workloads[j]) {
 		return true
@@ -189,7 +191,7 @@ func (workloads WorkloadList) Less(i, j int) bool {
 	return false
 }
 
-// isReScheduledForFailover: checks if a workload is rescheduled due to failover
+// isReScheduledForFailover checks if a workload is rescheduled due to failover.
 func isReScheduledForFailover(workload *v1.Workload) bool {
 	if v1.IsWorkloadReScheduled(workload) && !v1.IsWorkloadPreempted(workload) {
 		return true

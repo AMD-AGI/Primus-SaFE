@@ -40,7 +40,7 @@ type FaultSpec struct {
 }
 
 type FaultStatus struct {
-	// The status of fault, such as Succeeded, Failed
+	// The status of fault, e.g. Succeeded, Failed
 	Phase FaultPhase `json:"phase,omitempty"`
 	// The last update time of fault
 	UpdateTime *metav1.Time `json:"updateTime,omitempty"`
@@ -76,6 +76,7 @@ func init() {
 	SchemeBuilder.Register(&Fault{}, &FaultList{})
 }
 
+// IsEnd returns true if the fault has ended (completed or failed).
 func (f *Fault) IsEnd() bool {
 	if f != nil && f.Status.Phase != "" {
 		return true

@@ -18,42 +18,42 @@ const (
 type CpuChip struct {
 	// Cpu product name, e.g. AMD EPYC 9554
 	Product string `json:"product,omitempty"`
-	// Cpu quantity, e.g. 16
+	// CPU cores (resource.Quantity), e.g. "256"
 	Quantity resource.Quantity `json:"quantity"`
 }
 
 type GpuChip struct {
 	// Gpu product name, e.g. AMD MI300X
 	Product string `json:"product,omitempty"`
-	// Corresponding resource names in Kubernetes ResourceList, such as amd.com/gpu or nvidia.com/gpu
+	// K8s resource name when gpu is set, e.g. "amd.com/gpu"
 	ResourceName string `json:"resourceName"`
-	// Gpu quantity, e.g. 8
+	// GPU count (resource.Quantity) when gpu is set, e.g. "8"
 	Quantity resource.Quantity `json:"quantity"`
 }
 
 // NodeFlavorSpec defines the desired state of NodeFlavor
 type NodeFlavorSpec struct {
-	// Cpu defines the CPU configuration of the node, including product name and quantity
+	// CPU configuration, required
 	Cpu CpuChip `json:"cpu"`
-	// Memory defines the memory capacity of the node
+	// Memory size (resource.Quantity), required, e.g. "1024Gi"
 	Memory resource.Quantity `json:"memory"`
-	// Gpu is an optional field that defines the GPU configuration of the node,
-	// including product name, Kubernetes resource name, and quantity
+	// GPU configuration, optional
 	Gpu *GpuChip `json:"gpu,omitempty"`
-	// RootDisk is an optional field that defines the root disk configuration of the node
-	// Usually this refers to the system disk size
+	// root disk configuration, optional, Usually this refers to the system disk size
 	RootDisk *DiskFlavor `json:"rootDisk,omitempty"`
-	// DataDisk is an optional field that defines the data disk configuration of the node
-	// Usually this refers to the disk size mounted on the node, such as an NVMe disk.
+	// data disk configuration, optional, Usually this refers to the disk size mounted on the node, e.g. an NVMe disk.
 	DataDisk *DiskFlavor `json:"dataDisk,omitempty"`
-	// ExtendResources is an optional field that defines the extended resources list of the node, such as rdma and ephemeralStorage
+	// Extra resources map: key:string -> value:resource.Quantity
 	ExtendResources corev1.ResourceList `json:"extendedResources,omitempty"`
 }
 
 type DiskFlavor struct {
-	Type     StorageType       `json:"type,omitempty"`
+	// disk type, e.g. "ssd", "sata", "nvme"
+	Type StorageType `json:"type,omitempty"`
+	// disk size (resource.Quantity) when diskFlavor is set
 	Quantity resource.Quantity `json:"quantity"`
-	Count    int               `json:"count"`
+	// Number of disks when diskFlavor is set
+	Count int `json:"count"`
 }
 
 // NodeFlavorStatus defines the observed state of NodeFlavor
@@ -90,6 +90,7 @@ func init() {
 	SchemeBuilder.Register(&NodeFlavor{}, &NodeFlavorList{})
 }
 
+// HasGpu returns true if the node flavor includes GPU resources.
 func (nf *NodeFlavor) HasGpu() bool {
 	if nf != nil && nf.Spec.Gpu != nil && !nf.Spec.Gpu.Quantity.IsZero() {
 		return true
@@ -97,6 +98,7 @@ func (nf *NodeFlavor) HasGpu() bool {
 	return false
 }
 
+// ToResourceList converts node flavor resources to a Kubernetes ResourceList.
 func (nf *NodeFlavor) ToResourceList(rdmaName string) corev1.ResourceList {
 	if nf == nil {
 		return nil

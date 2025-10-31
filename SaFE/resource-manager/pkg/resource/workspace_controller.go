@@ -56,7 +56,7 @@ type WorkspaceReconcilerOption struct {
 	nodeWait    time.Duration
 }
 
-// SetupWorkspaceController initializes and registers the WorkspaceReconciler with the controller manager
+// SetupWorkspaceController initializes and registers the WorkspaceReconciler with the controller manager.
 func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOption) error {
 	r := &WorkspaceReconciler{
 		ClusterBaseReconciler: &ClusterBaseReconciler{
@@ -81,7 +81,7 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 	return nil
 }
 
-// relevantChangePredicate defines which Workspace changes should trigger reconciliation
+// relevantChangePredicate defines which Workspace changes should trigger reconciliation.
 func (r *WorkspaceReconciler) relevantChangePredicate() predicate.Predicate {
 	isRelevantFieldChanged := func(oldWorkspace, newWorkspace *v1.Workspace) bool {
 		if oldWorkspace.Spec.Replica != newWorkspace.Spec.Replica ||
@@ -113,7 +113,7 @@ func (r *WorkspaceReconciler) relevantChangePredicate() predicate.Predicate {
 	}
 }
 
-// handleNodeEvent creates an event handler that enqueues Workspace requests when related Node resources change
+// handleNodeEvent creates an event handler that enqueues Workspace requests when related Node resources change.
 func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 	isRelevantFieldChanged := func(oldNode, newNode *v1.Node) bool {
 		if !reflect.DeepEqual(oldNode.Status.Resources, newNode.Status.Resources) ||
@@ -165,7 +165,7 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 	}
 }
 
-// Reconcile is the main control loop for Workspace resources
+// Reconcile is the main control loop for Workspace resources.
 func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	startTime := time.Now().UTC()
 	defer func() {
@@ -186,7 +186,7 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 	return result, err
 }
 
-// delete handles the deletion of a Workspace resource by unbinding nodes and removing finalizers
+// delete handles the deletion of a Workspace resource by unbinding nodes and removing finalizers.
 func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspace) error {
 	var err error
 	nodeList := &v1.NodeList{}
@@ -206,7 +206,7 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 	return utils.RemoveFinalizer(ctx, r.Client, workspace, v1.WorkspaceFinalizer)
 }
 
-// updatePhase updates the phase of a Workspace resource
+// updatePhase updates the phase of a Workspace resource.
 func (r *WorkspaceReconciler) updatePhase(ctx context.Context, workspace *v1.Workspace, phase v1.WorkspacePhase) error {
 	if workspace.Status.Phase == phase {
 		return nil
@@ -220,14 +220,14 @@ func (r *WorkspaceReconciler) updatePhase(ctx context.Context, workspace *v1.Wor
 	return nil
 }
 
-// setExpectations sets the expected node operations for a Workspace
+// setExpectations sets the expected node operations for a Workspace.
 func (r *WorkspaceReconciler) setExpectations(workspaceId string, nodeNames sets.Set) {
 	r.Lock()
 	defer r.Unlock()
 	r.expectations[workspaceId] = nodeNames
 }
 
-// meetExpectations checks if all expected node operations for a Workspace have been completed
+// meetExpectations checks if all expected node operations for a Workspace have been completed.
 func (r *WorkspaceReconciler) meetExpectations(workspaceId string) bool {
 	r.RLock()
 	defer r.RUnlock()
@@ -235,14 +235,14 @@ func (r *WorkspaceReconciler) meetExpectations(workspaceId string) bool {
 	return !ok || nodeNames.Len() == 0
 }
 
-// removeExpectations removes the expectations for a Workspace
+// removeExpectations removes the expectations for a Workspace.
 func (r *WorkspaceReconciler) removeExpectations(workspaceId string) {
 	r.Lock()
 	defer r.Unlock()
 	delete(r.expectations, workspaceId)
 }
 
-// observeNode marks a node operation as completed for a Workspace
+// observeNode marks a node operation as completed for a Workspace.
 func (r *WorkspaceReconciler) observeNode(workspaceId, nodeName string) {
 	r.Lock()
 	defer r.Unlock()
@@ -296,7 +296,7 @@ func (r *WorkspaceReconciler) processWorkspace(ctx context.Context, workspace *v
 	return result, err
 }
 
-// scaleDown handles scaling down a Workspace by unbinding nodes
+// scaleDown handles scaling down a Workspace by unbinding nodes.
 func (r *WorkspaceReconciler) scaleDown(ctx context.Context, workspace *v1.Workspace, count int) (ctrlruntime.Result, error) {
 	nodes, err := commonnodes.GetNodesForScalingDown(ctx, r.Client, workspace.Name, count)
 	if err != nil {
@@ -315,7 +315,7 @@ func (r *WorkspaceReconciler) scaleDown(ctx context.Context, workspace *v1.Works
 	return ctrlruntime.Result{}, nil
 }
 
-// scaleUp handles scaling up a Workspace by binding new nodes
+// scaleUp handles scaling up a Workspace by binding new nodes.
 func (r *WorkspaceReconciler) scaleUp(ctx context.Context, workspace *v1.Workspace, k8sClients *commonclient.ClientFactory, count int) (ctrlruntime.Result, error) {
 	if workspace.Status.Phase == "" {
 		if err := r.updatePhase(ctx, workspace, v1.WorkspaceCreating); err != nil {
@@ -338,7 +338,7 @@ func (r *WorkspaceReconciler) scaleUp(ctx context.Context, workspace *v1.Workspa
 	return ctrlruntime.Result{}, nil
 }
 
-// getNodesForScalingUp retrieves available nodes for scaling up a Workspace
+// getNodesForScalingUp retrieves available nodes for scaling up a Workspace.
 func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspace *v1.Workspace, k8sClients *commonclient.ClientFactory, count int) ([]*v1.Node, error) {
 	if workspace.Spec.NodeFlavor == "" {
 		return nil, nil
@@ -381,7 +381,7 @@ func (r *WorkspaceReconciler) getNodesForScalingUp(ctx context.Context, workspac
 	return result, nil
 }
 
-// sortNodesForScalingUp sorts nodes based on priority for scaling up operations
+// sortNodesForScalingUp sorts nodes based on priority for scaling up operations.
 func sortNodesForScalingUp(k8sNodes []*corev1.Node) {
 	sort.Slice(k8sNodes, func(i, j int) bool {
 		nodeI, nodeJ := k8sNodes[i], k8sNodes[j]
@@ -413,7 +413,7 @@ func sortNodesForScalingUp(k8sNodes []*corev1.Node) {
 	})
 }
 
-// syncWorkspace synchronizes the status of a Workspace with its bound nodes
+// syncWorkspace synchronizes the status of a Workspace with its bound nodes.
 func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.Workspace) error {
 	if workspace.Spec.NodeFlavor == "" {
 		if isChanged := resetWorkspaceStatus(workspace); isChanged {
@@ -470,7 +470,7 @@ func (r *WorkspaceReconciler) syncWorkspace(ctx context.Context, workspace *v1.W
 	return nil
 }
 
-// processNodesAction processes node binding/unbinding actions for a Workspace
+// processNodesAction processes node binding/unbinding actions for a Workspace.
 func (r *WorkspaceReconciler) processNodesAction(ctx context.Context, workspace *v1.Workspace) (bool, error) {
 	var actions map[string]string
 	if err := json.Unmarshal([]byte(v1.GetWorkspaceNodesAction(workspace)), &actions); err != nil || len(actions) == 0 {
@@ -514,7 +514,7 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context, workspace 
 	return true, nil
 }
 
-// removeNodesAction removes the node action annotation from a Workspace
+// removeNodesAction removes the node action annotation from a Workspace.
 func (r *WorkspaceReconciler) removeNodesAction(ctx context.Context, workspace *v1.Workspace) error {
 	if v1.GetWorkspaceNodesAction(workspace) == "" {
 		return nil
@@ -526,7 +526,7 @@ func (r *WorkspaceReconciler) removeNodesAction(ctx context.Context, workspace *
 	return nil
 }
 
-// updateNodesBinding updates the binding of nodes to a Workspace
+// updateNodesBinding updates the binding of nodes to a Workspace.
 func (r *WorkspaceReconciler) updateNodesBinding(ctx context.Context,
 	workspace *v1.Workspace, nodes []*v1.Node, targets map[string]string) error {
 	count := len(nodes)
@@ -558,7 +558,7 @@ func (r *WorkspaceReconciler) updateNodesBinding(ctx context.Context,
 	return nil
 }
 
-// updateSingleNodeBinding updates the binding of a single node to a Workspace
+// updateSingleNodeBinding updates the binding of a single node to a Workspace.
 func (r *WorkspaceReconciler) updateSingleNodeBinding(ctx context.Context, node *v1.Node, target string) (bool, error) {
 	if node.Spec.Workspace != nil && *node.Spec.Workspace == target {
 		return false, nil
@@ -572,7 +572,7 @@ func (r *WorkspaceReconciler) updateSingleNodeBinding(ctx context.Context, node 
 	return true, nil
 }
 
-// resetWorkspaceStatus resets the status of a Workspace when no node flavor is specified
+// resetWorkspaceStatus resets the status of a Workspace when no node flavor is specified.
 func resetWorkspaceStatus(workspace *v1.Workspace) bool {
 	isChanged := false
 	if workspace.Status.AvailableReplica != 0 {
@@ -598,7 +598,7 @@ func resetWorkspaceStatus(workspace *v1.Workspace) bool {
 	return isChanged
 }
 
-// buildTargetList builds a map of node names to their target Workspace names
+// buildTargetList builds a map of node names to their target Workspace names.
 func buildTargetList(nodes []*v1.Node, target string) map[string]string {
 	results := make(map[string]string)
 	for _, n := range nodes {

@@ -10,12 +10,12 @@ import (
 )
 
 type CreateWorkspaceRequest struct {
-	// The workspace name(display only). Used for generate workspace id.
+	// Workspace name(display only). Used for generate workspace ID.
 	// The final ID is clusterId + "-" + name.
 	Name string `json:"name"`
 	// The cluster which workspace belongs to
 	ClusterId string `json:"clusterId"`
-	// The workspace description
+	// Workspace description
 	Description string `json:"description,omitempty"`
 	// Queuing policy for workloads submitted in this workspace.
 	// All workloads currently share the same policy, supports fifo (default) and balance.
@@ -26,7 +26,7 @@ type CreateWorkspaceRequest struct {
 	//    avoiding blockage by the front workload in the queue. However, it is still subject to priority constraints.
 	//    If a higher-priority task cannot be dispatched, lower-priority tasks will wait.
 	QueuePolicy string `json:"queuePolicy,omitempty"`
-	// The node flavor id of workspace, A workspace supports only one node flavor
+	// The node flavor ID of workspace, A workspace supports only one node flavor
 	FlavorId string `json:"flavorId,omitempty"`
 	// The expected number of nodes in the workspace
 	Replica int `json:"replica,omitempty"`
@@ -36,7 +36,7 @@ type CreateWorkspaceRequest struct {
 	Volumes []v1.WorkspaceVolume `json:"volumes,omitempty"`
 	// Whether preemption is enabled. If enabled, higher-priority workload will preempt the lower-priority one
 	EnablePreempt bool `json:"enablePreempt"`
-	// User id of the workspace administrator
+	// User ID of the workspace administrator
 	Managers []string `json:"managers,omitempty"`
 	// Set the workspace as the default workspace (i.e., all users can access it)
 	IsDefault bool `json:"isDefault,omitempty"`
@@ -45,31 +45,31 @@ type CreateWorkspaceRequest struct {
 }
 
 type CreateWorkspaceResponse struct {
-	// The workspace id
+	// Workspace ID
 	WorkspaceId string `json:"workspaceId"`
 }
 
 type ListWorkspaceRequest struct {
-	// Filter results by cluster id
+	// Filter results by cluster ID
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
 }
 
 type ListWorkspaceResponse struct {
-	// The total number of node templates, not limited by pagination
+	// The total number of workspaces, not limited by pagination
 	TotalCount int                     `json:"totalCount"`
 	Items      []WorkspaceResponseItem `json:"items"`
 }
 
 type WorkspaceResponseItem struct {
-	// The workspace id
+	// Workspace ID
 	WorkspaceId string `json:"workspaceId"`
-	// The workspace name
+	// Workspace name
 	WorkspaceName string `json:"workspaceName"`
 	// The cluster which workspace belongs to
 	ClusterId string `json:"clusterId"`
-	// The node flavor id used by workspace
+	// The node flavor ID used by workspace
 	FlavorId string `json:"flavorId"`
-	// User id of workspace creator
+	// User ID of workspace creator
 	UserId string `json:"userId"`
 	// The target expected number of nodes of workspace
 	TargetNodeCount int `json:"targetNodeCount"`
@@ -77,11 +77,11 @@ type WorkspaceResponseItem struct {
 	CurrentNodeCount int `json:"currentNodeCount"`
 	// The current total number of abnormal nodes
 	AbnormalNodeCount int `json:"abnormalNodeCount"`
-	// The status of workspace, such as Creating, Running, Abnormal, Deleting
+	// The status of workspace, e.g. Creating, Running, Abnormal, Deleting
 	Phase string `json:"phase"`
-	// The workspace creation time
+	// Workspace creation time (RFC3339Short, e.g. "2025-07-08T10:31:46")
 	CreationTime string `json:"creationTime"`
-	// The workspace description
+	// Workspace description
 	Description string `json:"description"`
 	// Queuing policy for workload submitted in this workspace
 	// Refer to the explanation of the same-named parameter in CreateWorkspaceRequest
@@ -92,7 +92,7 @@ type WorkspaceResponseItem struct {
 	Volumes []v1.WorkspaceVolume `json:"volumes"`
 	// Whether preemption is enabled. If enabled, higher-priority workload will preempt the lower-priority one
 	EnablePreempt bool `json:"enablePreempt"`
-	// User id of the workspace administrator
+	// User ID of the workspace administrator
 	Managers []UserEntity `json:"managers"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault bool `json:"isDefault"`
@@ -115,22 +115,22 @@ type GetWorkspaceResponse struct {
 }
 
 type PatchWorkspaceRequest struct {
-	// The node flavor id used by workspace
+	// The node flavor ID used by workspace
 	FlavorId *string `json:"flavorId,omitempty"`
 	// The expected total node count
 	Replica *int `json:"replica,omitempty"`
-	// Queuing policy for tasks submitted in this workspace. such as fifo, balance
+	// Queuing policy for tasks submitted in this workspace. e.g. fifo, balance
 	// Refer to the explanation of the same-named parameter in CreateWorkspaceRequest
 	QueuePolicy *v1.WorkspaceQueuePolicy `json:"queuePolicy,omitempty"`
 	// Support service module: Train/Infer/Authoring, No limitation if not specified
 	Scopes *[]v1.WorkspaceScope `json:"scopes,omitempty"`
 	// The store volumes used by workspace
 	Volumes *[]v1.WorkspaceVolume `json:"volumes,omitempty"`
-	// The workspace description
+	// Workspace description
 	Description *string `json:"description,omitempty"`
 	// Whether preemption is enabled
 	EnablePreempt *bool `json:"enablePreempt,omitempty"`
-	// User id of the workspace administrator
+	// User ID of the workspace administrator
 	Managers *[]string `json:"managers,omitempty"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault *bool `json:"isDefault,omitempty"`
@@ -139,7 +139,7 @@ type PatchWorkspaceRequest struct {
 }
 
 type WorkspaceEntry struct {
-	// workspace id
+	// workspace ID
 	Id string `json:"id"`
 	// workspace name
 	Name string `json:"name"`

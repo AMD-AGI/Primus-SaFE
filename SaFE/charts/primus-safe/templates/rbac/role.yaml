@@ -27,7 +27,6 @@ rules:
   - opsjobs
   - resourcetemplates
   - roles
-  - storageclusters
   - users
   - workloads
   - workspaces
@@ -52,7 +51,6 @@ rules:
   - opsjobs/status
   - resourcetemplates/status
   - roles/status
-  - storageclusters/status
   - users/status
   - workloads/status
   - workspaces/status

@@ -52,7 +52,7 @@ type NodeInfo struct {
 	WorkspaceId string `json:"workspaceId"`
 }
 
-// NewMonitor creates a new Monitor instance with the given configuration
+// NewMonitor creates a new Monitor instance with the given configuration.
 func NewMonitor(config *MonitorConfig,
 	queue *types.MonitorQueue, node *node.Node, scriptPath string) *Monitor {
 	// read file from the specified path
@@ -71,7 +71,7 @@ func NewMonitor(config *MonitorConfig,
 	}
 }
 
-// Start the monitoring process by the cron job
+// Start the monitoring process by the cron job.
 func (m *Monitor) Start() {
 	if m == nil || !m.config.IsEnable() {
 		return
@@ -80,7 +80,7 @@ func (m *Monitor) Start() {
 	m.isExited = false
 }
 
-// Stop the monitoring process
+// Stop the monitoring process.
 func (m *Monitor) Stop() {
 	if !m.IsExited() && m.tomb != nil {
 		m.tomb.Stop()
@@ -88,7 +88,7 @@ func (m *Monitor) Stop() {
 	m.isExited = true
 }
 
-// startCronJob initializes and starts the cron scheduler for this monitor
+// startCronJob initializes and starts the cron scheduler for this monitor.
 func (m *Monitor) startCronJob() {
 	start := time.Now().UTC()
 	defer func() {
@@ -149,7 +149,7 @@ func (m *Monitor) Run() {
 	}
 }
 
-// convertReservedWord replaces reserved words in arguments with actual values
+// convertReservedWord replaces reserved words in arguments with actual values.
 func (m *Monitor) convertReservedWord(arg string) string {
 	switch arg {
 	case "$Node":
@@ -163,7 +163,7 @@ func (m *Monitor) convertReservedWord(arg string) string {
 	return arg
 }
 
-// generateNodeInfo generates NodeInfo structure with current node GPU information
+// generateNodeInfo generates NodeInfo structure with current node GPU information.
 func (m *Monitor) generateNodeInfo() *NodeInfo {
 	if m.node == nil || m.node.GetK8sNode() == nil {
 		return nil
@@ -180,7 +180,7 @@ func (m *Monitor) generateNodeInfo() *NodeInfo {
 	return info
 }
 
-// IsExited returns whether the monitor has been stopped
+// IsExited returns whether the monitor has been stopped.
 func (m *Monitor) IsExited() bool {
 	return m.isExited
 }

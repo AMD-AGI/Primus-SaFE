@@ -8,7 +8,7 @@ Secret management API for managing SSH keys and image registry authentication in
 
 Create new SSH key or image registry secret.
 
-**Endpoint**: `POST /api/custom/secrets`
+**Endpoint**: `POST /api/v1/secrets`
 
 **Authentication Required**: Yes
 
@@ -72,12 +72,12 @@ Create new SSH key or image registry secret.
 
 **Field Description**:
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| name | string | Yes | Secret name |
-| type | string | Yes | Secret type: ssh/image |
-| params | []object | Yes | Authentication parameter list |
-| bindAllWorkspaces | bool | No | Whether to bind to all workspaces, default false |
+| Field | Type | Required | Description                                       |
+|-------|------|----------|---------------------------------------------------|
+| name | string | Yes | Secret name                                       |
+| type | string | Yes | Secret type: ssh/image                            |
+| params | []object | Yes | Authentication parameter list                     |
+| bindAllWorkspaces | bool | No | Whether to bind to all workspaces, only for image |
 
 **SSH Key Parameters**:
 
@@ -110,7 +110,7 @@ Create new SSH key or image registry secret.
 
 Get secret list with type filtering support.
 
-**Endpoint**: `GET /api/custom/secrets`
+**Endpoint**: `GET /api/v1/secrets`
 
 **Authentication Required**: Yes
 
@@ -124,40 +124,35 @@ Get secret list with type filtering support.
 
 ```json
 {
-  "totalCount": 5,
-  "items": [
-    {
-      "secretId": "my-ssh-key",
-      "secretName": "my-ssh-key",
-      "type": "ssh",
-      "params": [
-        {
-          "username": "root",
-          "password": "",
-          "privateKey": "LS0tLS1CRUdJTi...",
-          "publicKey": "c3NoLXJzYSBBQUFB..."
-        }
-      ],
-      "creationTime": "2025-01-10T10:00:00.000Z",
-      "bindAllWorkspaces": false
-    },
-    {
-      "secretId": "harbor-secret",
-      "secretName": "harbor-secret",
-      "type": "image",
-      "params": [
-        {
-          "server": "harbor.example.com",
-          "username": "admin",
-          "password": "SGFyYm9yMTIzNDU="
-        }
-      ],
-      "creationTime": "2025-01-10T11:00:00.000Z",
-      "bindAllWorkspaces": true
-    }
-  ]
+  "totalCount": 2,
+  "items": [{
+    "secretId": "test-image-abc12",
+    "secretName": "test-image",
+    "type": "image",
+    "params": [{
+      "password": "SGFyYm9yMTIzNDU=",
+      "server": "https://registry-1.docker.io",
+      "username": "admin"
+    }],
+    "creationTime": "2025-09-27T01:19:28",
+    "bindAllWorkspaces": true
+  }, {
+    "secretId": "test-ssh-abc12",
+    "secretName": "test-ssh",
+    "type": "ssh",
+    "params": [{
+      "privateKey": "LS0tLS1CRUdJTi...",
+      "publicKey": "c3NoLXJzYSBBQUFB...",
+      "username": "admin"
+    }],
+    "creationTime": "2025-09-25T09:41:27"
+  }]
 }
 ```
+
+**Field Description**:
+
+The response fields are consistent with the "Create Secret" request above.
 
 ---
 
@@ -165,7 +160,7 @@ Get secret list with type filtering support.
 
 Get detailed information about a specific secret.
 
-**Endpoint**: `GET /api/custom/secrets/:name`
+**Endpoint**: `GET /api/v1/secrets/{SecretId}`
 
 **Authentication Required**: Yes
 
@@ -173,7 +168,7 @@ Get detailed information about a specific secret.
 
 | Parameter | Description |
 |-----------|-------------|
-| name | Secret ID |
+| SecretId | Secret ID |
 
 **Response Example**:
 
@@ -185,15 +180,18 @@ Get detailed information about a specific secret.
   "params": [
     {
       "username": "root",
-      "password": "",
       "privateKey": "LS0tLS1CRUdJTi...",
       "publicKey": "c3NoLXJzYSBBQUFB..."
     }
   ],
-  "creationTime": "2025-01-10T10:00:00.000Z",
-  "bindAllWorkspaces": false
+  "creationTime": "2025-01-10T10:00:00"
 }
 ```
+
+**Field Description**:
+
+The response fields are consistent with the "Create Secret" request above.
+
 
 ---
 
@@ -201,7 +199,7 @@ Get detailed information about a specific secret.
 
 Update secret authentication information or binding settings.
 
-**Endpoint**: `PATCH /api/custom/secrets/:name`
+**Endpoint**: `PATCH /api/v1/secrets/{SecretId}`
 
 **Authentication Required**: Yes
 
@@ -209,7 +207,7 @@ Update secret authentication information or binding settings.
 
 | Parameter | Description |
 |-----------|-------------|
-| name | Secret ID |
+| SecretId | Secret ID |
 
 **Request Parameters**:
 
@@ -228,7 +226,7 @@ Update secret authentication information or binding settings.
 
 **Field Description**: All fields are optional, only provided fields will be updated
 
-**Response**: No content (204)
+**Response**: 200 OK with no response body
 
 ---
 
@@ -236,7 +234,7 @@ Update secret authentication information or binding settings.
 
 Delete a specific secret.
 
-**Endpoint**: `DELETE /api/custom/secrets/:name`
+**Endpoint**: `DELETE /api/v1/secrets/{SecretId}`
 
 **Authentication Required**: Yes
 
@@ -244,11 +242,11 @@ Delete a specific secret.
 
 | Parameter | Description |
 |-----------|-------------|
-| name | Secret ID |
+| SecretId | Secret ID |
 
 **Prerequisites**: Secret is not being used by any cluster or node
 
-**Response**: No content (204)
+**Response**: 200 OK with no response body
 
 ---
 
@@ -288,8 +286,6 @@ Used for pulling images from private registries.
 ### Manual Binding (bindAllWorkspaces=false)
 
 - Explicitly specify imageSecretIds when creating or updating workspace
-- Provides more fine-grained permission control
-- SSH keys typically use this method
 
 ## Base64 Encoding
 
@@ -321,5 +317,3 @@ When updating a secret, the system automatically:
 2. **Base64 Encoding**: Private keys, public keys and passwords must be Base64 encoded
 3. **Key Pair**: When using key pair authentication, privateKey and publicKey must be matched
 4. **Multiple Registries**: Image secrets can configure multiple registries, but each registry can only have one authentication
-5. **Deletion Restrictions**: Secrets in use cannot be deleted
-6. **Security**: Secrets are encrypted during transmission and storage

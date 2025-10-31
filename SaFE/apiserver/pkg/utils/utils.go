@@ -11,6 +11,8 @@ import (
 	"net/http"
 
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
@@ -42,10 +44,7 @@ func ReadBody(req *http.Request) ([]byte, error) {
 	return data, nil
 }
 
-// ParseRequestBody reads the request body and unmarshals it into the provided struct.
-// It returns the raw body bytes and any error encountered during the process.
-// If the body is empty, it returns nil for both body and error.
-// If JSON unmarshaling fails, it returns a BadRequest error with the unmarshaling error details.
+// ParseRequestBody parses the input data.
 func ParseRequestBody(req *http.Request, bodyStruct interface{}) ([]byte, error) {
 	body, err := ReadBody(req)
 	if err != nil {

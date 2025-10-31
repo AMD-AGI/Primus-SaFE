@@ -29,6 +29,7 @@ var (
 	GpuResourceWhiteList = []string{common.NvidiaGpu, common.AmdGpu}
 )
 
+// AddNodeFlavorWebhook registers the node flavor validation and mutation webhooks.
 func AddNodeFlavorWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.NodeFlavorKind), &webhook.Admission{Handler: &NodeFlavorMutator{
 		Client:  mgr.GetClient(),
@@ -40,11 +41,13 @@ func AddNodeFlavorWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decod
 	}})
 }
 
+// NodeFlavorMutator handles mutation logic for NodeFlavor resources.
 type NodeFlavorMutator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle processes node flavor creation requests and applies normalizations.
 func (m *NodeFlavorMutator) Handle(_ context.Context, req admission.Request) admission.Response {
 	if req.Operation != admissionv1.Create {
 		return admission.Allowed("")
@@ -61,6 +64,7 @@ func (m *NodeFlavorMutator) Handle(_ context.Context, req admission.Request) adm
 	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
+// mutateOnCreation applies default values and normalizations during creation.
 func (m *NodeFlavorMutator) mutateOnCreation(nf *v1.NodeFlavor) {
 	nf.Name = stringutil.NormalizeName(nf.Name)
 	if nf.Spec.Gpu != nil && nf.Spec.Gpu.Quantity.IsZero() {
@@ -68,6 +72,7 @@ func (m *NodeFlavorMutator) mutateOnCreation(nf *v1.NodeFlavor) {
 	}
 }
 
+// mutateExtendResources applies mutations to the resource.
 func (m *NodeFlavorMutator) mutateExtendResources(nf *v1.NodeFlavor) {
 	extendResources := make(corev1.ResourceList)
 	for key, val := range nf.Spec.ExtendResources {
@@ -81,11 +86,12 @@ func (m *NodeFlavorMutator) mutateExtendResources(nf *v1.NodeFlavor) {
 	nf.Spec.ExtendResources = extendResources
 }
 
+// NodeFlavorValidator validates NodeFlavor resources on create and update operations.
 type NodeFlavorValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
-
+// Handle validates node flavor resources on create, update, and delete operations.
 func (v *NodeFlavorValidator) Handle(_ context.Context, req admission.Request) admission.Response {
 	newFlavor := &v1.NodeFlavor{}
 	var err error
@@ -107,6 +113,7 @@ func (v *NodeFlavorValidator) Handle(_ context.Context, req admission.Request) a
 	return admission.Allowed("")
 }
 
+// validateCommon validates CPU, memory, GPU and disk specifications.
 func (v *NodeFlavorValidator) validateCommon(nf *v1.NodeFlavor) error {
 	if nf.Spec.Cpu.Quantity.Value() <= 0 {
 		return fmt.Errorf("invalid cpu: %s", nf.Spec.Cpu.Quantity.String())
@@ -143,6 +150,7 @@ func (v *NodeFlavorValidator) validateCommon(nf *v1.NodeFlavor) error {
 	return nil
 }
 
+// validateImmutableFields ensures GPU and resource specifications cannot be modified.
 func (v *NodeFlavorValidator) validateImmutableFields(oldFlavor, newFlavor *v1.NodeFlavor) error {
 	if (newFlavor.Spec.Gpu == nil && oldFlavor.Spec.Gpu != nil) ||
 		(newFlavor.Spec.Gpu != nil && oldFlavor.Spec.Gpu == nil) {
@@ -171,6 +179,7 @@ func isValidGpuResource(name string) bool {
 	return false
 }
 
+// getNodeFlavor retrieves the requested information.
 func getNodeFlavor(ctx context.Context, cli client.Client, flavorId string) (*v1.NodeFlavor, error) {
 	if flavorId == "" {
 		return nil, nil

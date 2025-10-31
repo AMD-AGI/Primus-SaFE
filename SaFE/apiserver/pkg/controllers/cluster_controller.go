@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commoncluster "github.com/AMD-AIG-AIMA/SAFE/common/pkg/cluster"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -28,6 +28,7 @@ type ClusterReconciler struct {
 	client.Client
 }
 
+// SetupClusterController sets up the cluster controller with the manager.
 func SetupClusterController(ctx context.Context, mgr manager.Manager) error {
 	r := &ClusterReconciler{
 		Client: mgr.GetClient(),
@@ -42,6 +43,8 @@ func SetupClusterController(ctx context.Context, mgr manager.Manager) error {
 	return nil
 }
 
+// relevantChangePredicate returns a predicate that filters cluster events for reconciliation.
+// It triggers reconciliation when a cluster becomes ready, is being deleted, or transitions to ready state.
 func (r *ClusterReconciler) relevantChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
@@ -73,6 +76,7 @@ func (r *ClusterReconciler) relevantChangePredicate() predicate.Predicate {
 	}
 }
 
+// Reconcile implements the reconciliation loop.
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	cluster := new(v1.Cluster)
 	err := r.Get(ctx, req.NamespacedName, cluster)
@@ -89,6 +93,8 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	return ctrlruntime.Result{}, nil
 }
 
+// deleteClientFactory removes the Kubernetes client factory for a cluster being deleted.
+// It cleans up the client manager and releases resources associated with the cluster.
 func (r *ClusterReconciler) deleteClientFactory(cluster *v1.Cluster) error {
 	mgr := commonutils.NewObjectManagerSingleton()
 	if mgr == nil {
@@ -102,6 +108,8 @@ func (r *ClusterReconciler) deleteClientFactory(cluster *v1.Cluster) error {
 	return nil
 }
 
+// addClientFactory creates and registers a new Kubernetes client factory for a ready cluster.
+// It retrieves cluster endpoint and credentials, then initializes a client factory for communicating with the cluster.
 func (r *ClusterReconciler) addClientFactory(ctx context.Context, cluster *v1.Cluster) error {
 	if !cluster.IsReady() {
 		return nil

@@ -24,11 +24,6 @@ type Config struct {
 // GetConfig creates and returns a new S3 configuration object.
 // It validates that all required S3 configuration parameters are present in the system config,
 // including access key, secret key, endpoint, and bucket name.
-//
-// Returns:
-//   - *Config: A Config struct containing the AWS SDK configuration and S3 bucket name
-//   - error: An error if S3 is disabled or any required configuration parameter is missing
-
 func GetConfig() (*Config, error) {
 	if !commonconfig.IsS3Enable() {
 		return nil, fmt.Errorf("s3 is disabled")
@@ -78,10 +73,6 @@ func GetConfig() (*Config, error) {
 }
 
 // GetS3Config returns the underlying AWS SDK configuration from the Config struct.
-// This provides access to the raw aws.Config object that can be used with AWS SDK S3 operations.
-//
-// Returns:
-//   - aws.Config: The AWS SDK configuration object
 func (c *Config) GetS3Config() aws.Config {
 	return c.Config
 }

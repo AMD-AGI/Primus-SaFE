@@ -31,6 +31,7 @@ var (
 	deleteFaultCmd = fmt.Sprintf(`DELETE FROM %s WHERE uid = $1`, TFault)
 )
 
+// UpsertFault performs the UpsertFault operation.
 func (c *Client) UpsertFault(ctx context.Context, fault *Fault) error {
 	if fault == nil {
 		return commonerrors.NewBadRequest("input is empty")
@@ -54,6 +55,7 @@ func (c *Client) UpsertFault(ctx context.Context, fault *Fault) error {
 	return nil
 }
 
+// SelectFaults performs the SelectFaults operation.
 func (c *Client) SelectFaults(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*Fault, error) {
 	db, err := c.getDB()
 	if err != nil {
@@ -92,6 +94,7 @@ func (c *Client) SelectFaults(ctx context.Context, query sqrl.Sqlizer, sortBy, o
 	return faults, err
 }
 
+// CountFaults returns the count of resources.
 func (c *Client) CountFaults(ctx context.Context, query sqrl.Sqlizer) (int, error) {
 	db, err := c.getDB()
 	if err != nil {
@@ -106,6 +109,7 @@ func (c *Client) CountFaults(ctx context.Context, query sqrl.Sqlizer) (int, erro
 	return cnt, err
 }
 
+// GetFault returns the Fault value.
 func (c *Client) GetFault(ctx context.Context, uid string) (*Fault, error) {
 	if uid == "" {
 		return nil, commonerrors.NewBadRequest("the faultUId is empty")
@@ -124,6 +128,7 @@ func (c *Client) GetFault(ctx context.Context, uid string) (*Fault, error) {
 	return nil, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("fault %s not found", uid))
 }
 
+// DeleteFault removes the specified item.
 func (c *Client) DeleteFault(ctx context.Context, uid string) error {
 	if uid == "" {
 		return commonerrors.NewBadRequest("the faultUId is empty")

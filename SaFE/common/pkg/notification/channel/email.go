@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package channel
 
 import (
@@ -13,10 +18,12 @@ type EmailChannel struct {
 	cfg *EmailConfig
 }
 
+// Name returns the name of the client factory.
 func (e *EmailChannel) Name() string {
 	return model.ChannelEmail
 }
 
+// Init initializes the notification channel with the provided configuration.
 func (e *EmailChannel) Init(cfg Config) error {
 	if cfg.Email == nil {
 		return fmt.Errorf("email config not provided")
@@ -25,6 +32,7 @@ func (e *EmailChannel) Init(cfg Config) error {
 	return nil
 }
 
+// Send sends a message through the notification channel.
 func (e *EmailChannel) Send(ctx context.Context, message *model.Message) error {
 	if e.cfg == nil {
 		return fmt.Errorf("email channel not initialized")

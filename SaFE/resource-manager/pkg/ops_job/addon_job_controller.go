@@ -67,7 +67,7 @@ type AddonJobReconciler struct {
 	allJobs map[string]*AddonJob
 }
 
-// SetupAddonJobController initializes and registers the AddonJobReconciler with the controller manager
+// SetupAddonJobController initializes and registers the AddonJobReconciler with the controller manager.
 func SetupAddonJobController(mgr manager.Manager) error {
 	r := &AddonJobReconciler{
 		OpsJobBaseReconciler: &OpsJobBaseReconciler{
@@ -88,7 +88,7 @@ func SetupAddonJobController(mgr manager.Manager) error {
 	return nil
 }
 
-// handleNodeEvent creates an event handler that watches Node resource updates
+// handleNodeEvent creates an event handler that watches Node resource updates.
 func (r *AddonJobReconciler) handleNodeEvent() handler.EventHandler {
 	return handler.Funcs{
 		UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q v1.RequestWorkQueue) {
@@ -106,7 +106,7 @@ func (r *AddonJobReconciler) handleNodeEvent() handler.EventHandler {
 	}
 }
 
-// handleNodeRemovedEvent handles node removal events by updating job status and cleaning up faults
+// handleNodeRemovedEvent handles node removal events by updating job status and cleaning up faults.
 func (r *AddonJobReconciler) handleNodeRemovedEvent(ctx context.Context,
 	node *v1.Node, message string, q v1.RequestWorkQueue) {
 	jobList, err := r.listJobs(ctx, node.GetSpecCluster(), string(v1.OpsJobAddonType))
@@ -124,7 +124,7 @@ func (r *AddonJobReconciler) handleNodeRemovedEvent(ctx context.Context,
 	}
 }
 
-// addFailedNodeCondition adds a condition to the job status indicating a node has failed
+// addFailedNodeCondition adds a condition to the job status indicating a node has failed.
 func (r *AddonJobReconciler) addFailedNodeCondition(ctx context.Context, jobId, nodeName, message string) {
 	cond := &metav1.Condition{
 		Type:               nodeName,
@@ -148,7 +148,7 @@ func (r *AddonJobReconciler) addFailedNodeCondition(ctx context.Context, jobId, 
 	}
 }
 
-// handleWorkloadEvent creates an event handler that enqueues AddonJob requests when related Workloads change
+// handleWorkloadEvent creates an event handler that enqueues AddonJob requests when related Workloads change.
 func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {
 	enqueue := func(ctx context.Context, q v1.RequestWorkQueue, clusterId string) {
 		jobList, err := r.listJobs(ctx, clusterId, string(v1.OpsJobAddonType))
@@ -175,13 +175,13 @@ func (r *AddonJobReconciler) handleWorkloadEvent() handler.EventHandler {
 	}
 }
 
-// Reconcile is the main control loop for AddonJob resources
+// Reconcile is the main control loop for AddonJob resources.
 func (r *AddonJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	clearFuncs := []ClearFunc{r.cleanupJobRelatedInfo, r.removeJob}
 	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r, clearFuncs...)
 }
 
-// cleanupJobRelatedInfo cleans up job-related resources
+// cleanupJobRelatedInfo cleans up job-related resources.
 func (r *AddonJobReconciler) cleanupJobRelatedInfo(ctx context.Context, job *v1.OpsJob) error {
 	return commonjob.CleanupJobRelatedResource(ctx, r.Client, job.Name)
 }
@@ -206,12 +206,12 @@ func (r *AddonJobReconciler) observe(ctx context.Context, job *v1.OpsJob) (bool,
 	return true, nil
 }
 
-// filter determines if the job should be processed by this reconciler
+// filter determines if the job should be processed by this reconciler.
 func (r *AddonJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
 	return job.Spec.Type != v1.OpsJobAddonType
 }
 
-// getNodesToProcess retrieves nodes that need to be processed based on job status and batch count
+// getNodesToProcess retrieves nodes that need to be processed based on job status and batch count.
 func (r *AddonJobReconciler) getNodesToProcess(job *v1.OpsJob) []string {
 	r.RLock()
 	defer r.RUnlock()
@@ -268,7 +268,7 @@ func (r *AddonJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlru
 	return ctrlruntime.Result{Requeue: true}, nil
 }
 
-// handleNodes processes multiple nodes concurrently for the addon job
+// handleNodes processes multiple nodes concurrently for the addon job.
 func (r *AddonJobReconciler) handleNodes(ctx context.Context, job *v1.OpsJob, nodeNames []string) error {
 	var err error
 	allUsingNodes := sets.NewSet()
@@ -309,7 +309,7 @@ func (r *AddonJobReconciler) handleNodes(ctx context.Context, job *v1.OpsJob, no
 	return err
 }
 
-// handleNode processes a single node for the addon job
+// handleNode processes a single node for the addon job.
 func (r *AddonJobReconciler) handleNode(ctx context.Context,
 	job *v1.OpsJob, nodeName string, allUsingNodes sets.Set) (bool, error) {
 	addonJob := r.getJob(job.Name)
@@ -359,7 +359,7 @@ func (r *AddonJobReconciler) handleNode(ctx context.Context,
 	return true, nil
 }
 
-// updateNodeTemplatePhase updates the node template installation status annotation
+// updateNodeTemplatePhase updates the node template installation status annotation.
 func (r *AddonJobReconciler) updateNodeTemplatePhase(ctx context.Context, job *v1.OpsJob, adminNode *v1.Node, isOk bool) error {
 	if job.GetParameter(v1.ParameterNodeTemplate) == nil {
 		return nil
@@ -374,7 +374,7 @@ func (r *AddonJobReconciler) updateNodeTemplatePhase(ctx context.Context, job *v
 	return nil
 }
 
-// executeAction executes the addon action on the node via SSH
+// executeAction executes the addon action on the node via SSH.
 func executeAction(sshClient *ssh.Client, addOn *v1.AddonTemplate) error {
 	cmd := fmt.Sprintf(
 		`echo '%s' | /usr/bin/base64 -d | sudo /bin/bash`,
@@ -407,7 +407,7 @@ func executeAction(sshClient *ssh.Client, addOn *v1.AddonTemplate) error {
 	return err
 }
 
-// addJob initializes and adds a new addon job to the reconciler
+// addJob initializes and adds a new addon job to the reconciler.
 func (r *AddonJobReconciler) addJob(ctx context.Context, job *v1.OpsJob) error {
 	inputNodes, err := r.getInputNodes(ctx, job)
 	if err != nil {
@@ -445,7 +445,7 @@ func (r *AddonJobReconciler) addJob(ctx context.Context, job *v1.OpsJob) error {
 	return nil
 }
 
-// removeJob removes an addon job from the reconciler
+// removeJob removes an addon job from the reconciler.
 func (r *AddonJobReconciler) removeJob(_ context.Context, job *v1.OpsJob) error {
 	r.Lock()
 	defer r.Unlock()
@@ -453,7 +453,7 @@ func (r *AddonJobReconciler) removeJob(_ context.Context, job *v1.OpsJob) error 
 	return nil
 }
 
-// getJob retrieves an addon job by job ID
+// getJob retrieves an addon job by job ID.
 func (r *AddonJobReconciler) getJob(jobId string) *AddonJob {
 	r.RLock()
 	defer r.RUnlock()
@@ -464,7 +464,7 @@ func (r *AddonJobReconciler) getJob(jobId string) *AddonJob {
 	return nil
 }
 
-// setNodePhase updates the phase of a node in the addon job
+// setNodePhase updates the phase of a node in the addon job.
 func (r *AddonJobReconciler) setNodePhase(jobId, nodeId string, phase v1.OpsJobPhase) bool {
 	r.Lock()
 	defer r.Unlock()
@@ -485,7 +485,7 @@ func (r *AddonJobReconciler) setNodePhase(jobId, nodeId string, phase v1.OpsJobP
 	return true
 }
 
-// getJobPhase calculates the overall job phase based on node statuses
+// getJobPhase calculates the overall job phase based on node statuses.
 func (r *AddonJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, string) {
 	r.RLock()
 	defer r.RUnlock()
@@ -510,7 +510,7 @@ func (r *AddonJobReconciler) getJobPhase(jobId string) (v1.OpsJobPhase, string) 
 	return v1.OpsJobRunning, ""
 }
 
-// getInputAddonTemplates retrieves addon templates specified in the job parameters
+// getInputAddonTemplates retrieves addon templates specified in the job parameters.
 func (r *AddonJobReconciler) getInputAddonTemplates(ctx context.Context, job *v1.OpsJob) ([]*v1.AddonTemplate, error) {
 	params := job.GetParameters(v1.ParameterAddonTemplate)
 	results := make([]*v1.AddonTemplate, 0, len(params))
@@ -534,7 +534,7 @@ func (r *AddonJobReconciler) getInputAddonTemplates(ctx context.Context, job *v1
 	return results, nil
 }
 
-// isMatchGpuChip checks if the GPU chip type matches the node's GPU
+// isMatchGpuChip checks if the GPU chip type matches the node's GPU.
 func isMatchGpuChip(chip string, adminNode *v1.Node) bool {
 	switch chip {
 	case string(v1.AmdGpuChip):
@@ -548,7 +548,7 @@ func isMatchGpuChip(chip string, adminNode *v1.Node) bool {
 	}
 }
 
-// normalizeErrorMessage normalizes error messages by removing extra whitespace and truncating length
+// normalizeErrorMessage normalizes error messages by removing extra whitespace and truncating length.
 func normalizeErrorMessage(message string) string {
 	if message == "" {
 		return ""

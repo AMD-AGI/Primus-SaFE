@@ -116,6 +116,9 @@ func (h *Handler) GetWorkloadPodLog(c *gin.Context) {
 	handle(c, h.getWorkloadPodLog)
 }
 
+// GetWorkloadPodContainers retrieves the container list and available shells for a specific pod of a workload.
+// It authorizes access to the workload, fetches the pod details from Kubernetes,
+// and returns the container names along with available shell options (bash, sh, zsh).
 func (h *Handler) GetWorkloadPodContainers(c *gin.Context) {
 	handle(c, h.getWorkloadPodContainers)
 }
@@ -467,7 +470,8 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 // patchPhase updates the phase of a workload and optionally adds a condition.
 // Handles status updates including setting end time for stopped workloads.
 func (h *Handler) patchPhase(ctx context.Context, workload *v1.Workload,
-	phase v1.WorkloadPhase, cond *metav1.Condition) error {
+	phase v1.WorkloadPhase, cond *metav1.Condition,
+) error {
 	originalWorkload := client.MergeFrom(workload.DeepCopy())
 	if phase != "" {
 		workload.Status.Phase = phase
@@ -538,7 +542,8 @@ func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, w
 // authWorkloadAction performs authorization checks for workload-related actions.
 // Validates if the requesting user has permission to perform the specified action on the workload.
 func (h *Handler) authWorkloadAction(c *gin.Context,
-	adminWorkload *v1.Workload, verb v1.RoleVerb, requestUser *v1.User, roles []*v1.Role) error {
+	adminWorkload *v1.Workload, verb v1.RoleVerb, requestUser *v1.User, roles []*v1.Role,
+) error {
 	var workspaces []string
 	if adminWorkload.Spec.Workspace != "" {
 		workspaces = append(workspaces, adminWorkload.Spec.Workspace)
@@ -561,7 +566,8 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 // authWorkloadPriority performs authorization checks for workload priority operations.
 // Validates if the requesting user has permission to set the specified priority level.
 func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workload,
-	verb v1.RoleVerb, priority int, requestUser *v1.User, roles []*v1.Role) error {
+	verb v1.RoleVerb, priority int, requestUser *v1.User, roles []*v1.Role,
+) error {
 	priorityKind := fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
 	resourceOwner := ""
 	if verb == v1.UpdateVerb {
@@ -790,7 +796,8 @@ func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []str
 	}
 	if workloadId := strings.TrimSpace(query.WorkloadId); workloadId != "" {
 		dbSql = append(dbSql, sqrl.Like{
-			dbclient.GetFieldTag(dbTags, "WorkloadId"): fmt.Sprintf("%%%s%%", workloadId)})
+			dbclient.GetFieldTag(dbTags, "WorkloadId"): fmt.Sprintf("%%%s%%", workloadId),
+		})
 	}
 	orderBy := buildListWorkloadOrderBy(query, dbTags)
 	return dbSql, orderBy, nil
@@ -880,7 +887,8 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 // cvtDBWorkloadToResponseItem converts a database workload record to a response item format.
 // Maps database fields to the appropriate response structure with proper null value handling.
 func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
-	w *dbclient.Workload) types.WorkloadResponseItem {
+	w *dbclient.Workload,
+) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
 		WorkloadId:     w.WorkloadId,
 		WorkspaceId:    w.Workspace,

@@ -138,12 +138,12 @@ spec:
                 items:
                   properties:
                     accessMode:
-                      description: access mode, default is ReadWriteMany
+                      description: access mode, default ReadWriteMany
                       type: string
                     capacity:
                       description: |-
                         The following parameters are used for PVC creation. If using hostPath mounting, they are not required.
-                        Capacity size, such as 100Gi. This is a required parameter when creating a PVC (PersistentVolumeClaim).
+                        Capacity size, e.g. 100Gi. This is a required parameter when creating a PVC (PersistentVolumeClaim).
                       type: string
                     hostPath:
                       description: Path on the host to mount. Required when volume
@@ -151,6 +151,7 @@ spec:
                       type: string
                     id:
                       description: The volume id, which is used to identify the volume.
+                        This field is set internally.
                       type: integer
                     mountPath:
                       description: Mount path to be used, equivalent to 'mountPath'
@@ -161,7 +162,7 @@ spec:
                         type: string
                       description: |-
                         selector is a label query over volumes to consider for binding.
-                        It cannot be used together with storageClassName. If both are set, the selector takes priority
+                        It cannot be used together with storageClass. If both are set, the selector takes priority
                       type: object
                     storageClass:
                       description: Responsible for automatic PV creation
@@ -201,7 +202,7 @@ spec:
                 description: The available resource of workspace
                 type: object
               phase:
-                description: The status of workspace, such as Creating, Running, Abnormal,
+                description: The status of workspace, e.g. Creating, Running, Abnormal,
                   Deleting
                 type: string
               totalResources:

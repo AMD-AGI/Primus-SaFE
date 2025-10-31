@@ -610,7 +610,7 @@ var (
 				MountPath: "/data",
 				HostPath:  "/apps",
 			}},
-			ImageSecrets: []*corev1.ObjectReference{{
+			ImageSecrets: []corev1.ObjectReference{{
 				Name: "test-image",
 			}},
 		},
