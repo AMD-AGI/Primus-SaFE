@@ -152,6 +152,10 @@ func (m *NodeMutator) mutateLabels(node *v1.Node) bool {
 	if v1.RemoveEmptyLabel(node, v1.ClusterIdLabel) {
 		isChanged = true
 	}
+	if node.GetSpecCluster() != "" && v1.HasAnnotation(node, v1.NodeResetAnnotation) {
+		v1.RemoveAnnotation(node, v1.NodeResetAnnotation)
+		isChanged = true
+	}
 	return isChanged
 }
 
