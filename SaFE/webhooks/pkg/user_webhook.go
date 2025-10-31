@@ -28,6 +28,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
+// AddUserWebhook registers the user validation and mutation webhooks.
 func AddUserWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.UserKind), &webhook.Admission{Handler: &UserMutator{
 		Client:  mgr.GetClient(),
@@ -39,11 +40,13 @@ func AddUserWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder adm
 	}})
 }
 
+// UserMutator handles mutation logic for User resources.
 type UserMutator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle processes user creation requests and applies default values and normalizations.
 func (m *UserMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	if req.Operation == admissionv1.Delete {
 		return admission.Allowed("")
@@ -68,22 +71,26 @@ func (m *UserMutator) Handle(ctx context.Context, req admission.Request) admissi
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledResult)
 }
 
+// mutateOnCreation applies default values and normalizations during creation.
 func (m *UserMutator) mutateOnCreation(ctx context.Context, user *v1.User) {
 	m.mutateMetadata(user)
 	m.mutateCommon(ctx, user)
 	m.mutateDefaultWorkspace(ctx, user)
 }
 
+// mutateOnUpdate applies mutations during updates.
 func (m *UserMutator) mutateOnUpdate(ctx context.Context, user *v1.User) {
 	m.mutateCommon(ctx, user)
 }
 
+// mutateCommon applies mutations to the resource.
 func (m *UserMutator) mutateCommon(ctx context.Context, user *v1.User) {
 	m.mutateRoles(user)
 	m.mutateWorkspace(ctx, user)
 	m.mutateManagedWorkspace(ctx, user)
 }
 
+// mutateMetadata applies mutations to the resource.
 func (m *UserMutator) mutateMetadata(user *v1.User) {
 	if val := v1.GetUserEmail(user); val != "" {
 		v1.SetLabel(user, v1.UserEmailMd5Label, stringutil.MD5(val))
@@ -184,11 +191,12 @@ func (m *UserMutator) mutateManagedWorkspace(ctx context.Context, user *v1.User)
 	commonuser.AssignManagedWorkspace(user, workspaces...)
 }
 
+// UserValidator validates User resources on create and update operations.
 type UserValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
-
+// Handle validates user resources on create, update, and delete operations.
 func (v *UserValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	var err error
 	obj := &v1.User{}
@@ -215,6 +223,7 @@ func (v *UserValidator) Handle(ctx context.Context, req admission.Request) admis
 	return admission.Allowed("")
 }
 
+// validateOnCreation validates user metadata and spec on creation.
 func (v *UserValidator) validateOnCreation(ctx context.Context, user *v1.User) error {
 	if err := v.validateMetadata(user); err != nil {
 		return err
@@ -225,6 +234,7 @@ func (v *UserValidator) validateOnCreation(ctx context.Context, user *v1.User) e
 	return nil
 }
 
+// validateOnUpdate validates immutable fields and common spec on update.
 func (v *UserValidator) validateOnUpdate(ctx context.Context, newUser, oldUser *v1.User) error {
 	if err := v.validateImmutableFields(newUser, oldUser); err != nil {
 		return err
@@ -235,6 +245,7 @@ func (v *UserValidator) validateOnUpdate(ctx context.Context, newUser, oldUser *
 	return nil
 }
 
+// validateCommon validates required parameters and role references.
 func (v *UserValidator) validateCommon(ctx context.Context, user *v1.User) error {
 	if err := v.validateRequiredParams(user); err != nil {
 		return err
@@ -245,6 +256,7 @@ func (v *UserValidator) validateCommon(ctx context.Context, user *v1.User) error
 	return nil
 }
 
+// validateMetadata ensures username is not a reserved word like "self" or "system".
 func (v *UserValidator) validateMetadata(user *v1.User) error {
 	// "self"/"system" is reserved word
 	if user.Name == common.UserSelf || user.Name == common.UserSystem {
@@ -254,6 +266,7 @@ func (v *UserValidator) validateMetadata(user *v1.User) error {
 	return nil
 }
 
+// validateImmutableFields ensures user type and username cannot be modified.
 func (v *UserValidator) validateImmutableFields(newUser, oldUser *v1.User) error {
 	if newUser.Spec.Type != oldUser.Spec.Type {
 		return field.Forbidden(field.NewPath("spec").Key("type"), "immutable")
@@ -264,6 +277,7 @@ func (v *UserValidator) validateImmutableFields(newUser, oldUser *v1.User) error
 	return nil
 }
 
+// validateRequiredParams ensures user type and roles are not empty.
 func (v *UserValidator) validateRequiredParams(user *v1.User) error {
 	var errs []error
 	if user.Spec.Type == "" {
@@ -278,6 +292,7 @@ func (v *UserValidator) validateRequiredParams(user *v1.User) error {
 	return nil
 }
 
+// validateRoles ensures all referenced roles exist.
 func (v *UserValidator) validateRoles(ctx context.Context, user *v1.User) error {
 	for _, r := range user.Spec.Roles {
 		role := &v1.Role{}
@@ -289,6 +304,7 @@ func (v *UserValidator) validateRoles(ctx context.Context, user *v1.User) error 
 	return nil
 }
 
+// getUser retrieves the requested information.
 func getUser(ctx context.Context, cli client.Client, userId string) (*v1.User, error) {
 	if userId == "" {
 		return nil, fmt.Errorf("userId is empty")

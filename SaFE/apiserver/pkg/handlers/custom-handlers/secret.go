@@ -281,14 +281,14 @@ func (h *Handler) updateWorkspaceSecret(ctx context.Context, inputSecret *corev1
 				if currentSecret.Name == secretReference.Name {
 					isExist = true
 					if currentSecret.ResourceVersion != secretReference.ResourceVersion {
-						workspace.Spec.ImageSecrets[i] = secretReference
+						workspace.Spec.ImageSecrets[i] = *secretReference
 						isChanged = true
 					}
 					break
 				}
 			}
 			if !isExist && isApplyAllWorkspace {
-				workspace.Spec.ImageSecrets = append(workspace.Spec.ImageSecrets, secretReference)
+				workspace.Spec.ImageSecrets = append(workspace.Spec.ImageSecrets, *secretReference)
 				isChanged = true
 			}
 			if isChanged {
@@ -371,7 +371,7 @@ func (h *Handler) deleteWorkspaceSecret(ctx context.Context, secretId string) er
 			return err
 		}
 		for _, workspace := range workspaceList.Items {
-			newSecrets := make([]*corev1.ObjectReference, 0, len(workspace.Spec.ImageSecrets))
+			newSecrets := make([]corev1.ObjectReference, 0, len(workspace.Spec.ImageSecrets))
 			for i, currentSecret := range workspace.Spec.ImageSecrets {
 				if currentSecret.Name == secretId {
 					continue

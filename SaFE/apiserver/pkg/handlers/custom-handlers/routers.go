@@ -16,6 +16,10 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
+// InitCustomRouters initializes and registers all custom API routes with the Gin engine.
+// It sets up two route groups: authenticated routes (requiring auth and preprocessing) and
+// public routes (requiring only preprocessing). Each group includes endpoints for managing
+// workloads, secrets, faults, nodes, workspaces, clusters, users, flavors, jobs, logs, and public keys.
 func InitCustomRouters(e *gin.Engine, h *Handler) {
 	// Custom API requires authentication and preprocessing.
 	group := e.Group(common.PrimusRouterCustomRootPath, authority.Authorize(), authority.Preprocess())

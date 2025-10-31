@@ -14,7 +14,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// ConvertObjectToUnstructured converts a metav1.Object to an unstructured.Unstructured object
+// ConvertObjectToUnstructured converts a metav1.Object to an unstructured.Unstructured object.
 func ConvertObjectToUnstructured(obj metav1.Object) (*unstructured.Unstructured, error) {
 	converter := runtime.DefaultUnstructuredConverter
 	unstructuredObj, err := converter.ToUnstructured(obj)
@@ -26,7 +26,7 @@ func ConvertObjectToUnstructured(obj metav1.Object) (*unstructured.Unstructured,
 	}, nil
 }
 
-// ConvertUnstructuredToObject converts an unstructured object to a specific metav1.Object type
+// ConvertUnstructuredToObject converts an unstructured object to a specific metav1.Object type.
 func ConvertUnstructuredToObject(obj interface{}, result metav1.Object) error {
 	if obj == nil {
 		return nil
@@ -42,7 +42,7 @@ func ConvertUnstructuredToObject(obj interface{}, result metav1.Object) error {
 	return nil
 }
 
-// ToString converts an unstructured object to its YAML string representation
+// ToString converts an unstructured object to its YAML string representation.
 func ToString(obj *unstructured.Unstructured) string {
 	yamlBytes, err := yaml.Marshal(obj.Object)
 	if err != nil {

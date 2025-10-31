@@ -29,7 +29,6 @@ type DBConfig struct {
 
 // SourceName generates a PostgreSQL connection string based on the database configuration.
 // It formats the configuration parameters into a libpq-compatible connection string.
-//
 // Returns:
 //   - string: Formatted connection string containing user, password, dbname, host, port, sslmode and connect_timeout
 func (c *DBConfig) SourceName() string {

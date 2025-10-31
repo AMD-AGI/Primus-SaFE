@@ -23,7 +23,7 @@ var (
 	rxBase64 = regexp.MustCompile(Base64)
 )
 
-// Base64Encode encodes a string to base64 format
+// Base64Encode encodes a string to base64 format.
 func Base64Encode(inputString string) string {
 	if inputString == "" {
 		return ""
@@ -31,7 +31,7 @@ func Base64Encode(inputString string) string {
 	return base64.StdEncoding.EncodeToString([]byte(inputString))
 }
 
-// Base64Decode decodes a base64 encoded string, returns empty string if decode fails
+// Base64Decode decodes a base64 encoded string, returns empty string if decode fails.
 func Base64Decode(inputString string) string {
 	if inputString == "" {
 		return ""
@@ -48,7 +48,7 @@ func IsBase64(str string) bool {
 	return rxBase64.MatchString(str)
 }
 
-// MD5 generates MD5 hash of the input string and returns it as hex string
+// MD5 generates MD5 hash of the input string and returns it as hex string.
 func MD5(input string) string {
 	data := []byte(input)
 
@@ -60,7 +60,7 @@ func MD5(input string) string {
 	return md5String
 }
 
-// NormalizeName converts string to lowercase, trims whitespace, and replaces underscores with hyphens
+// NormalizeName converts string to lowercase, trims whitespace, and replaces underscores with hyphens.
 func NormalizeName(str string) string {
 	if str == "" {
 		return ""
@@ -71,7 +71,7 @@ func NormalizeName(str string) string {
 	return str
 }
 
-// StrCaseEqual compares two strings case-insensitively
+// StrCaseEqual compares two strings case-insensitively.
 func StrCaseEqual(str1, str2 string) bool {
 	if strings.ToLower(str1) == strings.ToLower(str2) {
 		return true
@@ -79,7 +79,7 @@ func StrCaseEqual(str1, str2 string) bool {
 	return false
 }
 
-// ExtractNumber extracts numeric characters from a string and converts to int64
+// ExtractNumber extracts numeric characters from a string and converts to int64.
 func ExtractNumber(s string) int64 {
 	var str string
 	for _, c := range s {
@@ -94,13 +94,13 @@ func ExtractNumber(s string) int64 {
 	return num
 }
 
-// IsNumber checks if a string can be converted to an integer
+// IsNumber checks if a string can be converted to an integer.
 func IsNumber(s string) bool {
 	_, err := strconv.Atoi(s)
 	return err == nil
 }
 
-// ConvertToString converts various types to string representation
+// ConvertToString converts various types to string representation.
 func ConvertToString(value interface{}) string {
 	switch v := value.(type) {
 	case string:
@@ -118,8 +118,6 @@ func ConvertToString(value interface{}) string {
 }
 
 // Split splits a string by the given separator and trims whitespace from each part.
-// Empty strings after trimming are filtered out from the result.
-// Returns a slice of non-empty, whitespace-trimmed strings or nil if the input string is empty.
 func Split(str, sep string) []string {
 	if len(str) == 0 {
 		return nil

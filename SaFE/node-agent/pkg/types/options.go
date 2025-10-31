@@ -18,6 +18,7 @@ type Options struct {
 	LogFileSize   int // unit: MB
 }
 
+// Init initializes the notification channel with the provided configuration.
 func (opt *Options) Init() error {
 	if opt == nil {
 		return fmt.Errorf("the options is not initialized")

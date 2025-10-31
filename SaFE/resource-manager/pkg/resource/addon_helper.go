@@ -40,7 +40,7 @@ const (
 	DefaultNamespace = "primus-safe"
 )
 
-// Options represents configuration options for a REST client
+// Options represents configuration options for a REST client.
 type Options struct {
 	// QPS is the queries per second rate limit
 	QPS float32
@@ -69,7 +69,7 @@ type RESTClientGetter struct {
 	clientCfgMu sync.Mutex
 }
 
-// setDefaults sets default values for the RESTClientGetter
+// setDefaults sets default values for the RESTClientGetter.
 func (c *RESTClientGetter) setDefaults() {
 	if c.namespace == "" {
 		c.namespace = "default"
@@ -96,8 +96,8 @@ func (c *RESTClientGetter) ToRESTConfig() (*rest.Config, error) {
 	return c.cfg, nil
 }
 
-// ToDiscoveryClient returns a memory cached discovery client. Calling it
-// multiple times will return the same instance.
+// ToDiscoveryClient returns a memory cached discovery client.
+// Calling it multiple times will return the same instance.
 func (c *RESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
 	if c.persistent {
 		return c.toPersistentDiscoveryClient()
@@ -105,6 +105,9 @@ func (c *RESTClientGetter) ToDiscoveryClient() (discovery.CachedDiscoveryInterfa
 	return c.toDiscoveryClient()
 }
 
+// toPersistentDiscoveryClient returns a cached discovery client instance with lazy initialization.
+// It uses a mutex to ensure thread-safe access and caches the client for subsequent calls.
+// Returns an error if the initial discovery client creation fails.
 func (c *RESTClientGetter) toPersistentDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
 	c.discoveryMu.Lock()
 	defer c.discoveryMu.Unlock()
@@ -119,7 +122,7 @@ func (c *RESTClientGetter) toPersistentDiscoveryClient() (discovery.CachedDiscov
 	return c.discoveryClient, nil
 }
 
-// toDiscoveryClient returns a memory cached discovery client
+// toDiscoveryClient returns a memory cached discovery client.
 func (c *RESTClientGetter) toDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
 	config, err := c.ToRESTConfig()
 	if err != nil {
@@ -133,8 +136,8 @@ func (c *RESTClientGetter) toDiscoveryClient() (discovery.CachedDiscoveryInterfa
 	return memory.NewMemCacheClient(discoveryClient), nil
 }
 
-// ToRESTMapper returns a meta.RESTMapper using the discovery client. Calling
-// it multiple times will return the same instance.
+// ToRESTMapper returns a meta.RESTMapper using the discovery client.
+// Calling it multiple times will return the same instance.
 func (c *RESTClientGetter) ToRESTMapper() (meta.RESTMapper, error) {
 	if c.persistent {
 		return c.toPersistentRESTMapper()
@@ -142,6 +145,9 @@ func (c *RESTClientGetter) ToRESTMapper() (meta.RESTMapper, error) {
 	return c.toRESTMapper()
 }
 
+// toPersistentRESTMapper returns a cached RESTMapper instance with lazy initialization.
+// It uses a mutex to ensure thread-safe access and caches the mapper for subsequent calls.
+// Returns an error if the initial RESTMapper creation fails.
 func (c *RESTClientGetter) toPersistentRESTMapper() (meta.RESTMapper, error) {
 	c.restMapperMu.Lock()
 	defer c.restMapperMu.Unlock()
@@ -156,7 +162,7 @@ func (c *RESTClientGetter) toPersistentRESTMapper() (meta.RESTMapper, error) {
 	return c.restMapper, nil
 }
 
-// toRESTMapper returns a meta.RESTMapper using the discovery client
+// toRESTMapper returns a meta.RESTMapper using the discovery client.
 func (c *RESTClientGetter) toRESTMapper() (meta.RESTMapper, error) {
 	discoveryClient, err := c.ToDiscoveryClient()
 	if err != nil {
@@ -166,7 +172,7 @@ func (c *RESTClientGetter) toRESTMapper() (meta.RESTMapper, error) {
 	return restmapper.NewShortcutExpander(mapper, discoveryClient, nil), nil
 }
 
-// ToRawKubeConfigLoader returns a clientcmd.ClientConfig
+// ToRawKubeConfigLoader returns a clientcmd.ClientConfig.
 func (c *RESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig {
 	if c.persistent {
 		return c.toPersistentRawKubeConfigLoader()
@@ -174,6 +180,8 @@ func (c *RESTClientGetter) ToRawKubeConfigLoader() clientcmd.ClientConfig {
 	return c.toRawKubeConfigLoader()
 }
 
+// toPersistentRawKubeConfigLoader returns a cached ClientConfig instance with lazy initialization.
+// It uses a mutex to ensure thread-safe access and caches the config for subsequent calls.
 func (c *RESTClientGetter) toPersistentRawKubeConfigLoader() clientcmd.ClientConfig {
 	c.clientCfgMu.Lock()
 	defer c.clientCfgMu.Unlock()
@@ -184,7 +192,7 @@ func (c *RESTClientGetter) toPersistentRawKubeConfigLoader() clientcmd.ClientCon
 	return c.clientCfg
 }
 
-// ToRawKubeConfigLoader returns a clientcmd.ClientConfig
+// ToRawKubeConfigLoader returns a clientcmd.ClientConfig.
 func (c *RESTClientGetter) toRawKubeConfigLoader() clientcmd.ClientConfig {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	loadingRules.DefaultClientConfig = &clientcmd.DefaultClientConfig
@@ -196,16 +204,18 @@ func (c *RESTClientGetter) toRawKubeConfigLoader() clientcmd.ClientConfig {
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
 }
 
-// ClustersGetter manages RESTClientGetter instances for different clusters
+// ClustersGetter manages RESTClientGetter instances for different clusters.
 type ClustersGetter struct {
 	sync.Mutex
 	getter map[string]*RESTClientGetter
 }
 
-// getCluster defines a function type for retrieving cluster REST config
+// getCluster defines a function type for retrieving cluster REST config.
 type getCluster func(ctx context.Context, cluster *corev1.ObjectReference) (*rest.Config, error)
 
-// get retrieves or creates a RESTClientGetter for the specified cluster
+// get retrieves or creates a RESTClientGetter for the specified cluster.
+// It uses a cache to return existing getters if the REST config hasn't changed.
+// Creates a new getter if the cluster is not cached or if the config has been updated.
 func (c *ClustersGetter) get(ctx context.Context, cluster *corev1.ObjectReference, get getCluster) (*RESTClientGetter, error) {
 	c.Lock()
 	defer c.Unlock()
@@ -227,7 +237,7 @@ func (c *ClustersGetter) get(ctx context.Context, cluster *corev1.ObjectReferenc
 	return getter, nil
 }
 
-// newDefaultRegistryClient creates a new Helm registry client
+// newDefaultRegistryClient creates a new Helm registry client.
 func newDefaultRegistryClient(plainHTTP bool, settings *cli.EnvSettings) (*registry.Client, error) {
 	opts := []registry.ClientOption{
 		registry.ClientOptDebug(settings.Debug),
@@ -247,7 +257,7 @@ func newDefaultRegistryClient(plainHTTP bool, settings *cli.EnvSettings) (*regis
 	return registryClient, nil
 }
 
-// shouldIgnoreUpgrade determines whether a Helm upgrade should be skipped
+// shouldIgnoreUpgrade determines whether a Helm upgrade should be skipped.
 func shouldIgnoreUpgrade(addon *v1.Addon) bool {
 	if !isStatusReady(addon) {
 		return false
@@ -264,7 +274,7 @@ func shouldIgnoreUpgrade(addon *v1.Addon) bool {
 	return isChartVersionEqual(addon)
 }
 
-// isStatusReady checks if the addon status is ready for upgrade
+// isStatusReady checks if the addon status is ready for upgrade.
 func isStatusReady(addon *v1.Addon) bool {
 	if addon.Status.AddonSourceStatus.HelmRepositoryStatus == nil {
 		return true
@@ -273,7 +283,7 @@ func isStatusReady(addon *v1.Addon) bool {
 	return status != v1.AddonFailed && status != v1.AddonError
 }
 
-// areValuesEqual compares the values between spec and status
+// areValuesEqual compares the values between spec and status.
 func areValuesEqual(addon *v1.Addon) bool {
 	if addon.Spec.AddonSource.HelmRepository.Values == "" {
 		return true
@@ -288,7 +298,7 @@ func areValuesEqual(addon *v1.Addon) bool {
 	return reflect.DeepEqual(specValues, statusValues)
 }
 
-// isTemplateVersionEqual checks if template version matches
+// isTemplateVersionEqual checks if template version matches.
 func isTemplateVersionEqual(addon *v1.Addon) bool {
 	if addon.Spec.AddonSource.HelmRepository.Template == nil || addon.Status.AddonSourceStatus.HelmRepositoryStatus.Template == nil {
 		return true
@@ -296,7 +306,7 @@ func isTemplateVersionEqual(addon *v1.Addon) bool {
 	return addon.Spec.AddonSource.HelmRepository.Template.Name == addon.Status.AddonSourceStatus.HelmRepositoryStatus.Template.Name
 }
 
-// isChartVersionEqual checks if chart version matches
+// isChartVersionEqual checks if chart version matches.
 func isChartVersionEqual(addon *v1.Addon) bool {
 	if addon.Spec.AddonSource.HelmRepository.Template != nil {
 		return true
@@ -304,7 +314,7 @@ func isChartVersionEqual(addon *v1.Addon) bool {
 	return addon.Spec.AddonSource.HelmRepository.ChartVersion == addon.Status.AddonSourceStatus.HelmRepositoryStatus.ChartVersion
 }
 
-// replaceValues merges values with base values, replacing existing values
+// replaceValues merges values with base values, replacing existing values.
 func replaceValues(values, base map[string]interface{}) map[string]interface{} {
 	for k, v := range base {
 		if val, ok := values[k]; ok {
@@ -319,12 +329,11 @@ func replaceValues(values, base map[string]interface{}) map[string]interface{} {
 		} else {
 			values[k] = v
 		}
-
 	}
 	return values
 }
 
-// rollbackValues merges rollback values with base values
+// rollbackValues merges rollback values with base values.
 func rollbackValues(str string, base map[string]interface{}) string {
 	values := make(map[string]interface{})
 	err := yaml.Unmarshal([]byte(str), &values)
@@ -346,7 +355,6 @@ func rollbackValues(str string, base map[string]interface{}) string {
 					values[k] = val
 				}
 			}
-
 		}
 	}
 	rollback(values, base)
@@ -358,6 +366,7 @@ func rollbackValues(str string, base map[string]interface{}) string {
 	return string(data)
 }
 
+// GetReleaseNamespace returns the namespace for addon release.
 func GetReleaseNamespace(addon *v1.Addon) string {
 	if addon.Spec.AddonSource.HelmRepository.Namespace != "" {
 		return addon.Spec.AddonSource.HelmRepository.Namespace

@@ -1,6 +1,16 @@
 # WebShell API
 
-WebShell API provides web terminal functionality for accessing workload containers through browser.
+## Overview
+The WebShell API provides web-based terminal functionality for accessing workload containers directly through a browser. Built on WebSocket technology, it enables real-time, interactive shell sessions to running Pods without requiring SSH clients or VPN connections. The API supports multiple shell types (bash, sh, zsh), terminal resizing, and provides secure authenticated access with comprehensive audit logging. It serves as a convenient tool for development, debugging, and operational management of containerized workloads.
+
+### Core Concepts
+
+A WebShell session is a WebSocket-based terminal connection to a container, with the following key characteristics:
+
+* WebSocket Protocol: Utilizes WebSocket for bidirectional, low-latency communication between browser and container shell.
+* Shell Flexibility: Supports multiple shell types with automatic fallback to available shells in the container.
+* Terminal Emulation: Provides full terminal emulation with support for resizing and standard terminal features.
+* Secure Access: Requires authentication and authorization, with all sessions logged for audit and security compliance.
 
 ## API List
 
@@ -8,7 +18,7 @@ WebShell API provides web terminal functionality for accessing workload containe
 
 Establish WebSocket connection to workload Pod.
 
-**Endpoint**: `GET /api/custom/workloads/:name/pods/:podId/webshell`
+**Endpoint**: `GET /api/v1/workloads/:name/pods/:podId/webshell`
 
 **Protocol**: WebSocket
 
@@ -30,7 +40,7 @@ Establish WebSocket connection to workload Pod.
 
 **WebSocket Upgrade Request Example**:
 ```
-GET /api/custom/workloads/my-job-abc/pods/my-job-abc-worker-0/webshell?namespace=default&container=pytorch&cmd=bash&rows=40&cols=120
+GET /api/v1/workloads/my-job-abc/pods/my-job-abc-worker-0/webshell?namespace=default&container=pytorch&cmd=bash&rows=40&cols=120
 Connection: Upgrade
 Upgrade: websocket
 Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==
@@ -73,7 +83,7 @@ When browser window size changes, client needs to send terminal size adjustment 
 
 ```javascript
 // Establish WebSocket connection
-const wsUrl = `wss://api.example.com/api/custom/workloads/my-job/pods/my-pod/webshell?namespace=default&container=main&cmd=bash`;
+const wsUrl = `wss://api.example.com/api/v1/workloads/my-job/pods/my-pod/webshell?namespace=default&container=main&cmd=bash`;
 const ws = new WebSocket(wsUrl);
 
 // Connection established

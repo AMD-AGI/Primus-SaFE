@@ -77,7 +77,7 @@ spec:
           status:
             properties:
               phase:
-                description: The status of fault, such as Succeeded, Failed
+                description: The status of fault, e.g. Succeeded, Failed
                 type: string
               updateTime:
                 description: The last update time of fault

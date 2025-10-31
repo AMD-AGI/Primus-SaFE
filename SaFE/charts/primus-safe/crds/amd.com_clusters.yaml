@@ -96,7 +96,7 @@ spec:
                     format: int32
                     type: integer
                   kubeNetworkPlugin:
-                    description: Network plugin, default is cilium
+                    description: Network plugin, default flannel
                     type: string
                   kubePodsSubnet:
                     description: Pod subnet configuration

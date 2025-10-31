@@ -96,6 +96,7 @@ type CreateImageRequest struct {
 	IsShare     bool   `json:"isShare"`
 }
 
+// Valid validates the request parameters.
 func (c CreateImageRequest) Valid() (bool, string) {
 	if c.ImageTag == "" {
 		return false, "imageTag is required"
@@ -122,6 +123,7 @@ type CreateRegistryRequest struct {
 	Default  bool   `json:"default"`
 }
 
+// Validate checks if the search client configuration is valid.
 func (r *CreateRegistryRequest) Validate(create bool) error {
 	if r.Name == "" {
 		return fmt.Errorf("name is required")

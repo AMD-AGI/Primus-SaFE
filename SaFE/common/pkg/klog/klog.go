@@ -14,12 +14,6 @@ import (
 
 // Init initializes the klog logging system with the specified log file path and maximum log file size.
 // It sets up logging to both file and stderr, skips log headers, and parses the flags.
-// Parameters:
-//   - logfilePath: the path to the log file where logs will be written
-//   - logFileSize: the maximum size of the log file in megabytes, if 0 then no size limit is set
-//
-// Returns:
-//   - error: always returns nil as the klog.InitFlags and flag.Set operations don't return errors
 func Init(logfilePath string, logFileSize int) error {
 	klog.InitFlags(nil)
 	flag.Set("log_file", logfilePath)

@@ -28,6 +28,7 @@ var (
 	insertPublicKeyFormat = `INSERT INTO ` + TPublicKey + ` (%s) VALUES (%s)`
 )
 
+// InsertPublicKey inserts a new public key record into the database.
 func (c *Client) InsertPublicKey(ctx context.Context, publicKey *PublicKey) error {
 	if publicKey == nil {
 		return commonerrors.NewBadRequest("the input is empty")
@@ -52,6 +53,7 @@ func (c *Client) InsertPublicKey(ctx context.Context, publicKey *PublicKey) erro
 	return err
 }
 
+// SelectPublicKeys retrieves multiple public key records.
 func (c *Client) SelectPublicKeys(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*PublicKey, error) {
 	startTime := time.Now().UTC()
 	defer func() {
@@ -89,6 +91,7 @@ func (c *Client) SelectPublicKeys(ctx context.Context, query sqrl.Sqlizer, order
 	return publicKeys, err
 }
 
+// CountPublicKeys returns the count of resources.
 func (c *Client) CountPublicKeys(ctx context.Context, query sqrl.Sqlizer) (int, error) {
 	db, err := c.getDB()
 	if err != nil {
@@ -103,6 +106,7 @@ func (c *Client) CountPublicKeys(ctx context.Context, query sqrl.Sqlizer) (int, 
 	return cnt, err
 }
 
+// DeletePublicKey deletes a public key record.
 func (c *Client) DeletePublicKey(ctx context.Context, userId string, id int64) error {
 	db, err := c.getDB()
 	if err != nil {
@@ -118,6 +122,7 @@ func (c *Client) DeletePublicKey(ctx context.Context, userId string, id int64) e
 	return nil
 }
 
+// SetPublicKeyStatus sets the PublicKeyStatus value.
 func (c *Client) SetPublicKeyStatus(ctx context.Context, userId string, id int64, status bool) error {
 	db, err := c.getDB()
 	if err != nil {
@@ -134,6 +139,7 @@ func (c *Client) SetPublicKeyStatus(ctx context.Context, userId string, id int64
 	return nil
 }
 
+// SetPublicKeyDescription sets the PublicKeyDescription value.
 func (c *Client) SetPublicKeyDescription(ctx context.Context, userId string, id int64, description string) error {
 	db, err := c.getDB()
 	if err != nil {
@@ -150,6 +156,7 @@ func (c *Client) SetPublicKeyDescription(ctx context.Context, userId string, id 
 	return nil
 }
 
+// GetPublicKeyByUserId returns the PublicKeyByUserId value.
 func (c *Client) GetPublicKeyByUserId(ctx context.Context, userId string) ([]*PublicKey, error) {
 	if userId == "" {
 		return nil, commonerrors.NewBadRequest("userId is empty")

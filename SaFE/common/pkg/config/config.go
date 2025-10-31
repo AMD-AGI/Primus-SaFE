@@ -15,10 +15,12 @@ import (
 	"github.com/spf13/viper"
 )
 
+// SetValue sets a configuration value for the specified key.
 func SetValue(key, value string) {
 	viper.Set(key, value)
 }
 
+// LoadConfig loads configuration from the specified file path.
 func LoadConfig(path string) error {
 	viper.SetConfigFile(path)
 	viper.SetConfigType("yaml")
@@ -68,82 +70,102 @@ func removeBlank(slice []string) []string {
 	return result
 }
 
+// IsCryptoEnable returns whether encryption is enabled.
 func IsCryptoEnable() bool {
 	return getBool(cryptoEnable, true)
 }
 
+// GetCryptoKey returns the encryption key.
 func GetCryptoKey() string {
 	return getFromFile(cryptoSecretPath, "key")
 }
 
+// IsHealthCheckEnabled returns whether health checks are enabled.
 func IsHealthCheckEnabled() bool {
 	return getBool(healthCheckEnable, true)
 }
 
+// GetHealthCheckPort returns the port for health check endpoint.
 func GetHealthCheckPort() int {
 	return getInt(healthCheckPort, 0)
 }
 
+// IsLeaderElectionEnable returns whether leader election is enabled.
 func IsLeaderElectionEnable() bool {
 	return getBool(leaderElectionEnable, true)
 }
 
+// GetServerPort returns the API server port.
 func GetServerPort() int {
 	return getInt(serverPort, 0)
 }
 
+// IsSSHEnable returns whether SSH access is enabled.
 func IsSSHEnable() bool {
 	return getBool(sshEnable, false)
 }
 
+// GetSSHServerIP returns the SSH server IP address.
 func GetSSHServerIP() string {
 	return getString(sshServerIP, "")
 }
 
+// GetSSHServerPort returns the SSH server port.
 func GetSSHServerPort() int {
 	return getInt(sshServerPort, 0)
 }
 
+// GetSSHRsaPublic returns the SSH RSA public key path.
 func GetSSHRsaPublic() string {
 	return getFromFile(sshSecretPath, "id_rsa.pub")
 }
 
+// GetSSHRsaPrivate returns the SSH RSA private key path.
 func GetSSHRsaPrivate() string {
 	return getFromFile(sshSecretPath, "id_rsa")
 }
 
+// GetMemoryReservePercent returns the percentage of memory to reserve.
 func GetMemoryReservePercent() float64 {
 	return getFloat(memoryReservePercent, 0)
 }
 
+// GetCpuReservePercent returns the percentage of CPU to reserve.
 func GetCpuReservePercent() float64 {
 	return getFloat(cpuReservePercent, 0)
 }
 
+// GetEphemeralStoreReservePercent returns the percentage of ephemeral storage to reserve.
 func GetEphemeralStoreReservePercent() float64 {
 	return getFloat(ephemeralStoreReservePercent, 0)
 }
 
+// GetMaxEphemeralStorePercent returns the maximum percentage of ephemeral storage allowed.
 func GetMaxEphemeralStorePercent() float64 {
 	return getFloat(maxEphemeralStorePercent, 0)
 }
 
+// GetWorkloadHangCheckInterval returns the interval for checking hung workloads.
 func GetWorkloadHangCheckInterval() int {
 	return getInt(workloadHangCheckInterval, 0)
 }
 
+// GetWorkloadTTLSecond returns the TTL in seconds for completed workloads.
 func GetWorkloadTTLSecond() int {
 	return getInt(workloadTTLSecond, 60)
 }
 
+// IsOpenSearchEnable returns whether OpenSearch is enabled.
 func IsOpenSearchEnable() bool {
 	return getBool(openSearchEnable, false)
 }
 
+// GetOpenSearchEndpoint returns the OpenSearch endpoint URL.
 func GetOpenSearchEndpoint() string {
 	return getString(openSearchEndpoint, "")
 }
 
+// GetOpenSearchUser returns the OpenSearch username.
 func GetOpenSearchUser() string {
 	if user := getString(openSearchPrefix+openSearchUser, ""); len(user) > 0 {
 		return user
@@ -151,6 +173,7 @@ func GetOpenSearchUser() string {
 	return getFromFile(openSearchSecretPath, openSearchUser)
 }
 
+// GetOpenSearchPasswd returns the OpenSearch password.
 func GetOpenSearchPasswd() string {
 	if passwd := getString(openSearchPrefix+openSearchPassword, ""); len(passwd) > 0 {
 		return passwd
@@ -158,18 +181,22 @@ func GetOpenSearchPasswd() string {
 	return getFromFile(openSearchSecretPath, openSearchPassword)
 }
 
+// GetOpenSearchIndexPrefix returns the prefix for OpenSearch indices.
 func GetOpenSearchIndexPrefix() string {
 	return getString(openSearchIndexPrefix, "")
 }
 
+// IsDBEnable returns whether the database is enabled.
 func IsDBEnable() bool {
 	return getBool(dbEnable, false)
 }
 
+// GetDBHost returns the database host address.
 func GetDBHost() string {
 	return getFromFile(dbSecretPath, "host")
 }
 
+// GetDBPort returns the database port number.
 func GetDBPort() int {
 	data := getFromFile(dbSecretPath, "port")
 	n, err := strconv.Atoi(data)
@@ -179,74 +206,92 @@ func GetDBPort() int {
 	return n
 }
 
+// GetDBName returns the database name.
 func GetDBName() string {
 	return getFromFile(dbSecretPath, "dbname")
 }
 
+// GetDBUser returns the database username.
 func GetDBUser() string {
 	return getFromFile(dbSecretPath, "user")
 }
 
+// GetDBPassword returns the database password.
 func GetDBPassword() string {
 	return getFromFile(dbSecretPath, "password")
 }
 
+// GetDBSslMode returns the database SSL mode.
 func GetDBSslMode() string {
 	return getString(dbSslMode, "require")
 }
 
+// GetDBMaxOpenConns returns the maximum number of open database connections.
 func GetDBMaxOpenConns() int {
 	return getInt(dbMaxOpenConns, 100)
 }
 
+// GetDBMaxIdleConns returns the maximum number of idle database connections.
 func GetDBMaxIdleConns() int {
 	return getInt(dbMaxIdleConns, 10)
 }
 
+// GetDBMaxLifetimeSecond returns the maximum lifetime of database connections in seconds.
 func GetDBMaxLifetimeSecond() int {
 	return getInt(dbMaxLifetime, 600)
 }
 
+// GetDBMaxIdleTimeSecond returns the maximum idle time of database connections in seconds.
 func GetDBMaxIdleTimeSecond() int {
 	return getInt(dbMaxIdleTimeSecond, 60)
 }
 
+// GetDBConnectTimeoutSecond returns the database connection timeout in seconds.
 func GetDBConnectTimeoutSecond() int {
 	return getInt(dbConnectTimeoutSecond, 10)
 }
 
+// GetDBRequestTimeoutSecond returns the database request timeout in seconds.
 func GetDBRequestTimeoutSecond() int {
 	return getInt(dbRequestTimeoutSecond, 20)
 }
 
+// GetOpsJobTTLSecond returns the TTL in seconds for operations jobs.
 func GetOpsJobTTLSecond() int {
 	return getInt(opsJobTTLSecond, 60)
 }
 
+// GetOpsJobTimeoutSecond returns the timeout in seconds for operations jobs.
 func GetOpsJobTimeoutSecond() int {
 	return getInt(opsJobTimeoutSecond, 0)
 }
 
+// IsS3Enable returns whether S3 storage is enabled.
 func IsS3Enable() bool {
 	return getBool(s3Enable, false)
 }
 
+// GetS3AccessKey returns the S3 access key.
 func GetS3AccessKey() string {
 	return getFromFile(s3SecretPath, "access_key")
 }
 
+// GetS3SecretKey returns the S3 secret key.
 func GetS3SecretKey() string {
 	return getFromFile(s3SecretPath, "secret_key")
 }
 
+// GetS3Bucket returns the S3 bucket name.
 func GetS3Bucket() string {
 	return getFromFile(s3SecretPath, "bucket")
 }
 
+// GetS3Endpoint returns the S3 endpoint URL.
 func GetS3Endpoint() string {
 	return getFromFile(s3SecretPath, "endpoint")
 }
 
+// GetS3ExpireDay returns the number of days after which S3 objects expire.
 func GetS3ExpireDay() int32 {
 	resp := getInt(s3ExpireDay, 0)
 	return int32(resp)
@@ -262,10 +307,12 @@ func getFromFile(configPath, item string) string {
 	return strings.TrimRight(key, "\r\n")
 }
 
+// GetRdmaName returns the RDMA resource name.
 func GetRdmaName() string {
 	return getString(rdmaName, "")
 }
 
+// GetAddons returns the list of enabled addons.
 func GetAddons(version *string) []string {
 	name := addonPrefix
 	if version != nil {
@@ -278,30 +325,37 @@ func GetAddons(version *string) []string {
 	return getStrings(addonDefault)
 }
 
+// GetImageSecret returns the default image pull secret name.
 func GetImageSecret() string {
 	return getString(imageSecret, "")
 }
 
+// GetAuthoringImage returns the default authoring environment image.
 func GetAuthoringImage() string {
 	return getString(workloadAuthoringImage, "")
 }
 
+// GetUserTokenExpire returns the user token expiration time in seconds.
 func GetUserTokenExpire() int {
 	return getInt(userTokenExpireSecond, -1)
 }
 
+// IsUserTokenRequired returns whether user token is required for API access.
 func IsUserTokenRequired() bool {
 	return getBool(userTokenRequired, true)
 }
 
+// IsNotificationEnable returns whether notifications are enabled.
 func IsNotificationEnable() bool {
 	return getBool(notificationEnable, true)
 }
 
+// GetNotificationConfig returns the path to the notification configuration file.
 func GetNotificationConfig() string {
 	return getFromFile(notificationSecretPath, "config")
 }
 
+// GetSystemBaseUrl returns the base URL of the system.
 func GetSystemBaseUrl() string {
 	return getString(systemBaseUrl, "")
 }

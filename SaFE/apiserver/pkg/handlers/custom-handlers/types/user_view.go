@@ -14,82 +14,82 @@ import (
 type CreateUserRequest struct {
 	// The username, required
 	Name string `json:"name,omitempty"`
-	// The user mail
+	// User mail
 	Email string `json:"email,omitempty"`
-	// The user type, such as default, teams
+	// User type, e.g. default, teams
 	Type v1.UserType `json:"type,omitempty"`
-	// The user password
+	// User password
 	Password string `json:"password,omitempty"`
 	// The workspaces which user can access
 	Workspaces []string `json:"workspaces,omitempty"`
-	// The user avatar URL
+	// User avatar URL
 	AvatarUrl string `json:"avatarUrl,omitempty"`
 }
 
 type CreateUserResponse struct {
-	// The user id
+	// User ID
 	Id string `json:"id"`
 }
 
 type ListUserRequest struct {
-	// The username, will be QueryEscape processed
+	// Filter by username (URL encoded)
 	Name string `form:"name" binding:"omitempty"`
-	// The user mail, will be QueryEscape processed
+	// Filter by email (URL encoded)
 	Email string `form:"email" binding:"omitempty"`
-	// Workspace id accessible to the user.
+	// Filter by workspace (returns users with access to this workspace)
 	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`
 }
 
 type ListUserResponse struct {
-	// The total number of node templates, not limited by pagination
+	// The total number of users, not limited by pagination
 	TotalCount int                `json:"totalCount"`
 	Items      []UserResponseItem `json:"items,omitempty"`
 }
 
 type UserResponseItem struct {
-	// The user id
+	// User ID
 	Id string `json:"id"`
-	// The username
+	// Username
 	Name string `json:"name"`
-	// The user mail
+	// User mail
 	Email string `json:"email"`
-	// The user type, such as default, teams
+	// User type, e.g. default, teams
 	Type v1.UserType `json:"type"`
-	// The user role, such as system-admin, default
+	// User role, e.g. system-admin, default
 	Roles []v1.UserRole `json:"roles"`
 	// The workspaces which user can access
 	Workspaces []WorkspaceEntry `json:"workspaces"`
 	// The workspaces which user can manage
 	ManagedWorkspaces []WorkspaceEntry `json:"managedWorkspaces"`
-	// The user creation time
+	// User creation time
 	CreationTime string `json:"creationTime"`
-	// The User restriction type, 0: normal; 1 frozen
+	// User restriction type, 0: normal; 1 frozen
 	RestrictedType v1.UserRestrictedType `json:"restrictedType"`
-	// The user avatar URL
+	// User avatar URL
 	AvatarUrl string `json:"avatarUrl,omitempty"`
 }
 
 type PatchUserRequest struct {
-	// The user role, such as system-admin, default
+	// User role, e.g. system-admin, default
 	Roles *[]v1.UserRole `json:"roles,omitempty"`
 	// The workspaces which user can access
 	Workspaces *[]string `json:"workspaces,omitempty"`
-	// The user avatar URL
+	// User avatar URL
 	AvatarUrl *string `json:"avatarUrl,omitempty"`
-	// The user password
+	// User password
 	Password *string `json:"password,omitempty"`
-	// The User restriction type, 0: normal; 1 frozen
+	// User restriction type, 0: normal; 1 frozen
 	RestrictedType *v1.UserRestrictedType `json:"restrictedType,omitempty"`
-	// The user email
+	// User email
 	Email *string `json:"email,omitempty"`
 }
 
 type UserLoginRequest struct {
-	// The user type, such as default, teams
+	// User type, e.g. default, teams
 	Type v1.UserType `json:"type,omitempty"`
-	// The username
+	// Username
 	Name string `json:"name,omitempty"`
-	// The user password
+	// User password
 	Password string `json:"password,omitempty"`
 	// Whether the request is from console
 	IsFromConsole bool `json:"-"`
@@ -99,7 +99,7 @@ type UserLoginResponse struct {
 	UserResponseItem `json:",inline"`
 	// The timestamp when the user token expires, in seconds.
 	Expire int64 `json:"expire"`
-	// The user token
+	// User token, encrypted internally.
 	Token string `json:"token"`
 }
 
@@ -110,6 +110,7 @@ type UserEntity struct {
 
 type UserSlice []v1.User
 
+// Less implements sort.Interface for sorting.
 func (users UserSlice) Less(i, j int) bool {
 	if users[i].CreationTimestamp.Time.Equal(users[j].CreationTimestamp.Time) {
 		return strings.Compare(users[i].Name, users[j].Name) < 0
@@ -117,10 +118,12 @@ func (users UserSlice) Less(i, j int) bool {
 	return users[i].CreationTimestamp.Time.Before(users[j].CreationTimestamp.Time)
 }
 
+// Len implements sort.Interface by returning the length of the slice.
 func (users UserSlice) Len() int {
 	return len(users)
 }
 
+// Swap implements sort.Interface by swapping elements at the given indices.
 func (users UserSlice) Swap(i, j int) {
 	users[i], users[j] = users[j], users[i]
 }

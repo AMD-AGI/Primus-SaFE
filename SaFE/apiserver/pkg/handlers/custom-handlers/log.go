@@ -32,14 +32,17 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
+// GetWorkloadLog retrieves logs for a workload from OpenSearch or similar logging service.
 func (h *Handler) GetWorkloadLog(c *gin.Context) {
 	handle(c, h.getWorkloadLog)
 }
 
+// GetServiceLog retrieves service logs from the logging backend.
 func (h *Handler) GetServiceLog(c *gin.Context) {
 	handle(c, h.getServiceLog)
 }
 
+// GetWorkloadLogContext retrieves contextual log information for a workload.
 func (h *Handler) GetWorkloadLogContext(c *gin.Context) {
 	handle(c, h.getWorkloadLogContext)
 }

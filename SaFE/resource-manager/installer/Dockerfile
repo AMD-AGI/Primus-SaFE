@@ -14,7 +14,7 @@ ENV GOBIN="/usr/local/go/bin"
 ENV CGO_ENABLED=0
 ENV GOPATH="/workspace/primus-safe/go"
 
-COPY . /workspace/primus-safe
+COPY ./SaFE /workspace/primus-safe
 WORKDIR /workspace/primus-safe
 RUN mkdir dist && mkdir dist/logs
 RUN GOOS=linux GOARCH=amd64  go build -o dist/resource_manager ./resource-manager/cmd/main.go
@@ -25,7 +25,7 @@ ARG APP_HOME=/opt/primus-safe/resource-manager
 RUN apt-get update
 RUN apt-get install -y sed
 COPY --from=builder /workspace/primus-safe/dist ${APP_HOME}
-COPY ./resource-manager/installer/run.sh  ${APP_HOME}
+COPY ./SaFE/resource-manager/installer/run.sh  ${APP_HOME}
 
 RUN  ls  -l ${APP_HOME} && \
   echo 'umask 0027' | tee -a /etc/bashrc && \

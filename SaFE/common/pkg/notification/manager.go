@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package notification
 
 import (
@@ -15,10 +20,12 @@ var (
 	singleton *Manager
 )
 
+// GetNotificationManager returns the singleton notification manager instance.
 func GetNotificationManager() *Manager {
 	return singleton
 }
 
+// InitNotificationManager initializes the notification manager with configuration.
 func InitNotificationManager(ctx context.Context, configFile string) error {
 	klog.Infof("Notification manager initializing with config file: %s", configFile)
 	conf, err := channel.ReadConfigFromFile(configFile)
@@ -46,6 +53,7 @@ type Manager struct {
 	dbClient *dbClient.Client
 }
 
+// SubmitNotification submits a notification to be processed and sent.
 func (m *Manager) SubmitNotification(ctx context.Context, topic, uid string, data map[string]interface{}) error {
 	if t, ok := m.topics[topic]; !ok {
 		return nil
@@ -63,6 +71,7 @@ func (m *Manager) SubmitNotification(ctx context.Context, topic, uid string, dat
 	return m.dbClient.SubmitNotification(ctx, notification)
 }
 
+// Start starts the server and begins processing requests.
 func (m *Manager) Start(ctx context.Context) {
 	go m.doListenNotifications(ctx)
 }
@@ -100,6 +109,7 @@ func (m *Manager) listenNotifications(ctx context.Context) error {
 	return nil
 }
 
+// SubmitMessage submits a pre-built notification message for delivery.
 func (m *Manager) SubmitMessage(ctx context.Context, data *model.Notification) error {
 	t, exists := m.topics[data.Topic]
 	if !exists {

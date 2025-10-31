@@ -36,13 +36,7 @@ type JobManager struct {
 	CtrlManager manager.Manager
 }
 
-// NewJobManager creates and initializes a new JobManager instance
-// Parameters:
-//   - scheme: The runtime scheme for the manager
-//
-// Returns:
-//   - *JobManager: The initialized job manager
-//   - error: Any error encountered during initialization
+// NewJobManager creates and returns a new JobManager instance.
 func NewJobManager(scheme *runtime.Scheme) (*JobManager, error) {
 	jm := &JobManager{
 		Context: ctrlruntime.SetupSignalHandler(),
@@ -58,13 +52,7 @@ func NewJobManager(scheme *runtime.Scheme) (*JobManager, error) {
 	return jm, nil
 }
 
-// newCtrlManager creates and configures a new controller manager
-// Parameters:
-//   - scheme: The runtime scheme for the manager
-//
-// Returns:
-//   - ctrlruntime.Manager: The configured controller manager
-//   - error: Any error encountered during creation
+// newCtrlManager creates and configures a new controller manager.
 func newCtrlManager(scheme *runtime.Scheme) (ctrlruntime.Manager, error) {
 	healthProbeAddress := ""
 	if commonconfig.IsHealthCheckEnabled() {
@@ -111,10 +99,8 @@ func newCtrlManager(scheme *runtime.Scheme) (ctrlruntime.Manager, error) {
 	return mgr, nil
 }
 
-// SetupControllers initializes and registers all required controllers with the manager
-// Registers syncer, scheduler, dispatcher, failover, and TTL controllers
-// Returns:
-//   - error: Any error encountered during controller setup
+// SetupControllers initializes and registers all required controllers with the manager.
+// Registers syncer, scheduler, dispatcher, failover, and TTL controllers.
 func (jm *JobManager) SetupControllers() error {
 	if err := syncer.SetupSyncerController(jm.Context, jm.CtrlManager); err != nil {
 		return fmt.Errorf("syncer controller: %v", err)
@@ -134,11 +120,8 @@ func (jm *JobManager) SetupControllers() error {
 	return nil
 }
 
-// Start begins the controller manager and waits for cache synchronization
-// Runs the manager in a goroutine and checks for cache sync
-// Returns:
-//   - error: Any error encountered during startup
-
+// Start begins the controller manager and waits for cache synchronization.
+// Runs the manager in a goroutine and checks for cache sync.
 func (jm *JobManager) Start() error {
 	go func() {
 		if err := jm.CtrlManager.Start(jm.Context); err != nil {
@@ -153,8 +136,8 @@ func (jm *JobManager) Start() error {
 	return nil
 }
 
-// Wait blocks until the job manager context is cancelled
-// This method should be called to keep the application running
+// Wait blocks until the job manager context is cancelled.
+// This method should be called to keep the application running.
 func (jm *JobManager) Wait() {
 	<-jm.Context.Done()
 }

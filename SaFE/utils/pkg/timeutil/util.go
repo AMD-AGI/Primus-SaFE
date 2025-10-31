@@ -20,7 +20,6 @@ const (
 )
 
 // FormatRFC3339 converts a *time.Time to its string representation in RFC3339Short format.
-// Returns an empty string if the pointer is nil or points to a zero time value.
 func FormatRFC3339(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -28,7 +27,7 @@ func FormatRFC3339(t time.Time) string {
 	return t.Format(TimeRFC3339Short)
 }
 
-// CvtStrUnixToTime converts a Unix timestamp string to time.Time
+// CvtStrUnixToTime converts a Unix timestamp string to time.Time.
 func CvtStrUnixToTime(strTime string) time.Time {
 	if strTime == "" {
 		return time.Time{}
@@ -40,9 +39,7 @@ func CvtStrUnixToTime(strTime string) time.Time {
 	return time.Unix(intTime, 0).UTC()
 }
 
-// CvtTime3339ToCronStandard converts a time string in RFC3339 short format ("2006-01-02T15:04:05.000Z")
-// to cron standard schedule format ("minute hour day month *"), ignoring the date year
-// Returns an error if the input time string cannot be parsed.
+// CvtTime3339ToCronStandard converts data to the target format.
 func CvtTime3339ToCronStandard(timeStr string) (string, time.Time, error) {
 	t, err := CvtStrToRFC3339Milli(timeStr)
 	if err != nil {
@@ -53,7 +50,7 @@ func CvtTime3339ToCronStandard(timeStr string) (string, time.Time, error) {
 	return scheduleStr, t, nil
 }
 
-// CvtTimeOnlyToCronStandard converts a time-only string("15:04:05") to cron schedule format (minute hour * * *)
+// CvtTimeOnlyToCronStandard converts a time-only string("15:04:05") to cron schedule format (minute hour * * *).
 func CvtTimeOnlyToCronStandard(timeStr string) (string, time.Time, error) {
 	t, err := time.Parse(time.TimeOnly, timeStr)
 	if err != nil {
@@ -63,8 +60,7 @@ func CvtTimeOnlyToCronStandard(timeStr string) (string, time.Time, error) {
 	return scheduleStr, t, nil
 }
 
-// CvtStrToRFC3339Milli converts a RFC3339 millisecond format string or RFC3339 short format string to UTC time.Time
-// Returns an error if the input time string cannot be parsed in either format.
+// CvtStrToRFC3339Milli converts data to the target format.
 func CvtStrToRFC3339Milli(timeStr string) (time.Time, error) {
 	if timeStr == "" {
 		return time.Time{}, fmt.Errorf("invalid input")
@@ -79,7 +75,7 @@ func CvtStrToRFC3339Milli(timeStr string) (time.Time, error) {
 	return t, nil
 }
 
-// ParseCronStandard parses a cron schedule string
+// ParseCronStandard parses a cron schedule string.
 func ParseCronStandard(cronStandardSpec string) (cron.Schedule, error) {
 	if cronStandardSpec == "" {
 		return nil, fmt.Errorf("invalid input")
@@ -93,9 +89,7 @@ func ParseCronStandard(cronStandardSpec string) (cron.Schedule, error) {
 
 // FormatDuration converts a duration in seconds to a human-readable string format.
 // The format includes hours, minutes, and seconds components, separated by spaces.
-// For example: "2h30m45s" or "1h15s"
-// If the input is negative, it returns an empty string.
-// If the input is zero, it returns "0s".
+// For example: "2h30m45s" or "1h15s".
 func FormatDuration(seconds int64) string {
 	if seconds < 0 {
 		return ""

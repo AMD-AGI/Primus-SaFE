@@ -6,20 +6,19 @@
 package types
 
 type ListFaultRequest struct {
-	// The starting offset for the results. Default is 0
+	// The starting offset for the results. default 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
-	// The maximum number of returned results. Default is 100
+	// The maximum number of returned results. default 100
 	Limit int `form:"limit" binding:"omitempty,min=1"`
-	// The field to sort results by. Default is "create_time"
+	// The field to sort results by. default "create_time"
 	SortBy string `form:"sortBy" binding:"omitempty"`
-	// The sorting order. Valid values are "desc" (default) or "asc"
+	// Sort order: desc/asc, default desc
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
-	// Filter results by node id
+	// Filter by node ID (fuzzy match)
 	NodeId string `form:"nodeId" binding:"omitempty,max=64"`
-	// Filter results by monitor id, which comes from the node agent
-	// For multiple ids, separate them with commas
+	// Filter by monitor ID(from node-agent); multiple IDs comma-separated
 	MonitorId string `form:"monitorId" binding:"omitempty"`
-	// Filter results by cluster id
+	// Filter results by cluster ID
 	ClusterId string `form:"clusterId" binding:"omitempty"`
 	// If set to true, only return faults that are currently open
 	OnlyOpen bool `form:"onlyOpen" binding:"omitempty"`
@@ -32,22 +31,22 @@ type ListFaultResponse struct {
 }
 
 type FaultResponseItem struct {
-	// The uniq id of fault
+	// The uniq ID of fault
 	ID string `json:"id"`
-	// The node id related to this fault
+	// The node ID related to this fault
 	NodeId string `json:"nodeId"`
-	// The id used by NodeAgent for monitoring.
+	// The ID used by NodeAgent for monitoring.
 	MonitorId string `json:"monitorId"`
 	// Fault message
 	Message string `json:"message"`
-	// The action taken on the fault, such as taint
+	// The action taken on the fault, e.g. taint
 	Action string `json:"action"`
 	// The status of fault, including Succeeded/Failed
 	Phase string `json:"phase"`
-	// The cluster id
+	// The cluster ID
 	ClusterId string `json:"clusterId"`
-	// The creation time of fault
+	// The creation time of fault. (RFC3339Short, e.g. "2025-07-08T10:31:46")
 	CreationTime string `json:"creationTime"`
-	// The deletion time of fault
+	// The deletion time of fault. (RFC3339Short, e.g. "2025-07-08T10:31:46")
 	DeletionTime string `json:"deletionTime"`
 }

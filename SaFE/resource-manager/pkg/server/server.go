@@ -34,22 +34,22 @@ var (
 	scheme = runtime.NewScheme()
 )
 
-// init initializes the runtime scheme with required API types
+// init initializes the runtime scheme with required API types.
 func init() {
 	utilruntime.Must(clientscheme.AddToScheme(scheme))
 	utilruntime.Must(v1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
-// Server represents the main server process for the resource manager
-// It coordinates controllers, exporters, and manages the overall lifecycle
+// Server represents the main server process for the resource manager.
+// It coordinates controllers, exporters, and manages the overall lifecycle.
 type Server struct {
 	opts        *options.Options
 	ctrlManager *ControllerManager
 	isInited    bool
 }
 
-// NewServer creates and initializes a new Server instance
+// NewServer creates and initializes a new Server instance.
 func NewServer() (*Server, error) {
 	s := &Server{
 		opts: &options.Options{},
@@ -60,7 +60,7 @@ func NewServer() (*Server, error) {
 	return s, nil
 }
 
-// init performs server initialization including options parsing, logging, config loading, and controller setup
+// init performs server initialization including options parsing, logging, config loading, and controller setup.
 func (s *Server) init() error {
 	var err error
 	if err = s.opts.InitFlags(); err != nil {
@@ -103,7 +103,7 @@ func (s *Server) init() error {
 	return nil
 }
 
-// Start begins the server operation by starting the controller manager and waiting for shutdown signal
+// Start begins the server operation by starting the controller manager and waiting for shutdown signal.
 func (s *Server) Start() {
 	if !s.isInited {
 		klog.Errorf("Please initialize the resource manager first")
@@ -120,7 +120,7 @@ func (s *Server) Start() {
 	klog.Flush()
 }
 
-// initLogs initializes logging configuration and sets up the controller runtime logger
+// initLogs initializes logging configuration and sets up the controller runtime logger.
 func (s *Server) initLogs() error {
 	if err := commonklog.Init(s.opts.LogfilePath, s.opts.LogFileSize); err != nil {
 		return err
@@ -129,7 +129,7 @@ func (s *Server) initLogs() error {
 	return nil
 }
 
-// initConfig loads and validates the server configuration from the specified file path
+// initConfig loads and validates the server configuration from the specified file path.
 func (s *Server) initConfig() error {
 	fullPath, err := filepath.Abs(s.opts.Config)
 	if err != nil {
@@ -141,10 +141,15 @@ func (s *Server) initConfig() error {
 	return nil
 }
 
+// NotificationRunner implements the ctrlruntime.Runnable interface to manage notification services.
+// It initializes the notification manager and informer when notification functionality is enabled.
 type NotificationRunner struct {
 	ctrlManager *ControllerManager
 }
 
+// Start initializes and starts the notification manager and informer if notification is enabled.
+// It is called by the controller manager as part of the runnable startup process.
+// Returns an error if initialization of notification manager or informer fails.
 func (n *NotificationRunner) Start(ctx context.Context) error {
 	klog.Infof("starting notification runner")
 	var err error

@@ -28,7 +28,7 @@ type WorkloadTTLController struct {
 	client.Client
 }
 
-// SetupWorkloadTTLController: initializes and registers the WorkloadTTLController with the controller manager
+// SetupWorkloadTTLController initializes and registers the WorkloadTTLController with the controller manager.
 func SetupWorkloadTTLController(mgr manager.Manager) error {
 	r := &WorkloadTTLController{
 		Client: mgr.GetClient(),
@@ -47,7 +47,7 @@ type WorkloadTTLChangePredicate struct {
 	predicate.Funcs
 }
 
-// Create: determines if a CreateEvent should trigger workload TTL reconciliation
+// Create determines if a CreateEvent should trigger workload TTL reconciliation.
 func (WorkloadTTLChangePredicate) Create(e event.CreateEvent) bool {
 	workload, ok := e.Object.(*v1.Workload)
 	if !ok {
@@ -59,7 +59,7 @@ func (WorkloadTTLChangePredicate) Create(e event.CreateEvent) bool {
 	return false
 }
 
-// Update: determines if an UpdateEvent should trigger workload TTL reconciliation
+// Update determines if an UpdateEvent should trigger workload TTL reconciliation.
 func (WorkloadTTLChangePredicate) Update(e event.UpdateEvent) bool {
 	oldWorkload, ok1 := e.ObjectOld.(*v1.Workload)
 	newWorkload, ok2 := e.ObjectNew.(*v1.Workload)
@@ -81,7 +81,7 @@ func (WorkloadTTLChangePredicate) Update(e event.UpdateEvent) bool {
 	return false
 }
 
-// Reconcile is the main control loop for Workload TTL management
+// Reconcile is the main control loop for Workload TTL management.
 func (r *WorkloadTTLController) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	startTime := time.Now().UTC()
 	defer func() {
@@ -98,7 +98,7 @@ func (r *WorkloadTTLController) Reconcile(ctx context.Context, req ctrlruntime.R
 	return r.handle(ctx, workload)
 }
 
-// handle: processes the TTL logic for workloads based on their state and TTL settings
+// handle processes the TTL logic for workloads based on their state and TTL settings.
 func (r *WorkloadTTLController) handle(ctx context.Context, workload *v1.Workload) (ctrlruntime.Result, error) {
 	nowTime := time.Now().UTC()
 	var err error
@@ -130,7 +130,7 @@ func (r *WorkloadTTLController) handle(ctx context.Context, workload *v1.Workloa
 	return result, err
 }
 
-// deleteWorkload: deletes a workload that has exceeded its TTL
+// deleteWorkload deletes a workload that has exceeded its TTL.
 func (r *WorkloadTTLController) deleteWorkload(ctx context.Context, workload *v1.Workload) error {
 	err := r.Delete(ctx, workload)
 	if err != nil {
@@ -140,7 +140,7 @@ func (r *WorkloadTTLController) deleteWorkload(ctx context.Context, workload *v1
 	return nil
 }
 
-// addTimeoutCondition: adds a timeout condition to a workload that has exceeded its timeout
+// addTimeoutCondition adds a timeout condition to a workload that has exceeded its timeout.
 func (r *WorkloadTTLController) addTimeoutCondition(ctx context.Context, workload *v1.Workload) error {
 	originalWorkload := client.MergeFrom(workload.DeepCopy())
 	workload.Status.Phase = v1.WorkloadStopped

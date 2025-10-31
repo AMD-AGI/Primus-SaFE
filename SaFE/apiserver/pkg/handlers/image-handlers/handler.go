@@ -25,6 +25,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 )
 
+// NewImageHandler creates a new ImageHandler instance.
 func NewImageHandler(mgr ctrlruntime.Manager) (*ImageHandler, error) {
 	clientSet, err := k8sclient.NewClientSetWithRestConfig(mgr.GetConfig())
 	if err != nil {

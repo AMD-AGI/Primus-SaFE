@@ -142,7 +142,7 @@ type ControlPlane struct {
 	// Service Address configuration
 	KubeServiceAddress    *string `json:"kubeServiceAddress,omitempty"`
 	KubeNetworkNodePrefix *uint32 `json:"kubeNetworkNodePrefix,omitempty"`
-	// Network plugin, default is flannel
+	// Network plugin, default flannel
 	KubeNetworkPlugin *string `json:"kubeNetworkPlugin,omitempty"`
 	// Kubernetes version
 	KubeVersion    *string `json:"kubernetesVersion,omitempty"`
@@ -181,6 +181,7 @@ func init() {
 	SchemeBuilder.Register(&Cluster{}, &ClusterList{})
 }
 
+// IsReady returns true if the cluster is in Ready phase.
 func (cluster *Cluster) IsReady() bool {
 	if cluster != nil && cluster.Status.ControlPlaneStatus.Phase == ReadyPhase {
 		return true
@@ -188,6 +189,7 @@ func (cluster *Cluster) IsReady() bool {
 	return false
 }
 
+// DeleteStorageStatus removes storage status for the specified storage name.
 func (cluster *Cluster) DeleteStorageStatus(name string) {
 	newStatus := make([]StorageStatus, 0, len(cluster.Spec.Storages))
 	for i, stats := range cluster.Status.StorageStatus {
@@ -199,6 +201,7 @@ func (cluster *Cluster) DeleteStorageStatus(name string) {
 	cluster.Status.StorageStatus = newStatus
 }
 
+// GetStorage retrieves storage configuration by name.
 func (cluster *Cluster) GetStorage(name string) (Storage, bool) {
 	for i, storage := range cluster.Spec.Storages {
 		if storage.Name == name {

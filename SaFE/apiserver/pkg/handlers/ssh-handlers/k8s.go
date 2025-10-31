@@ -347,6 +347,7 @@ type forwardChannelData struct {
 	OriginPort uint32
 }
 
+// IsShellCommand checks if the given command is a valid shell command.
 func IsShellCommand(cmd string) bool {
 	shells := []string{"sh", "bash", "zsh", "ash", "ksh", "csh", "tcsh", "bash --login -c bash"}
 	for _, shell := range shells {

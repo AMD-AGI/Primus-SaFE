@@ -71,7 +71,7 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 type handleFunc func(*gin.Context) (interface{}, error)
 
 // handle is a middleware function that executes the provided handler function and processes its response.
-// It handles errors by aborting the request with an API error, and formats successful responses
+// It handles errors by aborting the request with an API error, and formats successful responses.
 func handle(c *gin.Context, fn handleFunc) {
 	response, err := fn(c)
 	if err != nil {

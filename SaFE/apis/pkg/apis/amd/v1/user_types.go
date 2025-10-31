@@ -36,7 +36,7 @@ type UserSpec struct {
 	// 0: normal; 1 frozen. default: 0
 	// +optional
 	RestrictedType UserRestrictedType `json:"restrictedType,omitempty"`
-	// User role, such as system-admin/default
+	// User role, e.g. system-admin/default
 	// permission check passes if any single role is satisfied.
 	// +required
 	Roles []UserRole `json:"roles"`
@@ -76,14 +76,17 @@ func init() {
 	SchemeBuilder.Register(&User{}, &UserList{})
 }
 
+// IsSystemAdmin returns true if the condition is met.
 func (u *User) IsSystemAdmin() bool {
 	return IsContainRole(u.Spec.Roles, SystemAdminRole)
 }
 
+// IsRestricted returns true if the condition is met.
 func (u *User) IsRestricted() bool {
 	return u.Spec.RestrictedType > 0
 }
 
+// IsContainRole returns true if the condition is met.
 func IsContainRole(roles []UserRole, input UserRole) bool {
 	for _, r := range roles {
 		if r == input {

@@ -35,7 +35,7 @@ type PreflightJobReconciler struct {
 	sync.RWMutex
 }
 
-// SetupPreflightJobController initializes and registers the PreflightJobReconciler with the controller manager
+// SetupPreflightJobController initializes and registers the PreflightJobReconciler with the controller manager.
 func SetupPreflightJobController(mgr manager.Manager) error {
 	r := &PreflightJobReconciler{
 		OpsJobBaseReconciler: &OpsJobBaseReconciler{
@@ -54,7 +54,7 @@ func SetupPreflightJobController(mgr manager.Manager) error {
 	return nil
 }
 
-// handleWorkloadEvent creates an event handler that watches Workload resource events
+// handleWorkloadEvent creates an event handler that watches Workload resource events.
 func (r *PreflightJobReconciler) handleWorkloadEvent() handler.EventHandler {
 	return handler.Funcs{
 		CreateFunc: func(ctx context.Context, evt event.CreateEvent, q v1.RequestWorkQueue) {
@@ -78,7 +78,7 @@ func (r *PreflightJobReconciler) handleWorkloadEvent() handler.EventHandler {
 	}
 }
 
-// isPreflightWorkload checks if a workload is a preflight job workload
+// isPreflightWorkload checks if a workload is a preflight job workload.
 func isPreflightWorkload(workload *v1.Workload) bool {
 	if v1.GetOpsJobId(workload) != "" &&
 		v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
@@ -87,7 +87,7 @@ func isPreflightWorkload(workload *v1.Workload) bool {
 	return false
 }
 
-// handleWorkloadEventImpl handles workload events by updating the corresponding OpsJob status
+// handleWorkloadEventImpl handles workload events by updating the corresponding OpsJob status.
 func (r *PreflightJobReconciler) handleWorkloadEventImpl(ctx context.Context, workload *v1.Workload) {
 	var phase v1.OpsJobPhase
 	completionMessage := ""
@@ -132,13 +132,13 @@ func (r *PreflightJobReconciler) handleWorkloadEventImpl(ctx context.Context, wo
 	}
 }
 
-// Reconcile is the main control loop for PreflightJob resources
+// Reconcile is the main control loop for PreflightJob resources.
 func (r *PreflightJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	clearFuncs := []ClearFunc{r.cleanupJobRelatedInfo}
 	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r, clearFuncs...)
 }
 
-// cleanupJobRelatedInfo cleans up job-related resources
+// cleanupJobRelatedInfo cleans up job-related resources.
 func (r *PreflightJobReconciler) cleanupJobRelatedInfo(ctx context.Context, job *v1.OpsJob) error {
 	return commonjob.CleanupJobRelatedResource(ctx, r.Client, job.Name)
 }
@@ -148,12 +148,12 @@ func (r *PreflightJobReconciler) observe(_ context.Context, job *v1.OpsJob) (boo
 	return job.IsEnd(), nil
 }
 
-// filter determines if the job should be processed by this preflight job reconciler
+// filter determines if the job should be processed by this preflight job reconciler.
 func (r *PreflightJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
 	return job.Spec.Type != v1.OpsJobPreflightType
 }
 
-// handle processes the preflight job by creating a corresponding workload
+// handle processes the preflight job by creating a corresponding workload.
 func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	if job.Status.Phase == "" {
 		originalJob := client.MergeFrom(job.DeepCopy())
@@ -181,7 +181,7 @@ func (r *PreflightJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ct
 	return ctrlruntime.Result{}, nil
 }
 
-// generatePreflightWorkload generates a preflight workload based on the job specification
+// generatePreflightWorkload generates a preflight workload based on the job specification.
 func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, job *v1.OpsJob) (*v1.Workload, error) {
 	nodeParams := job.GetParameters(v1.ParameterNode)
 	if len(nodeParams) == 0 {
@@ -242,7 +242,7 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 	return workload, nil
 }
 
-// getWorkloadCompletionMessage extracts the completion message from a workload
+// getWorkloadCompletionMessage extracts the completion message from a workload.
 func getWorkloadCompletionMessage(workload *v1.Workload) string {
 	// Handle stopped or deleted workloads first
 	if workload.Status.Phase == v1.WorkloadStopped || !workload.GetDeletionTimestamp().IsZero() {
