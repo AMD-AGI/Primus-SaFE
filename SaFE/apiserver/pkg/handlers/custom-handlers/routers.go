@@ -99,6 +99,15 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.PATCH("publickeys/:id/status", h.SetPublicKeyStatus)
 		group.PATCH("publickeys/:id/description", h.SetPublicKeyDescription)
 		group.GET("publickeys", h.ListPublicKeys)
+
+		group.POST("clusters/:cluster/addons", h.CreateAddon)
+		group.DELETE(fmt.Sprintf("clusters/:cluster/addons/:%s", common.Name), h.DeleteAddon)
+		group.PATCH(fmt.Sprintf("clusters/:cluster/addons/:%s", common.Name), h.PatchAddon)
+		group.GET("clusters/:cluster/addons", h.ListAddon)
+		group.GET(fmt.Sprintf("clusters/:cluster/addons/:%s", common.Name), h.GetAddon)
+
+		group.GET("addontemplates", h.ListAddonTemplate)
+		group.GET(fmt.Sprintf("addontemplates/:%s", common.Name), h.GetAddonTemplate)
 	}
 
 	// Custom API without authentication
