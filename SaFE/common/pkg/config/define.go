@@ -96,4 +96,8 @@ const (
 	notificationPrefix     = "notification."
 	notificationEnable     = notificationPrefix + "enable"
 	notificationSecretPath = notificationPrefix + "secret_path"
+
+	// sso
+	ssoPrefix     = "sso."
+	ssoSecretPath = ssoPrefix + "secret_path"
 )

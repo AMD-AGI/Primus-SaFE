@@ -83,6 +83,9 @@ spec:
               mountPath: {{ .Values.s3.secret_path }}
               readOnly: true
             {{- end }}
+            - name: sso-secret
+              mountPath: /etc/secrets/sso
+              readOnly: true
           ports:
             - containerPort: {{ default 8088 (default .Values.apiserver).port }}
               name: http-port
@@ -141,6 +144,9 @@ spec:
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-apiserver
+        - name: sso-secret
+          secret:
+            secretName: "primus-safe-sso"
       {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:
         - name: {{ .Values.global.image_pull_secret }}

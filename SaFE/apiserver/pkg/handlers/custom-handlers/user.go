@@ -383,10 +383,17 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
+func (h *Handler) performSSOLogin(c *gin.Context, query *types.UserLoginRequest) (*types.UserLoginResponse, error) {
+	// 如果用户来自前端，则直接调用login接口，会自动重定向到dex让用户做身份验证，成功后跳转回loginCallback
+	query.RedirectURL = "http://tas.safe-primus.ai/"
+	return nil, h.ssoClient.Login(c.Writer, c.Request, query.RedirectURL)
+}
+
 // performDefaultLogin handles default user authentication.
 // Validates user credentials, generates authentication tokens, and sets cookies
 // for successful console-based logins.
 func (h *Handler) performDefaultLogin(c *gin.Context, query *types.UserLoginRequest) (*types.UserLoginResponse, error) {
+	return h.performSSOLogin(c, query)
 	if query.Name == "" {
 		return nil, commonerrors.NewBadRequest("the userName is empty")
 	}

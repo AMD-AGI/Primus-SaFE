@@ -92,7 +92,8 @@ type UserLoginRequest struct {
 	// User password
 	Password string `json:"password,omitempty"`
 	// Whether the request is from console
-	IsFromConsole bool `json:"-"`
+	IsFromConsole bool   `json:"-"`
+	RedirectURL   string `json:"redirectURL,omitempty"`
 }
 
 type UserLoginResponse struct {

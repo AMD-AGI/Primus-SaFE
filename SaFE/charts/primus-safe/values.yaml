@@ -23,7 +23,7 @@ net:
   rdma_name: "rdma/hca"
 apiserver:
   # Apiserver component image version
-  image: "apiserver:202510310930"
+  image: "apiserver:202510312038"
   # Number of replicas for apiserver deployment
   replicas: 1
   # CPU resources allocated to apiserver
