@@ -68,7 +68,7 @@ func InitGormDB(key string, conf DatabaseConfig, opts ...opts) (*gorm.DB, error)
 	if err := conf.Validate(); err != nil {
 		return nil, err
 	}
-	// 先确认默认设置
+	// First confirm default settings
 	if conf.Driver == "" {
 		conf.Driver = DriverNamePostgres
 	}

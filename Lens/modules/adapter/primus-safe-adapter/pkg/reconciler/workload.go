@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	primusSafeV1 "github.com/AMD-AGI/Primus-SaFE/apis/pkg/apis/amd/v1"
+	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/core/pkg/constant"
 	"github.com/AMD-AGI/primus-lens/core/pkg/database"

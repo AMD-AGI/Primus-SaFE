@@ -108,7 +108,7 @@ func (l *Listener) Run(ctx context.Context) error {
 			log.Infof("Event for %s/%s (%s) Type %s", l.namespace, l.name, l.uid, e.Type)
 			switch e.Type {
 			case watch.Added, watch.Modified, watch.Deleted:
-				// 确保有Finalizer
+				// Ensure Finalizer exists
 				if err := l.ensureFinalizer(ctx, obj); err != nil {
 					log.Errorf("Failed to ensure finalizer for %s/%s: %v", l.namespace, l.name, err)
 				}
@@ -134,14 +134,14 @@ func (l *Listener) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return fmt.Errorf("context done while watching %s/%s", l.namespace, l.name)
 		case <-ticker.C:
-			// 定期检查资源是否存在
+			// Periodically check if resource exists
 			obj, err := l.client.Dynamic.Resource(l.gvr).
 				Namespace(l.namespace).
 				Get(ctx, l.name, metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
 				log.Errorf("Failed to get %s/%s: %v", l.namespace, l.name, err)
 			} else if err != nil {
-				// 资源不存在，退出监听
+				// Resource does not exist, exit listener
 				log.Infof("Resource %s/%s not found, exiting listener", l.namespace, l.name)
 				if err := l.setWorkloadEnd(ctx, l.uid); err != nil {
 					log.Errorf("Failed to set workload end for %s/%s (%s): %v", l.namespace, l.name, l.uid, err)
@@ -160,7 +160,7 @@ func (l *Listener) Run(ctx context.Context) error {
 	}
 }
 
-// 确保Finalizer存在
+// ensureFinalizer ensures the Finalizer exists
 func (l *Listener) ensureFinalizer(ctx context.Context, obj *unstructured.Unstructured) error {
 	finalizers := obj.GetFinalizers()
 	for _, f := range finalizers {
@@ -176,7 +176,7 @@ func (l *Listener) ensureFinalizer(ctx context.Context, obj *unstructured.Unstru
 	return err
 }
 
-// 移除Finalizer
+// removeFinalizer removes the Finalizer
 func (l *Listener) removeFinalizer(ctx context.Context, obj *unstructured.Unstructured) error {
 	finalizers := obj.GetFinalizers()
 	newFinalizers := []string{}

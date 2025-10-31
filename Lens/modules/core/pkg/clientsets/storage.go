@@ -77,7 +77,7 @@ func initStorageClientSets(ctx context.Context, multiCluster bool) error {
 }
 
 func loadCurrentClusterStorageClients(ctx context.Context) error {
-	cfg, err := loadSingleClusterStorageConfig(ctx)
+	cfg, err := loadSingleClusterStorageConfig(ctx, GetCurrentClusterK8SClientSet())
 	if err != nil {
 		return err
 	}
@@ -121,8 +121,8 @@ func loadMultiClusterStorageClients(ctx context.Context) error {
 	return nil
 }
 
-func loadSingleClusterStorageConfig(ctx context.Context) (*PrimusLensClientConfig, error) {
-	secret, err := GetCurrentClusterK8SClientSet().Clientsets.CoreV1().Secrets(StorageConfigSecretNamespace).Get(ctx, StorageConfigSecretName, metav1.GetOptions{})
+func loadSingleClusterStorageConfig(ctx context.Context, k8sClient *K8SClientSet) (*PrimusLensClientConfig, error) {
+	secret, err := k8sClient.Clientsets.CoreV1().Secrets(StorageConfigSecretNamespace).Get(ctx, StorageConfigSecretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, errors.NewError().
 			WithCode(errors.CodeInitializeError).
@@ -138,6 +138,11 @@ func loadSingleClusterStorageConfig(ctx context.Context) (*PrimusLensClientConfi
 			WithError(err)
 	}
 	return cfg, nil
+}
+
+// LoadSingleClusterStorageConfig exported method for loading storage config from a specified K8S client
+func LoadSingleClusterStorageConfig(ctx context.Context, k8sClient *K8SClientSet) (*PrimusLensClientConfig, error) {
+	return loadSingleClusterStorageConfig(ctx, k8sClient)
 }
 
 func loadMultiClusterStorageConfig(ctx context.Context) (PrimusLensMultiClusterClientConfig, error) {
@@ -227,6 +232,11 @@ func initStorageClients(ctx context.Context, cfg PrimusLensClientConfig) (*Stora
 	}
 	clientSet.PrometheusWrite = cli
 	return clientSet, nil
+}
+
+// InitStorageClients exported method for initializing storage clients from config
+func InitStorageClients(ctx context.Context, cfg PrimusLensClientConfig) (*StorageClientSet, error) {
+	return initStorageClients(ctx, cfg)
 }
 
 func initPrometheusClient(endpoints string) (api.Client, error) {

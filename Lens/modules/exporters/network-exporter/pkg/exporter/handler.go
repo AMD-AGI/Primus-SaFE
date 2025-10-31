@@ -176,17 +176,17 @@ func (n *Handler) loadLocalIpAddress() error {
 		return err
 	}
 	n.lg.Debugf("local ip address count %d", len(interfaces))
-	// 遍历每个网络接口
+	// Iterate through each network interface
 	for _, iface := range interfaces {
 		n.lg.Debugf("interface %s", iface.Name)
-		// 获取接口的地址
+		// Get addresses of the interface
 		addrs, err := iface.Addrs()
 		if err != nil {
 			n.lg.Errorf("get interface %s address failed %s", iface.Name, err)
 			continue
 		}
 		n.lg.Debugf("interface %s address count %d", iface.Name, len(addrs))
-		// 遍历每个地址
+		// Iterate through each address
 		for _, addr := range addrs {
 			switch ip := addr.(type) {
 			case *net.IPNet:
