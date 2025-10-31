@@ -78,6 +78,11 @@ spec:
               mountPath: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
               readOnly: true
             {{- end }}
+            {{- if .Values.s3.enable }}
+            - name: s3-secret
+              mountPath: {{ .Values.s3.secret_path }}
+              readOnly: true
+            {{- end }}
           ports:
             - containerPort: {{ default 8088 (default .Values.apiserver).port }}
               name: http-port
@@ -127,6 +132,11 @@ spec:
         - name: ssh-proxy
           secret:
             secretName: {{ .Release.Name }}-ssh-proxy
+        {{- end }}
+        {{- if .Values.s3.enable }}
+        - name: s3-secret
+          secret:
+            secretName: {{ .Values.s3.secret }}
         {{- end }}
         - name: server-config
           configMap:
