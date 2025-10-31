@@ -512,12 +512,12 @@ func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v
 		if adminNode.Status.ClusterStatus.Cluster != nil || k8sNode != nil {
 			result, err = r.unmanage(ctx, adminNode, k8sNode)
 		} else {
-			// Clean up any potentially leftover field.
-			if err = r.cleanupNodeLabelsAfterUnmanage(ctx, adminNode); err != nil {
-				return ctrlruntime.Result{}, err
-			}
 			if !adminNode.IsMachineReady() {
 				return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
+			}
+			// Clean up any potentially leftover thing.
+			if err = r.cleanupNodeAfterUnmanage(ctx, adminNode); err != nil {
+				return ctrlruntime.Result{}, err
 			}
 			return ctrlruntime.Result{}, nil
 		}
@@ -533,9 +533,25 @@ func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v
 	return result, nil
 }
 
-// cleanupNodeLabelsAfterUnmanage performs cleanup operations for NodeLabelsAfterUnmanage.
-func (r *NodeReconciler) cleanupNodeLabelsAfterUnmanage(ctx context.Context, adminNode *v1.Node) error {
+// cleanupNodeAfterUnmanage performs post-unmanagement cleanup operations on a node.
+// This includes resetting the node via SSH if not already done, removing cluster and workspace labels,
+// and updating the node resource when changes are made.
+func (r *NodeReconciler) cleanupNodeAfterUnmanage(ctx context.Context, adminNode *v1.Node) error {
 	isChanged := false
+	if !v1.HasAnnotation(adminNode, v1.NodeResetAnnotation) {
+		sshClient, err := utils.GetSSHClient(ctx, r.Client, adminNode)
+		if err != nil {
+			return err
+		}
+		defer sshClient.Close()
+		cmd := "systemctl is-active -q kubelet && (kubeadm reset -f; rm -rf /etc/cni/ /etc/kubernetes/)"
+		if err = r.executeSSHCommand(sshClient, cmd); err != nil {
+			return err
+		}
+		v1.SetAnnotation(adminNode, v1.NodeResetAnnotation, v1.TrueStr)
+		isChanged = true
+	}
+
 	if v1.GetClusterId(adminNode) != "" {
 		v1.RemoveLabel(adminNode, v1.ClusterIdLabel)
 		isChanged = true
