@@ -1,0 +1,184 @@
+apiVersion: "kubeflow.org/v1"
+kind: PyTorchJob
+metadata:
+  name: network
+spec:
+  pytorchReplicaSpecs:
+    Master:
+      replicas: 1
+      restartPolicy: Never
+      template:
+        spec:
+          hostNetwork: true
+          hostIPC: true
+          containers:
+          - name: pytorch
+            resources:
+              limits:
+                amd.com/gpu: "8"
+                cpu: "72"
+                ephemeral-storage: 500Gi
+                memory: 2000Gi
+                rdma/hca: 1k
+              requests:
+                amd.com/gpu: "8"
+                cpu: "72"
+                ephemeral-storage: 500Gi
+                memory: 2000Gi
+                rdma/hca: 1k
+            image:  primussafe/primusbench:202510221446
+            env: 
+            - name: SSH_PORT
+              value: "23666"
+            - name: NCCL_SOCKET_IFNAME
+              value: eno0
+            - name: GLOO_SOCKET_IFNAME
+              value: eno0
+            - name: NCCL_IB_HCA
+              value: rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7
+            - name: NCCL_IB_TIMEOUT
+              value: "23"
+            - name: NCCL_IB_RETRY_CNT
+              value: "11"
+            - name: NCCL_IB_GID_INDEX
+              value: "3"
+            - name: MAIN_CONTAINER_NAME
+              value: pytorch
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: IO_BENCHMARK_MOUNT
+              value: /wekafs
+            command: 
+            - bash
+            - -c
+            - |
+              cd /workespace/Primus-bench && bash run.sh
+            stdin: true
+            tty: true
+            securityContext:
+              privileged: true
+              seccompProfile:
+                type: Unconfined
+            volumeMounts:
+            - mountPath: /dev/shm
+              name: dshm
+            - name: workespace
+              mountPath: /workespace
+            - name: io_benchmark
+              mountPath: /io_benchmark
+          volumes:
+          - name: dshm
+            emptyDir:
+              medium: Memory
+              sizeLimit: 2Gi
+          - name: workespace
+            hostPath:
+              path: <host_path to be replaced, shared directory>
+              type: Directory
+          - name: io_benchmark
+            persistentVolumeClaim:
+              claimName: <pvc_name to be replaced, io_benchmark_pvc>
+          restartPolicy: Never
+    Worker:
+      replicas: 1
+      restartPolicy: Never
+      template:
+        spec:
+          hostNetwork: true
+          hostIPC: true
+          containers:
+          - name: pytorch
+            resources:
+              limits:
+                amd.com/gpu: "8"
+                cpu: "72"
+                ephemeral-storage: 500Gi
+                memory: 2000Gi
+                rdma/hca: 1k
+              requests:
+                amd.com/gpu: "8"
+                cpu: "72"
+                ephemeral-storage: 500Gi
+                memory: 2000Gi
+                rdma/hca: 1k
+            image:  primussafe/primusbench:202510221446
+            env: 
+            - name: SSH_PORT
+              value: "23666"
+            - name: NCCL_SOCKET_IFNAME
+              value: eno0
+            - name: GLOO_SOCKET_IFNAME
+              value: eno0
+            - name: NCCL_IB_HCA
+              value: rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7
+            - name: NCCL_IB_TIMEOUT
+              value: "23"
+            - name: NCCL_IB_RETRY_CNT
+              value: "11"
+            - name: NCCL_IB_GID_INDEX
+              value: "3"
+            - name: MAIN_CONTAINER_NAME
+              value: pytorch
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: IO_BENCHMARK_MOUNT
+              value: /wekafs
+            command: 
+            - bash
+            - -c
+            - |
+              cd /workespace/Primus-bench && bash run.sh
+            stdin: true
+            tty: true
+            securityContext:
+              privileged: true
+              seccompProfile:
+                type: Unconfined
+            volumeMounts:
+            - mountPath: /dev/shm
+              name: dshm
+            - name: workespace
+              mountPath: /workespace
+            - name: io_benchmark
+              mountPath: /io_benchmark
+          volumes:
+          - name: dshm
+            emptyDir:
+              medium: Memory
+              sizeLimit: 2Gi
+          - name: workespace
+            hostPath:
+              path: <host_path to be replaced, shared directory>
+              type: Directory
+          - name: io_benchmark
+            persistentVolumeClaim:
+              claimName: <pvc_name to be replaced, io_benchmark_pvc>
+          restartPolicy: Never

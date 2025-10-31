@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: topology-example-pod
+  namespace: default
+  annotations:
+    # Topology configuration annotations
+    scheduling.x-k8s.io.tp: "2"  # Topology count
+    scheduling.x-k8s.io.ep: "3"  # Endpoint count
+    scheduling.x-k8s.io.cp: "4"  # Connection count
+    scheduling.x-k8s.io.pp: "5"  # Path count
+  labels:
+    # Pod group for gang scheduling
+    scheduling.x-k8s.io/pod-group: example-group
+    # Replica type for distributed workloads
+    training.kubeflow.org/replica-type: worker
+    training.kubeflow.org/replica-index: "0"
+spec:
+  schedulerName: topology-ip-scheduler
+  containers:
+  - name: app
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "250m"
+      limits:
+        memory: "128Mi"
+        cpu: "500m"
+  restartPolicy: Always 

@@ -1,0 +1,42 @@
+apiVersion: opensearch.opster.io/v1
+kind: OpenSearchCluster
+metadata:
+  name: primus-lens-logs
+  namespace: primus-lens
+spec:
+  general:
+    serviceName: primus-lens-logs
+    version: 2.6.0
+    monitoring:
+      enable: true
+  dashboards:
+    enable: true
+    version: 2.6.0
+    replicas: 1
+    resources:
+      requests:
+         memory: "2Gi"
+         cpu: 4
+      limits:
+         memory: "2Gi"
+         cpu: 4
+  nodePools:
+    - component: nodes
+      replicas: 9
+      diskSize: "200Gi"
+      nodeSelector:
+      resources:
+         requests:
+            memory: "32Gi"
+            cpu: "16000m"
+         limits:
+            memory: "32Gi"
+            cpu: "16000m"
+      roles:
+        - "cluster_manager"
+        - "data"
+      persistence:
+        pvc:
+          storageClass: rbd
+          accessModes:
+            - ReadWriteOnce

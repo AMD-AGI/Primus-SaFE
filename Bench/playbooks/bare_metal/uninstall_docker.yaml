@@ -1,0 +1,82 @@
+---
+- name: Uninstall Docker and clean up system
+  hosts: all
+  become: true
+
+  vars:
+    remove_docker_data: true   # Change to false to keep /var/lib/docker data
+
+  tasks:
+    - name: Stop Docker service
+      ansible.builtin.service:
+        name: docker
+        state: stopped
+      ignore_errors: yes
+
+    - name: Uninstall Docker packages
+      ansible.builtin.package:
+        name:
+          - docker
+          - docker-ce
+          - docker-ce-cli
+          - docker-ce-rootless-extras
+          - docker-compose
+          - docker-compose-plugin
+          - docker-engine
+          - docker.io
+          - containerd
+          - containerd.io
+          - runc
+        state: absent
+
+    - name: Remove Docker repository config
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/yum.repos.d/docker-ce.repo
+        - /etc/apt/sources.list.d/docker.list
+        - /etc/apt/keyrings/docker.gpg
+      ignore_errors: yes
+
+    - name: Remove Docker systemd units
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/docker.service.d
+        - /etc/systemd/system/docker.service
+        - /etc/systemd/system/docker.socket
+      ignore_errors: yes
+
+    - name: Reload systemd
+      ansible.builtin.shell: systemctl daemon-reload
+      args:
+        warn: false
+      ignore_errors: yes
+
+    - name: Optionally remove Docker data directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      when: remove_docker_data
+      loop:
+        - /var/lib/docker
+        - /var/lib/containerd
+        - /run/docker
+        - /run/containerd
+        - /etc/docker
+        - /var/run/docker.sock
+
+    - name: Cleanup package cache (Debian/Ubuntu)
+      ansible.builtin.apt:
+        autoclean: yes
+        autoremove: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Cleanup package cache (RHEL/CentOS)
+      ansible.builtin.yum:
+        name: "*"
+        state: latest
+        autoremove: yes
+      when: ansible_os_family == "RedHat"

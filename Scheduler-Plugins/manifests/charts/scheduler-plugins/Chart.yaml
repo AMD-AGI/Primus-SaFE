@@ -1,0 +1,6 @@
+apiVersion: v2
+appVersion: 0.31.8
+description: deploy scheduler plugin as a second scheduler in cluster
+name: scheduler-plugins
+type: application
+version: 0.31.8

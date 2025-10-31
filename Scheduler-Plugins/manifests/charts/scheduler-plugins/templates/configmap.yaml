@@ -1,0 +1,39 @@
+{{- if .Values.plugins.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scheduler-config
+  namespace: {{ .Release.Namespace }}
+data:
+  scheduler-config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1
+    kind: KubeSchedulerConfiguration
+    leaderElection:
+      leaderElect: {{ .Values.scheduler.leaderElect }}
+      resourceNamespace: {{ .Release.Namespace }}
+      resourceName: {{ .Values.scheduler.name }}
+    profiles:
+    # Compose all plugins in one profile
+    - schedulerName: {{ .Values.scheduler.name }}
+      plugins:
+        multiPoint:
+          enabled:
+          - name: Coscheduling
+          - name: TopologyIPSort
+        queueSort:
+          enabled:
+          - name: TopologyIPSort
+          disabled:
+          - name: "*"
+        score:
+          enabled:
+          - name: TopologyIPSort
+          disabled:
+          - name: "*"
+      pluginConfig:
+      - name: Coscheduling
+        args:
+          permitWaitingTimeSeconds: 10
+
+  {{- /* TODO: wire CRD installation with enabled plugins. */}}
+{{- end }}
