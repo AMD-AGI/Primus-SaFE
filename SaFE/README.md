@@ -99,7 +99,7 @@ Node-level agent service:
 ## 📚 API Documentation
 
 All API references live under `docs/apis`. Start here:
-- Overview and index: `docs/apis/index.md`
+- [Overview and index](./docs/apis/index.md)
 
 
 ## 🛠️ Key Features

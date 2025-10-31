@@ -100,14 +100,14 @@ Get all clusters list.
       "userId": "user-001",
       "phase": "Ready",
       "isProtected": true,
-      "creationTime": "2025-01-10T08:00:00.000Z"
+      "creationTime": "2025-01-10T08:00:00"
     },
     {
       "clusterId": "dev-cluster",
       "userId": "user-002",
       "phase": "Creating",
       "isProtected": false,
-      "creationTime": "2025-01-15T10:00:00.000Z"
+      "creationTime": "2025-01-15T10:00:00"
     }
   ]
 }

@@ -1,6 +1,6 @@
 ## 📦 Installation Script Explanation
 
-The [install.sh](file://C:\Project\Primus-SaFE\bootstrap\install.sh) script provides a one-click installation for the Primus-SaFE system and all its dependent components. During the installation process, users need to provide a series of configuration parameters.
+The [install.sh](https://github.com/AMD-AGI/Primus-SaFE/blob/main/SaFE/bootstrap/install.sh) script provides a one-click installation for the Primus-SaFE system and all its dependent components. During the installation process, users need to provide a series of configuration parameters.
 
 ### 🛠️ Configuration Parameters Explanation
 

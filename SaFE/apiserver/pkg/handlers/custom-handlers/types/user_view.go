@@ -16,7 +16,7 @@ type CreateUserRequest struct {
 	Name string `json:"name,omitempty"`
 	// User mail
 	Email string `json:"email,omitempty"`
-	// User type, e.g. default, teams
+	// User type, e.g. default
 	Type v1.UserType `json:"type,omitempty"`
 	// User password
 	Password string `json:"password,omitempty"`
@@ -53,7 +53,7 @@ type UserResponseItem struct {
 	Name string `json:"name"`
 	// User mail
 	Email string `json:"email"`
-	// User type, e.g. default, teams
+	// User type, e.g. default
 	Type v1.UserType `json:"type"`
 	// User role, e.g. system-admin, default
 	Roles []v1.UserRole `json:"roles"`
@@ -85,7 +85,7 @@ type PatchUserRequest struct {
 }
 
 type UserLoginRequest struct {
-	// User type, e.g. default, teams
+	// User type, e.g. default
 	Type v1.UserType `json:"type,omitempty"`
 	// Username
 	Name string `json:"name,omitempty"`

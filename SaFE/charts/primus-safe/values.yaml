@@ -23,7 +23,7 @@ net:
   rdma_name: "rdma/hca"
 apiserver:
   # Apiserver component image version
-  image: "apiserver:202510271634"
+  image: "apiserver:202510310930"
   # Number of replicas for apiserver deployment
   replicas: 1
   # CPU resources allocated to apiserver
@@ -32,7 +32,7 @@ apiserver:
   memory: 4Gi
 resource_manager:
   # Resource manager component image version
-  image: "resource-manager:202510271634"
+  image: "resource-manager:202510310930"
   # Number of replicas for resource manager deployment
   replicas: 1
   # CPU resources allocated to resource manager
@@ -41,7 +41,7 @@ resource_manager:
   memory: 4Gi
 job_manager:
   # Job manager component image version
-  image: "job-manager:202510271634"
+  image: "job-manager:202510310930"
   # Number of replicas for job manager deployment
   replicas: 1
   # CPU resources allocated to job manager
@@ -50,7 +50,7 @@ job_manager:
   memory: 4Gi
 webhooks:
   # Webhooks component image version
-  image: "webhooks:202510271634"
+  image: "webhooks:202510310930"
   # Number of replicas for webhooks deployment
   replicas: 1
   # CPU resources allocated to webhooks
@@ -71,7 +71,7 @@ authoring:
   image: "sshd:202510131835"
 preprocess:
   # Preprocessing component image version. used for pytorch-job etc.
-  image: "preprocess:202510011436"
+  image: "preprocess:202510310930"
 db:
   # Enable database for historical job queries, defaults to true
   enable: true
