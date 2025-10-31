@@ -17,6 +17,16 @@ metadata:
     higress.io/ignore-path-case: "false"
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+    higress.io/proxy-http-version: "1.1"
+    higress.io/request-set-header: |
+      Upgrade $http_upgrade
+      Connection "upgrade"
+      X-Forwarded-For $proxy_add_x_forwarded_for
+      X-Forwarded-Proto $scheme
+    higress.io/timeout: "3600"
+    higress.io/upstream-keepalive-time: 1h
+    higress.io/upstream-keepalive-timeout: "3600"
+    higress.io/websocket-enable: "true"
 spec:
   ingressClassName: higress
   rules:

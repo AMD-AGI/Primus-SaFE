@@ -206,7 +206,7 @@ Get detailed information about a specific workspace, including resource quotas.
   "currentNodeCount": 4,
   "abnormalNodeCount": 0,
   "phase": "Running",
-  "creationTime": "2025-01-12T09:00:00.000Z",
+  "creationTime": "2025-01-12T09:00:00",
   "description": "AI team workspace",
   "queuePolicy": "fifo",
   "scopes": ["Train", "Infer", "Authoring"],

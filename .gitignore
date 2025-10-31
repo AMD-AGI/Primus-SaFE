@@ -216,3 +216,5 @@ harbor/harbor-ca.crt
 *.swo
 .run
 SaFE/charts/bin/*
+SaFE/charts/*.tgz
+SaFE/node-agent/charts/*.tgz

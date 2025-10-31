@@ -55,7 +55,7 @@ An image represents a container image artifact stored in the internal Harbor reg
         {
           "imageTag": "2.0-cuda11.8",
           "description": "PyTorch 2.0 with CUDA 11.8",
-          "createdTime": "2025-01-15T10:00:00.000Z",
+          "createdTime": "2025-01-15T10:00:00",
           "userName": "admin",
           "status": "ready",
           "id": 123,
