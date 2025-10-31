@@ -300,7 +300,7 @@ func areValuesEqual(addon *v1.Addon) bool {
 
 // isTemplateVersionEqual checks if template version matches.
 func isTemplateVersionEqual(addon *v1.Addon) bool {
-	if addon.Spec.AddonSource.HelmRepository.Template == nil || addon.Status.AddonSourceStatus.HelmRepositoryStatus.Template == nil {
+	if addon.Spec.AddonSource.HelmRepository.Template == nil || addon.Status.AddonSourceStatus.HelmRepositoryStatus == nil || addon.Status.AddonSourceStatus.HelmRepositoryStatus.Template == nil {
 		return true
 	}
 	return addon.Spec.AddonSource.HelmRepository.Template.Name == addon.Status.AddonSourceStatus.HelmRepositoryStatus.Template.Name
@@ -308,7 +308,7 @@ func isTemplateVersionEqual(addon *v1.Addon) bool {
 
 // isChartVersionEqual checks if chart version matches.
 func isChartVersionEqual(addon *v1.Addon) bool {
-	if addon.Spec.AddonSource.HelmRepository.Template != nil {
+	if addon.Spec.AddonSource.HelmRepository.Template != nil || addon.Status.AddonSourceStatus.HelmRepositoryStatus == nil {
 		return true
 	}
 	return addon.Spec.AddonSource.HelmRepository.ChartVersion == addon.Status.AddonSourceStatus.HelmRepositoryStatus.ChartVersion
