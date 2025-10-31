@@ -13,7 +13,7 @@ class OTelMetric:
         self.description = description
         self.value = value
         self.labels = labels or {}
-        self.ts = ts or int(time.time() * 1e9)  # 纳秒时间戳
+        self.ts = ts or int(time.time() * 1e9)  # nanosecond timestamp
 
     def to_otlp_json(self) -> Dict[str, Any]:
         return {
@@ -75,7 +75,7 @@ class Collector:
                         m.to_otlp_json()
                     )
             except Exception as e:
-                print("采集失败:", e)
+                print("Collection failed:", e)
         file_name = f"{self.output_path}/metrics.json"
         os.makedirs(self.output_path, exist_ok=True)
         with open(file_name, "a") as f:
@@ -96,7 +96,7 @@ class Collector:
         self.running = False
 
     def wait(self):
-        """阻塞直到采集线程退出"""
+        """Block until the collection thread exits"""
         if self._thread:
             self._thread.join()
 

@@ -6,13 +6,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// NewTimer ...
-// new一个timer且注册到普罗米修斯，请注意，metricName在一个进程内不可以重复，否则panic
-// metricName是指标名字，确保一个进程内唯一性
-// help是描述指标用途
-// labels 是维度
-
-// NewTimer
+// NewTimer creates a new timer and registers it to Prometheus.
+// Note: metricName must be unique within a process, otherwise it will panic
+// metricName is the metric name, must be unique within a process
+// help describes the purpose of the metric
+// labels are the dimensions
 func NewTimer(metricName, help string, labels []string, opts ...OptsFunc) *Timer {
 	opt := &mOpts{
 		name:     metricName,
@@ -51,8 +49,8 @@ type Timer struct {
 	histogram *prometheus.HistogramVec
 }
 
-// Timer 返回一个函数，并且开始计时，结束计时则调用返回的函数
-// 请参考timer_test.go 的demo
+// Timer returns a function and starts timing. To end timing, call the returned function.
+// Please refer to the demo in timer_test.go
 func (t *Timer) Timer() func(values ...string) {
 	if t == nil {
 		return func(values ...string) {}
@@ -69,7 +67,7 @@ func (t *Timer) Timer() func(values ...string) {
 	}
 }
 
-// Observe ：传入duration和labels，
+// Observe takes duration and labels as parameters
 func (t *Timer) Observe(duration time.Duration, label ...string) {
 	if t == nil {
 		return

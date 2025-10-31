@@ -96,14 +96,14 @@ func ParseResponse(bodyReader io.Reader, targetData interface{}) (*Meta, *Trace,
 		return nil, nil, err
 	}
 	if resp.Meta.Code == 0 {
-		return nil, nil, errors.NewError().WithCode(errors.ClientError).WithMessage("对端未返回数据")
+		return nil, nil, errors.NewError().WithCode(errors.ClientError).WithMessage("Remote side returned no data")
 	}
 	if resp.Meta.Code != CodeSuccess {
 		return &resp.Meta, resp.Tracing, errors.NewError().WithCode(resp.Meta.Code).WithMessage(resp.Meta.Message)
 	}
 	err = mapUtil.DecodeFromMap(resp.Data, targetData)
 	if err != nil {
-		return &resp.Meta, resp.Tracing, errors.NewError().WithCode(errors.ClientError).WithError(err).WithMessage("解析Body失败")
+		return &resp.Meta, resp.Tracing, errors.NewError().WithCode(errors.ClientError).WithError(err).WithMessage("Failed to parse body")
 	}
 	return &resp.Meta, resp.Tracing, nil
 }

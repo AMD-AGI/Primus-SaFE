@@ -29,10 +29,10 @@ def rdma_collector():
     for link, counters in stats.items():
         labels = {"rdma_link": link}
         for key, value in counters.items():
-            # key 直接作为 metric 名字
+            # Use key directly as metric name
             metrics.append(
                 OTelMetric(
-                    name=f"rdma_{key}",  # 建议加 rdma_ 前缀，避免和其他采集器冲突
+                    name=f"rdma_{key}",  # Recommend adding rdma_ prefix to avoid conflicts with other collectors
                     description=f"RDMA counter {key}",
                     value=float(value),
                     labels=labels
