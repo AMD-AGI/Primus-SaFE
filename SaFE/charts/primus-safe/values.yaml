@@ -59,7 +59,7 @@ webhooks:
   memory: 4Gi
 web:
   # Web console component image version
-  image: "primus-safe-web:1.12.2"
+  image: "primus-safe-web:1.12.3"
   # Number of replicas for web console deployment
   replicas: 1
   # CPU resources allocated to web console
