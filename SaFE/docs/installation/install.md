@@ -57,7 +57,10 @@ The [install.sh](https://github.com/AMD-AGI/Primus-SaFE/blob/main/SaFE/bootstrap
 - **Ingress Gateway**
     - External service gateway
     - Supports `nginx` (default) and `higress` types
-    - Users need to configure external access for the gateway address (e.g., applying for a public domain name)
+    - If `higress` is selected, you must enter a cluster name to be used as the subdomain
+    - If `nginx` is selected, after installation you can access the web service via any Kubernetes node IP on port 30183 (NodePort), e.g., http://10.0.0.31:30183
+    - If `higress` is selected, after installation you can open the web service at: http://{cluster}.safe-primus.ai
+    - You must configure external access for the chosen address (e.g., a public DNS/domain)
 
 ### 🚀 Installation Process
 
