@@ -48,12 +48,7 @@ type FailoverReconciler struct {
 	clusterInformers *commonutils.ObjectManager
 }
 
-// SetupFailoverController initializes and registers the failover controller with the manager
-// Parameters:
-//   - mgr: The controller manager to register with
-//
-// Returns:
-//   - error: Any error encountered during setup
+// SetupFailoverController initializes and registers the failover controller with the manager.
 func SetupFailoverController(mgr manager.Manager) error {
 	r := &FailoverReconciler{
 		Client:           mgr.GetClient(),
@@ -76,12 +71,7 @@ type relevantChangePredicate struct {
 	predicate.Funcs
 }
 
-// Create determines if a Create event should be processed for a Workload
-// Parameters:
-//   - e: The create event to evaluate
-//
-// Returns:
-//   - bool: True if the event should be processed, false otherwise
+// Create determines if a Create event should be processed for a Workload.
 func (relevantChangePredicate) Create(e event.CreateEvent) bool {
 	w, ok := e.Object.(*v1.Workload)
 	if !ok {
@@ -93,12 +83,7 @@ func (relevantChangePredicate) Create(e event.CreateEvent) bool {
 	return false
 }
 
-// Update determines if an Update event should be processed for a Workload
-// Parameters:
-//   - e: The update event to evaluate
-//
-// Returns:
-//   - bool: True if the event should be processed, false otherwise
+// Update updates the specified resource.
 func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 	oldWorkload, ok1 := e.ObjectOld.(*v1.Workload)
 	newWorkload, ok2 := e.ObjectNew.(*v1.Workload)
@@ -111,12 +96,7 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 	return false
 }
 
-// isFailoverNeeded checks if a workload needs failover handling
-// Parameters:
-//   - workload: The workload to check
-//
-// Returns:
-//   - bool: True if failover is needed, false otherwise
+// isFailoverNeeded checks if a workload needs failover handling.
 func isFailoverNeeded(workload *v1.Workload) bool {
 	if isDisableFailover(workload) {
 		return false
@@ -134,12 +114,7 @@ func isFailoverNeeded(workload *v1.Workload) bool {
 	return false
 }
 
-// isDisableFailover checks if failover is disabled for a workload
-// Parameters:
-//   - workload: The workload to check
-//
-// Returns:
-//   - bool: True if failover is disabled, false otherwise
+// isDisableFailover checks if failover is disabled for a workload.
 func isDisableFailover(workload *v1.Workload) bool {
 	if v1.IsWorkloadDisableFailover(workload) {
 		return true
@@ -157,9 +132,7 @@ func isDisableFailover(workload *v1.Workload) bool {
 	return false
 }
 
-// handleFaultEvent creates an event handler for Fault resources
-// Returns:
-//   - handler.EventHandler: The event handler for Fault resources
+// handleFaultEvent creates an event handler for Fault resources.
 func (r *FailoverReconciler) handleFaultEvent() handler.EventHandler {
 	check := func(fault *v1.Fault) bool {
 		if fault.Status.Phase != v1.FaultPhaseSucceeded || fault.Spec.Node == nil {
@@ -185,11 +158,7 @@ func (r *FailoverReconciler) handleFaultEvent() handler.EventHandler {
 	}
 }
 
-// handleFaultEventImpl handles the actual processing of a Fault event
-// Parameters:
-//   - ctx: The context for the operation
-//   - fault: The fault that triggered the event
-//   - q: The work queue to add workload requests to
+// handleFaultEventImpl handles the actual processing of a Fault event.
 func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1.Fault, q v1.RequestWorkQueue) {
 	message := fmt.Sprintf("the node %s has fault %s, detail: %s", fault.Spec.Node.K8sName,
 		commonfaults.GenerateTaintKey(fault.Spec.MonitorId), fault.Spec.Message)
@@ -228,12 +197,7 @@ func (r *FailoverReconciler) handleFaultEventImpl(ctx context.Context, fault *v1
 	}
 }
 
-// getClusterInformer retrieves the cluster informer for a given fault's cluster with retry logic
-// Parameters:
-//   - fault: The fault containing cluster information
-//
-// Returns:
-//   - *syncer.ClusterInformer: The cluster informer for the specified cluster, or nil if failed
+// getClusterInformer retrieves the cluster informer for a given fault's cluster with retry logic.
 func (r *FailoverReconciler) getClusterInformer(clusterId string) *syncer.ClusterInformer {
 	maxWaitTime := RetryWaitTime * MaxRetryAttempts
 	var clusterInformer *syncer.ClusterInformer
@@ -250,14 +214,7 @@ func (r *FailoverReconciler) getClusterInformer(clusterId string) *syncer.Cluste
 	return clusterInformer
 }
 
-// addFailoverCondition adds a failover condition to a workload's status
-// Parameters:
-//   - ctx: The context for the operation
-//   - workload: The workload to update
-//   - message: The message for the condition
-//
-// Returns:
-//   - error: Any error encountered during the update
+// addFailoverCondition adds a failover condition to a workload's status.
 func (r *FailoverReconciler) addFailoverCondition(ctx context.Context, workload *v1.Workload, message string) error {
 	reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload))
 	cond := jobutils.NewCondition(string(v1.AdminFailover), message, reason)
@@ -272,15 +229,7 @@ func (r *FailoverReconciler) addFailoverCondition(ctx context.Context, workload 
 	return nil
 }
 
-// getWorkloadsOnFaultNode retrieves workloads running on a faulty node
-// Parameters:
-//   - ctx: The context for the operation
-//   - clusterInformer: The cluster informer for the fault's cluster
-//   - fault: The fault containing node information
-//
-// Returns:
-//   - []string: Names of workloads running on the faulty node
-//   - error: Any error encountered during retrieval
+// getWorkloadsOnFaultNode retrieves workloads running on a faulty node.
 func (r *FailoverReconciler) getWorkloadsOnFaultNode(ctx context.Context,
 	clusterInformer *syncer.ClusterInformer, fault *v1.Fault) ([]string, error) {
 	adminNode := &v1.Node{}
@@ -299,9 +248,7 @@ func (r *FailoverReconciler) getWorkloadsOnFaultNode(ctx context.Context,
 	return workloadNames, nil
 }
 
-// handleConfigmapEvent creates an event handler for ConfigMap resources
-// Returns:
-//   - handler.EventHandler: The event handler for ConfigMap resources
+// handleConfigmapEvent creates an event handler for ConfigMap resources.
 func (r *FailoverReconciler) handleConfigmapEvent() handler.EventHandler {
 	isFailoverConfigMap := func(cm *corev1.ConfigMap) bool {
 		return cm.GetName() == common.PrimusFailover && cm.GetNamespace() == common.PrimusSafeNamespace
@@ -344,14 +291,7 @@ func (r *FailoverReconciler) handleConfigmapEvent() handler.EventHandler {
 	}
 }
 
-// Reconcile is the main control loop for Workload resources that handles failover
-// Parameters:
-//   - ctx: The context for the operation
-//   - req: The reconcile request containing the workload name
-//
-// Returns:
-//   - ctrlruntime.Result: The result of the reconciliation
-//   - error: Any error encountered during reconciliation
+// Reconcile is the main control loop for Workload resources that handles failover.
 func (r *FailoverReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	workload := new(v1.Workload)
 	if err := r.Get(ctx, req.NamespacedName, workload); err != nil {
@@ -367,14 +307,7 @@ func (r *FailoverReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 	return r.handle(ctx, workload)
 }
 
-// handle processes the failover logic for a workload
-// Parameters:
-//   - ctx: The context for the operation
-//   - workload: The workload to handle failover for
-//
-// Returns:
-//   - ctrlruntime.Result: The result of the handling
-//   - error: Any error encountered during handling
+// handle processes the failover logic for a workload.
 func (r *FailoverReconciler) handle(ctx context.Context, workload *v1.Workload) (ctrlruntime.Result, error) {
 	clusterInformer, _ := syncer.GetClusterInformer(r.clusterInformers, v1.GetClusterId(workload))
 	if clusterInformer == nil {

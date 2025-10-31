@@ -18,7 +18,7 @@ const (
 
 	// general
 	DisplayNameLabel = PrimusSafePrefix + "display.name"
-	// Corresponding resource names in Kubernetes ResourceList, such as amd.com/gpu or nvidia.com/gpu
+	// Corresponding resource names in Kubernetes ResourceList, e.g. amd.com/gpu or nvidia.com/gpu
 	GpuResourceNameAnnotation = PrimusSafePrefix + "gpu.resource.name"
 	// the label for Control-plane node
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"

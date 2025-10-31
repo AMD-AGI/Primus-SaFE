@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -52,6 +52,7 @@ const (
 	DefaultMaxFailover         = 50
 )
 
+// AddWorkloadWebhook registers the workload validation and mutation webhooks.
 func AddWorkloadWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.WorkloadKind), &webhook.Admission{Handler: &WorkloadMutator{
 		Client:  mgr.GetClient(),
@@ -63,11 +64,13 @@ func AddWorkloadWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder
 	}})
 }
 
+// WorkloadMutator handles mutation logic for Workload resources on create and update.
 type WorkloadMutator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle processes workload admission requests and applies mutations on create and update.
 func (m *WorkloadMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	if req.Operation == admissionv1.Delete {
 		return admission.Allowed("")
@@ -101,6 +104,7 @@ func (m *WorkloadMutator) Handle(ctx context.Context, req admission.Request) adm
 	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
+// mutateOnCreation applies default values and normalizations during creation.
 func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Workload) bool {
 	workspace, _ := getWorkspace(ctx, m.Client, workload.Spec.Workspace)
 	m.mutateGvk(workload)
@@ -124,6 +128,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	return true
 }
 
+// mutateOnUpdate applies mutations during updates.
 func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWorkload *v1.Workload) bool {
 	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
 	m.mutateCommon(ctx, newWorkload, workspace)
@@ -131,6 +136,7 @@ func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWo
 	return true
 }
 
+// mutateCommon applies mutations to the resource.
 func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
 	m.mutateResource(workload, workspace)
 	m.mutateHostpath(workload, workspace)
@@ -143,6 +149,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workloa
 	return true
 }
 
+// mutateMeta applies mutations to the resource.
 func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
 	if workload.Name != "" {
 		workload.Name = stringutil.NormalizeName(workload.Name)
@@ -178,6 +185,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
 
+// mutateGvk applies mutations to the resource.
 func (m *WorkloadMutator) mutateGvk(workload *v1.Workload) {
 	if workload.Spec.Kind == "" {
 		workload.Spec.Kind = common.PytorchJobKind
@@ -189,6 +197,7 @@ func (m *WorkloadMutator) mutateGvk(workload *v1.Workload) {
 	workload.Spec.Group = ""
 }
 
+// mutatePriority applies mutations to the resource.
 func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
 	isChanged := false
 	if workload.Spec.Priority > common.HighPriorityInt {
@@ -201,6 +210,7 @@ func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
 	return isChanged
 }
 
+// mutateResource applies mutations to the resource.
 func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Workspace) bool {
 	isChanged := false
 	if workload.Spec.Resource.GPU == "0" {
@@ -229,7 +239,7 @@ func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Wo
 }
 
 // mutateHostpath removes duplicate hostpath entries from workload that are already included in workspace.
-// Workloads inherit all hostpath volumes from their workspace by default
+// Workloads inherit all hostpath volumes from their workspace by default.
 func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Workspace) {
 	if len(workload.Spec.Hostpath) == 0 {
 		return
@@ -252,6 +262,7 @@ func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Wo
 	workload.Spec.Hostpath = hostpath
 }
 
+// mutateHealthCheck applies mutations to the resource.
 func (m *WorkloadMutator) mutateHealthCheck(workload *v1.Workload) {
 	if workload.Spec.Readiness != nil {
 		mutateHealthCheck(workload.Spec.Readiness)
@@ -261,6 +272,7 @@ func (m *WorkloadMutator) mutateHealthCheck(workload *v1.Workload) {
 	}
 }
 
+// mutateHealthCheck applies mutations to the resource.
 func mutateHealthCheck(field *v1.HealthCheck) {
 	if field.InitialDelaySeconds == 0 {
 		field.InitialDelaySeconds = DefaultInitialDelaySeconds
@@ -273,6 +285,7 @@ func mutateHealthCheck(field *v1.HealthCheck) {
 	}
 }
 
+// mutateService applies mutations to the resource.
 func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 	if workload.Spec.Service == nil {
 		return
@@ -284,8 +297,7 @@ func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 	}
 }
 
-// Check whether to enable hostNetwork. It should only be set to true
-// if the replica count is greater than 1 and all GPU resources have been requested.
+// isHostNetworkEnabled Check whether to enable hostNetwork. It should only be set to true.
 func (m *WorkloadMutator) isHostNetworkEnabled(workload *v1.Workload, nf *v1.NodeFlavor) bool {
 	if workload.Spec.Resource.Replica <= 1 {
 		return false
@@ -304,6 +316,7 @@ func (m *WorkloadMutator) isHostNetworkEnabled(workload *v1.Workload, nf *v1.Nod
 	return true
 }
 
+// mutateDeployment applies mutations to the resource.
 func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
@@ -321,11 +334,13 @@ func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 	}
 }
 
+// mutateStatefulSet applies mutations to the resource.
 func (m *WorkloadMutator) mutateStatefulSet(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
 }
 
+// mutateAuthoring applies mutations to the resource.
 func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
@@ -338,11 +353,13 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	workload.Spec.Dependencies = nil
 }
 
+// mutateImage applies mutations to the resource.
 func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {
 	workload.Spec.Image = strings.TrimSpace(workload.Spec.Image)
 	workload.Spec.EntryPoint = strings.TrimSpace(workload.Spec.EntryPoint)
 }
 
+// mutateMaxRetry applies mutations to the resource.
 func (m *WorkloadMutator) mutateMaxRetry(workload *v1.Workload) {
 	if workload.Spec.MaxRetry > DefaultMaxFailover {
 		workload.Spec.MaxRetry = DefaultMaxFailover
@@ -352,6 +369,7 @@ func (m *WorkloadMutator) mutateMaxRetry(workload *v1.Workload) {
 	}
 }
 
+// mutateEnv applies mutations to the resource.
 func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 	newWorkload.Spec.Env = maps.RemoveValue(newWorkload.Spec.Env, "")
 	// A null or empty value means the field should be removed.
@@ -364,12 +382,14 @@ func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 	}
 }
 
+// mutateTTLSeconds applies mutations to the resource.
 func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 	if workload.Spec.TTLSecondsAfterFinished == nil {
 		workload.Spec.TTLSecondsAfterFinished = ptr.To(commonconfig.GetWorkloadTTLSecond())
 	}
 }
 
+// mutateEntryPoint applies mutations to the resource.
 func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
 	if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
 		return
@@ -406,6 +426,7 @@ func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Wo
 	}
 }
 
+// mutateCustomerLabels applies mutations to the resource.
 func (m *WorkloadMutator) mutateCustomerLabels(workload *v1.Workload) {
 	if len(workload.Spec.CustomerLabels) == 0 {
 		return
@@ -421,6 +442,7 @@ func (m *WorkloadMutator) mutateCustomerLabels(workload *v1.Workload) {
 	}
 }
 
+// mutateCronJobs applies mutations to the resource.
 func (m *WorkloadMutator) mutateCronJobs(workload *v1.Workload) {
 	for i := range workload.Spec.CronJobs {
 		if workload.Spec.CronJobs[i].Action == "" {
@@ -429,11 +451,13 @@ func (m *WorkloadMutator) mutateCronJobs(workload *v1.Workload) {
 	}
 }
 
+// WorkloadValidator validates Workload resources on create and update operations.
 type WorkloadValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle validates workload resources on create, update, and delete operations.
 func (v *WorkloadValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	workload := &v1.Workload{}
 	var err error
@@ -465,6 +489,7 @@ func (v *WorkloadValidator) Handle(ctx context.Context, req admission.Request) a
 	return admission.Allowed("")
 }
 
+// validateOnCreation validates workload spec, resources, scope and cron jobs on creation.
 func (v *WorkloadValidator) validateOnCreation(ctx context.Context, workload *v1.Workload) error {
 	if err := v.validateCommon(ctx, workload); err != nil {
 		return err
@@ -484,6 +509,7 @@ func (v *WorkloadValidator) validateOnCreation(ctx context.Context, workload *v1
 	return nil
 }
 
+// validateOnUpdate validates immutable fields, spec changes and cron jobs on update.
 func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, oldWorkload *v1.Workload) error {
 	if err := v.validateImmutableFields(newWorkload, oldWorkload); err != nil {
 		return err
@@ -502,6 +528,7 @@ func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, o
 	return nil
 }
 
+// validateCommon validates required params, workspace, service, health check, resources, template and display name.
 func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Workload) error {
 	if err := v.validateRequiredParams(workload); err != nil {
 		return err
@@ -527,6 +554,7 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 	return nil
 }
 
+// validateRequiredParams ensures display name, cluster, workspace, image, entry point, GVK and resources are set.
 func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error {
 	var errs []error
 	if v1.GetDisplayName(workload) == "" {
@@ -565,6 +593,7 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	return nil
 }
 
+// validateService validates service ports, protocol and type configuration.
 func (v *WorkloadValidator) validateService(workload *v1.Workload) error {
 	if workload.Spec.Service == nil {
 		return nil
@@ -592,6 +621,7 @@ func (v *WorkloadValidator) validateService(workload *v1.Workload) error {
 	return nil
 }
 
+// validateHealthCheck validates liveness and readiness probe configuration.
 func (v *WorkloadValidator) validateHealthCheck(workload *v1.Workload) error {
 	if workload.Spec.Liveness != nil {
 		if workload.Spec.Liveness.Path == "" {
@@ -612,6 +642,7 @@ func (v *WorkloadValidator) validateHealthCheck(workload *v1.Workload) error {
 	return nil
 }
 
+// validateResource validates GPU resource name if GPU is requested.
 func (v *WorkloadValidator) validateResource(workload *v1.Workload) error {
 	var errs []error
 	if workload.Spec.Resource.Replica <= 0 {
@@ -632,6 +663,7 @@ func (v *WorkloadValidator) validateResource(workload *v1.Workload) error {
 	return nil
 }
 
+// validateWorkspace ensures the workspace exists.
 func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.Workload) error {
 	workspace, _ := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
 	if workspace == nil {
@@ -648,6 +680,7 @@ func (v *WorkloadValidator) validateWorkspace(ctx context.Context, workload *v1.
 	return nil
 }
 
+// validateResourceEnough checks if the workload resources do not exceed node flavor limits.
 func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload *v1.Workload) error {
 	if workload.Spec.Resource.Replica <= 0 {
 		return nil
@@ -659,7 +692,7 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload
 	return validateResourceEnough(nf, &workload.Spec.Resource)
 }
 
-// Check whether the requested resources exceed the threshold limits, including the maximum resource limit per node and other configured thresholds.
+// validateResourceEnough checks if requested resources exceed per-node limits and configured thresholds.
 func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
 	availNodeResources := quantity.GetAvailableResource(nodeResources)
@@ -701,7 +734,7 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 	return nil
 }
 
-// Validate whether the resource template and task template corresponding to the specified kind in the workload exist.
+// validateTemplate ensures the resource template and task template for the workload kind exist.
 func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.Workload) error {
 	if _, err := getResourceTemplate(ctx, v.Client, workload.Spec.GroupVersionKind); err != nil {
 		return err
@@ -713,6 +746,7 @@ func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.W
 	return nil
 }
 
+// validateDisplayName ensures workload display name is unique within the workspace.
 func (v *WorkloadValidator) validateDisplayName(workload *v1.Workload) error {
 	l := len(v1.GetDisplayName(workload))
 	if l > commonutils.MaxDisplayNameLen {
@@ -724,6 +758,7 @@ func (v *WorkloadValidator) validateDisplayName(workload *v1.Workload) error {
 	return nil
 }
 
+// validateImmutableFields ensures cluster, workspace, display name and GVK cannot be modified.
 func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1.Workload) error {
 	if newWorkload.Spec.Workspace != oldWorkload.Spec.Workspace {
 		return field.Forbidden(field.NewPath("spec").Key("workspace"), "immutable")
@@ -739,7 +774,7 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 	return nil
 }
 
-// Changes to the PyTorchJob are only allowed when the job is queued.
+// validateSpecChanged forbids spec changes for workloads that have been scheduled.
 func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Workload) error {
 	if !v1.IsWorkloadScheduled(newWorkload) {
 		return nil
@@ -765,7 +800,7 @@ func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Wor
 	return nil
 }
 
-// A workload must be specified under a certain workspace, so it is necessary to check whether this workspace supports the given workload type.
+// validateScope ensures the workspace supports the workload scope type.
 func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Workload) error {
 	if commonworkload.IsOpsJob(workload) {
 		return nil
@@ -795,6 +830,7 @@ func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Work
 	return nil
 }
 
+// validateCronJobs validates cron schedule syntax and unique identifiers.
 func (v *WorkloadValidator) validateCronJobs(workload *v1.Workload) error {
 	parseCronJob := func(job v1.CronJob) error {
 		if job.Schedule == "" {

@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package channel
 
 import (
@@ -20,6 +25,7 @@ type EmailConfig struct {
 	UseTLS   bool   `json:"use_tls" yaml:"use_tls"`
 }
 
+// ReadConfigFromFile reads notification configuration from a file.
 func ReadConfigFromFile(data string) (*Config, error) {
 	c := &Config{}
 	err := json.Unmarshal([]byte(data), c)
@@ -35,6 +41,7 @@ type Channel interface {
 	Send(ctx context.Context, message *model.Message) error
 }
 
+// InitChannels initializes all notification channels from the configuration.
 func InitChannels(ctx context.Context, conf *Config) (map[string]Channel, error) {
 	channels := make(map[string]Channel)
 	if conf.Email != nil {

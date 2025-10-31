@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
 package model
 
 const (
@@ -12,6 +17,7 @@ type Message struct {
 	Email *EmailMessage
 }
 
+// GetChannels returns the list of channels for message delivery.
 func (m Message) GetChannels() []string {
 	channels := []string{}
 	if m.Email != nil {

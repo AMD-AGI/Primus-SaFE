@@ -18,6 +18,7 @@ type Options struct {
 	LogfilePath string // LogfilePath path to the log file
 }
 
+// InitFlags initializes command-line flags for the options.
 func (opt *Options) InitFlags() error {
 	if opt == nil {
 		return fmt.Errorf("the options is not initialized")

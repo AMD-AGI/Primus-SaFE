@@ -1,273 +1,403 @@
-# Node API Documentation
+# Node API
 
 ## Overview
 
 The Node APIs provide management capabilities for computing nodes within the system. Nodes are the fundamental compute resources that form clusters and host workloads. These APIs allow users to create, list, retrieve, update, and delete nodes, as well as manage node configurations.
 
-## API Endpoints
+## API List
 
-### Create Node
-```
-POST /api/v1/nodes
-```
+### 1. Create Node
 
-Creates a new node with specified configuration.
+Register a new node to the system.
 
-**Request Body:**
+**Endpoint**: `POST /api/v1/nodes`
+
+**Authentication Required**: Yes
+
+**Request Parameters**:
+
 ```json
 {
-  // Node hostname. If not specified, it will be assigned the value of PrivateIP
-  "hostname": "string",
-  // Node private ip, required
-  "privateIP": "string",
-  // Node public IP, accessible from external networks, optional
-  "publicIP": "string",
-  // SSH port, default is 22
+  "hostname": "gpu-node-001",
+  "privateIP": "192.168.1.100",
+  "publicIP": "203.0.113.100",
   "port": 22,
-  // Node labels
   "labels": {
-    "key": "string"
+    "gpu-type": "MI300X",
+    "datacenter": "us-west"
   },
-  // Associated node flavor id
-  "flavorId": "string",
-  // Associated node template id
-  "templateId": "string",
-  // The secret id for ssh
-  "sshSecretId": "string"
+  "flavorId": "gpu-large",
+  "templateId": "ubuntu-gpu-template",
+  "sshSecretId": "ssh-secret-001"
 }
 ```
 
+**Field Description**:
 
-**Response:**
+| Field | Type | Required | Description                                                       |
+|-------|------|----------|-------------------------------------------------------------------|
+| hostname | string | No | Node hostname, uses privateIP if not specified                    |
+| privateIP | string | Yes | Node private IP                                                   |
+| publicIP | string | No | Node public IP, accessible from external networks                 |
+| port | int | No | SSH port, default 22                                              |
+| labels | object | No | Node labels                                                       |
+| flavorId | string | Yes | Associated node flavor ID                                         |
+| templateId | string | Yes | Associated node template ID (for addon installation) |
+| sshSecretId | string | Yes | SSH secret ID                                                     |
+
+**Response Example**:
+
 ```json
 {
-  // The node id
-  "nodeId": "string"
+  "nodeId": "gpu-node-001-abc123"
 }
 ```
+**Field Description**:
 
+| Field | Type | Description       |
+|-------|------|-------------------|
+| nodeId | string | Generated Node ID |
 
-### List Nodes
-```
-GET /api/v1/custom/nodes?workspaceId={workspaceId}&clusterId={clusterId}&flavorId={flavorId}&nodeId={nodeId}&available={available}&phase={phase}&isAddonsInstalled={isAddonsInstalled}&brief={brief}&offset={offset}&limit={limit}
-```
+---
 
+### 2. List Nodes
 
-Retrieves a list of nodes with optional filtering.
+Get node list with multiple filtering options.
 
-**Query Parameters:**
-- `workspaceId` (optional): Filter results by workspace ID
-- `clusterId` (optional): Filter results by cluster ID
-- `flavorId` (optional): Filter results by node flavor ID
-- `nodeId` (optional): Filter results by node ID
-- `available` (optional): Filter results based on node availability
-- `phase` (optional): Filter results by node phase, such as Ready, SSHFailed, HostnameFailed, Managing, ManagedFailed, Unmanaging, UnmanagedFailed. If specifying multiple kind queries, separate them with commas
-- `isAddonsInstalled` (optional): Filter results based on addon installation status
-- `brief` (optional): Return only basic node information. If enabled, only the node id, node Name and node IP will be returned.
-- `offset` (optional): Starting offset for results (default: 0)
-- `limit` (optional): Limit number of results (default: 100, -1 for all)
+**Endpoint**: `GET /api/v1/nodes`
 
-**Response (Detailed):**
+**Authentication Required**: Yes
+
+**Query Parameters**:
+
+| Parameter | Type | Required | Description                                                 |
+|-----------|------|----------|-------------------------------------------------------------|
+| clusterId | string | No | Filter by cluster ID                                        |
+| workspaceId | string | No | Filter by workspace ID                                      |
+| flavorId | string | No | Filter by node flavor ID                                    |
+| nodeId | string | No | Filter by node ID                                           |
+| available | bool | No | Filter by availability: true (available)/false (unavailable) |
+| phase | string | No | Filter by status (comma-separated)                          |
+| isAddonsInstalled | bool | No | Filter by addon installation status                         |
+| brief | bool | No | Brief mode, returns only ID, name and IP              |
+| offset | int | No | Pagination offset, default 0                                |
+| limit | int | No | Records per page, default 100, -1 for all                   |
+
+**Response Example (Full mode)**:
+
 ```json
 {
-  // TotalCount indicates the total number of faults, not limited by pagination
-  "totalCount": 0,
+  "totalCount": 20,
   "items": [
     {
-      // node id
-      "nodeId": "string",
-      // node name
-      "nodeName": "string",
-      // the internal ip of k8s cluster
-      "internalIP": "string",
-      // The cluster id of node
-      "clusterId": "string",
-      // The workspace id and name of node
+      "nodeId": "gpu-node-001",
+      "nodeName": "gpu-node-001",
+      "internalIP": "192.168.1.100",
+      "clusterId": "prod-cluster",
       "workspace": {
-        "id": "string",
-        "name": "string"
+        "id": "prod-cluster-ai-team",
+        "name": "ai-team"
       },
-      "phase": "string",
+      "phase": "Ready",
       "available": true,
-      "message": "string",
-      "totalResources": {...},
-      "availResources": {...},
-      "creationTime": "string",
+      "message": "",
+      "totalResources": {
+        "amd.com/gpu": 8,
+        "cpu": 256,
+        "ephemeral-storage": 6856267152295,
+        "memory": 1622049488896,
+        "rdma/hca": 1000
+      },
+      "availResources": {
+        "amd.com/gpu": 8,
+        "cpu": 230,
+        "ephemeral-storage": 6513453794680,
+        "memory": 1540947014451,
+        "rdma/hca": 1000
+      },
+      "creationTime": "2025-01-10T10:00:00",
       "workloads": [
         {
-          "id": "string",
-          "userId": "string",
-          "workspaceId": "string"
+          "id": "training-job-001",
+          "userId": "user-001",
+          "workspaceId": "prod-cluster-ai-team"
         }
       ],
-      "isControlPlane": true,
+      "isControlPlane": false,
       "isAddonsInstalled": true
     }
   ]
 }
 ```
 
+**Response Example (Brief mode, brief=true)**:
 
-**Response (Brief):**
 ```json
 {
-  "totalCount": 0,
+  "totalCount": 20,
   "items": [
     {
-      "nodeId": "string",
-      "nodeName": "string",
-      "internalIP": "string"
+      "nodeId": "gpu-node-001-abc123",
+      "nodeName": "gpu-node-001",
+      "internalIP": "192.168.1.100"
     }
   ]
 }
 ```
+**Field Description (Full mode)**:
+
+| Field                   | Type | Description                                                                                   |
+|-------------------------|------|-----------------------------------------------------------------------------------------------|
+| totalCount              | int | Total number of nodes, unaffected by pagination                                               |
+| nodeId                  | string | Node ID                                                                                       |
+| nodeName                | string | Node name                                                                                     |
+| internalIP              | string | Node internal IP                                                                              |
+| clusterId               | string | Cluster ID the node belongs to                                                                |
+| workspace.id            | string | Workspace ID bound to the node                                                                |
+| workspace.name          | string | Workspace display name                                                                        |
+| phase                   | string | Node status: Ready/SSHFailed/HostnameFailed/Managing/ManagedFailed/Unmanaging/UnmanagedFailed |
+| available               | bool | Whether the node is schedulable                                                               |
+| message                 | string | Reason when unavailable (empty if available)                                                  |
+| totalResources          | object | Total resources map (key:string → value:int64)                                                |
+| availResources          | object | Available resources map with the same semantics as totalResources                             |
+| creationTime            | string | Creation time (RFC3339Short)                                                                  |
+| workloads[].id          | string | Running workload ID on this node                                                              |
+| workloads[].userId      | string | Submitter user ID of the workload                                                             |
+| workloads[].workspaceId | string | Workspace ID the workload belongs to                                                          |
+| isControlPlane          | bool | Whether the node is a control-plane node                                                      |
+| isAddonsInstalled       | bool | Whether addons from the node-template are installed                                           |
 
 
-### Get Node
-```
-GET /api/v1/custom/nodes/{nodeId}
-```
 
+---
 
-Retrieves detailed information about a specific node.
+### 3. Get Node Details
 
-**Response:**
+Get detailed information about a specific node.
+
+**Endpoint**: `GET /api/v1/nodes/{NodeId}`
+
+**Authentication Required**: Yes
+
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| NodeId | Node ID |
+
+**Response Example**:
+
 ```json
 {
-  "nodeId": "string",
-  "nodeName": "string",
-  "internalIP": "string",
-  "clusterId": "string",
+  "nodeId": "gpu-node-001",
+  "nodeName": "gpu-node-001",
+  "internalIP": "192.168.1.100",
+  "clusterId": "prod-cluster",
   "workspace": {
-    "id": "string",
-    "name": "string"
+    "id": "prod-cluster-ai-team",
+    "name": "ai-team"
   },
-  "phase": "string",
+  "phase": "Ready",
   "available": true,
-  "message": "string",
-  "totalResources": {...},
-  "availResources": {...},
-  "creationTime": "string",
+  "message": "",
+  "totalResources": {
+    "amd.com/gpu": 8,
+    "cpu": 256,
+    "ephemeral-storage": 6856267152295,
+    "memory": 1622049488896,
+    "rdma/hca": 1000
+  },
+  "availResources": {
+    "amd.com/gpu": 8,
+    "cpu": 230,
+    "ephemeral-storage": 6513453794680,
+    "memory": 1540947014451,
+    "rdma/hca": 1000
+  },
+  "creationTime": "2025-01-10T10:00:00",
   "workloads": [
     {
-      "id": "string",
-      "userId": "string",
-      "workspaceId": "string"
+      "id": "training-job-001",
+      "userId": "user-001",
+      "workspaceId": "prod-cluster-ai-team"
     }
   ],
-  "isControlPlane": true,
+  "isControlPlane": false,
   "isAddonsInstalled": true,
-  "flavorId": "string",
-  "templateId": "string",
-  "taints": [...],
+  "flavorId": "gpu-large",
+  "templateId": "amd-gpu-template",
+  "taints": [
+    {
+      "key": "test-taint",
+      "effect": "NoSchedule"
+    }
+  ],
   "customerLabels": {
-    "key": "string"
+    "gpu-type": "A100",
+    "datacenter": "us-west"
   },
-  "lastStartupTime": "string"
+  "lastStartupTime": "2025-01-10T10:05:00Z"
 }
 ```
+**Field Description**:
 
+Only fields not already covered by "List Nodes" are listed below. Other fields share the same meaning as in the list response.
 
-### Update Node
-```
-PATCH /api/v1/custom/nodes/{nodeId}
-```
+| Field | Type   | Description                                   |
+|-------|--------|-----------------------------------------------|
+| flavorId | string | Node flavor ID                                |
+| templateId | string | Node template ID                              |
+| taints | object | The taints on node                            |
+| labels | object | The labels by customer                        |
+| lastStartupTime | string    | The last startup time on node (RFC3339Short)  |
 
+---
 
-Partially updates a node with specified fields.
+### 4. Update Node
 
-**Request Body:**
+Update node configuration.
+
+**Endpoint**: `PATCH /api/v1/nodes/{NodeId}`
+
+**Authentication Required**: Yes
+
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| NodeId | Node ID |
+
+**Request Parameters**:
+
 ```json
 {
-  "taints": [...],
+  "taints": [
+    {
+      "key": "maintenance",
+      "value": "true",
+      "effect": "NoSchedule"
+    }
+  ],
   "labels": {
-    "key": "string"
+    "gpu-type": "A100",
+    "updated": "true"
   },
-  "flavorId": "string",
-  "templateId": "string",
-  "port": 0,
-  "privateIP": "string"
+  "flavorId": "gpu-xlarge",
+  "templateId": "amd-gpu-template-v2",
+  "privateIP": "192.168.1.101",
+  "port": 2222
 }
 ```
 
+**Field Description**:
 
-**Response:** No content
+All fields are optional, only provided fields will be updated
 
-### Delete Node
-```
-DELETE /api/v1/custom/nodes/{nodeId}
-```
+| Field | Type   | Description           |
+|-------|--------|-----------------------|
+| taints | object | The taints on node      |
+| labels | object | The labels by customer |
+| flavorId | string | Node flavor ID        |
+| templateId | string | Node template ID      |
+| privateIP | string |  Node private IP       |
+| port | int |SSH port |
 
+**Response**: 200 OK with no response body
 
-Deletes a specific node.
+---
 
-**Response:** No content
+### 5. Delete Node
 
-### Get Node Logs
-```
-GET /api/v1/custom/nodes/{nodeId}/logs
-```
+Delete the specific node.
 
+**Endpoint**: `DELETE /api/v1/nodes/{NodeId}`
 
-Retrieves logs from the pod associated with node management operations.
+**Authentication Required**: Yes
 
-**Response:**
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| NodeId | Node ID |
+
+**Prerequisites**: Node is not bound to any cluster
+
+**Response**: 200 OK with no response body
+
+---
+
+### 6. Get Node Management Logs
+
+Get operation logs for node joining/leaving cluster.
+
+**Endpoint**: `GET /api/v1/nodes/{NodeId}/logs`
+
+**Authentication Required**: Yes
+
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| NodeId | Node ID |
+
+**Query Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| tailLines | int | No | Return last N lines of logs, default 1000 |
+| sinceSeconds | int | No | Return logs from last N seconds |
+
+**Response Example**:
+
 ```json
 {
-  "clusterId": "string",
-  "nodeId": "string",
-  "podId": "string",
-  "logs": ["string"]
+  "clusterId": "prod-cluster",
+  "nodeId": "gpu-node-001-abc123",
+  "podId": "node-manage-pod-xyz789",
+  "logs": [
+    "2025-01-10 10:00:00 INFO Starting node join process...",
+    "2025-01-10 10:01:00 INFO Installing kubeadm...",
+    "2025-01-10 10:05:00 INFO Node successfully joined cluster"
+  ]
 }
 ```
 
+---
+## Node Status
 
-## Data Models
+| Status | Description             |
+|--------|-------------------------|
+| Ready | Ready                   |
+| SSHFailed | SSH connection failed   |
+| HostnameFailed | Hostname setup failed   |
+| Managing | Joining cluster         |
+| ManagedFailed | Failed to join cluster  |
+| Unmanaging | Leaving cluster         |
+| UnmanagedFailed | Failed to leave cluster |
 
-### CreateNodeRequest
-| Field | Type | Description |
-|-------|------|-------------|
-| hostname | string | Node hostname (optional) |
-| privateIP | string | Node private IP (required) |
-| publicIP | string | Node public IP |
-| port | integer | SSH port (default: 22) |
-| labels | object | Node labels |
-| flavorId | string | Associated node flavor ID |
-| templateId | string | Associated node template ID |
-| sshSecretId | string | SSH secret ID |
+## Taints
 
-### Node Phases
-- [Ready](file://C:\Project\Primus-SaFE\apis\pkg\apis\amd\v1\well_known_constants.go#L130-L130): Node is ready to accept workloads
-- `SSHFailed`: SSH connection to node failed
-- `HostnameFailed`: Hostname configuration failed
-- `Managing`: Node is being managed
-- `ManagedFailed`: Node management failed
-- `Unmanaging`: Node is being unmanaged
-- `UnmanagedFailed`: Node unmanagement failed
+Taints are used to control Pod scheduling. Common Effect types:
 
-### NodeResponseItem
-| Field | Type | Description |
-|-------|------|-------------|
-| nodeId | string | Unique node identifier |
-| nodeName | string | Display name of the node |
-| internalIP | string | Internal IP address |
-| clusterId | string | Associated cluster ID |
-| workspace | object | Associated workspace |
-| phase | string | Current node phase |
-| available | boolean | Node scheduling availability |
-| message | string | Reason if node is unavailable |
-| totalResources | object | Total node resources |
-| availResources | object | Available node resources |
-| creationTime | string | Node creation timestamp |
-| workloads | array | Workloads running on the node |
-| isControlPlane | boolean | Whether node is control plane |
-| isAddonsInstalled | boolean | Whether addons are installed |
+| Effect | Description |
+|--------|-------------|
+| NoSchedule | Do not allow scheduling new Pods |
+| PreferNoSchedule | Try not to schedule new Pods |
+| NoExecute | Do not allow scheduling and evict existing Pods |
 
-### PatchNodeRequest
-All fields are optional and only provided fields will be updated:
-- taints (array): Taints to modify on the node
-- labels (object): Labels to modify on the node
-- flavorId (string): Node flavor ID to modify
-- templateId (string): Node template ID to modify
-- port (integer): SSH port
-- privateIP (string): Node private IP
+**Note**: System automatically adds `primus-safe.` prefix to taint keys
+
+## Resource Statistics
+
+- **totalResources**: Total node resources (defined by node flavor)
+- **availResources**: Available resources (total resources - used resources)
+- **workloads**: List of workloads currently running on this node
+
+## Notes
+
+1. **Node Registration**: Node must be SSH accessible and meet system requirements
+2. **Node Flavor**: Not recommended to modify after creation, may cause inaccurate resource statistics
+3. **Node Template**: Defines node's software environment and addons
+4. **Control Plane Nodes**: Cannot be deleted or have cluster binding changed
+5. **Node Labels**: Custom labels cannot use `primus-safe.amd.com/` prefix
+6. **Deletion Restrictions**: Node must be removed from cluster before deletion

@@ -27,12 +27,7 @@ func (conf *FailoverConfig) Release() error {
 	return nil
 }
 
-// addFailoverConfig processes a ConfigMap and updates the failover manager with configurations
-// It parses JSON configurations from the ConfigMap data, normalizes IDs to lowercase,
-// adds new configurations to the manager, and removes obsolete ones
-// Parameters:
-//   - cm: The ConfigMap containing failover configurations
-//   - failoverManager: The ObjectManager to store configurations
+// addFailoverConfig processes a ConfigMap and updates the failover manager with configurations.
 func addFailoverConfig(cm *corev1.ConfigMap, failoverManager *commonutils.ObjectManager) {
 	currentIds := sets.NewSet()
 	for _, val := range cm.Data {
@@ -55,13 +50,7 @@ func addFailoverConfig(cm *corev1.ConfigMap, failoverManager *commonutils.Object
 	}
 }
 
-// isMonitorIdExists checks if a monitor ID exists in the failover manager
-// Parameters:
-//   - failoverManager: The ObjectManager to search in
-//   - id: The identifier to look for
-//
-// Returns:
-//   - bool: True if the ID exists and is a valid FailoverConfig, false otherwise
+// isMonitorIdExists checks if a monitor ID exists in the failover manager.
 func isMonitorIdExists(failoverManager *commonutils.ObjectManager, id string) bool {
 	obj, ok := failoverManager.Get(id)
 	if !ok {

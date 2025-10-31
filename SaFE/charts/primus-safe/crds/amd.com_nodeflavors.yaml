@@ -44,8 +44,7 @@ spec:
             description: NodeFlavorSpec defines the desired state of NodeFlavor
             properties:
               cpu:
-                description: Cpu defines the CPU configuration of the node, including
-                  product name and quantity
+                description: CPU configuration, required
                 properties:
                   product:
                     description: Cpu product name, e.g. AMD EPYC 9554
@@ -54,26 +53,29 @@ spec:
                     anyOf:
                     - type: integer
                     - type: string
-                    description: Cpu quantity, e.g. 16
+                    description: CPU cores (resource.Quantity), e.g. "256"
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                 required:
                 - quantity
                 type: object
               dataDisk:
-                description: |-
-                  DataDisk is an optional field that defines the data disk configuration of the node
-                  Usually this refers to the disk size mounted on the node, such as an NVMe disk.
+                description: data disk configuration, optional, Usually this refers
+                  to the disk size mounted on the node, e.g. an NVMe disk.
                 properties:
                   count:
+                    description: Number of disks when diskFlavor is set
                     type: integer
                   quantity:
                     anyOf:
                     - type: integer
                     - type: string
+                    description: disk size (resource.Quantity) when diskFlavor is
+                      set
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   type:
+                    description: disk type, e.g. "ssd", "sata", "nvme"
                     type: string
                 required:
                 - count
@@ -86,13 +88,10 @@ spec:
                   - type: string
                   pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                   x-kubernetes-int-or-string: true
-                description: ExtendResources is an optional field that defines the
-                  extended resources list of the node, such as rdma and ephemeralStorage
+                description: 'Extra resources map: key:string -> value:resource.Quantity'
                 type: object
               gpu:
-                description: |-
-                  Gpu is an optional field that defines the GPU configuration of the node,
-                  including product name, Kubernetes resource name, and quantity
+                description: GPU configuration, optional
                 properties:
                   product:
                     description: Gpu product name, e.g. AMD MI300X
@@ -101,12 +100,12 @@ spec:
                     anyOf:
                     - type: integer
                     - type: string
-                    description: Gpu quantity, e.g. 8
+                    description: GPU count (resource.Quantity) when gpu is set, e.g.
+                      "8"
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   resourceName:
-                    description: Corresponding resource names in Kubernetes ResourceList,
-                      such as amd.com/gpu or nvidia.com/gpu
+                    description: K8s resource name when gpu is set, e.g. "amd.com/gpu"
                     type: string
                 required:
                 - quantity
@@ -116,23 +115,26 @@ spec:
                 anyOf:
                 - type: integer
                 - type: string
-                description: Memory defines the memory capacity of the node
+                description: Memory size (resource.Quantity), required, e.g. "1024Gi"
                 pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                 x-kubernetes-int-or-string: true
               rootDisk:
-                description: |-
-                  RootDisk is an optional field that defines the root disk configuration of the node
-                  Usually this refers to the system disk size
+                description: root disk configuration, optional, Usually this refers
+                  to the system disk size
                 properties:
                   count:
+                    description: Number of disks when diskFlavor is set
                     type: integer
                   quantity:
                     anyOf:
                     - type: integer
                     - type: string
+                    description: disk size (resource.Quantity) when diskFlavor is
+                      set
                     pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                     x-kubernetes-int-or-string: true
                   type:
+                    description: disk type, e.g. "ssd", "sata", "nvme"
                     type: string
                 required:
                 - count

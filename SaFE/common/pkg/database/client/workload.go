@@ -52,6 +52,7 @@ var (
 		WHERE workload_id = :workload_id`, TWorkload)
 )
 
+// UpsertWorkload performs the UpsertWorkload operation.
 func (c *Client) UpsertWorkload(ctx context.Context, workload *Workload) error {
 	if workload == nil {
 		return commonerrors.NewBadRequest("the input is empty")
@@ -80,6 +81,7 @@ func (c *Client) UpsertWorkload(ctx context.Context, workload *Workload) error {
 	return err
 }
 
+// SelectWorkloads retrieves multiple workload records.
 func (c *Client) SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Workload, error) {
 	startTime := time.Now().UTC()
 	defer func() {
@@ -115,6 +117,7 @@ func (c *Client) SelectWorkloads(ctx context.Context, query sqrl.Sqlizer, orderB
 	return workloads, err
 }
 
+// CountWorkloads returns the total count of workloads matching the criteria.
 func (c *Client) CountWorkloads(ctx context.Context, query sqrl.Sqlizer) (int, error) {
 	db, err := c.getDB()
 	if err != nil {
@@ -129,6 +132,7 @@ func (c *Client) CountWorkloads(ctx context.Context, query sqrl.Sqlizer) (int, e
 	return cnt, err
 }
 
+// SetWorkloadDeleted marks a workload as deleted in the database.
 func (c *Client) SetWorkloadDeleted(ctx context.Context, workloadId string) error {
 	db, err := c.getDB()
 	if err != nil {
@@ -143,6 +147,7 @@ func (c *Client) SetWorkloadDeleted(ctx context.Context, workloadId string) erro
 	return nil
 }
 
+// SetWorkloadStopped marks a workload as stopped in the database.
 func (c *Client) SetWorkloadStopped(ctx context.Context, workloadId string) error {
 	db, err := c.getDB()
 	if err != nil {
@@ -159,6 +164,7 @@ func (c *Client) SetWorkloadStopped(ctx context.Context, workloadId string) erro
 	return nil
 }
 
+// SetWorkloadDescription updates the description of a workload.
 func (c *Client) SetWorkloadDescription(ctx context.Context, workloadId, description string) error {
 	db, err := c.getDB()
 	if err != nil {
@@ -173,6 +179,7 @@ func (c *Client) SetWorkloadDescription(ctx context.Context, workloadId, descrip
 	return nil
 }
 
+// GetWorkload retrieves a workload by ID.
 func (c *Client) GetWorkload(ctx context.Context, workloadId string) (*Workload, error) {
 	if workloadId == "" {
 		return nil, commonerrors.NewBadRequest("workloadId is empty")

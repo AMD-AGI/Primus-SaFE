@@ -24,7 +24,7 @@ type JobTTLController struct {
 	client.Client
 }
 
-// SetupJobTTLController initializes and registers the JobTTLController with the controller manager
+// SetupJobTTLController initializes and registers the JobTTLController with the controller manager.
 func SetupJobTTLController(mgr manager.Manager) error {
 	r := &JobTTLController{
 		Client: mgr.GetClient(),
@@ -40,7 +40,7 @@ func SetupJobTTLController(mgr manager.Manager) error {
 	return nil
 }
 
-// relevantChangePredicate defines which OpsJob changes should trigger TTL reconciliation
+// relevantChangePredicate defines which OpsJob changes should trigger TTL reconciliation.
 func (r *JobTTLController) relevantChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
@@ -57,7 +57,7 @@ func (r *JobTTLController) relevantChangePredicate() predicate.Predicate {
 	}
 }
 
-// Reconcile is the main control loop for OpsJob TTL management
+// Reconcile is the main control loop for OpsJob TTL management.
 func (r *JobTTLController) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	startTime := time.Now().UTC()
 	defer func() {
@@ -77,7 +77,7 @@ func (r *JobTTLController) Reconcile(ctx context.Context, req ctrlruntime.Reques
 	return r.deleteExpiredJob(ctx, job)
 }
 
-// deleteExpiredJob deletes jobs that have exceeded their TTL seconds after completion
+// deleteExpiredJob deletes jobs that have exceeded their TTL seconds after completion.
 func (r *JobTTLController) deleteExpiredJob(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	nowTime := time.Now().Unix()
 	elapsedSeconds := nowTime - job.Status.FinishedAt.Unix()

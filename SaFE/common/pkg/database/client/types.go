@@ -66,6 +66,7 @@ type Workload struct {
 	CronJobs       sql.NullString `db:"cron_jobs"`
 }
 
+// GetWorkloadFieldTags returns the WorkloadFieldTags value.
 func GetWorkloadFieldTags() map[string]string {
 	w := Workload{}
 	return getFieldTags(w)
@@ -86,6 +87,7 @@ type Fault struct {
 	IsAutoRepaired bool           `db:"is_auto_repaired"`
 }
 
+// GetFaultFieldTags returns the FaultFieldTags value.
 func GetFaultFieldTags() map[string]string {
 	f := Fault{}
 	return getFieldTags(f)
@@ -117,11 +119,13 @@ type OpsJob struct {
 	Hostpath      sql.NullString `db:"hostpath"`
 }
 
+// GetOpsJobFieldTags returns the OpsJobFieldTags value.
 func GetOpsJobFieldTags() map[string]string {
 	job := OpsJob{}
 	return getFieldTags(job)
 }
 
+// getFieldTags retrieves FieldTags for internal use.
 func getFieldTags(obj interface{}) map[string]string {
 	result := make(map[string]string)
 	t := reflect.TypeOf(obj)
@@ -132,6 +136,7 @@ func getFieldTags(obj interface{}) map[string]string {
 	return result
 }
 
+// genInsertCommand implements internal logic for the operation.
 func genInsertCommand(obj interface{}, format, ignoreTag string) string {
 	t := reflect.TypeOf(obj)
 	columns := make([]string, 0, t.NumField())
@@ -149,6 +154,7 @@ func genInsertCommand(obj interface{}, format, ignoreTag string) string {
 	return cmd
 }
 
+// GetFieldTag returns the FieldTag value.
 func GetFieldTag(tags map[string]string, name string) string {
 	name = strings.ToLower(name)
 	return tags[name]
@@ -165,6 +171,7 @@ type PublicKey struct {
 	DeleteTime  pq.NullTime `db:"delete_time"`
 }
 
+// GetPublicKeyFieldTags returns the PublicKeyFieldTags value.
 func GetPublicKeyFieldTags() map[string]string {
 	f := PublicKey{}
 	return getFieldTags(f)
@@ -182,6 +189,7 @@ type SshSessionRecords struct {
 	CreateTime       pq.NullTime `db:"create_time"`
 }
 
+// GetSshSessionRecordsFieldTags returns the SshSessionRecordsFieldTags value.
 func GetSshSessionRecordsFieldTags() map[string]string {
 	f := SshSessionRecords{}
 	return getFieldTags(f)

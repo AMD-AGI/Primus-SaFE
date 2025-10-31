@@ -43,35 +43,35 @@ jobs:
       with:
         files_yaml: |
           apiserver:
-            - apis/**
-            - apiserver/**
-            - charts/primus-safe/templates/apiserver/**
-            - common/**
-            - utils/**
+            - SaFE/apis/**
+            - SaFE/apiserver/**
+            - SaFE/charts/primus-safe/templates/apiserver/**
+            - SaFE/common/**
+            - SaFE/utils/**
           resource_manager:
-            - apis/**
-            - resource-manager/**
-            - charts/primus-safe/templates/resource-manager/**
-            - common/**
-            - utils/**
+            - SaFE/apis/**
+            - SaFE/resource-manager/**
+            - SaFE/charts/primus-safe/templates/resource-manager/**
+            - SaFE/common/**
+            - SaFE/utils/**
           job_manager:
-            - apis/**
-            - job-manager/**
-            - charts/primus-safe/templates/job-manager/**
-            - common/**
-            - utils/**
+            - SaFE/apis/**
+            - SaFE/job-manager/**
+            - SaFE/charts/primus-safe/templates/job-manager/**
+            - SaFE/common/**
+            - SaFE/utils/**
           webhooks:
-            - apis/**
-            - webhooks/**
-            - charts/primus-safe/templates/webhooks/**
-            - common/**
-            - utils/**
+            - SaFE/apis/**
+            - SaFE/webhooks/**
+            - SaFE/charts/primus-safe/templates/webhooks/**
+            - SaFE/common/**
+            - SaFE/utils/**
           node_agent:
-            - node-agent/**
-            - common/**
-            - utils/**
+            - SaFE/node-agent/**
+            - SaFE/common/**
+            - SaFE/utils/**
           sync_image:
-            - tools/sync-image/**
+            - SaFE/tools/sync-image/**
           telemetry_processor:
             - modules/telemetry-processor/**
             - modules/core/**
@@ -85,29 +85,29 @@ jobs:
             - modules/core/**
         files_ignore_yaml: |      
           node_agent:
-            - node-agent/charts/node-agent/values.yaml
-            - node-agent/charts/node-agent/Chart.yaml
+            - SaFE/node-agent/charts/node-agent/values.yaml
+            - SaFE/node-agent/charts/node-agent/Chart.yaml
     - name: Generate matrix
       id: generate-matrix
       run: |
         MATRIX='{"include":['
         if [[ "${{ steps.changed-files.outputs.apiserver_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"apiserver","basepath":"apiserver",dockerfile_path:"apiserver/installer/Dockerfile"},'
+          MATRIX+='{"name":"apiserver","basepath":"SaFE/apiserver",dockerfile_path:"SaFE/apiserver/installer/Dockerfile"},'
         fi
         if [[ "${{ steps.changed-files.outputs.resource_manager_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"resource-manager","basepath":"resource-manager",dockerfile_path:"resource-manager/installer/Dockerfile"},'
+          MATRIX+='{"name":"resource-manager","basepath":"SaFE/resource-manager",dockerfile_path:"SaFE/resource-manager/installer/Dockerfile"},'
         fi
         if [[ "${{ steps.changed-files.outputs.job_manager_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"job-manager","basepath":"job-manager",dockerfile_path:"job-manager/installer/Dockerfile"},'
+          MATRIX+='{"name":"job-manager","basepath":"SaFE/job-manager",dockerfile_path:"SaFE/job-manager/installer/Dockerfile"},'
         fi
         if [[ "${{ steps.changed-files.outputs.webhooks_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"webhooks","basepath":"webhooks",dockerfile_path:"webhooks/installer/Dockerfile"},'
+          MATRIX+='{"name":"webhooks","basepath":"SaFE/webhooks",dockerfile_path:"SaFE/webhooks/installer/Dockerfile"},'
         fi
         if [[ "${{ steps.changed-files.outputs.node_agent_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"node-agent","basepath":"node-agent",dockerfile_path:"node-agent/installer/Dockerfile"},'
+          MATRIX+='{"name":"node-agent","basepath":"SaFE/node-agent",dockerfile_path:"SaFE/node-agent/installer/Dockerfile"},'
         fi
         if [[ "${{ steps.changed-files.outputs.sync_image_any_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"sync-image","basepath":"tools/sync-image",dockerfile_path:"tools/sync-image/Dockerfile"},'
+          MATRIX+='{"name":"sync-image","basepath":"SaFE/tools/sync-image",dockerfile_path:"SaFE/tools/sync-image/Dockerfile"},'
         fi
         MATRIX=${MATRIX%,} # remove trailing comma
         MATRIX+=']}'

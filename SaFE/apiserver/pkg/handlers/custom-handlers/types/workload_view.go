@@ -15,8 +15,8 @@ type CreateWorkloadRequest struct {
 	v1.WorkloadSpec
 	// When specifying a workload run on nodes, the replica count will be overwritten with the node count.
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
-	// The Workload name(display only). Used to generate the workload id,
-	// which will do normalization processing, such as lowercase and random suffix
+	// The Workload name(display only). Used to generate the workload ID,
+	// which will do normalization processing, e.g. lowercase and random suffix
 	DisplayName string `json:"displayName"`
 	// The workload description
 	Description string `json:"description,omitempty"`
@@ -25,97 +25,93 @@ type CreateWorkloadRequest struct {
 }
 
 type CreateWorkloadResponse struct {
-	// The workload id
+	// Workload ID
 	WorkloadId string `json:"workloadId"`
 }
 
 type ListWorkloadRequest struct {
-	// Filter results by workspace id
+	// Filter results by workspace ID
 	WorkspaceId string `form:"workspaceId" binding:"omitempty,max=64"`
-	// Filter results by phase
-	// Valid values include: Succeeded,Failed,Pending,Running,Stopped
-	// If specifying multiple phase queries, separate them with commas
+	// Filter by status: Succeeded/Failed/Pending/Running/Stopped (comma-separated)
 	Phase string `form:"phase" binding:"omitempty"`
-	// Filter results by cluster id
+	// Filter results by cluster ID
 	ClusterId string `form:"clusterId" binding:"omitempty,max=64"`
-	// Filter results by user id
+	// Filter results by user ID
 	UserId string `form:"userId" binding:"omitempty,max=64"`
-	// Filter results by username, supports fuzzy matching
+	// Filter results by username (fuzzy match)
 	UserName string `form:"userName" binding:"omitempty"`
-	// Filter results by workload kind
-	// Valid values include: Deployment/PyTorchJob/StatefulSet/Authoring
-	// If specifying multiple kind queries, separate them with commas
+	// Filter by workload kind: Deployment/PyTorchJob/StatefulSet/Authoring (comma-separated)
 	Kind string `form:"kind" binding:"omitempty"`
-	// Filter results by workload description, supports fuzzy matching
+	// Filter by description (fuzzy match)
 	Description string `form:"description" binding:"omitempty"`
-	// Starting offset for the results. dfault is 0
+	// Starting offset for the results. default 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
-	// Limit the number of returned results. default is 100
+	// Limit the number of returned results. default 100
 	Limit int `form:"limit" binding:"omitempty,min=1"`
-	// Sort results by the specified field. default is create_time
+	// Sort field. default create_time
 	SortBy string `form:"sortBy" binding:"omitempty"`
-	// The sorting order. Valid values are "desc" (default) or "asc"
+	// Sort order: desc/asc, default desc
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
 	// Query the start time of the workload, based on the workload creation time.
-	// e.g. '2006-01-02T15:04:05.000Z'
+	// RFC3339 format, e.g. '2006-01-02T15:04:05.000Z'
 	Since string `form:"since" binding:"omitempty"`
 	// Query the end time of the workload, similar to since
 	Until string `form:"until" binding:"omitempty"`
-	// The workload id, Supports fuzzy matching
+	// Filter by workload ID (fuzzy match)
 	WorkloadId string `form:"workloadId" binding:"omitempty,max=64"`
 }
 
 type ListWorkloadResponse struct {
-	// The total number of node templates, not limited by pagination
+	// The total number of workloads, not limited by pagination
 	TotalCount int                    `json:"totalCount"`
 	Items      []WorkloadResponseItem `json:"items"`
 }
 
 type WorkloadResponseItem struct {
-	// The workload id
+	// Workload ID
 	WorkloadId string `json:"workloadId"`
 	// The workspace which workload belongs to
 	WorkspaceId string `json:"workspaceId"`
-	// The workload resource requirements
+	// Workload resource requirements
 	Resource v1.WorkloadResource `json:"resource"`
-	// The workload name (display only)
+	// Workload name (display only)
 	DisplayName string `json:"displayName"`
-	// The workload description
+	// Workload description
 	Description string `json:"description"`
-	// The user id of workload submitter
+	// The user ID of workload submitter
 	UserId string `json:"userId"`
 	// The username of workload submitter
 	UserName string `json:"userName"`
 	// The cluster which the workload belongs to
 	ClusterId string `json:"clusterId"`
-	// The status of workload, such as Succeeded, Failed, Pending, Running, Stopped, Updating
+	// The status of workload, e.g. Succeeded, Failed, Pending, Running, Stopped, Updating
 	Phase string `json:"phase"`
-	// Shows the reason if the workload is in pending status.
+	// Shows the pending reason
 	Message string `json:"message"`
-	// Workload scheduling priority. Defaults is 0, valid range: 0–2
+	// Workload scheduling Priority (0-2), default 0
 	Priority int `json:"priority"`
-	// The workload creation time
+	// Workload creation time (RFC3339Short, e.g. "2025-07-08T10:31:46")
 	CreationTime string `json:"creationTime"`
-	// The workload start time
+	// Workload start time (RFC3339Short)
 	StartTime string `json:"startTime"`
-	// The workload end time
+	// Workload end time (RFC3339Short)
 	EndTime string `json:"endTime"`
-	// The workload deletion time
+	// Workload deletion time (RFC3339Short)
 	DeletionTime string `json:"deletionTime"`
-	// The workload run time, Calculated from the start time. such as 1h2m3s or 1h15s
+	// Workload run time, Calculated from the start time. e.g. 1h2m3s or 1h15s
 	RunTime string `json:"runtime"`
 	// Seconds remaining before workload timeout. Only applicable if a timeout is set.
-	// This is calculated from when the workload starts running. If it has not yet started, return -1.
+	// Seconds remaining until timeout, calculated from the start time. If it has not yet started, return -1
 	SecondsUntilTimeout int64 `json:"secondsUntilTimeout"`
 	// Show the queue position of the workload if it is pending.
 	SchedulerOrder int `json:"schedulerOrder"`
-	// Total dispatch count of workload
+	// Number of dispatch attempts
 	DispatchCount int `json:"dispatchCount"`
-	// Indicates whether the workload tolerates node taints
+	// Whether to tolerate all node taints
 	IsTolerateAll bool `json:"isTolerateAll"`
 	// Defines the group, version, and kind of the workload. Currently, the group is not used
 	GroupVersionKind v1.GroupVersionKind `json:"groupVersionKind"`
-	// Workload timeout in seconds. Default is 0 (no timeout).
+	// Timeout seconds (0 means no timeout)
 	Timeout *int `json:"timeout"`
 	// Workload uid
 	WorkloadUid string `json:"workloadUid"`
@@ -129,13 +125,13 @@ type GetWorkloadResponse struct {
 	SpecifiedNodes []string `json:"specifiedNodes,omitempty"`
 	// The address of the image used by the workload
 	Image string `json:"image"`
-	// Workload startup command, required in base64 encoding
+	// Workload startup command, in base64 encoding
 	EntryPoint string `json:"entryPoint"`
 	// Supervision flag for the workload. When enabled, it performs operations like hang detection
 	IsSupervised bool `json:"isSupervised"`
-	// Failure retry limit. default: 0
+	// Failure retry limit. default 0
 	MaxRetry int `json:"maxRetry"`
-	// The lifecycle of the workload after completion, in seconds. Default to 60.
+	// The lifecycle after completion, in seconds, default 60.
 	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished"`
 	// Detailed processing workflow of the workload
 	Conditions []metav1.Condition `json:"conditions"`
@@ -145,10 +141,10 @@ type GetWorkloadResponse struct {
 	Nodes [][]string `json:"nodes"`
 	// The rank is only valid for the PyTorch job and corresponds one-to-one with the nodes listed above.
 	Ranks [][]string `json:"ranks"`
-	// The workload will run on nodes with the user-specified labels.
+	// Workload will run on nodes with the user-specified labels.
 	// If multiple labels are specified, all of them must be satisfied.
 	CustomerLabels map[string]string `json:"customerLabels"`
-	// Environment variables
+	// Environment variables key-value pairs
 	Env map[string]string `json:"env"`
 	// K8s liveness check. used for deployment/statefulSet
 	Liveness *v1.HealthCheck `json:"liveness,omitempty"`
@@ -171,7 +167,7 @@ type WorkloadPodWrapper struct {
 }
 
 type PatchWorkloadRequest struct {
-	// Workload scheduling priority, valid range: 0–2
+	// Workload scheduling Priority (0-2), default 0
 	Priority *int `json:"priority,omitempty"`
 	// Requested replica count for the workload
 	Replica *int `json:"replica,omitempty"`
@@ -193,7 +189,7 @@ type PatchWorkloadRequest struct {
 	Env *map[string]string `json:"env,omitempty"`
 	// Workload description
 	Description *string `json:"description,omitempty"`
-	// Workload timeout in seconds. Default is 0 (no timeout).
+	// Timeout seconds (0 means no timeout)
 	Timeout *int `json:"timeout,omitempty"`
 	// Failure retry limit
 	MaxRetry *int `json:"maxRetry,omitempty"`
@@ -202,7 +198,7 @@ type PatchWorkloadRequest struct {
 }
 
 type GetPodLogRequest struct {
-	// Retrieve the last n lines of logs. Default is 1000
+	// Retrieve the last n lines of logs. default 1000
 	TailLines int64 `form:"tailLines" binding:"omitempty,min=1"`
 	// Return logs for the corresponding container
 	Container string `form:"container" binding:"omitempty"`
@@ -211,9 +207,9 @@ type GetPodLogRequest struct {
 }
 
 type GetWorkloadPodLogResponse struct {
-	// The workload id
+	// Workload ID
 	WorkloadId string `json:"workloadId"`
-	// The pod id
+	// The pod ID
 	PodId string `json:"podId"`
 	// The namespace which the workload belongs to
 	Namespace string `json:"namespace"`
@@ -228,14 +224,17 @@ type BatchWorkloadsRequest struct {
 
 type WorkloadSlice []v1.Workload
 
+// Len implements sort.Interface by returning the length of the slice.
 func (ws WorkloadSlice) Len() int {
 	return len(ws)
 }
 
+// Swap implements sort.Interface by swapping elements at the given indices.
 func (ws WorkloadSlice) Swap(i, j int) {
 	ws[i], ws[j] = ws[j], ws[i]
 }
 
+// Less implements sort.Interface for sorting.
 func (ws WorkloadSlice) Less(i, j int) bool {
 	if ws[i].CreationTimestamp.Time.Before(ws[j].CreationTimestamp.Time) {
 		return true

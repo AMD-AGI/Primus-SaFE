@@ -40,9 +40,9 @@ const (
 )
 
 type CommandStatus struct {
-	// Operational command, such as authorize
+	// Operational command, e.g. authorize
 	Name string `json:"name,omitempty"`
-	// Operation result. such as Succeeded and Failed
+	// Operation result. e.g. Succeeded and Failed
 	Phase CommandPhase `json:"phase,omitempty"`
 }
 
@@ -64,7 +64,7 @@ type NodeSpec struct {
 	PrivateIP string `json:"privateIP,omitempty"`
 	// Node public IP, accessible from external networks, optional
 	PublicIP string `json:"publicIP,omitempty"`
-	// SSH port，default is 22
+	// SSH port，default 22
 	Port *int32 `json:"port,omitempty"`
 	// The taint will be automatically synchronized to the Kubernetes node.
 	Taints []corev1.Taint `json:"taints,omitempty"`
@@ -73,7 +73,7 @@ type NodeSpec struct {
 }
 
 type NodeClusterStatus struct {
-	// The status of nodes in the cluster, such as Ready, Managing, Managed, ManagedFailed, Unmanaging, Unmanaged, UnmanagedFailed
+	// The status of nodes in the cluster, e.g. Ready, Managing, Managed, ManagedFailed, Unmanaging, Unmanaged, UnmanagedFailed
 	Phase NodePhase `json:"phase,omitempty"`
 	// The result of cluster binding (note that the cluster in spec represents the desired state,
 	// while this field represents the actual outcome of the operation).
@@ -85,7 +85,7 @@ type NodeClusterStatus struct {
 type MachineStatus struct {
 	// The hostname of k8s node
 	HostName string `json:"hostName,omitempty"`
-	// The status of the physical node, such as Ready, SSHFailed, HostnameFailed
+	// The status of the physical node, e.g. Ready, SSHFailed, HostnameFailed
 	Phase NodePhase `json:"phase,omitempty"`
 	// The internalIP of k8s node
 	PrivateIP string `json:"privateIP,omitempty"`
@@ -141,11 +141,13 @@ func init() {
 	SchemeBuilder.Register(&Node{}, &NodeList{})
 }
 
+// IsAvailable returns true if the node is ready and available for workloads.
 func (n *Node) IsAvailable(ignoreTaint bool) bool {
 	ok, _ := n.CheckAvailable(ignoreTaint)
 	return ok
 }
 
+// CheckAvailable checks if the node is available and returns the reason if not.
 func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 	if n == nil {
 		return false, "node is empty"
@@ -173,14 +175,17 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 	return true, ""
 }
 
+// IsMachineReady returns true if the underlying machine is ready.
 func (n *Node) IsMachineReady() bool {
 	return n != nil && n.Status.MachineStatus.Phase == NodeReady
 }
 
+// IsManaged returns true if the node is managed by the system.
 func (n *Node) IsManaged() bool {
 	return n != nil && n.Status.ClusterStatus.Phase == NodeManaged && GetClusterId(n) != ""
 }
 
+// GetSpecCluster returns the cluster ID specified in the node spec.
 func (n *Node) GetSpecCluster() string {
 	if n == nil || n.Spec.Cluster == nil {
 		return ""
@@ -188,6 +193,7 @@ func (n *Node) GetSpecCluster() string {
 	return *n.Spec.Cluster
 }
 
+// GetSpecWorkspace returns the workspace ID specified in the node spec.
 func (n *Node) GetSpecWorkspace() string {
 	if n == nil || n.Spec.Workspace == nil {
 		return ""
@@ -195,6 +201,7 @@ func (n *Node) GetSpecWorkspace() string {
 	return *n.Spec.Workspace
 }
 
+// GetSpecHostName returns the hostname specified in the node spec.
 func (n *Node) GetSpecHostName() string {
 	if n == nil || n.Spec.Hostname == nil {
 		return ""
@@ -202,6 +209,7 @@ func (n *Node) GetSpecHostName() string {
 	return *n.Spec.Hostname
 }
 
+// GetSpecNodeFlavor returns the node flavor specified in the node spec.
 func (n *Node) GetSpecNodeFlavor() string {
 	if n == nil || n.Spec.NodeFlavor == nil {
 		return ""
@@ -209,6 +217,7 @@ func (n *Node) GetSpecNodeFlavor() string {
 	return n.Spec.NodeFlavor.Name
 }
 
+// GetSpecPort returns the SSH port specified in the node spec.
 func (n *Node) GetSpecPort() int32 {
 	if n == nil || n.Spec.Port == nil {
 		return 0
@@ -216,6 +225,7 @@ func (n *Node) GetSpecPort() int32 {
 	return *n.Spec.Port
 }
 
+// GetK8sNodeName returns the corresponding Kubernetes node name.
 func (n *Node) GetK8sNodeName() string {
 	if n == nil {
 		return ""
@@ -229,7 +239,7 @@ func (n *Node) GetK8sNodeName() string {
 	return ""
 }
 
-// Get the node phase, taking into account both machine status and cluster status.
+// GetPhase returns the current phase of the resource.
 func (n *Node) GetPhase() NodePhase {
 	if n == nil {
 		return ""

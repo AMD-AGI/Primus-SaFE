@@ -20,6 +20,7 @@ type GroupVersionKind struct {
 	Kind    string `json:"kind,omitempty"`
 }
 
+// ToSchema converts GroupVersionKind to schema.GroupVersionKind.
 func (gvk GroupVersionKind) ToSchema() schema.GroupVersionKind {
 	return schema.GroupVersionKind{
 		Group:   gvk.Group,
@@ -28,14 +29,17 @@ func (gvk GroupVersionKind) ToSchema() schema.GroupVersionKind {
 	}
 }
 
+// String returns a string representation of the HTTP response.
 func (gvk GroupVersionKind) String() string {
 	return gvk.ToSchema().String()
 }
 
+// VersionKind returns a string representation of version and kind.
 func (gvk GroupVersionKind) VersionKind() string {
 	return gvk.Kind + "/" + gvk.Version
 }
 
+// Empty returns true if the GroupVersionKind is unset.
 func (gvk GroupVersionKind) Empty() bool {
 	return gvk.Group == "" && gvk.Version == "" && gvk.Kind == ""
 }
@@ -64,6 +68,7 @@ type ResourceSpec struct {
 	Replica int64 `json:"replica,omitempty"`
 }
 
+// GetTemplatePath returns the path components for locating the resource template.
 func (t *ResourceSpec) GetTemplatePath() []string {
 	if t == nil {
 		return nil
@@ -126,10 +131,12 @@ func init() {
 	SchemeBuilder.Register(&ResourceTemplate{}, &ResourceTemplateList{})
 }
 
+// ToSchemaGVK converts the resource template GVK to schema.GroupVersionKind.
 func (rt *ResourceTemplate) ToSchemaGVK() schema.GroupVersionKind {
 	return rt.Spec.GroupVersionKind.ToSchema()
 }
 
+// SpecKind returns the kind string from the resource spec.
 func (rt *ResourceTemplate) SpecKind() string {
 	return rt.Spec.GroupVersionKind.Kind
 }

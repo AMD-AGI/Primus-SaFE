@@ -87,13 +87,13 @@ func (r *OpsJobBaseReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 	return result, err
 }
 
-// timeout handles job timeout by setting the job to failed state
+// timeout handles job timeout by setting the job to failed state.
 func (r *OpsJobBaseReconciler) timeout(ctx context.Context, job *v1.OpsJob) error {
 	message := fmt.Sprintf("The job is timeout, timeoutSecond: %d", job.Spec.TimeoutSecond)
 	return r.setJobCompleted(ctx, job, v1.OpsJobFailed, message, nil)
 }
 
-// delete handles job deletion by completing the job and cleanup relevant resource
+// delete handles job deletion by completing the job and cleanup relevant resource.
 func (r *OpsJobBaseReconciler) delete(ctx context.Context, job *v1.OpsJob, clearFuncs ...ClearFunc) error {
 	if !job.IsFinished() {
 		if err := r.setJobCompleted(ctx, job, v1.OpsJobFailed, "The job is stopped", nil); err != nil {
@@ -109,7 +109,7 @@ func (r *OpsJobBaseReconciler) delete(ctx context.Context, job *v1.OpsJob, clear
 	return utils.RemoveFinalizer(ctx, r.Client, job, v1.OpsJobFinalizer)
 }
 
-// setJobCompleted sets the job to a completed state with the specified phase and message
+// setJobCompleted sets the job to a completed state with the specified phase and message.
 func (r *OpsJobBaseReconciler) setJobCompleted(ctx context.Context,
 	job *v1.OpsJob, phase v1.OpsJobPhase, message string, outputs []v1.Parameter) error {
 	if job.Status.Phase == phase {
@@ -143,7 +143,7 @@ func (r *OpsJobBaseReconciler) setJobCompleted(ctx context.Context,
 	return nil
 }
 
-// setJobPhase updates the job phase and start time if not already set
+// setJobPhase updates the job phase and start time if not already set.
 func (r *OpsJobBaseReconciler) setJobPhase(ctx context.Context, job *v1.OpsJob, phase v1.OpsJobPhase) error {
 	if job.Status.Phase == phase && job.Status.StartedAt != nil {
 		return nil
@@ -156,7 +156,7 @@ func (r *OpsJobBaseReconciler) setJobPhase(ctx context.Context, job *v1.OpsJob, 
 	return r.Status().Patch(ctx, job, originalJob)
 }
 
-// updateCondition updates a job condition in the status
+// updateCondition updates a job condition in the status.
 func (r *OpsJobBaseReconciler) updateCondition(ctx context.Context, job *v1.OpsJob, cond *metav1.Condition) error {
 	changed := meta.SetStatusCondition(&job.Status.Conditions, *cond)
 	if !changed {
@@ -169,7 +169,7 @@ func (r *OpsJobBaseReconciler) updateCondition(ctx context.Context, job *v1.OpsJ
 	return nil
 }
 
-// getAdminNode retrieves and validates an admin node by name
+// getAdminNode retrieves and validates an admin node by name.
 func (r *OpsJobBaseReconciler) getAdminNode(ctx context.Context, name string) (*v1.Node, error) {
 	node := &v1.Node{}
 	err := r.Get(ctx, client.ObjectKey{Name: name}, node)
@@ -185,7 +185,7 @@ func (r *OpsJobBaseReconciler) getAdminNode(ctx context.Context, name string) (*
 	return node, nil
 }
 
-// createFault creates a fault to block workload scheduling on a node for upgrade purposes
+// createFault creates a fault to block workload scheduling on a node for upgrade purposes.
 func (r *OpsJobBaseReconciler) createFault(ctx context.Context,
 	job *v1.OpsJob, adminNode *v1.Node, monitorId, message string) error {
 	_, err := r.getFault(ctx, adminNode.Name, monitorId)
@@ -223,7 +223,7 @@ func (r *OpsJobBaseReconciler) createFault(ctx context.Context,
 	return nil
 }
 
-// getFaultConfig retrieves the fault configuration for a given monitor ID
+// getFaultConfig retrieves the fault configuration for a given monitor ID.
 func (r *OpsJobBaseReconciler) getFaultConfig(ctx context.Context, monitorId string) (*resource.FaultConfig, error) {
 	configs, err := resource.GetFaultConfigmap(ctx, r.Client)
 	if err != nil {
@@ -241,7 +241,7 @@ func (r *OpsJobBaseReconciler) getFaultConfig(ctx context.Context, monitorId str
 	return config, nil
 }
 
-// getFault retrieves a fault by admin node name and monitor ID
+// getFault retrieves a fault by admin node name and monitor ID.
 func (r *OpsJobBaseReconciler) getFault(ctx context.Context, adminNodeName, monitorId string) (*v1.Fault, error) {
 	faultName := commonfaults.GenerateFaultId(adminNodeName, monitorId)
 	fault := &v1.Fault{}
@@ -252,7 +252,7 @@ func (r *OpsJobBaseReconciler) getFault(ctx context.Context, adminNodeName, moni
 	return fault, nil
 }
 
-// deleteFault deletes a fault by admin node name and monitor ID
+// deleteFault deletes a fault by admin node name and monitor ID.
 func (r *OpsJobBaseReconciler) deleteFault(ctx context.Context, adminNodeName, monitorId string) error {
 	if fault, _ := r.getFault(ctx, adminNodeName, monitorId); fault != nil {
 		return r.Delete(ctx, fault)
@@ -260,7 +260,7 @@ func (r *OpsJobBaseReconciler) deleteFault(ctx context.Context, adminNodeName, m
 	return nil
 }
 
-// getInputNodes retrieves and validates input nodes from job specifications
+// getInputNodes retrieves and validates input nodes from job specifications.
 func (r *OpsJobBaseReconciler) getInputNodes(ctx context.Context, job *v1.OpsJob) ([]*v1.Node, error) {
 	var results []*v1.Node
 	for _, p := range job.Spec.Inputs {
@@ -282,7 +282,7 @@ func (r *OpsJobBaseReconciler) getInputNodes(ctx context.Context, job *v1.OpsJob
 	return results, nil
 }
 
-// listJobs lists non-ended jobs for a cluster with the specified type
+// listJobs lists non-ended jobs for a cluster with the specified type.
 func (r *OpsJobBaseReconciler) listJobs(ctx context.Context, clusterId, opsjobType string) ([]v1.OpsJob, error) {
 	labelSelector := labels.SelectorFromSet(map[string]string{v1.ClusterIdLabel: clusterId, v1.OpsJobTypeLabel: opsjobType})
 	jobList := &v1.OpsJobList{}
@@ -299,7 +299,7 @@ func (r *OpsJobBaseReconciler) listJobs(ctx context.Context, clusterId, opsjobTy
 	return result, nil
 }
 
-// onFirstPhaseChangedPredicate creates a predicate that triggers when a job's phase changes from pending to running(or other phase)
+// onFirstPhaseChangedPredicate creates a predicate that triggers when a job's phase changes from pending to running(or other phase).
 func onFirstPhaseChangedPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
@@ -316,7 +316,7 @@ func onFirstPhaseChangedPredicate() predicate.Predicate {
 	}
 }
 
-// newRequeueAfterResult generates a result with requeue after duration based on job timeout
+// newRequeueAfterResult generates a result with requeue after duration based on job timeout.
 func newRequeueAfterResult(job *v1.OpsJob) ctrlruntime.Result {
 	result := ctrlruntime.Result{}
 	if job.Spec.TimeoutSecond > 0 {

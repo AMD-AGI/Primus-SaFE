@@ -23,7 +23,7 @@ type WorkspaceSpecApplyConfiguration struct {
 	EnablePreempt *bool                               `json:"enablePreempt,omitempty"`
 	Managers      []string                            `json:"managers,omitempty"`
 	IsDefault     *bool                               `json:"isDefault,omitempty"`
-	ImageSecrets  []*corev1.ObjectReference           `json:"imageSecrets,omitempty"`
+	ImageSecrets  []corev1.ObjectReference            `json:"imageSecrets,omitempty"`
 }
 
 // WorkspaceSpecApplyConfiguration constructs a declarative configuration of the WorkspaceSpec type for use with
@@ -116,11 +116,8 @@ func (b *WorkspaceSpecApplyConfiguration) WithIsDefault(value bool) *WorkspaceSp
 // WithImageSecrets adds the given value to the ImageSecrets field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the ImageSecrets field.
-func (b *WorkspaceSpecApplyConfiguration) WithImageSecrets(values ...*corev1.ObjectReference) *WorkspaceSpecApplyConfiguration {
+func (b *WorkspaceSpecApplyConfiguration) WithImageSecrets(values ...corev1.ObjectReference) *WorkspaceSpecApplyConfiguration {
 	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithImageSecrets")
-		}
 		b.ImageSecrets = append(b.ImageSecrets, values[i])
 	}
 	return b

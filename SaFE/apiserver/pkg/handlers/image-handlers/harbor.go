@@ -44,6 +44,7 @@ type HarborStatistics struct {
 	TotalStorage        int64 `json:"total_storage"`
 }
 
+// GetHarborStats retrieves statistics from Harbor image registry.
 func (h *ImageHandler) GetHarborStats(ctx *gin.Context) (*HarborStat, error) {
 	_, endpoint, password, err := h.GetHarborCredentials(ctx)
 	if err != nil {
@@ -57,6 +58,7 @@ func (h *ImageHandler) GetHarborStats(ctx *gin.Context) (*HarborStat, error) {
 	return harborStats, nil
 }
 
+// initHarbor initializes Harbor with default values.
 func (h *ImageHandler) initHarbor(ctx context.Context) error {
 	harborHost, endpoint, password, err := h.GetHarborCredentials(ctx)
 	if err != nil {
@@ -127,6 +129,7 @@ func (h *ImageHandler) getHarborStats(ctx context.Context, harborHost, username,
 	}, nil
 }
 
+// GetHarborCredentials retrieves Harbor registry credentials from system configuration.
 func (h *ImageHandler) GetHarborCredentials(ctx context.Context) (domain, endpoint, password string, err error) {
 	const (
 		namespace         = "harbor"
@@ -169,6 +172,8 @@ func (h *ImageHandler) GetHarborCredentials(ctx context.Context) (domain, endpoi
 	}
 	return domain, fmt.Sprintf("%s.%s.svc.cluster.local", serviceName, namespace), password, nil
 }
+
+// ensureHarborProject ensures HarborProject is properly configured.
 func (h *ImageHandler) ensureHarborProject(ctx context.Context, harborHost, username, password, projectName string) error {
 	var project struct {
 		Name      string            `json:"name"`

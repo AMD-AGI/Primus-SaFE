@@ -23,7 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
@@ -31,22 +31,23 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 )
 
-var (
-	scheme = runtime.NewScheme()
-)
+var scheme = runtime.NewScheme()
 
+// init initializes the runtime scheme with required API types.
 func init() {
 	utilruntime.Must(clientscheme.AddToScheme(scheme))
 	utilruntime.Must(v1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
+// Server represents the webhook server managing admission webhooks.
 type Server struct {
 	opts        *Options
 	ctrlManager manager.Manager
 	isInited    bool
 }
 
+// NewServer creates a new Server instance.
 func NewServer() (*Server, error) {
 	s := &Server{
 		opts: &Options{},
@@ -57,6 +58,7 @@ func NewServer() (*Server, error) {
 	return s, nil
 }
 
+// init performs server initialization including flags, logs, config, and webhooks setup.
 func (s *Server) init() error {
 	var err error
 	if err = s.opts.InitFlags(); err != nil {
@@ -80,6 +82,7 @@ func (s *Server) init() error {
 	return nil
 }
 
+// Start starts the server and begins processing requests.
 func (s *Server) Start() {
 	if !s.isInited {
 		klog.Errorf("Please init webhooks server first")
@@ -103,11 +106,13 @@ func (s *Server) Start() {
 	s.Stop()
 }
 
+// Stop gracefully stops the server.
 func (s *Server) Stop() {
 	klog.Infof("webhooks server stopped")
 	klog.Flush()
 }
 
+// initLogs initializes logging configuration and sets up the controller runtime logger.
 func (s *Server) initLogs() error {
 	if err := commonklog.Init(s.opts.LogfilePath, s.opts.LogFileSize); err != nil {
 		return err
@@ -116,6 +121,7 @@ func (s *Server) initLogs() error {
 	return nil
 }
 
+// initConfig loads and validates the server configuration from the specified file path.
 func (s *Server) initConfig() error {
 	fullPath, err := filepath.Abs(s.opts.Config)
 	if err != nil {
@@ -127,6 +133,7 @@ func (s *Server) initConfig() error {
 	return nil
 }
 
+// newCtrlManager creates and configures the controller manager with webhook server and health checks.
 func (s *Server) newCtrlManager() error {
 	cfg, err := commonclient.GetRestConfigInCluster()
 	if err != nil {
@@ -179,6 +186,7 @@ func (s *Server) newCtrlManager() error {
 	return nil
 }
 
+// setUpWebhooks registers all admission webhooks with the webhook server.
 func setUpWebhooks(mgr manager.Manager, server webhook.Server) {
 	decoder := admission.NewDecoder(mgr.GetScheme())
 	AddClusterWebhook(mgr, &server, decoder)

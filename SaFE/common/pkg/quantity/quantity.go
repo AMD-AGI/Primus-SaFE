@@ -17,15 +17,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 )
 
-// AddResource combines multiple ResourceLists by adding corresponding resource quantities
-// Only concerned resources are included in the result
-// Parameters:
-//
-//	resources: Variable number of ResourceLists to add together
-//
-// Returns:
-//
-//	Combined ResourceList with summed quantities
+// AddResource sums multiple resource lists.
 func AddResource(resources ...corev1.ResourceList) corev1.ResourceList {
 	result := corev1.ResourceList{}
 	for _, res := range resources {
@@ -43,16 +35,7 @@ func AddResource(resources ...corev1.ResourceList) corev1.ResourceList {
 	return result
 }
 
-// SubResource calculates the difference between two ResourceLists (rl1 - rl2)
-// Returns a new ResourceList representing the subtraction result
-// Parameters:
-//
-//	rl1: Minuend ResourceList
-//	rl2: Subtrahend ResourceList
-//
-// Returns:
-//
-//	ResourceList representing rl1 - rl2
+// SubResource subtracts the second resource list from the first.
 func SubResource(rl1, rl2 corev1.ResourceList) corev1.ResourceList {
 	list1 := Normalize(rl1)
 	list2 := Normalize(rl2)
@@ -87,16 +70,7 @@ func SubResource(rl1, rl2 corev1.ResourceList) corev1.ResourceList {
 	return result
 }
 
-// IsSubResource checks if resource1 is a subset of resource2 (all resources in resource1 are less than or equal to corresponding resources in resource2)
-// Parameters:
-//
-//	resource1: ResourceList to check if it's a subset
-//	resource2: ResourceList to check against
-//
-// Returns:
-//
-//	bool: true if resource1 is a subset of resource2
-//	string: name of the resource that violates the condition, empty if true
+// IsSubResource checks if resource1 is less than or equal to resource2.
 func IsSubResource(resource1, resource2 corev1.ResourceList) (bool, string) {
 	for key, val1 := range resource1 {
 		val2, ok := resource2[key]
@@ -110,14 +84,7 @@ func IsSubResource(resource1, resource2 corev1.ResourceList) (bool, string) {
 	return true, ""
 }
 
-// Negative negates all resource quantities in the given ResourceList
-// Parameters:
-//
-//	rl: ResourceList to negate
-//
-// Returns:
-//
-//	New ResourceList with negated quantities
+// Negative returns a resource list with all quantities negated.
 func Negative(rl corev1.ResourceList) corev1.ResourceList {
 	result := corev1.ResourceList{}
 	for k, v := range rl {
@@ -128,14 +95,7 @@ func Negative(rl corev1.ResourceList) corev1.ResourceList {
 	return result
 }
 
-// Copy creates a deep copy of the given ResourceList
-// Parameters:
-//
-//	rl: ResourceList to copy
-//
-// Returns:
-//
-//	Deep copy of the ResourceList
+// Copy creates a deep copy of a resource list.
 func Copy(rl corev1.ResourceList) corev1.ResourceList {
 	if len(rl) == 0 {
 		return make(corev1.ResourceList)
@@ -143,15 +103,7 @@ func Copy(rl corev1.ResourceList) corev1.ResourceList {
 	return rl.DeepCopy()
 }
 
-// GetConcernedResources filters the ResourceList to include only concerned resources
-// Filters out zero-value resources and non-concerned resource types
-// Parameters:
-//
-//	res: ResourceList to filter
-//
-// Returns:
-//
-//	New ResourceList containing only concerned resources with non-zero values
+// GetConcernedResources filters a resource list to relevant resources.
 func GetConcernedResources(res corev1.ResourceList) corev1.ResourceList {
 	result := make(corev1.ResourceList)
 	for key, val := range res {
@@ -165,30 +117,14 @@ func GetConcernedResources(res corev1.ResourceList) corev1.ResourceList {
 	return result
 }
 
-// Equal compares two ResourceLists for equality after normalization
-// Parameters:
-//
-//	rl1: First ResourceList to compare
-//	rl2: Second ResourceList to compare
-//
-// Returns:
-//
-//	true if the normalized ResourceLists are equal, false otherwise
+// Equal compares two resource lists for equality.
 func Equal(rl1, rl2 corev1.ResourceList) bool {
 	list1 := Normalize(rl1)
 	list2 := Normalize(rl2)
 	return equal(list1, list2)
 }
 
-// equal performs direct comparison of two ResourceLists without normalization
-// Parameters:
-//
-//	rl1: First ResourceList to compare
-//	rl2: Second ResourceList to compare
-//
-// Returns:
-//
-//	true if ResourceLists have same length and all corresponding resources are equal, false otherwise
+// equal performs direct comparison of two ResourceLists without normalization.
 func equal(rl1, rl2 corev1.ResourceList) bool {
 	if len(rl1) != len(rl2) {
 		return false
@@ -201,14 +137,7 @@ func equal(rl1, rl2 corev1.ResourceList) bool {
 	return true
 }
 
-// Normalize removes non-concerned resources from the ResourceList
-// Parameters:
-//
-//	rl: ResourceList to normalize
-//
-// Returns:
-//
-//	New ResourceList containing only concerned resources
+// Normalize converts resource quantities to canonical format.
 func Normalize(rl corev1.ResourceList) corev1.ResourceList {
 	if rl == nil {
 		return nil
@@ -223,15 +152,7 @@ func Normalize(rl corev1.ResourceList) corev1.ResourceList {
 	return result
 }
 
-// IsConcernedResource checks if the given resource name is a concerned resource type
-// Concerned resources include CPU, Memory, GPU types, Storage, EphemeralStorage, and RDMA
-// Parameters:
-//
-//	name: ResourceName to check
-//
-// Returns:
-//
-//	true if the resource is concerned, false otherwise
+// IsConcernedResource checks if a resource name is relevant.
 func IsConcernedResource(name corev1.ResourceName) bool {
 	if name == common.NvidiaGpu || name == common.AmdGpu {
 		return true
@@ -248,15 +169,7 @@ func IsConcernedResource(name corev1.ResourceName) bool {
 	return false
 }
 
-// MultiResource multiplies all resource quantities in the ResourceList by the replica count
-// Parameters:
-//
-//	inputs: ResourceList to multiply
-//	replica: Multiplication factor
-//
-// Returns:
-//
-//	New ResourceList with multiplied quantities
+// MultiResource multiplies resource quantities by a scalar.
 func MultiResource(inputs corev1.ResourceList, replica int64) corev1.ResourceList {
 	result := corev1.ResourceList{}
 	for k, v := range inputs {
@@ -265,16 +178,7 @@ func MultiResource(inputs corev1.ResourceList, replica int64) corev1.ResourceLis
 	return result
 }
 
-// CvtToResourceList converts string representations of resources to a ResourceList
-// Supports CPU, Memory, GPU, EphemeralStorage, and RDMA resources
-// Parameters:
-//
-//	cpu, memory, gpu, gpuName, ephemeralStore, rdmaResource: String representations of resource quantities
-//	replica: Replication factor to multiply resources by
-//
-// Returns:
-//
-//	ResourceList containing parsed resources, or error if parsing fail
+// CvtToResourceList converts individual values to a ResourceList.
 func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore, rdmaResource string, replica int64) (corev1.ResourceList, error) {
 	if replica <= 0 {
 		return nil, nil
@@ -337,16 +241,8 @@ func CvtToResourceList(cpu, memory, gpu, gpuName, ephemeralStore, rdmaResource s
 	return MultiResource(result, replica), nil
 }
 
-// Format formats a resource quantity for display based on resource type
-// Memory and storage resources are formatted in GiB units
-// Parameters:
-//
-//	key: Resource type as string
-//	quantity: Resource quantity to format
-//
-// Returns:
-//
-//	Formatted string representation of the quantit
+// Format formats a resource quantity for display based on resource type.
+// Memory and storage resources are formatted in GiB units.
 func Format(key string, quantity resource.Quantity) string {
 	quantityStr := ""
 	if key == string(corev1.ResourceMemory) || key == string(corev1.ResourceEphemeralStorage) {
@@ -358,15 +254,7 @@ func Format(key string, quantity resource.Quantity) string {
 	return quantityStr
 }
 
-// GetAvailableResource calculates available resources after reserving configured percentages
-// Reserves memory, CPU, and ephemeral storage based on configuration
-// Parameters:
-//
-//	resources: ResourceList to calculate available resources from
-//
-// Returns:
-//
-//	ResourceList with reserved resources subtracted
+// GetAvailableResource calculates available resources after reserves.
 func GetAvailableResource(resources corev1.ResourceList) corev1.ResourceList {
 	if len(resources) == 0 {
 		return resources
@@ -403,15 +291,7 @@ func GetAvailableResource(resources corev1.ResourceList) corev1.ResourceList {
 	return result
 }
 
-// GetMaxEphemeralStoreQuantity calculates maximum ephemeral storage quantity based on configuration
-// Considers reserve percentage and maximum percentage configurations
-// Parameters:
-//
-//	resources: ResourceList containing ephemeral storage resource
-//
-// Returns:
-//
-//	Pointer to calculated maximum ephemeral storage quantity, or error if not found
+// GetMaxEphemeralStoreQuantity calculates maximum ephemeral storage.
 func GetMaxEphemeralStoreQuantity(resources corev1.ResourceList) (*resource.Quantity, error) {
 	storeQuantity, ok := resources[corev1.ResourceEphemeralStorage]
 	if !ok {
@@ -431,15 +311,7 @@ func GetMaxEphemeralStoreQuantity(resources corev1.ResourceList) (*resource.Quan
 	return resource.NewQuantity(int64(newQuantity), resource.BinarySI), nil
 }
 
-// ToString converts a resource quantity to a human-readable string format
-// Formats bytes as Mi or Gi units depending on magnitude
-// Parameters:
-//
-//	q: Quantity to convert
-//
-// Returns:
-//
-//	String representation in Mi or Gi units, or empty string for very small values
+// ToString converts a resource quantity to string.
 func ToString(q resource.Quantity) string {
 	bytes := q.AsApproximateFloat64()
 	gibibytes := bytes / (1024 * 1024 * 1024)

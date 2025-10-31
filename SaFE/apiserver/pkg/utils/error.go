@@ -15,13 +15,14 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
-// Define a unified Primus error response, including HTTP code, error code, and error message.
+// PrimusApiError Define a unified Primus error response, including HTTP code, error code, and error message.
 type PrimusApiError struct {
 	HttpCode     int    `json:"-"`
 	ErrorCode    string `json:"errorCode"`
 	ErrorMessage string `json:"errorMessage"`
 }
 
+// Error returns the error message string.
 func (err *PrimusApiError) Error() string {
 	return err.ErrorMessage
 }

@@ -12,6 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
+// SetupControllers sets up all controllers with the manager.
 func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupClusterController(ctx, mgr); err != nil {
 		return fmt.Errorf("cluster controller: %v", err)

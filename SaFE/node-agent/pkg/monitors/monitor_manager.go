@@ -26,7 +26,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
-// MonitorManager manages multiple monitors, handling their lifecycle and configuration updates
+// MonitorManager manages multiple monitors, handling their lifecycle and configuration updates.
 type MonitorManager struct {
 	// All monitors
 	monitors sync.Map
@@ -44,7 +44,7 @@ type MonitorManager struct {
 	isExited bool
 }
 
-// NewMonitorManager creates a new MonitorManager instance
+// NewMonitorManager creates a new MonitorManager instance.
 func NewMonitorManager(queue *types.MonitorQueue, opts *types.Options, node *node.Node) *MonitorManager {
 	mgr := &MonitorManager{
 		queue:      queue,
@@ -57,7 +57,7 @@ func NewMonitorManager(queue *types.MonitorQueue, opts *types.Options, node *nod
 	return mgr
 }
 
-// Start initializes and starts all monitors, begins watching for config changes
+// Start initializes and starts all monitors, begins watching for config changes.
 func (mgr *MonitorManager) Start() error {
 	if err := mgr.startMonitors(); err != nil {
 		return err
@@ -67,7 +67,7 @@ func (mgr *MonitorManager) Start() error {
 	return nil
 }
 
-// Stop terminates all monitors and stops the manager
+// Stop terminates all monitors and stops the manager.
 func (mgr *MonitorManager) Stop() {
 	if !mgr.isExited && mgr.tomb != nil {
 		mgr.tomb.Stop()
@@ -77,7 +77,7 @@ func (mgr *MonitorManager) Stop() {
 	return
 }
 
-// startMonitors loads and starts all configured monitors
+// startMonitors loads and starts all configured monitors.
 func (mgr *MonitorManager) startMonitors() error {
 	if err := mgr.loadMonitors(); err != nil {
 		return err
@@ -94,7 +94,7 @@ func (mgr *MonitorManager) startMonitors() error {
 	return nil
 }
 
-// stopMonitors stops all currently running monitors
+// stopMonitors stops all currently running monitors.
 func (mgr *MonitorManager) stopMonitors() {
 	count := 0
 	mgr.monitors.Range(func(key, value interface{}) bool {
@@ -109,7 +109,7 @@ func (mgr *MonitorManager) stopMonitors() {
 	klog.Infof("stop all monitors, total count: %d", count)
 }
 
-// updateConfig watches for configuration file changes and triggers reloads
+// updateConfig watches for configuration file changes and triggers reloads.
 func (mgr *MonitorManager) updateConfig() {
 	defer mgr.tomb.Done()
 
@@ -138,7 +138,7 @@ func (mgr *MonitorManager) updateConfig() {
 	}
 }
 
-// watchConfig sets up filesystem watcher to monitor config directory
+// watchConfig sets up filesystem watcher to monitor config directory.
 func (mgr *MonitorManager) watchConfig() error {
 	watcher, err := utils.GetDirWatcher(mgr.configPath)
 	if err != nil {
@@ -176,7 +176,7 @@ func (mgr *MonitorManager) watchConfig() error {
 	}
 }
 
-// loadMonitors loads all monitor configurations from config files
+// loadMonitors loads all monitor configurations from config files.
 func (mgr *MonitorManager) loadMonitors() error {
 	allConfigs, err := mgr.getMonitorConfigs(mgr.configPath)
 	if err != nil {
@@ -192,7 +192,7 @@ func (mgr *MonitorManager) loadMonitors() error {
 	return nil
 }
 
-// reloadMonitors reloads monitor configurations when files change
+// reloadMonitors reloads monitor configurations when files change.
 func (mgr *MonitorManager) reloadMonitors() error {
 	newMonitorConfigs, err := mgr.getMonitorConfigs(mgr.configPath)
 	if err != nil {
@@ -223,7 +223,7 @@ func (mgr *MonitorManager) reloadMonitors() error {
 	return nil
 }
 
-// isMonitorsChanged checks if monitor configurations have changed
+// isMonitorsChanged checks if monitor configurations have changed.
 func (mgr *MonitorManager) isMonitorsChanged(newConfigs []*MonitorConfig) bool {
 	newConfigsMap := make(map[string]*MonitorConfig)
 	for i := range newConfigs {
@@ -263,7 +263,7 @@ func (mgr *MonitorManager) isMonitorsChanged(newConfigs []*MonitorConfig) bool {
 	return isChanged
 }
 
-// removeNonExistMonitor removes monitors that no longer exist in configuration
+// removeNonExistMonitor removes monitors that no longer exist in configuration.
 func (mgr *MonitorManager) removeNonExistMonitor(newConfigs []*MonitorConfig) {
 	newConfigsSet := sets.NewSet()
 	for _, c := range newConfigs {
@@ -290,7 +290,7 @@ func (mgr *MonitorManager) removeNonExistMonitor(newConfigs []*MonitorConfig) {
 	}
 }
 
-// addMonitor creates and starts a new monitor
+// addMonitor creates and starts a new monitor.
 func (mgr *MonitorManager) addMonitor(conf *MonitorConfig) {
 	monitor := NewMonitor(conf, mgr.queue, mgr.node, mgr.scriptPath)
 	if monitor == nil {
@@ -300,7 +300,7 @@ func (mgr *MonitorManager) addMonitor(conf *MonitorConfig) {
 	monitor.Start()
 }
 
-// removeMonitor stops and removes a monitor by ID
+// removeMonitor stops and removes a monitor by ID.
 func (mgr *MonitorManager) removeMonitor(key string) {
 	monitor := mgr.getMonitor(key)
 	if monitor != nil {
@@ -309,7 +309,7 @@ func (mgr *MonitorManager) removeMonitor(key string) {
 	mgr.monitors.Delete(key)
 }
 
-// getMonitor retrieves a monitor by ID
+// getMonitor retrieves a monitor by ID.
 func (mgr *MonitorManager) getMonitor(key string) *Monitor {
 	val, ok := mgr.monitors.Load(key)
 	if !ok {
@@ -322,7 +322,7 @@ func (mgr *MonitorManager) getMonitor(key string) *Monitor {
 	return monitor
 }
 
-// getMonitorConfigs reads and validates all monitor configuration files
+// getMonitorConfigs reads and validates all monitor configuration files.
 func (mgr *MonitorManager) getMonitorConfigs(configPath string) ([]*MonitorConfig, error) {
 	var results []*MonitorConfig
 	files, err := os.ReadDir(configPath)
@@ -362,7 +362,7 @@ func (mgr *MonitorManager) getMonitorConfigs(configPath string) ([]*MonitorConfi
 	return results, nil
 }
 
-// addDisableMessage adds a disable message to the monitor queue
+// addDisableMessage adds a disable message to the monitor queue.
 func (mgr *MonitorManager) addDisableMessage(id string) {
 	item := &types.MonitorMessage{
 		Id:         id,

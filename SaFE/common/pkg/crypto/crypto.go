@@ -32,10 +32,8 @@ const (
 	AESKeyLen = 16
 )
 
-// NewCrypto create or return singleton Crypto instance
-// Initializes crypto key from configuration if crypto is enabled
-// Validates key length requirements
-// Returns: Singleton Crypto instance
+// NewCrypto creates and returns a singleton instance of Crypto.
+// It initializes the crypto key from configuration if crypto is enabled and validates key length requirements.
 func NewCrypto() *Crypto {
 	once.Do(func() {
 		key := ""
@@ -57,15 +55,9 @@ func NewCrypto() *Crypto {
 	return instance
 }
 
-// Encrypt plaintext data using AES encryption
-// Parameters:
-//
-//	plainText: Byte array of data to encrypt
-//
-// Returns:
-//
-//	Encrypted string data or original string if crypto disabled
-//	Error if encryption fails or key is missing
+// Encrypt encrypts plaintext data using AES encryption.
+// Returns the encrypted string or the original string if crypto is disabled.
+// Returns an error if encryption fails or the key is missing.
 func (c *Crypto) Encrypt(plainText []byte) (string, error) {
 	if !commonconfig.IsCryptoEnable() {
 		return string(plainText), nil
@@ -76,15 +68,9 @@ func (c *Crypto) Encrypt(plainText []byte) (string, error) {
 	return crypto.Encrypt(plainText, []byte(c.key))
 }
 
-// Decrypt ciphertext data using AES decryption
-// Parameters:
-//
-//	ciphertext: Encrypted string data to decrypt
-//
-// Returns:
-//
-//	Decrypted string data or original string if crypto disabled
-//	Error if decryption fails or key is missing
+// Decrypt decrypts ciphertext data using AES decryption.
+// Returns the decrypted string or the original string if crypto is disabled.
+// Returns an error if decryption fails or the key is missing.
 func (c *Crypto) Decrypt(ciphertext string) (string, error) {
 	if !commonconfig.IsCryptoEnable() {
 		return ciphertext, nil

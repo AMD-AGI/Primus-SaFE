@@ -7,6 +7,7 @@ package image_handlers
 
 import "github.com/gin-gonic/gin"
 
+// InitImageRouter initializes and registers all image-related API routes.
 func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 	group := e.Group("/api/v1/")
 	harborGroup := group.Group("/harbor")

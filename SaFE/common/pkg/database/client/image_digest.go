@@ -15,6 +15,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// UpsertImageDigest performs the UpsertImageDigest operation.
 func (c *Client) UpsertImageDigest(ctx context.Context, d *model.ImageDigest) error {
 	if d == nil {
 		return commonerrors.NewBadRequest("the input is empty")
@@ -41,6 +42,7 @@ func (c *Client) UpsertImageDigest(ctx context.Context, d *model.ImageDigest) er
 	return nil
 }
 
+// GetImageDigestById returns the ImageDigestById value.
 func (c *Client) GetImageDigestById(ctx context.Context, id int32) (*model.ImageDigest, error) {
 	q := dal.Use(c.gorm).ImageDigest
 	item, err := q.WithContext(ctx).Where(q.ID.Eq(id)).First()

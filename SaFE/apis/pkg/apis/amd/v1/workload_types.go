@@ -13,8 +13,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-type WorkloadPhase string
-type CronAction string
+type (
+	WorkloadPhase string
+	CronAction    string
+)
 
 const (
 	WorkloadKind = "Workload"
@@ -62,7 +64,7 @@ type WorkloadResource struct {
 	Memory string `json:"memory"`
 	// Requested Shared Memory size (e.g., 128Gi). Used for sharing data between processes. default: Memory/2
 	SharedMemory string `json:"sharedMemory,omitempty"`
-	// Ephemeral-storage for pod. Default is 50Gi
+	// Ephemeral-storage for pod. default 50Gi
 	EphemeralStorage string `json:"ephemeralStorage,omitempty"`
 	// RDMA resource is effective only with hostNetwork enabled (default: 1).
 	// This field is set internally
@@ -70,38 +72,38 @@ type WorkloadResource struct {
 }
 
 type HealthCheck struct {
-	// The path for health check
+	// Liveness probe HTTP path
 	Path string `json:"path"`
-	// Service port for health detect
+	// Liveness probe port
 	Port int `json:"port"`
-	// Initial delay seconds. default is 600s
+	// Initial delay seconds. default 600s
 	InitialDelaySeconds int `json:"initialDelaySeconds,omitempty"`
-	// Period check interval. default is 3s
+	// Period check interval. default 3s
 	PeriodSeconds int `json:"periodSeconds,omitempty"`
-	// Failure retry limit. default is 3
+	// Failure retry limit. default 3
 	FailureThreshold int `json:"failureThreshold,omitempty"`
 }
 
 type Service struct {
-	// TCP(default) or UDP
+	// Service protocol, e.g. TCP/UDP, default TCP
 	Protocol corev1.Protocol `json:"protocol"`
 	// Service port for external access
 	Port int `json:"port"`
-	// K8s node port
+	// Service NodePort (for NodePort type)
 	NodePort int `json:"nodePort,omitempty"`
-	// Pod service listening port
+	// Target container port
 	TargetPort int `json:"targetPort"`
-	// The type of service, such as ClusterIP, NodePort
+	// Service type, e.g. ClusterIP/NodePort/LoadBalancer
 	ServiceType corev1.ServiceType `json:"serviceType"`
 	// Extended environment variable
 	Extends map[string]string `json:"extends,omitempty"`
 }
 
 type CronJob struct {
-	// Scheduled execution time, such as "2025-09-30T16:04:00.000Z" or "0 3 * * *"
+	// Scheduled execution time, e.g. "2025-09-30T16:04:00.000Z" or "0 3 * * *"
 	// Note: Only minute-level input is supported; seconds are not supported.
 	Schedule string `json:"schedule"`
-	// The action to take when the schedule is triggered. such as start or scale
+	// The action to take when the schedule is triggered. e.g. start or scale
 	Action CronAction `json:"action"`
 }
 
@@ -124,15 +126,15 @@ type WorkloadSpec struct {
 	IsSupervised bool `json:"isSupervised,omitempty"`
 	// Group: An extension field that is not currently in use
 	// Version: version of workload, default value is v1
-	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default is PyTorchJob
+	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default PyTorchJob
 	GroupVersionKind `json:"groupVersionKind"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`
 	// Workload scheduling priority. Defaults is 0, valid range: 0–2
 	Priority int `json:"priority"`
-	// The lifecycle of the workload after completion, in seconds. Default is 60.
+	// The lifecycle of the workload after completion, in seconds. default 60.
 	TTLSecondsAfterFinished *int `json:"ttlSecondsAfterFinished,omitempty"`
-	// Workload timeout in seconds. Default is 0 (no timeout).
+	// Workload timeout in seconds. default 0 (no timeout).
 	Timeout *int `json:"timeout,omitempty"`
 	// The workload will run on nodes with the user-specified labels.
 	// If multiple labels are specified, all of them must be satisfied.
@@ -163,7 +165,7 @@ type WorkloadStatus struct {
 	EndTime *metav1.Time `json:"endTime,omitempty"`
 	// Detailed processing workflow of the workload
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// The status of workload, such as Pending, Running, Succeeded, Failed, Stopped, Updating
+	// The status of workload, e.g. Pending, Running, Succeeded, Failed, Stopped, Updating
 	Phase WorkloadPhase `json:"phase,omitempty"`
 	// Some status descriptions of the workload. only for pending
 	Message string `json:"message,omitempty"`
@@ -245,6 +247,7 @@ func init() {
 	SchemeBuilder.Register(&Workload{}, &WorkloadList{})
 }
 
+// IsPending returns true if the operations job is pending execution.
 func (w *Workload) IsPending() bool {
 	if w.Status.Phase == "" || w.Status.Phase == WorkloadPending {
 		return true
@@ -252,6 +255,7 @@ func (w *Workload) IsPending() bool {
 	return false
 }
 
+// IsRunning returns true if the workload is in Running phase.
 func (w *Workload) IsRunning() bool {
 	if w.Status.Phase == WorkloadRunning {
 		return true
@@ -259,6 +263,7 @@ func (w *Workload) IsRunning() bool {
 	return false
 }
 
+// IsStopped returns whether the tomb has been stopped.
 func (w *Workload) IsStopped() bool {
 	if w.Status.Phase == WorkloadStopped {
 		return true
@@ -266,6 +271,7 @@ func (w *Workload) IsStopped() bool {
 	return false
 }
 
+// IsEnd returns true if the fault has ended (completed or failed).
 func (w *Workload) IsEnd() bool {
 	if w.Status.Phase == WorkloadSucceeded ||
 		w.Status.Phase == WorkloadFailed {
@@ -277,6 +283,7 @@ func (w *Workload) IsEnd() bool {
 	return false
 }
 
+// ElapsedTime returns the elapsed time in seconds from workload creation to completion or current time.
 func (w *Workload) ElapsedTime() int64 {
 	var elapsedTime time.Duration
 	if w.IsEnd() {
@@ -290,6 +297,7 @@ func (w *Workload) ElapsedTime() int64 {
 	return int64(elapsedTime.Seconds())
 }
 
+// EndTime returns the workload end time, or zero time if not set.
 func (w *Workload) EndTime() time.Time {
 	if w.Status.EndTime == nil || w.Status.EndTime.IsZero() {
 		return time.Time{}
@@ -297,6 +305,7 @@ func (w *Workload) EndTime() time.Time {
 	return w.Status.EndTime.Time
 }
 
+// IsTimeout returns true if the operations job has timed out.
 func (w *Workload) IsTimeout() bool {
 	if w.GetTimeout() <= 0 || w.Status.StartTime == nil {
 		return false
@@ -305,6 +314,7 @@ func (w *Workload) IsTimeout() bool {
 	return duration >= w.GetTimeout()
 }
 
+// GetTimeout returns the timeout value in seconds for the workload.
 func (w *Workload) GetTimeout() int {
 	if w.Spec.Timeout == nil {
 		return 0
@@ -312,6 +322,7 @@ func (w *Workload) GetTimeout() int {
 	return *w.Spec.Timeout
 }
 
+// GetTTLSecond returns the TTL (time to live) in seconds for the workload after completion.
 func (w *Workload) GetTTLSecond() int {
 	if w.Spec.TTLSecondsAfterFinished == nil {
 		return 0
@@ -319,6 +330,7 @@ func (w *Workload) GetTTLSecond() int {
 	return *w.Spec.TTLSecondsAfterFinished
 }
 
+// GetLastCondition returns the most recent condition in the workload status.
 func (w *Workload) GetLastCondition() *metav1.Condition {
 	l := len(w.Status.Conditions)
 	if l == 0 {
@@ -327,20 +339,24 @@ func (w *Workload) GetLastCondition() *metav1.Condition {
 	return &w.Status.Conditions[l-1]
 }
 
+// IsPodRunning returns true if the pod is in Running phase.
 func IsPodRunning(p *WorkloadPod) bool {
 	return corev1.PodSucceeded != p.Phase &&
 		corev1.PodFailed != p.Phase &&
 		p.K8sNodeName != ""
 }
 
+// ToSchemaGVK converts the resource template GVK to schema.GroupVersionKind.
 func (w *Workload) ToSchemaGVK() schema.GroupVersionKind {
 	return w.Spec.GroupVersionKind.ToSchema()
 }
 
+// SpecKind returns the kind string from the resource spec.
 func (w *Workload) SpecKind() string {
 	return w.Spec.GroupVersionKind.Kind
 }
 
+// SpecVersion returns the version string from the workload spec.
 func (w *Workload) SpecVersion() string {
 	return w.Spec.GroupVersionKind.Version
 }
@@ -362,6 +378,7 @@ func (w *Workload) GetDependenciesPhase(workloadId string) (WorkloadPhase, bool)
 	return phase, ok
 }
 
+// HasScheduled checks if the workload has been scheduled at least once.
 func (w *Workload) HasScheduled() bool {
 	if IsWorkloadScheduled(w) || GetWorkloadDispatchCnt(w) > 0 {
 		return true

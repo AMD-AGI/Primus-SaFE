@@ -32,16 +32,8 @@ const (
 	MaxConditionHistory = 30
 )
 
-// handleJob processes job resource events and synchronizes status between data plane and admin plane
-// Manages the lifecycle of workload resources and handles failure scenarios
-// Parameters:
-//   - ctx: The context for the operation
-//   - msg: The resource message containing job event details
-//   - informer: The cluster informer for accessing resources
-//
-// Returns:
-//   - ctrlruntime.Result: The result of the handling
-//   - error: Any error encountered during processing
+// handleJob processes job resource events and synchronizes status between data plane and admin plane.
+// Manages the lifecycle of workload resources and handles failure scenarios.
 func (r *SyncerReconciler) handleJob(ctx context.Context, message *resourceMessage, informer *ClusterInformer) (ctrlruntime.Result, error) {
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
 	if adminWorkload == nil {
@@ -62,17 +54,8 @@ func (r *SyncerReconciler) handleJob(ctx context.Context, message *resourceMessa
 	return result, err
 }
 
-// handleJobImpl implements the core logic for handling job resource events
-// Processes resource creation, update, and deletion events
-// Parameters:
-//   - ctx: The context for the operation
-//   - msg: The resource message containing job event details
-//   - adminWorkload: The admin workload to update
-//   - informer: The cluster informer for accessing resources
-//
-// Returns:
-//   - ctrlruntime.Result: The result of the handling
-//   - error: Any error encountered during processing
+// handleJobImpl implements the core logic for handling job resource events.
+// Processes resource creation, update, and deletion events.
 func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceMessage,
 	adminWorkload *v1.Workload, informer *ClusterInformer) (ctrlruntime.Result, error) {
 	if message.action == ResourceDel {
@@ -105,17 +88,8 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 	return ctrlruntime.Result{}, nil
 }
 
-// getK8sResourceStatus retrieves the status of a Kubernetes resource
-// Extracts phase and message information from the resource
-// Parameters:
-//   - ctx: The context for the operation
-//   - message: The resource message containing job event details
-//   - clusterInformer: The cluster informer for accessing resources
-//   - adminWorkload: The admin workload for context
-//
-// Returns:
-//   - *jobutils.K8sResourceStatus: The resource status information
-//   - error: Any error encountered during retrieval
+// getK8sResourceStatus retrieves the status of a Kubernetes resource.
+// Extracts phase and message information from the resource.
 func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, message *resourceMessage,
 	clusterInformer *ClusterInformer, adminWorkload *v1.Workload) (*jobutils.K8sResourceStatus, error) {
 	if message.action == ResourceDel {
@@ -158,14 +132,7 @@ func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, message *re
 	return status, nil
 }
 
-// waitAllPodsDeleted checks if all pods associated with a workload have been deleted
-// Parameters:
-//   - ctx: The context for the operation
-//   - message: The resource message containing job event details
-//   - informer: The cluster informer for accessing resources
-//
-// Returns:
-//   - bool: True if all pods are deleted, false otherwise
+// waitAllPodsDeleted checks if all pods associated with a workload have been deleted.
 func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *resourceMessage, informer *ClusterInformer) bool {
 	labelSelector := metav1.LabelSelector{
 		MatchLabels: map[string]string{v1.WorkloadIdLabel: message.workloadId},
@@ -185,18 +152,8 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *reso
 	return false
 }
 
-// updateAdminWorkloadStatus updates the admin workload status based on resource status
-// Manages workload phase transitions and condition updates
-// Parameters:
-//   - ctx: The context for the operation
-//   - originalWorkload: The original workload to compare against
-//   - status: The Kubernetes resource status
-//   - message: The resource message containing event details
-//
-// Returns:
-//   - *v1.Workload: The updated workload
-//   - bool: True if retry is needed, false otherwise
-//   - error: Any error encountered during update
+// updateAdminWorkloadStatus updates the admin workload status based on resource status.
+// Manages workload phase transitions and condition updates.
 func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, originalWorkload *v1.Workload,
 	status *jobutils.K8sResourceStatus, message *resourceMessage) (*v1.Workload, bool, error) {
 	if originalWorkload.IsEnd() || status == nil || status.Phase == "" {
@@ -240,12 +197,7 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 	return adminWorkload, false, nil
 }
 
-// updateAdminWorkloadPhase updates the workload phase based on resource status
-// Maps Kubernetes resource phases to workload phases
-// Parameters:
-//   - adminWorkload: The workload to update
-//   - status: The Kubernetes resource status
-//   - message: The resource message containing event details
+// updateAdminWorkloadPhase updates the workload phase based on resource status.
 func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	status *jobutils.K8sResourceStatus, message *resourceMessage) {
 	switch v1.WorkloadConditionType(status.Phase) {
@@ -271,15 +223,8 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	}
 }
 
-// reSchedule handles workload rescheduling by resetting status and annotations
-// Clears workload state and marks for rescheduling
-// Parameters:
-//   - ctx: The context for the operation
-//   - workload: The workload to reschedule
-//   - count: The dispatch count for tracking
-//
-// Returns:
-//   - error: Any error encountered during rescheduling
+// reSchedule handles workload rescheduling by resetting status and annotations.
+// Clears workload state and marks for rescheduling.
 func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload, count int) error {
 	originalWorkload := client.MergeFrom(workload.DeepCopy())
 	isStatusChanged := false
@@ -321,14 +266,8 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 	return nil
 }
 
-// updateAdminWorkloadNodes updates the node information for a workload
-// Collects node assignments from workload pods
-// Parameters:
-//   - adminWorkload: The workload to update
-//   - message: The resource message containing event details
-//
-// Returns:
-//   - bool: True if retry is needed, false otherwise
+// updateAdminWorkloadNodes updates the node information for a workload.
+// Collects node assignments from workload pods.
 func (r *SyncerReconciler) updateAdminWorkloadNodes(adminWorkload *v1.Workload, message *resourceMessage) bool {
 	totalNodeCount := adminWorkload.Spec.Resource.Replica
 	if commonworkload.IsJob(adminWorkload) {
@@ -366,10 +305,8 @@ func (r *SyncerReconciler) updateAdminWorkloadNodes(adminWorkload *v1.Workload, 
 	return false
 }
 
-// sortWorkloadPods sorts workload pods by host IP and pod ID
-// Ensures consistent ordering of pods for node assignment tracking
-// Parameters:
-//   - adminWorkload: The workload containing pods to sort
+// sortWorkloadPods sorts workload pods by host IP and pod ID.
+// Ensures consistent ordering of pods for node assignment tracking.
 func sortWorkloadPods(adminWorkload *v1.Workload) {
 	sort.Slice(adminWorkload.Status.Pods, func(i, j int) bool {
 		if adminWorkload.Status.Pods[i].HostIp == adminWorkload.Status.Pods[j].HostIp {
@@ -380,12 +317,8 @@ func sortWorkloadPods(adminWorkload *v1.Workload) {
 	})
 }
 
-// updateWorkloadCondition updates workload conditions based on resource status
-// Manages condition history and ensures proper condition tracking
-// Parameters:
-//   - adminWorkload: The workload to update
-//   - status: The Kubernetes resource status
-//   - dispatchCount: The dispatch count for tracking
+// updateWorkloadCondition updates workload conditions based on resource status.
+// Manages condition history and ensures proper condition tracking.
 func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, dispatchCount int) {
 	newCondition := jobutils.NewCondition(status.Phase, status.Message, commonworkload.GenerateDispatchReason(dispatchCount))
 	if commonworkload.IsApplication(adminWorkload) {
@@ -415,15 +348,8 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sRes
 	}
 }
 
-// isWorkloadEnd determines if a workload has reached its end state
-// Considers retry limits and failover settings
-// Parameters:
-//   - adminWorkload: The workload to check
-//   - status: The Kubernetes resource status
-//   - count: The current dispatch count
-//
-// Returns:
-//   - bool: True if workload should end, false otherwise
+// isWorkloadEnd determines if a workload has reached its end state.
+// Considers retry limits and failover settings.
 func isWorkloadEnd(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, count int) bool {
 	if commonworkload.IsApplication(adminWorkload) || v1.IsWorkloadPreempted(adminWorkload) {
 		return false
@@ -441,13 +367,8 @@ func isWorkloadEnd(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatu
 	return false
 }
 
-// getFailedPodInfo extracts information about failed pods for error reporting
-// Collects details about up to 3 failed pods
-// Parameters:
-//   - workload: The workload containing pod information
-//
-// Returns:
-//   - string: JSON formatted failed pod information, or empty string if none
+// getFailedPodInfo extracts information about failed pods for error reporting.
+// Collects details about up to 3 failed pods.
 func getFailedPodInfo(workload *v1.Workload) string {
 	type FailedPodInfo struct {
 		Pod       string       `json:"pod"`

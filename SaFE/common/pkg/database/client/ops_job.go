@@ -34,6 +34,7 @@ var (
 		WHERE job_id = :job_id`, TOpsJob)
 )
 
+// UpsertJob performs the UpsertJob operation.
 func (c *Client) UpsertJob(ctx context.Context, job *OpsJob) error {
 	if job == nil {
 		return commonerrors.NewBadRequest("the input is empty")
@@ -61,6 +62,7 @@ func (c *Client) UpsertJob(ctx context.Context, job *OpsJob) error {
 	return nil
 }
 
+// SelectJobs performs the SelectJobs operation.
 func (c *Client) SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*OpsJob, error) {
 	db, err := c.getDB()
 	if err != nil {
@@ -99,6 +101,7 @@ func (c *Client) SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, ord
 	return jobs, err
 }
 
+// CountJobs returns the count of resources.
 func (c *Client) CountJobs(ctx context.Context, query sqrl.Sqlizer) (int, error) {
 	db, err := c.getDB()
 	if err != nil {
@@ -113,6 +116,7 @@ func (c *Client) CountJobs(ctx context.Context, query sqrl.Sqlizer) (int, error)
 	return cnt, err
 }
 
+// SetOpsJobDeleted sets the OpsJobDeleted value.
 func (c *Client) SetOpsJobDeleted(ctx context.Context, opsJobId, userId string) error {
 	db, err := c.getDB()
 	if err != nil {

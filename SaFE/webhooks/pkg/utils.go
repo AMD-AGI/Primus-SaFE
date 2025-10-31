@@ -42,14 +42,17 @@ var (
 	DNSNameRegexp     = regexp.MustCompile(DNSNameRegRule)
 )
 
+// generateMutatePath generates the mutation webhook path for a given resource kind.
 func generateMutatePath(kind string) string {
 	return "/mutate-" + WebhookPathPrefix + strings.ToLower(kind)
 }
 
+// generateValidatePath generates the validation webhook path for a given resource kind.
 func generateValidatePath(kind string) string {
 	return "/validate-" + WebhookPathPrefix + strings.ToLower(kind)
 }
 
+// handleError processes and logs errors, returning an appropriate response.
 func handleError(name string, err error) admission.Response {
 	if err == nil {
 		return admission.Allowed("")
@@ -67,6 +70,7 @@ func handleError(name string, err error) admission.Response {
 	}
 }
 
+// validateDisplayName validates a display name against the naming rules.
 func validateDisplayName(name string) error {
 	if name == "" {
 		return nil
@@ -77,6 +81,7 @@ func validateDisplayName(name string) error {
 	return nil
 }
 
+// validateDNSName validates a DNS name against the naming rules.
 func validateDNSName(name string) error {
 	if name == "" {
 		return nil
@@ -87,6 +92,7 @@ func validateDNSName(name string) error {
 	return nil
 }
 
+// validatePort validates that a port number is within the valid range (1-65535).
 func validatePort(name string, port int) error {
 	if port < MinPort || port > MaxPort {
 		return commonerrors.NewBadRequest(
@@ -96,6 +102,7 @@ func validatePort(name string, port int) error {
 	return nil
 }
 
+// hasOwnerReferences checks if an object has an owner reference with the specified name.
 func hasOwnerReferences(obj metav1.Object, name string) bool {
 	for _, r := range obj.GetOwnerReferences() {
 		if r.Name == name {

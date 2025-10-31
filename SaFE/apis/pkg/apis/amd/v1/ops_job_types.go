@@ -112,6 +112,7 @@ func init() {
 	SchemeBuilder.Register(&OpsJob{}, &OpsJobList{})
 }
 
+// IsEnd returns true if the fault has ended (completed or failed).
 func (job *OpsJob) IsEnd() bool {
 	if job.IsFinished() {
 		return true
@@ -122,6 +123,7 @@ func (job *OpsJob) IsEnd() bool {
 	return false
 }
 
+// IsPending returns true if the operations job is pending execution.
 func (job *OpsJob) IsPending() bool {
 	if job.Status.Phase == OpsJobPending || job.Status.Phase == "" {
 		return true
@@ -129,6 +131,7 @@ func (job *OpsJob) IsPending() bool {
 	return false
 }
 
+// IsTimeout returns true if the operations job has timed out.
 func (job *OpsJob) IsTimeout() bool {
 	if job.Spec.TimeoutSecond <= 0 {
 		return false
@@ -137,6 +140,7 @@ func (job *OpsJob) IsTimeout() bool {
 	return int(elapsedSeconds) >= job.Spec.TimeoutSecond
 }
 
+// GetLeftTime returns the remaining time in seconds before timeout.
 func (job *OpsJob) GetLeftTime() int64 {
 	if job.Spec.TimeoutSecond <= 0 {
 		return -1
@@ -145,6 +149,7 @@ func (job *OpsJob) GetLeftTime() int64 {
 	return leftTime
 }
 
+// IsFinished returns true if the operations job has finished execution.
 func (job *OpsJob) IsFinished() bool {
 	if job.Status.FinishedAt != nil {
 		return true
@@ -152,6 +157,7 @@ func (job *OpsJob) IsFinished() bool {
 	return false
 }
 
+// GetParameter retrieves a single parameter by name.
 func (job *OpsJob) GetParameter(name string) *Parameter {
 	for i, param := range job.Spec.Inputs {
 		if param.Name == name {
@@ -161,6 +167,7 @@ func (job *OpsJob) GetParameter(name string) *Parameter {
 	return nil
 }
 
+// GetParameters retrieves all parameters with the specified name.
 func (job *OpsJob) GetParameters(name string) []*Parameter {
 	var result []*Parameter
 	for i, param := range job.Spec.Inputs {
@@ -171,6 +178,7 @@ func (job *OpsJob) GetParameters(name string) []*Parameter {
 	return result
 }
 
+// HasParameter checks if a parameter with the given name and value exists.
 func (job *OpsJob) HasParameter(name, value string) bool {
 	for _, param := range job.Spec.Inputs {
 		if param.Name == name && param.Value == value {
@@ -180,10 +188,12 @@ func (job *OpsJob) HasParameter(name, value string) bool {
 	return false
 }
 
+// CvtParamToString converts data to the target format.
 func CvtParamToString(p *Parameter) string {
 	return p.Name + ":" + p.Value
 }
 
+// CvtStringToParam converts data to the target format.
 func CvtStringToParam(str string) *Parameter {
 	splitArray := strings.Split(str, ":")
 	if len(splitArray) != 2 {

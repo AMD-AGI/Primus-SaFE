@@ -91,7 +91,7 @@ func SetupSchedulerController(ctx context.Context, mgr manager.Manager) error {
 	return nil
 }
 
-// relevantChangePredicate: defines which Workload changes should trigger scheduling reconciliation
+// relevantChangePredicate defines which Workload changes should trigger scheduling reconciliation.
 func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
@@ -130,7 +130,7 @@ func (r *SchedulerReconciler) relevantChangePredicate() predicate.Predicate {
 	}
 }
 
-// handleWorkspaceEvent: creates an event handler that watches Workspace resource events
+// handleWorkspaceEvent creates an event handler that watches Workspace resource events.
 func (r *SchedulerReconciler) handleWorkspaceEvent() handler.EventHandler {
 	maxWaitTime := defaultRetryDelay * 10
 	return handler.Funcs{
@@ -181,7 +181,7 @@ func (r *SchedulerReconciler) handleWorkspaceEvent() handler.EventHandler {
 	}
 }
 
-// createDataPlaneResources: creates required resources in the data plane for a workspace
+// createDataPlaneResources creates required resources in the data plane for a workspace.
 func (r *SchedulerReconciler) createDataPlaneResources(ctx context.Context, workspace *v1.Workspace) error {
 	clusterInformer, err := syncer.GetClusterInformer(r.clusterInformers, workspace.Spec.Cluster)
 	if err != nil {
@@ -219,7 +219,7 @@ func (r *SchedulerReconciler) createDataPlaneResources(ctx context.Context, work
 	return nil
 }
 
-// updateDataPlaneResources: updates data plane resources when workspace specifications change
+// updateDataPlaneResources updates data plane resources when workspace specifications change.
 func (r *SchedulerReconciler) updateDataPlaneResources(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	if !reflect.DeepEqual(oldWorkspace.Spec.Volumes, newWorkspace.Spec.Volumes) {
 		if err := r.updateDataPlanePvc(ctx, oldWorkspace, newWorkspace); err != nil {
@@ -235,7 +235,7 @@ func (r *SchedulerReconciler) updateDataPlaneResources(ctx context.Context, oldW
 	return nil
 }
 
-// updateDataPlanePvc: updates PVC resources in the data plane
+// updateDataPlanePvc updates PVC resources in the data plane.
 func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	informer, err := syncer.GetClusterInformer(r.clusterInformers, newWorkspace.Spec.Cluster)
 	if err != nil {
@@ -284,7 +284,7 @@ func (r *SchedulerReconciler) updateDataPlanePvc(ctx context.Context, oldWorkspa
 	return nil
 }
 
-// updateDataPlaneSecrets: updates secret resources in the data plane
+// updateDataPlaneSecrets updates secret resources in the data plane.
 func (r *SchedulerReconciler) updateDataPlaneSecrets(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	informer, err := syncer.GetClusterInformer(r.clusterInformers, newWorkspace.Spec.Cluster)
 	if err != nil {
@@ -328,7 +328,7 @@ func (r *SchedulerReconciler) updateDataPlaneSecrets(ctx context.Context, oldWor
 	return nil
 }
 
-// deleteDataPlaneResources: deletes data plane resources when a workspace is deleted
+// deleteDataPlaneResources deletes data plane resources when a workspace is deleted.
 func (r *SchedulerReconciler) deleteDataPlaneResources(ctx context.Context, workspace *v1.Workspace) error {
 	informer, err := syncer.GetClusterInformer(r.clusterInformers, workspace.Spec.Cluster)
 	if err != nil {
@@ -354,7 +354,7 @@ func (r *SchedulerReconciler) deleteDataPlaneResources(ctx context.Context, work
 	return nil
 }
 
-// deleteDataPlaneNamespace: deletes a namespace in the data plane
+// deleteDataPlaneNamespace deletes a namespace in the data plane.
 func (r *SchedulerReconciler) deleteDataPlaneNamespace(ctx context.Context, targetNamespace, clusterId string) error {
 	informer, err := syncer.GetClusterInformer(r.clusterInformers, clusterId)
 	if err != nil {
@@ -366,7 +366,7 @@ func (r *SchedulerReconciler) deleteDataPlaneNamespace(ctx context.Context, targ
 	return nil
 }
 
-// generatePVC: generates a PersistentVolumeClaim based on workspace volume specifications
+// generatePVC generates a PersistentVolumeClaim based on workspace volume specifications.
 func (r *SchedulerReconciler) generatePVC(volume *v1.WorkspaceVolume,
 	workspace *v1.Workspace) (*corev1.PersistentVolumeClaim, error) {
 	pvc := &corev1.PersistentVolumeClaim{}
@@ -395,7 +395,7 @@ func (r *SchedulerReconciler) generatePVC(volume *v1.WorkspaceVolume,
 	return pvc, nil
 }
 
-// Reconcile is the main control loop for Workload resources that triggers scheduling
+// Reconcile is the main control loop for Workload resources that triggers scheduling.
 func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
 	workload := new(v1.Workload)
 	if err := r.Get(ctx, req.NamespacedName, workload); err != nil {
@@ -422,7 +422,7 @@ func (r *SchedulerReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 	return ctrlruntime.Result{}, nil
 }
 
-// delete: handles the deletion of a workload and its associated resources
+// delete handles the deletion of a workload and its associated resources.
 func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Workload) (ctrlruntime.Result, error) {
 	if len(adminWorkload.Spec.CronJobs) > 0 {
 		r.cronManager.remove(adminWorkload.Name)
@@ -459,7 +459,7 @@ func (r *SchedulerReconciler) start(ctx context.Context) {
 	}
 }
 
-// Do: processes a scheduling message by calling the main scheduling logic.
+// Do processes a scheduling message by calling the main scheduling logic.
 // It is the interface of the custom controller.
 func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage) (ctrlruntime.Result, error) {
 	err := r.scheduleWorkloads(ctx, message)
@@ -469,7 +469,7 @@ func (r *SchedulerReconciler) Do(ctx context.Context, message *SchedulerMessage)
 	return ctrlruntime.Result{}, err
 }
 
-// scheduleWorkloads: process all workloads that are currently queued,
+// scheduleWorkloads process all workloads that are currently queued,
 // checking whether the available resources in the current workspace meet the requirements.
 // Workloads that meet the criteria are passed to the next scheduling step,
 // while those that do not remain in the queue and have their queue positions updated.
@@ -530,7 +530,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 	return nil
 }
 
-// canScheduleWorkload: checks if a workload can be scheduled based on resource availability
+// canScheduleWorkload checks if a workload can be scheduled based on resource availability.
 func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWorkload *v1.Workload,
 	runningWorkloads []*v1.Workload, requestResources, leftResources corev1.ResourceList) (bool, string, error) {
 	for _, job := range requestWorkload.Spec.CronJobs {
@@ -615,7 +615,7 @@ func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, wor
 	return isReady, nil
 }
 
-// checkNodeResources: check if each node's available resources satisfy the workload's resource requests.
+// checkNodeResources check if each node's available resources satisfy the workload's resource requests.
 // Return true if satisfied, false otherwise, along with the reason.
 func (r *SchedulerReconciler) checkNodeResources(ctx context.Context,
 	requestWorkload *v1.Workload, runningWorkloads []*v1.Workload) (bool, string, error) {
@@ -657,7 +657,7 @@ func (r *SchedulerReconciler) checkNodeResources(ctx context.Context,
 	return false, buildReason(requestWorkload, podResources, unmatchedNodes), nil
 }
 
-// getWorkspace: retrieves a workspace by cluster ID and workspace ID
+// getWorkspace retrieves a workspace by cluster ID and workspace ID.
 func (r *SchedulerReconciler) getWorkspace(ctx context.Context, clusterId, workspaceId string) (*v1.Workspace, error) {
 	workspace := &v1.Workspace{}
 	if err := r.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err != nil {
@@ -672,7 +672,7 @@ func (r *SchedulerReconciler) getWorkspace(ctx context.Context, clusterId, works
 	return workspace, nil
 }
 
-// getAdminSecret: retrieves a secret from the admin plane
+// getAdminSecret retrieves a secret from the admin plane.
 func (r *SchedulerReconciler) getAdminSecret(ctx context.Context, secretId string) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}
 	err := r.Get(ctx, client.ObjectKey{Name: secretId, Namespace: common.PrimusSafeNamespace}, secret)
@@ -682,7 +682,7 @@ func (r *SchedulerReconciler) getAdminSecret(ctx context.Context, secretId strin
 	return secret, nil
 }
 
-// Retrieve the list of unfinished workloads, sorted by priority and other criteria, including both queued and running ones
+// getUnfinishedWorkloads Retrieve the list of unfinished workloads, sorted by priority and other criteria, including both queued and running ones.
 func (r *SchedulerReconciler) getUnfinishedWorkloads(ctx context.Context, workspace *v1.Workspace) ([]*v1.Workload, []*v1.Workload, error) {
 	filterFunc := func(w *v1.Workload) bool {
 		return w.IsEnd()
@@ -709,7 +709,7 @@ func (r *SchedulerReconciler) getUnfinishedWorkloads(ctx context.Context, worksp
 	return schedulingWorkloads, runningWorkloads, nil
 }
 
-// getLeftTotalResources: Retrieve the total amount of left resources. The system usually reserves a certain amount of CPU, memory, and other resources.
+// getLeftTotalResources Retrieve the total amount of left resources. The system usually reserves a certain amount of CPU, memory, and other resources.
 func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 	workspace *v1.Workspace, runningWorkloads []*v1.Workload) (corev1.ResourceList, corev1.ResourceList, error) {
 	filterFunc := func(nodeName string) bool {
@@ -741,7 +741,7 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 	return leftAvailResource, leftTotalResource, nil
 }
 
-// updateScheduled: updates a workload's status to indicate it has been scheduled
+// updateScheduled updates a workload's status to indicate it has been scheduled.
 func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.Workload) error {
 	if err := backoff.ConflictRetry(func() error {
 		err := r.updateStatus(ctx, workload)
@@ -772,7 +772,7 @@ func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.
 	return nil
 }
 
-// updateStatus: updates the workload status with scheduling information
+// updateStatus updates the workload status with scheduling information.
 func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Workload) error {
 	reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload) + 1)
 	cond := jobutils.NewCondition(string(v1.AdminScheduled), "the workload is scheduled", reason)
@@ -790,7 +790,7 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 	return nil
 }
 
-// updateUnScheduled: updates the status of unscheduled workloads with ordering and reasons
+// updateUnScheduled updates the status of unscheduled workloads with ordering and reasons.
 func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads []*v1.Workload, unScheduledReasons map[string]string) {
 	order := 1
 	for i, w := range workloads {

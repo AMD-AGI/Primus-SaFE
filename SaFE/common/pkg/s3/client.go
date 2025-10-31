@@ -22,7 +22,7 @@ const (
 	DefaultTimeout = 180
 )
 
-// Expiration time can only be configured for subdirectories
+// Option Expiration time can only be configured for subdirectories.
 type Option struct {
 	Subdir    string
 	ExpireDay int32
@@ -36,18 +36,7 @@ type Client struct {
 	s3Client *s3.Client
 }
 
-// NewClient create a new S3 client instance
-// Parameters:
-//
-//	ctx: Context
-//	opt: Client option configuration
-//
-// Returns:
-//
-//	Interface: S3 client interface
-//	error: Error information
-//
-// Function: Initialize client configuration, check if bucket exists, set lifecycle rules
+// NewClient creates and returns a new Client instance.
 func NewClient(ctx context.Context, opt Option) (Interface, error) {
 	config, err := GetConfig()
 	if err != nil {
@@ -66,18 +55,7 @@ func NewClient(ctx context.Context, opt Option) (Interface, error) {
 	return cli, nil
 }
 
-// newFromConfig create S3 client based on configuration
-// Parameters:
-//
-//	config: S3 configuration information
-//	opt: Client options
-//
-// Returns:
-//
-//	*Client: S3 client instance
-//	error: Error information
-//
-// Function: Validate subdirectory configuration, create AWS S3 client instance
+// newFromConfig create S3 client based on configuration.
 func newFromConfig(config *Config, opt Option) (*Client, error) {
 	if opt.Subdir == "" {
 		return nil, fmt.Errorf("the Subdir of option is empty")
@@ -96,14 +74,7 @@ func newFromConfig(config *Config, opt Option) (*Client, error) {
 	return cli, nil
 }
 
-// checkBucketExisted check if S3 bucket exists
-// Parameters:
-//
-//	ctx: Context
-//
-// Returns:
-//
-//	error: Returns error when bucket does not exist or access fails
+// checkBucketExisted checks BucketExisted and returns the result.
 func (c *Client) checkBucketExisted(ctx context.Context) error {
 	input := &s3.HeadBucketInput{
 		Bucket: c.Bucket,
@@ -117,16 +88,7 @@ func (c *Client) checkBucketExisted(ctx context.Context) error {
 	return nil
 }
 
-// setLifecycleRule set bucket lifecycle rules
-// Parameters:
-//
-//	ctx: Context
-//
-// Returns:
-//
-//	error: Returns error when setting fails
-//
-// Function: Configure object expiration rules for specified subdirectory
+// setLifecycleRule set bucket lifecycle rules.
 func (c *Client) setLifecycleRule(ctx context.Context) error {
 	if c.opt.ExpireDay <= 0 {
 		return nil
@@ -152,17 +114,7 @@ func (c *Client) setLifecycleRule(ctx context.Context) error {
 	return err
 }
 
-// CreateMultiPartUpload create multipart upload task
-// Parameters:
-//
-//	ctx: Context
-//	key: Object key name
-//	timeout: Timeout in seconds
-//
-// Returns:
-//
-//	string: Upload ID
-//	error: Error information
+// CreateMultiPartUpload create multipart upload task.
 func (c *Client) CreateMultiPartUpload(ctx context.Context, key string, timeout int64) (string, error) {
 	if c == nil {
 		return "", fmt.Errorf("please init client first")
@@ -180,18 +132,7 @@ func (c *Client) CreateMultiPartUpload(ctx context.Context, key string, timeout 
 	return *resp.UploadId, nil
 }
 
-// MultiPartUpload perform multipart upload
-// Parameters:
-//
-//	ctx: Context
-//	param: Multipart upload parameters
-//	timeout: Timeout in seconds
-//
-// Returns:
-//
-//	error: Error information
-//
-// Function: Upload a single part and add the completed part to the CompletedParts list
+// MultiPartUpload perform multipart upload.
 func (c *Client) MultiPartUpload(ctx context.Context, param *MultiUploadParam, timeout int64) error {
 	if c == nil {
 		return fmt.Errorf("please init client first")
@@ -217,17 +158,7 @@ func (c *Client) MultiPartUpload(ctx context.Context, param *MultiUploadParam, t
 	return nil
 }
 
-// CompleteMultiPartUpload complete multipart upload
-// Parameters:
-//
-//	ctx: Context
-//	param: Multipart upload parameters
-//	timeout: Timeout in seconds
-//
-// Returns:
-//
-//	*s3.CompleteMultipartUploadOutput: Output result of completed upload
-//	error: Error information
+// CompleteMultiPartUpload complete multipart upload.
 func (c *Client) CompleteMultiPartUpload(ctx context.Context,
 	param *MultiUploadParam, timeout int64) (*s3.CompleteMultipartUploadOutput, error) {
 	if c == nil {
@@ -249,16 +180,7 @@ func (c *Client) CompleteMultiPartUpload(ctx context.Context,
 	return c.s3Client.CompleteMultipartUpload(timeoutCtx, input)
 }
 
-// AbortMultiPartUpload cancel multipart upload task
-// Parameters:
-//
-//	ctx: Context
-//	param: Multipart upload parameters
-//	timeout: Timeout in seconds
-//
-// Returns:
-//
-//	error: Error information
+// AbortMultiPartUpload cancel multipart upload task.
 func (c *Client) AbortMultiPartUpload(ctx context.Context, param *MultiUploadParam, timeout int64) error {
 	if c == nil {
 		return fmt.Errorf("please init client first")
@@ -278,18 +200,7 @@ func (c *Client) AbortMultiPartUpload(ctx context.Context, param *MultiUploadPar
 	return err
 }
 
-// PutObject upload object to S3 bucket
-// Parameters:
-//
-//	ctx: Context
-//	key: Object key name
-//	value: Object content
-//	timeout: Timeout in seconds
-//
-// Returns:
-//
-//	*s3.PutObjectOutput: Upload result
-//	error: Error information
+// PutObject upload object to S3 bucket.
 func (c *Client) PutObject(ctx context.Context, key, value string, timeout int64) (*s3.PutObjectOutput, error) {
 	if c == nil {
 		return nil, fmt.Errorf("please init client first")
@@ -308,16 +219,7 @@ func (c *Client) PutObject(ctx context.Context, key, value string, timeout int64
 	return c.s3Client.PutObject(timeoutCtx, input)
 }
 
-// DeleteObject delete object from S3 bucket
-// Parameters:
-//
-//	ctx: Context
-//	key: Object key name
-//	timeout: Timeout in seconds
-//
-// Returns:
-//
-//	error: Error information
+// DeleteObject delete object from S3 bucket.
 func (c *Client) DeleteObject(ctx context.Context, key string, timeout int64) error {
 	if c == nil {
 		return fmt.Errorf("please init client first")
@@ -338,17 +240,7 @@ func (c *Client) DeleteObject(ctx context.Context, key string, timeout int64) er
 	return nil
 }
 
-// GeneratePresignedURL generate presigned URL for temporary object access
-// Parameters:
-//
-//	ctx: Context
-//	key: Object key name
-//	expireDay: Expiration days
-//
-// Returns:
-//
-//	string: Presigned URL
-//	error: Error informatio
+// GeneratePresignedURL generate presigned URL for temporary object access.
 func (c *Client) GeneratePresignedURL(ctx context.Context, key string, expireDay int32) (string, error) {
 	presigner := s3.NewPresignClient(c.s3Client)
 
@@ -364,28 +256,12 @@ func (c *Client) GeneratePresignedURL(ctx context.Context, key string, expireDay
 	return resp.URL, nil
 }
 
-// WithPrefixKey add subdirectory prefix to object key name
-// Parameters:
-//
-//	key: Original object key name
-//
-// Returns:
-//
-//	string: Complete key name with prefix added
+// WithPrefixKey add subdirectory prefix to object key name.
 func (c *Client) WithPrefixKey(key string) string {
 	return c.opt.Subdir + key
 }
 
-// WithOptionalTimeout add optional timeout to context
-// Parameters:
-//
-//	parent: Parent context
-//	timeout: Timeout in seconds, less than or equal to 0 means no timeout
-//
-// Returns:
-//
-//	context.Context: New context
-//	context.CancelFunc: Cancel functio
+// WithOptionalTimeout add optional timeout to context.
 func WithOptionalTimeout(parent context.Context, timeout int64) (context.Context, context.CancelFunc) {
 	if timeout <= 0 {
 		return parent, func() {}

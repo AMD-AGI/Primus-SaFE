@@ -14,7 +14,7 @@ ENV GOBIN="/usr/local/go/bin"
 ENV CGO_ENABLED=0
 ENV GOPATH="/workspace/primus-safe/go"
 
-COPY . /workspace/primus-safe
+COPY ./SaFE /workspace/primus-safe
 WORKDIR /workspace/primus-safe
 RUN mkdir dist && mkdir dist/logs && mkdir dist/scripts
 RUN GOOS=linux GOARCH=amd64  go build -o dist/node_agent ./node-agent/cmd/main.go
@@ -26,8 +26,8 @@ RUN apt-get install -y sed
 RUN apt-get install -y jq
 RUN apt-get install -y bc
 COPY --from=builder /workspace/primus-safe/dist ${APP_HOME}
-COPY ./node-agent/installer/run.sh  ${APP_HOME}
-COPY ./node-agent/pkg/monitors/scripts/*  ${APP_HOME}/scripts
+COPY ./SaFE/node-agent/installer/run.sh  ${APP_HOME}
+COPY ./SaFE/node-agent/pkg/monitors/scripts/*  ${APP_HOME}/scripts
 
 RUN  ls  -l ${APP_HOME} && \
   echo 'umask 0027' | tee -a /etc/bashrc && \

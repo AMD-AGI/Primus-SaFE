@@ -31,6 +31,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
+// AddOpsJobWebhook registers the operations job validation and mutation webhooks.
 func AddOpsJobWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.OpsJobKind), &webhook.Admission{Handler: &OpsJobMutator{
 		Client:  mgr.GetClient(),
@@ -42,11 +43,13 @@ func AddOpsJobWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder a
 	}})
 }
 
+// OpsJobMutator handles mutation logic for OpsJob resources.
 type OpsJobMutator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle processes ops job creation requests and applies default values and normalizations.
 func (m *OpsJobMutator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	if req.Operation != admissionv1.Create {
 		return admission.Allowed("")
@@ -64,6 +67,7 @@ func (m *OpsJobMutator) Handle(ctx context.Context, req admission.Request) admis
 	return admission.PatchResponseFromRaw(req.Object.Raw, data)
 }
 
+// mutateOnCreation applies default values and normalizations during creation.
 func (m *OpsJobMutator) mutateOnCreation(ctx context.Context, job *v1.OpsJob) bool {
 	m.mutateJobInputs(ctx, job)
 	m.mutateMeta(ctx, job)
@@ -71,6 +75,7 @@ func (m *OpsJobMutator) mutateOnCreation(ctx context.Context, job *v1.OpsJob) bo
 	return true
 }
 
+// mutateMeta applies mutations to the resource.
 func (m *OpsJobMutator) mutateMeta(ctx context.Context, job *v1.OpsJob) bool {
 	job.Name = stringutil.NormalizeName(job.Name)
 	v1.SetLabel(job, v1.OpsJobTypeLabel, string(job.Spec.Type))
@@ -96,6 +101,7 @@ func (m *OpsJobMutator) mutateMeta(ctx context.Context, job *v1.OpsJob) bool {
 	return true
 }
 
+// mutateJobSpec applies mutations to the resource.
 func (m *OpsJobMutator) mutateJobSpec(ctx context.Context, job *v1.OpsJob) {
 	if job.Spec.TTLSecondsAfterFinished <= 0 {
 		job.Spec.TTLSecondsAfterFinished = commonconfig.GetOpsJobTTLSecond()
@@ -122,6 +128,7 @@ func (m *OpsJobMutator) mutateJobSpec(ctx context.Context, job *v1.OpsJob) {
 	}
 }
 
+// mutateJobInputs applies mutations to the resource.
 func (m *OpsJobMutator) mutateJobInputs(ctx context.Context, job *v1.OpsJob) {
 	m.generateAddonTemplates(ctx, job)
 	m.removeDuplicates(job)
@@ -163,7 +170,8 @@ func (m *OpsJobMutator) removeDuplicates(job *v1.OpsJob) {
 	job.Spec.Inputs = uniqInputs
 }
 
-// For preflight jobs, if tolerate taints are not set, remove unhealthy nodes. Additionally, ignore preflight taints.
+// filterUnhealthyNodes filters out unhealthy nodes from preflight job inputs.
+// It removes nodes that are not ready, being deleted, or have inappropriate taints.
 func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob) {
 	if job.Spec.Type != v1.OpsJobPreflightType {
 		return
@@ -200,11 +208,13 @@ func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob
 	job.Spec.Inputs = newInputs
 }
 
+// OpsJobValidator validates OpsJob resources on create and update operations.
 type OpsJobValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
 
+// Handle validates ops job resources on create, update, and delete operations.
 func (v *OpsJobValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	job := &v1.OpsJob{}
 	var err error
@@ -233,6 +243,7 @@ func (v *OpsJobValidator) Handle(ctx context.Context, req admission.Request) adm
 	return admission.Allowed("")
 }
 
+// validateOnCreation validates ops job parameters and type-specific rules on creation.
 func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob) error {
 	if err := v.validateRequiredParams(ctx, job); err != nil {
 		return err
@@ -257,6 +268,7 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 	return nil
 }
 
+// validateOnUpdate validates immutable fields during ops job update.
 func (v *OpsJobValidator) validateOnUpdate(ctx context.Context, newJob, oldJob *v1.OpsJob) error {
 	if err := v.validateRequiredParams(ctx, newJob); err != nil {
 		return err
@@ -267,6 +279,7 @@ func (v *OpsJobValidator) validateOnUpdate(ctx context.Context, newJob, oldJob *
 	return nil
 }
 
+// validateRequiredParams ensures all required input parameters are provided.
 func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.OpsJob) error {
 	var errs []error
 	if v1.GetDisplayName(job) == "" {
@@ -295,8 +308,7 @@ func (v *OpsJobValidator) validateRequiredParams(ctx context.Context, job *v1.Op
 	return nil
 }
 
-// validateNodeDuplicated checks if there are any other running jobs of the same type that are using the same node inputs.
-// It prevents multiple jobs from running simultaneously on the same nodes to avoid conflicts and resource contention.
+// validateNodeDuplicated checks if another job of the same type is already running on the same nodes.
 func (v *OpsJobValidator) validateNodeDuplicated(ctx context.Context, job *v1.OpsJob) error {
 	currentJobs, err := v.listRelatedRunningJobs(ctx, v1.GetClusterId(job), []string{string(job.Spec.Type)})
 	if err != nil {
@@ -314,8 +326,7 @@ func (v *OpsJobValidator) validateNodeDuplicated(ctx context.Context, job *v1.Op
 	return nil
 }
 
-// validatePreflight validates the preflight job by checking for duplicate node inputs,
-// ensuring required fields are not empty, and verifying resource requirements do not exceed thresholds.
+// validatePreflight validates preflight job parameters including node inputs and resource requirements.
 func (v *OpsJobValidator) validatePreflight(ctx context.Context, job *v1.OpsJob) error {
 	err := v.validateNodeDuplicated(ctx, job)
 	if err != nil {
@@ -337,9 +348,7 @@ func (v *OpsJobValidator) validatePreflight(ctx context.Context, job *v1.OpsJob)
 	return validateResourceEnough(nf, job.Spec.Resource)
 }
 
-// validateDumplog validates the dumplog job by checking if there are any other running dumplog jobs
-// with the same workload input parameters. It prevents multiple dumplog jobs from running simultaneously
-// on the same workload to avoid conflicts and resource contention.
+// validateDumplog checks if another dumplog job is already running on the same workload.
 func (v *OpsJobValidator) validateDumplog(ctx context.Context, job *v1.OpsJob) error {
 	currentJobs, err := v.listRelatedRunningJobs(ctx, v1.GetClusterId(job), []string{string(v1.OpsJobDumpLogType)})
 	if err != nil {
@@ -386,6 +395,7 @@ func (v *OpsJobValidator) validateAddon(ctx context.Context, job *v1.OpsJob) err
 	return nil
 }
 
+// validateImmutableFields ensures job type, inputs and priority cannot be modified.
 func (v *OpsJobValidator) validateImmutableFields(newJob, oldJob *v1.OpsJob) error {
 	if v1.GetClusterId(newJob) != v1.GetClusterId(oldJob) {
 		return field.Forbidden(field.NewPath("spec").Key("cluster"), "immutable")
@@ -418,9 +428,9 @@ func (v *OpsJobValidator) hasDuplicateInput(params1, params2 []v1.Parameter, par
 	return false
 }
 
-// Find the running opsjob of the same type.
+// listRelatedRunningJobs finds running ops jobs of the specified types in a cluster.
 func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster string, jobTypes []string) ([]v1.OpsJob, error) {
-	var labelSelector = labels.NewSelector()
+	labelSelector := labels.NewSelector()
 	req1, _ := labels.NewRequirement(v1.ClusterIdLabel, selection.Equals, []string{cluster})
 	labelSelector = labelSelector.Add(*req1)
 	req2, _ := labels.NewRequirement(v1.OpsJobTypeLabel, selection.In, jobTypes)
@@ -440,7 +450,7 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster st
 	return result, nil
 }
 
-// Check whether the nodes involved in the ops job belong to the same cluster and the same node flavor.
+// validateNodes ensures all nodes belong to the same cluster and flavor.
 // Additionally, both cluster and node flavor must not be empty.
 func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
 	if job.Spec.Type == v1.OpsJobRebootType {

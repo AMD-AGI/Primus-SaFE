@@ -66,8 +66,7 @@ type Input struct {
 	Roles []*v1.Role
 }
 
-// NewAuthorizer creates a new Authorizer instance with the provided client.
-// Uses singleton pattern to ensure only one instance exists.
+// NewAuthorizer creates and returns a singleton instance of Authorizer.
 func NewAuthorizer(cli client.Client) *Authorizer {
 	once.Do(func() {
 		instance = &Authorizer{
@@ -161,8 +160,7 @@ func (a *Authorizer) authorize(in Input) error {
 		fmt.Sprintf("The user is not allowed to %s %s", in.Verb, resourceKind))
 }
 
-// checkUserStatus verifies if the user account is in good standing.
-// Returns an error if the user is restricted.
+// checkUserStatus checks UserStatus and returns the result.
 func (a *Authorizer) checkUserStatus(user *v1.User) error {
 	if user.IsRestricted() {
 		return commonerrors.NewForbidden(
@@ -222,7 +220,8 @@ func (a *Authorizer) extendRolesWithWorkspaceAdmin(in Input) []*v1.Role {
 // getPolicyRules retrieves applicable policy rules from a role based on
 // resource type, ownership, and workspace membership.
 func (a *Authorizer) getPolicyRules(role *v1.Role,
-	resourceKind, resourceName string, isOwner, isWorkspaceUser bool) []*v1.PolicyRule {
+	resourceKind, resourceName string, isOwner, isWorkspaceUser bool,
+) []*v1.PolicyRule {
 	var result []*v1.PolicyRule
 	for i, r := range role.Rules {
 		if !slice.Contains(r.Resources, AllResource) && !slice.Contains(r.Resources, resourceKind) {

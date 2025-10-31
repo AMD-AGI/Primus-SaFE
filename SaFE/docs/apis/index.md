@@ -21,7 +21,7 @@ Most APIs require authentication. The following authentication methods are suppo
 
 ### 1. Core Business APIs
 
-Base Path: `/api/custom`
+Base Path: `/api/v1`
 
 - [Workload API](./workload.md) - Manage various workloads (training jobs, inference services, deployments, etc.)
 - [Cluster API](./cluster.md) - Kubernetes cluster creation and management
@@ -34,7 +34,6 @@ Base Path: `/api/custom`
 - [Fault API](./fault.md) - Fault injection and management
 - [OpsJob API](./ops-job.md) - Operational job management
 - [PublicKey API](./public-key.md) - SSH public key management
-- [Service API](./service.md) - Service-related interfaces
 - [Log API](./log.md) - Log query interfaces
 
 ### 2. Image Management APIs
@@ -46,7 +45,7 @@ Base Path: `/api/v1`
 
 ### 3. WebShell API
 
-Base Path: `/api/custom`
+Base Path: `/api/v1`
 
 - [WebShell API](./webshell.md) - Web terminal interface
 
@@ -54,19 +53,14 @@ Base Path: `/api/custom`
 
 ### Success Response
 
-```json
-{
-  "data": { ... },
-  "code": 200
-}
-```
+custom content defined by the API, with an HTTP status code of 200.
 
 ### Error Response
 
 ```json
 {
-  "message": "Error description",
-  "code": 400
+  "errorCode": "Primus.xxx",
+  "errorMessage": ""
 }
 ```
 
@@ -85,7 +79,7 @@ Base Path: `/api/custom`
 
 ### Time Format
 
-All time fields use RFC3339 format: `2006-01-02T15:04:05.000Z`
+All time fields use RFC3339 format: `2006-01-02T15:04:05`
 
 ### Resource Units
 
@@ -101,10 +95,9 @@ All time fields use RFC3339 format: `2006-01-02T15:04:05.000Z`
 
 ## Version History
 
-- **v1.0** (2025-01) - Initial release
+- **v1.0** (2025-10) - Initial release
 
 ## Contact
 
 For questions, please contact:
-- Email: support@amd.com
-- Project Repository: [GitHub](https://github.com/AMD-AIG-AIMA/SAFE)
+- Project Repository: [GitHub](https://github.com/AMD-AGI/Primus-SaFE)

@@ -27,18 +27,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 )
 
-// GetWorkloadsOfWorkspace retrieves workloads belonging to specified workspace(s) and cluster
-// Parameters:
-//
-//	ctx: Context for the operation
-//	cli: Controller runtime client
-//	clusterName: Optional cluster name to filter by
-//	workspaceNames: Slice of workspace names to filter by
-//	filterFunc: Optional function to further filter workloads
-//
-// Returns:
-//
-//	Slice of workload pointers and error if any
+// GetWorkloadsOfWorkspace retrieves workloads belonging to specified workspace(s) and cluster.
 func GetWorkloadsOfWorkspace(ctx context.Context, cli client.Client, clusterName string, workspaceNames []string,
 	filterFunc func(*v1.Workload) bool) ([]*v1.Workload, error) {
 	var labelSelector = labels.NewSelector()
@@ -65,17 +54,7 @@ func GetWorkloadsOfWorkspace(ctx context.Context, cli client.Client, clusterName
 	return result, nil
 }
 
-// GetWorkloadsOfK8sNode retrieves workload names running on a specific Kubernetes node
-// Parameters:
-//
-//	ctx: Context for the operation
-//	k8sClient: Kubernetes client interface
-//	k8sNodeName: Name of the Kubernetes node to query
-//	namespace: Namespace to filter pods
-//
-// Returns:
-//
-//	Slice of workload names and error if any
+// GetWorkloadsOfK8sNode retrieves workload names running on a specific Kubernetes node.
 func GetWorkloadsOfK8sNode(ctx context.Context, k8sClient kubernetes.Interface, k8sNodeName, namespace string) ([]string, error) {
 	if namespace == "" {
 		return nil, nil
@@ -94,16 +73,7 @@ func GetWorkloadsOfK8sNode(ctx context.Context, k8sClient kubernetes.Interface, 
 	return results, nil
 }
 
-// GetWorkloadTemplate retrieves the ConfigMap template for a workload based on its version and kind
-// Parameters:
-//
-//	ctx: Context for the operation
-//	cli: Controller runtime client
-//	workload: Workload instance to find template for
-//
-// Returns:
-//
-//	Pointer to ConfigMap template or error if not found
+// GetWorkloadTemplate retrieves the ConfigMap template for a workload based on its version and kind.
 func GetWorkloadTemplate(ctx context.Context, cli client.Client, workload *v1.Workload) (*corev1.ConfigMap, error) {
 	selector := labels.SelectorFromSet(map[string]string{
 		v1.WorkloadVersionLabel: workload.SpecVersion(), v1.WorkloadKindLabel: workload.SpecKind()})
@@ -120,15 +90,7 @@ func GetWorkloadTemplate(ctx context.Context, cli client.Client, workload *v1.Wo
 			workload.Spec.GroupVersionKind.VersionKind(), workload.Spec.Resource.GPUName))
 }
 
-// GetResourcesPerNode calculates resource usage per node for a workload
-// Parameters:
-//
-//	workload: Workload instance to analyze
-//	adminNodeName: Optional specific node name to filter by
-//
-// Returns:
-//
-//	Map of node names to resource lists and error if any
+// GetResourcesPerNode calculates resource usage per node for a workload.
 func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[string]corev1.ResourceList, error) {
 	if workload.Spec.Resource.Replica == 0 {
 		return nil, nil
@@ -155,16 +117,8 @@ func GetResourcesPerNode(workload *v1.Workload, adminNodeName string) (map[strin
 	return result, nil
 }
 
-// GetActiveResources retrieves active resources based on the input workload
-// It filters out terminated pods and applies node filtering criteria
-// Parameters:
-//
-//	workload: Workload instance to analyze
-//	filterNode: Optional function to filter nodes
-//
-// Returns:
-//
-//	Total resource list, involved node names, and error if any
+// GetActiveResources retrieves active resources based on the input workload.
+// It filters out terminated pods and applies node filtering criteria.
 func GetActiveResources(workload *v1.Workload, filterNode func(nodeName string) bool) (corev1.ResourceList, []string, error) {
 	if workload.Spec.Resource.Replica == 0 || len(workload.Status.Pods) == 0 {
 		return nil, nil, nil
@@ -216,14 +170,7 @@ func GetActiveResources(workload *v1.Workload, filterNode func(nodeName string) 
 	return resources, nodes, nil
 }
 
-// CvtToResourceList converts workload resource specification to Kubernetes ResourceList
-// Parameters:
-//
-//	w: Workload instance containing resource specifications
-//
-// Returns:
-//
-//	ResourceList representation and error if conversion fail
+// CvtToResourceList converts data to the target format.
 func CvtToResourceList(w *v1.Workload) (corev1.ResourceList, error) {
 	res := &w.Spec.Resource
 	result, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
@@ -234,14 +181,7 @@ func CvtToResourceList(w *v1.Workload) (corev1.ResourceList, error) {
 	return result, nil
 }
 
-// GetPodResources converts workload resource specification to per-pod ResourceList
-// Parameters:
-//
-//	res: WorkloadResource specification
-//
-// Returns:
-//
-//	ResourceList for a single pod and error if conversion fail
+// GetPodResources converts workload resource specification to per-pod ResourceList.
 func GetPodResources(res *v1.WorkloadResource) (corev1.ResourceList, error) {
 	if res == nil {
 		return nil, fmt.Errorf("the input resource is empty")
@@ -254,14 +194,7 @@ func GetPodResources(res *v1.WorkloadResource) (corev1.ResourceList, error) {
 	return result, nil
 }
 
-// GetScope determines the workspace scope based on workload kind
-// Parameters:
-//
-//	w: Workload instance to analyze
-//
-// Returns:
-//
-//	WorkspaceScope enum value (TrainScope, InferScope, AuthoringScope, or empty
+// GetScope determines the workspace scope based on workload kind.
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
 	case common.PytorchJobKind:
@@ -275,14 +208,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	}
 }
 
-// IsApplication checks if workload is an application (Deployment or StatefulSet)
-// Parameters:
-//
-//	w: Workload instance to check
-//
-// Returns:
-//
-//	true if workload is an application, false otherwise
+// IsApplication returns true if the condition is met.
 func IsApplication(w *v1.Workload) bool {
 	if w.SpecKind() == common.DeploymentKind ||
 		w.SpecKind() == common.StatefulSetKind {
@@ -291,14 +217,7 @@ func IsApplication(w *v1.Workload) bool {
 	return false
 }
 
-// IsJob checks if workload is a job (PyTorchJob, Authoring, or Job)
-// Parameters:
-//
-//	w: Workload instance to check
-//
-// Returns:
-//
-//	true if workload is a job, false otherwise
+// IsJob returns true if the condition is met.
 func IsJob(w *v1.Workload) bool {
 	if w.SpecKind() == common.PytorchJobKind ||
 		w.SpecKind() == common.AuthoringKind || w.SpecKind() == common.JobKind {
@@ -307,14 +226,7 @@ func IsJob(w *v1.Workload) bool {
 	return false
 }
 
-// IsAuthoring checks if workload is an authoring workload
-// Parameters:
-//
-//	w: Workload instance to check
-//
-// Returns:
-//
-//	true if workload is authoring type, false otherwise
+// IsAuthoring returns true if the condition is met.
 func IsAuthoring(w *v1.Workload) bool {
 	if w.SpecKind() == common.AuthoringKind {
 		return true
@@ -322,27 +234,12 @@ func IsAuthoring(w *v1.Workload) bool {
 	return false
 }
 
-// IsOpsJob checks if workload is associated with an OpsJob
-// Parameters:
-//
-//	w: Workload instance to check
-//
-// Returns:
-//
-//	true if workload has OpsJob ID, false otherwise
+// IsOpsJob returns true if the condition is met.
 func IsOpsJob(w *v1.Workload) bool {
 	return v1.GetOpsJobId(w) != ""
 }
 
-// IsResourceEqual compares resource specifications between two workloads
-// Parameters:
-//
-//	workload1: First workload to compare
-//	workload2: Second workload to compare
-//
-// Returns:
-//
-//	true if resources are equal, false otherwise
+// IsResourceEqual returns true if the condition is met.
 func IsResourceEqual(workload1, workload2 *v1.Workload) bool {
 	if workload1.Spec.Resource.Replica != workload2.Spec.Resource.Replica {
 		return false
@@ -358,40 +255,19 @@ func IsResourceEqual(workload1, workload2 *v1.Workload) bool {
 	return quantity.Equal(rl1, rl2)
 }
 
-// GenerateDispatchReason generates a dispatch reason string based on count
-// Parameters:
-//
-//	count: Number of times run
-//
-// Returns:
-//
-//	Formatted string like "run_X_times"
+// GenerateDispatchReason generates a dispatch reason string based on count.
 func GenerateDispatchReason(count int) string {
 	return "run_" + strconv.Itoa(count) + "_times"
 }
 
-// GeneratePriorityClass generates priority class name for a workload
-// Parameters:
-//
-//	workload: Workload instance
-//
-// Returns:
-//
-//	Priority class name string
+// GeneratePriorityClass generates priority class name for a workload.
 func GeneratePriorityClass(workload *v1.Workload) string {
 	clusterId := v1.GetClusterId(workload)
 	strPriority := GeneratePriority(workload.Spec.Priority)
 	return commonutils.GenerateClusterPriorityClass(clusterId, strPriority)
 }
 
-// GeneratePriority converts integer priority to string representation
-// Parameters:
-//
-//	priority: Integer priority value
-//
-// Returns:
-//
-//	String representation (HighPriority, MedPriority, or LowPriority
+// GeneratePriority converts integer priority to string representation.
 func GeneratePriority(priority int) string {
 	strPriority := ""
 	switch priority {
@@ -405,14 +281,7 @@ func GeneratePriority(priority int) string {
 	return strPriority
 }
 
-// GenerateMaxAvailResource generates maximum available resource for workload by NodeFlavor
-// Parameters:
-//
-//	nf: NodeFlavor instance
-//
-// Returns:
-//
-//	WorkloadResource with maximum available resource
+// GenerateMaxAvailResource generates maximum available resource for workload by NodeFlavor.
 func GenerateMaxAvailResource(nf *v1.NodeFlavor) *v1.WorkloadResource {
 	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())
 	availResource := quantity.GetAvailableResource(nodeResources)
