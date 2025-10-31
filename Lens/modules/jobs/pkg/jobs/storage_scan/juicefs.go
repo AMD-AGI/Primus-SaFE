@@ -11,7 +11,7 @@ type JuiceFSDriver struct{}
 func (d *JuiceFSDriver) Name() string { return "juicefs" }
 
 func (d *JuiceFSDriver) Detect(ctx context.Context, dctx DriverContext) (int, error) {
-	// 简化：按 StorageClass 的 provisioner 包含 "juicedata.com" 或 "csi.juicefs.com" 检测
+	// Simplified: Detect if StorageClass provisioner contains "juicedata.com" or "csi.juicefs.com"
 	scs, err := dctx.Kube.StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return 0, err

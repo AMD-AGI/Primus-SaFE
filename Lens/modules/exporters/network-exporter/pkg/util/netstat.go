@@ -263,7 +263,7 @@ func GetLocalIpV4() []string {
 		return result
 	}
 	for _, iface := range ifaces {
-		// 跳过未启用或没有硬件地址的接口
+		// Skip interfaces that are not up or have no hardware address
 		if iface.Flags&net.FlagUp == 0 {
 			continue
 		}

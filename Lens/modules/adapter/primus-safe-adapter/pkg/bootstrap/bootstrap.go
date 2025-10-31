@@ -3,7 +3,7 @@ package bootstrap
 import (
 	"context"
 
-	primusSafeV1 "github.com/AMD-AGI/Primus-SaFE/apis/pkg/apis/amd/v1"
+	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AGI/primus-lens/core/pkg/config"
 	"github.com/AMD-AGI/primus-lens/core/pkg/controller"
 	"github.com/AMD-AGI/primus-lens/primus-safe-adapter/pkg/matcher"

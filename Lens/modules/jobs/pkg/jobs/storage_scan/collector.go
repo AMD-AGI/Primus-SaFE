@@ -30,7 +30,7 @@ func Register(d Driver) {
 	drivers[n] = d
 }
 
-// ScanReport 整个集群扫描结果。
+// ScanReport contains scan results for the entire cluster.
 type ScanReport struct {
 	Cluster      string          `json:"cluster"`
 	Timestamp    time.Time       `json:"timestamp"`
@@ -44,7 +44,7 @@ type ClusterTarget struct {
 	Extra      map[string]string
 }
 
-// Scanner 负责多集群与多 Driver 的编排。
+// Scanner is responsible for orchestrating multiple clusters and drivers.
 type Scanner struct {
 	Targets []ClusterTarget
 }
@@ -75,7 +75,7 @@ func (s *Scanner) Run(ctx context.Context) ([]ScanReport, error) {
 	}
 	wg.Wait()
 	if len(errList) > 0 {
-		// 简化返回第一个错误，同时仍返回已完成的 reports
+		// Simplified: return first error while still returning completed reports
 		return reports, errList[0]
 	}
 	return reports, nil
@@ -86,7 +86,7 @@ func (s *Scanner) scanOne(ctx context.Context, t ClusterTarget) (ScanReport, err
 
 	dctx := DriverContext{Cluster: t.Name, Kube: kube, Extra: t.Extra}
 
-	// 枚举可用 drivers
+	// Enumerate available drivers
 	regMu.RLock()
 	var ds []Driver
 	for _, d := range drivers {

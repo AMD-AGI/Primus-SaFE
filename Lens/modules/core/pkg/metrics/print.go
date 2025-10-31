@@ -7,7 +7,7 @@ import (
 	"github.com/prometheus/common/expfmt"
 )
 
-// 返回promethues指标
+// GetPromethuesAsFmtText returns Prometheus metrics
 func GetPromethuesAsFmtText() (string, error) {
 	mfs, err := prometheus.DefaultGatherer.Gather()
 	if err != nil {

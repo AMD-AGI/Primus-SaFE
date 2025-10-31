@@ -4,8 +4,8 @@ import re
 
 def get_rdma_links():
     """
-    获取当前机器的 RDMA 设备信息
-    返回格式：列表，每个元素是字典：
+    Get RDMA device information for the current machine
+    Return format: list, each element is a dictionary:
     {
         "link": "mlx5_1/1",
         "state": "ACTIVE",
@@ -16,7 +16,7 @@ def get_rdma_links():
     result = subprocess.run(["rdma", "link", "show"], capture_output=True, text=True)
     links = []
     for line in result.stdout.strip().split("\n"):
-        # 示例: link mlx5_1/1 state ACTIVE physical_state LINK_UP netdev eth0
+        # Example: link mlx5_1/1 state ACTIVE physical_state LINK_UP netdev eth0
         m = re.match(r"link (\S+) state (\S+) physical_state (\S+) netdev (\S+)", line)
         if m:
             links.append({
@@ -30,8 +30,8 @@ def get_rdma_links():
 
 def get_rdma_statistics():
     """
-    获取 RDMA 设备的 counter 信息
-    返回格式：字典，key 为 link 名称，value 为 counter 字典
+    Get RDMA device counter information
+    Return format: dictionary, key is link name, value is counter dictionary
     {
         "mlx5_8/1": {"rx_write_requests": -481413250, "rx_read_requests": 797596171, ...}
     }
@@ -39,7 +39,7 @@ def get_rdma_statistics():
     result = subprocess.run(["rdma", "statistic", "show"], capture_output=True, text=True)
     stats = {}
     for line in result.stdout.strip().split("\n"):
-        # 每行以 "link mlx5_8/1" 开头，后面是 key value 对
+        # Each line starts with "link mlx5_8/1", followed by key-value pairs
         parts = line.split()
         if len(parts) < 2 or parts[0] != "link":
             continue
