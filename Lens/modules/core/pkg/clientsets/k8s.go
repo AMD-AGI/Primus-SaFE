@@ -115,7 +115,6 @@ func loadMultiClusterK8SClientSet(ctx context.Context) error {
 			WithMessage("Failed to marshal multi-cluster k8s config").
 			WithError(err)
 	}
-	log.Infof("Multi-cluster k8s config: %s", string(configBytes))
 	if multiClusterK8SConfigJsonBytes != nil {
 		if string(configBytes) == string(multiClusterK8SConfigJsonBytes) {
 			return nil
