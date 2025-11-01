@@ -49,7 +49,11 @@ func InitControllers(ctx context.Context, conf config.Config) error {
 		log.Infof("No controllers registered.Skip controller initializtion")
 		return nil
 	}
-	controllerLogger.SetLogger(logr.New(log.NewLogger(logConf.ErrorLevel)))
+	logger, err := log.NewLogger(logConf.ErrorLevel)
+	if err != nil {
+		return err
+	}
+	controllerLogger.SetLogger(logr.New(logger))
 	cfg := conf.Controller
 	k8sCfg := ctrl.GetConfigOrDie()
 	mgr, err := ctrl.NewManager(k8sCfg, ctrl.Options{
