@@ -211,5 +211,6 @@ func createRestConfig(endpoint, certData, keyData, caData string, insecure bool)
 	if !insecure {
 		cfg.TLSClientConfig.CAData = []byte(caData)
 	}
+	log.Infof("Rest config key data: %s cert data: %s ca data: %s", keyData, certData, caData)
 	return cfg, nil
 }
