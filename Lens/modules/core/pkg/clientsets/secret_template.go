@@ -14,13 +14,29 @@ import (
 type MultiClusterConfig map[string]ClusterConfig
 
 func (m *MultiClusterConfig) LoadFromSecret(data map[string][]byte) error {
-	for clusterName, bytes := range data {
+	// Ensure the map is initialized
+	if *m == nil {
+		*m = make(MultiClusterConfig)
+	}
+
+	// Iterate through each cluster configuration in the secret
+	// Each key is the cluster name, value is the ClusterConfig in JSON format
+	for clusterName, configBytes := range data {
+		// Skip empty data
+		if len(configBytes) == 0 {
+			continue
+		}
+
+		// Unmarshal JSON bytes into ClusterConfig structure
 		var clusterCfg ClusterConfig
-		if err := json.Unmarshal(bytes, &clusterCfg); err != nil {
+		if err := json.Unmarshal(configBytes, &clusterCfg); err != nil {
 			return fmt.Errorf("failed to unmarshal cluster config for cluster %s: %w", clusterName, err)
 		}
+
+		// Store the parsed configuration in the map
 		(*m)[clusterName] = clusterCfg
 	}
+
 	return nil
 }
 
