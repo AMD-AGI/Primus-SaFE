@@ -6,9 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	stringUtil "github.com/AMD-AGI/primus-lens/core/pkg/utils/stringUtil"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
@@ -202,42 +200,19 @@ func (p PrimusLensClientConfigPostgres) Equals(other PrimusLensClientConfigPostg
 }
 
 func createRestConfig(endpoint, certData, keyData, caData string, insecure bool) (*rest.Config, error) {
-	cert, err := stringUtil.DecodeBase64(certData)
-	if err != nil {
-		log.Errorf("Failed to decode cert data: %v", err)
-		log.Errorf("Cert data: %s", certData)
-		return nil, errors.NewError().
-			WithCode(errors.CodeInitializeError).
-			WithMessage("Failed to decode cert data").
-			WithError(err)
-	}
-	key, err := stringUtil.DecodeBase64(keyData)
-	if err != nil {
-		return nil, errors.NewError().
-			WithCode(errors.CodeInitializeError).
-			WithMessage("Failed to decode key data").
-			WithError(err)
-	}
-	if endpoint == "" || cert == "" || key == "" {
+	if endpoint == "" || certData == "" || keyData == "" {
 		return nil, fmt.Errorf("invalid input")
 	}
 	cfg := &rest.Config{
 		Host: endpoint,
 		TLSClientConfig: rest.TLSClientConfig{
 			Insecure: insecure,
-			KeyData:  []byte(key),
-			CertData: []byte(cert),
+			KeyData:  []byte(keyData),
+			CertData: []byte(certData),
 		},
 	}
 	if !insecure {
-		ca, err := stringUtil.DecodeBase64(caData)
-		if err != nil {
-			return nil, errors.NewError().
-				WithCode(errors.CodeInitializeError).
-				WithMessage("Failed to decode ca data").
-				WithError(err)
-		}
-		cfg.TLSClientConfig.CAData = []byte(ca)
+		cfg.TLSClientConfig.CAData = []byte(caData)
 	}
 	return cfg, nil
 }
