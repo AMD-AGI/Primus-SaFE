@@ -82,10 +82,20 @@ func decodeIfBase64(data string) (string, error) {
 	decoded, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
 		// If decode fails, assume it's already plain text (e.g., PEM format)
+		log.Infof("Data is not base64 encoded, using as-is (first 50 chars): %s", truncateString(data, 50))
 		return data, nil
 	}
 
-	return string(decoded), nil
+	decodedStr := string(decoded)
+	log.Infof("Successfully decoded base64 data (first 50 chars): %s", truncateString(decodedStr, 50))
+	return decodedStr, nil
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 type PrimusLensClientConfig struct {
@@ -233,6 +243,11 @@ func createRestConfig(endpoint, certData, keyData, caData string, insecure bool)
 		return nil, fmt.Errorf("failed to decode ca data: %w", err)
 	}
 
+	log.Infof("Creating rest config for endpoint: %s (insecure: %v, cert len: %d, key len: %d, ca len: %d)",
+		endpoint, insecure, len(decodedCertData), len(decodedKeyData), len(decodedCAData))
+	log.Infof("Key data starts with: %s", truncateString(decodedKeyData, 30))
+	log.Infof("Cert data starts with: %s", truncateString(decodedCertData, 30))
+
 	cfg := &rest.Config{
 		Host: endpoint,
 		TLSClientConfig: rest.TLSClientConfig{
@@ -244,7 +259,5 @@ func createRestConfig(endpoint, certData, keyData, caData string, insecure bool)
 	if !insecure {
 		cfg.TLSClientConfig.CAData = []byte(decodedCAData)
 	}
-	log.Infof("Creating rest config for endpoint: %s (insecure: %v, has cert: %v, has key: %v, has ca: %v)",
-		endpoint, insecure, len(decodedCertData) > 0, len(decodedKeyData) > 0, len(decodedCAData) > 0)
 	return cfg, nil
 }
