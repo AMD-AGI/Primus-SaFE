@@ -29,7 +29,6 @@ func (m *MultiClusterConfig) LoadFromSecret(data map[string][]byte) error {
 			continue
 		}
 		log.Infof("Loading k8s config for cluster: %s", clusterName)
-		log.Infof("Config bytes: %s", string(configBytes))
 		// First unmarshal into intermediate structure with string fields
 		var clusterCfg ClusterConfig
 		if err := json.Unmarshal(configBytes, &clusterCfg); err != nil {
