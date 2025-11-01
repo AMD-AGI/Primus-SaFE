@@ -204,6 +204,8 @@ func (p PrimusLensClientConfigPostgres) Equals(other PrimusLensClientConfigPostg
 func createRestConfig(endpoint, certData, keyData, caData string, insecure bool) (*rest.Config, error) {
 	cert, err := stringUtil.DecodeBase64(certData)
 	if err != nil {
+		log.Errorf("Failed to decode cert data: %v", err)
+		log.Errorf("Cert data: %s", certData)
 		return nil, errors.NewError().
 			WithCode(errors.CodeInitializeError).
 			WithMessage("Failed to decode cert data").
