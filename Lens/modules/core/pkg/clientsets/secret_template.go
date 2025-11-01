@@ -200,9 +200,6 @@ func (p PrimusLensClientConfigPostgres) Equals(other PrimusLensClientConfigPostg
 }
 
 func createRestConfig(endpoint, certData, keyData, caData string, insecure bool) (*rest.Config, error) {
-	if endpoint == "" || certData == "" || keyData == "" {
-		return nil, fmt.Errorf("invalid input")
-	}
 	cfg := &rest.Config{
 		Host: endpoint,
 		TLSClientConfig: rest.TLSClientConfig{
