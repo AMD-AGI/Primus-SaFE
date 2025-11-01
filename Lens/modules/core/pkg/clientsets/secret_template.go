@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	stringUtil "github.com/AMD-AGI/primus-lens/core/pkg/utils/stringUtil"
 	"k8s.io/client-go/rest"
@@ -203,11 +204,17 @@ func (p PrimusLensClientConfigPostgres) Equals(other PrimusLensClientConfigPostg
 func createRestConfig(endpoint, certData, keyData, caData string, insecure bool) (*rest.Config, error) {
 	cert, err := stringUtil.DecodeBase64(certData)
 	if err != nil {
-		return nil, err
+		return nil, errors.NewError().
+			WithCode(errors.CodeInitializeError).
+			WithMessage("Failed to decode cert data").
+			WithError(err)
 	}
 	key, err := stringUtil.DecodeBase64(keyData)
 	if err != nil {
-		return nil, err
+		return nil, errors.NewError().
+			WithCode(errors.CodeInitializeError).
+			WithMessage("Failed to decode key data").
+			WithError(err)
 	}
 	if endpoint == "" || cert == "" || key == "" {
 		return nil, fmt.Errorf("invalid input")
@@ -223,7 +230,10 @@ func createRestConfig(endpoint, certData, keyData, caData string, insecure bool)
 	if !insecure {
 		ca, err := stringUtil.DecodeBase64(caData)
 		if err != nil {
-			return nil, err
+			return nil, errors.NewError().
+				WithCode(errors.CodeInitializeError).
+				WithMessage("Failed to decode ca data").
+				WithError(err)
 		}
 		cfg.TLSClientConfig.CAData = []byte(ca)
 	}
