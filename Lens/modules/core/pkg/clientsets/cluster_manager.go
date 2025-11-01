@@ -30,6 +30,12 @@ type ClusterManager struct {
 
 	// Whether in multi-cluster mode
 	multiCluster bool
+
+	// Whether to load K8S client
+	loadK8SClient bool
+
+	// Whether to load Storage client
+	loadStorageClient bool
 }
 
 var (
@@ -39,12 +45,14 @@ var (
 
 // InitClusterManager initializes the cluster manager and all client sets
 // This is the main entry point for initializing all clients
-func InitClusterManager(ctx context.Context, multiCluster bool) error {
+func InitClusterManager(ctx context.Context, multiCluster bool, loadK8SClient bool, loadStorageClient bool) error {
 	var initErr error
 	clusterManagerOnce.Do(func() {
 		globalClusterManager = &ClusterManager{
-			clusters:     make(map[string]*ClusterClientSet),
-			multiCluster: multiCluster,
+			clusters:          make(map[string]*ClusterClientSet),
+			multiCluster:      multiCluster,
+			loadK8SClient:     loadK8SClient,
+			loadStorageClient: loadStorageClient,
 		}
 		initErr = globalClusterManager.initialize(ctx)
 	})
@@ -61,30 +69,42 @@ func GetClusterManager() *ClusterManager {
 
 // initialize initializes the cluster manager
 func (cm *ClusterManager) initialize(ctx context.Context) error {
-	// Initialize K8S client sets first
-	if err := cm.initializeK8SClients(ctx); err != nil {
-		return err
+	// Initialize K8S client sets first if enabled
+	if cm.loadK8SClient {
+		if err := cm.initializeK8SClients(ctx); err != nil {
+			return err
+		}
+	} else {
+		log.Info("K8S client loading is disabled")
 	}
 
-	// Initialize Storage client sets
-	if err := cm.initializeStorageClients(ctx); err != nil {
-		return err
+	// Initialize Storage client sets if enabled
+	if cm.loadStorageClient {
+		if err := cm.initializeStorageClients(ctx); err != nil {
+			return err
+		}
+	} else {
+		log.Info("Storage client loading is disabled")
 	}
 
-	// Initialize current cluster
-	if err := cm.initializeCurrentCluster(); err != nil {
-		return err
-	}
-
-	// If in multi-cluster mode, initialize all clusters
-	if cm.multiCluster {
-		if err := cm.loadAllClusters(ctx); err != nil {
-			log.Warnf("Failed to load multi-cluster clients: %v", err)
-			// Don't return error as multi-cluster config may not be ready yet
+	// Initialize current cluster only if at least one client is enabled
+	if cm.loadK8SClient || cm.loadStorageClient {
+		if err := cm.initializeCurrentCluster(); err != nil {
+			return err
 		}
 
-		// Start periodic sync
-		go cm.startPeriodicSync(ctx)
+		// If in multi-cluster mode, initialize all clusters
+		if cm.multiCluster {
+			if err := cm.loadAllClusters(ctx); err != nil {
+				log.Warnf("Failed to load multi-cluster clients: %v", err)
+				// Don't return error as multi-cluster config may not be ready yet
+			}
+
+			// Start periodic sync
+			go cm.startPeriodicSync(ctx)
+		}
+	} else {
+		log.Warn("Both K8S and Storage client loading are disabled, skipping cluster initialization")
 	}
 
 	log.Info("Cluster manager initialized successfully")
@@ -106,6 +126,8 @@ func (cm *ClusterManager) initializeK8SClients(ctx context.Context) error {
 		}
 		// Start periodic sync for K8S clients
 		go doLoadMultiClusterK8SClientSet(ctx)
+	} else {
+		log.Info("Not in multi-cluster mode, skipping multi-cluster K8S client loading")
 	}
 
 	log.Info("K8S clients initialized successfully")
@@ -117,6 +139,9 @@ func (cm *ClusterManager) initializeStorageClients(ctx context.Context) error {
 	var err error
 	if !cm.multiCluster {
 		err = loadCurrentClusterStorageClients(ctx)
+		if err == nil {
+			log.Info("Current cluster storage clients loaded successfully")
+		}
 	} else {
 		err = loadMultiClusterStorageClients(ctx)
 		if err != nil {
@@ -139,6 +164,7 @@ func (cm *ClusterManager) initializeStorageClients(ctx context.Context) error {
 				}
 			}
 		}()
+		log.Info("Multi-cluster storage clients loading initiated")
 	}
 
 	if err != nil {
@@ -151,9 +177,17 @@ func (cm *ClusterManager) initializeStorageClients(ctx context.Context) error {
 
 // initializeCurrentCluster initializes the current cluster's clients
 func (cm *ClusterManager) initializeCurrentCluster() error {
-	// Get clients from already initialized global variables
-	k8sClient := getCurrentClusterK8SClientSet()
-	storageClient := getCurrentClusterStorageClientSet()
+	// Get clients from already initialized global variables based on configuration
+	var k8sClient *K8SClientSet
+	var storageClient *StorageClientSet
+
+	if cm.loadK8SClient {
+		k8sClient = getCurrentClusterK8SClientSet()
+	}
+
+	if cm.loadStorageClient {
+		storageClient = getCurrentClusterStorageClientSet()
+	}
 
 	// Try to get cluster name from environment variable or config
 	clusterName := getCurrentClusterName()
@@ -167,7 +201,8 @@ func (cm *ClusterManager) initializeCurrentCluster() error {
 	// Also add current cluster to clusters map
 	cm.clusters[clusterName] = cm.currentCluster
 
-	log.Infof("Initialized current cluster: %s", clusterName)
+	log.Infof("Initialized current cluster: %s (K8S: %v, Storage: %v)",
+		clusterName, cm.loadK8SClient, cm.loadStorageClient)
 	return nil
 }
 
@@ -175,9 +210,6 @@ func (cm *ClusterManager) initializeCurrentCluster() error {
 func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-
-	// Get all K8S clients
-	k8sClients := getAllClusterK8SClients()
 
 	// Create new cluster map
 	newClusters := make(map[string]*ClusterClientSet)
@@ -187,6 +219,12 @@ func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 		newClusters[cm.currentCluster.ClusterName] = cm.currentCluster
 	}
 
+	// Get all K8S clients if K8S client loading is enabled
+	var k8sClients map[string]*K8SClientSet
+	if cm.loadK8SClient {
+		k8sClients = getAllClusterK8SClients()
+	}
+
 	// Create ClusterClientSet for each remote cluster
 	for clusterName, k8sClient := range k8sClients {
 		// Skip if it's the current cluster (already added)
@@ -194,12 +232,16 @@ func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 			continue
 		}
 
-		// Try to get storage client for this cluster
-		storageClient, err := getStorageClientSetByClusterName(clusterName)
-		if err != nil {
-			log.Warnf("Failed to get storage client for cluster %s: %v", clusterName, err)
-			// Create cluster object even without storage client (storage config may not be ready yet)
-			storageClient = nil
+		var storageClient *StorageClientSet
+		// Try to get storage client for this cluster if storage client loading is enabled
+		if cm.loadStorageClient {
+			var err error
+			storageClient, err = getStorageClientSetByClusterName(clusterName)
+			if err != nil {
+				log.Warnf("Failed to get storage client for cluster %s: %v", clusterName, err)
+				// Create cluster object even without storage client (storage config may not be ready yet)
+				storageClient = nil
+			}
 		}
 
 		newClusters[clusterName] = &ClusterClientSet{
@@ -208,7 +250,8 @@ func (cm *ClusterManager) loadAllClusters(ctx context.Context) error {
 			StorageClientSet: storageClient,
 		}
 
-		log.Infof("Loaded cluster: %s", clusterName)
+		log.Infof("Loaded cluster: %s (K8S: %v, Storage: %v)",
+			clusterName, k8sClient != nil, storageClient != nil)
 	}
 
 	cm.clusters = newClusters
