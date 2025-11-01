@@ -120,6 +120,7 @@ func loadMultiClusterK8SClientSet(ctx context.Context) error {
 			return nil
 		}
 	}
+	log.Infof("Multi-cluster k8s config: %s", string(configBytes))
 	multiClusterK8SConfigJsonBytes = configBytes
 	newMultiClusterK8S := map[string]*K8SClientSet{}
 	for clusterName, k8sCfg := range k8sConfigs {
@@ -134,11 +135,17 @@ func loadMultiClusterK8SClientSet(ctx context.Context) error {
 		}
 		k8sClientSet, err := initK8SClientSetByConfig(restCfg)
 		if err != nil {
-			return err
+			log.Errorf("Failed to initialize k8s client set for cluster %s: %v", clusterName, err)
+			return errors.NewError().
+				WithCode(errors.CodeInitializeError).
+				WithMessage("Failed to initialize k8s client set").
+				WithError(err)
 		}
 		newMultiClusterK8S[clusterName] = k8sClientSet
+		log.Infof("Initialized k8s client set for cluster %s", clusterName)
 	}
 	multiClusterK8S = newMultiClusterK8S
+	log.Infof("Initialized multi-cluster k8s client sets")
 	return nil
 }
 
