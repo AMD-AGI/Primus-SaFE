@@ -41,7 +41,7 @@ func (w *WorkloadMatcher) run(ctx context.Context) {
 }
 
 func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload *model.GpuWorkload) error {
-	children, err := database.ListChildrenWorkloadByParentUid(ctx, dbWorkload.UID)
+	children, err := database.GetFacade().GetWorkload().ListChildrenWorkloadByParentUid(ctx, dbWorkload.UID)
 	if err != nil {
 		return err
 	}
@@ -55,7 +55,7 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 			return nil
 		}
 	}
-	referencedWorkload, err := database.ListWorkloadByLabelValue(ctx, primusSafeConstant.WorkloadIdLabel, dbWorkload.Name)
+	referencedWorkload, err := database.GetFacade().GetWorkload().ListWorkloadByLabelValue(ctx, primusSafeConstant.WorkloadIdLabel, dbWorkload.Name)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 	for _, workload := range referencedWorkload {
 		if workload.ParentUID == "" {
 			dbWorkload.ParentUID = workload.UID
-			err = database.UpdateGpuWorkload(ctx, dbWorkload)
+			err = database.GetFacade().GetWorkload().UpdateGpuWorkload(ctx, dbWorkload)
 			if err != nil {
 				return err
 			}
@@ -76,7 +76,7 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 }
 
 func (w *WorkloadMatcher) doScan(ctx context.Context) error {
-	workloads, err := database.ListWorkloadNotEndByKind(ctx, "Workload")
+	workloads, err := database.GetFacade().GetWorkload().ListWorkloadNotEndByKind(ctx, "Workload")
 	if err != nil {
 		return err
 	}

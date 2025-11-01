@@ -122,7 +122,7 @@ func (s *EventServer) solveDockerContainerEvent(ctx context.Context, evt *pb.Con
 	if err != nil {
 		return err
 	}
-	existContainer, err := database.GetNodeContainerByContainerId(ctx, evt.ContainerId)
+	existContainer, err := database.GetFacade().GetContainer().GetNodeContainerByContainerId(ctx, evt.ContainerId)
 	if err != nil {
 		log.Errorf("Failed to get container by containerId: %v", err)
 		containerEventErrorCnt.WithLabelValues("docker").Inc()
@@ -143,9 +143,9 @@ func (s *EventServer) solveDockerContainerEvent(ctx context.Context, evt *pb.Con
 	}
 	existContainer.Status = containerInfo.Status
 	if existContainer.ID == 0 {
-		err = database.CreateNodeContainer(ctx, existContainer)
+		err = database.GetFacade().GetContainer().CreateNodeContainer(ctx, existContainer)
 	} else {
-		err = database.UpdateNodeContainer(ctx, existContainer)
+		err = database.GetFacade().GetContainer().UpdateNodeContainer(ctx, existContainer)
 	}
 	if err != nil {
 		return err
@@ -163,7 +163,7 @@ func (s *EventServer) solveDockerContainerEvent(ctx context.Context, evt *pb.Con
 }
 
 func (s *EventServer) saveContainerDevice(ctx context.Context, containerId string, device model.DockerDeviceInfo) error {
-	existRecord, err := database.GetNodeContainerDeviceByContainerIdAndDeviceUid(ctx, containerId, device.DeviceSerial)
+	existRecord, err := database.GetFacade().GetContainer().GetNodeContainerDeviceByContainerIdAndDeviceUid(ctx, containerId, device.DeviceSerial)
 	if err != nil {
 		log.Errorf("failed to get container device by container id %s and device uid %s: %v", containerId, device.DeviceSerial, err)
 		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to get container device by container id %s and device uid %s", containerId, device.DeviceSerial)
@@ -184,7 +184,7 @@ func (s *EventServer) saveContainerDevice(ctx context.Context, containerId strin
 		} else {
 			existRecord.DeviceType = constant.DeviceTypeGPU
 		}
-		err = database.CreateNodeContainerDevice(ctx, existRecord)
+		err = database.GetFacade().GetContainer().CreateNodeContainerDevice(ctx, existRecord)
 		if err != nil {
 			log.Errorf("failed to create node container device: %v", err)
 			return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to create node container device: %v", err)
@@ -257,7 +257,7 @@ func (s *EventServer) solveContainerEvent(ctx context.Context, evt *pb.Container
 		return nil
 	}
 	// Check weather container exists
-	existContainer, err := database.GetNodeContainerByContainerId(ctx, evt.ContainerId)
+	existContainer, err := database.GetFacade().GetContainer().GetNodeContainerByContainerId(ctx, evt.ContainerId)
 	if err != nil {
 		log.Errorf("failed to get container by id %s: %v", evt.ContainerId, err)
 		containerEventErrorCnt.WithLabelValues("k8s").Inc()
@@ -279,10 +279,10 @@ func (s *EventServer) solveContainerEvent(ctx context.Context, evt *pb.Container
 	}
 	existContainer.Status = container.Status
 	if existContainer.ID == 0 {
-		err = database.CreateNodeContainer(ctx, existContainer)
+		err = database.GetFacade().GetContainer().CreateNodeContainer(ctx, existContainer)
 	} else {
 		existContainer.UpdatedAt = time.Now()
-		err = database.UpdateNodeContainer(ctx, existContainer)
+		err = database.GetFacade().GetContainer().UpdateNodeContainer(ctx, existContainer)
 	}
 	if err != nil {
 		log.Errorf("failed to save container %s. created at %d: %v", evt.ContainerId, container.CreatedAt, err)
@@ -294,7 +294,7 @@ func (s *EventServer) solveContainerEvent(ctx context.Context, evt *pb.Container
 	if container.Devices != nil {
 		for i := range container.Devices.GPU {
 			gpu := container.Devices.GPU[i]
-			existRecord, err := database.GetNodeContainerDeviceByContainerIdAndDeviceUid(ctx, evt.ContainerId, gpu.Serial)
+			existRecord, err := database.GetFacade().GetContainer().GetNodeContainerDeviceByContainerIdAndDeviceUid(ctx, evt.ContainerId, gpu.Serial)
 			if err != nil {
 				log.Errorf("failed to get container device by container id %s and device uid %s: %v", evt.ContainerId, gpu.Serial, err)
 				containerEventErrorCnt.WithLabelValues("k8s").Inc()
@@ -311,7 +311,7 @@ func (s *EventServer) solveContainerEvent(ctx context.Context, evt *pb.Container
 					CreatedAt:   time.Now(),
 					UpdatedAt:   time.Now(),
 				}
-				err = database.CreateNodeContainerDevice(ctx, existRecord)
+				err = database.GetFacade().GetContainer().CreateNodeContainerDevice(ctx, existRecord)
 				if err != nil {
 					log.Errorf("failed to create node container device: %v", err)
 					containerEventErrorCnt.WithLabelValues("k8s").Inc()
@@ -321,7 +321,7 @@ func (s *EventServer) solveContainerEvent(ctx context.Context, evt *pb.Container
 		}
 		for i := range container.Devices.Infiniband {
 			ib := container.Devices.Infiniband[i]
-			existRecord, err := database.GetNodeContainerDeviceByContainerIdAndDeviceUid(ctx, evt.ContainerId, ib.Serial)
+			existRecord, err := database.GetFacade().GetContainer().GetNodeContainerDeviceByContainerIdAndDeviceUid(ctx, evt.ContainerId, ib.Serial)
 			if err != nil {
 				containerEventErrorCnt.WithLabelValues("k8s").Inc()
 				log.Errorf("failed to get container device by container id %s and device uid %s: %v", evt.ContainerId, ib.Serial, err)
@@ -338,7 +338,7 @@ func (s *EventServer) solveContainerEvent(ctx context.Context, evt *pb.Container
 					CreatedAt:   time.Now(),
 					UpdatedAt:   time.Now(),
 				}
-				err = database.CreateNodeContainerDevice(ctx, existRecord)
+				err = database.GetFacade().GetContainer().CreateNodeContainerDevice(ctx, existRecord)
 				if err != nil {
 					containerEventErrorCnt.WithLabelValues("k8s").Inc()
 					log.Errorf("failed to create node container device: %v", err)
@@ -354,7 +354,7 @@ func (s *EventServer) solveContainerEvent(ctx context.Context, evt *pb.Container
 			EventType:   evt.Type,
 			CreatedAt:   time.Now(),
 		}
-		err := database.CreateNodeContainerEvent(ctx, event)
+		err := database.GetFacade().GetContainer().CreateNodeContainerEvent(ctx, event)
 		if err != nil {
 			log.Errorf("failed to create node container event: %v", err)
 			containerEventErrorCnt.WithLabelValues("k8s").Inc()

@@ -49,7 +49,7 @@ func InitControllers(ctx context.Context, conf config.Config) error {
 		log.Infof("No controllers registered.Skip controller initializtion")
 		return nil
 	}
-	logger, err := log.NewLogger(logConf.ErrorLevel)
+	logger, err := log.NewLogger(logConf.InfoLevel)
 	if err != nil {
 		return err
 	}

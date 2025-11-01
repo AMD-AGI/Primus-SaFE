@@ -218,3 +218,6 @@ harbor/harbor-ca.crt
 SaFE/charts/bin/*
 SaFE/charts/*.tgz
 SaFE/node-agent/charts/*.tgz
+
+# Lens CD directory - contains deployment specific configurations
+Lens/cd/

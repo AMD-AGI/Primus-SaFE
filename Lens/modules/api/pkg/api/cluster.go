@@ -16,27 +16,30 @@ import (
 )
 
 func getClusterOverview(c *gin.Context) {
-	gpuNodes, err := gpu.GetGpuNodes(c, clientsets.GetCurrentClusterK8SClientSet(), metadata.GpuVendorAMD)
+	cm := clientsets.GetClusterManager()
+	current := cm.GetCurrentClusterClients()
+
+	gpuNodes, err := gpu.GetGpuNodes(c, current.K8SClientSet, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
 		return
 	}
-	faultyNodes, err := fault.GetFaultyNodes(c, clientsets.GetCurrentClusterK8SClientSet(), gpuNodes)
+	faultyNodes, err := fault.GetFaultyNodes(c, current.K8SClientSet, gpuNodes)
 	if err != nil {
 		_ = c.Error(err)
 		return
 	}
-	idle, particalIdle, busy, err := gpu.GetGpuNodeIdleInfo(c, clientsets.GetCurrentClusterK8SClientSet(), metadata.GpuVendorAMD)
+	idle, particalIdle, busy, err := gpu.GetGpuNodeIdleInfo(c, current.K8SClientSet, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
 		return
 	}
-	usage, err := gpu.CalculateGpuUsage(c, clientsets.GetCurrentClusterStorageClientSet(), metadata.GpuVendorAMD)
+	usage, err := gpu.CalculateGpuUsage(c, current.StorageClientSet, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
 		return
 	}
-	allocationRate, err := gpu.GetClusterGpuAllocationRate(c, clientsets.GetCurrentClusterK8SClientSet(), metadata.GpuVendorAMD)
+	allocationRate, err := gpu.GetClusterGpuAllocationRate(c, current.K8SClientSet, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
 		return
@@ -46,7 +49,7 @@ func getClusterOverview(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	rdmaStat, err := rdma.GetRdmaClusterStat(c, clientsets.GetCurrentClusterStorageClientSet())
+	rdmaStat, err := rdma.GetRdmaClusterStat(c, current.StorageClientSet)
 	if err != nil {
 		_ = c.Error(err)
 		return
@@ -68,17 +71,20 @@ func getClusterOverview(c *gin.Context) {
 
 func getClusterGpuHeatmap(c *gin.Context) {
 	k := 5
-	power, err := gpu.TopKGpuPowerInstant(c, k, clientsets.GetCurrentClusterStorageClientSet())
+	cm := clientsets.GetClusterManager()
+	storageClient := cm.GetCurrentClusterClients().StorageClientSet
+
+	power, err := gpu.TopKGpuPowerInstant(c, k, storageClient)
 	if err != nil {
 		_ = c.Error(err)
 		return
 	}
-	util, err := gpu.TopKGpuUtilizationInstant(c, k, clientsets.GetCurrentClusterStorageClientSet())
+	util, err := gpu.TopKGpuUtilizationInstant(c, k, storageClient)
 	if err != nil {
 		_ = c.Error(err)
 		return
 	}
-	temp, err := gpu.TopKGpuTemperatureInstant(c, k, clientsets.GetCurrentClusterStorageClientSet())
+	temp, err := gpu.TopKGpuTemperatureInstant(c, k, storageClient)
 	if err != nil {
 		_ = c.Error(err)
 		return

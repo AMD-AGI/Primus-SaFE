@@ -20,7 +20,7 @@ type NodeReconciler struct {
 
 func NewNodeReconciler() *NodeReconciler {
 	n := &NodeReconciler{
-		clientSets: clientsets.GetCurrentClusterK8SClientSet(),
+		clientSets: clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet,
 	}
 	go func() {
 		_ = n.start(context.Background())

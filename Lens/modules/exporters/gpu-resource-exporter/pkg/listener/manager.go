@@ -52,7 +52,7 @@ func newManager(ctx context.Context) *Manager {
 	managerCtx, cancel := context.WithCancel(ctx)
 	return &Manager{
 		listeners:  make(map[string]*Listener),
-		client:     clientsets.GetCurrentClusterK8SClientSet(),
+		client:     clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet,
 		ctx:        managerCtx,
 		cancelFunc: cancel,
 	}
@@ -114,7 +114,7 @@ func (m *Manager) RegisterListener(apiVersion, kind, namespace, name, uid string
 }
 
 func (m *Manager) RecoverListener(ctx context.Context) error {
-	workloads, err := database.GetWorkloadNotEnd(ctx)
+	workloads, err := database.GetFacade().GetWorkload().GetWorkloadNotEnd(ctx)
 	if err != nil {
 		return err
 	}

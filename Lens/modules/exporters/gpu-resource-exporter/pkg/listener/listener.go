@@ -344,7 +344,7 @@ func (l *Listener) saveGpuWorkload(ctx context.Context, obj *unstructured.Unstru
 	if obj.GetDeletionTimestamp() != nil {
 		gpuWorkload.EndAt = obj.GetDeletionTimestamp().Time
 	}
-	existGpuWorkload, err := database.GetGpuWorkloadByUid(ctx, string(obj.GetUID()))
+	existGpuWorkload, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, string(obj.GetUID()))
 	if err != nil {
 		return err
 	}
@@ -355,10 +355,10 @@ func (l *Listener) saveGpuWorkload(ctx context.Context, obj *unstructured.Unstru
 		gpuWorkload.ParentUID = existGpuWorkload.ParentUID
 	}
 	if existGpuWorkload.ID == 0 {
-		err = database.CreateGpuWorkload(ctx, existGpuWorkload)
+		err = database.GetFacade().GetWorkload().CreateGpuWorkload(ctx, existGpuWorkload)
 
 	} else {
-		err = database.UpdateGpuWorkload(ctx, existGpuWorkload)
+		err = database.GetFacade().GetWorkload().UpdateGpuWorkload(ctx, existGpuWorkload)
 	}
 	if err != nil {
 		return err
@@ -367,7 +367,7 @@ func (l *Listener) saveGpuWorkload(ctx context.Context, obj *unstructured.Unstru
 }
 
 func (l *Listener) setWorkloadEnd(ctx context.Context, uid string) error {
-	existGpuWorkload, err := database.GetGpuWorkloadByUid(ctx, uid)
+	existGpuWorkload, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, uid)
 	if err != nil {
 		return err
 	}
@@ -375,7 +375,7 @@ func (l *Listener) setWorkloadEnd(ctx context.Context, uid string) error {
 		return nil
 	}
 	existGpuWorkload.EndAt = existGpuWorkload.UpdatedAt
-	return database.UpdateGpuWorkload(ctx, existGpuWorkload)
+	return database.GetFacade().GetWorkload().UpdateGpuWorkload(ctx, existGpuWorkload)
 }
 
 // isRetriableError determines if an error is retriable

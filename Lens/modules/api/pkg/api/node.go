@@ -22,7 +22,9 @@ import (
 )
 
 func getClusterGpuAllocationInfo(c *gin.Context) {
-	result, err := gpu.GetGpuNodesAllocation(c, clientsets.GetCurrentClusterK8SClientSet(), metadata.GpuVendorAMD)
+	cm := clientsets.GetClusterManager()
+	current := cm.GetCurrentClusterClients()
+	result, err := gpu.GetGpuNodesAllocation(c, current.K8SClientSet, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
 		return
@@ -31,12 +33,14 @@ func getClusterGpuAllocationInfo(c *gin.Context) {
 }
 
 func getClusterGPUUtilization(c *gin.Context) {
-	usage, err := gpu.CalculateGpuUsage(c, clientsets.GetCurrentClusterStorageClientSet(), metadata.GpuVendorAMD)
+	cm := clientsets.GetClusterManager()
+	current := cm.GetCurrentClusterClients()
+	usage, err := gpu.CalculateGpuUsage(c, current.StorageClientSet, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
 		return
 	}
-	allocationRate, err := gpu.GetClusterGpuAllocationRate(c, clientsets.GetCurrentClusterK8SClientSet(), metadata.GpuVendorAMD)
+	allocationRate, err := gpu.GetClusterGpuAllocationRate(c, current.K8SClientSet, metadata.GpuVendorAMD)
 	result := &model.GPUUtilization{
 		AllocationRate: allocationRate,
 		Utilization:    usage,
@@ -68,17 +72,20 @@ func getGpuUsageHistory(c *gin.Context) {
 	startTime := time.Unix(startUnix, 0)
 	endTime := time.Unix(endUnix, 0)
 
-	usageHistory, err := gpu.GetHistoryGpuUsage(c, clientsets.GetCurrentClusterStorageClientSet(), metadata.GpuVendorAMD, startTime, endTime, step)
+	cm := clientsets.GetClusterManager()
+	storageClient := cm.GetCurrentClusterClients().StorageClientSet
+
+	usageHistory, err := gpu.GetHistoryGpuUsage(c, storageClient, metadata.GpuVendorAMD, startTime, endTime, step)
 	if err != nil {
 		c.Error(err)
 		return
 	}
-	allocationHistory, err := gpu.GetHistoryGpuAllocationRate(c, clientsets.GetCurrentClusterStorageClientSet(), metadata.GpuVendorAMD, startTime, endTime, step)
+	allocationHistory, err := gpu.GetHistoryGpuAllocationRate(c, storageClient, metadata.GpuVendorAMD, startTime, endTime, step)
 	if err != nil {
 		c.Error(err)
 		return
 	}
-	vramUtilizationHistory, err := gpu.GetNodeGpuVramUsageHistory(c, clientsets.GetCurrentClusterStorageClientSet(), metadata.GpuVendorAMD, startTime, endTime, step)
+	vramUtilizationHistory, err := gpu.GetNodeGpuVramUsageHistory(c, storageClient, metadata.GpuVendorAMD, startTime, endTime, step)
 	if err != nil {
 		c.Error(err)
 		return
@@ -101,7 +108,7 @@ func getGPUNodeList(ctx *gin.Context) {
 	}
 	filter := page.ToNodeFilter()
 
-	dbNodes, total, err := database.SearchNode(ctx, filter)
+	dbNodes, total, err := database.GetFacade().GetNode().SearchNode(ctx, filter)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -152,7 +159,7 @@ func getNodeWorkloadHistory(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	pods, count, err := database.GetHistoryGpuPodByNodeName(ctx, nodeName, page.PageNum, page.PageSize)
+	pods, count, err := database.GetFacade().GetPod().GetHistoryGpuPodByNodeName(ctx, nodeName, page.PageNum, page.PageSize)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -172,7 +179,7 @@ func getNodeWorkloadHistory(ctx *gin.Context) {
 		workloadMap[gpuWorkload.UID] = gpuWorkload
 	}
 	references := map[string]string{}
-	refs, err := database.ListWorkloadPodReferencesByPodUids(ctx, uids)
+	refs, err := database.GetFacade().GetWorkload().ListWorkloadPodReferencesByPodUids(ctx, uids)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -268,8 +275,12 @@ func getNodeGpuMetrics(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid step value, must be positive integer (in seconds)"})
 		return
 	}
+
+	cm := clientsets.GetClusterManager()
+	storageClient := cm.GetCurrentClusterClients().StorageClientSet
+
 	gpuUtil, err := node.GetNodeGpuUtilHistory(ctx,
-		clientsets.GetCurrentClusterStorageClientSet(),
+		storageClient,
 		metadata.GpuVendorAMD,
 		nodeName,
 		startTime,
@@ -283,7 +294,7 @@ func getNodeGpuMetrics(ctx *gin.Context) {
 		return
 	}
 	gpuAllocationRate, err := node.GetNodeGpuAllocationHistory(ctx,
-		clientsets.GetCurrentClusterStorageClientSet(),
+		storageClient,
 		metadata.GpuVendorAMD,
 		nodeName,
 		startTime,
@@ -317,7 +328,7 @@ func getNodeGpuMetrics(ctx *gin.Context) {
 
 func getNodeInfoByName(ctx *gin.Context) {
 	nodeName := ctx.Param("name")
-	dbNode, err := database.GetNodeByName(ctx, nodeName)
+	dbNode, err := database.GetFacade().GetNode().GetNodeByName(ctx, nodeName)
 	if err != nil {
 		_ = ctx.Error(err)
 		return

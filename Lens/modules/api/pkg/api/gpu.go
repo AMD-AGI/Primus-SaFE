@@ -14,7 +14,7 @@ import (
 
 func getGpuDevice(ctx *gin.Context) {
 	name := ctx.Param("name")
-	node, err := database.GetNodeByName(ctx, name)
+	node, err := database.GetFacade().GetNode().GetNodeByName(ctx, name)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Fail get node.", errors.CodeDatabaseError))
 		return
@@ -23,7 +23,7 @@ func getGpuDevice(ctx *gin.Context) {
 		_ = ctx.Error(errors.NewError().WithCode(errors.RequestDataNotExisted))
 		return
 	}
-	devices, err := database.ListGpuDeviceByNodeId(ctx, node.ID)
+	devices, err := database.GetFacade().GetNode().ListGpuDeviceByNodeId(ctx, node.ID)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Fail get devices", errors.CodeDatabaseError))
 		return

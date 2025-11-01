@@ -27,7 +27,7 @@ func getConsumerInfo(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	}
-	runningWorkload, err := database.ListRunningWorkload(c)
+	runningWorkload, err := database.GetFacade().GetWorkload().ListRunningWorkload(c)
 	if err != nil {
 		_ = c.Error(err)
 		return
@@ -41,13 +41,15 @@ func getConsumerInfo(c *gin.Context) {
 			Uid:       dbWorkload.UID,
 			Stat: model.GpuStat{
 				GpuRequest:     int(dbWorkload.GpuRequest),
-				GpuUtilization: 0,
-			},
-			Pods:   nil,
-			Source: getSource(dbWorkload),
-		}
-		r.Stat.GpuUtilization, _ = workload.GetCurrentWorkloadGpuUtilization(c, dbWorkload.UID, clientsets.GetCurrentClusterStorageClientSet())
-		result = append(result, r)
+			GpuUtilization: 0,
+		},
+		Pods:   nil,
+		Source: getSource(dbWorkload),
+	}
+	cm := clientsets.GetClusterManager()
+	storageClient := cm.GetCurrentClusterClients().StorageClientSet
+	r.Stat.GpuUtilization, _ = workload.GetCurrentWorkloadGpuUtilization(c, dbWorkload.UID, storageClient)
+	result = append(result, r)
 	}
 	data, _, total, _ := sliceUtil.PaginateSlice(result, page.PageNum, page.PageSize)
 	c.JSON(http.StatusOK, rest.SuccessResp(c, struct {
@@ -91,7 +93,7 @@ func listWorkloads(ctx *gin.Context) {
 			f.OrderBy = "end_at"
 		}
 	}
-	workloads, count, err := database.QueryWorkload(ctx, f)
+	workloads, count, err := database.GetFacade().GetWorkload().QueryWorkload(ctx, f)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -111,12 +113,12 @@ func listWorkloads(ctx *gin.Context) {
 }
 
 func getWorkloadsMetadata(ctx *gin.Context) {
-	namespaces, err := database.GetWorkloadsNamespaceList(ctx)
+	namespaces, err := database.GetFacade().GetWorkload().GetWorkloadsNamespaceList(ctx)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
 	}
-	kinds, err := database.GetWorkloadKindList(ctx)
+	kinds, err := database.GetFacade().GetWorkload().GetWorkloadKindList(ctx)
 	if err != nil {
 		_ = ctx.Error(err)
 
@@ -163,7 +165,7 @@ func cvtDBWorkloadListItem(ctx context.Context, dbWorkload *dbModel.GpuWorkload)
 
 func getWorkloadHierarchy(ctx *gin.Context) {
 	uid := ctx.Param("uid")
-	rootWorkload, err := database.GetGpuWorkloadByUid(ctx, uid)
+	rootWorkload, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, uid)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -181,7 +183,7 @@ func getWorkloadHierarchy(ctx *gin.Context) {
 }
 
 func buildHierarchy(ctx context.Context, uid string) (*model.WorkloadHierarchyItem, error) {
-	workload, err := database.GetGpuWorkloadByUid(ctx, uid)
+	workload, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +199,7 @@ func buildHierarchy(ctx context.Context, uid string) (*model.WorkloadHierarchyIt
 		Children:  []model.WorkloadHierarchyItem{},
 	}
 
-	children, _, err := database.QueryWorkload(ctx, &filter.WorkloadFilter{
+	children, _, err := database.GetFacade().GetWorkload().QueryWorkload(ctx, &filter.WorkloadFilter{
 		ParentUid: &uid,
 	})
 	if err != nil {
@@ -219,7 +221,7 @@ func buildHierarchy(ctx context.Context, uid string) (*model.WorkloadHierarchyIt
 
 func getWorkloadInfo(ctx *gin.Context) {
 	uid := ctx.Param("uid")
-	dbWorkload, err := database.GetGpuWorkloadByUid(ctx, uid)
+	dbWorkload, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, uid)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -292,26 +294,29 @@ func getWorkloadMetrics(ctx *gin.Context) {
 		return
 	}
 
+	cm := clientsets.GetClusterManager()
+	storageClient := cm.GetCurrentClusterClients().StorageClientSet
+
 	result := map[string]model.MetricsGraph{}
-	gpuUtil, err := workload.GetWorkloadGpuUtilMetrics(ctx, uid, startTime, endTime, step, clientsets.GetCurrentClusterStorageClientSet())
+	gpuUtil, err := workload.GetWorkloadGpuUtilMetrics(ctx, uid, startTime, endTime, step, storageClient)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
 	}
 	gpuUtil.Serial = 1
-	gpuMemUtil, err := workload.GetWorkloadGpuMemoryUtilMetrics(ctx, uid, startTime, endTime, step, clientsets.GetCurrentClusterStorageClientSet())
+	gpuMemUtil, err := workload.GetWorkloadGpuMemoryUtilMetrics(ctx, uid, startTime, endTime, step, storageClient)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
 	}
 	gpuMemUtil.Serial = 2
-	powerUtil, err := workload.GetWorkloadGpuPowerMetrics(ctx, uid, startTime, endTime, step, clientsets.GetCurrentClusterStorageClientSet())
+	powerUtil, err := workload.GetWorkloadGpuPowerMetrics(ctx, uid, startTime, endTime, step, storageClient)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
 	}
 	powerUtil.Serial = 3
-	tflopsMetrics, err := workload.GetTFLOPSMetrics(ctx, uid, startTime, endTime, step, clientsets.GetCurrentClusterStorageClientSet())
+	tflopsMetrics, err := workload.GetTFLOPSMetrics(ctx, uid, startTime, endTime, step, storageClient)
 	if err != nil {
 		_ = ctx.Error(err)
 		return

@@ -24,7 +24,7 @@ func Init(ctx context.Context, conf *config.Config) error {
 	if err != nil {
 		return err
 	}
-	clientSets := clientsets.GetCurrentClusterK8SClientSet()
+	clientSets := clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet
 	err = policy.LoadDefaultPolicy(ctx, clientSets.ControllerRuntimeClient)
 	if err != nil {
 		return err

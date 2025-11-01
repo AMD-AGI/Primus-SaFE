@@ -75,7 +75,7 @@ func (m *MultiClusterStorageConfigListener) watchK8SConfigSecret() {
 
 // doWatchK8SConfigSecret executes the watch for K8S config secret
 func (m *MultiClusterStorageConfigListener) doWatchK8SConfigSecret() error {
-	clientSet := clientsets.GetCurrentClusterK8SClientSet()
+	clientSet := clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet
 
 	watcher, err := clientSet.Clientsets.CoreV1().Secrets(clientsets.StorageConfigSecretNamespace).Watch(
 		m.ctx,
@@ -187,9 +187,10 @@ func (m *MultiClusterStorageConfigListener) runStorageConfigSyncTask(ctx context
 func (m *MultiClusterStorageConfigListener) syncStorageConfigsFromAllClusters() error {
 	log.Info("Syncing storage configs from all clusters...")
 
-	// 1. Get all initialized K8S cluster clients
-	allK8SClients := clientsets.GetAllClusterK8SClients()
-	if len(allK8SClients) == 0 {
+	// 1. Get all cluster clients through ClusterManager
+	cm := clientsets.GetClusterManager()
+	allClusters := cm.ListAllClientSets()
+	if len(allClusters) == 0 {
 		log.Warn("No K8S cluster clients available")
 		return nil
 	}
@@ -197,7 +198,8 @@ func (m *MultiClusterStorageConfigListener) syncStorageConfigsFromAllClusters() 
 	// 2. Collect storage configs from each cluster
 	allStorageConfigs := make(map[string][]byte)
 
-	for clusterName, k8sClient := range allK8SClients {
+	for clusterName, cluster := range allClusters {
+		k8sClient := cluster.K8SClientSet
 		log.Infof("Fetching storage config from cluster: %s", clusterName)
 
 		// Get storage config secret from the cluster
@@ -238,7 +240,7 @@ func (m *MultiClusterStorageConfigListener) syncStorageConfigsFromAllClusters() 
 
 // updateMultiStorageConfigSecret updates the multi-storage-config secret in the current cluster
 func (m *MultiClusterStorageConfigListener) updateMultiStorageConfigSecret(configs map[string][]byte) error {
-	currentClientSet := clientsets.GetCurrentClusterK8SClientSet()
+	currentClientSet := clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet
 
 	// Get existing secret, create if it doesn't exist
 	secret, err := currentClientSet.Clientsets.CoreV1().Secrets(clientsets.StorageConfigSecretNamespace).Get(

@@ -56,7 +56,7 @@ func (n *NodeInfoJob) runForSingleNode(ctx context.Context, nodeName string, cli
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	existDBNode, err := database.GetNodeByName(ctx, k8sNode.Name)
+	existDBNode, err := database.GetFacade().GetNode().GetNodeByName(ctx, k8sNode.Name)
 	if err != nil {
 		return err
 	}
@@ -116,8 +116,8 @@ func (n *NodeInfoJob) runForSingleNode(ctx context.Context, nodeName string, cli
 		existDBNode.GpuUtilization = usage
 	}
 	if existDBNode.ID == 0 {
-		return database.CreateNode(ctx, existDBNode)
+		return database.GetFacade().GetNode().CreateNode(ctx, existDBNode)
 	} else {
-		return database.UpdateNode(ctx, existDBNode)
+		return database.GetFacade().GetNode().UpdateNode(ctx, existDBNode)
 	}
 }

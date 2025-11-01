@@ -4,14 +4,8 @@ import (
 	"context"
 )
 
+// InitClientSets initializes all client sets through ClusterManager
+// ClusterManager will handle the initialization of K8S and Storage clients
 func InitClientSets(ctx context.Context, multiCluster bool) error {
-	err := initK8SClientSets(ctx, multiCluster)
-	if err != nil {
-		return err
-	}
-	err = initStorageClientSets(ctx, multiCluster)
-	if err != nil {
-		return err
-	}
-	return nil
+	return InitClusterManager(ctx, multiCluster)
 }

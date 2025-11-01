@@ -10,7 +10,7 @@ import (
 )
 
 func GetStorageStat(ctx context.Context) (*model.StorageStat, error) {
-	storage, _, err := database.ListStorage(ctx, 1, 1)
+	storage, _, err := database.GetFacade().GetStorage().ListStorage(ctx, 1, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func getStorageQuery(kind string) Query {
 	switch kind {
 	case "juicefs":
 		return &JuicefsQuery{
-			clientSet: clientsets.GetCurrentClusterStorageClientSet(),
+			clientSet: clientsets.GetClusterManager().GetCurrentClusterClients().StorageClientSet,
 		}
 	}
 	return nil
