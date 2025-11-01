@@ -123,8 +123,10 @@ func loadMultiClusterK8SClientSet(ctx context.Context) error {
 	multiClusterK8SConfigJsonBytes = configBytes
 	newMultiClusterK8S := map[string]*K8SClientSet{}
 	for clusterName, k8sCfg := range k8sConfigs {
+		log.Infof("Loading k8s config for cluster: %s", clusterName)
 		restCfg, err := k8sCfg.ToRestConfig()
 		if err != nil {
+			log.Errorf("Failed to convert k8s config to rest config for cluster %s: %v", clusterName, err)
 			return errors.NewError().
 				WithCode(errors.CodeInitializeError).
 				WithMessage("Failed to convert k8s config to rest config").
