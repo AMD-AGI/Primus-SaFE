@@ -1,6 +1,7 @@
 package clientsets
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +13,18 @@ import (
 )
 
 type MultiClusterConfig map[string]ClusterConfig
+
+// clusterConfigJSON is used to unmarshal JSON where cert data fields are base64 strings
+type clusterConfigJSON struct {
+	Kubeconfig            string `json:"kubeconfig"`
+	Host                  string `json:"host"`
+	BearerToken           string `json:"bearerToken"`
+	TLSServerName         string `json:"tlsServerName"`
+	InsecureSkipTLSVerify bool   `json:"insecureSkipTLSVerify"`
+	CAData                string `json:"caData"`
+	CertData              string `json:"certData"`
+	KeyData               string `json:"keyData"`
+}
 
 func (m *MultiClusterConfig) LoadFromSecret(data map[string][]byte) error {
 	// Ensure the map is initialized
@@ -27,10 +40,44 @@ func (m *MultiClusterConfig) LoadFromSecret(data map[string][]byte) error {
 			continue
 		}
 
-		// Unmarshal JSON bytes into ClusterConfig structure
-		var clusterCfg ClusterConfig
-		if err := json.Unmarshal(configBytes, &clusterCfg); err != nil {
+		// First unmarshal into intermediate structure with string fields
+		var jsonCfg clusterConfigJSON
+		if err := json.Unmarshal(configBytes, &jsonCfg); err != nil {
 			return fmt.Errorf("failed to unmarshal cluster config for cluster %s: %w", clusterName, err)
+		}
+
+		// Convert to ClusterConfig, decoding base64 strings
+		clusterCfg := ClusterConfig{
+			Kubeconfig:            jsonCfg.Kubeconfig,
+			Host:                  jsonCfg.Host,
+			BearerToken:           jsonCfg.BearerToken,
+			TLSServerName:         jsonCfg.TLSServerName,
+			InsecureSkipTLSVerify: jsonCfg.InsecureSkipTLSVerify,
+		}
+
+		// Decode base64 encoded certificate data
+		if jsonCfg.CAData != "" {
+			caData, err := base64.StdEncoding.DecodeString(jsonCfg.CAData)
+			if err != nil {
+				return fmt.Errorf("failed to decode caData for cluster %s: %w", clusterName, err)
+			}
+			clusterCfg.CAData = caData
+		}
+
+		if jsonCfg.CertData != "" {
+			certData, err := base64.StdEncoding.DecodeString(jsonCfg.CertData)
+			if err != nil {
+				return fmt.Errorf("failed to decode certData for cluster %s: %w", clusterName, err)
+			}
+			clusterCfg.CertData = certData
+		}
+
+		if jsonCfg.KeyData != "" {
+			keyData, err := base64.StdEncoding.DecodeString(jsonCfg.KeyData)
+			if err != nil {
+				return fmt.Errorf("failed to decode keyData for cluster %s: %w", clusterName, err)
+			}
+			clusterCfg.KeyData = keyData
 		}
 
 		// Store the parsed configuration in the map
