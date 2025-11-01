@@ -47,9 +47,9 @@ type ClusterConfig struct {
 	BearerToken           string `yaml:"bearerToken" json:"bearerToken"`
 	TLSServerName         string `yaml:"tlsServerName" json:"tlsServerName"`
 	InsecureSkipTLSVerify bool   `yaml:"insecureSkipTLSVerify" json:"insecureSkipTLSVerify"`
-	CAData                []byte `yaml:"caData" json:"caData"`
-	CertData              []byte `yaml:"certData" json:"certData"`
-	KeyData               []byte `yaml:"keyData" json:"keyData"`
+	CAData                string `yaml:"caData" json:"caData"`
+	CertData              string `yaml:"certData" json:"certData"`
+	KeyData               string `yaml:"keyData" json:"keyData"`
 }
 
 func (c *ClusterConfig) ToRestConfig() (*rest.Config, error) {
@@ -68,7 +68,7 @@ func (c *ClusterConfig) ToRestConfig() (*rest.Config, error) {
 		return nil, fmt.Errorf("host must be set if kubeconfig is not provided")
 	}
 
-	return createRestConfig(c.Host, string(c.CertData), string(c.KeyData), string(c.CAData), c.InsecureSkipTLSVerify)
+	return createRestConfig(c.Host, c.CertData, c.KeyData, c.CAData, c.InsecureSkipTLSVerify)
 }
 
 type PrimusLensClientConfig struct {
