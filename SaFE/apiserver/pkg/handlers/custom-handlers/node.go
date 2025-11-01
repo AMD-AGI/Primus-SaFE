@@ -245,15 +245,7 @@ func buildListNodeBriefResponse(totalCount int, nodes []*v1.Node) (interface{}, 
 		TotalCount: totalCount,
 	}
 	for _, n := range nodes {
-		isAvailable, message := n.CheckAvailable(false)
-		item := types.NodeBriefResponseItem{
-			NodeId:     n.Name,
-			NodeName:   v1.GetDisplayName(n),
-			InternalIP: n.Spec.PrivateIP,
-			Available:  isAvailable,
-			Message:    message,
-		}
-		result.Items = append(result.Items, item)
+		result.Items = append(result.Items, convertToNodeBriefResponse(n))
 	}
 	return result, nil
 }
@@ -804,28 +796,24 @@ func generateNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[str
 
 // cvtToNodeResponseItem converts a node object to a response item format.
 // Includes resource availability, phase information, and workload details.
-func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeResponseItem {
+func cvtToNodeResponseItem(node *v1.Node, usedResource *resourceInfo) types.NodeResponseItem {
 	result := types.NodeResponseItem{
-		NodeBriefResponseItem: types.NodeBriefResponseItem{
-			NodeId:     n.Name,
-			NodeName:   v1.GetDisplayName(n),
-			InternalIP: n.Spec.PrivateIP,
-		},
-		ClusterId:         v1.GetClusterId(n),
-		Phase:             string(n.GetPhase()),
-		TotalResources:    cvtToResourceList(n.Status.Resources),
-		CreationTime:      timeutil.FormatRFC3339(n.CreationTimestamp.Time),
-		IsControlPlane:    v1.IsControlPlane(n),
-		IsAddonsInstalled: v1.IsNodeTemplateInstalled(n),
+		NodeBriefResponseItem: convertToNodeBriefResponse(node),
+		ClusterId:             v1.GetClusterId(node),
+		Phase:                 string(node.GetPhase()),
+		TotalResources:        cvtToResourceList(node.Status.Resources),
+		CreationTime:          timeutil.FormatRFC3339(node.CreationTimestamp.Time),
+		IsControlPlane:        v1.IsControlPlane(node),
+		IsAddonsInstalled:     v1.IsNodeTemplateInstalled(node),
 	}
-	result.Workspace.Id = v1.GetWorkspaceId(n)
+	result.Workspace.Id = v1.GetWorkspaceId(node)
 	var availResource corev1.ResourceList
 	if usedResource != nil && len(usedResource.resource) > 0 {
-		availResource = quantity.GetAvailableResource(n.Status.Resources)
+		availResource = quantity.GetAvailableResource(node.Status.Resources)
 		availResource = quantity.SubResource(availResource, usedResource.resource)
 		result.Workloads = usedResource.workloads
 	} else {
-		availResource = quantity.GetAvailableResource(n.Status.Resources)
+		availResource = quantity.GetAvailableResource(node.Status.Resources)
 	}
 	result.AvailResources = cvtToResourceList(availResource)
 	return result
@@ -846,6 +834,19 @@ func cvtToGetNodeResponse(n *v1.Node, usedResource *resourceInfo) types.GetNodeR
 	lastStartupTime := timeutil.CvtStrUnixToTime(v1.GetNodeStartupTime(n))
 	result.LastStartupTime = timeutil.FormatRFC3339(lastStartupTime)
 	return result
+}
+
+// convertToNodeBriefResponse converts a node object to a brief response format.
+// Returns basic node information including ID, name, internal IP, availability status, and message.
+func convertToNodeBriefResponse(node *v1.Node) types.NodeBriefResponseItem {
+	isAvailable, message := node.CheckAvailable(false)
+	return types.NodeBriefResponseItem{
+		NodeId:     node.Name,
+		NodeName:   v1.GetDisplayName(node),
+		InternalIP: node.Spec.PrivateIP,
+		Available:  isAvailable,
+		Message:    message,
+	}
 }
 
 // getNodeCustomerLabels extracts customer-defined labels from a node's label set.
