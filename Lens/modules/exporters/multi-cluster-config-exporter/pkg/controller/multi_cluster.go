@@ -197,7 +197,7 @@ func (m *MultiClusterStorageConfigListener) syncStorageConfigsFromAllClusters() 
 
 	// 2. Collect storage configs from each cluster
 	allStorageConfigs := make(map[string][]byte)
-
+	log.Infof("All clusters: %v", allClusters)
 	for clusterName, cluster := range allClusters {
 		k8sClient := cluster.K8SClientSet
 		log.Infof("Fetching storage config from cluster: %s", clusterName)
