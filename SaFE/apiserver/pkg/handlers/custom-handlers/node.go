@@ -245,10 +245,13 @@ func buildListNodeBriefResponse(totalCount int, nodes []*v1.Node) (interface{}, 
 		TotalCount: totalCount,
 	}
 	for _, n := range nodes {
+		isAvailable, message := n.CheckAvailable(false)
 		item := types.NodeBriefResponseItem{
 			NodeId:     n.Name,
 			NodeName:   v1.GetDisplayName(n),
 			InternalIP: n.Spec.PrivateIP,
+			Available:  isAvailable,
+			Message:    message,
 		}
 		result.Items = append(result.Items, item)
 	}
@@ -802,7 +805,6 @@ func generateNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[str
 // cvtToNodeResponseItem converts a node object to a response item format.
 // Includes resource availability, phase information, and workload details.
 func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeResponseItem {
-	isAvailable, message := n.CheckAvailable(false)
 	result := types.NodeResponseItem{
 		NodeBriefResponseItem: types.NodeBriefResponseItem{
 			NodeId:     n.Name,
@@ -811,8 +813,6 @@ func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeRes
 		},
 		ClusterId:         v1.GetClusterId(n),
 		Phase:             string(n.GetPhase()),
-		Available:         isAvailable,
-		Message:           message,
 		TotalResources:    cvtToResourceList(n.Status.Resources),
 		CreationTime:      timeutil.FormatRFC3339(n.CreationTimestamp.Time),
 		IsControlPlane:    v1.IsControlPlane(n),
