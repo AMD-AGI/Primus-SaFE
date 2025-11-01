@@ -11,25 +11,34 @@ import (
 )
 
 type Manager struct {
-	listeners map[string]*Listener
-	client    *clientsets.K8SClientSet
-	l         sync.RWMutex
+	listeners  map[string]*Listener
+	client     *clientsets.K8SClientSet
+	l          sync.RWMutex
+	ctx        context.Context
+	cancelFunc context.CancelFunc
 }
 
 var manager *Manager
 
 func InitManager(ctx context.Context) error {
 	if manager == nil {
-		manager = newManager()
+		manager = newManager(ctx)
 	}
 	err := manager.RecoverListener(ctx)
 	if err != nil {
 		return err
 	}
 	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
 		for {
-			time.Sleep(10 * time.Second)
-			manager.garbageCollect()
+			select {
+			case <-ticker.C:
+				manager.garbageCollect()
+			case <-manager.ctx.Done():
+				log.Infof("Manager context cancelled, stopping garbage collection")
+				return
+			}
 		}
 	}()
 	return nil
@@ -39,10 +48,48 @@ func GetManager() *Manager {
 	return manager
 }
 
-func newManager() *Manager {
+func newManager(ctx context.Context) *Manager {
+	managerCtx, cancel := context.WithCancel(ctx)
 	return &Manager{
-		listeners: make(map[string]*Listener),
-		client:    clientsets.GetCurrentClusterK8SClientSet(),
+		listeners:  make(map[string]*Listener),
+		client:     clientsets.GetCurrentClusterK8SClientSet(),
+		ctx:        managerCtx,
+		cancelFunc: cancel,
+	}
+}
+
+// Shutdown gracefully shuts down the manager and all listeners
+func (m *Manager) Shutdown() {
+	log.Infof("Shutting down listener manager")
+	if m.cancelFunc != nil {
+		m.cancelFunc()
+	}
+	// Wait for all listeners to finish
+	timeout := time.After(30 * time.Second)
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			log.Warnf("Timeout waiting for listeners to finish, %d listeners still running", len(m.listeners))
+			return
+		case <-ticker.C:
+			m.l.RLock()
+			allEnded := true
+			for _, listener := range m.listeners {
+				if !listener.IsEnd() {
+					allEnded = false
+					break
+				}
+			}
+			m.l.RUnlock()
+
+			if allEnded {
+				log.Infof("All listeners finished")
+				return
+			}
+		}
 	}
 }
 
@@ -60,7 +107,8 @@ func (m *Manager) RegisterListener(apiVersion, kind, namespace, name, uid string
 	}
 	m.listeners[uid] = listener
 	log.Infof("Registered listener for %s/%s (%s)", namespace, name, uid)
-	listener.Start(context.Background())
+	// Use manager's context instead of Background() for unified lifecycle management
+	listener.Start(m.ctx)
 	log.Infof("Listener for %s/%s (%s) is now running", namespace, name, uid)
 	return nil
 }
