@@ -1,6 +1,7 @@
 package clientsets
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -69,6 +70,22 @@ func (c *ClusterConfig) ToRestConfig() (*rest.Config, error) {
 	}
 
 	return createRestConfig(c.Host, c.CertData, c.KeyData, c.CAData, c.InsecureSkipTLSVerify)
+}
+
+// decodeIfBase64 attempts to decode a base64 string, returns original if not base64 encoded
+func decodeIfBase64(data string) (string, error) {
+	if data == "" {
+		return "", nil
+	}
+
+	// Try to decode as base64
+	decoded, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		// If decode fails, assume it's already plain text (e.g., PEM format)
+		return data, nil
+	}
+
+	return string(decoded), nil
 }
 
 type PrimusLensClientConfig struct {
@@ -200,17 +217,34 @@ func (p PrimusLensClientConfigPostgres) Equals(other PrimusLensClientConfigPostg
 }
 
 func createRestConfig(endpoint, certData, keyData, caData string, insecure bool) (*rest.Config, error) {
+	// Decode base64-encoded certificate data
+	decodedCertData, err := decodeIfBase64(certData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode cert data: %w", err)
+	}
+
+	decodedKeyData, err := decodeIfBase64(keyData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode key data: %w", err)
+	}
+
+	decodedCAData, err := decodeIfBase64(caData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode ca data: %w", err)
+	}
+
 	cfg := &rest.Config{
 		Host: endpoint,
 		TLSClientConfig: rest.TLSClientConfig{
 			Insecure: insecure,
-			KeyData:  []byte(keyData),
-			CertData: []byte(certData),
+			KeyData:  []byte(decodedKeyData),
+			CertData: []byte(decodedCertData),
 		},
 	}
 	if !insecure {
-		cfg.TLSClientConfig.CAData = []byte(caData)
+		cfg.TLSClientConfig.CAData = []byte(decodedCAData)
 	}
-	log.Infof("Rest config key data: %s cert data: %s ca data: %s", keyData, certData, caData)
+	log.Infof("Creating rest config for endpoint: %s (insecure: %v, has cert: %v, has key: %v, has ca: %v)",
+		endpoint, insecure, len(decodedCertData) > 0, len(decodedKeyData) > 0, len(decodedCAData) > 0)
 	return cfg, nil
 }
