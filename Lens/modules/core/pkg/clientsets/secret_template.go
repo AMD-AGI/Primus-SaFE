@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
@@ -39,7 +40,8 @@ func (m *MultiClusterConfig) LoadFromSecret(data map[string][]byte) error {
 		if len(configBytes) == 0 {
 			continue
 		}
-
+		log.Infof("Loading k8s config for cluster: %s", clusterName)
+		log.Infof("Config bytes: %s", string(configBytes))
 		// First unmarshal into intermediate structure with string fields
 		var jsonCfg clusterConfigJSON
 		if err := json.Unmarshal(configBytes, &jsonCfg); err != nil {
@@ -63,7 +65,6 @@ func (m *MultiClusterConfig) LoadFromSecret(data map[string][]byte) error {
 			}
 			clusterCfg.CAData = caData
 		}
-
 		if jsonCfg.CertData != "" {
 			certData, err := base64.StdEncoding.DecodeString(jsonCfg.CertData)
 			if err != nil {
