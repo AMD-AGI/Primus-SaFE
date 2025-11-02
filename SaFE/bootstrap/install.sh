@@ -206,7 +206,7 @@ SSO_SECRET="$NAMESPACE-sso"
 if kubectl get secret "$SSO_SECRET" -n "$NAMESPACE" >/dev/null 2>&1; then
   echo "⚠️ Image pull secret $SSO_SECRET already exists in namespace \"$NAMESPACE\", skipping creation"
 else
-  if [[ "$sso_enable" == "true" ]] && [[ -n "$sso_endpoint" ]] && [[ -n "$sso_client_id" ]] && [[ -n "$s3_client_secret" ]] && [[ -n "$sso_redirect_uri" ]]; then
+  if [[ "$sso_enable" == "true" ]] && [[ -n "$sso_endpoint" ]] && [[ -n "$sso_client_id" ]] && [[ -n "$sso_client_secret" ]] && [[ -n "$sso_redirect_uri" ]]; then
     kubectl create secret generic $S3_SECRET \
       --namespace=$NAMESPACE \
       --from-literal=id="$sso_client_id" \
