@@ -89,8 +89,6 @@ func initializeSSOToken(cli client.Client) (*ssoToken, error) {
 	// Configure ID token verifier
 	ssoTokenInstance.verifier = ssoTokenInstance.provider.Verifier(
 		&oidc.Config{ClientID: ssoTokenInstance.clientId})
-	klog.Infof("endpint: %s, provider: %s",
-		ssoTokenInstance.endpoint, ssoTokenInstance.provider.Endpoint().TokenURL)
 	return ssoTokenInstance, nil
 }
 
@@ -155,7 +153,7 @@ func (c *ssoToken) Validate(ctx context.Context, rawToken string) (*UserInfo, er
 	if err = json.Indent(buff, claims, "", "  "); err != nil {
 		return nil, fmt.Errorf("failed to indent ID token claims: %v", err)
 	}
-	klog.Infof("user buffer: %s", buff.String())
+	// klog.Infof("user buffer: %s", buff.String())
 	userInfo := &UserInfo{}
 	err = json.Unmarshal(buff.Bytes(), userInfo)
 	if err != nil {
@@ -218,6 +216,11 @@ func (c *ssoToken) oauth2Config() *oauth2.Config {
 		Scopes:       DefaultOIDCScopes,
 		RedirectURL:  c.redirectURI,
 	}
+}
+
+// AuthURL returns the OAuth2 authorization endpoint URL for SSO authentication
+func (c *ssoToken) AuthURL() string {
+	return c.provider.Endpoint().AuthURL
 }
 
 // generateSSOUserId generates a unique user ID based on sub or email

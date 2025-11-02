@@ -69,6 +69,7 @@ func parseTokenFromRequest(c *gin.Context) error {
 	}
 	c.Set(common.UserId, userInfo.Id)
 	c.Set(common.UserType, userType)
+	klog.Infof("User %s of type %s validated successfully", userInfo.Id, userType)
 	return nil
 }
 
