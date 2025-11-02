@@ -65,7 +65,7 @@ spec:
                   type: string
                 type: array
               type:
-                description: User type, required
+                description: User type, required. default/sso
                 type: string
             required:
             - roles

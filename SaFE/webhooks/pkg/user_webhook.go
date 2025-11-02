@@ -110,6 +110,7 @@ func (m *UserMutator) mutateLabels(user *v1.User) {
 	} else {
 		v1.RemoveLabel(user, v1.UserNameMd5Label)
 	}
+	v1.SetLabel(user, v1.UserTypeLabel, string(user.Spec.Type))
 }
 
 // mutateRoles handles user role mutations including:
