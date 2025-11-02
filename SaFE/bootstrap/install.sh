@@ -156,70 +156,66 @@ elif [[ "$cluster_scale" == "large" ]]; then
 fi
 
 echo
-echo "===================================================="
-echo "🔧 Step 2: generate image-pull-secret and s3-secret"
-echo "===================================================="
+echo "============================================================="
+echo "🔧 Step 2: generate image-pull-secret, s3-secret, sso-secret"
+echo "============================================================="
 
 IMAGE_PULL_SECRET="$NAMESPACE-image"
 if kubectl get secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" >/dev/null 2>&1; then
-  echo "⚠️ Image pull secret $IMAGE_PULL_SECRET already exists in namespace \"$NAMESPACE\", skipping creation"
+  echo "⚠️ Image pull secret $IMAGE_PULL_SECRET already exists in namespace \"$NAMESPACE\", overwriting..."
+fi
+if [[ "$build_image_secret" == "y" ]] && [[ -n "$image_registry" ]] && [[ -n "$image_username" ]] && [[ -n "$image_password" ]]; then
+  kubectl create secret docker-registry "$IMAGE_PULL_SECRET" \
+    --docker-server="$image_registry" \
+    --docker-username="$image_username" \
+    --docker-password="$image_password" \
+    --namespace="$NAMESPACE" \
+    --dry-run=client -o yaml | kubectl apply -f - \
+    && kubectl label secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$IMAGE_PULL_SECRET" primus-safe.secret.all.workspace="true" --overwrite
+  echo "✅ Image pull secret($IMAGE_PULL_SECRET) created in namespace \"$NAMESPACE\""
 else
-  if [[ "$build_image_secret" == "y" ]] && [[ -n "$image_registry" ]] && [[ -n "$image_username" ]] && [[ -n "$image_password" ]]; then
-    kubectl create secret docker-registry "$IMAGE_PULL_SECRET" \
-      --docker-server="$image_registry" \
-      --docker-username="$image_username" \
-      --docker-password="$image_password" \
-      --namespace="$NAMESPACE" \
-      --dry-run=client -o yaml | kubectl create -f - \
-      && kubectl label secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$IMAGE_PULL_SECRET" primus-safe.secret.all.workspace="true" --overwrite
-    echo "✅ Image pull secret($IMAGE_PULL_SECRET) created in namespace \"$NAMESPACE\""
-  else
-    kubectl create secret generic "$IMAGE_PULL_SECRET" \
-      --namespace="$NAMESPACE" \
-      --from-literal=.dockerconfigjson='{}' \
-      --type=kubernetes.io/dockerconfigjson \
-      --dry-run=client -o yaml | kubectl create -f - \
-      && kubectl label secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$IMAGE_PULL_SECRET" primus-safe.secret.all.workspace="true" --overwrite
-    echo "✅ Empty Image pull secret($IMAGE_PULL_SECRET) created in namespace \"$NAMESPACE\""
-  fi
+  kubectl create secret generic "$IMAGE_PULL_SECRET" \
+    --namespace="$NAMESPACE" \
+    --from-literal=.dockerconfigjson='{}' \
+    --type=kubernetes.io/dockerconfigjson \
+    --dry-run=client -o yaml | kubectl apply -f - \
+    && kubectl label secret "$IMAGE_PULL_SECRET" -n "$NAMESPACE" primus-safe.secret.type=image primus-safe.display.name="$IMAGE_PULL_SECRET" primus-safe.secret.all.workspace="true" --overwrite
+  echo "✅ Empty Image pull secret($IMAGE_PULL_SECRET) created in namespace \"$NAMESPACE\""
 fi
 
 S3_SECRET="$NAMESPACE-s3"
 if kubectl get secret "$S3_SECRET" -n "$NAMESPACE" >/dev/null 2>&1; then
-  echo "⚠️ Image pull secret $S3_SECRET already exists in namespace \"$NAMESPACE\", skipping creation"
+  echo "⚠️ Image pull secret $S3_SECRET already exists in namespace \"$NAMESPACE\", overwriting..."
+fi
+if [[ "$s3_enable" == "true" ]] && [[ -n "$s3_endpoint" ]] && [[ -n "$s3_bucket" ]] && [[ -n "$s3_access_key" ]] && [[ -n "$s3_secret_key" ]]; then
+  kubectl create secret generic $S3_SECRET \
+    --namespace=$NAMESPACE \
+    --from-literal=access_key="$s3_access_key" \
+    --from-literal=bucket="$s3_bucket" \
+    --from-literal=endpoint="$s3_endpoint" \
+    --from-literal=secret_key="$s3_secret_key" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  echo "✅ S3 secret($S3_SECRET) created in namespace \"$NAMESPACE\""
 else
-  if [[ "$s3_enable" == "true" ]] && [[ -n "$s3_endpoint" ]] && [[ -n "$s3_bucket" ]] && [[ -n "$s3_access_key" ]] && [[ -n "$s3_secret_key" ]]; then
-    kubectl create secret generic $S3_SECRET \
-      --namespace=$NAMESPACE \
-      --from-literal=access_key="$s3_access_key" \
-      --from-literal=bucket="$s3_bucket" \
-      --from-literal=endpoint="$s3_endpoint" \
-      --from-literal=secret_key="$s3_secret_key" \
-      --dry-run=client -o yaml | kubectl apply -f -
-    echo "✅ S3 secret($S3_SECRET) created in namespace \"$NAMESPACE\""
-  else
-    s3_enable="false"
-  fi
+  s3_enable="false"
 fi
 
 SSO_SECRET="$NAMESPACE-sso"
 if kubectl get secret "$SSO_SECRET" -n "$NAMESPACE" >/dev/null 2>&1; then
-  echo "⚠️ Image pull secret $SSO_SECRET already exists in namespace \"$NAMESPACE\", skipping creation"
-else
-  if [[ "$sso_enable" == "true" ]] && [[ -n "$sso_endpoint" ]] && [[ -n "$sso_client_id" ]] && [[ -n "$sso_client_secret" ]] && [[ -n "$sso_redirect_uri" ]]; then
-    kubectl create secret generic $SSO_SECRET \
-      --namespace=$NAMESPACE \
-      --from-literal=id="$sso_client_id" \
-      --from-literal=secret="$sso_client_secret" \
-      --from-literal=endpoint="$sso_endpoint" \
-      --from-literal=redirect_uri="$sso_redirect_uri" \
-      --dry-run=client -o yaml | kubectl apply -f -
-    echo "✅ SSO secret($SSO_SECRET) created in namespace \"$NAMESPACE\""
-  else
-    s3_enable="false"
-  fi
+  echo "⚠️ Image pull secret $SSO_SECRET already exists in namespace \"$NAMESPACE\", overwriting..."
 fi
-
+if [[ "$sso_enable" == "true" ]] && [[ -n "$sso_endpoint" ]] && [[ -n "$sso_client_id" ]] && [[ -n "$sso_client_secret" ]] && [[ -n "$sso_redirect_uri" ]]; then
+  kubectl create secret generic $SSO_SECRET \
+    --namespace=$NAMESPACE \
+    --from-literal=id="$sso_client_id" \
+    --from-literal=secret="$sso_client_secret" \
+    --from-literal=endpoint="$sso_endpoint" \
+    --from-literal=redirect_uri="$sso_redirect_uri" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  echo "✅ SSO secret($SSO_SECRET) created in namespace \"$NAMESPACE\""
+else
+  sso_enable="false"
+fi
 
 echo
 echo "========================================="
@@ -276,7 +272,7 @@ sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" 
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
 sed -i '/sso:/,/^[a-z]/ s/enable: .*/enable: '"$sso_enable"'/' "$values_yaml"
 if [[ "$sso_enable" == "true" ]]; then
-  sed -i '/^s3:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
+  sed -i '/^sso:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
 fi
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"

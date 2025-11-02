@@ -89,6 +89,8 @@ func initializeSSOToken(cli client.Client) (*ssoToken, error) {
 	// Configure ID token verifier
 	ssoTokenInstance.verifier = ssoTokenInstance.provider.Verifier(
 		&oidc.Config{ClientID: ssoTokenInstance.clientId})
+	klog.Infof("endpint: %s, provider: %s",
+		ssoTokenInstance.endpoint, ssoTokenInstance.provider.Endpoint().TokenURL)
 	return ssoTokenInstance, nil
 }
 
