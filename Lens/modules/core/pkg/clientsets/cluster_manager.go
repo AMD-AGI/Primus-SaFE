@@ -36,6 +36,9 @@ type ClusterManager struct {
 
 	// Whether to load Storage client
 	loadStorageClient bool
+
+	// Default cluster name to use when no cluster is specified
+	defaultClusterName string
 }
 
 var (
@@ -200,6 +203,12 @@ func (cm *ClusterManager) initializeCurrentCluster() error {
 
 	// Also add current cluster to clusters map
 	cm.clusters[clusterName] = cm.currentCluster
+
+	// Initialize default cluster name from environment variable
+	cm.defaultClusterName = getDefaultClusterName()
+	if cm.defaultClusterName != "" {
+		log.Infof("Default cluster configured: %s", cm.defaultClusterName)
+	}
 
 	log.Infof("Initialized current cluster: %s (K8S: %v, Storage: %v)",
 		clusterName, cm.loadK8SClient, cm.loadStorageClient)
@@ -371,4 +380,46 @@ func getCurrentClusterName() string {
 
 	// Default value
 	return "default"
+}
+
+// getDefaultClusterName gets the default cluster name from environment variables
+// This cluster will be used when no cluster is specified in API requests
+func getDefaultClusterName() string {
+	return os.Getenv("DEFAULT_CLUSTER_NAME")
+}
+
+// GetDefaultClusterName returns the configured default cluster name
+func (cm *ClusterManager) GetDefaultClusterName() string {
+	return cm.defaultClusterName
+}
+
+// SetDefaultClusterName sets the default cluster name
+func (cm *ClusterManager) SetDefaultClusterName(clusterName string) {
+	cm.defaultClusterName = clusterName
+	log.Infof("Default cluster name set to: %s", clusterName)
+}
+
+// GetClusterClientsOrDefault returns cluster clients based on priority:
+// 1. If clusterName is provided and not empty, use that cluster
+// 2. If no clusterName provided but default cluster is configured, use default cluster
+// 3. Otherwise, use current cluster
+func (cm *ClusterManager) GetClusterClientsOrDefault(clusterName string) (*ClusterClientSet, error) {
+	// If cluster name is explicitly provided, use it
+	if clusterName != "" {
+		return cm.GetClientSetByClusterName(clusterName)
+	}
+
+	// If default cluster is configured, use it
+	if cm.defaultClusterName != "" {
+		clients, err := cm.GetClientSetByClusterName(cm.defaultClusterName)
+		if err != nil {
+			log.Warnf("Failed to get default cluster '%s', falling back to current cluster: %v",
+				cm.defaultClusterName, err)
+			return cm.GetCurrentClusterClients(), nil
+		}
+		return clients, nil
+	}
+
+	// Otherwise, use current cluster
+	return cm.GetCurrentClusterClients(), nil
 }

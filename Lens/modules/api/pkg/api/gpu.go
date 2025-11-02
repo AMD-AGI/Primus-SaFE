@@ -14,6 +14,8 @@ import (
 
 func getGpuDevice(ctx *gin.Context) {
 	name := ctx.Param("name")
+	// Note: GPU device data comes from database, cluster parameter is not needed for now
+	// In the future, if multi-cluster database support is needed, cluster parameter can be added here
 	node, err := database.GetFacade().GetNode().GetNodeByName(ctx, name)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Fail get node.", errors.CodeDatabaseError))

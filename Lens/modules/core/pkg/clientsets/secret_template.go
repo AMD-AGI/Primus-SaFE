@@ -154,11 +154,41 @@ func (p *PrimusLensClientConfig) Equals(other *PrimusLensClientConfig) bool {
 type PrimusLensMultiClusterClientConfig map[string]PrimusLensClientConfig
 
 func (p *PrimusLensMultiClusterClientConfig) LoadFromSecret(data map[string][]byte) error {
+	// Ensure the map is initialized
+	if *p == nil {
+		*p = make(PrimusLensMultiClusterClientConfig)
+	}
+
 	for clusterName, bytes := range data {
-		singleCfg := PrimusLensClientConfig{}
-		if err := json.Unmarshal(bytes, &singleCfg); err != nil {
-			return fmt.Errorf("failed to unmarshal multi-cluster client config: %w", err)
+		// Skip empty data
+		if len(bytes) == 0 {
+			continue
 		}
+		log.Infof("Loading multi-cluster client config for cluster: %s", clusterName)
+
+		// First unmarshal into intermediate structure with base64-encoded values
+		var intermediate map[string]string
+		if err := json.Unmarshal(bytes, &intermediate); err != nil {
+			return fmt.Errorf("failed to unmarshal multi-cluster client config for %s: %w", clusterName, err)
+		}
+
+		// Create new map for decoded data
+		decodedData := make(map[string][]byte)
+		for key, base64Value := range intermediate {
+			// Decode base64 string
+			decoded, err := base64.StdEncoding.DecodeString(base64Value)
+			if err != nil {
+				return fmt.Errorf("failed to decode %s for cluster %s: %w", key, clusterName, err)
+			}
+			decodedData[key] = decoded
+		}
+
+		// Load configuration using decoded data
+		singleCfg := PrimusLensClientConfig{}
+		if err := singleCfg.LoadFromSecret(decodedData); err != nil {
+			return fmt.Errorf("failed to load config for cluster %s: %w", clusterName, err)
+		}
+
 		(*p)[clusterName] = singleCfg
 	}
 	return nil
@@ -245,8 +275,8 @@ func createRestConfig(endpoint, certData, keyData, caData string, insecure bool)
 
 	log.Infof("Creating rest config for endpoint: %s (insecure: %v, cert len: %d, key len: %d, ca len: %d)",
 		endpoint, insecure, len(decodedCertData), len(decodedKeyData), len(decodedCAData))
-	log.Infof("Key data starts with: %s", truncateString(decodedKeyData, 30))
-	log.Infof("Cert data starts with: %s", truncateString(decodedCertData, 30))
+	log.Infof("Key data starts with: %s", truncateString(decodedKeyData, 100))
+	log.Infof("Cert data starts with: %s", truncateString(decodedCertData, 100))
 
 	cfg := &rest.Config{
 		Host: endpoint,

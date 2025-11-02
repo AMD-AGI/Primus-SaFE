@@ -23,8 +23,15 @@ import (
 
 func getClusterGpuAllocationInfo(c *gin.Context) {
 	cm := clientsets.GetClusterManager()
-	current := cm.GetCurrentClusterClients()
-	result, err := gpu.GetGpuNodesAllocation(c, current.K8SClientSet, metadata.GpuVendorAMD)
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := c.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	
+	result, err := gpu.GetGpuNodesAllocation(c, clients.K8SClientSet, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
 		return
@@ -34,13 +41,20 @@ func getClusterGpuAllocationInfo(c *gin.Context) {
 
 func getClusterGPUUtilization(c *gin.Context) {
 	cm := clientsets.GetClusterManager()
-	current := cm.GetCurrentClusterClients()
-	usage, err := gpu.CalculateGpuUsage(c, current.StorageClientSet, metadata.GpuVendorAMD)
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := c.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
 	if err != nil {
 		_ = c.Error(err)
 		return
 	}
-	allocationRate, err := gpu.GetClusterGpuAllocationRate(c, current.K8SClientSet, metadata.GpuVendorAMD)
+	
+	usage, err := gpu.CalculateGpuUsage(c, clients.StorageClientSet, metadata.GpuVendorAMD)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	allocationRate, err := gpu.GetClusterGpuAllocationRate(c, clients.K8SClientSet, metadata.GpuVendorAMD)
 	result := &model.GPUUtilization{
 		AllocationRate: allocationRate,
 		Utilization:    usage,
@@ -73,7 +87,14 @@ func getGpuUsageHistory(c *gin.Context) {
 	endTime := time.Unix(endUnix, 0)
 
 	cm := clientsets.GetClusterManager()
-	storageClient := cm.GetCurrentClusterClients().StorageClientSet
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := c.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	storageClient := clients.StorageClientSet
 
 	usageHistory, err := gpu.GetHistoryGpuUsage(c, storageClient, metadata.GpuVendorAMD, startTime, endTime, step)
 	if err != nil {
@@ -277,7 +298,14 @@ func getNodeGpuMetrics(ctx *gin.Context) {
 	}
 
 	cm := clientsets.GetClusterManager()
-	storageClient := cm.GetCurrentClusterClients().StorageClientSet
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+	storageClient := clients.StorageClientSet
 
 	gpuUtil, err := node.GetNodeGpuUtilHistory(ctx,
 		storageClient,

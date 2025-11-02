@@ -210,6 +210,8 @@ func (m *MultiClusterStorageConfigListener) syncStorageConfigsFromAllClusters() 
 		)
 		if err != nil {
 			log.Warnf("Failed to get storage config secret from cluster %s: %v", clusterName, err)
+			log.Warnf("Please check: 1) Certificate validity, 2) RBAC permissions, 3) API server connectivity")
+			log.Warnf("Cluster endpoint: %s", k8sClient.Config.Host)
 			continue
 		}
 
