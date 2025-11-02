@@ -146,6 +146,15 @@ func (cm *ClusterManager) initializeStorageClients(ctx context.Context) error {
 			log.Info("Current cluster storage clients loaded successfully")
 		}
 	} else {
+		// In multi-cluster mode, first initialize current cluster storage clients
+		err = loadCurrentClusterStorageClients(ctx)
+		if err != nil {
+			log.Warnf("Failed to load current cluster storage clients: %v", err)
+			// Don't return error as storage config may not be ready yet
+			err = nil
+		}
+
+		// Then load multi-cluster storage clients
 		err = loadMultiClusterStorageClients(ctx)
 		if err != nil {
 			log.Warnf("Failed to load multi-cluster storage clients: %v", err)
