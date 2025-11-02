@@ -22,9 +22,12 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 	return types.GetEnvResponse{
 		EnableLog:         commonconfig.IsOpenSearchEnable(),
 		EnableLogDownload: commonconfig.IsS3Enable(),
-		EnableSSH:         commonconfig.IsSSHEnable(),
 		AuthoringImage:    commonconfig.GetAuthoringImage(),
+		EnableSSH:         commonconfig.IsSSHEnable(),
 		SSHIP:             commonconfig.GetSSHServerIP(),
 		SSHPort:           commonconfig.GetSSHServerPort(),
+		SSOEnable:         commonconfig.IsSSOEnable(),
+		SSOEndpoint:       commonconfig.GetSSOEndpoint(),
+		SSORedirectURI:    commonconfig.GetSSORedirectURI(),
 	}, nil
 }

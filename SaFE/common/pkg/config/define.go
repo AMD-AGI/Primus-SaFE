@@ -99,5 +99,6 @@ const (
 
 	// sso
 	ssoPrefix     = "sso."
+	ssoEnable     = ssoPrefix + "enable"
 	ssoSecretPath = ssoPrefix + "secret_path"
 )

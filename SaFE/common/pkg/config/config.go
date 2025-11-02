@@ -360,6 +360,10 @@ func GetSystemBaseUrl() string {
 	return getString(systemBaseUrl, "")
 }
 
+func IsSSOEnable() bool {
+	return getBool(ssoEnable, false)
+}
+
 func GetSSOClientId() string {
 	return getFromFile(ssoSecretPath, "id")
 }

@@ -50,7 +50,11 @@ type ssoToken struct {
 // implementing the TokenInterface for SSO user authentication
 func NewSSOToken(cli client.Client) *ssoToken {
 	ssoInitOnce.Do(func() {
-		ssoInstance, _ = initializeSSOToken(cli)
+		var err error
+		ssoInstance, err = initializeSSOToken(cli)
+		if err != nil {
+			klog.ErrorS(err, "failed to init sso token")
+		}
 	})
 	return ssoInstance
 }

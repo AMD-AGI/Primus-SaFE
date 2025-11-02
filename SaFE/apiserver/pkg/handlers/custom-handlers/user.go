@@ -24,6 +24,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -368,6 +369,9 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	}
 	var tokenInstance authority.TokenInterface
 	if query.Type == v1.SSOUser {
+		if !commonconfig.IsSSOEnable() {
+			return nil, commonerrors.NewInternalError("SSO is not enabled")
+		}
 		tokenInstance = authority.SSOInstance()
 	} else {
 		tokenInstance = authority.DefaultTokenInstance()
