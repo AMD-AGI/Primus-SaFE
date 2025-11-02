@@ -35,16 +35,10 @@ var (
 
 // NewClient creates and returns a singleton instance of HttpClient with default timeout.
 func NewClient() Interface {
-	return NewClientWithTimeout(DefaultTimeout)
-}
-
-// NewClientWithTimeout creates and returns a singleton instance of HttpClient with custom timeout.
-// It initializes the client only once using sync.Once.
-func NewClientWithTimeout(timeout time.Duration) Interface {
 	once.Do(func() {
 		instance = &client{
 			Client: &http.Client{
-				Timeout: timeout,
+				Timeout: DefaultTimeout,
 				Transport: &http.Transport{
 					TLSClientConfig: &tls.Config{
 						InsecureSkipVerify: true,

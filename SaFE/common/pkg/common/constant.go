@@ -54,6 +54,7 @@ const (
 
 	UserName              = "userName"
 	UserId                = "userId"
+	UserType              = "userType"
 	UserSelf              = "self"
 	UserSystem            = "system"
 	UserWorkspaces        = "workspaces"

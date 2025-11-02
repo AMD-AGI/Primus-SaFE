@@ -371,3 +371,7 @@ func GetSSOClientSecret() string {
 func GetSSOEndpoint() string {
 	return getFromFile(ssoSecretPath, "endpoint")
 }
+
+func GetSSORedirectURI() string {
+	return getFromFile(ssoSecretPath, "redirect_uri")
+}

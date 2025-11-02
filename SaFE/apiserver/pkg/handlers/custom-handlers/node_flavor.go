@@ -68,7 +68,7 @@ func (h *Handler) GetNodeFlavorAvail(c *gin.Context) {
 // createNodeFlavor implements the node flavor creation logic.
 // Validates the request, generates a node flavor object, and persists it in the k8s cluster.
 func (h *Handler) createNodeFlavor(c *gin.Context) (interface{}, error) {
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.NodeFlavorKind,
 		Verb:         v1.CreateVerb,
@@ -123,12 +123,12 @@ func (h *Handler) listNodeFlavor(c *gin.Context) (interface{}, error) {
 			return nl.Items[i].CreationTimestamp.Time.Before(nl.Items[j].CreationTimestamp.Time)
 		})
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	for _, item := range nl.Items {
 		if !item.GetDeletionTimestamp().IsZero() {
 			continue
 		}
-		if err = h.auth.Authorize(authority.Input{
+		if err = h.accessController.Authorize(authority.AccessInput{
 			Context:  c.Request.Context(),
 			Resource: &item,
 			Verb:     v1.ListVerb,
@@ -153,7 +153,7 @@ func (h *Handler) getNodeFlavor(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: nf,
 		Verb:     v1.GetVerb,
@@ -172,7 +172,7 @@ func (h *Handler) patchNodeFlavor(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  ctx,
 		Resource: nf,
 		Verb:     v1.UpdateVerb,
@@ -207,7 +207,7 @@ func (h *Handler) deleteNodeFlavor(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  ctx,
 		Resource: nf,
 		Verb:     v1.DeleteVerb,
@@ -245,7 +245,7 @@ func (h *Handler) getNodeFlavorAvail(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: nf,
 		Verb:     v1.GetVerb,

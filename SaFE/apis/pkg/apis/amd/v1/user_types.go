@@ -17,7 +17,7 @@ const (
 	UserKind = "User"
 
 	DefaultUser UserType = "default"
-	TeamsUser   UserType = "teams"
+	SSOUser     UserType = "sso"
 
 	UserNormal UserRestrictedType = 0
 	UserFrozen UserRestrictedType = 1

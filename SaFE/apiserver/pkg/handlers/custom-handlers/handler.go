@@ -18,7 +18,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/sso"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -30,12 +29,11 @@ import (
 
 type Handler struct {
 	client.Client
-	clientSet     kubernetes.Interface
-	dbClient      dbclient.Interface
-	httpClient    httpclient.Interface
-	clientManager *commonutils.ObjectManager
-	ssoClient     *sso.SsoClient
-	auth          *authority.Authorizer
+	clientSet        kubernetes.Interface
+	dbClient         dbclient.Interface
+	httpClient       httpclient.Interface
+	clientManager    *commonutils.ObjectManager
+	accessController *authority.AccessController
 }
 
 // NewHandler creates a new Handler instance with the provided controller manager.
@@ -45,7 +43,7 @@ type Handler struct {
 // - searchClient: OpenSearch client used for log search
 // - httpClient: HTTP client for external requests
 // - clientManager: Object manager for dataplane client caching
-// - auth: Authorizer for access control
+// - accessController: AccessController for access control
 // Returns the initialized Handler or an error if initialization fails.
 func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 	clientSet, err := k8sclient.NewClientSetWithRestConfig(mgr.GetConfig())
@@ -58,15 +56,13 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 			return nil, fmt.Errorf("failed to new db client")
 		}
 	}
-
 	h := &Handler{
-		Client:        mgr.GetClient(),
-		clientSet:     clientSet,
-		dbClient:      dbClient,
-		httpClient:    httpclient.NewClient(),
-		ssoClient:     sso.NewSsoClient(),
-		clientManager: commonutils.NewObjectManagerSingleton(),
-		auth:          authority.NewAuthorizer(mgr.GetClient()),
+		Client:           mgr.GetClient(),
+		clientSet:        clientSet,
+		dbClient:         dbClient,
+		httpClient:       httpclient.NewClient(),
+		clientManager:    commonutils.NewObjectManagerSingleton(),
+		accessController: authority.NewAccessController(mgr.GetClient()),
 	}
 	return h, nil
 }
@@ -124,7 +120,7 @@ func (h *Handler) getAndSetUsername(c *gin.Context) (*v1.User, error) {
 	if userId == "" {
 		return nil, nil
 	}
-	user, err := h.auth.GetRequestUser(c.Request.Context(), userId)
+	user, err := h.accessController.GetRequestUser(c.Request.Context(), userId)
 	if err != nil {
 		return nil, err
 	}

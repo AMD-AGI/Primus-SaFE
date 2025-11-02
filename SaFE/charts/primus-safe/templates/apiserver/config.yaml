@@ -72,8 +72,10 @@ data:
       # The expiration time of the token, in seconds.
       token_expire: 604800
     sso:
-      # The secret for sso, which contains the id, secret and endpoint
-      secret_path: "/etc/secrets/sso"
+      # The secret for sso, which contains the id, secret, endpoint and redirect_uri
+      secret_path: {{ .Values.sso.secret_path }}
+      # Whether to enable sso
+      enable: {{ .Values.sso.enable }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

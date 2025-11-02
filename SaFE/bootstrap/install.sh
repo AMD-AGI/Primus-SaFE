@@ -86,7 +86,6 @@ if [[ "$s3_enable" == "true" ]]; then
   s3_secret_key=$(get_input_with_default "Enter S3 secret-key(empty to disable S3): " "")
 fi
 
-
 build_image_secret=$(get_input_with_default "Create image pull secret ? (y/n): " "n")
 image_registry=""
 image_username=""
@@ -103,6 +102,19 @@ if [[ "$ingress" == "higress" ]]; then
   sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")
 fi
 
+support_sso=$(get_input_with_default "Support SSO ? (y/n): " "n")
+sso_enable=$(convert_to_boolean "$support_sso")
+sso_endpoint=""
+sso_client_id=""
+sso_client_secret=""
+sso_redirect_uri=""
+if [[ "$sso_enable" == "true" ]]; then
+  sso_endpoint=$(get_input_with_default "Enter SSO endpoint (empty to disable SSO): " "")
+  sso_client_id=$(get_input_with_default "Enter SSO client id(empty to disable SSO): " "")
+  sso_client_secret=$(get_input_with_default "Enter SSO client secret(empty to disable SSO): " "")
+  sso_redirect_uri=$(get_input_with_default "Enter SSO redirect uri(empty to disable SSO): " "")
+fi
+
 echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
@@ -115,7 +127,6 @@ if [[ "$s3_enable" == "true" ]]; then
   echo "✅ S3 Access Key: \"$s3_access_key\""
   echo "✅ S3 Secret Key: \"$s3_secret_key\""
 fi
-
 if [[ "$build_image_secret" == "y" ]]; then
   echo "✅ Image registry: \"$image_registry\""
   echo "✅ Image username: \"$image_username\""
@@ -123,6 +134,12 @@ fi
 echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
   echo "✅ Cluster Name: \"$sub_domain\""
+fi
+if [[ "$sso_enable" == "true" ]]; then
+  echo "✅ SSO Endpoint: \"$sso_endpoint\""
+  echo "✅ SSO Client ID: \"$sso_client_id\""
+  echo "✅ SSO Client Secret: \"$sso_client_secret\""
+  echo "✅ SSO Redirect URI: \"$sso_redirect_uri\""
 fi
 
 replicas=1
@@ -185,6 +202,25 @@ else
   fi
 fi
 
+SSO_SECRET="$NAMESPACE-sso"
+if kubectl get secret "$SSO_SECRET" -n "$NAMESPACE" >/dev/null 2>&1; then
+  echo "⚠️ Image pull secret $SSO_SECRET already exists in namespace \"$NAMESPACE\", skipping creation"
+else
+  if [[ "$sso_enable" == "true" ]] && [[ -n "$sso_endpoint" ]] && [[ -n "$sso_client_id" ]] && [[ -n "$s3_client_secret" ]] && [[ -n "$sso_redirect_uri" ]]; then
+    kubectl create secret generic $S3_SECRET \
+      --namespace=$NAMESPACE \
+      --from-literal=id="$sso_client_id" \
+      --from-literal=secret="$sso_client_secret" \
+      --from-literal=endpoint="$sso_endpoint" \
+      --from-literal=redirect_uri="$sso_redirect_uri" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    echo "✅ SSO secret($SSO_SECRET) created in namespace \"$NAMESPACE\""
+  else
+    s3_enable="false"
+  fi
+fi
+
+
 echo
 echo "========================================="
 echo "🔧 Step 3: install grafana-operator"
@@ -238,6 +274,10 @@ if [[ "$lens_enable" == "true" ]]; then
 fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
+sed -i '/sso:/,/^[a-z]/ s/enable: .*/enable: '"$sso_enable"'/' "$values_yaml"
+if [[ "$sso_enable" == "true" ]]; then
+  sed -i '/^s3:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
+fi
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
 echo "⏳ Waiting for Postgres Operator pod..."
@@ -300,6 +340,7 @@ cluster_scale=$cluster_scale
 storage_class=$storage_class
 lens_enable=$lens_enable
 s3_enable=$s3_enable
+sso_enable=$sso_enable
 ingress=$ingress
 sub_domain=$sub_domain
 EOF
