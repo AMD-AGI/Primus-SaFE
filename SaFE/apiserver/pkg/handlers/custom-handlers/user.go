@@ -94,7 +94,7 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !requestUser.IsSystemAdmin() && commonconfig.IsSSOEnable() {
+	if commonconfig.IsSSOEnable() {
 		return nil, commonerrors.NewInternalError("the user registration is not enabled")
 	}
 
@@ -398,7 +398,7 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 		UserResponseItem: h.cvtToUserResponseItem(c.Request.Context(), user),
 	}
 	if query.IsFromConsole {
-		setCookie(c, result)
+		setCookie(c, result, query.Type)
 	}
 	klog.Infof("user login successfully, userName: %s, userId: %s", result.Name, result.Id)
 	return result, nil
@@ -406,7 +406,7 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 
 // setCookie sets authentication cookies for logged-in users.
 // Configures cookie parameters including expiration time and domain based on user information.
-func setCookie(c *gin.Context, userInfo *types.UserLoginResponse) {
+func setCookie(c *gin.Context, userInfo *types.UserLoginResponse, userType v1.UserType) {
 	maxAge := 0
 	switch {
 	case userInfo.Expire < 0:
@@ -418,7 +418,7 @@ func setCookie(c *gin.Context, userInfo *types.UserLoginResponse) {
 	domain := "." + netutil.GetSecondLevelDomain(c.Request.Host)
 	c.SetCookie(authority.CookieToken, userInfo.Token, maxAge, "/", domain, false, true)
 	c.SetCookie(common.UserId, userInfo.Id, maxAge, "/", domain, false, true)
-	c.SetCookie(common.UserType, string(userInfo.Type), maxAge, "/", domain, false, true)
+	c.SetCookie(common.UserType, string(userType), maxAge, "/", domain, false, true)
 
 }
 
@@ -465,7 +465,7 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) type
 // Only applicable for requests from the console interface.
 func (h *Handler) logout(c *gin.Context) (interface{}, error) {
 	info := &types.UserLoginResponse{}
-	setCookie(c, info)
+	setCookie(c, info, "")
 	return nil, nil
 }
 
