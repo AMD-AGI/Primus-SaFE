@@ -101,7 +101,7 @@ func saveTrainingPerformance(ctx context.Context, msg, podUid string, docTime ti
 	}
 	log.Tracef("save training performance, podUid: %s, peformance %+v ", podUid, performance)
 	nearestWorkloadUid := ""
-	nearestWorkload, err := database.GetNearestWorkloadByPodUid(ctx, podUid)
+	nearestWorkload, err := database.GetFacade().GetWorkload().GetNearestWorkloadByPodUid(ctx, podUid)
 	if err != nil {
 		return true, err
 	}
@@ -110,7 +110,7 @@ func saveTrainingPerformance(ctx context.Context, msg, podUid string, docTime ti
 	}
 	log.Tracef("nearest workload uid: %s", nearestWorkloadUid)
 
-	workloadReferences, err := database.ListWorkloadPodReferencesByPodUids(ctx, []string{podUid})
+	workloadReferences, err := database.GetFacade().GetWorkload().ListWorkloadPodReferencesByPodUids(ctx, []string{podUid})
 	if err != nil {
 		return true, err
 	}
@@ -131,7 +131,7 @@ func saveTrainingPerformanceForSingleWorkload(ctx context.Context, podId, worklo
 	if err != nil {
 		return err
 	}
-	existDbPerformance, err := database.GetTrainingPerformanceByWorkloadIdSerialAndIteration(ctx, workloadId, serial, perf.CurrentIteration)
+	existDbPerformance, err := database.GetFacade().GetTraining().GetTrainingPerformanceByWorkloadIdSerialAndIteration(ctx, workloadId, serial, perf.CurrentIteration)
 	if err != nil {
 		return err
 	}
@@ -148,7 +148,7 @@ func saveTrainingPerformanceForSingleWorkload(ctx context.Context, podId, worklo
 		Serial:      int32(serial),
 		WorkloadUID: workloadId,
 	}
-	err = database.CreateTrainingPerformance(ctx, existDbPerformance)
+	err = database.GetFacade().GetTraining().CreateTrainingPerformance(ctx, existDbPerformance)
 	if err != nil {
 		return err
 	}
@@ -179,7 +179,7 @@ func saveStartTrain(ctx context.Context, msg, podId string, docTime time.Time) (
 		return false, nil
 	}
 	nearestWorkloadUid := ""
-	nearestWorkload, err := database.GetNearestWorkloadByPodUid(ctx, podId)
+	nearestWorkload, err := database.GetFacade().GetWorkload().GetNearestWorkloadByPodUid(ctx, podId)
 	if err != nil {
 		return false, err
 	}
@@ -187,7 +187,7 @@ func saveStartTrain(ctx context.Context, msg, podId string, docTime time.Time) (
 		nearestWorkloadUid = nearestWorkload.UID
 	}
 
-	workloadReferences, err := database.ListWorkloadPodReferencesByPodUids(ctx, []string{podId})
+	workloadReferences, err := database.GetFacade().GetWorkload().ListWorkloadPodReferencesByPodUids(ctx, []string{podId})
 	if err != nil {
 		return true, err
 	}
@@ -201,7 +201,7 @@ func saveStartTrain(ctx context.Context, msg, podId string, docTime time.Time) (
 }
 
 func getCurrentRunSerial(ctx context.Context, workloadId, nearestWorkloadId string) (int, error) {
-	existEvent, err := database.GetWorkloadEventByWorkloadUidAndNearestWorkloadIdAndType(ctx, workloadId, nearestWorkloadId, constant.TrainingEventStartTrain)
+	existEvent, err := database.GetFacade().GetWorkload().GetWorkloadEventByWorkloadUidAndNearestWorkloadIdAndType(ctx, workloadId, nearestWorkloadId, constant.TrainingEventStartTrain)
 	if err != nil {
 		return 0, err
 	}
@@ -209,7 +209,7 @@ func getCurrentRunSerial(ctx context.Context, workloadId, nearestWorkloadId stri
 		return 1, nil
 	}
 	serial := 1
-	latestEvent, err := database.GetLatestOtherWorkloadEvent(ctx, workloadId, nearestWorkloadId)
+	latestEvent, err := database.GetFacade().GetWorkload().GetLatestOtherWorkloadEvent(ctx, workloadId, nearestWorkloadId)
 	if err != nil {
 		return 0, err
 	}
@@ -232,7 +232,7 @@ func saveStartTrainForSingleWorkload(ctx context.Context, podId, workloadId, nea
 		PodUID:             podId,
 		NearestWorkloadUID: nearestWorkloadId,
 	}
-	err = database.CreateWorkloadEvent(ctx, newEvent)
+	err = database.GetFacade().GetWorkload().CreateWorkloadEvent(ctx, newEvent)
 	if err != nil {
 		return err
 	}

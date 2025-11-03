@@ -41,9 +41,9 @@ const (
 
 var (
 	SrcImage  = os.Getenv(SrcImageEnv)  //  e.g: ollama/ollama:latest
-	DestImage = os.Getenv(DestImageEnv) //  e.g: harbor.xcs.ai/01-ai/test/
+	DestImage = os.Getenv(DestImageEnv) //  e.g: harbor.my.domain/my-repo/test/
 
-	defaultUserAgent = "01-ai/" + Version
+	defaultUserAgent = "primussafe/" + Version
 )
 
 func main() {
@@ -282,12 +282,12 @@ func (opts *syncOptions) run(args []string, stdout io.Writer) (retErr error) {
 			}
 
 			var destRef types.ImageReference
-			if strings.HasSuffix(destination, destSuffix) { // e.g: harbor.xcs.ai/01-ai/test/ollama/ollama:latest
+			if strings.HasSuffix(destination, destSuffix) { // e.g: harbor.my.domain/my-repo/test/ollama/ollama:latest
 				destRef, err = destinationReference(destination, opts.Destination)
 				if err != nil {
 					return
 				}
-			} else { //  e.g: harbor.xcs.ai/01-ai/test/ollama -> harbor.xcs.ai/01-ai/test/ollama/ollama:latest
+			} else { //  e.g: harbor.my.domain/my-repo/test/ollama -> harbor.my.domain/my-repo/test/ollama/ollama:latest
 				destRef, err = destinationReference(path.Join(destination, destSuffix)+opts.AppendSuffix, opts.Destination)
 				if err != nil {
 					return err

@@ -64,7 +64,7 @@ func (g *GpuPodsReconciler) Reconcile(ctx context.Context, req reconcile.Request
 		}
 	}()
 	if g.clientSets == nil {
-		g.clientSets = clientsets.GetCurrentClusterK8SClientSet()
+		g.clientSets = clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet
 	}
 	pod := &corev1.Pod{}
 	err := g.clientSets.ControllerRuntimeClient.Get(ctx, req.NamespacedName, pod)
@@ -114,6 +114,9 @@ func (g *GpuPodsReconciler) tracePodOwners(ctx context.Context, pod *corev1.Pod)
 		log.Infof("tracePodOwners: namespace: %s, ownerReference: %v", namespace, *ownerReference)
 		ownerObj, err := k8sUtil.GetOwnerObject(ctx, g.clientSets.ControllerRuntimeClient, *ownerReference, namespace)
 		if err != nil {
+			if client.IgnoreNotFound(err) == nil {
+				return nil
+			}
 			return err
 		}
 		if ownerObj == nil {
@@ -136,7 +139,7 @@ func (g *GpuPodsReconciler) tracePodOwners(ctx context.Context, pod *corev1.Pod)
 			ResourceVersion: int32(resourceVersion),
 			CreatedAt:       time.Now(),
 		}
-		err = database.CreateGpuWorkloadSnapshot(ctx, snapshot)
+		err = database.GetFacade().GetWorkload().CreateGpuWorkloadSnapshot(ctx, snapshot)
 		if err != nil {
 			log.Errorf("Failed to create gpu workload snapshot %v: %v", snapshot, err)
 			continue
@@ -158,7 +161,7 @@ func (g *GpuPodsReconciler) tracePodOwners(ctx context.Context, pod *corev1.Pod)
 }
 
 func (g *GpuPodsReconciler) saveWorkloadPodReference(ctx context.Context, workloadUid, podUid string) error {
-	return database.CreateWorkloadPodReference(ctx, workloadUid, podUid)
+	return database.GetFacade().GetWorkload().CreateWorkloadPodReference(ctx, workloadUid, podUid)
 }
 
 func (g *GpuPodsReconciler) saveGpuWorkload(ctx context.Context, obj *unstructured.Unstructured) error {
@@ -186,7 +189,7 @@ func (g *GpuPodsReconciler) saveGpuWorkload(ctx context.Context, obj *unstructur
 	if obj.GetDeletionTimestamp() != nil {
 		gpuWorkload.EndAt = obj.GetDeletionTimestamp().Time
 	}
-	existGpuWorkload, err := database.GetGpuWorkloadByUid(ctx, string(obj.GetUID()))
+	existGpuWorkload, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, string(obj.GetUID()))
 	if err != nil {
 		return err
 	}
@@ -197,10 +200,10 @@ func (g *GpuPodsReconciler) saveGpuWorkload(ctx context.Context, obj *unstructur
 		gpuWorkload.ParentUID = existGpuWorkload.ParentUID
 	}
 	if existGpuWorkload.ID == 0 {
-		err = database.CreateGpuWorkload(ctx, existGpuWorkload)
+		err = database.GetFacade().GetWorkload().CreateGpuWorkload(ctx, existGpuWorkload)
 
 	} else {
-		err = database.UpdateGpuWorkload(ctx, existGpuWorkload)
+		err = database.GetFacade().GetWorkload().UpdateGpuWorkload(ctx, existGpuWorkload)
 	}
 	if err != nil {
 		return err
@@ -209,7 +212,7 @@ func (g *GpuPodsReconciler) saveGpuWorkload(ctx context.Context, obj *unstructur
 }
 
 func (g *GpuPodsReconciler) saveGpuPodResource(ctx context.Context, pod *corev1.Pod) error {
-	existResource, err := database.GetPodResourceByUid(ctx, string(pod.GetUID()))
+	existResource, err := database.GetFacade().GetPod().GetPodResourceByUid(ctx, string(pod.GetUID()))
 	if err != nil {
 		return err
 	}
@@ -235,16 +238,16 @@ func (g *GpuPodsReconciler) saveGpuPodResource(ctx context.Context, pod *corev1.
 		existResource.EndAt = k8sUtil.GetCompeletedAt(pod)
 	}
 	if existResource.ID == 0 {
-		return database.CreatePodResource(ctx, existResource)
+		return database.GetFacade().GetPod().CreatePodResource(ctx, existResource)
 	} else if needUpdated {
-		return database.UpdatePodResource(ctx, existResource)
+		return database.GetFacade().GetPod().UpdatePodResource(ctx, existResource)
 	}
 	return nil
 
 }
 
 func (g *GpuPodsReconciler) saveGpuPodEvent(ctx context.Context, pod *corev1.Pod, currentSnapshot *model.PodSnapshot) error {
-	formerSnapshot, err := database.GetLastPodSnapshot(ctx, currentSnapshot.PodUID, int(currentSnapshot.ResourceVersion))
+	formerSnapshot, err := database.GetFacade().GetPod().GetLastPodSnapshot(ctx, currentSnapshot.PodUID, int(currentSnapshot.ResourceVersion))
 	if err != nil {
 		return err
 	}
@@ -254,7 +257,7 @@ func (g *GpuPodsReconciler) saveGpuPodEvent(ctx context.Context, pod *corev1.Pod
 	}
 	for i := range events {
 		podsEvent := events[i]
-		err := database.CreateGpuPodsEvent(ctx, podsEvent)
+		err := database.GetFacade().GetPod().CreateGpuPodsEvent(ctx, podsEvent)
 		if err != nil {
 			log.Errorf("Fail to CreateGpuPodsEvent.Error %+v", err)
 		}
@@ -331,7 +334,7 @@ func (g *GpuPodsReconciler) savePodSnapshot(ctx context.Context, pod *corev1.Pod
 		CreatedAt:       time.Now(),
 		ResourceVersion: int32(resourceVersion),
 	}
-	err = database.CreatePodSnapshot(ctx, currentSnapshot)
+	err = database.GetFacade().GetPod().CreatePodSnapshot(ctx, currentSnapshot)
 	if err != nil {
 		return nil, err
 	}
@@ -356,7 +359,7 @@ func (g *GpuPodsReconciler) saveGpuPodsStatus(ctx context.Context, pod *corev1.P
 		gpuPods.Running = true
 	}
 
-	existGpuPodsRecord, err := database.GetGpuPodsByPodUid(ctx, string(pod.UID))
+	existGpuPodsRecord, err := database.GetFacade().GetPod().GetGpuPodsByPodUid(ctx, string(pod.UID))
 	if err != nil {
 		return err
 	}
@@ -368,12 +371,12 @@ func (g *GpuPodsReconciler) saveGpuPodsStatus(ctx context.Context, pod *corev1.P
 		existGpuPodsRecord = gpuPods
 	}
 	if existGpuPodsRecord.ID == 0 {
-		err := database.CreateGpuPods(ctx, existGpuPodsRecord)
+		err := database.GetFacade().GetPod().CreateGpuPods(ctx, existGpuPodsRecord)
 		if err != nil {
 			return err
 		}
 	} else {
-		err := database.UpdateGpuPods(ctx, existGpuPodsRecord)
+		err := database.GetFacade().GetPod().UpdateGpuPods(ctx, existGpuPodsRecord)
 		if err != nil {
 			return err
 		}

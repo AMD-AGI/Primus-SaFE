@@ -84,7 +84,7 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 		log.Infof("timeseries names: %v", newTsNames)
 		for i := range newTimeseries {
 			ts := newTimeseries[i]
-			err := clientsets.GetCurrentClusterStorageClientSet().PrometheusWrite.Push(ts)
+			err := clientsets.GetClusterManager().GetCurrentClusterClients().StorageClientSet.PrometheusWrite.Push(ts)
 			if err != nil {
 				log.Errorf("Failed to push timeseries: %v", err)
 			}
