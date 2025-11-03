@@ -62,7 +62,7 @@ type SearchClient struct {
 func NewClient(cfg SearchClientConfig) *SearchClient {
 	return &SearchClient{
 		SearchClientConfig: cfg,
-		httpClient:         httpclient.NewHttpClient(),
+		httpClient:         httpclient.NewClient(),
 	}
 }
 

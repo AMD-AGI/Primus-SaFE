@@ -25,19 +25,19 @@ const (
 )
 
 var (
-	once     sync.Once
-	instance *Authorizer
+	accessOnce           sync.Once
+	accessControllerInst *AccessController
 )
 
-type Authorizer struct {
+type AccessController struct {
 	client.Client
 }
 
-// Input represents the authorization request input parameters.
+// AccessInput represents the input parameters for access authorization
 // It contains all the necessary information to perform an authorization check,
 // including the resource being accessed, the action being performed,
 // and the user requesting access.
-type Input struct {
+type AccessInput struct {
 	// Context is the context for the authorization request, used for passing request-scoped values
 	Context context.Context
 
@@ -66,20 +66,20 @@ type Input struct {
 	Roles []*v1.Role
 }
 
-// NewAuthorizer creates and returns a singleton instance of Authorizer.
-func NewAuthorizer(cli client.Client) *Authorizer {
-	once.Do(func() {
-		instance = &Authorizer{
+// NewAccessController creates and returns a singleton instance of AccessController.
+func NewAccessController(cli client.Client) *AccessController {
+	accessOnce.Do(func() {
+		accessControllerInst = &AccessController{
 			Client: cli,
 		}
 	})
-	return instance
+	return accessControllerInst
 }
 
 // Authorize performs authorization check for a user request.
 // It retrieves user and roles if not provided, then validates if the user
 // has permission to perform the requested action on the resource.
-func (a *Authorizer) Authorize(in Input) error {
+func (a *AccessController) Authorize(in AccessInput) error {
 	if in.User == nil {
 		var err error
 		if in.User, err = a.GetRequestUser(in.Context, in.UserId); err != nil {
@@ -94,7 +94,7 @@ func (a *Authorizer) Authorize(in Input) error {
 
 // AuthorizeSystemAdmin checks if the user has system administrator privileges.
 // Returns an error if the user is not a system admin.
-func (a *Authorizer) AuthorizeSystemAdmin(in Input) error {
+func (a *AccessController) AuthorizeSystemAdmin(in AccessInput) error {
 	if in.User == nil {
 		var err error
 		if in.User, err = a.GetRequestUser(in.Context, in.UserId); err != nil {
@@ -109,7 +109,7 @@ func (a *Authorizer) AuthorizeSystemAdmin(in Input) error {
 
 // GetRequestUser retrieves a user object by userId from the k8s cluster.
 // Returns an error if the userId is empty or the user doesn't exist.
-func (a *Authorizer) GetRequestUser(ctx context.Context, userId string) (*v1.User, error) {
+func (a *AccessController) GetRequestUser(ctx context.Context, userId string) (*v1.User, error) {
 	if userId == "" {
 		return nil, commonerrors.NewBadRequest("the request userId is empty")
 	}
@@ -123,7 +123,7 @@ func (a *Authorizer) GetRequestUser(ctx context.Context, userId string) (*v1.Use
 
 // GetRoles retrieves all roles associated with a user.
 // Fetches role objects based on the role names specified in the user spec.
-func (a *Authorizer) GetRoles(ctx context.Context, user *v1.User) []*v1.Role {
+func (a *AccessController) GetRoles(ctx context.Context, user *v1.User) []*v1.Role {
 	if user == nil {
 		return nil
 	}
@@ -142,7 +142,7 @@ func (a *Authorizer) GetRoles(ctx context.Context, user *v1.User) []*v1.Role {
 
 // authorize is the core authorization logic that checks if a user has permission
 // to perform an action on a resource based on their roles and permissions.
-func (a *Authorizer) authorize(in Input) error {
+func (a *AccessController) authorize(in AccessInput) error {
 	if err := a.checkUserStatus(in.User); err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func (a *Authorizer) authorize(in Input) error {
 }
 
 // checkUserStatus checks UserStatus and returns the result.
-func (a *Authorizer) checkUserStatus(user *v1.User) error {
+func (a *AccessController) checkUserStatus(user *v1.User) error {
 	if user.IsRestricted() {
 		return commonerrors.NewForbidden(
 			fmt.Sprintf("The user is restricted. type: %d", user.Spec.RestrictedType))
@@ -171,7 +171,7 @@ func (a *Authorizer) checkUserStatus(user *v1.User) error {
 
 // extractResourceInfo extracts resource kind and name from the input.
 // Determines the resource type and identifier for authorization checks.
-func (a *Authorizer) extractResourceInfo(in Input) (resourceKind, resourceName string) {
+func (a *AccessController) extractResourceInfo(in AccessInput) (resourceKind, resourceName string) {
 	resourceKind = in.ResourceKind
 	if resourceKind == "" {
 		resourceKind = in.Resource.GetObjectKind().GroupVersionKind().Kind
@@ -186,7 +186,7 @@ func (a *Authorizer) extractResourceInfo(in Input) (resourceKind, resourceName s
 
 // determineOwnership checks if the user is the owner of the resource
 // or has workspace-level access to the resource.
-func (a *Authorizer) determineOwnership(in *Input) (isOwner bool, isWorkspaceUser bool) {
+func (a *AccessController) determineOwnership(in *AccessInput) (isOwner bool, isWorkspaceUser bool) {
 	if in.ResourceOwner == "" {
 		in.ResourceOwner = v1.GetUserId(in.Resource)
 	}
@@ -204,7 +204,7 @@ func (a *Authorizer) determineOwnership(in *Input) (isOwner bool, isWorkspaceUse
 
 // extendRolesWithWorkspaceAdmin extends the user's roles with workspace admin role
 // if the user has administrative rights in the specified workspaces.
-func (a *Authorizer) extendRolesWithWorkspaceAdmin(in Input) []*v1.Role {
+func (a *AccessController) extendRolesWithWorkspaceAdmin(in AccessInput) []*v1.Role {
 	roles := make([]*v1.Role, 0, len(in.Roles)+1)
 	roles = append(roles, in.Roles...)
 
@@ -219,7 +219,7 @@ func (a *Authorizer) extendRolesWithWorkspaceAdmin(in Input) []*v1.Role {
 
 // getPolicyRules retrieves applicable policy rules from a role based on
 // resource type, ownership, and workspace membership.
-func (a *Authorizer) getPolicyRules(role *v1.Role,
+func (a *AccessController) getPolicyRules(role *v1.Role,
 	resourceKind, resourceName string, isOwner, isWorkspaceUser bool,
 ) []*v1.PolicyRule {
 	var result []*v1.PolicyRule

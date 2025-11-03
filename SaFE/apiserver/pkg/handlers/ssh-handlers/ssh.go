@@ -33,12 +33,12 @@ import (
 type SshHandler struct {
 	ctx context.Context
 	client.Client
-	dbClient      dbclient.Interface
-	clientManager *commonutils.ObjectManager
-	config        *ssh.ServerConfig
-	auth          *authority.Authorizer
-	timeout       time.Duration
-	upgrader      *websocket.Upgrader
+	dbClient         dbclient.Interface
+	clientManager    *commonutils.ObjectManager
+	config           *ssh.ServerConfig
+	accessController *authority.AccessController
+	timeout          time.Duration
+	upgrader         *websocket.Upgrader
 }
 
 var (
@@ -74,13 +74,13 @@ func NewSshHandler(ctx context.Context, mgr ctrlruntime.Manager) (*SshHandler, e
 		config.AddHostKey(private)
 
 		sshHandler = &SshHandler{
-			ctx:           ctx,
-			Client:        mgr.GetClient(),
-			dbClient:      dbClient,
-			clientManager: commonutils.NewObjectManagerSingleton(),
-			config:        config,
-			auth:          authority.NewAuthorizer(mgr.GetClient()),
-			timeout:       time.Hour * 12,
+			ctx:              ctx,
+			Client:           mgr.GetClient(),
+			dbClient:         dbClient,
+			clientManager:    commonutils.NewObjectManagerSingleton(),
+			config:           config,
+			accessController: authority.NewAccessController(mgr.GetClient()),
+			timeout:          time.Hour * 12,
 			upgrader: &websocket.Upgrader{
 				HandshakeTimeout: 3 * time.Second,
 				ReadBufferSize:   4096,

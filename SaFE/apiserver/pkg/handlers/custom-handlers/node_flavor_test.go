@@ -27,7 +27,7 @@ import (
 
 func TestCreateNodeFlavor(t *testing.T) {
 	mockUser, fakeClient := createMockUser()
-	h := Handler{Client: fakeClient, auth: authority.NewAuthorizer(fakeClient)}
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	body := `

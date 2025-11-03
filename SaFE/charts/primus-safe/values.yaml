@@ -23,7 +23,7 @@ net:
   rdma_name: "rdma/hca"
 apiserver:
   # Apiserver component image version
-  image: "apiserver:202511011230"
+  image: "apiserver:202511030901"
   # Number of replicas for apiserver deployment
   replicas: 1
   # CPU resources allocated to apiserver
@@ -32,7 +32,7 @@ apiserver:
   memory: 4Gi
 resource_manager:
   # Resource manager component image version
-  image: "resource-manager:202510310930"
+  image: "resource-manager:202511030059"
   # Number of replicas for resource manager deployment
   replicas: 1
   # CPU resources allocated to resource manager
@@ -41,7 +41,7 @@ resource_manager:
   memory: 4Gi
 job_manager:
   # Job manager component image version
-  image: "job-manager:202510310930"
+  image: "job-manager:202511030059"
   # Number of replicas for job manager deployment
   replicas: 1
   # CPU resources allocated to job manager
@@ -50,7 +50,7 @@ job_manager:
   memory: 4Gi
 webhooks:
   # Webhooks component image version
-  image: "webhooks:202510310930"
+  image: "webhooks:202511030059"
   # Number of replicas for webhooks deployment
   replicas: 1
   # CPU resources allocated to webhooks
@@ -96,6 +96,13 @@ ssh:
 user:
   # Require token for user access, can be disabled in internal networks
   token_required: false
+sso:
+  # Enable sso login
+  enable: true
+  # The secret for sso, which contains the id, secret, endpoint and redirect_uri
+  secret: "primus-safe-sso"
+  # Path to mount sso secret
+  secret_path: "/etc/secrets/sso"
 workspace:
   # Reserved system resources for management components
   mem_reserve_percent: 0.05

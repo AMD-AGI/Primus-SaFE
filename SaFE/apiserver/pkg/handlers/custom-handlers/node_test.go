@@ -128,7 +128,7 @@ func TestListNodes(t *testing.T) {
 	fakeClient := fake.NewClientBuilder().WithObjects(workspace, workload1, workload2, adminNode1, adminNode2, user, role).
 		WithStatusSubresource(workload1, workload2).WithScheme(scheme.Scheme).Build()
 
-	h := Handler{Client: fakeClient, auth: authority.NewAuthorizer(fakeClient)}
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Set(common.UserId, user.Name)
@@ -178,7 +178,7 @@ func TestPatchNode(t *testing.T) {
 	adminNode.Labels["key1"] = "val1"
 	fakeClient := fake.NewClientBuilder().WithObjects(nodeFlavor, adminNode, user, role).WithScheme(scheme.Scheme).Build()
 
-	h := Handler{Client: fakeClient, auth: authority.NewAuthorizer(fakeClient)}
+	h := Handler{Client: fakeClient, accessController: authority.NewAccessController(fakeClient)}
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Set(common.UserId, user.Name)

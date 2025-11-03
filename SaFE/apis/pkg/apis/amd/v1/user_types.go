@@ -17,7 +17,7 @@ const (
 	UserKind = "User"
 
 	DefaultUser UserType = "default"
-	TeamsUser   UserType = "teams"
+	SSOUser     UserType = "sso"
 
 	UserNormal UserRestrictedType = 0
 	UserFrozen UserRestrictedType = 1
@@ -29,7 +29,7 @@ const (
 )
 
 type UserSpec struct {
-	// User type, required
+	// User type, required. default/sso
 	Type UserType `json:"type"`
 	// User password, base64 encoded, optional
 	Password string `json:"password,omitempty"`

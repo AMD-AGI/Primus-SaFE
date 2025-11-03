@@ -37,7 +37,7 @@ func (h *Handler) getWorkloadService(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewNotFoundWithMessage(err.Error())
 	}
 	workspace := adminWorkload.Spec.Workspace
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   adminWorkload,
 		Verb:       v1.GetVerb,

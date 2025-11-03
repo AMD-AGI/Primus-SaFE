@@ -88,17 +88,29 @@ func (m *UserMutator) mutateCommon(ctx context.Context, user *v1.User) {
 	m.mutateRoles(user)
 	m.mutateWorkspace(ctx, user)
 	m.mutateManagedWorkspace(ctx, user)
+	m.mutateLabels(user)
 }
 
 // mutateMetadata applies mutations to the resource.
 func (m *UserMutator) mutateMetadata(user *v1.User) {
-	if val := v1.GetUserEmail(user); val != "" {
-		v1.SetLabel(user, v1.UserEmailMd5Label, stringutil.MD5(val))
-	}
 	if user.Spec.Type == "" {
 		user.Spec.Type = v1.DefaultUser
 	}
 	metav1.SetMetaDataLabel(&user.ObjectMeta, v1.UserIdLabel, user.Name)
+}
+
+func (m *UserMutator) mutateLabels(user *v1.User) {
+	if val := v1.GetUserEmail(user); val != "" {
+		v1.SetLabel(user, v1.UserEmailMd5Label, stringutil.MD5(val))
+	} else {
+		v1.RemoveLabel(user, v1.UserEmailMd5Label)
+	}
+	if val := v1.GetUserName(user); val != "" {
+		v1.SetLabel(user, v1.UserNameMd5Label, stringutil.MD5(val))
+	} else {
+		v1.RemoveLabel(user, v1.UserNameMd5Label)
+	}
+	v1.SetLabel(user, v1.UserTypeLabel, string(user.Spec.Type))
 }
 
 // mutateRoles handles user role mutations including:
@@ -196,6 +208,7 @@ type UserValidator struct {
 	client.Client
 	decoder admission.Decoder
 }
+
 // Handle validates user resources on create, update, and delete operations.
 func (v *UserValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
 	var err error

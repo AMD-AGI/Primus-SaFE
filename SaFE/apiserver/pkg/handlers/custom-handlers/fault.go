@@ -53,7 +53,7 @@ func (h *Handler) listFault(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsDBEnable() {
 		return nil, commonerrors.NewInternalError("the database function is not enabled")
 	}
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.FaultKind,
 		Verb:         v1.ListVerb,
@@ -113,7 +113,7 @@ func (h *Handler) deleteFault(c *gin.Context) (interface{}, error) {
 // and deletes it from the cluster. Returns nil on successful deletion
 func (h *Handler) stopFault(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      ctx,
 		ResourceKind: v1.FaultKind,
 		Verb:         v1.DeleteVerb,

@@ -8,7 +8,7 @@ package custom_handlers
 import (
 	"fmt"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"
 
 	"github.com/gin-gonic/gin"
 
@@ -17,12 +17,12 @@ import (
 )
 
 // InitCustomRouters initializes and registers all custom API routes with the Gin engine.
-// It sets up two route groups: authenticated routes (requiring auth and preprocessing) and
+// It sets up two route groups: authenticated routes (requiring authorization and preprocessing) and
 // public routes (requiring only preprocessing). Each group includes endpoints for managing
 // workloads, secrets, faults, nodes, workspaces, clusters, users, flavors, jobs, logs, and public keys.
 func InitCustomRouters(e *gin.Engine, h *Handler) {
 	// Custom API requires authentication and preprocessing.
-	group := e.Group(common.PrimusRouterCustomRootPath, authority.Authorize(), authority.Preprocess())
+	group := e.Group(common.PrimusRouterCustomRootPath, middle.Authorize(), middle.Preprocess())
 	{
 		group.POST("workloads", h.CreateWorkload)
 		group.POST("workloads/clone", h.CloneWorkloads)
@@ -102,7 +102,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 	}
 
 	// Custom API without authentication
-	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, authority.Preprocess())
+	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, middle.Preprocess())
 	{
 		noAuthGroup.GET("clusters", h.ListCluster)
 		noAuthGroup.GET(fmt.Sprintf("clusters/:%s", common.Name), h.GetCluster)
