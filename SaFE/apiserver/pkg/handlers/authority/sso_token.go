@@ -10,6 +10,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -220,7 +222,10 @@ func (c *ssoToken) oauth2Config() *oauth2.Config {
 
 // AuthURL returns the OAuth2 authorization endpoint URL for SSO authentication
 func (c *ssoToken) AuthURL() string {
-	return c.provider.Endpoint().AuthURL
+	redirectUri := url.QueryEscape(c.redirectURI)
+	scope := url.QueryEscape(strings.Join(DefaultOIDCScopes, " "))
+	return fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&response_type=code&scope=%s",
+		c.provider.Endpoint().AuthURL, c.clientId, redirectUri, scope)
 }
 
 // generateSSOUserId generates a unique user ID based on sub or email

@@ -32,9 +32,8 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 	if resp.SSOEnable {
 		inst := authority.SSOInstance()
 		if inst != nil {
-			resp.SSOEndpoint = inst.AuthURL()
+			resp.SSOAuthUrl = inst.AuthURL()
 		}
-		resp.SSORedirectURI = commonconfig.GetSSORedirectURI()
 	}
 	return resp, nil
 }
