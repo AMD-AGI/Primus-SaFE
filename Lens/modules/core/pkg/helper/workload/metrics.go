@@ -86,7 +86,7 @@ func GetWorkloadRdmaErrorMetrics(ctx context.Context, workloadUid string, start,
 }
 
 func GetTFLOPSMetrics(ctx context.Context, workloadUid string, start, end time.Time, step int, clientSets *clientsets.StorageClientSet) (*model.MetricsGraph, error) {
-	perfs, err := database.ListWorkloadPerformanceByWorkloadIdAndTimeRange(ctx, workloadUid, start, end)
+	perfs, err := database.GetFacade().GetTraining().ListWorkloadPerformanceByWorkloadIdAndTimeRange(ctx, workloadUid, start, end)
 	if err != nil {
 		return nil, err
 	}

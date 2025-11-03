@@ -21,7 +21,7 @@ type GpuWorkloadJob struct {
 }
 
 func (g *GpuWorkloadJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) error {
-	workloadsNotEnd, err := database.GetWorkloadNotEnd(ctx)
+	workloadsNotEnd, err := database.GetFacade().GetWorkload().GetWorkloadNotEnd(ctx)
 	if err != nil {
 		return err
 	}
@@ -63,7 +63,7 @@ func (g *GpuWorkloadJob) checkWorkload(ctx context.Context, dbWorkload *dbModel.
 		}
 	}
 
-	err = database.UpdateGpuWorkload(ctx, dbWorkload)
+	err = database.GetFacade().GetWorkload().UpdateGpuWorkload(ctx, dbWorkload)
 	if err != nil {
 		return err
 	}

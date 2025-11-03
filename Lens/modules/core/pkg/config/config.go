@@ -10,12 +10,14 @@ import (
 )
 
 type Config struct {
-	MultiCluster bool                `json:"multiCluster" yaml:"multiCluster"`
-	Controller   ControllerConfig    `yaml:"controller"`
-	HttpPort     int                 `json:"httpPort" yaml:"httpPort"`
-	NodeExporter *NodeExporterConfig `json:"nodeExporter" yaml:"nodeExporter"`
-	Jobs         *JobsConfig         `json:"jobs" yaml:"jobs"`
-	Netflow      *NetFlow            `json:"netflow" yaml:"netflow"`
+	MultiCluster    bool                `json:"multiCluster" yaml:"multiCluster"`
+	LoadK8SClient   bool                `json:"loadK8SClient" yaml:"loadK8SClient"`
+	LoadStorageClient bool              `json:"loadStorageClient" yaml:"loadStorageClient"`
+	Controller      ControllerConfig    `yaml:"controller"`
+	HttpPort        int                 `json:"httpPort" yaml:"httpPort"`
+	NodeExporter    *NodeExporterConfig `json:"nodeExporter" yaml:"nodeExporter"`
+	Jobs            *JobsConfig         `json:"jobs" yaml:"jobs"`
+	Netflow         *NetFlow            `json:"netflow" yaml:"netflow"`
 }
 
 type ControllerConfig struct {

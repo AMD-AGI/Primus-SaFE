@@ -22,7 +22,7 @@ var (
 )
 
 func GetNodeGpuModel(ctx context.Context, nodeName string) (string, error) {
-	node, err := database.GetNodeByName(ctx, nodeName)
+	node, err := database.GetFacade().GetNode().GetNodeByName(ctx, nodeName)
 	if err != nil {
 		return "", err
 	}

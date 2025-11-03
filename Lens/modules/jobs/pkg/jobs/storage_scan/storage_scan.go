@@ -38,7 +38,7 @@ func (s *StorageScanJob) Run(ctx context.Context, clientSets *clientsets.K8SClie
 				CreatedAt: time.Now(),
 				UpdatedAt: time.Now(),
 			}
-			existDbItem, err := database.GetStorageByKindAndName(ctx, dbItem.Kind, dbItem.Name)
+			existDbItem, err := database.GetFacade().GetStorage().GetStorageByKindAndName(ctx, dbItem.Kind, dbItem.Name)
 			if err != nil {
 				log.Errorf("Fail to get storage %s/%s: %v", dbItem.Kind, dbItem.Name, err)
 				continue
@@ -46,14 +46,14 @@ func (s *StorageScanJob) Run(ctx context.Context, clientSets *clientsets.K8SClie
 			if existDbItem != nil {
 				dbItem.ID = existDbItem.ID
 				dbItem.CreatedAt = existDbItem.CreatedAt
-				err = database.UpdateStorage(ctx, dbItem)
+				err = database.GetFacade().GetStorage().UpdateStorage(ctx, dbItem)
 				if err != nil {
 					log.Errorf("Fail to update storage %s/%s: %v", dbItem.Kind, dbItem.Name, err)
 					continue
 				}
 				log.Infof("Storage %s/%s updated", dbItem.Kind, dbItem.Name)
 			} else {
-				err = database.CreateStorage(ctx, dbItem)
+				err = database.GetFacade().GetStorage().CreateStorage(ctx, dbItem)
 				if err != nil {
 					log.Errorf("Fail to create storage %s/%s: %v", dbItem.Kind, dbItem.Name, err)
 					continue

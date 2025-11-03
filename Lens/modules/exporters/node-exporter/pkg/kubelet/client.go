@@ -17,7 +17,7 @@ var (
 func Init(ctx context.Context, nodeNameParam string) error {
 	nodeName = nodeNameParam
 	node := &corev1.Node{}
-	err := clientsets.GetCurrentClusterK8SClientSet().ControllerRuntimeClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)
+	err := clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet.ControllerRuntimeClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)
 	if err != nil {
 		return err
 	}

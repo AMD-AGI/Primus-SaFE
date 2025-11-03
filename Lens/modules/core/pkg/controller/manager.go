@@ -6,6 +6,7 @@ import (
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/config"
 	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
+	logConf "github.com/AMD-AGI/primus-lens/core/pkg/logger/conf"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -48,7 +49,11 @@ func InitControllers(ctx context.Context, conf config.Config) error {
 		log.Infof("No controllers registered.Skip controller initializtion")
 		return nil
 	}
-	controllerLogger.SetLogger(logr.New(log.GlobalLogger()))
+	logger, err := log.NewLogger(logConf.InfoLevel)
+	if err != nil {
+		return err
+	}
+	controllerLogger.SetLogger(logr.New(logger))
 	cfg := conf.Controller
 	k8sCfg := ctrl.GetConfigOrDie()
 	mgr, err := ctrl.NewManager(k8sCfg, ctrl.Options{

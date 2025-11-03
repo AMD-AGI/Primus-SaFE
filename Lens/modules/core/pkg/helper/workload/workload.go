@@ -13,7 +13,7 @@ import (
 )
 
 func GetRunningTopLevelGpuWorkloadByNode(ctx context.Context, nodeName string) ([]*dbModel.GpuWorkload, error) {
-	pods, err := database.GetActiveGpuPodByNodeName(ctx, nodeName)
+	pods, err := database.GetFacade().GetPod().GetActiveGpuPodByNodeName(ctx, nodeName)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +29,7 @@ func GetTopLevelWorkloadsByPods(ctx context.Context, pods []*dbModel.GpuPods) ([
 	for _, pod := range pods {
 		uids = append(uids, pod.UID)
 	}
-	workloadReferences, err := database.ListWorkloadPodReferencesByPodUids(ctx, uids)
+	workloadReferences, err := database.GetFacade().GetWorkload().ListWorkloadPodReferencesByPodUids(ctx, uids)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +37,7 @@ func GetTopLevelWorkloadsByPods(ctx context.Context, pods []*dbModel.GpuPods) ([
 	for _, workload := range workloadReferences {
 		workloadUids = append(workloadUids, workload.WorkloadUID)
 	}
-	workloads, err := database.ListTopLevelWorkloadByUids(ctx, workloadUids)
+	workloads, err := database.GetFacade().GetWorkload().ListTopLevelWorkloadByUids(ctx, workloadUids)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +45,7 @@ func GetTopLevelWorkloadsByPods(ctx context.Context, pods []*dbModel.GpuPods) ([
 }
 
 func GetActivePodsByWorkloadUid(ctx context.Context, workloadUid string) ([]*dbModel.GpuPods, error) {
-	refs, err := database.ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUid)
+	refs, err := database.GetFacade().GetWorkload().ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUid)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func GetActivePodsByWorkloadUid(ctx context.Context, workloadUid string) ([]*dbM
 	for _, ref := range refs {
 		uids = append(uids, ref.PodUID)
 	}
-	activePods, err := database.ListActivePodsByUids(ctx, uids)
+	activePods, err := database.GetFacade().GetPod().ListActivePodsByUids(ctx, uids)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,7 @@ func GetActivePodsByWorkloadUid(ctx context.Context, workloadUid string) ([]*dbM
 }
 
 func GetWorkloadPods(ctx context.Context, workloadUid string) ([]*dbModel.GpuPods, error) {
-	refs, err := database.ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUid)
+	refs, err := database.GetFacade().GetWorkload().ListWorkloadPodReferenceByWorkloadUid(ctx, workloadUid)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func GetWorkloadPods(ctx context.Context, workloadUid string) ([]*dbModel.GpuPod
 	for _, ref := range refs {
 		uids = append(uids, ref.PodUID)
 	}
-	pods, err := database.ListPodsByUids(ctx, uids)
+	pods, err := database.GetFacade().GetPod().ListPodsByUids(ctx, uids)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func GetWorkloadResource(ctx context.Context, workloadUid string) (model.GpuAllo
 		return result, err
 	}
 	for _, pod := range pods {
-		podResource, err := database.GetPodResourceByUid(ctx, pod.UID)
+		podResource, err := database.GetFacade().GetPod().GetPodResourceByUid(ctx, pod.UID)
 		if err != nil {
 
 		}
@@ -113,7 +113,7 @@ func GetWorkloadGpuAllocatedCount(ctx context.Context, workloadUid string) (int,
 	}
 	totalAllocated := 0
 	for _, pod := range pods {
-		podResource, err := database.GetPodResourceByUid(ctx, pod.UID)
+		podResource, err := database.GetFacade().GetPod().GetPodResourceByUid(ctx, pod.UID)
 		if err != nil {
 			return 0, err
 		}
