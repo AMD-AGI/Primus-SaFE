@@ -36,7 +36,6 @@ RUN cd $BASEPATH && CGO_ENABLED=0 go build -tags nosqlite -a -installsuffix cgo 
 
 FROM --platform=linux/amd64  primussafe/ubuntu-rdma-base:0.0.1
 
-# 定义并导出环境变量
 ARG APPNAME
 ARG BASEPATH
 ENV BASEPATH=${BASEPATH}
@@ -51,5 +50,4 @@ COPY --from=builder /app/Lens/ci/run.sh .
 RUN chmod +x run.sh
 
 
-# 运行应用程序
 CMD ["./run.sh"]
