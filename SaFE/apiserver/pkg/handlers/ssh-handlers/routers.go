@@ -10,13 +10,13 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
 // InitWebShellRouters initializes the web shell related routes.
 func InitWebShellRouters(e *gin.Engine, h *SshHandler) {
-	group := e.Group(common.PrimusRouterCustomRootPath, authority.Authorize(), authority.Preprocess())
+	group := e.Group(common.PrimusRouterCustomRootPath, middle.Authorize(), middle.Preprocess())
 	{
 		group.GET(fmt.Sprintf("workloads/:%s/pods/:%s/webshell", common.Name, common.PodId), h.WebShell)
 	}

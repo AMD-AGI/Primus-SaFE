@@ -139,7 +139,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	return h.createWorkloadImpl(c, workload, requestUser, roles)
 }
@@ -180,7 +180,7 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	query, err := parseListWorkloadQuery(c)
 	if err != nil {
@@ -223,7 +223,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	name := c.GetString(common.Name)
 	ctx := c.Request.Context()
@@ -245,7 +245,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	name := c.GetString(common.Name)
 	return h.deleteWorkloadImpl(c, name, requestUser, roles)
@@ -318,7 +318,7 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	name := c.GetString(common.Name)
 	return h.stopWorkloadImpl(c, name, requestUser, roles)
 }
@@ -375,7 +375,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	name := c.GetString(common.Name)
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
@@ -439,7 +439,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	workload, err := h.getAdminWorkload(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
@@ -548,7 +548,7 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 	if adminWorkload.Spec.Workspace != "" {
 		workspaces = append(workspaces, adminWorkload.Spec.Workspace)
 	}
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.WorkloadKind,
 		Resource:     adminWorkload,
@@ -573,7 +573,7 @@ func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workloa
 	if verb == v1.UpdateVerb {
 		resourceOwner = v1.GetUserId(adminWorkload)
 	}
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:       c.Request.Context(),
 		ResourceKind:  priorityKind,
 		ResourceOwner: resourceOwner,
@@ -630,7 +630,7 @@ func (h *Handler) handleBatchWorkloads(c *gin.Context, action WorkloadBatchActio
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	req := &types.BatchWorkloadsRequest{}
 	if _, err = apiutils.ParseRequestBody(c.Request, req); err != nil {
@@ -1149,7 +1149,7 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	var (
 		ctx           = c.Request.Context()

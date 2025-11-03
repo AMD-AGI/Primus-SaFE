@@ -83,6 +83,11 @@ spec:
               mountPath: {{ .Values.s3.secret_path }}
               readOnly: true
             {{- end }}
+            {{- if .Values.sso.enable }}
+            - name: sso-secret
+              mountPath: {{ .Values.sso.secret_path }}
+              readOnly: true
+            {{- end }}
           ports:
             - containerPort: {{ default 8088 (default .Values.apiserver).port }}
               name: http-port
@@ -141,6 +146,11 @@ spec:
         - name: server-config
           configMap:
             name: {{ .Release.Name }}-apiserver
+        {{- if .Values.sso.enable }}
+        - name: sso-secret
+          secret:
+            secretName: {{ .Values.sso.secret }}
+        {{- end }}
       {{- if .Values.global.image_pull_secret }}
       imagePullSecrets:
         - name: {{ .Values.global.image_pull_secret }}

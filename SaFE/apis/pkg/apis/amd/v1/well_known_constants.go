@@ -101,6 +101,7 @@ const (
 	UserEmailAnnotation     = UserPrefix + "email"
 	UserEmailMd5Label       = UserPrefix + "email.md5"
 	UserAvatarUrlAnnotation = UserPrefix + "avatar.url"
+	UserTypeLabel           = UserPrefix + "type"
 
 	// secret
 	SecretPrefix            = PrimusSafePrefix + "secret."

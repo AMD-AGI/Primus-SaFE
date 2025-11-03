@@ -227,7 +227,7 @@ func (h *Handler) deleteAdminOpsJob(c *gin.Context, opsJobId string) (bool, erro
 		return false, client.IgnoreNotFound(err)
 	}
 
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      ctx,
 		ResourceKind: v1.OpsJobKind,
 		Verb:         v1.DeleteVerb,
@@ -249,7 +249,7 @@ func (h *Handler) generateAddonJob(c *gin.Context, body []byte) (*v1.OpsJob, err
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.AddOnTemplateKind,
 		Verb:         v1.CreateVerb,
@@ -291,7 +291,7 @@ func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob,
 		return nil, err
 	}
 
-	if err = h.auth.AuthorizeSystemAdmin(authority.Input{
+	if err = h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
 		Context: c.Request.Context(),
 		User:    requestUser,
 	}); err != nil {
@@ -347,7 +347,7 @@ func (h *Handler) generateDumpLogJob(c *gin.Context, body []byte) (*v1.OpsJob, e
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    c.Request.Context(),
 		Resource:   workload,
 		Verb:       v1.GetVerb,
@@ -366,7 +366,7 @@ func (h *Handler) generateRebootJob(c *gin.Context, body []byte) (*v1.OpsJob, er
 	if err != nil {
 		return nil, err
 	}
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.NodeKind,
 		Verb:         v1.UpdateVerb,
@@ -526,7 +526,7 @@ func (h *Handler) parseListOpsJobQuery(c *gin.Context) (*types.ListOpsJobRequest
 	if query.SinceTime.After(query.UntilTime) {
 		return nil, commonerrors.NewBadRequest("the since time is greater than until time")
 	}
-	if err = h.auth.AuthorizeSystemAdmin(authority.Input{
+	if err = h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
 		Context: c.Request.Context(),
 		UserId:  c.GetString(common.UserId),
 	}); err != nil {
@@ -575,7 +575,7 @@ func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "JobId"): jobId},
 	}
-	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
+	if err := h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
 		Context: c.Request.Context(),
 		UserId:  c.GetString(common.UserId),
 	}); err != nil {
