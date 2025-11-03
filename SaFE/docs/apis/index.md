@@ -35,6 +35,7 @@ Base Path: `/api/v1`
 - [OpsJob API](./ops-job.md) - Operational job management
 - [PublicKey API](./public-key.md) - SSH public key management
 - [Log API](./log.md) - Log query interfaces
+- [Envs API](./envs.md) - Environment settings and feature flags
 
 ### 2. Image Management APIs
 
