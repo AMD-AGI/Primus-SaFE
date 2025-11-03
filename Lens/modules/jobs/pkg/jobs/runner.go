@@ -10,9 +10,11 @@ import (
 
 func Start(ctx context.Context) error {
 	c := cron.New()
+	cm := clientsets.GetClusterManager()
+	currentCluster := cm.GetCurrentClusterClients()
 	for _, job := range jobs {
 		c.AddFunc(job.Schedule(), func() {
-			err := job.Run(ctx, clientsets.GetCurrentClusterK8SClientSet(), clientsets.GetCurrentClusterStorageClientSet())
+			err := job.Run(ctx, currentCluster.K8SClientSet, currentCluster.StorageClientSet)
 			if err != nil {
 				log.Errorf("Job error %v", err)
 			}
