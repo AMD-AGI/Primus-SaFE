@@ -54,8 +54,7 @@ User authentication and access token retrieval.
 
 **Authentication Required**: No (Public endpoint)
 
-**Request Parameters**:
-
+**Request Example (password)**:
 ```json
 {
   "name": "zhangsan",
@@ -64,13 +63,21 @@ User authentication and access token retrieval.
 }
 ```
 
+**Request Example (code)**:
+```json
+{
+  "code": "abc123",
+  "type": "sso"
+}
+```
 **Field Description**:
 
-| Field | Type | Required | Description               |
-|-------|------|----------|---------------------------|
-| name | string | Yes | Username                  |
-| password | string | Yes | Password                  |
-| type | string | No | Login type: default/other |
+| Field    | Type | Required | Description             |
+|----------|------|----------|-------------------------|
+| name     | string | Conditionally | Username                |
+| password | string | Conditionally | User Password           |
+| type     | string | No | Login type: default/sso |
+| code     | string | Conditionally | The code from sso       |
 
 **Response Example**:
 
@@ -98,20 +105,20 @@ User authentication and access token retrieval.
 
 **Response Field Description**:
 
-| Field | Type | Description                                              |
-|-------|------|----------------------------------------------------------|
-| id | string | User ID                                                  |
-| name | string | Username                                                 |
-| email | string | Email address                                            |
-| type | string | User type: default/other                                 |
-| roles | []string | User roles. e.g. system-admin, default                   |
-| workspaces | []object | Workspaces the user can access (non-admin only)          |
-| managedWorkspaces | []object | Workspaces the user can manage (non-admin only)          |
-| creationTime | string | User creation time (RFC3339)                             |
-| restrictedType | int | Restriction: 0 normal, 1 frozen                          |
-| avatarUrl | string | Avatar URL                                               |
-| token | string | User token, encrypted internally.                        |
-| expire | int | Token expire time (Unix seconds) |
+| Field | Type | Description                                     |
+|-------|------|-------------------------------------------------|
+| id | string | User ID                                         |
+| name | string | Username                                        |
+| email | string | Email address                                   |
+| type | string | User type: default/sso                          |
+| roles | []string | User roles. e.g. system-admin, default          |
+| workspaces | []object | Workspaces the user can access (non-admin only) |
+| managedWorkspaces | []object | Workspaces the user can manage (non-admin only) |
+| creationTime | string | User creation time (RFC3339)                    |
+| restrictedType | int | Restriction: 0 normal, 1 frozen                 |
+| avatarUrl | string | Avatar URL                                      |
+| token | string | User token, encrypted internally.               |
+| expire | int | Token expire time (Unix seconds)                |
 
 Nested workspace object:
 
@@ -297,10 +304,10 @@ Delete a specific user.
 
 ## User Types
 
-| Type    | Description                                                      |
-|---------|------------------------------------------------------------------|
-| default | Default user, uses username/password authentication              |
-| other   | Enterprise user, uses third-party authentication, to be extended |
+| Type    | Description                                         |
+|---------|-----------------------------------------------------|
+| default | Default user, uses username/password authentication |
+| sso     | Enterprise user, uses third-party authentication    |
 
 ## User Roles
 

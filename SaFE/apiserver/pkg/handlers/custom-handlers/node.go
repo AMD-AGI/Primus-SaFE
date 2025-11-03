@@ -95,7 +95,7 @@ func (h *Handler) ListNodeRebootLog(c *gin.Context) {
 // Validates the request, generates a node object with specified parameters,
 // and persists it in the system.
 func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.NodeKind,
 		Verb:         v1.CreateVerb,
@@ -179,7 +179,7 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 		nodeList.Items = append(nodeList.Items, *node)
 	}
 
-	roles := h.auth.GetRoles(ctx, requestUser)
+	roles := h.accessController.GetRoles(ctx, requestUser)
 	nodes := make([]*v1.Node, 0, len(nodeList.Items))
 	var phases []string
 	if query.Phase != nil {
@@ -187,7 +187,7 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 	}
 
 	for i, n := range nodeList.Items {
-		if err = h.auth.Authorize(authority.Input{
+		if err = h.accessController.Authorize(authority.AccessInput{
 			Context:    ctx,
 			Resource:   &n,
 			Verb:       v1.ListVerb,
@@ -285,7 +285,7 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   node,
 		Verb:       v1.GetVerb,
@@ -323,7 +323,7 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   node,
 		Verb:       v1.UpdateVerb,
@@ -368,7 +368,7 @@ func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   node,
 		Verb:       v1.DeleteVerb,
@@ -400,7 +400,7 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: node,
 		Verb:     v1.CreateVerb,
@@ -444,7 +444,7 @@ func (h *Handler) listNodeRebootLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: node,
 		Verb:     v1.GetVerb,

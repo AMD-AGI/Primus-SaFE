@@ -359,3 +359,23 @@ func GetNotificationConfig() string {
 func GetSystemBaseUrl() string {
 	return getString(systemBaseUrl, "")
 }
+
+func IsSSOEnable() bool {
+	return getBool(ssoEnable, false)
+}
+
+func GetSSOClientId() string {
+	return getFromFile(ssoSecretPath, "id")
+}
+
+func GetSSOClientSecret() string {
+	return getFromFile(ssoSecretPath, "secret")
+}
+
+func GetSSOEndpoint() string {
+	return getFromFile(ssoSecretPath, "endpoint")
+}
+
+func GetSSORedirectURI() string {
+	return getFromFile(ssoSecretPath, "redirect_uri")
+}

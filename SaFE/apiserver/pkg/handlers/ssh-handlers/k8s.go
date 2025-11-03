@@ -321,7 +321,7 @@ func (h *SshHandler) getWorkloadAndClients(ctx context.Context, userInfo *UserIn
 
 // authUser authorizes the user for the given workload.
 func (h *SshHandler) authUser(ctx context.Context, userInfo *UserInfo, workload *v1.Workload) error {
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   workload,
 		Verb:       v1.GetVerb,

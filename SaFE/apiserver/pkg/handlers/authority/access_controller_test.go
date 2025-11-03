@@ -94,7 +94,7 @@ func TestGetPolicyRules(t *testing.T) {
 		},
 	}
 
-	var a Authorizer
+	var a AccessController
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rules := a.getPolicyRules(role, tt.resourceKind, tt.resourceName, tt.isOwner, tt.isWorkspaceUser)
@@ -204,7 +204,7 @@ func TestAuthorize(t *testing.T) {
 		WithObjects(systemAdminRole, workspaceAdminRole, defaultRole, testUser).
 		Build()
 
-	authorizer := NewAuthorizer(fakeClient)
+	authorizer := NewAccessController(fakeClient)
 
 	// Create test resource
 	testWorkload := &v1.Workload{
@@ -221,12 +221,12 @@ func TestAuthorize(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		input       Input
+		input       AccessInput
 		expectError bool
 	}{
 		{
 			name: "system admin access - should pass",
-			input: Input{
+			input: AccessInput{
 				ResourceKind:  "workload",
 				ResourceOwner: "testuser",
 				Resource:      testWorkload,
@@ -244,7 +244,7 @@ func TestAuthorize(t *testing.T) {
 		},
 		{
 			name: "owner access with correct permissions - should pass",
-			input: Input{
+			input: AccessInput{
 				ResourceKind:  "workload",
 				ResourceOwner: "testuser",
 				Resource:      testWorkload,
@@ -256,7 +256,7 @@ func TestAuthorize(t *testing.T) {
 		},
 		{
 			name: "owner access with incorrect permissions - should fail",
-			input: Input{
+			input: AccessInput{
 				ResourceKind:  "workload",
 				ResourceOwner: "testuser",
 				Resource:      testWorkload,
@@ -268,7 +268,7 @@ func TestAuthorize(t *testing.T) {
 		},
 		{
 			name: "workspace user access - should pass",
-			input: Input{
+			input: AccessInput{
 				ResourceKind:  "workload",
 				ResourceOwner: "otheruser",
 				Resource:      testWorkload,
@@ -291,7 +291,7 @@ func TestAuthorize(t *testing.T) {
 		},
 		{
 			name: "restricted user - should fail",
-			input: Input{
+			input: AccessInput{
 				ResourceKind: "workload",
 				Resource:     testWorkload,
 				Verb:         v1.GetVerb,
@@ -342,7 +342,7 @@ func TestGetRequestUser(t *testing.T) {
 		WithObjects(testUser).
 		Build()
 
-	authorizer := NewAuthorizer(fakeClient)
+	authorizer := NewAccessController(fakeClient)
 
 	user, err := authorizer.GetRequestUser(context.Background(), "testuser")
 	assert.NoError(t, err)

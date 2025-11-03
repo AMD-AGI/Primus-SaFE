@@ -85,7 +85,7 @@ func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.WorkspaceKind,
 		Verb:         v1.CreateVerb,
@@ -144,10 +144,10 @@ func (h *Handler) listWorkspace(c *gin.Context) (interface{}, error) {
 			return workspaceList.Items[i].Name < workspaceList.Items[j].Name
 		})
 	}
-	roles := h.auth.GetRoles(ctx, requestUser)
+	roles := h.accessController.GetRoles(ctx, requestUser)
 	result := &types.ListWorkspaceResponse{}
 	for _, w := range workspaceList.Items {
-		if err = h.auth.Authorize(authority.Input{
+		if err = h.accessController.Authorize(authority.AccessInput{
 			Context:    ctx,
 			Resource:   &w,
 			Verb:       v1.ListVerb,
@@ -173,7 +173,7 @@ func (h *Handler) getWorkspace(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   workspace,
 		Verb:       v1.GetVerb,
@@ -198,7 +198,7 @@ func (h *Handler) deleteWorkspace(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   workspace,
 		Verb:       v1.DeleteVerb,
@@ -223,7 +223,7 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   workspace,
 		Verb:       v1.UpdateVerb,
@@ -340,7 +340,7 @@ func (h *Handler) updateWorkspaceNodesAction(c *gin.Context, workspaceId, action
 		if err := h.Get(c.Request.Context(), client.ObjectKey{Name: workspaceId}, workspace); err != nil {
 			return err
 		}
-		if err := h.auth.Authorize(authority.Input{
+		if err := h.accessController.Authorize(authority.AccessInput{
 			Context:    c.Request.Context(),
 			Resource:   workspace,
 			Verb:       v1.UpdateVerb,
