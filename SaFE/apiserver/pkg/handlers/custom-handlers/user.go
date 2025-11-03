@@ -94,6 +94,9 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !requestUser.IsSystemAdmin() && commonconfig.IsSSOEnable() {
+		return nil, commonerrors.NewInternalError("the user registration is not enabled")
+	}
 
 	req, err := parseCreateUserQuery(requestUser, c)
 	if err != nil {
