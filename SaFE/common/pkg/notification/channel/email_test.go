@@ -33,7 +33,6 @@ func TestEmailChannel_Send(t *testing.T) {
 	}
 	useTLS := useTLSStr == "true"
 
-	// 构造 EmailConfig
 	cfg := Config{
 		Email: &EmailConfig{
 			SMTPHost: host,

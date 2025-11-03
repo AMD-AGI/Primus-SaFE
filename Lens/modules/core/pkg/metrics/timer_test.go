@@ -134,14 +134,10 @@ func (self *testSuite) TestSummaryDefault() {
 
 }
 
-// 模拟一个http handle 函数
 func (self *testSuite) mockHttpHandleObserve(timer *Timer, sleep time.Duration) {
-	// 开始计时
 	startTime := time.Now()
 
-	// 模拟处理请求的时间
 	time.Sleep(sleep)
 
-	// 结束计时， time.Now().Sub(startTime)
 	timer.Observe(time.Now().Sub(startTime), "200", "http://baidu.com")
 }
