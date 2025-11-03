@@ -60,7 +60,6 @@ retry_opts:
   max_retry: 3
   delay: 1
 
-## 签名暂时不用
 remove_signatures: false
 sign_by_fingerprint: ""
 sign_by_sigstore_param_file: ""
