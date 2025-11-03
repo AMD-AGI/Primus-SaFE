@@ -27,14 +27,14 @@ Create a new user account.
 
 **Field Description**:
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| name | string | Yes | Username (unique) |
-| email | string | No | Email address |
-| password | string | Yes* | Password (required for regular user registration) |
-| type | string | No | User type: default/(To be extended), only system admin can specify |
+| Field | Type | Required | Description                                                      |
+|-------|------|----------|------------------------------------------------------------------|
+| name | string | Yes | Username (unique)                                                |
+| email | string | No | Email address                                                    |
+| password | string | Yes* | Password (required for regular user registration)                |
+| type | string | No | User type: default/sso, only system admin can specify            |
 | workspaces | []string | No | List of accessible workspace IDs (only system admin can specify) |
-| avatarUrl | string | No | Avatar URL |
+| avatarUrl | string | No | Avatar URL                                                       |
 
 **Response Example**:
 
@@ -77,7 +77,7 @@ User authentication and access token retrieval.
 | name     | string | Conditionally | Username                |
 | password | string | Conditionally | User Password           |
 | type     | string | No | Login type: default/sso |
-| code     | string | Conditionally | The code from sso       |
+| code     | string | Conditionally |  Authorization code returned by OAuth2 server, used to exchange for access token and ID token      |
 
 **Response Example**:
 
