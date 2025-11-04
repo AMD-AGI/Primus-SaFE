@@ -112,7 +112,7 @@ func getStatusByExpression(objects []map[string]interface{},
 	match := func(obj map[string]interface{}, phase v1.PhaseExpression) bool {
 		for key, val := range phase.MatchExpressions {
 			val2 := convertUnstructuredToString(obj, []string{key})
-			if val != val2 {
+			if !stringutil.StrCaseEqual(val, val2) {
 				return false
 			}
 		}
@@ -382,6 +382,10 @@ func GetSpecReplica(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceT
 	}
 	replica := 0
 	for _, t := range rt.Spec.ResourceSpecs {
+		if t.Replica > 0 {
+			replica += int(t.Replica)
+			continue
+		}
 		l := len(t.ReplicasPaths)
 		if l == 0 {
 			continue

@@ -64,7 +64,7 @@ type ResourceSpec struct {
 	// The relative path of pod replica
 	ReplicasPaths []string `json:"replicasPaths,omitempty"`
 	// If the replica count is set to a non-zero value, it will be used as a fixed allocation when the task is submitted
-	// This applies only to the master role of a PyTorchJob (or similar structures).
+	// This applies only to the master role of a PyTorchJob (or similar structures such as headGroup of ray).
 	Replica int64 `json:"replica,omitempty"`
 }
 
@@ -89,8 +89,11 @@ type ResourceStatus struct {
 }
 
 type PhaseExpression struct {
+	// MatchExpressions are matching conditions that require both key and value to match,
+	// with value comparison being case-insensitive.
 	MatchExpressions map[string]string `json:"matchExpressions"`
-	Phase            string            `json:"phase"`
+	// If the expression is satisfied, return the corresponding status.
+	Phase string `json:"phase"`
 }
 
 type ActiveReplica struct {

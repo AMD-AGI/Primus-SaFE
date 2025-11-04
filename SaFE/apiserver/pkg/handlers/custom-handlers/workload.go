@@ -613,7 +613,7 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 			return nil, fmt.Errorf("the authoring can only be created with one node")
 		}
 	}
-	genCustomerLabelsByNodes(workload, req.SpecifiedNodes)
+	genCustomerLabelsBySpecifiedNodes(workload, req.SpecifiedNodes)
 	if len(req.SpecifiedNodes) > 0 {
 		workload.Spec.Resource.Replica = len(req.SpecifiedNodes)
 	}
@@ -664,16 +664,12 @@ func (h *Handler) handleBatchWorkloads(c *gin.Context, action WorkloadBatchActio
 	return nil, nil
 }
 
-// genCustomerLabelsByNodes generates customer labels based on specified nodes.
-func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
-	if len(nodeList) == 0 {
+// genCustomerLabelsBySpecifiedNodes generates customer labels based on specified nodes.
+func genCustomerLabelsBySpecifiedNodes(workload *v1.Workload, nodeList []string) {
+	if len(nodeList) == 0 || workload.HasSpecifiedNodes() {
 		return
 	}
-	if len(workload.Spec.CustomerLabels) > 0 {
-		if _, ok := workload.Spec.CustomerLabels[common.K8sHostName]; ok {
-			return
-		}
-	} else {
+	if len(workload.Spec.CustomerLabels) == 0 {
 		workload.Spec.CustomerLabels = make(map[string]string)
 	}
 	nodeNames := ""
@@ -839,8 +835,7 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 		adminWorkload.Spec.Priority = *req.Priority
 	}
 	if req.Replica != nil && *req.Replica != adminWorkload.Spec.Resource.Replica {
-		_, ok := adminWorkload.Spec.CustomerLabels[common.K8sHostName]
-		if ok {
+		if adminWorkload.HasSpecifiedNodes() {
 			return commonerrors.NewBadRequest("cannot update replica when specifying nodes")
 		}
 		adminWorkload.Spec.Resource.Replica = *req.Replica

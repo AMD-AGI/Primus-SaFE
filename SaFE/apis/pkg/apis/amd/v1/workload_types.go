@@ -11,6 +11,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
 type (
@@ -402,4 +404,13 @@ func (w *Workload) IsDependenciesFinish() bool {
 	}
 
 	return true
+}
+
+func (w *Workload) HasSpecifiedNodes() bool {
+	if len(w.Spec.CustomerLabels) > 0 {
+		if val, ok := w.Spec.CustomerLabels[common.K8sHostName]; ok && val != "" {
+			return true
+		}
+	}
+	return false
 }
