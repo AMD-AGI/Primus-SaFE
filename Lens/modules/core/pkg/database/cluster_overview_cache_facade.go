@@ -40,14 +40,32 @@ func (f *ClusterOverviewCacheFacade) WithCluster(clusterName string) ClusterOver
 // ClusterOverviewCache operation implementations
 func (f *ClusterOverviewCacheFacade) GetClusterOverviewCache(ctx context.Context) (*model.ClusterOverviewCache, error) {
 	log.Infof("GetClusterOverviewCache: clusterName: %s", f.clusterName)
+
+	// Get database connection and print detailed information
+	db := f.getDB()
+	log.Infof("GetClusterOverviewCache: got DB connection: %p", db)
+
+	// Print current database name
+	var dbName string
+	db.Raw("SELECT current_database()").Scan(&dbName)
+	log.Infof("GetClusterOverviewCache: current database: %s", dbName)
+
+	// Execute count query for verification
+	var count int64
+	db.Table("cluster_overview_cache").Count(&count)
+	log.Infof("GetClusterOverviewCache: table count: %d", count)
+
 	q := f.getDAL().ClusterOverviewCache
 	result, err := q.WithContext(ctx).First()
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			log.Warnf("GetClusterOverviewCache: no record found for cluster: %s", f.clusterName)
 			return nil, nil
 		}
+		log.Errorf("GetClusterOverviewCache: error querying: %v", err)
 		return nil, err
 	}
+	log.Infof("GetClusterOverviewCache: found result: %+v", result)
 	return result, nil
 }
 

@@ -59,12 +59,13 @@ func loadCurrentClusterStorageClients(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	client, err := initStorageClients(ctx, *cfg)
+	clusterName := getCurrentClusterName()
+	client, err := initStorageClients(ctx, clusterName, *cfg)
 	if err != nil {
 		return err
 	}
 	currentClusterStorageClientSet = client
-	log.Info("Initialized single-cluster storage clients successfully")
+	log.Infof("Initialized single-cluster storage clients successfully for cluster: %s", clusterName)
 	return nil
 }
 
@@ -88,7 +89,7 @@ func loadMultiClusterStorageClients(ctx context.Context) error {
 	multiClusterStorageConfigJsonBytes = cfgJsonBytes
 	newMultiClusterStorageClientSet := map[string]*StorageClientSet{}
 	for clusterName, singleCLusterConfig := range cfg {
-		storageClientSet, err := initStorageClients(ctx, singleCLusterConfig)
+		storageClientSet, err := initStorageClients(ctx, clusterName, singleCLusterConfig)
 		if err != nil {
 			return err
 		}
@@ -142,7 +143,7 @@ func loadMultiClusterStorageConfig(ctx context.Context) (PrimusLensMultiClusterC
 	return cfg, nil
 }
 
-func initStorageClients(ctx context.Context, cfg PrimusLensClientConfig) (*StorageClientSet, error) {
+func initStorageClients(ctx context.Context, clusterName string, cfg PrimusLensClientConfig) (*StorageClientSet, error) {
 	clientSet := &StorageClientSet{}
 	sqlConfig := sql.DatabaseConfig{
 		Host:        fmt.Sprintf("%s.%s.svc.cluster.local", cfg.Postgres.Service, cfg.Postgres.Namespace),
@@ -156,13 +157,15 @@ func initStorageClients(ctx context.Context, cfg PrimusLensClientConfig) (*Stora
 		SSLMode:     cfg.Postgres.SSLMode,
 		Driver:      sql.DriverNamePostgres,
 	}
-	gormDb, err := sql.InitGormDB("default", sqlConfig)
+	log.Infof("Initializing storage clients for cluster '%s' ", clusterName)
+	gormDb, err := sql.InitGormDB(clusterName, sqlConfig)
 	if err != nil {
 		return nil, errors.NewError().
 			WithCode(errors.CodeInitializeError).
-			WithMessage("Failed to initialize default db").
+			WithMessagef("Failed to initialize db for cluster '%s'", clusterName).
 			WithError(err)
 	}
+	log.Infof("Successfully initialized DB for cluster '%s', DB pointer: %p", clusterName, gormDb)
 	clientSet.DB = gormDb
 	// Init Opensearch client
 	opensearchClient, err := opensearch.NewClient(opensearch.Config{
@@ -215,8 +218,8 @@ func initStorageClients(ctx context.Context, cfg PrimusLensClientConfig) (*Stora
 }
 
 // InitStorageClients exported method for initializing storage clients from config
-func InitStorageClients(ctx context.Context, cfg PrimusLensClientConfig) (*StorageClientSet, error) {
-	return initStorageClients(ctx, cfg)
+func InitStorageClients(ctx context.Context, clusterName string, cfg PrimusLensClientConfig) (*StorageClientSet, error) {
+	return initStorageClients(ctx, clusterName, cfg)
 }
 
 func initPrometheusClient(endpoints string) (api.Client, error) {
