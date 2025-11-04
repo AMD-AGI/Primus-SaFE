@@ -11,15 +11,15 @@ import (
 // GetClusterOverviewFromCache retrieves cluster overview from cache
 // Returns cached data if available, otherwise returns error
 func GetClusterOverviewFromCache(ctx context.Context, clusterName string) (*model.GpuClusterOverview, error) {
-	cache, err := database.GetFacade().GetClusterOverviewCache().GetClusterOverviewCacheByClusterName(ctx, clusterName)
+	cache, err := database.GetFacadeForCluster(clusterName).GetClusterOverviewCache().GetClusterOverviewCache(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cluster overview cache: %w", err)
 	}
-	
+
 	if cache == nil {
 		return nil, fmt.Errorf("cluster overview cache not found for cluster: %s", clusterName)
 	}
-	
+
 	// Convert database model to API model
 	overview := &model.GpuClusterOverview{
 		TotalNodes:         int(cache.TotalNodes),
@@ -45,7 +45,6 @@ func GetClusterOverviewFromCache(ctx context.Context, clusterName string) (*mode
 			TotalRx: cache.RdmaTotalRx,
 		},
 	}
-	
+
 	return overview, nil
 }
-

@@ -11,7 +11,7 @@ import (
 // ClusterOverviewCacheFacadeInterface defines the database operation interface for ClusterOverviewCache
 type ClusterOverviewCacheFacadeInterface interface {
 	// ClusterOverviewCache operations
-	GetClusterOverviewCacheByClusterName(ctx context.Context, clusterName string) (*model.ClusterOverviewCache, error)
+	GetClusterOverviewCache(ctx context.Context) (*model.ClusterOverviewCache, error)
 	CreateClusterOverviewCache(ctx context.Context, cache *model.ClusterOverviewCache) error
 	UpdateClusterOverviewCache(ctx context.Context, cache *model.ClusterOverviewCache) error
 	ListClusterOverviewCache(ctx context.Context, pageNum, pageSize int) ([]*model.ClusterOverviewCache, int, error)
@@ -37,9 +37,9 @@ func (f *ClusterOverviewCacheFacade) WithCluster(clusterName string) ClusterOver
 }
 
 // ClusterOverviewCache operation implementations
-func (f *ClusterOverviewCacheFacade) GetClusterOverviewCacheByClusterName(ctx context.Context, clusterName string) (*model.ClusterOverviewCache, error) {
+func (f *ClusterOverviewCacheFacade) GetClusterOverviewCache(ctx context.Context) (*model.ClusterOverviewCache, error) {
 	q := f.getDAL().ClusterOverviewCache
-	result, err := q.WithContext(ctx).Where(q.ClusterName.Eq(clusterName)).First()
+	result, err := q.WithContext(ctx).First()
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -80,4 +80,3 @@ func (f *ClusterOverviewCacheFacade) ListClusterOverviewCache(ctx context.Contex
 	}
 	return caches, int(count), nil
 }
-
