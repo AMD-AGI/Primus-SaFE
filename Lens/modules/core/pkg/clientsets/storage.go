@@ -22,6 +22,7 @@ type StorageClientSet struct {
 	OpenSearch      *opensearch.Client // OpenSearch client
 	PrometheusRead  api.Client         // Prometheus HTTP API client
 	PrometheusWrite *remotewrite.Client
+	Config          *PrimusLensClientConfig // Storage configuration for debugging
 }
 
 var (
@@ -208,6 +209,8 @@ func initStorageClients(ctx context.Context, cfg PrimusLensClientConfig) (*Stora
 			WithError(err)
 	}
 	clientSet.PrometheusWrite = cli
+	// Store configuration for debugging
+	clientSet.Config = &cfg
 	return clientSet, nil
 }
 

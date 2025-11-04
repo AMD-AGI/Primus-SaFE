@@ -1,6 +1,8 @@
 package database
 
 import (
+	"runtime/debug"
+
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/core/pkg/database/dal"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
@@ -15,8 +17,11 @@ type BaseFacade struct {
 
 // getDB retrieves the corresponding database connection based on clusterName
 func (f *BaseFacade) getDB() *gorm.DB {
-	log.Infof("getDB: clusterName: %s", f.clusterName)
+	defer func() {
+		log.Infof("getDB: clusterName: %s, call stack:\n%s", f.clusterName, string(debug.Stack()))
+	}()
 	if f.clusterName == "" {
+		log.Infof("getDB: using default database")
 		// Use the default database of the current cluster
 		return sql.GetDefaultDB()
 	}
@@ -35,8 +40,9 @@ func (f *BaseFacade) getDB() *gorm.DB {
 		// If the cluster has no Storage configuration, return the default database
 		return sql.GetDefaultDB()
 	}
-	log.Infof("getDB: clientSet: %+v", clientSet)
-	return clientSet.StorageClientSet.DB
+	log.Infof("getDB: client cluster name: %s, database address: %p", clientSet.ClusterName, clientSet.StorageClientSet.DB)
+	db := clientSet.StorageClientSet.DB
+	return db
 }
 
 // getDAL retrieves the DAL instance

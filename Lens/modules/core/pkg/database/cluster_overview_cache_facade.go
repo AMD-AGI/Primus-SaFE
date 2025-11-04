@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	"gorm.io/gorm"
 )
 
@@ -38,6 +39,7 @@ func (f *ClusterOverviewCacheFacade) WithCluster(clusterName string) ClusterOver
 
 // ClusterOverviewCache operation implementations
 func (f *ClusterOverviewCacheFacade) GetClusterOverviewCache(ctx context.Context) (*model.ClusterOverviewCache, error) {
+	log.Infof("GetClusterOverviewCache: clusterName: %s", f.clusterName)
 	q := f.getDAL().ClusterOverviewCache
 	result, err := q.WithContext(ctx).First()
 	if err != nil {
