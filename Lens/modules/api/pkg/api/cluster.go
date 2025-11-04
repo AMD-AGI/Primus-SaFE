@@ -10,6 +10,7 @@ import (
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/rdma"
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/storage"
+	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/primus-lens/core/pkg/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
 	"github.com/gin-gonic/gin"
@@ -24,15 +25,16 @@ func getClusterOverview(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-
+	log.Infof("getClusterOverview: clusterName: %s", clients.ClusterName)
 	// Try to get cached data first
 	result, err := cluster.GetClusterOverviewFromCache(c, clients.ClusterName)
 	if err == nil && result != nil {
 		// Cache hit - return cached data immediately
+		log.Infof("getClusterOverview: cache hit")
 		c.JSON(http.StatusOK, rest.SuccessResp(c, result))
 		return
 	}
-
+	log.Infof("getClusterOverview: cache miss")
 	// Cache miss or error - fall back to real-time calculation
 	// This ensures backward compatibility and handles the case where cache is not yet populated
 	gpuNodes, err := gpu.GetGpuNodes(c, clients.K8SClientSet, metadata.GpuVendorAMD)

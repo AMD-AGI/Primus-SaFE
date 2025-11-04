@@ -15,6 +15,7 @@ func RegisterGroup(group GroupRegister) {
 
 func InitRouter(engine *gin.Engine) error {
 	g := engine.Group("/v1")
+	g.Use(middleware.HandleLogging())
 	g.Use(middleware.HandleErrors())
 	g.Use(middleware.HandleTracing())
 	g.Use(middleware.CorsMiddleware())
