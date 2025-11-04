@@ -105,8 +105,7 @@ func (r *NodeReconciler) isNodeRelevantFieldChanged(oldNode, newNode *v1.Node) b
 		oldNode.Status.ClusterStatus.Phase != newNode.Status.ClusterStatus.Phase ||
 		(v1.GetNodeLabelAction(oldNode) == "" && v1.GetNodeLabelAction(newNode) != "") ||
 		(v1.GetNodeAnnotationAction(oldNode) == "" && v1.GetNodeAnnotationAction(newNode) != "") ||
-		oldNode.GetDeletionTimestamp().IsZero() && !newNode.GetDeletionTimestamp().IsZero() ||
-		commonfaults.HasPrimusSafeTaint(oldNode.Status.Taints) && !commonfaults.HasPrimusSafeTaint(newNode.Status.Taints) {
+		oldNode.GetDeletionTimestamp().IsZero() && !newNode.GetDeletionTimestamp().IsZero() {
 		return true
 	}
 	return false
@@ -831,8 +830,8 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 	if isControlPlaneNode(adminNode) {
 		return ctrlruntime.Result{}, nil
 	}
-	// Waiting for taint to disappear and workspace to be successfully unbound
-	if commonfaults.HasPrimusSafeTaint(adminNode.Status.Taints) || v1.GetWorkspaceId(adminNode) != "" {
+	// Waiting for workspace to be successfully unbound
+	if v1.GetWorkspaceId(adminNode) != "" {
 		return ctrlruntime.Result{}, nil
 	}
 

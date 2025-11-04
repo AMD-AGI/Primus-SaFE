@@ -18,7 +18,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -168,6 +167,8 @@ func syncOpensearchService(ctx context.Context, clusterName string, clusterClien
 	if cfg == nil {
 		return nil, nil
 	}
+
+	/**
 	syncedService := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      getServiceNameForClusterOpensearch(clusterName),
@@ -208,6 +209,7 @@ func syncOpensearchService(ctx context.Context, clusterName string, clusterClien
 			return nil, err
 		}
 	}
+		**/
 	result := &SearchClientConfig{
 		Username: cfg.Username,
 		Password: cfg.Password,

@@ -211,6 +211,8 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 					k8sClients.Name(), newNode.Name, v1.GetWorkspaceId(newNode))
 				enqueue(oldNode, newNode, NodeManaged)
 			case newClusterId == k8sClients.Name() && r.isRelevantFieldChanged(oldNode, newNode):
+				klog.Infof("cluster %s watch node %s update, workspace %s",
+					k8sClients.Name(), newNode.Name, v1.GetWorkspaceId(newNode))
 				enqueue(oldNode, newNode, NodeUpdate)
 			}
 		},
