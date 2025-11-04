@@ -342,7 +342,7 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 
 	maxRetry := 3
 	if err = backoff.ConflictRetry(func() error {
-		shouldUpdate, innerErr := h.updateNode(ctx, node, req, requestUser)
+		shouldUpdate, innerErr := h.updateNode(ctx, node, req)
 		if innerErr != nil || !shouldUpdate {
 			return innerErr
 		}
@@ -681,7 +681,7 @@ func parseListNodeQuery(c *gin.Context) (*types.ListNodeRequest, error) {
 
 // updateNode applies updates to a node based on the patch request.
 // Handles label updates, taint modifications, flavor/template changes, and port updates.
-func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest, user *v1.User) (bool, error) {
+func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest) (bool, error) {
 	shouldUpdate := false
 	nodesLabelAction := generateNodeLabelAction(node, req)
 	if len(nodesLabelAction) > 0 {
@@ -690,9 +690,6 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 	if req.Taints != nil {
 		for i, t := range *req.Taints {
 			key := t.Key
-			if user != nil {
-				key += "." + normalizeUsername(v1.GetUserName(user))
-			}
 			(*req.Taints)[i].Key = commonfaults.GenerateTaintKey(key)
 		}
 		if err := h.deleteRelatedFaults(ctx, node, *req.Taints); err != nil {
@@ -873,13 +870,4 @@ func getPrimusTaints(taints []corev1.Taint) []corev1.Taint {
 		}
 	}
 	return result
-}
-
-// normalizeUsername returns the part before '@' in a username,
-// or the original string if '@' is not present.
-// when the username is in email format (e.g., user@domain.com -> user)
-func normalizeUsername(username string) string {
-	// Split the string at '@', but limit to 2 parts to avoid unnecessary allocations
-	parts := strings.SplitN(username, "@", 2)
-	return parts[0]
 }
