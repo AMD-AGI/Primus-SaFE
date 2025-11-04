@@ -32,14 +32,14 @@ func GetNodeGpuModel(ctx context.Context, nodeName string) (string, error) {
 	return node.GpuName, nil
 }
 
-func GetGpuNodeInfo(ctx context.Context, nodeName string, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet, vendor metadata.GpuVendor) (*model.GPUNode, error) {
+func GetGpuNodeInfo(ctx context.Context, nodeName string, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet, clusterName string, vendor metadata.GpuVendor) (*model.GPUNode, error) {
 	node := &corev1.Node{}
 	err := clientSets.ControllerRuntimeClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)
 	if err != nil {
 		return nil, err
 	}
 	gpuDeviceName := GetGpuDeviceName(*node, vendor)
-	alloc, capacity, err := gpu.GetNodeGpuAllocation(ctx, clientSets, nodeName, vendor)
+	alloc, capacity, err := gpu.GetNodeGpuAllocation(ctx, clientSets, nodeName, clusterName, vendor)
 	if err != nil {
 		return nil, err
 	}

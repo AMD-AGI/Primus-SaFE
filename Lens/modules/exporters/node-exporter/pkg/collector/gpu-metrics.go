@@ -49,7 +49,8 @@ func loadGpuAllocationRate(ctx context.Context) error {
 	gpuCount := len(GetGpuDeviceInfo())
 	nodeName := os.Getenv("NODE_NAME")
 	nodeIp := os.Getenv("NODE_IP")
-	pods, err := kubelet.GetGpuPodsByKubeletAddress(ctx, nodeName, fmt.Sprintf("https://%s:%d", nodeIp, 10250), metadata.GpuVendorAMD)
+	// Use empty string for current cluster default authentication in node-exporter
+	pods, err := kubelet.GetGpuPodsByKubeletAddress(ctx, nodeName, fmt.Sprintf("https://%s:%d", nodeIp, 10250), "", metadata.GpuVendorAMD)
 	if err != nil {
 		return err
 	}

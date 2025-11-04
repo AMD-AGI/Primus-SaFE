@@ -35,7 +35,7 @@ func getClusterOverview(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	idle, particalIdle, busy, err := gpu.GetGpuNodeIdleInfo(c, clients.K8SClientSet, metadata.GpuVendorAMD)
+	idle, particalIdle, busy, err := gpu.GetGpuNodeIdleInfo(c, clients.K8SClientSet, clients.ClusterName, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
 		return
@@ -45,7 +45,7 @@ func getClusterOverview(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	allocationRate, err := gpu.GetClusterGpuAllocationRate(c, clients.K8SClientSet, metadata.GpuVendorAMD)
+	allocationRate, err := gpu.GetClusterGpuAllocationRate(c, clients.K8SClientSet, clients.ClusterName, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
 		return

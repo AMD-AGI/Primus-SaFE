@@ -24,7 +24,9 @@ type GpuAllocationJob struct {
 }
 
 func (g *GpuAllocationJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) error {
-	allocationRate, err := gpu.GetClusterGpuAllocationRate(ctx, clientSets, metadata.GpuVendorAMD)
+	// Use current cluster name for job running in current cluster
+	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
+	allocationRate, err := gpu.GetClusterGpuAllocationRate(ctx, clientSets, clusterName, metadata.GpuVendorAMD)
 	if err != nil {
 		return err
 	}

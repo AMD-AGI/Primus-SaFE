@@ -34,7 +34,9 @@ type GpuConsumersJob struct {
 }
 
 func (g *GpuConsumersJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSets *clientsets.StorageClientSet) error {
-	consumers, err := gpu.GetGpuConsumerInfo(ctx, clientSets, storageClientSets, metadata.GpuVendorAMD)
+	// Use current cluster name for job running in current cluster
+	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
+	consumers, err := gpu.GetGpuConsumerInfo(ctx, clientSets, storageClientSets, clusterName, metadata.GpuVendorAMD)
 	if err != nil {
 		return err
 	}

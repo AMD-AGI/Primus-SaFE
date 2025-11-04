@@ -104,7 +104,9 @@ func (n *NodeInfoJob) runForSingleNode(ctx context.Context, nodeName string, cli
 		newDBNode.UpdatedAt = time.Now()
 		existDBNode = newDBNode
 	}
-	allocatable, capacity, err := gpu.GetNodeGpuAllocation(ctx, clientSets, k8sNode.Name, defaultGPUVendor)
+	// Use current cluster name for job running in current cluster
+	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
+	allocatable, capacity, err := gpu.GetNodeGpuAllocation(ctx, clientSets, k8sNode.Name, clusterName, defaultGPUVendor)
 	if err != nil {
 		log.Errorf("Failed to get node gpu allocation for %s: %v", k8sNode.Name, err)
 		return err

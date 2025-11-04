@@ -21,7 +21,9 @@ func Init(ctx context.Context, nodeNameParam string) error {
 	if err != nil {
 		return err
 	}
-	kubeletClient, err = kubelet.GetKubeletClient(node)
+	// Use current cluster (empty string for default authentication)
+	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
+	kubeletClient, err = kubelet.GetKubeletClient(node, clusterName)
 	if err != nil {
 		return err
 	}
