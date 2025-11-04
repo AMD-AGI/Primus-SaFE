@@ -40,7 +40,7 @@ func (f *BaseFacade) getDB() *gorm.DB {
 		// If the cluster has no Storage configuration, return the default database
 		return sql.GetDefaultDB()
 	}
-	log.Infof("getDB: client cluster name: %s, database address: %p", clientSet.ClusterName, clientSet.StorageClientSet.DB)
+	log.Infof("getDB: client cluster name: %s, database address: %+v", clientSet.ClusterName, clientSet.StorageClientSet.Config.Postgres)
 	db := clientSet.StorageClientSet.DB
 	return db
 }

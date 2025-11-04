@@ -22,12 +22,19 @@ import (
 )
 
 func getConsumerInfo(c *gin.Context) {
+	cm := clientsets.GetClusterManager()
 	page := &rest.Page{}
 	err := c.BindQuery(page)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	}
-	runningWorkload, err := database.GetFacade().GetWorkload().ListRunningWorkload(c)
+	clusterName := c.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	runningWorkload, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().ListRunningWorkload(c)
 	if err != nil {
 		_ = c.Error(err)
 		return
