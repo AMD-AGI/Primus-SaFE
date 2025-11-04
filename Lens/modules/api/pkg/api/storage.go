@@ -18,7 +18,7 @@ func getStorageStat(ctx *gin.Context) {
 		_ = ctx.Error(err)
 		return
 	}
-	
+
 	stats, err := storage.GetStorageStatWithClientSet(ctx, clients.StorageClientSet)
 	if err != nil {
 		_ = ctx.Error(err)

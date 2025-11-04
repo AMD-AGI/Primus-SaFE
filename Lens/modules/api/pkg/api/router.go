@@ -35,5 +35,63 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	{
 		storageGroup.GET("stat", getStorageStat)
 	}
+
+	// Metric Alert Rule management routes
+	metricAlertRuleGroup := group.Group("/metric-alert-rules")
+	{
+		metricAlertRuleGroup.POST("", CreateMetricAlertRule)
+		metricAlertRuleGroup.GET("", ListMetricAlertRules)
+		metricAlertRuleGroup.GET(":id", GetMetricAlertRule)
+		metricAlertRuleGroup.PUT(":id", UpdateMetricAlertRule)
+		metricAlertRuleGroup.DELETE(":id", DeleteMetricAlertRule)
+		metricAlertRuleGroup.POST(":id/clone", CloneMetricAlertRule)
+		metricAlertRuleGroup.POST("sync", SyncMetricAlertRulesToCluster)
+		metricAlertRuleGroup.GET(":id/status", GetVMRuleStatus)
+	}
+
+	// Log Alert Rule management routes
+	logAlertRuleGroup := group.Group("/log-alert-rules")
+	{
+		logAlertRuleGroup.POST("", CreateLogAlertRule)
+		logAlertRuleGroup.GET("", ListLogAlertRules)
+		logAlertRuleGroup.GET("/multi-cluster", ListLogAlertRulesMultiCluster)
+		logAlertRuleGroup.GET(":id", GetLogAlertRule)
+		logAlertRuleGroup.PUT(":id", UpdateLogAlertRule)
+		logAlertRuleGroup.DELETE(":id", DeleteLogAlertRule)
+		logAlertRuleGroup.POST("/batch-update", BatchUpdateLogAlertRules)
+		logAlertRuleGroup.POST("/test", TestLogAlertRule)
+		logAlertRuleGroup.GET(":id/statistics", GetLogAlertRuleStatistics)
+		logAlertRuleGroup.GET(":id/versions", GetLogAlertRuleVersions)
+		logAlertRuleGroup.POST(":id/rollback/:version", RollbackLogAlertRule)
+		logAlertRuleGroup.POST(":id/clone", CloneLogAlertRule)
+	}
+
+	// Log Alert Rule Template routes
+	logAlertRuleTemplateGroup := group.Group("/log-alert-rule-templates")
+	{
+		logAlertRuleTemplateGroup.POST("", CreateLogAlertRuleTemplate)
+		logAlertRuleTemplateGroup.GET("", ListLogAlertRuleTemplates)
+		logAlertRuleTemplateGroup.GET(":id", GetLogAlertRuleTemplate)
+		logAlertRuleTemplateGroup.DELETE(":id", DeleteLogAlertRuleTemplate)
+		logAlertRuleTemplateGroup.POST(":id/instantiate", CreateRuleFromTemplate)
+	}
+
+	// Alert Rule Advice routes
+	alertRuleAdviceGroup := group.Group("/alert-rule-advices")
+	{
+		alertRuleAdviceGroup.POST("", CreateAlertRuleAdvice)
+		alertRuleAdviceGroup.POST("/batch", BatchCreateAlertRuleAdvices)
+		alertRuleAdviceGroup.GET("", ListAlertRuleAdvices)
+		alertRuleAdviceGroup.GET("/summary", GetAdviceSummary)
+		alertRuleAdviceGroup.GET("/statistics", GetAdviceStatistics)
+		alertRuleAdviceGroup.GET(":id", GetAlertRuleAdvice)
+		alertRuleAdviceGroup.PUT(":id", UpdateAlertRuleAdvice)
+		alertRuleAdviceGroup.DELETE(":id", DeleteAlertRuleAdvice)
+		alertRuleAdviceGroup.POST("/batch-delete", BatchDeleteAlertRuleAdvices)
+		alertRuleAdviceGroup.POST(":id/status", UpdateAdviceStatus)
+		alertRuleAdviceGroup.POST("/batch-status", BatchUpdateAdviceStatus)
+		alertRuleAdviceGroup.POST(":id/apply", ApplyAlertRuleAdvice)
+	}
+
 	return nil
 }

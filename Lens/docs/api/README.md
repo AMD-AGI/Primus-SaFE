@@ -45,6 +45,46 @@ Storage statistics and management operations.
 **Endpoints:**
 - `GET /api/storage/stat` - Get storage statistics including capacity and usage
 
+### [Metric Alert Rules API](./metric-alert-rules.md)
+Metric-based alert rule management for monitoring Prometheus/VictoriaMetrics metrics.
+
+**Endpoints:**
+- `POST /api/metric-alert-rules` - Create a new metric alert rule
+- `GET /api/metric-alert-rules` - List metric alert rules with filtering
+- `GET /api/metric-alert-rules/:id` - Get detailed information for a specific rule
+- `PUT /api/metric-alert-rules/:id` - Update an existing metric alert rule
+- `DELETE /api/metric-alert-rules/:id` - Delete a metric alert rule
+- `POST /api/metric-alert-rules/:id/clone` - Clone a rule to another cluster
+- `POST /api/metric-alert-rules/sync` - Sync rules to clusters
+- `GET /api/metric-alert-rules/:id/status` - Get VMRule status from Kubernetes
+
+### [Log Alert Rules API](./log-alert-rules.md)
+Log-based alert rule management for detecting patterns and anomalies in log streams.
+
+**Endpoints:**
+- `POST /api/log-alert-rules` - Create a new log alert rule
+- `GET /api/log-alert-rules` - List log alert rules with filtering
+- `GET /api/log-alert-rules/multi-cluster` - List rules from all clusters
+- `GET /api/log-alert-rules/:id` - Get detailed information for a specific rule
+- `PUT /api/log-alert-rules/:id` - Update an existing log alert rule
+- `DELETE /api/log-alert-rules/:id` - Delete a log alert rule
+- `POST /api/log-alert-rules/batch-update` - Batch update multiple rules
+- `POST /api/log-alert-rules/test` - Test a rule with sample logs
+- `GET /api/log-alert-rules/:id/statistics` - Get rule statistics and trends
+- `GET /api/log-alert-rules/:id/versions` - Get rule version history
+- `POST /api/log-alert-rules/:id/rollback/:version` - Rollback to a previous version
+- `POST /api/log-alert-rules/:id/clone` - Clone a rule
+
+### [Log Alert Rule Templates API](./log-alert-rule-templates.md)
+Template management for quick creation of log alert rules from predefined patterns.
+
+**Endpoints:**
+- `GET /api/log-alert-rule-templates` - List available templates
+- `GET /api/log-alert-rule-templates/:id` - Get template details
+- `POST /api/log-alert-rule-templates` - Create a custom template
+- `DELETE /api/log-alert-rule-templates/:id` - Delete a custom template
+- `POST /api/log-alert-rule-templates/:id/instantiate` - Create a rule from a template
+
 ## Base URL
 
 All API endpoints are relative to the base URL of your Primus-Lens API service:

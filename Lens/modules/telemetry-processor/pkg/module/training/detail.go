@@ -2,6 +2,7 @@ package training
 
 import (
 	"context"
+
 	"github.com/AMD-AGI/primus-lens/core/pkg/model"
 	"github.com/gin-gonic/gin"
 )
@@ -17,5 +18,5 @@ func Log(ctx *gin.Context) {
 }
 
 func processTrainingLogEvent(ctx context.Context, event *model.TrainingLogEvent) error {
-
+	return nil
 }

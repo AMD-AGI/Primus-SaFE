@@ -30,7 +30,7 @@ func getClusterGpuAllocationInfo(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	
+
 	result, err := gpu.GetGpuNodesAllocation(c, clients.K8SClientSet, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
@@ -48,7 +48,7 @@ func getClusterGPUUtilization(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	
+
 	usage, err := gpu.CalculateGpuUsage(c, clients.StorageClientSet, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)

@@ -41,22 +41,22 @@ func getConsumerInfo(c *gin.Context) {
 			Uid:       dbWorkload.UID,
 			Stat: model.GpuStat{
 				GpuRequest:     int(dbWorkload.GpuRequest),
-			GpuUtilization: 0,
-		},
-		Pods:   nil,
-		Source: getSource(dbWorkload),
-	}
-	cm := clientsets.GetClusterManager()
-	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
-	clusterName := c.Query("cluster")
-	clients, err2 := cm.GetClusterClientsOrDefault(clusterName)
-	if err2 != nil {
-		// If failed to get cluster, fall back to current cluster
-		clients = cm.GetCurrentClusterClients()
-	}
-	storageClient := clients.StorageClientSet
-	r.Stat.GpuUtilization, _ = workload.GetCurrentWorkloadGpuUtilization(c, dbWorkload.UID, storageClient)
-	result = append(result, r)
+				GpuUtilization: 0,
+			},
+			Pods:   nil,
+			Source: getSource(dbWorkload),
+		}
+		cm := clientsets.GetClusterManager()
+		// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+		clusterName := c.Query("cluster")
+		clients, err2 := cm.GetClusterClientsOrDefault(clusterName)
+		if err2 != nil {
+			// If failed to get cluster, fall back to current cluster
+			clients = cm.GetCurrentClusterClients()
+		}
+		storageClient := clients.StorageClientSet
+		r.Stat.GpuUtilization, _ = workload.GetCurrentWorkloadGpuUtilization(c, dbWorkload.UID, storageClient)
+		result = append(result, r)
 	}
 	data, _, total, _ := sliceUtil.PaginateSlice(result, page.PageNum, page.PageSize)
 	c.JSON(http.StatusOK, rest.SuccessResp(c, struct {
