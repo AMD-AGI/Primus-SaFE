@@ -104,7 +104,7 @@ func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8S
 
 	// 8. Save to database (upsert logic)
 	facade := database.GetFacade().GetClusterOverviewCache()
-	existingCache, err := facade.GetClusterOverviewCacheByClusterName(ctx, clusterName)
+	existingCache, err := facade.GetClusterOverviewCache(ctx)
 	if err != nil {
 		log.Errorf("Failed to check existing cluster overview cache: %v", err)
 		return err

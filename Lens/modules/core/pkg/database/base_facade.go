@@ -3,6 +3,7 @@ package database
 import (
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/core/pkg/database/dal"
+	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/primus-lens/core/pkg/sql"
 	"gorm.io/gorm"
 )
@@ -14,6 +15,7 @@ type BaseFacade struct {
 
 // getDB retrieves the corresponding database connection based on clusterName
 func (f *BaseFacade) getDB() *gorm.DB {
+	log.Infof("getDB: clusterName: %s", f.clusterName)
 	if f.clusterName == "" {
 		// Use the default database of the current cluster
 		return sql.GetDefaultDB()
@@ -23,15 +25,17 @@ func (f *BaseFacade) getDB() *gorm.DB {
 	cm := clientsets.GetClusterManager()
 	clientSet, err := cm.GetClientSetByClusterName(f.clusterName)
 	if err != nil {
+		log.Errorf("getDB: error getting client set by cluster name: %v", err)
 		// If retrieval fails, return the default database
 		return sql.GetDefaultDB()
 	}
 
 	if clientSet.StorageClientSet == nil {
+		log.Errorf("getDB: cluster has no Storage configuration")
 		// If the cluster has no Storage configuration, return the default database
 		return sql.GetDefaultDB()
 	}
-
+	log.Infof("getDB: clientSet: %+v", clientSet)
 	return clientSet.StorageClientSet.DB
 }
 
@@ -46,5 +50,3 @@ func (f *BaseFacade) withCluster(clusterName string) BaseFacade {
 		clusterName: clusterName,
 	}
 }
-
-
