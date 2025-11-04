@@ -6,9 +6,10 @@ import (
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	dbmodel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
+	"github.com/AMD-AGI/primus-lens/core/pkg/utils/pgUtil"
 	"github.com/gin-gonic/gin"
 )
 
@@ -70,7 +71,9 @@ func GetLogAlertRuleTemplate(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), template))
+	// Convert to response model with proper tags format
+	response := convertTemplateToResponse(template)
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), response))
 }
 
 // CreateRuleFromTemplate handles POST /v1/log-alert-rule-templates/:id/instantiate
@@ -112,17 +115,17 @@ func CreateRuleFromTemplate(ctx *gin.Context) {
 	}
 
 	// Create rule from template
-	rule := &model.LogAlertRule{
+	rule := &dbmodel.LogAlertRules{
 		Name:           req.Name,
 		Description:    req.Description,
 		ClusterName:    clusterName,
 		Enabled:        req.Enabled,
-		Priority:       req.Priority,
-		LabelSelectors: template.TemplateConfig["label_selectors"].(model.ExtType),
+		Priority:       int32(req.Priority),
+		LabelSelectors: template.TemplateConfig["label_selectors"].(dbmodel.ExtType),
 		MatchType:      template.TemplateConfig["match_type"].(string),
-		MatchConfig:    template.TemplateConfig["match_config"].(model.ExtType),
+		MatchConfig:    template.TemplateConfig["match_config"].(dbmodel.ExtType),
 		Severity:       template.TemplateConfig["severity"].(string),
-		AlertTemplate:  template.TemplateConfig["alert_template"].(model.ExtType),
+		AlertTemplate:  template.TemplateConfig["alert_template"].(dbmodel.ExtType),
 		CreatedBy:      req.CreatedBy,
 	}
 
@@ -188,12 +191,12 @@ func CreateLogAlertRuleTemplate(ctx *gin.Context) {
 	}
 
 	// Build template
-	template := &model.LogAlertRuleTemplate{
+	template := &dbmodel.LogAlertRuleTemplates{
 		Name:           req.Name,
 		Category:       req.Category,
 		Description:    req.Description,
 		TemplateConfig: req.TemplateConfig,
-		Tags:           req.Tags,
+		Tags:           pgUtil.StringArrayToPgArray(req.Tags), // Convert []string to PostgreSQL TEXT[] format
 		IsBuiltin:      false,
 		CreatedBy:      req.CreatedBy,
 	}
@@ -275,18 +278,55 @@ type CreateRuleFromTemplateRequest struct {
 }
 
 type CreateTemplateRequest struct {
-	Name           string        `json:"name" binding:"required"`
-	Category       string        `json:"category" binding:"required"`
-	Description    string        `json:"description"`
-	TemplateConfig model.ExtType `json:"template_config" binding:"required"`
-	Tags           []string      `json:"tags"`
-	CreatedBy      string        `json:"created_by"`
+	Name           string          `json:"name" binding:"required"`
+	Category       string          `json:"category" binding:"required"`
+	Description    string          `json:"description"`
+	TemplateConfig dbmodel.ExtType `json:"template_config" binding:"required"`
+	Tags           []string        `json:"tags"`
+	CreatedBy      string          `json:"created_by"`
+}
+
+// Response models
+type LogAlertRuleTemplateResponse struct {
+	ID             int64           `json:"id"`
+	Name           string          `json:"name"`
+	Category       string          `json:"category"`
+	Description    string          `json:"description"`
+	TemplateConfig dbmodel.ExtType `json:"template_config"`
+	Tags           []string        `json:"tags"`
+	IsBuiltin      bool            `json:"is_builtin"`
+	UsageCount     int64           `json:"usage_count"`
+	CreatedAt      string          `json:"created_at"`
+	UpdatedAt      string          `json:"updated_at"`
+	CreatedBy      string          `json:"created_by"`
 }
 
 // Helper functions
-func applyTemplateOverrides(rule *model.LogAlertRule, overrides map[string]interface{}) {
+
+// convertTemplateToResponse converts dbmodel.LogAlertRuleTemplates to response model
+func convertTemplateToResponse(template *dbmodel.LogAlertRuleTemplates) *LogAlertRuleTemplateResponse {
+	if template == nil {
+		return nil
+	}
+
+	return &LogAlertRuleTemplateResponse{
+		ID:             template.ID,
+		Name:           template.Name,
+		Category:       template.Category,
+		Description:    template.Description,
+		TemplateConfig: template.TemplateConfig,
+		Tags:           pgUtil.PgArrayToStringArray(template.Tags),
+		IsBuiltin:      template.IsBuiltin,
+		UsageCount:     template.UsageCount,
+		CreatedAt:      template.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		UpdatedAt:      template.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		CreatedBy:      template.CreatedBy,
+	}
+}
+
+func applyTemplateOverrides(rule *dbmodel.LogAlertRules, overrides map[string]interface{}) {
 	if selectors, ok := overrides["label_selectors"]; ok {
-		if selectorsExt, ok := selectors.(model.ExtType); ok {
+		if selectorsExt, ok := selectors.(dbmodel.ExtType); ok {
 			rule.LabelSelectors = selectorsExt
 		}
 	}
@@ -294,9 +334,9 @@ func applyTemplateOverrides(rule *model.LogAlertRule, overrides map[string]inter
 		rule.Severity = severity
 	}
 	if priority, ok := overrides["priority"].(int); ok {
-		rule.Priority = priority
+		rule.Priority = int32(priority)
 	}
 	if groupBy, ok := overrides["group_by"].([]string); ok {
-		rule.GroupBy = groupBy
+		rule.GroupBy = pgUtil.StringArrayToPgArray(groupBy)
 	}
 }

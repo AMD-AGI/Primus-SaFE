@@ -10,16 +10,17 @@ import (
 
 // MockFacade is a mock Facade implementation for unit testing
 type MockFacade struct {
-	MockNode            database.NodeFacadeInterface
-	MockPod             database.PodFacadeInterface
-	MockWorkload        database.WorkloadFacadeInterface
-	MockContainer       database.ContainerFacadeInterface
-	MockTraining        database.TrainingFacadeInterface
-	MockStorage         database.StorageFacadeInterface
-	MockAlert           database.AlertFacadeInterface
-	MockMetricAlertRule database.MetricAlertRuleFacadeInterface
-	MockLogAlertRule    database.LogAlertRuleFacadeInterface
-	MockAlertRuleAdvice database.AlertRuleAdviceFacadeInterface
+	MockNode                 database.NodeFacadeInterface
+	MockPod                  database.PodFacadeInterface
+	MockWorkload             database.WorkloadFacadeInterface
+	MockContainer            database.ContainerFacadeInterface
+	MockTraining             database.TrainingFacadeInterface
+	MockStorage              database.StorageFacadeInterface
+	MockAlert                database.AlertFacadeInterface
+	MockMetricAlertRule      database.MetricAlertRuleFacadeInterface
+	MockLogAlertRule         database.LogAlertRuleFacadeInterface
+	MockAlertRuleAdvice      database.AlertRuleAdviceFacadeInterface
+	MockClusterOverviewCache database.ClusterOverviewCacheFacadeInterface
 }
 
 // Ensure MockFacade implements FacadeInterface
@@ -65,19 +66,24 @@ func (m *MockFacade) GetAlertRuleAdvice() database.AlertRuleAdviceFacadeInterfac
 	return m.MockAlertRuleAdvice
 }
 
+func (m *MockFacade) GetClusterOverviewCache() database.ClusterOverviewCacheFacadeInterface {
+	return m.MockClusterOverviewCache
+}
+
 func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface {
 	// Returns a new MockFacade, can customize behavior as needed
 	return &MockFacade{
-		MockNode:            m.MockNode,
-		MockPod:             m.MockPod,
-		MockWorkload:        m.MockWorkload,
-		MockContainer:       m.MockContainer,
-		MockTraining:        m.MockTraining,
-		MockStorage:         m.MockStorage,
-		MockAlert:           m.MockAlert,
-		MockMetricAlertRule: m.MockMetricAlertRule,
-		MockLogAlertRule:    m.MockLogAlertRule,
-		MockAlertRuleAdvice: m.MockAlertRuleAdvice,
+		MockNode:                 m.MockNode,
+		MockPod:                  m.MockPod,
+		MockWorkload:             m.MockWorkload,
+		MockContainer:            m.MockContainer,
+		MockTraining:             m.MockTraining,
+		MockStorage:              m.MockStorage,
+		MockAlert:                m.MockAlert,
+		MockMetricAlertRule:      m.MockMetricAlertRule,
+		MockLogAlertRule:         m.MockLogAlertRule,
+		MockAlertRuleAdvice:      m.MockAlertRuleAdvice,
+		MockClusterOverviewCache: m.MockClusterOverviewCache,
 	}
 }
 

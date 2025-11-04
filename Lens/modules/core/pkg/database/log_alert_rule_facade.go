@@ -13,11 +13,11 @@ import (
 // LogAlertRuleFacadeInterface defines the interface for log alert rule operations
 type LogAlertRuleFacadeInterface interface {
 	// CRUD Operations
-	CreateLogAlertRule(ctx context.Context, rule *model.LogAlertRule) error
-	GetLogAlertRuleByID(ctx context.Context, id int64) (*model.LogAlertRule, error)
-	GetLogAlertRuleByName(ctx context.Context, clusterName, name string) (*model.LogAlertRule, error)
-	ListLogAlertRules(ctx context.Context, filter *LogAlertRuleFilter) ([]*model.LogAlertRule, int64, error)
-	UpdateLogAlertRule(ctx context.Context, rule *model.LogAlertRule) error
+	CreateLogAlertRule(ctx context.Context, rule *model.LogAlertRules) error
+	GetLogAlertRuleByID(ctx context.Context, id int64) (*model.LogAlertRules, error)
+	GetLogAlertRuleByName(ctx context.Context, clusterName, name string) (*model.LogAlertRules, error)
+	ListLogAlertRules(ctx context.Context, filter *LogAlertRuleFilter) ([]*model.LogAlertRules, int64, error)
+	UpdateLogAlertRule(ctx context.Context, rule *model.LogAlertRules) error
 	DeleteLogAlertRule(ctx context.Context, id int64) error
 	
 	// Batch Operations
@@ -25,19 +25,19 @@ type LogAlertRuleFacadeInterface interface {
 	BatchDeleteLogAlertRules(ctx context.Context, ids []int64) error
 	
 	// Rule Version Operations
-	CreateRuleVersion(ctx context.Context, version *model.LogAlertRuleVersion) error
-	ListRuleVersions(ctx context.Context, ruleID int64) ([]*model.LogAlertRuleVersion, error)
-	GetRuleVersion(ctx context.Context, ruleID int64, version int) (*model.LogAlertRuleVersion, error)
+	CreateRuleVersion(ctx context.Context, version *model.LogAlertRuleVersions) error
+	ListRuleVersions(ctx context.Context, ruleID int64) ([]*model.LogAlertRuleVersions, error)
+	GetRuleVersion(ctx context.Context, ruleID int64, version int) (*model.LogAlertRuleVersions, error)
 	
 	// Statistics Operations
-	CreateOrUpdateRuleStatistic(ctx context.Context, stat *model.LogAlertRuleStatistic) error
-	ListRuleStatistics(ctx context.Context, filter *LogAlertRuleStatisticFilter) ([]*model.LogAlertRuleStatistic, error)
+	CreateOrUpdateRuleStatistic(ctx context.Context, stat *model.LogAlertRuleStatistics) error
+	ListRuleStatistics(ctx context.Context, filter *LogAlertRuleStatisticFilter) ([]*model.LogAlertRuleStatistics, error)
 	GetRuleStatisticsSummary(ctx context.Context, ruleID int64, dateFrom, dateTo time.Time) (*RuleStatisticsSummary, error)
 	
 	// Template Operations
-	CreateLogAlertRuleTemplate(ctx context.Context, template *model.LogAlertRuleTemplate) error
-	GetLogAlertRuleTemplateByID(ctx context.Context, id int64) (*model.LogAlertRuleTemplate, error)
-	ListLogAlertRuleTemplates(ctx context.Context, category string) ([]*model.LogAlertRuleTemplate, error)
+	CreateLogAlertRuleTemplate(ctx context.Context, template *model.LogAlertRuleTemplates) error
+	GetLogAlertRuleTemplateByID(ctx context.Context, id int64) (*model.LogAlertRuleTemplates, error)
+	ListLogAlertRuleTemplates(ctx context.Context, category string) ([]*model.LogAlertRuleTemplates, error)
 	DeleteLogAlertRuleTemplate(ctx context.Context, id int64) error
 	IncrementTemplateUsage(ctx context.Context, templateID int64) error
 	
@@ -79,7 +79,7 @@ type LogAlertRuleFilter struct {
 }
 
 // CreateLogAlertRule creates a new log alert rule
-func (f *LogAlertRuleFacade) CreateLogAlertRule(ctx context.Context, rule *model.LogAlertRule) error {
+func (f *LogAlertRuleFacade) CreateLogAlertRule(ctx context.Context, rule *model.LogAlertRules) error {
 	db := f.getDB().WithContext(ctx)
 	
 	if err := db.Create(rule).Error; err != nil {
@@ -92,10 +92,10 @@ func (f *LogAlertRuleFacade) CreateLogAlertRule(ctx context.Context, rule *model
 }
 
 // GetLogAlertRuleByID retrieves a log alert rule by ID
-func (f *LogAlertRuleFacade) GetLogAlertRuleByID(ctx context.Context, id int64) (*model.LogAlertRule, error) {
+func (f *LogAlertRuleFacade) GetLogAlertRuleByID(ctx context.Context, id int64) (*model.LogAlertRules, error) {
 	db := f.getDB().WithContext(ctx)
 	
-	var rule model.LogAlertRule
+	var rule model.LogAlertRules
 	if err := db.Where("id = ?", id).First(&rule).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -107,10 +107,10 @@ func (f *LogAlertRuleFacade) GetLogAlertRuleByID(ctx context.Context, id int64) 
 }
 
 // GetLogAlertRuleByName retrieves a log alert rule by cluster and name
-func (f *LogAlertRuleFacade) GetLogAlertRuleByName(ctx context.Context, clusterName, name string) (*model.LogAlertRule, error) {
+func (f *LogAlertRuleFacade) GetLogAlertRuleByName(ctx context.Context, clusterName, name string) (*model.LogAlertRules, error) {
 	db := f.getDB().WithContext(ctx)
 	
-	var rule model.LogAlertRule
+	var rule model.LogAlertRules
 	if err := db.Where("cluster_name = ? AND name = ?", clusterName, name).
 		First(&rule).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -123,10 +123,10 @@ func (f *LogAlertRuleFacade) GetLogAlertRuleByName(ctx context.Context, clusterN
 }
 
 // ListLogAlertRules lists log alert rules with filtering
-func (f *LogAlertRuleFacade) ListLogAlertRules(ctx context.Context, filter *LogAlertRuleFilter) ([]*model.LogAlertRule, int64, error) {
+func (f *LogAlertRuleFacade) ListLogAlertRules(ctx context.Context, filter *LogAlertRuleFilter) ([]*model.LogAlertRules, int64, error) {
 	db := f.getDB().WithContext(ctx)
 	
-	query := db.Model(&model.LogAlertRule{})
+	query := db.Model(&model.LogAlertRules{})
 	
 	// Apply filters
 	if filter != nil {
@@ -171,7 +171,7 @@ func (f *LogAlertRuleFacade) ListLogAlertRules(ctx context.Context, filter *LogA
 	}
 	query = query.Order("priority DESC, created_at DESC")
 	
-	var rules []*model.LogAlertRule
+	var rules []*model.LogAlertRules
 	if err := query.Find(&rules).Error; err != nil {
 		return nil, 0, err
 	}
@@ -180,7 +180,7 @@ func (f *LogAlertRuleFacade) ListLogAlertRules(ctx context.Context, filter *LogA
 }
 
 // UpdateLogAlertRule updates an existing log alert rule
-func (f *LogAlertRuleFacade) UpdateLogAlertRule(ctx context.Context, rule *model.LogAlertRule) error {
+func (f *LogAlertRuleFacade) UpdateLogAlertRule(ctx context.Context, rule *model.LogAlertRules) error {
 	db := f.getDB().WithContext(ctx)
 	
 	if err := db.Save(rule).Error; err != nil {
@@ -196,7 +196,7 @@ func (f *LogAlertRuleFacade) UpdateLogAlertRule(ctx context.Context, rule *model
 func (f *LogAlertRuleFacade) DeleteLogAlertRule(ctx context.Context, id int64) error {
 	db := f.getDB().WithContext(ctx)
 	
-	if err := db.Delete(&model.LogAlertRule{}, id).Error; err != nil {
+	if err := db.Delete(&model.LogAlertRules{}, id).Error; err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to delete log alert rule: %v", err)
 		return err
 	}
@@ -209,7 +209,7 @@ func (f *LogAlertRuleFacade) DeleteLogAlertRule(ctx context.Context, id int64) e
 func (f *LogAlertRuleFacade) BatchUpdateEnabledStatus(ctx context.Context, ids []int64, enabled bool) error {
 	db := f.getDB().WithContext(ctx)
 	
-	if err := db.Model(&model.LogAlertRule{}).
+	if err := db.Model(&model.LogAlertRules{}).
 		Where("id IN ?", ids).
 		Update("enabled", enabled).Error; err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to batch update enabled status: %v", err)
@@ -224,7 +224,7 @@ func (f *LogAlertRuleFacade) BatchUpdateEnabledStatus(ctx context.Context, ids [
 func (f *LogAlertRuleFacade) BatchDeleteLogAlertRules(ctx context.Context, ids []int64) error {
 	db := f.getDB().WithContext(ctx)
 	
-	if err := db.Delete(&model.LogAlertRule{}, ids).Error; err != nil {
+	if err := db.Delete(&model.LogAlertRules{}, ids).Error; err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to batch delete log alert rules: %v", err)
 		return err
 	}
@@ -234,7 +234,7 @@ func (f *LogAlertRuleFacade) BatchDeleteLogAlertRules(ctx context.Context, ids [
 }
 
 // CreateRuleVersion creates a version snapshot of a rule
-func (f *LogAlertRuleFacade) CreateRuleVersion(ctx context.Context, version *model.LogAlertRuleVersion) error {
+func (f *LogAlertRuleFacade) CreateRuleVersion(ctx context.Context, version *model.LogAlertRuleVersions) error {
 	db := f.getDB().WithContext(ctx)
 	
 	if err := db.Create(version).Error; err != nil {
@@ -246,10 +246,10 @@ func (f *LogAlertRuleFacade) CreateRuleVersion(ctx context.Context, version *mod
 }
 
 // ListRuleVersions lists all versions for a rule
-func (f *LogAlertRuleFacade) ListRuleVersions(ctx context.Context, ruleID int64) ([]*model.LogAlertRuleVersion, error) {
+func (f *LogAlertRuleFacade) ListRuleVersions(ctx context.Context, ruleID int64) ([]*model.LogAlertRuleVersions, error) {
 	db := f.getDB().WithContext(ctx)
 	
-	var versions []*model.LogAlertRuleVersion
+	var versions []*model.LogAlertRuleVersions
 	if err := db.Where("rule_id = ?", ruleID).
 		Order("version DESC").
 		Find(&versions).Error; err != nil {
@@ -260,10 +260,10 @@ func (f *LogAlertRuleFacade) ListRuleVersions(ctx context.Context, ruleID int64)
 }
 
 // GetRuleVersion retrieves a specific version of a rule
-func (f *LogAlertRuleFacade) GetRuleVersion(ctx context.Context, ruleID int64, version int) (*model.LogAlertRuleVersion, error) {
+func (f *LogAlertRuleFacade) GetRuleVersion(ctx context.Context, ruleID int64, version int) (*model.LogAlertRuleVersions, error) {
 	db := f.getDB().WithContext(ctx)
 	
-	var v model.LogAlertRuleVersion
+	var v model.LogAlertRuleVersions
 	if err := db.Where("rule_id = ? AND version = ?", ruleID, version).
 		First(&v).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -286,11 +286,11 @@ type LogAlertRuleStatisticFilter struct {
 }
 
 // CreateOrUpdateRuleStatistic creates or updates rule statistics
-func (f *LogAlertRuleFacade) CreateOrUpdateRuleStatistic(ctx context.Context, stat *model.LogAlertRuleStatistic) error {
+func (f *LogAlertRuleFacade) CreateOrUpdateRuleStatistic(ctx context.Context, stat *model.LogAlertRuleStatistics) error {
 	db := f.getDB().WithContext(ctx)
 	
 	// Try to find existing stat
-	var existing model.LogAlertRuleStatistic
+	var existing model.LogAlertRuleStatistics
 	err := db.Where("rule_id = ? AND date = ? AND hour = ? AND cluster_name = ?",
 		stat.RuleID, stat.Date, stat.Hour, stat.ClusterName).
 		First(&existing).Error
@@ -328,10 +328,10 @@ func (f *LogAlertRuleFacade) CreateOrUpdateRuleStatistic(ctx context.Context, st
 }
 
 // ListRuleStatistics lists rule statistics with filtering
-func (f *LogAlertRuleFacade) ListRuleStatistics(ctx context.Context, filter *LogAlertRuleStatisticFilter) ([]*model.LogAlertRuleStatistic, error) {
+func (f *LogAlertRuleFacade) ListRuleStatistics(ctx context.Context, filter *LogAlertRuleStatisticFilter) ([]*model.LogAlertRuleStatistics, error) {
 	db := f.getDB().WithContext(ctx)
 	
-	query := db.Model(&model.LogAlertRuleStatistic{})
+	query := db.Model(&model.LogAlertRuleStatistics{})
 	
 	if filter != nil {
 		if filter.RuleID > 0 {
@@ -356,7 +356,7 @@ func (f *LogAlertRuleFacade) ListRuleStatistics(ctx context.Context, filter *Log
 	
 	query = query.Order("date DESC, hour DESC")
 	
-	var stats []*model.LogAlertRuleStatistic
+	var stats []*model.LogAlertRuleStatistics
 	if err := query.Find(&stats).Error; err != nil {
 		return nil, err
 	}
@@ -381,7 +381,7 @@ func (f *LogAlertRuleFacade) GetRuleStatisticsSummary(ctx context.Context, ruleI
 	
 	var summary RuleStatisticsSummary
 	err := db.
-		Model(&model.LogAlertRuleStatistic{}).
+		Model(&model.LogAlertRuleStatistics{}).
 		Select(`
 			COALESCE(SUM(evaluated_count), 0) as total_evaluated,
 			COALESCE(SUM(matched_count), 0) as total_matched,
@@ -406,7 +406,7 @@ func (f *LogAlertRuleFacade) GetRuleStatisticsSummary(ctx context.Context, ruleI
 }
 
 // CreateLogAlertRuleTemplate creates a new rule template
-func (f *LogAlertRuleFacade) CreateLogAlertRuleTemplate(ctx context.Context, template *model.LogAlertRuleTemplate) error {
+func (f *LogAlertRuleFacade) CreateLogAlertRuleTemplate(ctx context.Context, template *model.LogAlertRuleTemplates) error {
 	db := f.getDB().WithContext(ctx)
 	
 	if err := db.Create(template).Error; err != nil {
@@ -418,10 +418,10 @@ func (f *LogAlertRuleFacade) CreateLogAlertRuleTemplate(ctx context.Context, tem
 }
 
 // GetLogAlertRuleTemplateByID retrieves a template by ID
-func (f *LogAlertRuleFacade) GetLogAlertRuleTemplateByID(ctx context.Context, id int64) (*model.LogAlertRuleTemplate, error) {
+func (f *LogAlertRuleFacade) GetLogAlertRuleTemplateByID(ctx context.Context, id int64) (*model.LogAlertRuleTemplates, error) {
 	db := f.getDB().WithContext(ctx)
 	
-	var template model.LogAlertRuleTemplate
+	var template model.LogAlertRuleTemplates
 	if err := db.Where("id = ?", id).First(&template).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -433,15 +433,15 @@ func (f *LogAlertRuleFacade) GetLogAlertRuleTemplateByID(ctx context.Context, id
 }
 
 // ListLogAlertRuleTemplates lists templates by category
-func (f *LogAlertRuleFacade) ListLogAlertRuleTemplates(ctx context.Context, category string) ([]*model.LogAlertRuleTemplate, error) {
+func (f *LogAlertRuleFacade) ListLogAlertRuleTemplates(ctx context.Context, category string) ([]*model.LogAlertRuleTemplates, error) {
 	db := f.getDB().WithContext(ctx)
 	
-	query := db.Model(&model.LogAlertRuleTemplate{})
+	query := db.Model(&model.LogAlertRuleTemplates{})
 	if category != "" {
 		query = query.Where("category = ?", category)
 	}
 	
-	var templates []*model.LogAlertRuleTemplate
+	var templates []*model.LogAlertRuleTemplates
 	if err := query.Order("usage_count DESC, name ASC").Find(&templates).Error; err != nil {
 		return nil, err
 	}
@@ -453,7 +453,7 @@ func (f *LogAlertRuleFacade) ListLogAlertRuleTemplates(ctx context.Context, cate
 func (f *LogAlertRuleFacade) DeleteLogAlertRuleTemplate(ctx context.Context, id int64) error {
 	db := f.getDB().WithContext(ctx)
 	
-	if err := db.Delete(&model.LogAlertRuleTemplate{}, id).Error; err != nil {
+	if err := db.Delete(&model.LogAlertRuleTemplates{}, id).Error; err != nil {
 		return err
 	}
 	
@@ -464,7 +464,7 @@ func (f *LogAlertRuleFacade) DeleteLogAlertRuleTemplate(ctx context.Context, id 
 func (f *LogAlertRuleFacade) IncrementTemplateUsage(ctx context.Context, templateID int64) error {
 	db := f.getDB().WithContext(ctx)
 	
-	if err := db.Model(&model.LogAlertRuleTemplate{}).
+	if err := db.Model(&model.LogAlertRuleTemplates{}).
 		Where("id = ?", templateID).
 		UpdateColumn("usage_count", gorm.Expr("usage_count + 1")).Error; err != nil {
 		return err
@@ -478,7 +478,7 @@ func (f *LogAlertRuleFacade) UpdateRuleTriggerInfo(ctx context.Context, ruleID i
 	db := f.getDB().WithContext(ctx)
 	
 	now := time.Now()
-	if err := db.Model(&model.LogAlertRule{}).
+	if err := db.Model(&model.LogAlertRules{}).
 		Where("id = ?", ruleID).
 		Updates(map[string]interface{}{
 			"last_triggered_at": now,

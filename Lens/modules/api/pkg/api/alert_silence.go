@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	dbModel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/primus-lens/core/pkg/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -17,20 +18,20 @@ import (
 
 // AlertSilenceRequest represents a request to create or update an alert silence
 type AlertSilenceRequest struct {
-	Name            string                   `json:"name" binding:"required"`
-	Description     string                   `json:"description"`
-	ClusterName     string                   `json:"cluster_name"`
-	Enabled         bool                     `json:"enabled"`
-	SilenceType     string                   `json:"silence_type" binding:"required"` // resource/label/alert_name/expression
-	ResourceFilters []model.ResourceFilter   `json:"resource_filters,omitempty"`
-	LabelMatchers   []model.LabelMatcher     `json:"label_matchers,omitempty"`
-	AlertNames      []string                 `json:"alert_names,omitempty"`
-	MatchExpression string                   `json:"match_expression,omitempty"`
-	StartsAt        time.Time                `json:"starts_at"`
-	EndsAt          *time.Time               `json:"ends_at,omitempty"` // null = permanent
-	TimeWindows     []model.TimeWindow       `json:"time_windows,omitempty"`
-	Reason          string                   `json:"reason"`
-	TicketURL       string                   `json:"ticket_url,omitempty"`
+	Name            string                 `json:"name" binding:"required"`
+	Description     string                 `json:"description"`
+	ClusterName     string                 `json:"cluster_name"`
+	Enabled         bool                   `json:"enabled"`
+	SilenceType     string                 `json:"silence_type" binding:"required"` // resource/label/alert_name/expression
+	ResourceFilters []model.ResourceFilter `json:"resource_filters,omitempty"`
+	LabelMatchers   []model.LabelMatcher   `json:"label_matchers,omitempty"`
+	AlertNames      []string               `json:"alert_names,omitempty"`
+	MatchExpression string                 `json:"match_expression,omitempty"`
+	StartsAt        time.Time              `json:"starts_at"`
+	EndsAt          *time.Time             `json:"ends_at,omitempty"` // null = permanent
+	TimeWindows     []model.TimeWindow     `json:"time_windows,omitempty"`
+	Reason          string                 `json:"reason"`
+	TicketURL       string                 `json:"ticket_url,omitempty"`
 }
 
 // CreateAlertSilence handles POST /api/alert-silences
@@ -70,7 +71,7 @@ func CreateAlertSilence(c *gin.Context) {
 	silenceID := uuid.New().String()
 
 	// Convert filters to ExtType
-	var resourceFiltersExt model.ExtType
+	var resourceFiltersExt dbModel.ExtType
 	if req.ResourceFilters != nil {
 		resourceFiltersBytes, err := json.Marshal(req.ResourceFilters)
 		if err != nil {
@@ -83,7 +84,7 @@ func CreateAlertSilence(c *gin.Context) {
 		}
 	}
 
-	var labelMatchersExt model.ExtType
+	var labelMatchersExt dbModel.ExtType
 	if req.LabelMatchers != nil {
 		labelMatchersBytes, err := json.Marshal(req.LabelMatchers)
 		if err != nil {
@@ -96,7 +97,7 @@ func CreateAlertSilence(c *gin.Context) {
 		}
 	}
 
-	var alertNamesExt model.ExtType
+	var alertNamesExt dbModel.ExtType
 	if req.AlertNames != nil {
 		alertNamesBytes, err := json.Marshal(req.AlertNames)
 		if err != nil {
@@ -109,7 +110,7 @@ func CreateAlertSilence(c *gin.Context) {
 		}
 	}
 
-	var timeWindowsExt model.ExtType
+	var timeWindowsExt dbModel.ExtType
 	if req.TimeWindows != nil {
 		timeWindowsBytes, err := json.Marshal(req.TimeWindows)
 		if err != nil {
@@ -122,7 +123,7 @@ func CreateAlertSilence(c *gin.Context) {
 		}
 	}
 
-	silence := &model.AlertSilence{
+	silence := &dbModel.AlertSilences{
 		ID:              silenceID,
 		Name:            req.Name,
 		Description:     req.Description,
@@ -134,16 +135,20 @@ func CreateAlertSilence(c *gin.Context) {
 		AlertNames:      alertNamesExt,
 		MatchExpression: req.MatchExpression,
 		StartsAt:        req.StartsAt,
-		EndsAt:          req.EndsAt,
 		TimeWindows:     timeWindowsExt,
 		Reason:          req.Reason,
 		TicketURL:       req.TicketURL,
 		CreatedBy:       createdByStr,
 	}
 
+	// Handle EndsAt pointer
+	if req.EndsAt != nil {
+		silence.EndsAt = *req.EndsAt
+	}
+
 	// Save to database
 	facade := database.GetFacade().GetAlert()
-	if err := facade.CreateAlertSilence(c.Request.Context(), silence); err != nil {
+	if err := facade.CreateAlertSilences(c.Request.Context(), silence); err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to create alert silence: %v", err)
 		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
 		return
@@ -172,7 +177,7 @@ func ListAlertSilences(c *gin.Context) {
 		pageSize = 20
 	}
 
-	filter := &database.AlertSilenceFilter{
+	filter := &database.AlertSilencesFilter{
 		Offset: (pageNum - 1) * pageSize,
 		Limit:  pageSize,
 	}
@@ -193,7 +198,7 @@ func ListAlertSilences(c *gin.Context) {
 	filter.ActiveOnly = activeOnly
 
 	facade := database.GetFacade().GetAlert()
-	silences, total, err := facade.ListAlertSilences(c.Request.Context(), filter)
+	silences, total, err := facade.ListAlertSilencess(c.Request.Context(), filter)
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to list alert silences: %v", err)
 		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
@@ -213,7 +218,7 @@ func GetAlertSilence(c *gin.Context) {
 	id := c.Param("id")
 
 	facade := database.GetFacade().GetAlert()
-	silence, err := facade.GetAlertSilenceByID(c.Request.Context(), id)
+	silence, err := facade.GetAlertSilencesByID(c.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to get alert silence: %v", err)
 		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
@@ -241,7 +246,7 @@ func UpdateAlertSilence(c *gin.Context) {
 
 	// Get existing silence
 	facade := database.GetFacade().GetAlert()
-	silence, err := facade.GetAlertSilenceByID(c.Request.Context(), id)
+	silence, err := facade.GetAlertSilencesByID(c.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to get alert silence: %v", err)
 		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
@@ -268,37 +273,42 @@ func UpdateAlertSilence(c *gin.Context) {
 	silence.TicketURL = req.TicketURL
 	silence.UpdatedBy = updatedByStr
 
+	// Handle EndsAt pointer
+	if req.EndsAt != nil {
+		silence.EndsAt = *req.EndsAt
+	}
+
 	// Update ExtType fields
 	if req.ResourceFilters != nil {
-		var resourceFiltersExt model.ExtType
+		var resourceFiltersExt dbModel.ExtType
 		resourceFiltersBytes, _ := json.Marshal(req.ResourceFilters)
 		json.Unmarshal(resourceFiltersBytes, &resourceFiltersExt)
 		silence.ResourceFilters = resourceFiltersExt
 	}
 
 	if req.LabelMatchers != nil {
-		var labelMatchersExt model.ExtType
+		var labelMatchersExt dbModel.ExtType
 		labelMatchersBytes, _ := json.Marshal(req.LabelMatchers)
 		json.Unmarshal(labelMatchersBytes, &labelMatchersExt)
 		silence.LabelMatchers = labelMatchersExt
 	}
 
 	if req.AlertNames != nil {
-		var alertNamesExt model.ExtType
+		var alertNamesExt dbModel.ExtType
 		alertNamesBytes, _ := json.Marshal(req.AlertNames)
 		json.Unmarshal(alertNamesBytes, &alertNamesExt)
 		silence.AlertNames = alertNamesExt
 	}
 
 	if req.TimeWindows != nil {
-		var timeWindowsExt model.ExtType
+		var timeWindowsExt dbModel.ExtType
 		timeWindowsBytes, _ := json.Marshal(req.TimeWindows)
 		json.Unmarshal(timeWindowsBytes, &timeWindowsExt)
 		silence.TimeWindows = timeWindowsExt
 	}
 
 	// Save to database
-	if err := facade.UpdateAlertSilence(c.Request.Context(), silence); err != nil {
+	if err := facade.UpdateAlertSilences(c.Request.Context(), silence); err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to update alert silence: %v", err)
 		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
 		return
@@ -315,7 +325,7 @@ func DeleteAlertSilence(c *gin.Context) {
 	id := c.Param("id")
 
 	facade := database.GetFacade().GetAlert()
-	if err := facade.DeleteAlertSilence(c.Request.Context(), id); err != nil {
+	if err := facade.DeleteAlertSilences(c.Request.Context(), id); err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to delete alert silence: %v", err)
 		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
 		return
@@ -331,7 +341,7 @@ func DisableAlertSilence(c *gin.Context) {
 	id := c.Param("id")
 
 	facade := database.GetFacade().GetAlert()
-	if err := facade.DisableAlertSilence(c.Request.Context(), id); err != nil {
+	if err := facade.DisableAlertSilences(c.Request.Context(), id); err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to disable alert silence: %v", err)
 		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
 		return
@@ -359,7 +369,7 @@ func ListSilencedAlerts(c *gin.Context) {
 		pageSize = 20
 	}
 
-	filter := &database.SilencedAlertFilter{
+	filter := &database.SilencedAlertsFilter{
 		Offset: (pageNum - 1) * pageSize,
 		Limit:  pageSize,
 	}
@@ -375,7 +385,7 @@ func ListSilencedAlerts(c *gin.Context) {
 	}
 
 	facade := database.GetFacade().GetAlert()
-	silencedAlerts, total, err := facade.ListSilencedAlerts(c.Request.Context(), filter)
+	silencedAlerts, total, err := facade.ListSilencedAlertss(c.Request.Context(), filter)
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to list silenced alerts: %v", err)
 		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
@@ -389,4 +399,3 @@ func ListSilencedAlerts(c *gin.Context) {
 		"pageSize": pageSize,
 	}))
 }
-

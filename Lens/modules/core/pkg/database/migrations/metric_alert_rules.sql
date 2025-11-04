@@ -42,7 +42,6 @@ CREATE INDEX IF NOT EXISTS idx_metric_alert_rules_created_at ON metric_alert_rul
 
 -- Comments for documentation
 COMMENT ON TABLE metric_alert_rules IS 'Metric-based alert rules that sync to Kubernetes VMRule CRDs';
-COMMENT ON COLUMN metric_alert_rules.source IS 'Always "metric" for metric alert rules, used to distinguish from log alert rules';
 COMMENT ON COLUMN metric_alert_rules.sync_status IS 'Sync status: pending/synced/failed';
 COMMENT ON COLUMN metric_alert_rules.groups IS 'Array of VMRule groups containing alert rules';
 COMMENT ON COLUMN metric_alert_rules.vmrule_status IS 'Status of the VMRule in Kubernetes';

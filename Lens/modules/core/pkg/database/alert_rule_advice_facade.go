@@ -13,30 +13,30 @@ import (
 // AlertRuleAdviceFacadeInterface defines the interface for alert rule advice operations
 type AlertRuleAdviceFacadeInterface interface {
 	// CRUD Operations
-	CreateAlertRuleAdvice(ctx context.Context, advice *model.AlertRuleAdvice) error
-	GetAlertRuleAdviceByID(ctx context.Context, id int64) (*model.AlertRuleAdvice, error)
-	ListAlertRuleAdvices(ctx context.Context, filter *AlertRuleAdviceFilter) ([]*model.AlertRuleAdvice, int64, error)
-	UpdateAlertRuleAdvice(ctx context.Context, advice *model.AlertRuleAdvice) error
-	DeleteAlertRuleAdvice(ctx context.Context, id int64) error
+	CreateAlertRuleAdvices(ctx context.Context, advice *model.AlertRuleAdvices) error
+	GetAlertRuleAdvicesByID(ctx context.Context, id int64) (*model.AlertRuleAdvices, error)
+	ListAlertRuleAdvicess(ctx context.Context, filter *AlertRuleAdvicesFilter) ([]*model.AlertRuleAdvices, int64, error)
+	UpdateAlertRuleAdvices(ctx context.Context, advice *model.AlertRuleAdvices) error
+	DeleteAlertRuleAdvices(ctx context.Context, id int64) error
 
 	// Batch Operations
-	BatchCreateAlertRuleAdvices(ctx context.Context, advices []*model.AlertRuleAdvice) error
+	BatchCreateAlertRuleAdvicess(ctx context.Context, advices []*model.AlertRuleAdvices) error
 	BatchUpdateStatus(ctx context.Context, ids []int64, status, reviewedBy, reviewNotes string) error
-	BatchDeleteAlertRuleAdvices(ctx context.Context, ids []int64) error
+	BatchDeleteAlertRuleAdvicess(ctx context.Context, ids []int64) error
 
 	// Status Operations
 	UpdateAdviceStatus(ctx context.Context, id int64, status, reviewedBy, reviewNotes string) error
 	MarkAsApplied(ctx context.Context, id int64, appliedRuleID int64) error
 
 	// Query Operations
-	GetAdvicesByInspectionID(ctx context.Context, inspectionID string) ([]*model.AlertRuleAdvice, error)
-	GetAdvicesByCluster(ctx context.Context, clusterName string, status string) ([]*model.AlertRuleAdvice, error)
-	GetExpiredAdvices(ctx context.Context) ([]*model.AlertRuleAdvice, error)
+	GetAdvicesByInspectionID(ctx context.Context, inspectionID string) ([]*model.AlertRuleAdvices, error)
+	GetAdvicesByCluster(ctx context.Context, clusterName string, status string) ([]*model.AlertRuleAdvices, error)
+	GetExpiredAdvices(ctx context.Context) ([]*model.AlertRuleAdvices, error)
 
 	// Statistics Operations
-	CreateOrUpdateAdviceStatistics(ctx context.Context, stats *model.AlertRuleAdviceStatistics) error
-	GetAdviceStatistics(ctx context.Context, clusterName string, dateFrom, dateTo time.Time) ([]*model.AlertRuleAdviceStatistics, error)
-	GetAdviceSummary(ctx context.Context, filter *AlertRuleAdviceFilter) (*AlertRuleAdviceSummary, error)
+	CreateOrUpdateAdviceStatistics(ctx context.Context, stats *model.LogAlertRuleStatistics) error
+	GetAdviceStatistics(ctx context.Context, clusterName string, dateFrom, dateTo time.Time) ([]*model.LogAlertRuleStatistics, error)
+	GetAdviceSummary(ctx context.Context, filter *AlertRuleAdvicesFilter) (*AlertRuleAdvicesSummary, error)
 
 	// Cleanup Operations
 	DeleteExpiredAdvices(ctx context.Context) (int64, error)
@@ -62,8 +62,8 @@ func (f *AlertRuleAdviceFacade) WithCluster(clusterName string) AlertRuleAdviceF
 	}
 }
 
-// AlertRuleAdviceFilter defines filter criteria for listing advices
-type AlertRuleAdviceFilter struct {
+// AlertRuleAdvicesFilter defines filter criteria for listing advices
+type AlertRuleAdvicesFilter struct {
 	ClusterName    string
 	RuleType       string // log/metric
 	Category       string // performance/error/resource/security/availability
@@ -87,8 +87,8 @@ type AlertRuleAdviceFilter struct {
 	OrderDesc      bool   // Order direction (default: true)
 }
 
-// AlertRuleAdviceSummary provides summary statistics for advices
-type AlertRuleAdviceSummary struct {
+// AlertRuleAdvicesSummary provides summary statistics for advices
+type AlertRuleAdvicesSummary struct {
 	Total              int64            `json:"total"`
 	ByRuleType         map[string]int64 `json:"by_rule_type"`
 	ByCategory         map[string]int64 `json:"by_category"`
@@ -99,8 +99,8 @@ type AlertRuleAdviceSummary struct {
 	ExpiredCount       int64            `json:"expired_count"`
 }
 
-// CreateAlertRuleAdvice creates a new alert rule advice
-func (f *AlertRuleAdviceFacade) CreateAlertRuleAdvice(ctx context.Context, advice *model.AlertRuleAdvice) error {
+// CreateAlertRuleAdvices creates a new alert rule advice
+func (f *AlertRuleAdviceFacade) CreateAlertRuleAdvices(ctx context.Context, advice *model.AlertRuleAdvices) error {
 	db := f.getDB().WithContext(ctx)
 
 	if err := db.Create(advice).Error; err != nil {
@@ -112,11 +112,11 @@ func (f *AlertRuleAdviceFacade) CreateAlertRuleAdvice(ctx context.Context, advic
 	return nil
 }
 
-// GetAlertRuleAdviceByID retrieves an alert rule advice by ID
-func (f *AlertRuleAdviceFacade) GetAlertRuleAdviceByID(ctx context.Context, id int64) (*model.AlertRuleAdvice, error) {
+// GetAlertRuleAdvicesByID retrieves an alert rule advice by ID
+func (f *AlertRuleAdviceFacade) GetAlertRuleAdvicesByID(ctx context.Context, id int64) (*model.AlertRuleAdvices, error) {
 	db := f.getDB().WithContext(ctx)
 
-	var advice model.AlertRuleAdvice
+	var advice model.AlertRuleAdvices
 	if err := db.Where("id = ?", id).First(&advice).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -128,11 +128,11 @@ func (f *AlertRuleAdviceFacade) GetAlertRuleAdviceByID(ctx context.Context, id i
 	return &advice, nil
 }
 
-// ListAlertRuleAdvices lists alert rule advices with filters
-func (f *AlertRuleAdviceFacade) ListAlertRuleAdvices(ctx context.Context, filter *AlertRuleAdviceFilter) ([]*model.AlertRuleAdvice, int64, error) {
+// ListAlertRuleAdvicess lists alert rule advices with filters
+func (f *AlertRuleAdviceFacade) ListAlertRuleAdvicess(ctx context.Context, filter *AlertRuleAdvicesFilter) ([]*model.AlertRuleAdvices, int64, error) {
 	db := f.getDB().WithContext(ctx)
 
-	query := db.Model(&model.AlertRuleAdvice{})
+	query := db.Model(&model.AlertRuleAdvices{})
 
 	// Apply filters
 	if filter != nil {
@@ -220,7 +220,7 @@ func (f *AlertRuleAdviceFacade) ListAlertRuleAdvices(ctx context.Context, filter
 	}
 
 	// Execute query
-	var advices []*model.AlertRuleAdvice
+	var advices []*model.AlertRuleAdvices
 	if err := query.Find(&advices).Error; err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to list alert rule advices: %v", err)
 		return nil, 0, err
@@ -229,8 +229,8 @@ func (f *AlertRuleAdviceFacade) ListAlertRuleAdvices(ctx context.Context, filter
 	return advices, total, nil
 }
 
-// UpdateAlertRuleAdvice updates an alert rule advice
-func (f *AlertRuleAdviceFacade) UpdateAlertRuleAdvice(ctx context.Context, advice *model.AlertRuleAdvice) error {
+// UpdateAlertRuleAdvices updates an alert rule advice
+func (f *AlertRuleAdviceFacade) UpdateAlertRuleAdvices(ctx context.Context, advice *model.AlertRuleAdvices) error {
 	db := f.getDB().WithContext(ctx)
 
 	if err := db.Save(advice).Error; err != nil {
@@ -242,11 +242,11 @@ func (f *AlertRuleAdviceFacade) UpdateAlertRuleAdvice(ctx context.Context, advic
 	return nil
 }
 
-// DeleteAlertRuleAdvice deletes an alert rule advice
-func (f *AlertRuleAdviceFacade) DeleteAlertRuleAdvice(ctx context.Context, id int64) error {
+// DeleteAlertRuleAdvices deletes an alert rule advice
+func (f *AlertRuleAdviceFacade) DeleteAlertRuleAdvices(ctx context.Context, id int64) error {
 	db := f.getDB().WithContext(ctx)
 
-	if err := db.Delete(&model.AlertRuleAdvice{}, id).Error; err != nil {
+	if err := db.Delete(&model.AlertRuleAdvices{}, id).Error; err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to delete alert rule advice: %v", err)
 		return err
 	}
@@ -255,8 +255,8 @@ func (f *AlertRuleAdviceFacade) DeleteAlertRuleAdvice(ctx context.Context, id in
 	return nil
 }
 
-// BatchCreateAlertRuleAdvices creates multiple alert rule advices in a transaction
-func (f *AlertRuleAdviceFacade) BatchCreateAlertRuleAdvices(ctx context.Context, advices []*model.AlertRuleAdvice) error {
+// BatchCreateAlertRuleAdvicess creates multiple alert rule advices in a transaction
+func (f *AlertRuleAdviceFacade) BatchCreateAlertRuleAdvicess(ctx context.Context, advices []*model.AlertRuleAdvices) error {
 	db := f.getDB().WithContext(ctx)
 
 	return db.Transaction(func(tx *gorm.DB) error {
@@ -282,7 +282,7 @@ func (f *AlertRuleAdviceFacade) BatchUpdateStatus(ctx context.Context, ids []int
 		"review_notes": reviewNotes,
 	}
 
-	if err := db.Model(&model.AlertRuleAdvice{}).Where("id IN ?", ids).Updates(updates).Error; err != nil {
+	if err := db.Model(&model.AlertRuleAdvices{}).Where("id IN ?", ids).Updates(updates).Error; err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to batch update advice status: %v", err)
 		return err
 	}
@@ -291,11 +291,11 @@ func (f *AlertRuleAdviceFacade) BatchUpdateStatus(ctx context.Context, ids []int
 	return nil
 }
 
-// BatchDeleteAlertRuleAdvices deletes multiple alert rule advices
-func (f *AlertRuleAdviceFacade) BatchDeleteAlertRuleAdvices(ctx context.Context, ids []int64) error {
+// BatchDeleteAlertRuleAdvicess deletes multiple alert rule advices
+func (f *AlertRuleAdviceFacade) BatchDeleteAlertRuleAdvicess(ctx context.Context, ids []int64) error {
 	db := f.getDB().WithContext(ctx)
 
-	if err := db.Delete(&model.AlertRuleAdvice{}, ids).Error; err != nil {
+	if err := db.Delete(&model.AlertRuleAdvices{}, ids).Error; err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to batch delete alert rule advices: %v", err)
 		return err
 	}
@@ -316,7 +316,7 @@ func (f *AlertRuleAdviceFacade) UpdateAdviceStatus(ctx context.Context, id int64
 		"review_notes": reviewNotes,
 	}
 
-	if err := db.Model(&model.AlertRuleAdvice{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+	if err := db.Model(&model.AlertRuleAdvices{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to update advice status: %v", err)
 		return err
 	}
@@ -336,7 +336,7 @@ func (f *AlertRuleAdviceFacade) MarkAsApplied(ctx context.Context, id int64, app
 		"applied_at":      now,
 	}
 
-	if err := db.Model(&model.AlertRuleAdvice{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+	if err := db.Model(&model.AlertRuleAdvices{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to mark advice as applied: %v", err)
 		return err
 	}
@@ -346,10 +346,10 @@ func (f *AlertRuleAdviceFacade) MarkAsApplied(ctx context.Context, id int64, app
 }
 
 // GetAdvicesByInspectionID retrieves all advices for a specific inspection
-func (f *AlertRuleAdviceFacade) GetAdvicesByInspectionID(ctx context.Context, inspectionID string) ([]*model.AlertRuleAdvice, error) {
+func (f *AlertRuleAdviceFacade) GetAdvicesByInspectionID(ctx context.Context, inspectionID string) ([]*model.AlertRuleAdvices, error) {
 	db := f.getDB().WithContext(ctx)
 
-	var advices []*model.AlertRuleAdvice
+	var advices []*model.AlertRuleAdvices
 	if err := db.Where("inspection_id = ?", inspectionID).Order("priority DESC, confidence_score DESC").Find(&advices).Error; err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get advices by inspection ID: %v", err)
 		return nil, err
@@ -359,7 +359,7 @@ func (f *AlertRuleAdviceFacade) GetAdvicesByInspectionID(ctx context.Context, in
 }
 
 // GetAdvicesByCluster retrieves advices for a specific cluster
-func (f *AlertRuleAdviceFacade) GetAdvicesByCluster(ctx context.Context, clusterName string, status string) ([]*model.AlertRuleAdvice, error) {
+func (f *AlertRuleAdviceFacade) GetAdvicesByCluster(ctx context.Context, clusterName string, status string) ([]*model.AlertRuleAdvices, error) {
 	db := f.getDB().WithContext(ctx)
 
 	query := db.Where("cluster_name = ?", clusterName)
@@ -367,7 +367,7 @@ func (f *AlertRuleAdviceFacade) GetAdvicesByCluster(ctx context.Context, cluster
 		query = query.Where("status = ?", status)
 	}
 
-	var advices []*model.AlertRuleAdvice
+	var advices []*model.AlertRuleAdvices
 	if err := query.Order("priority DESC, confidence_score DESC, created_at DESC").Find(&advices).Error; err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get advices by cluster: %v", err)
 		return nil, err
@@ -377,10 +377,10 @@ func (f *AlertRuleAdviceFacade) GetAdvicesByCluster(ctx context.Context, cluster
 }
 
 // GetExpiredAdvices retrieves all expired advices
-func (f *AlertRuleAdviceFacade) GetExpiredAdvices(ctx context.Context) ([]*model.AlertRuleAdvice, error) {
+func (f *AlertRuleAdviceFacade) GetExpiredAdvices(ctx context.Context) ([]*model.AlertRuleAdvices, error) {
 	db := f.getDB().WithContext(ctx)
 
-	var advices []*model.AlertRuleAdvice
+	var advices []*model.AlertRuleAdvices
 	if err := db.Where("expires_at IS NOT NULL AND expires_at <= ?", time.Now()).Find(&advices).Error; err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get expired advices: %v", err)
 		return nil, err
@@ -390,11 +390,11 @@ func (f *AlertRuleAdviceFacade) GetExpiredAdvices(ctx context.Context) ([]*model
 }
 
 // CreateOrUpdateAdviceStatistics creates or updates advice statistics
-func (f *AlertRuleAdviceFacade) CreateOrUpdateAdviceStatistics(ctx context.Context, stats *model.AlertRuleAdviceStatistics) error {
+func (f *AlertRuleAdviceFacade) CreateOrUpdateAdviceStatistics(ctx context.Context, stats *model.LogAlertRuleStatistics) error {
 	db := f.getDB().WithContext(ctx)
 
 	// Try to find existing record
-	var existing model.AlertRuleAdviceStatistics
+	var existing model.LogAlertRuleStatistics
 	err := db.Where("cluster_name = ? AND date = ?", stats.ClusterName, stats.Date).First(&existing).Error
 
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -423,17 +423,17 @@ func (f *AlertRuleAdviceFacade) CreateOrUpdateAdviceStatistics(ctx context.Conte
 }
 
 // GetAdviceStatistics retrieves advice statistics for a cluster and date range
-func (f *AlertRuleAdviceFacade) GetAdviceStatistics(ctx context.Context, clusterName string, dateFrom, dateTo time.Time) ([]*model.AlertRuleAdviceStatistics, error) {
+func (f *AlertRuleAdviceFacade) GetAdviceStatistics(ctx context.Context, clusterName string, dateFrom, dateTo time.Time) ([]*model.LogAlertRuleStatistics, error) {
 	db := f.getDB().WithContext(ctx)
 
-	query := db.Model(&model.AlertRuleAdviceStatistics{})
+	query := db.Model(&model.LogAlertRuleStatistics{})
 
 	if clusterName != "" {
 		query = query.Where("cluster_name = ?", clusterName)
 	}
 	query = query.Where("date >= ? AND date <= ?", dateFrom, dateTo)
 
-	var stats []*model.AlertRuleAdviceStatistics
+	var stats []*model.LogAlertRuleStatistics
 	if err := query.Order("date DESC").Find(&stats).Error; err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get advice statistics: %v", err)
 		return nil, err
@@ -443,12 +443,12 @@ func (f *AlertRuleAdviceFacade) GetAdviceStatistics(ctx context.Context, cluster
 }
 
 // GetAdviceSummary retrieves summary statistics for advices
-func (f *AlertRuleAdviceFacade) GetAdviceSummary(ctx context.Context, filter *AlertRuleAdviceFilter) (*AlertRuleAdviceSummary, error) {
+func (f *AlertRuleAdviceFacade) GetAdviceSummary(ctx context.Context, filter *AlertRuleAdvicesFilter) (*AlertRuleAdvicesSummary, error) {
 	db := f.getDB().WithContext(ctx)
 
-	query := db.Model(&model.AlertRuleAdvice{})
+	query := db.Model(&model.AlertRuleAdvices{})
 
-	// Apply filters (similar to ListAlertRuleAdvices)
+	// Apply filters (similar to ListAlertRuleAdvicess)
 	if filter != nil {
 		if filter.ClusterName != "" {
 			query = query.Where("cluster_name = ?", filter.ClusterName)
@@ -467,7 +467,7 @@ func (f *AlertRuleAdviceFacade) GetAdviceSummary(ctx context.Context, filter *Al
 		}
 	}
 
-	summary := &AlertRuleAdviceSummary{
+	summary := &AlertRuleAdvicesSummary{
 		ByRuleType: make(map[string]int64),
 		ByCategory: make(map[string]int64),
 		ByStatus:   make(map[string]int64),
@@ -547,7 +547,7 @@ func (f *AlertRuleAdviceFacade) GetAdviceSummary(ctx context.Context, filter *Al
 func (f *AlertRuleAdviceFacade) DeleteExpiredAdvices(ctx context.Context) (int64, error) {
 	db := f.getDB().WithContext(ctx)
 
-	result := db.Where("expires_at IS NOT NULL AND expires_at <= ?", time.Now()).Delete(&model.AlertRuleAdvice{})
+	result := db.Where("expires_at IS NOT NULL AND expires_at <= ?", time.Now()).Delete(&model.AlertRuleAdvices{})
 	if result.Error != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to delete expired advices: %v", result.Error)
 		return 0, result.Error

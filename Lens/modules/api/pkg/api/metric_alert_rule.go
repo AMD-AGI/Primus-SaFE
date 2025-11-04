@@ -8,9 +8,10 @@ import (
 	"strconv"
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	dbmodel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/vmrule"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/primus-lens/core/pkg/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
 	"github.com/gin-gonic/gin"
 )
@@ -43,7 +44,7 @@ type MetricAlertRuleRequest struct {
 
 // MetricAlertRuleResponse represents a metric alert rule response
 type MetricAlertRuleResponse struct {
-	*model.MetricAlertRule
+	*dbmodel.MetricAlertRules
 	SyncEnabled bool `json:"sync_enabled"` // Whether sync is enabled for this rule
 }
 
@@ -88,7 +89,7 @@ func CreateMetricAlertRule(c *gin.Context) {
 	}
 
 	// Create rule model
-	var groupsExt model.ExtType
+	var groupsExt dbmodel.ExtType
 	groupsBytes, err := json.Marshal(req.Groups)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, rest.ErrorResp(c.Request.Context(), http.StatusBadRequest, "invalid groups format: "+err.Error(), nil))
@@ -99,7 +100,7 @@ func CreateMetricAlertRule(c *gin.Context) {
 		return
 	}
 
-	var labelsExt model.ExtType
+	var labelsExt dbmodel.ExtType
 	if req.Labels != nil {
 		labelsBytes, err := json.Marshal(req.Labels)
 		if err != nil {
@@ -113,7 +114,7 @@ func CreateMetricAlertRule(c *gin.Context) {
 	}
 
 	// Convert resource mapping to ExtType
-	var resourceMappingExt model.ExtType
+	var resourceMappingExt dbmodel.ExtType
 	if req.ResourceMapping != nil {
 		resourceMappingBytes, err := json.Marshal(req.ResourceMapping)
 		if err != nil {
@@ -127,7 +128,7 @@ func CreateMetricAlertRule(c *gin.Context) {
 	}
 
 	// Convert alert enrichment to ExtType
-	var alertEnrichmentExt model.ExtType
+	var alertEnrichmentExt dbmodel.ExtType
 	if req.AlertEnrichment != nil {
 		alertEnrichmentBytes, err := json.Marshal(req.AlertEnrichment)
 		if err != nil {
@@ -141,7 +142,7 @@ func CreateMetricAlertRule(c *gin.Context) {
 	}
 
 	// Convert alert grouping to ExtType
-	var alertGroupingExt model.ExtType
+	var alertGroupingExt dbmodel.ExtType
 	if req.AlertGrouping != nil {
 		alertGroupingBytes, err := json.Marshal(req.AlertGrouping)
 		if err != nil {
@@ -155,7 +156,7 @@ func CreateMetricAlertRule(c *gin.Context) {
 	}
 
 	// Convert alert routing to ExtType
-	var alertRoutingExt model.ExtType
+	var alertRoutingExt dbmodel.ExtType
 	if req.AlertRouting != nil {
 		alertRoutingBytes, err := json.Marshal(req.AlertRouting)
 		if err != nil {
@@ -168,7 +169,7 @@ func CreateMetricAlertRule(c *gin.Context) {
 		}
 	}
 
-	rule := &model.MetricAlertRule{
+	rule := &dbmodel.MetricAlertRules{
 		Name:            req.Name,
 		ClusterName:     req.ClusterName,
 		Enabled:         req.Enabled,
@@ -337,7 +338,7 @@ func UpdateMetricAlertRule(c *gin.Context) {
 	rule.UpdatedBy = updatedByStr
 
 	if len(req.Groups) > 0 {
-		var groupsExt model.ExtType
+		var groupsExt dbmodel.ExtType
 		groupsBytes, err := json.Marshal(req.Groups)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, rest.ErrorResp(c.Request.Context(), http.StatusBadRequest, "invalid groups format: "+err.Error(), nil))
@@ -351,7 +352,7 @@ func UpdateMetricAlertRule(c *gin.Context) {
 	}
 
 	if req.Labels != nil {
-		var labelsExt model.ExtType
+		var labelsExt dbmodel.ExtType
 		labelsBytes, err := json.Marshal(req.Labels)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, rest.ErrorResp(c.Request.Context(), http.StatusBadRequest, "invalid labels format: "+err.Error(), nil))
@@ -366,7 +367,7 @@ func UpdateMetricAlertRule(c *gin.Context) {
 
 	// Update resource mapping
 	if req.ResourceMapping != nil {
-		var resourceMappingExt model.ExtType
+		var resourceMappingExt dbmodel.ExtType
 		resourceMappingBytes, _ := json.Marshal(req.ResourceMapping)
 		json.Unmarshal(resourceMappingBytes, &resourceMappingExt)
 		rule.ResourceMapping = resourceMappingExt
@@ -374,7 +375,7 @@ func UpdateMetricAlertRule(c *gin.Context) {
 
 	// Update alert enrichment
 	if req.AlertEnrichment != nil {
-		var alertEnrichmentExt model.ExtType
+		var alertEnrichmentExt dbmodel.ExtType
 		alertEnrichmentBytes, _ := json.Marshal(req.AlertEnrichment)
 		json.Unmarshal(alertEnrichmentBytes, &alertEnrichmentExt)
 		rule.AlertEnrichment = alertEnrichmentExt
@@ -382,7 +383,7 @@ func UpdateMetricAlertRule(c *gin.Context) {
 
 	// Update alert grouping
 	if req.AlertGrouping != nil {
-		var alertGroupingExt model.ExtType
+		var alertGroupingExt dbmodel.ExtType
 		alertGroupingBytes, _ := json.Marshal(req.AlertGrouping)
 		json.Unmarshal(alertGroupingBytes, &alertGroupingExt)
 		rule.AlertGrouping = alertGroupingExt
@@ -390,7 +391,7 @@ func UpdateMetricAlertRule(c *gin.Context) {
 
 	// Update alert routing
 	if req.AlertRouting != nil {
-		var alertRoutingExt model.ExtType
+		var alertRoutingExt dbmodel.ExtType
 		alertRoutingBytes, _ := json.Marshal(req.AlertRouting)
 		json.Unmarshal(alertRoutingBytes, &alertRoutingExt)
 		rule.AlertRouting = alertRoutingExt
@@ -515,15 +516,19 @@ func CloneMetricAlertRule(c *gin.Context) {
 		return
 	}
 
-	newRule := &model.MetricAlertRule{
-		Name:        newName,
-		ClusterName: req.TargetClusterName,
-		Enabled:     sourceRule.Enabled,
-		Groups:      sourceRule.Groups,
-		Description: fmt.Sprintf("Cloned from %s in cluster %s", sourceRule.Name, sourceRule.ClusterName),
-		Labels:      sourceRule.Labels,
-		SyncStatus:  SyncStatusPending,
-		CreatedBy:   createdByStr,
+	newRule := &dbmodel.MetricAlertRules{
+		Name:            newName,
+		ClusterName:     req.TargetClusterName,
+		Enabled:         sourceRule.Enabled,
+		Groups:          sourceRule.Groups,
+		Description:     fmt.Sprintf("Cloned from %s in cluster %s", sourceRule.Name, sourceRule.ClusterName),
+		Labels:          sourceRule.Labels,
+		ResourceMapping: sourceRule.ResourceMapping,
+		AlertEnrichment: sourceRule.AlertEnrichment,
+		AlertGrouping:   sourceRule.AlertGrouping,
+		AlertRouting:    sourceRule.AlertRouting,
+		SyncStatus:      SyncStatusPending,
+		CreatedBy:       createdByStr,
 	}
 
 	// Save to database
@@ -558,7 +563,7 @@ func SyncMetricAlertRulesToCluster(c *gin.Context) {
 	namespace := c.DefaultQuery("namespace", DefaultVMRuleNamespace)
 
 	facade := database.GetFacade().GetMetricAlertRule()
-	var rulesToSync []*model.MetricAlertRule
+	var rulesToSync []*dbmodel.MetricAlertRules
 	var err error
 
 	if len(req.RuleIDs) > 0 {
@@ -643,14 +648,14 @@ func GetVMRuleStatus(c *gin.Context) {
 			"sync_status":   rule.SyncStatus,
 			"sync_message":  rule.SyncMessage,
 			"last_sync_at":  rule.LastSyncAt,
-			"vmrule_status": rule.VMRuleStatus,
+			"vmrule_status": rule.VmruleStatus,
 			"status_source": "database",
 		}))
 		return
 	}
 
 	// Update status in database
-	var statusExt model.ExtType
+	var statusExt dbmodel.ExtType
 	statusBytes, err := json.Marshal(status)
 	if err == nil {
 		if err := json.Unmarshal(statusBytes, &statusExt); err == nil {
@@ -671,12 +676,12 @@ func GetVMRuleStatus(c *gin.Context) {
 }
 
 // syncRuleToCluster syncs a rule to its target cluster (async)
-func syncRuleToCluster(rule *model.MetricAlertRule, namespace string) {
+func syncRuleToCluster(rule *dbmodel.MetricAlertRules, namespace string) {
 	_ = syncRuleToClusterSync(rule, namespace)
 }
 
 // syncRuleToClusterSync syncs a rule to its target cluster (sync)
-func syncRuleToClusterSync(rule *model.MetricAlertRule, namespace string) error {
+func syncRuleToClusterSync(rule *dbmodel.MetricAlertRules, namespace string) error {
 	// Create VMRule manager
 	manager, err := vmrule.NewVMRuleManager(rule.ClusterName, namespace)
 	if err != nil {

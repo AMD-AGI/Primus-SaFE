@@ -9,8 +9,9 @@ import (
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	dbmodel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/primus-lens/core/pkg/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
 	"github.com/gin-gonic/gin"
 )
@@ -86,7 +87,7 @@ func CreateAlertRuleAdvice(ctx *gin.Context) {
 	facade := database.GetFacade().GetAlertRuleAdvice()
 
 	// Create advice
-	if err := facade.CreateAlertRuleAdvice(ctx.Request.Context(), advice); err != nil {
+	if err := facade.CreateAlertRuleAdvices(ctx.Request.Context(), advice); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to create alert rule advice: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to create advice", err))
 		return
@@ -115,7 +116,7 @@ func BatchCreateAlertRuleAdvices(ctx *gin.Context) {
 	}
 
 	// Build advice models
-	advices := make([]*model.AlertRuleAdvice, 0, len(reqs))
+	advices := make([]*dbmodel.AlertRuleAdvices, 0, len(reqs))
 	for i, req := range reqs {
 		if err := validateAlertRuleAdviceRequest(&req); err != nil {
 			ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest,
@@ -135,7 +136,7 @@ func BatchCreateAlertRuleAdvices(ctx *gin.Context) {
 	facade := database.GetFacade().GetAlertRuleAdvice()
 
 	// Batch create advices
-	if err := facade.BatchCreateAlertRuleAdvices(ctx.Request.Context(), advices); err != nil {
+	if err := facade.BatchCreateAlertRuleAdvicess(ctx.Request.Context(), advices); err != nil{
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to batch create alert rule advices: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to batch create advices", err))
 		return
@@ -158,7 +159,7 @@ func ListAlertRuleAdvices(ctx *gin.Context) {
 	facade := database.GetFacade().GetAlertRuleAdvice()
 
 	// List advices
-	advices, total, err := facade.ListAlertRuleAdvices(ctx.Request.Context(), filter)
+	advices, total, err := facade.ListAlertRuleAdvicess(ctx.Request.Context(), filter)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to list alert rule advices: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to list advices", err))
@@ -186,7 +187,7 @@ func GetAlertRuleAdvice(ctx *gin.Context) {
 	facade := database.GetFacade().GetAlertRuleAdvice()
 
 	// Get advice
-	advice, err := facade.GetAlertRuleAdviceByID(ctx.Request.Context(), id)
+	advice, err := facade.GetAlertRuleAdvicesByID(ctx.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get alert rule advice: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get advice", err))
@@ -221,7 +222,7 @@ func UpdateAlertRuleAdvice(ctx *gin.Context) {
 	facade := database.GetFacade().GetAlertRuleAdvice()
 
 	// Get existing advice
-	existingAdvice, err := facade.GetAlertRuleAdviceByID(ctx.Request.Context(), id)
+	existingAdvice, err := facade.GetAlertRuleAdvicesByID(ctx.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get alert rule advice: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get advice", err))
@@ -240,7 +241,7 @@ func UpdateAlertRuleAdvice(ctx *gin.Context) {
 	}
 
 	// Save advice
-	if err := facade.UpdateAlertRuleAdvice(ctx.Request.Context(), existingAdvice); err != nil {
+	if err := facade.UpdateAlertRuleAdvices(ctx.Request.Context(), existingAdvice); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to update alert rule advice: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to update advice", err))
 		return
@@ -267,7 +268,7 @@ func DeleteAlertRuleAdvice(ctx *gin.Context) {
 	facade := database.GetFacade().GetAlertRuleAdvice()
 
 	// Delete advice
-	if err := facade.DeleteAlertRuleAdvice(ctx.Request.Context(), id); err != nil {
+	if err := facade.DeleteAlertRuleAdvices(ctx.Request.Context(), id); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to delete alert rule advice: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to delete advice", err))
 		return
@@ -300,7 +301,7 @@ func BatchDeleteAlertRuleAdvices(ctx *gin.Context) {
 	facade := database.GetFacade().GetAlertRuleAdvice()
 
 	// Batch delete
-	if err := facade.BatchDeleteAlertRuleAdvices(ctx.Request.Context(), req.AdviceIDs); err != nil {
+	if err := facade.BatchDeleteAlertRuleAdvicess(ctx.Request.Context(), req.AdviceIDs); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to batch delete advices: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to batch delete advices", err))
 		return
@@ -464,7 +465,7 @@ func ApplyAlertRuleAdvice(ctx *gin.Context) {
 	adviceFacade := database.GetFacade().GetAlertRuleAdvice()
 
 	// Get advice
-	advice, err := adviceFacade.GetAlertRuleAdviceByID(ctx.Request.Context(), id)
+	advice, err := adviceFacade.GetAlertRuleAdvicesByID(ctx.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get alert rule advice: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to get advice", err))
@@ -540,19 +541,19 @@ func validateAlertRuleAdviceRequest(req *AlertRuleAdviceRequest) error {
 	return nil
 }
 
-func buildAlertRuleAdviceFromRequest(req *AlertRuleAdviceRequest) (*model.AlertRuleAdvice, error) {
+func buildAlertRuleAdviceFromRequest(req *AlertRuleAdviceRequest) (*dbmodel.AlertRuleAdvices, error) {
 	// Convert rule config to ExtType
 	ruleConfigBytes, err := json.Marshal(req.RuleConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal rule_config: %v", err)
 	}
-	var ruleConfigExt model.ExtType
+	var ruleConfigExt dbmodel.ExtType
 	if err := json.Unmarshal(ruleConfigBytes, &ruleConfigExt); err != nil {
 		return nil, fmt.Errorf("failed to convert rule_config: %v", err)
 	}
 
 	// Convert evidence to ExtType if present
-	var evidenceExt model.ExtType
+	var evidenceExt dbmodel.ExtType
 	if req.Evidence != nil {
 		evidenceBytes, err := json.Marshal(req.Evidence)
 		if err != nil {
@@ -579,7 +580,20 @@ func buildAlertRuleAdviceFromRequest(req *AlertRuleAdviceRequest) (*model.AlertR
 		priority = 5
 	}
 
-	advice := &model.AlertRuleAdvice{
+	// Convert tags array to JSON string
+	tagsStr := ""
+	if len(req.Tags) > 0 {
+		tagsBytes, _ := json.Marshal(req.Tags)
+		tagsStr = string(tagsBytes)
+	}
+
+	// Handle ExpiresAt pointer
+	var expiresAt time.Time
+	if req.ExpiresAt != nil {
+		expiresAt = *req.ExpiresAt
+	}
+
+	advice := &dbmodel.AlertRuleAdvices{
 		RuleType:        req.RuleType,
 		Name:            req.Name,
 		Title:           req.Title,
@@ -590,22 +604,22 @@ func buildAlertRuleAdviceFromRequest(req *AlertRuleAdviceRequest) (*model.AlertR
 		TargetName:      req.TargetName,
 		RuleConfig:      ruleConfigExt,
 		Severity:        severity,
-		Priority:        priority,
+		Priority:        int32(priority),
 		Reason:          req.Reason,
 		Evidence:        evidenceExt,
 		Status:          "pending",
 		InspectionID:    req.InspectionID,
 		InspectionTime:  inspectionTime,
-		Tags:            req.Tags,
+		Tags:            tagsStr,
 		ConfidenceScore: req.ConfidenceScore,
-		ExpiresAt:       req.ExpiresAt,
+		ExpiresAt:       expiresAt,
 		CreatedBy:       req.CreatedBy,
 	}
 
 	return advice, nil
 }
 
-func updateAdviceFromRequest(advice *model.AlertRuleAdvice, req *AlertRuleAdviceRequest) error {
+func updateAdviceFromRequest(advice *dbmodel.AlertRuleAdvices, req *AlertRuleAdviceRequest) error {
 	if req.Name != "" {
 		advice.Name = req.Name
 	}
@@ -622,13 +636,14 @@ func updateAdviceFromRequest(advice *model.AlertRuleAdvice, req *AlertRuleAdvice
 		advice.Severity = req.Severity
 	}
 	if req.Priority > 0 {
-		advice.Priority = req.Priority
+		advice.Priority = int32(req.Priority)
 	}
 	if req.Reason != "" {
 		advice.Reason = req.Reason
 	}
 	if len(req.Tags) > 0 {
-		advice.Tags = req.Tags
+		tagsBytes, _ := json.Marshal(req.Tags)
+		advice.Tags = string(tagsBytes)
 	}
 	if req.ConfidenceScore > 0 {
 		advice.ConfidenceScore = req.ConfidenceScore
@@ -640,7 +655,7 @@ func updateAdviceFromRequest(advice *model.AlertRuleAdvice, req *AlertRuleAdvice
 		if err != nil {
 			return fmt.Errorf("failed to marshal rule_config: %v", err)
 		}
-		var ruleConfigExt model.ExtType
+		var ruleConfigExt dbmodel.ExtType
 		if err := json.Unmarshal(ruleConfigBytes, &ruleConfigExt); err != nil {
 			return fmt.Errorf("failed to convert rule_config: %v", err)
 		}
@@ -653,7 +668,7 @@ func updateAdviceFromRequest(advice *model.AlertRuleAdvice, req *AlertRuleAdvice
 		if err != nil {
 			return fmt.Errorf("failed to marshal evidence: %v", err)
 		}
-		var evidenceExt model.ExtType
+		var evidenceExt dbmodel.ExtType
 		if err := json.Unmarshal(evidenceBytes, &evidenceExt); err != nil {
 			return fmt.Errorf("failed to convert evidence: %v", err)
 		}
@@ -663,8 +678,8 @@ func updateAdviceFromRequest(advice *model.AlertRuleAdvice, req *AlertRuleAdvice
 	return nil
 }
 
-func parseAlertRuleAdviceFilter(ctx *gin.Context) *database.AlertRuleAdviceFilter {
-	filter := &database.AlertRuleAdviceFilter{
+func parseAlertRuleAdviceFilter(ctx *gin.Context) *database.AlertRuleAdvicesFilter {
+	filter := &database.AlertRuleAdvicesFilter{
 		Offset:    0,
 		Limit:     50,
 		OrderDesc: true,
@@ -725,7 +740,7 @@ func parseAlertRuleAdviceFilter(ctx *gin.Context) *database.AlertRuleAdviceFilte
 	return filter
 }
 
-func applyLogAlertAdvice(ctx *gin.Context, advice *model.AlertRuleAdvice, req *ApplyAdviceRequest) (int64, error) {
+func applyLogAlertAdvice(ctx *gin.Context, advice *dbmodel.AlertRuleAdvices, req *ApplyAdviceRequest) (int64, error) {
 	// Convert advice rule_config to LogAlertRuleRequest
 	var logConfig map[string]interface{}
 	configBytes, _ := json.Marshal(advice.RuleConfig)
@@ -747,7 +762,7 @@ func applyLogAlertAdvice(ctx *gin.Context, advice *model.AlertRuleAdvice, req *A
 		Name:           ruleName,
 		Description:    advice.Description,
 		Enabled:        req.CreateEnabled,
-		Priority:       advice.Priority,
+		Priority:       int(advice.Priority),
 		LabelSelectors: labelSelectors,
 		MatchType:      matchType,
 		MatchConfig:    matchConfig,
@@ -785,7 +800,7 @@ func applyLogAlertAdvice(ctx *gin.Context, advice *model.AlertRuleAdvice, req *A
 	return rule.ID, nil
 }
 
-func applyMetricAlertAdvice(ctx *gin.Context, advice *model.AlertRuleAdvice, req *ApplyAdviceRequest) (int64, error) {
+func applyMetricAlertAdvice(ctx *gin.Context, advice *dbmodel.AlertRuleAdvices, req *ApplyAdviceRequest) (int64, error) {
 	// Convert advice rule_config to MetricAlertRuleRequest
 	var metricConfig map[string]interface{}
 	configBytes, _ := json.Marshal(advice.RuleConfig)
@@ -829,17 +844,17 @@ func applyMetricAlertAdvice(ctx *gin.Context, advice *model.AlertRuleAdvice, req
 
 	// Build and create metric alert rule using existing logic
 	// This is a simplified version - you may need to adapt based on your existing implementation
-	var groupsExt model.ExtType
+	var groupsExt dbmodel.ExtType
 	groupsBytes2, _ := json.Marshal(metricReq.Groups)
 	json.Unmarshal(groupsBytes2, &groupsExt)
 
-	var labelsExt model.ExtType
+	var labelsExt dbmodel.ExtType
 	if metricReq.Labels != nil {
 		labelsBytes, _ := json.Marshal(metricReq.Labels)
 		json.Unmarshal(labelsBytes, &labelsExt)
 	}
 
-	rule := &model.MetricAlertRule{
+	rule := &dbmodel.MetricAlertRules{
 		Name:        metricReq.Name,
 		ClusterName: metricReq.ClusterName,
 		Enabled:     metricReq.Enabled,

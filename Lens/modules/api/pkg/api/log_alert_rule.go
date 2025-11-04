@@ -9,9 +9,10 @@ import (
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	dbmodel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
+	"github.com/AMD-AGI/primus-lens/core/pkg/utils/pgUtil"
 	"github.com/gin-gonic/gin"
 )
 
@@ -114,10 +115,10 @@ func ListLogAlertRulesMultiCluster(ctx *gin.Context) {
 
 	// Collect rules from all clusters
 	type ClusterRules struct {
-		ClusterName string                `json:"cluster_name"`
-		Rules       []*model.LogAlertRule `json:"rules"`
-		Total       int64                 `json:"total"`
-		Error       string                `json:"error,omitempty"`
+		ClusterName string                   `json:"cluster_name"`
+		Rules       []*dbmodel.LogAlertRules `json:"rules"`
+		Total       int64                    `json:"total"`
+		Error       string                   `json:"error,omitempty"`
 	}
 
 	results := make([]ClusterRules, 0, len(clusterNames))
@@ -471,7 +472,7 @@ func RollbackLogAlertRule(ctx *gin.Context) {
 	}
 
 	// Restore configuration from version
-	var versionConfig model.LogAlertRule
+	var versionConfig dbmodel.LogAlertRules
 	configBytes, _ := json.Marshal(ruleVersion.Config)
 	if err := json.Unmarshal(configBytes, &versionConfig); err != nil {
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to parse version config", err))
@@ -546,7 +547,7 @@ func CloneLogAlertRule(ctx *gin.Context) {
 	}
 
 	// Clone rule
-	newRule := &model.LogAlertRule{
+	newRule := &dbmodel.LogAlertRules{
 		Name:           req.NewName,
 		Description:    sourceRule.Description,
 		ClusterName:    targetCluster,
@@ -693,35 +694,35 @@ func parseTimeRange(ctx *gin.Context) (time.Time, time.Time) {
 	return dateFrom, dateTo
 }
 
-func buildLogAlertRuleFromRequest(req *LogAlertRuleRequest, clusterName string) *model.LogAlertRule {
+func buildLogAlertRuleFromRequest(req *LogAlertRuleRequest, clusterName string) *dbmodel.LogAlertRules {
 	labelsBytes, _ := json.Marshal(req.LabelSelectors)
-	var labelsExt model.ExtType
+	var labelsExt dbmodel.ExtType
 	json.Unmarshal(labelsBytes, &labelsExt)
 
 	matchConfigBytes, _ := json.Marshal(req.MatchConfig)
-	var matchConfigExt model.ExtType
+	var matchConfigExt dbmodel.ExtType
 	json.Unmarshal(matchConfigBytes, &matchConfigExt)
 
 	alertTemplateBytes, _ := json.Marshal(req.AlertTemplate)
-	var alertTemplateExt model.ExtType
+	var alertTemplateExt dbmodel.ExtType
 	json.Unmarshal(alertTemplateBytes, &alertTemplateExt)
 
 	routeConfigBytes, _ := json.Marshal(req.RouteConfig)
-	var routeConfigExt model.ExtType
+	var routeConfigExt dbmodel.ExtType
 	json.Unmarshal(routeConfigBytes, &routeConfigExt)
 
-	rule := &model.LogAlertRule{
+	rule := &dbmodel.LogAlertRules{
 		Name:           req.Name,
 		Description:    req.Description,
 		ClusterName:    clusterName,
 		Enabled:        req.Enabled,
-		Priority:       req.Priority,
+		Priority:       int32(req.Priority),
 		LabelSelectors: labelsExt,
 		MatchType:      req.MatchType,
 		MatchConfig:    matchConfigExt,
 		Severity:       req.Severity,
 		AlertTemplate:  alertTemplateExt,
-		GroupBy:        req.GroupBy,
+		GroupBy:        pgUtil.StringArrayToPgArray(req.GroupBy),
 		GroupWait:      req.GroupWait,
 		RepeatInterval: req.RepeatInterval,
 		RouteConfig:    routeConfigExt,
@@ -745,7 +746,7 @@ func buildLogAlertRuleFromRequest(req *LogAlertRuleRequest, clusterName string) 
 	return rule
 }
 
-func updateRuleFromRequest(rule *model.LogAlertRule, req *LogAlertRuleRequest) {
+func updateRuleFromRequest(rule *dbmodel.LogAlertRules, req *LogAlertRuleRequest) {
 	if req.Name != "" {
 		rule.Name = req.Name
 	}
@@ -754,11 +755,11 @@ func updateRuleFromRequest(rule *model.LogAlertRule, req *LogAlertRuleRequest) {
 	}
 	rule.Enabled = req.Enabled
 	if req.Priority > 0 {
-		rule.Priority = req.Priority
+		rule.Priority = int32(req.Priority)
 	}
 	if len(req.LabelSelectors) > 0 {
 		labelsBytes, _ := json.Marshal(req.LabelSelectors)
-		var labelsExt model.ExtType
+		var labelsExt dbmodel.ExtType
 		json.Unmarshal(labelsBytes, &labelsExt)
 		rule.LabelSelectors = labelsExt
 	}
@@ -767,7 +768,7 @@ func updateRuleFromRequest(rule *model.LogAlertRule, req *LogAlertRuleRequest) {
 	}
 	if len(req.MatchConfig) > 0 {
 		matchConfigBytes, _ := json.Marshal(req.MatchConfig)
-		var matchConfigExt model.ExtType
+		var matchConfigExt dbmodel.ExtType
 		json.Unmarshal(matchConfigBytes, &matchConfigExt)
 		rule.MatchConfig = matchConfigExt
 	}
@@ -776,12 +777,12 @@ func updateRuleFromRequest(rule *model.LogAlertRule, req *LogAlertRuleRequest) {
 	}
 	if len(req.AlertTemplate) > 0 {
 		alertTemplateBytes, _ := json.Marshal(req.AlertTemplate)
-		var alertTemplateExt model.ExtType
+		var alertTemplateExt dbmodel.ExtType
 		json.Unmarshal(alertTemplateBytes, &alertTemplateExt)
 		rule.AlertTemplate = alertTemplateExt
 	}
 	if len(req.GroupBy) > 0 {
-		rule.GroupBy = req.GroupBy
+		rule.GroupBy = pgUtil.StringArrayToPgArray(req.GroupBy)
 	}
 	if req.GroupWait > 0 {
 		rule.GroupWait = req.GroupWait
@@ -791,7 +792,7 @@ func updateRuleFromRequest(rule *model.LogAlertRule, req *LogAlertRuleRequest) {
 	}
 	if len(req.RouteConfig) > 0 {
 		routeConfigBytes, _ := json.Marshal(req.RouteConfig)
-		var routeConfigExt model.ExtType
+		var routeConfigExt dbmodel.ExtType
 		json.Unmarshal(routeConfigBytes, &routeConfigExt)
 		rule.RouteConfig = routeConfigExt
 	}
@@ -800,18 +801,18 @@ func updateRuleFromRequest(rule *model.LogAlertRule, req *LogAlertRuleRequest) {
 	}
 }
 
-func createRuleVersion(rule *model.LogAlertRule, version int, changeLog, createdBy string) *model.LogAlertRuleVersion {
+func createRuleVersion(rule *dbmodel.LogAlertRules, version int, changeLog, createdBy string) *dbmodel.LogAlertRuleVersions {
 	configBytes, _ := json.Marshal(rule)
-	var configExt model.ExtType
+	var configExt dbmodel.ExtType
 	json.Unmarshal(configBytes, &configExt)
 
 	now := time.Now()
-	return &model.LogAlertRuleVersion{
+	return &dbmodel.LogAlertRuleVersions{
 		RuleID:     rule.ID,
-		Version:    version,
+		Version:    int32(version),
 		Config:     configExt,
 		Status:     "active",
-		DeployedAt: &now,
+		DeployedAt: now,
 		CreatedBy:  createdBy,
 		ChangeLog:  changeLog,
 	}

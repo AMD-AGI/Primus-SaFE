@@ -22,37 +22,41 @@ type FacadeInterface interface {
 	GetLogAlertRule() LogAlertRuleFacadeInterface
 	// GetAlertRuleAdvice returns the AlertRuleAdvice Facade interface
 	GetAlertRuleAdvice() AlertRuleAdviceFacadeInterface
+	// GetClusterOverviewCache returns the ClusterOverviewCache Facade interface
+	GetClusterOverviewCache() ClusterOverviewCacheFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
 
 // Facade is the unified entry point for database operations, aggregating all sub-Facades
 type Facade struct {
-	Node            NodeFacadeInterface
-	Pod             PodFacadeInterface
-	Workload        WorkloadFacadeInterface
-	Container       ContainerFacadeInterface
-	Training        TrainingFacadeInterface
-	Storage         StorageFacadeInterface
-	Alert           AlertFacadeInterface
-	MetricAlertRule MetricAlertRuleFacadeInterface
-	LogAlertRule    LogAlertRuleFacadeInterface
-	AlertRuleAdvice AlertRuleAdviceFacadeInterface
+	Node                 NodeFacadeInterface
+	Pod                  PodFacadeInterface
+	Workload             WorkloadFacadeInterface
+	Container            ContainerFacadeInterface
+	Training             TrainingFacadeInterface
+	Storage              StorageFacadeInterface
+	Alert                AlertFacadeInterface
+	MetricAlertRule      MetricAlertRuleFacadeInterface
+	LogAlertRule         LogAlertRuleFacadeInterface
+	AlertRuleAdvice      AlertRuleAdviceFacadeInterface
+	ClusterOverviewCache ClusterOverviewCacheFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
 func NewFacade() *Facade {
 	return &Facade{
-		Node:            NewNodeFacade(),
-		Pod:             NewPodFacade(),
-		Workload:        NewWorkloadFacade(),
-		Container:       NewContainerFacade(),
-		Training:        NewTrainingFacade(),
-		Storage:         NewStorageFacade(),
-		Alert:           NewAlertFacade(),
-		MetricAlertRule: NewMetricAlertRuleFacade(),
-		LogAlertRule:    NewLogAlertRuleFacade(),
-		AlertRuleAdvice: NewAlertRuleAdviceFacade(),
+		Node:                 NewNodeFacade(),
+		Pod:                  NewPodFacade(),
+		Workload:             NewWorkloadFacade(),
+		Container:            NewContainerFacade(),
+		Training:             NewTrainingFacade(),
+		Storage:              NewStorageFacade(),
+		Alert:                NewAlertFacade(),
+		MetricAlertRule:      NewMetricAlertRuleFacade(),
+		LogAlertRule:         NewLogAlertRuleFacade(),
+		AlertRuleAdvice:      NewAlertRuleAdviceFacade(),
+		ClusterOverviewCache: NewClusterOverviewCacheFacade(),
 	}
 }
 
@@ -106,19 +110,25 @@ func (f *Facade) GetAlertRuleAdvice() AlertRuleAdviceFacadeInterface {
 	return f.AlertRuleAdvice
 }
 
+// GetClusterOverviewCache returns the ClusterOverviewCache Facade interface
+func (f *Facade) GetClusterOverviewCache() ClusterOverviewCacheFacadeInterface {
+	return f.ClusterOverviewCache
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
-		Node:            f.Node.WithCluster(clusterName),
-		Pod:             f.Pod.WithCluster(clusterName),
-		Workload:        f.Workload.WithCluster(clusterName),
-		Container:       f.Container.WithCluster(clusterName),
-		Training:        f.Training.WithCluster(clusterName),
-		Storage:         f.Storage.WithCluster(clusterName),
-		Alert:           f.Alert.WithCluster(clusterName),
-		MetricAlertRule: f.MetricAlertRule.WithCluster(clusterName),
-		LogAlertRule:    f.LogAlertRule.WithCluster(clusterName),
-		AlertRuleAdvice: f.AlertRuleAdvice.WithCluster(clusterName),
+		Node:                 f.Node.WithCluster(clusterName),
+		Pod:                  f.Pod.WithCluster(clusterName),
+		Workload:             f.Workload.WithCluster(clusterName),
+		Container:            f.Container.WithCluster(clusterName),
+		Training:             f.Training.WithCluster(clusterName),
+		Storage:              f.Storage.WithCluster(clusterName),
+		Alert:                f.Alert.WithCluster(clusterName),
+		MetricAlertRule:      f.MetricAlertRule.WithCluster(clusterName),
+		LogAlertRule:         f.LogAlertRule.WithCluster(clusterName),
+		AlertRuleAdvice:      f.AlertRuleAdvice.WithCluster(clusterName),
+		ClusterOverviewCache: f.ClusterOverviewCache.WithCluster(clusterName),
 	}
 }
 

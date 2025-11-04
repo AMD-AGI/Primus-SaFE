@@ -11,73 +11,73 @@ import (
 
 // AlertFacadeInterface defines the database operation interface for Alert system
 type AlertFacadeInterface interface {
-	// AlertEvent operations
-	CreateAlertEvent(ctx context.Context, alert *model.AlertEvent) error
-	UpdateAlertEvent(ctx context.Context, alert *model.AlertEvent) error
-	GetAlertEventByID(ctx context.Context, id string) (*model.AlertEvent, error)
-	ListAlertEvents(ctx context.Context, filter *AlertEventFilter) ([]*model.AlertEvent, int64, error)
+	// AlertEvents operations
+	CreateAlertEvents(ctx context.Context, alert *model.AlertEvents) error
+	UpdateAlertEvents(ctx context.Context, alert *model.AlertEvents) error
+	GetAlertEventsByID(ctx context.Context, id string) (*model.AlertEvents, error)
+	ListAlertEventss(ctx context.Context, filter *AlertEventsFilter) ([]*model.AlertEvents, int64, error)
 	UpdateAlertStatus(ctx context.Context, id string, status string, endsAt *time.Time) error
-	DeleteOldAlertEvents(ctx context.Context, before time.Time) error
-	
-	// AlertCorrelation operations
-	CreateAlertCorrelation(ctx context.Context, correlation *model.AlertCorrelation) error
-	ListAlertCorrelationsByCorrelationID(ctx context.Context, correlationID string) ([]*model.AlertCorrelation, error)
-	ListAlertCorrelationsByAlertID(ctx context.Context, alertID string) ([]*model.AlertCorrelation, error)
-	
-	// AlertStatistic operations
-	CreateOrUpdateAlertStatistic(ctx context.Context, stat *model.AlertStatistic) error
-	GetAlertStatistic(ctx context.Context, date time.Time, hour *int, alertName, source, workloadID, clusterName string) (*model.AlertStatistic, error)
-	ListAlertStatistics(ctx context.Context, filter *AlertStatisticFilter) ([]*model.AlertStatistic, error)
-	
-	// AlertRule operations
-	CreateAlertRule(ctx context.Context, rule *model.AlertRule) error
-	UpdateAlertRule(ctx context.Context, rule *model.AlertRule) error
-	GetAlertRuleByID(ctx context.Context, id int64) (*model.AlertRule, error)
-	GetAlertRuleByName(ctx context.Context, name string) (*model.AlertRule, error)
-	ListAlertRules(ctx context.Context, source string, enabled *bool) ([]*model.AlertRule, error)
-	DeleteAlertRule(ctx context.Context, id int64) error
-	
-	// AlertSilence operations
-	CreateAlertSilence(ctx context.Context, silence *model.AlertSilence) error
-	UpdateAlertSilence(ctx context.Context, silence *model.AlertSilence) error
-	GetAlertSilenceByID(ctx context.Context, id string) (*model.AlertSilence, error)
-	ListAlertSilences(ctx context.Context, filter *AlertSilenceFilter) ([]*model.AlertSilence, int64, error)
-	ListActiveSilences(ctx context.Context, now time.Time, clusterName string) ([]*model.AlertSilence, error)
-	DeleteAlertSilence(ctx context.Context, id string) error
-	DisableAlertSilence(ctx context.Context, id string) error
-	
-	// SilencedAlert operations (audit trail)
-	CreateSilencedAlert(ctx context.Context, silencedAlert *model.SilencedAlert) error
-	ListSilencedAlerts(ctx context.Context, filter *SilencedAlertFilter) ([]*model.SilencedAlert, int64, error)
-	
-	// AlertNotification operations
-	CreateAlertNotification(ctx context.Context, notification *model.AlertNotification) error
-	UpdateAlertNotification(ctx context.Context, notification *model.AlertNotification) error
-	ListAlertNotificationsByAlertID(ctx context.Context, alertID string) ([]*model.AlertNotification, error)
-	ListPendingNotifications(ctx context.Context, limit int) ([]*model.AlertNotification, error)
-	
+	DeleteOldAlertEventss(ctx context.Context, before time.Time) error
+
+	// AlertCorrelations operations
+	CreateAlertCorrelations(ctx context.Context, correlation *model.AlertCorrelations) error
+	ListAlertCorrelationssByCorrelationID(ctx context.Context, correlationID string) ([]*model.AlertCorrelations, error)
+	ListAlertCorrelationssByAlertID(ctx context.Context, alertID string) ([]*model.AlertCorrelations, error)
+
+	// AlertStatistics operations
+	CreateOrUpdateAlertStatistics(ctx context.Context, stat *model.AlertStatistics) error
+	GetAlertStatistics(ctx context.Context, date time.Time, hour *int, alertName, source, workloadID, clusterName string) (*model.AlertStatistics, error)
+	ListAlertStatisticss(ctx context.Context, filter *AlertStatisticsFilter) ([]*model.AlertStatistics, error)
+
+	// AlertRules operations
+	CreateAlertRules(ctx context.Context, rule *model.AlertRules) error
+	UpdateAlertRules(ctx context.Context, rule *model.AlertRules) error
+	GetAlertRulesByID(ctx context.Context, id int64) (*model.AlertRules, error)
+	GetAlertRulesByName(ctx context.Context, name string) (*model.AlertRules, error)
+	ListAlertRuless(ctx context.Context, source string, enabled *bool) ([]*model.AlertRules, error)
+	DeleteAlertRules(ctx context.Context, id int64) error
+
+	// AlertSilences operations
+	CreateAlertSilences(ctx context.Context, silence *model.AlertSilences) error
+	UpdateAlertSilences(ctx context.Context, silence *model.AlertSilences) error
+	GetAlertSilencesByID(ctx context.Context, id string) (*model.AlertSilences, error)
+	ListAlertSilencess(ctx context.Context, filter *AlertSilencesFilter) ([]*model.AlertSilences, int64, error)
+	ListActiveSilences(ctx context.Context, now time.Time, clusterName string) ([]*model.AlertSilences, error)
+	DeleteAlertSilences(ctx context.Context, id string) error
+	DisableAlertSilences(ctx context.Context, id string) error
+
+	// SilencedAlerts operations (audit trail)
+	CreateSilencedAlerts(ctx context.Context, SilencedAlerts *model.SilencedAlerts) error
+	ListSilencedAlertss(ctx context.Context, filter *SilencedAlertsFilter) ([]*model.SilencedAlerts, int64, error)
+
+	// AlertNotifications operations
+	CreateAlertNotifications(ctx context.Context, notification *model.AlertNotifications) error
+	UpdateAlertNotifications(ctx context.Context, notification *model.AlertNotifications) error
+	ListAlertNotificationssByAlertID(ctx context.Context, alertID string) ([]*model.AlertNotifications, error)
+	ListPendingNotifications(ctx context.Context, limit int) ([]*model.AlertNotifications, error)
+
 	// WithCluster method
 	WithCluster(clusterName string) AlertFacadeInterface
 }
 
-// AlertEventFilter defines filter conditions for querying alert events
-type AlertEventFilter struct {
-	Source      *string
-	AlertName   *string
-	Severity    *string
-	Status      *string
-	WorkloadID  *string
-	PodName     *string
-	NodeName    *string
-	ClusterName *string
-	StartsAfter *time.Time
+// AlertEventsFilter defines filter conditions for querying alert events
+type AlertEventsFilter struct {
+	Source       *string
+	AlertName    *string
+	Severity     *string
+	Status       *string
+	WorkloadID   *string
+	PodName      *string
+	NodeName     *string
+	ClusterName  *string
+	StartsAfter  *time.Time
 	StartsBefore *time.Time
-	Offset      int
-	Limit       int
+	Offset       int
+	Limit        int
 }
 
-// AlertStatisticFilter defines filter conditions for querying alert statistics
-type AlertStatisticFilter struct {
+// AlertStatisticsFilter defines filter conditions for querying alert statistics
+type AlertStatisticsFilter struct {
 	DateFrom    *time.Time
 	DateTo      *time.Time
 	AlertName   *string
@@ -88,8 +88,8 @@ type AlertStatisticFilter struct {
 	Limit       int
 }
 
-// AlertSilenceFilter defines filter conditions for querying alert silences
-type AlertSilenceFilter struct {
+// AlertSilencesFilter defines filter conditions for querying alert silences
+type AlertSilencesFilter struct {
 	ClusterName *string
 	SilenceType *string
 	Enabled     *bool
@@ -98,8 +98,8 @@ type AlertSilenceFilter struct {
 	Limit       int
 }
 
-// SilencedAlertFilter defines filter conditions for querying silenced alerts
-type SilencedAlertFilter struct {
+// SilencedAlertsFilter defines filter conditions for querying silenced alerts
+type SilencedAlertsFilter struct {
 	SilenceID   *string
 	AlertName   *string
 	ClusterName *string
@@ -125,21 +125,21 @@ func (f *AlertFacade) WithCluster(clusterName string) AlertFacadeInterface {
 	}
 }
 
-// AlertEvent operation implementations
+// AlertEvents operation implementations
 
-func (f *AlertFacade) CreateAlertEvent(ctx context.Context, alert *model.AlertEvent) error {
+func (f *AlertFacade) CreateAlertEvents(ctx context.Context, alert *model.AlertEvents) error {
 	db := f.getDB().WithContext(ctx)
 	return db.Create(alert).Error
 }
 
-func (f *AlertFacade) UpdateAlertEvent(ctx context.Context, alert *model.AlertEvent) error {
+func (f *AlertFacade) UpdateAlertEvents(ctx context.Context, alert *model.AlertEvents) error {
 	db := f.getDB().WithContext(ctx)
 	return db.Save(alert).Error
 }
 
-func (f *AlertFacade) GetAlertEventByID(ctx context.Context, id string) (*model.AlertEvent, error) {
+func (f *AlertFacade) GetAlertEventsByID(ctx context.Context, id string) (*model.AlertEvents, error) {
 	db := f.getDB().WithContext(ctx)
-	var alert model.AlertEvent
+	var alert model.AlertEvents
 	err := db.Where("id = ?", id).First(&alert).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -150,10 +150,10 @@ func (f *AlertFacade) GetAlertEventByID(ctx context.Context, id string) (*model.
 	return &alert, nil
 }
 
-func (f *AlertFacade) ListAlertEvents(ctx context.Context, filter *AlertEventFilter) ([]*model.AlertEvent, int64, error) {
+func (f *AlertFacade) ListAlertEventss(ctx context.Context, filter *AlertEventsFilter) ([]*model.AlertEvents, int64, error) {
 	db := f.getDB().WithContext(ctx)
-	query := db.Model(&model.AlertEvent{})
-	
+	query := db.Model(&model.AlertEvents{})
+
 	if filter.Source != nil {
 		query = query.Where("source = ?", *filter.Source)
 	}
@@ -184,18 +184,18 @@ func (f *AlertFacade) ListAlertEvents(ctx context.Context, filter *AlertEventFil
 	if filter.StartsBefore != nil {
 		query = query.Where("starts_at < ?", *filter.StartsBefore)
 	}
-	
+
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	
-	var alerts []*model.AlertEvent
+
+	var alerts []*model.AlertEvents
 	query = query.Order("starts_at DESC")
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit).Offset(filter.Offset)
 	}
-	
+
 	err := query.Find(&alerts).Error
 	return alerts, total, err
 }
@@ -208,42 +208,42 @@ func (f *AlertFacade) UpdateAlertStatus(ctx context.Context, id string, status s
 	if endsAt != nil {
 		updates["ends_at"] = endsAt
 	}
-	return db.Model(&model.AlertEvent{}).Where("id = ?", id).Updates(updates).Error
+	return db.Model(&model.AlertEvents{}).Where("id = ?", id).Updates(updates).Error
 }
 
-func (f *AlertFacade) DeleteOldAlertEvents(ctx context.Context, before time.Time) error {
+func (f *AlertFacade) DeleteOldAlertEventss(ctx context.Context, before time.Time) error {
 	db := f.getDB().WithContext(ctx)
-	return db.Where("starts_at < ?", before).Delete(&model.AlertEvent{}).Error
+	return db.Where("starts_at < ?", before).Delete(&model.AlertEvents{}).Error
 }
 
-// AlertCorrelation operation implementations
+// AlertCorrelations operation implementations
 
-func (f *AlertFacade) CreateAlertCorrelation(ctx context.Context, correlation *model.AlertCorrelation) error {
+func (f *AlertFacade) CreateAlertCorrelations(ctx context.Context, correlation *model.AlertCorrelations) error {
 	db := f.getDB().WithContext(ctx)
 	return db.Create(correlation).Error
 }
 
-func (f *AlertFacade) ListAlertCorrelationsByCorrelationID(ctx context.Context, correlationID string) ([]*model.AlertCorrelation, error) {
+func (f *AlertFacade) ListAlertCorrelationssByCorrelationID(ctx context.Context, correlationID string) ([]*model.AlertCorrelations, error) {
 	db := f.getDB().WithContext(ctx)
-	var correlations []*model.AlertCorrelation
+	var correlations []*model.AlertCorrelations
 	err := db.Where("correlation_id = ?", correlationID).Find(&correlations).Error
 	return correlations, err
 }
 
-func (f *AlertFacade) ListAlertCorrelationsByAlertID(ctx context.Context, alertID string) ([]*model.AlertCorrelation, error) {
+func (f *AlertFacade) ListAlertCorrelationssByAlertID(ctx context.Context, alertID string) ([]*model.AlertCorrelations, error) {
 	db := f.getDB().WithContext(ctx)
-	var correlations []*model.AlertCorrelation
+	var correlations []*model.AlertCorrelations
 	err := db.Where("alert_id = ?", alertID).Find(&correlations).Error
 	return correlations, err
 }
 
-// AlertStatistic operation implementations
+// AlertStatistics operation implementations
 
-func (f *AlertFacade) CreateOrUpdateAlertStatistic(ctx context.Context, stat *model.AlertStatistic) error {
+func (f *AlertFacade) CreateOrUpdateAlertStatistics(ctx context.Context, stat *model.AlertStatistics) error {
 	db := f.getDB().WithContext(ctx)
-	
+
 	// Try to find existing record
-	var existing model.AlertStatistic
+	var existing model.AlertStatistics
 	query := db.Where("date = ? AND alert_name = ? AND source = ?", stat.Date, stat.AlertName, stat.Source)
 	if stat.Hour > 0 {
 		query = query.Where("hour = ?", stat.Hour)
@@ -260,7 +260,7 @@ func (f *AlertFacade) CreateOrUpdateAlertStatistic(ctx context.Context, stat *mo
 	} else {
 		query = query.Where("cluster_name IS NULL OR cluster_name = ''")
 	}
-	
+
 	err := query.First(&existing).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -269,7 +269,7 @@ func (f *AlertFacade) CreateOrUpdateAlertStatistic(ctx context.Context, stat *mo
 		}
 		return err
 	}
-	
+
 	// Update existing record
 	existing.FiringCount += stat.FiringCount
 	existing.ResolvedCount += stat.ResolvedCount
@@ -277,14 +277,14 @@ func (f *AlertFacade) CreateOrUpdateAlertStatistic(ctx context.Context, stat *mo
 	if existing.FiringCount+existing.ResolvedCount > 0 {
 		existing.AvgDurationSeconds = float64(existing.TotalDurationSeconds) / float64(existing.FiringCount+existing.ResolvedCount)
 	}
-	
+
 	return db.Save(&existing).Error
 }
 
-func (f *AlertFacade) GetAlertStatistic(ctx context.Context, date time.Time, hour *int, alertName, source, workloadID, clusterName string) (*model.AlertStatistic, error) {
+func (f *AlertFacade) GetAlertStatistics(ctx context.Context, date time.Time, hour *int, alertName, source, workloadID, clusterName string) (*model.AlertStatistics, error) {
 	db := f.getDB().WithContext(ctx)
-	var stat model.AlertStatistic
-	
+	var stat model.AlertStatistics
+
 	query := db.Where("date = ? AND alert_name = ? AND source = ?", date, alertName, source)
 	if hour != nil {
 		query = query.Where("hour = ?", *hour)
@@ -297,7 +297,7 @@ func (f *AlertFacade) GetAlertStatistic(ctx context.Context, date time.Time, hou
 	if clusterName != "" {
 		query = query.Where("cluster_name = ?", clusterName)
 	}
-	
+
 	err := query.First(&stat).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -308,10 +308,10 @@ func (f *AlertFacade) GetAlertStatistic(ctx context.Context, date time.Time, hou
 	return &stat, nil
 }
 
-func (f *AlertFacade) ListAlertStatistics(ctx context.Context, filter *AlertStatisticFilter) ([]*model.AlertStatistic, error) {
+func (f *AlertFacade) ListAlertStatisticss(ctx context.Context, filter *AlertStatisticsFilter) ([]*model.AlertStatistics, error) {
 	db := f.getDB().WithContext(ctx)
-	query := db.Model(&model.AlertStatistic{})
-	
+	query := db.Model(&model.AlertStatistics{})
+
 	if filter.DateFrom != nil {
 		query = query.Where("date >= ?", *filter.DateFrom)
 	}
@@ -330,32 +330,32 @@ func (f *AlertFacade) ListAlertStatistics(ctx context.Context, filter *AlertStat
 	if filter.ClusterName != nil {
 		query = query.Where("cluster_name = ?", *filter.ClusterName)
 	}
-	
-	var stats []*model.AlertStatistic
+
+	var stats []*model.AlertStatistics
 	query = query.Order("date DESC")
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit).Offset(filter.Offset)
 	}
-	
+
 	err := query.Find(&stats).Error
 	return stats, err
 }
 
-// AlertRule operation implementations
+// AlertRules operation implementations
 
-func (f *AlertFacade) CreateAlertRule(ctx context.Context, rule *model.AlertRule) error {
+func (f *AlertFacade) CreateAlertRules(ctx context.Context, rule *model.AlertRules) error {
 	db := f.getDB().WithContext(ctx)
 	return db.Create(rule).Error
 }
 
-func (f *AlertFacade) UpdateAlertRule(ctx context.Context, rule *model.AlertRule) error {
+func (f *AlertFacade) UpdateAlertRules(ctx context.Context, rule *model.AlertRules) error {
 	db := f.getDB().WithContext(ctx)
 	return db.Save(rule).Error
 }
 
-func (f *AlertFacade) GetAlertRuleByID(ctx context.Context, id int64) (*model.AlertRule, error) {
+func (f *AlertFacade) GetAlertRulesByID(ctx context.Context, id int64) (*model.AlertRules, error) {
 	db := f.getDB().WithContext(ctx)
-	var rule model.AlertRule
+	var rule model.AlertRules
 	err := db.Where("id = ?", id).First(&rule).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -366,9 +366,9 @@ func (f *AlertFacade) GetAlertRuleByID(ctx context.Context, id int64) (*model.Al
 	return &rule, nil
 }
 
-func (f *AlertFacade) GetAlertRuleByName(ctx context.Context, name string) (*model.AlertRule, error) {
+func (f *AlertFacade) GetAlertRulesByName(ctx context.Context, name string) (*model.AlertRules, error) {
 	db := f.getDB().WithContext(ctx)
-	var rule model.AlertRule
+	var rule model.AlertRules
 	err := db.Where("name = ?", name).First(&rule).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -379,42 +379,42 @@ func (f *AlertFacade) GetAlertRuleByName(ctx context.Context, name string) (*mod
 	return &rule, nil
 }
 
-func (f *AlertFacade) ListAlertRules(ctx context.Context, source string, enabled *bool) ([]*model.AlertRule, error) {
+func (f *AlertFacade) ListAlertRuless(ctx context.Context, source string, enabled *bool) ([]*model.AlertRules, error) {
 	db := f.getDB().WithContext(ctx)
-	query := db.Model(&model.AlertRule{})
-	
+	query := db.Model(&model.AlertRules{})
+
 	if source != "" {
 		query = query.Where("source = ?", source)
 	}
 	if enabled != nil {
 		query = query.Where("enabled = ?", *enabled)
 	}
-	
-	var rules []*model.AlertRule
+
+	var rules []*model.AlertRules
 	err := query.Order("created_at DESC").Find(&rules).Error
 	return rules, err
 }
 
-func (f *AlertFacade) DeleteAlertRule(ctx context.Context, id int64) error {
+func (f *AlertFacade) DeleteAlertRules(ctx context.Context, id int64) error {
 	db := f.getDB().WithContext(ctx)
-	return db.Delete(&model.AlertRule{}, id).Error
+	return db.Delete(&model.AlertRules{}, id).Error
 }
 
-// AlertSilence operation implementations
+// AlertSilences operation implementations
 
-func (f *AlertFacade) CreateAlertSilence(ctx context.Context, silence *model.AlertSilence) error {
+func (f *AlertFacade) CreateAlertSilences(ctx context.Context, silence *model.AlertSilences) error {
 	db := f.getDB().WithContext(ctx)
 	return db.Create(silence).Error
 }
 
-func (f *AlertFacade) UpdateAlertSilence(ctx context.Context, silence *model.AlertSilence) error {
+func (f *AlertFacade) UpdateAlertSilences(ctx context.Context, silence *model.AlertSilences) error {
 	db := f.getDB().WithContext(ctx)
 	return db.Save(silence).Error
 }
 
-func (f *AlertFacade) GetAlertSilenceByID(ctx context.Context, id string) (*model.AlertSilence, error) {
+func (f *AlertFacade) GetAlertSilencesByID(ctx context.Context, id string) (*model.AlertSilences, error) {
 	db := f.getDB().WithContext(ctx)
-	var silence model.AlertSilence
+	var silence model.AlertSilences
 	err := db.Where("id = ?", id).First(&silence).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -425,10 +425,10 @@ func (f *AlertFacade) GetAlertSilenceByID(ctx context.Context, id string) (*mode
 	return &silence, nil
 }
 
-func (f *AlertFacade) ListAlertSilences(ctx context.Context, filter *AlertSilenceFilter) ([]*model.AlertSilence, int64, error) {
+func (f *AlertFacade) ListAlertSilencess(ctx context.Context, filter *AlertSilencesFilter) ([]*model.AlertSilences, int64, error) {
 	db := f.getDB().WithContext(ctx)
-	query := db.Model(&model.AlertSilence{})
-	
+	query := db.Model(&model.AlertSilences{})
+
 	if filter.ClusterName != nil {
 		query = query.Where("cluster_name = ?", *filter.ClusterName)
 	}
@@ -443,57 +443,57 @@ func (f *AlertFacade) ListAlertSilences(ctx context.Context, filter *AlertSilenc
 		query = query.Where("enabled = ? AND starts_at <= ?", true, now)
 		query = query.Where("ends_at IS NULL OR ends_at > ?", now)
 	}
-	
+
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	
-	var silences []*model.AlertSilence
+
+	var silences []*model.AlertSilences
 	query = query.Order("created_at DESC")
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit).Offset(filter.Offset)
 	}
-	
+
 	err := query.Find(&silences).Error
 	return silences, total, err
 }
 
-func (f *AlertFacade) ListActiveSilences(ctx context.Context, now time.Time, clusterName string) ([]*model.AlertSilence, error) {
+func (f *AlertFacade) ListActiveSilences(ctx context.Context, now time.Time, clusterName string) ([]*model.AlertSilences, error) {
 	db := f.getDB().WithContext(ctx)
 	query := db.Where("enabled = ? AND starts_at <= ?", true, now)
 	query = query.Where("ends_at IS NULL OR ends_at > ?", now)
-	
+
 	if clusterName != "" {
 		query = query.Where("cluster_name = ? OR cluster_name = ''", clusterName)
 	}
-	
-	var silences []*model.AlertSilence
+
+	var silences []*model.AlertSilences
 	err := query.Find(&silences).Error
 	return silences, err
 }
 
-func (f *AlertFacade) DeleteAlertSilence(ctx context.Context, id string) error {
+func (f *AlertFacade) DeleteAlertSilences(ctx context.Context, id string) error {
 	db := f.getDB().WithContext(ctx)
-	return db.Delete(&model.AlertSilence{}, "id = ?", id).Error
+	return db.Delete(&model.AlertSilences{}, "id = ?", id).Error
 }
 
-func (f *AlertFacade) DisableAlertSilence(ctx context.Context, id string) error {
+func (f *AlertFacade) DisableAlertSilences(ctx context.Context, id string) error {
 	db := f.getDB().WithContext(ctx)
-	return db.Model(&model.AlertSilence{}).Where("id = ?", id).Update("enabled", false).Error
+	return db.Model(&model.AlertSilences{}).Where("id = ?", id).Update("enabled", false).Error
 }
 
-// SilencedAlert operation implementations
+// SilencedAlerts operation implementations
 
-func (f *AlertFacade) CreateSilencedAlert(ctx context.Context, silencedAlert *model.SilencedAlert) error {
+func (f *AlertFacade) CreateSilencedAlerts(ctx context.Context, SilencedAlerts *model.SilencedAlerts) error {
 	db := f.getDB().WithContext(ctx)
-	return db.Create(silencedAlert).Error
+	return db.Create(SilencedAlerts).Error
 }
 
-func (f *AlertFacade) ListSilencedAlerts(ctx context.Context, filter *SilencedAlertFilter) ([]*model.SilencedAlert, int64, error) {
+func (f *AlertFacade) ListSilencedAlertss(ctx context.Context, filter *SilencedAlertsFilter) ([]*model.SilencedAlerts, int64, error) {
 	db := f.getDB().WithContext(ctx)
-	query := db.Model(&model.SilencedAlert{})
-	
+	query := db.Model(&model.SilencedAlerts{})
+
 	if filter.SilenceID != nil {
 		query = query.Where("silence_id = ?", *filter.SilenceID)
 	}
@@ -509,44 +509,44 @@ func (f *AlertFacade) ListSilencedAlerts(ctx context.Context, filter *SilencedAl
 	if filter.EndTime != nil {
 		query = query.Where("silenced_at < ?", *filter.EndTime)
 	}
-	
+
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	
-	var silencedAlerts []*model.SilencedAlert
+
+	var SilencedAlertss []*model.SilencedAlerts
 	query = query.Order("silenced_at DESC")
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit).Offset(filter.Offset)
 	}
-	
-	err := query.Find(&silencedAlerts).Error
-	return silencedAlerts, total, err
+
+	err := query.Find(&SilencedAlertss).Error
+	return SilencedAlertss, total, err
 }
 
-// AlertNotification operation implementations
+// AlertNotifications operation implementations
 
-func (f *AlertFacade) CreateAlertNotification(ctx context.Context, notification *model.AlertNotification) error {
+func (f *AlertFacade) CreateAlertNotifications(ctx context.Context, notification *model.AlertNotifications) error {
 	db := f.getDB().WithContext(ctx)
 	return db.Create(notification).Error
 }
 
-func (f *AlertFacade) UpdateAlertNotification(ctx context.Context, notification *model.AlertNotification) error {
+func (f *AlertFacade) UpdateAlertNotifications(ctx context.Context, notification *model.AlertNotifications) error {
 	db := f.getDB().WithContext(ctx)
 	return db.Save(notification).Error
 }
 
-func (f *AlertFacade) ListAlertNotificationsByAlertID(ctx context.Context, alertID string) ([]*model.AlertNotification, error) {
+func (f *AlertFacade) ListAlertNotificationssByAlertID(ctx context.Context, alertID string) ([]*model.AlertNotifications, error) {
 	db := f.getDB().WithContext(ctx)
-	var notifications []*model.AlertNotification
+	var notifications []*model.AlertNotifications
 	err := db.Where("alert_id = ?", alertID).Order("created_at DESC").Find(&notifications).Error
 	return notifications, err
 }
 
-func (f *AlertFacade) ListPendingNotifications(ctx context.Context, limit int) ([]*model.AlertNotification, error) {
+func (f *AlertFacade) ListPendingNotifications(ctx context.Context, limit int) ([]*model.AlertNotifications, error) {
 	db := f.getDB().WithContext(ctx)
-	var notifications []*model.AlertNotification
+	var notifications []*model.AlertNotifications
 	query := db.Where("status = ?", "pending").Order("created_at ASC")
 	if limit > 0 {
 		query = query.Limit(limit)
@@ -554,4 +554,3 @@ func (f *AlertFacade) ListPendingNotifications(ctx context.Context, limit int) (
 	err := query.Find(&notifications).Error
 	return notifications, err
 }
-

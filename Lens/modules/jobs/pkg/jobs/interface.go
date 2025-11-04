@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/primus-lens/jobs/pkg/jobs/cluster_overview"
 	"github.com/AMD-AGI/primus-lens/jobs/pkg/jobs/device_info"
 	"github.com/AMD-AGI/primus-lens/jobs/pkg/jobs/gpu_allocation"
 	"github.com/AMD-AGI/primus-lens/jobs/pkg/jobs/gpu_consumers"
@@ -25,4 +26,5 @@ var jobs = []Job{
 	&gpu_workload.GpuWorkloadJob{},
 	&gpu_pod.GpuPodJob{},
 	&storage_scan.StorageScanJob{},
+	&cluster_overview.ClusterOverviewJob{},
 }

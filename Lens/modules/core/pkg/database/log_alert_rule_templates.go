@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
@@ -43,8 +44,8 @@ func InitBuiltinLogAlertRuleTemplates(ctx context.Context) error {
 }
 
 // getBuiltinTemplates returns all built-in template definitions
-func getBuiltinTemplates() []*model.LogAlertRuleTemplate {
-	return []*model.LogAlertRuleTemplate{
+func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
+	return []*model.LogAlertRuleTemplates{
 		// 1. Basic Error Detection
 		{
 			Name:        "Generic-Error-Detection",
@@ -72,7 +73,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplate {
 					},
 				},
 			}),
-			Tags:      []string{"error", "basic", "generic"},
+			Tags:      strings.Join([]string{"error", "basic", "generic"}, ","),
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
@@ -105,7 +106,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplate {
 					},
 				},
 			}),
-			Tags:      []string{"gpu", "oom", "memory", "critical"},
+			Tags:      strings.Join([]string{"gpu", "oom", "memory", "critical"}, ","),
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
@@ -144,7 +145,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplate {
 					},
 				},
 			}),
-			Tags:      []string{"gpu", "oom", "threshold", "critical"},
+			Tags:      strings.Join([]string{"gpu", "oom", "threshold", "critical"}, ","),
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
@@ -177,7 +178,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplate {
 					},
 				},
 			}),
-			Tags:      []string{"network", "nccl", "communication", "critical"},
+			Tags:      strings.Join([]string{"network", "nccl", "communication", "critical"}, ","),
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
@@ -210,7 +211,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplate {
 					},
 				},
 			}),
-			Tags:      []string{"network", "infiniband", "rdma", "warning"},
+			Tags:      strings.Join([]string{"network", "infiniband", "rdma", "warning"}, ","),
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
@@ -243,7 +244,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplate {
 					},
 				},
 			}),
-			Tags:      []string{"training", "loss", "nan", "critical"},
+			Tags:      strings.Join([]string{"training", "loss", "nan", "critical"}, ","),
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
@@ -276,7 +277,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplate {
 					},
 				},
 			}),
-			Tags:      []string{"training", "checkpoint", "save", "warning"},
+			Tags:      strings.Join([]string{"training", "checkpoint", "save", "warning"}, ","),
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
@@ -314,7 +315,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplate {
 					},
 				},
 			}),
-			Tags:      []string{"performance", "throughput", "tflops", "warning"},
+			Tags:      strings.Join([]string{"performance", "throughput", "tflops", "warning"}, ","),
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
@@ -347,7 +348,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplate {
 					},
 				},
 			}),
-			Tags:      []string{"kubernetes", "pod", "restart", "warning"},
+			Tags:      strings.Join([]string{"kubernetes", "pod", "restart", "warning"}, ","),
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
@@ -381,7 +382,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplate {
 					},
 				},
 			}),
-			Tags:      []string{"production", "critical", "fatal", "priority"},
+			Tags:      strings.Join([]string{"production", "critical", "fatal", "priority"}, ","),
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
@@ -414,7 +415,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplate {
 					},
 				},
 			}),
-			Tags:      []string{"storage", "disk", "space", "warning"},
+			Tags:      strings.Join([]string{"storage", "disk", "space", "warning"}, ","),
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
@@ -441,7 +442,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplate {
 					},
 				},
 			}),
-			Tags:      []string{"network", "timeout", "connection", "warning"},
+			Tags:      strings.Join([]string{"network", "timeout", "connection", "warning"}, ","),
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},

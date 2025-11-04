@@ -11,11 +11,11 @@ import (
 // MetricAlertRuleFacadeInterface defines the database operation interface for MetricAlertRule
 type MetricAlertRuleFacadeInterface interface {
 	// CRUD operations
-	CreateMetricAlertRule(ctx context.Context, rule *model.MetricAlertRule) error
-	UpdateMetricAlertRule(ctx context.Context, rule *model.MetricAlertRule) error
-	GetMetricAlertRuleByID(ctx context.Context, id int64) (*model.MetricAlertRule, error)
-	GetMetricAlertRuleByNameAndCluster(ctx context.Context, name, clusterName string) (*model.MetricAlertRule, error)
-	ListMetricAlertRules(ctx context.Context, filter *MetricAlertRuleFilter) ([]*model.MetricAlertRule, int64, error)
+	CreateMetricAlertRule(ctx context.Context, rule *model.MetricAlertRules) error
+	UpdateMetricAlertRule(ctx context.Context, rule *model.MetricAlertRules) error
+	GetMetricAlertRuleByID(ctx context.Context, id int64) (*model.MetricAlertRules, error)
+	GetMetricAlertRuleByNameAndCluster(ctx context.Context, name, clusterName string) (*model.MetricAlertRules, error)
+	ListMetricAlertRules(ctx context.Context, filter *MetricAlertRuleFilter) ([]*model.MetricAlertRules, int64, error)
 	DeleteMetricAlertRule(ctx context.Context, id int64) error
 	
 	// Sync status operations
@@ -23,8 +23,8 @@ type MetricAlertRuleFacadeInterface interface {
 	UpdateVMRuleStatus(ctx context.Context, id int64, vmruleStatus model.ExtType) error
 	
 	// Batch operations
-	ListRulesByCluster(ctx context.Context, clusterName string, enabled *bool) ([]*model.MetricAlertRule, error)
-	ListPendingSyncRules(ctx context.Context, limit int) ([]*model.MetricAlertRule, error)
+	ListRulesByCluster(ctx context.Context, clusterName string, enabled *bool) ([]*model.MetricAlertRules, error)
+	ListPendingSyncRules(ctx context.Context, limit int) ([]*model.MetricAlertRules, error)
 	
 	// WithCluster method
 	WithCluster(clusterName string) MetricAlertRuleFacadeInterface
@@ -57,21 +57,21 @@ func (f *MetricAlertRuleFacade) WithCluster(clusterName string) MetricAlertRuleF
 }
 
 // CreateMetricAlertRule creates a new metric alert rule
-func (f *MetricAlertRuleFacade) CreateMetricAlertRule(ctx context.Context, rule *model.MetricAlertRule) error {
+func (f *MetricAlertRuleFacade) CreateMetricAlertRule(ctx context.Context, rule *model.MetricAlertRules) error {
 	db := f.getDB().WithContext(ctx)
 	return db.Create(rule).Error
 }
 
 // UpdateMetricAlertRule updates an existing metric alert rule
-func (f *MetricAlertRuleFacade) UpdateMetricAlertRule(ctx context.Context, rule *model.MetricAlertRule) error {
+func (f *MetricAlertRuleFacade) UpdateMetricAlertRule(ctx context.Context, rule *model.MetricAlertRules) error {
 	db := f.getDB().WithContext(ctx)
 	return db.Save(rule).Error
 }
 
 // GetMetricAlertRuleByID retrieves a metric alert rule by ID
-func (f *MetricAlertRuleFacade) GetMetricAlertRuleByID(ctx context.Context, id int64) (*model.MetricAlertRule, error) {
+func (f *MetricAlertRuleFacade) GetMetricAlertRuleByID(ctx context.Context, id int64) (*model.MetricAlertRules, error) {
 	db := f.getDB().WithContext(ctx)
-	var rule model.MetricAlertRule
+	var rule model.MetricAlertRules
 	err := db.Where("id = ?", id).First(&rule).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -83,9 +83,9 @@ func (f *MetricAlertRuleFacade) GetMetricAlertRuleByID(ctx context.Context, id i
 }
 
 // GetMetricAlertRuleByNameAndCluster retrieves a metric alert rule by name and cluster
-func (f *MetricAlertRuleFacade) GetMetricAlertRuleByNameAndCluster(ctx context.Context, name, clusterName string) (*model.MetricAlertRule, error) {
+func (f *MetricAlertRuleFacade) GetMetricAlertRuleByNameAndCluster(ctx context.Context, name, clusterName string) (*model.MetricAlertRules, error) {
 	db := f.getDB().WithContext(ctx)
-	var rule model.MetricAlertRule
+	var rule model.MetricAlertRules
 	err := db.Where("name = ? AND cluster_name = ?", name, clusterName).First(&rule).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -97,9 +97,9 @@ func (f *MetricAlertRuleFacade) GetMetricAlertRuleByNameAndCluster(ctx context.C
 }
 
 // ListMetricAlertRules lists metric alert rules with filtering
-func (f *MetricAlertRuleFacade) ListMetricAlertRules(ctx context.Context, filter *MetricAlertRuleFilter) ([]*model.MetricAlertRule, int64, error) {
+func (f *MetricAlertRuleFacade) ListMetricAlertRules(ctx context.Context, filter *MetricAlertRuleFilter) ([]*model.MetricAlertRules, int64, error) {
 	db := f.getDB().WithContext(ctx)
-	query := db.Model(&model.MetricAlertRule{})
+	query := db.Model(&model.MetricAlertRules{})
 	
 	if filter.Name != nil {
 		query = query.Where("name LIKE ?", "%"+*filter.Name+"%")
@@ -119,7 +119,7 @@ func (f *MetricAlertRuleFacade) ListMetricAlertRules(ctx context.Context, filter
 		return nil, 0, err
 	}
 	
-	var rules []*model.MetricAlertRule
+	var rules []*model.MetricAlertRules
 	query = query.Order("created_at DESC")
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit).Offset(filter.Offset)
@@ -132,7 +132,7 @@ func (f *MetricAlertRuleFacade) ListMetricAlertRules(ctx context.Context, filter
 // DeleteMetricAlertRule deletes a metric alert rule
 func (f *MetricAlertRuleFacade) DeleteMetricAlertRule(ctx context.Context, id int64) error {
 	db := f.getDB().WithContext(ctx)
-	return db.Delete(&model.MetricAlertRule{}, id).Error
+	return db.Delete(&model.MetricAlertRules{}, id).Error
 }
 
 // UpdateSyncStatus updates the sync status of a metric alert rule
@@ -143,17 +143,17 @@ func (f *MetricAlertRuleFacade) UpdateSyncStatus(ctx context.Context, id int64, 
 		"sync_message": message,
 		"last_sync_at": gorm.Expr("NOW()"),
 	}
-	return db.Model(&model.MetricAlertRule{}).Where("id = ?", id).Updates(updates).Error
+	return db.Model(&model.MetricAlertRules{}).Where("id = ?", id).Updates(updates).Error
 }
 
 // UpdateVMRuleStatus updates the VMRule status from Kubernetes
 func (f *MetricAlertRuleFacade) UpdateVMRuleStatus(ctx context.Context, id int64, vmruleStatus model.ExtType) error {
 	db := f.getDB().WithContext(ctx)
-	return db.Model(&model.MetricAlertRule{}).Where("id = ?", id).Update("vmrule_status", vmruleStatus).Error
+	return db.Model(&model.MetricAlertRules{}).Where("id = ?", id).Update("vmrule_status", vmruleStatus).Error
 }
 
 // ListRulesByCluster lists all rules for a specific cluster
-func (f *MetricAlertRuleFacade) ListRulesByCluster(ctx context.Context, clusterName string, enabled *bool) ([]*model.MetricAlertRule, error) {
+func (f *MetricAlertRuleFacade) ListRulesByCluster(ctx context.Context, clusterName string, enabled *bool) ([]*model.MetricAlertRules, error) {
 	db := f.getDB().WithContext(ctx)
 	query := db.Where("cluster_name = ?", clusterName)
 	
@@ -161,13 +161,13 @@ func (f *MetricAlertRuleFacade) ListRulesByCluster(ctx context.Context, clusterN
 		query = query.Where("enabled = ?", *enabled)
 	}
 	
-	var rules []*model.MetricAlertRule
+	var rules []*model.MetricAlertRules
 	err := query.Order("created_at DESC").Find(&rules).Error
 	return rules, err
 }
 
 // ListPendingSyncRules lists rules that need to be synced
-func (f *MetricAlertRuleFacade) ListPendingSyncRules(ctx context.Context, limit int) ([]*model.MetricAlertRule, error) {
+func (f *MetricAlertRuleFacade) ListPendingSyncRules(ctx context.Context, limit int) ([]*model.MetricAlertRules, error) {
 	db := f.getDB().WithContext(ctx)
 	query := db.Where("sync_status = ? AND enabled = ?", "pending", true)
 	
@@ -175,7 +175,7 @@ func (f *MetricAlertRuleFacade) ListPendingSyncRules(ctx context.Context, limit 
 		query = query.Limit(limit)
 	}
 	
-	var rules []*model.MetricAlertRule
+	var rules []*model.MetricAlertRules
 	err := query.Order("created_at ASC").Find(&rules).Error
 	return rules, err
 }
