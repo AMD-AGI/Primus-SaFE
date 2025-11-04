@@ -191,6 +191,7 @@ func syncOpensearchService(ctx context.Context, clusterName string, clusterClien
 	if client.IgnoreAlreadyExists(err) != nil {
 		return nil, err
 	}
+	/**
 	endpoints, err := desireEndpoint(ctx, clusterName, clusterClient, cfg)
 	if err != nil {
 		return nil, err
@@ -208,6 +209,7 @@ func syncOpensearchService(ctx context.Context, clusterName string, clusterClien
 			return nil, err
 		}
 	}
+		**/
 	result := &SearchClientConfig{
 		Username: cfg.Username,
 		Password: cfg.Password,
