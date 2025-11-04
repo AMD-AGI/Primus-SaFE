@@ -32,7 +32,7 @@ apiserver:
   memory: 4Gi
 resource_manager:
   # Resource manager component image version
-  image: "resource-manager:202511030059"
+  image: "resource-manager:202511041938"
   # Number of replicas for resource manager deployment
   replicas: 1
   # CPU resources allocated to resource manager
