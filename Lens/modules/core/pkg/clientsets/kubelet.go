@@ -147,10 +147,14 @@ func ClusterConfigFromRestConfig(restConfig *rest.Config) *ClusterConfig {
 	}
 
 	return &ClusterConfig{
-		Host:                  restConfig.Host,
-		BearerToken:           restConfig.BearerToken,
-		TLSServerName:         restConfig.TLSClientConfig.ServerName,
-		InsecureSkipTLSVerify: restConfig.TLSClientConfig.Insecure,
+		Host:          restConfig.Host,
+		BearerToken:   restConfig.BearerToken,
+		TLSServerName: restConfig.TLSClientConfig.ServerName,
+		// Always skip TLS verification for kubelet API because:
+		// 1. Kubelet server certificates typically don't contain IP SANs
+		// 2. Connections are made using IP addresses, not hostnames
+		// 3. Client certificate authentication is sufficient for security
+		InsecureSkipTLSVerify: true,
 		CAData:                string(restConfig.TLSClientConfig.CAData),
 		CertData:              string(restConfig.TLSClientConfig.CertData),
 		KeyData:               string(restConfig.TLSClientConfig.KeyData),
