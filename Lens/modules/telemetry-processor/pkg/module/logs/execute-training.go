@@ -21,7 +21,7 @@ func executeWorkloadLog(ctx context.Context, workloadLog *PodLog) error {
 	if strings.Contains(workloadLog.Kubernetes.PodName, "primus-lens-telemetry-processor") {
 		return nil
 	}
-	
+
 	// Process workload log
 	err := WorkloadLog(ctx,
 		workloadLog.Kubernetes.PodId,
@@ -30,7 +30,7 @@ func executeWorkloadLog(ctx context.Context, workloadLog *PodLog) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Evaluate log against alert rules
 	engine := log_alert_engine.GetGlobalEngine()
 	if engine != nil {
@@ -42,7 +42,7 @@ func executeWorkloadLog(ctx context.Context, workloadLog *PodLog) error {
 			go processAlertResults(context.Background(), results)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -53,13 +53,13 @@ func convertToPodLogData(podLog *PodLog) *log_alert_engine.PodLogData {
 		Message: podLog.Message,
 		Labels:  make(map[string]string),
 	}
-	
+
 	if podLog.Kubernetes != nil {
 		logData.PodName = podLog.Kubernetes.PodName
 		logData.PodId = podLog.Kubernetes.PodId
 		logData.Namespace = podLog.Kubernetes.NamespaceName
 		logData.Host = podLog.Kubernetes.Host
-		
+
 		// Convert label struct to map
 		if podLog.Kubernetes.Labels != nil {
 			if podLog.Kubernetes.Labels.App != "" {
@@ -82,7 +82,7 @@ func convertToPodLogData(podLog *PodLog) *log_alert_engine.PodLogData {
 			}
 		}
 	}
-	
+
 	return logData
 }
 
@@ -100,45 +100,45 @@ func processAlertResults(ctx context.Context, results []*log_alert_engine.Evalua
 func processAlertResult(ctx context.Context, result *log_alert_engine.EvaluationResult) error {
 	// Build alert from evaluation result
 	alert := buildUnifiedAlert(result)
-	
+
 	// Send to alert processor (existing alert system)
 	if err := alerts.ProcessAlertFromLog(ctx, alert); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf(
 			"Failed to process log alert for rule %s: %v", result.RuleName, err)
 		return err
 	}
-	
+
 	// Update rule trigger information
 	facade := database.GetFacade().GetLogAlertRule()
 	if err := facade.UpdateRuleTriggerInfo(ctx, result.RuleID); err != nil {
 		log.GlobalLogger().WithContext(ctx).Warningf(
 			"Failed to update rule trigger info for rule %d: %v", result.RuleID, err)
 	}
-	
+
 	// Update rule statistics
 	go updateRuleStatistics(context.Background(), result)
-	
+
 	log.GlobalLogger().WithContext(ctx).Infof(
 		"Log alert triggered: rule=%s, severity=%s, workload=%s, pod=%s",
 		result.RuleName, result.Severity, result.Context.WorkloadID, result.Context.PodName)
-	
+
 	return nil
 }
 
 // buildUnifiedAlert builds a unified alert from evaluation result
 func buildUnifiedAlert(result *log_alert_engine.EvaluationResult) *alerts.UnifiedAlert {
 	now := time.Now()
-	
+
 	// Generate alert ID
 	alertID := fmt.Sprintf("log-%d-%d", result.RuleID, now.Unix())
-	
+
 	// Build labels
 	labels := make(map[string]string)
 	labels["alertname"] = result.RuleName
 	labels["severity"] = result.Severity
 	labels["source"] = "log"
 	labels["rule_id"] = fmt.Sprintf("%d", result.RuleID)
-	
+
 	if result.Context.WorkloadID != "" {
 		labels["workload_id"] = result.Context.WorkloadID
 	}
@@ -154,24 +154,24 @@ func buildUnifiedAlert(result *log_alert_engine.EvaluationResult) *alerts.Unifie
 	if result.Context.ClusterName != "" {
 		labels["cluster_name"] = result.Context.ClusterName
 	}
-	
+
 	// Add template labels
 	for k, v := range result.AlertTemplate.Labels {
 		labels[k] = v
 	}
-	
+
 	// Build annotations
 	annotations := make(map[string]string)
 	annotations["summary"] = renderTemplate(result.AlertTemplate.Summary, result.Context)
 	annotations["description"] = renderTemplate(result.AlertTemplate.Description, result.Context)
 	annotations["log_message"] = truncateString(result.Context.Message, 500)
 	annotations["match_reason"] = result.MatchReason
-	
+
 	// Add template annotations
 	for k, v := range result.AlertTemplate.Annotations {
 		annotations[k] = renderTemplate(v, result.Context)
 	}
-	
+
 	// Build raw data
 	rawData := map[string]interface{}{
 		"rule_id":      result.RuleID,
@@ -181,7 +181,7 @@ func buildUnifiedAlert(result *log_alert_engine.EvaluationResult) *alerts.Unifie
 		"match_reason": result.MatchReason,
 	}
 	rawDataBytes, _ := json.Marshal(rawData)
-	
+
 	alert := &alerts.UnifiedAlert{
 		ID:          alertID,
 		Source:      "log",
@@ -198,14 +198,14 @@ func buildUnifiedAlert(result *log_alert_engine.EvaluationResult) *alerts.Unifie
 		ClusterName: result.Context.ClusterName,
 		RawData:     rawDataBytes,
 	}
-	
+
 	return alert
 }
 
 // renderTemplate renders a template string with context values
 func renderTemplate(template string, ctx *log_alert_engine.EvaluationContext) string {
 	result := template
-	
+
 	// Replace placeholders
 	replacements := map[string]string{
 		"{{.WorkloadID}}":   ctx.WorkloadID,
@@ -216,11 +216,11 @@ func renderTemplate(template string, ctx *log_alert_engine.EvaluationContext) st
 		"{{.ClusterName}}":  ctx.ClusterName,
 		"{{.LogMessage}}":   truncateString(ctx.Message, 200),
 	}
-	
+
 	for placeholder, value := range replacements {
 		result = strings.ReplaceAll(result, placeholder, value)
 	}
-	
+
 	return result
 }
 
@@ -235,14 +235,14 @@ func truncateString(s string, maxLen int) string {
 // updateRuleStatistics updates statistics for a rule
 func updateRuleStatistics(ctx context.Context, result *log_alert_engine.EvaluationResult) {
 	facade := database.GetFacade().GetLogAlertRule()
-	
+
 	date := result.Context.LogTime.Truncate(24 * time.Hour)
 	hour := result.Context.LogTime.Hour()
-	
-	stat := &model.LogAlertRuleStatistic{
+
+	stat := &model.LogAlertRuleStatistics{
 		RuleID:         result.RuleID,
 		Date:           date,
-		Hour:           hour,
+		Hour:           int32(hour),
 		ClusterName:    result.Context.ClusterName,
 		EvaluatedCount: 1,
 		MatchedCount:   1,
@@ -250,14 +250,14 @@ func updateRuleStatistics(ctx context.Context, result *log_alert_engine.Evaluati
 		AvgEvalTimeMs:  result.EvalTimeMs,
 		MaxEvalTimeMs:  result.EvalTimeMs,
 	}
-	
+
 	if err := facade.CreateOrUpdateRuleStatistic(ctx, stat); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf(
 			"Failed to update rule statistics for rule %d: %v", result.RuleID, err)
 	}
-	
+
 	// Also update daily statistics
-	dailyStat := &model.LogAlertRuleStatistic{
+	dailyStat := &model.LogAlertRuleStatistics{
 		RuleID:         result.RuleID,
 		Date:           date,
 		Hour:           0, // 0 means daily aggregate
@@ -268,7 +268,7 @@ func updateRuleStatistics(ctx context.Context, result *log_alert_engine.Evaluati
 		AvgEvalTimeMs:  result.EvalTimeMs,
 		MaxEvalTimeMs:  result.EvalTimeMs,
 	}
-	
+
 	if err := facade.CreateOrUpdateRuleStatistic(ctx, dailyStat); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf(
 			"Failed to update daily rule statistics for rule %d: %v", result.RuleID, err)

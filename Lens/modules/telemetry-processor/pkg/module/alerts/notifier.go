@@ -16,16 +16,16 @@ import (
 // sendNotification sends an alert notification through the specified channel
 func sendNotification(ctx context.Context, alert *UnifiedAlert, channel ChannelConfig) error {
 	log.GlobalLogger().WithContext(ctx).Infof("Sending notification for alert %s via %s", alert.ID, channel.Type)
-	
+
 	// Create notification record
 	notification := createNotificationRecord(alert, channel)
-	
+
 	facade := database.GetFacade().GetAlert()
-	if err := facade.CreateAlertNotification(ctx, notification); err != nil {
+	if err := facade.CreateAlertNotifications(ctx, notification); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to create notification record: %v", err)
 		// Continue with sending even if record creation fails
 	}
-	
+
 	// Send based on channel type
 	var err error
 	switch channel.Type {
@@ -44,35 +44,34 @@ func sendNotification(ctx context.Context, alert *UnifiedAlert, channel ChannelC
 	default:
 		err = fmt.Errorf("unsupported notification channel: %s", channel.Type)
 	}
-	
+
 	// Update notification status
 	if err != nil {
 		notification.Status = NotificationStatusFailed
 		notification.ErrorMessage = err.Error()
 	} else {
 		notification.Status = NotificationStatusSent
-		sentAt := time.Now()
-		notification.SentAt = &sentAt
+		notification.SentAt = time.Now()
 	}
-	
-	if updateErr := facade.UpdateAlertNotification(ctx, notification); updateErr != nil {
+
+	if updateErr := facade.UpdateAlertNotifications(ctx, notification); updateErr != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to update notification status: %v", updateErr)
 	}
-	
+
 	return err
 }
 
 // createNotificationRecord creates a notification record for the database
-func createNotificationRecord(alert *UnifiedAlert, channel ChannelConfig) *model.AlertNotification {
+func createNotificationRecord(alert *UnifiedAlert, channel ChannelConfig) *model.AlertNotifications {
 	channelConfigExt := model.ExtType(channel.Config)
-	
+
 	payloadExt := model.ExtType{}
 	alertBytes, err := json.Marshal(alert)
 	if err == nil {
 		json.Unmarshal(alertBytes, &payloadExt)
 	}
-	
-	return &model.AlertNotification{
+
+	return &model.AlertNotifications{
 		AlertID:             alert.ID,
 		Channel:             channel.Type,
 		ChannelConfig:       channelConfigExt,
@@ -87,7 +86,7 @@ func sendWebhookNotification(ctx context.Context, alert *UnifiedAlert, config ma
 	if !ok || url == "" {
 		return fmt.Errorf("webhook URL not configured")
 	}
-	
+
 	// Prepare webhook payload
 	payload := map[string]interface{}{
 		"alert_id":    alert.ID,
@@ -102,41 +101,41 @@ func sendWebhookNotification(ctx context.Context, alert *UnifiedAlert, config ma
 		"pod_name":    alert.PodName,
 		"node_name":   alert.NodeName,
 	}
-	
+
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal webhook payload: %w", err)
 	}
-	
+
 	// Send HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create webhook request: %w", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	// Add custom headers if configured
 	if headers, ok := config["headers"].(map[string]string); ok {
 		for k, v := range headers {
 			req.Header.Set(k, v)
 		}
 	}
-	
+
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send webhook: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("webhook returned status %d", resp.StatusCode)
 	}
-	
+
 	log.GlobalLogger().WithContext(ctx).Infof("Webhook notification sent successfully for alert %s", alert.ID)
 	return nil
 }
@@ -155,7 +154,7 @@ func sendDingTalkNotification(ctx context.Context, alert *UnifiedAlert, config m
 	if !ok || webhookURL == "" {
 		return fmt.Errorf("DingTalk webhook URL not configured")
 	}
-	
+
 	// Prepare DingTalk message
 	message := formatAlertMessage(alert)
 	payload := map[string]interface{}{
@@ -165,34 +164,34 @@ func sendDingTalkNotification(ctx context.Context, alert *UnifiedAlert, config m
 			"text":  message,
 		},
 	}
-	
+
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal DingTalk payload: %w", err)
 	}
-	
+
 	// Send HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create DingTalk request: %w", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send DingTalk notification: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("DingTalk returned status %d", resp.StatusCode)
 	}
-	
+
 	log.GlobalLogger().WithContext(ctx).Infof("DingTalk notification sent successfully for alert %s", alert.ID)
 	return nil
 }
@@ -210,11 +209,11 @@ func sendSlackNotification(ctx context.Context, alert *UnifiedAlert, config map[
 	if !ok || webhookURL == "" {
 		return fmt.Errorf("Slack webhook URL not configured")
 	}
-	
+
 	// Prepare Slack message
 	message := formatAlertMessage(alert)
 	color := getSeverityColor(alert.Severity)
-	
+
 	payload := map[string]interface{}{
 		"attachments": []map[string]interface{}{
 			{
@@ -225,34 +224,34 @@ func sendSlackNotification(ctx context.Context, alert *UnifiedAlert, config map[
 			},
 		},
 	}
-	
+
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal Slack payload: %w", err)
 	}
-	
+
 	// Send HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create Slack request: %w", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send Slack notification: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("Slack returned status %d", resp.StatusCode)
 	}
-	
+
 	log.GlobalLogger().WithContext(ctx).Infof("Slack notification sent successfully for alert %s", alert.ID)
 	return nil
 }
@@ -263,7 +262,7 @@ func sendToAlertManager(ctx context.Context, alert *UnifiedAlert, config map[str
 	if !ok || url == "" {
 		return fmt.Errorf("AlertManager URL not configured")
 	}
-	
+
 	// Convert unified alert to AlertManager format
 	amAlert := []map[string]interface{}{
 		{
@@ -272,38 +271,38 @@ func sendToAlertManager(ctx context.Context, alert *UnifiedAlert, config map[str
 			"startsAt":    alert.StartsAt.Format(time.RFC3339),
 		},
 	}
-	
+
 	if alert.EndsAt != nil {
 		amAlert[0]["endsAt"] = alert.EndsAt.Format(time.RFC3339)
 	}
-	
+
 	jsonData, err := json.Marshal(amAlert)
 	if err != nil {
 		return fmt.Errorf("failed to marshal AlertManager payload: %w", err)
 	}
-	
+
 	// Send HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", url+"/api/v1/alerts", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create AlertManager request: %w", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send to AlertManager: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("AlertManager returned status %d", resp.StatusCode)
 	}
-	
+
 	log.GlobalLogger().WithContext(ctx).Infof("Alert forwarded to AlertManager successfully: %s", alert.ID)
 	return nil
 }
@@ -314,7 +313,7 @@ func formatAlertMessage(alert *UnifiedAlert) string {
 	msg += fmt.Sprintf("**Source**: %s\n", alert.Source)
 	msg += fmt.Sprintf("**Status**: %s\n", alert.Status)
 	msg += fmt.Sprintf("**Time**: %s\n", alert.StartsAt.Format(time.RFC3339))
-	
+
 	if alert.WorkloadID != "" {
 		msg += fmt.Sprintf("**Workload**: %s\n", alert.WorkloadID)
 	}
@@ -324,14 +323,14 @@ func formatAlertMessage(alert *UnifiedAlert) string {
 	if alert.NodeName != "" {
 		msg += fmt.Sprintf("**Node**: %s\n", alert.NodeName)
 	}
-	
+
 	if description, ok := alert.Annotations["description"]; ok {
 		msg += fmt.Sprintf("\n**Description**: %s\n", description)
 	}
 	if summary, ok := alert.Annotations["summary"]; ok {
 		msg += fmt.Sprintf("\n**Summary**: %s\n", summary)
 	}
-	
+
 	return msg
 }
 
@@ -350,4 +349,3 @@ func getSeverityColor(severity string) string {
 		return "#808080"
 	}
 }
-

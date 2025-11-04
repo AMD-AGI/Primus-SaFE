@@ -30,7 +30,7 @@ type LogAlertRuleEngine struct {
 	cancel context.CancelFunc
 
 	// Rules cache
-	rules      []*model.LogAlertRule
+	rules      []*model.LogAlertRules
 	rulesMutex sync.RWMutex
 
 	// Compiled regex patterns cache
@@ -218,7 +218,7 @@ func (e *LogAlertRuleEngine) EvaluateLog(logData *PodLogData) []*EvaluationResul
 	var results []*EvaluationResult
 
 	e.rulesMutex.RLock()
-	rules := make([]*model.LogAlertRule, len(e.rules))
+	rules := make([]*model.LogAlertRules, len(e.rules))
 	copy(rules, e.rules)
 	e.rulesMutex.RUnlock()
 
@@ -301,7 +301,7 @@ func (e *LogAlertRuleEngine) buildEvaluationContext(logData *PodLogData) *Evalua
 }
 
 // matchLabelSelectors checks if log matches label selectors
-func (e *LogAlertRuleEngine) matchLabelSelectors(rule *model.LogAlertRule, ctx *EvaluationContext) bool {
+func (e *LogAlertRuleEngine) matchLabelSelectors(rule *model.LogAlertRules, ctx *EvaluationContext) bool {
 	var selectors []LabelSelector
 	selectorsBytes, _ := json.Marshal(rule.LabelSelectors)
 	if err := json.Unmarshal(selectorsBytes, &selectors); err != nil {
@@ -400,7 +400,7 @@ func (e *LogAlertRuleEngine) matchSelector(selector LabelSelector, ctx *Evaluati
 }
 
 // evaluateRule evaluates a rule against the context
-func (e *LogAlertRuleEngine) evaluateRule(rule *model.LogAlertRule, ctx *EvaluationContext) (bool, string) {
+func (e *LogAlertRuleEngine) evaluateRule(rule *model.LogAlertRules, ctx *EvaluationContext) (bool, string) {
 	var matchConfig MatchConfig
 	configBytes, _ := json.Marshal(rule.MatchConfig)
 	if err := json.Unmarshal(configBytes, &matchConfig); err != nil {

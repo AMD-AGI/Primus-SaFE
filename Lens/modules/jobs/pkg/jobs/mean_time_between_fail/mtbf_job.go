@@ -9,7 +9,7 @@ import (
 type MtbfJob struct {
 }
 
-func (m *MtbfJob) Run(ctx context.Context, clientSets *clientsets.ClientSet) error {
+func (m *MtbfJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet) error {
 
 	return nil
 }

@@ -7,8 +7,9 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	dbmodel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/primus-lens/core/pkg/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -29,7 +30,7 @@ func ListAlerts(ctx *gin.Context) {
 	}
 
 	// Build filter
-	filter := &database.AlertEventFilter{
+	filter := &database.AlertEventsFilter{
 		Offset: req.Offset,
 		Limit:  req.Limit,
 	}
@@ -67,7 +68,7 @@ func ListAlerts(ctx *gin.Context) {
 
 	// Query database
 	facade := database.GetFacade().GetAlert()
-	alerts, total, err := facade.ListAlertEvents(ctx.Request.Context(), filter)
+	alerts, total, err := facade.ListAlertEventss(ctx.Request.Context(), filter)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to list alerts: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
@@ -97,7 +98,7 @@ func GetAlert(ctx *gin.Context) {
 	}
 
 	facade := database.GetFacade().GetAlert()
-	alert, err := facade.GetAlertEventByID(ctx.Request.Context(), alertID)
+	alert, err := facade.GetAlertEventsByID(ctx.Request.Context(), alertID)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get alert: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
@@ -147,7 +148,7 @@ func GetAlertStatistics(ctx *gin.Context) {
 	}
 
 	// Build filter
-	filter := &database.AlertStatisticFilter{
+	filter := &database.AlertStatisticsFilter{
 		DateFrom: req.DateFrom,
 		DateTo:   req.DateTo,
 		Offset:   req.Offset,
@@ -169,7 +170,7 @@ func GetAlertStatistics(ctx *gin.Context) {
 
 	// Query database
 	facade := database.GetFacade().GetAlert()
-	stats, err := facade.ListAlertStatistics(ctx.Request.Context(), filter)
+	stats, err := facade.ListAlertStatisticss(ctx.Request.Context(), filter)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get alert statistics: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
@@ -206,23 +207,23 @@ func CreateAlertRule(ctx *gin.Context) {
 	}
 
 	// Create rule model
-	ruleConfigExt := model.ExtType(req.RuleConfig)
+	ruleConfigExt := dbmodel.ExtType(req.RuleConfig)
 
-	labelsExt := model.ExtType{}
+	labelsExt := dbmodel.ExtType{}
 	if req.Labels != nil {
 		for k, v := range req.Labels {
 			labelsExt[k] = v
 		}
 	}
 
-	annotationsExt := model.ExtType{}
+	annotationsExt := dbmodel.ExtType{}
 	if req.Annotations != nil {
 		for k, v := range req.Annotations {
 			annotationsExt[k] = v
 		}
 	}
 
-	routeConfigExt := model.ExtType{}
+	routeConfigExt := dbmodel.ExtType{}
 	if req.RouteConfig != nil {
 		routeConfigBytes, err := json.Marshal(req.RouteConfig)
 		if err != nil {
@@ -235,7 +236,7 @@ func CreateAlertRule(ctx *gin.Context) {
 		}
 	}
 
-	rule := &model.AlertRule{
+	rule := &dbmodel.AlertRules{
 		Name:        req.Name,
 		Source:      req.Source,
 		Enabled:     req.Enabled,
@@ -249,7 +250,7 @@ func CreateAlertRule(ctx *gin.Context) {
 
 	// Save to database
 	facade := database.GetFacade().GetAlert()
-	if err := facade.CreateAlertRule(ctx.Request.Context(), rule); err != nil {
+	if err := facade.CreateAlertRules(ctx.Request.Context(), rule); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to create alert rule: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
 		return
@@ -274,7 +275,7 @@ func ListAlertRules(ctx *gin.Context) {
 	}
 
 	facade := database.GetFacade().GetAlert()
-	rules, err := facade.ListAlertRules(ctx.Request.Context(), source, enabled)
+	rules, err := facade.ListAlertRuless(ctx.Request.Context(), source, enabled)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to list alert rules: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
@@ -297,7 +298,7 @@ func GetAlertRule(ctx *gin.Context) {
 	}
 
 	facade := database.GetFacade().GetAlert()
-	rule, err := facade.GetAlertRuleByID(ctx.Request.Context(), id)
+	rule, err := facade.GetAlertRulesByID(ctx.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get alert rule: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
@@ -330,7 +331,7 @@ func UpdateAlertRule(ctx *gin.Context) {
 
 	// Get existing rule
 	facade := database.GetFacade().GetAlert()
-	rule, err := facade.GetAlertRuleByID(ctx.Request.Context(), id)
+	rule, err := facade.GetAlertRulesByID(ctx.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get alert rule: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
@@ -354,19 +355,19 @@ func UpdateAlertRule(ctx *gin.Context) {
 		rule.RuleType = req.RuleType
 	}
 	if req.RuleConfig != nil {
-		rule.RuleConfig = model.ExtType(req.RuleConfig)
+		rule.RuleConfig = dbmodel.ExtType(req.RuleConfig)
 	}
 	if req.Severity != "" {
 		rule.Severity = req.Severity
 	}
 	if req.Labels != nil {
-		rule.Labels = model.ExtType{}
+		rule.Labels = dbmodel.ExtType{}
 		for k, v := range req.Labels {
 			rule.Labels[k] = v
 		}
 	}
 	if req.Annotations != nil {
-		rule.Annotations = model.ExtType{}
+		rule.Annotations = dbmodel.ExtType{}
 		for k, v := range req.Annotations {
 			rule.Annotations[k] = v
 		}
@@ -374,13 +375,13 @@ func UpdateAlertRule(ctx *gin.Context) {
 	if req.RouteConfig != nil {
 		routeConfigBytes, err := json.Marshal(req.RouteConfig)
 		if err == nil {
-			rule.RouteConfig = model.ExtType{}
+			rule.RouteConfig = dbmodel.ExtType{}
 			json.Unmarshal(routeConfigBytes, &rule.RouteConfig)
 		}
 	}
 
 	// Save to database
-	if err := facade.UpdateAlertRule(ctx.Request.Context(), rule); err != nil {
+	if err := facade.UpdateAlertRules(ctx.Request.Context(), rule); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to update alert rule: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
 		return
@@ -401,7 +402,7 @@ func DeleteAlertRule(ctx *gin.Context) {
 	}
 
 	facade := database.GetFacade().GetAlert()
-	if err := facade.DeleteAlertRule(ctx.Request.Context(), id); err != nil {
+	if err := facade.DeleteAlertRules(ctx.Request.Context(), id); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to delete alert rule: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
 		return
@@ -439,13 +440,13 @@ func CreateSilence(ctx *gin.Context) {
 	labelMatchers := make([]model.LabelMatcher, 0, len(req.Matchers))
 	for _, m := range req.Matchers {
 		labelMatchers = append(labelMatchers, model.LabelMatcher{
-			Key:      m.Name,
+			Name:     m.Name,
 			Operator: "=",
 			Value:    m.Value,
 		})
 	}
 
-	labelMatchersExt := model.ExtType{}
+	labelMatchersExt := dbmodel.ExtType{}
 	labelMatchersBytes, err := json.Marshal(labelMatchers)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(), http.StatusBadRequest, err.Error(), nil))
@@ -456,8 +457,7 @@ func CreateSilence(ctx *gin.Context) {
 		return
 	}
 
-	endsAt := req.EndsAt
-	silence := &model.AlertSilence{
+	silence := &dbmodel.AlertSilences{
 		ID:            uuid.New().String(),
 		Name:          "legacy-silence-" + uuid.New().String()[:8],
 		Description:   req.Comment,
@@ -465,14 +465,14 @@ func CreateSilence(ctx *gin.Context) {
 		SilenceType:   "label",
 		LabelMatchers: labelMatchersExt,
 		StartsAt:      req.StartsAt,
-		EndsAt:        &endsAt,
+		EndsAt:        req.EndsAt,
 		Reason:        req.Comment,
 		CreatedBy:     req.CreatedBy,
 	}
 
 	// Save to database
 	facade := database.GetFacade().GetAlert()
-	if err := facade.CreateAlertSilence(ctx.Request.Context(), silence); err != nil {
+	if err := facade.CreateAlertSilences(ctx.Request.Context(), silence); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to create silence: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
 		return
@@ -510,7 +510,7 @@ func DeleteSilence(ctx *gin.Context) {
 	}
 
 	facade := database.GetFacade().GetAlert()
-	if err := facade.DeleteAlertSilence(ctx.Request.Context(), silenceID); err != nil {
+	if err := facade.DeleteAlertSilences(ctx.Request.Context(), silenceID); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to delete silence: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
 		return

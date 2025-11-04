@@ -8,6 +8,7 @@ import (
 	"github.com/AMD-AGI/primus-lens/core/pkg/database"
 	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	coremodel "github.com/AMD-AGI/primus-lens/core/pkg/model"
 )
 
 // ProcessAlertFromLog processes an alert generated from log rules (exported for use by log module)
@@ -67,13 +68,13 @@ func processAlert(ctx context.Context, alert *UnifiedAlert) error {
 }
 
 // checkAlertExists checks if an alert with the same ID already exists
-func checkAlertExists(ctx context.Context, id string, status string) (*model.AlertEvent, error) {
+func checkAlertExists(ctx context.Context, id string, status string) (*model.AlertEvents, error) {
 	facade := database.GetFacade().GetAlert()
-	return facade.GetAlertEventByID(ctx, id)
+	return facade.GetAlertEventsByID(ctx, id)
 }
 
 // updateExistingAlert updates an existing alert
-func updateExistingAlert(ctx context.Context, existing *model.AlertEvent, newAlert *UnifiedAlert) error {
+func updateExistingAlert(ctx context.Context, existing *model.AlertEvents, newAlert *UnifiedAlert) error {
 	log.GlobalLogger().WithContext(ctx).Infof("Updating existing alert: %s", newAlert.ID)
 
 	// Update status and end time
@@ -169,7 +170,7 @@ func checkSilenced(ctx context.Context, alert *UnifiedAlert) (bool, error) {
 }
 
 // matchSilence checks if an alert matches a silence rule
-func matchSilence(alert *UnifiedAlert, silence *model.AlertSilence) bool {
+func matchSilence(alert *UnifiedAlert, silence *model.AlertSilences) bool {
 	// Check if silence is enabled
 	if !silence.Enabled {
 		return false
@@ -197,8 +198,8 @@ func matchSilence(alert *UnifiedAlert, silence *model.AlertSilence) bool {
 }
 
 // matchLabelSilence matches alert against label-based silence
-func matchLabelSilence(alert *UnifiedAlert, silence *model.AlertSilence) bool {
-	var labelMatchers []model.LabelMatcher
+func matchLabelSilence(alert *UnifiedAlert, silence *model.AlertSilences) bool {
+	var labelMatchers []coremodel.LabelMatcher
 	labelMatchersBytes, err := json.Marshal(silence.LabelMatchers)
 	if err != nil {
 		return false
@@ -209,7 +210,7 @@ func matchLabelSilence(alert *UnifiedAlert, silence *model.AlertSilence) bool {
 
 	// All matchers must match
 	for _, matcher := range labelMatchers {
-		labelValue, exists := alert.Labels[matcher.Key]
+		labelValue, exists := alert.Labels[matcher.Name]
 		if !exists {
 			return false
 		}
@@ -233,7 +234,7 @@ func matchLabelSilence(alert *UnifiedAlert, silence *model.AlertSilence) bool {
 }
 
 // matchAlertNameSilence matches alert against alert name-based silence
-func matchAlertNameSilence(alert *UnifiedAlert, silence *model.AlertSilence) bool {
+func matchAlertNameSilence(alert *UnifiedAlert, silence *model.AlertSilences) bool {
 	var alertNames []string
 	alertNamesBytes, err := json.Marshal(silence.AlertNames)
 	if err != nil {
@@ -253,8 +254,8 @@ func matchAlertNameSilence(alert *UnifiedAlert, silence *model.AlertSilence) boo
 }
 
 // matchResourceSilence matches alert against resource-based silence
-func matchResourceSilence(alert *UnifiedAlert, silence *model.AlertSilence) bool {
-	var resourceFilters []model.ResourceFilter
+func matchResourceSilence(alert *UnifiedAlert, silence *model.AlertSilences) bool {
+	var resourceFilters []coremodel.ResourceFilter
 	resourceFiltersBytes, err := json.Marshal(silence.ResourceFilters)
 	if err != nil {
 		return false
@@ -267,15 +268,15 @@ func matchResourceSilence(alert *UnifiedAlert, silence *model.AlertSilence) bool
 	for _, filter := range resourceFilters {
 		switch filter.ResourceType {
 		case "node":
-			if matchResourceNames(alert.NodeName, filter.ResourceNames) {
+			if alert.NodeName == filter.ResourceName {
 				return true
 			}
 		case "pod":
-			if matchResourceNames(alert.PodName, filter.ResourceNames) {
+			if alert.PodName == filter.ResourceName {
 				return true
 			}
 		case "workload":
-			if matchResourceIDs(alert.WorkloadID, filter.ResourceIDs) {
+			if alert.WorkloadID == filter.ResourceName {
 				return true
 			}
 		}
@@ -317,7 +318,7 @@ func recordSilencedAlert(ctx context.Context, silenceID string, alert *UnifiedAl
 	var alertDataExt model.ExtType
 	json.Unmarshal(alertDataBytes, &alertDataExt)
 
-	silencedAlert := &model.SilencedAlert{
+	silencedAlert := &model.SilencedAlerts{
 		SilenceID:   silenceID,
 		AlertID:     alert.ID,
 		AlertName:   alert.AlertName,
@@ -327,7 +328,7 @@ func recordSilencedAlert(ctx context.Context, silenceID string, alert *UnifiedAl
 	}
 
 	facade := database.GetFacade().GetAlert()
-	if err := facade.CreateSilencedAlert(ctx, silencedAlert); err != nil {
+	if err := facade.CreateSilencedAlerts(ctx, silencedAlert); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to record silenced alert: %v", err)
 	}
 }
@@ -361,14 +362,13 @@ func storeAlert(ctx context.Context, alert *UnifiedAlert) error {
 		}
 	}
 
-	alertEvent := &model.AlertEvent{
+	alertEvent := &model.AlertEvents{
 		ID:           alert.ID,
 		Source:       alert.Source,
 		AlertName:    alert.AlertName,
 		Severity:     alert.Severity,
 		Status:       alert.Status,
 		StartsAt:     alert.StartsAt,
-		EndsAt:       alert.EndsAt,
 		Labels:       labelsExt,
 		Annotations:  annotationsExt,
 		WorkloadID:   alert.WorkloadID,
@@ -380,7 +380,7 @@ func storeAlert(ctx context.Context, alert *UnifiedAlert) error {
 		EnrichedData: enrichedDataExt,
 	}
 
-	return facade.CreateAlertEvent(ctx, alertEvent)
+	return facade.CreateAlertEvents(ctx, alertEvent)
 }
 
 // updateAlertStatistics updates alert statistics in the database
@@ -391,9 +391,9 @@ func updateAlertStatistics(ctx context.Context, alert *UnifiedAlert) {
 	date := alert.StartsAt.Truncate(24 * time.Hour)
 	hour := alert.StartsAt.Hour()
 
-	stat := &model.AlertStatistic{
+	stat := &model.AlertStatistics{
 		Date:        date,
-		Hour:        hour,
+		Hour:        int32(hour),
 		AlertName:   alert.AlertName,
 		Source:      alert.Source,
 		Severity:    alert.Severity,
@@ -402,12 +402,12 @@ func updateAlertStatistics(ctx context.Context, alert *UnifiedAlert) {
 		FiringCount: 1,
 	}
 
-	if err := facade.CreateOrUpdateAlertStatistic(ctx, stat); err != nil {
+	if err := facade.CreateOrUpdateAlertStatistics(ctx, stat); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to update alert statistics: %v", err)
 	}
 
 	// Update daily statistics (hour = 0 means daily aggregate)
-	dailyStat := &model.AlertStatistic{
+	dailyStat := &model.AlertStatistics{
 		Date:        date,
 		Hour:        0,
 		AlertName:   alert.AlertName,
@@ -418,13 +418,13 @@ func updateAlertStatistics(ctx context.Context, alert *UnifiedAlert) {
 		FiringCount: 1,
 	}
 
-	if err := facade.CreateOrUpdateAlertStatistic(ctx, dailyStat); err != nil {
+	if err := facade.CreateOrUpdateAlertStatistics(ctx, dailyStat); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to update daily alert statistics: %v", err)
 	}
 }
 
 // updateResolvedAlertStatistics updates statistics when an alert is resolved
-func updateResolvedAlertStatistics(ctx context.Context, alert *model.AlertEvent, endsAt time.Time) {
+func updateResolvedAlertStatistics(ctx context.Context, alert *model.AlertEvents, endsAt time.Time) {
 	facade := database.GetFacade().GetAlert()
 
 	duration := int64(endsAt.Sub(alert.StartsAt).Seconds())
@@ -433,9 +433,9 @@ func updateResolvedAlertStatistics(ctx context.Context, alert *model.AlertEvent,
 	date := alert.StartsAt.Truncate(24 * time.Hour)
 	hour := alert.StartsAt.Hour()
 
-	stat := &model.AlertStatistic{
+	stat := &model.AlertStatistics{
 		Date:                 date,
-		Hour:                 hour,
+		Hour:                 int32(hour),
 		AlertName:            alert.AlertName,
 		Source:               alert.Source,
 		Severity:             alert.Severity,
@@ -445,12 +445,12 @@ func updateResolvedAlertStatistics(ctx context.Context, alert *model.AlertEvent,
 		TotalDurationSeconds: duration,
 	}
 
-	if err := facade.CreateOrUpdateAlertStatistic(ctx, stat); err != nil {
+	if err := facade.CreateOrUpdateAlertStatistics(ctx, stat); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to update resolved alert statistics: %v", err)
 	}
 
 	// Update daily statistics
-	dailyStat := &model.AlertStatistic{
+	dailyStat := &model.AlertStatistics{
 		Date:                 date,
 		Hour:                 0,
 		AlertName:            alert.AlertName,
@@ -462,7 +462,7 @@ func updateResolvedAlertStatistics(ctx context.Context, alert *model.AlertEvent,
 		TotalDurationSeconds: duration,
 	}
 
-	if err := facade.CreateOrUpdateAlertStatistic(ctx, dailyStat); err != nil {
+	if err := facade.CreateOrUpdateAlertStatistics(ctx, dailyStat); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to update daily resolved alert statistics: %v", err)
 	}
 }

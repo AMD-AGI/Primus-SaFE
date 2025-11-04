@@ -14,7 +14,7 @@ import (
 const (
 	// Time window for correlation (5 minutes before and after)
 	correlationTimeWindow = 5 * time.Minute
-	
+
 	// Minimum correlation score to create a correlation
 	minCorrelationScore = 0.3
 )
@@ -22,22 +22,22 @@ const (
 // correlateAlerts performs correlation analysis for a given alert
 func correlateAlerts(ctx context.Context, alert *UnifiedAlert) {
 	log.GlobalLogger().WithContext(ctx).Infof("Starting correlation analysis for alert: %s", alert.ID)
-	
+
 	// Find potentially related alerts within time window
 	relatedAlerts, err := findRelatedAlerts(ctx, alert)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to find related alerts: %v", err)
 		return
 	}
-	
+
 	if len(relatedAlerts) == 0 {
 		log.GlobalLogger().WithContext(ctx).Infof("No related alerts found for alert: %s", alert.ID)
 		return
 	}
-	
+
 	// Analyze correlations
 	correlations := analyzeCorrelations(alert, relatedAlerts)
-	
+
 	// Store significant correlations
 	if len(correlations) > 0 {
 		correlationID := uuid.New().String()
@@ -51,21 +51,21 @@ func correlateAlerts(ctx context.Context, alert *UnifiedAlert) {
 }
 
 // findRelatedAlerts finds alerts that might be related to the given alert
-func findRelatedAlerts(ctx context.Context, alert *UnifiedAlert) ([]*model.AlertEvent, error) {
+func findRelatedAlerts(ctx context.Context, alert *UnifiedAlert) ([]*model.AlertEvents, error) {
 	facade := database.GetFacade().GetAlert()
-	
+
 	// Calculate time window
 	startTime := alert.StartsAt.Add(-correlationTimeWindow)
 	endTime := alert.StartsAt.Add(correlationTimeWindow)
-	
+
 	// Query alerts within time window
-	filter := &database.AlertEventFilter{
+	filter := &database.AlertEventsFilter{
 		StartsAfter:  &startTime,
 		StartsBefore: &endTime,
 		Status:       stringPtr(StatusFiring),
 		Limit:        100, // Limit to avoid excessive processing
 	}
-	
+
 	// Add entity filters for better correlation
 	if alert.WorkloadID != "" {
 		filter.WorkloadID = &alert.WorkloadID
@@ -74,31 +74,31 @@ func findRelatedAlerts(ctx context.Context, alert *UnifiedAlert) ([]*model.Alert
 	} else if alert.NodeName != "" {
 		filter.NodeName = &alert.NodeName
 	}
-	
-	alerts, _, err := facade.ListAlertEvents(ctx, filter)
+
+	alerts, _, err := facade.ListAlertEventss(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Filter out the current alert itself
-	result := make([]*model.AlertEvent, 0, len(alerts))
+	result := make([]*model.AlertEvents, 0, len(alerts))
 	for _, a := range alerts {
 		if a.ID != alert.ID {
 			result = append(result, a)
 		}
 	}
-	
+
 	return result, nil
 }
 
 // analyzeCorrelations analyzes correlation between alerts
-func analyzeCorrelations(alert *UnifiedAlert, relatedAlerts []*model.AlertEvent) []*correlationInfo {
+func analyzeCorrelations(alert *UnifiedAlert, relatedAlerts []*model.AlertEvents) []*correlationInfo {
 	correlations := make([]*correlationInfo, 0)
-	
+
 	for _, related := range relatedAlerts {
 		// Calculate correlation score
 		score, corrType, reason := calculateCorrelation(alert, related)
-		
+
 		if score >= minCorrelationScore {
 			correlations = append(correlations, &correlationInfo{
 				RelatedAlertID:   related.ID,
@@ -108,7 +108,7 @@ func analyzeCorrelations(alert *UnifiedAlert, relatedAlerts []*model.AlertEvent)
 			})
 		}
 	}
-	
+
 	return correlations
 }
 
@@ -121,11 +121,11 @@ type correlationInfo struct {
 }
 
 // calculateCorrelation calculates the correlation score between two alerts
-func calculateCorrelation(alert *UnifiedAlert, related *model.AlertEvent) (float64, string, string) {
+func calculateCorrelation(alert *UnifiedAlert, related *model.AlertEvents) (float64, string, string) {
 	score := 0.0
 	reasons := make([]string, 0)
 	corrType := ""
-	
+
 	// Time-based correlation
 	timeDiff := alert.StartsAt.Sub(related.StartsAt).Abs()
 	if timeDiff < 1*time.Minute {
@@ -141,7 +141,7 @@ func calculateCorrelation(alert *UnifiedAlert, related *model.AlertEvent) (float
 			corrType = CorrelationTypeTime
 		}
 	}
-	
+
 	// Entity-based correlation
 	if alert.WorkloadID != "" && alert.WorkloadID == related.WorkloadID {
 		score += 0.5
@@ -156,7 +156,7 @@ func calculateCorrelation(alert *UnifiedAlert, related *model.AlertEvent) (float
 		reasons = append(reasons, "same node")
 		corrType = CorrelationTypeEntity
 	}
-	
+
 	// Cross-source correlation (metric + log + trace)
 	if alert.Source != related.Source {
 		score += 0.3
@@ -165,7 +165,7 @@ func calculateCorrelation(alert *UnifiedAlert, related *model.AlertEvent) (float
 			corrType = CorrelationTypeCrossSource
 		}
 	}
-	
+
 	// Causal correlation based on alert types
 	causalScore, causalReason := detectCausalRelationship(alert, related)
 	if causalScore > 0 {
@@ -175,7 +175,7 @@ func calculateCorrelation(alert *UnifiedAlert, related *model.AlertEvent) (float
 			corrType = CorrelationTypeCausal
 		}
 	}
-	
+
 	reason := ""
 	if len(reasons) > 0 {
 		reason = reasons[0]
@@ -183,12 +183,12 @@ func calculateCorrelation(alert *UnifiedAlert, related *model.AlertEvent) (float
 			reason += "; " + reasons[i]
 		}
 	}
-	
+
 	return score, corrType, reason
 }
 
 // detectCausalRelationship detects if there's a causal relationship between alerts
-func detectCausalRelationship(alert *UnifiedAlert, related *model.AlertEvent) (float64, string) {
+func detectCausalRelationship(alert *UnifiedAlert, related *model.AlertEvents) (float64, string) {
 	// Parse related alert labels
 	var relatedLabels map[string]string
 	labelsBytes, err := json.Marshal(related.Labels)
@@ -198,9 +198,9 @@ func detectCausalRelationship(alert *UnifiedAlert, related *model.AlertEvent) (f
 	if err := json.Unmarshal(labelsBytes, &relatedLabels); err != nil {
 		return 0, ""
 	}
-	
+
 	relatedAlertName := related.AlertName
-	
+
 	// Define known causal relationships
 	causalRules := []struct {
 		cause  string
@@ -215,33 +215,33 @@ func detectCausalRelationship(alert *UnifiedAlert, related *model.AlertEvent) (f
 		{"NCCLError", "TrainingHang", 0.7, "NCCL error causes training hang"},
 		{"HighTemperature", "GPUThrottling", 0.8, "high temperature causes GPU throttling"},
 	}
-	
+
 	// Check if current alert is caused by related alert
 	for _, rule := range causalRules {
 		if relatedAlertName == rule.cause && alert.AlertName == rule.effect {
 			return rule.score, rule.reason
 		}
 	}
-	
+
 	// Check reverse relationship
 	for _, rule := range causalRules {
 		if alert.AlertName == rule.cause && relatedAlertName == rule.effect {
 			return rule.score, rule.reason
 		}
 	}
-	
+
 	return 0, ""
 }
 
 // storeCorrelation stores a correlation relationship in the database
 func storeCorrelation(ctx context.Context, correlationID, alertID string, corr *correlationInfo) error {
 	facade := database.GetFacade().GetAlert()
-	
+
 	metadata := model.ExtType{
 		"reason": corr.Reason,
 	}
-	
-	correlation := &model.AlertCorrelation{
+
+	correlation := &model.AlertCorrelations{
 		CorrelationID:       correlationID,
 		AlertID:             corr.RelatedAlertID,
 		CorrelationType:     corr.CorrelationType,
@@ -249,30 +249,30 @@ func storeCorrelation(ctx context.Context, correlationID, alertID string, corr *
 		CorrelationReason:   corr.Reason,
 		CorrelationMetadata: metadata,
 	}
-	
-	return facade.CreateAlertCorrelation(ctx, correlation)
+
+	return facade.CreateAlertCorrelations(ctx, correlation)
 }
 
 // GetAlertCorrelations retrieves correlations for a given alert
 func GetAlertCorrelations(ctx context.Context, alertID string) ([]*AlertCorrelationResponse, error) {
 	facade := database.GetFacade().GetAlert()
-	
+
 	// Get all correlations for this alert
-	correlations, err := facade.ListAlertCorrelationsByAlertID(ctx, alertID)
+	correlations, err := facade.ListAlertCorrelationssByAlertID(ctx, alertID)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if len(correlations) == 0 {
 		return []*AlertCorrelationResponse{}, nil
 	}
-	
+
 	// Group correlations by correlation ID
-	corrGroups := make(map[string][]*model.AlertCorrelation)
+	corrGroups := make(map[string][]*model.AlertCorrelations)
 	for _, corr := range correlations {
 		corrGroups[corr.CorrelationID] = append(corrGroups[corr.CorrelationID], corr)
 	}
-	
+
 	// Build response
 	responses := make([]*AlertCorrelationResponse, 0, len(corrGroups))
 	for corrID, group := range corrGroups {
@@ -282,19 +282,19 @@ func GetAlertCorrelations(ctx context.Context, alertID string) ([]*AlertCorrelat
 		for _, corr := range group {
 			alertIDs = append(alertIDs, corr.AlertID)
 		}
-		
+
 		// Fetch all alerts
 		alerts := make([]*UnifiedAlert, 0, len(alertIDs))
 		for _, id := range alertIDs {
-			alert, err := facade.GetAlertEventByID(ctx, id)
+			alert, err := facade.GetAlertEventsByID(ctx, id)
 			if err != nil || alert == nil {
 				continue
 			}
-			
+
 			unified := convertAlertEventToUnified(alert)
 			alerts = append(alerts, unified)
 		}
-		
+
 		// Use the first correlation's type and score
 		var corrType string
 		var corrScore float64
@@ -304,7 +304,7 @@ func GetAlertCorrelations(ctx context.Context, alertID string) ([]*AlertCorrelat
 			corrScore = group[0].CorrelationScore
 			reason = group[0].CorrelationReason
 		}
-		
+
 		responses = append(responses, &AlertCorrelationResponse{
 			CorrelationID:    corrID,
 			Alerts:           alerts,
@@ -313,35 +313,40 @@ func GetAlertCorrelations(ctx context.Context, alertID string) ([]*AlertCorrelat
 			Reason:           reason,
 		})
 	}
-	
+
 	return responses, nil
 }
 
 // convertAlertEventToUnified converts database model to unified alert
-func convertAlertEventToUnified(event *model.AlertEvent) *UnifiedAlert {
+func convertAlertEventToUnified(event *model.AlertEvents) *UnifiedAlert {
 	labels := make(map[string]string)
 	if event.Labels != nil {
 		labelsBytes, _ := json.Marshal(event.Labels)
 		json.Unmarshal(labelsBytes, &labels)
 	}
-	
+
 	annotations := make(map[string]string)
 	if event.Annotations != nil {
 		annotationsBytes, _ := json.Marshal(event.Annotations)
 		json.Unmarshal(annotationsBytes, &annotations)
 	}
-	
+
 	enrichedData := make(map[string]interface{})
 	if event.EnrichedData != nil {
 		enrichedData = event.EnrichedData
 	}
-	
+
 	var rawData []byte
 	if event.RawData != nil {
 		rawDataBytes, _ := json.Marshal(event.RawData)
 		rawData = rawDataBytes
 	}
-	
+
+	var endsAt *time.Time
+	if !event.EndsAt.IsZero() {
+		endsAt = &event.EndsAt
+	}
+
 	return &UnifiedAlert{
 		ID:           event.ID,
 		Source:       event.Source,
@@ -349,7 +354,7 @@ func convertAlertEventToUnified(event *model.AlertEvent) *UnifiedAlert {
 		Severity:     event.Severity,
 		Status:       event.Status,
 		StartsAt:     event.StartsAt,
-		EndsAt:       event.EndsAt,
+		EndsAt:       endsAt,
 		Labels:       labels,
 		Annotations:  annotations,
 		WorkloadID:   event.WorkloadID,
@@ -366,4 +371,3 @@ func convertAlertEventToUnified(event *model.AlertEvent) *UnifiedAlert {
 func stringPtr(s string) *string {
 	return &s
 }
-
