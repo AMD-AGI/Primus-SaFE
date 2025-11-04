@@ -121,15 +121,24 @@ func getGpuUsageHistory(c *gin.Context) {
 }
 
 func getGPUNodeList(ctx *gin.Context) {
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
 	page := &model.SearchGpuNodeReq{}
-	err := ctx.BindQuery(page)
+	err = ctx.BindQuery(page)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	filter := page.ToNodeFilter()
 
-	dbNodes, total, err := database.GetFacade().GetNode().SearchNode(ctx, filter)
+	dbNodes, total, err := database.GetFacadeForCluster(clients.ClusterName).GetNode().SearchNode(ctx, filter)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -145,20 +154,30 @@ func getGPUNodeList(ctx *gin.Context) {
 }
 
 func getNodeWorkload(ctx *gin.Context) {
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+	_ = clients // Cluster validation, may be used in future
+
 	nodeName := ctx.Param("name")
 	page := &rest.Page{}
-	err := ctx.BindQuery(page)
+	err = ctx.BindQuery(page)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	workloads, err := workload.GetRunningTopLevelGpuWorkloadByNode(ctx, nodeName)
+	workloads, err := workload.GetRunningTopLevelGpuWorkloadByNode(ctx, clients.ClusterName, nodeName)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
 	}
 	workloadsResult, _, count, _ := sliceUtil.PaginateSlice(workloads, page.PageNum, page.PageSize)
-	nodeViews, err := batchCvtDBWorkload2TopLevelGpuResource(ctx, workloadsResult, nodeName)
+	nodeViews, err := batchCvtDBWorkload2TopLevelGpuResource(ctx, clients.ClusterName, workloadsResult, nodeName)
 	if err != nil {
 		_ = ctx.Error(err)
 
@@ -173,14 +192,23 @@ func getNodeWorkload(ctx *gin.Context) {
 }
 
 func getNodeWorkloadHistory(ctx *gin.Context) {
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
 	nodeName := ctx.Param("name")
 	page := &rest.Page{}
-	err := ctx.BindQuery(page)
+	err = ctx.BindQuery(page)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	pods, count, err := database.GetFacade().GetPod().GetHistoryGpuPodByNodeName(ctx, nodeName, page.PageNum, page.PageSize)
+	pods, count, err := database.GetFacadeForCluster(clients.ClusterName).GetPod().GetHistoryGpuPodByNodeName(ctx, nodeName, page.PageNum, page.PageSize)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -190,7 +218,7 @@ func getNodeWorkloadHistory(ctx *gin.Context) {
 		uids = append(uids, pod.UID)
 	}
 	workloadMap := map[string]*dbModel.GpuWorkload{}
-	workloads, err := workload.GetTopLevelWorkloadsByPods(ctx, pods)
+	workloads, err := workload.GetTopLevelWorkloadsByPods(ctx, clients.ClusterName, pods)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -200,7 +228,7 @@ func getNodeWorkloadHistory(ctx *gin.Context) {
 		workloadMap[gpuWorkload.UID] = gpuWorkload
 	}
 	references := map[string]string{}
-	refs, err := database.GetFacade().GetWorkload().ListWorkloadPodReferencesByPodUids(ctx, uids)
+	refs, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().ListWorkloadPodReferencesByPodUids(ctx, uids)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -235,10 +263,10 @@ func getNodeWorkloadHistory(ctx *gin.Context) {
 
 }
 
-func batchCvtDBWorkload2TopLevelGpuResource(ctx context.Context, dbWorkloads []*dbModel.GpuWorkload, nodeName string) ([]model.WorkloadNodeView, error) {
+func batchCvtDBWorkload2TopLevelGpuResource(ctx context.Context, clusterName string, dbWorkloads []*dbModel.GpuWorkload, nodeName string) ([]model.WorkloadNodeView, error) {
 	result := []model.WorkloadNodeView{}
 	for _, w := range dbWorkloads {
-		nodeView, err := cvtDBWorkload2TopLevelGpuResource(ctx, w, nodeName)
+		nodeView, err := cvtDBWorkload2TopLevelGpuResource(ctx, clusterName, w, nodeName)
 		if err != nil {
 			return nil, err
 		}
@@ -247,8 +275,8 @@ func batchCvtDBWorkload2TopLevelGpuResource(ctx context.Context, dbWorkloads []*
 	return result, nil
 }
 
-func cvtDBWorkload2TopLevelGpuResource(ctx context.Context, dbWorkload *dbModel.GpuWorkload, nodeName string) (model.WorkloadNodeView, error) {
-	pods, err := workload.GetActivePodsByWorkloadUid(ctx, dbWorkload.UID)
+func cvtDBWorkload2TopLevelGpuResource(ctx context.Context, clusterName string, dbWorkload *dbModel.GpuWorkload, nodeName string) (model.WorkloadNodeView, error) {
+	pods, err := workload.GetActivePodsByWorkloadUid(ctx, clusterName, dbWorkload.UID)
 	if err != nil {
 		return model.WorkloadNodeView{}, err
 	}
@@ -355,8 +383,17 @@ func getNodeGpuMetrics(ctx *gin.Context) {
 }
 
 func getNodeInfoByName(ctx *gin.Context) {
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
 	nodeName := ctx.Param("name")
-	dbNode, err := database.GetFacade().GetNode().GetNodeByName(ctx, nodeName)
+	dbNode, err := database.GetFacadeForCluster(clients.ClusterName).GetNode().GetNodeByName(ctx, nodeName)
 	if err != nil {
 		_ = ctx.Error(err)
 		return

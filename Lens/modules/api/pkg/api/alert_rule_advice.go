@@ -136,7 +136,7 @@ func BatchCreateAlertRuleAdvices(ctx *gin.Context) {
 	facade := database.GetFacade().GetAlertRuleAdvice()
 
 	// Batch create advices
-	if err := facade.BatchCreateAlertRuleAdvicess(ctx.Request.Context(), advices); err != nil{
+	if err := facade.BatchCreateAlertRuleAdvicess(ctx.Request.Context(), advices); err != nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to batch create alert rule advices: %v", err)
 		ctx.JSON(http.StatusInternalServerError, rest.ErrorResp(ctx.Request.Context(), http.StatusInternalServerError, "failed to batch create advices", err))
 		return
@@ -418,7 +418,7 @@ func GetAdviceSummary(ctx *gin.Context) {
 
 // GetAdviceStatistics handles GET /v1/alert-rule-advices/statistics
 func GetAdviceStatistics(ctx *gin.Context) {
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
@@ -697,7 +697,7 @@ func parseAlertRuleAdviceFilter(ctx *gin.Context) *database.AlertRuleAdvicesFilt
 		}
 	}
 
-	filter.ClusterName = ctx.Query("cluster_name")
+	filter.ClusterName = ctx.Query("cluster")
 	filter.RuleType = ctx.Query("rule_type")
 	filter.Category = ctx.Query("category")
 	filter.Status = ctx.Query("status")

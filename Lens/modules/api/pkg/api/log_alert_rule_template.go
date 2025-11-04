@@ -18,7 +18,7 @@ func ListLogAlertRuleTemplates(ctx *gin.Context) {
 	category := ctx.Query("category")
 
 	// Get cluster name
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
@@ -50,7 +50,7 @@ func GetLogAlertRuleTemplate(ctx *gin.Context) {
 	}
 
 	// Get cluster name
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
@@ -93,7 +93,7 @@ func CreateRuleFromTemplate(ctx *gin.Context) {
 	}
 
 	// Get cluster name
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
@@ -185,7 +185,7 @@ func CreateLogAlertRuleTemplate(ctx *gin.Context) {
 	}
 
 	// Get cluster name
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
@@ -228,7 +228,7 @@ func DeleteLogAlertRuleTemplate(ctx *gin.Context) {
 	}
 
 	// Get cluster name
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}

@@ -21,7 +21,9 @@ type GpuWorkloadJob struct {
 }
 
 func (g *GpuWorkloadJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) error {
-	workloadsNotEnd, err := database.GetFacade().GetWorkload().GetWorkloadNotEnd(ctx)
+	// Use current cluster name for job running in current cluster
+	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
+	workloadsNotEnd, err := database.GetFacadeForCluster(clusterName).GetWorkload().GetWorkloadNotEnd(ctx)
 	if err != nil {
 		return err
 	}
@@ -31,7 +33,7 @@ func (g *GpuWorkloadJob) Run(ctx context.Context, clientSets *clientsets.K8SClie
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := g.checkWorkload(ctx, workload, clientSets)
+			err := g.checkWorkload(ctx, clusterName, workload, clientSets)
 			if err != nil {
 				log.Errorf("Failed to check workload %s: %v", workload.Name, err)
 			}
@@ -41,7 +43,7 @@ func (g *GpuWorkloadJob) Run(ctx context.Context, clientSets *clientsets.K8SClie
 	return nil
 }
 
-func (g *GpuWorkloadJob) checkWorkload(ctx context.Context, dbWorkload *dbModel.GpuWorkload, clientSets *clientsets.K8SClientSet) error {
+func (g *GpuWorkloadJob) checkWorkload(ctx context.Context, clusterName string, dbWorkload *dbModel.GpuWorkload, clientSets *clientsets.K8SClientSet) error {
 	// Check weather already end.
 	_, err := k8sUtil.GetObjectByGvk(ctx, dbWorkload.GroupVersion, dbWorkload.Kind, dbWorkload.Namespace, dbWorkload.Name, clientSets.ControllerRuntimeClient)
 	if err != nil {
@@ -52,7 +54,7 @@ func (g *GpuWorkloadJob) checkWorkload(ctx context.Context, dbWorkload *dbModel.
 		dbWorkload.EndAt = dbWorkload.UpdatedAt
 	}
 	if dbWorkload.Status != metadata.WorkloadStatusDeleted {
-		podCount, err := g.fillCurrentGpuCount(ctx, dbWorkload, clientSets)
+		podCount, err := g.fillCurrentGpuCount(ctx, clusterName, dbWorkload, clientSets)
 		if err != nil {
 			return err
 		}
@@ -63,16 +65,16 @@ func (g *GpuWorkloadJob) checkWorkload(ctx context.Context, dbWorkload *dbModel.
 		}
 	}
 
-	err = database.GetFacade().GetWorkload().UpdateGpuWorkload(ctx, dbWorkload)
+	err = database.GetFacadeForCluster(clusterName).GetWorkload().UpdateGpuWorkload(ctx, dbWorkload)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (g *GpuWorkloadJob) fillCurrentGpuCount(ctx context.Context, dbWorkload *dbModel.GpuWorkload, clientSets *clientsets.K8SClientSet) (podCount int, err error) {
+func (g *GpuWorkloadJob) fillCurrentGpuCount(ctx context.Context, clusterName string, dbWorkload *dbModel.GpuWorkload, clientSets *clientsets.K8SClientSet) (podCount int, err error) {
 	// Check all exist pods
-	dBpods, err := workload.GetActivePodsByWorkloadUid(ctx, dbWorkload.UID)
+	dBpods, err := workload.GetActivePodsByWorkloadUid(ctx, clusterName, dbWorkload.UID)
 	if err != nil {
 		return 0, err
 	}

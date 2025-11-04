@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/core/pkg/database"
 	dbModel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
@@ -13,10 +14,17 @@ import (
 )
 
 func getGpuDevice(ctx *gin.Context) {
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
 	name := ctx.Param("name")
-	// Note: GPU device data comes from database, cluster parameter is not needed for now
-	// In the future, if multi-cluster database support is needed, cluster parameter can be added here
-	node, err := database.GetFacade().GetNode().GetNodeByName(ctx, name)
+	node, err := database.GetFacadeForCluster(clients.ClusterName).GetNode().GetNodeByName(ctx, name)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Fail get node.", errors.CodeDatabaseError))
 		return
@@ -25,7 +33,7 @@ func getGpuDevice(ctx *gin.Context) {
 		_ = ctx.Error(errors.NewError().WithCode(errors.RequestDataNotExisted))
 		return
 	}
-	devices, err := database.GetFacade().GetNode().ListGpuDeviceByNodeId(ctx, node.ID)
+	devices, err := database.GetFacadeForCluster(clients.ClusterName).GetNode().ListGpuDeviceByNodeId(ctx, node.ID)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Fail get devices", errors.CodeDatabaseError))
 		return

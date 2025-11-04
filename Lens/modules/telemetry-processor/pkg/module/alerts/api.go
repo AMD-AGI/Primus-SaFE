@@ -485,7 +485,7 @@ func CreateSilence(ctx *gin.Context) {
 
 // ListSilences handles GET /v1/silences - list active silences
 func ListSilences(ctx *gin.Context) {
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 
 	facade := database.GetFacade().GetAlert()
 	silences, err := facade.ListActiveSilences(ctx.Request.Context(), time.Now(), clusterName)

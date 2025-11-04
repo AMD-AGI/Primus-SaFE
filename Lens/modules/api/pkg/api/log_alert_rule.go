@@ -32,7 +32,7 @@ func CreateLogAlertRule(ctx *gin.Context) {
 	}
 
 	// Get cluster name (from query param or use default)
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
@@ -69,7 +69,7 @@ func CreateLogAlertRule(ctx *gin.Context) {
 // ListLogAlertRules handles GET /v1/log-alert-rules
 func ListLogAlertRules(ctx *gin.Context) {
 	// Get cluster name (from query param or use default)
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		// List rules from default cluster if configured
 		defaultCluster := clientsets.GetClusterManager().GetDefaultClusterName()
@@ -160,7 +160,7 @@ func GetLogAlertRule(ctx *gin.Context) {
 	}
 
 	// Get cluster name
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
@@ -201,7 +201,7 @@ func UpdateLogAlertRule(ctx *gin.Context) {
 	}
 
 	// Get cluster name
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
@@ -261,7 +261,7 @@ func DeleteLogAlertRule(ctx *gin.Context) {
 	}
 
 	// Get cluster name
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
@@ -298,7 +298,7 @@ func BatchUpdateLogAlertRules(ctx *gin.Context) {
 	}
 
 	// Get cluster name
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
@@ -347,7 +347,7 @@ func GetLogAlertRuleStatistics(ctx *gin.Context) {
 	}
 
 	// Get cluster name
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
@@ -398,7 +398,7 @@ func GetLogAlertRuleVersions(ctx *gin.Context) {
 	}
 
 	// Get cluster name
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
@@ -437,7 +437,7 @@ func RollbackLogAlertRule(ctx *gin.Context) {
 	}
 
 	// Get cluster name
-	clusterName := ctx.Query("cluster_name")
+	clusterName := ctx.Query("cluster")
 	if clusterName == "" {
 		clusterName = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
@@ -521,7 +521,7 @@ func CloneLogAlertRule(ctx *gin.Context) {
 	}
 
 	// Get source cluster name
-	sourceCluster := ctx.Query("cluster_name")
+	sourceCluster := ctx.Query("cluster")
 	if sourceCluster == "" {
 		sourceCluster = clientsets.GetClusterManager().GetCurrentClusterName()
 	}
