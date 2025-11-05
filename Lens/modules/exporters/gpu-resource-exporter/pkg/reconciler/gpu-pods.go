@@ -182,9 +182,13 @@ func (g *GpuPodsReconciler) saveGpuWorkload(ctx context.Context, obj *unstructur
 		CreatedAt:    obj.GetCreationTimestamp().Time,
 		UpdatedAt:    time.Now(),
 		Labels:       map[string]interface{}{},
+		Annotations:  map[string]interface{}{},
 	}
 	for key, value := range obj.GetLabels() {
 		gpuWorkload.Labels[key] = value
+	}
+	for key, value := range obj.GetAnnotations() {
+		gpuWorkload.Annotations[key] = value
 	}
 	if obj.GetDeletionTimestamp() != nil {
 		gpuWorkload.EndAt = obj.GetDeletionTimestamp().Time

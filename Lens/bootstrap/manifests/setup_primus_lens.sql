@@ -140,6 +140,8 @@ create table gpu_workload
 alter table gpu_workload
     owner to "primus-lens";
 
+alter table gpu_workload add column annotations jsonb;
+
 create table pod_snapshot
 (
     id               serial

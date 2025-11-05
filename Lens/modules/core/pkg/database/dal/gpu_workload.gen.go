@@ -42,6 +42,7 @@ func newGpuWorkload(db *gorm.DB, opts ...gen.DOOption) gpuWorkload {
 	_gpuWorkload.Status = field.NewString(tableName, "status")
 	_gpuWorkload.Source = field.NewString(tableName, "source")
 	_gpuWorkload.Labels = field.NewField(tableName, "labels")
+	_gpuWorkload.Annotations = field.NewField(tableName, "annotations")
 
 	_gpuWorkload.fillFieldMap()
 
@@ -67,6 +68,7 @@ type gpuWorkload struct {
 	Status       field.String
 	Source       field.String
 	Labels       field.Field
+	Annotations  field.Field
 
 	fieldMap map[string]field.Expr
 }
@@ -98,6 +100,7 @@ func (g *gpuWorkload) updateTableName(table string) *gpuWorkload {
 	g.Status = field.NewString(table, "status")
 	g.Source = field.NewString(table, "source")
 	g.Labels = field.NewField(table, "labels")
+	g.Annotations = field.NewField(table, "annotations")
 
 	g.fillFieldMap()
 
@@ -124,7 +127,7 @@ func (g *gpuWorkload) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (g *gpuWorkload) fillFieldMap() {
-	g.fieldMap = make(map[string]field.Expr, 15)
+	g.fieldMap = make(map[string]field.Expr, 16)
 	g.fieldMap["id"] = g.ID
 	g.fieldMap["group_version"] = g.GroupVersion
 	g.fieldMap["kind"] = g.Kind
@@ -140,6 +143,7 @@ func (g *gpuWorkload) fillFieldMap() {
 	g.fieldMap["status"] = g.Status
 	g.fieldMap["source"] = g.Source
 	g.fieldMap["labels"] = g.Labels
+	g.fieldMap["annotations"] = g.Annotations
 }
 
 func (g gpuWorkload) clone(db *gorm.DB) gpuWorkload {

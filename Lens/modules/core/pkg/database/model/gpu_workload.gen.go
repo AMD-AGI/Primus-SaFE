@@ -29,6 +29,7 @@ type GpuWorkload struct {
 	Status       string         `gorm:"column:status" json:"status"`
 	Source       string         `gorm:"column:source" json:"source"`
 	Labels       ExtType        `gorm:"column:labels" json:"labels"`
+	Annotations  ExtType        `gorm:"column:annotations" json:"annotations"`
 }
 
 // TableName GpuWorkload's table name

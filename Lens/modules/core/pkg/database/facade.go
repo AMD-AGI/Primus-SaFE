@@ -26,6 +26,10 @@ type FacadeInterface interface {
 	GetClusterOverviewCache() ClusterOverviewCacheFacadeInterface
 	// GetGenericCache returns the GenericCache Facade interface
 	GetGenericCache() GenericCacheFacadeInterface
+	// GetGpuAggregation returns the GpuAggregation Facade interface
+	GetGpuAggregation() GpuAggregationFacadeInterface
+	// GetSystemConfig returns the SystemConfig Facade interface
+	GetSystemConfig() SystemConfigFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -44,6 +48,8 @@ type Facade struct {
 	AlertRuleAdvice      AlertRuleAdviceFacadeInterface
 	ClusterOverviewCache ClusterOverviewCacheFacadeInterface
 	GenericCache         GenericCacheFacadeInterface
+	GpuAggregation       GpuAggregationFacadeInterface
+	SystemConfig         SystemConfigFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -61,6 +67,8 @@ func NewFacade() *Facade {
 		AlertRuleAdvice:      NewAlertRuleAdviceFacade(),
 		ClusterOverviewCache: NewClusterOverviewCacheFacade(),
 		GenericCache:         NewGenericCacheFacade(),
+		GpuAggregation:       NewGpuAggregationFacade(),
+		SystemConfig:         NewSystemConfigFacade(),
 	}
 }
 
@@ -124,6 +132,16 @@ func (f *Facade) GetGenericCache() GenericCacheFacadeInterface {
 	return f.GenericCache
 }
 
+// GetGpuAggregation returns the GpuAggregation Facade interface
+func (f *Facade) GetGpuAggregation() GpuAggregationFacadeInterface {
+	return f.GpuAggregation
+}
+
+// GetSystemConfig returns the SystemConfig Facade interface
+func (f *Facade) GetSystemConfig() SystemConfigFacadeInterface {
+	return f.SystemConfig
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -139,6 +157,8 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		AlertRuleAdvice:      f.AlertRuleAdvice.WithCluster(clusterName),
 		ClusterOverviewCache: f.ClusterOverviewCache.WithCluster(clusterName),
 		GenericCache:         f.GenericCache.WithCluster(clusterName),
+		GpuAggregation:       f.GpuAggregation.WithCluster(clusterName),
+		SystemConfig:         f.SystemConfig.WithCluster(clusterName),
 	}
 }
 

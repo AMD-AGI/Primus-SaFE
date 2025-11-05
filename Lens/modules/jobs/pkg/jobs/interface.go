@@ -2,9 +2,11 @@ package jobs
 
 import (
 	"context"
+
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/jobs/pkg/jobs/cluster_overview"
 	"github.com/AMD-AGI/primus-lens/jobs/pkg/jobs/device_info"
+	"github.com/AMD-AGI/primus-lens/jobs/pkg/jobs/gpu_aggregation"
 	"github.com/AMD-AGI/primus-lens/jobs/pkg/jobs/gpu_allocation"
 	"github.com/AMD-AGI/primus-lens/jobs/pkg/jobs/gpu_consumers"
 	"github.com/AMD-AGI/primus-lens/jobs/pkg/jobs/gpu_history_cache_1h"
@@ -32,8 +34,9 @@ var jobs = []Job{
 	&storage_scan.StorageScanJob{},
 	&cluster_overview.ClusterOverviewJob{},
 	// GPU cache jobs - split into separate jobs for better performance
-	&gpu_realtime_cache.GpuRealtimeCacheJob{},       // Every 30s - realtime metrics
-	&gpu_history_cache_1h.GpuHistoryCache1hJob{},    // Every 1m - 1 hour history
-	&gpu_history_cache_6h.GpuHistoryCache6hJob{},    // Every 5m - 6 hour history
-	&gpu_history_cache_24h.GpuHistoryCache24hJob{},  // Every 10m - 24 hour history
+	&gpu_realtime_cache.GpuRealtimeCacheJob{},      // Every 30s - realtime metrics
+	&gpu_history_cache_1h.GpuHistoryCache1hJob{},   // Every 1m - 1 hour history
+	&gpu_history_cache_6h.GpuHistoryCache6hJob{},   // Every 5m - 6 hour history
+	&gpu_history_cache_24h.GpuHistoryCache24hJob{}, // Every 10m - 24 hour history
+	gpu_aggregation.NewGpuAggregationJob(),
 }

@@ -27,19 +27,23 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		AlertRules:                newAlertRules(db, opts...),
 		AlertSilences:             newAlertSilences(db, opts...),
 		AlertStatistics:           newAlertStatistics(db, opts...),
+		ClusterGpuHourlyStats:     newClusterGpuHourlyStats(db, opts...),
 		ClusterOverviewCache:      newClusterOverviewCache(db, opts...),
 		Fault:                     newFault(db, opts...),
 		GenericCache:              newGenericCache(db, opts...),
+		GpuAllocationSnapshots:    newGpuAllocationSnapshots(db, opts...),
 		GpuDevice:                 newGpuDevice(db, opts...),
 		GpuPods:                   newGpuPods(db, opts...),
 		GpuPodsEvent:              newGpuPodsEvent(db, opts...),
 		GpuWorkload:               newGpuWorkload(db, opts...),
 		GpuWorkloadSnapshot:       newGpuWorkloadSnapshot(db, opts...),
+		LabelGpuHourlyStats:       newLabelGpuHourlyStats(db, opts...),
 		LogAlertRuleStatistics:    newLogAlertRuleStatistics(db, opts...),
 		LogAlertRuleTemplates:     newLogAlertRuleTemplates(db, opts...),
 		LogAlertRuleVersions:      newLogAlertRuleVersions(db, opts...),
 		LogAlertRules:             newLogAlertRules(db, opts...),
 		MetricAlertRules:          newMetricAlertRules(db, opts...),
+		NamespaceGpuHourlyStats:   newNamespaceGpuHourlyStats(db, opts...),
 		Node:                      newNode(db, opts...),
 		NodeContainer:             newNodeContainer(db, opts...),
 		NodeContainerDevices:      newNodeContainerDevices(db, opts...),
@@ -50,6 +54,8 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		RdmaDevice:                newRdmaDevice(db, opts...),
 		SilencedAlerts:            newSilencedAlerts(db, opts...),
 		Storage:                   newStorage(db, opts...),
+		SystemConfig:              newSystemConfig(db, opts...),
+		SystemConfigHistory:       newSystemConfigHistory(db, opts...),
 		TrainingPerformance:       newTrainingPerformance(db, opts...),
 		WorkloadEvent:             newWorkloadEvent(db, opts...),
 		WorkloadPodReference:      newWorkloadPodReference(db, opts...),
@@ -69,19 +75,23 @@ type Query struct {
 	AlertRules                alertRules
 	AlertSilences             alertSilences
 	AlertStatistics           alertStatistics
+	ClusterGpuHourlyStats     clusterGpuHourlyStats
 	ClusterOverviewCache      clusterOverviewCache
 	Fault                     fault
 	GenericCache              genericCache
+	GpuAllocationSnapshots    gpuAllocationSnapshots
 	GpuDevice                 gpuDevice
 	GpuPods                   gpuPods
 	GpuPodsEvent              gpuPodsEvent
 	GpuWorkload               gpuWorkload
 	GpuWorkloadSnapshot       gpuWorkloadSnapshot
+	LabelGpuHourlyStats       labelGpuHourlyStats
 	LogAlertRuleStatistics    logAlertRuleStatistics
 	LogAlertRuleTemplates     logAlertRuleTemplates
 	LogAlertRuleVersions      logAlertRuleVersions
 	LogAlertRules             logAlertRules
 	MetricAlertRules          metricAlertRules
+	NamespaceGpuHourlyStats   namespaceGpuHourlyStats
 	Node                      node
 	NodeContainer             nodeContainer
 	NodeContainerDevices      nodeContainerDevices
@@ -92,6 +102,8 @@ type Query struct {
 	RdmaDevice                rdmaDevice
 	SilencedAlerts            silencedAlerts
 	Storage                   storage
+	SystemConfig              systemConfig
+	SystemConfigHistory       systemConfigHistory
 	TrainingPerformance       trainingPerformance
 	WorkloadEvent             workloadEvent
 	WorkloadPodReference      workloadPodReference
@@ -112,19 +124,23 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		AlertRules:                q.AlertRules.clone(db),
 		AlertSilences:             q.AlertSilences.clone(db),
 		AlertStatistics:           q.AlertStatistics.clone(db),
+		ClusterGpuHourlyStats:     q.ClusterGpuHourlyStats.clone(db),
 		ClusterOverviewCache:      q.ClusterOverviewCache.clone(db),
 		Fault:                     q.Fault.clone(db),
 		GenericCache:              q.GenericCache.clone(db),
+		GpuAllocationSnapshots:    q.GpuAllocationSnapshots.clone(db),
 		GpuDevice:                 q.GpuDevice.clone(db),
 		GpuPods:                   q.GpuPods.clone(db),
 		GpuPodsEvent:              q.GpuPodsEvent.clone(db),
 		GpuWorkload:               q.GpuWorkload.clone(db),
 		GpuWorkloadSnapshot:       q.GpuWorkloadSnapshot.clone(db),
+		LabelGpuHourlyStats:       q.LabelGpuHourlyStats.clone(db),
 		LogAlertRuleStatistics:    q.LogAlertRuleStatistics.clone(db),
 		LogAlertRuleTemplates:     q.LogAlertRuleTemplates.clone(db),
 		LogAlertRuleVersions:      q.LogAlertRuleVersions.clone(db),
 		LogAlertRules:             q.LogAlertRules.clone(db),
 		MetricAlertRules:          q.MetricAlertRules.clone(db),
+		NamespaceGpuHourlyStats:   q.NamespaceGpuHourlyStats.clone(db),
 		Node:                      q.Node.clone(db),
 		NodeContainer:             q.NodeContainer.clone(db),
 		NodeContainerDevices:      q.NodeContainerDevices.clone(db),
@@ -135,6 +151,8 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		RdmaDevice:                q.RdmaDevice.clone(db),
 		SilencedAlerts:            q.SilencedAlerts.clone(db),
 		Storage:                   q.Storage.clone(db),
+		SystemConfig:              q.SystemConfig.clone(db),
+		SystemConfigHistory:       q.SystemConfigHistory.clone(db),
 		TrainingPerformance:       q.TrainingPerformance.clone(db),
 		WorkloadEvent:             q.WorkloadEvent.clone(db),
 		WorkloadPodReference:      q.WorkloadPodReference.clone(db),
@@ -162,19 +180,23 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		AlertRules:                q.AlertRules.replaceDB(db),
 		AlertSilences:             q.AlertSilences.replaceDB(db),
 		AlertStatistics:           q.AlertStatistics.replaceDB(db),
+		ClusterGpuHourlyStats:     q.ClusterGpuHourlyStats.replaceDB(db),
 		ClusterOverviewCache:      q.ClusterOverviewCache.replaceDB(db),
 		Fault:                     q.Fault.replaceDB(db),
 		GenericCache:              q.GenericCache.replaceDB(db),
+		GpuAllocationSnapshots:    q.GpuAllocationSnapshots.replaceDB(db),
 		GpuDevice:                 q.GpuDevice.replaceDB(db),
 		GpuPods:                   q.GpuPods.replaceDB(db),
 		GpuPodsEvent:              q.GpuPodsEvent.replaceDB(db),
 		GpuWorkload:               q.GpuWorkload.replaceDB(db),
 		GpuWorkloadSnapshot:       q.GpuWorkloadSnapshot.replaceDB(db),
+		LabelGpuHourlyStats:       q.LabelGpuHourlyStats.replaceDB(db),
 		LogAlertRuleStatistics:    q.LogAlertRuleStatistics.replaceDB(db),
 		LogAlertRuleTemplates:     q.LogAlertRuleTemplates.replaceDB(db),
 		LogAlertRuleVersions:      q.LogAlertRuleVersions.replaceDB(db),
 		LogAlertRules:             q.LogAlertRules.replaceDB(db),
 		MetricAlertRules:          q.MetricAlertRules.replaceDB(db),
+		NamespaceGpuHourlyStats:   q.NamespaceGpuHourlyStats.replaceDB(db),
 		Node:                      q.Node.replaceDB(db),
 		NodeContainer:             q.NodeContainer.replaceDB(db),
 		NodeContainerDevices:      q.NodeContainerDevices.replaceDB(db),
@@ -185,6 +207,8 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		RdmaDevice:                q.RdmaDevice.replaceDB(db),
 		SilencedAlerts:            q.SilencedAlerts.replaceDB(db),
 		Storage:                   q.Storage.replaceDB(db),
+		SystemConfig:              q.SystemConfig.replaceDB(db),
+		SystemConfigHistory:       q.SystemConfigHistory.replaceDB(db),
 		TrainingPerformance:       q.TrainingPerformance.replaceDB(db),
 		WorkloadEvent:             q.WorkloadEvent.replaceDB(db),
 		WorkloadPodReference:      q.WorkloadPodReference.replaceDB(db),
@@ -202,19 +226,23 @@ type queryCtx struct {
 	AlertRules                *alertRulesDo
 	AlertSilences             *alertSilencesDo
 	AlertStatistics           *alertStatisticsDo
+	ClusterGpuHourlyStats     *clusterGpuHourlyStatsDo
 	ClusterOverviewCache      *clusterOverviewCacheDo
 	Fault                     *faultDo
 	GenericCache              *genericCacheDo
+	GpuAllocationSnapshots    *gpuAllocationSnapshotsDo
 	GpuDevice                 *gpuDeviceDo
 	GpuPods                   *gpuPodsDo
 	GpuPodsEvent              *gpuPodsEventDo
 	GpuWorkload               *gpuWorkloadDo
 	GpuWorkloadSnapshot       *gpuWorkloadSnapshotDo
+	LabelGpuHourlyStats       *labelGpuHourlyStatsDo
 	LogAlertRuleStatistics    *logAlertRuleStatisticsDo
 	LogAlertRuleTemplates     *logAlertRuleTemplatesDo
 	LogAlertRuleVersions      *logAlertRuleVersionsDo
 	LogAlertRules             *logAlertRulesDo
 	MetricAlertRules          *metricAlertRulesDo
+	NamespaceGpuHourlyStats   *namespaceGpuHourlyStatsDo
 	Node                      *nodeDo
 	NodeContainer             *nodeContainerDo
 	NodeContainerDevices      *nodeContainerDevicesDo
@@ -225,6 +253,8 @@ type queryCtx struct {
 	RdmaDevice                *rdmaDeviceDo
 	SilencedAlerts            *silencedAlertsDo
 	Storage                   *storageDo
+	SystemConfig              *systemConfigDo
+	SystemConfigHistory       *systemConfigHistoryDo
 	TrainingPerformance       *trainingPerformanceDo
 	WorkloadEvent             *workloadEventDo
 	WorkloadPodReference      *workloadPodReferenceDo
@@ -242,19 +272,23 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		AlertRules:                q.AlertRules.WithContext(ctx),
 		AlertSilences:             q.AlertSilences.WithContext(ctx),
 		AlertStatistics:           q.AlertStatistics.WithContext(ctx),
+		ClusterGpuHourlyStats:     q.ClusterGpuHourlyStats.WithContext(ctx),
 		ClusterOverviewCache:      q.ClusterOverviewCache.WithContext(ctx),
 		Fault:                     q.Fault.WithContext(ctx),
 		GenericCache:              q.GenericCache.WithContext(ctx),
+		GpuAllocationSnapshots:    q.GpuAllocationSnapshots.WithContext(ctx),
 		GpuDevice:                 q.GpuDevice.WithContext(ctx),
 		GpuPods:                   q.GpuPods.WithContext(ctx),
 		GpuPodsEvent:              q.GpuPodsEvent.WithContext(ctx),
 		GpuWorkload:               q.GpuWorkload.WithContext(ctx),
 		GpuWorkloadSnapshot:       q.GpuWorkloadSnapshot.WithContext(ctx),
+		LabelGpuHourlyStats:       q.LabelGpuHourlyStats.WithContext(ctx),
 		LogAlertRuleStatistics:    q.LogAlertRuleStatistics.WithContext(ctx),
 		LogAlertRuleTemplates:     q.LogAlertRuleTemplates.WithContext(ctx),
 		LogAlertRuleVersions:      q.LogAlertRuleVersions.WithContext(ctx),
 		LogAlertRules:             q.LogAlertRules.WithContext(ctx),
 		MetricAlertRules:          q.MetricAlertRules.WithContext(ctx),
+		NamespaceGpuHourlyStats:   q.NamespaceGpuHourlyStats.WithContext(ctx),
 		Node:                      q.Node.WithContext(ctx),
 		NodeContainer:             q.NodeContainer.WithContext(ctx),
 		NodeContainerDevices:      q.NodeContainerDevices.WithContext(ctx),
@@ -265,6 +299,8 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		RdmaDevice:                q.RdmaDevice.WithContext(ctx),
 		SilencedAlerts:            q.SilencedAlerts.WithContext(ctx),
 		Storage:                   q.Storage.WithContext(ctx),
+		SystemConfig:              q.SystemConfig.WithContext(ctx),
+		SystemConfigHistory:       q.SystemConfigHistory.WithContext(ctx),
 		TrainingPerformance:       q.TrainingPerformance.WithContext(ctx),
 		WorkloadEvent:             q.WorkloadEvent.WithContext(ctx),
 		WorkloadPodReference:      q.WorkloadPodReference.WithContext(ctx),
