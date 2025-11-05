@@ -81,7 +81,7 @@ func getClusterHourlyStats(ctx *gin.Context) {
 
 	// 查询数据
 	stats, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetClusterHourlyStats(ctx, clients.ClusterName, startTime, endTime)
+		GetClusterHourlyStats(ctx, startTime, endTime)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Failed to get cluster hourly stats", errors.CodeDatabaseError))
 		return
@@ -136,10 +136,10 @@ func getNamespaceHourlyStats(ctx *gin.Context) {
 
 	if req.Namespace != "" {
 		// 查询特定namespace
-		stats, err = facade.GetNamespaceHourlyStats(ctx, clients.ClusterName, req.Namespace, startTime, endTime)
+		stats, err = facade.GetNamespaceHourlyStats(ctx, req.Namespace, startTime, endTime)
 	} else {
 		// 查询所有namespace
-		stats, err = facade.ListNamespaceHourlyStats(ctx, clients.ClusterName, startTime, endTime)
+		stats, err = facade.ListNamespaceHourlyStats(ctx, startTime, endTime)
 	}
 
 	if err != nil {
@@ -198,11 +198,11 @@ func getLabelHourlyStats(ctx *gin.Context) {
 
 	if req.DimensionValue != "" {
 		// 查询特定dimension value
-		stats, err = facade.GetLabelHourlyStats(ctx, clients.ClusterName, req.DimensionType,
+		stats, err = facade.GetLabelHourlyStats(ctx, req.DimensionType,
 			req.DimensionKey, req.DimensionValue, startTime, endTime)
 	} else {
 		// 查询该key的所有value
-		stats, err = facade.ListLabelHourlyStatsByKey(ctx, clients.ClusterName, req.DimensionType,
+		stats, err = facade.ListLabelHourlyStatsByKey(ctx, req.DimensionType,
 			req.DimensionKey, startTime, endTime)
 	}
 
@@ -234,7 +234,7 @@ func getLatestSnapshot(ctx *gin.Context) {
 
 	// 查询最新快照
 	snapshot, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetLatestSnapshot(ctx, clients.ClusterName)
+		GetLatestSnapshot(ctx)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Failed to get latest snapshot", errors.CodeDatabaseError))
 		return
@@ -297,7 +297,7 @@ func listSnapshots(ctx *gin.Context) {
 
 	// 查询快照列表
 	snapshots, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		ListSnapshots(ctx, clients.ClusterName, startTime, endTime)
+		ListSnapshots(ctx, startTime, endTime)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Failed to list snapshots", errors.CodeDatabaseError))
 		return
