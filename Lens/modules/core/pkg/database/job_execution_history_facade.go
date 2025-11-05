@@ -16,6 +16,7 @@ type JobExecutionHistoryFacadeInterface interface {
 	ListJobExecutionHistories(ctx context.Context, filter *JobExecutionHistoryFilter) ([]*model.JobExecutionHistory, int64, error)
 	GetRecentFailures(ctx context.Context, limit int) ([]*model.JobExecutionHistory, error)
 	GetJobStatistics(ctx context.Context, jobName string) (*JobStatistics, error)
+	GetDistinctJobTypes(ctx context.Context) ([]string, error)
 
 	// WithCluster method
 	WithCluster(clusterName string) JobExecutionHistoryFacadeInterface
@@ -228,5 +229,23 @@ func (f *JobExecutionHistoryFacade) GetJobStatistics(ctx context.Context, jobNam
 	}
 	
 	return &stats, nil
+}
+
+// GetDistinctJobTypes retrieves all distinct job types from execution history
+func (f *JobExecutionHistoryFacade) GetDistinctJobTypes(ctx context.Context) ([]string, error) {
+	db := f.getDB().WithContext(ctx)
+	
+	var jobTypes []string
+	err := db.Model(&model.JobExecutionHistory{}).
+		Distinct("job_type").
+		Where("job_type IS NOT NULL AND job_type != ?", "").
+		Order("job_type ASC").
+		Pluck("job_type", &jobTypes).Error
+	
+	if err != nil {
+		return nil, err
+	}
+	
+	return jobTypes, nil
 }
 

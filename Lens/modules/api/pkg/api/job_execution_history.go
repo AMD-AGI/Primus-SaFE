@@ -233,3 +233,32 @@ func GetJobStatistics(c *gin.Context) {
 
 	c.JSON(http.StatusOK, rest.SuccessResp(c.Request.Context(), stats))
 }
+
+// GetDistinctJobTypes handles GET /api/job-execution-histories/distinct/job-types
+// 获取所有不同的任务类型
+// 查询参数:
+//   - cluster: 指定集群名称 (可选，默认使用配置的默认集群或当前集群)
+func GetDistinctJobTypes(c *gin.Context) {
+	// Get cluster clients based on query parameter
+	cm := clientsets.GetClusterManager()
+	clusterName := c.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	log.Infof("GetDistinctJobTypes: clusterName: %s", clients.ClusterName)
+
+	facade := database.GetFacade().GetJobExecutionHistory().WithCluster(clients.ClusterName)
+	jobTypes, err := facade.GetDistinctJobTypes(c.Request.Context())
+	if err != nil {
+		log.GlobalLogger().WithContext(c).Errorf("Failed to get distinct job types: %v", err)
+		c.JSON(http.StatusInternalServerError, rest.ErrorResp(c.Request.Context(), http.StatusInternalServerError, err.Error(), nil))
+		return
+	}
+
+	c.JSON(http.StatusOK, rest.SuccessResp(c.Request.Context(), gin.H{
+		"job_types": jobTypes,
+		"count":     len(jobTypes),
+	}))
+}
