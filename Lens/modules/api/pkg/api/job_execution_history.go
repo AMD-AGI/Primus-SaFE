@@ -233,4 +233,3 @@ func GetJobStatistics(c *gin.Context) {
 
 	c.JSON(http.StatusOK, rest.SuccessResp(c.Request.Context(), stats))
 }
-
