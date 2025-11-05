@@ -33,7 +33,7 @@ func getClusterGpuAllocationInfo(c *gin.Context) {
 
 	// Try to get from cache first
 	cacheFacade := database.GetFacadeForCluster(clients.ClusterName).GetGenericCache()
-	cacheKey := fmt.Sprintf("cluster:gpu:allocation_info:%s", clients.ClusterName)
+	cacheKey := "cluster:gpu:allocation_info"
 
 	var result []model.GpuAllocation
 	err = cacheFacade.Get(c, cacheKey, &result)
@@ -64,7 +64,7 @@ func getClusterGPUUtilization(c *gin.Context) {
 
 	// Try to get from cache first
 	cacheFacade := database.GetFacadeForCluster(clients.ClusterName).GetGenericCache()
-	cacheKey := fmt.Sprintf("cluster:gpu:utilization:%s", clients.ClusterName)
+	cacheKey := "cluster:gpu:utilization"
 
 	var result model.GPUUtilization
 	err = cacheFacade.Get(c, cacheKey, &result)
@@ -129,7 +129,7 @@ func getGpuUsageHistory(c *gin.Context) {
 	// Try to get from cache first if querying recent data with default step
 	if step == 60 {
 		cacheFacade := database.GetFacadeForCluster(clients.ClusterName).GetGenericCache()
-		cacheKey := getGpuUsageHistoryCacheKey(clients.ClusterName, startTime, endTime)
+		cacheKey := getGpuUsageHistoryCacheKey(startTime, endTime)
 
 		if cacheKey != "" {
 			var result model.GpuUtilizationHistory
@@ -170,7 +170,7 @@ func getGpuUsageHistory(c *gin.Context) {
 
 // getGpuUsageHistoryCacheKey determines the cache key based on the time range
 // Returns empty string if the query doesn't match any cached time ranges
-func getGpuUsageHistoryCacheKey(clusterName string, startTime, endTime time.Time) string {
+func getGpuUsageHistoryCacheKey(startTime, endTime time.Time) string {
 	now := time.Now()
 	duration := endTime.Sub(startTime)
 
@@ -186,13 +186,13 @@ func getGpuUsageHistoryCacheKey(clusterName string, startTime, endTime time.Time
 	// Match against cached durations
 	if duration >= 50*time.Minute && duration <= 70*time.Minute {
 		// ~1 hour query
-		return fmt.Sprintf("cluster:gpu:usage_history:1h:%s", clusterName)
+		return "cluster:gpu:usage_history:1h"
 	} else if duration >= 5*time.Hour+30*time.Minute && duration <= 6*time.Hour+30*time.Minute {
 		// ~6 hour query
-		return fmt.Sprintf("cluster:gpu:usage_history:6h:%s", clusterName)
+		return "cluster:gpu:usage_history:6h"
 	} else if duration >= 23*time.Hour && duration <= 25*time.Hour {
 		// ~24 hour query
-		return fmt.Sprintf("cluster:gpu:usage_history:24h:%s", clusterName)
+		return "cluster:gpu:usage_history:24h"
 	}
 
 	return "" // Duration doesn't match any cached ranges

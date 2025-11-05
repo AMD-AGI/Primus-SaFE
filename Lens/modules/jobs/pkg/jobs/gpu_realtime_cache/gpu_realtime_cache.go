@@ -68,7 +68,7 @@ func (j *GpuRealtimeCacheJob) cacheGpuAllocationInfo(
 	}
 
 	// Set cache key with cluster name
-	cacheKey := fmt.Sprintf("%s:%s", CacheKeyGpuAllocationInfo, clusterName)
+	cacheKey := CacheKeyGpuAllocationInfo
 	expiresAt := time.Now().Add(CacheExpirationDuration)
 
 	// Store in cache
@@ -108,7 +108,7 @@ func (j *GpuRealtimeCacheJob) cacheGpuUtilization(
 	}
 
 	// Set cache key with cluster name
-	cacheKey := fmt.Sprintf("%s:%s", CacheKeyGpuUtilization, clusterName)
+	cacheKey := CacheKeyGpuUtilization
 	expiresAt := time.Now().Add(CacheExpirationDuration)
 
 	// Store in cache
