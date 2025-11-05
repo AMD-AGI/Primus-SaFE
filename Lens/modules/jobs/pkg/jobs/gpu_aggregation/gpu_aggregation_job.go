@@ -15,6 +15,7 @@ import (
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/prom"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/primus-lens/core/pkg/model"
+	"github.com/AMD-AGI/primus-lens/jobs/pkg/common"
 )
 
 const (
@@ -94,20 +95,24 @@ func NewGpuAggregationJobWithConfig(cfg *model.GpuAggregationConfig) *GpuAggrega
 // Run 运行Job (由Job调度器调用)
 func (j *GpuAggregationJob) Run(ctx context.Context,
 	k8sClientSet *clientsets.K8SClientSet,
-	storageClientSet *clientsets.StorageClientSet) error {
+	storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
+
+	stats := common.NewExecutionStats()
 
 	// 如果配置为 nil，从配置管理器读取
 	if j.config == nil {
 		if err := j.loadConfig(ctx); err != nil {
 			log.Warnf("Failed to load GPU aggregation config, job will not run: %v", err)
-			return nil // 返回 nil 不影响调度器继续运行
+			stats.AddMessage("GPU aggregation config not found, job disabled")
+			return stats, nil // 返回 nil 不影响调度器继续运行
 		}
 	}
 
 	// 检查配置是否启用
 	if !j.config.Enabled {
 		log.Debugf("GPU aggregation job is disabled in config")
-		return nil
+		stats.AddMessage("GPU aggregation job is disabled in config")
+		return stats, nil
 	}
 
 	clusterName := j.clusterName
@@ -122,9 +127,15 @@ func (j *GpuAggregationJob) Run(ctx context.Context,
 	// 如果跨小时了,先聚合上一个小时的数据
 	if currentHour.After(j.currentHour) && len(j.snapshotCache) > 0 {
 		log.Infof("Hour changed, aggregating data for hour: %v", j.currentHour)
+		aggStart := time.Now()
 		if err := j.aggregateHourlyData(ctx, clusterName, j.currentHour); err != nil {
+			stats.ErrorCount++
 			log.Errorf("Failed to aggregate hourly data: %v", err)
 			// 不返回错误,继续采样
+		} else {
+			stats.ProcessDuration += time.Since(aggStart).Seconds()
+			stats.ItemsCreated++ // 创建了一个小时聚合记录
+			stats.AddMessage(fmt.Sprintf("Aggregated hourly data for %v", j.currentHour))
 		}
 
 		// 清空缓存,开始新的一小时
@@ -134,13 +145,18 @@ func (j *GpuAggregationJob) Run(ctx context.Context,
 
 	// 执行采样
 	if j.config.Sampling.Enabled {
+		sampleStart := time.Now()
 		if err := j.sample(ctx, clusterName, k8sClientSet, storageClientSet); err != nil {
 			log.Errorf("Failed to sample GPU data: %v", err)
-			return err
+			return stats, err
 		}
+		stats.QueryDuration = time.Since(sampleStart).Seconds()
+		stats.RecordsProcessed = int64(len(j.snapshotCache))
+		stats.AddCustomMetric("snapshots_cached", len(j.snapshotCache))
+		stats.AddMessage("GPU data sampled successfully")
 	}
 
-	return nil
+	return stats, nil
 }
 
 // sample 采样当前GPU状态

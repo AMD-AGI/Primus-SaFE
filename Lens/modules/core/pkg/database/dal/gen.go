@@ -37,6 +37,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		GpuPodsEvent:              newGpuPodsEvent(db, opts...),
 		GpuWorkload:               newGpuWorkload(db, opts...),
 		GpuWorkloadSnapshot:       newGpuWorkloadSnapshot(db, opts...),
+		JobExecutionHistory:       newJobExecutionHistory(db, opts...),
 		LabelGpuHourlyStats:       newLabelGpuHourlyStats(db, opts...),
 		LogAlertRuleStatistics:    newLogAlertRuleStatistics(db, opts...),
 		LogAlertRuleTemplates:     newLogAlertRuleTemplates(db, opts...),
@@ -85,6 +86,7 @@ type Query struct {
 	GpuPodsEvent              gpuPodsEvent
 	GpuWorkload               gpuWorkload
 	GpuWorkloadSnapshot       gpuWorkloadSnapshot
+	JobExecutionHistory       jobExecutionHistory
 	LabelGpuHourlyStats       labelGpuHourlyStats
 	LogAlertRuleStatistics    logAlertRuleStatistics
 	LogAlertRuleTemplates     logAlertRuleTemplates
@@ -134,6 +136,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		GpuPodsEvent:              q.GpuPodsEvent.clone(db),
 		GpuWorkload:               q.GpuWorkload.clone(db),
 		GpuWorkloadSnapshot:       q.GpuWorkloadSnapshot.clone(db),
+		JobExecutionHistory:       q.JobExecutionHistory.clone(db),
 		LabelGpuHourlyStats:       q.LabelGpuHourlyStats.clone(db),
 		LogAlertRuleStatistics:    q.LogAlertRuleStatistics.clone(db),
 		LogAlertRuleTemplates:     q.LogAlertRuleTemplates.clone(db),
@@ -190,6 +193,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		GpuPodsEvent:              q.GpuPodsEvent.replaceDB(db),
 		GpuWorkload:               q.GpuWorkload.replaceDB(db),
 		GpuWorkloadSnapshot:       q.GpuWorkloadSnapshot.replaceDB(db),
+		JobExecutionHistory:       q.JobExecutionHistory.replaceDB(db),
 		LabelGpuHourlyStats:       q.LabelGpuHourlyStats.replaceDB(db),
 		LogAlertRuleStatistics:    q.LogAlertRuleStatistics.replaceDB(db),
 		LogAlertRuleTemplates:     q.LogAlertRuleTemplates.replaceDB(db),
@@ -236,6 +240,7 @@ type queryCtx struct {
 	GpuPodsEvent              *gpuPodsEventDo
 	GpuWorkload               *gpuWorkloadDo
 	GpuWorkloadSnapshot       *gpuWorkloadSnapshotDo
+	JobExecutionHistory       *jobExecutionHistoryDo
 	LabelGpuHourlyStats       *labelGpuHourlyStatsDo
 	LogAlertRuleStatistics    *logAlertRuleStatisticsDo
 	LogAlertRuleTemplates     *logAlertRuleTemplatesDo
@@ -282,6 +287,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		GpuPodsEvent:              q.GpuPodsEvent.WithContext(ctx),
 		GpuWorkload:               q.GpuWorkload.WithContext(ctx),
 		GpuWorkloadSnapshot:       q.GpuWorkloadSnapshot.WithContext(ctx),
+		JobExecutionHistory:       q.JobExecutionHistory.WithContext(ctx),
 		LabelGpuHourlyStats:       q.LabelGpuHourlyStats.WithContext(ctx),
 		LogAlertRuleStatistics:    q.LogAlertRuleStatistics.WithContext(ctx),
 		LogAlertRuleTemplates:     q.LogAlertRuleTemplates.WithContext(ctx),

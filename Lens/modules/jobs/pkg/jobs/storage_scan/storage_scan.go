@@ -8,12 +8,15 @@ import (
 	"github.com/AMD-AGI/primus-lens/core/pkg/database"
 	dbModel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/primus-lens/jobs/pkg/common"
 )
 
 type StorageScanJob struct {
 }
 
-func (s *StorageScanJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) error {
+func (s *StorageScanJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
+	stats := common.NewExecutionStats()
+	
 	scanner := &Scanner{Targets: []ClusterTarget{
 		{
 			Name:       "K8S",
@@ -21,10 +24,14 @@ func (s *StorageScanJob) Run(ctx context.Context, clientSets *clientsets.K8SClie
 			Extra:      nil,
 		},
 	}}
+	
+	scanStart := time.Now()
 	result, err := scanner.Run(ctx)
+	stats.QueryDuration = time.Since(scanStart).Seconds()
 	if err != nil {
-		return err
+		return stats, err
 	}
+	
 	for _, report := range result {
 		for _, item := range report.BackendItems {
 			dbItem := &dbModel.Storage{
@@ -40,6 +47,7 @@ func (s *StorageScanJob) Run(ctx context.Context, clientSets *clientsets.K8SClie
 			}
 			existDbItem, err := database.GetFacade().GetStorage().GetStorageByKindAndName(ctx, dbItem.Kind, dbItem.Name)
 			if err != nil {
+				stats.ErrorCount++
 				log.Errorf("Fail to get storage %s/%s: %v", dbItem.Kind, dbItem.Name, err)
 				continue
 			}
@@ -48,22 +56,28 @@ func (s *StorageScanJob) Run(ctx context.Context, clientSets *clientsets.K8SClie
 				dbItem.CreatedAt = existDbItem.CreatedAt
 				err = database.GetFacade().GetStorage().UpdateStorage(ctx, dbItem)
 				if err != nil {
+					stats.ErrorCount++
 					log.Errorf("Fail to update storage %s/%s: %v", dbItem.Kind, dbItem.Name, err)
 					continue
 				}
+				stats.ItemsUpdated++
 				log.Infof("Storage %s/%s updated", dbItem.Kind, dbItem.Name)
 			} else {
 				err = database.GetFacade().GetStorage().CreateStorage(ctx, dbItem)
 				if err != nil {
+					stats.ErrorCount++
 					log.Errorf("Fail to create storage %s/%s: %v", dbItem.Kind, dbItem.Name, err)
 					continue
 				}
+				stats.ItemsCreated++
 				log.Infof("Storage %s/%s created", dbItem.Kind, dbItem.Name)
 			}
-
+			stats.RecordsProcessed++
 		}
 	}
-	return nil
+	
+	stats.AddMessage("Storage scan completed successfully")
+	return stats, nil
 }
 
 func (s *StorageScanJob) Schedule() string {

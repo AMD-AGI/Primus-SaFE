@@ -3,6 +3,7 @@ package node_info
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
@@ -13,6 +14,7 @@ import (
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/node"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/primus-lens/core/pkg/utils/k8sUtil"
+	"github.com/AMD-AGI/primus-lens/jobs/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -25,40 +27,58 @@ var (
 type NodeInfoJob struct {
 }
 
-func (n *NodeInfoJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) error {
+func (n *NodeInfoJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
+	stats := common.NewExecutionStats()
+	
 	gpuNodes, err := gpu.GetGpuNodes(ctx, clientSets, defaultGPUVendor)
 	if err != nil {
-		return err
+		return stats, err
 	}
+	
+	var created, updated int64
 	wg := &sync.WaitGroup{}
 	for i := range gpuNodes {
 		wg.Add(1)
 		gpuNode := gpuNodes[i]
 		go func() {
 			defer wg.Done()
-			err := n.runForSingleNode(ctx, gpuNode, clientSets, storageClientSet)
+			isCreate, err := n.runForSingleNode(ctx, gpuNode, clientSets, storageClientSet)
 			if err != nil {
+				atomic.AddInt64(&stats.ErrorCount, 1)
 				log.Errorf("Fail run node info job for %s:%+v", gpuNode, err)
+			} else {
+				if isCreate {
+					atomic.AddInt64(&created, 1)
+				} else {
+					atomic.AddInt64(&updated, 1)
+				}
 			}
 		}()
 	}
 	wg.Wait()
-	return nil
+	
+	stats.ItemsCreated = created
+	stats.ItemsUpdated = updated
+	stats.RecordsProcessed = int64(len(gpuNodes))
+	stats.AddCustomMetric("nodes_count", len(gpuNodes))
+	stats.AddMessage("Node info updated successfully")
+	
+	return stats, nil
 }
 
 func (n *NodeInfoJob) Schedule() string {
 	return "@every 10s"
 }
 
-func (n *NodeInfoJob) runForSingleNode(ctx context.Context, nodeName string, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) error {
+func (n *NodeInfoJob) runForSingleNode(ctx context.Context, nodeName string, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (bool, error) {
 	k8sNode := &corev1.Node{}
 	err := clientSets.ControllerRuntimeClient.Get(ctx, types.NamespacedName{Name: nodeName}, k8sNode)
 	if err != nil {
-		return client.IgnoreNotFound(err)
+		return false, client.IgnoreNotFound(err)
 	}
 	existDBNode, err := database.GetFacade().GetNode().GetNodeByName(ctx, k8sNode.Name)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	newDBNode := &model.Node{
@@ -93,11 +113,14 @@ func (n *NodeInfoJob) runForSingleNode(ctx context.Context, nodeName string, cli
 		}
 
 	}
+	
+	isCreate := false
 	if existDBNode == nil {
 		existDBNode = newDBNode
+		isCreate = true
 	} else {
 		if time.Now().Before(existDBNode.UpdatedAt.Add(10 * time.Second)) {
-			return nil
+			return false, nil
 		}
 		newDBNode.ID = existDBNode.ID
 		newDBNode.CreatedAt = existDBNode.CreatedAt
@@ -109,7 +132,7 @@ func (n *NodeInfoJob) runForSingleNode(ctx context.Context, nodeName string, cli
 	allocatable, capacity, err := gpu.GetNodeGpuAllocation(ctx, clientSets, k8sNode.Name, clusterName, defaultGPUVendor)
 	if err != nil {
 		log.Errorf("Failed to get node gpu allocation for %s: %v", k8sNode.Name, err)
-		return err
+		return false, err
 	}
 	existDBNode.GpuCount = int32(capacity)
 	existDBNode.GpuAllocation = int32(allocatable)
@@ -118,8 +141,8 @@ func (n *NodeInfoJob) runForSingleNode(ctx context.Context, nodeName string, cli
 		existDBNode.GpuUtilization = usage
 	}
 	if existDBNode.ID == 0 {
-		return database.GetFacade().GetNode().CreateNode(ctx, existDBNode)
+		return isCreate, database.GetFacade().GetNode().CreateNode(ctx, existDBNode)
 	} else {
-		return database.GetFacade().GetNode().UpdateNode(ctx, existDBNode)
+		return isCreate, database.GetFacade().GetNode().UpdateNode(ctx, existDBNode)
 	}
 }

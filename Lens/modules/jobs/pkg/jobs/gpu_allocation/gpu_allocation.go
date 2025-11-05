@@ -6,6 +6,7 @@ import (
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/gpu"
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/primus-lens/jobs/pkg/common"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -23,15 +24,22 @@ func init() {
 type GpuAllocationJob struct {
 }
 
-func (g *GpuAllocationJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) error {
+func (g *GpuAllocationJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
+	stats := common.NewExecutionStats()
+
 	// Use current cluster name for job running in current cluster
 	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
 	allocationRate, err := gpu.GetClusterGpuAllocationRate(ctx, clientSets, clusterName, metadata.GpuVendorAMD)
 	if err != nil {
-		return err
+		return stats, err
 	}
 	allocationRateGauge.Set(allocationRate)
-	return nil
+
+	stats.RecordsProcessed = 1
+	stats.AddCustomMetric("allocation_rate", allocationRate)
+	stats.AddMessage("GPU allocation rate updated successfully")
+
+	return stats, nil
 }
 
 func (g *GpuAllocationJob) Schedule() string {

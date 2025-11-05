@@ -11,6 +11,7 @@ import (
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/primus-lens/core/pkg/model"
+	"github.com/AMD-AGI/primus-lens/jobs/pkg/common"
 )
 
 const (
@@ -26,7 +27,9 @@ type GpuRealtimeCacheJob struct {
 }
 
 // Run executes the GPU realtime cache job
-func (j *GpuRealtimeCacheJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) error {
+func (j *GpuRealtimeCacheJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
+	stats := common.NewExecutionStats()
+	
 	// Use current cluster name for job running in current cluster
 	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
 
@@ -37,21 +40,36 @@ func (j *GpuRealtimeCacheJob) Run(ctx context.Context, clientSets *clientsets.K8
 	cacheFacade := database.GetFacadeForCluster(clusterName).GetGenericCache()
 
 	// 1. Cache GPU allocation info
-	if err := j.cacheGpuAllocationInfo(ctx, clientSets, clusterName, cacheFacade); err != nil {
+	queryStart := time.Now()
+	allocationCount, err := j.cacheGpuAllocationInfo(ctx, clientSets, clusterName, cacheFacade)
+	stats.QueryDuration += time.Since(queryStart).Seconds()
+	if err != nil {
+		stats.ErrorCount++
 		log.Errorf("Failed to cache GPU allocation info: %v", err)
 		// Don't return error, continue with next cache
+	} else {
+		stats.ItemsUpdated++
+		stats.AddCustomMetric("gpu_allocation_nodes_cached", allocationCount)
 	}
 
 	// 2. Cache GPU utilization
+	queryStart = time.Now()
 	if err := j.cacheGpuUtilization(ctx, clientSets, storageClientSet, clusterName, cacheFacade); err != nil {
+		stats.ErrorCount++
+		stats.QueryDuration += time.Since(queryStart).Seconds()
 		log.Errorf("Failed to cache GPU utilization: %v", err)
 		// Don't return error
+	} else {
+		stats.QueryDuration += time.Since(queryStart).Seconds()
+		stats.ItemsUpdated++
 	}
 
 	duration := time.Since(startTime)
+	stats.RecordsProcessed = 2
+	stats.AddMessage("GPU realtime cache updated successfully")
 	log.Debugf("GPU realtime cache job completed for cluster: %s, took: %v", clusterName, duration)
 
-	return nil
+	return stats, nil
 }
 
 // cacheGpuAllocationInfo caches the GPU nodes allocation information
@@ -60,11 +78,11 @@ func (j *GpuRealtimeCacheJob) cacheGpuAllocationInfo(
 	clientSets *clientsets.K8SClientSet,
 	clusterName string,
 	cacheFacade database.GenericCacheFacadeInterface,
-) error {
+) (int, error) {
 	// Get GPU nodes allocation
 	allocationInfo, err := gpu.GetGpuNodesAllocation(ctx, clientSets, clusterName, metadata.GpuVendorAMD)
 	if err != nil {
-		return fmt.Errorf("failed to get GPU nodes allocation: %w", err)
+		return 0, fmt.Errorf("failed to get GPU nodes allocation: %w", err)
 	}
 
 	// Set cache key with cluster name
@@ -73,11 +91,11 @@ func (j *GpuRealtimeCacheJob) cacheGpuAllocationInfo(
 
 	// Store in cache
 	if err := cacheFacade.Set(ctx, cacheKey, allocationInfo, &expiresAt); err != nil {
-		return fmt.Errorf("failed to set cache for GPU allocation info: %w", err)
+		return 0, fmt.Errorf("failed to set cache for GPU allocation info: %w", err)
 	}
 
 	log.Debugf("Successfully cached GPU allocation info for cluster: %s, count: %d", clusterName, len(allocationInfo))
-	return nil
+	return len(allocationInfo), nil
 }
 
 // cacheGpuUtilization caches the GPU utilization information

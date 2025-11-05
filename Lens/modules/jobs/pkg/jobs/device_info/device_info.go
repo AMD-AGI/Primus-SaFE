@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
@@ -14,6 +15,7 @@ import (
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	boModel "github.com/AMD-AGI/primus-lens/core/pkg/model"
+	"github.com/AMD-AGI/primus-lens/jobs/pkg/common"
 )
 
 var (
@@ -23,32 +25,41 @@ var (
 type DeviceInfoJob struct {
 }
 
-func (d *DeviceInfoJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) error {
+func (d *DeviceInfoJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
+	stats := common.NewExecutionStats()
+	
 	nodes, err := gpu.GetGpuNodes(ctx, clientSets, defaultGPUVendor)
 	if err != nil {
-		return err
+		return stats, err
 	}
+	
 	wg := &sync.WaitGroup{}
 	for i := range nodes {
 		nodeName := nodes[i]
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := d.getDeviceInfoForSingleNode(ctx, clientSets, nodeName)
+			err := d.getDeviceInfoForSingleNode(ctx, clientSets, nodeName, stats)
 			if err != nil {
+				atomic.AddInt64(&stats.ErrorCount, 1)
 				log.Errorf("Fail get device info for node %s: %v", nodeName, err)
 			}
-
 		}()
 	}
-	return nil
+	wg.Wait()
+	
+	stats.RecordsProcessed = int64(len(nodes))
+	stats.AddCustomMetric("nodes_count", len(nodes))
+	stats.AddMessage("Device info updated successfully")
+	
+	return stats, nil
 }
 
 func (d *DeviceInfoJob) Schedule() string {
 	return "@every 10s"
 }
 
-func (d *DeviceInfoJob) getDeviceInfoForSingleNode(ctx context.Context, clientSets *clientsets.K8SClientSet, nodeName string) error {
+func (d *DeviceInfoJob) getDeviceInfoForSingleNode(ctx context.Context, clientSets *clientsets.K8SClientSet, nodeName string, stats *common.ExecutionStats) error {
 	dbNode, err := database.GetFacade().GetNode().GetNodeByName(ctx, nodeName)
 	if err != nil {
 		return err
@@ -60,11 +71,11 @@ func (d *DeviceInfoJob) getDeviceInfoForSingleNode(ctx context.Context, clientSe
 	if err != nil {
 		return err
 	}
-	err = d.getGPUDeviceInfo(ctx, nodeExporterClient, dbNode)
+	err = d.getGPUDeviceInfo(ctx, nodeExporterClient, dbNode, stats)
 	if err != nil {
 		return err
 	}
-	err = d.getRDMADeviceInfo(ctx, nodeExporterClient, dbNode)
+	err = d.getRDMADeviceInfo(ctx, nodeExporterClient, dbNode, stats)
 	if err != nil {
 		return err
 	}
@@ -72,7 +83,7 @@ func (d *DeviceInfoJob) getDeviceInfoForSingleNode(ctx context.Context, clientSe
 	return nil
 }
 
-func (d *DeviceInfoJob) getRDMADeviceInfo(ctx context.Context, nodeExporterClient *clientsets.NodeExporterClient, dbNode *model.Node) error {
+func (d *DeviceInfoJob) getRDMADeviceInfo(ctx context.Context, nodeExporterClient *clientsets.NodeExporterClient, dbNode *model.Node, stats *common.ExecutionStats) error {
 	rdmaDevices, err := nodeExporterClient.GetRdmaDevices(ctx)
 	if err != nil {
 		return err
@@ -105,6 +116,7 @@ func (d *DeviceInfoJob) getRDMADeviceInfo(ctx context.Context, nodeExporterClien
 				return err
 			}
 			created = append(created, *existInfo)
+			atomic.AddInt64(&stats.ItemsCreated, 1)
 		}
 	}
 	// TODO remove changed device
@@ -127,6 +139,7 @@ func (d *DeviceInfoJob) getRDMADeviceInfo(ctx context.Context, nodeExporterClien
 			if err != nil {
 				return err
 			}
+			atomic.AddInt64(&stats.ItemsDeleted, 1)
 		}
 	}
 	for _, device := range created {
@@ -166,7 +179,7 @@ func (d *DeviceInfoJob) getRDMADeviceInfo(ctx context.Context, nodeExporterClien
 	return nil
 }
 
-func (d *DeviceInfoJob) getGPUDeviceInfo(ctx context.Context, nodeExporterClient *clientsets.NodeExporterClient, dbNode *model.Node) error {
+func (d *DeviceInfoJob) getGPUDeviceInfo(ctx context.Context, nodeExporterClient *clientsets.NodeExporterClient, dbNode *model.Node, stats *common.ExecutionStats) error {
 	gpuMaps := map[int]boModel.GPUInfo{}
 	cardMetricsMaps := map[int]boModel.CardMetrics{}
 	gpus, err := nodeExporterClient.GetGPUs(ctx)
@@ -224,11 +237,13 @@ func (d *DeviceInfoJob) getGPUDeviceInfo(ctx context.Context, nodeExporterClient
 			if err != nil {
 				return err
 			}
+			atomic.AddInt64(&stats.ItemsCreated, 1)
 		} else {
 			err = database.GetFacade().GetNode().UpdateGpuDevice(ctx, existInfo)
 			if err != nil {
 				return err
 			}
+			atomic.AddInt64(&stats.ItemsUpdated, 1)
 		}
 	}
 	nodeDevices, err := database.GetFacade().GetNode().ListGpuDeviceByNodeId(ctx, dbNode.ID)
@@ -250,6 +265,7 @@ func (d *DeviceInfoJob) getGPUDeviceInfo(ctx context.Context, nodeExporterClient
 			if err != nil {
 				return err
 			}
+			atomic.AddInt64(&stats.ItemsDeleted, 1)
 		}
 	}
 	for _, device := range created {

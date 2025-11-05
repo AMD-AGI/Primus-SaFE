@@ -14,13 +14,16 @@ import (
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/storage"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	coreModel "github.com/AMD-AGI/primus-lens/core/pkg/model"
+	"github.com/AMD-AGI/primus-lens/jobs/pkg/common"
 )
 
 type ClusterOverviewJob struct {
 }
 
 // Run executes the cluster overview caching job
-func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) error {
+func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
+	stats := common.NewExecutionStats()
+
 	// Use current cluster name for job running in current cluster
 	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
 
@@ -33,18 +36,20 @@ func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8S
 	}
 
 	// 1. Get GPU nodes
+	queryStart := time.Now()
 	gpuNodes, err := gpu.GetGpuNodes(ctx, clientSets, metadata.GpuVendorAMD)
 	if err != nil {
 		log.Errorf("Failed to get GPU nodes: %v", err)
-		return err
+		return stats, err
 	}
+	stats.QueryDuration += time.Since(queryStart).Seconds()
 	cache.TotalNodes = int32(len(gpuNodes))
 
 	// 2. Get faulty nodes
 	faultyNodes, err := fault.GetFaultyNodes(ctx, clientSets, gpuNodes)
 	if err != nil {
 		log.Errorf("Failed to get faulty nodes: %v", err)
-		return err
+		return stats, err
 	}
 	cache.FaultyNodes = int32(len(faultyNodes))
 	cache.HealthyNodes = cache.TotalNodes - cache.FaultyNodes
@@ -53,7 +58,7 @@ func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8S
 	idle, partialIdle, busy, err := gpu.GetGpuNodeIdleInfo(ctx, clientSets, clusterName, metadata.GpuVendorAMD)
 	if err != nil {
 		log.Errorf("Failed to get GPU node idle info: %v", err)
-		return err
+		return stats, err
 	}
 	cache.FullyIdleNodes = int32(idle)
 	cache.PartiallyIdleNodes = int32(partialIdle)
@@ -72,7 +77,7 @@ func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8S
 	allocationRate, err := gpu.GetClusterGpuAllocationRate(ctx, clientSets, clusterName, metadata.GpuVendorAMD)
 	if err != nil {
 		log.Errorf("Failed to get cluster GPU allocation rate: %v", err)
-		return err
+		return stats, err
 	}
 	cache.AllocationRate = allocationRate
 
@@ -103,11 +108,12 @@ func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8S
 	cache.RdmaTotalRx = rdmaStat.TotalRx
 
 	// 8. Save to database (upsert logic)
+	saveStart := time.Now()
 	facade := database.GetFacade().GetClusterOverviewCache()
 	existingCache, err := facade.GetClusterOverviewCache(ctx)
 	if err != nil {
 		log.Errorf("Failed to check existing cluster overview cache: %v", err)
-		return err
+		return stats, err
 	}
 
 	if existingCache != nil {
@@ -115,20 +121,29 @@ func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8S
 		cache.ID = existingCache.ID
 		cache.CreatedAt = existingCache.CreatedAt
 		err = facade.UpdateClusterOverviewCache(ctx, cache)
+		stats.ItemsUpdated = 1
 	} else {
 		// Create new record
 		err = facade.CreateClusterOverviewCache(ctx, cache)
+		stats.ItemsCreated = 1
 	}
 
 	if err != nil {
 		log.Errorf("Failed to save cluster overview cache: %v", err)
-		return err
+		return stats, err
 	}
+	stats.SaveDuration = time.Since(saveStart).Seconds()
 
 	duration := time.Since(startTime)
+	stats.RecordsProcessed = 1
+	stats.AddCustomMetric("total_nodes", len(gpuNodes))
+	stats.AddCustomMetric("healthy_nodes", cache.HealthyNodes)
+	stats.AddCustomMetric("faulty_nodes", cache.FaultyNodes)
+	stats.AddMessage("Cluster overview cache updated successfully")
+
 	log.Infof("Cluster overview cache job completed successfully for cluster: %s, took: %v", clusterName, duration)
 
-	return nil
+	return stats, nil
 }
 
 // Schedule returns the cron schedule for this job

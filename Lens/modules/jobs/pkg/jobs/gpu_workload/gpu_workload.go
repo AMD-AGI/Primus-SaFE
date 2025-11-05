@@ -3,6 +3,7 @@ package gpu_workload
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/core/pkg/database"
@@ -12,6 +13,7 @@ import (
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/workload"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/primus-lens/core/pkg/utils/k8sUtil"
+	"github.com/AMD-AGI/primus-lens/jobs/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -20,13 +22,16 @@ import (
 type GpuWorkloadJob struct {
 }
 
-func (g *GpuWorkloadJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) error {
+func (g *GpuWorkloadJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
+	stats := common.NewExecutionStats()
+	
 	// Use current cluster name for job running in current cluster
 	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
 	workloadsNotEnd, err := database.GetFacadeForCluster(clusterName).GetWorkload().GetWorkloadNotEnd(ctx)
 	if err != nil {
-		return err
+		return stats, err
 	}
+	
 	wg := &sync.WaitGroup{}
 	for i := range workloadsNotEnd {
 		workload := workloadsNotEnd[i]
@@ -35,12 +40,20 @@ func (g *GpuWorkloadJob) Run(ctx context.Context, clientSets *clientsets.K8SClie
 			defer wg.Done()
 			err := g.checkWorkload(ctx, clusterName, workload, clientSets)
 			if err != nil {
+				atomic.AddInt64(&stats.ErrorCount, 1)
 				log.Errorf("Failed to check workload %s: %v", workload.Name, err)
+			} else {
+				atomic.AddInt64(&stats.ItemsUpdated, 1)
 			}
 		}()
 	}
 	wg.Wait()
-	return nil
+	
+	stats.RecordsProcessed = int64(len(workloadsNotEnd))
+	stats.AddCustomMetric("workloads_count", len(workloadsNotEnd))
+	stats.AddMessage("GPU workload status updated successfully")
+	
+	return stats, nil
 }
 
 func (g *GpuWorkloadJob) checkWorkload(ctx context.Context, clusterName string, dbWorkload *dbModel.GpuWorkload, clientSets *clientsets.K8SClientSet) error {

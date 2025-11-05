@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/primus-lens/jobs/pkg/common"
 	"github.com/AMD-AGI/primus-lens/jobs/pkg/jobs/cluster_overview"
 	"github.com/AMD-AGI/primus-lens/jobs/pkg/jobs/device_info"
 	"github.com/AMD-AGI/primus-lens/jobs/pkg/jobs/gpu_aggregation"
@@ -20,7 +21,7 @@ import (
 )
 
 type Job interface {
-	Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) error
+	Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error)
 	Schedule() string
 }
 

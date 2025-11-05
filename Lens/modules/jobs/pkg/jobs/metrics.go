@@ -7,6 +7,7 @@ import (
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/primus-lens/jobs/pkg/common"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -84,14 +85,25 @@ func runJobWithMetrics(ctx context.Context, job Job, k8sClient *clientsets.K8SCl
 	jobExecutionCount.WithLabelValues(jobName).Inc()
 
 	// Execute the job
-	err := job.Run(ctx, k8sClient, storageClient)
+	stats, err := job.Run(ctx, k8sClient, storageClient)
 
 	// Record execution duration
-	duration := time.Since(startTime)
+	endTime := time.Now()
+	duration := endTime.Sub(startTime)
 	jobExecutionDuration.WithLabelValues(jobName).Observe(duration.Seconds())
 
 	// Update last execution timestamp
-	jobLastExecutionTimestamp.WithLabelValues(jobName).Set(float64(time.Now().Unix()))
+	jobLastExecutionTimestamp.WithLabelValues(jobName).Set(float64(endTime.Unix()))
+
+	// Build execution result
+	result := &common.ExecutionResult{
+		Success:   err == nil,
+		Error:     err,
+		Stats:     stats,
+		StartTime: startTime,
+		EndTime:   endTime,
+		Duration:  duration.Seconds(),
+	}
 
 	// Record failure if execution failed
 	if err != nil {
@@ -99,5 +111,15 @@ func runJobWithMetrics(ctx context.Context, job Job, k8sClient *clientsets.K8SCl
 		log.Errorf("Job %s failed: %v (took %v)", jobName, err, duration)
 	} else {
 		log.Debugf("Job %s completed successfully (took %v)", jobName, duration)
+		if stats != nil {
+			log.Debugf("Job %s stats: processed=%d, created=%d, updated=%d, deleted=%d",
+				jobName, stats.RecordsProcessed, stats.ItemsCreated, stats.ItemsUpdated, stats.ItemsDeleted)
+		}
+	}
+
+	// Save execution history to database
+	historyService := common.NewHistoryService()
+	if err := historyService.RecordJobExecution(ctx, job, result); err != nil {
+		log.Errorf("Failed to save execution history for job %s: %v", jobName, err)
 	}
 }
