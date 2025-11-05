@@ -111,7 +111,7 @@ func ListJobExecutionHistories(c *gin.Context) {
 	}
 
 	// Query database with cluster context
-	facade := database.GetFacade().GetJobExecutionHistory().WithCluster(clients.ClusterName)
+	facade := database.GetFacadeForCluster(clients.ClusterName).GetJobExecutionHistory().WithCluster(clients.ClusterName)
 	histories, total, err := facade.ListJobExecutionHistories(c.Request.Context(), filter)
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to list job execution histories: %v", err)
@@ -149,7 +149,7 @@ func GetJobExecutionHistory(c *gin.Context) {
 		return
 	}
 
-	facade := database.GetFacade().GetJobExecutionHistory().WithCluster(clients.ClusterName)
+	facade := database.GetFacadeForCluster(clients.ClusterName).GetJobExecutionHistory().WithCluster(clients.ClusterName)
 	history, err := facade.GetJobExecutionHistoryByID(c.Request.Context(), id)
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to get job execution history: %v", err)
@@ -191,7 +191,7 @@ func GetRecentFailures(c *gin.Context) {
 		}
 	}
 
-	facade := database.GetFacade().GetJobExecutionHistory().WithCluster(clients.ClusterName)
+	facade := database.GetFacadeForCluster(clients.ClusterName).GetJobExecutionHistory().WithCluster(clients.ClusterName)
 	histories, err := facade.GetRecentFailures(c.Request.Context(), limit)
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to get recent failures: %v", err)
@@ -223,7 +223,7 @@ func GetJobStatistics(c *gin.Context) {
 		return
 	}
 
-	facade := database.GetFacade().GetJobExecutionHistory().WithCluster(clients.ClusterName)
+	facade := database.GetFacadeForCluster(clients.ClusterName).GetJobExecutionHistory().WithCluster(clients.ClusterName)
 	stats, err := facade.GetJobStatistics(c.Request.Context(), jobName)
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to get job statistics: %v", err)
@@ -249,7 +249,7 @@ func GetDistinctJobTypes(c *gin.Context) {
 	}
 	log.Infof("GetDistinctJobTypes: clusterName: %s", clients.ClusterName)
 
-	facade := database.GetFacade().GetJobExecutionHistory().WithCluster(clients.ClusterName)
+	facade := database.GetFacadeForCluster(clients.ClusterName).GetJobExecutionHistory()
 	jobTypes, err := facade.GetDistinctJobTypes(c.Request.Context())
 	if err != nil {
 		log.GlobalLogger().WithContext(c).Errorf("Failed to get distinct job types: %v", err)
