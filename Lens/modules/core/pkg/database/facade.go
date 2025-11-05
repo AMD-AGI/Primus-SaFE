@@ -30,6 +30,8 @@ type FacadeInterface interface {
 	GetGpuAggregation() GpuAggregationFacadeInterface
 	// GetSystemConfig returns the SystemConfig Facade interface
 	GetSystemConfig() SystemConfigFacadeInterface
+	// GetJobExecutionHistory returns the JobExecutionHistory Facade interface
+	GetJobExecutionHistory() JobExecutionHistoryFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -50,6 +52,7 @@ type Facade struct {
 	GenericCache         GenericCacheFacadeInterface
 	GpuAggregation       GpuAggregationFacadeInterface
 	SystemConfig         SystemConfigFacadeInterface
+	JobExecutionHistory  JobExecutionHistoryFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -69,6 +72,7 @@ func NewFacade() *Facade {
 		GenericCache:         NewGenericCacheFacade(),
 		GpuAggregation:       NewGpuAggregationFacade(),
 		SystemConfig:         NewSystemConfigFacade(),
+		JobExecutionHistory:  NewJobExecutionHistoryFacade(),
 	}
 }
 
@@ -142,6 +146,11 @@ func (f *Facade) GetSystemConfig() SystemConfigFacadeInterface {
 	return f.SystemConfig
 }
 
+// GetJobExecutionHistory returns the JobExecutionHistory Facade interface
+func (f *Facade) GetJobExecutionHistory() JobExecutionHistoryFacadeInterface {
+	return f.JobExecutionHistory
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -159,6 +168,7 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		GenericCache:         f.GenericCache.WithCluster(clusterName),
 		GpuAggregation:       f.GpuAggregation.WithCluster(clusterName),
 		SystemConfig:         f.SystemConfig.WithCluster(clusterName),
+		JobExecutionHistory:  f.JobExecutionHistory.WithCluster(clusterName),
 	}
 }
 

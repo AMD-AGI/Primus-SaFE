@@ -110,5 +110,18 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		gpuAggregationGroup.GET("/snapshots", listSnapshots)
 	}
 
+	// Job Execution History routes - 任务执行历史查询
+	jobHistoryGroup := group.Group("/job-execution-histories")
+	{
+		// 获取最近的失败记录 - 必须在 :id 之前定义
+		jobHistoryGroup.GET("/recent-failures", GetRecentFailures)
+		// 获取任务统计信息 - 必须在 :id 之前定义
+		jobHistoryGroup.GET("/statistics/:job_name", GetJobStatistics)
+		// 列表查询 - 支持多种过滤条件
+		jobHistoryGroup.GET("", ListJobExecutionHistories)
+		// 获取详情
+		jobHistoryGroup.GET("/:id", GetJobExecutionHistory)
+	}
+
 	return nil
 }
