@@ -158,6 +158,8 @@ type GetWorkloadResponse struct {
 	Dependencies []string `json:"dependencies,omitempty"`
 	// Cron Job configuration
 	CronJobs []v1.CronJob `json:"cronJobs,omitempty"`
+	// Volumes defines the list of volumes to be mounted by the workload
+	Volumes []v1.WorkloadVolume `json:"volumes,omitempty"`
 }
 
 type WorkloadPodWrapper struct {

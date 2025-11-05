@@ -64,6 +64,7 @@ type Workload struct {
 	Ranks          sql.NullString `db:"ranks"`
 	Dependencies   sql.NullString `db:"dependencies"`
 	CronJobs       sql.NullString `db:"cron_jobs"`
+	Volumes        sql.NullString `db:"volumes"`
 }
 
 // GetWorkloadFieldTags returns the WorkloadFieldTags value.

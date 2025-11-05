@@ -120,6 +120,9 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 	if len(workload.Spec.CronJobs) > 0 {
 		result.CronJobs = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.CronJobs)))
 	}
+	if len(workload.Spec.Volumes) > 0 {
+		result.Volumes = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Volumes)))
+	}
 	return result
 }
 

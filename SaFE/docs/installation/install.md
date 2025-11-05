@@ -58,7 +58,7 @@ The [install.sh](https://github.com/AMD-AGI/Primus-SaFE/blob/main/SaFE/bootstrap
         - This should point to your Primus‑SaFE Web Console base URL
         - Examples based on ingress choice:
           - nginx (NodePort): `http://<node-ip>:30183` (or `http://<node-ip>:30183/<your-callback-path>` if required by IdP)
-          - higress (domain): `https://<cluster>.safe-primus.ai` (or `https://<cluster>.safe-primus.ai/<your-callback-path>`)
+          - higress (domain): `https://<cluster>.primus-safe.amd.com` (or `https://<cluster>.primus-safe.amd.com/<your-callback-path>`)
     - What the installer does:
       - Creates a Kubernetes secret `primus-safe-sso` in namespace `primus-safe` with keys: `id`, `secret`, `endpoint`, `redirect_uri`
       - Enables the `sso.enable` flag and wires the secret into the Primus‑SaFE Helm values
@@ -72,10 +72,9 @@ The [install.sh](https://github.com/AMD-AGI/Primus-SaFE/blob/main/SaFE/bootstrap
 
 - **Ingress Gateway**
     - External service gateway
-    - Supports `nginx` (default) and `higress` types
-    - If `higress` is selected, you must enter a cluster name to be used as the subdomain
+    - Supports `higress`(default) and `nginx` types
+    - If `higress` is selected, you must enter a cluster name to be used as the subdomain. After installation you can open the web service at: http://<cluster>.primus-safe.amd.com
     - If `nginx` is selected, after installation you can access the web service via any Kubernetes node HostIP on port 30183 (NodePort), e.g., http://10.0.0.31:30183
-    - If `higress` is selected, after installation you can open the web service at: http://<cluster>.safe-primus.ai
     - You must configure external access for the chosen address (e.g., a public DNS/domain)
 
 ### 🚀 Installation Process

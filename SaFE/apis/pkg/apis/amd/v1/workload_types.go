@@ -16,8 +16,10 @@ import (
 )
 
 type (
-	WorkloadPhase string
-	CronAction    string
+	WorkloadPhase         string
+	CronAction            string
+	WorkloadConditionType string
+	WorkloadVolumeType    string
 )
 
 const (
@@ -35,9 +37,10 @@ const (
 
 	CronStart CronAction = "start"
 	CronScale CronAction = "scale"
-)
 
-type WorkloadConditionType string
+	WorkloadHostpath WorkloadVolumeType = "hostpath"
+	WorkloadPVC      WorkloadVolumeType = "pvc"
+)
 
 const (
 	AdminScheduled  WorkloadConditionType = "AdminScheduled"
@@ -109,6 +112,24 @@ type CronJob struct {
 	Action CronAction `json:"action"`
 }
 
+type WorkloadVolume struct {
+	// The volume name to be mounted:
+	// if the mount path is a PVC, use the PVC's name;
+	// if it's a hostPath, set it to empty
+	VolumeName string `json:"volumeName,omitempty"`
+	// The volume type, valid values includes: hostpath/pvc
+	// +required
+	Type WorkloadVolumeType `json:"type"`
+	// Mount path to be used, equivalent to 'mountPath' in Kubernetes volume mounts.
+	// +required
+	MountPath string `json:"mountPath"`
+	// Path on the host to mount. Required when volume type is hostpath
+	HostPath string `json:"hostPath,omitempty"`
+	// equivalent to 'subPath' in Kubernetes volume mounts
+	// +optional
+	SubPath string `json:"subPath,omitempty"`
+}
+
 type WorkloadSpec struct {
 	// Workload resource requirements
 	Resource WorkloadResource `json:"resource"`
@@ -149,9 +170,10 @@ type WorkloadSpec struct {
 	Service *Service `json:"service,omitempty"`
 	// Indicates whether the workload tolerates node taints
 	IsTolerateAll bool `json:"isTolerateAll,omitempty"`
-	// The workload will automatically mount the volumes defined in the workspace,
-	// and you can also define specific hostPath for mounting.
-	Hostpath []string `json:"hostpath,omitempty"`
+	// Volumes defines the list of volumes to be mounted by the workload.
+	// These volumes can reference existing PVCs defined in the workspace that have already been created.
+	// Users can also define specific hostPath volumes for mounting.
+	Volumes []WorkloadVolume `json:"volumes,omitempty"`
 	// Dependencies defines a list of other Workloads that must complete successfully
 	// before this Workload can start execution. If any dependency fails, this Workload
 	// will not be scheduled and is considered failed.

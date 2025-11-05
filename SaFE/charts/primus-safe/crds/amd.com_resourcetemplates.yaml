@@ -78,7 +78,7 @@ spec:
                     replica:
                       description: |-
                         If the replica count is set to a non-zero value, it will be used as a fixed allocation when the task is submitted
-                        This applies only to the master role of a PyTorchJob (or similar structures).
+                        This applies only to the master role of a PyTorchJob (or similar structures such as headGroup of ray).
                       format: int64
                       type: integer
                     replicasPaths:
@@ -109,8 +109,13 @@ spec:
                         matchExpressions:
                           additionalProperties:
                             type: string
+                          description: |-
+                            MatchExpressions are matching conditions that require both key and value to match,
+                            with value comparison being case-insensitive.
                           type: object
                         phase:
+                          description: If the expression is satisfied, return the
+                            corresponding status.
                           type: string
                       required:
                       - matchExpressions

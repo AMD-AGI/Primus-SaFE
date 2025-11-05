@@ -18,18 +18,18 @@ type WorkloadSpecApplyConfiguration struct {
 	Env                                 map[string]string                   `json:"env,omitempty"`
 	IsSupervised                        *bool                               `json:"isSupervised,omitempty"`
 	*GroupVersionKindApplyConfiguration `json:"groupVersionKind,omitempty"`
-	MaxRetry                            *int                           `json:"maxRetry,omitempty"`
-	Priority                            *int                           `json:"priority,omitempty"`
-	TTLSecondsAfterFinished             *int                           `json:"ttlSecondsAfterFinished,omitempty"`
-	Timeout                             *int                           `json:"timeout,omitempty"`
-	CustomerLabels                      map[string]string              `json:"customerLabels,omitempty"`
-	Liveness                            *HealthCheckApplyConfiguration `json:"liveness,omitempty"`
-	Readiness                           *HealthCheckApplyConfiguration `json:"readiness,omitempty"`
-	Service                             *ServiceApplyConfiguration     `json:"service,omitempty"`
-	IsTolerateAll                       *bool                          `json:"isTolerateAll,omitempty"`
-	Hostpath                            []string                       `json:"hostpath,omitempty"`
-	Dependencies                        []string                       `json:"dependencies,omitempty"`
-	CronJobs                            []CronJobApplyConfiguration    `json:"cronJobs,omitempty"`
+	MaxRetry                            *int                               `json:"maxRetry,omitempty"`
+	Priority                            *int                               `json:"priority,omitempty"`
+	TTLSecondsAfterFinished             *int                               `json:"ttlSecondsAfterFinished,omitempty"`
+	Timeout                             *int                               `json:"timeout,omitempty"`
+	CustomerLabels                      map[string]string                  `json:"customerLabels,omitempty"`
+	Liveness                            *HealthCheckApplyConfiguration     `json:"liveness,omitempty"`
+	Readiness                           *HealthCheckApplyConfiguration     `json:"readiness,omitempty"`
+	Service                             *ServiceApplyConfiguration         `json:"service,omitempty"`
+	IsTolerateAll                       *bool                              `json:"isTolerateAll,omitempty"`
+	Volumes                             []WorkloadVolumeApplyConfiguration `json:"volumes,omitempty"`
+	Dependencies                        []string                           `json:"dependencies,omitempty"`
+	CronJobs                            []CronJobApplyConfiguration        `json:"cronJobs,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
@@ -219,12 +219,15 @@ func (b *WorkloadSpecApplyConfiguration) WithIsTolerateAll(value bool) *Workload
 	return b
 }
 
-// WithHostpath adds the given value to the Hostpath field in the declarative configuration
+// WithVolumes adds the given value to the Volumes field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the Hostpath field.
-func (b *WorkloadSpecApplyConfiguration) WithHostpath(values ...string) *WorkloadSpecApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the Volumes field.
+func (b *WorkloadSpecApplyConfiguration) WithVolumes(values ...*WorkloadVolumeApplyConfiguration) *WorkloadSpecApplyConfiguration {
 	for i := range values {
-		b.Hostpath = append(b.Hostpath, values[i])
+		if values[i] == nil {
+			panic("nil value passed to WithVolumes")
+		}
+		b.Volumes = append(b.Volumes, *values[i])
 	}
 	return b
 }

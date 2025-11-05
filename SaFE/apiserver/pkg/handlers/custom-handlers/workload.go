@@ -997,6 +997,9 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Wo
 	if str := dbutils.ParseNullString(w.CronJobs); str != "" {
 		json.Unmarshal([]byte(str), &result.CronJobs)
 	}
+	if str := dbutils.ParseNullString(w.Volumes); str != "" {
+		json.Unmarshal([]byte(str), &result.Volumes)
+	}
 	return result
 }
 

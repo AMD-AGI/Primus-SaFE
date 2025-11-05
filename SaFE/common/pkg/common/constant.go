@@ -16,6 +16,7 @@ const (
 	JobKind         = "Job"
 	DeploymentKind  = "Deployment"
 	StatefulSetKind = "StatefulSet"
+	RayJobKind      = "RayJob"
 	PodKind         = "Pod"
 	EventKind       = "Event"
 	ConfigmapKind   = "ConfigMap"

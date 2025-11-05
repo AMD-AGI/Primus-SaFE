@@ -199,6 +199,15 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 		return nil, err
 	}
 
+	volumes := make([]v1.WorkloadVolume, 0, len(job.Spec.Hostpath))
+	for _, path := range job.Spec.Hostpath {
+		volumes = append(volumes, v1.WorkloadVolume{
+			Type:      v1.WorkloadHostpath,
+			MountPath: path,
+			HostPath:  path,
+		})
+	}
+
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: job.Name,
@@ -230,7 +239,7 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			Workspace: corev1.NamespaceDefault,
 			Image:     *job.Spec.Image,
 			Env:       job.Spec.Env,
-			Hostpath:  job.Spec.Hostpath,
+			Volumes:   volumes,
 		},
 	}
 	if job.Spec.TimeoutSecond > 0 {

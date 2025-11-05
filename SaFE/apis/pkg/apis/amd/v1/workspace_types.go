@@ -191,9 +191,9 @@ func (w *Workspace) HasImageSecret(name string) bool {
 }
 
 func (v *WorkspaceVolume) GenFullVolumeId() string {
-	return GenFullVolumeId(v.Type, v.Id)
+	return GenFullVolumeId(string(v.Type), v.Id)
 }
 
-func GenFullVolumeId(volumeType WorkspaceVolumeType, id int) string {
-	return string(volumeType) + "-" + strconv.Itoa(id)
+func GenFullVolumeId(volumeType string, id int) string {
+	return volumeType + "-" + strconv.Itoa(id)
 }

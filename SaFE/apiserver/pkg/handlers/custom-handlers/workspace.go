@@ -444,7 +444,6 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 		Description:       v1.GetDescription(w),
 		QueuePolicy:       w.Spec.QueuePolicy,
 		Scopes:            w.Spec.Scopes,
-		Volumes:           w.Spec.Volumes,
 		EnablePreempt:     w.Spec.EnablePreempt,
 		IsDefault:         w.Spec.IsDefault,
 	}
@@ -486,6 +485,12 @@ func (h *Handler) cvtToGetWorkspaceResponse(ctx context.Context, workspace *v1.W
 	result.AvailQuota = cvtToResourceList(quantity.SubResource(availQuota, usedQuota))
 	for _, s := range workspace.Spec.ImageSecrets {
 		result.ImageSecretIds = append(result.ImageSecretIds, s.Name)
+	}
+	for i, vol := range workspace.Spec.Volumes {
+		result.Volumes = append(result.Volumes, types.WorkspaceVolumeWrapper{
+			WorkspaceVolume: workspace.Spec.Volumes[i],
+			VolumeName:      vol.GenFullVolumeId(),
+		})
 	}
 	return result, nil
 }

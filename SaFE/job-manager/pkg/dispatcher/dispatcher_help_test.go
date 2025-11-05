@@ -158,7 +158,7 @@ func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, resourceSpe
 
 	volumeMount := findVolumeMount(volumeMounts, SharedMemoryVolume)
 	assert.Equal(t, volumeMount != nil, true)
-	volumeMount = findVolumeMount(volumeMounts, v1.GenFullVolumeId(v1.PFS, 1))
+	volumeMount = findVolumeMount(volumeMounts, v1.GenFullVolumeId(string(v1.PFS), 1))
 	assert.Equal(t, volumeMount != nil, true)
 	path, ok := volumeMount["mountPath"]
 	assert.Equal(t, ok, true)
@@ -166,7 +166,7 @@ func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, resourceSpe
 	_, ok = volumeMount["subPath"]
 	assert.Equal(t, ok, false)
 
-	volumeMount = findVolumeMount(volumeMounts, v1.GenFullVolumeId(v1.HOSTPATH, 2))
+	volumeMount = findVolumeMount(volumeMounts, v1.GenFullVolumeId(string(v1.HOSTPATH), 2))
 	assert.Equal(t, volumeMount != nil, true)
 	path, ok = volumeMount["mountPath"]
 	assert.Equal(t, ok, true)
@@ -205,7 +205,7 @@ func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 	assert.Equal(t, ok, true)
 	assert.Equal(t, sizeLimit.(string), workload.Spec.Resource.SharedMemory)
 
-	volumeName := v1.GenFullVolumeId(v1.PFS, 1)
+	volumeName := v1.GenFullVolumeId(string(v1.PFS), 1)
 	volume = findVolume(volumes, volumeName)
 	assert.Equal(t, volume != nil, true)
 	persistentVolumeObj, ok := volume["persistentVolumeClaim"]
@@ -214,7 +214,7 @@ func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 	assert.Equal(t, ok, true)
 	assert.Equal(t, claimName.(string), volumeName)
 
-	volume = findVolume(volumes, v1.GenFullVolumeId(v1.HOSTPATH, 2))
+	volume = findVolume(volumes, v1.GenFullVolumeId(string(v1.HOSTPATH), 2))
 	assert.Equal(t, volume != nil, true)
 	hostPathObj, ok := volume["hostPath"]
 	assert.Equal(t, ok, true)

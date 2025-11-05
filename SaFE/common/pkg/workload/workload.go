@@ -170,7 +170,7 @@ func GetActiveResources(workload *v1.Workload, filterNode func(nodeName string) 
 	return resources, nodes, nil
 }
 
-// CvtToResourceList converts data to the target format.
+// CvtToResourceList converts workload resource to the corev1.ResourceList.
 func CvtToResourceList(w *v1.Workload) (corev1.ResourceList, error) {
 	res := &w.Spec.Resource
 	result, err := quantity.CvtToResourceList(res.CPU, res.Memory, res.GPU,
@@ -181,7 +181,7 @@ func CvtToResourceList(w *v1.Workload) (corev1.ResourceList, error) {
 	return result, nil
 }
 
-// GetPodResources converts workload resource specification to per-pod ResourceList.
+// GetPodResources converts workload resource to per-pod ResourceList.
 func GetPodResources(res *v1.WorkloadResource) (corev1.ResourceList, error) {
 	if res == nil {
 		return nil, fmt.Errorf("the input resource is empty")
@@ -195,6 +195,8 @@ func GetPodResources(res *v1.WorkloadResource) (corev1.ResourceList, error) {
 }
 
 // GetScope determines the workspace scope based on workload kind.
+// Returns TrainScope for PyTorch jobs, InferScope for Deployments/StatefulSets,
+// AuthoringScope for authoring workloads, or empty string for unknown kinds.
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
 	case common.PytorchJobKind:
@@ -208,7 +210,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	}
 }
 
-// IsApplication returns true if the condition is met.
+// IsApplication returns true if the workload is an application type (Deployment or StatefulSet).
 func IsApplication(w *v1.Workload) bool {
 	if w.SpecKind() == common.DeploymentKind ||
 		w.SpecKind() == common.StatefulSetKind {
@@ -217,7 +219,7 @@ func IsApplication(w *v1.Workload) bool {
 	return false
 }
 
-// IsJob returns true if the condition is met.
+// IsJob returns true if the workload is a job type including pytorch-job, authoring, or standard job.
 func IsJob(w *v1.Workload) bool {
 	if w.SpecKind() == common.PytorchJobKind ||
 		w.SpecKind() == common.AuthoringKind || w.SpecKind() == common.JobKind {
@@ -226,7 +228,7 @@ func IsJob(w *v1.Workload) bool {
 	return false
 }
 
-// IsAuthoring returns true if the condition is met.
+// IsAuthoring returns true if the workload is authoring(development machine)
 func IsAuthoring(w *v1.Workload) bool {
 	if w.SpecKind() == common.AuthoringKind {
 		return true
@@ -234,12 +236,21 @@ func IsAuthoring(w *v1.Workload) bool {
 	return false
 }
 
-// IsOpsJob returns true if the condition is met.
+// IsRayJob returns true if the workload is ray-job
+func IsRayJob(w *v1.Workload) bool {
+	if w.SpecKind() == common.RayJobKind {
+		return true
+	}
+	return false
+}
+
+// IsOpsJob returns true if the workload is ops-job
 func IsOpsJob(w *v1.Workload) bool {
 	return v1.GetOpsJobId(w) != ""
 }
 
-// IsResourceEqual returns true if the condition is met.
+// IsResourceEqual compares the resource specifications of two workloads.
+// Returns true if both replica counts and resource requirements (CPU, memory, GPU, etc.) are equal.
 func IsResourceEqual(workload1, workload2 *v1.Workload) bool {
 	if workload1.Spec.Resource.Replica != workload2.Spec.Resource.Replica {
 		return false

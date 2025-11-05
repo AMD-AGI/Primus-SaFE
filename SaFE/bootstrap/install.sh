@@ -96,7 +96,7 @@ if [[ "$build_image_secret" == "y" ]]; then
   image_password=$(get_input_with_default "Enter image registry password: " "")
 fi
 
-ingress=$(get_input_with_default "Enter the ingress name (nginx/higress): " "nginx")
+ingress=$(get_input_with_default "Enter the ingress name (higress/nginx): " "higress")
 sub_domain=""
 if [[ "$ingress" == "higress" ]]; then
   sub_domain=$(get_input_with_default "Enter cluster name(lowercase with hyphen): " "amd")

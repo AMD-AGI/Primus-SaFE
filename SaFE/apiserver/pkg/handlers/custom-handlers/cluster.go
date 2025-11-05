@@ -481,8 +481,10 @@ func (h *Handler) getPodLog(c *gin.Context, clientSet kubernetes.Interface,
 		return nil, err
 	}
 	opt := &corev1.PodLogOptions{
-		Container: query.Container,
 		TailLines: &query.TailLines,
+	}
+	if query.Container != "" {
+		opt.Container = query.Container
 	}
 	if query.SinceSeconds > 0 {
 		opt.SinceSeconds = &query.SinceSeconds

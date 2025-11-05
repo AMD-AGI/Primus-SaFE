@@ -37,7 +37,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
-	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -110,15 +109,6 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateGvk(workload)
 	m.mutateMeta(ctx, workload, workspace)
 
-	switch workload.SpecKind() {
-	case common.DeploymentKind:
-		m.mutateDeployment(workload)
-	case common.StatefulSetKind:
-		m.mutateStatefulSet(workload)
-	case common.AuthoringKind:
-		m.mutateAuthoring(workload)
-	}
-
 	m.mutateCommon(ctx, workload, workspace)
 	m.mutateHealthCheck(workload)
 	m.mutateService(workload)
@@ -138,8 +128,16 @@ func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWo
 
 // mutateCommon applies mutations to the resource.
 func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
+	switch workload.SpecKind() {
+	case common.DeploymentKind:
+		m.mutateDeployment(workload)
+	case common.StatefulSetKind:
+		m.mutateStatefulSet(workload)
+	case common.AuthoringKind:
+		m.mutateAuthoring(workload)
+	}
 	m.mutateResource(workload, workspace)
-	m.mutateHostpath(workload, workspace)
+	m.mutateVolumes(workload)
 	m.mutatePriority(workload)
 	m.mutateImage(workload)
 	m.mutateEntryPoint(workload)
@@ -149,7 +147,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workloa
 	return true
 }
 
-// mutateMeta applies mutations to the resource.
+// mutateMeta applies mutations to the workload meta.
 func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
 	if workload.Name != "" {
 		workload.Name = stringutil.NormalizeName(workload.Name)
@@ -185,7 +183,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
 
-// mutateGvk applies mutations to the resource.
+// mutateGvk applies mutations to the workload gvk.
 func (m *WorkloadMutator) mutateGvk(workload *v1.Workload) {
 	if workload.Spec.Kind == "" {
 		workload.Spec.Kind = common.PytorchJobKind
@@ -197,7 +195,7 @@ func (m *WorkloadMutator) mutateGvk(workload *v1.Workload) {
 	workload.Spec.Group = ""
 }
 
-// mutatePriority applies mutations to the resource.
+// mutatePriority applies mutations to the workload priority.
 func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
 	isChanged := false
 	if workload.Spec.Priority > common.HighPriorityInt {
@@ -210,7 +208,7 @@ func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
 	return isChanged
 }
 
-// mutateResource applies mutations to the resource.
+// mutateResource applies mutations to the workload resource.
 func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Workspace) bool {
 	isChanged := false
 	if workload.Spec.Resource.GPU == "0" {
@@ -238,31 +236,29 @@ func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Wo
 	return isChanged
 }
 
-// mutateHostpath removes duplicate hostpath entries from workload that are already included in workspace.
-// Workloads inherit all hostpath volumes from their workspace by default.
-func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Workspace) {
-	if len(workload.Spec.Hostpath) == 0 {
+// mutateVolumes removes duplicate volumes from workload and normalizes volume names.
+func (m *WorkloadMutator) mutateVolumes(workload *v1.Workload) {
+	if len(workload.Spec.Volumes) == 0 {
 		return
 	}
-	hostpathSet := sets.NewSet()
-	if workspace != nil {
-		for _, vol := range workspace.Spec.Volumes {
-			if vol.Type == v1.HOSTPATH {
-				hostpathSet.Insert(vol.HostPath)
-			}
+	volumesSet := sets.NewSet()
+	volumes := make([]v1.WorkloadVolume, 0, len(workload.Spec.Volumes))
+	id := 1
+	for i, vol := range workload.Spec.Volumes {
+		if vol.Type == v1.WorkloadHostpath {
+			workload.Spec.Volumes[i].VolumeName = v1.GenFullVolumeId(string(vol.Type), id)
+			id++
 		}
-	}
-	hostpath := make([]string, 0, len(workload.Spec.Hostpath))
-	for _, path := range workload.Spec.Hostpath {
-		if !hostpathSet.Has(path) {
-			hostpath = append(hostpath, path)
-			hostpathSet.Insert(path)
+		if volumesSet.Has(vol.VolumeName) {
+			continue
 		}
+		volumesSet.Insert(vol.VolumeName)
+		volumes = append(volumes, workload.Spec.Volumes[i])
 	}
-	workload.Spec.Hostpath = hostpath
+	workload.Spec.Volumes = volumes
 }
 
-// mutateHealthCheck applies mutations to the resource.
+// mutateHealthCheck applies mutations to the workload health check.
 func (m *WorkloadMutator) mutateHealthCheck(workload *v1.Workload) {
 	if workload.Spec.Readiness != nil {
 		mutateHealthCheck(workload.Spec.Readiness)
@@ -272,7 +268,7 @@ func (m *WorkloadMutator) mutateHealthCheck(workload *v1.Workload) {
 	}
 }
 
-// mutateHealthCheck applies mutations to the resource.
+// mutateHealthCheck implements health check mutations.
 func mutateHealthCheck(field *v1.HealthCheck) {
 	if field.InitialDelaySeconds == 0 {
 		field.InitialDelaySeconds = DefaultInitialDelaySeconds
@@ -285,7 +281,7 @@ func mutateHealthCheck(field *v1.HealthCheck) {
 	}
 }
 
-// mutateService applies mutations to the resource.
+// mutateService applies mutations to the workload service.
 func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 	if workload.Spec.Service == nil {
 		return
@@ -316,7 +312,7 @@ func (m *WorkloadMutator) isHostNetworkEnabled(workload *v1.Workload, nf *v1.Nod
 	return true
 }
 
-// mutateDeployment applies mutations to the resource.
+// mutateDeployment applies mutations to the deployment.
 func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
@@ -334,13 +330,13 @@ func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 	}
 }
 
-// mutateStatefulSet applies mutations to the resource.
+// mutateStatefulSet applies mutations to the stateful set.
 func (m *WorkloadMutator) mutateStatefulSet(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
 }
 
-// mutateAuthoring applies mutations to the resource.
+// mutateAuthoring applies mutations to the authoring.
 func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
@@ -353,13 +349,13 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	workload.Spec.Dependencies = nil
 }
 
-// mutateImage applies mutations to the resource.
+// mutateImage applies mutations to the workload image.
 func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {
 	workload.Spec.Image = strings.TrimSpace(workload.Spec.Image)
 	workload.Spec.EntryPoint = strings.TrimSpace(workload.Spec.EntryPoint)
 }
 
-// mutateMaxRetry applies mutations to the resource.
+// mutateMaxRetry applies mutations to the workload retry limit.
 func (m *WorkloadMutator) mutateMaxRetry(workload *v1.Workload) {
 	if workload.Spec.MaxRetry > DefaultMaxFailover {
 		workload.Spec.MaxRetry = DefaultMaxFailover
@@ -369,7 +365,7 @@ func (m *WorkloadMutator) mutateMaxRetry(workload *v1.Workload) {
 	}
 }
 
-// mutateEnv applies mutations to the resource.
+// mutateEnv applies mutations to the workload environment variables.
 func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 	newWorkload.Spec.Env = maps.RemoveValue(newWorkload.Spec.Env, "")
 	// A null or empty value means the field should be removed.
@@ -382,14 +378,14 @@ func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 	}
 }
 
-// mutateTTLSeconds applies mutations to the resource.
+// mutateTTLSeconds applies mutations to the lifecycle of workload after completion
 func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 	if workload.Spec.TTLSecondsAfterFinished == nil {
 		workload.Spec.TTLSecondsAfterFinished = ptr.To(commonconfig.GetWorkloadTTLSecond())
 	}
 }
 
-// mutateEntryPoint applies mutations to the resource.
+// mutateEntryPoint applies mutations to the workload entrypoint.
 func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
 	if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
 		return
@@ -426,7 +422,7 @@ func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Wo
 	}
 }
 
-// mutateCustomerLabels applies mutations to the resource.
+// mutateCustomerLabels applies mutations to the customer labels.
 func (m *WorkloadMutator) mutateCustomerLabels(workload *v1.Workload) {
 	if len(workload.Spec.CustomerLabels) == 0 {
 		return
@@ -442,7 +438,7 @@ func (m *WorkloadMutator) mutateCustomerLabels(workload *v1.Workload) {
 	}
 }
 
-// mutateCronJobs applies mutations to the resource.
+// mutateCronJobs applies mutations to the workload cron jobs.
 func (m *WorkloadMutator) mutateCronJobs(workload *v1.Workload) {
 	for i := range workload.Spec.CronJobs {
 		if workload.Spec.CronJobs[i].Action == "" {
@@ -504,6 +500,9 @@ func (v *WorkloadValidator) validateOnCreation(ctx context.Context, workload *v1
 		return err
 	}
 	if err := v.validateCronJobs(workload); err != nil {
+		return err
+	}
+	if err := v.validateVolumes(ctx, workload); err != nil {
 		return err
 	}
 	return nil
@@ -779,8 +778,11 @@ func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Wor
 	if !v1.IsWorkloadScheduled(newWorkload) {
 		return nil
 	}
-	if !sliceutil.EqualIgnoreOrder(oldWorkload.Spec.Hostpath, newWorkload.Spec.Hostpath) {
-		return commonerrors.NewForbidden("hostpath cannot be changed once the workload has been scheduled")
+	if !reflect.DeepEqual(newWorkload.Spec.Volumes, oldWorkload.Spec.Volumes) {
+		return commonerrors.NewForbidden("Volumes cannot be changed once the workload has been scheduled")
+	}
+	if !reflect.DeepEqual(newWorkload.Spec.Dependencies, oldWorkload.Spec.Dependencies) {
+		return commonerrors.NewForbidden("Dependencies cannot be changed once the workload has been scheduled")
 	}
 	if commonworkload.IsApplication(newWorkload) {
 		return nil
@@ -796,6 +798,9 @@ func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Wor
 	}
 	if !maps.EqualIgnoreOrder(oldWorkload.Spec.Env, newWorkload.Spec.Env) {
 		return commonerrors.NewForbidden("Env cannot be changed once the workload has been scheduled")
+	}
+	if !reflect.DeepEqual(newWorkload.Spec.Volumes, oldWorkload.Spec.Volumes) {
+		return commonerrors.NewForbidden("Volumes cannot be changed once the workload has been scheduled")
 	}
 	return nil
 }
@@ -855,6 +860,44 @@ func (v *WorkloadValidator) validateCronJobs(workload *v1.Workload) error {
 	for _, cj := range workload.Spec.CronJobs {
 		if err := parseCronJob(cj); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// validateVolumes validates that all volumes in the workload have required fields filled.
+func (v *WorkloadValidator) validateVolumes(ctx context.Context, workload *v1.Workload) error {
+	if len(workload.Spec.Volumes) == 0 {
+		return nil
+	}
+	workspace, err := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
+	if err != nil {
+		return err
+	}
+	allPvcNames := sets.NewSet()
+	if workspace != nil {
+		for _, vol := range workspace.Spec.Volumes {
+			if vol.Type == v1.PFS {
+				allPvcNames.Insert(vol.GenFullVolumeId())
+			}
+		}
+	}
+	for _, vol := range workload.Spec.Volumes {
+		if vol.VolumeName == "" {
+			return commonerrors.NewBadRequest("Volume name is empty")
+		}
+		if vol.Type != v1.WorkloadHostpath && vol.Type != v1.WorkloadPVC {
+			return commonerrors.NewBadRequest(fmt.Sprintf("Volume type %s is not supported", vol.Type))
+		}
+		if vol.Type == v1.WorkloadPVC && !allPvcNames.Has(vol.VolumeName) {
+			return commonerrors.NewBadRequest(
+				fmt.Sprintf("The PVC(%s) for this volume was not found.", vol.VolumeName))
+		}
+		if vol.MountPath == "" {
+			return commonerrors.NewBadRequest("Volume mount path is empty")
+		}
+		if vol.Type == v1.WorkloadHostpath && vol.HostPath == "" {
+			return commonerrors.NewBadRequest("Hostpath is empty")
 		}
 	}
 	return nil

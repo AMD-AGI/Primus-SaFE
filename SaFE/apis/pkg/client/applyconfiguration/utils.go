@@ -144,6 +144,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.WorkloadSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("WorkloadStatus"):
 		return &amdv1.WorkloadStatusApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("WorkloadVolume"):
+		return &amdv1.WorkloadVolumeApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Workspace"):
 		return &amdv1.WorkspaceApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("WorkspaceSpec"):

@@ -48,11 +48,11 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "containers")
-	if err = modifyMainContainer(obj, workload, workspace, path); err != nil {
+	if err = modifyMainContainer(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify main container: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "volumes")
-	if err = modifyVolumes(obj, workload, workspace, path); err != nil {
+	if err = modifyVolumes(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify volumes: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "imagePullSecrets")
@@ -124,8 +124,7 @@ func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Worklo
 
 // modifyMainContainer configures the main container of a workload with environment variables,
 // volume mounts, security context, ports, and health checks based on the workload specification.
-func modifyMainContainer(obj *unstructured.Unstructured,
-	workload *v1.Workload, workspace *v1.Workspace, path []string) error {
+func modifyMainContainer(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	containers, found, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
 		return err
@@ -139,9 +138,11 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 	}
 	env := buildEnvironment(workload)
 	modifyEnv(mainContainer, env, v1.IsEnableHostNetwork(workload))
-	modifyVolumeMounts(mainContainer, workload, workspace)
+	modifyVolumeMounts(mainContainer, workload)
 	modifySecurityContext(mainContainer, workload)
-	mainContainer["ports"] = buildPorts(workload)
+	if !commonworkload.IsRayJob(workload) {
+		mainContainer["ports"] = buildPorts(workload)
+	}
 	if healthz := buildHealthCheck(workload.Spec.Liveness); healthz != nil {
 		mainContainer["livenessProbe"] = healthz
 	}
@@ -185,66 +186,39 @@ func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNe
 	mainContainer["env"] = currentEnv
 }
 
-// modifyVolumeMounts configures volume mounts for the container based on workspace and workload specifications.
-// It includes shared memory volumes, workspace volumes, and host path volumes of workload.
-func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workload, workspace *v1.Workspace) {
+// modifyVolumeMounts configures volume mounts for the container based on workload specifications.
+// It includes shared memory volumes and workload volumes with mount paths.
+func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workload) {
 	var volumeMounts []interface{}
 	volumeMountObjs, ok := mainContainer["volumeMounts"]
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
 	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", ""))
-	maxId := 0
-	if workspace != nil {
-		for _, vol := range workspace.Spec.Volumes {
-			if vol.Id > maxId {
-				maxId = vol.Id
-			}
-			if vol.MountPath != "" {
-				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath)
-				volumeMounts = append(volumeMounts, volumeMount)
-			}
+	for _, vol := range workload.Spec.Volumes {
+		if vol.MountPath != "" {
+			volumeMount := buildVolumeMount(vol.VolumeName, vol.MountPath, vol.SubPath)
+			volumeMounts = append(volumeMounts, volumeMount)
 		}
-	}
-	for _, hostpath := range workload.Spec.Hostpath {
-		maxId++
-		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumeMount := buildVolumeMount(volumeName, hostpath, "")
-		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	mainContainer["volumeMounts"] = volumeMounts
 }
 
-// modifyVolumes adds volume definitions to the Kubernetes object based on workspace and workload specifications.
-func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, path []string) error {
+// modifyVolumes adds volume definitions to the Kubernetes object based on workload specifications.
+func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	volumes, _, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
 		return err
 	}
 
-	maxId := 0
 	hasNewVolume := false
-	if workspace != nil {
-		for _, vol := range workspace.Spec.Volumes {
-			if vol.Id > maxId {
-				maxId = vol.Id
-			}
-			volumeName := vol.GenFullVolumeId()
-			var volume interface{}
-			if vol.Type == v1.HOSTPATH {
-				volume = buildHostPathVolume(volumeName, vol.HostPath)
-			} else {
-				volume = buildPvcVolume(volumeName)
-			}
-			volumes = append(volumes, volume)
-			hasNewVolume = true
+	for _, vol := range workload.Spec.Volumes {
+		var volume interface{}
+		if vol.Type == v1.WorkloadHostpath {
+			volume = buildHostPathVolume(vol.VolumeName, vol.HostPath)
+		} else {
+			volume = buildPvcVolume(vol.VolumeName)
 		}
-	}
-
-	for _, hostpath := range workload.Spec.Hostpath {
-		maxId++
-		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volume := buildHostPathVolume(volumeName, hostpath)
 		volumes = append(volumes, volume)
 		hasNewVolume = true
 	}

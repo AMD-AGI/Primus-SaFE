@@ -88,14 +88,17 @@ type WorkspaceResponseItem struct {
 	QueuePolicy v1.WorkspaceQueuePolicy `json:"queuePolicy"`
 	// Support service module: Train/Infer/Authoring, No limitation if not specified
 	Scopes []v1.WorkspaceScope `json:"scopes"`
-	// The store volumes used by workspace
-	Volumes []v1.WorkspaceVolume `json:"volumes"`
 	// Whether preemption is enabled. If enabled, higher-priority workload will preempt the lower-priority one
 	EnablePreempt bool `json:"enablePreempt"`
 	// User ID of the workspace administrator
 	Managers []UserEntity `json:"managers"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault bool `json:"isDefault"`
+}
+
+type WorkspaceVolumeWrapper struct {
+	v1.WorkspaceVolume
+	VolumeName string `json:"volumeName"`
 }
 
 type GetWorkspaceResponse struct {
@@ -112,6 +115,8 @@ type GetWorkspaceResponse struct {
 	UsedNodeCount int `json:"usedNodeCount"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecretIds []string `json:"imageSecretIds"`
+	// The store volumes used by workspace
+	Volumes []WorkspaceVolumeWrapper `json:"volumes"`
 }
 
 type PatchWorkspaceRequest struct {

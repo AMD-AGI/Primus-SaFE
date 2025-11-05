@@ -447,12 +447,18 @@ func updateUnstructuredObject(obj *unstructured.Unstructured, adminWorkload *v1.
 			return fmt.Errorf("failed to update priority: %v", err.Error())
 		}
 	}
+	if err := updateRayJob(adminWorkload, obj); err != nil {
+		return fmt.Errorf("failed to update ray job: %v", err.Error())
+	}
 	return nil
 }
 
 // updateReplica updates the replica count in the unstructured object.
 func updateReplica(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
+	if len(resourceSpec.ReplicasPaths) == 0 {
+		return nil
+	}
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.ReplicasPaths...)
 	if err := unstructured.SetNestedField(obj.Object, replica, path...); err != nil {
@@ -495,7 +501,9 @@ func updateMainContainer(adminWorkload *v1.Workload,
 		"requests": resources,
 	}
 	mainContainer["image"] = adminWorkload.Spec.Image
-	mainContainer["command"] = buildCommands(adminWorkload)
+	if !commonworkload.IsRayJob(adminWorkload) {
+		mainContainer["command"] = buildCommands(adminWorkload)
+	}
 	if len(adminWorkload.Spec.Env) > 0 {
 		updateContainerEnv(adminWorkload, mainContainer)
 	}
@@ -613,6 +621,16 @@ func updatePriorityClass(adminWorkload *v1.Workload,
 	templatePath := resourceSpec.GetTemplatePath()
 	path := append(templatePath, "spec", "priorityClassName")
 	return modifyPriorityClass(obj, adminWorkload, path)
+}
+
+// updateRayJob updates the ray-job. The RayJob format differs from the common one and needs special handling
+func updateRayJob(adminWorkload *v1.Workload, obj *unstructured.Unstructured) error {
+	path := []string{"spec", "entrypoint"}
+	entryPoint := buildEntryPoint(adminWorkload)
+	if err := unstructured.SetNestedField(obj.Object, entryPoint, path...); err != nil {
+		return err
+	}
+	return nil
 }
 
 // createService creates a Kubernetes Service for the workload if specified.

@@ -1,0 +1,83 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amd-ray-job-template
+  namespace: {{ .Release.Namespace }}
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: RayJob
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    # The main container name should match the configuration defined in the template below
+    primus-safe.main.container: main
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+data:
+ template: |
+   apiVersion: ray.io/v1
+   kind: RayJob
+   spec:
+     shutdownAfterJobFinishes: true
+     ttlSecondsAfterFinished: 10
+     rayClusterSpec:
+       headGroupSpec:
+         template:
+           spec:
+             containers:
+             - name: main
+               ports:
+               - containerPort: 6379
+                 name: gcs-server
+               - containerPort: 8265 # Ray dashboard
+                 name: dashboard
+               - containerPort: 10001
+                 name: client
+       workerGroupSpecs:
+       - replicas: 1
+         groupName: group1
+         template:
+           spec:
+             containers:
+             - name: main
+               env:
+               - name: NCCL_SOCKET_IFNAME
+                 value: "{{ .Values.net.nccl_socket_ifname }}"
+               - name: GLOO_SOCKET_IFNAME
+                 value: "{{ .Values.net.nccl_socket_ifname }}"
+               - name: NCCL_IB_HCA
+                 value: "{{ .Values.net.nccl_ib_hca }}"
+               - name: NCCL_IB_TIMEOUT
+                 value: "23"
+               - name: NCCL_IB_RETRY_CNT
+                 value: "11"
+               - name: NCCL_IB_GID_INDEX
+                 value: "3"
+               - name: NCCL_IB_QPS_PER_CONNECTION
+                 value: "4"
+               - name: NCCL_IB_TC
+                 value: "41"
+               - name: POD_NAME
+                 valueFrom:
+                   fieldRef:
+                     apiVersion: v1
+                     fieldPath: metadata.name
+               - name: POD_UID
+                 valueFrom:
+                   fieldRef:
+                     apiVersion: v1
+                     fieldPath: metadata.uid
+               - name: POD_IP
+                 valueFrom:
+                   fieldRef:
+                     apiVersion: v1
+                     fieldPath: status.podIP
+               - name: POD_NAMESPACE
+                 valueFrom:
+                   fieldRef:
+                     apiVersion: v1
+                     fieldPath: metadata.namespace
