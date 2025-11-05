@@ -68,6 +68,26 @@ func (f *GenericCacheFacade) Get(ctx context.Context, key string, value interfac
 		return err
 	}
 
+	// Check if it's a wrapped array with BUILTIN_ARRAY field
+	var tempMap map[string]interface{}
+	if err := json.Unmarshal(valueBytes, &tempMap); err == nil {
+		if arrayValue, exists := tempMap["BUILTIN_ARRAY"]; exists {
+			// Extract the array from BUILTIN_ARRAY field
+			arrayBytes, err := json.Marshal(arrayValue)
+			if err != nil {
+				log.Errorf("GenericCache Get: error marshaling BUILTIN_ARRAY value: %v", err)
+				return err
+			}
+			err = json.Unmarshal(arrayBytes, value)
+			if err != nil {
+				log.Errorf("GenericCache Get: error unmarshaling BUILTIN_ARRAY value: %v", err)
+				return err
+			}
+			return nil
+		}
+	}
+
+	// Normal unmarshal for non-array values
 	err = json.Unmarshal(valueBytes, value)
 	if err != nil {
 		log.Errorf("GenericCache Get: error unmarshaling cache value: %v", err)
@@ -84,6 +104,26 @@ func (f *GenericCacheFacade) Set(ctx context.Context, key string, value interfac
 	if err != nil {
 		log.Errorf("GenericCache Set: error marshaling value: %v", err)
 		return err
+	}
+
+	// Check if the value is a JSON array
+	var rawValue interface{}
+	err = json.Unmarshal(valueBytes, &rawValue)
+	if err != nil {
+		log.Errorf("GenericCache Set: error unmarshaling value: %v", err)
+		return err
+	}
+
+	// If it's an array, wrap it in BUILTIN_ARRAY field
+	if _, isArray := rawValue.([]interface{}); isArray {
+		wrappedValue := map[string]interface{}{
+			"BUILTIN_ARRAY": rawValue,
+		}
+		valueBytes, err = json.Marshal(wrappedValue)
+		if err != nil {
+			log.Errorf("GenericCache Set: error marshaling wrapped array: %v", err)
+			return err
+		}
 	}
 
 	var extValue model.ExtType
@@ -153,4 +193,3 @@ func (f *GenericCacheFacade) DeleteExpired(ctx context.Context) error {
 
 	return nil
 }
-
