@@ -167,7 +167,7 @@ func syncOpensearchService(ctx context.Context, clusterName string, clusterClien
 	if cfg == nil {
 		return nil, nil
 	}
-
+	// Disable temporary to avoid creating service in control plane
 	/**
 	syncedService := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
