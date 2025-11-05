@@ -16,13 +16,13 @@ import (
 const (
 	// Cache key constant
 	CacheKeyGpuUsageHistory24h = "cluster:gpu:usage_history:24h"
-	
+
 	// Cache expiration duration (15 minutes)
 	CacheExpirationDuration = 15 * time.Minute
-	
+
 	// History duration
 	HistoryDuration = 24 * time.Hour
-	
+
 	// Default step for history queries (60 seconds)
 	DefaultHistoryStep = 60
 )
@@ -92,7 +92,7 @@ func (j *GpuHistoryCache24hJob) cacheGpuUsageHistory(
 	}
 
 	// Set cache key with cluster name
-	cacheKey := fmt.Sprintf("%s:%s", CacheKeyGpuUsageHistory24h, clusterName)
+	cacheKey := CacheKeyGpuUsageHistory24h
 	expiresAt := time.Now().Add(CacheExpirationDuration)
 
 	// Store in cache
@@ -110,4 +110,3 @@ func (j *GpuHistoryCache24hJob) Schedule() string {
 	// Run every 10 minutes - lowest frequency for 24 hour history
 	return "@every 10m"
 }
-
