@@ -43,5 +43,5 @@ func (n NullLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql s
 		metrics.RecordSlowQueryDuration(trace.TrimPackagePrefixes(trace.GetNearestCaller(2)), timeUse.Seconds())
 		return
 	}
-	log.GlobalLogger().Debugf("[GormLog][Debug] %s. SQL: %s. RowsAffected %d. Timeuse %d ms. %s", begin, sql, rowAffected, timeUse.Milliseconds(), errStr)
+	log.GlobalLogger().Tracef("[GormLog][Trace] %s. SQL: %s. RowsAffected %d. Timeuse %d ms. %s", begin, sql, rowAffected, timeUse.Milliseconds(), errStr)
 }
