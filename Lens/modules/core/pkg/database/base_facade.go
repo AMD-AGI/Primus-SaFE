@@ -15,12 +15,9 @@ type BaseFacade struct {
 
 // getDB retrieves the corresponding database connection based on clusterName
 func (f *BaseFacade) getDB() *gorm.DB {
-	log.Infof("getDB called: clusterName: %s", f.clusterName)
 
 	if f.clusterName == "" {
-		log.Infof("getDB: using default database (empty clusterName)")
 		db := sql.GetDefaultDB()
-		log.Infof("getDB: returning default DB: %p", db)
 		return db
 	}
 
@@ -42,19 +39,14 @@ func (f *BaseFacade) getDB() *gorm.DB {
 		log.Errorf("getDB: falling back to default DB: %p", db)
 		return db
 	}
-	log.Infof("getDB: successfully got client set for cluster '%s', database address: %+v",
-		clientSet.ClusterName, clientSet.StorageClientSet.Config.Postgres)
 	db := clientSet.StorageClientSet.DB
-	log.Infof("getDB: returning cluster DB: %p for cluster '%s'", db, f.clusterName)
 	return db
 }
 
 // getDAL retrieves the DAL instance
 func (f *BaseFacade) getDAL() *dal.Query {
 	db := f.getDB()
-	log.Infof("getDAL: creating DAL with DB: %p for cluster: %s", db, f.clusterName)
 	query := dal.Use(db)
-	log.Infof("getDAL: created Query: %p", query)
 	return query
 }
 

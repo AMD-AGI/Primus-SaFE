@@ -31,7 +31,20 @@ func getClusterGpuAllocationInfo(c *gin.Context) {
 		return
 	}
 
-	result, err := gpu.GetGpuNodesAllocation(c, clients.K8SClientSet, clients.ClusterName, metadata.GpuVendorAMD)
+	// Try to get from cache first
+	cacheFacade := database.GetFacadeForCluster(clients.ClusterName).GetGenericCache()
+	cacheKey := fmt.Sprintf("cluster:gpu:allocation_info:%s", clients.ClusterName)
+
+	var result []model.GpuAllocation
+	err = cacheFacade.Get(c, cacheKey, &result)
+	if err == nil {
+		// Cache hit
+		c.JSON(http.StatusOK, rest.SuccessResp(c, result))
+		return
+	}
+
+	// Cache miss, fallback to real-time calculation
+	result, err = gpu.GetGpuNodesAllocation(c, clients.K8SClientSet, clients.ClusterName, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
 		return
@@ -49,17 +62,34 @@ func getClusterGPUUtilization(c *gin.Context) {
 		return
 	}
 
+	// Try to get from cache first
+	cacheFacade := database.GetFacadeForCluster(clients.ClusterName).GetGenericCache()
+	cacheKey := fmt.Sprintf("cluster:gpu:utilization:%s", clients.ClusterName)
+
+	var result model.GPUUtilization
+	err = cacheFacade.Get(c, cacheKey, &result)
+	if err == nil {
+		// Cache hit
+		c.JSON(http.StatusOK, rest.SuccessResp(c, &result))
+		return
+	}
+
+	// Cache miss, fallback to real-time calculation
 	usage, err := gpu.CalculateGpuUsage(c, clients.StorageClientSet, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
 		return
 	}
 	allocationRate, err := gpu.GetClusterGpuAllocationRate(c, clients.K8SClientSet, clients.ClusterName, metadata.GpuVendorAMD)
-	result := &model.GPUUtilization{
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	result = model.GPUUtilization{
 		AllocationRate: allocationRate,
 		Utilization:    usage,
 	}
-	c.JSON(http.StatusOK, rest.SuccessResp(c, result))
+	c.JSON(http.StatusOK, rest.SuccessResp(c, &result))
 }
 func getGpuUsageHistory(c *gin.Context) {
 	startStr := c.Query("start")
@@ -96,6 +126,24 @@ func getGpuUsageHistory(c *gin.Context) {
 	}
 	storageClient := clients.StorageClientSet
 
+	// Try to get from cache first if querying recent data with default step
+	if step == 60 {
+		cacheFacade := database.GetFacadeForCluster(clients.ClusterName).GetGenericCache()
+		cacheKey := getGpuUsageHistoryCacheKey(clients.ClusterName, startTime, endTime)
+
+		if cacheKey != "" {
+			var result model.GpuUtilizationHistory
+			err = cacheFacade.Get(c, cacheKey, &result)
+			if err == nil {
+				// Cache hit, filter data by time range if needed
+				filteredResult := filterGpuUsageHistoryByTimeRange(result, startTime, endTime)
+				c.JSON(http.StatusOK, rest.SuccessResp(c, filteredResult))
+				return
+			}
+		}
+	}
+
+	// Cache miss or non-standard query, fallback to real-time calculation
 	usageHistory, err := gpu.GetHistoryGpuUsage(c, storageClient, metadata.GpuVendorAMD, startTime, endTime, step)
 	if err != nil {
 		c.Error(err)
@@ -118,6 +166,59 @@ func getGpuUsageHistory(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, rest.SuccessResp(c, result))
+}
+
+// getGpuUsageHistoryCacheKey determines the cache key based on the time range
+// Returns empty string if the query doesn't match any cached time ranges
+func getGpuUsageHistoryCacheKey(clusterName string, startTime, endTime time.Time) string {
+	now := time.Now()
+	duration := endTime.Sub(startTime)
+
+	// Allow 5 minutes tolerance for "recent" queries
+	tolerance := 5 * time.Minute
+	timeSinceEnd := now.Sub(endTime)
+
+	// Check if this is a recent query (end time is close to now)
+	if timeSinceEnd > tolerance {
+		return "" // Not a recent query, don't use cache
+	}
+
+	// Match against cached durations
+	if duration >= 50*time.Minute && duration <= 70*time.Minute {
+		// ~1 hour query
+		return fmt.Sprintf("cluster:gpu:usage_history:1h:%s", clusterName)
+	} else if duration >= 5*time.Hour+30*time.Minute && duration <= 6*time.Hour+30*time.Minute {
+		// ~6 hour query
+		return fmt.Sprintf("cluster:gpu:usage_history:6h:%s", clusterName)
+	} else if duration >= 23*time.Hour && duration <= 25*time.Hour {
+		// ~24 hour query
+		return fmt.Sprintf("cluster:gpu:usage_history:24h:%s", clusterName)
+	}
+
+	return "" // Duration doesn't match any cached ranges
+}
+
+// filterGpuUsageHistoryByTimeRange filters history data to match the requested time range
+func filterGpuUsageHistoryByTimeRange(history model.GpuUtilizationHistory, startTime, endTime time.Time) model.GpuUtilizationHistory {
+	startUnix := startTime.Unix()
+	endUnix := endTime.Unix()
+
+	return model.GpuUtilizationHistory{
+		AllocationRate:  filterTimePoints(history.AllocationRate, startUnix, endUnix),
+		Utilization:     filterTimePoints(history.Utilization, startUnix, endUnix),
+		VramUtilization: filterTimePoints(history.VramUtilization, startUnix, endUnix),
+	}
+}
+
+// filterTimePoints filters time points within the given time range
+func filterTimePoints(points []model.TimePoint, startUnix, endUnix int64) []model.TimePoint {
+	filtered := make([]model.TimePoint, 0, len(points))
+	for _, point := range points {
+		if point.Timestamp >= startUnix && point.Timestamp <= endUnix {
+			filtered = append(filtered, point)
+		}
+	}
+	return filtered
 }
 
 func getGPUNodeList(ctx *gin.Context) {

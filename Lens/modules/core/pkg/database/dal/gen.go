@@ -29,6 +29,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		AlertStatistics:           newAlertStatistics(db, opts...),
 		ClusterOverviewCache:      newClusterOverviewCache(db, opts...),
 		Fault:                     newFault(db, opts...),
+		GenericCache:              newGenericCache(db, opts...),
 		GpuDevice:                 newGpuDevice(db, opts...),
 		GpuPods:                   newGpuPods(db, opts...),
 		GpuPodsEvent:              newGpuPodsEvent(db, opts...),
@@ -70,6 +71,7 @@ type Query struct {
 	AlertStatistics           alertStatistics
 	ClusterOverviewCache      clusterOverviewCache
 	Fault                     fault
+	GenericCache              genericCache
 	GpuDevice                 gpuDevice
 	GpuPods                   gpuPods
 	GpuPodsEvent              gpuPodsEvent
@@ -112,6 +114,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		AlertStatistics:           q.AlertStatistics.clone(db),
 		ClusterOverviewCache:      q.ClusterOverviewCache.clone(db),
 		Fault:                     q.Fault.clone(db),
+		GenericCache:              q.GenericCache.clone(db),
 		GpuDevice:                 q.GpuDevice.clone(db),
 		GpuPods:                   q.GpuPods.clone(db),
 		GpuPodsEvent:              q.GpuPodsEvent.clone(db),
@@ -161,6 +164,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		AlertStatistics:           q.AlertStatistics.replaceDB(db),
 		ClusterOverviewCache:      q.ClusterOverviewCache.replaceDB(db),
 		Fault:                     q.Fault.replaceDB(db),
+		GenericCache:              q.GenericCache.replaceDB(db),
 		GpuDevice:                 q.GpuDevice.replaceDB(db),
 		GpuPods:                   q.GpuPods.replaceDB(db),
 		GpuPodsEvent:              q.GpuPodsEvent.replaceDB(db),
@@ -200,6 +204,7 @@ type queryCtx struct {
 	AlertStatistics           *alertStatisticsDo
 	ClusterOverviewCache      *clusterOverviewCacheDo
 	Fault                     *faultDo
+	GenericCache              *genericCacheDo
 	GpuDevice                 *gpuDeviceDo
 	GpuPods                   *gpuPodsDo
 	GpuPodsEvent              *gpuPodsEventDo
@@ -239,6 +244,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		AlertStatistics:           q.AlertStatistics.WithContext(ctx),
 		ClusterOverviewCache:      q.ClusterOverviewCache.WithContext(ctx),
 		Fault:                     q.Fault.WithContext(ctx),
+		GenericCache:              q.GenericCache.WithContext(ctx),
 		GpuDevice:                 q.GpuDevice.WithContext(ctx),
 		GpuPods:                   q.GpuPods.WithContext(ctx),
 		GpuPodsEvent:              q.GpuPodsEvent.WithContext(ctx),

@@ -24,6 +24,8 @@ type FacadeInterface interface {
 	GetAlertRuleAdvice() AlertRuleAdviceFacadeInterface
 	// GetClusterOverviewCache returns the ClusterOverviewCache Facade interface
 	GetClusterOverviewCache() ClusterOverviewCacheFacadeInterface
+	// GetGenericCache returns the GenericCache Facade interface
+	GetGenericCache() GenericCacheFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -41,6 +43,7 @@ type Facade struct {
 	LogAlertRule         LogAlertRuleFacadeInterface
 	AlertRuleAdvice      AlertRuleAdviceFacadeInterface
 	ClusterOverviewCache ClusterOverviewCacheFacadeInterface
+	GenericCache         GenericCacheFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -57,6 +60,7 @@ func NewFacade() *Facade {
 		LogAlertRule:         NewLogAlertRuleFacade(),
 		AlertRuleAdvice:      NewAlertRuleAdviceFacade(),
 		ClusterOverviewCache: NewClusterOverviewCacheFacade(),
+		GenericCache:         NewGenericCacheFacade(),
 	}
 }
 
@@ -115,6 +119,11 @@ func (f *Facade) GetClusterOverviewCache() ClusterOverviewCacheFacadeInterface {
 	return f.ClusterOverviewCache
 }
 
+// GetGenericCache returns the GenericCache Facade interface
+func (f *Facade) GetGenericCache() GenericCacheFacadeInterface {
+	return f.GenericCache
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -129,6 +138,7 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		LogAlertRule:         f.LogAlertRule.WithCluster(clusterName),
 		AlertRuleAdvice:      f.AlertRuleAdvice.WithCluster(clusterName),
 		ClusterOverviewCache: f.ClusterOverviewCache.WithCluster(clusterName),
+		GenericCache:         f.GenericCache.WithCluster(clusterName),
 	}
 }
 

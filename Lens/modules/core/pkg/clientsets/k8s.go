@@ -120,7 +120,6 @@ func loadMultiClusterK8SClientSet(ctx context.Context) error {
 			return nil
 		}
 	}
-	log.Infof("Multi-cluster k8s config: %s", string(configBytes))
 	multiClusterK8SConfigJsonBytes = configBytes
 	newMultiClusterK8S := map[string]*K8SClientSet{}
 	for clusterName, k8sCfg := range k8sConfigs {
