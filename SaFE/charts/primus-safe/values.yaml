@@ -4,7 +4,7 @@
 #
 global:
   # Domain and sub_domain are mainly used for console access
-  domain: "safe-primus.ai"
+  domain: "primus-safe.amd.com"
   sub_domain: ""
   # Image registry address where management components are uploaded
   image_registry: "docker.io"
@@ -13,7 +13,7 @@ global:
   # Kubernetes storage class for persistent storage
   storage_class: "local-path"
   # Ingress component name selected during install.sh
-  ingress: "nginx"
+  ingress: "higress"
 net:
   # Network interface for NCCL socket communication
   nccl_socket_ifname: "eno0"
