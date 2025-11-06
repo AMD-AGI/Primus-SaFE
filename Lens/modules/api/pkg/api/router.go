@@ -100,6 +100,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		gpuAggregationGroup.GET("/clusters", getClusters)
 		gpuAggregationGroup.GET("/namespaces", getNamespaces)
 		gpuAggregationGroup.GET("/dimension-keys", getDimensionKeys)
+		gpuAggregationGroup.GET("/dimension-values", getDimensionValues)
 
 		// 集群级别小时统计
 		gpuAggregationGroup.GET("/cluster/hourly-stats", getClusterHourlyStats)

@@ -40,6 +40,7 @@ type GpuAggregationFacadeInterface interface {
 	// 元信息查询
 	GetDistinctNamespaces(ctx context.Context, startTime, endTime time.Time) ([]string, error)
 	GetDistinctDimensionKeys(ctx context.Context, dimensionType string, startTime, endTime time.Time) ([]string, error)
+	GetDistinctDimensionValues(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]string, error)
 
 	// WithCluster 方法
 	WithCluster(clusterName string) GpuAggregationFacadeInterface
@@ -442,4 +443,27 @@ func (f *GpuAggregationFacade) GetDistinctDimensionKeys(ctx context.Context, dim
 	}
 
 	return keys, nil
+}
+
+// GetDistinctDimensionValues 获取指定时间范围内某个dimension key的所有不重复values
+func (f *GpuAggregationFacade) GetDistinctDimensionValues(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]string, error) {
+	q := f.getDAL().LabelGpuHourlyStats
+
+	var values []string
+	err := q.WithContext(ctx).
+		Where(q.DimensionType.Eq(dimensionType)).
+		Where(q.DimensionKey.Eq(dimensionKey)).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Distinct(q.DimensionValue).
+		Pluck(q.DimensionValue, &values)
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	return values, nil
 }

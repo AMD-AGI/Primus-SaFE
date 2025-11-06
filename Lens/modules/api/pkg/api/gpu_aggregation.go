@@ -53,6 +53,14 @@ type DimensionKeysRequest struct {
 	EndTime       string `form:"end_time" binding:"required"`                              // RFC3339 格式
 }
 
+// DimensionValuesRequest 维度value查询请求
+type DimensionValuesRequest struct {
+	DimensionType string `form:"dimension_type" binding:"required,oneof=label annotation"` // label 或 annotation
+	DimensionKey  string `form:"dimension_key" binding:"required"`                         // dimension key
+	StartTime     string `form:"start_time" binding:"required"`                            // RFC3339 格式
+	EndTime       string `form:"end_time" binding:"required"`                              // RFC3339 格式
+}
+
 // getClusterHourlyStats 查询集群级别小时统计
 // @Summary 查询集群GPU小时统计
 // @Tags GPU聚合
@@ -432,4 +440,56 @@ func getDimensionKeys(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, keys))
+}
+
+// getDimensionValues 获取指定时间范围内某个dimension key的values列表
+// @Summary 获取Label/Annotation Value列表
+// @Tags GPU聚合
+// @Accept json
+// @Produce json
+// @Param cluster query string false "集群名称"
+// @Param dimension_type query string true "维度类型 (label或annotation)"
+// @Param dimension_key query string true "维度key"
+// @Param start_time query string true "开始时间 (RFC3339格式)"
+// @Param end_time query string true "结束时间 (RFC3339格式)"
+// @Success 200 {object} rest.Response{data=[]string}
+// @Router /gpu-aggregation/dimension-values [get]
+func getDimensionValues(ctx *gin.Context) {
+	var req DimensionValuesRequest
+	if err := ctx.ShouldBindQuery(&req); err != nil {
+		_ = ctx.Error(errors.WrapError(err, "Invalid request parameters", errors.RequestParameterInvalid))
+		return
+	}
+
+	// 解析时间
+	startTime, err := time.Parse(time.RFC3339, req.StartTime)
+	if err != nil {
+		_ = ctx.Error(errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid))
+		return
+	}
+
+	endTime, err := time.Parse(time.RFC3339, req.EndTime)
+	if err != nil {
+		_ = ctx.Error(errors.WrapError(err, "Invalid end_time format", errors.RequestParameterInvalid))
+		return
+	}
+
+	// 获取集群客户端
+	cm := clientsets.GetClusterManager()
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// 查询数据
+	values, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
+		GetDistinctDimensionValues(ctx, req.DimensionType, req.DimensionKey, startTime, endTime)
+	if err != nil {
+		_ = ctx.Error(errors.WrapError(err, "Failed to get dimension values", errors.CodeDatabaseError))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, values))
 }
