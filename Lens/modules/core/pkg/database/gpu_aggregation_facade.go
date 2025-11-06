@@ -37,6 +37,10 @@ type GpuAggregationFacadeInterface interface {
 	CleanupOldSnapshots(ctx context.Context, beforeTime time.Time) (int64, error)
 	CleanupOldHourlyStats(ctx context.Context, beforeTime time.Time) (int64, error)
 
+	// 元信息查询
+	GetDistinctNamespaces(ctx context.Context, startTime, endTime time.Time) ([]string, error)
+	GetDistinctDimensionKeys(ctx context.Context, dimensionType string, startTime, endTime time.Time) ([]string, error)
+
 	// WithCluster 方法
 	WithCluster(clusterName string) GpuAggregationFacadeInterface
 }
@@ -393,4 +397,49 @@ func (f *GpuAggregationFacade) CleanupOldHourlyStats(ctx context.Context, before
 	totalDeleted += labelResult.RowsAffected
 
 	return totalDeleted, nil
+}
+
+// ==================== 元信息查询操作实现 ====================
+
+// GetDistinctNamespaces 获取指定时间范围内的所有不重复namespace
+func (f *GpuAggregationFacade) GetDistinctNamespaces(ctx context.Context, startTime, endTime time.Time) ([]string, error) {
+	q := f.getDAL().NamespaceGpuHourlyStats
+
+	var namespaces []string
+	err := q.WithContext(ctx).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Distinct(q.Namespace).
+		Pluck(q.Namespace, &namespaces)
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	return namespaces, nil
+}
+
+// GetDistinctDimensionKeys 获取指定时间范围内的所有不重复dimension keys
+func (f *GpuAggregationFacade) GetDistinctDimensionKeys(ctx context.Context, dimensionType string, startTime, endTime time.Time) ([]string, error) {
+	q := f.getDAL().LabelGpuHourlyStats
+
+	var keys []string
+	err := q.WithContext(ctx).
+		Where(q.DimensionType.Eq(dimensionType)).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Distinct(q.DimensionKey).
+		Pluck(q.DimensionKey, &keys)
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+
+	return keys, nil
 }

@@ -96,15 +96,20 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	// GPU Aggregation routes - GPU聚合数据查询
 	gpuAggregationGroup := group.Group("/gpu-aggregation")
 	{
+		// 元信息查询
+		gpuAggregationGroup.GET("/clusters", getClusters)
+		gpuAggregationGroup.GET("/namespaces", getNamespaces)
+		gpuAggregationGroup.GET("/dimension-keys", getDimensionKeys)
+
 		// 集群级别小时统计
 		gpuAggregationGroup.GET("/cluster/hourly-stats", getClusterHourlyStats)
-		
+
 		// Namespace级别小时统计
 		gpuAggregationGroup.GET("/namespaces/hourly-stats", getNamespaceHourlyStats)
-		
+
 		// Label/Annotation级别小时统计
 		gpuAggregationGroup.GET("/labels/hourly-stats", getLabelHourlyStats)
-		
+
 		// 快照查询
 		gpuAggregationGroup.GET("/snapshots/latest", getLatestSnapshot)
 		gpuAggregationGroup.GET("/snapshots", listSnapshots)
