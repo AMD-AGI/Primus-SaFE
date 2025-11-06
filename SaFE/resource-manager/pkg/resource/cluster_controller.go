@@ -262,6 +262,7 @@ func (r *ClusterReconciler) guaranteeClientFactory(ctx context.Context, cluster 
 		return err
 	}
 	r.clientManager.AddOrReplace(cluster.Name, k8sClients)
+	klog.Infof("add cluster %s informer, endpoint: %s", cluster.Name, endpoint)
 	return nil
 }
 
