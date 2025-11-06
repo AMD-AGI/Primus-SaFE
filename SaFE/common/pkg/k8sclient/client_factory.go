@@ -7,6 +7,7 @@ package k8sclient
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/dynamic"
@@ -181,14 +182,43 @@ func (f *ClientFactory) StartInformer() {
 	}
 }
 
-// WaitForCacheSync wait for Informer cache sync to complete.
-func (f *ClientFactory) WaitForCacheSync() {
-	switch f.informerType {
-	case EnableInformer:
-		f.sharedInformerFactory.WaitForCacheSync(f.stopCh)
-	case EnableDynamicInformer:
-		f.dynamicSharedInformerFactory.WaitForCacheSync(f.stopCh)
+// WaitForCacheSync wait for Informer cache sync to complete with optional timeout.
+// If timeout is 0 or negative, no timeout is applied and the method will block until sync completes.
+func (f *ClientFactory) WaitForCacheSync(timeout time.Duration) bool {
+	if timeout <= 0 {
+		switch f.informerType {
+		case EnableInformer:
+			f.sharedInformerFactory.WaitForCacheSync(f.stopCh)
+		case EnableDynamicInformer:
+			f.dynamicSharedInformerFactory.WaitForCacheSync(f.stopCh)
+		}
+		return true
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	done := make(chan struct{})
+
+	go func() {
+		switch f.informerType {
+		case EnableInformer:
+			f.sharedInformerFactory.WaitForCacheSync(f.stopCh)
+		case EnableDynamicInformer:
+			f.dynamicSharedInformerFactory.WaitForCacheSync(f.stopCh)
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		klog.Warningf("Cache sync timeout for factory %s after %v", f.name, timeout)
+	case <-f.stopCh:
+		klog.Infof("Cache sync interrupted for factory %s", f.name)
+	}
+	return false
 }
 
 // StopInformer stop Informer factory, close stopCh channel.

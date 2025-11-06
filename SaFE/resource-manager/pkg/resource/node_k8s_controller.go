@@ -107,9 +107,11 @@ func (r *NodeK8sReconciler) relevantChangePredicate() predicate.Predicate {
 			if !ok || !cluster.IsReady() {
 				return false
 			}
-			if err := r.startNodeInformer(cluster); err != nil {
-				klog.Errorf("failed to start node informer, err: %v", err)
-			}
+			go func() {
+				if err := r.startNodeInformer(cluster); err != nil {
+					klog.Errorf("failed to start node informer, err: %v", err)
+				}
+			}()
 			return false
 		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
@@ -118,11 +120,13 @@ func (r *NodeK8sReconciler) relevantChangePredicate() predicate.Predicate {
 			if !ok1 || !ok2 {
 				return false
 			}
-			if !oldCluster.IsReady() && newCluster.IsReady() {
-				if err := r.startNodeInformer(newCluster); err != nil {
-					klog.Errorf("failed to start node informer, err: %v", err)
+			go func() {
+				if !oldCluster.IsReady() && newCluster.IsReady() {
+					if err := r.startNodeInformer(newCluster); err != nil {
+						klog.Errorf("failed to start node informer, err: %v", err)
+					}
 				}
-			}
+			}()
 			return false
 		},
 	}
@@ -137,6 +141,7 @@ func (r *NodeK8sReconciler) startNodeInformer(cluster *v1.Cluster) error {
 	err := backoff.Retry(func() error {
 		k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 		if err != nil {
+			klog.ErrorS(err, "failed to get k8s client for data plane", "name", cluster.Name)
 			return err
 		}
 		nodeInformer := k8sClients.SharedInformerFactory().Core().V1().Nodes().Informer()
@@ -149,8 +154,11 @@ func (r *NodeK8sReconciler) startNodeInformer(cluster *v1.Cluster) error {
 			return err
 		}
 		k8sClients.StartInformer()
-		k8sClients.WaitForCacheSync()
-		klog.Infof("add k8s node informer successfully. cluster: %s", cluster.Name)
+		if k8sClients.WaitForCacheSync(time.Minute * 10) {
+			klog.Infof("add k8s node informer successfully. cluster: %s", cluster.Name)
+		} else {
+			klog.Errorf("failed to sync cache for k8s node informer. cluster: %s", cluster.Name)
+		}
 		return nil
 	}, maxWaitTime, waitTime)
 	return err
