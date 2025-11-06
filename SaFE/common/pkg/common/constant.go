@@ -28,7 +28,6 @@ const (
 	NodeNameSelector       = "spec.nodeName="
 	KubeSystemNamespace    = "kube-system"
 	KubePublicNamespace    = "kube-public"
-	K8sHostName            = "kubernetes.io/hostname"
 	PytorchJobPortName     = "pytorchjob-port"
 	SSHPortName            = "ssh-port"
 	JsonContentType        = "application/json; charset=utf-8"
