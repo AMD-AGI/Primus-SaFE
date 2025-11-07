@@ -45,6 +45,16 @@ Storage statistics and management operations.
 **Endpoints:**
 - `GET /api/storage/stat` - Get storage statistics including capacity and usage
 
+### [GPU Aggregation API](./gpu-aggregation.md)
+GPU resource allocation and utilization statistics aggregated across different dimensions and time periods.
+
+**Endpoints:**
+- `GET /api/gpu-aggregation/cluster/hourly-stats` - Get cluster-level hourly GPU statistics
+- `GET /api/gpu-aggregation/namespaces/hourly-stats` - Get namespace-level hourly GPU statistics
+- `GET /api/gpu-aggregation/labels/hourly-stats` - Get label/annotation-level hourly GPU statistics
+- `GET /api/gpu-aggregation/snapshots/latest` - Get the latest GPU allocation snapshot
+- `GET /api/gpu-aggregation/snapshots` - List historical GPU allocation snapshots
+
 ### [Metric Alert Rules API](./metric-alert-rules.md)
 Metric-based alert rule management for monitoring Prometheus/VictoriaMetrics metrics.
 

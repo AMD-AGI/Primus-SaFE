@@ -1,0 +1,39 @@
+# GPU Usage Analysis Agent Dependencies
+
+# Core dependencies
+langgraph>=0.0.20
+langchain>=0.1.0
+langchain-core>=0.1.0
+langchain-openai>=0.0.5
+langchain-anthropic>=0.1.0
+
+# API Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.0.0
+
+# HTTP Client
+requests>=2.31.0
+httpx>=0.24.0  # 用于自定义 SSL 配置
+
+# Configuration
+pyyaml>=6.0.0
+
+# Optional: Redis for caching (可选)
+# redis>=5.0.0
+
+# Optional: Vector database for knowledge base
+# pymilvus>=2.3.0
+
+# Optional: Local model support
+# langchain-community>=0.0.20
+# transformers>=4.36.0
+# torch>=2.1.0
+
+# Development dependencies
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+
