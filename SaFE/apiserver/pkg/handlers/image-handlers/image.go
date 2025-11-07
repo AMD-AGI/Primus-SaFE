@@ -250,10 +250,7 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 	if err = c.ShouldBindJSON(&body); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
-
-	uid := c.GetString(common.UserId)
 	userName := c.GetString(common.UserName)
-	importImageJobName := generateImportImageJobName(uid)
 
 	imageInfo, err := h.getImportImageInfo(c, body)
 	if err != nil {
@@ -268,11 +265,6 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		resp.AlreadyImageID = existImageID
 		resp.Message = "Image already existed. We don't need to import it again"
 		return resp, nil
-	}
-
-	imagePullSecrets, err := h.listImagePullSecretsName(c, h.Client, DefaultNamespace)
-	if err != nil {
-		return nil, err
 	}
 
 	importImageEnv := &ImportImageEnv{
@@ -293,7 +285,7 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		CreatedBy:      userName,
 		CreatedAt:      time.Now().UTC(),
 		Description:    fmt.Sprintf("Import from %s", importImageEnv.SourceImageName),
-		Status:         common.ImageImportingStatus,
+		Status:         common.ImageImportPendingStatus,
 		RelationDigest: relationDigest,
 		Source:         "import",
 	}
@@ -301,20 +293,11 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	var job *batchv1.Job
-	job, err = newImportImageJob(dbImage.ID, importImageJobName, SyncerImage, imagePullSecrets, uid, importImageEnv, userName)
-	if err != nil {
-		return nil, err
-	}
-	if err = h.Client.Create(c.Request.Context(), job); err != nil {
-		return nil, err
-	}
 	importImageInfo := &model.ImageImportJob{
 		SrcTag:    imageInfo.SourceImageName,
 		DstName:   imageInfo.DestImageName,
 		Os:        importImageEnv.Os,
 		Arch:      importImageEnv.Arch,
-		JobName:   job.Name,
 		CreatedAt: time.Now().UTC(),
 		ImageID:   dbImage.ID,
 	}
@@ -322,7 +305,77 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 	if err := h.dbClient.UpsertImageImportJob(c, importImageInfo); err != nil {
 		return nil, err
 	}
+
+	job, err := h.dispatchImportImageJob(c, dbImage, importImageInfo)
+	if err != nil {
+		return nil, err
+	}
+	dbImage.Status = common.ImageImportingStatus
+	if err := h.dbClient.UpsertImage(c, dbImage); err != nil {
+		return nil, err
+	}
+	importImageInfo.JobName = job.Name
+	if err := h.dbClient.UpsertImageImportJob(c, importImageInfo); err != nil {
+		return nil, err
+	}
 	return resp, nil
+}
+
+func (h *ImageHandler) retryDispatchImportImageJob(c *gin.Context) (interface{}, error) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest("invalid id: " + err.Error())
+	}
+	existImage, err := h.dbClient.GetImage(c, int32(id))
+	if err != nil {
+		return nil, err
+	}
+	if existImage == nil {
+		return nil, commonerrors.NewNotFound("get image by id", idStr)
+	}
+	importImage, err := h.dbClient.GetImportImageByImageID(c, existImage.ID)
+	if err != nil {
+		return nil, err
+	}
+	if importImage == nil {
+		return nil, commonerrors.NewNotFound("get import image by id", idStr)
+	}
+	job, err := h.dispatchImportImageJob(c, existImage, importImage)
+	if err != nil {
+		return nil, err
+	}
+	existImage.Status = common.ImageImportingStatus
+	if err := h.dbClient.UpsertImage(c, existImage); err != nil {
+		return nil, err
+	}
+	importImage.JobName = job.Name
+	if err := h.dbClient.UpsertImageImportJob(c, importImage); err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image, info *model.ImageImportJob) (*batchv1.Job, error) {
+	jobName := generateImportImageJobName(image.ID)
+	imagePullSecrets, err := h.listImagePullSecretsName(c, h.Client, DefaultNamespace)
+	if err != nil {
+		return nil, err
+	}
+	job, err := newImportImageJob(image.ID, jobName, SyncerImage, imagePullSecrets, &ImportImageEnv{
+		SourceImageName: info.SrcTag,
+		DestImageName:   info.DstName,
+		OsArch:          fmt.Sprintf(OSArchFormat, info.Os, info.Arch),
+		Os:              info.Os,
+		Arch:            info.Arch,
+	}, image.CreatedBy)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.Client.Create(c.Request.Context(), job); err != nil {
+		return nil, err
+	}
+	return job, nil
 }
 
 func newImportImageJob(
@@ -330,7 +383,6 @@ func newImportImageJob(
 	jobName,
 	syncImage string,
 	imagePullSecrets []string,
-	uid string,
 	env *ImportImageEnv,
 	userName string,
 ) (*batchv1.Job, error) {
@@ -436,8 +488,8 @@ func defaultSyncImageEnv() map[string]string {
 	return kvmap
 }
 
-func generateImportImageJobName(uid string) string {
-	return fmt.Sprintf("imptimg-%s-%016x", uid, xxhash.Sum64String(time.Now().String()))
+func generateImportImageJobName(imageId int32) string {
+	return fmt.Sprintf("imptimg-%d-%016x", imageId, xxhash.Sum64String(time.Now().String()))
 }
 
 func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageServiceRequest) (*ImportImageMetaInfo, error) {
@@ -464,8 +516,8 @@ func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageSer
 		return nil, err
 	}
 
-	if !h.checkImageExistsUsingLibrary(c, req.Source, imageInfo) {
-		return nil, commonerrors.NewBadRequest("source image not exist")
+	if err := h.checkImageExistsUsingLibrary(c, req.Source, imageInfo); err != nil {
+		return nil, err
 	}
 
 	return imageInfo, nil
@@ -492,7 +544,7 @@ func (h *ImageHandler) existImageVlid(c context.Context, destImageName string) (
 	return 0, nil
 }
 
-func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageName string, imageInfo *ImportImageMetaInfo) bool {
+func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageName string, imageInfo *ImportImageMetaInfo) error {
 	list := strings.Split(imageInfo.OsArch, "/")
 	hostName := strings.Split(imageName, "/")[0]
 	os, arch := list[0], list[1]
@@ -500,7 +552,7 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 	sysCtx, err := h.getImageSystemCtx(ctx, hostName, imageName)
 	if err != nil {
 		klog.Errorf("Error getting system context: %s", err)
-		return false
+		return commonerrors.NewInternalError(fmt.Sprintf("Getting Registry Auth Error: %s", err))
 	}
 
 	imageName = fmt.Sprintf("docker://%s", imageName)
@@ -509,22 +561,22 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 	ref, err := alltransports.ParseImageName(imageName)
 	if err != nil {
 		klog.Errorf("Error parsing reference: %s", err)
-		return false
+		return commonerrors.NewInternalError(fmt.Sprintf("Parsing Reference Error: %s", err))
 	}
 
 	// Create an image source
 	src, err := ref.NewImageSource(ctx, sysCtx)
 	if err != nil {
 		klog.Errorf("Image not found or inaccessible: %s", err)
-		return false
+		return commonerrors.NewInternalError(fmt.Sprintf("Image not found or inaccessible: %s", err))
 	}
 	defer src.Close()
 
 	// Retrieve the manifest to confirm the image exists
 	manifest, manifestType, err := src.GetManifest(ctx, nil)
 	if err != nil {
-		klog.Errorf("Image not found or inaccessible: %s", err)
-		return false
+		klog.Errorf("Getting Manifest Error: %s", err)
+		return commonerrors.NewInternalError(fmt.Sprintf("Getting Manifest Error: %s", err))
 	}
 
 	var totalSize int64
@@ -536,7 +588,7 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 			var index imagespecv1.Index
 			if err := json.Unmarshal(manifest, &index); err != nil {
 				klog.Errorf("Error parsing OCI index: %s", err)
-				return false
+				return commonerrors.NewInternalError(fmt.Sprintf("Parsing OCI index Error: %s", err))
 			}
 
 			for _, m := range index.Manifests {
@@ -551,7 +603,7 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 			var schema2List manifestv5.Schema2List
 			if err := json.Unmarshal(manifest, &schema2List); err != nil {
 				klog.Errorf("Error parsing Docker manifest list: %s", err)
-				return false
+				return commonerrors.NewInternalError(fmt.Sprintf("Parsing Docker manifest list Error: %s", err))
 			}
 
 			for _, m := range schema2List.Manifests {
@@ -564,13 +616,13 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 		}
 		if targetDigest == "" {
 			klog.Errorf("No matching manifest found for OS %s and architecture %s", os, arch)
-			return false
+			return commonerrors.NewInternalError(fmt.Sprintf("No matching manifest found for OS %s and architecture %s", os, arch))
 		}
 
 		manifest, manifestType, err = src.GetManifest(ctx, &targetDigest)
 		if err != nil {
 			klog.Errorf("Error getting platform-specific manifest: %s", err)
-			return false
+			return commonerrors.NewInternalError(fmt.Sprintf("Getting platform-specific manifest Error: %s", err))
 		}
 	}
 
@@ -580,7 +632,7 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 		var v1Manifest imagespecv1.Manifest
 		if err := json.Unmarshal(manifest, &v1Manifest); err != nil {
 			klog.Errorf("Error parsing OCI manifest: %s", err)
-			return false
+			return commonerrors.NewInternalError(fmt.Sprintf("Parsing OCI manifest Error: %s", err))
 		}
 		for _, layer := range v1Manifest.Layers {
 			totalSize += layer.Size
@@ -591,7 +643,7 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 		var v2Manifest manifestv5.Schema2
 		if err := json.Unmarshal(manifest, &v2Manifest); err != nil {
 			klog.Errorf("Error parsing Docker manifest: %s", err)
-			return false
+			return commonerrors.NewInternalError(fmt.Sprintf("Parsing Docker manifest Error: %s", err))
 		}
 		for _, layer := range v2Manifest.LayerInfos() {
 			totalSize += layer.Size
@@ -601,8 +653,8 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 
 	imageInfo.Size = totalSize
 
-	klog.Infof("Image %s exists", imageName)
-	return true
+	klog.Infof("Image %s exists, size: %d", imageName, totalSize)
+	return nil
 }
 
 func (h *ImageHandler) getImageSystemCtx(ctx context.Context, hostName string, imageName string) (*v5types.SystemContext, error) {
