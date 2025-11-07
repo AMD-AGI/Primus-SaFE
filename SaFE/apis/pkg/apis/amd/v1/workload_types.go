@@ -403,3 +403,12 @@ func (w *Workload) IsDependenciesFinish() bool {
 
 	return true
 }
+
+func (w *Workload) HasSpecifiedNodes() bool {
+	if len(w.Spec.CustomerLabels) > 0 {
+		if val, ok := w.Spec.CustomerLabels[K8sHostName]; ok && val != "" {
+			return true
+		}
+	}
+	return false
+}
