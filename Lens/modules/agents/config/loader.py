@@ -152,6 +152,20 @@ def _override_with_env(config: Dict[str, Any]) -> Dict[str, Any]:
     if os.getenv("LOG_LEVEL"):
         config.setdefault("logging", {})["level"] = os.getenv("LOG_LEVEL")
     
+    # Storage configuration - PostgreSQL
+    if os.getenv("PG_HOST"):
+        config.setdefault("storage", {}).setdefault("pg", {})["host"] = os.getenv("PG_HOST")
+    if os.getenv("PG_PORT"):
+        config.setdefault("storage", {}).setdefault("pg", {})["port"] = int(os.getenv("PG_PORT"))
+    if os.getenv("PG_DATABASE"):
+        config.setdefault("storage", {}).setdefault("pg", {})["database"] = os.getenv("PG_DATABASE")
+    if os.getenv("PG_USER"):
+        config.setdefault("storage", {}).setdefault("pg", {})["user"] = os.getenv("PG_USER")
+    if os.getenv("PG_PASSWORD"):
+        config.setdefault("storage", {}).setdefault("pg", {})["password"] = os.getenv("PG_PASSWORD")
+    if os.getenv("PG_SCHEMA"):
+        config.setdefault("storage", {}).setdefault("pg", {})["schema"] = os.getenv("PG_SCHEMA")
+    
     return config
 
 
