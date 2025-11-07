@@ -18,15 +18,18 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code (preserve directory structure)
+COPY __init__.py ./
+COPY llm_wrapper.py ./
+COPY run.py ./
 COPY gpu_usage_agent/ ./gpu_usage_agent/
 COPY api/ ./api/
 COPY config/ ./config/
 COPY cache/ ./cache/
 COPY storage/ ./storage/
-COPY llm_wrapper.py ./
-COPY __init__.py ./
-COPY run.py ./
+
+# Verify all __init__.py files are present
+RUN find /app -name "__init__.py" -type f | sort
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
