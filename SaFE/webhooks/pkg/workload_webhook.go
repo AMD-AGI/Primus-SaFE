@@ -347,9 +347,6 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	workload.Spec.Resource.Replica = 1
 	workload.Spec.Timeout = nil
 	workload.Spec.EntryPoint = stringutil.Base64Encode("sleep infinity")
-	if workload.Spec.Image == "" {
-		workload.Spec.Image = commonconfig.GetAuthoringImage()
-	}
 	workload.Spec.Dependencies = nil
 }
 

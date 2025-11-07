@@ -861,17 +861,17 @@ func getPrimusTaints(taints []corev1.Taint) []corev1.Taint {
 
 func cvtToListNodeRebootSql(query *types.ListNodeRebootLogRequest, node *v1.Node) (sqrl.Sqlizer, []string) {
 	dbTags := dbclient.GetOpsJobFieldTags()
-	createTime := dbclient.GetFieldTag(dbTags, "CreationTime")
+	creationTime := dbclient.GetFieldTag(dbTags, "CreationTime")
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
 		sqrl.Expr("outputs::jsonb @> ?", fmt.Sprintf(`[{"value": "%s"}]`, node.Name)),
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "type"): v1.OpsJobRebootType},
 	}
 	if !query.SinceTime.IsZero() {
-		dbSql = append(dbSql, sqrl.GtOrEq{createTime: query.SinceTime})
+		dbSql = append(dbSql, sqrl.GtOrEq{creationTime: query.SinceTime})
 	}
 	if !query.UntilTime.IsZero() {
-		dbSql = append(dbSql, sqrl.LtOrEq{createTime: query.UntilTime})
+		dbSql = append(dbSql, sqrl.LtOrEq{creationTime: query.UntilTime})
 	}
 	orderBy := buildOrderBy(query.SortBy, query.Order, dbTags)
 	return dbSql, orderBy

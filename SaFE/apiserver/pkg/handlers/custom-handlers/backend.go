@@ -23,7 +23,6 @@ func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
 	resp := types.GetEnvResponse{
 		EnableLog:         commonconfig.IsOpenSearchEnable(),
 		EnableLogDownload: commonconfig.IsS3Enable(),
-		AuthoringImage:    commonconfig.GetAuthoringImage(),
 		EnableSSH:         commonconfig.IsSSHEnable(),
 		SSHIP:             commonconfig.GetSSHServerIP(),
 		SSHPort:           commonconfig.GetSSHServerPort(),
