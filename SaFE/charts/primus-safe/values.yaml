@@ -23,7 +23,7 @@ net:
   rdma_name: "rdma/hca"
 apiserver:
   # Apiserver component image version
-  image: "apiserver:202511061749"
+  image: "apiserver:latest"
   # Number of replicas for apiserver deployment
   replicas: 1
   # CPU resources allocated to apiserver
@@ -32,7 +32,7 @@ apiserver:
   memory: 4Gi
 resource_manager:
   # Resource manager component image version
-  image: "resource-manager:202511061749"
+  image: "resource-manager:latest"
   # Number of replicas for resource manager deployment
   replicas: 1
   # CPU resources allocated to resource manager
@@ -41,7 +41,7 @@ resource_manager:
   memory: 4Gi
 job_manager:
   # Job manager component image version
-  image: "job-manager:202511061749"
+  image: "job-manager:latest"
   # Number of replicas for job manager deployment
   replicas: 1
   # CPU resources allocated to job manager
@@ -50,7 +50,7 @@ job_manager:
   memory: 4Gi
 webhooks:
   # Webhooks component image version
-  image: "webhooks:202511061749"
+  image: "webhooks:latest"
   # Number of replicas for webhooks deployment
   replicas: 1
   # CPU resources allocated to webhooks
@@ -59,7 +59,7 @@ webhooks:
   memory: 4Gi
 web:
   # Web console component image version
-  image: "primus-safe-web:1.13.6"
+  image: "primus-safe-web:latest"
   # Number of replicas for web console deployment
   replicas: 1
   # CPU resources allocated to web console
@@ -68,10 +68,10 @@ web:
   memory: 4Gi
 authoring:
   # Authoring environment image version
-  image: "sshd:202510131835"
+  image: "sshd:latest"
 preprocess:
   # Preprocessing component image version. used for pytorch-job etc.
-  image: "preprocess:202510310930"
+  image: "preprocess:latest"
 db:
   # Enable database for historical job queries, defaults to true
   enable: true
