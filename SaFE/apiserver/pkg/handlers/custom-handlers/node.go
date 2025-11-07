@@ -65,7 +65,7 @@ func (h *Handler) ListNode(c *gin.Context) {
 // Supports filtering and exporting in various formats.
 // Returns an exported file containing the nodes that match the query criteria.
 func (h *Handler) ExportNode(c *gin.Context) {
-	handle(c, h.ExportNodeByQuery)
+	h.ExportNodeByQuery(c)
 }
 
 // GetNode retrieves detailed information about a specific node.
@@ -167,7 +167,7 @@ func ExportNodeToCSV(nodes *types.ListNodeResponse, writer io.Writer) error {
 		klog.ErrorS(err, "failed to write csv header")
 		return err
 	}
-	
+
 	for _, node := range nodes.Items {
 		var gpuAvail, gpuTotal int64
 		var cpuAvail, cpuTotal int64
@@ -198,8 +198,8 @@ func ExportNodeToCSV(nodes *types.ListNodeResponse, writer io.Writer) error {
 			return err
 		}
 	}
-
 	w.Flush()
+
 	if err := w.Error(); err != nil {
 		klog.ErrorS(err, "csv writer flush error")
 		return err
@@ -209,20 +209,35 @@ func ExportNodeToCSV(nodes *types.ListNodeResponse, writer io.Writer) error {
 }
 
 // ExportNodeByQuery can export nodes based on the provided query parameteres.
-func (h *Handler) ExportNodeByQuery(c *gin.Context) (interface{}, error) {
-	nodes, err := h.listNode(c)
+func (h *Handler) ExportNodeByQuery(c *gin.Context) {
+	query, err := parseListNodeQuery(c)
 	if err != nil {
-		klog.ErrorS(err, "failed to list node.")
-		return nil, err
+		klog.ErrorS(err, "failed to parse query")
+		apiutils.AbortWithApiError(c, err)
+		return
 	}
-	res, _ := nodes.(*types.ListNodeResponse) //Don't use brief, so struct is ListNodeResponse
+	ctx := c.Request.Context()
+	totalCount, nodes, err := h.listExportNodeByQuery(c, query)
+	if err != nil {
+		klog.ErrorS(err, "failed to query node")
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	result, err := h.buildListNodeResponse(ctx, query, totalCount, nodes)
+	if err != nil {
+		klog.ErrorS(err, "failed to build node list")
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	res, _ := result.(*types.ListNodeResponse) //Don't use brief, so struct is ListNodeResponse
 	filename := fmt.Sprintf("node_list_%s.csv", time.Now().Format("20060102_150405"))
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 	c.Header("Content-Type", "text/csv; charset=utf-8")
 	if err := ExportNodeToCSV(res, c.Writer); err != nil {
-		return nil, err
+		klog.ErrorS(err, "failed to export node to CSV")
+		apiutils.AbortWithApiError(c, err)
+		return
 	}
-	return nil, nil
 }
 
 // listNodeByQuery retrieves nodes based on the provided query parameters.
@@ -313,6 +328,86 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 		}
 		return totalCount, nodes[start:end], nil
 	}
+	return totalCount, nodes, nil
+}
+
+// listExportNodeByQuery retrieves nodes based on the provided query parameters without limit.
+// Applies filtering, authorization checks, and pagination to return
+// a list of nodes that match the criteria.
+func (h *Handler) listExportNodeByQuery(c *gin.Context, query *types.ListNodeRequest) (int, []*v1.Node, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	labelSelector, err := buildNodeLabelSelector(query)
+	if err != nil {
+		return 0, nil, err
+	}
+	nodeList := &v1.NodeList{}
+	ctx := c.Request.Context()
+	if query.NodeId == nil {
+		if err = h.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+			return 0, nil, err
+		}
+	} else {
+		// If a nodeId is provided, you can directly get it to save time.
+		node, err := h.getAdminNode(ctx, *query.NodeId)
+		if err != nil {
+			return 0, nil, err
+		}
+		nodeLabels := labels.Set(node.Labels)
+		if !labelSelector.Matches(nodeLabels) {
+			return 0, nil, nil
+		}
+		nodeList.Items = append(nodeList.Items, *node)
+	}
+
+	roles := h.accessController.GetRoles(ctx, requestUser)
+	nodes := make([]*v1.Node, 0, len(nodeList.Items))
+	var phases []string
+	if query.Phase != nil {
+		phases = strings.Split(string(*query.Phase), ",")
+	}
+
+	for i, n := range nodeList.Items {
+		if err = h.accessController.Authorize(authority.AccessInput{
+			Context:    ctx,
+			Resource:   &n,
+			Verb:       v1.ListVerb,
+			Workspaces: []string{query.GetWorkspaceId()},
+			User:       requestUser,
+			Roles:      roles,
+		}); err != nil {
+			continue
+		}
+		if query.Available != nil {
+			isAvailable, _ := n.CheckAvailable(false)
+			if *query.Available != isAvailable {
+				continue
+			}
+		}
+		if query.IsAddonsInstalled != nil {
+			if *query.IsAddonsInstalled != v1.IsNodeTemplateInstalled(&n) {
+				continue
+			}
+		}
+		if query.Phase != nil {
+			if !slice.Contains(phases, string(n.GetPhase())) {
+				continue
+			}
+		}
+		nodes = append(nodes, &nodeList.Items[i])
+	}
+	totalCount := len(nodes)
+	if totalCount == 0 {
+		return 0, nil, nil
+	} else if totalCount > 1 {
+		sort.Slice(nodes, func(i, j int) bool {
+			return nodes[i].Name < nodes[j].Name
+		})
+	}
+
 	return totalCount, nodes, nil
 }
 
