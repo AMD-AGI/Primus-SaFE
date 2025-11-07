@@ -506,10 +506,20 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 		}
 		if !ok {
 			unScheduledReasons[w.Name] = reason
-			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads,
-			// then break out of the queue directly and continue waiting.
-			if reason != CronjobReason && (workspace.IsEnableFifo() ||
-				(i < len(schedulingWorkloads)-1 && w.Spec.Priority > schedulingWorkloads[i+1].Spec.Priority)) {
+			// Process scheduling workloads based on priority and policy
+			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads
+			// (excluding the workload which specified node), then break out of the queue directly and continue waiting.
+			if reason == CronjobReason {
+				// Cron job workloads that are not yet ready to start should be skipped
+				continue
+			} else if workspace.IsEnableFifo() {
+				// In FIFO mode, if current workload cannot be scheduled, subsequent ones won't be either
+				break
+			} else if w.HasSpecifiedNodes() {
+				// Workloads with specific node assignments should remain in queue
+				continue
+			} else if i < len(schedulingWorkloads)-1 && w.Spec.Priority > schedulingWorkloads[i+1].Spec.Priority {
+				// If current workload has higher priority than next one, stop scheduling for now
 				break
 			} else {
 				continue

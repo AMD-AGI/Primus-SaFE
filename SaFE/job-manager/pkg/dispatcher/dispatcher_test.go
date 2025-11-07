@@ -444,7 +444,7 @@ func TestCreateK8sJob(t *testing.T) {
 	}
 	workload.Spec.Workspace = corev1.NamespaceDefault
 	workload.Spec.CustomerLabels = map[string]string{
-		common.K8sHostName: "node1",
+		v1.K8sHostName: "node1",
 	}
 	workload.Spec.Resource.Replica = 2
 	v1.SetAnnotation(workload, v1.UserNameAnnotation, common.UserSystem)
