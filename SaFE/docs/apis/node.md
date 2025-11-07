@@ -365,6 +365,36 @@ Get operation logs for node joining/leaving cluster.
 ```
 
 ---
+
+### 7. Export Node
+
+Export node list with multiple filtering options.
+
+**Endpoint**: `GET /api/v1/nodes/export`
+
+**Authentication Required**: Yes
+
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| NodeId | Node ID |
+
+**Query Parameters**:
+
+| Parameter | Type | Required | Description                                                                              |
+|-----------|------|----------|------------------------------------------------------------------------------------------|
+| clusterId | string | No | Filter by cluster ID                                                                     |
+| workspaceId | string | No | Filter by workspace ID                                                                   |
+| flavorId | string | No | Filter by node flavor ID                                                                 |
+| nodeId | string | No | Filter by node ID                                                                        |
+| available | bool | No | Filter by availability: true (available)/false (unavailable)                             |
+| phase | string | No | Filter by status (comma-separated)                                                       |
+| isAddonsInstalled | bool | No | Filter by addon installation status                                                      |
+
+**Response**: 200 OK with no response body
+
+---
 ## Node Status
 
 | Status | Description             |
