@@ -14,12 +14,15 @@ pydantic>=2.0.0
 
 # HTTP Client
 requests>=2.31.0
-httpx>=0.24.0  # 用于自定义 SSL 配置
+httpx>=0.24.0  # For custom SSL configuration
 
 # Configuration
 pyyaml>=6.0.0
 
-# Optional: Redis for caching (可选)
+# Database
+psycopg2-binary>=2.9.9  # PostgreSQL adapter
+
+# Optional: Redis for caching (optional)
 # redis>=5.0.0
 
 # Optional: Vector database for knowledge base
@@ -36,4 +39,3 @@ pytest-asyncio>=0.21.0
 black>=23.0.0
 flake8>=6.0.0
 mypy>=1.0.0
-

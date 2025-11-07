@@ -11,70 +11,70 @@ logger = logging.getLogger(__name__)
 
 
 class GPUAnalysisTools:
-    """GPU 使用率分析工具集"""
+    """GPU utilization analysis toolset"""
     
     def __init__(self, api_base_url: str, cluster_name: Optional[str] = None):
         """
-        初始化工具集
+        Initialize toolset
         
         Args:
-            api_base_url: API 基础 URL（如 http://localhost:8080）
-            cluster_name: 集群名称（可选）
+            api_base_url: API base URL (e.g., http://localhost:8080)
+            cluster_name: Cluster name (optional)
         """
         self.api_base_url = api_base_url.rstrip('/')
         self.cluster_name = cluster_name
         
-        # 初始化时测试 API 连接
+        # Test API connection on initialization
         self._test_api_connection()
     
     def _test_api_connection(self):
-        """测试 API 连接是否正常"""
+        """Test if API connection is working"""
         try:
-            # 尝试访问一个简单的端点
+            # Try to access a simple endpoint
             url = f"{self.api_base_url}/api/gpu-aggregation/clusters"
             response = requests.get(url, timeout=5)
-            logger.info(f"API 连接测试: {url}, 状态码: {response.status_code}")
+            logger.info(f"API connection test: {url}, status code: {response.status_code}")
             if response.status_code == 200:
-                logger.info("API 连接正常")
+                logger.info("API connection is working")
             else:
-                logger.warning(f"API 返回非 200 状态码: {response.status_code}")
+                logger.warning(f"API returned non-200 status code: {response.status_code}")
         except Exception as e:
-            logger.warning(f"API 连接测试失败: {str(e)}。请确保 Lens API 服务正在运行在 {self.api_base_url}")
+            logger.warning(f"API connection test failed: {str(e)}. Please ensure Lens API service is running at {self.api_base_url}")
     
     def _make_request(self, endpoint: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """发起 API 请求"""
+        """Make API request"""
         url = f"{self.api_base_url}{endpoint}"
-        # 添加集群名称（如果指定）
+        # Add cluster name (if specified)
         if self.cluster_name:
             params['cluster'] = self.cluster_name
         
         try:
-            logger.info(f"发起 API 请求: {url}, 参数: {params}")
+            logger.info(f"Making API request: {url}, params: {params}")
             response = requests.get(url, params=params, timeout=30)
-            logger.info(f"API 响应状态码: {response.status_code}")
+            logger.info(f"API response status code: {response.status_code}")
             
             response.raise_for_status()
             
-            # 尝试解析 JSON
+            # Try to parse JSON
             try:
                 result = response.json()
-                logger.info(f"API 响应成功，返回数据类型: {type(result)}")
+                logger.info(f"API response successful, returned data type: {type(result)}")
                 return result
             except json.JSONDecodeError as e:
-                # JSON 解析失败，记录原始响应内容
-                logger.error(f"JSON 解析失败: {str(e)}")
-                logger.error(f"响应状态码: {response.status_code}")
-                logger.error(f"响应头: {dict(response.headers)}")
-                logger.error(f"响应内容（前500字符）: {response.text[:500]}")
+                # JSON parsing failed, log original response content
+                logger.error(f"JSON parsing failed: {str(e)}")
+                logger.error(f"Response status code: {response.status_code}")
+                logger.error(f"Response headers: {dict(response.headers)}")
+                logger.error(f"Response content (first 500 characters): {response.text[:500]}")
                 return {
                     "meta": {
                         "code": -1,
-                        "message": f"API 返回了非 JSON 响应: {str(e)}。响应内容: {response.text[:200]}"
+                        "message": f"API returned non-JSON response: {str(e)}. Response content: {response.text[:200]}"
                     },
                     "data": None
                 }
         except requests.RequestException as e:
-            logger.error(f"API 请求失败: {str(e)}")
+            logger.error(f"API request failed: {str(e)}")
             return {
                 "meta": {
                     "code": -1,
@@ -92,26 +92,26 @@ class GPUAnalysisTools:
         metric_type: str = "utilization"
     ) -> str:
         """
-        查询 GPU 使用率趋势数据
+        Query GPU utilization trend data
         
         Args:
-            dimension: 查询维度（cluster/namespace/label/annotation）
-            granularity: 时间粒度（hour/day），对应 API 的 hourly-stats
-            time_range_days: 时间范围（天数）
-            dimension_value: 维度的具体值
-                - namespace: namespace 名称
-                - label: "key:value" 格式，如 "team:ml-team"
-                - annotation: "key:value" 格式，如 "primus-safe.user.name:zhangsan"
-            metric_type: 指标类型（utilization/allocation_rate）
+            dimension: Query dimension (cluster/namespace/label/annotation)
+            granularity: Time granularity (hour/day), corresponds to API's hourly-stats
+            time_range_days: Time range (days)
+            dimension_value: Specific value of the dimension
+                - namespace: namespace name
+                - label: "key:value" format, e.g., "team:ml-team"
+                - annotation: "key:value" format, e.g., "primus-safe.user.name:zhangsan"
+            metric_type: Metric type (utilization/allocation_rate)
         
         Returns:
-            JSON 字符串，包含趋势数据和统计信息
+            JSON string containing trend data and statistics
         """
-        # 计算时间范围
+        # Calculate time range
         end_time = datetime.utcnow()
         start_time = end_time - timedelta(days=time_range_days)
         
-        # 根据维度调用不同的 API
+        # Call different APIs based on dimension
         if dimension == "cluster":
             endpoint = "/v1/gpu-aggregation/cluster/hourly-stats"
             params = {
@@ -128,11 +128,11 @@ class GPUAnalysisTools:
                 params["namespace"] = dimension_value
         elif dimension in ["label", "annotation"]:
             endpoint = "/v1/gpu-aggregation/labels/hourly-stats"
-            # dimension_value 应该是 "key:value" 格式
+            # dimension_value should be in "key:value" format
             if dimension_value and ":" in dimension_value:
                 key, value = dimension_value.split(":", 1)
                 params = {
-                    "dimension_type": dimension,  # 使用传入的 dimension（label 或 annotation）
+                    "dimension_type": dimension,  # Use the passed dimension (label or annotation)
                     "dimension_key": key,
                     "dimension_value": value,
                     "start_time": start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -147,7 +147,7 @@ class GPUAnalysisTools:
         
         result = self._make_request(endpoint, params)
         
-        # 检查响应状态（成功状态码为 2000）
+        # Check response status (success status code is 2000)
         meta = result.get("meta", {})
         if meta.get("code") != 2000:
             return json.dumps({
@@ -155,7 +155,7 @@ class GPUAnalysisTools:
                 "data": None
             })
         
-        # 处理数据，计算趋势统计
+        # Process data and calculate trend statistics
         data_points = result.get("data", [])
         if not data_points:
             return json.dumps({
@@ -168,18 +168,42 @@ class GPUAnalysisTools:
                 }
             })
         
-        # 提取指标值
+        # Detect and normalize data format
+        # Check if avg_utilization is in percentage format
+        util_values = [dp.get("avg_utilization", 0) for dp in data_points if dp.get("avg_utilization") is not None]
+        is_percentage_format = util_values and sum(1 for v in util_values if v > 1) > len(util_values) / 2
+        
+        if is_percentage_format:
+            logger.info(f"Detected API returns percentage format (0-100), converting data_points to decimal format (0-1)")
+            # Normalize all percentage fields in data_points
+            for dp in data_points:
+                # Convert utilization-related fields
+                if "avg_utilization" in dp and dp["avg_utilization"] is not None:
+                    dp["avg_utilization"] = dp["avg_utilization"] / 100.0
+                if "max_utilization" in dp and dp["max_utilization"] is not None:
+                    dp["max_utilization"] = dp["max_utilization"] / 100.0
+                if "min_utilization" in dp and dp["min_utilization"] is not None:
+                    dp["min_utilization"] = dp["min_utilization"] / 100.0
+                if "p50_utilization" in dp and dp["p50_utilization"] is not None:
+                    dp["p50_utilization"] = dp["p50_utilization"] / 100.0
+                if "p95_utilization" in dp and dp["p95_utilization"] is not None:
+                    dp["p95_utilization"] = dp["p95_utilization"] / 100.0
+                # Convert allocation rate field
+                if "allocation_rate" in dp and dp["allocation_rate"] is not None:
+                    dp["allocation_rate"] = dp["allocation_rate"] / 100.0
+        
+        # Extract metric values for statistical calculation
         if metric_type == "utilization":
             values = [dp.get("avg_utilization", 0) for dp in data_points]
         else:  # allocation_rate
             values = [dp.get("allocation_rate", 0) for dp in data_points]
         
-        # 计算统计信息
+        # Calculate statistics
         avg = sum(values) / len(values) if values else 0
         max_val = max(values) if values else 0
         min_val = min(values) if values else 0
         
-        # 简单趋势判断（比较前后半段平均值）
+        # Simple trend determination (compare first half and second half averages)
         if len(values) >= 2:
             mid = len(values) // 2
             first_half_avg = sum(values[:mid]) / mid
@@ -214,18 +238,18 @@ class GPUAnalysisTools:
         limit: int = 20
     ) -> str:
         """
-        分析 workload 历史记录
+        Analyze workload history
         
         Args:
-            time_range_days: 时间范围（天数）
-            namespace: 筛选的 namespace（可选）
-            kind: workload 类型（可选）
-            status: workload 状态（可选）
-            sort_by: 排序字段（start_at/end_at）
-            limit: 返回数量
+            time_range_days: Time range (days)
+            namespace: Namespace filter (optional)
+            kind: Workload type (optional)
+            status: Workload status (optional)
+            sort_by: Sort field (start_at/end_at)
+            limit: Return count
         
         Returns:
-            JSON 字符串，包含 workload 列表和聚合统计
+            JSON string containing workload list and aggregated statistics
         """
         endpoint = "/v1/workloads"
         params = {
@@ -243,7 +267,7 @@ class GPUAnalysisTools:
         
         result = self._make_request(endpoint, params)
         
-        # 检查响应状态（成功状态码为 2000）
+        # Check response status (success status code is 2000)
         meta = result.get("meta", {})
         if meta.get("code") != 2000:
             return json.dumps({
@@ -255,7 +279,7 @@ class GPUAnalysisTools:
         workloads = data.get("data", [])
         total = data.get("total", 0)
         
-        # 计算聚合统计
+        # Calculate aggregated statistics
         total_gpu_allocated = sum(w.get("gpuAllocated", 0) for w in workloads)
         namespaces = set(w.get("namespace") for w in workloads if w.get("namespace"))
         
@@ -271,17 +295,17 @@ class GPUAnalysisTools:
     
     def get_latest_snapshot(self) -> str:
         """
-        获取最新的 GPU 分配快照（实时状态）
+        Get latest GPU allocation snapshot (real-time status)
         
         Returns:
-            JSON 字符串，包含当前 GPU 分配情况
+            JSON string containing current GPU allocation status
         """
         endpoint = "/v1/gpu-aggregation/snapshots/latest"
         params = {}
         
         result = self._make_request(endpoint, params)
         
-        # 检查响应状态（成功状态码为 2000）
+        # Check response status (success status code is 2000)
         meta = result.get("meta", {})
         if meta.get("code") != 2000:
             return json.dumps({
@@ -293,17 +317,17 @@ class GPUAnalysisTools:
     
     def get_workload_metadata(self) -> str:
         """
-        获取 workload 元数据（所有 namespaces 和 kinds）
+        Get workload metadata (all namespaces and kinds)
         
         Returns:
-            JSON 字符串，包含可用的 namespaces 和 kinds
+            JSON string containing available namespaces and kinds
         """
         endpoint = "/v1/workloads/metadata"
         params = {}
         
         result = self._make_request(endpoint, params)
         
-        # 检查响应状态（成功状态码为 2000）
+        # Check response status (success status code is 2000)
         meta = result.get("meta", {})
         if meta.get("code") != 2000:
             return json.dumps({
@@ -320,17 +344,17 @@ class GPUAnalysisTools:
     
     def get_available_clusters(self) -> str:
         """
-        获取所有可用的集群列表
+        Get all available cluster list
         
         Returns:
-            JSON 字符串，包含集群名称列表
+            JSON string containing cluster name list
         """
         endpoint = "/v1/gpu-aggregation/clusters"
         params = {}
         
         result = self._make_request(endpoint, params)
         
-        # 检查响应状态（成功状态码为 2000）
+        # Check response status (success status code is 2000)
         meta = result.get("meta", {})
         if meta.get("code") != 2000:
             return json.dumps({
@@ -350,16 +374,16 @@ class GPUAnalysisTools:
         cluster: Optional[str] = None
     ) -> str:
         """
-        获取指定时间范围内有 GPU 分配数据的 namespaces
+        Get namespaces with GPU allocation data within specified time range
         
         Args:
-            time_range_days: 时间范围（天数），默认 7 天
-            cluster: 集群名称（可选）
+            time_range_days: Time range (days), default 7 days
+            cluster: Cluster name (optional)
         
         Returns:
-            JSON 字符串，包含 namespace 列表
+            JSON string containing namespace list
         """
-        # 计算时间范围
+        # Calculate time range
         end_time = datetime.utcnow()
         start_time = end_time - timedelta(days=time_range_days)
         
@@ -374,7 +398,7 @@ class GPUAnalysisTools:
         
         result = self._make_request(endpoint, params)
         
-        # 检查响应状态（成功状态码为 2000）
+        # Check response status (success status code is 2000)
         meta = result.get("meta", {})
         if meta.get("code") != 2000:
             return json.dumps({
@@ -396,15 +420,15 @@ class GPUAnalysisTools:
         cluster: Optional[str] = None
     ) -> str:
         """
-        获取指定时间范围内可用的 label 或 annotation keys
+        Get available label or annotation keys within specified time range
         
         Args:
-            dimension_type: 维度类型（label 或 annotation）
-            time_range_days: 时间范围（天数），默认 7 天
-            cluster: 集群名称（可选）
+            dimension_type: Dimension type (label or annotation)
+            time_range_days: Time range (days), default 7 days
+            cluster: Cluster name (optional)
         
         Returns:
-            JSON 字符串，包含 dimension keys 列表
+            JSON string containing dimension keys list
         """
         if dimension_type not in ["label", "annotation"]:
             return json.dumps({
@@ -412,7 +436,7 @@ class GPUAnalysisTools:
                 "dimension_keys": []
             })
         
-        # 计算时间范围
+        # Calculate time range
         end_time = datetime.utcnow()
         start_time = end_time - timedelta(days=time_range_days)
         
@@ -428,7 +452,7 @@ class GPUAnalysisTools:
         
         result = self._make_request(endpoint, params)
         
-        # 检查响应状态（成功状态码为 2000）
+        # Check response status (success status code is 2000)
         meta = result.get("meta", {})
         if meta.get("code") != 2000:
             return json.dumps({
@@ -452,16 +476,16 @@ class GPUAnalysisTools:
         cluster: Optional[str] = None
     ) -> str:
         """
-        获取指定时间范围内某个 label 或 annotation key 的所有可能值
+        Get all possible values for a specific label or annotation key within specified time range
         
         Args:
-            dimension_type: 维度类型（label 或 annotation）
-            dimension_key: 维度key（如 "team", "primus-safe.user.name"）
-            time_range_days: 时间范围（天数），默认 7 天
-            cluster: 集群名称（可选）
+            dimension_type: Dimension type (label or annotation)
+            dimension_key: Dimension key (e.g., "team", "primus-safe.user.name")
+            time_range_days: Time range (days), default 7 days
+            cluster: Cluster name (optional)
         
         Returns:
-            JSON 字符串，包含 dimension values 列表
+            JSON string containing dimension values list
         """
         if dimension_type not in ["label", "annotation"]:
             return json.dumps({
@@ -469,7 +493,7 @@ class GPUAnalysisTools:
                 "dimension_values": []
             })
         
-        # 计算时间范围
+        # Calculate time range
         end_time = datetime.utcnow()
         start_time = end_time - timedelta(days=time_range_days)
         
@@ -486,7 +510,7 @@ class GPUAnalysisTools:
         
         result = self._make_request(endpoint, params)
         
-        # 检查响应状态（成功状态码为 2000）
+        # Check response status (success status code is 2000)
         meta = result.get("meta", {})
         if meta.get("code") != 2000:
             return json.dumps({
@@ -510,16 +534,16 @@ class GPUAnalysisTools:
         cluster: Optional[str] = None
     ) -> str:
         """
-        分析每个用户的GPU占用和使用率情况（基于annotation key "primus-safe.user.name"）
-        找出占用GPU多但使用率低的用户
+        Analyze GPU allocation and utilization for each user (based on annotation key "primus-safe.user.name")
+        Find users who allocate many GPUs but have low utilization
         
         Args:
-            time_range_days: 时间范围（天数），默认 7 天
-            top_n: 返回前N个用户，默认 20
-            cluster: 集群名称（可选）
+            time_range_days: Time range (days), default 7 days
+            top_n: Return top N users, default 20
+            cluster: Cluster name (optional)
         
         Returns:
-            JSON 字符串，包含用户列表及其GPU占用和使用率信息
+            JSON string containing user list and their GPU allocation and utilization info
         """
         return self.find_low_utilization_dimension_values(
             dimension_type="annotation",
@@ -538,17 +562,17 @@ class GPUAnalysisTools:
         cluster: Optional[str] = None
     ) -> str:
         """
-        对于指定的dimension key，找出其values中占用GPU最多但利用率最低的top N
+        For a specified dimension key, find top N values that allocate most GPUs but have lowest utilization
         
         Args:
-            dimension_type: 维度类型（label 或 annotation）
-            dimension_key: 维度key（如 "primus-safe.user.name"）
-            time_range_days: 时间范围（天数），默认 7 天
-            top_n: 返回前N个，默认 20
-            cluster: 集群名称（可选）
+            dimension_type: Dimension type (label or annotation)
+            dimension_key: Dimension key (e.g., "primus-safe.user.name")
+            time_range_days: Time range (days), default 7 days
+            top_n: Return top N, default 20
+            cluster: Cluster name (optional)
         
         Returns:
-            JSON 字符串，包含排序后的 dimension values 及其使用情况
+            JSON string containing sorted dimension values and their usage
         """
         if dimension_type not in ["label", "annotation"]:
             return json.dumps({
@@ -557,7 +581,7 @@ class GPUAnalysisTools:
             })
         
         try:
-            # 1. 获取该key的所有values
+            # 1. Get all values for this key
             values_result = self.get_available_dimension_values(
                 dimension_type=dimension_type,
                 dimension_key=dimension_key,
@@ -581,7 +605,7 @@ class GPUAnalysisTools:
                     "message": "No values found for this dimension key"
                 })
             
-            # 2. 查询每个value的使用情况
+            # 2. Query usage for each value
             results = []
             for value in dimension_values:
                 try:
@@ -601,7 +625,7 @@ class GPUAnalysisTools:
                     stats = trend_data["statistics"]
                     data_points = trend_data.get("data_points", [])
                     
-                    # 计算平均GPU数量
+                    # Calculate average GPU count
                     avg_gpu_count = 0
                     if data_points:
                         total_gpu = sum(dp.get("allocated_gpu_count", 0) for dp in data_points)
@@ -609,15 +633,15 @@ class GPUAnalysisTools:
                     
                     avg_utilization = stats.get("average", 0)
                     
-                    # 计算问题评分：GPU数量越多、利用率越低，分数越高
-                    # 公式: GPU数量 × (1 - 利用率) × 100
+                    # Calculate issue score: more GPUs and lower utilization = higher score
+                    # Formula: GPU count × (1 - utilization) × 100
                     issue_score = 0
                     if avg_gpu_count > 0:
                         issue_score = avg_gpu_count * (1 - avg_utilization) * 100
                     
                     results.append({
                         "dimension_value": value,
-                        "avg_utilization": round(avg_utilization * 100, 2),  # 转换为百分比
+                        "avg_utilization": round(avg_utilization * 100, 2),  # Convert to percentage
                         "avg_gpu_count": round(avg_gpu_count, 2),
                         "max_utilization": round(stats.get("max", 0) * 100, 2),
                         "min_utilization": round(stats.get("min", 0) * 100, 2),
@@ -630,10 +654,10 @@ class GPUAnalysisTools:
                     logger.error(f"Failed to query dimension value {dimension_key}:{value}: {str(e)}")
                     continue
             
-            # 3. 按问题评分排序（分数越高越严重）
+            # 3. Sort by issue score (higher score = more severe)
             results.sort(key=lambda x: x["issue_score"], reverse=True)
             
-            # 4. 返回top N
+            # 4. Return top N
             top_results = results[:top_n]
             
             return json.dumps({
@@ -653,8 +677,149 @@ class GPUAnalysisTools:
                 "results": []
             })
     
+    def calculate_average_utilization(
+        self,
+        records_json: str
+    ) -> str:
+        """
+        Calculate average utilization and statistics for a series of utilization records
+        
+        Args:
+            records_json: JSON string containing utilization records array
+                Supported record formats include:
+                - ClusterGpuHourlyStats (cluster hourly statistics)
+                - NamespaceGpuHourlyStats (namespace hourly statistics)
+                - LabelGpuHourlyStats (label/annotation hourly statistics)
+                
+                Each record should contain the following fields (at least avg_utilization):
+                - avg_utilization: Average utilization (0.0-1.0)
+                - max_utilization: Maximum utilization (optional)
+                - min_utilization: Minimum utilization (optional)
+                - allocated_gpu_count: Allocated GPU count (optional)
+        
+        Returns:
+            JSON string containing overall statistics:
+            - overall_avg_utilization: Average utilization of all records
+            - overall_max_utilization: Highest utilization among all records
+            - overall_min_utilization: Lowest utilization among all records
+            - weighted_avg_utilization: GPU count weighted average utilization (if allocated_gpu_count available)
+            - record_count: Total record count
+            - total_gpu_hours: Total GPU hours (if allocated_gpu_count available)
+        """
+        try:
+            # Parse input JSON
+            records = json.loads(records_json)
+            
+            if not isinstance(records, list):
+                return json.dumps({
+                    "error": "Input must be in JSON array format",
+                    "data": None
+                })
+            
+            if not records:
+                return json.dumps({
+                    "error": "Record list is empty",
+                    "data": None
+                })
+            
+            # Extract utilization data
+            avg_utilizations = []
+            max_utilizations = []
+            min_utilizations = []
+            gpu_counts = []
+            
+            for i, record in enumerate(records):
+                if not isinstance(record, dict):
+                    logger.warning(f"Record {i} is not in dictionary format, skipping")
+                    continue
+                
+                # Extract average utilization (required field)
+                avg_util = record.get("avg_utilization")
+                if avg_util is not None:
+                    avg_utilizations.append(float(avg_util))
+                else:
+                    logger.warning(f"Record {i} missing avg_utilization field, skipping")
+                    continue
+                
+                # Extract maximum utilization (optional)
+                max_util = record.get("max_utilization")
+                if max_util is not None:
+                    max_utilizations.append(float(max_util))
+                
+                # Extract minimum utilization (optional)
+                min_util = record.get("min_utilization")
+                if min_util is not None:
+                    min_utilizations.append(float(min_util))
+                
+                # Extract GPU count (optional)
+                gpu_count = record.get("allocated_gpu_count")
+                if gpu_count is not None:
+                    gpu_counts.append(float(gpu_count))
+            
+            if not avg_utilizations:
+                return json.dumps({
+                    "error": "No valid avg_utilization data found",
+                    "data": None
+                })
+            
+            # Detect data format: if most values > 1, data is in percentage (0-100), need to convert to decimal (0-1)
+            if sum(1 for v in avg_utilizations if v > 1) > len(avg_utilizations) / 2:
+                logger.info(f"Detected percentage format (0-100), converting to decimal format (0-1)")
+                avg_utilizations = [v / 100.0 for v in avg_utilizations]
+                max_utilizations = [v / 100.0 for v in max_utilizations]
+                min_utilizations = [v / 100.0 for v in min_utilizations]
+            
+            # Calculate simple average utilization
+            overall_avg = sum(avg_utilizations) / len(avg_utilizations)
+            
+            # Calculate overall maximum and minimum utilization
+            overall_max = max(max_utilizations) if max_utilizations else max(avg_utilizations)
+            overall_min = min(min_utilizations) if min_utilizations else min(avg_utilizations)
+            
+            # Build result
+            result = {
+                "overall_avg_utilization": round(overall_avg * 100, 2),  # Convert to percentage
+                "overall_max_utilization": round(overall_max * 100, 2),
+                "overall_min_utilization": round(overall_min * 100, 2),
+                "record_count": len(avg_utilizations)
+            }
+            
+            # If GPU count data available, calculate weighted average and total GPU hours
+            if gpu_counts and len(gpu_counts) == len(avg_utilizations):
+                total_gpu_hours = sum(gpu_counts)
+                weighted_sum = sum(
+                    util * count 
+                    for util, count in zip(avg_utilizations, gpu_counts)
+                )
+                weighted_avg = weighted_sum / total_gpu_hours if total_gpu_hours > 0 else 0
+                
+                result["weighted_avg_utilization"] = round(weighted_avg * 100, 2)
+                result["total_gpu_hours"] = round(total_gpu_hours, 2)
+            
+            # Calculate standard deviation of utilization
+            if len(avg_utilizations) > 1:
+                mean = sum(avg_utilizations) / len(avg_utilizations)
+                variance = sum((x - mean) ** 2 for x in avg_utilizations) / len(avg_utilizations)
+                std_dev = variance ** 0.5
+                result["std_deviation"] = round(std_dev * 100, 2)  # Convert to percentage
+            
+            return json.dumps(result, ensure_ascii=False)
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing failed: {str(e)}")
+            return json.dumps({
+                "error": f"JSON parsing failed: {str(e)}",
+                "data": None
+            })
+        except Exception as e:
+            logger.error(f"Failed to calculate average utilization: {str(e)}")
+            return json.dumps({
+                "error": f"Calculation failed: {str(e)}",
+                "data": None
+            })
+    
     def get_tools(self) -> List:
-        """返回所有工具的列表"""
+        """Return list of all tools"""
         return [
             StructuredTool.from_function(
                 func=self.query_gpu_usage_trend,
@@ -695,6 +860,10 @@ class GPUAnalysisTools:
                 func=self.get_available_dimension_values,
                 name="get_available_dimension_values",
                 description=self.get_available_dimension_values.__doc__
+            ),
+            StructuredTool.from_function(
+                func=self.calculate_average_utilization,
+                name="calculate_average_utilization",
+                description=self.calculate_average_utilization.__doc__
             )
         ]
-

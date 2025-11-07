@@ -1,4 +1,4 @@
-"""磁盘缓存实现"""
+"""Disk cache implementation"""
 
 import os
 import json
@@ -11,27 +11,27 @@ from .base import CacheBase
 
 
 class DiskCache(CacheBase):
-    """磁盘缓存实现 - 将缓存持久化到文件系统"""
+    """Disk cache implementation - Persist cache to file system"""
     
     def __init__(self, ttl: int = 300, cache_dir: str = ".cache/llm"):
         """
-        初始化磁盘缓存
+        Initialize disk cache
         
         Args:
-            ttl: 缓存过期时间（秒）
-            cache_dir: 缓存目录路径
+            ttl: Cache expiration time (seconds)
+            cache_dir: Cache directory path
         """
         super().__init__(ttl)
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         
-        # 元数据文件，记录所有缓存条目
+        # Metadata file, recording all cache entries
         self.metadata_file = self.cache_dir / "metadata.json"
         self._metadata: Dict[str, Dict[str, Any]] = self._load_metadata()
     
     def _load_metadata(self) -> Dict[str, Dict[str, Any]]:
-        """加载元数据"""
+        """Load metadata"""
         if not self.metadata_file.exists():
             return {}
         
@@ -42,7 +42,7 @@ class DiskCache(CacheBase):
             return {}
     
     def _save_metadata(self):
-        """保存元数据"""
+        """Save metadata"""
         try:
             with open(self.metadata_file, 'w', encoding='utf-8') as f:
                 json.dump(self._metadata, f, ensure_ascii=False, indent=2)
@@ -50,27 +50,27 @@ class DiskCache(CacheBase):
             print(f"Failed to save metadata: {e}")
     
     def _get_cache_path(self, key: str) -> Path:
-        """获取缓存文件路径"""
+        """Get cache file path"""
         return self.cache_dir / f"{key}.pkl"
     
     def get(self, key: str) -> Optional[Any]:
-        """获取缓存值"""
+        """Get cache value"""
         with self._lock:
-            # 检查元数据
+            # Check metadata
             if key not in self._metadata:
                 return None
             
             metadata = self._metadata[key]
             
-            # 检查是否过期
+            # Check if expired
             if time.time() > metadata["expires_at"]:
                 self.delete(key)
                 return None
             
-            # 读取缓存文件
+            # Read cache file
             cache_path = self._get_cache_path(key)
             if not cache_path.exists():
-                # 文件丢失，删除元数据
+                # File is missing, delete metadata
                 del self._metadata[key]
                 self._save_metadata()
                 return None
@@ -79,7 +79,7 @@ class DiskCache(CacheBase):
                 with open(cache_path, 'rb') as f:
                     value = pickle.load(f)
                 
-                # 更新访问统计
+                # Update access statistics
                 metadata["hits"] = metadata.get("hits", 0) + 1
                 metadata["last_accessed"] = time.time()
                 self._save_metadata()
@@ -91,17 +91,17 @@ class DiskCache(CacheBase):
                 return None
     
     def set(self, key: str, value: Any, ttl: Optional[int] = None):
-        """设置缓存值"""
+        """Set cache value"""
         with self._lock:
             expires_at = time.time() + (ttl if ttl is not None else self.ttl)
             
-            # 保存缓存值到文件
+            # Save cache value to file
             cache_path = self._get_cache_path(key)
             try:
                 with open(cache_path, 'wb') as f:
                     pickle.dump(value, f)
                 
-                # 更新元数据
+                # Update metadata
                 self._metadata[key] = {
                     "created_at": time.time(),
                     "expires_at": expires_at,
@@ -114,9 +114,9 @@ class DiskCache(CacheBase):
                 print(f"Failed to save cache {key}: {e}")
     
     def delete(self, key: str):
-        """删除缓存"""
+        """Delete cache"""
         with self._lock:
-            # 删除缓存文件
+            # Delete cache file
             cache_path = self._get_cache_path(key)
             if cache_path.exists():
                 try:
@@ -124,15 +124,15 @@ class DiskCache(CacheBase):
                 except Exception as e:
                     print(f"Failed to delete cache file {key}: {e}")
             
-            # 删除元数据
+            # Delete metadata
             if key in self._metadata:
                 del self._metadata[key]
                 self._save_metadata()
     
     def clear(self):
-        """清空所有缓存"""
+        """Clear all caches"""
         with self._lock:
-            # 删除所有缓存文件
+            # Delete all cache files
             for key in list(self._metadata.keys()):
                 cache_path = self._get_cache_path(key)
                 if cache_path.exists():
@@ -141,29 +141,29 @@ class DiskCache(CacheBase):
                     except Exception:
                         pass
             
-            # 清空元数据
+            # Clear metadata
             self._metadata.clear()
             self._save_metadata()
     
     def exists(self, key: str) -> bool:
-        """检查缓存是否存在且未过期"""
+        """Check if cache exists and not expired"""
         with self._lock:
             if key not in self._metadata:
                 return False
             
             metadata = self._metadata[key]
             
-            # 检查是否过期
+            # Check if expired
             if time.time() > metadata["expires_at"]:
                 self.delete(key)
                 return False
             
-            # 检查文件是否存在
+            # Check if file exists
             cache_path = self._get_cache_path(key)
             return cache_path.exists()
     
     def get_stats(self) -> Dict[str, Any]:
-        """获取缓存统计信息"""
+        """Get cache statistics"""
         with self._lock:
             total_hits = sum(meta.get("hits", 0) for meta in self._metadata.values())
             total_size = sum(meta.get("size", 0) for meta in self._metadata.values())
@@ -177,7 +177,7 @@ class DiskCache(CacheBase):
             }
     
     def cleanup_expired(self) -> int:
-        """清理过期的缓存条目"""
+        """Clean up expired cache entries"""
         with self._lock:
             current_time = time.time()
             expired_keys = [
@@ -189,4 +189,3 @@ class DiskCache(CacheBase):
                 self.delete(key)
             
             return len(expired_keys)
-

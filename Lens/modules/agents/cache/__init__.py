@@ -1,4 +1,4 @@
-"""缓存模块 - 用于缓存 LLM API 响应"""
+"""Cache module - For caching LLM API responses"""
 
 from .base import CacheBase
 from .memory_cache import MemoryCache
@@ -11,4 +11,3 @@ __all__ = [
     "DiskCache",
     "create_cache",
 ]
-

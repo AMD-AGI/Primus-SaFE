@@ -1,50 +1,50 @@
 """Prompt Templates for GPU Usage Analysis Agent - Enhanced."""
 
 # ============================================================================
-# Understanding Phase - 意图识别和实体提取
+# Understanding Phase - Intent Recognition and Entity Extraction
 # ============================================================================
 
-UNDERSTAND_PROMPT = """你是一个 GPU 使用率分析专家。请分析用户的问题，识别需要查询的维度和参数。
+UNDERSTAND_PROMPT = """You are a GPU utilization analysis expert. Please analyze the user's question and identify the dimensions and parameters that need to be queried.
 
-用户问题：{user_query}
+User Question: {user_query}
 
-Agent 支持的分析功能：
-1. **集群级别趋势分析**：分析整个集群的GPU使用率和占用率趋势，提供折线图数据
-2. **Namespace级别分析**：分析各个namespace的GPU使用情况和趋势
-3. **用户占用分析**：分析每个用户（基于annotation key "primus-safe.user.name"）的GPU占用和使用率，找出占用多但利用率低的用户
-4. **低使用率资源识别**：找出占用GPU多但使用率低的其他annotations
-5. **对比分析**：对比不同时间段的数据
+Agent's Supported Analysis Features:
+1. **Cluster-level Trend Analysis**: Analyze GPU utilization and allocation rate trends for the entire cluster, provide line chart data
+2. **Namespace-level Analysis**: Analyze GPU usage and trends for each namespace
+3. **User Occupancy Analysis**: Analyze GPU occupancy and utilization for each user (based on annotation key "primus-safe.user.name"), identify users with high occupancy but low utilization
+4. **Low Utilization Resource Identification**: Find other annotations with high GPU occupancy but low utilization
+5. **Comparative Analysis**: Compare data across different time periods
 
-请分析用户问题并提取以下信息：
+Please analyze the user's question and extract the following information:
 
-1. **时间范围** (time_range)：
-   - 格式: {{"type": "relative", "value": "7d"}} 或 {{"type": "absolute", "start": "2025-01-01", "end": "2025-01-07"}}
-   - 相对时间: 1d=1天, 7d=7天, 30d=30天
-   - 如果用户没有明确说明，默认使用7天
+1. **Time Range** (time_range):
+   - Format: {{"type": "relative", "value": "7d"}} or {{"type": "absolute", "start": "2025-01-01", "end": "2025-01-07"}}
+   - Relative time: 1d=1 day, 7d=7 days, 30d=30 days
+   - If user doesn't specify, default to 7 days
 
-2. **分析类型** (analysis_type)：
-   - "cluster_trend": 集群级别趋势分析（使用率和占用率折线图）
-   - "namespace_analysis": Namespace级别分析
-   - "user_analysis": 用户占用分析（分析 primus-safe.user.name）
-   - "low_utilization": 查找低使用率资源
-   - "full": 完整分析（包含所有功能）
-   - 如果用户问题不明确，默认为"full"
+2. **Analysis Type** (analysis_type):
+   - "cluster_trend": Cluster-level trend analysis (utilization and allocation rate line charts)
+   - "namespace_analysis": Namespace-level analysis
+   - "user_analysis": User occupancy analysis (analyze primus-safe.user.name)
+   - "low_utilization": Find low utilization resources
+   - "full": Complete analysis (includes all features)
+   - If user's question is unclear, default to "full"
 
-3. **特定维度** (specific_dimension)：
-   - 如果用户指定了特定的namespace或用户名，提取出来
-   - 格式: {{"type": "namespace", "value": "ml-team"}} 或 {{"type": "user", "value": "zhangsan"}}
+3. **Specific Dimension** (specific_dimension):
+   - If user specifies a specific namespace or username, extract it
+   - Format: {{"type": "namespace", "value": "ml-team"}} or {{"type": "user", "value": "zhangsan"}}
 
-4. **输出格式要求** (output_format)：
-   - "chart": 需要折线图
-   - "table": 需要表格
-   - "both": 两者都需要
-   - 默认为"both"
+4. **Output Format Requirements** (output_format):
+   - "chart": Need line chart
+   - "table": Need table
+   - "both": Need both
+   - Default to "both"
 
-5. **是否需要澄清**：
-   - 只有在查询意图完全不清楚或关键信息完全缺失时才设置为true
-   - 对于一般性的查询（如"分析GPU使用情况"），应该设置为false并使用默认参数
+5. **Need Clarification**:
+   - Only set to true when query intent is completely unclear or critical information is completely missing
+   - For general queries (like "analyze GPU usage"), should be set to false and use default parameters
 
-请以严格的 JSON 格式返回结果（不要添加任何其他文本）：
+Please return results in strict JSON format (do not add any other text):
 
 {{
   "entities": {{
@@ -57,9 +57,9 @@ Agent 支持的分析功能：
   "clarification_question": null
 }}
 
-示例1 - 集群趋势分析：
-用户："最近7天集群GPU使用率和占用率的趋势是什么？给我一个折线图"
-返回：
+Example 1 - Cluster Trend Analysis:
+User: "What's the trend of cluster GPU utilization and allocation rate in the last 7 days? Give me a line chart"
+Return:
 {{
   "entities": {{
     "time_range": {{"type": "relative", "value": "7d"}},
@@ -71,9 +71,9 @@ Agent 支持的分析功能：
   "clarification_question": null
 }}
 
-示例2 - 用户占用分析：
-用户："分析一下哪些用户占用了很多GPU但使用率很低"
-返回：
+Example 2 - User Occupancy Analysis:
+User: "Analyze which users occupy many GPUs but have low utilization"
+Return:
 {{
   "entities": {{
     "time_range": {{"type": "relative", "value": "7d"}},
@@ -85,9 +85,9 @@ Agent 支持的分析功能：
   "clarification_question": null
 }}
 
-示例3 - Namespace分析：
-用户："最近30天ml-team这个namespace的使用情况"
-返回：
+Example 3 - Namespace Analysis:
+User: "How's the ml-team namespace usage in the last 30 days"
+Return:
 {{
   "entities": {{
     "time_range": {{"type": "relative", "value": "30d"}},
@@ -99,9 +99,9 @@ Agent 支持的分析功能：
   "clarification_question": null
 }}
 
-示例4 - 特定用户分析：
-用户："zhangsan用户的GPU占用情况怎么样？"
-返回：
+Example 4 - Specific User Analysis:
+User: "How's zhangsan's GPU occupancy?"
+Return:
 {{
   "entities": {{
     "time_range": {{"type": "relative", "value": "7d"}},
@@ -113,9 +113,9 @@ Agent 支持的分析功能：
   "clarification_question": null
 }}
 
-示例5 - 完整分析：
-用户："分析一下最近的GPU使用情况"
-返回：
+Example 5 - Complete Analysis:
+User: "Analyze recent GPU usage"
+Return:
 {{
   "entities": {{
     "time_range": {{"type": "relative", "value": "7d"}},
@@ -127,18 +127,18 @@ Agent 支持的分析功能：
   "clarification_question": null
 }}
 
-示例6 - 需要澄清：
-用户："GPU"
-返回：
+Example 6 - Need Clarification:
+User: "GPU"
+Return:
 {{
   "entities": {{}},
   "needs_clarification": true,
-  "clarification_question": "请问您想了解GPU的什么信息？\\n1. 查看集群整体使用率趋势（折线图）\\n2. 分析各个namespace的使用情况\\n3. 查看每个用户的GPU占用和使用率（表格）\\n4. 找出占用多但利用率低的资源\\n请告诉我您需要哪种分析？"
+  "clarification_question": "What information about GPU would you like to know?\\n1. View cluster overall utilization trends (line chart)\\n2. Analyze usage for each namespace\\n3. View GPU occupancy and utilization for each user (table)\\n4. Find resources with high occupancy but low utilization\\nPlease tell me which type of analysis you need?"
 }}
 
-示例7 - 时间不明确但可推断：
-用户："看一下集群使用率"
-返回：
+Example 7 - Time Unclear but Inferable:
+User: "Check cluster utilization"
+Return:
 {{
   "entities": {{
     "time_range": {{"type": "relative", "value": "7d"}},
@@ -153,29 +153,170 @@ Agent 支持的分析功能：
 
 
 # ============================================================================
-# Response Generation Phase - 生成用户友好的响应
+# Response Generation Phase - Generate User-Friendly Responses
 # ============================================================================
 
-RESPONSE_GENERATION_PROMPT = """你是一个 GPU 使用率分析专家。请根据分析结果生成一份清晰、专业的报告。
+# ============================================================================
+# Cluster Trend Analysis Phase - In-depth Cluster Trend Analysis
+# ============================================================================
 
-用户问题：{user_query}
+CLUSTER_TREND_ANALYSIS_PROMPT = """You are a GPU cluster utilization analysis expert. Please deeply analyze trends based on the provided cluster statistics and evaluate whether the cluster has utilization issues.
 
-分析类型：{analysis_type}
+## Cluster Statistics
 
-分析结果：
+### Utilization Statistics
+- Average Utilization: {avg_utilization}%
+- Maximum Utilization: {max_utilization}%
+- Minimum Utilization: {min_utilization}%
+- Trend: {trend}
+- Time Range: {time_range_days} days
+- Sample Count: {sample_count}
+
+### Allocation Rate Statistics
+- Average Allocation: {avg_allocation}%
+- Maximum Allocation: {max_allocation}%
+- Minimum Allocation: {min_allocation}%
+
+### Data Point Details
+{data_points_summary}
+
+## Analysis Requirements
+
+Please conduct in-depth analysis from the following aspects:
+
+1. **Trend Assessment**
+   - Analyze the change trend of utilization and allocation rate (rising, falling, stable, fluctuating)
+   - Identify if there are obvious periodic patterns (e.g., weekdays vs weekends)
+   - Evaluate trend stability and predictability
+
+2. **Utilization Issue Diagnosis**
+   - Evaluate if current average utilization level is reasonable (reference: >70% healthy, 50-70% acceptable, <50% low, <30% severe waste)
+   - Analyze the gap between utilization and allocation rate (if allocation is high but utilization is low, indicates serious resource idling)
+   - Identify if there are abnormal peaks or valleys
+   - Determine if fluctuation range is too large (gap between max and min values)
+
+3. **Resource Utilization Efficiency Evaluation**
+   - Comprehensively evaluate overall resource utilization efficiency based on utilization and allocation
+   - Calculate resource waste degree (allocated but not fully used portion)
+   - Evaluate if there are issues with over-allocation or under-allocation
+
+4. **Problem Severity Rating**
+   - Provide an overall score (0-100, 100 means perfect, 0 means severe waste)
+   - Clearly indicate if there are issues that need immediate resolution
+   - List discovered issues by priority
+
+5. **Optimization Recommendations**
+   - Provide specific, actionable optimization suggestions for discovered issues
+   - Recommend resource allocation strategy or usage adjustments
+   - Provide improvement targets (expected utilization levels)
+
+## Output Format
+
+Please return analysis results in strict JSON format (do not add any other text):
+
+{{
+  "trend_analysis": {{
+    "trend_description": "Trend description (2-3 sentences)",
+    "trend_type": "rising/falling/stable/fluctuating",
+    "has_periodicity": true/false,
+    "periodicity_description": "Periodicity description (if any)"
+  }},
+  "utilization_issues": {{
+    "has_issues": true/false,
+    "issue_level": "severe/moderate/mild/none",
+    "utilization_assessment": "Utilization level assessment",
+    "allocation_gap": "Gap analysis between allocation and utilization",
+    "volatility_assessment": "Volatility assessment"
+  }},
+  "efficiency_evaluation": {{
+    "overall_score": 85,
+    "efficiency_level": "excellent/good/fair/poor/very poor",
+    "waste_percentage": 15.5,
+    "resource_allocation_status": "reasonable/over-allocated/under-allocated"
+  }},
+  "problem_severity": {{
+    "overall_score": 85,
+    "needs_immediate_action": false,
+    "critical_issues": ["Issue 1", "Issue 2"],
+    "warnings": ["Warning 1", "Warning 2"]
+  }},
+  "recommendations": [
+    {{
+      "priority": "high/medium/low",
+      "issue": "Issue description",
+      "suggestion": "Specific suggestion",
+      "expected_improvement": "Expected improvement effect"
+    }}
+  ],
+  "summary": "Summarize overall evaluation and most important recommendations in 2-3 sentences"
+}}
+
+Example Output:
+{{
+  "trend_analysis": {{
+    "trend_description": "Over the past 7 days, the cluster GPU utilization has remained stable around 45% on average, but allocation rate is as high as 80%, indicating many GPUs are allocated but not fully used.",
+    "trend_type": "stable",
+    "has_periodicity": false,
+    "periodicity_description": null
+  }},
+  "utilization_issues": {{
+    "has_issues": true,
+    "issue_level": "moderate",
+    "utilization_assessment": "Average utilization of 45% is at a low level, with obvious resource waste issues.",
+    "allocation_gap": "The gap between 80% allocation and 45% utilization reaches 35 percentage points, indicating about 44% of allocated GPU resources are idle.",
+    "volatility_assessment": "Utilization fluctuates from 20% to 75%, with large volatility and unstable resource usage."
+  }},
+  "efficiency_evaluation": {{
+    "overall_score": 56,
+    "efficiency_level": "fair",
+    "waste_percentage": 43.75,
+    "resource_allocation_status": "over-allocated"
+  }},
+  "problem_severity": {{
+    "overall_score": 56,
+    "needs_immediate_action": true,
+    "critical_issues": ["Severe resource waste: 80% allocation but only 45% utilization", "Excessive utilization fluctuation, lack of stability"],
+    "warnings": ["Recommend optimizing resource allocation strategy", "Need to identify low-utilization users and tasks"]
+  }},
+  "recommendations": [
+    {{
+      "priority": "high",
+      "issue": "Gap between allocation and utilization too large (35 percentage points)",
+      "suggestion": "Identify and optimize low-utilization GPU allocations, consider introducing GPU sharing or dynamic reclaim mechanisms",
+      "expected_improvement": "Expected to increase average utilization to 60-70%, reducing resource waste by about 20-30%"
+    }},
+    {{
+      "priority": "medium",
+      "issue": "Excessive utilization fluctuation",
+      "suggestion": "Analyze low-utilization periods, adjust task scheduling strategy, smooth resource usage curve",
+      "expected_improvement": "Improve resource usage stability, reduce peak-valley difference"
+    }}
+  ],
+  "summary": "Overall cluster resource utilization efficiency is fair (56 points). Main issue is 80% allocation but only 45% utilization, with about 44% resource waste. Priority recommendation is to identify low-utilization tasks and optimize resource allocation strategy, expected to increase utilization to 60-70%."
+}}
+"""
+
+
+RESPONSE_GENERATION_PROMPT = """You are a GPU utilization analysis expert. Please generate a clear, professional report based on the analysis results.
+
+User Question: {user_query}
+
+Analysis Type: {analysis_type}
+
+Analysis Results:
 {analysis_results}
 
-请生成一份包含以下内容的报告：
-1. **摘要**：用1-2句话总结关键发现
-2. **详细分析**：根据数据提供具体的分析
-3. **建议**：如果发现问题（如低使用率），给出优化建议
+Please generate a report including the following:
+1. **Summary**: Summarize key findings in 1-2 sentences
+2. **Detailed Analysis**: Provide specific analysis based on data
+3. **Recommendations**: If issues are found (e.g., low utilization), provide optimization suggestions
 
-注意事项：
-- 使用清晰、专业的语言
-- 突出重点数据和发现
-- 对于百分比数据，保留2位小数
-- 如果有图表数据，说明"已生成折线图，请查看可视化结果"
-- 如果有表格数据，说明"详细数据见下方表格"
+Notes:
+- Use clear, professional language
+- Highlight key data and findings
+- For percentage data, keep 2 decimal places
+- If there's chart data, state "Line chart has been generated, please check visualization results"
+- If there's table data, state "Detailed data shown in the table below"
 
-请以markdown格式返回报告：
+Please return the report in markdown format:
 """

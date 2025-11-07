@@ -1,4 +1,4 @@
-"""存储工厂 - 根据配置创建存储实例"""
+"""Storage factory - Create storage instances based on configuration"""
 
 from typing import Optional
 from .base import StorageBase
@@ -10,18 +10,20 @@ def create_storage(
     **kwargs
 ) -> StorageBase:
     """
-    创建存储实例
+    Create storage instance
     
     Args:
-        backend: 存储后端类型（file, db）
-        **kwargs: 其他参数
+        backend: Storage backend type (file, db, pg)
+        **kwargs: Other parameters
     
     Returns:
-        存储实例
+        Storage instance
     
     Examples:
         >>> storage = create_storage("file", storage_dir=".storage/conversations")
         >>> storage = create_storage("db", db_path=".storage/conversations.db")
+        >>> storage = create_storage("pg", host="localhost", port=5432, 
+        ...                          database="agents", user="postgres", password="")
     """
     if backend == "file":
         storage_dir = kwargs.get("storage_dir", ".storage/conversations")
@@ -33,6 +35,19 @@ def create_storage(
         db_path = kwargs.get("db_path", ".storage/conversations.db")
         return DBStorage(db_path=db_path)
     
+    elif backend == "pg" or backend == "postgres" or backend == "postgresql":
+        from .pg_storage import PGStorage
+        
+        return PGStorage(
+            host=kwargs.get("host", "localhost"),
+            port=kwargs.get("port", 5432),
+            database=kwargs.get("database", "agents"),
+            user=kwargs.get("user", "postgres"),
+            password=kwargs.get("password", ""),
+            min_connections=kwargs.get("min_connections", 1),
+            max_connections=kwargs.get("max_connections", 10),
+            schema=kwargs.get("schema", "public")
+        )
+    
     else:
         raise ValueError(f"Unknown storage backend: {backend}")
-

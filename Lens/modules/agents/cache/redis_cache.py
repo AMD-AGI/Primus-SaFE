@@ -1,5 +1,6 @@
-"""Redis 缓存实现（可选）"""
+"""Redis cache implementation (optional)"""
 
+import time
 import pickle
 from typing import Optional, Any, Dict
 from .base import CacheBase
@@ -12,7 +13,7 @@ except ImportError:
 
 
 class RedisCache(CacheBase):
-    """Redis 缓存实现"""
+    """Redis cache implementation"""
     
     def __init__(
         self,
@@ -24,15 +25,15 @@ class RedisCache(CacheBase):
         prefix: str = "llm_cache:"
     ):
         """
-        初始化 Redis 缓存
+        Initialize Redis cache
         
         Args:
-            ttl: 缓存过期时间（秒）
-            host: Redis 主机
-            port: Redis 端口
-            db: Redis 数据库编号
-            password: Redis 密码
-            prefix: 缓存键前缀
+            ttl: Cache expiration time (seconds)
+            host: Redis host
+            port: Redis port
+            db: Redis database number
+            password: Redis password
+            prefix: Cache key prefix
         """
         if not REDIS_AVAILABLE:
             raise ImportError("Redis is not installed. Install it with: pip install redis")
@@ -45,21 +46,21 @@ class RedisCache(CacheBase):
             port=port,
             db=db,
             password=password,
-            decode_responses=False  # 我们使用 pickle，需要二进制模式
+            decode_responses=False  # We use pickle, need binary mode
         )
         
-        # 测试连接
+        # Test connection
         try:
             self.client.ping()
         except redis.ConnectionError as e:
             raise ConnectionError(f"Failed to connect to Redis: {e}")
     
     def _make_key(self, key: str) -> str:
-        """添加前缀"""
+        """Add prefix"""
         return f"{self.prefix}{key}"
     
     def get(self, key: str) -> Optional[Any]:
-        """获取缓存值"""
+        """Get cache value"""
         try:
             redis_key = self._make_key(key)
             data = self.client.get(redis_key)
@@ -67,15 +68,15 @@ class RedisCache(CacheBase):
             if data is None:
                 return None
             
-            # 反序列化
+            # Deserialize
             value = pickle.loads(data)
             
-            # 更新访问统计（使用 Redis Hash）
+            # Update access statistics (using Redis Hash)
             stats_key = f"{redis_key}:stats"
             self.client.hincrby(stats_key, "hits", 1)
             self.client.hset(stats_key, "last_accessed", str(int(time.time())))
             
-            # 设置统计信息的过期时间
+            # Set expiration time for statistics
             ttl = self.client.ttl(redis_key)
             if ttl > 0:
                 self.client.expire(stats_key, ttl)
@@ -86,19 +87,18 @@ class RedisCache(CacheBase):
             return None
     
     def set(self, key: str, value: Any, ttl: Optional[int] = None):
-        """设置缓存值"""
+        """Set cache value"""
         try:
             redis_key = self._make_key(key)
             
-            # 序列化
+            # Serialize
             data = pickle.dumps(value)
             
-            # 设置缓存
+            # Set cache
             expire_time = ttl if ttl is not None else self.ttl
             self.client.setex(redis_key, expire_time, data)
             
-            # 设置统计信息
-            import time
+            # Set statistics
             stats_key = f"{redis_key}:stats"
             self.client.hset(stats_key, mapping={
                 "created_at": str(int(time.time())),
@@ -111,7 +111,7 @@ class RedisCache(CacheBase):
             print(f"Failed to set cache to Redis: {e}")
     
     def delete(self, key: str):
-        """删除缓存"""
+        """Delete cache"""
         try:
             redis_key = self._make_key(key)
             self.client.delete(redis_key)
@@ -120,9 +120,9 @@ class RedisCache(CacheBase):
             print(f"Failed to delete cache from Redis: {e}")
     
     def clear(self):
-        """清空所有带前缀的缓存"""
+        """Clear all caches with prefix"""
         try:
-            # 获取所有匹配的键
+            # Get all matching keys
             pattern = f"{self.prefix}*"
             keys = self.client.keys(pattern)
             
@@ -132,7 +132,7 @@ class RedisCache(CacheBase):
             print(f"Failed to clear cache from Redis: {e}")
     
     def exists(self, key: str) -> bool:
-        """检查缓存是否存在"""
+        """Check if cache exists"""
         try:
             redis_key = self._make_key(key)
             return self.client.exists(redis_key) > 0
@@ -141,12 +141,12 @@ class RedisCache(CacheBase):
             return False
     
     def get_stats(self) -> Dict[str, Any]:
-        """获取缓存统计信息"""
+        """Get cache statistics"""
         try:
             pattern = f"{self.prefix}*"
             keys = self.client.keys(pattern)
             
-            # 过滤掉统计键
+            # Filter out statistics keys
             cache_keys = [k.decode() for k in keys if not k.decode().endswith(":stats")]
             
             total_hits = 0
@@ -172,11 +172,6 @@ class RedisCache(CacheBase):
     
     def cleanup_expired(self) -> int:
         """
-        Redis 自动处理过期，此方法返回 0
+        Redis automatically handles expiration, this method returns 0
         """
         return 0
-
-
-# 导入 time 模块
-import time
-

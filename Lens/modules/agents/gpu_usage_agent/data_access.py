@@ -6,15 +6,15 @@ import requests
 
 
 class GPUDataAccess:
-    """GPU 数据访问层，封装对 Lens API 的调用"""
+    """GPU data access layer, encapsulates calls to Lens API"""
     
     def __init__(self, api_base_url: str, cluster_name: Optional[str] = None):
         """
-        初始化数据访问层
+        Initialize data access layer
         
         Args:
-            api_base_url: API 基础 URL
-            cluster_name: 集群名称（可选）
+            api_base_url: API base URL
+            cluster_name: Cluster name (optional)
         """
         self.api_base_url = api_base_url.rstrip('/')
         self.cluster_name = cluster_name
@@ -26,19 +26,19 @@ class GPUDataAccess:
         method: str = "GET"
     ) -> Dict[str, Any]:
         """
-        发起 API 请求
+        Make API request
         
         Args:
-            endpoint: API 端点
-            params: 请求参数
-            method: HTTP 方法
+            endpoint: API endpoint
+            params: Request parameters
+            method: HTTP method
         
         Returns:
-            API 响应数据
+            API response data
         """
         url = f"{self.api_base_url}{endpoint}"
         
-        # 添加集群名称
+        # Add cluster name
         if self.cluster_name:
             params = params or {}
             params['cluster'] = self.cluster_name
@@ -67,14 +67,14 @@ class GPUDataAccess:
         end_time: datetime
     ) -> Dict[str, Any]:
         """
-        获取集群小时级统计数据
+        Get cluster hourly statistics
         
         Args:
-            start_time: 开始时间
-            end_time: 结束时间
+            start_time: Start time
+            end_time: End time
         
         Returns:
-            统计数据
+            Statistics data
         """
         endpoint = "/api/gpu-aggregation/cluster/hourly-stats"
         params = {
@@ -90,15 +90,15 @@ class GPUDataAccess:
         namespace: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        获取 namespace 小时级统计数据
+        Get namespace hourly statistics
         
         Args:
-            start_time: 开始时间
-            end_time: 结束时间
-            namespace: namespace 名称（可选）
+            start_time: Start time
+            end_time: End time
+            namespace: Namespace name (optional)
         
         Returns:
-            统计数据
+            Statistics data
         """
         endpoint = "/api/gpu-aggregation/namespaces/hourly-stats"
         params = {
@@ -119,17 +119,17 @@ class GPUDataAccess:
         dimension_type: str = "label"
     ) -> Dict[str, Any]:
         """
-        获取 label/annotation 小时级统计数据
+        Get label/annotation hourly statistics
         
         Args:
             dimension_key: label/annotation key
-            start_time: 开始时间
-            end_time: 结束时间
-            dimension_value: label/annotation value（可选）
-            dimension_type: 维度类型（label/annotation）
+            start_time: Start time
+            end_time: End time
+            dimension_value: label/annotation value (optional)
+            dimension_type: Dimension type (label/annotation)
         
         Returns:
-            统计数据
+            Statistics data
         """
         endpoint = "/api/gpu-aggregation/labels/hourly-stats"
         params = {
@@ -145,10 +145,10 @@ class GPUDataAccess:
     
     def get_latest_snapshot(self) -> Dict[str, Any]:
         """
-        获取最新的 GPU 分配快照
+        Get latest GPU allocation snapshot
         
         Returns:
-            快照数据
+            Snapshot data
         """
         endpoint = "/api/gpu-aggregation/snapshots/latest"
         return self._make_request(endpoint)
@@ -159,14 +159,14 @@ class GPUDataAccess:
         end_time: datetime
     ) -> Dict[str, Any]:
         """
-        列出时间范围内的快照
+        List snapshots within time range
         
         Args:
-            start_time: 开始时间
-            end_time: 结束时间
+            start_time: Start time
+            end_time: End time
         
         Returns:
-            快照列表
+            Snapshot list
         """
         endpoint = "/api/gpu-aggregation/snapshots"
         params = {
@@ -185,18 +185,18 @@ class GPUDataAccess:
         order_by: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        列出 workloads
+        List workloads
         
         Args:
-            page_num: 页码
-            page_size: 每页大小
-            namespace: namespace 筛选
-            kind: workload 类型筛选
-            status: 状态筛选
-            order_by: 排序字段
+            page_num: Page number
+            page_size: Page size
+            namespace: Namespace filter
+            kind: Workload type filter
+            status: Status filter
+            order_by: Sort field
         
         Returns:
-            workload 列表
+            Workload list
         """
         endpoint = "/api/workloads"
         params = {
@@ -216,13 +216,13 @@ class GPUDataAccess:
     
     def get_workload_info(self, uid: str) -> Dict[str, Any]:
         """
-        获取 workload 详细信息
+        Get workload detailed information
         
         Args:
-            uid: workload UID
+            uid: Workload UID
         
         Returns:
-            workload 信息
+            Workload information
         """
         endpoint = f"/api/workloads/{uid}"
         return self._make_request(endpoint)
@@ -235,16 +235,16 @@ class GPUDataAccess:
         step: int = 60
     ) -> Dict[str, Any]:
         """
-        获取 workload 指标
+        Get workload metrics
         
         Args:
-            uid: workload UID
-            start: 开始时间戳（秒）
-            end: 结束时间戳（秒）
-            step: 步长（秒）
+            uid: Workload UID
+            start: Start timestamp (seconds)
+            end: End timestamp (seconds)
+            step: Step (seconds)
         
         Returns:
-            指标数据
+            Metrics data
         """
         endpoint = f"/api/workloads/{uid}/metrics"
         params = {
@@ -256,33 +256,33 @@ class GPUDataAccess:
     
     def get_workloads_metadata(self) -> Dict[str, Any]:
         """
-        获取 workload 元数据（namespaces 和 kinds）
+        Get workload metadata (namespaces and kinds)
         
         Returns:
-            元数据
+            Metadata
         """
         endpoint = "/api/workloads/metadata"
         return self._make_request(endpoint)
     
     def get_workload_hierarchy(self, uid: str) -> Dict[str, Any]:
         """
-        获取 workload 层级关系
+        Get workload hierarchy relationship
         
         Args:
-            uid: workload UID
+            uid: Workload UID
         
         Returns:
-            层级关系树
+            Hierarchy tree
         """
         endpoint = f"/api/workloads/{uid}/hierarchy"
         return self._make_request(endpoint)
     
     def get_clusters(self) -> Dict[str, Any]:
         """
-        获取所有可用的集群列表
+        Get all available cluster list
         
         Returns:
-            集群列表
+            Cluster list
         """
         endpoint = "/api/gpu-aggregation/clusters"
         return self._make_request(endpoint)
@@ -293,14 +293,14 @@ class GPUDataAccess:
         end_time: datetime
     ) -> Dict[str, Any]:
         """
-        获取指定时间范围内的 namespaces
+        Get namespaces within specified time range
         
         Args:
-            start_time: 开始时间
-            end_time: 结束时间
+            start_time: Start time
+            end_time: End time
         
         Returns:
-            namespace 列表
+            Namespace list
         """
         endpoint = "/api/gpu-aggregation/namespaces"
         params = {
@@ -316,15 +316,15 @@ class GPUDataAccess:
         end_time: datetime
     ) -> Dict[str, Any]:
         """
-        获取指定时间范围内的 dimension keys
+        Get dimension keys within specified time range
         
         Args:
-            dimension_type: 维度类型（label/annotation）
-            start_time: 开始时间
-            end_time: 结束时间
+            dimension_type: Dimension type (label/annotation)
+            start_time: Start time
+            end_time: End time
         
         Returns:
-            dimension keys 列表
+            Dimension keys list
         """
         endpoint = "/api/gpu-aggregation/dimension-keys"
         params = {
@@ -333,4 +333,3 @@ class GPUDataAccess:
             "end_time": end_time.strftime("%Y-%m-%dT%H:%M:%SZ")
         }
         return self._make_request(endpoint, params)
-

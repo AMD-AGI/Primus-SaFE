@@ -9,17 +9,17 @@ logger = logging.getLogger(__name__)
 
 def safe_json_parse(content: str) -> Optional[Dict[str, Any]]:
     """
-    安全地解析JSON字符串，兼容多种格式
+    Safely parse JSON string, compatible with multiple formats
     
-    该函数可以处理：
-    1. JSON前后有空白字符（换行符、空格等）的情况
-    2. JSON前后有额外文本的情况（会尝试提取JSON部分）
+    This function can handle:
+    1. JSON with whitespace (newlines, spaces, etc.) before or after
+    2. JSON with extra text before or after (will try to extract JSON part)
     
     Args:
-        content: 待解析的JSON字符串
+        content: JSON string to parse
         
     Returns:
-        解析后的字典，如果解析失败返回None
+        Parsed dictionary, returns None if parsing fails
         
     Examples:
         >>> safe_json_parse('{"key": "value"}')
@@ -35,45 +35,44 @@ def safe_json_parse(content: str) -> Optional[Dict[str, Any]]:
         return None
         
     try:
-        # 先去除首尾空白字符（包括换行符、空格等）
+        # First remove leading and trailing whitespace (including newlines, spaces, etc.)
         cleaned_content = content.strip()
         
-        # 尝试直接解析
+        # Try to parse directly
         return json.loads(cleaned_content)
     except json.JSONDecodeError as e:
-        logger.debug(f"JSON直接解析失败: {e}, 尝试提取JSON内容")
+        logger.debug(f"Direct JSON parsing failed: {e}, trying to extract JSON content")
         
-        # 尝试查找JSON内容（有些模型可能在JSON前后添加了额外文本）
+        # Try to find JSON content (some models may add extra text before or after JSON)
         try:
-            # 查找第一个 '{' 和最后一个 '}'
+            # Find first '{' and last '}'
             start_idx = cleaned_content.find('{')
             end_idx = cleaned_content.rfind('}')
             
             if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
                 json_str = cleaned_content[start_idx:end_idx+1]
                 result = json.loads(json_str)
-                logger.debug(f"成功从内容中提取并解析JSON")
+                logger.debug(f"Successfully extracted and parsed JSON from content")
                 return result
         except json.JSONDecodeError as e2:
-            logger.warning(f"JSON提取解析也失败: {e2}")
+            logger.warning(f"JSON extraction parsing also failed: {e2}")
         
-        logger.error(f"无法解析JSON内容: {content[:200]}...")
+        logger.error(f"Unable to parse JSON content: {content[:200]}...")
         return None
 
 
 def format_json_error_message(content: str, max_length: int = 200) -> str:
     """
-    格式化JSON解析错误消息
+    Format JSON parsing error message
     
     Args:
-        content: 失败的内容
-        max_length: 最大显示长度
+        content: Failed content
+        max_length: Maximum display length
         
     Returns:
-        格式化后的错误消息
+        Formatted error message
     """
     if len(content) <= max_length:
-        return f"无法解析的内容: {content}"
+        return f"Unable to parse content: {content}"
     else:
-        return f"无法解析的内容 (前{max_length}字符): {content[:max_length]}..."
-
+        return f"Unable to parse content (first {max_length} characters): {content[:max_length]}..."

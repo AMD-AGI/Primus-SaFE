@@ -1,4 +1,4 @@
-"""缓存工厂 - 根据配置创建缓存实例"""
+"""Cache factory - Create cache instances based on configuration"""
 
 from typing import Optional
 from .base import CacheBase
@@ -12,15 +12,15 @@ def create_cache(
     **kwargs
 ) -> CacheBase:
     """
-    创建缓存实例
+    Create cache instance
     
     Args:
-        backend: 缓存后端类型（memory, disk, redis）
-        ttl: 缓存过期时间（秒）
-        **kwargs: 其他参数
+        backend: Cache backend type (memory, disk, redis)
+        ttl: Cache expiration time (seconds)
+        **kwargs: Other parameters
     
     Returns:
-        缓存实例
+        Cache instance
     
     Examples:
         >>> cache = create_cache("memory", ttl=300, max_size=1000)
@@ -55,4 +55,3 @@ def create_cache(
     
     else:
         raise ValueError(f"Unknown cache backend: {backend}")
-

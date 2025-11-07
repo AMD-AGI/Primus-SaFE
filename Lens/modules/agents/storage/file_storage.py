@@ -1,4 +1,4 @@
-"""文件存储实现 - 将 chat history 保存到文件系统"""
+"""File storage implementation - Save chat history to file system"""
 
 import os
 import json
@@ -10,25 +10,25 @@ from .base import StorageBase
 
 
 class FileStorage(StorageBase):
-    """文件存储实现"""
+    """File storage implementation"""
     
     def __init__(self, storage_dir: str = ".storage/conversations"):
         """
-        初始化文件存储
+        Initialize file storage
         
         Args:
-            storage_dir: 存储目录路径
+            storage_dir: Storage directory path
         """
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         
-        # 索引文件，用于快速查询
+        # Index file for fast queries
         self.index_file = self.storage_dir / "index.json"
         self._index: Dict[str, Dict[str, Any]] = self._load_index()
     
     def _load_index(self) -> Dict[str, Dict[str, Any]]:
-        """加载索引"""
+        """Load index"""
         if not self.index_file.exists():
             return {}
         
@@ -39,7 +39,7 @@ class FileStorage(StorageBase):
             return {}
     
     def _save_index(self):
-        """保存索引"""
+        """Save index"""
         try:
             with open(self.index_file, 'w', encoding='utf-8') as f:
                 json.dump(self._index, f, ensure_ascii=False, indent=2)
@@ -47,9 +47,9 @@ class FileStorage(StorageBase):
             print(f"Failed to save index: {e}")
     
     def _get_conversation_path(self, session_id: str) -> Path:
-        """获取对话文件路径"""
-        # 使用子目录组织，避免单个目录文件过多
-        # 例如：session_id = "abc123" -> a/b/abc123.json
+        """Get conversation file path"""
+        # Use subdirectories to avoid too many files in a single directory
+        # For example: session_id = "abc123" -> a/b/abc123.json
         if len(session_id) >= 2:
             subdir = self.storage_dir / session_id[0] / session_id[1]
         else:
@@ -64,10 +64,10 @@ class FileStorage(StorageBase):
         conversation_data: Dict[str, Any],
         metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
-        """保存对话记录"""
+        """Save conversation record"""
         with self._lock:
             try:
-                # 准备保存的数据
+                # Prepare data to save
                 save_data = {
                     "session_id": session_id,
                     "conversation": conversation_data,
@@ -76,19 +76,19 @@ class FileStorage(StorageBase):
                     "updated_at": datetime.now().isoformat()
                 }
                 
-                # 如果已存在，保留创建时间
+                # If already exists, keep creation time
                 if session_id in self._index:
                     save_data["created_at"] = self._index[session_id].get(
                         "created_at",
                         datetime.now().isoformat()
                     )
                 
-                # 保存对话文件
+                # Save conversation file
                 conv_path = self._get_conversation_path(session_id)
                 with open(conv_path, 'w', encoding='utf-8') as f:
                     json.dump(save_data, f, ensure_ascii=False, indent=2)
                 
-                # 更新索引
+                # Update index
                 self._index[session_id] = {
                     "session_id": session_id,
                     "created_at": save_data["created_at"],
@@ -105,14 +105,14 @@ class FileStorage(StorageBase):
                 return False
     
     def load_conversation(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """加载对话记录"""
+        """Load conversation record"""
         with self._lock:
             if session_id not in self._index:
                 return None
             
             conv_path = self._get_conversation_path(session_id)
             if not conv_path.exists():
-                # 文件丢失，删除索引
+                # File is missing, delete index
                 del self._index[session_id]
                 self._save_index()
                 return None
@@ -130,12 +130,12 @@ class FileStorage(StorageBase):
         offset: int = 0,
         filter_by: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """列出对话记录"""
+        """List conversation records"""
         with self._lock:
-            # 获取所有对话的索引信息
+            # Get all conversation index information
             conversations = list(self._index.values())
             
-            # 过滤
+            # Filter
             if filter_by:
                 filtered = []
                 for conv in conversations:
@@ -149,25 +149,25 @@ class FileStorage(StorageBase):
                         filtered.append(conv)
                 conversations = filtered
             
-            # 按更新时间倒序排序
+            # Sort by update time in descending order
             conversations.sort(
                 key=lambda x: x.get("updated_at", ""),
                 reverse=True
             )
             
-            # 分页
+            # Pagination
             return conversations[offset:offset + limit]
     
     def delete_conversation(self, session_id: str) -> bool:
-        """删除对话记录"""
+        """Delete conversation record"""
         with self._lock:
             try:
-                # 删除文件
+                # Delete file
                 conv_path = self._get_conversation_path(session_id)
                 if conv_path.exists():
                     conv_path.unlink()
                 
-                # 删除索引
+                # Delete index
                 if session_id in self._index:
                     del self._index[session_id]
                     self._save_index()
@@ -182,7 +182,7 @@ class FileStorage(StorageBase):
         query: str,
         limit: int = 10
     ) -> List[Dict[str, Any]]:
-        """搜索对话记录（简单的关键词匹配）"""
+        """Search conversation records (simple keyword matching)"""
         with self._lock:
             query_lower = query.lower()
             results = []
@@ -192,7 +192,7 @@ class FileStorage(StorageBase):
                 if not conv_data:
                     continue
                 
-                # 搜索对话内容
+                # Search conversation content
                 conv_str = json.dumps(conv_data, ensure_ascii=False).lower()
                 if query_lower in conv_str:
                     results.append({
@@ -209,7 +209,7 @@ class FileStorage(StorageBase):
             return results
     
     def cleanup_old_conversations(self, days: int = 30) -> int:
-        """清理旧的对话记录"""
+        """Clean up old conversation records"""
         with self._lock:
             cutoff_date = datetime.now() - timedelta(days=days)
             cutoff_iso = cutoff_date.isoformat()
@@ -229,7 +229,7 @@ class FileStorage(StorageBase):
             return deleted_count
     
     def get_stats(self) -> Dict[str, Any]:
-        """获取存储统计信息"""
+        """Get storage statistics"""
         with self._lock:
             total_size = sum(info.get("size", 0) for info in self._index.values())
             

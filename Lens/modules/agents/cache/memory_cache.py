@@ -1,4 +1,4 @@
-"""内存缓存实现"""
+"""Memory cache implementation"""
 
 import time
 from typing import Optional, Any, Dict
@@ -8,15 +8,15 @@ from .base import CacheBase
 
 
 class MemoryCache(CacheBase):
-    """内存缓存实现 - 使用 LRU 策略"""
+    """Memory cache implementation - Using LRU strategy"""
     
     def __init__(self, ttl: int = 300, max_size: int = 1000):
         """
-        初始化内存缓存
+        Initialize memory cache
         
         Args:
-            ttl: 缓存过期时间（秒）
-            max_size: 最大缓存条目数
+            ttl: Cache expiration time (seconds)
+            max_size: Maximum number of cache entries
         """
         super().__init__(ttl)
         self.max_size = max_size
@@ -24,31 +24,31 @@ class MemoryCache(CacheBase):
         self._lock = threading.Lock()
     
     def get(self, key: str) -> Optional[Any]:
-        """获取缓存值"""
+        """Get cache value"""
         with self._lock:
             if key not in self._cache:
                 return None
             
             entry = self._cache[key]
             
-            # 检查是否过期
+            # Check if expired
             if time.time() > entry["expires_at"]:
                 del self._cache[key]
                 return None
             
-            # 移到最后（LRU）
+            # Move to end (LRU)
             self._cache.move_to_end(key)
             
-            # 更新命中统计
+            # Update hit statistics
             entry["hits"] = entry.get("hits", 0) + 1
             entry["last_accessed"] = time.time()
             
             return entry["value"]
     
     def set(self, key: str, value: Any, ttl: Optional[int] = None):
-        """设置缓存值"""
+        """Set cache value"""
         with self._lock:
-            # 如果缓存已满，删除最旧的条目
+            # If cache is full, delete oldest entry
             if len(self._cache) >= self.max_size and key not in self._cache:
                 self._cache.popitem(last=False)
             
@@ -62,29 +62,29 @@ class MemoryCache(CacheBase):
                 "last_accessed": time.time()
             }
             
-            # 移到最后
+            # Move to end
             self._cache.move_to_end(key)
     
     def delete(self, key: str):
-        """删除缓存"""
+        """Delete cache"""
         with self._lock:
             if key in self._cache:
                 del self._cache[key]
     
     def clear(self):
-        """清空所有缓存"""
+        """Clear all caches"""
         with self._lock:
             self._cache.clear()
     
     def exists(self, key: str) -> bool:
-        """检查缓存是否存在且未过期"""
+        """Check if cache exists and not expired"""
         with self._lock:
             if key not in self._cache:
                 return False
             
             entry = self._cache[key]
             
-            # 检查是否过期
+            # Check if expired
             if time.time() > entry["expires_at"]:
                 del self._cache[key]
                 return False
@@ -92,7 +92,7 @@ class MemoryCache(CacheBase):
             return True
     
     def get_stats(self) -> Dict[str, Any]:
-        """获取缓存统计信息"""
+        """Get cache statistics"""
         with self._lock:
             total_hits = sum(entry.get("hits", 0) for entry in self._cache.values())
             
@@ -104,7 +104,7 @@ class MemoryCache(CacheBase):
             }
     
     def cleanup_expired(self):
-        """清理过期的缓存条目"""
+        """Clean up expired cache entries"""
         with self._lock:
             current_time = time.time()
             expired_keys = [
@@ -116,4 +116,3 @@ class MemoryCache(CacheBase):
                 del self._cache[key]
             
             return len(expired_keys)
-

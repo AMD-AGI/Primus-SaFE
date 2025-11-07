@@ -10,23 +10,23 @@ from langchain_core.language_models import BaseChatModel
 
 from .tools import GPUAnalysisTools
 from .utils import safe_json_parse
-from .prompts import UNDERSTAND_PROMPT
+from .prompts import UNDERSTAND_PROMPT, CLUSTER_TREND_ANALYSIS_PROMPT
 
-# 配置日志
+# Configure logging
 logger = logging.getLogger(__name__)
 
-# 导入缓存相关模块
+# Import cache-related modules
 try:
     from cache.base import CacheBase
     from llm_wrapper import CachedLLM
     CACHE_AVAILABLE = True
 except ImportError:
     CACHE_AVAILABLE = False
-    logger.warning("缓存模块不可用，将不使用 LLM 缓存")
+    logger.warning("Cache module not available, LLM cache will not be used")
 
 
 class GPUUsageAnalysisAgent:
-    """GPU 使用率分析 Agent - 增强版本，支持深度分析"""
+    """GPU Usage Analysis Agent - Enhanced version with deep analysis support"""
     
     def __init__(
         self,
@@ -37,72 +37,72 @@ class GPUUsageAnalysisAgent:
         cache_enabled: bool = True
     ):
         """
-        初始化 Agent
+        Initialize Agent
         
         Args:
-            llm: 语言模型
-            api_base_url: Lens API 基础 URL
-            cluster_name: 集群名称（可选）
-            cache: 缓存实例（可选）
-            cache_enabled: 是否启用缓存
+            llm: Language model
+            api_base_url: Lens API base URL
+            cluster_name: Cluster name (optional)
+            cache: Cache instance (optional)
+            cache_enabled: Whether to enable cache
         """
-        # 如果启用缓存且缓存可用，使用 CachedLLM 包装
+        # If cache is enabled and available, wrap with CachedLLM
         if cache_enabled and cache is not None and CACHE_AVAILABLE:
             self.llm = CachedLLM(llm, cache=cache, cache_enabled=True)
             self.cache_enabled = True
-            logger.info("LLM 缓存已启用")
+            logger.info("LLM cache enabled")
         else:
             self.llm = llm
             self.cache_enabled = False
             if cache_enabled and cache is not None:
-                logger.warning("缓存模块不可用，将不使用 LLM 缓存")
+                logger.warning("Cache module not available, LLM cache will not be used")
         
         self.api_base_url = api_base_url
         self.cluster_name = cluster_name
         
-        # 初始化工具集
+        # Initialize tools
         self.tools_manager = GPUAnalysisTools(api_base_url, cluster_name)
     
     def _understand_query(self, user_query: str) -> Dict[str, Any]:
-        """理解用户查询，识别需要查询的维度和参数"""
+        """Understand user query, identify dimensions and parameters to query"""
         prompt = UNDERSTAND_PROMPT.format(user_query=user_query)
         messages = [SystemMessage(content=prompt)]
         
         try:
-            logger.info(f"正在理解用户查询: {user_query}")
+            logger.info(f"Understanding user query: {user_query}")
             response = self.llm.invoke(messages)
-            logger.info("查询理解完成")
+            logger.info("Query understanding completed")
             
-            # 解析 LLM 返回的 JSON
+            # Parse JSON returned by LLM
             result = safe_json_parse(response.content)
             
             if result is None:
-                logger.warning(f"无法解析 LLM 返回的 JSON: {response.content[:200]}...")
+                logger.warning(f"Unable to parse JSON returned by LLM: {response.content[:200]}...")
                 return {
                     "needs_clarification": True,
-                    "clarification_question": "抱歉，我没有理解您的问题，能否重新描述一下？",
+                    "clarification_question": "Sorry, I didn't understand your question. Could you please rephrase it?",
                     "entities": {}
                 }
             
             return result
             
         except Exception as e:
-            # 详细的错误日志
+            # Detailed error logging
             import traceback
             error_type = type(e).__name__
             error_msg = str(e)
             error_traceback = traceback.format_exc()
             
             logger.error("=" * 80)
-            logger.error(f"查询理解失败 - 用户查询: {user_query}")
-            logger.error(f"错误类型: {error_type}")
-            logger.error(f"错误消息: {error_msg}")
-            logger.error(f"完整堆栈跟踪:\n{error_traceback}")
+            logger.error(f"Query understanding failed - User query: {user_query}")
+            logger.error(f"Error type: {error_type}")
+            logger.error(f"Error message: {error_msg}")
+            logger.error(f"Full stack trace:\n{error_traceback}")
             logger.error("=" * 80)
             
             return {
                 "needs_clarification": True,
-                "clarification_question": f"处理查询时发生错误: {error_type} - {error_msg}",
+                "clarification_question": f"Error occurred while processing query: {error_type} - {error_msg}",
                 "entities": {},
                 "error_details": {
                     "type": error_type,
@@ -113,19 +113,19 @@ class GPUUsageAnalysisAgent:
     
     def _analyze_cluster_trend_with_chart(self, time_range_days: int, granularity: str = "hour") -> Dict[str, Any]:
         """
-        分析cluster级别的使用率和占用率趋势，返回折线图数据
+        Analyze cluster-level utilization and allocation rate trends, return line chart data
         
         Args:
-            time_range_days: 时间范围（天数）
-            granularity: 时间粒度
+            time_range_days: Time range in days
+            granularity: Time granularity
         
         Returns:
-            包含折线图数据和统计信息的字典
+            Dictionary containing line chart data and statistics
         """
-        logger.info("开始分析集群趋势...")
+        logger.info("Starting cluster trend analysis...")
         
         try:
-            # 调用API获取cluster hourly stats
+            # Call API to get cluster hourly stats
             result = self.tools_manager.query_gpu_usage_trend(
                 dimension="cluster",
                 granularity=granularity,
@@ -135,23 +135,23 @@ class GPUUsageAnalysisAgent:
             
             data = safe_json_parse(result)
             if not data or "data_points" not in data:
-                return {"error": "无法获取集群数据"}
+                return {"error": "Unable to retrieve cluster data"}
             
             data_points = data.get("data_points", [])
             statistics = data.get("statistics", {})
             
-            # 构建折线图数据（同时包含使用率和占用率）
+            # Build line chart data (include both utilization and allocation rate)
             chart_data = {
-                "title": "集群GPU使用率和占用率趋势",
-                "x_axis": [],  # 时间轴
+                "title": "Cluster GPU Utilization and Allocation Rate Trend",
+                "x_axis": [],  # Time axis
                 "series": [
                     {
-                        "name": "使用率 (Utilization)",
+                        "name": "Utilization",
                         "data": [],
                         "type": "line"
                     },
                     {
-                        "name": "占用率 (Allocation Rate)", 
+                        "name": "Allocation Rate", 
                         "data": [],
                         "type": "line"
                     }
@@ -160,18 +160,79 @@ class GPUUsageAnalysisAgent:
             
             for dp in data_points:
                 timestamp = dp.get("stat_hour", "")
-                avg_util = dp.get("avg_utilization", 0) * 100  # 转换为百分比
+                avg_util = dp.get("avg_utilization", 0) * 100  # Convert to percentage
                 alloc_rate = dp.get("allocation_rate", 0) * 100
                 
                 chart_data["x_axis"].append(timestamp)
                 chart_data["series"][0]["data"].append(round(avg_util, 2))
                 chart_data["series"][1]["data"].append(round(alloc_rate, 2))
             
-            # 计算占用率统计（从 data_points 中提取）
+            # === New: Use calculate_average_utilization tool to calculate detailed statistics ===
+            # Pass data_points to tool for statistical calculation
+            calculated_stats = {}
+            if data_points:
+                try:
+                    records_json = json.dumps(data_points)
+                    calc_result = self.tools_manager.calculate_average_utilization(records_json)
+                    calculated_stats = safe_json_parse(calc_result)
+                    logger.info(f"Statistical results calculated using calculate_average_utilization tool: {calculated_stats}")
+                except Exception as e:
+                    logger.warning(f"Failed to calculate statistics using tool: {str(e)}")
+            # === End of new section ===
+            
+            # Calculate allocation rate statistics (extract from data_points)
             alloc_rates = [dp.get("allocation_rate", 0) for dp in data_points]
             avg_alloc_rate = sum(alloc_rates) / len(alloc_rates) if alloc_rates else 0
             max_alloc_rate = max(alloc_rates) if alloc_rates else 0
             min_alloc_rate = min(alloc_rates) if alloc_rates else 0
+            
+            # === New: Call LLM for deep trend analysis ===
+            llm_analysis = {}
+            try:
+                # Prepare data points summary (select some data points to show to LLM)
+                data_points_summary_lines = []
+                sample_size = min(10, len(data_points))  # Show at most 10 data points
+                step = len(data_points) // sample_size if sample_size > 0 else 1
+                for i in range(0, len(data_points), max(1, step)):
+                    if i < len(data_points):
+                        dp = data_points[i]
+                        data_points_summary_lines.append(
+                            f"Time: {dp.get('stat_hour', '')}, "
+                            f"Utilization: {round(dp.get('avg_utilization', 0) * 100, 2)}%, "
+                            f"Allocation: {round(dp.get('allocation_rate', 0) * 100, 2)}%"
+                        )
+                data_points_summary = "\n".join(data_points_summary_lines[:sample_size])
+                
+                # Build prompt
+                analysis_prompt = CLUSTER_TREND_ANALYSIS_PROMPT.format(
+                    avg_utilization=round(statistics.get("average", 0) * 100, 2),
+                    max_utilization=round(statistics.get("max", 0) * 100, 2),
+                    min_utilization=round(statistics.get("min", 0) * 100, 2),
+                    trend=statistics.get("trend", "unknown"),
+                    time_range_days=time_range_days,
+                    sample_count=statistics.get("sample_count", 0),
+                    avg_allocation=round(avg_alloc_rate * 100, 2),
+                    max_allocation=round(max_alloc_rate * 100, 2),
+                    min_allocation=round(min_alloc_rate * 100, 2),
+                    data_points_summary=data_points_summary
+                )
+                
+                logger.info("Calling LLM for deep cluster trend analysis...")
+                messages = [SystemMessage(content=analysis_prompt)]
+                response = self.llm.invoke(messages)
+                
+                # Parse JSON returned by LLM
+                llm_analysis = safe_json_parse(response.content)
+                if llm_analysis:
+                    logger.info("LLM trend analysis completed")
+                else:
+                    logger.warning("Unable to parse LLM analysis result as JSON")
+                    llm_analysis = {"error": "Unable to parse LLM analysis result"}
+                    
+            except Exception as e:
+                logger.error(f"LLM trend analysis failed: {str(e)}")
+                llm_analysis = {"error": str(e)}
+            # === End of new section ===
             
             return {
                 "chart_data": chart_data,
@@ -188,37 +249,41 @@ class GPUUsageAnalysisAgent:
                         "min": round(min_alloc_rate * 100, 2)
                     },
                     "sample_count": statistics.get("sample_count", 0),
-                    "time_range_days": time_range_days
-                }
+                    "time_range_days": time_range_days,
+                    # Add detailed statistics calculated by tool (if successful)
+                    "calculated_stats": calculated_stats
+                },
+                # Add LLM deep analysis results
+                "llm_analysis": llm_analysis
             }
             
         except Exception as e:
-            logger.error(f"分析集群趋势失败: {str(e)}")
+            logger.error(f"Failed to analyze cluster trend: {str(e)}")
             return {"error": str(e)}
     
     def _analyze_namespace_usage(self, time_range_days: int, top_n: int = 10) -> Dict[str, Any]:
         """
-        分析namespace级别的使用率
+        Analyze namespace-level utilization
         
         Args:
-            time_range_days: 时间范围（天）
-            top_n: 返回前N个namespace
+            time_range_days: Time range in days
+            top_n: Return top N namespaces
             
         Returns:
-            包含namespace分析结果的字典
+            Dictionary containing namespace analysis results
         """
-        logger.info("开始分析namespace级别使用率...")
+        logger.info("Starting namespace-level utilization analysis...")
         
         try:
-            # 获取所有namespaces
+            # Get all namespaces
             namespaces_result = self.tools_manager.get_available_namespaces(time_range_days)
             namespaces_data = safe_json_parse(namespaces_result)
             namespaces = namespaces_data.get("namespaces", [])
             
             if not namespaces:
-                return {"error": "未找到namespace数据"}
+                return {"error": "No namespace data found"}
             
-            # 获取每个namespace的使用率数据
+            # Get utilization data for each namespace
             namespace_stats = []
             for ns in namespaces[:top_n]:
                 try:
@@ -235,7 +300,7 @@ class GPUUsageAnalysisAgent:
                         stats = ns_data["statistics"]
                         data_points = ns_data.get("data_points", [])
                         
-                        # 计算平均分配的GPU数量
+                        # Calculate average allocated GPU count
                         avg_gpu_count = 0
                         if data_points:
                             total_gpu = sum(dp.get("allocated_gpu_count", 0) for dp in data_points)
@@ -250,58 +315,58 @@ class GPUUsageAnalysisAgent:
                             "avg_gpu_count": round(avg_gpu_count, 2)
                         })
                 except Exception as e:
-                    logger.error(f"获取namespace {ns} 数据失败: {str(e)}")
+                    logger.error(f"Failed to get data for namespace {ns}: {str(e)}")
             
-            # 按平均使用率排序
+            # Sort by average utilization
             namespace_stats.sort(key=lambda x: x["avg_utilization"])
             
             return {
                 "namespaces": namespace_stats,
                 "total_count": len(namespace_stats),
-                "summary": f"分析了 {len(namespace_stats)} 个namespaces"
+                "summary": f"Analyzed {len(namespace_stats)} namespaces"
             }
             
         except Exception as e:
-            logger.error(f"分析namespace使用率失败: {str(e)}")
+            logger.error(f"Failed to analyze namespace utilization: {str(e)}")
             return {"error": str(e)}
     
     def _find_low_utilization_annotations(
         self, 
         time_range_days: int,
-        top_n_per_key: int = 20  # 每个key返回top N个values
+        top_n_per_key: int = 20  # Return top N values per key
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
-        找出占用GPU多但使用率低的annotations
+        Find annotations with high GPU allocation but low utilization
         
-        对于每个annotation key，找出其values中占用GPU最多但利用率最低的top N
+        For each annotation key, find top N values with most GPU allocation but lowest utilization
         
         Args:
-            time_range_days: 时间范围
-            top_n_per_key: 每个annotation key返回的top N个values
+            time_range_days: Time range in days
+            top_n_per_key: Top N values to return for each annotation key
             
         Returns:
-            (低使用率annotation列表, 所有annotation数据)
+            (List of low utilization annotations, all annotation data)
         """
-        logger.info("开始分析annotation使用情况...")
+        logger.info("Starting annotation usage analysis...")
         
         try:
-            # 获取所有annotation keys
+            # Get all annotation keys
             keys_result = self.tools_manager.get_available_dimension_keys("annotation", time_range_days)
             keys_data = safe_json_parse(keys_result)
             annotation_keys = keys_data.get("dimension_keys", [])
             
             if not annotation_keys:
-                return [], {"error": "未找到annotation数据"}
+                return [], {"error": "No annotation data found"}
             
             all_results = []
             results_by_key = {}
             
-            # 对每个annotation key，使用工具方法找出低使用率的top N values
-            for key in annotation_keys[:10]:  # 限制处理前10个key
+            # For each annotation key, use tool method to find top N values with low utilization
+            for key in annotation_keys[:10]:  # Limit to first 10 keys
                 try:
-                    logger.info(f"分析annotation key: {key}")
+                    logger.info(f"Analyzing annotation key: {key}")
                     
-                    # 调用tools方法，获取该key下top N的values
+                    # Call tools method to get top N values for this key
                     result_str = self.tools_manager.find_low_utilization_dimension_values(
                         dimension_type="annotation",
                         dimension_key=key,
@@ -312,10 +377,10 @@ class GPUUsageAnalysisAgent:
                     result_data = safe_json_parse(result_str)
                     
                     if result_data and "results" in result_data and result_data["results"]:
-                        # 保存该key的结果
+                        # Save results for this key
                         results_by_key[key] = result_data
                         
-                        # 转换格式以保持兼容性
+                        # Convert format for compatibility
                         for item in result_data["results"]:
                             all_results.append({
                                 "annotation_key": key,
@@ -328,23 +393,23 @@ class GPUUsageAnalysisAgent:
                                 "issue_score": item["issue_score"]
                             })
                         
-                        logger.info(f"Key {key}: 找到 {len(result_data['results'])} 个低使用率values")
+                        logger.info(f"Key {key}: found {len(result_data['results'])} low utilization values")
                     
                 except Exception as e:
-                    logger.error(f"分析annotation key {key} 失败: {str(e)}")
+                    logger.error(f"Failed to analyze annotation key {key}: {str(e)}")
             
-            # 按问题评分全局排序（分数越高越严重）
+            # Sort globally by issue score (higher score = more serious)
             all_results.sort(key=lambda x: x["issue_score"], reverse=True)
             
             return all_results, {
                 "results_by_key": results_by_key,
-                "all_annotations": all_results[:100],  # 返回前100个
+                "all_annotations": all_results[:100],  # Return top 100
                 "total_count": len(all_results),
                 "keys_analyzed": len(results_by_key)
             }
             
         except Exception as e:
-            logger.error(f"分析annotation失败: {str(e)}")
+            logger.error(f"Failed to analyze annotations: {str(e)}")
             return [], {"error": str(e)}
     
     def _get_workloads_by_annotations(
@@ -353,38 +418,38 @@ class GPUUsageAnalysisAgent:
         limit: int = 20
     ) -> Dict[str, Any]:
         """
-        根据找到的低使用率annotations获取对应的workload列表
+        Get workload list based on low utilization annotations found
         
         Args:
-            low_util_annotations: 低使用率annotation列表
-            limit: 每个annotation返回的workload数量限制
+            low_util_annotations: List of low utilization annotations
+            limit: Workload count limit per annotation
             
         Returns:
-            包含workload表格数据的字典
+            Dictionary containing workload table data
         """
-        logger.info("开始查询低使用率annotations对应的workloads...")
+        logger.info("Starting query for workloads corresponding to low utilization annotations...")
         
         if not low_util_annotations:
             return {
                 "table_data": [],
-                "summary": "未找到低使用率的annotations"
+                "summary": "No low utilization annotations found"
             }
         
         try:
-            # 注意：Lens API的workloads接口目前不支持直接按annotation过滤
-            # 我们先获取所有workload，然后根据namespace等信息关联
-            # 这里作为示例，获取最近的workloads
+            # Note: Lens API's workloads interface currently doesn't support direct annotation filtering
+            # We first get all workloads, then correlate based on namespace and other info
+            # Here as an example, we get recent workloads
             
             workload_table = []
             
-            # 对于每个低使用率annotation，获取相关workloads
-            for anno in low_util_annotations[:10]:  # 限制前10个annotation
+            # For each low utilization annotation, get related workloads
+            for anno in low_util_annotations[:10]:  # Limit to first 10 annotations
                 anno_key = anno["annotation_key"]
                 anno_value = anno["annotation_value"]
                 
                 try:
-                    # 获取workloads（可以按其他条件过滤）
-                    # 这里我们获取最近的workloads作为示例
+                    # Get workloads (can filter by other conditions)
+                    # Here we get recent workloads as an example
                     workloads_result = self.tools_manager.analyze_workload_history(
                         time_range_days=7,
                         namespace=None,
@@ -395,8 +460,8 @@ class GPUUsageAnalysisAgent:
                     if workloads_data and "workloads" in workloads_data:
                         workloads = workloads_data["workloads"]
                         
-                        # 为每个workload添加annotation信息
-                        for wl in workloads[:5]:  # 每个annotation限制5个workload
+                        # Add annotation info to each workload
+                        for wl in workloads[:5]:  # Limit 5 workloads per annotation
                             workload_table.append({
                                 "annotation_key": anno_key,
                                 "annotation_value": anno_value,
@@ -411,7 +476,7 @@ class GPUUsageAnalysisAgent:
                             })
                             
                 except Exception as e:
-                    logger.error(f"获取annotation {anno_key}:{anno_value} 的workloads失败: {str(e)}")
+                    logger.error(f"Failed to get workloads for annotation {anno_key}:{anno_value}: {str(e)}")
             
             return {
                 "table_data": workload_table,
@@ -427,28 +492,30 @@ class GPUUsageAnalysisAgent:
                     "workload_gpu_allocated"
                 ],
                 "total_count": len(workload_table),
-                "summary": f"找到 {len(workload_table)} 个相关workloads"
+                "summary": f"Found {len(workload_table)} related workloads"
             }
             
         except Exception as e:
-            logger.error(f"查询workloads失败: {str(e)}")
+            logger.error(f"Failed to query workloads: {str(e)}")
             return {"error": str(e)}
     
     def _analyze_all_namespaces(self, time_range_days: int, top_n: int = 10) -> Dict[str, Any]:
-        """分析所有namespace的使用情况"""
-        logger.info("开始分析所有namespaces...")
+        """Analyze usage of all namespaces"""
+        logger.info("Starting analysis of all namespaces...")
         
         try:
-            # 获取所有namespaces
+            # Get all namespaces
             namespaces_result = self.tools_manager.get_available_namespaces(time_range_days)
             namespaces_data = safe_json_parse(namespaces_result)
             namespaces = namespaces_data.get("namespaces", [])
             
             if not namespaces:
-                return {"error": "未找到namespace数据"}
+                return {"error": "No namespace data found"}
             
-            # 获取每个namespace的使用率数据
+            # Get utilization data for each namespace
             namespace_stats = []
+            all_namespace_records = []  # For aggregating all namespace records
+            
             for ns in namespaces[:top_n]:
                 try:
                     ns_result = self.tools_manager.query_gpu_usage_trend(
@@ -464,7 +531,11 @@ class GPUUsageAnalysisAgent:
                         stats = ns_data["statistics"]
                         data_points = ns_data.get("data_points", [])
                         
-                        # 计算平均分配的GPU数量
+                        # === New: Collect all namespace records for aggregate statistics ===
+                        all_namespace_records.extend(data_points)
+                        # === End of new section ===
+                        
+                        # Calculate average allocated GPU count
                         avg_gpu_count = 0
                         if data_points:
                             total_gpu = sum(dp.get("allocated_gpu_count", 0) for dp in data_points)
@@ -479,23 +550,36 @@ class GPUUsageAnalysisAgent:
                             "avg_gpu_count": round(avg_gpu_count, 2)
                         })
                 except Exception as e:
-                    logger.error(f"获取namespace {ns} 数据失败: {str(e)}")
+                    logger.error(f"Failed to get data for namespace {ns}: {str(e)}")
             
-            # 按平均使用率排序
+            # Sort by average utilization
             namespace_stats.sort(key=lambda x: x["avg_utilization"])
+            
+            # === New: Use tool to calculate aggregate statistics for all namespaces ===
+            overall_stats = {}
+            if all_namespace_records:
+                try:
+                    records_json = json.dumps(all_namespace_records)
+                    calc_result = self.tools_manager.calculate_average_utilization(records_json)
+                    overall_stats = safe_json_parse(calc_result)
+                    logger.info(f"Aggregate statistics for all namespaces: {overall_stats}")
+                except Exception as e:
+                    logger.warning(f"Failed to calculate aggregate statistics: {str(e)}")
+            # === End of new section ===
             
             return {
                 "namespaces": namespace_stats,
-                "total_count": len(namespace_stats)
+                "total_count": len(namespace_stats),
+                "overall_statistics": overall_stats  # Add aggregate statistics
             }
             
         except Exception as e:
-            logger.error(f"分析namespaces失败: {str(e)}")
+            logger.error(f"Failed to analyze namespaces: {str(e)}")
             return {"error": str(e)}
     
     def _analyze_specific_namespace(self, namespace: str, time_range_days: int) -> Dict[str, Any]:
-        """分析特定namespace的使用情况"""
-        logger.info(f"开始分析namespace: {namespace}...")
+        """Analyze usage of a specific namespace"""
+        logger.info(f"Starting analysis of namespace: {namespace}...")
         
         try:
             ns_result = self.tools_manager.query_gpu_usage_trend(
@@ -508,17 +592,17 @@ class GPUUsageAnalysisAgent:
             
             ns_data = safe_json_parse(ns_result)
             if not ns_data or "statistics" not in ns_data:
-                return {"error": f"无法获取namespace {namespace} 的数据"}
+                return {"error": f"Unable to get data for namespace {namespace}"}
             
             stats = ns_data["statistics"]
             data_points = ns_data.get("data_points", [])
             
-            # 构建折线图数据
+            # Build line chart data
             chart_data = {
-                "title": f"Namespace {namespace} GPU使用率趋势",
+                "title": f"Namespace {namespace} GPU Utilization Trend",
                 "x_axis": [],
                 "series": [{
-                    "name": "使用率",
+                    "name": "Utilization",
                     "data": [],
                     "type": "line"
                 }]
@@ -531,7 +615,7 @@ class GPUUsageAnalysisAgent:
                 chart_data["x_axis"].append(timestamp)
                 chart_data["series"][0]["data"].append(round(avg_util, 2))
             
-            # 计算平均GPU数量
+            # Calculate average GPU count
             avg_gpu_count = 0
             if data_points:
                 total_gpu = sum(dp.get("allocated_gpu_count", 0) for dp in data_points)
@@ -550,12 +634,12 @@ class GPUUsageAnalysisAgent:
             }
             
         except Exception as e:
-            logger.error(f"分析namespace {namespace} 失败: {str(e)}")
+            logger.error(f"Failed to analyze namespace {namespace}: {str(e)}")
             return {"error": str(e)}
     
     def _analyze_all_users(self, time_range_days: int, top_n: int = 20) -> Dict[str, Any]:
-        """分析所有用户的GPU占用和使用率情况"""
-        logger.info("开始分析所有用户...")
+        """Analyze GPU allocation and utilization for all users"""
+        logger.info("Starting analysis of all users...")
         
         try:
             result_str = self.tools_manager.analyze_user_gpu_usage(
@@ -566,13 +650,13 @@ class GPUUsageAnalysisAgent:
             result_data = safe_json_parse(result_str)
             
             if not result_data or "results" not in result_data:
-                return {"error": "无法获取用户数据"}
+                return {"error": "Unable to get user data"}
             
             users = result_data.get("results", [])
             
-            # 构建表格数据
+            # Build table data
             table_data = {
-                "columns": ["用户名", "平均GPU占用", "平均使用率(%)", "最大使用率(%)", "问题评分"],
+                "columns": ["Username", "Avg GPU Allocation", "Avg Utilization(%)", "Max Utilization(%)", "Issue Score"],
                 "rows": []
             }
             
@@ -593,12 +677,12 @@ class GPUUsageAnalysisAgent:
             }
             
         except Exception as e:
-            logger.error(f"分析用户失败: {str(e)}")
+            logger.error(f"Failed to analyze users: {str(e)}")
             return {"error": str(e)}
     
     def _analyze_specific_user(self, user_name: str, time_range_days: int) -> Dict[str, Any]:
-        """分析特定用户的GPU占用情况"""
-        logger.info(f"开始分析用户: {user_name}...")
+        """Analyze GPU allocation for a specific user"""
+        logger.info(f"Starting analysis of user: {user_name}...")
         
         try:
             dimension_value = f"primus-safe.user.name:{user_name}"
@@ -612,17 +696,17 @@ class GPUUsageAnalysisAgent:
             
             user_data = safe_json_parse(user_result)
             if not user_data or "statistics" not in user_data:
-                return {"error": f"无法获取用户 {user_name} 的数据"}
+                return {"error": f"Unable to get data for user {user_name}"}
             
             stats = user_data["statistics"]
             data_points = user_data.get("data_points", [])
             
-            # 构建折线图数据
+            # Build line chart data
             chart_data = {
-                "title": f"用户 {user_name} GPU使用率趋势",
+                "title": f"User {user_name} GPU Utilization Trend",
                 "x_axis": [],
                 "series": [{
-                    "name": "使用率",
+                    "name": "Utilization",
                     "data": [],
                     "type": "line"
                 }]
@@ -635,7 +719,7 @@ class GPUUsageAnalysisAgent:
                 chart_data["x_axis"].append(timestamp)
                 chart_data["series"][0]["data"].append(round(avg_util, 2))
             
-            # 计算平均GPU数量
+            # Calculate average GPU count
             avg_gpu_count = 0
             if data_points:
                 total_gpu = sum(dp.get("allocated_gpu_count", 0) for dp in data_points)
@@ -654,12 +738,12 @@ class GPUUsageAnalysisAgent:
             }
             
         except Exception as e:
-            logger.error(f"分析用户 {user_name} 失败: {str(e)}")
+            logger.error(f"Failed to analyze user {user_name}: {str(e)}")
             return {"error": str(e)}
     
     def _analyze_low_utilization_resources(self, time_range_days: int) -> Dict[str, Any]:
-        """分析低使用率资源（包含所有annotations）"""
-        logger.info("开始分析低使用率资源...")
+        """Analyze low utilization resources (including all annotations)"""
+        logger.info("Starting low utilization resource analysis...")
         
         try:
             low_util_annos, all_anno_data = self._find_low_utilization_annotations(time_range_days)
@@ -671,7 +755,7 @@ class GPUUsageAnalysisAgent:
             }
             
         except Exception as e:
-            logger.error(f"分析低使用率资源失败: {str(e)}")
+            logger.error(f"Failed to analyze low utilization resources: {str(e)}")
             return {"error": str(e)}
     
     def chat(
@@ -680,25 +764,25 @@ class GPUUsageAnalysisAgent:
         conversation_history: Optional[List] = None
     ) -> Dict[str, Any]:
         """
-        处理用户查询
+        Process user query
         
         Args:
-            user_query: 用户查询
-            conversation_history: 对话历史（可选）
+            user_query: User query
+            conversation_history: Conversation history (optional)
         
         Returns:
-            包含分析结果的字典
+            Dictionary containing analysis results
         """
         try:
-            logger.info(f"开始处理查询: {user_query}")
+            logger.info(f"Starting query processing: {user_query}")
             
-            # 1. 理解用户查询
+            # 1. Understand user query
             understanding = self._understand_query(user_query)
             
-            # 2. 如果需要澄清，直接返回
+            # 2. If clarification needed, return directly
             if understanding.get("needs_clarification"):
                 return {
-                    "answer": understanding.get("clarification_question", "请提供更多信息"),
+                    "answer": understanding.get("clarification_question", "Please provide more information"),
                     "needs_clarification": True,
                     "data": {},
                     "debug_info": {
@@ -706,15 +790,15 @@ class GPUUsageAnalysisAgent:
                     }
                 }
             
-            # 3. 解析查询参数
+            # 3. Parse query parameters
             entities = understanding.get("entities", {})
             time_range = entities.get("time_range", {})
             analysis_type = entities.get("analysis_type", "full")
             specific_dimension = entities.get("specific_dimension")
             output_format = entities.get("output_format", "both")
             
-            # 计算时间范围
-            time_range_days = 7  # 默认7天
+            # Calculate time range
+            time_range_days = 7  # Default 7 days
             if time_range:
                 time_value = time_range.get("value", "7d")
                 if isinstance(time_value, str) and time_value.endswith("d"):
@@ -723,7 +807,7 @@ class GPUUsageAnalysisAgent:
                     except:
                         time_range_days = 7
             
-            # 4. 根据分析类型执行不同的分析
+            # 4. Execute different analysis based on analysis type
             result = {
                 "answer": "",
                 "needs_clarification": False,
@@ -736,73 +820,73 @@ class GPUUsageAnalysisAgent:
             }
             
             if analysis_type == "cluster_trend":
-                # 集群趋势分析（带折线图）
-                logger.info("执行集群趋势分析...")
+                # Cluster trend analysis (with line chart)
+                logger.info("Executing cluster trend analysis...")
                 cluster_analysis = self._analyze_cluster_trend_with_chart(time_range_days)
                 result["data"]["cluster_trend"] = cluster_analysis
                 result["answer"] = self._generate_cluster_trend_summary(cluster_analysis)
                 
             elif analysis_type == "namespace_analysis":
-                # Namespace分析
-                logger.info("执行namespace分析...")
+                # Namespace analysis
+                logger.info("Executing namespace analysis...")
                 if specific_dimension and specific_dimension.get("type") == "namespace":
-                    # 分析特定namespace
+                    # Analyze specific namespace
                     namespace_value = specific_dimension.get("value")
                     namespace_analysis = self._analyze_specific_namespace(namespace_value, time_range_days)
                 else:
-                    # 分析所有namespace
+                    # Analyze all namespaces
                     namespace_analysis = self._analyze_all_namespaces(time_range_days)
                 result["data"]["namespace_analysis"] = namespace_analysis
                 result["answer"] = self._generate_namespace_summary(namespace_analysis)
                 
             elif analysis_type == "user_analysis":
-                # 用户占用分析（带表格）
-                logger.info("执行用户占用分析...")
+                # User allocation analysis (with table)
+                logger.info("Executing user allocation analysis...")
                 if specific_dimension and specific_dimension.get("type") == "user":
-                    # 分析特定用户
+                    # Analyze specific user
                     user_name = specific_dimension.get("value")
                     user_analysis = self._analyze_specific_user(user_name, time_range_days)
                 else:
-                    # 分析所有用户
+                    # Analyze all users
                     user_analysis = self._analyze_all_users(time_range_days)
                 result["data"]["user_analysis"] = user_analysis
                 result["answer"] = self._generate_user_analysis_summary(user_analysis)
                 
             elif analysis_type == "low_utilization":
-                # 低使用率资源识别
-                logger.info("分析低使用率资源...")
+                # Low utilization resource identification
+                logger.info("Analyzing low utilization resources...")
                 low_util_analysis = self._analyze_low_utilization_resources(time_range_days)
                 result["data"]["low_utilization"] = low_util_analysis
                 result["answer"] = self._generate_low_utilization_summary(low_util_analysis)
                 
-            else:  # "full" - 完整分析
-                logger.info("执行完整分析...")
+            else:  # "full" - Complete analysis
+                logger.info("Executing full analysis...")
                 
-                # 集群趋势
+                # Cluster trend
                 cluster_analysis = self._analyze_cluster_trend_with_chart(time_range_days)
                 result["data"]["cluster_trend"] = cluster_analysis
                 
-                # Namespace分析
+                # Namespace analysis
                 namespace_analysis = self._analyze_all_namespaces(time_range_days, top_n=10)
                 result["data"]["namespace_analysis"] = namespace_analysis
                 
-                # 用户分析
+                # User analysis
                 user_analysis = self._analyze_all_users(time_range_days, top_n=20)
                 result["data"]["user_analysis"] = user_analysis
                 
-                # 生成综合摘要
+                # Generate comprehensive summary
                 result["answer"] = self._generate_full_analysis_summary(
                     cluster_analysis, namespace_analysis, user_analysis
                 )
             
-            logger.info("查询处理完成")
+            logger.info("Query processing completed")
             return result
         
         except Exception as e:
-            logger.error(f"处理查询失败: {str(e)}")
+            logger.error(f"Failed to process query: {str(e)}")
             import traceback
             return {
-                "answer": f"处理查询时发生错误: {str(e)}",
+                "answer": f"Error occurred while processing query: {str(e)}",
                 "needs_clarification": False,
                 "data": {},
                 "debug_info": {
@@ -817,16 +901,16 @@ class GPUUsageAnalysisAgent:
         conversation_history: Optional[List] = None
     ) -> Dict[str, Any]:
         """
-        异步处理用户查询
+        Asynchronously process user query
         
         Args:
-            user_query: 用户查询
-            conversation_history: 对话历史（可选）
+            user_query: User query
+            conversation_history: Conversation history (optional)
         
         Returns:
-            包含分析结果的字典
+            Dictionary containing analysis results
         """
-        # 简化版本暂时直接调用同步方法
+        # Simplified version calls synchronous method for now
         return self.chat(user_query, conversation_history)
     
     async def stream_chat(
@@ -835,32 +919,32 @@ class GPUUsageAnalysisAgent:
         conversation_history: Optional[List] = None
     ):
         """
-        流式处理用户查询，逐步返回分析结果
+        Stream process user query, return analysis results progressively
         
         Args:
-            user_query: 用户查询
-            conversation_history: 对话历史（可选）
+            user_query: User query
+            conversation_history: Conversation history (optional)
         
         Yields:
-            包含分析进度和结果的字典
+            Dictionary containing analysis progress and results
         """
         try:
-            logger.info(f"开始流式处理查询: {user_query}")
+            logger.info(f"Starting stream processing of query: {user_query}")
             
-            # 1. 理解用户查询
+            # 1. Understand user query
             yield {
                 "type": "status",
                 "stage": "understanding",
-                "message": "正在理解您的查询..."
+                "message": "Understanding your query..."
             }
             
             understanding = self._understand_query(user_query)
             
-            # 2. 如果需要澄清，直接返回
+            # 2. If clarification needed, return directly
             if understanding.get("needs_clarification"):
                 yield {
                     "type": "final",
-                    "answer": understanding.get("clarification_question", "请提供更多信息"),
+                    "answer": understanding.get("clarification_question", "Please provide more information"),
                     "needs_clarification": True,
                     "data": {},
                     "debug_info": {
@@ -869,14 +953,14 @@ class GPUUsageAnalysisAgent:
                 }
                 return
             
-            # 3. 解析查询参数
+            # 3. Parse query parameters
             entities = understanding.get("entities", {})
             time_range = entities.get("time_range", {})
             analysis_type = entities.get("analysis_type", "full")
             specific_dimension = entities.get("specific_dimension")
             
-            # 计算时间范围
-            time_range_days = 7  # 默认7天
+            # Calculate time range
+            time_range_days = 7  # Default 7 days
             if time_range:
                 time_value = time_range.get("value", "7d")
                 if isinstance(time_value, str) and time_value.endswith("d"):
@@ -888,10 +972,10 @@ class GPUUsageAnalysisAgent:
             yield {
                 "type": "status",
                 "stage": "understanding_complete",
-                "message": f"查询理解完成，分析类型: {analysis_type}，时间范围: {time_range_days}天"
+                "message": f"Query understanding complete, analysis type: {analysis_type}, time range: {time_range_days} days"
             }
             
-            # 4. 执行分析
+            # 4. Execute analysis
             result = {
                 "answer": "",
                 "needs_clarification": False,
@@ -904,11 +988,11 @@ class GPUUsageAnalysisAgent:
             }
             
             if analysis_type == "cluster_trend":
-                # 集群趋势分析
+                # Cluster trend analysis
                 yield {
                     "type": "status",
                     "stage": "cluster_analysis",
-                    "message": "正在分析集群趋势..."
+                    "message": "Analyzing cluster trend..."
                 }
                 
                 cluster_analysis = self._analyze_cluster_trend_with_chart(time_range_days)
@@ -917,18 +1001,18 @@ class GPUUsageAnalysisAgent:
                 yield {
                     "type": "data",
                     "stage": "cluster_analysis_complete",
-                    "message": "集群趋势分析完成",
+                    "message": "Cluster trend analysis completed",
                     "data": {"cluster_trend": cluster_analysis}
                 }
                 
                 result["answer"] = self._generate_cluster_trend_summary(cluster_analysis)
                 
             elif analysis_type == "namespace_analysis":
-                # Namespace分析
+                # Namespace analysis
                 yield {
                     "type": "status",
                     "stage": "namespace_analysis",
-                    "message": "正在分析namespace..."
+                    "message": "Analyzing namespaces..."
                 }
                 
                 if specific_dimension and specific_dimension.get("type") == "namespace":
@@ -942,18 +1026,18 @@ class GPUUsageAnalysisAgent:
                 yield {
                     "type": "data",
                     "stage": "namespace_analysis_complete",
-                    "message": "Namespace分析完成",
+                    "message": "Namespace analysis completed",
                     "data": {"namespace_analysis": namespace_analysis}
                 }
                 
                 result["answer"] = self._generate_namespace_summary(namespace_analysis)
                 
             elif analysis_type == "user_analysis":
-                # 用户分析
+                # User analysis
                 yield {
                     "type": "status",
                     "stage": "user_analysis",
-                    "message": "正在分析用户占用情况..."
+                    "message": "Analyzing user allocations..."
                 }
                 
                 if specific_dimension and specific_dimension.get("type") == "user":
@@ -967,18 +1051,18 @@ class GPUUsageAnalysisAgent:
                 yield {
                     "type": "data",
                     "stage": "user_analysis_complete",
-                    "message": "用户分析完成",
+                    "message": "User analysis completed",
                     "data": {"user_analysis": user_analysis}
                 }
                 
                 result["answer"] = self._generate_user_analysis_summary(user_analysis)
                 
             elif analysis_type == "low_utilization":
-                # 低使用率资源分析
+                # Low utilization resource analysis
                 yield {
                     "type": "status",
                     "stage": "low_utilization_analysis",
-                    "message": "正在分析低使用率资源..."
+                    "message": "Analyzing low utilization resources..."
                 }
                 
                 low_util_analysis = self._analyze_low_utilization_resources(time_range_days)
@@ -987,18 +1071,18 @@ class GPUUsageAnalysisAgent:
                 yield {
                     "type": "data",
                     "stage": "low_utilization_complete",
-                    "message": "低使用率资源分析完成",
+                    "message": "Low utilization resource analysis completed",
                     "data": {"low_utilization": low_util_analysis}
                 }
                 
                 result["answer"] = self._generate_low_utilization_summary(low_util_analysis)
                 
-            else:  # "full" - 完整分析
-                # 集群趋势
+            else:  # "full" - Complete analysis
+                # Cluster trend
                 yield {
                     "type": "status",
                     "stage": "cluster_analysis",
-                    "message": "正在分析集群趋势..."
+                    "message": "Analyzing cluster trend..."
                 }
                 
                 cluster_analysis = self._analyze_cluster_trend_with_chart(time_range_days)
@@ -1007,15 +1091,15 @@ class GPUUsageAnalysisAgent:
                 yield {
                     "type": "data",
                     "stage": "cluster_complete",
-                    "message": "集群分析完成",
+                    "message": "Cluster analysis completed",
                     "data": {"cluster_trend": cluster_analysis}
                 }
                 
-                # Namespace分析
+                # Namespace analysis
                 yield {
                     "type": "status",
                     "stage": "namespace_analysis",
-                    "message": "正在分析namespaces..."
+                    "message": "Analyzing namespaces..."
                 }
                 
                 namespace_analysis = self._analyze_all_namespaces(time_range_days, top_n=10)
@@ -1024,15 +1108,15 @@ class GPUUsageAnalysisAgent:
                 yield {
                     "type": "data",
                     "stage": "namespace_complete",
-                    "message": "Namespace分析完成",
+                    "message": "Namespace analysis completed",
                     "data": {"namespace_analysis": namespace_analysis}
                 }
                 
-                # 用户分析
+                # User analysis
                 yield {
                     "type": "status",
                     "stage": "user_analysis",
-                    "message": "正在分析用户占用情况..."
+                    "message": "Analyzing user allocations..."
                 }
                 
                 user_analysis = self._analyze_all_users(time_range_days, top_n=20)
@@ -1041,16 +1125,16 @@ class GPUUsageAnalysisAgent:
                 yield {
                     "type": "data",
                     "stage": "user_complete",
-                    "message": "用户分析完成",
+                    "message": "User analysis completed",
                     "data": {"user_analysis": user_analysis}
                 }
                 
-                # 生成综合摘要
+                # Generate comprehensive summary
                 result["answer"] = self._generate_full_analysis_summary(
                     cluster_analysis, namespace_analysis, user_analysis
                 )
             
-            # 返回最终结果
+            # Return final result
             yield {
                 "type": "final",
                 "answer": result["answer"],
@@ -1059,14 +1143,14 @@ class GPUUsageAnalysisAgent:
                 "debug_info": result["debug_info"]
             }
             
-            logger.info("流式查询处理完成")
+            logger.info("Stream query processing completed")
         
         except Exception as e:
-            logger.error(f"流式处理查询失败: {str(e)}")
+            logger.error(f"Failed to stream process query: {str(e)}")
             import traceback
             yield {
                 "type": "error",
-                "answer": f"处理查询时发生错误: {str(e)}",
+                "answer": f"Error occurred while processing query: {str(e)}",
                 "needs_clarification": False,
                 "data": {},
                 "debug_info": {
@@ -1075,142 +1159,241 @@ class GPUUsageAnalysisAgent:
                 }
             }
     
-    # ==================== 摘要生成方法 ====================
+    # ==================== Summary generation methods ====================
     
     def _generate_cluster_trend_summary(self, analysis: Dict[str, Any]) -> str:
-        """生成集群趋势分析摘要"""
+        """Generate cluster trend analysis summary"""
         if "error" in analysis:
-            return f"分析失败: {analysis['error']}"
+            return f"Analysis failed: {analysis['error']}"
         
         stats = analysis.get("statistics", {})
         util_stats = stats.get("utilization", {})
         alloc_stats = stats.get("allocation_rate", {})
+        llm_analysis = analysis.get("llm_analysis", {})
         
-        summary = f"""## 集群GPU使用情况分析
+        summary = f"""## Cluster GPU Usage Analysis
 
-### 📊 使用率统计
-- 平均使用率: {util_stats.get('average', 0)}%
-- 最大使用率: {util_stats.get('max', 0)}%
-- 最小使用率: {util_stats.get('min', 0)}%
-- 趋势: {util_stats.get('trend', 'unknown')}
+### 📊 Utilization Statistics
+- Average Utilization: {util_stats.get('average', 0)}%
+- Max Utilization: {util_stats.get('max', 0)}%
+- Min Utilization: {util_stats.get('min', 0)}%
+- Trend: {util_stats.get('trend', 'unknown')}
 
-### 📈 占用率统计
-- 平均占用率: {alloc_stats.get('average', 0)}%
-- 最大占用率: {alloc_stats.get('max', 0)}%
-- 最小占用率: {alloc_stats.get('min', 0)}%
+### 📈 Allocation Rate Statistics
+- Average Allocation Rate: {alloc_stats.get('average', 0)}%
+- Max Allocation Rate: {alloc_stats.get('max', 0)}%
+- Min Allocation Rate: {alloc_stats.get('min', 0)}%
 
-📌 已生成折线图，请查看可视化结果。
 """
+        
+        # === New: Add LLM deep analysis results ===
+        if llm_analysis and "error" not in llm_analysis:
+            summary += """### 🤖 AI Deep Analysis
+
+"""
+            # 1. Trend analysis
+            trend_analysis = llm_analysis.get("trend_analysis", {})
+            if trend_analysis:
+                summary += f"""**Trend Assessment**
+{trend_analysis.get('trend_description', '')}
+
+"""
+            
+            # 2. Resource utilization efficiency evaluation
+            efficiency = llm_analysis.get("efficiency_evaluation", {})
+            if efficiency:
+                overall_score = efficiency.get("overall_score", 0)
+                efficiency_level = efficiency.get("efficiency_level", "Unknown")
+                waste_pct = efficiency.get("waste_percentage", 0)
+                
+                # Choose appropriate emoji based on score
+                score_emoji = "🟢" if overall_score >= 70 else "🟡" if overall_score >= 50 else "🔴"
+                
+                summary += f"""**Resource Utilization Efficiency Evaluation**
+{score_emoji} Overall Score: **{overall_score}/100** ({efficiency_level})
+- Resource Waste Level: {waste_pct}%
+- Allocation Status: {efficiency.get('resource_allocation_status', 'Unknown')}
+
+"""
+            
+            # 3. Problem diagnosis
+            utilization_issues = llm_analysis.get("utilization_issues", {})
+            problem_severity = llm_analysis.get("problem_severity", {})
+            
+            if problem_severity:
+                needs_action = problem_severity.get("needs_immediate_action", False)
+                critical_issues = problem_severity.get("critical_issues", [])
+                warnings = problem_severity.get("warnings", [])
+                
+                if needs_action or critical_issues:
+                    summary += """**⚠️ Issues Found**
+"""
+                    if critical_issues:
+                        for issue in critical_issues:
+                            summary += f"- 🔴 {issue}\n"
+                    if warnings:
+                        for warning in warnings:
+                            summary += f"- 🟡 {warning}\n"
+                    summary += "\n"
+                else:
+                    summary += "**✅ No Critical Issues Found**\n\n"
+            
+            # 4. Optimization recommendations
+            recommendations = llm_analysis.get("recommendations", [])
+            if recommendations:
+                summary += """**💡 Optimization Recommendations**
+
+"""
+                for i, rec in enumerate(recommendations[:3], 1):  # Show at most 3 recommendations
+                    priority = rec.get("priority", "Medium")
+                    priority_emoji = "🔴" if priority == "High" else "🟡" if priority == "Medium" else "🟢"
+                    
+                    summary += f"""{i}. {priority_emoji} **[{priority} Priority]** {rec.get('issue', '')}
+   - Recommendation: {rec.get('suggestion', '')}
+   - Expected Improvement: {rec.get('expected_improvement', '')}
+
+"""
+            
+            # 5. Summary
+            llm_summary = llm_analysis.get("summary", "")
+            if llm_summary:
+                summary += f"""**📋 AI Summary**
+{llm_summary}
+
+"""
+        elif llm_analysis and "error" in llm_analysis:
+            summary += f"\n⚠️ AI deep analysis failed: {llm_analysis['error']}\n\n"
+        # === End of new section ===
+        
+        summary += "📌 Line chart generated, please check visualization results.\n"
+        
         return summary
     
     def _generate_namespace_summary(self, analysis: Dict[str, Any]) -> str:
-        """生成namespace分析摘要"""
+        """Generate namespace analysis summary"""
         if "error" in analysis:
-            return f"分析失败: {analysis['error']}"
+            return f"Analysis failed: {analysis['error']}"
         
-        # 如果是单个namespace分析
+        # If analyzing a single namespace
         if "namespace" in analysis:
             ns = analysis["namespace"]
             stats = analysis.get("statistics", {})
-            return f"""## Namespace {ns} GPU使用情况
+            return f"""## Namespace {ns} GPU Usage
 
-### 📊 统计信息
-- 平均使用率: {stats.get('avg_utilization', 0)}%
-- 最大使用率: {stats.get('max_utilization', 0)}%
-- 最小使用率: {stats.get('min_utilization', 0)}%
-- 平均GPU占用: {stats.get('avg_gpu_count', 0)} 张
-- 趋势: {stats.get('trend', 'unknown')}
+### 📊 Statistics
+- Average Utilization: {stats.get('avg_utilization', 0)}%
+- Max Utilization: {stats.get('max_utilization', 0)}%
+- Min Utilization: {stats.get('min_utilization', 0)}%
+- Average GPU Allocation: {stats.get('avg_gpu_count', 0)} GPUs
+- Trend: {stats.get('trend', 'unknown')}
 
-📌 已生成折线图，请查看可视化结果。
+📌 Line chart generated, please check visualization results.
 """
         
-        # 如果是所有namespace分析
+        # If analyzing all namespaces
         namespaces = analysis.get("namespaces", [])
         total = analysis.get("total_count", 0)
+        overall_stats = analysis.get("overall_statistics", {})
         
         if not namespaces:
-            return "未找到namespace数据。"
+            return "No namespace data found."
         
-        summary = f"""## Namespace GPU使用情况分析
+        summary = f"""## Namespace GPU Usage Analysis
 
-共分析了 {total} 个namespaces。
-
-### 使用率最低的前5个Namespaces：
+Analyzed {total} namespaces in total.
+"""
+        
+        # === New: Show aggregate statistics if available ===
+        if overall_stats and not overall_stats.get("error"):
+            summary += f"""
+### 📊 All Namespace Aggregate Statistics
+- Overall Average Utilization: {overall_stats.get('overall_avg_utilization', 0)}%
+- Overall Max Utilization: {overall_stats.get('overall_max_utilization', 0)}%
+- Overall Min Utilization: {overall_stats.get('overall_min_utilization', 0)}%
+- Utilization Standard Deviation: {overall_stats.get('std_deviation', 0)}%
+"""
+            if 'weighted_avg_utilization' in overall_stats:
+                summary += f"- Weighted Average Utilization: {overall_stats.get('weighted_avg_utilization', 0)}%\n"
+                summary += f"- Total GPU Hours: {overall_stats.get('total_gpu_hours', 0)}\n"
+            summary += "\n"
+        # === End of new section ===
+        
+        summary += """### Top 5 Namespaces with Lowest Utilization:
 """
         for i, ns in enumerate(namespaces[:5]):
-            summary += f"{i+1}. **{ns['namespace']}**: 平均使用率 {ns['avg_utilization']}%, 平均占用 {ns['avg_gpu_count']} 张GPU\n"
+            summary += f"{i+1}. **{ns['namespace']}**: Average utilization {ns['avg_utilization']}%, average allocation {ns['avg_gpu_count']} GPUs\n"
         
         return summary
     
     def _generate_user_analysis_summary(self, analysis: Dict[str, Any]) -> str:
-        """生成用户分析摘要"""
+        """Generate user analysis summary"""
         if "error" in analysis:
-            return f"分析失败: {analysis['error']}"
+            return f"Analysis failed: {analysis['error']}"
         
-        # 如果是单个用户分析
+        # If analyzing a single user
         if "user_name" in analysis:
             user = analysis["user_name"]
             stats = analysis.get("statistics", {})
-            return f"""## 用户 {user} GPU使用情况
+            return f"""## User {user} GPU Usage
 
-### 📊 统计信息
-- 平均使用率: {stats.get('avg_utilization', 0)}%
-- 最大使用率: {stats.get('max_utilization', 0)}%
-- 最小使用率: {stats.get('min_utilization', 0)}%
-- 平均GPU占用: {stats.get('avg_gpu_count', 0)} 张
-- 趋势: {stats.get('trend', 'unknown')}
+### 📊 Statistics
+- Average Utilization: {stats.get('avg_utilization', 0)}%
+- Max Utilization: {stats.get('max_utilization', 0)}%
+- Min Utilization: {stats.get('min_utilization', 0)}%
+- Average GPU Allocation: {stats.get('avg_gpu_count', 0)} GPUs
+- Trend: {stats.get('trend', 'unknown')}
 
-📌 已生成折线图，请查看可视化结果。
+📌 Line chart generated, please check visualization results.
 """
         
-        # 如果是所有用户分析
+        # If analyzing all users
         users = analysis.get("users", [])
         total = analysis.get("total_count", 0)
         
         if not users:
-            return "未找到用户数据。"
+            return "No user data found."
         
-        summary = f"""## 用户GPU占用分析
+        summary = f"""## User GPU Allocation Analysis
 
-共分析了 {total} 个用户。
+Analyzed {total} users in total.
 
-### 🔍 占用GPU多但使用率低的用户（按问题评分排序）：
+### 🔍 Users with High GPU Allocation but Low Utilization (sorted by issue score):
 
-| 用户名 | 平均GPU占用 | 平均使用率 | 最大使用率 | 问题评分 |
-|--------|-------------|------------|------------|----------|
+| Username | Avg GPU Allocation | Avg Utilization | Max Utilization | Issue Score |
+|----------|-------------------|-----------------|-----------------|-------------|
 """
         for user in users[:10]:
             summary += f"| {user['dimension_value']} | {user['avg_gpu_count']} | {user['avg_utilization']}% | {user['max_utilization']}% | {user['issue_score']} |\n"
         
-        summary += "\n💡 **建议**: 问题评分高的用户建议优化GPU使用效率或减少占用。\n\n📊 详细数据见下方表格。"
+        summary += "\n💡 **Recommendation**: Users with high issue scores should optimize GPU usage efficiency or reduce allocation.\n\n📊 See detailed data in table below."
         
         return summary
     
     def _generate_low_utilization_summary(self, analysis: Dict[str, Any]) -> str:
-        """生成低使用率资源分析摘要"""
+        """Generate low utilization resource analysis summary"""
         if "error" in analysis:
-            return f"分析失败: {analysis['error']}"
+            return f"Analysis failed: {analysis['error']}"
         
         low_util_annos = analysis.get("low_utilization_annotations", [])
         total = analysis.get("total_count", 0)
         
         if not low_util_annos:
-            return "✅ 未发现明显的低使用率资源问题。"
+            return "✅ No obvious low utilization resource issues found."
         
-        summary = f"""## 低使用率资源分析
+        summary = f"""## Low Utilization Resource Analysis
 
-发现 {total} 个占用GPU多但使用率低的资源。
+Found {total} resources with high GPU allocation but low utilization.
 
-### 🔴 问题最严重的前10个：
+### 🔴 Top 10 Most Critical Issues:
 
 """
         for i, anno in enumerate(low_util_annos[:10]):
             summary += f"{i+1}. **{anno['annotation_key']}={anno['annotation_value']}**\n"
-            summary += f"   - 平均GPU占用: {anno['avg_gpu_count']} 张\n"
-            summary += f"   - 平均使用率: {anno['avg_utilization']}%\n"
-            summary += f"   - 问题评分: {anno['issue_score']}\n\n"
+            summary += f"   - Average GPU Allocation: {anno['avg_gpu_count']} GPUs\n"
+            summary += f"   - Average Utilization: {anno['avg_utilization']}%\n"
+            summary += f"   - Issue Score: {anno['issue_score']}\n\n"
         
-        summary += "💡 **建议**: 联系相关资源负责人，优化GPU使用效率。"
+        summary += "💡 **Recommendation**: Contact relevant resource owners to optimize GPU usage efficiency."
         
         return summary
     
@@ -1220,51 +1403,79 @@ class GPUUsageAnalysisAgent:
         namespace_analysis: Dict[str, Any],
         user_analysis: Dict[str, Any]
     ) -> str:
-        """生成完整分析摘要"""
-        summary = "# GPU使用情况完整分析报告\n\n"
+        """Generate complete analysis summary"""
+        summary = "# GPU Usage Complete Analysis Report\n\n"
         
-        # 集群级别摘要
-        summary += "## 1. 集群整体情况\n\n"
+        # Cluster-level summary
+        summary += "## 1. Cluster Overview\n\n"
         if "error" not in cluster_analysis:
             stats = cluster_analysis.get("statistics", {})
             util_stats = stats.get("utilization", {})
             alloc_stats = stats.get("allocation_rate", {})
-            summary += f"- 平均使用率: {util_stats.get('average', 0)}%\n"
-            summary += f"- 平均占用率: {alloc_stats.get('average', 0)}%\n"
-            summary += f"- 趋势: {util_stats.get('trend', 'unknown')}\n\n"
-            summary += "📊 已生成集群趋势折线图。\n\n"
+            summary += f"- Average Utilization: {util_stats.get('average', 0)}%\n"
+            summary += f"- Average Allocation Rate: {alloc_stats.get('average', 0)}%\n"
+            summary += f"- Trend: {util_stats.get('trend', 'unknown')}\n\n"
+            
+            # === New: Add key information from LLM deep analysis ===
+            llm_analysis = cluster_analysis.get("llm_analysis", {})
+            if llm_analysis and "error" not in llm_analysis:
+                efficiency = llm_analysis.get("efficiency_evaluation", {})
+                problem_severity = llm_analysis.get("problem_severity", {})
+                
+                if efficiency:
+                    overall_score = efficiency.get("overall_score", 0)
+                    efficiency_level = efficiency.get("efficiency_level", "Unknown")
+                    score_emoji = "🟢" if overall_score >= 70 else "🟡" if overall_score >= 50 else "🔴"
+                    summary += f"{score_emoji} **AI Assessment**: {efficiency_level} ({overall_score}/100)\n\n"
+                
+                if problem_severity:
+                    needs_action = problem_severity.get("needs_immediate_action", False)
+                    critical_issues = problem_severity.get("critical_issues", [])
+                    
+                    if needs_action and critical_issues:
+                        summary += "**⚠️ Critical Issues**:\n"
+                        for issue in critical_issues[:2]:  # Show at most 2
+                            summary += f"- {issue}\n"
+                        summary += "\n"
+                
+                llm_summary = llm_analysis.get("summary", "")
+                if llm_summary:
+                    summary += f"**AI Summary**: {llm_summary}\n\n"
+            # === End of new section ===
+            
+            summary += "📊 Cluster trend line chart generated.\n\n"
         else:
-            summary += f"集群分析失败: {cluster_analysis['error']}\n\n"
+            summary += f"Cluster analysis failed: {cluster_analysis['error']}\n\n"
         
-        # Namespace级别摘要
-        summary += "## 2. Namespace分析\n\n"
+        # Namespace-level summary
+        summary += "## 2. Namespace Analysis\n\n"
         if "error" not in namespace_analysis:
             namespaces = namespace_analysis.get("namespaces", [])
             total_ns = namespace_analysis.get("total_count", 0)
-            summary += f"共分析了 {total_ns} 个namespaces。\n\n"
+            summary += f"Analyzed {total_ns} namespaces in total.\n\n"
             if namespaces:
-                summary += "使用率最低的3个namespaces:\n"
+                summary += "Top 3 namespaces with lowest utilization:\n"
                 for i, ns in enumerate(namespaces[:3]):
-                    summary += f"{i+1}. {ns['namespace']}: {ns['avg_utilization']}% (占用{ns['avg_gpu_count']}张GPU)\n"
+                    summary += f"{i+1}. {ns['namespace']}: {ns['avg_utilization']}% (allocates {ns['avg_gpu_count']} GPUs)\n"
         else:
-            summary += f"Namespace分析失败: {namespace_analysis['error']}\n\n"
+            summary += f"Namespace analysis failed: {namespace_analysis['error']}\n\n"
         
-        # 用户级别摘要
-        summary += "\n## 3. 用户占用分析\n\n"
+        # User-level summary
+        summary += "\n## 3. User Allocation Analysis\n\n"
         if "error" not in user_analysis:
             users = user_analysis.get("users", [])
             total_users = user_analysis.get("total_count", 0)
-            summary += f"共分析了 {total_users} 个用户。\n\n"
+            summary += f"Analyzed {total_users} users in total.\n\n"
             if users:
-                summary += "占用多但使用率低的前5个用户:\n\n"
-                summary += "| 用户名 | 平均GPU占用 | 平均使用率 | 问题评分 |\n"
-                summary += "|--------|-------------|------------|----------|\n"
+                summary += "Top 5 users with high allocation but low utilization:\n\n"
+                summary += "| Username | Avg GPU Allocation | Avg Utilization | Issue Score |\n"
+                summary += "|----------|-------------------|-----------------|-------------|\n"
                 for user in users[:5]:
                     summary += f"| {user['dimension_value']} | {user['avg_gpu_count']} | {user['avg_utilization']}% | {user['issue_score']} |\n"
-                summary += "\n📊 详细用户数据见表格。\n"
+                summary += "\n📊 See detailed user data in table.\n"
         else:
-            summary += f"用户分析失败: {user_analysis['error']}\n\n"
+            summary += f"User analysis failed: {user_analysis['error']}\n\n"
         
-        summary += "\n---\n\n💡 **总体建议**: 重点关注使用率低但占用多的用户和namespace，优化资源利用效率。"
+        summary += "\n---\n\n💡 **Overall Recommendation**: Focus on users and namespaces with low utilization but high allocation to optimize resource efficiency."
         
         return summary

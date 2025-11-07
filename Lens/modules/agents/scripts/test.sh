@@ -1,32 +1,32 @@
 #!/bin/bash
-# 运行测试脚本
+# Test Runner Script
 
 set -e
 
 echo "=========================================="
-echo "运行测试"
+echo "Running Tests"
 echo "=========================================="
 
-# 激活虚拟环境（如果存在）
+# Activate virtual environment (if exists)
 if [ -d "venv" ]; then
     source venv/bin/activate
 fi
 
-# 安装测试依赖
+# Install test dependencies
 pip install -q pytest pytest-asyncio pytest-cov
 
-# 运行测试
+# Run tests
 echo ""
-echo "运行单元测试..."
+echo "Running unit tests..."
 pytest tests/ -v
 
 echo ""
-echo "运行测试并生成覆盖率报告..."
+echo "Running tests with coverage report..."
 pytest --cov=gpu_usage_agent --cov-report=html --cov-report=term tests/
 
 echo ""
 echo "=========================================="
-echo "测试完成"
-echo "覆盖率报告: htmlcov/index.html"
+echo "Tests completed"
+echo "Coverage report: htmlcov/index.html"
 echo "=========================================="
 

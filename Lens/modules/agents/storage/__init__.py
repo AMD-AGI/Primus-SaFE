@@ -1,12 +1,26 @@
-"""存储模块 - 用于持久化 chat history"""
+"""Storage module
+
+Supports multiple storage backends:
+- FileStorage: File storage
+- DBStorage: SQLite database storage
+- PGStorage: PostgreSQL database storage
+"""
 
 from .base import StorageBase
-from .file_storage import FileStorage
 from .factory import create_storage
+from .file_storage import FileStorage
+from .db_storage import DBStorage
 
 __all__ = [
-    "StorageBase",
-    "FileStorage",
-    "create_storage",
+    'StorageBase',
+    'create_storage',
+    'FileStorage',
+    'DBStorage',
 ]
 
+# PostgreSQL support is optional
+try:
+    from .pg_storage import PGStorage
+    __all__.append('PGStorage')
+except ImportError:
+    pass

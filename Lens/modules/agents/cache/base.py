@@ -1,4 +1,4 @@
-"""缓存基类"""
+"""Cache base class"""
 
 from abc import ABC, abstractmethod
 from typing import Optional, Any
@@ -7,30 +7,30 @@ import json
 
 
 class CacheBase(ABC):
-    """缓存基类"""
+    """Cache base class"""
     
     def __init__(self, ttl: int = 300):
         """
-        初始化缓存
+        Initialize cache
         
         Args:
-            ttl: 缓存过期时间（秒）
+            ttl: Cache expiration time (seconds)
         """
         self.ttl = ttl
     
     @staticmethod
     def generate_cache_key(prompt: str, **kwargs) -> str:
         """
-        生成缓存键
+        Generate cache key
         
         Args:
-            prompt: 提示词
-            **kwargs: 其他参数（如 temperature, model 等）
+            prompt: Prompt text
+            **kwargs: Other parameters (such as temperature, model, etc.)
         
         Returns:
-            缓存键
+            Cache key
         """
-        # 将所有参数序列化为 JSON，然后计算哈希
+        # Serialize all parameters to JSON, then calculate hash
         cache_data = {
             "prompt": prompt,
             **kwargs
@@ -41,53 +41,52 @@ class CacheBase(ABC):
     @abstractmethod
     def get(self, key: str) -> Optional[Any]:
         """
-        获取缓存值
+        Get cache value
         
         Args:
-            key: 缓存键
+            key: Cache key
         
         Returns:
-            缓存值，如果不存在或已过期则返回 None
+            Cache value, or None if not exists or expired
         """
         pass
     
     @abstractmethod
     def set(self, key: str, value: Any, ttl: Optional[int] = None):
         """
-        设置缓存值
+        Set cache value
         
         Args:
-            key: 缓存键
-            value: 缓存值
-            ttl: 过期时间（秒），如果不指定则使用默认值
+            key: Cache key
+            value: Cache value
+            ttl: Expiration time (seconds), uses default value if not specified
         """
         pass
     
     @abstractmethod
     def delete(self, key: str):
         """
-        删除缓存
+        Delete cache
         
         Args:
-            key: 缓存键
+            key: Cache key
         """
         pass
     
     @abstractmethod
     def clear(self):
-        """清空所有缓存"""
+        """Clear all caches"""
         pass
     
     @abstractmethod
     def exists(self, key: str) -> bool:
         """
-        检查缓存是否存在
+        Check if cache exists
         
         Args:
-            key: 缓存键
+            key: Cache key
         
         Returns:
-            是否存在
+            Whether it exists
         """
         pass
-

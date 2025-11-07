@@ -1,4 +1,4 @@
-"""存储基类"""
+"""Storage base class"""
 
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, Any
@@ -6,7 +6,7 @@ from datetime import datetime
 
 
 class StorageBase(ABC):
-    """Chat History 存储基类"""
+    """Chat History storage base class"""
     
     @abstractmethod
     def save_conversation(
@@ -16,28 +16,28 @@ class StorageBase(ABC):
         metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
         """
-        保存对话记录
+        Save conversation record
         
         Args:
-            session_id: 会话 ID
-            conversation_data: 对话数据
-            metadata: 元数据（如用户ID、时间戳等）
+            session_id: Session ID
+            conversation_data: Conversation data
+            metadata: Metadata (such as user ID, timestamp, etc.)
         
         Returns:
-            是否保存成功
+            Whether the save was successful
         """
         pass
     
     @abstractmethod
     def load_conversation(self, session_id: str) -> Optional[Dict[str, Any]]:
         """
-        加载对话记录
+        Load conversation record
         
         Args:
-            session_id: 会话 ID
+            session_id: Session ID
         
         Returns:
-            对话数据，如果不存在则返回 None
+            Conversation data, or None if not exists
         """
         pass
     
@@ -49,28 +49,28 @@ class StorageBase(ABC):
         filter_by: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
-        列出对话记录
+        List conversation records
         
         Args:
-            limit: 返回数量限制
-            offset: 偏移量
-            filter_by: 过滤条件
+            limit: Return count limit
+            offset: Offset
+            filter_by: Filter conditions
         
         Returns:
-            对话记录列表
+            List of conversation records
         """
         pass
     
     @abstractmethod
     def delete_conversation(self, session_id: str) -> bool:
         """
-        删除对话记录
+        Delete conversation record
         
         Args:
-            session_id: 会话 ID
+            session_id: Session ID
         
         Returns:
-            是否删除成功
+            Whether the deletion was successful
         """
         pass
     
@@ -81,27 +81,26 @@ class StorageBase(ABC):
         limit: int = 10
     ) -> List[Dict[str, Any]]:
         """
-        搜索对话记录
+        Search conversation records
         
         Args:
-            query: 搜索关键词
-            limit: 返回数量限制
+            query: Search keyword
+            limit: Return count limit
         
         Returns:
-            匹配的对话记录列表
+            List of matching conversation records
         """
         pass
     
     @abstractmethod
     def cleanup_old_conversations(self, days: int = 30) -> int:
         """
-        清理旧的对话记录
+        Clean up old conversation records
         
         Args:
-            days: 保留天数
+            days: Retention days
         
         Returns:
-            删除的对话数量
+            Number of deleted conversations
         """
         pass
-

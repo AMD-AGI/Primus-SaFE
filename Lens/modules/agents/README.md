@@ -1,134 +1,136 @@
 # GPU Usage Analysis Agent
 
-基于 LangGraph 的 GPU 使用率分析对话 Agent，能够通过自然语言对话帮助用户分析集群 GPU 使用率的趋势、对比、异常，并下钻到具体的 namespace、用户和 workload 级别。
+A LangGraph-based GPU utilization analysis conversational agent that helps users analyze GPU usage trends, comparisons, and anomalies through natural language dialogue, with drill-down capabilities to namespace, user, and workload levels.
 
-## 功能特性
+## Features
 
-### 核心能力
+### Core Capabilities
 
-1. **趋势分析**：查询不同维度、不同时间粒度的 GPU 使用率趋势
-2. **对比分析**：对比不同时间段、不同实体的使用情况
-3. **根因下钻**：从集群 → namespace → 用户 → workload 逐层分析
-4. **实时状态**：查询当前的 GPU 分配和使用情况
-5. **智能交互** ✨：
-   - 主动获取可用集群、namespace、label 列表
-   - 当信息不足时友好地反问用户
-   - 提供可选项帮助用户选择
+1. **Trend Analysis**: Query GPU utilization trends across different dimensions and time granularities
+2. **Comparison Analysis**: Compare usage across different time periods and entities
+3. **Root Cause Drill-down**: Layer-by-layer analysis from cluster → namespace → user → workload
+4. **Real-time Status**: Query current GPU allocation and usage
+5. **Intelligent Interaction** ✨:
+   - Proactively fetch available clusters, namespaces, and label lists
+   - Friendly follow-up questions when information is insufficient
+   - Provide options to help users choose
 
-### 应用场景
+### Use Cases
 
-- **场景 1**："最近几天的使用率变化趋势是怎么样的？"
-- **场景 2**："为什么这周 ml-team 的使用率比上周低了？是因为哪些 workload 导致的？"
-- **场景 3**："当前集群有多少 GPU 在使用？"
-- **场景 4**："ml-team 和 cv-team 的 GPU 使用情况对比"
-- **场景 5** ✨："我想看看GPU使用情况" → Agent 主动询问集群、提供选项
-- **场景 6** ✨："查询某个namespace的使用率" → Agent 展示可用的 namespace 列表
+- **Scenario 1**: "What's the utilization trend over the past few days?"
+- **Scenario 2**: "Why is ml-team's utilization lower this week than last week? Which workloads caused this?"
+- **Scenario 3**: "How many GPUs are currently in use in the cluster?"
+- **Scenario 4**: "Compare GPU usage between ml-team and cv-team"
+- **Scenario 5** ✨: "I want to check GPU usage" → Agent proactively asks about cluster and provides options
+- **Scenario 6** ✨: "Query utilization of a namespace" → Agent displays available namespace list
 
-## 架构设计
+## Architecture Design
 
-### 系统架构
+### System Architecture
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│                  GPU 使用率分析 Agent 系统                        │
+│              GPU Usage Analysis Agent System                      │
 └────────────────────────────────────────────────────────────────┘
 
 ┌──────────────┐      ┌─────────────────────────────────────┐
-│   用户对话   │────▶│      对话理解层 (NLU)                │
-│   前端界面   │      │  - 意图识别（趋势/对比/下钻）        │
-└──────────────┘      │  - 实体提取（时间/namespace）        │
+│  User Dialog │────▶│      Dialog Understanding (NLU)      │
+│  Front-end   │      │  - Intent Recognition (trend/compare)│
+└──────────────┘      │  - Entity Extraction (time/namespace)│
                       └───────────────┬─────────────────────┘
                                       │
                       ┌───────────────▼─────────────────────┐
-                      │     Agent 编排层 (LangGraph)        │
-                      │  - 查询规划                          │
-                      │  - 多步推理                          │
-                      │  - 上下文管理                        │
+                      │   Agent Orchestration (LangGraph)   │
+                      │  - Query Planning                    │
+                      │  - Multi-step Reasoning              │
+                      │  - Context Management                │
                       └───────────────┬─────────────────────┘
                                       │
             ┌────────────────────────┼────────────────────────┐
             │                        │                        │
 ┌───────────▼──────────┐  ┌─────────▼────────┐  ┌──────────▼───────┐
-│   GPU统计查询工具    │  │  Workload分析    │  │  实时快照工具    │
-│ - 集群小时统计       │  │  - 历史记录      │  │  - 最新状态      │
-│ - Namespace统计      │  │  - 元数据        │  │  - 分配详情      │
-│ - Label统计          │  │  - 层级关系      │  │                  │
+│   GPU Stats Query    │  │  Workload        │  │  Real-time       │
+│   Tools              │  │  Analysis        │  │  Snapshot Tools  │
+│ - Cluster hourly     │  │  - History       │  │  - Latest state  │
+│ - Namespace stats    │  │  - Metadata      │  │  - Allocation    │
+│ - Label stats        │  │  - Hierarchy     │  │    details       │
 └──────────┬───────────┘  └─────────┬────────┘  └──────────┬───────┘
            │                        │                        │
 ┌──────────▼──────────────────────────▼────────────────────▼───────┐
-│                     Lens API (数据源层)                            │
-│  PostgreSQL    Prometheus    Kubernetes    Redis                 │
+│                    Lens API (Data Source Layer)                   │
+│  PostgreSQL    Prometheus    Kubernetes    Redis                  │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
-### Agent 工作流程
+### Agent Workflow
 
 ```
-[用户查询] 
+[User Query] 
     ↓
 ┌────────────────┐
-│ Understand     │  ← 理解查询：意图识别 + 实体提取
-│ (调用 LLM)     │
+│ Understand     │  ← Understand query: Intent recognition + Entity extraction
+│ (Call LLM)     │
 └────────┬───────┘
          │
-         ├─→ [需要澄清?] → 返回澄清问题 → [END]
+         ├─→ [Need clarification?] → Return clarification question → [END]
          │
          ↓
 ┌────────────────┐
-│ Plan           │  ← 规划分析：制定数据收集计划
-│ (调用 LLM)     │
-└────────┬───────┘
-         │
-         ↓
-┌────────────────┐
-│ Execute        │  ← 执行步骤：准备工具调用参数
-└────────┬───────┘
-         │
-         ├─→ [需要调用工具?] ─Yes→ ┌──────────┐
-         │                          │ Tools    │ ← 执行工具
-         │                          │ (实际查询)│
-         │                          └────┬─────┘
-         │                               │
-         │  ←──────────────────────────┘
-         │
-         ↓
-┌────────────────┐
-│ Synthesize     │  ← 综合分析：提取洞察
-│ (调用 LLM)     │
+│ Plan           │  ← Plan analysis: Develop data collection plan
+│ (Call LLM)     │
 └────────┬───────┘
          │
          ↓
 ┌────────────────┐
-│ Respond        │  ← 生成响应：格式化答案
+│ Execute        │  ← Execute steps: Prepare tool call parameters
+└────────┬───────┘
+         │
+         ├─→ [Need to call tools?] ─Yes→ ┌──────────┐
+         │                                │ Tools    │ ← Execute tools
+         │                                │ (Actual  │
+         │                                │  query)  │
+         │                                └────┬─────┘
+         │                                     │
+         │  ←──────────────────────────────────┘
+         │
+         ↓
+┌────────────────┐
+│ Synthesize     │  ← Synthesize analysis: Extract insights
+│ (Call LLM)     │
+└────────┬───────┘
+         │
+         ↓
+┌────────────────┐
+│ Respond        │  ← Generate response: Format answer
 └────────┬───────┘
          │
          ↓
      [END]
 ```
 
-## 快速开始
+## Quick Start
 
-### 环境要求
+### Requirements
 
 - Python 3.9+
-- Lens API 服务运行中
-- OpenAI API Key 或其他 LLM 访问权限
+- Lens API service running
+- OpenAI API Key or other LLM access
 
-### 安装依赖
+### Install Dependencies
 
 ```bash
 cd Lens/modules/agents
 pip install -r requirements.txt
 ```
 
-### 配置
+### Configuration
 
-1. 复制配置文件：
+1. Copy configuration file:
 ```bash
 cp config/config.yaml config/config.local.yaml
 ```
 
-2. 编辑配置文件，设置必要的参数：
+2. Edit configuration file and set necessary parameters:
 ```yaml
 lens:
   api_url: "http://localhost:8080"
@@ -137,50 +139,78 @@ llm:
   provider: "openai"
   model: "gpt-4"
   api_key: "your-api-key"
+
+# Chat history storage configuration (optional)
+storage:
+  enabled: true
+  backend: "file"  # Supports: file, db, pg
+  
+  # File storage (default)
+  file:
+    storage_dir: ".storage/conversations"
+  
+  # PostgreSQL storage (recommended for enterprise)
+  pg:
+    host: "localhost"
+    port: 5432
+    database: "agents"
+    user: "postgres"
+    password: ""
+    min_connections: 1
+    max_connections: 10
 ```
 
-3. 或者使用环境变量：
+3. Or use environment variables:
 ```bash
 export LENS_API_URL="http://localhost:8080"
 export LLM_PROVIDER="openai"
 export LLM_MODEL="gpt-4"
 export LLM_API_KEY="your-api-key"
+
+# Storage configuration
+export STORAGE_BACKEND="pg"
+export STORAGE_PG_HOST="localhost"
+export STORAGE_PG_DATABASE="agents"
+export STORAGE_PG_USER="postgres"
+export STORAGE_PG_PASSWORD="your_password"
 ```
 
-### 启动服务
+> 💡 **PostgreSQL Storage**: Production environments are recommended to use PostgreSQL storage for better performance and scalability. See [POSTGRES_SETUP.md](POSTGRES_SETUP.md) for details
+
+### Start Service
 
 ```bash
 cd Lens/modules/agents/api
 python main.py
 ```
 
-服务将在 `http://localhost:8001` 启动。
+Service will start at `http://localhost:8001`.
 
-### API 文档
+### API Documentation
 
-启动服务后，访问以下地址查看 API 文档：
+After starting the service, visit the following URLs to view API documentation:
 - Swagger UI: http://localhost:8001/docs
 - ReDoc: http://localhost:8001/redoc
 
-## 使用示例
+## Usage Examples
 
-### Python 客户端
+### Python Client
 
 ```python
 import requests
 
-# 发起对话请求
+# Send chat request
 response = requests.post(
     "http://localhost:8001/api/gpu-analysis/chat",
     json={
-        "query": "最近7天的GPU使用率趋势如何？",
+        "query": "What's the GPU utilization trend over the last 7 days?",
         "cluster_name": "gpu-cluster-01"
     }
 )
 
 result = response.json()
 print(result["answer"])
-print("洞察:", result["insights"])
+print("Insights:", result["insights"])
 ```
 
 ### cURL
@@ -189,148 +219,148 @@ print("洞察:", result["insights"])
 curl -X POST "http://localhost:8001/api/gpu-analysis/chat" \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "最近7天的GPU使用率趋势如何？",
+    "query": "What is the GPU utilization trend over the last 7 days?",
     "cluster_name": "gpu-cluster-01"
   }'
 ```
 
-### 查询示例
+### Query Examples
 
-1. **趋势分析**
+1. **Trend Analysis**
 ```
-问：最近7天的GPU使用率趋势如何？
-答：最近7天集群GPU使用率整体呈上升趋势，从 55% 上升到 68%。
-    主要由 ml-team 和 cv-team 贡献...
-```
-
-2. **对比分析**
-```
-问：本周和上周的使用率对比
-答：本周平均使用率 65%，比上周的 58% 上升了 7 个百分点...
+Q: What's the GPU utilization trend over the last 7 days?
+A: Over the last 7 days, cluster GPU utilization has been trending upward, 
+   rising from 55% to 68%. This is mainly contributed by ml-team and cv-team...
 ```
 
-3. **根因下钻**
+2. **Comparison Analysis**
 ```
-问：为什么 ml-team 的使用率下降了？
-答：ml-team 本周使用率为 45.2%，比上周的 62.8% 下降了 28%。
-    主要原因是 user_a 的任务大幅减少，从 28 个降至 12 个...
-```
-
-4. **实时状态**
-```
-问：当前集群有多少GPU在使用？
-答：当前集群共有 128 个 GPU，已分配 96 个（分配率 75%）...
+Q: Compare this week's and last week's utilization
+A: This week's average utilization is 65%, up 7 percentage points from last week's 58%...
 ```
 
-5. **智能交互 - 笼统查询** ✨
+3. **Root Cause Drill-down**
 ```
-问：我想看看GPU使用情况
-答：要查看 GPU 使用情况，我需要知道您想查询哪个集群。
-
-    当前系统中有以下集群：
-    1. gpu-cluster-01
-    2. gpu-cluster-02
-    3. gpu-cluster-03
-    
-    请告诉我您想查询哪个集群，或者回复"全部"查看所有集群的汇总情况。
+Q: Why has ml-team's utilization decreased?
+A: ml-team's utilization this week is 45.2%, down 28% from last week's 62.8%. 
+   The main reason is user_a's tasks significantly decreased from 28 to 12...
 ```
 
-6. **智能交互 - 提供选项** ✨
+4. **Real-time Status**
 ```
-问：查询某个namespace的GPU使用率趋势
-答：要查询 namespace 的 GPU 使用率趋势，请从以下 namespace 中选择一个：
-
-    最近 7 天有 GPU 使用的 namespaces：
-    1. ml-training
-    2. ml-inference
-    3. data-processing
-    4. production
-    
-    请告诉我您想查询哪个 namespace。
+Q: How many GPUs are currently in use in the cluster?
+A: The cluster has a total of 128 GPUs, with 96 allocated (75% allocation rate)...
 ```
 
-## 工具集说明
+5. **Intelligent Interaction - General Query** ✨
+```
+Q: I want to check GPU usage
+A: To view GPU usage, I need to know which cluster you want to query.
 
-### 数据查询工具
+   The system has the following clusters:
+   1. gpu-cluster-01
+   2. gpu-cluster-02
+   3. gpu-cluster-03
+   
+   Please tell me which cluster you want to query, or reply "all" to see a summary of all clusters.
+```
+
+6. **Intelligent Interaction - Providing Options** ✨
+```
+Q: Query GPU utilization trend for a namespace
+A: To query GPU utilization trend for a namespace, please select from the following namespaces:
+
+   Namespaces with GPU usage in the last 7 days:
+   1. ml-training
+   2. ml-inference
+   3. data-processing
+   4. production
+   
+   Please tell me which namespace you want to query.
+```
+
+## Tool Set Description
+
+### Data Query Tools
 
 #### 1. query_gpu_usage_trend
 
-查询 GPU 使用率趋势数据。
+Query GPU utilization trend data.
 
-**参数：**
-- `dimension`: 查询维度（cluster/namespace/label）
-- `granularity`: 时间粒度（hour/day）
-- `time_range_days`: 时间范围（天数）
-- `dimension_value`: 维度的具体值（可选）
-- `metric_type`: 指标类型（utilization/allocation_rate）
+**Parameters:**
+- `dimension`: Query dimension (cluster/namespace/label)
+- `granularity`: Time granularity (hour/day)
+- `time_range_days`: Time range (days)
+- `dimension_value`: Specific dimension value (optional)
+- `metric_type`: Metric type (utilization/allocation_rate)
 
 #### 2. analyze_workload_history
 
-分析 workload 历史记录。
+Analyze workload history records.
 
-**参数：**
-- `time_range_days`: 时间范围（天数）
-- `namespace`: 筛选的 namespace（可选）
-- `kind`: workload 类型（可选）
-- `status`: workload 状态（可选）
-- `sort_by`: 排序字段
-- `limit`: 返回数量
+**Parameters:**
+- `time_range_days`: Time range (days)
+- `namespace`: Filter by namespace (optional)
+- `kind`: Workload type (optional)
+- `status`: Workload status (optional)
+- `sort_by`: Sort field
+- `limit`: Return count
 
 #### 3. get_latest_snapshot
 
-获取最新的 GPU 分配快照（实时状态）。
+Get the latest GPU allocation snapshot (real-time status).
 
 #### 4. get_workload_metadata
 
-获取 workload 元数据（所有 namespaces 和 kinds）。
+Get workload metadata (all namespaces and kinds).
 
-### 元数据发现工具 ✨
+### Metadata Discovery Tools ✨
 
 #### 5. get_available_clusters
 
-获取所有可用的集群列表。
+Get list of all available clusters.
 
-**使用场景：** 用户没有指定集群或不确定有哪些集群时。
+**Use Case:** When user hasn't specified a cluster or is unsure which clusters exist.
 
 #### 6. get_available_namespaces
 
-获取指定时间范围内有 GPU 分配数据的 namespaces。
+Get namespaces with GPU allocation data within the specified time range.
 
-**参数：**
-- `time_range_days`: 时间范围（默认 7 天）
-- `cluster`: 集群名称（可选）
+**Parameters:**
+- `time_range_days`: Time range (default 7 days)
+- `cluster`: Cluster name (optional)
 
-**使用场景：** 展示最近活跃的 namespaces，帮助用户选择。
+**Use Case:** Show recently active namespaces to help user choose.
 
 #### 7. get_available_dimension_keys
 
-获取可用的 label 或 annotation keys。
+Get available label or annotation keys.
 
-**参数：**
-- `dimension_type`: "label" 或 "annotation"
-- `time_range_days`: 时间范围（默认 7 天）
-- `cluster`: 集群名称（可选）
+**Parameters:**
+- `dimension_type`: "label" or "annotation"
+- `time_range_days`: Time range (default 7 days)
+- `cluster`: Cluster name (optional)
 
-**使用场景：** 用户想按 label 筛选但不知道有哪些可用的 keys。
+**Use Case:** When user wants to filter by label but doesn't know which keys are available.
 
-## 开发指南
+## Development Guide
 
-### 目录结构
+### Directory Structure
 
 ```
 agents/
 ├── __init__.py
 ├── gpu_usage_agent/
 │   ├── __init__.py
-│   ├── agent.py              # Agent 主逻辑
-│   ├── tools.py              # 工具集定义
-│   ├── prompts.py            # Prompt 模板
-│   ├── state.py              # 状态定义
-│   └── data_access.py        # 数据访问层
+│   ├── agent.py              # Agent main logic
+│   ├── tools.py              # Tool set definitions
+│   ├── prompts.py            # Prompt templates
+│   ├── state.py              # State definitions
+│   └── data_access.py        # Data access layer
 ├── api/
-│   └── main.py               # FastAPI 应用
+│   └── main.py               # FastAPI application
 ├── config/
-│   └── config.yaml           # 配置文件
+│   └── config.yaml           # Configuration file
 ├── tests/
 │   ├── test_agent.py
 │   └── test_tools.py
@@ -338,58 +368,58 @@ agents/
 └── README.md
 ```
 
-### 添加新工具
+### Adding New Tools
 
-1. 在 `tools.py` 中定义新工具：
+1. Define new tool in `tools.py`:
 ```python
 @tool
 def your_new_tool(param1: str, param2: int) -> str:
-    """工具描述"""
-    # 实现逻辑
+    """Tool description"""
+    # Implementation logic
     return result
 ```
 
-2. 将工具添加到工具列表：
+2. Add tool to tool list:
 ```python
 def get_tools(self) -> List:
     return [
         self.query_gpu_usage_trend,
         self.analyze_workload_history,
-        self.your_new_tool,  # 新工具
+        self.your_new_tool,  # New tool
         # ...
     ]
 ```
 
-### 自定义 Prompt
+### Custom Prompts
 
-编辑 `prompts.py` 文件，修改各阶段的 Prompt 模板。
+Edit the `prompts.py` file to modify prompt templates for each phase.
 
-### 扩展数据访问层
+### Extend Data Access Layer
 
-在 `data_access.py` 中添加新的 API 调用方法。
+Add new API call methods in `data_access.py`.
 
-## 测试
+## Testing
 
 ```bash
-# 运行所有测试
+# Run all tests
 pytest tests/
 
-# 运行特定测试
+# Run specific test
 pytest tests/test_agent.py
 
-# 带覆盖率报告
+# With coverage report
 pytest --cov=gpu_usage_agent tests/
 ```
 
-## 部署
+## Deployment
 
-### Docker 部署
+### Docker Deployment
 
 ```bash
-# 构建镜像
+# Build image
 docker build -t gpu-usage-agent:latest .
 
-# 运行容器
+# Run container
 docker run -d \
   -p 8001:8001 \
   -e LENS_API_URL=http://lens-api:8080 \
@@ -414,128 +444,127 @@ services:
       - lens-api
 ```
 
-## 性能优化
+## Performance Optimization
 
-### 1. 缓存策略
+### 1. Caching Strategy
 
-- Redis 缓存热门查询结果（TTL: 5分钟）
-- 语义缓存复用相似查询
+- Redis cache for popular query results (TTL: 5 minutes)
+- Semantic cache to reuse similar queries
 
-### 2. LLM 调用优化
+### 2. LLM Call Optimization
 
-- 简单查询使用规则匹配，不调用 LLM
-- 意图识别使用更便宜的模型
-- 设置合理的超时时间
+- Use rule matching for simple queries without calling LLM
+- Use cheaper models for intent recognition
+- Set reasonable timeout periods
 
-### 3. 并行处理
+### 3. Parallel Processing
 
-- 并行调用多个工具
-- 异步流式输出
+- Parallel calls to multiple tools
+- Asynchronous streaming output
 
-## 监控与可观测性
+## Monitoring and Observability
 
-### 业务指标
+### Business Metrics
 
-- 查询响应时间（P50/P95/P99）
-- 意图识别准确率
-- 工具调用成功率
+- Query response time (P50/P95/P99)
+- Intent recognition accuracy
+- Tool call success rate
 
-### 技术指标
+### Technical Metrics
 
-- LLM 调用次数和耗时
-- API 查询耗时
-- 错误率
+- LLM call count and duration
+- API query duration
+- Error rate
 
-## 未来优化方向
+## Future Optimization Directions
 
-### 短期（1-2周）
+### Short-term (1-2 weeks)
 
-- [x] 实现基础工具集
-- [x] 搭建 Agent 框架和状态机
-- [x] 完成 API 接口
-- [ ] 完成单元测试
-- [ ] Docker 化部署
+- [x] Implement basic tool set
+- [x] Build agent framework and state machine
+- [x] Complete API interface
+- [ ] Complete unit tests
+- [ ] Dockerize deployment
 
-### 中期（1-2月）
+### Mid-term (1-2 months)
 
-- [ ] 引入流式输出和实时反馈
-- [ ] 优化 Prompt，提升意图识别准确率
-- [ ] 添加对比分析和下钻分析功能
-- [ ] 添加可视化图表生成
+- [ ] Introduce streaming output and real-time feedback
+- [ ] Optimize prompts to improve intent recognition accuracy
+- [ ] Add comparison analysis and drill-down analysis
+- [ ] Add visualization chart generation
 
-### 长期（3-6月）
+### Long-term (3-6 months)
 
-- [ ] 异常检测功能
-- [ ] 成本分析功能
-- [ ] 知识库检索功能
-- [ ] 主动异常告警和建议
+- [ ] Anomaly detection functionality
+- [ ] Cost analysis functionality
+- [ ] Knowledge base retrieval functionality
+- [ ] Proactive anomaly alerts and recommendations
 
-## 常见问题
+## FAQ
 
-### Q1: 如何保证分析的准确性？
+### Q1: How to ensure analysis accuracy?
 
-A: 所有结论都基于实际数据，LLM 只负责理解和表达，不做数据计算。关键指标来自可靠的数据源（PostgreSQL、Prometheus）。
+A: All conclusions are based on actual data. LLM is only responsible for understanding and expression, not data calculation. Key metrics come from reliable data sources (PostgreSQL, Prometheus).
 
-### Q2: 如何控制 LLM 成本？
+### Q2: How to control LLM costs?
 
 A: 
-- 使用语义缓存复用相似查询结果
-- 简单查询使用规则匹配
-- 意图识别使用更便宜的模型（如 GPT-3.5）
+- Use semantic cache to reuse similar query results
+- Use rule matching for simple queries
+- Use cheaper models for intent recognition (e.g., GPT-3.5)
 
-### Q3: 支持哪些语言？
+### Q3: Which languages are supported?
 
-A: 初期支持中文和英文，Prompt 设计支持多语言。
+A: Initially supports Chinese and English. Prompt design supports multilingual.
 
-### Q4: 如何处理复杂的多轮对话？
+### Q4: How to handle complex multi-turn dialogues?
 
 A:
-- 维护完整的对话历史
-- 使用上下文引用解析（指代消解）
-- 支持追问和澄清
-- 保持会话状态
+- Maintain complete conversation history
+- Use context reference resolution (anaphora resolution)
+- Support follow-up questions and clarifications
+- Maintain session state
 
-### Q5: Agent 如何知道应该询问哪些信息？ ✨
+### Q5: How does the agent know what information to ask for? ✨
 
-A: Agent 通过增强的意图识别 Prompt 自动判断：
-- 检测缺失的必要信息（集群、namespace、时间范围等）
-- 自动获取可用选项（调用元数据 API）
-- 使用 LLM 生成友好的提问和选项展示
-- 详见 [METADATA_INTERACTION.md](METADATA_INTERACTION.md)
+A: The agent automatically determines through enhanced intent recognition prompts:
+- Detects missing necessary information (cluster, namespace, time range, etc.)
+- Automatically fetches available options (calls metadata API)
+- Uses LLM to generate friendly questions and option displays
+- See [METADATA_INTERACTION.md](METADATA_INTERACTION.md) for details
 
-## 相关文档
+## Related Documentation
 
-- 设置指南：[SETUP_GUIDE.md](SETUP_GUIDE.md)
-- 项目结构：[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)
-- 元数据交互：[METADATA_INTERACTION.md](METADATA_INTERACTION.md) ✨
-- GPU Aggregation API：[../../docs/api/gpu-aggregation.md](../../docs/api/gpu-aggregation.md)
+- Setup Guide: [SETUP_GUIDE.md](SETUP_GUIDE.md)
+- Project Structure: [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)
+- Metadata Interaction: [METADATA_INTERACTION.md](METADATA_INTERACTION.md) ✨
+- GPU Aggregation API: [../../docs/api/gpu-aggregation.md](../../docs/api/gpu-aggregation.md)
 
 ## License
 
 [MIT License](LICENSE)
 
-## 维护者
+## Maintainers
 
 AMD-AGI Team
 
-## 更新日志
+## Changelog
 
 ### v1.1.0 (2025-11-06) ✨
 
-- **新增智能元数据交互功能**
-  - 自动获取可用集群列表
-  - 展示可选的 namespace 列表
-  - 提供可用的 label/annotation keys
-  - 友好的反问机制
-- 增强的 Prompt 模板
-- 新增 3 个元数据工具
-- 完善的测试用例
-- 详细的交互文档
+- **New Intelligent Metadata Interaction Features**
+  - Automatically fetch available cluster list
+  - Display optional namespace list
+  - Provide available label/annotation keys
+  - Friendly follow-up question mechanism
+- Enhanced prompt templates
+- Added 3 metadata tools
+- Complete test cases
+- Detailed interaction documentation
 
 ### v1.0.0 (2025-11-05)
 
-- 初始版本发布
-- 实现基础的趋势分析和实时查询功能
-- 支持集群、namespace、label 多维度分析
-- 提供 REST API 接口
-
+- Initial version release
+- Implemented basic trend analysis and real-time query functionality
+- Support multi-dimensional analysis across cluster, namespace, and label
+- Provided REST API interface

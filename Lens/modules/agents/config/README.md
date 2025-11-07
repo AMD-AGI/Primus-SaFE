@@ -1,25 +1,25 @@
-# 配置说明
+# Configuration Guide
 
-## 配置文件加载优先级
+## Configuration File Loading Priority
 
-配置加载遵循以下优先级（从高到低）：
+Configuration loading follows the following priority (from high to low):
 
-1. **环境变量** - 优先级最高
-2. **config.local.yaml** - 本地配置（不会提交到 Git）
-3. **config.yaml** - 默认配置
+1. **Environment Variables** - Highest priority
+2. **config.local.yaml** - Local configuration (not committed to Git)
+3. **config.yaml** - Default configuration
 
-## 使用方法
+## Usage
 
-### 方法 1: 使用配置文件（推荐）
+### Method 1: Using Configuration File (Recommended)
 
-创建本地配置文件：
+Create a local configuration file:
 
 ```bash
 cd Lens/modules/agents
 cp config/config.yaml config/config.local.yaml
 ```
 
-编辑 `config.local.yaml`，修改需要的配置项：
+Edit `config.local.yaml` and modify the required configuration items:
 
 ```yaml
 # Lens API Configuration
@@ -43,15 +43,15 @@ agent:
   timeout: 120
 ```
 
-然后直接启动：
+Then start directly:
 
 ```bash
 python -m api.main
 ```
 
-### 方法 2: 使用环境变量
+### Method 2: Using Environment Variables
 
-环境变量会覆盖配置文件中的值：
+Environment variables will override values in the configuration file:
 
 ```bash
 # Linux/Mac
@@ -68,111 +68,111 @@ $env:LLM_MODEL="deepseek-ai/DeepSeek-V3-0324"
 $env:LLM_API_KEY="EMPTY"
 $env:LLM_BASE_URL="https://tw325.primus-safe.amd.com/deepseekv3/v1"
 
-# 然后启动
+# Then start
 python -m api.main
 ```
 
-### 方法 3: 指定配置文件路径
+### Method 3: Specifying Configuration File Path
 
-使用 `CONFIG_FILE` 环境变量指定配置文件：
+Use the `CONFIG_FILE` environment variable to specify the configuration file:
 
 ```bash
 export CONFIG_FILE="/path/to/your/config.yaml"
 python -m api.main
 ```
 
-## 支持的环境变量
+## Supported Environment Variables
 
-### API 配置
-- `API_HOST` - API 监听地址（默认: 0.0.0.0）
-- `API_PORT` - API 端口（默认: 8001）
+### API Configuration
+- `API_HOST` - API listening address (default: 0.0.0.0)
+- `API_PORT` - API port (default: 8001)
 
-### Lens API 配置
-- `LENS_API_URL` - Lens API 地址
-- `CLUSTER_NAME` - 集群名称
-- `LENS_TIMEOUT` - 请求超时时间（秒）
+### Lens API Configuration
+- `LENS_API_URL` - Lens API address
+- `CLUSTER_NAME` - Cluster name
+- `LENS_TIMEOUT` - Request timeout (seconds)
 
-### LLM 配置
-- `LLM_PROVIDER` - LLM 提供商（openai/anthropic）
-- `LLM_MODEL` - 模型名称
-- `LLM_API_KEY` - API 密钥
-- `LLM_BASE_URL` - 自定义 API 端点
-- `LLM_TEMPERATURE` - 温度参数
-- `LLM_MAX_TOKENS` - 最大 token 数
+### LLM Configuration
+- `LLM_PROVIDER` - LLM provider (openai/anthropic)
+- `LLM_MODEL` - Model name
+- `LLM_API_KEY` - API key
+- `LLM_BASE_URL` - Custom API endpoint
+- `LLM_TEMPERATURE` - Temperature parameter
+- `LLM_MAX_TOKENS` - Maximum token count
 
-### Agent 配置
-- `AGENT_MAX_ITERATIONS` - 最大迭代次数
-- `AGENT_TIMEOUT` - 超时时间（秒）
+### Agent Configuration
+- `AGENT_MAX_ITERATIONS` - Maximum iteration count
+- `AGENT_TIMEOUT` - Timeout (seconds)
 
-### 日志配置
-- `LOG_LEVEL` - 日志级别（DEBUG/INFO/WARNING/ERROR）
+### Logging Configuration
+- `LOG_LEVEL` - Log level (DEBUG/INFO/WARNING/ERROR)
 
-## 配置文件说明
+## Configuration File Description
 
-### 完整配置示例
+### Complete Configuration Example
 
-查看 `config.yaml` 获取完整的配置项说明。
+See `config.yaml` for complete configuration item descriptions.
 
-### 主要配置项
+### Main Configuration Items
 
-#### API 配置
+#### API Configuration
 ```yaml
 api:
-  host: "0.0.0.0"        # 监听地址
-  port: 8001             # 端口
+  host: "0.0.0.0"        # Listening address
+  port: 8001             # Port
   title: "GPU Usage Analysis Agent API"
   version: "1.0.0"
   cors:
-    enabled: true        # 是否启用 CORS
+    enabled: true        # Enable CORS
     origins:
-      - "*"              # 允许的来源
+      - "*"              # Allowed origins
 ```
 
-#### Lens API 配置
+#### Lens API Configuration
 ```yaml
 lens:
-  api_url: "http://localhost:30182"    # Lens API 地址
-  cluster_name: "x-flannel"            # 默认集群名称
-  timeout: 30                          # 请求超时时间（秒）
+  api_url: "http://localhost:30182"    # Lens API address
+  cluster_name: "x-flannel"            # Default cluster name
+  timeout: 30                          # Request timeout (seconds)
 ```
 
-#### LLM 配置
+#### LLM Configuration
 ```yaml
 llm:
   provider: "openai"                   # openai, anthropic, local
   model: "deepseek-ai/DeepSeek-V3-0324"
-  api_key: "EMPTY"                     # API 密钥
+  api_key: "EMPTY"                     # API key
   base_url: "https://tw325.primus-safe.amd.com/deepseekv3/v1"
-  temperature: 0                       # 温度参数
-  max_tokens: 2000                     # 最大 token 数
+  temperature: 0                       # Temperature parameter
+  max_tokens: 2000                     # Maximum token count
 ```
 
-#### Agent 配置
+#### Agent Configuration
 ```yaml
 agent:
-  max_iterations: 10                   # 最大迭代次数
-  timeout: 120                         # 超时时间（秒）
+  max_iterations: 10                   # Maximum iteration count
+  timeout: 120                         # Timeout (seconds)
   
   features:
-    trend_analysis: true               # 趋势分析
-    comparison: true                   # 对比分析
-    drill_down: true                   # 根因下钻
-    anomaly_detection: false           # 异常检测（未实现）
-    cost_analysis: false               # 成本分析（未实现）
+    trend_analysis: true               # Trend analysis
+    comparison: true                   # Comparison analysis
+    drill_down: true                   # Root cause drill-down
+    anomaly_detection: false           # Anomaly detection (not implemented)
+    cost_analysis: false               # Cost analysis (not implemented)
 ```
 
-## 最佳实践
+## Best Practices
 
-1. **开发环境**: 使用 `config.local.yaml` 配置本地开发环境
-2. **生产环境**: 使用环境变量或 Docker secrets 管理敏感配置
-3. **不要提交敏感信息**: 将 `config.local.yaml` 加入 `.gitignore`
-4. **使用不同的配置文件**: 为不同环境创建不同的配置文件
+1. **Development Environment**: Use `config.local.yaml` to configure local development environment
+2. **Production Environment**: Use environment variables or Docker secrets to manage sensitive configuration
+3. **Don't Commit Sensitive Information**: Add `config.local.yaml` to `.gitignore`
+4. **Use Different Configuration Files**: Create different configuration files for different environments
 
-## 示例场景
+## Example Scenarios
 
-### 场景 1: 本地开发
+### Scenario 1: Local Development
 
-创建 `config.local.yaml`:
+Create `config.local.yaml`:
 ```yaml
 lens:
   api_url: "http://localhost:30182"
@@ -185,23 +185,23 @@ llm:
   base_url: "https://tw325.primus-safe.amd.com/deepseekv3/v1"
 ```
 
-启动：
+Start:
 ```bash
 python -m api.main
 ```
 
-### 场景 2: 测试不同的 LLM
+### Scenario 2: Testing Different LLMs
 
-通过环境变量临时切换：
+Temporarily switch via environment variables:
 ```bash
 export LLM_MODEL="gpt-4-turbo"
 export LLM_BASE_URL=""
 python -m api.main
 ```
 
-### 场景 3: Docker 部署
+### Scenario 3: Docker Deployment
 
-使用环境变量：
+Use environment variables:
 ```bash
 docker run -d \
   -e LENS_API_URL="http://lens-api:8080" \
@@ -211,36 +211,35 @@ docker run -d \
   gpu-usage-agent
 ```
 
-### 场景 4: 多集群支持
+### Scenario 4: Multi-Cluster Support
 
-不设置默认集群，在请求中指定：
+Don't set default cluster, specify in request:
 ```yaml
 lens:
   api_url: "http://localhost:30182"
-  cluster_name: null  # 不设置默认值
+  cluster_name: null  # Don't set default value
 ```
 
-请求时指定：
+Specify in request:
 ```bash
 curl -X POST "http://localhost:8001/api/gpu-analysis/chat" \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "当前集群GPU使用率？",
+    "query": "What is the current GPU utilization of the cluster?",
     "cluster_name": "x-flannel"
   }'
 ```
 
-## 故障排查
+## Troubleshooting
 
-### 配置文件未找到
-如果没有配置文件，程序会使用默认配置，但需要通过环境变量提供必要的值（如 API_KEY）。
+### Configuration File Not Found
+If no configuration file is found, the program will use default configuration, but necessary values (like API_KEY) need to be provided via environment variables.
 
-### 环境变量不生效
-确保在启动程序之前设置环境变量，或在同一命令中设置：
+### Environment Variables Not Taking Effect
+Make sure to set environment variables before starting the program, or set them in the same command:
 ```bash
 LENS_API_URL="http://localhost:30182" python -m api.main
 ```
 
-### 查看当前配置
-启动时会打印配置信息，检查日志确认配置是否正确加载。
-
+### View Current Configuration
+Configuration information will be printed at startup. Check the logs to confirm if the configuration is loaded correctly.

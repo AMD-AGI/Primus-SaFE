@@ -1,47 +1,47 @@
 #!/bin/bash
-# GPU Usage Analysis Agent 启动脚本
+# GPU Usage Analysis Agent Startup Script
 
 set -e
 
 echo "=========================================="
-echo "启动 GPU Usage Analysis Agent"
+echo "Starting GPU Usage Analysis Agent"
 echo "=========================================="
 
-# 检查环境变量
+# Check environment variables
 if [ -z "$LLM_API_KEY" ]; then
-    echo "警告: LLM_API_KEY 未设置"
-    echo "请设置环境变量或在 .env 文件中配置"
+    echo "Warning: LLM_API_KEY is not set"
+    echo "Please set the environment variable or configure it in the .env file"
 fi
 
 
-echo "配置信息:"
+echo "Configuration:"
 echo "  - Lens API URL: $LENS_API_URL"
 echo "  - LLM Provider: $LLM_PROVIDER"
 echo "  - LLM Model: $LLM_MODEL"
 echo ""
 
-# 检查 Python 版本
+# Check Python version
 python_version=$(python --version 2>&1 | awk '{print $2}')
-echo "Python 版本: $python_version"
+echo "Python version: $python_version"
 
-# 安装依赖（如果需要）
+# Install dependencies (if needed)
 if [ ! -d "venv" ]; then
-    echo "创建虚拟环境..."
+    echo "Creating virtual environment..."
     python -m venv venv
 fi
 
-echo "激活虚拟环境..."
+echo "Activating virtual environment..."
 source venv/bin/activate
 
-echo "安装依赖..."
+echo "Installing dependencies..."
 pip install -q -r requirements.txt
 
 echo ""
 echo "=========================================="
-echo "启动服务..."
+echo "Starting service..."
 echo "=========================================="
 echo ""
 
-# 启动服务（从根目录运行，不要 cd 到 api）
+# Start the service (run from root directory, do not cd to api)
 python -m api.main
 
