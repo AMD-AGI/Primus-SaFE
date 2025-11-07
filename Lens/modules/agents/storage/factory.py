@@ -46,7 +46,8 @@ def create_storage(
             password=kwargs.get("password", ""),
             min_connections=kwargs.get("min_connections", 1),
             max_connections=kwargs.get("max_connections", 10),
-            schema=kwargs.get("schema", "public")
+            schema=kwargs.get("schema", "public"),
+            sslmode=kwargs.get("sslmode", "prefer")
         )
     
     else:
