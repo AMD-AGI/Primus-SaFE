@@ -66,9 +66,9 @@ data:
     alter table workload add column if not exists workload_uid VARCHAR(36);
     alter table workload add column if not exists ranks TEXT;
     alter table workload add column if not exists cron_jobs TEXT;
-    alter table workload rename column if exists scheduler_order to queue_position;
-    alter table workload rename column if exists create_time to creation_time;
-    alter table workload rename column if exists delete_time to deletion_time;
+    alter table workload rename column scheduler_order to queue_position;
+    alter table workload rename column create_time to creation_time;
+    alter table workload rename column delete_time to deletion_time;
     create index if not exists T_WORKLOAD_CREATION_TIME_INDEX on workload (creation_time);
 
     create table if not exists fault
@@ -88,8 +88,8 @@ data:
     );
 
     create index if not exists T_FAULT_UUID_INDEX on fault (uid);
-    alter table fault rename column if exists create_time to creation_time;
-    alter table fault rename column if exists delete_time to deletion_time;
+    alter table fault rename column create_time to creation_time;
+    alter table fault rename column delete_time to deletion_time;
     create index if not exists T_FAULT_CREATION_TIME_INDEX on fault (creation_time);
 
     create table if not exists ops_job
@@ -123,8 +123,8 @@ data:
     alter table ops_job add column if not exists entrypoint TEXT;
     alter table ops_job add column if not exists is_tolerate_all boolean default false;
     alter table ops_job add column if not exists hostpath TEXT;
-    alter table ops_job rename column if exists create_time to creation_time;
-    alter table ops_job rename column if exists delete_time to deletion_time;
+    alter table ops_job rename column create_time to creation_time;
+    alter table ops_job rename column delete_time to deletion_time;
     create index if not exists T_JOB_CREATION_TIME_INDEX on ops_job (creation_time);
 
     create table if not exists registry_info
