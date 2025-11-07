@@ -191,10 +191,7 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	dbSql, orderBy, err := cvtToListWorkloadSql(query)
-	if err != nil {
-		return nil, err
-	}
+	dbSql, orderBy := cvtToListWorkloadSql(query)
 	ctx := c.Request.Context()
 	workloads, err := h.dbClient.SelectWorkloads(ctx, dbSql, orderBy, query.Limit, query.Offset)
 	if err != nil {
@@ -519,7 +516,7 @@ func (h *Handler) getWorkloadForAuth(ctx context.Context, workloadId string) (*v
 		return nil, err
 	}
 	adminWorkload := generateWorkloadForAuth(workloadId, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-	adminWorkload.CreationTimestamp = metav1.NewTime(dbutils.ParseNullTime(dbWorkload.CreateTime))
+	adminWorkload.CreationTimestamp = metav1.NewTime(dbutils.ParseNullTime(dbWorkload.CreationTime))
 	endTime := dbutils.ParseNullTime(dbWorkload.EndTime)
 	if !endTime.IsZero() {
 		adminWorkload.Status.EndTime = &metav1.Time{Time: endTime}
@@ -734,7 +731,7 @@ func parseGetPodLogQuery(c *gin.Context, mainContainerName string) (*types.GetPo
 
 // cvtToListWorkloadSql converts workload list query parameters into a database SQL query.
 // Builds WHERE conditions and ORDER BY clauses based on filter parameters.
-func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []string, error) {
+func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []string) {
 	dbTags := dbclient.GetWorkloadFieldTags()
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
@@ -772,14 +769,14 @@ func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []str
 	}
 	if sinceTime := strings.TrimSpace(query.Since); sinceTime != "" {
 		if t, err := timeutil.CvtStrToRFC3339Milli(sinceTime); err == nil {
-			dbSql = append(dbSql, sqrl.GtOrEq{dbclient.GetFieldTag(dbTags, "CreateTime"): t})
+			dbSql = append(dbSql, sqrl.GtOrEq{dbclient.GetFieldTag(dbTags, "CreationTime"): t})
 		} else {
 			klog.ErrorS(err, "failed to parse since time")
 		}
 	}
 	if untilTime := strings.TrimSpace(query.Until); untilTime != "" {
 		if t, err := timeutil.CvtStrToRFC3339Milli(untilTime); err == nil {
-			dbSql = append(dbSql, sqrl.LtOrEq{dbclient.GetFieldTag(dbTags, "CreateTime"): t})
+			dbSql = append(dbSql, sqrl.LtOrEq{dbclient.GetFieldTag(dbTags, "CreationTime"): t})
 		} else {
 			klog.ErrorS(err, "failed to parse until time")
 		}
@@ -799,35 +796,34 @@ func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []str
 			dbclient.GetFieldTag(dbTags, "WorkloadId"): fmt.Sprintf("%%%s%%", workloadId),
 		})
 	}
-	orderBy := buildListWorkloadOrderBy(query, dbTags)
-	return dbSql, orderBy, nil
+	orderBy := buildOrderBy(query.SortBy, query.Order, dbTags)
+	return dbSql, orderBy
 }
 
-// buildListWorkloadOrderBy constructs the ORDER BY clause for workload listing queries.
-// Handles sorting by specified fields with proper NULL handling.
-func buildListWorkloadOrderBy(query *types.ListWorkloadRequest, dbTags map[string]string) []string {
+// buildOrderBy constructs ORDER BY clause for input parameters.
+// Handles primary sort field with null ordering, and adds creation_time as secondary sort.
+// Returns formatted ORDER BY expressions.
+func buildOrderBy(sortBy, order string, dbTags map[string]string) []string {
 	var nullOrder string
-	if query.Order == dbclient.DESC {
+	if order == dbclient.DESC {
 		nullOrder = "NULLS FIRST"
 	} else {
 		nullOrder = "NULLS LAST"
 	}
-	createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
 
 	var orderBy []string
-	isSortByCreationTime := false
-	if query.SortBy != "" {
-		sortBy := strings.TrimSpace(query.SortBy)
-		sortBy = dbclient.GetFieldTag(dbTags, sortBy)
-		if sortBy != "" {
-			if stringutil.StrCaseEqual(query.SortBy, createTime) {
-				isSortByCreationTime = true
-			}
-			orderBy = append(orderBy, fmt.Sprintf("%s %s %s", sortBy, query.Order, nullOrder))
-		}
+	sortBy = strings.TrimSpace(sortBy)
+	sortByTag := dbclient.GetFieldTag(dbTags, sortBy)
+	if sortByTag != "" {
+		orderBy = append(orderBy, fmt.Sprintf("%s %s %s", sortByTag, order, nullOrder))
 	}
-	if !isSortByCreationTime {
-		orderBy = append(orderBy, fmt.Sprintf("%s %s", createTime, dbclient.DESC))
+
+	creationTimeTag := dbclient.GetFieldTag(dbTags, "CreationTime")
+	if sortByTag != creationTimeTag {
+		if len(orderBy) > 0 {
+			order = dbclient.DESC
+		}
+		orderBy = append(orderBy, fmt.Sprintf("%s %s %s", creationTimeTag, order, nullOrder))
 	}
 	return orderBy
 }
@@ -890,24 +886,24 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 	w *dbclient.Workload,
 ) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
-		WorkloadId:     w.WorkloadId,
-		WorkspaceId:    w.Workspace,
-		ClusterId:      w.Cluster,
-		Phase:          dbutils.ParseNullString(w.Phase),
-		CreationTime:   dbutils.ParseNullTimeToString(w.CreateTime),
-		StartTime:      dbutils.ParseNullTimeToString(w.StartTime),
-		EndTime:        dbutils.ParseNullTimeToString(w.EndTime),
-		DeletionTime:   dbutils.ParseNullTimeToString(w.DeleteTime),
-		SchedulerOrder: w.SchedulerOrder,
-		DispatchCount:  w.DispatchCount,
-		DisplayName:    w.DisplayName,
-		Description:    dbutils.ParseNullString(w.Description),
-		UserId:         dbutils.ParseNullString(w.UserId),
-		UserName:       dbutils.ParseNullString(w.UserName),
-		Priority:       w.Priority,
-		IsTolerateAll:  w.IsTolerateAll,
-		WorkloadUid:    dbutils.ParseNullString(w.WorkloadUId),
-		K8sObjectUid:   dbutils.ParseNullString(w.K8sObjectUid),
+		WorkloadId:    w.WorkloadId,
+		WorkspaceId:   w.Workspace,
+		ClusterId:     w.Cluster,
+		Phase:         dbutils.ParseNullString(w.Phase),
+		CreationTime:  dbutils.ParseNullTimeToString(w.CreationTime),
+		StartTime:     dbutils.ParseNullTimeToString(w.StartTime),
+		EndTime:       dbutils.ParseNullTimeToString(w.EndTime),
+		DeletionTime:  dbutils.ParseNullTimeToString(w.DeletionTime),
+		QueuePosition: w.QueuePosition,
+		DispatchCount: w.DispatchCount,
+		DisplayName:   w.DisplayName,
+		Description:   dbutils.ParseNullString(w.Description),
+		UserId:        dbutils.ParseNullString(w.UserId),
+		UserName:      dbutils.ParseNullString(w.UserName),
+		Priority:      w.Priority,
+		IsTolerateAll: w.IsTolerateAll,
+		WorkloadUid:   dbutils.ParseNullString(w.WorkloadUId),
+		K8sObjectUid:  dbutils.ParseNullString(w.K8sObjectUid),
 	}
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
@@ -918,9 +914,9 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 		if err != nil || endTime.After(nowTime) {
 			endTime = nowTime
 		}
-		result.RunTime = timeutil.FormatDuration(int64(endTime.Sub(startTime).Seconds()))
+		result.Duration = timeutil.FormatDuration(int64(endTime.Sub(startTime).Seconds()))
 	} else {
-		result.RunTime = "0s"
+		result.Duration = "0s"
 	}
 	json.Unmarshal([]byte(w.GVK), &result.GroupVersionKind)
 	json.Unmarshal([]byte(w.Resource), &result.Resource)

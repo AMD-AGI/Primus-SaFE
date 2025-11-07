@@ -13,6 +13,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -80,6 +81,10 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 	}
 
 	if message.action == ResourceDel && !adminWorkload.IsEnd() {
+		// wait until the job is also deleted
+		if !r.waitJobDeleted(ctx, adminWorkload, informer) {
+			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
+		}
 		if err = r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
 			klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
 			return ctrlruntime.Result{}, err
@@ -149,6 +154,20 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *reso
 		return true
 	}
 	klog.Warningf("the pods of this workload %s still exist, this will retry again in 3 seconds.", message.workloadId)
+	return false
+}
+
+func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, adminWorkload *v1.Workload, informer *ClusterInformer) bool {
+	obj, err := jobutils.GenObjectReference(ctx, r.Client, adminWorkload)
+	if err != nil {
+		return false
+	}
+	if _, err = jobutils.GetObjectByClientFactory(ctx, informer.ClientFactory(), obj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true
+		}
+	}
+	klog.Warningf("the job of this workload %s still exist, this will retry again in 3 seconds.", adminWorkload.Name)
 	return false
 }
 
@@ -340,9 +359,7 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sRes
 		}
 	} else {
 		currentCondition := jobutils.FindCondition(adminWorkload, newCondition)
-		if currentCondition != nil {
-			*currentCondition = *newCondition
-		} else {
+		if currentCondition == nil {
 			adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
 		}
 	}

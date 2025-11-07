@@ -57,7 +57,6 @@ data:
     );
 
     create index if not exists T_WORKLOAD_ID_INDEX on workload (workload_id);
-    create index if not exists T_WORKLOAD_CREATE_TIME_INDEX  on workload (create_time);
     create index if not exists T_WORKLOAD_DISPATCH_CNT_INDEX on workload (dispatch_count);
     create index if not exists T_WORKLOAD_WORKSPACE_INDEX on workload (workspace);
     create index if not exists T_WORKLOAD_ENDTIME_INDEX on workload (end_time);
@@ -67,6 +66,10 @@ data:
     alter table workload add column if not exists workload_uid VARCHAR(36);
     alter table workload add column if not exists ranks TEXT;
     alter table workload add column if not exists cron_jobs TEXT;
+    alter table workload change column if exists scheduler_order queue_position int default 0;
+    alter table workload change column if exists create_time creation_time TIMESTAMP;
+    alter table workload change column if exists delete_time deletion_time TIMESTAMP;
+    create index if not exists T_WORKLOAD_CREATION_TIME_INDEX  on workload (creation_time);
 
     create table if not exists fault
     (
@@ -84,8 +87,10 @@ data:
         is_auto_repaired boolean
     );
 
-    create index if not exists T_FAULT_CREATE_TIME_INDEX on fault (create_time);
     create index if not exists T_FAULT_UUID_INDEX on fault (uid);
+    alter table fault change column if exists create_time creation_time TIMESTAMP;
+    alter table fault change column if exists delete_time deletion_time TIMESTAMP;
+    create index if not exists T_FAULT_CREATION_TIME_INDEX on fault (creation_time);
 
     create table if not exists ops_job
     (
@@ -108,7 +113,6 @@ data:
     );
 
     create index if not exists T_JOB_ID_INDEX on ops_job (job_id);
-    create index if not exists T_JOB_CREATE_TIME_INDEX on ops_job (create_time);
     create index if not exists T_JOB_PHASE_INDEX on ops_job (phase);
     create index if not exists T_JOB_PARAMS_INDEX on ops_job (inputs);
 
@@ -119,6 +123,9 @@ data:
     alter table ops_job add column if not exists entrypoint TEXT;
     alter table ops_job add column if not exists is_tolerate_all boolean default false;
     alter table ops_job add column if not exists hostpath TEXT;
+    alter table ops_job change column if exists create_time creation_time TIMESTAMP;
+    alter table ops_job change column if exists delete_time deletion_time TIMESTAMP;
+    create index if not exists T_JOB_CREATION_TIME_INDEX on ops_job (creation_time);
 
     create table if not exists registry_info
     (

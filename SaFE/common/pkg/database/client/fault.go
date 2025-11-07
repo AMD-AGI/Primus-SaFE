@@ -56,23 +56,11 @@ func (c *Client) UpsertFault(ctx context.Context, fault *Fault) error {
 }
 
 // SelectFaults performs the SelectFaults operation.
-func (c *Client) SelectFaults(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*Fault, error) {
+func (c *Client) SelectFaults(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Fault, error) {
 	db, err := c.getDB()
 	if err != nil {
 		return nil, err
 	}
-	orderBy := func() []string {
-		var results []string
-		if sortBy == "" || order == "" {
-			return results
-		}
-		if order == DESC {
-			results = append(results, fmt.Sprintf("%s desc", sortBy))
-		} else {
-			results = append(results, fmt.Sprintf("%s asc", sortBy))
-		}
-		return results
-	}()
 	sql, args, err := sqrl.Select("*").PlaceholderFormat(sqrl.Dollar).
 		From(TFault).
 		Where(query).

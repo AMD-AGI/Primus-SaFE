@@ -269,7 +269,7 @@ func (h *Handler) buildListNodeResponse(ctx context.Context,
 			if i > 0 && item.Workspace.Id == result.Items[i-1].Workspace.Id {
 				item.Workspace.Name = result.Items[i-1].Workspace.Name
 			} else if item.Workspace.Name, err = h.getWorkspaceDisplayName(ctx, item.Workspace.Id); err != nil {
-				return nil, err
+				klog.ErrorS(err, "failed to get workspace display name", "workspaceId", item.Workspace.Id)
 			}
 		}
 		result.Items = append(result.Items, item)
@@ -303,7 +303,7 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 	result := cvtToGetNodeResponse(node, usedResource)
 	if result.Workspace.Id != "" {
 		if result.Workspace.Name, err = h.getWorkspaceDisplayName(ctx, result.Workspace.Id); err != nil {
-			return nil, err
+			klog.ErrorS(err, "failed to get workspace display name", "workspaceId", result.Workspace.Id)
 		}
 	}
 	return result, nil
@@ -457,26 +457,13 @@ func (h *Handler) listNodeRebootLog(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.ListNodeRebootLogRequest{}
-	if err := c.ShouldBindWith(req, binding.Query); err != nil {
+	if err = c.ShouldBindWith(req, binding.Query); err != nil {
 		klog.Errorf("failed to parse query err: %v", err)
 		return nil, err
 	}
 
-	dbTags := dbclient.GetOpsJobFieldTags()
-	createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
-	dbSql := sqrl.And{
-		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
-		sqrl.Expr("outputs::jsonb @> ?", fmt.Sprintf(`[{"value": "%s"}]`, node.Name)),
-		sqrl.Eq{dbclient.GetFieldTag(dbTags, "type"): v1.OpsJobRebootType},
-	}
-	if !req.SinceTime.IsZero() {
-		dbSql = append(dbSql, sqrl.GtOrEq{createTime: req.SinceTime})
-	}
-	if !req.UntilTime.IsZero() {
-		dbSql = append(dbSql, sqrl.LtOrEq{createTime: req.UntilTime})
-	}
-
-	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, req.SortBy, req.Order, req.Limit, req.Offset)
+	dbSql, orderBy := cvtToListNodeRebootSql(req, node)
+	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, orderBy, req.Limit, req.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -489,9 +476,9 @@ func (h *Handler) listNodeRebootLog(c *gin.Context) (interface{}, error) {
 	}
 	for _, job := range jobs {
 		result.Items = append(result.Items, types.NodeRebootLogResponseItem{
-			UserId:     dbutils.ParseNullString(job.UserId),
-			UserName:   dbutils.ParseNullString(job.UserName),
-			CreateTime: dbutils.ParseNullTimeToString(job.CreateTime),
+			UserId:       dbutils.ParseNullString(job.UserId),
+			UserName:     dbutils.ParseNullString(job.UserName),
+			CreationTime: dbutils.ParseNullTimeToString(job.CreationTime),
 		})
 	}
 
@@ -870,4 +857,22 @@ func getPrimusTaints(taints []corev1.Taint) []corev1.Taint {
 		}
 	}
 	return result
+}
+
+func cvtToListNodeRebootSql(query *types.ListNodeRebootLogRequest, node *v1.Node) (sqrl.Sqlizer, []string) {
+	dbTags := dbclient.GetOpsJobFieldTags()
+	createTime := dbclient.GetFieldTag(dbTags, "CreationTime")
+	dbSql := sqrl.And{
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
+		sqrl.Expr("outputs::jsonb @> ?", fmt.Sprintf(`[{"value": "%s"}]`, node.Name)),
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "type"): v1.OpsJobRebootType},
+	}
+	if !query.SinceTime.IsZero() {
+		dbSql = append(dbSql, sqrl.GtOrEq{createTime: query.SinceTime})
+	}
+	if !query.UntilTime.IsZero() {
+		dbSql = append(dbSql, sqrl.LtOrEq{createTime: query.UntilTime})
+	}
+	orderBy := buildOrderBy(query.SortBy, query.Order, dbTags)
+	return dbSql, orderBy
 }

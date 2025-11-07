@@ -37,7 +37,7 @@ var (
 		    start_time = :start_time,
 		    end_time = :end_time,
 		    delete_time = :delete_time,
-		    scheduler_order = :scheduler_order,
+		    queue_position = :queue_position,
 		    env = :env,
 		    description = :description,
 		    pods = :pods,

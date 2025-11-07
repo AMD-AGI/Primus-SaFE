@@ -69,8 +69,8 @@ func (h *Handler) listFault(c *gin.Context) (interface{}, error) {
 	}
 
 	ctx := c.Request.Context()
-	dbSql := cvtToListFaultSql(query)
-	faults, err := h.dbClient.SelectFaults(ctx, dbSql, query.SortBy, query.Order, query.Limit, query.Offset)
+	dbSql, orderBy := cvtToListFaultSql(query)
+	faults, err := h.dbClient.SelectFaults(ctx, dbSql, orderBy, query.Limit, query.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func parseListFaultQuery(c *gin.Context) (*types.ListFaultRequest, error) {
 	}
 	if query.SortBy == "" {
 		dbTags := dbclient.GetFaultFieldTags()
-		createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
+		createTime := dbclient.GetFieldTag(dbTags, "CreationTime")
 		query.SortBy = createTime
 	}
 	return query, nil
@@ -177,7 +177,7 @@ func parseListFaultQuery(c *gin.Context) (*types.ListFaultRequest, error) {
 
 // cvtToListFaultSql converts the fault list query parameters into an SQL query.
 // Builds WHERE conditions based on filter parameters like monitor ID, cluster ID, node ID, and open status.
-func cvtToListFaultSql(query *types.ListFaultRequest) sqrl.Sqlizer {
+func cvtToListFaultSql(query *types.ListFaultRequest) (sqrl.Sqlizer, []string) {
 	dbTags := dbclient.GetFaultFieldTags()
 	monitorId := dbclient.GetFieldTag(dbTags, "MonitorId")
 	dbSql := sqrl.And{}
@@ -198,9 +198,10 @@ func cvtToListFaultSql(query *types.ListFaultRequest) sqrl.Sqlizer {
 			dbclient.GetFieldTag(dbTags, "Node"): fmt.Sprintf("%%%s%%", nodeId)})
 	}
 	if query.OnlyOpen {
-		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "DeleteTime"): nil})
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "DeletionTime"): nil})
 	}
-	return dbSql
+	orderBy := buildOrderBy(query.SortBy, query.Order, dbTags)
+	return dbSql, orderBy
 }
 
 // cvtToFaultResponseItem converts a database fault record to a response item format.
@@ -214,7 +215,7 @@ func cvtToFaultResponseItem(f *dbclient.Fault) types.FaultResponseItem {
 		Action:       dbutils.ParseNullString(f.Action),
 		Phase:        dbutils.ParseNullString(f.Phase),
 		ClusterId:    dbutils.ParseNullString(f.Cluster),
-		CreationTime: dbutils.ParseNullTimeToString(f.CreateTime),
-		DeletionTime: dbutils.ParseNullTimeToString(f.DeleteTime),
+		CreationTime: dbutils.ParseNullTimeToString(f.CreationTime),
+		DeletionTime: dbutils.ParseNullTimeToString(f.DeletionTime),
 	}
 }

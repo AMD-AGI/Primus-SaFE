@@ -194,7 +194,7 @@ type ListNodeRebootLogResponse struct {
 	Items      []NodeRebootLogResponseItem `json:"items"`
 }
 type NodeRebootLogResponseItem struct {
-	UserId     string `json:"userId"`
-	UserName   string `json:"userName"`
-	CreateTime string `json:"createTime"`
+	UserId       string `json:"userId"`
+	UserName     string `json:"userName"`
+	CreationTime string `json:"creationTime"`
 }

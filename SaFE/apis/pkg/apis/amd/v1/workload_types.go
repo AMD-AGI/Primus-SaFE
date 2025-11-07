@@ -170,7 +170,7 @@ type WorkloadStatus struct {
 	// Some status descriptions of the workload. only for pending
 	Message string `json:"message,omitempty"`
 	// The current position of the workload in the queue, only for pending
-	SchedulerOrder int `json:"schedulerOrder,omitempty"`
+	QueuePosition int `json:"queuePosition,omitempty"`
 	// Pod info related to the workload
 	Pods []WorkloadPod `json:"pods,omitempty"`
 	// The node used for each workload execution. If the workload is retried multiple times, there will be multiple entries.
