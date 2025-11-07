@@ -63,7 +63,8 @@ const (
 )
 
 const (
-	ImageImportReadyStatus  = "Ready"
-	ImageImportingStatus    = "Importing"
-	ImageImportFailedStatus = "Failed"
+	ImageImportReadyStatus   = "Ready"
+	ImageImportingStatus     = "Importing"
+	ImageImportFailedStatus  = "Failed"
+	ImageImportPendingStatus = "Pending"
 )
