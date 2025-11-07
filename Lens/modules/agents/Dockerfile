@@ -26,6 +26,7 @@ COPY cache/ ./cache/
 COPY storage/ ./storage/
 COPY llm_wrapper.py ./
 COPY __init__.py ./
+COPY run.py ./
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -38,5 +39,5 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8001/health || exit 1
 
-# Start command - use uvicorn to run FastAPI app
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8001"]
+# Start command - use run.py to ensure correct Python path
+CMD ["python", "run.py"]
