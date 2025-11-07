@@ -33,7 +33,8 @@ class PGStorage(StorageBase):
         password: str = "",
         min_connections: int = 1,
         max_connections: int = 10,
-        schema: str = "public"
+        schema: str = "public",
+        sslmode: str = "prefer"
     ):
         """
         Initialize PostgreSQL storage
@@ -47,6 +48,7 @@ class PGStorage(StorageBase):
             min_connections: Minimum connections
             max_connections: Maximum connections
             schema: Database schema
+            sslmode: SSL mode (disable, allow, prefer, require, verify-ca, verify-full)
         """
         self.host = host
         self.port = port
@@ -54,6 +56,7 @@ class PGStorage(StorageBase):
         self.user = user
         self.password = password
         self.schema = schema
+        self.sslmode = sslmode
         
         self._lock = threading.Lock()
         
@@ -66,9 +69,10 @@ class PGStorage(StorageBase):
                 port=port,
                 database=database,
                 user=user,
-                password=password
+                password=password,
+                sslmode=sslmode
             )
-            logger.info(f"PostgreSQL connection pool created successfully: {user}@{host}:{port}/{database}")
+            logger.info(f"PostgreSQL connection pool created successfully: {user}@{host}:{port}/{database} (sslmode={sslmode})")
         except Exception as e:
             logger.error(f"Failed to create PostgreSQL connection pool: {e}")
             raise

@@ -156,8 +156,10 @@ storage:
     database: "agents"
     user: "postgres"
     password: ""
+    schema: "public"
     min_connections: 1
     max_connections: 10
+    sslmode: "prefer"  # disable, allow, prefer, require, verify-ca, verify-full
 ```
 
 3. Or use environment variables:
@@ -169,10 +171,12 @@ export LLM_API_KEY="your-api-key"
 
 # Storage configuration
 export STORAGE_BACKEND="pg"
-export STORAGE_PG_HOST="localhost"
-export STORAGE_PG_DATABASE="agents"
-export STORAGE_PG_USER="postgres"
-export STORAGE_PG_PASSWORD="your_password"
+export PG_HOST="localhost"
+export PG_DATABASE="agents"
+export PG_USER="postgres"
+export PG_PASSWORD="your_password"
+export PG_SCHEMA="public"
+export PG_SSLMODE="prefer"  # disable, allow, prefer, require, verify-ca, verify-full
 ```
 
 > 💡 **PostgreSQL Storage**: Production environments are recommended to use PostgreSQL storage for better performance and scalability. See [POSTGRES_SETUP.md](POSTGRES_SETUP.md) for details

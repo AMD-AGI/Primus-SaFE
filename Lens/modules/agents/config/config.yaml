@@ -90,6 +90,18 @@ storage:
   db:
     db_path: ".storage/conversations.db"
   
+  # PostgreSQL 存储配置
+  pg:
+    host: "localhost"
+    port: 5432
+    database: "primus_lens"
+    user: "primus_lens"
+    password: ""  # Set via environment variable PG_PASSWORD
+    schema: "public"
+    min_connections: 1
+    max_connections: 10
+    sslmode: "prefer"  # disable, allow, prefer, require, verify-ca, verify-full
+  
   # 清理策略
   retention_days: 30  # 保留天数
   auto_cleanup: true  # 是否自动清理过期数据

@@ -29,17 +29,31 @@ COPY api/ ./api/
 COPY cache/ ./cache/
 COPY storage/ ./storage/
 
-# Copy config directory and ensure all files are included
-COPY config/__init__.py ./config/__init__.py
-COPY config/loader.py ./config/loader.py
-COPY config/config.yaml ./config/config.yaml
+# Copy config directory - try different approach
+# First create the directory
+RUN mkdir -p /app/config
+
+# Copy each file explicitly
+COPY config/__init__.py ./config/
+COPY config/loader.py ./config/
+COPY config/config.yaml ./config/
 
 # Verify all __init__.py files are present
-RUN echo "Verifying copied files:" && \
+RUN echo "=== Verifying copied files ===" && \
+    echo "All __init__.py files:" && \
     find /app -name "__init__.py" -type f | sort && \
     echo "" && \
     echo "Config directory contents:" && \
-    ls -la /app/config/
+    ls -lah /app/config/ && \
+    echo "" && \
+    echo "Config __init__.py file info:" && \
+    if [ -f /app/config/__init__.py ]; then \
+        echo "File exists!" && \
+        cat /app/config/__init__.py; \
+    else \
+        echo "FILE NOT FOUND!" && \
+        exit 1; \
+    fi
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

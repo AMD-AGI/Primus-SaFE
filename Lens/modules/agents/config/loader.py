@@ -165,6 +165,8 @@ def _override_with_env(config: Dict[str, Any]) -> Dict[str, Any]:
         config.setdefault("storage", {}).setdefault("pg", {})["password"] = os.getenv("PG_PASSWORD")
     if os.getenv("PG_SCHEMA"):
         config.setdefault("storage", {}).setdefault("pg", {})["schema"] = os.getenv("PG_SCHEMA")
+    if os.getenv("PG_SSLMODE"):
+        config.setdefault("storage", {}).setdefault("pg", {})["sslmode"] = os.getenv("PG_SSLMODE")
     
     return config
 
