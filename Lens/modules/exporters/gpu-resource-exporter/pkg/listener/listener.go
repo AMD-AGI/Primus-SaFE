@@ -132,15 +132,16 @@ func (l *Listener) Run(ctx context.Context) error {
 					log.Infof("Successfully removed finalizer for %s/%s, exiting listener", l.namespace, l.name)
 					return nil
 				} else {
-					// Object is running normally, ensure finalizer exists
-					if err := l.ensureFinalizer(ctx, obj); err != nil {
-						log.Errorf("Failed to ensure finalizer for %s/%s: %v", l.namespace, l.name, err)
-						// Don't exit if it's a retriable error
-						if !isRetriableError(err) {
-							log.Warnf("Non-retriable error ensuring finalizer for %s/%s, continuing anyway: %v", l.namespace, l.name, err)
+					/*
+						// Object is running normally, ensure finalizer exists
+						if err := l.ensureFinalizer(ctx, obj); err != nil {
+							log.Errorf("Failed to ensure finalizer for %s/%s: %v", l.namespace, l.name, err)
+							// Don't exit if it's a retriable error
+							if !isRetriableError(err) {
+								log.Warnf("Non-retriable error ensuring finalizer for %s/%s, continuing anyway: %v", l.namespace, l.name, err)
+							}
 						}
-					}
-
+					*/
 					// Save workload state
 					if err := l.saveGpuWorkload(ctx, obj); err != nil {
 						log.Errorf("Failed to save workload %s/%s: %v", l.namespace, l.name, err)
