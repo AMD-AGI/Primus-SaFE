@@ -38,5 +38,5 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8001/health || exit 1
 
-# Start command
-CMD ["python", "-m", "api.main"]
+# Start command - use uvicorn to run FastAPI app
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8001"]
