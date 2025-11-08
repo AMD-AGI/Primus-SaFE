@@ -244,7 +244,7 @@ func (f *WorkloadFacade) ListChildrenWorkloadByParentUid(ctx context.Context, pa
 
 func (f *WorkloadFacade) ListWorkloadByLabelValue(ctx context.Context, labelKey, labelValue string) ([]*model.GpuWorkload, error) {
 	result := []*model.GpuWorkload{}
-	err := f.getDB().Raw(fmt.Sprintf(`SELECT * FROM gpu_workload WHERE label @> '{"%s": "%s"}'`, labelKey, labelValue)).Scan(&result).Error
+	err := f.getDB().Raw(fmt.Sprintf(`SELECT * FROM gpu_workload WHERE labels @> '{"%s": "%s"}'`, labelKey, labelValue)).Scan(&result).Error
 	if err != nil {
 		return nil, err
 	}
@@ -388,4 +388,3 @@ func findLeafWorkloads(workloads []*model.GpuWorkload) []*model.GpuWorkload {
 	}
 	return leaves
 }
-

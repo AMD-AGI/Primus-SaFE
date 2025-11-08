@@ -2,6 +2,8 @@ package reconciler
 
 import (
 	"context"
+	"fmt"
+	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -29,9 +31,17 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Request) (result reconcile.Result, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic recovered: %v", r)
+			log.Errorf("Panic in Reconcile for workload %s/%s: %v\nStack trace:\n%s",
+				req.Namespace, req.Name, r, string(debug.Stack()))
+		}
+	}()
+
 	workload := &primusSafeV1.Workload{}
-	err := r.client.ControllerRuntimeClient.Get(ctx, req.NamespacedName, workload)
+	err = r.client.ControllerRuntimeClient.Get(ctx, req.NamespacedName, workload)
 	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
