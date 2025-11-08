@@ -113,6 +113,75 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 			}
 		}
 	}
+
+	// 复制子workload的pod引用到父workload
+	err = w.copyChildPodReferencesToParent(ctx, facade, dbWorkload, referencedWorkload)
+	if err != nil {
+		log.Errorf("failed to copy child pod references to parent workload %s/%s: %v",
+			dbWorkload.Namespace, dbWorkload.Name, err)
+		return err
+	}
+
+	return nil
+}
+
+func (w *WorkloadMatcher) copyChildPodReferencesToParent(ctx context.Context, facade database.FacadeInterface, parentWorkload *model.GpuWorkload, childWorkloads []*model.GpuWorkload) error {
+	// 收集所有子workload的UID（排除父workload自己）
+	childUIDs := make([]string, 0, len(childWorkloads))
+	for _, child := range childWorkloads {
+		if child.UID != parentWorkload.UID {
+			childUIDs = append(childUIDs, child.UID)
+		}
+	}
+
+	if len(childUIDs) == 0 {
+		return nil
+	}
+
+	// 获取父workload已有的pod引用
+	existingParentRefs, err := facade.GetWorkload().ListWorkloadPodReferenceByWorkloadUid(ctx, parentWorkload.UID)
+	if err != nil {
+		return err
+	}
+
+	// 创建已存在的pod UID集合，用于快速查找
+	existingPodUIDs := make(map[string]bool)
+	for _, ref := range existingParentRefs {
+		existingPodUIDs[ref.PodUID] = true
+	}
+
+	// 收集所有子workload的pod引用
+	allChildPodUIDs := make(map[string]bool)
+	for _, childUID := range childUIDs {
+		childPodRefs, err := facade.GetWorkload().ListWorkloadPodReferenceByWorkloadUid(ctx, childUID)
+		if err != nil {
+			log.Warnf("failed to get pod references for child workload %s: %v", childUID, err)
+			continue
+		}
+		for _, ref := range childPodRefs {
+			allChildPodUIDs[ref.PodUID] = true
+		}
+	}
+
+	// 为父workload创建尚不存在的pod引用
+	createdCount := 0
+	for podUID := range allChildPodUIDs {
+		if !existingPodUIDs[podUID] {
+			err := facade.GetWorkload().CreateWorkloadPodReference(ctx, parentWorkload.UID, podUID)
+			if err != nil {
+				log.Warnf("failed to create pod reference for parent workload %s/%s, pod %s: %v",
+					parentWorkload.Namespace, parentWorkload.Name, podUID, err)
+				continue
+			}
+			createdCount++
+		}
+	}
+
+	if createdCount > 0 {
+		log.Infof("copied %d pod references from child workloads to parent workload %s/%s",
+			createdCount, parentWorkload.Namespace, parentWorkload.Name)
+	}
+
 	return nil
 }
 
