@@ -91,6 +91,18 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 	}
 	// 将当前 Workload（父）的 UID 设置为子 workload 的 parent_uid
 	for _, childWorkload := range referencedWorkload {
+		if childWorkload.UID == dbWorkload.UID {
+			if childWorkload.ParentUID == childWorkload.UID {
+				childWorkload.ParentUID = ""
+				err = facade.GetWorkload().UpdateGpuWorkload(ctx, childWorkload)
+				if err != nil {
+					log.Errorf("failed to update child workload %s/%s parent_uid: %v",
+						childWorkload.Namespace, childWorkload.Name, err)
+					continue
+				}
+			}
+			continue
+		}
 		if childWorkload.ParentUID == "" {
 			childWorkload.ParentUID = dbWorkload.UID
 			err = facade.GetWorkload().UpdateGpuWorkload(ctx, childWorkload)
