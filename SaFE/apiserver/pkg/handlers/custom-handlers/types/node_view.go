@@ -140,6 +140,8 @@ type GetNodeResponse struct {
 type WorkloadInfo struct {
 	// Workload ID
 	Id string `json:"id"`
+	// Workload Kind
+	Kind string `json:"kind"`
 	// User ID of the workload submitter
 	UserId string `json:"userId"`
 	// Workspace that the workload belongs to
