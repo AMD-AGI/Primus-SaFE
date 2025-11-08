@@ -25,6 +25,18 @@ type WorkloadReconciler struct {
 	client *clientsets.K8SClientSet
 }
 
+func (r *WorkloadReconciler) Init(ctx context.Context) error {
+	// Get K8S client from ClusterManager
+	clusterManager := clientsets.GetClusterManager()
+	currentCluster := clusterManager.GetCurrentClusterClients()
+	if currentCluster.K8SClientSet == nil {
+		return fmt.Errorf("K8S client not initialized in ClusterManager")
+	}
+	r.client = currentCluster.K8SClientSet
+	log.Info("WorkloadReconciler initialized with K8S client")
+	return nil
+}
+
 func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&primusSafeV1.Workload{}).

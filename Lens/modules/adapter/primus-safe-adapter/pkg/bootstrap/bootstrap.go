@@ -30,6 +30,11 @@ func RegisterController(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	controller.RegisterReconciler(&reconciler.WorkloadReconciler{})
+	workloadReconciler := &reconciler.WorkloadReconciler{}
+	err = workloadReconciler.Init(ctx)
+	if err != nil {
+		return err
+	}
+	controller.RegisterReconciler(workloadReconciler)
 	return nil
 }
