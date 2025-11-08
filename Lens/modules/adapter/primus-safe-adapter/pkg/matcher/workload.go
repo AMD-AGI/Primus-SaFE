@@ -62,13 +62,19 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 		return err
 	}
 	if countInter, ok := dbWorkload.Labels[primusSafeConstant.WorkloadDispatchCountLabel]; ok {
-		countStr, converted := countInter.(string)
-		if !converted {
-			log.Warnf("workload %s/%s has invalid dispatch count label. Label value: %v type: %T", dbWorkload.Namespace, dbWorkload.Name, countInter, countInter)
-			return nil
-		}
-		count, err := strconv.Atoi(countStr)
-		if err != nil {
+		var count = 0
+		var err error
+		if countStr, ok := countInter.(string); ok {
+			count, err = strconv.Atoi(countStr)
+			if err != nil {
+				log.Warnf("workload %s/%s has invalid dispatch count label. Label value: %v type: %T. Error: %v", dbWorkload.Namespace, dbWorkload.Name, countInter, countInter, err)
+				return nil
+			}
+		} else if countInt, ok := countInter.(int); ok {
+			count = countInt
+		} else if countFloat, ok := countInter.(float64); ok {
+			count = int(countFloat)
+		} else {
 			log.Warnf("workload %s/%s has invalid dispatch count label. Label value: %v type: %T", dbWorkload.Namespace, dbWorkload.Name, countInter, countInter)
 			return nil
 		}
