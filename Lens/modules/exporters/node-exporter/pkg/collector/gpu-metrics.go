@@ -23,11 +23,16 @@ var (
 		Name: "gpu_utilization",
 		Help: "gpu utilization",
 	}, []string{"gpu_id"})
+	gpuSocketPower = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "gpu_socket_power_watts",
+		Help: "gpu socket power in watts",
+	}, []string{"gpu_id"})
 )
 
 func init() {
 	prometheus.MustRegister(nodeK8SGpuAllocationRate)
 	prometheus.MustRegister(gpuUtilization)
+	prometheus.MustRegister(gpuSocketPower)
 }
 
 func runLoadGpuMetrics(ctx context.Context) {
@@ -40,6 +45,10 @@ func runLoadGpuMetrics(ctx context.Context) {
 		if err != nil {
 			log.Errorf("Failed to load gpu allocation rate: %v", err)
 
+		}
+		err = loadGpuPower(ctx)
+		if err != nil {
+			log.Errorf("Failed to load gpu power: %v", err)
 		}
 		time.Sleep(5 * time.Second)
 	}
@@ -66,6 +75,13 @@ func loadGpuAllocationRate(ctx context.Context) error {
 func loadGpuUtilization(ctx context.Context) error {
 	for _, metrics := range GetCardMetrics() {
 		gpuUtilization.WithLabelValues(fmt.Sprintf("%d", metrics.Gpu)).Set(metrics.GPUUsePercent)
+	}
+	return nil
+}
+
+func loadGpuPower(ctx context.Context) error {
+	for _, powerInfo := range GetGPUPowerInfo() {
+		gpuSocketPower.WithLabelValues(fmt.Sprintf("%d", powerInfo.GPU)).Set(powerInfo.Power.SocketPower.Value)
 	}
 	return nil
 }

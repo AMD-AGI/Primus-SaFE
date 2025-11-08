@@ -2,9 +2,6 @@ package collector
 
 import (
 	"context"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
-	"github.com/AMD-AGI/primus-lens/node-exporter/pkg/collector/amdsmi"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,12 +9,17 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/primus-lens/core/pkg/model"
+	"github.com/AMD-AGI/primus-lens/node-exporter/pkg/collector/amdsmi"
 )
 
 var (
 	gpuDeviceInfo        = []model.GPUInfo{}
 	driverVersion        = ""
 	cardMetrics          = []model.CardMetrics{}
+	gpuPowerInfo         = []model.GPUPowerInfo{}
 	cardDriDeviceMapping = map[string]model.DriDevice{}
 	driCardInfoMapping   = map[string]model.GPUInfo{}
 )
@@ -38,6 +40,10 @@ func GetCardMetrics() []model.CardMetrics {
 	return cardMetrics
 }
 
+func GetGPUPowerInfo() []model.GPUPowerInfo {
+	return gpuPowerInfo
+}
+
 func startRefreshGPUInfo(ctx context.Context) {
 	singleCycle := func() {
 		err := doRefreshDriverVersion(ctx)
@@ -53,11 +59,15 @@ func startRefreshGPUInfo(ctx context.Context) {
 		if err != nil {
 			log.Errorf("Failed to refresh card metrics: %v", err)
 		}
+		err = doRefreshPowerInfo(ctx)
+		if err != nil {
+			log.Errorf("Failed to refresh power info: %v", err)
+		}
 	}
 	singleCycle()
 	go func() {
 		for {
-			time.Sleep(5 * time.Second)
+			time.Sleep(15 * time.Second)
 			singleCycle()
 		}
 	}()
@@ -107,6 +117,15 @@ func doRefreshCardMetrics(ctx context.Context) error {
 		return err
 	}
 	cardMetrics = metrics
+	return nil
+}
+
+func doRefreshPowerInfo(ctx context.Context) error {
+	powerInfo, err := amdsmi.GetPowerInfo()
+	if err != nil {
+		return err
+	}
+	gpuPowerInfo = powerInfo
 	return nil
 }
 
