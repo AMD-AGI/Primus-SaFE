@@ -2,7 +2,6 @@ package matcher
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
@@ -70,7 +69,6 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 		if len(children) == int(count) {
 			return nil
 		}
-		return errors.New("dispatch count mismatch")
 	}
 	referencedWorkload, err := facade.GetWorkload().ListWorkloadByLabelValue(ctx, primusSafeConstant.WorkloadIdLabel, dbWorkload.Name)
 	if err != nil {
