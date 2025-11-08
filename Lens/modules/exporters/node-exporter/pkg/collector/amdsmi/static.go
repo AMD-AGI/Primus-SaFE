@@ -147,7 +147,7 @@ func GetPowerInfo() ([]model.GPUPowerInfo, error) {
 	cmds := []string{}
 	cmds = append(cmds, nsenterPrefix...)
 	cmds = append(cmds, []string{
-		"amd-smi", "static", "-p", "--json",
+		"amd-smi", "metric", "-p", "--json",
 	}...)
 
 	cmd := exec.Command("nsenter", cmds...)
