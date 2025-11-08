@@ -161,6 +161,7 @@ func GetPowerInfo() ([]model.GPUPowerInfo, error) {
 	}
 
 	jsonBytes := outBuf.Bytes()
+	log.Infof("GetPowerInfo: %s", string(jsonBytes))
 	actualJsonBytes := extractJSON(string(jsonBytes))
 
 	var powerInfos []model.GPUPowerInfo
