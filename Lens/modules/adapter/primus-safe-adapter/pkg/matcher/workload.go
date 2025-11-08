@@ -2,6 +2,7 @@ package matcher
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
@@ -61,8 +62,13 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 		return err
 	}
 	if countInter, ok := dbWorkload.Labels[primusSafeConstant.WorkloadDispatchCountLabel]; ok {
-		count, converted := countInter.(float64)
+		countStr, converted := countInter.(string)
 		if !converted {
+			log.Warnf("workload %s/%s has invalid dispatch count label. Label value: %v type: %T", dbWorkload.Namespace, dbWorkload.Name, countInter, countInter)
+			return nil
+		}
+		count, err := strconv.Atoi(countStr)
+		if err != nil {
 			log.Warnf("workload %s/%s has invalid dispatch count label. Label value: %v type: %T", dbWorkload.Namespace, dbWorkload.Name, countInter, countInter)
 			return nil
 		}
