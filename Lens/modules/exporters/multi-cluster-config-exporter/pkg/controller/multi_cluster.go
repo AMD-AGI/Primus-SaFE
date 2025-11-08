@@ -225,10 +225,10 @@ func (m *MultiClusterStorageConfigListener) syncStorageConfigsFromAllClusters() 
 			continue
 		}
 
-		// Get Ready worker node IPs from the cluster
-		nodeIPs, err := m.getReadyWorkerNodeIPs(clusterName, k8sClient)
+		// Get Ready control plane node IPs from the cluster
+		nodeIPs, err := m.getReadyControlPlaneNodeIPs(clusterName, k8sClient)
 		if err != nil {
-			log.Errorf("Failed to get Ready worker node IPs for cluster %s: %v", clusterName, err)
+			log.Errorf("Failed to get Ready control plane node IPs for cluster %s: %v", clusterName, err)
 			continue
 		}
 
@@ -339,8 +339,8 @@ func (m *MultiClusterStorageConfigListener) updateMultiStorageConfigSecret(confi
 	return nil
 }
 
-// getReadyWorkerNodeIPs gets up to 3 Ready non-control-plane node IPs from a cluster
-func (m *MultiClusterStorageConfigListener) getReadyWorkerNodeIPs(clusterName string, k8sClient *clientsets.K8SClientSet) ([]string, error) {
+// getReadyControlPlaneNodeIPs gets up to 3 Ready control-plane node IPs from a cluster
+func (m *MultiClusterStorageConfigListener) getReadyControlPlaneNodeIPs(clusterName string, k8sClient *clientsets.K8SClientSet) ([]string, error) {
 	// List all nodes
 	nodes, err := k8sClient.Clientsets.CoreV1().Nodes().List(
 		m.ctx,
@@ -354,14 +354,13 @@ func (m *MultiClusterStorageConfigListener) getReadyWorkerNodeIPs(clusterName st
 		return nil, fmt.Errorf("no nodes found in cluster %s", clusterName)
 	}
 
-	// Filter Ready non-control-plane nodes and extract IPs
+	// Filter Ready control-plane nodes and extract IPs
 	nodeIPs := make([]string, 0, 3)
 	for _, node := range nodes.Items {
-		// Skip control-plane nodes
-		if _, hasControlPlaneLabel := node.Labels["node-role.kubernetes.io/control-plane"]; hasControlPlaneLabel {
-			continue
-		}
-		if _, hasMasterLabel := node.Labels["node-role.kubernetes.io/master"]; hasMasterLabel {
+		// Only select control-plane nodes
+		_, hasControlPlaneLabel := node.Labels["node-role.kubernetes.io/control-plane"]
+		_, hasMasterLabel := node.Labels["node-role.kubernetes.io/master"]
+		if !hasControlPlaneLabel && !hasMasterLabel {
 			continue
 		}
 
@@ -377,11 +376,11 @@ func (m *MultiClusterStorageConfigListener) getReadyWorkerNodeIPs(clusterName st
 			continue
 		}
 
-		// Extract IP from ready worker node
+		// Extract IP from ready control plane node
 		for _, addr := range node.Status.Addresses {
 			if addr.Type == corev1.NodeInternalIP || addr.Type == corev1.NodeExternalIP {
 				nodeIPs = append(nodeIPs, addr.Address)
-				log.Infof("Selected Ready worker node %s with IP %s for cluster %s", node.Name, addr.Address, clusterName)
+				log.Infof("Selected Ready control plane node %s with IP %s for cluster %s", node.Name, addr.Address, clusterName)
 				break
 			}
 		}
@@ -393,10 +392,10 @@ func (m *MultiClusterStorageConfigListener) getReadyWorkerNodeIPs(clusterName st
 	}
 
 	if len(nodeIPs) == 0 {
-		return nil, fmt.Errorf("no Ready worker nodes found in cluster %s", clusterName)
+		return nil, fmt.Errorf("no Ready control plane nodes found in cluster %s", clusterName)
 	}
 
-	log.Infof("Found %d Ready worker node IPs for cluster %s: %v", len(nodeIPs), clusterName, nodeIPs)
+	log.Infof("Found %d Ready control plane node IPs for cluster %s: %v", len(nodeIPs), clusterName, nodeIPs)
 	return nodeIPs, nil
 }
 
