@@ -10,7 +10,7 @@ type ListFaultRequest struct {
 	Offset int `form:"offset" binding:"omitempty,min=0"`
 	// The maximum number of returned results. default 100
 	Limit int `form:"limit" binding:"omitempty,min=1"`
-	// The field to sort results by. default "create_time"
+	// The field to sort results by. default "creation_time"
 	SortBy string `form:"sortBy" binding:"omitempty"`
 	// Sort order: desc/asc, default desc
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`

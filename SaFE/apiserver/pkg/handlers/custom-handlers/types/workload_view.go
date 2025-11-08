@@ -48,7 +48,7 @@ type ListWorkloadRequest struct {
 	Offset int `form:"offset" binding:"omitempty,min=0"`
 	// Limit the number of returned results. default 100
 	Limit int `form:"limit" binding:"omitempty,min=1"`
-	// Sort field. default create_time
+	// Sort field. default creation_time
 	SortBy string `form:"sortBy" binding:"omitempty"`
 	// Sort order: desc/asc, default desc
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`

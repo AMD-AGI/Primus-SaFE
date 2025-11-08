@@ -539,11 +539,11 @@ func (h *Handler) parseListOpsJobQuery(c *gin.Context) (*types.ListOpsJobRequest
 // It builds WHERE conditions based on filter parameters like cluster ID, phase, job type, user, and time range.
 func cvtToListOpsJobSql(query *types.ListOpsJobRequest) (sqrl.Sqlizer, []string) {
 	dbTags := dbclient.GetOpsJobFieldTags()
-	createTime := dbclient.GetFieldTag(dbTags, "CreationTime")
+	creationTime := dbclient.GetFieldTag(dbTags, "CreationTime")
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
-		sqrl.GtOrEq{createTime: query.SinceTime},
-		sqrl.LtOrEq{createTime: query.UntilTime},
+		sqrl.GtOrEq{creationTime: query.SinceTime},
+		sqrl.LtOrEq{creationTime: query.UntilTime},
 	}
 	if clusterId := strings.TrimSpace(query.ClusterId); clusterId != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Cluster"): clusterId})

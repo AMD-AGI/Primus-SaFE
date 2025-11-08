@@ -169,8 +169,8 @@ func parseListFaultQuery(c *gin.Context) (*types.ListFaultRequest, error) {
 	}
 	if query.SortBy == "" {
 		dbTags := dbclient.GetFaultFieldTags()
-		createTime := dbclient.GetFieldTag(dbTags, "CreationTime")
-		query.SortBy = createTime
+		creationTime := dbclient.GetFieldTag(dbTags, "CreationTime")
+		query.SortBy = creationTime
 	}
 	return query, nil
 }

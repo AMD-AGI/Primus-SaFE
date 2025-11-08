@@ -15,7 +15,6 @@ Returns environment configuration flags and endpoints used by the frontend and c
   "enableLogDownload": true,
   "enableLog": true,
   "enableSsh": true,
-  "authoringImage": "docker.io/primus/authoring:latest",
   "sshPort": 30122,
   "sshIP": "10.0.0.10",
   "ssoEnable": true,
@@ -30,7 +29,6 @@ Returns environment configuration flags and endpoints used by the frontend and c
 | enableLogDownload | bool | Whether log download is enabled (requires S3 support). |
 | enableLog | bool | Whether logging features are enabled. |
 | enableSsh | bool | Whether SSH features (including WebShell) are enabled. |
-| authoringImage | string | Default authoring image used by the system. |
 | sshPort | int | SSH service port exposed by the system. |
 | sshIP | string | SSH service IP address. |
 | ssoEnable | bool | Whether Single Sign-On (SSO) via OIDC is enabled. |

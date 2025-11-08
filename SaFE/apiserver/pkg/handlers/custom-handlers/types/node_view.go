@@ -182,7 +182,7 @@ type ListNodeRebootLogRequest struct {
 	// Limit the number of returned results. default 100
 	// If set to -1, all results will be returned.
 	Limit int `form:"limit" binding:"omitempty"`
-	// Sort results by the specified field. default create_time
+	// Sort results by the specified field. default creation_time
 	SortBy string `form:"sortBy" binding:"omitempty"`
 	// The sorting order. Valid values are "desc" (default) or "asc"
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`

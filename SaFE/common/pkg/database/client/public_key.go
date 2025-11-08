@@ -10,12 +10,11 @@ import (
 	"fmt"
 	"time"
 
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-
 	sqrl "github.com/Masterminds/squirrel"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 )
 
