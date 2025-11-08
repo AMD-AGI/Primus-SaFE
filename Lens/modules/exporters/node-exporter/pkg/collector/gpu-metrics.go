@@ -80,9 +80,7 @@ func loadGpuUtilization(ctx context.Context) error {
 }
 
 func loadGpuPower(ctx context.Context) error {
-	log.Infof("loadGpuPower: %d", len(GetGPUPowerInfo()))
 	for _, powerInfo := range GetGPUPowerInfo() {
-		log.Infof("loadGpuPower: %d, %f", powerInfo.GPU, powerInfo.Power.SocketPower.Value)
 		gpuSocketPower.WithLabelValues(fmt.Sprintf("%d", powerInfo.GPU)).Set(powerInfo.Power.SocketPower.Value)
 	}
 	return nil
