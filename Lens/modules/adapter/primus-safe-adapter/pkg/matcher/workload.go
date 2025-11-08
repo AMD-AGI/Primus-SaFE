@@ -2,6 +2,7 @@ package matcher
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
@@ -47,7 +48,7 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 	if clusterIDInter, ok := dbWorkload.Labels[primusSafeConstant.ClusterIdLabel]; ok {
 		clusterID, _ = clusterIDInter.(string)
 	}
-	
+
 	// Get the appropriate facade based on cluster ID
 	var facade database.FacadeInterface
 	if clusterID != "" {
@@ -55,20 +56,21 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 	} else {
 		facade = database.GetFacade()
 	}
-	
+
 	children, err := facade.GetWorkload().ListChildrenWorkloadByParentUid(ctx, dbWorkload.UID)
 	if err != nil {
 		return err
 	}
 	if countInter, ok := dbWorkload.Labels[primusSafeConstant.WorkloadDispatchCountLabel]; ok {
-		count, converted := countInter.(int)
+		count, converted := countInter.(float64)
 		if !converted {
 			log.Warnf("workload %s/%s has invalid dispatch count label", dbWorkload.Namespace, dbWorkload.Name)
 			return nil
 		}
-		if len(children) == count {
+		if len(children) == int(count) {
 			return nil
 		}
+		return errors.New("dispatch count mismatch")
 	}
 	referencedWorkload, err := facade.GetWorkload().ListWorkloadByLabelValue(ctx, primusSafeConstant.WorkloadIdLabel, dbWorkload.Name)
 	if err != nil {
@@ -83,7 +85,7 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 			childWorkload.ParentUID = dbWorkload.UID
 			err = facade.GetWorkload().UpdateGpuWorkload(ctx, childWorkload)
 			if err != nil {
-				log.Errorf("failed to update child workload %s/%s parent_uid: %v", 
+				log.Errorf("failed to update child workload %s/%s parent_uid: %v",
 					childWorkload.Namespace, childWorkload.Name, err)
 				continue
 			}
@@ -96,12 +98,12 @@ func (w *WorkloadMatcher) doScan(ctx context.Context) error {
 	// Get all cluster names from ClusterManager
 	clusterManager := clientsets.GetClusterManager()
 	clusterNames := clusterManager.GetClusterNames()
-	
+
 	// If no clusters found, scan the default database
 	if len(clusterNames) == 0 {
 		return w.scanCluster(ctx, "")
 	}
-	
+
 	// Scan each cluster
 	for _, clusterName := range clusterNames {
 		if err := w.scanCluster(ctx, clusterName); err != nil {
@@ -110,7 +112,7 @@ func (w *WorkloadMatcher) doScan(ctx context.Context) error {
 			continue
 		}
 	}
-	
+
 	return nil
 }
 
@@ -122,18 +124,18 @@ func (w *WorkloadMatcher) scanCluster(ctx context.Context, clusterName string) e
 	} else {
 		facade = database.GetFacade()
 	}
-	
+
 	workloads, err := facade.GetWorkload().ListWorkloadNotEndByKind(ctx, "Workload")
 	if err != nil {
 		return err
 	}
-	
+
 	log.Infof("scanning %d workloads in cluster %s", len(workloads), clusterName)
-	
+
 	for i := range workloads {
 		err := w.scanForSingleWorkload(ctx, workloads[i])
 		if err != nil {
-			log.Errorf("failed to scan workload %s/%s in cluster %s: %v", 
+			log.Errorf("failed to scan workload %s/%s in cluster %s: %v",
 				workloads[i].Namespace, workloads[i].Name, clusterName, err)
 			continue
 		}
