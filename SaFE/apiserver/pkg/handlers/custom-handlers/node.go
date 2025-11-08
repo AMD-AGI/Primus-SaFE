@@ -530,12 +530,7 @@ func (h *Handler) getAllUsedResourcePerNode(ctx context.Context,
 				result[nodeName] = info
 			}
 			info.resource = quantity.AddResource(info.resource, resList)
-			info.workloads = append(info.workloads, types.WorkloadInfo{
-				Id:          w.Name,
-				Kind:        w.Spec.Kind,
-				UserId:      v1.GetUserName(w),
-				WorkspaceId: w.Spec.Workspace,
-			})
+			info.workloads = append(info.workloads, generateWorkloadInfo(w))
 		}
 	}
 	return result, nil
@@ -562,11 +557,7 @@ func (h *Handler) getUsedResource(ctx context.Context, node *v1.Node) (*resource
 			continue
 		}
 		result.resource = quantity.AddResource(result.resource, resList)
-		result.workloads = append(result.workloads, types.WorkloadInfo{
-			Id:          w.Name,
-			UserId:      v1.GetUserName(w),
-			WorkspaceId: w.Spec.Workspace,
-		})
+		result.workloads = append(result.workloads, generateWorkloadInfo(w))
 	}
 	return result, nil
 }
@@ -860,6 +851,9 @@ func getPrimusTaints(taints []corev1.Taint) []corev1.Taint {
 	return result
 }
 
+// cvtToListNodeRebootSql converts the reboot log query parameters into SQL conditions and order by clauses.
+// It filters jobs that are not deleted, related to the given node, and of reboot type.
+// Time range filters and sorting options are applied if specified in the query.
 func cvtToListNodeRebootSql(query *types.ListNodeRebootLogRequest, node *v1.Node) (sqrl.Sqlizer, []string) {
 	dbTags := dbclient.GetOpsJobFieldTags()
 	creationTime := dbclient.GetFieldTag(dbTags, "CreationTime")
@@ -876,4 +870,14 @@ func cvtToListNodeRebootSql(query *types.ListNodeRebootLogRequest, node *v1.Node
 	}
 	orderBy := buildOrderBy(query.SortBy, query.Order, dbTags)
 	return dbSql, orderBy
+}
+
+// generateWorkloadInfo creates a WorkloadInfo struct from a workload object.
+func generateWorkloadInfo(workload *v1.Workload) types.WorkloadInfo {
+	return types.WorkloadInfo{
+		Id:          workload.Name,
+		Kind:        workload.Spec.Kind,
+		UserId:      v1.GetUserName(workload),
+		WorkspaceId: workload.Spec.Workspace,
+	}
 }
