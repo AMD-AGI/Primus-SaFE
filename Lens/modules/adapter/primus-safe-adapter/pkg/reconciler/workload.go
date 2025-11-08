@@ -5,13 +5,14 @@ import (
 	"strconv"
 	"time"
 
-	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/core/pkg/constant"
 	"github.com/AMD-AGI/primus-lens/core/pkg/database"
 	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	primusSafeConstant "github.com/AMD-AGI/primus-lens/primus-safe-adapter/pkg/constant"
+	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -66,8 +67,24 @@ func (r *WorkloadReconciler) calculateGpuRequest(ctx context.Context, workload *
 }
 
 func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *primusSafeV1.Workload) error {
-	existWorkload, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, string(workload.UID))
+	log.Debugf("Saving workload to DB: namespace=%s, name=%s, uid=%s", workload.Namespace, workload.Name, workload.UID)
+
+	// Get cluster ID from workload labels
+	clusterID := primusSafeV1.GetClusterId(workload)
+
+	// Get the appropriate facade based on cluster ID
+	var facade database.FacadeInterface
+	if clusterID != "" {
+		facade = database.GetFacadeForCluster(clusterID)
+		log.Debugf("Using facade for cluster: %s", clusterID)
+	} else {
+		facade = database.GetFacade()
+		log.Debug("Using default facade")
+	}
+
+	existWorkload, err := facade.GetWorkload().GetGpuWorkloadByUid(ctx, string(workload.UID))
 	if err != nil {
+		log.Errorf("Failed to get existing workload by uid %s: %v", workload.UID, err)
 		return err
 	}
 	dbWorkload := &model.GpuWorkload{
@@ -94,10 +111,74 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 	if workload.DeletionTimestamp != nil {
 		dbWorkload.Status = metadata.WorkloadStatusDone
 		dbWorkload.EndAt = workload.DeletionTimestamp.Time
+		log.Debugf("Workload %s/%s is being deleted, status set to Done", workload.Namespace, workload.Name)
 	}
 	if existWorkload == nil {
-		return database.GetFacade().GetWorkload().CreateGpuWorkload(ctx, dbWorkload)
+		log.Debugf("Creating new gpu_workload record: name=%s, uid=%s", workload.Name, workload.UID)
+		err = facade.GetWorkload().CreateGpuWorkload(ctx, dbWorkload)
+		if err != nil {
+			log.Errorf("Failed to create gpu_workload %s/%s: %v", workload.Namespace, workload.Name, err)
+			return err
+		}
+		log.Infof("Successfully created gpu_workload: name=%s, uid=%s", workload.Name, workload.UID)
+	} else {
+		log.Debugf("Updating existing gpu_workload record: name=%s, uid=%s, id=%d", workload.Name, workload.UID, existWorkload.ID)
+		dbWorkload.ID = existWorkload.ID
+		err = facade.GetWorkload().UpdateGpuWorkload(ctx, dbWorkload)
+		if err != nil {
+			log.Errorf("Failed to update gpu_workload %s/%s: %v", workload.Namespace, workload.Name, err)
+			return err
+		}
+		log.Debugf("Successfully updated gpu_workload: name=%s, uid=%s", workload.Name, workload.UID)
 	}
-	dbWorkload.ID = existWorkload.ID
-	return database.GetFacade().GetWorkload().UpdateGpuWorkload(ctx, dbWorkload)
+
+	// Link this Workload as the parent workload for related gpu_workloads
+	return r.linkChildrenWorkloads(ctx, workload, facade)
+}
+
+func (r *WorkloadReconciler) linkChildrenWorkloads(ctx context.Context, workload *primusSafeV1.Workload, facade database.FacadeInterface) error {
+	log.Debugf("Linking children workloads for parent workload: name=%s, uid=%s", workload.Name, workload.UID)
+
+	// Find all gpu_workloads with label "primus-safe.workload.id" = workload.Name
+	childWorkloads, err := facade.GetWorkload().ListWorkloadByLabelValue(ctx, primusSafeConstant.WorkloadIdLabel, workload.Name)
+	if err != nil {
+		log.Errorf("Failed to list child workloads for parent %s: %v", workload.Name, err)
+		return err
+	}
+
+	// Return directly if no child workloads found
+	if len(childWorkloads) == 0 {
+		log.Debugf("No child workloads found for parent workload: %s", workload.Name)
+		return nil
+	}
+
+	log.Infof("Found %d potential child workloads for parent %s (uid=%s)", len(childWorkloads), workload.Name, workload.UID)
+
+	// Set the parent_uid of found child workloads to current Workload's UID
+	updatedCount := 0
+	for _, child := range childWorkloads {
+		// Only update workloads that don't have parent_uid set yet
+		if child.ParentUID == "" {
+			log.Debugf("Linking child workload: name=%s, uid=%s to parent uid=%s", child.Name, child.UID, workload.UID)
+			child.ParentUID = string(workload.UID)
+			err = facade.GetWorkload().UpdateGpuWorkload(ctx, child)
+			if err != nil {
+				// Log error but continue processing other child workloads
+				log.Errorf("Failed to update parent_uid for child workload %s/%s (uid=%s): %v",
+					child.Namespace, child.Name, child.UID, err)
+				continue
+			}
+			updatedCount++
+			log.Infof("Successfully linked child workload %s/%s (uid=%s) to parent %s (uid=%s)",
+				child.Namespace, child.Name, child.UID, workload.Name, workload.UID)
+		} else {
+			log.Debugf("Child workload %s/%s already has parent_uid=%s, skipping",
+				child.Namespace, child.Name, child.ParentUID)
+		}
+	}
+
+	log.Infof("Completed linking children workloads for parent %s: updated %d out of %d workloads",
+		workload.Name, updatedCount, len(childWorkloads))
+
+	return nil
 }
