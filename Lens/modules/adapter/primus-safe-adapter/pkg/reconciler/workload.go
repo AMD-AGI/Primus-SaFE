@@ -110,8 +110,8 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 		return err
 	}
 	dbWorkload := &model.GpuWorkload{
-		GroupVersion: workload.GroupVersionKind().GroupVersion().String(),
-		Kind:         workload.Kind,
+		GroupVersion: "amd.com/v1",
+		Kind:         "Workload",
 		Namespace:    workload.Spec.Workspace,
 		Name:         workload.Name,
 		UID:          string(workload.UID),

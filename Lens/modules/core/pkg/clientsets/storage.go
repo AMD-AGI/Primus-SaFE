@@ -91,13 +91,15 @@ func loadMultiClusterStorageClients(ctx context.Context) error {
 	for clusterName, singleCLusterConfig := range cfg {
 		storageClientSet, err := initStorageClients(ctx, clusterName, singleCLusterConfig)
 		if err != nil {
-			return err
+			log.Errorf("Failed to initialize storage clients for cluster %s: %v", clusterName, err)
+			continue
 		}
 		newMultiClusterStorageClientSet[clusterName] = storageClientSet
+		log.Infof("Initialized storage clients for cluster %s successfully", clusterName)
 	}
 	multiClusterStorageClientSet = newMultiClusterStorageClientSet
 	log.Info("Initialized multi-cluster storage clients successfully")
-	return nil
+	return errors.NewError().WithCode(errors.CodeInitializeError).WithMessage("Failed to initialize storage clients for some clusters").WithError(err)
 }
 
 func loadSingleClusterStorageConfig(ctx context.Context, k8sClient *K8SClientSet) (*PrimusLensClientConfig, error) {
