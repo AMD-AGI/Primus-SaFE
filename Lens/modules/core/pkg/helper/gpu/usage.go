@@ -113,7 +113,7 @@ func TopKGpuTemperatureInstant(ctx context.Context, k int, clientSets *clientset
 }
 
 func TopKGpuPowerInstant(ctx context.Context, k int, clientSets *clientsets.StorageClientSet) ([]model.ClusterOverviewHeatmapItem, error) {
-	return getTopKInstant(ctx, k, "gpu_power_usage", clientSets)
+	return getTopKInstant(ctx, k, "gpu_socket_power_watts", clientSets)
 }
 
 func getTopKInstant(ctx context.Context, k int, metric string, clientSets *clientsets.StorageClientSet) ([]model.ClusterOverviewHeatmapItem, error) {
