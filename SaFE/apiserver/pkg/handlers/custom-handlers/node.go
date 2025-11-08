@@ -545,6 +545,7 @@ func (h *Handler) getAllUsedResourcePerNode(ctx context.Context,
 			info.resource = quantity.AddResource(info.resource, resList)
 			info.workloads = append(info.workloads, types.WorkloadInfo{
 				Id:          w.Name,
+				Kind:        w.Spec.Kind,
 				UserId:      v1.GetUserName(w),
 				WorkspaceId: w.Spec.Workspace,
 			})
