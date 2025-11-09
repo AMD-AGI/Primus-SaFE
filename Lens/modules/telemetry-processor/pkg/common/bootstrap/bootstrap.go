@@ -16,13 +16,13 @@ import (
 )
 
 func Bootstrap(ctx context.Context) error {
-	// 启用 Jaeger tracer
+	// 启用 OpenTelemetry tracer
 	err := trace.InitTracer("primus-lens-telemetry-processor")
 	if err != nil {
-		log.Errorf("Failed to init tracer: %v", err)
+		log.Errorf("Failed to init OpenTelemetry tracer: %v", err)
 		// 不阻断启动，降级为不追踪
 	} else {
-		log.Info("Jaeger tracer initialized successfully for telemetry-processor service")
+		log.Info("OpenTelemetry tracer initialized successfully for telemetry-processor service")
 	}
 	
 	// 注册 cleanup 函数

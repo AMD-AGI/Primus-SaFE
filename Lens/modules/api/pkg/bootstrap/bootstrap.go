@@ -18,13 +18,13 @@ var schemes = &runtime.SchemeBuilder{
 }
 
 func StartServer(ctx context.Context) error {
-	// 启用 Jaeger tracer
+	// 启用 OpenTelemetry tracer
 	err := trace.InitTracer("primus-lens-api")
 	if err != nil {
-		log.Errorf("Failed to init tracer: %v", err)
+		log.Errorf("Failed to init OpenTelemetry tracer: %v", err)
 		// 不阻断启动，降级为不追踪
 	} else {
-		log.Info("Jaeger tracer initialized successfully")
+		log.Info("OpenTelemetry tracer initialized successfully")
 	}
 
 	// 注册 cleanup 函数

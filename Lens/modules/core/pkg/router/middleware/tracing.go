@@ -1,52 +1,78 @@
 package middleware
 
 import (
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
-	"github.com/opentracing/opentracing-go"
-	"github.com/opentracing/opentracing-go/ext"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 func HandleTracing() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 
-		// 尝试从 HTTP header 中提取 span context
+		// 从 HTTP header 中提取 trace context
+		propagator := otel.GetTextMapPropagator()
+		ctx = propagator.Extract(ctx, &httpHeaderCarrier{header: c.Request.Header})
+
+		// 创建 span
 		operationName := c.Request.Method + " " + c.Request.URL.Path
-		var span opentracing.Span
+		tracer := otel.Tracer("")
+		ctx, span := tracer.Start(ctx, operationName,
+			oteltrace.WithSpanKind(oteltrace.SpanKindServer),
+		)
 
-		spanCtx, err := trace.ExtractHeader(ctx, c.Request.Header, operationName)
-		if err != nil {
-			// 如果没有 parent span，创建新的 root span
-			span, ctx = trace.StartSpanFromContext(ctx, operationName)
-		} else {
-			// 有 parent span，使用提取的 context
-			ctx = spanCtx
-			if s, ok := trace.SpanFromContext(ctx); ok {
-				span = s
+		// 设置 HTTP 相关的属性
+		span.SetAttributes(
+			semconv.HTTPMethod(c.Request.Method),
+			semconv.HTTPURL(c.Request.URL.String()),
+			semconv.HTTPRoute(c.Request.URL.Path),
+			semconv.HTTPTarget(c.Request.URL.Path),
+			attribute.String("component", "gin-http"),
+			attribute.String("http.path", c.Request.URL.Path),
+		)
+
+		// 在请求完成后设置状态码并结束 span
+		defer func() {
+			statusCode := c.Writer.Status()
+			span.SetAttributes(semconv.HTTPStatusCode(statusCode))
+
+			if statusCode >= 400 {
+				span.SetStatus(codes.Error, "HTTP error")
+			} else {
+				span.SetStatus(codes.Ok, "")
 			}
-		}
-
-		// 设置 HTTP 相关的 tags
-		if span != nil {
-			ext.HTTPMethod.Set(span, c.Request.Method)
-			ext.HTTPUrl.Set(span, c.Request.URL.String())
-			ext.Component.Set(span, "gin-http")
-			span.SetTag("http.path", c.Request.URL.Path)
-
-			// 在请求完成后设置状态码
-			defer func() {
-				ext.HTTPStatusCode.Set(span, uint16(c.Writer.Status()))
-				if c.Writer.Status() >= 400 {
-					ext.Error.Set(span, true)
-				}
-				trace.FinishSpan(span)
-			}()
-		}
+			span.End()
+		}()
 
 		// 将更新后的 context 放回 request
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Next()
 	}
+}
+
+// httpHeaderCarrier implements propagation.TextMapCarrier for HTTP headers
+type httpHeaderCarrier struct {
+	header http.Header
+}
+
+func (h *httpHeaderCarrier) Get(key string) string {
+	return h.header.Get(key)
+}
+
+func (h *httpHeaderCarrier) Set(key, val string) {
+	h.header.Set(key, val)
+}
+
+func (h *httpHeaderCarrier) Keys() []string {
+	keys := make([]string, 0, len(h.header))
+	for k := range h.header {
+		keys = append(keys, k)
+	}
+	return keys
 }

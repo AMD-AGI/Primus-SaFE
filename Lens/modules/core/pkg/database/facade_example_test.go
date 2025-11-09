@@ -21,6 +21,10 @@ type MockFacade struct {
 	MockLogAlertRule         database.LogAlertRuleFacadeInterface
 	MockAlertRuleAdvice      database.AlertRuleAdviceFacadeInterface
 	MockClusterOverviewCache database.ClusterOverviewCacheFacadeInterface
+	MockGenericCache         database.GenericCacheFacadeInterface
+	MockGpuAggregation       database.GpuAggregationFacadeInterface
+	MockSystemConfig         database.SystemConfigFacadeInterface
+	MockJobExecutionHistory  database.JobExecutionHistoryFacadeInterface
 }
 
 // Ensure MockFacade implements FacadeInterface
@@ -70,6 +74,22 @@ func (m *MockFacade) GetClusterOverviewCache() database.ClusterOverviewCacheFaca
 	return m.MockClusterOverviewCache
 }
 
+func (m *MockFacade) GetGenericCache() database.GenericCacheFacadeInterface {
+	return m.MockGenericCache
+}
+
+func (m *MockFacade) GetGpuAggregation() database.GpuAggregationFacadeInterface {
+	return m.MockGpuAggregation
+}
+
+func (m *MockFacade) GetSystemConfig() database.SystemConfigFacadeInterface {
+	return m.MockSystemConfig
+}
+
+func (m *MockFacade) GetJobExecutionHistory() database.JobExecutionHistoryFacadeInterface {
+	return m.MockJobExecutionHistory
+}
+
 func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface {
 	// Returns a new MockFacade, can customize behavior as needed
 	return &MockFacade{
@@ -84,6 +104,10 @@ func (m *MockFacade) WithCluster(clusterName string) database.FacadeInterface {
 		MockLogAlertRule:         m.MockLogAlertRule,
 		MockAlertRuleAdvice:      m.MockAlertRuleAdvice,
 		MockClusterOverviewCache: m.MockClusterOverviewCache,
+		MockGenericCache:         m.MockGenericCache,
+		MockGpuAggregation:       m.MockGpuAggregation,
+		MockSystemConfig:         m.MockSystemConfig,
+		MockJobExecutionHistory:  m.MockJobExecutionHistory,
 	}
 }
 

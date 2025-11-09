@@ -4,8 +4,10 @@ import (
 	"fmt"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
-	"github.com/opentracing/opentracing-go"
-	"github.com/opentracing/opentracing-go/ext"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
 )
 
@@ -60,15 +62,18 @@ func startSpan(db *gorm.DB, operationName string) {
 	}
 
 	ctx := db.Statement.Context
-	span, newCtx := trace.StartSpanFromContext(ctx, operationName)
-	
-	// Set span kind as client (database client)
-	ext.SpanKindRPCClient.Set(span)
-	ext.DBType.Set(span, "sql")
-	
+	span, newCtx := trace.StartSpanFromContext(ctx, operationName,
+		oteltrace.WithSpanKind(oteltrace.SpanKindClient),
+	)
+
+	// Set database attributes
+	span.SetAttributes(
+		semconv.DBSystemPostgreSQL,
+	)
+
 	// Store span in db instance for later retrieval
 	db.InstanceSet(tracingSpanKey, span)
-	
+
 	// Update context with new span
 	db.Statement.Context = newCtx
 }
@@ -79,44 +84,47 @@ func finishSpan(db *gorm.DB, sqlType string) {
 	if !exists {
 		return
 	}
-	
-	span, ok := spanInterface.(opentracing.Span)
+
+	span, ok := spanInterface.(oteltrace.Span)
 	if !ok {
 		return
 	}
-	
+
 	// Add database operation details
-	span.SetTag("db.type", "postgres")
-	span.SetTag("db.sql_type", sqlType)
-	
+	attrs := []attribute.KeyValue{
+		attribute.String("db.type", "postgres"),
+		attribute.String("db.sql_type", sqlType),
+	}
+
 	if db.Statement != nil {
 		// Add table name
 		if db.Statement.Table != "" {
-			span.SetTag("db.table", db.Statement.Table)
+			attrs = append(attrs, semconv.DBSQLTable(db.Statement.Table))
 		}
-		
+
 		// Add SQL statement (truncated for large queries)
 		sql := db.Statement.SQL.String()
 		if len(sql) > 500 {
 			sql = sql[:500] + "..."
 		}
 		if sql != "" {
-			span.SetTag("db.statement", sql)
+			attrs = append(attrs, semconv.DBStatement(sql))
 		}
-		
+
 		// Add rows affected
-		span.SetTag("db.rows_affected", db.Statement.RowsAffected)
+		attrs = append(attrs, attribute.Int64("db.rows_affected", db.Statement.RowsAffected))
 	}
-	
+
+	span.SetAttributes(attrs...)
+
 	// Mark error if exists
 	if db.Error != nil && db.Error != gorm.ErrRecordNotFound {
-		span.SetTag("error", true)
-		span.LogKV(
-			"event", "error",
-			"error.message", db.Error.Error(),
-		)
+		span.RecordError(db.Error)
+		span.SetStatus(codes.Error, db.Error.Error())
+	} else {
+		span.SetStatus(codes.Ok, "")
 	}
-	
+
 	// Finish the span
 	trace.FinishSpan(span)
 }
@@ -136,7 +144,7 @@ func RegisterTracingCallbacks(db *gorm.DB) error {
 	if err := db.Callback().Delete().Before("gorm:delete").Register("tracing:before_delete", beforeDelete); err != nil {
 		return fmt.Errorf("failed to register tracing:before_delete: %w", err)
 	}
-	
+
 	// Register after callbacks
 	if err := db.Callback().Query().After("gorm:query").Register("tracing:after_query", afterQuery); err != nil {
 		return fmt.Errorf("failed to register tracing:after_query: %w", err)
@@ -150,7 +158,6 @@ func RegisterTracingCallbacks(db *gorm.DB) error {
 	if err := db.Callback().Delete().After("gorm:delete").Register("tracing:after_delete", afterDelete); err != nil {
 		return fmt.Errorf("failed to register tracing:after_delete: %w", err)
 	}
-	
+
 	return nil
 }
-
