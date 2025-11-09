@@ -543,8 +543,9 @@ func (r *NodeReconciler) cleanupNodeAfterUnmanage(ctx context.Context, adminNode
 			return err
 		}
 		defer sshClient.Close()
-		cmd := "systemctl is-active -q kubelet && (kubeadm reset -f; rm -rf /etc/cni/ /etc/kubernetes/)"
-		if err = r.executeSSHCommand(sshClient, cmd); err != nil {
+
+		checkAndResetCmd := "if systemctl is-active -q kubelet; then kubeadm reset -f; rm -rf /etc/cni/ /etc/kubernetes/; fi"
+		if err = r.executeSSHCommand(sshClient, checkAndResetCmd); err != nil {
 			return err
 		}
 		v1.SetAnnotation(adminNode, v1.NodeResetAnnotation, v1.TrueStr)
