@@ -3,7 +3,7 @@ package middleware
 import (
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/gin-gonic/gin"
 )
 
@@ -37,4 +37,3 @@ func HandleLogging() gin.HandlerFunc {
 		)
 	}
 }
-

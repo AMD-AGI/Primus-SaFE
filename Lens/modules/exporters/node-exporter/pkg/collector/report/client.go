@@ -2,8 +2,8 @@ package report
 
 import (
 	"context"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	pb "github.com/AMD-AGI/primus-lens/core/pkg/pb/exporter"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	pb "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/pb/exporter"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"

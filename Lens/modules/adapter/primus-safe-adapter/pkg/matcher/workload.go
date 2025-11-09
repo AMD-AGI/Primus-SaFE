@@ -5,11 +5,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	primusSafeConstant "github.com/AMD-AGI/primus-lens/primus-safe-adapter/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	primusSafeConstant "github.com/AMD-AGI/Primus-SaFE/Lens/primus-safe-adapter/pkg/constant"
 )
 
 var DefaultWorkloadMatcher = &WorkloadMatcher{}

@@ -1,4 +1,4 @@
-module github.com/AMD-AGI/primus-lens/core
+module github.com/AMD-AGI/Primus-SaFE/Lens/core
 
 go 1.24.5
 

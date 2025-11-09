@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/kube"
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/util"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/kube"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

@@ -1,8 +1,8 @@
 package model
 
 import (
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/filter"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 	"strings"
 )
 
@@ -58,4 +58,13 @@ type GpuNodeDetail struct {
 	StaticGpuDetails  string `json:"static_gpu_details"`
 	KubeletVersion    string `json:"kubelet_version"`
 	ContainerdVersion string `json:"containerd_version"`
+}
+
+type NodeUtilization struct {
+	NodeName       string  `json:"node_name"`
+	CpuUtilization float64 `json:"cpu_utilization"`
+	MemUtilization float64 `json:"mem_utilization"`
+	GpuUtilization float64 `json:"gpu_utilization"`
+	GpuAllocation  int     `json:"gpu_allocation"`
+	Timestamp      int64   `json:"timestamp"`
 }

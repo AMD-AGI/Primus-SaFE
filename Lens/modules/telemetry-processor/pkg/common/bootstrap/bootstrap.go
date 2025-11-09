@@ -3,17 +3,36 @@ package bootstrap
 import (
 	"context"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/config"
-	"github.com/AMD-AGI/primus-lens/core/pkg/router"
-	"github.com/AMD-AGI/primus-lens/core/pkg/server"
-	"github.com/AMD-AGI/primus-lens/telemetry-processor/pkg/module/alerts"
-	"github.com/AMD-AGI/primus-lens/telemetry-processor/pkg/module/logs"
-	"github.com/AMD-AGI/primus-lens/telemetry-processor/pkg/module/metrics"
-	"github.com/AMD-AGI/primus-lens/telemetry-processor/pkg/module/pods"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
+	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/alerts"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/logs"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/metrics"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/pods"
 	"github.com/gin-gonic/gin"
 )
 
 func Bootstrap(ctx context.Context) error {
+	// 启用 Jaeger tracer
+	err := trace.InitTracer("primus-lens-telemetry-processor")
+	if err != nil {
+		log.Errorf("Failed to init tracer: %v", err)
+		// 不阻断启动，降级为不追踪
+	} else {
+		log.Info("Jaeger tracer initialized successfully for telemetry-processor service")
+	}
+	
+	// 注册 cleanup 函数
+	go func() {
+		<-ctx.Done()
+		if err := trace.CloseTracer(); err != nil {
+			log.Errorf("Failed to close tracer: %v", err)
+		}
+	}()
+	
 	return server.InitServerWithPreInitFunc(ctx, func(ctx context.Context, cfg *config.Config) error {
 		router.RegisterGroup(initRouter)
 		pods.StartRefreshCaches(ctx)

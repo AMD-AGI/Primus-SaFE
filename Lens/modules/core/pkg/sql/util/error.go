@@ -2,7 +2,7 @@ package dal
 
 import (
 	"errors"
-	errors2 "github.com/AMD-AGI/primus-lens/core/pkg/errors"
+	errors2 "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"gorm.io/gorm"
 )
 

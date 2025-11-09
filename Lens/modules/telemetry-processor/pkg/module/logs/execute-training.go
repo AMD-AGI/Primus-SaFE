@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/telemetry-processor/pkg/module/alerts"
-	"github.com/AMD-AGI/primus-lens/telemetry-processor/pkg/module/log_alert_engine"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/alerts"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/log_alert_engine"
 )
 
 func executeWorkloadLog(ctx context.Context, workloadLog *PodLog) error {

@@ -3,7 +3,7 @@ package mean_time_between_fail
 import (
 	"context"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 )
 
 type MtbfJob struct {

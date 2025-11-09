@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/sql"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql"
 	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmalert/remotewrite"
 	"github.com/opensearch-project/opensearch-go"
 	"github.com/prometheus/client_golang/api"
@@ -161,7 +161,10 @@ func initStorageClients(ctx context.Context, clusterName string, cfg PrimusLensC
 	}
 	log.Infof("sqlConfig: %+v", sqlConfig)
 	log.Infof("Initializing storage clients for cluster '%s' ", clusterName)
-	gormDb, err := sql.InitGormDB(clusterName, sqlConfig)
+	gormDb, err := sql.InitGormDB(clusterName, sqlConfig,
+		sql.WithTracingCallback(),
+		sql.WithErrorStackCallback(),
+	)
 	if err != nil {
 		return nil, errors.NewError().
 			WithCode(errors.CodeInitializeError).

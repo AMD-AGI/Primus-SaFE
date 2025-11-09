@@ -1,11 +1,11 @@
-module github.com/AMD-AGI/primus-lens/jobs
+module github.com/AMD-AGI/Primus-SaFE/Lens/jobs
 
 go 1.24.5
 
-replace github.com/AMD-AGI/primus-lens/core => ../core
+replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../core
 
 require (
-	github.com/AMD-AGI/primus-lens/core v0.0.0-00010101000000-000000000000
+	github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
 	github.com/prometheus/client_golang v1.22.0
 	github.com/robfig/cron/v3 v3.0.1
 	google.golang.org/grpc v1.73.0

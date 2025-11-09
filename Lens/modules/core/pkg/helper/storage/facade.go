@@ -3,10 +3,10 @@ package storage
 import (
 	"context"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
 func GetStorageStat(ctx context.Context) (*model.StorageStat, error) {
@@ -65,7 +65,7 @@ func getStorageQueryWithClientSet(kind string, storageClientSet *clientsets.Stor
 	if storageClientSet == nil {
 		storageClientSet = clientsets.GetClusterManager().GetCurrentClusterClients().StorageClientSet
 	}
-	
+
 	switch kind {
 	case "juicefs":
 		return &JuicefsQuery{

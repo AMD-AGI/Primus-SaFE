@@ -4,17 +4,17 @@ import (
 	"context"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	dbmodel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/fault"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/gpu"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/rdma"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/storage"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	coreModel "github.com/AMD-AGI/primus-lens/core/pkg/model"
-	"github.com/AMD-AGI/primus-lens/jobs/pkg/common"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/fault"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/rdma"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/storage"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	coreModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/common"
 )
 
 type ClusterOverviewJob struct {

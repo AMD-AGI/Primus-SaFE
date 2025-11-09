@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package exporter;
-option go_package = "github.com/AMD-AGI/primus-lens/core/pkg/pb/exporter";
+option go_package = "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/pb/exporter";
 
 import "google/protobuf/struct.proto";
 

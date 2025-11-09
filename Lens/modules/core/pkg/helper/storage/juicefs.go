@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/prom"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/prom"
 )
 
 type JuicefsQuery struct {

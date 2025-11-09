@@ -1,13 +1,13 @@
-module github.com/AMD-AGI/primus-lens/multi-cluster-config-exporter
+module github.com/AMD-AGI/Primus-SaFE/Lens/multi-cluster-config-exporter
 
 go 1.24.5
 
 toolchain go1.24.9
 
-replace github.com/AMD-AGI/primus-lens/core => ../../core
+replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../../core
 
 require (
-	github.com/AMD-AGI/primus-lens/core v0.0.0-00010101000000-000000000000
+	github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
 	k8s.io/api v0.34.1
 	k8s.io/apimachinery v0.34.1
 )

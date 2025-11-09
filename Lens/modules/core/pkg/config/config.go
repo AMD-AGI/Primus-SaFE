@@ -5,19 +5,19 @@ import (
 	"os"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
-	MultiCluster    bool                `json:"multiCluster" yaml:"multiCluster"`
-	LoadK8SClient   bool                `json:"loadK8SClient" yaml:"loadK8SClient"`
-	LoadStorageClient bool              `json:"loadStorageClient" yaml:"loadStorageClient"`
-	Controller      ControllerConfig    `yaml:"controller"`
-	HttpPort        int                 `json:"httpPort" yaml:"httpPort"`
-	NodeExporter    *NodeExporterConfig `json:"nodeExporter" yaml:"nodeExporter"`
-	Jobs            *JobsConfig         `json:"jobs" yaml:"jobs"`
-	Netflow         *NetFlow            `json:"netflow" yaml:"netflow"`
+	MultiCluster      bool                `json:"multiCluster" yaml:"multiCluster"`
+	LoadK8SClient     bool                `json:"loadK8SClient" yaml:"loadK8SClient"`
+	LoadStorageClient bool                `json:"loadStorageClient" yaml:"loadStorageClient"`
+	Controller        ControllerConfig    `yaml:"controller"`
+	HttpPort          int                 `json:"httpPort" yaml:"httpPort"`
+	NodeExporter      *NodeExporterConfig `json:"nodeExporter" yaml:"nodeExporter"`
+	Jobs              *JobsConfig         `json:"jobs" yaml:"jobs"`
+	Netflow           *NetFlow            `json:"netflow" yaml:"netflow"`
 }
 
 type ControllerConfig struct {

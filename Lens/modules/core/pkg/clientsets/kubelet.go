@@ -29,7 +29,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/go-resty/resty/v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"

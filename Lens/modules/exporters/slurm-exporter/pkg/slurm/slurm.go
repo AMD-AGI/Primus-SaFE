@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
 func QueryJobsCLI() ([]model.SlurmJob, error) {

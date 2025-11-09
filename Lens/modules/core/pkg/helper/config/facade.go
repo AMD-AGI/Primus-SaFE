@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"gorm.io/gorm"
 )
 
@@ -157,11 +157,11 @@ func GetDefaultCacheTTL() time.Duration {
 
 // ConfigManagerStats 配置管理器统计信息
 type ConfigManagerStats struct {
-	TotalManagers       int            `json:"total_managers"`        // 总管理器数量
-	TotalCachedManagers int            `json:"total_cached_managers"` // 总缓存管理器数量
-	Clusters            []string       `json:"clusters"`              // 集群列表
-	CachedClusters      []string       `json:"cached_clusters"`       // 使用缓存的集群列表
-	DefaultCacheTTL     string         `json:"default_cache_ttl"`     // 默认缓存TTL
+	TotalManagers       int                    `json:"total_managers"`        // 总管理器数量
+	TotalCachedManagers int                    `json:"total_cached_managers"` // 总缓存管理器数量
+	Clusters            []string               `json:"clusters"`              // 集群列表
+	CachedClusters      []string               `json:"cached_clusters"`       // 使用缓存的集群列表
+	DefaultCacheTTL     string                 `json:"default_cache_ttl"`     // 默认缓存TTL
 	CacheStats          map[string]interface{} `json:"cache_stats,omitempty"` // 缓存统计（如果有）
 }
 
@@ -220,4 +220,3 @@ func WithDBAndCache(db *gorm.DB, cacheTTL time.Duration) *CachedManager {
 	}
 	return NewCachedManager(NewManager(db), cacheTTL)
 }
-

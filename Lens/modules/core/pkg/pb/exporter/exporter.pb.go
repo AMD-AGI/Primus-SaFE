@@ -7,12 +7,13 @@
 package exporter
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	structpb "google.golang.org/protobuf/types/known/structpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
@@ -102,7 +103,7 @@ const file_pkg_pb_exporter_exporter_proto_rawDesc = "" +
 	"\x04node\x18\x04 \x01(\tR\x04node2\xb9\x01\n" +
 	"\x0fExporterService\x12O\n" +
 	"\x15StreamContainerEvents\x12\x18.exporter.ContainerEvent\x1a\x18.exporter.ContainerEvent(\x010\x01\x12U\n" +
-	"\x1bStreamDockerContainerEvents\x12\x18.exporter.ContainerEvent\x1a\x18.exporter.ContainerEvent(\x010\x01B5Z3github.com/AMD-AGI/primus-lens/core/pkg/pb/exporterb\x06proto3"
+	"\x1bStreamDockerContainerEvents\x12\x18.exporter.ContainerEvent\x1a\x18.exporter.ContainerEvent(\x010\x01B5Z3github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/pb/exporterb\x06proto3"
 
 var (
 	file_pkg_pb_exporter_exporter_proto_rawDescOnce sync.Once

@@ -5,13 +5,13 @@ import (
 	"strconv"
 	"time"
 
-	dbModel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/constant"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/workload"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/workload"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/prompb"
 )
 

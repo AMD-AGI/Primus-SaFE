@@ -1,13 +1,13 @@
-module github.com/AMD-AGI/primus-lens/primus-safe-adapter
+module github.com/AMD-AGI/Primus-SaFE/Lens/primus-safe-adapter
 
 go 1.24.5
 
-replace github.com/AMD-AGI/primus-lens/core => ../../core
+replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../../core
 
 replace github.com/AMD-AIG-AIMA/SAFE/apis => ../../../../SaFE/apis
 
 require (
-	github.com/AMD-AGI/primus-lens/core v0.0.0-00010101000000-000000000000
+	github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
 	github.com/AMD-AIG-AIMA/SAFE/apis v0.0.0
 	k8s.io/api v0.34.1
 	k8s.io/apimachinery v0.34.1

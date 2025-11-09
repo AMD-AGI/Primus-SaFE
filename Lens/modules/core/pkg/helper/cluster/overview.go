@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
 // GetClusterOverviewFromCache retrieves cluster overview from cache

@@ -12,6 +12,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		nodeGroup.GET(":name", getNodeInfoByName)
 		nodeGroup.GET(":name/gpuDevices", getGpuDevice)
 		nodeGroup.GET(":name/gpuMetrics", getNodeGpuMetrics)
+		nodeGroup.GET(":name/utilization", getNodeUtilization)
+		nodeGroup.GET(":name/utilizationHistory", getNodeUtilizationHistory)
 		nodeGroup.GET(":name/workloads", getNodeWorkload)
 		nodeGroup.GET(":name/workloadsHistory", getNodeWorkloadHistory)
 	}

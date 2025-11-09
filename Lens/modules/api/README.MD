@@ -383,8 +383,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 ```go
 import (
-    "github.com/AMD-AGI/primus-lens/core/pkg/helper/gpu"
-    "github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
+    "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
+    "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 )
 
 data, err := gpu.GetGpuNodes(ctx, clientsets.GetCurrentClusterK8SClientSet(), metadata.GpuVendorAMD)
@@ -395,7 +395,7 @@ data, err := gpu.GetGpuNodes(ctx, clientsets.GetCurrentClusterK8SClientSet(), me
 All API handlers should use the unified error handling mechanism:
 
 ```go
-import "github.com/AMD-AGI/primus-lens/core/pkg/errors"
+import "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 
 // Return error through gin context
 if err != nil {
@@ -415,7 +415,7 @@ if resource == nil {
 Use the standard response format from the core module:
 
 ```go
-import "github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
+import "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 
 // Success response
 c.JSON(http.StatusOK, rest.SuccessResp(c, data))
@@ -513,7 +513,7 @@ spec:
 
 Main dependencies include:
 
-- **Core Module**: github.com/AMD-AGI/primus-lens/core
+- **Core Module**: github.com/AMD-AGI/Primus-SaFE/Lens/core
 - **Web Framework**: gin-gonic/gin
 - **Kubernetes Client**: k8s.io/client-go, k8s.io/api
 

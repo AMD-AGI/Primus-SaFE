@@ -2,12 +2,12 @@ package collector
 
 import (
 	"context"
-	"github.com/AMD-AGI/primus-lens/core/pkg/config"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/node-exporter/pkg/collector/containerd"
-	k8s_ephemeral_storage "github.com/AMD-AGI/primus-lens/node-exporter/pkg/collector/k8s-ephemeral-storage"
-	"github.com/AMD-AGI/primus-lens/node-exporter/pkg/collector/report"
-	"github.com/AMD-AGI/primus-lens/node-exporter/pkg/kubelet"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/containerd"
+	k8s_ephemeral_storage "github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/k8s-ephemeral-storage"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/report"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/kubelet"
 	"k8s.io/utils/env"
 )
 

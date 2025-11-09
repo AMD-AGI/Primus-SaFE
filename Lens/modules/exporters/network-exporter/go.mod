@@ -1,11 +1,11 @@
-module github.com/AMD-AGI/primus-lens/network-exporter
+module github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter
 
 go 1.24.5
 
-replace github.com/AMD-AGI/primus-lens/core => ../../core
+replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../../core
 
 require (
-	github.com/AMD-AGI/primus-lens/core v0.0.0-00010101000000-000000000000
+	github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
 	github.com/cilium/ebpf v0.19.0
 	github.com/gin-gonic/gin v1.11.0
 	github.com/yl2chen/cidranger v1.0.2

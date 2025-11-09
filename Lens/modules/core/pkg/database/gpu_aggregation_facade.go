@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	dbmodel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"gorm.io/gorm"
 )
 

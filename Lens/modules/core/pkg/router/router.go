@@ -1,7 +1,7 @@
 package router
 
 import (
-	"github.com/AMD-AGI/primus-lens/core/pkg/router/middleware"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router/middleware"
 	"github.com/gin-gonic/gin"
 )
 

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/sql/metrics"
-	"github.com/AMD-AGI/primus-lens/core/pkg/trace"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql/metrics"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"gorm.io/gorm/logger"
 )
 

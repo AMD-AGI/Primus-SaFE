@@ -3,41 +3,87 @@ package trace
 import (
 	"bytes"
 	"context"
-	commonContext "github.com/AMD-AGI/primus-lens/core/pkg/context"
+	"fmt"
+	"io"
+	"os"
+
+	"net/http"
+
+	commonContext "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/context"
+	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/opentracing/opentracing-go"
 	"github.com/opentracing/opentracing-go/ext"
 	"github.com/uber/jaeger-client-go"
 	jaegercfg "github.com/uber/jaeger-client-go/config"
 	jaegerlog "github.com/uber/jaeger-client-go/log"
 	"github.com/uber/jaeger-lib/metrics"
-	"net/http"
 )
 
 const (
 	TraceKey = "_trace"
 )
 
-// InitTracer inits a jaeger tracer
+var (
+	globalCloser io.Closer
+)
+
+// InitTracer inits a jaeger tracer with real reporter
 func InitTracer(serviceName string) error {
+	// 从环境变量读取 Jaeger 配置
+	jaegerAgentHost := os.Getenv("JAEGER_AGENT_HOST")
+	if jaegerAgentHost == "" {
+		jaegerAgentHost = "localhost"
+	}
+	jaegerAgentPort := os.Getenv("JAEGER_AGENT_PORT")
+	if jaegerAgentPort == "" {
+		jaegerAgentPort = "6831"
+	}
+
+	// 读取采样配置
+	samplerType := os.Getenv("JAEGER_SAMPLER_TYPE")
+	if samplerType == "" {
+		samplerType = jaeger.SamplerTypeConst
+	}
+	samplerParam := 1.0 // 默认 100% 采样
+	if paramStr := os.Getenv("JAEGER_SAMPLER_PARAM"); paramStr != "" {
+		fmt.Sscanf(paramStr, "%f", &samplerParam)
+	}
+
 	cfg := jaegercfg.Configuration{
+		ServiceName: serviceName,
 		Sampler: &jaegercfg.SamplerConfig{
-			Type:  jaeger.SamplerTypeConst,
-			Param: 1,
+			Type:  samplerType,
+			Param: samplerParam,
 		},
 		Reporter: &jaegercfg.ReporterConfig{
-			LogSpans: false,
+			LogSpans:           false,
+			LocalAgentHostPort: fmt.Sprintf("%s:%s", jaegerAgentHost, jaegerAgentPort),
 		},
 	}
 
 	// Initialize tracer with a logger and a metrics factory
-	_, err := cfg.InitGlobalTracer(
-		serviceName,
-		jaegercfg.Logger(jaegerlog.NullLogger),
+	tracer, closer, err := cfg.NewTracer(
+		jaegercfg.Logger(jaegerlog.StdLogger),
 		jaegercfg.Metrics(metrics.NullFactory),
-		jaegercfg.Reporter(jaeger.NewNullReporter()),
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create tracer: %w", err)
+	}
+
+	opentracing.SetGlobalTracer(tracer)
+	globalCloser = closer
+
+	log.Infof("Jaeger tracer initialized: service=%s, agent=%s:%s, sampler=%s(%.2f)",
+		serviceName, jaegerAgentHost, jaegerAgentPort, samplerType, samplerParam)
+
+	return nil
+}
+
+// CloseTracer closes the tracer and flushes any remaining spans
+func CloseTracer() error {
+	if globalCloser != nil {
+		log.Info("Closing Jaeger tracer...")
+		return globalCloser.Close()
 	}
 	return nil
 }

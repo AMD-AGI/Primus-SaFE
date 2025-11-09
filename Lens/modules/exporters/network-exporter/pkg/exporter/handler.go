@@ -5,15 +5,15 @@ import (
 	"net"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/config"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/goroutineUtil"
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/bpf/tcpconn"
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/bpf/tcpflow"
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/model"
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/policy"
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/util"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/goroutineUtil"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/bpf/tcpconn"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/bpf/tcpflow"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/policy"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/util"
 )
 
 var (

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/config"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/config"
 )
 
 // 示例配置结构

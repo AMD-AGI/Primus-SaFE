@@ -3,7 +3,7 @@ package training
 import (
 	"context"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/gin-gonic/gin"
 )
 

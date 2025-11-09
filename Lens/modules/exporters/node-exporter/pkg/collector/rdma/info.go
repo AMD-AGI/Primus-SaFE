@@ -3,7 +3,7 @@ package rdma
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"os/exec"
 )
 

@@ -3,12 +3,12 @@ package bootstrap
 import (
 	"context"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/config"
-	"github.com/AMD-AGI/primus-lens/core/pkg/controller"
-	"github.com/AMD-AGI/primus-lens/core/pkg/router"
-	"github.com/AMD-AGI/primus-lens/core/pkg/server"
-	"github.com/AMD-AGI/primus-lens/node-exporter/pkg/api"
-	"github.com/AMD-AGI/primus-lens/node-exporter/pkg/collector"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/api"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )

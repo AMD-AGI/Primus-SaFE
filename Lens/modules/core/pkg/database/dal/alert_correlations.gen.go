@@ -16,7 +16,7 @@ import (
 
 	"gorm.io/plugin/dbresolver"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 )
 
 func newAlertCorrelations(db *gorm.DB, opts ...gen.DOOption) alertCorrelations {

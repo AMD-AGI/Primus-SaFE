@@ -1,12 +1,13 @@
-module github.com/AMD-AGI/primus-lens/api
+module github.com/AMD-AGI/Primus-SaFE/Lens/api
 
 go 1.24.5
 
-replace github.com/AMD-AGI/primus-lens/core => ../core
+replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../core
 
 require (
-	github.com/AMD-AGI/primus-lens/core v0.0.0-00010101000000-000000000000
+	github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
 	github.com/gin-gonic/gin v1.10.1
+	github.com/google/uuid v1.6.0
 	k8s.io/api v0.33.3
 	k8s.io/apimachinery v0.33.3
 )
@@ -44,7 +45,6 @@ require (
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/gnostic-models v0.6.9 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/pgx/v5 v5.7.5 // indirect

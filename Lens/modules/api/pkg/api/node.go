@@ -7,17 +7,17 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	dbModel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/gpu"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/node"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/workload"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/sliceUtil"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/node"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/workload"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/sliceUtil"
 	"github.com/gin-gonic/gin"
 )
 
@@ -540,4 +540,190 @@ func cvtDbNode2GpuNodeListNode(dbNode *dbModel.Node) model.GPUNode {
 		StatusColor:    node.GetStatusColor(dbNode.Status),
 	}
 
+}
+
+// getNodeUtilization retrieves the current utilization of a node
+func getNodeUtilization(ctx *gin.Context) {
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	nodeName := ctx.Param("name")
+
+	// Get node from database to get GPU info
+	dbNode, err := database.GetFacadeForCluster(clients.ClusterName).GetNode().GetNodeByName(ctx, nodeName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+	if dbNode == nil {
+		_ = ctx.Error(errors.NewError().WithCode(errors.RequestDataNotExisted))
+		return
+	}
+
+	// Get current utilization from recent metrics (last 1 minute average)
+	now := time.Now()
+	oneMinuteAgo := now.Add(-1 * time.Minute)
+
+	// Get CPU utilization
+	cpuUtil, err := node.GetNodeCpuUtilHistory(ctx, clients.StorageClientSet, nodeName, oneMinuteAgo, now, 60)
+	cpuUtilValue := 0.0
+	if err == nil && len(cpuUtil) > 0 && len(cpuUtil[0].Values) > 0 {
+		cpuUtilValue = cpuUtil[0].Values[len(cpuUtil[0].Values)-1].Value
+	}
+
+	// Get Memory utilization
+	memUtil, err := node.GetNodeMemUtilHistory(ctx, clients.StorageClientSet, nodeName, oneMinuteAgo, now, 60)
+	memUtilValue := 0.0
+	if err == nil && len(memUtil) > 0 && len(memUtil[0].Values) > 0 {
+		memUtilValue = memUtil[0].Values[len(memUtil[0].Values)-1].Value
+	}
+
+	result := model.NodeUtilization{
+		NodeName:       dbNode.Name,
+		CpuUtilization: cpuUtilValue,
+		MemUtilization: memUtilValue,
+		GpuUtilization: dbNode.GpuUtilization,
+		GpuAllocation:  int(dbNode.GpuAllocation),
+		Timestamp:      time.Now().Unix(),
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, result))
+}
+
+// getNodeUtilizationHistory retrieves the utilization history of a node
+func getNodeUtilizationHistory(ctx *gin.Context) {
+	nodeName := ctx.Param("name")
+	startStr := ctx.Query("start")
+	endStr := ctx.Query("end")
+	stepStr := ctx.DefaultQuery("step", "60") // Default is 60 seconds
+
+	startUnix, err := strconv.ParseInt(startStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid start timestamp"})
+		return
+	}
+	endUnix, err := strconv.ParseInt(endStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid end timestamp"})
+		return
+	}
+
+	step, err := strconv.Atoi(stepStr)
+	if err != nil || step <= 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid step value, must be positive integer (in seconds)"})
+		return
+	}
+
+	startTime := time.Unix(startUnix, 0)
+	endTime := time.Unix(endUnix, 0)
+
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+	storageClient := clients.StorageClientSet
+
+	// Get CPU utilization history
+	cpuUtil, err := node.GetNodeCpuUtilHistory(ctx,
+		storageClient,
+		nodeName,
+		startTime,
+		endTime,
+		step)
+	if err != nil {
+		_ = ctx.Error(errors.NewError().
+			WithCode(errors.InternalError).
+			WithError(err).
+			WithMessage("Fail GetNodeCpuUtilHistory"))
+		return
+	}
+
+	// Get Memory utilization history
+	memUtil, err := node.GetNodeMemUtilHistory(ctx,
+		storageClient,
+		nodeName,
+		startTime,
+		endTime,
+		step)
+	if err != nil {
+		_ = ctx.Error(errors.NewError().
+			WithCode(errors.InternalError).
+			WithError(err).
+			WithMessage("Fail GetNodeMemUtilHistory"))
+		return
+	}
+
+	// Get GPU utilization history
+	gpuUtil, err := node.GetNodeGpuUtilHistory(ctx,
+		storageClient,
+		metadata.GpuVendorAMD,
+		nodeName,
+		startTime,
+		endTime,
+		step)
+	if err != nil {
+		_ = ctx.Error(errors.NewError().
+			WithCode(errors.InternalError).
+			WithError(err).
+			WithMessage("Fail GetNodeGpuUtilHistory"))
+		return
+	}
+
+	// Get GPU allocation rate history
+	gpuAllocationRate, err := node.GetNodeGpuAllocationHistory(ctx,
+		storageClient,
+		metadata.GpuVendorAMD,
+		nodeName,
+		startTime,
+		endTime,
+		step)
+	if err != nil {
+		_ = ctx.Error(errors.NewError().
+			WithCode(errors.InternalError).
+			WithError(err).
+			WithMessage("Fail GetNodeGpuAllocationHistory"))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, struct {
+		CpuUtilization    model.MetricsGraph `json:"cpu_utilization"`
+		MemUtilization    model.MetricsGraph `json:"mem_utilization"`
+		GpuUtilization    model.MetricsGraph `json:"gpu_utilization"`
+		GpuAllocationRate model.MetricsGraph `json:"gpu_allocation_rate"`
+	}{
+		CpuUtilization: model.MetricsGraph{
+			Series: cpuUtil,
+			Config: model.MetricsGraphConfig{
+				YAxisUnit: "%",
+			},
+		},
+		MemUtilization: model.MetricsGraph{
+			Series: memUtil,
+			Config: model.MetricsGraphConfig{
+				YAxisUnit: "%",
+			},
+		},
+		GpuUtilization: model.MetricsGraph{
+			Series: gpuUtil,
+			Config: model.MetricsGraphConfig{
+				YAxisUnit: "%",
+			},
+		},
+		GpuAllocationRate: model.MetricsGraph{
+			Series: gpuAllocationRate,
+			Config: model.MetricsGraphConfig{
+				YAxisUnit: "%",
+			},
+		},
+	}))
 }
