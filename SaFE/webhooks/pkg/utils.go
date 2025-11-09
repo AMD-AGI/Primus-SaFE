@@ -108,10 +108,19 @@ func validateLabelKey(name string) error {
 }
 
 // validateLabels ensures labels are valid.
+// For keys containing '/', splits by '/' and validates each part separately.
 func validateLabels(obj metav1.Object) error {
 	for key := range obj.GetLabels() {
-		if err := validateLabelKey(key); err != nil {
-			return err
+		// If key contains '/', split it and validate each part
+		parts := strings.Split(key, "/")
+		// Only allow one '/' - exactly 2 parts
+		if len(parts) > 2 {
+			return commonerrors.NewBadRequest(fmt.Sprintf(LabelKeyPrompt, key, commonutils.MaxNameLength))
+		}
+		for _, part := range parts {
+			if validateLabelKey(part) != nil {
+				return commonerrors.NewBadRequest(fmt.Sprintf(LabelKeyPrompt, key, commonutils.MaxNameLength))
+			}
 		}
 	}
 	return nil
