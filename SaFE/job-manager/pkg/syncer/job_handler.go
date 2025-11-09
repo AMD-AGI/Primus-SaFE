@@ -160,7 +160,7 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *reso
 func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, adminWorkload *v1.Workload, informer *ClusterInformer) bool {
 	obj, err := jobutils.GenObjectReference(ctx, r.Client, adminWorkload)
 	if err != nil {
-		return false
+		return apierrors.IsNotFound(err)
 	}
 	if _, err = jobutils.GetObjectByClientFactory(ctx, informer.ClientFactory(), obj); err != nil {
 		if apierrors.IsNotFound(err) {
