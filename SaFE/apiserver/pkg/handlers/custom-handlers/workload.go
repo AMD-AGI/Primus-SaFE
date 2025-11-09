@@ -613,6 +613,14 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 			return nil, fmt.Errorf("the authoring can only be created with one node")
 		}
 	}
+	// Currently, only the "resources" parameter is used.
+	// For backward compatibility, any usage of the "resource" parameter(legacy parameter) will be automatically converted to the new resources format.
+	if len(req.Resources) == 0 && workload.Spec.Resource != nil {
+		workload.Spec.Resources = append(workload.Spec.Resources, *workload.Spec.Resource)
+	}
+	// the "resource" parameter is deprecated
+	workload.Spec.Resource = nil
+
 	genCustomerLabelsBySpecifiedNodes(workload, req.SpecifiedNodes)
 	if len(req.SpecifiedNodes) > 0 {
 		workload.Spec.Resource.Replica = len(req.SpecifiedNodes)
@@ -621,6 +629,34 @@ func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequ
 		workload.Spec.Workspace = req.WorkspaceId
 	}
 	return workload, nil
+}
+
+func modifyWorkloadResourdces(workload *v1.Workload, specifiedNodeCount int) error {
+	if len(workload.Spec.Resources) == 0 {
+		return commonerrors.NewBadRequest("resources cannot be empty")
+	}
+	switch workload.Spec.Kind {
+	case common.PytorchJobKind, common.RayJobKind:
+		if len(workload.Spec.Resources) == 1 {
+			workload.Spec.Resources[0].Replica = specifiedNodeCount
+		} else if len(workload.Spec.Resources) == 2 {
+			masterId := commonworkload.GetResourceIndexByRole(workload, v1.WorkloadRoleMaster)
+			workerId := commonworkload.GetResourceIndexByRole(workload, v1.WorkloadRoleWorker)
+			if masterId < 0 || workerId < 0 {
+				return commonerrors.NewBadRequest(
+					"")
+			}
+			// The master node count is fixed to 1.
+			workload.Spec.Resources[0].Replica = 1
+			workload.Spec.Resources[1].Replica = specifiedNodeCount - 1
+		} else {
+			return commonerrors.NewBadRequest(
+				"Specifying nodes is not supported when multiple roles are configured")
+		}
+	default:
+		workload.Spec.Resources[0].Replica = specifiedNodeCount
+	}
+	return nil
 }
 
 // handleBatchWorkloads processes batch operations on multiple workloads.

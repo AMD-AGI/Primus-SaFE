@@ -20,6 +20,7 @@ type (
 	CronAction            string
 	WorkloadConditionType string
 	WorkloadVolumeType    string
+	WorkloadResourceRole  string
 )
 
 const (
@@ -40,6 +41,9 @@ const (
 
 	WorkloadHostpath WorkloadVolumeType = "hostpath"
 	WorkloadPVC      WorkloadVolumeType = "pvc"
+
+	WorkloadRoleMaster WorkloadResourceRole = "Master"
+	WorkloadRoleWorker WorkloadResourceRole = "Worker"
 )
 
 const (
@@ -57,6 +61,8 @@ const (
 )
 
 type WorkloadResource struct {
+	// The role of resource, e.g. Master, Worker
+	Role WorkloadResourceRole `json:"name,omitempty"`
 	// Number of requested nodes
 	Replica int `json:"replica"`
 	// Requested CPU core count (e.g., 128)
@@ -131,8 +137,11 @@ type WorkloadVolume struct {
 }
 
 type WorkloadSpec struct {
-	// Workload resource requirements
-	Resource WorkloadResource `json:"resource"`
+	// Workload resource requirements. this definition is deprecated in v0.2.0+
+	Resource *WorkloadResource `json:"resource,omitempty"`
+	// Resources defines workload resources for different roles (e.g., Master, Worker).
+	// Supports flexible configuration of distributed workloads with varying resource requirements per role.
+	Resources []WorkloadResource `json:"resources,omitempty"`
 	// Requested workspace id
 	Workspace string `json:"workspace"`
 	// The address of the image used by the workload
@@ -149,7 +158,7 @@ type WorkloadSpec struct {
 	IsSupervised bool `json:"isSupervised,omitempty"`
 	// Group: An extension field that is not currently in use
 	// Version: version of workload, default value is v1
-	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default PyTorchJob
+	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring/RayJob, required
 	GroupVersionKind `json:"groupVersionKind"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`

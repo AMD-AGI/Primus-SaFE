@@ -195,11 +195,11 @@ func GetPodResources(res *v1.WorkloadResource) (corev1.ResourceList, error) {
 }
 
 // GetScope determines the workspace scope based on workload kind.
-// Returns TrainScope for PyTorch jobs, InferScope for Deployments/StatefulSets,
+// Returns TrainScope for PyTorch jobs/Ray jobs, InferScope for Deployments/StatefulSets,
 // AuthoringScope for authoring workloads, or empty string for unknown kinds.
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
-	case common.PytorchJobKind:
+	case common.PytorchJobKind, common.RayJobKind:
 		return v1.TrainScope
 	case common.DeploymentKind, common.StatefulSetKind:
 		return v1.InferScope
@@ -221,7 +221,7 @@ func IsApplication(w *v1.Workload) bool {
 
 // IsJob returns true if the workload is a job type including pytorch-job, authoring, or standard job.
 func IsJob(w *v1.Workload) bool {
-	if w.SpecKind() == common.PytorchJobKind ||
+	if w.SpecKind() == common.PytorchJobKind || w.SpecKind() == common.RayJobKind ||
 		w.SpecKind() == common.AuthoringKind || w.SpecKind() == common.JobKind {
 		return true
 	}
@@ -290,6 +290,17 @@ func GeneratePriority(priority int) string {
 		strPriority = common.LowPriority
 	}
 	return strPriority
+}
+
+// GetResourceIndexByRole returns the index of the resource with the specified role in the workload's resource list.
+// Returns -1 if no resource with the given role is found.
+func GetResourceIndexByRole(workload *v1.Workload, role v1.WorkloadResourceRole) int {
+	for i, res := range workload.Spec.Resources {
+		if res.Role == role {
+			return i
+		}
+	}
+	return -1
 }
 
 // GenerateMaxAvailResource generates maximum available resource for workload by NodeFlavor.

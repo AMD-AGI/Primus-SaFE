@@ -185,9 +185,6 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 
 // mutateGvk applies mutations to the workload gvk.
 func (m *WorkloadMutator) mutateGvk(workload *v1.Workload) {
-	if workload.Spec.Kind == "" {
-		workload.Spec.Kind = common.PytorchJobKind
-	}
 	if workload.Spec.Version == "" {
 		workload.Spec.Version = common.DefaultVersion
 	}
@@ -343,9 +340,6 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	workload.Spec.Resource.Replica = 1
 	workload.Spec.Timeout = nil
 	workload.Spec.EntryPoint = stringutil.Base64Encode("sleep infinity")
-	if workload.Spec.Image == "" {
-		workload.Spec.Image = commonconfig.GetAuthoringImage()
-	}
 	workload.Spec.Dependencies = nil
 }
 
@@ -571,8 +565,8 @@ func (v *WorkloadValidator) validateRequiredParams(workload *v1.Workload) error 
 	if workload.Spec.Image == "" {
 		errs = append(errs, fmt.Errorf("the image is empty"))
 	}
-	if workload.Spec.GroupVersionKind.Empty() {
-		errs = append(errs, fmt.Errorf("the gvk is empty"))
+	if workload.Spec.GroupVersionKind.Kind == "" {
+		errs = append(errs, fmt.Errorf("the kind is empty"))
 	}
 	if workload.Spec.Resource.Replica <= 0 {
 		errs = append(errs, fmt.Errorf("the replica is empty"))
@@ -688,7 +682,7 @@ func (v *WorkloadValidator) validateResourceEnough(ctx context.Context, workload
 	if nf == nil {
 		return err
 	}
-	return validateResourceEnough(nf, &workload.Spec.Resource)
+	return validateResourceEnough(nf, workload.Spec.Resource)
 }
 
 // validateResourceEnough checks if requested resources exceed per-node limits and configured thresholds.

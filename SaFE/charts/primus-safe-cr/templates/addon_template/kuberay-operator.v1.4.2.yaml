@@ -7,17 +7,17 @@ apiVersion: amd.com/v1
 kind: AddonTemplate
 metadata:
   labels:
-    primus-safe.display.name: "ray-operator-charts.v1.4.2"
+    primus-safe.display.name: "kuberay-operator-charts.v1.4.2"
     app.kubernetes.io/managed-by: Helm
     primus-safe.addon.default: ""
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-  name: ray-operator.v1.4.2
+  name: kuberay-operator.v1.4.2
 spec:
   category: plugin
   description: KubeRay Operator
   url: oci://registry-1.docker.io/primussafe/kuberay-operator
   version: 1.4.2
   type: helm
-  helmDefaultNamespace: kube-amd-gpu
+  helmDefaultNamespace: ray-system

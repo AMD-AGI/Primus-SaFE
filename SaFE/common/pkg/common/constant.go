@@ -34,6 +34,8 @@ const (
 	SSHPortName            = "ssh-port"
 	JsonContentType        = "application/json; charset=utf-8"
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
+	Master                 = "master"
+	Worker                 = "worker"
 
 	DefaultBurst = 1000
 	DefaultQPS   = 1000
