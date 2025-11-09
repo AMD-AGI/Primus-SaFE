@@ -77,4 +77,3 @@ func (f *TrainingFacade) ListTrainingPerformanceByWorkloadIdsAndTimeRange(ctx co
 	}
 	return result, nil
 }
-

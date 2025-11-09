@@ -12,9 +12,9 @@ import (
 // InitBuiltinLogAlertRuleTemplates initializes built-in log alert rule templates
 func InitBuiltinLogAlertRuleTemplates(ctx context.Context) error {
 	facade := GetFacade().GetLogAlertRule()
-	
+
 	templates := getBuiltinTemplates()
-	
+
 	for _, template := range templates {
 		// Check if template already exists
 		existing, err := facade.GetLogAlertRuleTemplateByID(ctx, template.ID)
@@ -22,23 +22,23 @@ func InitBuiltinLogAlertRuleTemplates(ctx context.Context) error {
 			log.Warnf("Failed to check existing template %s: %v", template.Name, err)
 			continue
 		}
-		
+
 		if existing != nil {
 			// Skip if already exists
 			log.Debugf("Template %s already exists, skipping", template.Name)
 			continue
 		}
-		
+
 		// Create template
 		if err := facade.CreateLogAlertRuleTemplate(ctx, template); err != nil {
 			log.Errorf("Failed to create builtin template %s: %v", template.Name, err)
 			// Continue with other templates
 			continue
 		}
-		
+
 		log.Infof("Created builtin log alert rule template: %s", template.Name)
 	}
-	
+
 	log.Info("Builtin log alert rule templates initialized")
 	return nil
 }
@@ -77,7 +77,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
-		
+
 		// 2. GPU OOM Detection
 		{
 			Name:        "GPU-OOM-Detection",
@@ -110,7 +110,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
-		
+
 		// 3. GPU OOM Frequency Detection
 		{
 			Name:        "GPU-OOM-Frequency",
@@ -149,7 +149,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
-		
+
 		// 4. NCCL Error Detection
 		{
 			Name:        "NCCL-Error-Detection",
@@ -182,7 +182,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
-		
+
 		// 5. InfiniBand Error Detection
 		{
 			Name:        "InfiniBand-Error-Detection",
@@ -215,7 +215,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
-		
+
 		// 6. Training Loss NaN Detection
 		{
 			Name:        "Training-Loss-NaN",
@@ -248,7 +248,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
-		
+
 		// 7. Checkpoint Save Failed
 		{
 			Name:        "Training-Checkpoint-Failed",
@@ -281,7 +281,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
-		
+
 		// 8. Throughput Degradation
 		{
 			Name:        "Training-Throughput-Degradation",
@@ -319,7 +319,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
-		
+
 		// 9. Pod Restart Detection
 		{
 			Name:        "Pod-Restart-Detection",
@@ -352,7 +352,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
-		
+
 		// 10. Production Environment Critical Error
 		{
 			Name:        "Production-Critical-Error",
@@ -386,7 +386,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
-		
+
 		// 11. Disk Space Warning
 		{
 			Name:        "Disk-Space-Warning",
@@ -419,7 +419,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 			IsBuiltin: true,
 			CreatedBy: "system",
 		},
-		
+
 		// 12. Connection Timeout
 		{
 			Name:        "Connection-Timeout",
@@ -427,7 +427,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 			Description: "连接超时检测",
 			TemplateConfig: buildTemplateConfig(map[string]interface{}{
 				"label_selectors": []map[string]interface{}{},
-				"match_type": "pattern",
+				"match_type":      "pattern",
 				"match_config": map[string]interface{}{
 					"pattern":     "connection timeout|timeout.*connect|timed out",
 					"ignore_case": true,
@@ -456,4 +456,3 @@ func buildTemplateConfig(config map[string]interface{}) model.ExtType {
 	json.Unmarshal(configBytes, &ext)
 	return ext
 }
-

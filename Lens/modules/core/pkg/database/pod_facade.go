@@ -191,4 +191,3 @@ func (f *PodFacade) CreatePodResource(ctx context.Context, podResource *model.Po
 func (f *PodFacade) UpdatePodResource(ctx context.Context, podResource *model.PodResource) error {
 	return f.getDAL().PodResource.WithContext(ctx).Save(podResource)
 }
-

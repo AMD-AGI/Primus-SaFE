@@ -219,4 +219,3 @@ func (f *NodeFacade) DeleteRdmaDeviceById(ctx context.Context, id int32) error {
 func (f *NodeFacade) CreateNodeDeviceChangelog(ctx context.Context, changelog *model.NodeDeviceChangelog) error {
 	return f.getDAL().NodeDeviceChangelog.WithContext(ctx).Create(changelog)
 }
-

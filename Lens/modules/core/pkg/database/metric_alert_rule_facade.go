@@ -17,15 +17,15 @@ type MetricAlertRuleFacadeInterface interface {
 	GetMetricAlertRuleByNameAndCluster(ctx context.Context, name, clusterName string) (*model.MetricAlertRules, error)
 	ListMetricAlertRules(ctx context.Context, filter *MetricAlertRuleFilter) ([]*model.MetricAlertRules, int64, error)
 	DeleteMetricAlertRule(ctx context.Context, id int64) error
-	
+
 	// Sync status operations
 	UpdateSyncStatus(ctx context.Context, id int64, status, message string) error
 	UpdateVMRuleStatus(ctx context.Context, id int64, vmruleStatus model.ExtType) error
-	
+
 	// Batch operations
 	ListRulesByCluster(ctx context.Context, clusterName string, enabled *bool) ([]*model.MetricAlertRules, error)
 	ListPendingSyncRules(ctx context.Context, limit int) ([]*model.MetricAlertRules, error)
-	
+
 	// WithCluster method
 	WithCluster(clusterName string) MetricAlertRuleFacadeInterface
 }
@@ -100,7 +100,7 @@ func (f *MetricAlertRuleFacade) GetMetricAlertRuleByNameAndCluster(ctx context.C
 func (f *MetricAlertRuleFacade) ListMetricAlertRules(ctx context.Context, filter *MetricAlertRuleFilter) ([]*model.MetricAlertRules, int64, error) {
 	db := f.getDB().WithContext(ctx)
 	query := db.Model(&model.MetricAlertRules{})
-	
+
 	if filter.Name != nil {
 		query = query.Where("name LIKE ?", "%"+*filter.Name+"%")
 	}
@@ -113,18 +113,18 @@ func (f *MetricAlertRuleFacade) ListMetricAlertRules(ctx context.Context, filter
 	if filter.SyncStatus != nil {
 		query = query.Where("sync_status = ?", *filter.SyncStatus)
 	}
-	
+
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	
+
 	var rules []*model.MetricAlertRules
 	query = query.Order("created_at DESC")
 	if filter.Limit > 0 {
 		query = query.Limit(filter.Limit).Offset(filter.Offset)
 	}
-	
+
 	err := query.Find(&rules).Error
 	return rules, total, err
 }
@@ -156,11 +156,11 @@ func (f *MetricAlertRuleFacade) UpdateVMRuleStatus(ctx context.Context, id int64
 func (f *MetricAlertRuleFacade) ListRulesByCluster(ctx context.Context, clusterName string, enabled *bool) ([]*model.MetricAlertRules, error) {
 	db := f.getDB().WithContext(ctx)
 	query := db.Where("cluster_name = ?", clusterName)
-	
+
 	if enabled != nil {
 		query = query.Where("enabled = ?", *enabled)
 	}
-	
+
 	var rules []*model.MetricAlertRules
 	err := query.Order("created_at DESC").Find(&rules).Error
 	return rules, err
@@ -170,13 +170,12 @@ func (f *MetricAlertRuleFacade) ListRulesByCluster(ctx context.Context, clusterN
 func (f *MetricAlertRuleFacade) ListPendingSyncRules(ctx context.Context, limit int) ([]*model.MetricAlertRules, error) {
 	db := f.getDB().WithContext(ctx)
 	query := db.Where("sync_status = ? AND enabled = ?", "pending", true)
-	
+
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
-	
+
 	var rules []*model.MetricAlertRules
 	err := query.Order("created_at ASC").Find(&rules).Error
 	return rules, err
 }
-

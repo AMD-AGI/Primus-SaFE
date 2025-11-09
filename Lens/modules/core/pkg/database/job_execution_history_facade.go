@@ -24,33 +24,33 @@ type JobExecutionHistoryFacadeInterface interface {
 
 // JobExecutionHistoryFilter defines filter conditions for querying job execution histories
 type JobExecutionHistoryFilter struct {
-	JobName     *string
-	JobType     *string
-	Status      *string
-	ClusterName *string
-	Hostname    *string
+	JobName       *string
+	JobType       *string
+	Status        *string
+	ClusterName   *string
+	Hostname      *string
 	StartTimeFrom *time.Time
 	StartTimeTo   *time.Time
 	MinDuration   *float64
 	MaxDuration   *float64
-	Offset      int
-	Limit       int
-	OrderBy     string // Default: "started_at DESC"
+	Offset        int
+	Limit         int
+	OrderBy       string // Default: "started_at DESC"
 }
 
 // JobStatistics contains statistics for a specific job
 type JobStatistics struct {
-	JobName       string  `json:"job_name"`
-	TotalRuns     int64   `json:"total_runs"`
-	SuccessCount  int64   `json:"success_count"`
-	FailureCount  int64   `json:"failure_count"`
-	CancelledCount int64  `json:"cancelled_count"`
-	TimeoutCount  int64   `json:"timeout_count"`
-	AvgDuration   float64 `json:"avg_duration"`
-	MinDuration   float64 `json:"min_duration"`
-	MaxDuration   float64 `json:"max_duration"`
-	LastRunTime   time.Time `json:"last_run_time"`
-	LastStatus    string  `json:"last_status"`
+	JobName        string    `json:"job_name"`
+	TotalRuns      int64     `json:"total_runs"`
+	SuccessCount   int64     `json:"success_count"`
+	FailureCount   int64     `json:"failure_count"`
+	CancelledCount int64     `json:"cancelled_count"`
+	TimeoutCount   int64     `json:"timeout_count"`
+	AvgDuration    float64   `json:"avg_duration"`
+	MinDuration    float64   `json:"min_duration"`
+	MaxDuration    float64   `json:"max_duration"`
+	LastRunTime    time.Time `json:"last_run_time"`
+	LastStatus     string    `json:"last_status"`
 }
 
 // JobExecutionHistoryFacade implements JobExecutionHistoryFacadeInterface
@@ -145,14 +145,14 @@ func (f *JobExecutionHistoryFacade) ListJobExecutionHistories(ctx context.Contex
 func (f *JobExecutionHistoryFacade) GetRecentFailures(ctx context.Context, limit int) ([]*model.JobExecutionHistory, error) {
 	db := f.getDB().WithContext(ctx)
 	var histories []*model.JobExecutionHistory
-	
+
 	query := db.Where("status IN ?", []string{"failed", "timeout", "cancelled"}).
 		Order("started_at DESC")
-	
+
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
-	
+
 	err := query.Find(&histories).Error
 	return histories, err
 }
@@ -160,17 +160,17 @@ func (f *JobExecutionHistoryFacade) GetRecentFailures(ctx context.Context, limit
 // GetJobStatistics retrieves statistics for a specific job
 func (f *JobExecutionHistoryFacade) GetJobStatistics(ctx context.Context, jobName string) (*JobStatistics, error) {
 	db := f.getDB().WithContext(ctx)
-	
+
 	var stats JobStatistics
 	stats.JobName = jobName
-	
+
 	// Get total runs
 	if err := db.Model(&model.JobExecutionHistory{}).
 		Where("job_name = ?", jobName).
 		Count(&stats.TotalRuns).Error; err != nil {
 		return nil, err
 	}
-	
+
 	// Get status counts
 	type StatusCount struct {
 		Status string
@@ -184,7 +184,7 @@ func (f *JobExecutionHistoryFacade) GetJobStatistics(ctx context.Context, jobNam
 		Scan(&statusCounts).Error; err != nil {
 		return nil, err
 	}
-	
+
 	for _, sc := range statusCounts {
 		switch sc.Status {
 		case "success":
@@ -197,7 +197,7 @@ func (f *JobExecutionHistoryFacade) GetJobStatistics(ctx context.Context, jobNam
 			stats.TimeoutCount = sc.Count
 		}
 	}
-	
+
 	// Get duration statistics (only for completed jobs)
 	type DurationStats struct {
 		AvgDuration float64
@@ -214,7 +214,7 @@ func (f *JobExecutionHistoryFacade) GetJobStatistics(ctx context.Context, jobNam
 	stats.AvgDuration = durationStats.AvgDuration
 	stats.MinDuration = durationStats.MinDuration
 	stats.MaxDuration = durationStats.MaxDuration
-	
+
 	// Get last run info
 	var lastRun model.JobExecutionHistory
 	if err := db.Where("job_name = ?", jobName).
@@ -227,25 +227,24 @@ func (f *JobExecutionHistoryFacade) GetJobStatistics(ctx context.Context, jobNam
 		stats.LastRunTime = lastRun.StartedAt
 		stats.LastStatus = lastRun.Status
 	}
-	
+
 	return &stats, nil
 }
 
 // GetDistinctJobTypes retrieves all distinct job types from execution history
 func (f *JobExecutionHistoryFacade) GetDistinctJobTypes(ctx context.Context) ([]string, error) {
 	db := f.getDB().WithContext(ctx)
-	
+
 	var jobTypes []string
 	err := db.Model(&model.JobExecutionHistory{}).
 		Distinct("job_type").
 		Where("job_type IS NOT NULL AND job_type != ?", "").
 		Order("job_type ASC").
 		Pluck("job_type", &jobTypes).Error
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return jobTypes, nil
 }
-

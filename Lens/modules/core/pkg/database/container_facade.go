@@ -120,4 +120,3 @@ func (f *ContainerFacade) ListContainerDevicesByContainerId(ctx context.Context,
 func (f *ContainerFacade) CreateNodeContainerEvent(ctx context.Context, nodeContainerEvent *model.NodeContainerEvent) error {
 	return f.getDAL().NodeContainerEvent.WithContext(ctx).Create(nodeContainerEvent)
 }
-

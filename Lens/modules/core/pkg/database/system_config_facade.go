@@ -131,4 +131,3 @@ func (f *SystemConfigFacade) WithCluster(clusterName string) SystemConfigFacadeI
 		BaseFacade: f.withCluster(clusterName),
 	}
 }
-
