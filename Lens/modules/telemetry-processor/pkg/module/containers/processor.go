@@ -57,12 +57,25 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 	log.Infof("req.Node: %s", req.Node)
 	log.Infof("req.Source: %s", req.Source)
 	log.Infof("req.Data: %+v", req.Data)
+
+	// 详细打印设备信息用于诊断
+	if containerData.Devices != nil {
+		log.Infof("Devices is not nil, GPU count: %d, IB count: %d", len(containerData.Devices.GPU), len(containerData.Devices.Infiniband))
+		for i, gpu := range containerData.Devices.GPU {
+			log.Infof("GPU[%d]: Name=%s, Id=%d, Serial=%s", i, gpu.Name, gpu.Id, gpu.Serial)
+		}
+	} else {
+		log.Warnf("Devices is nil after unmarshal, but req.Data contains: %+v", req.Data["devices"])
+	}
+
 	// Skip containers without GPU devices (unless it's a snapshot)
 	if containerData.Devices == nil || len(containerData.Devices.GPU) == 0 {
 		if req.Type != model.ContainerEventTypeSnapshot {
 			log.Debugf("Container %s has no GPU devices, skipping", req.ContainerID)
 			return nil
 		}
+		log.Warnf("Container %s: Devices=%v, GPU count=0, Type=%s - continuing as snapshot",
+			req.ContainerID, containerData.Devices, req.Type)
 	}
 
 	// Check if container exists
