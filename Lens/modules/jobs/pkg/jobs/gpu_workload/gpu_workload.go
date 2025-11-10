@@ -25,14 +25,14 @@ type GpuWorkloadJob struct {
 
 func (g *GpuWorkloadJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
 	stats := common.NewExecutionStats()
-	
+
 	// Use current cluster name for job running in current cluster
 	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
 	workloadsNotEnd, err := database.GetFacadeForCluster(clusterName).GetWorkload().GetWorkloadNotEnd(ctx)
 	if err != nil {
 		return stats, err
 	}
-	
+
 	wg := &sync.WaitGroup{}
 	for i := range workloadsNotEnd {
 		workload := workloadsNotEnd[i]
@@ -49,11 +49,11 @@ func (g *GpuWorkloadJob) Run(ctx context.Context, clientSets *clientsets.K8SClie
 		}()
 	}
 	wg.Wait()
-	
+
 	stats.RecordsProcessed = int64(len(workloadsNotEnd))
 	stats.AddCustomMetric("workloads_count", len(workloadsNotEnd))
 	stats.AddMessage("GPU workload status updated successfully")
-	
+
 	return stats, nil
 }
 
@@ -64,11 +64,11 @@ func (g *GpuWorkloadJob) checkWorkload(ctx context.Context, clusterName string, 
 		// Check if this is a "no kind match" error (CRD not installed or unknown Kind)
 		// This can happen when other plugins insert workloads with custom types
 		if isNoKindMatchError(err) {
-			log.Warnf("Skipping workload %s/%s with unknown Kind %s (GroupVersion: %s): %v", 
+			log.Warnf("Skipping workload %s/%s with unknown Kind %s (GroupVersion: %s): %v",
 				dbWorkload.Namespace, dbWorkload.Name, dbWorkload.Kind, dbWorkload.GroupVersion, err)
 			return nil
 		}
-		
+
 		if client.IgnoreNotFound(err) != nil {
 			return err
 		}
@@ -100,10 +100,10 @@ func isNoKindMatchError(err error) bool {
 	if err == nil {
 		return false
 	}
-	
+
 	// Check error message for common patterns indicating Kind not found
 	errMsg := strings.ToLower(err.Error())
-	return strings.Contains(errMsg, "no matches for kind") ||
+	return strings.Contains(errMsg, "with unknown Kind") ||
 		strings.Contains(errMsg, "no kind match") ||
 		strings.Contains(errMsg, "kind") && strings.Contains(errMsg, "not found") ||
 		strings.Contains(errMsg, "unable to recognize") ||
