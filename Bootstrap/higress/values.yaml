@@ -21,24 +21,24 @@ higress-core:
     # Allows the gateway to bind directly to the host's network interface
     hostNetwork: true
   
-  # Service configuration
-  service:
-    # List of exposed ports
-    ports:
-      # HTTP port configuration
-      - name: http
-        port: 80
-        protocol: TCP
-        targetPort: 80
-      
-      # HTTPS port configuration
-      - name: https
-        port: 443
-        protocol: TCP
-        targetPort: 443
-      
-      # SSH port configuration (for SSH gateway)
-      - name: ssh
-        port: 2222
-        protocol: TCP
-        targetPort: 2222
+    # Service configuration
+    service:
+      # List of exposed ports
+      ports:
+        # HTTP port configuration
+        - name: http
+          port: 80
+          protocol: TCP
+          targetPort: 80
+
+        # HTTPS port configuration
+        - name: https
+          port: 443
+          protocol: TCP
+          targetPort: 443
+
+        # SSH port configuration (for SSH gateway)
+        - name: ssh
+          port: 2222
+          protocol: TCP
+          targetPort: 2222
