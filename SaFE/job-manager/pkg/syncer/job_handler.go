@@ -359,7 +359,12 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sRes
 		}
 	} else {
 		currentCondition := jobutils.FindCondition(adminWorkload, newCondition)
-		if currentCondition == nil {
+		if currentCondition != nil {
+			if currentCondition.Status != newCondition.Status ||
+				currentCondition.Message != newCondition.Message {
+				*currentCondition = *newCondition
+			}
+		} else {
 			adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
 		}
 	}
