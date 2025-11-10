@@ -188,8 +188,8 @@ func ExportNodeToCSV(nodes *types.ListNodeResponse, writer io.Writer) error {
 			node.ClusterId,
 			fmt.Sprintf("%t", node.Available),
 			node.Phase,
-			fmt.Sprintf("%d/%d", gpuAvail, gpuTotal),
-			fmt.Sprintf("%d/%d", cpuAvail, cpuTotal),
+			fmt.Sprintf("'%d/%d", gpuAvail, gpuTotal),
+			fmt.Sprintf("'%d/%d", cpuAvail, cpuTotal),
 			fmt.Sprintf("%t", node.IsControlPlane),
 		}
 
