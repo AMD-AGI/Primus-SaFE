@@ -103,6 +103,10 @@ func (f *LogAlertRuleFacade) GetLogAlertRuleByID(ctx context.Context, id int64) 
 		return nil, err
 	}
 
+	if rule.ID == 0 {
+		return nil, nil
+	}
+
 	return &rule, nil
 }
 
@@ -117,6 +121,10 @@ func (f *LogAlertRuleFacade) GetLogAlertRuleByName(ctx context.Context, clusterN
 			return nil, nil
 		}
 		return nil, err
+	}
+
+	if rule.ID == 0 {
+		return nil, nil
 	}
 
 	return &rule, nil
@@ -270,6 +278,10 @@ func (f *LogAlertRuleFacade) GetRuleVersion(ctx context.Context, ruleID int64, v
 			return nil, nil
 		}
 		return nil, err
+	}
+
+	if v.ID == 0 {
+		return nil, nil
 	}
 
 	return &v, nil
@@ -427,6 +439,10 @@ func (f *LogAlertRuleFacade) GetLogAlertRuleTemplateByID(ctx context.Context, id
 			return nil, nil
 		}
 		return nil, err
+	}
+
+	if template.ID == 0 {
+		return nil, nil
 	}
 
 	return &template, nil

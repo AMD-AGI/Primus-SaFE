@@ -77,6 +77,9 @@ func (f *WorkloadFacade) GetGpuWorkloadByUid(ctx context.Context, uid string) (*
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
@@ -290,6 +293,9 @@ func (f *WorkloadFacade) GetLatestGpuWorkloadSnapshotByUid(ctx context.Context, 
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
@@ -336,6 +342,9 @@ func (f *WorkloadFacade) GetWorkloadEventByWorkloadUidAndNearestWorkloadIdAndTyp
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
@@ -356,6 +365,9 @@ func (f *WorkloadFacade) GetLatestEvent(ctx context.Context, workloadUid, neares
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
@@ -367,6 +379,9 @@ func (f *WorkloadFacade) GetLatestOtherWorkloadEvent(ctx context.Context, worklo
 			return nil, nil
 		}
 		return nil, err
+	}
+	if result.ID == 0 {
+		return nil, nil
 	}
 	return result, nil
 }

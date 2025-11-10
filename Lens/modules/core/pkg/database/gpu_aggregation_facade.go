@@ -323,6 +323,10 @@ func (f *GpuAggregationFacade) GetLatestSnapshot(ctx context.Context) (*dbmodel.
 		return nil, err
 	}
 
+	if result.ID == 0 {
+		return nil, nil
+	}
+
 	return result, nil
 }
 

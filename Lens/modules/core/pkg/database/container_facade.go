@@ -58,13 +58,13 @@ func (f *ContainerFacade) CreateNodeContainer(ctx context.Context, nodeContainer
 	log.Infof("  NodeName: %s", nodeContainer.NodeName)
 	log.Infof("  Source: %s", nodeContainer.Source)
 	log.Infof("  Status: %s", nodeContainer.Status)
-	
+
 	err := f.getDAL().NodeContainer.WithContext(ctx).Create(nodeContainer)
 	if err != nil {
 		log.Errorf("CreateNodeContainer failed: %v", err)
 		return err
 	}
-	
+
 	log.Infof("CreateNodeContainer succeeded, ID assigned: %d", nodeContainer.ID)
 	return nil
 }
@@ -81,6 +81,9 @@ func (f *ContainerFacade) GetNodeContainerByContainerId(ctx context.Context, con
 			return nil, nil
 		}
 		return nil, err
+	}
+	if result.ID == 0 {
+		return nil, nil
 	}
 	return result, nil
 }
@@ -120,6 +123,10 @@ func (f *ContainerFacade) GetNodeContainerDeviceByContainerIdAndDeviceUid(ctx co
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
+
 	return result, nil
 }
 

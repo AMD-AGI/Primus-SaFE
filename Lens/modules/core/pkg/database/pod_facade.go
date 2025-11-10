@@ -73,6 +73,9 @@ func (f *PodFacade) GetGpuPodsByPodUid(ctx context.Context, podUid string) (*mod
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
@@ -168,6 +171,9 @@ func (f *PodFacade) GetLastPodSnapshot(ctx context.Context, podUid string, resou
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
@@ -180,6 +186,9 @@ func (f *PodFacade) GetPodResourceByUid(ctx context.Context, uid string) (*model
 			return nil, nil
 		}
 		return nil, err
+	}
+	if result.ID == 0 {
+		return nil, nil
 	}
 	return result, nil
 }

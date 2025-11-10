@@ -125,6 +125,10 @@ func (f *AlertRuleAdviceFacade) GetAlertRuleAdvicesByID(ctx context.Context, id 
 		return nil, err
 	}
 
+	if advice.ID == 0 {
+		return nil, nil
+	}
+
 	return &advice, nil
 }
 

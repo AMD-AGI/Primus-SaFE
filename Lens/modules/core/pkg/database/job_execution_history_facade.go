@@ -80,6 +80,9 @@ func (f *JobExecutionHistoryFacade) GetJobExecutionHistoryByID(ctx context.Conte
 		}
 		return nil, err
 	}
+	if history.ID == 0 {
+		return nil, nil
+	}
 	return &history, nil
 }
 

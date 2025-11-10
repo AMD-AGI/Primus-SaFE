@@ -72,6 +72,9 @@ func (f *NodeFacade) GetNodeByName(ctx context.Context, name string) (*model.Nod
 		}
 		return nil, err
 	}
+	if node.ID == 0 {
+		return nil, nil
+	}
 	return node, nil
 }
 
@@ -158,6 +161,9 @@ func (f *NodeFacade) GetGpuDeviceByNodeAndGpuId(ctx context.Context, nodeId int3
 		}
 		return nil, err
 	}
+	if device.ID == 0 {
+		return nil, nil
+	}
 	return device, nil
 }
 
@@ -189,6 +195,9 @@ func (f *NodeFacade) GetRdmaDeviceByNodeIdAndPort(ctx context.Context, nodeGuid 
 			return nil, nil
 		}
 		return nil, err
+	}
+	if result.ID == 0 {
+		return nil, nil
 	}
 	return result, nil
 }

@@ -79,6 +79,9 @@ func (f *MetricAlertRuleFacade) GetMetricAlertRuleByID(ctx context.Context, id i
 		}
 		return nil, err
 	}
+	if rule.ID == 0 {
+		return nil, nil
+	}
 	return &rule, nil
 }
 
@@ -92,6 +95,9 @@ func (f *MetricAlertRuleFacade) GetMetricAlertRuleByNameAndCluster(ctx context.C
 			return nil, nil
 		}
 		return nil, err
+	}
+	if rule.ID == 0 {
+		return nil, nil
 	}
 	return &rule, nil
 }

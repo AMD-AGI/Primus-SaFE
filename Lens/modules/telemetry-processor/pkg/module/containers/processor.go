@@ -87,31 +87,37 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to get container by id %s", req.ContainerID)
 	}
 	log.Infof("Query result: existContainer=%v (nil=%v)", existContainer != nil, existContainer == nil)
+	if existContainer != nil {
+		log.Infof("Query result details - ID: %d, ContainerID: %s, PodName: %s",
+			existContainer.ID, existContainer.ContainerID, existContainer.PodName)
+	}
 
 	// Create or update container record
-	if existContainer == nil {
-		log.Infof("Creating new container record for %s", req.ContainerID)
-		log.Infof("Source data - req.ContainerID: %s", req.ContainerID)
-		log.Infof("Source data - containerData.ID: %s", containerData.ID)
-		log.Infof("Source data - containerData.PodUUID: %s", containerData.PodUUID)
-		log.Infof("Source data - containerData.PodName: %s", containerData.PodName)
-		log.Infof("Source data - containerData.PodNamespace: %s", containerData.PodNamespace)
-		log.Infof("Source data - req.Node: %s", req.Node)
-		log.Infof("Source data - containerData.Status: %s", containerData.Status)
-		log.Infof("Source data - constant.ContainerSourceK8S: %s", constant.ContainerSourceK8S)
+	// 如果容器不存在（nil）或者 ID 为 0（空对象），需要设置所有字段
+	if existContainer == nil || existContainer.ID == 0 {
+		log.Infof("Creating new container record for %s (existContainer nil: %v, ID: %d)",
+			req.ContainerID, existContainer == nil, func() int32 {
+				if existContainer != nil {
+					return existContainer.ID
+				}
+				return 0
+			}())
 
-		existContainer = &dbModel.NodeContainer{
-			ContainerID:   req.ContainerID,
-			ContainerName: containerData.ID,
-			PodUID:        containerData.PodUUID,
-			PodName:       containerData.PodName,
-			PodNamespace:  containerData.PodNamespace,
-			CreatedAt:     time.Unix(0, containerData.CreatedAt),
-			UpdatedAt:     time.Now(),
-			NodeName:      req.Node,
-			Source:        constant.ContainerSourceK8S,
-			Status:        containerData.Status,
+		// 如果是 nil，创建新对象；如果 ID=0，重新设置所有字段
+		if existContainer == nil {
+			existContainer = &dbModel.NodeContainer{}
 		}
+
+		existContainer.ContainerID = req.ContainerID
+		existContainer.ContainerName = containerData.ID
+		existContainer.PodUID = containerData.PodUUID
+		existContainer.PodName = containerData.PodName
+		existContainer.PodNamespace = containerData.PodNamespace
+		existContainer.CreatedAt = time.Unix(0, containerData.CreatedAt)
+		existContainer.UpdatedAt = time.Now()
+		existContainer.NodeName = req.Node
+		existContainer.Source = constant.ContainerSourceK8S
+		existContainer.Status = containerData.Status
 
 		log.Infof("Created struct - ContainerID: %s", existContainer.ContainerID)
 		log.Infof("Created struct - ContainerName: %s", existContainer.ContainerName)

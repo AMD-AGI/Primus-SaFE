@@ -147,6 +147,9 @@ func (f *AlertFacade) GetAlertEventsByID(ctx context.Context, id string) (*model
 		}
 		return nil, err
 	}
+	if alert.ID == "" {
+		return nil, nil
+	}
 	return &alert, nil
 }
 
@@ -305,6 +308,9 @@ func (f *AlertFacade) GetAlertStatistics(ctx context.Context, date time.Time, ho
 		}
 		return nil, err
 	}
+	if stat.ID == 0 {
+		return nil, nil
+	}
 	return &stat, nil
 }
 
@@ -363,6 +369,9 @@ func (f *AlertFacade) GetAlertRulesByID(ctx context.Context, id int64) (*model.A
 		}
 		return nil, err
 	}
+	if rule.ID == 0 {
+		return nil, nil
+	}
 	return &rule, nil
 }
 
@@ -375,6 +384,9 @@ func (f *AlertFacade) GetAlertRulesByName(ctx context.Context, name string) (*mo
 			return nil, nil
 		}
 		return nil, err
+	}
+	if rule.ID == 0 {
+		return nil, nil
 	}
 	return &rule, nil
 }
@@ -421,6 +433,9 @@ func (f *AlertFacade) GetAlertSilencesByID(ctx context.Context, id string) (*mod
 			return nil, nil
 		}
 		return nil, err
+	}
+	if silence.ID == "" {
+		return nil, nil
 	}
 	return &silence, nil
 }

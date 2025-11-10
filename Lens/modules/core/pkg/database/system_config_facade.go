@@ -58,6 +58,9 @@ func (f *SystemConfigFacade) GetByKey(ctx context.Context, key string) (*model.S
 		}
 		return nil, err
 	}
+	if config.ID == 0 {
+		return nil, nil
+	}
 	return &config, nil
 }
 

@@ -46,6 +46,9 @@ func (f *StorageFacade) GetStorageByKindAndName(ctx context.Context, kind, name 
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
