@@ -59,7 +59,7 @@ func (h *Handler) PatchAddon(c *gin.Context) {
 // Authorizes the request, parses the creation request, generates an addon object,
 // and persists it in the k8s cluster.
 func (h *Handler) createAddon(c *gin.Context) (interface{}, error) {
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.AddonKind,
 		Verb:         v1.CreateVerb,
@@ -219,7 +219,7 @@ func (h *Handler) deleteAddon(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to get admin addon")
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: addon,
 		Verb:     v1.DeleteVerb,
@@ -245,7 +245,7 @@ func (h *Handler) patchAddon(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to get admin addon")
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: addon,
 		Verb:     v1.UpdateVerb,
