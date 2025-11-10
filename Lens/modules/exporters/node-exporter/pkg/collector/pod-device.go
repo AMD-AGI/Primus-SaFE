@@ -6,14 +6,11 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
-	pb "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/pb/exporter"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/mapUtil"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/containerd"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/report"
 	"github.com/containerd/containerd/api/events"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/typeurl/v2"
-	"google.golang.org/protobuf/types/known/structpb"
 	"strings"
 )
 
@@ -38,27 +35,20 @@ func reportSnapshot(ctx context.Context) error {
 			log.Debugf("Container %s(pod name %s) does not have GPU, skipping", container.Id, container.PodName)
 			continue
 		}
-		containerMap, err := mapUtil.EncodeMap(container)
+		
+		// Use HTTP reporter to send snapshot event
+		err = report.ReportContainer(ctx, &container, model.ContainerEventTypeSnapshot)
 		if err != nil {
-			log.Errorf("Failed to encode container info: %v", err)
-			continue
-		}
-		pbStruct, err := structpb.NewStruct(containerMap)
-		if err != nil {
-			log.Errorf("Failed to encode container info: %v", err)
-			continue
-		}
-		err = report.GetStreamClient().Send(&pb.ContainerEvent{
-			Type:        model.ContainerEventTypeSnapshot,
-			ContainerId: container.Id,
-			Data:        pbStruct,
-		})
-		if err != nil {
-			log.Errorf("Failed to send container event: %v", err)
+			log.Errorf("Failed to report container snapshot: container=%s, pod=%s, error=%v", 
+				container.Id, container.PodName, err)
 			continue
 		}
 		log.Infof("Container %s(pod name %s) snapshot reported", container.Id, container.PodName)
 	}
+	
+	// Flush any buffered events to ensure snapshot completes
+	report.FlushEvents()
+	
 	return nil
 }
 
@@ -266,24 +256,13 @@ func snapShotContainers(ctx context.Context) ([]model.Container, error) {
 
 func reportContainerUpdate(container *model.Container, typ string) {
 	go func() {
-		containerMap, err := mapUtil.EncodeMap(container)
+		err := report.ReportContainer(context.Background(), container, typ)
 		if err != nil {
-			log.Errorf("Failed to encode container info: %v", err)
-			return
-		}
-		pbStruct, err := structpb.NewStruct(containerMap)
-		if err != nil {
-			log.Errorf("Failed to encode container info: %v", err)
-			return
-		}
-		err = report.GetStreamClient().Send(&pb.ContainerEvent{
-			Type:        typ,
-			ContainerId: container.Id,
-			Data:        pbStruct,
-			Node:        nodeName,
-		})
-		if err != nil {
-			log.Errorf("Failed to send container event: %v", err)
+			log.Errorf("Failed to report container event: container=%s, pod=%s, type=%s, error=%v", 
+				container.Id, container.PodName, typ, err)
+		} else {
+			log.Debugf("Successfully reported container event: container=%s, pod=%s, type=%s", 
+				container.Id, container.PodName, typ)
 		}
 	}()
 }

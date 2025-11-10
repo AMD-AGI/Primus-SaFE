@@ -79,8 +79,9 @@ func LoadConfig() (*Config, error) {
 }
 
 type NodeExporterConfig struct {
-	ContainerdSocketPath string `yaml:"containerd_socket_path" json:"containerd_socket_path"`
-	GrpcServer           string `yaml:"grpc_server" json:"grpc_server"`
+	ContainerdSocketPath   string `yaml:"containerd_socket_path" json:"containerd_socket_path"`
+	GrpcServer             string `yaml:"grpc_server" json:"grpc_server"` // Deprecated: use TelemetryProcessorURL
+	TelemetryProcessorURL  string `yaml:"telemetry_processor_url" json:"telemetry_processor_url"`
 }
 
 type JobsConfig struct {
