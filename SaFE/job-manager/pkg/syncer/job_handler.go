@@ -208,10 +208,13 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 	}
 	adminWorkload.Status.K8sObjectUid = string(message.uid)
 	updateWorkloadCondition(adminWorkload, status, message.dispatchCount)
+	klog.Infof("update workload status, origin.condition: %v, new.condition: %v",
+		originalWorkload.Status.Conditions, adminWorkload.Status.Conditions)
 	if reflect.DeepEqual(adminWorkload.Status, originalWorkload.Status) {
 		return originalWorkload, false, nil
 	}
 	if err := r.Status().Update(ctx, adminWorkload); err != nil {
+		klog.ErrorS(err, "failed to update workload status", "workload", adminWorkload.Name)
 		return nil, false, err
 	}
 	klog.Infof("update workload status, name: %s, phase: %s, dispatchCount: %d, k8s.status: %s",
