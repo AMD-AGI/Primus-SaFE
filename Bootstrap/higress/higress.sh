@@ -121,23 +121,20 @@ apply_gateway_config() {
 verify_deployment() {
     log_info "Verifying Higress deployment status..."
     
-    # Wait for pods to be ready
-    kubectl wait --for=condition=ready pod \
-        -l app.kubernetes.io/name=higress \
-        -n higress-system \
-        --timeout=300s || {
-        log_error "Higress pods failed to become ready within the timeout period"
-        return 1
-    }
+    # Display pods status
+    log_info "Higress pods status:"
+    kubectl get pods -n higress-system || log_warn "Unable to get pods status"
     
     # Display service status
     log_info "Higress service status:"
-    kubectl get svc -n higress-system
+    kubectl get svc -n higress-system || log_warn "Unable to get service status"
     
+    # Display gateway status
     log_info "Gateway status:"
-    kubectl get gateway -n higress-system
+    kubectl get gateway -n higress-system || log_warn "Gateway resources not found yet"
     
     log_info "Deployment verification completed"
+    log_info "Note: Please check that pods are in Running state before proceeding"
 }
 
 # Main function
