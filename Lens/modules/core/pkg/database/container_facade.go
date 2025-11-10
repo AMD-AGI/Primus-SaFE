@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"gorm.io/gorm"
 )
 
@@ -47,7 +48,25 @@ func (f *ContainerFacade) WithCluster(clusterName string) ContainerFacadeInterfa
 
 // NodeContainer operation implementations
 func (f *ContainerFacade) CreateNodeContainer(ctx context.Context, nodeContainer *model.NodeContainer) error {
-	return f.getDAL().NodeContainer.WithContext(ctx).Create(nodeContainer)
+	// 添加日志以诊断数据传递问题
+	log.Infof("CreateNodeContainer called with data:")
+	log.Infof("  ContainerID: %s", nodeContainer.ContainerID)
+	log.Infof("  ContainerName: %s", nodeContainer.ContainerName)
+	log.Infof("  PodUID: %s", nodeContainer.PodUID)
+	log.Infof("  PodName: %s", nodeContainer.PodName)
+	log.Infof("  PodNamespace: %s", nodeContainer.PodNamespace)
+	log.Infof("  NodeName: %s", nodeContainer.NodeName)
+	log.Infof("  Source: %s", nodeContainer.Source)
+	log.Infof("  Status: %s", nodeContainer.Status)
+	
+	err := f.getDAL().NodeContainer.WithContext(ctx).Create(nodeContainer)
+	if err != nil {
+		log.Errorf("CreateNodeContainer failed: %v", err)
+		return err
+	}
+	
+	log.Infof("CreateNodeContainer succeeded, ID assigned: %d", nodeContainer.ID)
+	return nil
 }
 
 func (f *ContainerFacade) UpdateNodeContainer(ctx context.Context, nodeContainer *model.NodeContainer) error {
