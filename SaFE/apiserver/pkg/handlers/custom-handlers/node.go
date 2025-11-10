@@ -158,10 +158,6 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 
 // ExportNodeToCSV writes the node information to a CSV file using the provided writer (file or response stream).
 func ExportNodeToCSV(nodes *types.ListNodeResponse, writer io.Writer) error {
-	if _, err := writer.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
-		klog.ErrorS(err, "failed to write csv with BOM")
-		return err
-	}
 	w := csv.NewWriter(writer)
 
 	if err := w.Write([]string{
@@ -192,8 +188,8 @@ func ExportNodeToCSV(nodes *types.ListNodeResponse, writer io.Writer) error {
 			node.ClusterId,
 			fmt.Sprintf("%t", node.Available),
 			node.Phase,
-			fmt.Sprintf("'%d/%d", gpuAvail, gpuTotal),
-			fmt.Sprintf("'%d/%d", cpuAvail, cpuTotal),
+			fmt.Sprintf("\t%d/%d", gpuAvail, gpuTotal),
+			fmt.Sprintf("\t%d/%d", cpuAvail, cpuTotal),
 			fmt.Sprintf("%t", node.IsControlPlane),
 		}
 
