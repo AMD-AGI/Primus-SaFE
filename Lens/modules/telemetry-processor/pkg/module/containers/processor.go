@@ -122,7 +122,7 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 		containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "db_save_error").Inc()
 		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to save container %s", req.ContainerID)
 	}
-	log.Infof("Container record saved successfully for %s", req.ContainerID)
+	log.Infof("Container record saved successfully for %s， database id: %d", req.ContainerID, existContainer.ID)
 
 	// Save device associations (with timeout protection)
 	if containerData.Devices != nil {
