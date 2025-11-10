@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"sort"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -24,8 +23,6 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
 const (
@@ -180,27 +177,13 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 	}
 	adminWorkload := originalWorkload.DeepCopy()
 	r.updateAdminWorkloadPhase(adminWorkload, status, message)
-
-	switch {
-	case adminWorkload.IsPending():
-		if status.Phase != string(v1.K8sDeleted) &&
-			status.Phase != string(v1.K8sFailed) && originalWorkload.IsPending() {
-			return originalWorkload, false, nil
-		}
-	case adminWorkload.IsRunning():
-		if isNeedRetry := r.updateAdminWorkloadNodes(adminWorkload, message); isNeedRetry {
-			return originalWorkload, true, nil
-		}
-	case adminWorkload.IsEnd():
-		if adminWorkload.Status.EndTime == nil {
-			adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
-		}
-		r.updateAdminWorkloadNodes(adminWorkload, message)
-	}
 	if adminWorkload.Status.StartTime == nil {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
 	}
-	if status.Phase != string(v1.K8sPending) && status.Phase != "" {
+	if adminWorkload.IsEnd() && adminWorkload.Status.EndTime == nil {
+		adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
+	}
+	if !status.IsPending() {
 		adminWorkload.Status.Message = ""
 	}
 	adminWorkload.Status.K8sObjectUid = string(message.uid)
@@ -283,46 +266,6 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 	}
 	klog.Infof("reSchedule workload, name: %s, dispatchCount: %d", workload.Name, count)
 	return nil
-}
-
-// updateAdminWorkloadNodes updates the node information for a workload.
-// Collects node assignments from workload pods.
-func (r *SyncerReconciler) updateAdminWorkloadNodes(adminWorkload *v1.Workload, message *resourceMessage) bool {
-	if adminWorkload.Spec.Resource.Replica > len(adminWorkload.Status.Pods) {
-		return true
-	}
-	sortWorkloadPods(adminWorkload)
-
-	nodeNames := make([]string, 0, len(adminWorkload.Status.Pods))
-	ranks := make([]string, 0, len(adminWorkload.Status.Pods))
-	nodeNameSet := sets.NewSet()
-	for _, p := range adminWorkload.Status.Pods {
-		if !nodeNameSet.Has(p.K8sNodeName) {
-			nodeNames = append(nodeNames, p.K8sNodeName)
-			ranks = append(ranks, p.Rank)
-			nodeNameSet.Insert(p.K8sNodeName)
-		}
-	}
-	if len(adminWorkload.Status.Nodes) < message.dispatchCount {
-		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, nodeNames)
-		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, ranks)
-	} else if message.dispatchCount > 0 {
-		adminWorkload.Status.Nodes[message.dispatchCount-1] = nodeNames
-		adminWorkload.Status.Ranks[message.dispatchCount-1] = ranks
-	}
-	return false
-}
-
-// sortWorkloadPods sorts workload pods by host IP and pod ID.
-// Ensures consistent ordering of pods for node assignment tracking.
-func sortWorkloadPods(adminWorkload *v1.Workload) {
-	sort.Slice(adminWorkload.Status.Pods, func(i, j int) bool {
-		if adminWorkload.Status.Pods[i].HostIp == adminWorkload.Status.Pods[j].HostIp {
-			return adminWorkload.Status.Pods[i].PodId < adminWorkload.Status.Pods[j].PodId
-		}
-		return netutil.ConvertIpToInt(adminWorkload.Status.Pods[i].HostIp) >
-			netutil.ConvertIpToInt(adminWorkload.Status.Pods[j].HostIp)
-	})
 }
 
 // updateWorkloadCondition updates workload conditions based on resource status.
