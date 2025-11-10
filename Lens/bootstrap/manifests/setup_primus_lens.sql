@@ -400,7 +400,8 @@ alter table storage
 alter table public.gpu_pods
     add ip varchar(32);
 
-
+alter table public.node
+    add taints jsonb;
 
 DO
 $$

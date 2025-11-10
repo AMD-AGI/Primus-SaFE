@@ -16,7 +16,6 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/jobs/gpu_pod"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/jobs/gpu_realtime_cache"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/jobs/gpu_workload"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/jobs/node_info"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/jobs/storage_scan"
 )
 
@@ -31,7 +30,6 @@ func InitJobs() {
 	jobs = []Job{
 		&gpu_allocation.GpuAllocationJob{},
 		&gpu_consumers.GpuConsumersJob{},
-		&node_info.NodeInfoJob{},
 		&device_info.DeviceInfoJob{},
 		&gpu_workload.GpuWorkloadJob{},
 		&gpu_pod.GpuPodJob{},

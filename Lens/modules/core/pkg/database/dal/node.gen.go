@@ -46,6 +46,7 @@ func newNode(db *gorm.DB, opts ...gen.DOOption) node {
 	_node.ContainerdVersion = field.NewString(tableName, "containerd_version")
 	_node.Os = field.NewString(tableName, "os")
 	_node.DriverVersion = field.NewString(tableName, "driver_version")
+	_node.Taints = field.NewField(tableName, "taints")
 
 	_node.fillFieldMap()
 
@@ -75,6 +76,7 @@ type node struct {
 	ContainerdVersion field.String
 	Os                field.String
 	DriverVersion     field.String
+	Taints            field.Field
 
 	fieldMap map[string]field.Expr
 }
@@ -110,6 +112,7 @@ func (n *node) updateTableName(table string) *node {
 	n.ContainerdVersion = field.NewString(table, "containerd_version")
 	n.Os = field.NewString(table, "os")
 	n.DriverVersion = field.NewString(table, "driver_version")
+	n.Taints = field.NewField(table, "taints")
 
 	n.fillFieldMap()
 
@@ -134,7 +137,7 @@ func (n *node) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (n *node) fillFieldMap() {
-	n.fieldMap = make(map[string]field.Expr, 19)
+	n.fieldMap = make(map[string]field.Expr, 20)
 	n.fieldMap["id"] = n.ID
 	n.fieldMap["name"] = n.Name
 	n.fieldMap["address"] = n.Address
@@ -154,6 +157,7 @@ func (n *node) fillFieldMap() {
 	n.fieldMap["containerd_version"] = n.ContainerdVersion
 	n.fieldMap["os"] = n.Os
 	n.fieldMap["driver_version"] = n.DriverVersion
+	n.fieldMap["taints"] = n.Taints
 }
 
 func (n node) clone(db *gorm.DB) node {
