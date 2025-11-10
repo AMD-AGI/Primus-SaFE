@@ -670,7 +670,7 @@ func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
 		return
 	}
 	if len(workload.Spec.CustomerLabels) > 0 {
-		if _, ok := workload.Spec.CustomerLabels[common.K8sHostName]; ok {
+		if _, ok := workload.Spec.CustomerLabels[v1.K8sHostName]; ok {
 			return
 		}
 	} else {
@@ -683,7 +683,7 @@ func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
 		}
 		nodeNames += nodeList[i]
 	}
-	workload.Spec.CustomerLabels[common.K8sHostName] = nodeNames
+	workload.Spec.CustomerLabels[v1.K8sHostName] = nodeNames
 }
 
 // parseListWorkloadQuery parses and validates the query parameters for listing workloads.
@@ -839,7 +839,7 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 		adminWorkload.Spec.Priority = *req.Priority
 	}
 	if req.Replica != nil && *req.Replica != adminWorkload.Spec.Resource.Replica {
-		_, ok := adminWorkload.Spec.CustomerLabels[common.K8sHostName]
+		_, ok := adminWorkload.Spec.CustomerLabels[v1.K8sHostName]
 		if ok {
 			return commonerrors.NewBadRequest("cannot update replica when specifying nodes")
 		}
@@ -1011,7 +1011,7 @@ func parseCustomerLabelsAndNodes(labels map[string]string) (map[string]string, [
 	var nodeList []string
 	customerLabels := make(map[string]string)
 	for key, val := range labels {
-		if key == common.K8sHostName {
+		if key == v1.K8sHostName {
 			nodeList = strings.Split(val, " ")
 		} else {
 			customerLabels[key] = val

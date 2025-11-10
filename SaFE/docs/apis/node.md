@@ -119,6 +119,7 @@ Get node list with multiple filtering options.
       "workloads": [
         {
           "id": "training-job-001",
+          "kind": "PyTorchJob",
           "userId": "user-001",
           "workspaceId": "prod-cluster-ai-team"
         }
@@ -166,6 +167,7 @@ Get node list with multiple filtering options.
 | workloads[].id          | string | Running workload ID on this node                                                              |
 | workloads[].userId      | string | Submitter user ID of the workload                                                             |
 | workloads[].workspaceId | string | Workspace ID the workload belongs to                                                          |
+| workloads[].kind        | string | Running workload Kind on this node                                                            |
 | isControlPlane          | bool | Whether the node is a control-plane node                                                      |
 | isAddonsInstalled       | bool | Whether addons from the node-template are installed                                           |
 
@@ -220,6 +222,7 @@ Get detailed information about a specific node.
   "workloads": [
     {
       "id": "training-job-001",
+      "kind": "PyTorchJob",
       "userId": "user-001",
       "workspaceId": "prod-cluster-ai-team"
     }

@@ -28,7 +28,6 @@ const (
 	NodeNameSelector       = "spec.nodeName="
 	KubeSystemNamespace    = "kube-system"
 	KubePublicNamespace    = "kube-public"
-	K8sHostName            = "kubernetes.io/hostname"
 	PytorchJobPortName     = "pytorchjob-port"
 	SSHPortName            = "ssh-port"
 	JsonContentType        = "application/json; charset=utf-8"
@@ -64,7 +63,8 @@ const (
 )
 
 const (
-	ImageImportReadyStatus  = "Ready"
-	ImageImportingStatus    = "Importing"
-	ImageImportFailedStatus = "Failed"
+	ImageImportReadyStatus   = "Ready"
+	ImageImportingStatus     = "Importing"
+	ImageImportFailedStatus  = "Failed"
+	ImageImportPendingStatus = "Pending"
 )
