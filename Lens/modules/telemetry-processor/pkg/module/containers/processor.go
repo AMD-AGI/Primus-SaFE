@@ -51,22 +51,6 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 		containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "unmarshal_error").Inc()
 		return errors.NewError().WithCode(errors.CodeInvalidArgument).WithMessagef("failed to unmarshal data: %v", err)
 	}
-	log.Infof("containerData: %+v", containerData)
-	log.Infof("req.Type: %s", req.Type)
-	log.Infof("req.ContainerID: %s", req.ContainerID)
-	log.Infof("req.Node: %s", req.Node)
-	log.Infof("req.Source: %s", req.Source)
-	log.Infof("req.Data: %+v", req.Data)
-
-	// 详细打印设备信息用于诊断
-	if containerData.Devices != nil {
-		log.Infof("Devices is not nil, GPU count: %d, IB count: %d", len(containerData.Devices.GPU), len(containerData.Devices.Infiniband))
-		for i, gpu := range containerData.Devices.GPU {
-			log.Infof("GPU[%d]: Name=%s, Id=%d, Serial=%s", i, gpu.Name, gpu.Id, gpu.Serial)
-		}
-	} else {
-		log.Warnf("Devices is nil after unmarshal, but req.Data contains: %+v", req.Data["devices"])
-	}
 
 	// Skip containers without GPU devices (unless it's a snapshot)
 	if containerData.Devices == nil || len(containerData.Devices.GPU) == 0 {
@@ -74,35 +58,19 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 			log.Debugf("Container %s has no GPU devices, skipping", req.ContainerID)
 			return nil
 		}
-		log.Warnf("Container %s: Devices=%v, GPU count=0, Type=%s - continuing as snapshot",
-			req.ContainerID, containerData.Devices, req.Type)
 	}
 
 	// Check if container exists
-	log.Infof("Querying existing container by ID: %s", req.ContainerID)
 	existContainer, err := database.GetFacade().GetContainer().GetNodeContainerByContainerId(ctx, req.ContainerID)
 	if err != nil {
 		log.Errorf("Failed to get container by id %s: %v", req.ContainerID, err)
 		containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "db_query_error").Inc()
 		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to get container by id %s", req.ContainerID)
 	}
-	log.Infof("Query result: existContainer=%v (nil=%v)", existContainer != nil, existContainer == nil)
-	if existContainer != nil {
-		log.Infof("Query result details - ID: %d, ContainerID: %s, PodName: %s",
-			existContainer.ID, existContainer.ContainerID, existContainer.PodName)
-	}
 
 	// Create or update container record
 	// 如果容器不存在（nil）或者 ID 为 0（空对象），需要设置所有字段
 	if existContainer == nil || existContainer.ID == 0 {
-		log.Infof("Creating new container record for %s (existContainer nil: %v, ID: %d)",
-			req.ContainerID, existContainer == nil, func() int32 {
-				if existContainer != nil {
-					return existContainer.ID
-				}
-				return 0
-			}())
-
 		// 如果是 nil，创建新对象；如果 ID=0，重新设置所有字段
 		if existContainer == nil {
 			existContainer = &dbModel.NodeContainer{}
@@ -118,27 +86,15 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 		existContainer.NodeName = req.Node
 		existContainer.Source = constant.ContainerSourceK8S
 		existContainer.Status = containerData.Status
-
-		log.Infof("Created struct - ContainerID: %s", existContainer.ContainerID)
-		log.Infof("Created struct - ContainerName: %s", existContainer.ContainerName)
-		log.Infof("Created struct - PodUID: %s", existContainer.PodUID)
-		log.Infof("Created struct - PodName: %s", existContainer.PodName)
-		log.Infof("Created struct - PodNamespace: %s", existContainer.PodNamespace)
-		log.Infof("Created struct - NodeName: %s", existContainer.NodeName)
-		log.Infof("Created struct - Source: %s", existContainer.Source)
-		log.Infof("Created struct - Status: %s", existContainer.Status)
 	} else {
-		log.Infof("Updating existing container record (ID=%d) for %s", existContainer.ID, req.ContainerID)
 		existContainer.Status = containerData.Status
 		existContainer.UpdatedAt = time.Now()
 	}
 
 	// Save container
 	if existContainer.ID == 0 {
-		log.Infof("Calling CreateNodeContainer for %s", req.ContainerID)
 		err = database.GetFacade().GetContainer().CreateNodeContainer(ctx, existContainer)
 	} else {
-		log.Infof("Calling UpdateNodeContainer for %s (ID=%d)", req.ContainerID, existContainer.ID)
 		err = database.GetFacade().GetContainer().UpdateNodeContainer(ctx, existContainer)
 	}
 	if err != nil {
@@ -146,41 +102,30 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 		containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "db_save_error").Inc()
 		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to save container %s", req.ContainerID)
 	}
-	log.Infof("Container record saved successfully for %s， database id: %d", req.ContainerID, existContainer.ID)
 
 	// Save device associations (with timeout protection)
 	if containerData.Devices != nil {
-		log.Infof("Starting to save device associations for container %s", req.ContainerID)
 		// Create a context with timeout for device operations
 		deviceCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
 		// Save GPU devices
-		log.Infof("Saving %d GPU devices", len(containerData.Devices.GPU))
-		for i, gpu := range containerData.Devices.GPU {
-			log.Infof("Saving GPU[%d]: Name=%s, Id=%d, Serial=%s", i, gpu.Name, gpu.Id, gpu.Serial)
+		for _, gpu := range containerData.Devices.GPU {
 			if err := saveContainerDevice(deviceCtx, req.ContainerID, req.Node, gpu.Name, int32(gpu.Id), gpu.Serial, constant.DeviceTypeGPU); err != nil {
 				log.Warnf("Failed to save GPU device for container %s (device=%s): %v - continuing anyway", req.ContainerID, gpu.Name, err)
 				containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "device_save_error").Inc()
 				// Continue processing other devices - don't fail the entire event
-			} else {
-				log.Infof("Successfully saved GPU[%d]: %s", i, gpu.Name)
 			}
 		}
 
 		// Save InfiniBand devices
-		log.Infof("Saving %d InfiniBand devices", len(containerData.Devices.Infiniband))
-		for i, ib := range containerData.Devices.Infiniband {
-			log.Infof("Saving IB[%d]: Name=%s, Id=%d, Serial=%s", i, ib.Name, ib.Id, ib.Serial)
+		for _, ib := range containerData.Devices.Infiniband {
 			if err := saveContainerDevice(deviceCtx, req.ContainerID, req.Node, ib.Name, int32(ib.Id), ib.Serial, constant.DeviceTypeIB); err != nil {
 				log.Warnf("Failed to save IB device for container %s (device=%s): %v - continuing anyway", req.ContainerID, ib.Name, err)
 				containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "device_save_error").Inc()
 				// Continue processing other devices - don't fail the entire event
-			} else {
-				log.Infof("Successfully saved IB[%d]: %s", i, ib.Name)
 			}
 		}
-		log.Infof("Finished saving device associations for container %s", req.ContainerID)
 	}
 
 	// Save container event (except for snapshots)
@@ -280,18 +225,13 @@ func processDockerContainerEvent(ctx context.Context, req *ContainerEventRequest
 
 // saveContainerDevice saves a container-device association
 func saveContainerDevice(ctx context.Context, containerID, node, deviceName string, deviceNo int32, deviceUUID, deviceType string) error {
-	log.Infof("saveContainerDevice called: container=%s, device=%s, type=%s, uuid=%s, no=%d",
-		containerID, deviceName, deviceType, deviceUUID, deviceNo)
-
 	existRecord, err := database.GetFacade().GetContainer().GetNodeContainerDeviceByContainerIdAndDeviceUid(ctx, containerID, deviceUUID)
 	if err != nil {
 		log.Errorf("Failed to get container device by container id %s and device uid %s: %v", containerID, deviceUUID, err)
 		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to get container device")
 	}
-	log.Infof("Query result for device association: existRecord=%v", existRecord != nil)
 
 	if existRecord == nil {
-		log.Infof("Creating new device association record")
 		existRecord = &dbModel.NodeContainerDevices{
 			ContainerID: containerID,
 			DeviceType:  deviceType,
@@ -306,9 +246,6 @@ func saveContainerDevice(ctx context.Context, containerID, node, deviceName stri
 			log.Errorf("Failed to create node container device: %v", err)
 			return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to create node container device")
 		}
-		log.Infof("Created container device association: container=%s, device=%s, type=%s", containerID, deviceName, deviceType)
-	} else {
-		log.Infof("Container device association already exists (ID=%d): container=%s, device=%s", existRecord.ID, containerID, deviceName)
 	}
 
 	return nil
