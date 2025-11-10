@@ -1,0 +1,41 @@
+################################################################################
+# Higress Gateway API Configuration
+# Description: Define GatewayClass and Gateway resources for traffic routing
+################################################################################
+
+# GatewayClass: Defines the gateway controller type
+# Similar to Kubernetes StorageClass, used to define different gateway implementations
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: higress-gateway
+spec:
+  # Specify the Higress gateway controller
+  controllerName: "higress.io/gateway-controller"
+
+---
+# Gateway: Defines the specific gateway instance and listener configuration
+# TCP gateway for SSH traffic
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: ssh-gateway
+  namespace: higress-system
+spec:
+  # Reference the GatewayClass defined above
+  gatewayClassName: higress-gateway
+  listeners:
+    # SSH listener configuration
+    - name: ssh
+      # Protocol type: TCP (for SSH connections)
+      protocol: TCP
+      # Listening port: 2222 (custom SSH port)
+      port: 2222
+      # Allowed routes configuration
+      allowedRoutes:
+        # Allow routes from all namespaces
+        namespaces:
+          from: All
+        # Allowed route types
+        kinds:
+          - kind: TCPRoute
