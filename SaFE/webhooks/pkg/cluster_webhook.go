@@ -117,6 +117,9 @@ func (v *ClusterValidator) validateOnCreation(ctx context.Context, cluster *v1.C
 	if err := v.validateControlPlane(ctx, cluster); err != nil {
 		return err
 	}
+	if err := validateLabels(cluster); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -183,6 +186,9 @@ func (v *ClusterValidator) validateNodesReady(ctx context.Context, cluster *v1.C
 // validateOnUpdate validates immutable fields are not changed during cluster update.
 func (v *ClusterValidator) validateOnUpdate(newCluster, oldCluster *v1.Cluster) error {
 	if err := v.validateImmutableFields(newCluster, oldCluster); err != nil {
+		return err
+	}
+	if err := validateLabels(newCluster); err != nil {
 		return err
 	}
 	return nil

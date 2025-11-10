@@ -649,7 +649,7 @@ func (v *WorkspaceValidator) validateNodesAction(ctx context.Context, newWorkspa
 	}
 	if len(oldActions) > 0 && len(newActions) > 0 && !maps.EqualIgnoreOrder(oldActions, newActions) {
 		return commonerrors.NewResourceProcessing(
-			fmt.Sprintf("%s is processing", v1.GetWorkspaceNodesAction(oldWorkspace)))
+			fmt.Sprintf("another job(%s) is processing, please wait for it to complete", v1.GetWorkspaceNodesAction(oldWorkspace)))
 	}
 	var toRemoveNodes []string
 	for key, val := range newActions {

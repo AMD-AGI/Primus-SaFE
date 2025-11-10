@@ -150,7 +150,7 @@ Get workload list with filtering and pagination support.
 | until | string | No | End time, similar to since                                                    |
 | offset | int | No | Pagination offset, default 0                                                  |
 | limit | int | No | Records per page, default 100                                                 |
-| sortBy | string | No | Sort field, default create_time                                               |
+| sortBy | string | No | Sort field, default creationTime                                               |
 | order | string | No | Sort order: desc/asc, default desc                                            |
 
 **Response Example**:
@@ -185,8 +185,8 @@ Get workload list with filtering and pagination support.
       "startTime": "2025-01-15T10:31:00",
       "endTime": "",
       "deletionTime": "",
-      "runtime": "1h30m45s",
-      "schedulerOrder": 0,
+      "duration": "1h30m45s",
+      "queuePosition": 0,
       "dispatchCount": 1,
       "isTolerateAll": false,
       "timeout": 3600,
@@ -222,8 +222,8 @@ Get workload list with filtering and pagination support.
 | startTime | string | Start time, RFC3339 format, e.g. "2025-01-15T10:31:00"                                                           |
 | endTime | string | End time, RFC3339 format, empty if not finished                                                                  |
 | deletionTime | string | Deletion time, RFC3339 format, empty if not deleted                                                              |
-| runtime | string | Human-readable runtime duration, e.g. "1h30m45s"                                                                 |
-| schedulerOrder | int | Show the queue position of the workload if it is pending                                                         |
+| duration | string | Human-readable duration(from the start time to the end time or current time), e.g. "1h30m45s"                    |
+| queuePosition | int | Show the queue position of the workload if it is pending                                                         |
 | dispatchCount | int | Number of dispatch attempts                                                                                      |
 | isTolerateAll | bool | Whether to tolerate all node taints                                                                              |
 | timeout | int | Timeout seconds (0 means no timeout)                                                                             |
@@ -277,7 +277,7 @@ Get detailed information about a specific workload.
   "creationTime": "2025-01-15T10:30:00",
   "startTime": "2025-01-15T10:31:00",
   "endTime": "",
-  "runtime": "1h30m45s",
+  "duration": "1h30m45s",
   "secondsUntilTimeout": 1800,
   "env": {
     "NCCL_DEBUG": "INFO"
