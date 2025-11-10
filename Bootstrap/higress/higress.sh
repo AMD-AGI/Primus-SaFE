@@ -83,9 +83,7 @@ install_higress() {
     helm upgrade --install higress higress.io/higress \
         --namespace higress-system \
         --create-namespace \
-        -f "${SCRIPT_DIR}/values.yaml" \
-        --wait \
-        --timeout 5m
+        -f "${SCRIPT_DIR}/values.yaml"
     
     log_info "Higress gateway deployment completed"
 }
