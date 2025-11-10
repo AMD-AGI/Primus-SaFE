@@ -1,14 +1,25 @@
 package api
 
 import (
+	"net/http"
+
+	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/core/pkg/helper/storage"
 	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 func getStorageStat(ctx *gin.Context) {
-	stats, err := storage.GetStorageStat(ctx)
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+	
+	stats, err := storage.GetStorageStatWithClientSet(ctx, clients.StorageClientSet)
 	if err != nil {
 		_ = ctx.Error(err)
 		return

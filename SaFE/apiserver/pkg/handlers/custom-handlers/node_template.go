@@ -44,7 +44,7 @@ func (h *Handler) DeleteNodeTemplate(c *gin.Context) {
 // createNodeTemplate implements the node template creation logic.
 // Validates the request, generates a node template object, and persists it in the k8s cluster.
 func (h *Handler) createNodeTemplate(c *gin.Context) (interface{}, error) {
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.NodeTemplateKind,
 		Verb:         v1.CreateVerb,
@@ -82,12 +82,12 @@ func (h *Handler) listNodeTemplate(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	result := types.ListNodeTemplateResponse{}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	for _, nt := range nts.Items {
 		if !nt.GetDeletionTimestamp().IsZero() {
 			continue
 		}
-		if err = h.auth.Authorize(authority.Input{
+		if err = h.accessController.Authorize(authority.AccessInput{
 			Context:  c.Request.Context(),
 			Resource: &nt,
 			Verb:     v1.ListVerb,
@@ -117,7 +117,7 @@ func (h *Handler) deleteNodeTemplate(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  ctx,
 		Resource: nt,
 		Verb:     v1.DeleteVerb,

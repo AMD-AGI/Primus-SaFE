@@ -113,9 +113,9 @@ type WorkloadResponseItem struct {
 	GroupVersionKind v1.GroupVersionKind `json:"groupVersionKind"`
 	// Timeout seconds (0 means no timeout)
 	Timeout *int `json:"timeout"`
-	// Workload uid
+	// Workload UID
 	WorkloadUid string `json:"workloadUid"`
-	// K8s object uid corresponding to the workload
+	// K8s object UID corresponding to the workload. e.g. Associated PyTorchJob UID
 	K8sObjectUid string `json:"k8sObjectUid"`
 }
 

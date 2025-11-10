@@ -2,10 +2,11 @@ package log
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/conf"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/logrus"
-	"os"
 )
 
 type Fields map[string]interface{}
@@ -26,6 +27,15 @@ func InitGlobalLogger(conf *conf.LogConfig) (err error) {
 		}
 	}
 	return nil
+}
+
+// NewLogger creates a new independent logger instance with the specified level.
+// It uses the default configuration but overrides the log level.
+// This is useful for scenarios that require a logger independent of the global logger.
+func NewLogger(level conf.Level) (logger.Logger, error) {
+	config := conf.DefaultConfig()
+	config.Level = level
+	return logrus.NewLogrusWrapper(config)
 }
 
 func GlobalLogger() logger.Logger {

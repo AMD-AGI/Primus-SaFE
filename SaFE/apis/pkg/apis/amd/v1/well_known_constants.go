@@ -39,6 +39,7 @@ const (
 	NodeAnnotationAction            = NodePrefix + "annotation.action"
 	NodeTemplateInstalledAnnotation = NodePrefix + "template.installed"
 	NodeIdLabel                     = NodePrefix + "id"
+	NodeResetAnnotation             = NodePrefix + "reset"
 	NodeManageRebootLabel           = "manage.reboot"
 	NodeUnmanageNoRebootLabel       = "unmanage.noreboot"
 	NodeActionAdd                   = "add"
@@ -100,6 +101,7 @@ const (
 	UserEmailAnnotation     = UserPrefix + "email"
 	UserEmailMd5Label       = UserPrefix + "email.md5"
 	UserAvatarUrlAnnotation = UserPrefix + "avatar.url"
+	UserTypeLabel           = UserPrefix + "type"
 
 	// secret
 	SecretPrefix            = PrimusSafePrefix + "secret."
@@ -134,6 +136,8 @@ const (
 	Deleted  Phase = "Deleted"
 
 	TrueStr = "true"
+
+	K8sHostName = "kubernetes.io/hostname"
 
 	SecretImage SecretType = "image"
 	SecretSSH   SecretType = "ssh"

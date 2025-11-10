@@ -69,8 +69,13 @@ data:
     user:
       # Users can log in to the system without a token, intended for internal customers
       token_required: {{ .Values.user.token_required }}
-      # The expiration time of the token, in seconds.
+      # The expiration time of the token(only for local token), in seconds.
       token_expire: 604800
+    sso:
+      # The secret for sso, which contains the id, secret, endpoint and redirect_uri
+      secret_path: {{ .Values.sso.secret_path }}
+      # Whether to enable sso
+      enable: {{ .Values.sso.enable }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

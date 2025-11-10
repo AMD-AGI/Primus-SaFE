@@ -3,7 +3,7 @@ import json
 
 def get_rocm_smi_info():
     """
-    调用 rocm-smi 获取 GPU 信息，并解析为 Python dict
+    Call rocm-smi to get GPU information and parse it into Python dict
     """
     try:
         result = subprocess.run(
@@ -15,10 +15,10 @@ def get_rocm_smi_info():
         data = json.loads(result.stdout)
         return data
     except subprocess.CalledProcessError as e:
-        print("执行 rocm-smi 失败:", e.stderr)
+        print("Failed to execute rocm-smi:", e.stderr)
         return {}
     except json.JSONDecodeError as e:
-        print("解析 JSON 失败:", e)
+        print("Failed to parse JSON:", e)
         return {}
 
 if __name__ == "__main__":

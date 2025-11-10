@@ -1,11 +1,13 @@
 package clientsets
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
@@ -14,13 +16,29 @@ import (
 type MultiClusterConfig map[string]ClusterConfig
 
 func (m *MultiClusterConfig) LoadFromSecret(data map[string][]byte) error {
-	for clusterName, bytes := range data {
+	// Ensure the map is initialized
+	if *m == nil {
+		*m = make(MultiClusterConfig)
+	}
+
+	// Iterate through each cluster configuration in the secret
+	// Each key is the cluster name, value is the ClusterConfig in JSON format
+	for clusterName, configBytes := range data {
+		// Skip empty data
+		if len(configBytes) == 0 {
+			continue
+		}
+		log.Infof("Loading k8s config for cluster: %s", clusterName)
+		// First unmarshal into intermediate structure with string fields
 		var clusterCfg ClusterConfig
-		if err := json.Unmarshal(bytes, &clusterCfg); err != nil {
+		if err := json.Unmarshal(configBytes, &clusterCfg); err != nil {
 			return fmt.Errorf("failed to unmarshal cluster config for cluster %s: %w", clusterName, err)
 		}
+
+		// Store the parsed configuration in the map
 		(*m)[clusterName] = clusterCfg
 	}
+
 	return nil
 }
 
@@ -30,9 +48,9 @@ type ClusterConfig struct {
 	BearerToken           string `yaml:"bearerToken" json:"bearerToken"`
 	TLSServerName         string `yaml:"tlsServerName" json:"tlsServerName"`
 	InsecureSkipTLSVerify bool   `yaml:"insecureSkipTLSVerify" json:"insecureSkipTLSVerify"`
-	CAData                []byte `yaml:"caData" json:"caData"`
-	CertData              []byte `yaml:"certData" json:"certData"`
-	KeyData               []byte `yaml:"keyData" json:"keyData"`
+	CAData                string `yaml:"caData" json:"caData"`
+	CertData              string `yaml:"certData" json:"certData"`
+	KeyData               string `yaml:"keyData" json:"keyData"`
 }
 
 func (c *ClusterConfig) ToRestConfig() (*rest.Config, error) {
@@ -51,17 +69,33 @@ func (c *ClusterConfig) ToRestConfig() (*rest.Config, error) {
 		return nil, fmt.Errorf("host must be set if kubeconfig is not provided")
 	}
 
-	return &rest.Config{
-		Host:        c.Host,
-		BearerToken: c.BearerToken,
-		TLSClientConfig: rest.TLSClientConfig{
-			Insecure:   c.InsecureSkipTLSVerify,
-			ServerName: c.TLSServerName,
-			CAData:     c.CAData,
-			CertData:   c.CertData,
-			KeyData:    c.KeyData,
-		},
-	}, nil
+	return createRestConfig(c.Host, c.CertData, c.KeyData, c.CAData, c.InsecureSkipTLSVerify)
+}
+
+// decodeIfBase64 attempts to decode a base64 string, returns original if not base64 encoded
+func decodeIfBase64(data string) (string, error) {
+	if data == "" {
+		return "", nil
+	}
+
+	// Try to decode as base64
+	decoded, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		// If decode fails, assume it's already plain text (e.g., PEM format)
+		log.Infof("Data is not base64 encoded, using as-is (first 50 chars): %s", truncateString(data, 50))
+		return data, nil
+	}
+
+	decodedStr := string(decoded)
+	log.Infof("Successfully decoded base64 data (first 50 chars): %s", truncateString(decodedStr, 50))
+	return decodedStr, nil
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 type PrimusLensClientConfig struct {
@@ -120,11 +154,41 @@ func (p *PrimusLensClientConfig) Equals(other *PrimusLensClientConfig) bool {
 type PrimusLensMultiClusterClientConfig map[string]PrimusLensClientConfig
 
 func (p *PrimusLensMultiClusterClientConfig) LoadFromSecret(data map[string][]byte) error {
+	// Ensure the map is initialized
+	if *p == nil {
+		*p = make(PrimusLensMultiClusterClientConfig)
+	}
+
 	for clusterName, bytes := range data {
-		singleCfg := PrimusLensClientConfig{}
-		if err := json.Unmarshal(bytes, &singleCfg); err != nil {
-			return fmt.Errorf("failed to unmarshal multi-cluster client config: %w", err)
+		// Skip empty data
+		if len(bytes) == 0 {
+			continue
 		}
+		log.Infof("Loading multi-cluster client config for cluster: %s", clusterName)
+
+		// First unmarshal into intermediate structure with base64-encoded values
+		var intermediate map[string]string
+		if err := json.Unmarshal(bytes, &intermediate); err != nil {
+			return fmt.Errorf("failed to unmarshal multi-cluster client config for %s: %w", clusterName, err)
+		}
+
+		// Create new map for decoded data
+		decodedData := make(map[string][]byte)
+		for key, base64Value := range intermediate {
+			// Decode base64 string
+			decoded, err := base64.StdEncoding.DecodeString(base64Value)
+			if err != nil {
+				return fmt.Errorf("failed to decode %s for cluster %s: %w", key, clusterName, err)
+			}
+			decodedData[key] = decoded
+		}
+
+		// Load configuration using decoded data
+		singleCfg := PrimusLensClientConfig{}
+		if err := singleCfg.LoadFromSecret(decodedData); err != nil {
+			return fmt.Errorf("failed to load config for cluster %s: %w", clusterName, err)
+		}
+
 		(*p)[clusterName] = singleCfg
 	}
 	return nil
@@ -190,4 +254,40 @@ func (p PrimusLensClientConfigPostgres) Equals(other PrimusLensClientConfigPostg
 		p.Password == other.Password &&
 		p.DBName == other.DBName &&
 		p.SSLMode == other.SSLMode
+}
+
+func createRestConfig(endpoint, certData, keyData, caData string, insecure bool) (*rest.Config, error) {
+	// Decode base64-encoded certificate data
+	decodedCertData, err := decodeIfBase64(certData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode cert data: %w", err)
+	}
+
+	decodedKeyData, err := decodeIfBase64(keyData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode key data: %w", err)
+	}
+
+	decodedCAData, err := decodeIfBase64(caData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode ca data: %w", err)
+	}
+
+	log.Infof("Creating rest config for endpoint: %s (insecure: %v, cert len: %d, key len: %d, ca len: %d)",
+		endpoint, insecure, len(decodedCertData), len(decodedKeyData), len(decodedCAData))
+	log.Infof("Key data starts with: %s", truncateString(decodedKeyData, 100))
+	log.Infof("Cert data starts with: %s", truncateString(decodedCertData, 100))
+
+	cfg := &rest.Config{
+		Host: endpoint,
+		TLSClientConfig: rest.TLSClientConfig{
+			Insecure: insecure,
+			KeyData:  []byte(decodedKeyData),
+			CertData: []byte(decodedCertData),
+		},
+	}
+	if !insecure {
+		cfg.TLSClientConfig.CAData = []byte(decodedCAData)
+	}
+	return cfg, nil
 }

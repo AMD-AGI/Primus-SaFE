@@ -119,7 +119,7 @@ func formatResourceName(key string) string {
 // isMatchNodeLabel checks if a node matches the workload's customer labels.
 func isMatchNodeLabel(node *v1.Node, workload *v1.Workload) bool {
 	for key, val := range workload.Spec.CustomerLabels {
-		if key == common.K8sHostName {
+		if key == v1.K8sHostName {
 			nodeNames := strings.Split(val, " ")
 			if !sliceutil.Contains(nodeNames, v1.GetDisplayName(node)) {
 				return false

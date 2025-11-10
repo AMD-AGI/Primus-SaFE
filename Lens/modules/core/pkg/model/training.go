@@ -18,7 +18,7 @@ type TrainingPerformance struct {
 	SkippedIterationsNumber   int     `json:"skipped_iterations_number"`
 	NanIterationsNumber       int     `json:"nan_iterations_number"`
 	SamplesPerSecond          float64 `json:"samples_per_second"`
-	TFLOPS                    float64 `json:"tflops"` // throughput per gpu 或 tflops
+	TFLOPS                    float64 `json:"tflops"` // throughput per GPU or TFLOPS
 	Mfu                       float64 `json:"mfu"`
 	TokensPerGPU              float64 `json:"tokens_per_gpu"`
 	GradNorm                  float64 `json:"grad_norm"`

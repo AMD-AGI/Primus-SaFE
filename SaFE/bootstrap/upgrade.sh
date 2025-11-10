@@ -47,7 +47,8 @@ echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
 echo "✅ Storage Class: \"$storage_class\""
 echo "✅ Support Primus-lens: \"$lens_enable\""
-echo "✅ Support Primus-s3: \"$s3_enable\""
+echo "✅ Support S3: \"$s3_enable\""
+echo "✅ Support SSO: \"$sso_enable\""
 echo "✅ Ingress Name: \"$ingress\""
 if [[ "$ingress" == "higress" ]]; then
   echo "✅ Cluster Name: \"$sub_domain\""
@@ -69,6 +70,7 @@ elif [[ "$cluster_scale" == "large" ]]; then
 fi
 IMAGE_PULL_SECRET="$NAMESPACE-image"
 S3_SECRET="$NAMESPACE-s3"
+SSO_SECRET="$NAMESPACE-sso"
 
 echo
 echo "========================================="
@@ -103,6 +105,10 @@ if [[ "$lens_enable" == "true" ]]; then
 fi
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
+sed -i '/sso:/,/^[a-z]/ s/enable: .*/enable: '"$sso_enable"'/' "$values_yaml"
+if [[ "$sso_enable" == "true" ]]; then
+  sed -i '/^sso:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
+fi
 
 chart_name="primus-safe"
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then

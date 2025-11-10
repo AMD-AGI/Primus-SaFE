@@ -4,7 +4,7 @@
 #
 
 node_agent:
-  image: "node-agent:202510271634"
+  image: "node-agent:latest"
   image_registry: "docker.io"
   image_pull_secret: "primus-safe-image"
 monitor:

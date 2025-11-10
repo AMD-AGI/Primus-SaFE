@@ -30,7 +30,7 @@ func (n *Handler) syncTcpFlow(ctx context.Context) {
 	}
 }
 
-// 网络流量以metrics的形式透出，暂时不记录到包粒度
+// Network traffic is exported as metrics, not recorded at packet granularity for now
 func (n *Handler) consumeTcpFlow(e tcpflow.TcpFlow) {
 	key := model.TcpFlowCacheKey{
 		SAddr:  e.GetSaddr(),

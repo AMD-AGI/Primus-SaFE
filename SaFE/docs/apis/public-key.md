@@ -56,8 +56,8 @@ A public key is an SSH credential used for passwordless authentication, with the
       "description": "Laptop public key",
       "publicKey": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC...",
       "status": true,
-      "createTime": "2025-01-10T08:00:00.000Z",
-      "updateTime": "2025-01-10T08:00:00.000Z"
+      "createTime": "2025-01-10T08:00:00",
+      "updateTime": "2025-01-10T08:00:00"
     }
   ]
 }

@@ -40,7 +40,7 @@ func (n *Handler) consumeForSingleRtt(key model.TcpFlowCacheKey, value model.Tcp
 	if t == -1 {
 		return
 	}
-	// 获取remote Addr 的 type
+	// Get the type of remote address
 	typ, _, err := n.ranger.match(remoteAddr)
 	if err != nil {
 		n.lg.Errorf("match remote addr %s failed %v", remoteAddr, err)
@@ -58,7 +58,7 @@ func (n *Handler) consumeForSingleFlow(key model.TcpFlowCacheKey, dataLen uint64
 	if connType == -1 {
 		return
 	}
-	// 获取remote Addr 的 type
+	// Get the type of remote address
 	typ, _, err := n.ranger.match(remoteAddr)
 	if err != nil {
 		n.lg.Errorf("match remote addr %s failed %v", remoteAddr, err)

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
 	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
@@ -31,14 +30,18 @@ var (
 	multiClusterStorageConfigJsonBytes []byte
 )
 
-func GetCurrentClusterStorageClientSet() *StorageClientSet {
+// getCurrentClusterStorageClientSet returns the storage client for current cluster
+// This is internal function, external code should use ClusterManager.GetCurrentClusterClients()
+func getCurrentClusterStorageClientSet() *StorageClientSet {
 	if currentClusterStorageClientSet == nil {
 		panic("please init currentClusterStorageClientSet first")
 	}
 	return currentClusterStorageClientSet
 }
 
-func GetStorageClientSetByClusterName(clusterName string) (*StorageClientSet, error) {
+// getStorageClientSetByClusterName returns storage client for a specific cluster
+// This is internal function, external code should use ClusterManager.GetClientSetByClusterName()
+func getStorageClientSetByClusterName(clusterName string) (*StorageClientSet, error) {
 	storageClientSet, exists := multiClusterStorageClientSet[clusterName]
 	if !exists {
 		return nil, errors.NewError().WithCode(errors.RequestDataNotExisted).WithMessagef("Storage client set for cluster %s not found", clusterName)
@@ -46,38 +49,12 @@ func GetStorageClientSetByClusterName(clusterName string) (*StorageClientSet, er
 	return storageClientSet, nil
 }
 
-func initStorageClientSets(ctx context.Context, multiCluster bool) error {
-	var err error
-	if !multiCluster {
-		err = loadCurrentClusterStorageClients(ctx)
-	} else {
-		err = loadMultiClusterStorageClients(ctx)
-	}
-	if err != nil {
-		return err
-	}
-	if multiCluster {
-		go func() {
-			ticker := time.NewTicker(30 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					err = loadMultiClusterStorageClients(ctx)
-					if err != nil {
-						log.Error("Failed to reload multi-cluster storage clients: %v", err)
-					}
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
-	}
-	return nil
-}
+// initStorageClientSets is now handled by ClusterManager
+// This function is kept for backward compatibility but should not be called directly
+// Use InitClusterManager instead
 
 func loadCurrentClusterStorageClients(ctx context.Context) error {
-	cfg, err := loadSingleClusterStorageConfig(ctx)
+	cfg, err := loadSingleClusterStorageConfig(ctx, getCurrentClusterK8SClientSet())
 	if err != nil {
 		return err
 	}
@@ -117,12 +94,12 @@ func loadMultiClusterStorageClients(ctx context.Context) error {
 		newMultiClusterStorageClientSet[clusterName] = storageClientSet
 	}
 	multiClusterStorageClientSet = newMultiClusterStorageClientSet
-	log.Info("Initialized single-cluster storage clients successfully")
+	log.Info("Initialized multi-cluster storage clients successfully")
 	return nil
 }
 
-func loadSingleClusterStorageConfig(ctx context.Context) (*PrimusLensClientConfig, error) {
-	secret, err := GetCurrentClusterK8SClientSet().Clientsets.CoreV1().Secrets(StorageConfigSecretNamespace).Get(ctx, StorageConfigSecretName, metav1.GetOptions{})
+func loadSingleClusterStorageConfig(ctx context.Context, k8sClient *K8SClientSet) (*PrimusLensClientConfig, error) {
+	secret, err := k8sClient.Clientsets.CoreV1().Secrets(StorageConfigSecretNamespace).Get(ctx, StorageConfigSecretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, errors.NewError().
 			WithCode(errors.CodeInitializeError).
@@ -140,12 +117,17 @@ func loadSingleClusterStorageConfig(ctx context.Context) (*PrimusLensClientConfi
 	return cfg, nil
 }
 
+// LoadSingleClusterStorageConfig exported method for loading storage config from a specified K8S client
+func LoadSingleClusterStorageConfig(ctx context.Context, k8sClient *K8SClientSet) (*PrimusLensClientConfig, error) {
+	return loadSingleClusterStorageConfig(ctx, k8sClient)
+}
+
 func loadMultiClusterStorageConfig(ctx context.Context) (PrimusLensMultiClusterClientConfig, error) {
-	secret, err := GetCurrentClusterK8SClientSet().Clientsets.CoreV1().Secrets(StorageConfigSecretNamespace).Get(ctx, MultiStorageConfigSecretName, metav1.GetOptions{})
+	secret, err := getCurrentClusterK8SClientSet().Clientsets.CoreV1().Secrets(StorageConfigSecretNamespace).Get(ctx, MultiStorageConfigSecretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, errors.NewError().
 			WithCode(errors.CodeInitializeError).
-			WithMessage("Failed to get storage config secret").
+			WithMessage("Failed to get multi-cluster storage config secret").
 			WithError(err)
 	}
 	cfg := PrimusLensMultiClusterClientConfig{}
@@ -153,7 +135,7 @@ func loadMultiClusterStorageConfig(ctx context.Context) (PrimusLensMultiClusterC
 	if err != nil {
 		return nil, errors.NewError().
 			WithCode(errors.CodeInitializeError).
-			WithMessage("Failed to load storage config from secret").
+			WithMessage("Failed to load multi-cluster storage config from secret").
 			WithError(err)
 	}
 	return cfg, nil
@@ -227,6 +209,11 @@ func initStorageClients(ctx context.Context, cfg PrimusLensClientConfig) (*Stora
 	}
 	clientSet.PrometheusWrite = cli
 	return clientSet, nil
+}
+
+// InitStorageClients exported method for initializing storage clients from config
+func InitStorageClients(ctx context.Context, cfg PrimusLensClientConfig) (*StorageClientSet, error) {
+	return initStorageClients(ctx, cfg)
 }
 
 func initPrometheusClient(endpoints string) (api.Client, error) {

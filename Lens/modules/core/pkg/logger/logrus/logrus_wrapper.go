@@ -50,7 +50,7 @@ func (wrapper *LogrusWrapper) Error(err error, msg string, keysAndValues ...any)
 }
 
 func (wrapper *LogrusWrapper) WithValues(keysAndValues ...any) logr.LogSink {
-	// 默认一个key一个value
+	// Default: one key per value
 	var orphanValue any
 	if len(keysAndValues)%2 != 0 {
 		orphanValue = keysAndValues[len(keysAndValues)-1]
@@ -272,8 +272,8 @@ func (wrapper *LogrusWrapper) WithField(key string, value interface{}) logger.Lo
 		callerSkip:   wrapper.callerSkip,
 	}
 
-	// 合并 wrapper.fields 和 key:value 到 data中
-	// key:value 可能会覆盖 wrapper.fields 现有项
+	// Merge wrapper.fields and key:value into data
+	// key:value may override existing items in wrapper.fields
 	data := make(map[string]interface{}, len(wrapper.fields)+1)
 	for k, v := range wrapper.fields {
 		data[k] = v
@@ -292,8 +292,8 @@ func (wrapper *LogrusWrapper) WithFields(fields map[string]interface{}) logger.L
 		fields:       map[string]interface{}{},
 	}
 
-	// 合并 wrapper.fields 和 key:value 到 data中
-	// fields 可能会覆盖 wrapper.fields 现有项
+	// Merge wrapper.fields and key:value into data
+	// fields may override existing items in wrapper.fields
 	data := make(map[string]interface{}, len(wrapper.fields)+len(fields))
 	for k, v := range wrapper.fields {
 		data[k] = v

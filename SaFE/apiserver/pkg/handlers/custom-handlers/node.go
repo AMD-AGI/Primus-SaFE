@@ -95,7 +95,7 @@ func (h *Handler) ListNodeRebootLog(c *gin.Context) {
 // Validates the request, generates a node object with specified parameters,
 // and persists it in the system.
 func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.NodeKind,
 		Verb:         v1.CreateVerb,
@@ -179,7 +179,7 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 		nodeList.Items = append(nodeList.Items, *node)
 	}
 
-	roles := h.auth.GetRoles(ctx, requestUser)
+	roles := h.accessController.GetRoles(ctx, requestUser)
 	nodes := make([]*v1.Node, 0, len(nodeList.Items))
 	var phases []string
 	if query.Phase != nil {
@@ -187,7 +187,7 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 	}
 
 	for i, n := range nodeList.Items {
-		if err = h.auth.Authorize(authority.Input{
+		if err = h.accessController.Authorize(authority.AccessInput{
 			Context:    ctx,
 			Resource:   &n,
 			Verb:       v1.ListVerb,
@@ -245,12 +245,7 @@ func buildListNodeBriefResponse(totalCount int, nodes []*v1.Node) (interface{}, 
 		TotalCount: totalCount,
 	}
 	for _, n := range nodes {
-		item := types.NodeBriefResponseItem{
-			NodeId:     n.Name,
-			NodeName:   v1.GetDisplayName(n),
-			InternalIP: n.Spec.PrivateIP,
-		}
-		result.Items = append(result.Items, item)
+		result.Items = append(result.Items, convertToNodeBriefResponse(n))
 	}
 	return result, nil
 }
@@ -290,7 +285,7 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   node,
 		Verb:       v1.GetVerb,
@@ -328,7 +323,7 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   node,
 		Verb:       v1.UpdateVerb,
@@ -347,7 +342,7 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 
 	maxRetry := 3
 	if err = backoff.ConflictRetry(func() error {
-		shouldUpdate, innerErr := h.updateNode(ctx, node, req, requestUser)
+		shouldUpdate, innerErr := h.updateNode(ctx, node, req)
 		if innerErr != nil || !shouldUpdate {
 			return innerErr
 		}
@@ -373,7 +368,7 @@ func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
 		Resource:   node,
 		Verb:       v1.DeleteVerb,
@@ -405,7 +400,7 @@ func (h *Handler) getNodePodLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: node,
 		Verb:     v1.CreateVerb,
@@ -449,7 +444,7 @@ func (h *Handler) listNodeRebootLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: node,
 		Verb:     v1.GetVerb,
@@ -550,6 +545,7 @@ func (h *Handler) getAllUsedResourcePerNode(ctx context.Context,
 			info.resource = quantity.AddResource(info.resource, resList)
 			info.workloads = append(info.workloads, types.WorkloadInfo{
 				Id:          w.Name,
+				Kind:        w.Spec.Kind,
 				UserId:      v1.GetUserName(w),
 				WorkspaceId: w.Spec.Workspace,
 			})
@@ -686,7 +682,7 @@ func parseListNodeQuery(c *gin.Context) (*types.ListNodeRequest, error) {
 
 // updateNode applies updates to a node based on the patch request.
 // Handles label updates, taint modifications, flavor/template changes, and port updates.
-func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest, user *v1.User) (bool, error) {
+func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.PatchNodeRequest) (bool, error) {
 	shouldUpdate := false
 	nodesLabelAction := generateNodeLabelAction(node, req)
 	if len(nodesLabelAction) > 0 {
@@ -695,9 +691,6 @@ func (h *Handler) updateNode(ctx context.Context, node *v1.Node, req *types.Patc
 	if req.Taints != nil {
 		for i, t := range *req.Taints {
 			key := t.Key
-			if user != nil {
-				key += "." + normalizeUsername(v1.GetUserName(user))
-			}
 			(*req.Taints)[i].Key = commonfaults.GenerateTaintKey(key)
 		}
 		if err := h.deleteRelatedFaults(ctx, node, *req.Taints); err != nil {
@@ -801,31 +794,24 @@ func generateNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[str
 
 // cvtToNodeResponseItem converts a node object to a response item format.
 // Includes resource availability, phase information, and workload details.
-func cvtToNodeResponseItem(n *v1.Node, usedResource *resourceInfo) types.NodeResponseItem {
-	isAvailable, message := n.CheckAvailable(false)
+func cvtToNodeResponseItem(node *v1.Node, usedResource *resourceInfo) types.NodeResponseItem {
 	result := types.NodeResponseItem{
-		NodeBriefResponseItem: types.NodeBriefResponseItem{
-			NodeId:     n.Name,
-			NodeName:   v1.GetDisplayName(n),
-			InternalIP: n.Spec.PrivateIP,
-		},
-		ClusterId:         v1.GetClusterId(n),
-		Phase:             string(n.GetPhase()),
-		Available:         isAvailable,
-		Message:           message,
-		TotalResources:    cvtToResourceList(n.Status.Resources),
-		CreationTime:      timeutil.FormatRFC3339(n.CreationTimestamp.Time),
-		IsControlPlane:    v1.IsControlPlane(n),
-		IsAddonsInstalled: v1.IsNodeTemplateInstalled(n),
+		NodeBriefResponseItem: convertToNodeBriefResponse(node),
+		ClusterId:             v1.GetClusterId(node),
+		Phase:                 string(node.GetPhase()),
+		TotalResources:        cvtToResourceList(node.Status.Resources),
+		CreationTime:          timeutil.FormatRFC3339(node.CreationTimestamp.Time),
+		IsControlPlane:        v1.IsControlPlane(node),
+		IsAddonsInstalled:     v1.IsNodeTemplateInstalled(node),
 	}
-	result.Workspace.Id = v1.GetWorkspaceId(n)
+	result.Workspace.Id = v1.GetWorkspaceId(node)
 	var availResource corev1.ResourceList
 	if usedResource != nil && len(usedResource.resource) > 0 {
-		availResource = quantity.GetAvailableResource(n.Status.Resources)
+		availResource = quantity.GetAvailableResource(node.Status.Resources)
 		availResource = quantity.SubResource(availResource, usedResource.resource)
 		result.Workloads = usedResource.workloads
 	} else {
-		availResource = quantity.GetAvailableResource(n.Status.Resources)
+		availResource = quantity.GetAvailableResource(node.Status.Resources)
 	}
 	result.AvailResources = cvtToResourceList(availResource)
 	return result
@@ -846,6 +832,19 @@ func cvtToGetNodeResponse(n *v1.Node, usedResource *resourceInfo) types.GetNodeR
 	lastStartupTime := timeutil.CvtStrUnixToTime(v1.GetNodeStartupTime(n))
 	result.LastStartupTime = timeutil.FormatRFC3339(lastStartupTime)
 	return result
+}
+
+// convertToNodeBriefResponse converts a node object to a brief response format.
+// Returns basic node information including ID, name, internal IP, availability status, and message.
+func convertToNodeBriefResponse(node *v1.Node) types.NodeBriefResponseItem {
+	isAvailable, message := node.CheckAvailable(false)
+	return types.NodeBriefResponseItem{
+		NodeId:     node.Name,
+		NodeName:   v1.GetDisplayName(node),
+		InternalIP: node.Spec.PrivateIP,
+		Available:  isAvailable,
+		Message:    message,
+	}
 }
 
 // getNodeCustomerLabels extracts customer-defined labels from a node's label set.
@@ -872,13 +871,4 @@ func getPrimusTaints(taints []corev1.Taint) []corev1.Taint {
 		}
 	}
 	return result
-}
-
-// normalizeUsername returns the part before '@' in a username,
-// or the original string if '@' is not present.
-// when the username is in email format (e.g., user@domain.com -> user)
-func normalizeUsername(username string) string {
-	// Split the string at '@', but limit to 2 parts to avoid unnecessary allocations
-	parts := strings.SplitN(username, "@", 2)
-	return parts[0]
 }

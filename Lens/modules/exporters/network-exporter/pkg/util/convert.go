@@ -11,6 +11,6 @@ func ConvertToFloat64(value reflect.Value) (float64, bool) {
 	case reflect.Float32, reflect.Float64:
 		return value.Float(), true
 	default:
-		return 0, false // 不是数字类型
+		return 0, false // Not a numeric type
 	}
 }

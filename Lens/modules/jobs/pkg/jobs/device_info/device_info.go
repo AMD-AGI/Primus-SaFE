@@ -49,7 +49,7 @@ func (d *DeviceInfoJob) Schedule() string {
 }
 
 func (d *DeviceInfoJob) getDeviceInfoForSingleNode(ctx context.Context, clientSets *clientsets.K8SClientSet, nodeName string) error {
-	dbNode, err := database.GetNodeByName(ctx, nodeName)
+	dbNode, err := database.GetFacade().GetNode().GetNodeByName(ctx, nodeName)
 	if err != nil {
 		return err
 	}
@@ -92,7 +92,7 @@ func (d *DeviceInfoJob) getRDMADeviceInfo(ctx context.Context, nodeExporterClien
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-		existInfo, err := database.GetRdmaDeviceByNodeIdAndPort(ctx, rdmaDevice.NodeGUID, rdmaDevice.IfIndex)
+		existInfo, err := database.GetFacade().GetNode().GetRdmaDeviceByNodeIdAndPort(ctx, rdmaDevice.NodeGUID, rdmaDevice.IfIndex)
 		if err != nil {
 			return err
 		}
@@ -100,7 +100,7 @@ func (d *DeviceInfoJob) getRDMADeviceInfo(ctx context.Context, nodeExporterClien
 			existInfo = newRdmaInfo
 		}
 		if existInfo.ID == 0 {
-			err = database.CreateRdmaDevice(ctx, existInfo)
+			err = database.GetFacade().GetNode().CreateRdmaDevice(ctx, existInfo)
 			if err != nil {
 				return err
 			}
@@ -108,7 +108,7 @@ func (d *DeviceInfoJob) getRDMADeviceInfo(ctx context.Context, nodeExporterClien
 		}
 	}
 	// TODO remove changed device
-	nodeDevices, err := database.ListRdmaDeviceByNodeId(ctx, dbNode.ID)
+	nodeDevices, err := database.GetFacade().GetNode().ListRdmaDeviceByNodeId(ctx, dbNode.ID)
 	if err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func (d *DeviceInfoJob) getRDMADeviceInfo(ctx context.Context, nodeExporterClien
 		}
 		if !found {
 			deleted = append(deleted, *nodeDevices[i])
-			err = database.DeleteRdmaDeviceById(ctx, nodeDevices[i].ID)
+			err = database.GetFacade().GetNode().DeleteRdmaDeviceById(ctx, nodeDevices[i].ID)
 			if err != nil {
 				return err
 			}
@@ -141,7 +141,7 @@ func (d *DeviceInfoJob) getRDMADeviceInfo(ctx context.Context, nodeExporterClien
 			Op:         constant.DeviceChangelogOpCreate,
 			CreatedAt:  time.Now(),
 		}
-		err = database.CreateNodeDeviceChangelog(ctx, evt)
+		err = database.GetFacade().GetNode().CreateNodeDeviceChangelog(ctx, evt)
 		if err != nil {
 			log.Errorf("Fail to create node device changelog: %v", err)
 		}
@@ -158,7 +158,7 @@ func (d *DeviceInfoJob) getRDMADeviceInfo(ctx context.Context, nodeExporterClien
 			Op:         constant.DeviceChangelogOpDelete,
 			CreatedAt:  time.Now(),
 		}
-		err = database.CreateNodeDeviceChangelog(ctx, evt)
+		err = database.GetFacade().GetNode().CreateNodeDeviceChangelog(ctx, evt)
 		if err != nil {
 			log.Errorf("Fail to create node device changelog: %v", err)
 		}
@@ -207,7 +207,7 @@ func (d *DeviceInfoJob) getGPUDeviceInfo(ctx context.Context, nodeExporterClient
 			NumaAffinity:   int32(info.NUMA.Affinity),
 			NumaNode:       int32(info.NUMA.Node),
 		}
-		existInfo, err := database.GetGpuDeviceByNodeAndGpuId(ctx, dbNode.ID, info.GPU)
+		existInfo, err := database.GetFacade().GetNode().GetGpuDeviceByNodeAndGpuId(ctx, dbNode.ID, info.GPU)
 		if err != nil {
 			return err
 		}
@@ -220,18 +220,18 @@ func (d *DeviceInfoJob) getGPUDeviceInfo(ctx context.Context, nodeExporterClient
 		}
 		if existInfo.ID == 0 {
 			created = append(created, *existInfo)
-			err = database.CreateGpuDevice(ctx, existInfo)
+			err = database.GetFacade().GetNode().CreateGpuDevice(ctx, existInfo)
 			if err != nil {
 				return err
 			}
 		} else {
-			err = database.UpdateGpuDevice(ctx, existInfo)
+			err = database.GetFacade().GetNode().UpdateGpuDevice(ctx, existInfo)
 			if err != nil {
 				return err
 			}
 		}
 	}
-	nodeDevices, err := database.ListGpuDeviceByNodeId(ctx, dbNode.ID)
+	nodeDevices, err := database.GetFacade().GetNode().ListGpuDeviceByNodeId(ctx, dbNode.ID)
 	if err != nil {
 		return err
 	}
@@ -246,7 +246,7 @@ func (d *DeviceInfoJob) getGPUDeviceInfo(ctx context.Context, nodeExporterClient
 		}
 		if !found {
 			deleted = append(deleted, *nodeDevices[i])
-			err = database.DeleteGpuDeviceById(ctx, nodeDevices[i].ID)
+			err = database.GetFacade().GetNode().DeleteGpuDeviceById(ctx, nodeDevices[i].ID)
 			if err != nil {
 				return err
 			}
@@ -264,7 +264,7 @@ func (d *DeviceInfoJob) getGPUDeviceInfo(ctx context.Context, nodeExporterClient
 			Op:         constant.DeviceChangelogOpCreate,
 			CreatedAt:  time.Now(),
 		}
-		err = database.CreateNodeDeviceChangelog(ctx, evt)
+		err = database.GetFacade().GetNode().CreateNodeDeviceChangelog(ctx, evt)
 		if err != nil {
 			log.Errorf("Fail to create node device changelog: %v", err)
 		}
@@ -281,7 +281,7 @@ func (d *DeviceInfoJob) getGPUDeviceInfo(ctx context.Context, nodeExporterClient
 			Op:         constant.DeviceChangelogOpDelete,
 			CreatedAt:  time.Now(),
 		}
-		err = database.CreateNodeDeviceChangelog(ctx, evt)
+		err = database.GetFacade().GetNode().CreateNodeDeviceChangelog(ctx, evt)
 		if err != nil {
 			log.Errorf("Fail to create node device changelog: %v", err)
 		}

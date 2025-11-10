@@ -5,14 +5,14 @@ from primus_lens_workload_exporter.collector.collector import gpu_collector, rdm
 
 def get_rank_info():
     """
-    读取分布式 rank 信息
-    优先级：
+    Read distributed rank information
+    Priority:
     1. SLURM_NODEID
     2. PET_NODE_RANK
     3. NODE_RANK
-    4. 默认 0
+    4. Default 0
     """
-    # 处理 NODE_RANK
+    # Handle NODE_RANK
     if "SLURM_NODEID" in os.environ:
         node_rank = int(os.environ["SLURM_NODEID"])
     elif "PET_NODE_RANK" in os.environ:

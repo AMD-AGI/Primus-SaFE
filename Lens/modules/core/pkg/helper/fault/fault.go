@@ -10,6 +10,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+// GetFaultyNodes gets the faulty nodes
+// It returns the faulty nodes and an error if any
 func GetFaultyNodes(ctx context.Context, clientsets *clientsets.K8SClientSet, nodes []string) ([]string, error) {
 	faulty := []string{}
 	for _, nodeName := range nodes {

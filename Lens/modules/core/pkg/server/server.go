@@ -21,7 +21,7 @@ func InitServerWithPreInitFunc(ctx context.Context, preInit func(ctx context.Con
 	if err != nil {
 		return err
 	}
-	err = clientsets.InitClientSets(ctx, cfg.MultiCluster)
+	err = clientsets.InitClientSets(ctx, cfg.MultiCluster, cfg.LoadK8SClient, cfg.LoadStorageClient)
 	if err != nil {
 		return err
 	}

@@ -12,19 +12,6 @@ import (
 	"sort"
 	"time"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
-	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
-	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -39,6 +26,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
@@ -505,10 +506,20 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 		}
 		if !ok {
 			unScheduledReasons[w.Name] = reason
-			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads,
-			// then break out of the queue directly and continue waiting.
-			if reason != CronjobReason && (workspace.IsEnableFifo() ||
-				(i < len(schedulingWorkloads)-1 && w.Spec.Priority > schedulingWorkloads[i+1].Spec.Priority)) {
+			// Process scheduling workloads based on priority and policy
+			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads
+			// (excluding the workload which specified node), then break out of the queue directly and continue waiting.
+			if reason == CronjobReason {
+				// Cron job workloads that are not yet ready to start should be skipped
+				continue
+			} else if workspace.IsEnableFifo() {
+				// In FIFO mode, if current workload cannot be scheduled, subsequent ones won't be either
+				break
+			} else if w.HasSpecifiedNodes() {
+				// Workloads with specific node assignments should remain in queue
+				continue
+			} else if i < len(schedulingWorkloads)-1 && w.Spec.Priority > schedulingWorkloads[i+1].Spec.Priority {
+				// If current workload has higher priority than next one, stop scheduling for now
 				break
 			} else {
 				continue

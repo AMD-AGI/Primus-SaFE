@@ -13,8 +13,8 @@ sleep 10
 
 helm install grafana-operator -n primus-safe oci://registry-1.docker.io/primussafe/grafana-operator --version v5.20.0
 
-helm install primus-safe -n primus-safe oci://registry-1.docker.io/primussafe/primus-safe --version 0.2.2
+helm install primus-safe -n primus-safe oci://registry-1.docker.io/primussafe/primus-safe --version 0.1.0
 
-helm install primus-safe-cr -n primus-safe oci://registry-1.docker.io/primussafe/primus-safe-cr --version 0.2.2
+helm install primus-safe-cr -n primus-safe oci://registry-1.docker.io/primussafe/primus-safe-cr --version 0.1.0
 
-helm install node-agent -n primus-safe oci://registry-1.docker.io/primussafe/node-agent --version 0.1.3  --create-namespace
+helm install node-agent -n primus-safe oci://registry-1.docker.io/primussafe/node-agent --version 0.1.0 --create-namespace

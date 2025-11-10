@@ -74,7 +74,7 @@ func (h *Handler) DeleteSecret(c *gin.Context) {
 // Validates the request, generates a secret object, creates it in the cluster,
 // and updates workspace secret associations.
 func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: authority.SecretResourceKind,
 		Verb:         v1.CreateVerb,
@@ -131,9 +131,9 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	result := &types.ListSecretResponse{}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	for _, item := range secretList.Items {
-		if err = h.auth.Authorize(authority.Input{
+		if err = h.accessController.Authorize(authority.AccessInput{
 			Context:      c.Request.Context(),
 			Resource:     &item,
 			ResourceKind: authority.SecretResourceKind,
@@ -160,7 +160,7 @@ func (h *Handler) getSecret(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: authority.SecretResourceKind,
 		Verb:         v1.GetVerb,
@@ -190,7 +190,7 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: authority.SecretResourceKind,
 		Verb:         v1.UpdateVerb,
@@ -317,7 +317,7 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		Resource:     secret,
 		ResourceKind: authority.SecretResourceKind,

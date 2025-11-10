@@ -14,7 +14,7 @@ import (
 // It contains all necessary connection details and connection pool settings.
 type DBConfig struct {
 	DBName         string        // Database name to connect to
-	Username       string        // Database user name
+	Username       string        // Database username
 	Password       string        // Database user password
 	Host           string        // Database host address
 	SSLMode        string        // SSL mode for the connection

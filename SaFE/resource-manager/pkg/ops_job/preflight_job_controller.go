@@ -225,7 +225,7 @@ func (r *PreflightJobReconciler) generatePreflightWorkload(ctx context.Context, 
 			IsTolerateAll: job.Spec.IsTolerateAll,
 			Priority:      common.HighPriorityInt,
 			CustomerLabels: map[string]string{
-				common.K8sHostName: nodeNames,
+				v1.K8sHostName: nodeNames,
 			},
 			Workspace: corev1.NamespaceDefault,
 			Image:     *job.Spec.Image,
