@@ -217,7 +217,8 @@ func (h *Handler) ExportNodeByQuery(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	totalCount, nodes, err := h.listExportNodeByQuery(c, query)
+	query.Limit = -1 // Don't need limit.
+	totalCount, nodes, err := h.listNodeByQuery(c, query)
 	if err != nil {
 		klog.ErrorS(err, "failed to query node")
 		apiutils.AbortWithApiError(c, err)
@@ -328,86 +329,6 @@ func (h *Handler) listNodeByQuery(c *gin.Context, query *types.ListNodeRequest) 
 		}
 		return totalCount, nodes[start:end], nil
 	}
-	return totalCount, nodes, nil
-}
-
-// listExportNodeByQuery retrieves nodes based on the provided query parameters without limit.
-// Applies filtering, authorization checks, and pagination to return
-// a list of nodes that match the criteria.
-func (h *Handler) listExportNodeByQuery(c *gin.Context, query *types.ListNodeRequest) (int, []*v1.Node, error) {
-	requestUser, err := h.getAndSetUsername(c)
-	if err != nil {
-		return 0, nil, err
-	}
-
-	labelSelector, err := buildNodeLabelSelector(query)
-	if err != nil {
-		return 0, nil, err
-	}
-	nodeList := &v1.NodeList{}
-	ctx := c.Request.Context()
-	if query.NodeId == nil {
-		if err = h.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
-			return 0, nil, err
-		}
-	} else {
-		// If a nodeId is provided, you can directly get it to save time.
-		node, err := h.getAdminNode(ctx, *query.NodeId)
-		if err != nil {
-			return 0, nil, err
-		}
-		nodeLabels := labels.Set(node.Labels)
-		if !labelSelector.Matches(nodeLabels) {
-			return 0, nil, nil
-		}
-		nodeList.Items = append(nodeList.Items, *node)
-	}
-
-	roles := h.accessController.GetRoles(ctx, requestUser)
-	nodes := make([]*v1.Node, 0, len(nodeList.Items))
-	var phases []string
-	if query.Phase != nil {
-		phases = strings.Split(string(*query.Phase), ",")
-	}
-
-	for i, n := range nodeList.Items {
-		if err = h.accessController.Authorize(authority.AccessInput{
-			Context:    ctx,
-			Resource:   &n,
-			Verb:       v1.ListVerb,
-			Workspaces: []string{query.GetWorkspaceId()},
-			User:       requestUser,
-			Roles:      roles,
-		}); err != nil {
-			continue
-		}
-		if query.Available != nil {
-			isAvailable, _ := n.CheckAvailable(false)
-			if *query.Available != isAvailable {
-				continue
-			}
-		}
-		if query.IsAddonsInstalled != nil {
-			if *query.IsAddonsInstalled != v1.IsNodeTemplateInstalled(&n) {
-				continue
-			}
-		}
-		if query.Phase != nil {
-			if !slice.Contains(phases, string(n.GetPhase())) {
-				continue
-			}
-		}
-		nodes = append(nodes, &nodeList.Items[i])
-	}
-	totalCount := len(nodes)
-	if totalCount == 0 {
-		return 0, nil, nil
-	} else if totalCount > 1 {
-		sort.Slice(nodes, func(i, j int) bool {
-			return nodes[i].Name < nodes[j].Name
-		})
-	}
-
 	return totalCount, nodes, nil
 }
 
