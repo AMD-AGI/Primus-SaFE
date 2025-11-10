@@ -79,15 +79,18 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 	}
 
 	// Check if container exists
+	log.Infof("Querying existing container by ID: %s", req.ContainerID)
 	existContainer, err := database.GetFacade().GetContainer().GetNodeContainerByContainerId(ctx, req.ContainerID)
 	if err != nil {
 		log.Errorf("Failed to get container by id %s: %v", req.ContainerID, err)
 		containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "db_query_error").Inc()
 		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to get container by id %s", req.ContainerID)
 	}
+	log.Infof("Query result: existContainer=%v (nil=%v)", existContainer != nil, existContainer == nil)
 
 	// Create or update container record
 	if existContainer == nil {
+		log.Infof("Creating new container record for %s", req.ContainerID)
 		existContainer = &dbModel.NodeContainer{
 			ContainerID:   req.ContainerID,
 			ContainerName: containerData.ID,
@@ -101,14 +104,17 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 			Status:        containerData.Status,
 		}
 	} else {
+		log.Infof("Updating existing container record (ID=%d) for %s", existContainer.ID, req.ContainerID)
 		existContainer.Status = containerData.Status
 		existContainer.UpdatedAt = time.Now()
 	}
 
 	// Save container
 	if existContainer.ID == 0 {
+		log.Infof("Calling CreateNodeContainer for %s", req.ContainerID)
 		err = database.GetFacade().GetContainer().CreateNodeContainer(ctx, existContainer)
 	} else {
+		log.Infof("Calling UpdateNodeContainer for %s (ID=%d)", req.ContainerID, existContainer.ID)
 		err = database.GetFacade().GetContainer().UpdateNodeContainer(ctx, existContainer)
 	}
 	if err != nil {
@@ -116,30 +122,41 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 		containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "db_save_error").Inc()
 		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to save container %s", req.ContainerID)
 	}
+	log.Infof("Container record saved successfully for %s", req.ContainerID)
 
 	// Save device associations (with timeout protection)
 	if containerData.Devices != nil {
+		log.Infof("Starting to save device associations for container %s", req.ContainerID)
 		// Create a context with timeout for device operations
 		deviceCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
 		// Save GPU devices
-		for _, gpu := range containerData.Devices.GPU {
+		log.Infof("Saving %d GPU devices", len(containerData.Devices.GPU))
+		for i, gpu := range containerData.Devices.GPU {
+			log.Infof("Saving GPU[%d]: Name=%s, Id=%d, Serial=%s", i, gpu.Name, gpu.Id, gpu.Serial)
 			if err := saveContainerDevice(deviceCtx, req.ContainerID, req.Node, gpu.Name, int32(gpu.Id), gpu.Serial, constant.DeviceTypeGPU); err != nil {
 				log.Warnf("Failed to save GPU device for container %s (device=%s): %v - continuing anyway", req.ContainerID, gpu.Name, err)
 				containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "device_save_error").Inc()
 				// Continue processing other devices - don't fail the entire event
+			} else {
+				log.Infof("Successfully saved GPU[%d]: %s", i, gpu.Name)
 			}
 		}
 
 		// Save InfiniBand devices
-		for _, ib := range containerData.Devices.Infiniband {
+		log.Infof("Saving %d InfiniBand devices", len(containerData.Devices.Infiniband))
+		for i, ib := range containerData.Devices.Infiniband {
+			log.Infof("Saving IB[%d]: Name=%s, Id=%d, Serial=%s", i, ib.Name, ib.Id, ib.Serial)
 			if err := saveContainerDevice(deviceCtx, req.ContainerID, req.Node, ib.Name, int32(ib.Id), ib.Serial, constant.DeviceTypeIB); err != nil {
 				log.Warnf("Failed to save IB device for container %s (device=%s): %v - continuing anyway", req.ContainerID, ib.Name, err)
 				containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "device_save_error").Inc()
 				// Continue processing other devices - don't fail the entire event
+			} else {
+				log.Infof("Successfully saved IB[%d]: %s", i, ib.Name)
 			}
 		}
+		log.Infof("Finished saving device associations for container %s", req.ContainerID)
 	}
 
 	// Save container event (except for snapshots)
@@ -239,13 +256,18 @@ func processDockerContainerEvent(ctx context.Context, req *ContainerEventRequest
 
 // saveContainerDevice saves a container-device association
 func saveContainerDevice(ctx context.Context, containerID, node, deviceName string, deviceNo int32, deviceUUID, deviceType string) error {
+	log.Infof("saveContainerDevice called: container=%s, device=%s, type=%s, uuid=%s, no=%d",
+		containerID, deviceName, deviceType, deviceUUID, deviceNo)
+
 	existRecord, err := database.GetFacade().GetContainer().GetNodeContainerDeviceByContainerIdAndDeviceUid(ctx, containerID, deviceUUID)
 	if err != nil {
 		log.Errorf("Failed to get container device by container id %s and device uid %s: %v", containerID, deviceUUID, err)
 		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to get container device")
 	}
+	log.Infof("Query result for device association: existRecord=%v", existRecord != nil)
 
 	if existRecord == nil {
+		log.Infof("Creating new device association record")
 		existRecord = &dbModel.NodeContainerDevices{
 			ContainerID: containerID,
 			DeviceType:  deviceType,
@@ -260,9 +282,9 @@ func saveContainerDevice(ctx context.Context, containerID, node, deviceName stri
 			log.Errorf("Failed to create node container device: %v", err)
 			return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to create node container device")
 		}
-		log.Debugf("Created container device association: container=%s, device=%s, type=%s", containerID, deviceName, deviceType)
+		log.Infof("Created container device association: container=%s, device=%s, type=%s", containerID, deviceName, deviceType)
 	} else {
-		log.Debugf("Container device association already exists: container=%s, device=%s", containerID, deviceName)
+		log.Infof("Container device association already exists (ID=%d): container=%s, device=%s", existRecord.ID, containerID, deviceName)
 	}
 
 	return nil
