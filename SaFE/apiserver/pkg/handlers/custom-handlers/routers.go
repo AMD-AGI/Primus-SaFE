@@ -58,6 +58,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		group.GET(fmt.Sprintf("nodes/:%s/reboot/logs", common.Name), h.ListNodeRebootLog)
 		group.GET("nodes", h.ListNode)
 		group.GET(fmt.Sprintf("nodes/:%s", common.Name), h.GetNode)
+		group.GET("nodes/export", h.ExportNode)
 
 		group.POST("workspaces", h.CreateWorkspace)
 		group.POST(fmt.Sprintf("workspaces/:%s/nodes", common.Name), h.ProcessWorkspaceNodes)

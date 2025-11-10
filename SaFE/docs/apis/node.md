@@ -331,7 +331,115 @@ Delete the specific node.
 
 ---
 
-### 6. Get Node Management Logs
+### 6. Reboot Node
+
+Reboot a specific node. This operation creates a reboot-type OpsJob to perform the reboot operation.
+
+**Endpoint**: `POST /api/v1/opsjobs`
+
+**Authentication Required**: Yes
+
+**Request Parameters**:
+
+```json
+{
+  "name": "reboot-node",
+  "type": "reboot",
+  "inputs": [
+    {
+      "name": "node",
+      "value": "gpu-node-001"
+    }
+  ],
+}
+```
+
+**Field Description**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| name | string | Yes | Job name (used to generate job ID with random suffix) |
+| type | string | Yes | Must be "reboot" for node reboot operations |
+| inputs[].name | string | Yes | Must be "node" |
+| inputs[].value | string | Yes | Node ID to reboot |
+
+**Response Example**:
+
+```json
+{
+  "jobId": "reboot-node-abc123"
+}
+```
+
+**Field Description**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| jobId | string | Generated OpsJob ID for tracking the reboot operation |
+
+**Note**:
+- Node reboot is an asynchronous operation. Use the returned jobId to track the operation status via OpsJob APIs.
+- Refer to [OpsJob API](ops-job.md) for more details on tracking and managing the reboot operation.
+
+---
+
+### 7. List Node Reboot Logs
+
+Get historical reboot logs for a specific node.
+
+**Endpoint**: `GET /api/v1/nodes/{NodeId}/reboot/logs`
+
+**Authentication Required**: Yes
+
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| NodeId | Node ID |
+
+**Query Parameters**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| sinceTime | string | No | Start time filter (RFC3339 format) |
+| untilTime | string | No | End time filter (RFC3339 format) |
+| offset | int | No | Pagination offset, default 0 |
+| limit | int | No | Records per page, default 100, -1 for all |
+| sortBy | string | No | Sort by field, default create_time |
+| order | string | No | Sort order: desc (default) or asc |
+
+**Response Example**:
+
+```json
+{
+  "totalCount": 10,
+  "items": [
+    {
+      "userId": "user-001",
+      "userName": "admin",
+      "createTime": "2025-01-10T10:00:00Z"
+    },
+    {
+      "userId": "user-002",
+      "userName": "operator",
+      "createTime": "2025-01-09T15:30:00Z"
+    }
+  ]
+}
+```
+
+**Field Description**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| totalCount | int | Total number of reboot logs, unaffected by pagination |
+| items[].userId | string | User ID who initiated the reboot |
+| items[].userName | string | Username who initiated the reboot |
+| items[].createTime | string | Reboot operation creation time (RFC3339) |
+
+---
+
+### 8. Get Node Management Logs
 
 Get operation logs for node joining/leaving cluster.
 
@@ -366,6 +474,36 @@ Get operation logs for node joining/leaving cluster.
   ]
 }
 ```
+
+---
+
+### 9. Export Node
+
+Export node list with multiple filtering options.
+
+**Endpoint**: `GET /api/v1/nodes/export`
+
+**Authentication Required**: Yes
+
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| NodeId | Node ID |
+
+**Query Parameters**:
+
+| Parameter | Type | Required | Description                                                                              |
+|-----------|------|----------|------------------------------------------------------------------------------------------|
+| clusterId | string | No | Filter by cluster ID                                                                     |
+| workspaceId | string | No | Filter by workspace ID                                                                   |
+| flavorId | string | No | Filter by node flavor ID                                                                 |
+| nodeId | string | No | Filter by node ID                                                                        |
+| available | bool | No | Filter by availability: true (available)/false (unavailable)                             |
+| phase | string | No | Filter by status (comma-separated)                                                       |
+| isAddonsInstalled | bool | No | Filter by addon installation status                                                      |
+
+**Response**: 200 OK with no response body
 
 ---
 ## Node Status

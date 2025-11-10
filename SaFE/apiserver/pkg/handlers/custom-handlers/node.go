@@ -7,8 +7,10 @@ package custom_handlers
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -57,6 +59,13 @@ func (h *Handler) CreateNode(c *gin.Context) {
 // Returns a list of nodes that match the query criteria.
 func (h *Handler) ListNode(c *gin.Context) {
 	handle(c, h.listNode)
+}
+
+// ExportNode handles exporting nodes based on query parameters.
+// Supports filtering and exporting in various formats.
+// Returns an exported file containing the nodes that match the query criteria.
+func (h *Handler) ExportNode(c *gin.Context) {
+	h.ExportNodeByQuery(c)
 }
 
 // GetNode retrieves detailed information about a specific node.
@@ -144,6 +153,91 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 		return buildListNodeBriefResponse(totalCount, nodes)
 	} else {
 		return h.buildListNodeResponse(ctx, query, totalCount, nodes)
+	}
+}
+
+// ExportNodeToCSV writes the node information to a CSV file using the provided writer (file or response stream).
+func ExportNodeToCSV(nodes *types.ListNodeResponse, writer io.Writer) error {
+	w := csv.NewWriter(writer)
+
+	if err := w.Write([]string{
+		"id", "internalIP", "workspace", "cluster", "available", "status",
+		"gpu(available/total)", "cpu(available/total)", "controlPlane",
+	}); err != nil {
+		klog.ErrorS(err, "failed to write csv header")
+		return err
+	}
+
+	for _, node := range nodes.Items {
+		var gpuAvail, gpuTotal int64
+		var cpuAvail, cpuTotal int64
+
+		if node.AvailResources != nil {
+			gpuAvail = node.AvailResources["amd.com/gpu"]
+			cpuAvail = node.AvailResources["cpu"]
+		}
+		if node.TotalResources != nil {
+			gpuTotal = node.TotalResources["amd.com/gpu"]
+			cpuTotal = node.TotalResources["cpu"]
+		}
+
+		record := []string{
+			node.NodeId,
+			node.InternalIP,
+			node.Workspace.Name,
+			node.ClusterId,
+			fmt.Sprintf("%t", node.Available),
+			node.Phase,
+			fmt.Sprintf("\t%d/%d", gpuAvail, gpuTotal),
+			fmt.Sprintf("\t%d/%d", cpuAvail, cpuTotal),
+			fmt.Sprintf("%t", node.IsControlPlane),
+		}
+
+		if err := w.Write(record); err != nil {
+			klog.ErrorS(err, "failed to write csv record", "node", node.NodeId)
+			return err
+		}
+	}
+	w.Flush()
+
+	if err := w.Error(); err != nil {
+		klog.ErrorS(err, "csv writer flush error")
+		return err
+	}
+
+	return nil
+}
+
+// ExportNodeByQuery can export nodes based on the provided query parameteres.
+func (h *Handler) ExportNodeByQuery(c *gin.Context) {
+	query, err := parseListNodeQuery(c)
+	if err != nil {
+		klog.ErrorS(err, "failed to parse query")
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	ctx := c.Request.Context()
+	query.Limit = -1 // Don't need limit.
+	totalCount, nodes, err := h.listNodeByQuery(c, query)
+	if err != nil {
+		klog.ErrorS(err, "failed to query node")
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	result, err := h.buildListNodeResponse(ctx, query, totalCount, nodes)
+	if err != nil {
+		klog.ErrorS(err, "failed to build node list")
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	res, _ := result.(*types.ListNodeResponse) //Don't use brief, so struct is ListNodeResponse
+	filename := fmt.Sprintf("node_list_%s.csv", time.Now().Format("20060102_150405"))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	if err := ExportNodeToCSV(res, c.Writer); err != nil {
+		klog.ErrorS(err, "failed to export node to CSV")
+		apiutils.AbortWithApiError(c, err)
+		return
 	}
 }
 
