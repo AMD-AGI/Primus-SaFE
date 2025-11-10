@@ -27,6 +27,7 @@ import (
 
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -89,6 +90,11 @@ func (h *Handler) GetNodePodLog(c *gin.Context) {
 // ListNodeRebootLog retrieves reboot logs from the node's management operations.
 func (h *Handler) ListNodeRebootLog(c *gin.Context) {
 	handle(c, h.listNodeRebootLog)
+}
+
+// DeleteNodes handles batch deleting of multiple nodes.
+func (h *Handler) DeleteNodes(c *gin.Context) {
+	handle(c, h.deleteNodes)
 }
 
 // createNode implements the node creation logic.
@@ -363,8 +369,18 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 // deleteNode implements node deletion logic.
 // Ensures the node is not bound to a cluster and removes it from the system.
 func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
+	name := c.GetString(common.Name)
+	return h.deleteNodeImpl(c, name, requestUser, roles)
+}
+
+func (h *Handler) deleteNodeImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
 	ctx := c.Request.Context()
-	node, err := h.getAdminNode(ctx, c.GetString(common.Name))
+	node, err := h.getAdminNode(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +389,8 @@ func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
 		Resource:   node,
 		Verb:       v1.DeleteVerb,
 		Workspaces: []string{v1.GetWorkspaceId(node)},
-		UserId:     c.GetString(common.UserId),
+		User:       requestUser,
+		Roles:      roles,
 	}); err != nil {
 		return nil, err
 	}
@@ -742,6 +759,49 @@ func (h *Handler) deleteRelatedFaults(ctx context.Context, node *v1.Node, newTai
 		}
 	}
 	return nil
+}
+
+// deleteNodes implements batch node deleting logic.
+// Processes multiple nodes deleting concurrently with error handling.
+func (h *Handler) deleteNodes(c *gin.Context) (interface{}, error) {
+	return h.handleBatchNodes(c, BatchDelete)
+}
+
+// handleBatchNodes processes batch operations on multiple nodes.
+// Supports delete actions with concurrent execution.
+func (h *Handler) handleBatchNodes(c *gin.Context, action WorkloadBatchAction) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
+
+	req := &types.BatchNodesRequest{}
+	if _, err = apiutils.ParseRequestBody(c.Request, req); err != nil {
+		return nil, err
+	}
+	count := len(req.NodeIds)
+	ch := make(chan string, count)
+	defer close(ch)
+	for _, id := range req.NodeIds {
+		ch <- id
+	}
+
+	success, err := concurrent.Exec(count, func() error {
+		nodeId := <-ch
+		var innerErr error
+		switch action {
+		case BatchDelete:
+			_, innerErr = h.deleteNodeImpl(c, nodeId, requestUser, roles)
+		default:
+			return commonerrors.NewInternalError("invalid action")
+		}
+		return innerErr
+	})
+	if success == 0 {
+		return nil, commonerrors.NewInternalError(err.Error())
+	}
+	return nil, nil
 }
 
 // generateNodeLabelAction determines label changes needed for a node update.
