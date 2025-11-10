@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -15,18 +16,26 @@ func HandleTracing() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 
-		// 从 HTTP header 中提取 trace context
+		// Extract trace context from HTTP headers
 		propagator := otel.GetTextMapPropagator()
 		ctx = propagator.Extract(ctx, &httpHeaderCarrier{header: c.Request.Header})
 
-		// 创建 span
+		// Create span
 		operationName := c.Request.Method + " " + c.Request.URL.Path
 		tracer := otel.Tracer("")
 		ctx, span := tracer.Start(ctx, operationName,
 			oteltrace.WithSpanKind(oteltrace.SpanKindServer),
 		)
 
-		// 设置 HTTP 相关的属性
+		// Get trace ID and span ID for logging
+		spanContext := span.SpanContext()
+		traceID := spanContext.TraceID().String()
+		spanID := spanContext.SpanID().String()
+
+		log.Infof("🔍 [TRACE] Created span for %s, TraceID=%s, SpanID=%s",
+			operationName, traceID, spanID)
+
+		// Set HTTP-related attributes
 		span.SetAttributes(
 			semconv.HTTPMethod(c.Request.Method),
 			semconv.HTTPURL(c.Request.URL.String()),
@@ -36,7 +45,7 @@ func HandleTracing() gin.HandlerFunc {
 			attribute.String("http.path", c.Request.URL.Path),
 		)
 
-		// 在请求完成后设置状态码并结束 span
+		// Set status code and finish span when request completes
 		defer func() {
 			statusCode := c.Writer.Status()
 			span.SetAttributes(semconv.HTTPStatusCode(statusCode))
@@ -47,9 +56,11 @@ func HandleTracing() gin.HandlerFunc {
 				span.SetStatus(codes.Ok, "")
 			}
 			span.End()
+			log.Infof("🔍 [TRACE] Finished span for %s, TraceID=%s, SpanID=%s, Status=%d",
+				operationName, traceID, spanID, statusCode)
 		}()
 
-		// 将更新后的 context 放回 request
+		// Update context in request
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Next()
