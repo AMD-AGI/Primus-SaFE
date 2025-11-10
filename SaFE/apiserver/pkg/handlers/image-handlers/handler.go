@@ -39,9 +39,10 @@ func NewImageHandler(mgr ctrlruntime.Manager) (*ImageHandler, error) {
 	}
 
 	h := &ImageHandler{
-		Client:    mgr.GetClient(),
-		clientSet: clientSet,
-		dbClient:  dbClient,
+		Client:     mgr.GetClient(),
+		clientSet:  clientSet,
+		dbClient:   dbClient,
+		httpClient: httpclient.NewClient(),
 	}
 	err = h.initHarbor(context.Background())
 	if err != nil {
