@@ -51,7 +51,12 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 		containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "unmarshal_error").Inc()
 		return errors.NewError().WithCode(errors.CodeInvalidArgument).WithMessagef("failed to unmarshal data: %v", err)
 	}
-
+	log.Infof("containerData: %+v", containerData)
+	log.Infof("req.Type: %s", req.Type)
+	log.Infof("req.ContainerID: %s", req.ContainerID)
+	log.Infof("req.Node: %s", req.Node)
+	log.Infof("req.Source: %s", req.Source)
+	log.Infof("req.Data: %+v", req.Data)
 	// Skip containers without GPU devices (unless it's a snapshot)
 	if containerData.Devices == nil || len(containerData.Devices.GPU) == 0 {
 		if req.Type != model.ContainerEventTypeSnapshot {
