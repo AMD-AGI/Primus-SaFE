@@ -2,6 +2,7 @@ package containers
 
 import (
 	"net/http"
+	"sync"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
@@ -68,22 +69,42 @@ func ReceiveBatchContainerEvents(c *gin.Context) {
 	// Record batch size
 	containerEventBatchSize.Observe(float64(len(req.Events)))
 
-	// Process events
+	// Process events concurrently with a semaphore to limit parallelism
 	successCount := 0
 	errorCount := 0
 	var firstError error
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Limit concurrent processing to 10 events at a time
+	semaphore := make(chan struct{}, 10)
 
 	for _, event := range req.Events {
-		if err := ProcessContainerEvent(c.Request.Context(), &event); err != nil {
-			errorCount++
-			if firstError == nil {
-				firstError = err
+		wg.Add(1)
+		semaphore <- struct{}{} // Acquire semaphore
+
+		go func(evt ContainerEventRequest) {
+			defer wg.Done()
+			defer func() { <-semaphore }() // Release semaphore
+
+			if err := ProcessContainerEvent(c.Request.Context(), &evt); err != nil {
+				mu.Lock()
+				errorCount++
+				if firstError == nil {
+					firstError = err
+				}
+				mu.Unlock()
+				log.Errorf("Failed to process container event in batch: container=%s, error=%v", evt.ContainerID, err)
+			} else {
+				mu.Lock()
+				successCount++
+				mu.Unlock()
 			}
-			log.Errorf("Failed to process container event in batch: container=%s, error=%v", event.ContainerID, err)
-		} else {
-			successCount++
-		}
+		}(event)
 	}
+
+	// Wait for all events to be processed
+	wg.Wait()
 
 	// Return response
 	if errorCount > 0 {
@@ -102,4 +123,3 @@ func ReceiveBatchContainerEvents(c *gin.Context) {
 		"total":   successCount,
 	}))
 }
-

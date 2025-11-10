@@ -52,7 +52,7 @@ func NewHTTPReporter(baseURL, nodeName, nodeIP string) *HTTPReporter {
 		nodeName: nodeName,
 		nodeIP:   nodeIP,
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 120 * time.Second, // Increased from 10s to 60s for batch processing
 		},
 		batchEnabled: true,
 		batchSize:    10,

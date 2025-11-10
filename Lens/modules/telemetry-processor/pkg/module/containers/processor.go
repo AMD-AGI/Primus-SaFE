@@ -99,23 +99,27 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to save container %s", req.ContainerID)
 	}
 
-	// Save device associations
+	// Save device associations (with timeout protection)
 	if containerData.Devices != nil {
+		// Create a context with timeout for device operations
+		deviceCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
 		// Save GPU devices
 		for _, gpu := range containerData.Devices.GPU {
-			if err := saveContainerDevice(ctx, req.ContainerID, req.Node, gpu.Name, int32(gpu.Id), gpu.Serial, constant.DeviceTypeGPU); err != nil {
-				log.Errorf("Failed to save GPU device for container %s: %v", req.ContainerID, err)
+			if err := saveContainerDevice(deviceCtx, req.ContainerID, req.Node, gpu.Name, int32(gpu.Id), gpu.Serial, constant.DeviceTypeGPU); err != nil {
+				log.Warnf("Failed to save GPU device for container %s (device=%s): %v - continuing anyway", req.ContainerID, gpu.Name, err)
 				containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "device_save_error").Inc()
-				// Continue processing other devices
+				// Continue processing other devices - don't fail the entire event
 			}
 		}
 
 		// Save InfiniBand devices
 		for _, ib := range containerData.Devices.Infiniband {
-			if err := saveContainerDevice(ctx, req.ContainerID, req.Node, ib.Name, int32(ib.Id), ib.Serial, constant.DeviceTypeIB); err != nil {
-				log.Errorf("Failed to save IB device for container %s: %v", req.ContainerID, err)
+			if err := saveContainerDevice(deviceCtx, req.ContainerID, req.Node, ib.Name, int32(ib.Id), ib.Serial, constant.DeviceTypeIB); err != nil {
+				log.Warnf("Failed to save IB device for container %s (device=%s): %v - continuing anyway", req.ContainerID, ib.Name, err)
 				containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "device_save_error").Inc()
-				// Continue processing other devices
+				// Continue processing other devices - don't fail the entire event
 			}
 		}
 	}
@@ -195,16 +199,19 @@ func processDockerContainerEvent(ctx context.Context, req *ContainerEventRequest
 		return errors.NewError().WithCode(errors.CodeDatabaseError).WithMessagef("failed to save container %s", req.ContainerID)
 	}
 
-	// Save device associations
+	// Save device associations (with timeout protection)
+	deviceCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
 	for _, device := range containerData.Devices {
 		deviceType := device.DeviceType
 		if deviceType == "" {
 			deviceType = constant.DeviceTypeGPU
 		}
-		if err := saveContainerDevice(ctx, req.ContainerID, req.Node, device.DeviceName, int32(device.DeviceId), device.DeviceSerial, deviceType); err != nil {
-			log.Errorf("Failed to save device for container %s: %v", req.ContainerID, err)
+		if err := saveContainerDevice(deviceCtx, req.ContainerID, req.Node, device.DeviceName, int32(device.DeviceId), device.DeviceSerial, deviceType); err != nil {
+			log.Warnf("Failed to save device for container %s (device=%s): %v - continuing anyway", req.ContainerID, device.DeviceName, err)
 			containerEventErrorCnt.WithLabelValues(req.Source, req.Node, "device_save_error").Inc()
-			// Continue processing other devices
+			// Continue processing other devices - don't fail the entire event
 		}
 	}
 
