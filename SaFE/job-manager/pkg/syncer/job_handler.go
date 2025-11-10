@@ -288,19 +288,8 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 // updateAdminWorkloadNodes updates the node information for a workload.
 // Collects node assignments from workload pods.
 func (r *SyncerReconciler) updateAdminWorkloadNodes(adminWorkload *v1.Workload, message *resourceMessage) bool {
-	totalNodeCount := adminWorkload.Spec.Resource.Replica
-	if commonworkload.IsJob(adminWorkload) {
-		if adminWorkload.Spec.Resource.Replica != len(adminWorkload.Status.Pods) {
-			return true
-		}
-		// the nodes of admin workload are already updated
-		if len(adminWorkload.Status.Nodes) == message.dispatchCount {
-			return false
-		}
-	} else {
-		if totalNodeCount > len(adminWorkload.Status.Pods) {
-			return true
-		}
+	if adminWorkload.Spec.Resource.Replica > len(adminWorkload.Status.Pods) {
+		return true
 	}
 	sortWorkloadPods(adminWorkload)
 
