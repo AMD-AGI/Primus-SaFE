@@ -70,6 +70,7 @@ data:
     alter table workload rename column create_time to creation_time;
     alter table workload rename column delete_time to deletion_time;
     create index if not exists T_WORKLOAD_CREATION_TIME_INDEX on workload (creation_time);
+    drop index if exists T_WORKLOAD_CREATE_TIME_INDEX on workload;
 
     create table if not exists fault
     (
@@ -91,6 +92,7 @@ data:
     alter table fault rename column create_time to creation_time;
     alter table fault rename column delete_time to deletion_time;
     create index if not exists T_FAULT_CREATION_TIME_INDEX on fault (creation_time);
+    drop index if exists T_FAULT_CREATE_TIME_INDEX on fault;
 
     create table if not exists ops_job
     (
@@ -126,6 +128,7 @@ data:
     alter table ops_job rename column create_time to creation_time;
     alter table ops_job rename column delete_time to deletion_time;
     create index if not exists T_JOB_CREATION_TIME_INDEX on ops_job (creation_time);
+    drop index if exists T_JOB_CREATE_TIME_INDEX on ops_job;
 
     create table if not exists registry_info
     (

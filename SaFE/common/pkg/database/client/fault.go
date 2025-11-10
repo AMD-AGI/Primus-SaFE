@@ -24,9 +24,8 @@ var (
 	insertFaultFormat = `INSERT INTO ` + TFault + ` (%s) VALUES (%s)`
 	updateFaultCmd    = fmt.Sprintf(`UPDATE %s 
 		SET phase = :phase,
-		    create_time = :create_time,
 		    update_time = :update_time,
-		    delete_time = :delete_time 
+		    deletion_time = :deletion_time 
 		WHERE uid = :uid`, TFault)
 	deleteFaultCmd = fmt.Sprintf(`DELETE FROM %s WHERE uid = $1`, TFault)
 )

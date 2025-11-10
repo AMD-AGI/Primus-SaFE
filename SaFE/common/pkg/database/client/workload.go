@@ -36,7 +36,7 @@ var (
 		    conditions = :conditions,
 		    start_time = :start_time,
 		    end_time = :end_time,
-		    delete_time = :delete_time,
+		    deletion_time = :deletion_time,
 		    queue_position = :queue_position,
 		    env = :env,
 		    description = :description,

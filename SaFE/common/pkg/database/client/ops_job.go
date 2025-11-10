@@ -26,7 +26,7 @@ var (
 		SET inputs = :inputs,
 		    start_time = :start_time,
 		    end_time = :end_time,
-		    delete_time = :delete_time,
+		    deletion_time = :deletion_time,
 		    phase = :phase,
 		    conditions = :conditions,
 		    env = :env,
