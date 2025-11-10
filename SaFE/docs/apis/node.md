@@ -70,18 +70,18 @@ Get node list with multiple filtering options.
 
 **Query Parameters**:
 
-| Parameter | Type | Required | Description                                                 |
-|-----------|------|----------|-------------------------------------------------------------|
-| clusterId | string | No | Filter by cluster ID                                        |
-| workspaceId | string | No | Filter by workspace ID                                      |
-| flavorId | string | No | Filter by node flavor ID                                    |
-| nodeId | string | No | Filter by node ID                                           |
-| available | bool | No | Filter by availability: true (available)/false (unavailable) |
-| phase | string | No | Filter by status (comma-separated)                          |
-| isAddonsInstalled | bool | No | Filter by addon installation status                         |
-| brief | bool | No | Brief mode, returns only ID, name and IP              |
-| offset | int | No | Pagination offset, default 0                                |
-| limit | int | No | Records per page, default 100, -1 for all                   |
+| Parameter | Type | Required | Description                                                                              |
+|-----------|------|----------|------------------------------------------------------------------------------------------|
+| clusterId | string | No | Filter by cluster ID                                                                     |
+| workspaceId | string | No | Filter by workspace ID                                                                   |
+| flavorId | string | No | Filter by node flavor ID                                                                 |
+| nodeId | string | No | Filter by node ID                                                                        |
+| available | bool | No | Filter by availability: true (available)/false (unavailable)                             |
+| phase | string | No | Filter by status (comma-separated)                                                       |
+| isAddonsInstalled | bool | No | Filter by addon installation status                                                      |
+| brief | bool | No | Brief mode, returns only ID, name, IP,  availability, and unavailability reason (if any) |
+| offset | int | No | Pagination offset, default 0                                                             |
+| limit | int | No | Records per page, default 100, -1 for all                                                |
 
 **Response Example (Full mode)**:
 
@@ -119,6 +119,7 @@ Get node list with multiple filtering options.
       "workloads": [
         {
           "id": "training-job-001",
+          "kind": "PyTorchJob",
           "userId": "user-001",
           "workspaceId": "prod-cluster-ai-team"
         }
@@ -139,7 +140,9 @@ Get node list with multiple filtering options.
     {
       "nodeId": "gpu-node-001-abc123",
       "nodeName": "gpu-node-001",
-      "internalIP": "192.168.1.100"
+      "internalIP": "192.168.1.100",
+      "available": false,
+      "message": "Node is not ready"
     }
   ]
 }
@@ -164,6 +167,7 @@ Get node list with multiple filtering options.
 | workloads[].id          | string | Running workload ID on this node                                                              |
 | workloads[].userId      | string | Submitter user ID of the workload                                                             |
 | workloads[].workspaceId | string | Workspace ID the workload belongs to                                                          |
+| workloads[].kind        | string | Running workload Kind on this node                                                            |
 | isControlPlane          | bool | Whether the node is a control-plane node                                                      |
 | isAddonsInstalled       | bool | Whether addons from the node-template are installed                                           |
 
@@ -218,6 +222,7 @@ Get detailed information about a specific node.
   "workloads": [
     {
       "id": "training-job-001",
+      "kind": "PyTorchJob",
       "userId": "user-001",
       "workspaceId": "prod-cluster-ai-team"
     }

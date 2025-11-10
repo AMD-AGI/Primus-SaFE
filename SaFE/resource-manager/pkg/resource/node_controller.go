@@ -105,8 +105,7 @@ func (r *NodeReconciler) isNodeRelevantFieldChanged(oldNode, newNode *v1.Node) b
 		oldNode.Status.ClusterStatus.Phase != newNode.Status.ClusterStatus.Phase ||
 		(v1.GetNodeLabelAction(oldNode) == "" && v1.GetNodeLabelAction(newNode) != "") ||
 		(v1.GetNodeAnnotationAction(oldNode) == "" && v1.GetNodeAnnotationAction(newNode) != "") ||
-		oldNode.GetDeletionTimestamp().IsZero() && !newNode.GetDeletionTimestamp().IsZero() ||
-		commonfaults.HasPrimusSafeTaint(oldNode.Status.Taints) && !commonfaults.HasPrimusSafeTaint(newNode.Status.Taints) {
+		oldNode.GetDeletionTimestamp().IsZero() && !newNode.GetDeletionTimestamp().IsZero() {
 		return true
 	}
 	return false
@@ -512,12 +511,12 @@ func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v
 		if adminNode.Status.ClusterStatus.Cluster != nil || k8sNode != nil {
 			result, err = r.unmanage(ctx, adminNode, k8sNode)
 		} else {
-			// Clean up any potentially leftover field.
-			if err = r.cleanupNodeLabelsAfterUnmanage(ctx, adminNode); err != nil {
-				return ctrlruntime.Result{}, err
-			}
 			if !adminNode.IsMachineReady() {
 				return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
+			}
+			// Clean up any potentially leftover thing.
+			if err = r.cleanupNodeAfterUnmanage(ctx, adminNode); err != nil {
+				return ctrlruntime.Result{}, err
 			}
 			return ctrlruntime.Result{}, nil
 		}
@@ -533,9 +532,26 @@ func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v
 	return result, nil
 }
 
-// cleanupNodeLabelsAfterUnmanage performs cleanup operations for NodeLabelsAfterUnmanage.
-func (r *NodeReconciler) cleanupNodeLabelsAfterUnmanage(ctx context.Context, adminNode *v1.Node) error {
+// cleanupNodeAfterUnmanage performs post-unmanagement cleanup operations on a node.
+// This includes resetting the node via SSH if not already done, removing cluster and workspace labels,
+// and updating the node resource when changes are made.
+func (r *NodeReconciler) cleanupNodeAfterUnmanage(ctx context.Context, adminNode *v1.Node) error {
 	isChanged := false
+	if !v1.HasAnnotation(adminNode, v1.NodeResetAnnotation) {
+		sshClient, err := utils.GetSSHClient(ctx, r.Client, adminNode)
+		if err != nil {
+			return err
+		}
+		defer sshClient.Close()
+
+		checkAndResetCmd := "if systemctl is-active -q kubelet; then kubeadm reset -f; rm -rf /etc/cni/ /etc/kubernetes/; fi"
+		if err = r.executeSSHCommand(sshClient, checkAndResetCmd); err != nil {
+			return err
+		}
+		v1.SetAnnotation(adminNode, v1.NodeResetAnnotation, v1.TrueStr)
+		isChanged = true
+	}
+
 	if v1.GetClusterId(adminNode) != "" {
 		v1.RemoveLabel(adminNode, v1.ClusterIdLabel)
 		isChanged = true
@@ -815,8 +831,8 @@ func (r *NodeReconciler) unmanage(ctx context.Context, adminNode *v1.Node, k8sNo
 	if isControlPlaneNode(adminNode) {
 		return ctrlruntime.Result{}, nil
 	}
-	// Waiting for taint to disappear and workspace to be successfully unbound
-	if commonfaults.HasPrimusSafeTaint(adminNode.Status.Taints) || v1.GetWorkspaceId(adminNode) != "" {
+	// Waiting for workspace to be successfully unbound
+	if v1.GetWorkspaceId(adminNode) != "" {
 		return ctrlruntime.Result{}, nil
 	}
 

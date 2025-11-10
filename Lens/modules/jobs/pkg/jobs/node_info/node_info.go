@@ -56,7 +56,7 @@ func (n *NodeInfoJob) runForSingleNode(ctx context.Context, nodeName string, cli
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	existDBNode, err := database.GetNodeByName(ctx, k8sNode.Name)
+	existDBNode, err := database.GetFacade().GetNode().GetNodeByName(ctx, k8sNode.Name)
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func (n *NodeInfoJob) runForSingleNode(ctx context.Context, nodeName string, cli
 		Status:            k8sUtil.NodeStatus(*k8sNode),
 		CreatedAt:         time.Now(),
 		UpdatedAt:         time.Now(),
-		CPU:               "", // TODO CPU信息等待agent获取
+		CPU:               "", // TODO CPU information awaiting agent retrieval
 		CPUCount:          int32(node.GetCPUCount(*k8sNode)),
 		Memory:            node.GetMemorySizeHumanReadable(*k8sNode),
 		K8sVersion:        "1.23.1",
@@ -116,8 +116,8 @@ func (n *NodeInfoJob) runForSingleNode(ctx context.Context, nodeName string, cli
 		existDBNode.GpuUtilization = usage
 	}
 	if existDBNode.ID == 0 {
-		return database.CreateNode(ctx, existDBNode)
+		return database.GetFacade().GetNode().CreateNode(ctx, existDBNode)
 	} else {
-		return database.UpdateNode(ctx, existDBNode)
+		return database.GetFacade().GetNode().UpdateNode(ctx, existDBNode)
 	}
 }

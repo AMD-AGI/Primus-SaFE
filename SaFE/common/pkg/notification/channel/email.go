@@ -46,18 +46,15 @@ func (e *EmailChannel) Send(ctx context.Context, message *model.Message) error {
 		return fmt.Errorf("no recipients provided for email")
 	}
 
-	// 创建 gomail 消息
 	m := gomail.NewMessage()
 	m.SetHeader("From", e.cfg.From)
 	m.SetHeader("To", msg.To...)
 	m.SetHeader("Subject", msg.Title)
 	m.SetBody("text/html", msg.Content)
 
-	// 创建 gomail Dialer
 	d := gomail.NewDialer(e.cfg.SMTPHost, e.cfg.SMTPPort, e.cfg.Username, e.cfg.Password)
-	d.SSL = e.cfg.UseTLS // true = 465 直连 SSL, false = 587 STARTTLS
+	d.SSL = e.cfg.UseTLS // true = 465  SSL, false = 587 STARTTLS
 
-	// 发送邮件
 	if err := d.DialAndSend(m); err != nil {
 		return fmt.Errorf("failed to send email: %w", err)
 	}

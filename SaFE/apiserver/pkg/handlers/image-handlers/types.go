@@ -54,7 +54,7 @@ type ImportImageResponse struct {
 
 type ImportImageEnv struct {
 	SourceImageName string `json:"sourceImageName"` // full name, e.g: docker.io/library/nginx:latest
-	DestImageName   string `json:"destImageName"`   // full name, e.g: harbor.xcs.ai/01-ai/test/nginx:latest
+	DestImageName   string `json:"destImageName"`   // full name, e.g: harbor.my.domain/my-repo/nginx:latest
 	OsArch          string `json:"osArch"`          // e.g: linux/amd64
 	Os              string `json:"os"`              // e.g: linux
 	Arch            string `json:"arch"`            // e.g: amd64

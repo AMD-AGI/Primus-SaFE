@@ -43,7 +43,7 @@ func InsertHandler(c *gin.Context) {
 		return
 	}
 
-	// 调用可插拔的处理逻辑
+	// Call pluggable processing logic
 	if err := processTimeSeries(req.Timeseries); err != nil {
 		c.String(http.StatusInternalServerError, "processing failed: %v", err)
 		return

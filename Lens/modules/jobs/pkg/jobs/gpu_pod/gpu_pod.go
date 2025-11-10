@@ -17,7 +17,7 @@ type GpuPodJob struct {
 }
 
 func (g *GpuPodJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) error {
-	activePods, err := database.ListActiveGpuPods(ctx)
+	activePods, err := database.GetFacade().GetPod().ListActiveGpuPods(ctx)
 	if err != nil {
 		log.Errorf("list active gpu pods: %v", err)
 		return err
@@ -66,7 +66,7 @@ func (g *GpuPodJob) checkForSinglePod(ctx context.Context, dbPod *dbModel.GpuPod
 		}
 	}
 	if chaged {
-		err = database.UpdateGpuPods(ctx, dbPod)
+		err = database.GetFacade().GetPod().UpdateGpuPods(ctx, dbPod)
 		if err != nil {
 			log.Errorf("Failed to update pod %s/%s: %v", dbPod.Namespace, dbPod.Name, err)
 			return err

@@ -11,10 +11,12 @@ import (
 	"github.com/gin-gonic/gin"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	customhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers"
 	image_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
@@ -28,17 +30,24 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	engine.NoRoute(func(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage(c.Request.RequestURI+" not found"))
 	})
-
+	if commonconfig.IsSSOEnable() {
+		if authority.NewSSOToken(mgr.GetClient()) == nil {
+			return nil, commonerrors.NewInternalError("failed to new sso token")
+		}
+	}
+	if authority.NewDefaultToken(mgr.GetClient()) == nil {
+		return nil, commonerrors.NewInternalError("failed to new default token")
+	}
 	customHandler, err := customhandler.NewHandler(mgr)
 	if err != nil {
 		return nil, err
 	}
 	customhandler.InitCustomRouters(engine, customHandler)
-	imageHanlder, err := image_handlers.NewImageHandler(mgr)
+	imageHandler, err := image_handlers.NewImageHandler(mgr)
 	if err != nil {
 		return nil, err
 	}
-	image_handlers.InitImageRouter(engine, imageHanlder)
+	image_handlers.InitImageRouter(engine, imageHandler)
 	sshHandler, err := InitSshHandlers(context.Background(), mgr)
 	if err != nil {
 		return nil, err

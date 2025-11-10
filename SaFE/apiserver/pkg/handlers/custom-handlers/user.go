@@ -35,9 +35,9 @@ import (
 )
 
 const (
-	FormContent = "application/x-www-form-urlencoded"
+	ContentTypeForm = "application/x-www-form-urlencoded"
 	// The lifecycle of the user token
-	MaxCookieTokenAge = 3600 * 24 * 365
+	MaxCookieAgeSeconds = 3600 * 24 * 365
 )
 
 // CreateUser handles the creation of a new user resource.
@@ -94,6 +94,9 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if commonconfig.IsSSOEnable() {
+		return nil, commonerrors.NewInternalError("the user registration is not enabled")
+	}
 
 	req, err := parseCreateUserQuery(requestUser, c)
 	if err != nil {
@@ -121,8 +124,7 @@ func generateUser(req *types.CreateUserRequest, requestUser *v1.User) *v1.User {
 			},
 		},
 		Spec: v1.UserSpec{
-			Roles: []v1.UserRole{v1.DefaultRole},
-			Type:  v1.DefaultUser,
+			Type: v1.DefaultUser,
 		},
 	}
 
@@ -161,7 +163,7 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	if len(userList.Items) > 0 {
 		sort.Sort(types.UserSlice(userList.Items))
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	for _, item := range userList.Items {
 		var workspaces []string
 		if query.WorkspaceId != "" {
@@ -262,7 +264,7 @@ func (h *Handler) authUserUpdate(c *gin.Context, targetUser *v1.User, req *types
 	if err != nil {
 		return false, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	isChanged := false
 	if req.RestrictedType != nil && *req.RestrictedType != targetUser.Spec.RestrictedType ||
@@ -309,7 +311,7 @@ func (h *Handler) authUserUpdate(c *gin.Context, targetUser *v1.User, req *types
 // on the target user, considering workspaces and resource types.
 func (h *Handler) authUserAction(c *gin.Context, requestUser, targetUser *v1.User,
 	workspaces []string, kind string, roles []*v1.Role, verb v1.RoleVerb) error {
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: kind,
 		Resource:     targetUser,
@@ -362,81 +364,53 @@ func (h *Handler) getAdminUser(ctx context.Context, userId string) (*v1.User, er
 }
 
 // login implements user authentication logic.
-// Handles different login types and performs authentication based on the request type.
+// Handles different user types and performs authentication based on the request type.
 func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	query, err := parseLoginQuery(c)
 	if err != nil {
 		return nil, err
 	}
-	var result *types.UserLoginResponse
-	switch query.Type {
-	case v1.TeamsUser:
-	default:
-		result, err = h.performDefaultLogin(c, query)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if result != nil {
-		klog.Infof("user login successfully, userName: %s, userId: %s", result.Name, result.Id)
-	}
-	return result, nil
-}
-
-// performDefaultLogin handles default user authentication.
-// Validates user credentials, generates authentication tokens, and sets cookies
-// for successful console-based logins.
-func (h *Handler) performDefaultLogin(c *gin.Context, query *types.UserLoginRequest) (*types.UserLoginResponse, error) {
-	if query.Name == "" {
-		return nil, commonerrors.NewBadRequest("the userName is empty")
-	}
-	userId := commonuser.GenerateUserIdByName(query.Name)
-	user, err := h.getAdminUser(c.Request.Context(), userId)
-	if err != nil {
-		return nil, commonerrors.NewUserNotRegistered(query.Name)
-	}
-	if user.Spec.Password != "" && user.Spec.Password != stringutil.Base64Encode(query.Password) {
-		return nil, commonerrors.NewUnauthorized("the password is incorrect")
-	}
-
-	userInfo := &types.UserLoginResponse{
-		UserResponseItem: types.UserResponseItem{
-			Id:        user.Name,
-			Name:      query.Name,
-			Roles:     user.Spec.Roles,
-			AvatarUrl: v1.GetUserAvatarUrl(user),
-			Type:      user.Spec.Type,
-			Email:     v1.GetUserEmail(user),
-		},
-	}
-	if commonconfig.GetUserTokenExpire() < 0 {
-		userInfo.Expire = -1
+	var tokenInstance authority.TokenInterface
+	if query.Type == v1.SSOUser {
+		if !commonconfig.IsSSOEnable() {
+			return nil, commonerrors.NewInternalError("SSO is not enabled")
+		}
+		tokenInstance = authority.SSOInstance()
 	} else {
-		userInfo.Expire = time.Now().Unix() + int64(commonconfig.GetUserTokenExpire())
+		tokenInstance = authority.DefaultTokenInstance()
 	}
-	userInfo.Token, err = authority.GenerateToken(authority.TokenItem{
-		UserId:   userInfo.Id,
-		Expire:   userInfo.Expire,
-		UserType: string(userInfo.Type),
-	})
+	if tokenInstance == nil {
+		return nil, commonerrors.NewInternalError("failed to get token instance")
+	}
+
+	tokenInput := authority.TokenInput{
+		Code:     query.Code,
+		Username: query.Name,
+		Password: query.Password,
+	}
+	user, token, err := tokenInstance.Login(c.Request.Context(), tokenInput)
 	if err != nil {
-		klog.ErrorS(err, "failed to build user token")
 		return nil, err
 	}
-	userInfo.Token = stringutil.Base64Encode(userInfo.Token)
-	if query.IsFromConsole {
-		setCookie(c, userInfo)
+	result := &types.UserLoginResponse{
+		Expire:           token.Expire,
+		Token:            token.RawToken,
+		UserResponseItem: h.cvtToUserResponseItem(c.Request.Context(), user),
 	}
-	return userInfo, nil
+	if query.IsFromConsole {
+		setCookie(c, result, query.Type)
+	}
+	klog.Infof("user login successfully, userName: %s, userId: %s", result.Name, result.Id)
+	return result, nil
 }
 
 // setCookie sets authentication cookies for logged-in users.
 // Configures cookie parameters including expiration time and domain based on user information.
-func setCookie(c *gin.Context, userInfo *types.UserLoginResponse) {
+func setCookie(c *gin.Context, userInfo *types.UserLoginResponse, userType v1.UserType) {
 	maxAge := 0
 	switch {
 	case userInfo.Expire < 0:
-		maxAge = MaxCookieTokenAge
+		maxAge = MaxCookieAgeSeconds
 	case userInfo.Expire > 0:
 		maxAge = int(userInfo.Expire - time.Now().Unix())
 	default:
@@ -444,6 +418,8 @@ func setCookie(c *gin.Context, userInfo *types.UserLoginResponse) {
 	domain := "." + netutil.GetSecondLevelDomain(c.Request.Host)
 	c.SetCookie(authority.CookieToken, userInfo.Token, maxAge, "/", domain, false, true)
 	c.SetCookie(common.UserId, userInfo.Id, maxAge, "/", domain, false, true)
+	c.SetCookie(common.UserType, string(userType), maxAge, "/", domain, false, true)
+
 }
 
 // cvtToUserResponseItem converts a user object to a response item format.
@@ -489,7 +465,7 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) type
 // Only applicable for requests from the console interface.
 func (h *Handler) logout(c *gin.Context) (interface{}, error) {
 	info := &types.UserLoginResponse{}
-	setCookie(c, info)
+	setCookie(c, info, "")
 	return nil, nil
 }
 
@@ -515,10 +491,11 @@ func parseCreateUserQuery(requestUser *v1.User, c *gin.Context) (*types.CreateUs
 func parseLoginQuery(c *gin.Context) (*types.UserLoginRequest, error) {
 	req := &types.UserLoginRequest{}
 	contentType := c.ContentType()
-	if contentType == FormContent {
+	if contentType == ContentTypeForm {
 		req.Type = v1.UserType(c.PostForm("type"))
 		req.Name = c.PostForm("name")
 		req.Password = c.PostForm("password")
+		req.Code = c.PostForm("code")
 		req.IsFromConsole = true
 	} else {
 		_, err := apiutils.ParseRequestBody(c.Request, req)
@@ -545,14 +522,12 @@ func buildListUserSelector(query *types.ListUserRequest) labels.Selector {
 	var labelSelector = labels.NewSelector()
 	if query.Name != "" {
 		name := queryUnescape(query.Name)
-		userId := commonuser.GenerateUserIdByName(name)
-		req, _ := labels.NewRequirement(v1.UserIdLabel, selection.Equals, []string{userId})
+		req, _ := labels.NewRequirement(v1.UserNameMd5Label, selection.Equals, []string{stringutil.MD5(name)})
 		labelSelector = labelSelector.Add(*req)
 	}
 	if query.Email != "" {
 		email := queryUnescape(query.Email)
-		emailMd5 := stringutil.MD5(email)
-		req, _ := labels.NewRequirement(v1.UserEmailMd5Label, selection.Equals, []string{emailMd5})
+		req, _ := labels.NewRequirement(v1.UserEmailMd5Label, selection.Equals, []string{stringutil.MD5(email)})
 		labelSelector = labelSelector.Add(*req)
 	}
 	return labelSelector

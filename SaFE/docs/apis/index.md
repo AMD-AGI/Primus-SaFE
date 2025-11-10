@@ -35,6 +35,7 @@ Base Path: `/api/v1`
 - [OpsJob API](./ops-job.md) - Operational job management
 - [PublicKey API](./public-key.md) - SSH public key management
 - [Log API](./log.md) - Log query interfaces
+- [Envs API](./envs.md) - Environment settings and feature flags
 
 ### 2. Image Management APIs
 
@@ -95,7 +96,7 @@ All time fields use RFC3339 format: `2006-01-02T15:04:05`
 
 ## Version History
 
-- **v1.0** (2025-10) - Initial release
+- **v0.1.0** (2025-11) - Initial release
 
 ## Contact
 

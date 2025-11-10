@@ -139,7 +139,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	return h.createWorkloadImpl(c, workload, requestUser, roles)
 }
@@ -180,7 +180,7 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	query, err := parseListWorkloadQuery(c)
 	if err != nil {
@@ -223,7 +223,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	name := c.GetString(common.Name)
 	ctx := c.Request.Context()
@@ -245,7 +245,7 @@ func (h *Handler) deleteWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	name := c.GetString(common.Name)
 	return h.deleteWorkloadImpl(c, name, requestUser, roles)
@@ -318,7 +318,7 @@ func (h *Handler) stopWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	name := c.GetString(common.Name)
 	return h.stopWorkloadImpl(c, name, requestUser, roles)
 }
@@ -375,7 +375,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	name := c.GetString(common.Name)
 	adminWorkload, err := h.getAdminWorkload(c.Request.Context(), name)
@@ -439,7 +439,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	workload, err := h.getAdminWorkload(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
@@ -548,7 +548,7 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 	if adminWorkload.Spec.Workspace != "" {
 		workspaces = append(workspaces, adminWorkload.Spec.Workspace)
 	}
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.WorkloadKind,
 		Resource:     adminWorkload,
@@ -573,7 +573,7 @@ func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workloa
 	if verb == v1.UpdateVerb {
 		resourceOwner = v1.GetUserId(adminWorkload)
 	}
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:       c.Request.Context(),
 		ResourceKind:  priorityKind,
 		ResourceOwner: resourceOwner,
@@ -630,7 +630,7 @@ func (h *Handler) handleBatchWorkloads(c *gin.Context, action WorkloadBatchActio
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	req := &types.BatchWorkloadsRequest{}
 	if _, err = apiutils.ParseRequestBody(c.Request, req); err != nil {
@@ -670,7 +670,7 @@ func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
 		return
 	}
 	if len(workload.Spec.CustomerLabels) > 0 {
-		if _, ok := workload.Spec.CustomerLabels[common.K8sHostName]; ok {
+		if _, ok := workload.Spec.CustomerLabels[v1.K8sHostName]; ok {
 			return
 		}
 	} else {
@@ -683,7 +683,7 @@ func genCustomerLabelsByNodes(workload *v1.Workload, nodeList []string) {
 		}
 		nodeNames += nodeList[i]
 	}
-	workload.Spec.CustomerLabels[common.K8sHostName] = nodeNames
+	workload.Spec.CustomerLabels[v1.K8sHostName] = nodeNames
 }
 
 // parseListWorkloadQuery parses and validates the query parameters for listing workloads.
@@ -839,7 +839,7 @@ func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest)
 		adminWorkload.Spec.Priority = *req.Priority
 	}
 	if req.Replica != nil && *req.Replica != adminWorkload.Spec.Resource.Replica {
-		_, ok := adminWorkload.Spec.CustomerLabels[common.K8sHostName]
+		_, ok := adminWorkload.Spec.CustomerLabels[v1.K8sHostName]
 		if ok {
 			return commonerrors.NewBadRequest("cannot update replica when specifying nodes")
 		}
@@ -1011,7 +1011,7 @@ func parseCustomerLabelsAndNodes(labels map[string]string) (map[string]string, [
 	var nodeList []string
 	customerLabels := make(map[string]string)
 	for key, val := range labels {
-		if key == common.K8sHostName {
+		if key == v1.K8sHostName {
 			nodeList = strings.Split(val, " ")
 		} else {
 			customerLabels[key] = val
@@ -1149,7 +1149,7 @@ func (h *Handler) getWorkloadPodContainers(c *gin.Context) (interface{}, error) 
 	if err != nil {
 		return nil, err
 	}
-	roles := h.auth.GetRoles(c.Request.Context(), requestUser)
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 
 	var (
 		ctx           = c.Request.Context()

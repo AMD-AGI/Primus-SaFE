@@ -41,7 +41,7 @@ func (l Level) String() string {
 	return ""
 }
 
-// LevelForGorm 转换成gorm日志级别
+// LevelForGorm converts to GORM log level
 func (l Level) LevelForGorm() int {
 	switch l {
 	case FatalLevel, ErrorLevel:

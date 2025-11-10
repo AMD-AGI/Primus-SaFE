@@ -3,13 +3,14 @@
  * See LICENSE for license information.
  */
 
-package authority
+package middle
 
 import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
@@ -24,7 +25,7 @@ func Preprocess(_ ...string) gin.HandlerFunc {
 // Authorize parses the cookie and aborts the request with an API error if parsing fails.
 func Authorize(_ ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		err := ParseCookie(c)
+		err := authority.ParseToken(c)
 		if err != nil {
 			apiutils.AbortWithApiError(c, err)
 		}

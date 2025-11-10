@@ -9,8 +9,8 @@ import (
 )
 
 func QueryJobsCLI() ([]model.SlurmJob, error) {
-	// 使用制表符分隔，尽量避免名称中包含分隔符造成解析问题
-	// 字段: id, partition, name, user, state(short), elapsed, nodes, reason/node, submit_time, account, qos, gpu(gres)
+	// Use tab separator to avoid parsing issues caused by separators in names
+	// Fields: id, partition, name, user, state(short), elapsed, nodes, reason/node, submit_time, account, qos, gpu(gres)
 	format := "%i\t%P\t%j\t%u\t%t\t%M\t%D\t%R\t%V\t%a\t%q\t%b"
 	output, err := runCmd("squeue", "-h", "-o", format)
 	if err != nil {
@@ -32,11 +32,11 @@ func QueryJobsCLI() ([]model.SlurmJob, error) {
 		fmt.Sscanf(parts[6], "%d", &nodes)
 		gpu := parts[11]
 		var gpuCount uint32
-		// 解析类似 "gres/gpu:8" 或 "gpu:8" 或 含逗号的多 TRES 字符串
+		// Parse formats like "gres/gpu:8" or "gpu:8" or multi-TRES strings with commas
 		if idx := strings.Index(gpu, "gpu:"); idx >= 0 {
-			// 截取从 gpu: 开始的片段
+			// Extract substring starting from gpu:
 			sub := gpu[idx+4:]
-			// 截断到下一个分隔符（逗号或空白）
+			// Truncate to next delimiter (comma or whitespace)
 			for i := 0; i < len(sub); i++ {
 				if sub[i] < '0' || sub[i] > '9' {
 					sub = sub[:i]

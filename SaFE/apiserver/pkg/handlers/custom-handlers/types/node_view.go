@@ -52,7 +52,7 @@ type ListNodeRequest struct {
 	Phase *v1.NodePhase `form:"phase" binding:"omitempty"`
 	// Filter results based on whether the node has the addon installed
 	IsAddonsInstalled *bool `form:"isAddonsInstalled" binding:"omitempty"`
-	// If enabled, only the node ID, node Name and node IP will be returned.
+	// If enabled, only node ID, name, IP, availability, and unavailability reason (if any) will be returned
 	Brief bool `form:"brief" binding:"omitempty"`
 	// Starting offset for the results. default: 0
 	Offset int `form:"offset" binding:"omitempty,min=0"`
@@ -89,6 +89,10 @@ type NodeBriefResponseItem struct {
 	NodeName string `json:"nodeName"`
 	// The internal ip of k8s cluster
 	InternalIP string `json:"internalIP"`
+	// Indicates whether the node can be scheduled in the Kubernetes cluster.
+	Available bool `json:"available"`
+	// If a node is unavailable, provide the reason
+	Message string `json:"message,omitempty"`
 }
 
 type ListNodeResponse struct {
@@ -105,10 +109,6 @@ type NodeResponseItem struct {
 	Workspace WorkspaceEntry `json:"workspace"`
 	// Node phase, e.g. Ready, SSHFailed, HostnameFailed, Managing, ManagedFailed, Unmanaging, UnmanagedFailed
 	Phase string `json:"phase"`
-	// Indicates whether the node can be scheduled in the Kubernetes cluster.
-	Available bool `json:"available"`
-	// If a node is unavailable, provide the reason
-	Message string `json:"message,omitempty"`
 	// Total resource of node
 	TotalResources ResourceList `json:"totalResources"`
 	// Available resource of node
@@ -140,6 +140,8 @@ type GetNodeResponse struct {
 type WorkloadInfo struct {
 	// Workload ID
 	Id string `json:"id"`
+	// Workload Kind
+	Kind string `json:"kind"`
 	// User ID of the workload submitter
 	UserId string `json:"userId"`
 	// Workspace that the workload belongs to

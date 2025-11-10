@@ -63,7 +63,7 @@ func (h *Handler) getWorkloadLog(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    c.Request.Context(),
 		Resource:   workload,
 		Verb:       v1.GetVerb,
@@ -92,7 +92,7 @@ func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
 	if !commonconfig.IsOpenSearchEnable() {
 		return nil, commonerrors.NewInternalError("The logging function is not enabled")
 	}
-	if err := h.auth.AuthorizeSystemAdmin(authority.Input{
+	if err := h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
 		Context: c.Request.Context(),
 		UserId:  c.GetString(common.UserId),
 	}); err != nil {
@@ -125,7 +125,7 @@ func (h *Handler) getWorkloadLogContext(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    c.Request.Context(),
 		Resource:   workload,
 		Verb:       v1.GetVerb,

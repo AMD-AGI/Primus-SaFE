@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	primusSafeV1 "github.com/AMD-AGI/Primus-SaFE/apis/pkg/apis/amd/v1"
+	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/primus-lens/core/pkg/constant"
 	"github.com/AMD-AGI/primus-lens/core/pkg/database"
@@ -66,7 +66,7 @@ func (r *WorkloadReconciler) calculateGpuRequest(ctx context.Context, workload *
 }
 
 func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *primusSafeV1.Workload) error {
-	existWorkload, err := database.GetGpuWorkloadByUid(ctx, string(workload.UID))
+	existWorkload, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, string(workload.UID))
 	if err != nil {
 		return err
 	}
@@ -96,8 +96,8 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 		dbWorkload.EndAt = workload.DeletionTimestamp.Time
 	}
 	if existWorkload == nil {
-		return database.CreateGpuWorkload(ctx, dbWorkload)
+		return database.GetFacade().GetWorkload().CreateGpuWorkload(ctx, dbWorkload)
 	}
 	dbWorkload.ID = existWorkload.ID
-	return database.UpdateGpuWorkload(ctx, dbWorkload)
+	return database.GetFacade().GetWorkload().UpdateGpuWorkload(ctx, dbWorkload)
 }

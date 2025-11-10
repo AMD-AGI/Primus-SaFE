@@ -18,4 +18,8 @@ type GetEnvResponse struct {
 	SSHPort int `json:"sshPort"`
 	// The ip for ssh
 	SSHIP string `json:"sshIP"`
+	// Whether to enable sso
+	SSOEnable bool `json:"ssoEnable"`
+	// The url for sso authorization
+	SSOAuthUrl string `json:"ssoAuthUrl"`
 }

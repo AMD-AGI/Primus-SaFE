@@ -19,11 +19,10 @@ spec:
       opensearch:
         endpoints: ["https://primus-lens-logs-nodes.primus-lens.svc.cluster.local:9200"]
         index: logs
-        user: "admin"         # 如果你配置了用户名密码
-        password: "admin"     # 请注意安全性，建议用 secret 管理
+        user: "admin"    
+        password: "admin" 
         tls:
-          insecure: true      # 若是 http 或自签名证书
-
+          insecure: true 
     service:
       pipelines:
         logs:

@@ -1,0 +1,4 @@
+primus-lens-api cmd/primus-lens-api modules/api/
+primus-lens-core modules/core
+primus-lens-jobs cmd/primus-lens-jobs modules/jobs/
+primus-lens-node-exporter cmd/node-exporter modules/exporters/node-exporter

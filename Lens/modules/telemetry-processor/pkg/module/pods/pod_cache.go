@@ -162,19 +162,19 @@ func GetDeviceKey(device *dbModel.NodeContainerDevices) string {
 
 func loadDevicePodCache(ctx context.Context) error {
 	newNodeDevicePodCache := map[string]map[string]map[string][]string{}
-	runningGpuPod, err := database.ListActiveGpuPods(ctx)
+	runningGpuPod, err := database.GetFacade().GetPod().ListActiveGpuPods(ctx)
 	if err != nil {
 		log.Errorf("cannot load running gpu pods: %s", err)
 		return err
 	}
 	for _, pod := range runningGpuPod {
-		runningContainer, err := database.ListRunningContainersByPodUid(ctx, pod.UID)
+		runningContainer, err := database.GetFacade().GetContainer().ListRunningContainersByPodUid(ctx, pod.UID)
 		if err != nil {
 			log.Errorf("cannot load running containers for pod %s: %s", pod.Name, err)
 			continue
 		}
 		for _, container := range runningContainer {
-			devices, err := database.ListContainerDevicesByContainerId(ctx, container.ContainerID)
+			devices, err := database.GetFacade().GetContainer().ListContainerDevicesByContainerId(ctx, container.ContainerID)
 			if err != nil {
 				log.Errorf("cannot load devices for container %s: %s", container.ContainerID, err)
 				continue
@@ -217,7 +217,7 @@ func runLoadPodWorkloadCache(ctx context.Context) {
 func loadPodWorkloadCache(ctx context.Context) error {
 	newPodWorkloadCache := map[string][][]string{}
 	newPodUidWorkloadCache := map[string][][]string{}
-	runningWorkload, err := database.ListRunningWorkload(ctx)
+	runningWorkload, err := database.GetFacade().GetWorkload().ListRunningWorkload(ctx)
 	if err != nil {
 		log.Errorf("cannot load running workloads: %s", err)
 		return err

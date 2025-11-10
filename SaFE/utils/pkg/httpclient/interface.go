@@ -15,4 +15,6 @@ type Interface interface {
 	Put(url string, body interface{}, headerKVs ...string) (*Result, error)
 	Delete(url string, headerKVs ...string) (*Result, error)
 	Do(req *http.Request) (*Result, error)
+
+	GetBaseClient() *http.Client
 }

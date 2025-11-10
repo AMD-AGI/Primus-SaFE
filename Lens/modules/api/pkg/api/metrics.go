@@ -47,7 +47,7 @@ func GetWorkloadTrainingPerformance(ctx *gin.Context) {
 
 	startTime := time.UnixMilli(startMs)
 	endTime := time.UnixMilli(endMs)
-	performances, err := database.ListTrainingPerformanceByWorkloadIdsAndTimeRange(
+	performances, err := database.GetFacade().GetTraining().ListTrainingPerformanceByWorkloadIdsAndTimeRange(
 		ctx, []string{workloadUid}, startTime, endTime,
 	)
 	if err != nil {

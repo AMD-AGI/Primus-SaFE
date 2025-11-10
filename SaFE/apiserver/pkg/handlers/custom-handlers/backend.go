@@ -8,6 +8,7 @@ package custom_handlers
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
@@ -19,12 +20,20 @@ func (h *Handler) GetEnvs(c *gin.Context) {
 
 // getEnvs lists the environment variables supported by the backend.
 func (h *Handler) getEnvs(_ *gin.Context) (interface{}, error) {
-	return types.GetEnvResponse{
+	resp := types.GetEnvResponse{
 		EnableLog:         commonconfig.IsOpenSearchEnable(),
 		EnableLogDownload: commonconfig.IsS3Enable(),
-		EnableSSH:         commonconfig.IsSSHEnable(),
 		AuthoringImage:    commonconfig.GetAuthoringImage(),
+		EnableSSH:         commonconfig.IsSSHEnable(),
 		SSHIP:             commonconfig.GetSSHServerIP(),
 		SSHPort:           commonconfig.GetSSHServerPort(),
-	}, nil
+		SSOEnable:         commonconfig.IsSSOEnable(),
+	}
+	if resp.SSOEnable {
+		inst := authority.SSOInstance()
+		if inst != nil {
+			resp.SSOAuthUrl = inst.AuthURL()
+		}
+	}
+	return resp, nil
 }

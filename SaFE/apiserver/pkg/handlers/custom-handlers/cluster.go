@@ -88,7 +88,7 @@ func (h *Handler) GetClusterPodLog(c *gin.Context) {
 // Authorizes the request, parses the creation request, generates a cluster object,
 // and persists it in the k8s cluster.
 func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
-	if err := h.auth.Authorize(authority.Input{
+	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.ClusterKind,
 		Verb:         v1.CreateVerb,
@@ -209,7 +209,7 @@ func (h *Handler) deleteCluster(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to get admin cluster")
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: cluster,
 		Verb:     v1.DeleteVerb,
@@ -247,7 +247,7 @@ func (h *Handler) patchCluster(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to get admin cluster")
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: cluster,
 		Verb:     v1.UpdateVerb,
@@ -298,7 +298,7 @@ func (h *Handler) processClusterNodes(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: cluster,
 		Verb:     v1.UpdateVerb,
@@ -420,7 +420,7 @@ func (h *Handler) getClusterPodLog(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.auth.Authorize(authority.Input{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: cluster,
 		// The pod log is generated when the cluster is being created.

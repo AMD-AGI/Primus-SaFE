@@ -27,6 +27,9 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 		imageGroup.GET(":id/importing-details", func(c *gin.Context) {
 			handle(c, h.getImportingDetail)
 		})
+		imageGroup.PUT(":id/importing:retry", func(c *gin.Context) {
+			handle(c, h.retryDispatchImportImageJob)
+		})
 	}
 	imageImportGroup := e.Group("/api/v1/images:import")
 	{

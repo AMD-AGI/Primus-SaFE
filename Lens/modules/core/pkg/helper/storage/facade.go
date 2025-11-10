@@ -10,7 +10,12 @@ import (
 )
 
 func GetStorageStat(ctx context.Context) (*model.StorageStat, error) {
-	storage, _, err := database.ListStorage(ctx, 1, 1)
+	return GetStorageStatWithClientSet(ctx, nil)
+}
+
+// GetStorageStatWithClientSet gets storage statistics with support for specifying StorageClientSet
+func GetStorageStatWithClientSet(ctx context.Context, storageClientSet *clientsets.StorageClientSet) (*model.StorageStat, error) {
+	storage, _, err := database.GetFacade().GetStorage().ListStorage(ctx, 1, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -18,7 +23,7 @@ func GetStorageStat(ctx context.Context) (*model.StorageStat, error) {
 		return &model.StorageStat{}, nil
 	}
 	storageName := storage[0].Name
-	query := getStorageQuery(storage[0].Kind)
+	query := getStorageQueryWithClientSet(storage[0].Kind, storageClientSet)
 	if query == nil {
 		log.Warnf("Storage kind %s not supported", storage[0].Kind)
 		return &model.StorageStat{}, nil
@@ -52,10 +57,19 @@ func GetStorageStat(ctx context.Context) (*model.StorageStat, error) {
 }
 
 func getStorageQuery(kind string) Query {
+	return getStorageQueryWithClientSet(kind, nil)
+}
+
+func getStorageQueryWithClientSet(kind string, storageClientSet *clientsets.StorageClientSet) Query {
+	// If storageClientSet is not specified, use the current cluster's
+	if storageClientSet == nil {
+		storageClientSet = clientsets.GetClusterManager().GetCurrentClusterClients().StorageClientSet
+	}
+	
 	switch kind {
 	case "juicefs":
 		return &JuicefsQuery{
-			clientSet: clientsets.GetCurrentClusterStorageClientSet(),
+			clientSet: storageClientSet,
 		}
 	}
 	return nil

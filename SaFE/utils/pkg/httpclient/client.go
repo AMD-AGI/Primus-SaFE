@@ -33,8 +33,8 @@ var (
 	instance *client
 )
 
-// NewHttpClient creates and returns a singleton instance of HttpClient.
-func NewHttpClient() Interface {
+// NewClient creates and returns a singleton instance of HttpClient with default timeout.
+func NewClient() Interface {
 	once.Do(func() {
 		instance = &client{
 			Client: &http.Client{
@@ -53,6 +53,11 @@ func NewHttpClient() Interface {
 		}
 	})
 	return instance
+}
+
+// GetBaseClient returns the underlying http.Client instance used by this client.
+func (c *client) GetBaseClient() *http.Client {
+	return c.Client
 }
 
 // Get sends an HTTP GET request to the specified URL with optional headers.

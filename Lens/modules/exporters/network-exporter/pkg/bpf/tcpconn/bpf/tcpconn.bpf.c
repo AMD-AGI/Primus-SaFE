@@ -24,35 +24,35 @@ int probe_tcp_close(struct pt_regs *ctx) {
     struct sock *sock_ptr = (struct sock *)(ctx->di);
     struct event_t event = {};
 
-    // 获取进程 ID
+    // Get process ID
     event.pid = bpf_get_current_pid_tgid() >> 32;
 
-    // 填充本地端口和远程端口
+    // Fill local port and remote port
     bpf_probe_read(&event.sport, sizeof(event.sport), &sock_ptr->__sk_common.skc_num);
     bpf_probe_read(&event.dport, sizeof(event.dport), &sock_ptr->__sk_common.skc_dport);
 
-    // 转换到主机字节序
+    // Convert to host byte order
     event.sport = __builtin_bswap16(event.sport);
     event.dport = __builtin_bswap16(event.dport);
 
     bpf_probe_read(&event.family, sizeof(event.family), &sock_ptr->__sk_common.skc_family);
 
-    // 填充 IPv4 地址
+    // Fill IPv4 addresses
     if (event.family == 2) {
         bpf_probe_read(&event.saddr, sizeof(event.saddr), &sock_ptr->__sk_common.skc_rcv_saddr);
         bpf_probe_read(&event.daddr, sizeof(event.daddr), &sock_ptr->__sk_common.skc_daddr);
     }
 
-    // 填充 IPv6 地址
+    // Fill IPv6 addresses
     if (event.family == 10) {
         bpf_probe_read(&event.saddr_v6, sizeof(event.saddr_v6), &sock_ptr->__sk_common.skc_v6_rcv_saddr);
         bpf_probe_read(&event.daddr_v6, sizeof(event.daddr_v6), &sock_ptr->__sk_common.skc_v6_daddr);
     }
 
-    // 设置类型为 "close"
+    // Set type to "close"
     __builtin_memcpy(&event.typ, "close", sizeof("close") - 1);
 
-    // 将事件输出到 ringbuf
+    // Output event to ringbuf
     bpf_ringbuf_output(&events, &event, sizeof(event), 0);
 
     return 0;
@@ -65,35 +65,35 @@ int probe_tcp_connect(struct pt_regs *ctx) {
     struct sock *sock_ptr = (struct sock *)(ctx->di);
     struct event_t event = {};
 
-    // 获取进程 ID
+    // Get process ID
     event.pid = bpf_get_current_pid_tgid() >> 32;
 
-    // 填充本地端口和远程端口
+    // Fill local port and remote port
     bpf_probe_read(&event.sport, sizeof(event.sport), &sock_ptr->__sk_common.skc_num);
     bpf_probe_read(&event.dport, sizeof(event.dport), &sock_ptr->__sk_common.skc_dport);
 
-    // 转换到主机字节序
+    // Convert to host byte order
     event.sport = __builtin_bswap16(event.sport);
     event.dport = __builtin_bswap16(event.dport);
 
     bpf_probe_read(&event.family, sizeof(event.family), &sock_ptr->__sk_common.skc_family);
 
-    // 填充 IPv4 地址
+    // Fill IPv4 addresses
     if (event.family == 2) {
         bpf_probe_read(&event.saddr, sizeof(event.saddr), &sock_ptr->__sk_common.skc_rcv_saddr);
         bpf_probe_read(&event.daddr, sizeof(event.daddr), &sock_ptr->__sk_common.skc_daddr);
     }
 
-    // 填充 IPv6 地址
+    // Fill IPv6 addresses
     if (event.family == 10) {
         bpf_probe_read(&event.saddr_v6, sizeof(event.saddr_v6), &sock_ptr->__sk_common.skc_v6_rcv_saddr);
         bpf_probe_read(&event.daddr_v6, sizeof(event.daddr_v6), &sock_ptr->__sk_common.skc_v6_daddr);
     }
 
-    // 设置类型为 "close"
+    // Set type to "connect"
     __builtin_memcpy(&event.typ, "connect", sizeof("connect") - 1);
 
-    // 将事件输出到 ringbuf
+    // Output event to ringbuf
     bpf_ringbuf_output(&events, &event, sizeof(event), 0);
 
     return 0;
