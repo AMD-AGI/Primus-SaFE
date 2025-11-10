@@ -397,6 +397,10 @@ spec:
                   - podId
                   type: object
                 type: array
+              queuePosition:
+                description: The current position of the workload in the queue, only
+                  for pending
+                type: integer
               ranks:
                 description: The node's rank is only valid for the PyTorch job and
                   corresponds one-to-one with the nodes listed above.
@@ -405,10 +409,6 @@ spec:
                     type: string
                   type: array
                 type: array
-              schedulerOrder:
-                description: The current position of the workload in the queue, only
-                  for pending
-                type: integer
               startTime:
                 description: Workload start time
                 format: date-time

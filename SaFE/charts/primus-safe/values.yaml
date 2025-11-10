@@ -66,9 +66,6 @@ web:
   cpu: 2000m
   # Memory resources allocated to web console
   memory: 4Gi
-authoring:
-  # Authoring environment image version
-  image: "sshd:latest"
 preprocess:
   # Preprocessing component image version. used for pytorch-job etc.
   image: "preprocess:latest"

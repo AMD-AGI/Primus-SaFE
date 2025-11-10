@@ -49,7 +49,6 @@ const (
 	maxEphemeralStorePercent  = workloadPrefix + "max_ephemeral_store_percent"
 	workloadHangCheckInterval = workloadPrefix + "hang_check_interval"
 	workloadTTLSecond         = workloadPrefix + "ttl_second"
-	workloadAuthoringImage    = workloadPrefix + "authoring_image"
 
 	// opensearch
 	openSearchPrefix      = "opensearch."

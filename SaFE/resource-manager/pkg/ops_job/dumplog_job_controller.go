@@ -268,7 +268,7 @@ func (r *DumpLogJobReconciler) getInputWorkload(ctx context.Context, job *v1.Ops
 			return nil, err
 		}
 		result.cluster = workload.Cluster
-		result.startTime = dbutils.ParseNullTime(workload.CreateTime)
+		result.startTime = dbutils.ParseNullTime(workload.CreationTime)
 		result.endTime = dbutils.ParseNullTime(workload.EndTime)
 	} else {
 		workload := &v1.Workload{}

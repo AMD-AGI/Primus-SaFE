@@ -20,7 +20,7 @@ type WorkloadStatusApplyConfiguration struct {
 	Conditions        []applyconfigurationsmetav1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	Phase             *amdv1.WorkloadPhase                                    `json:"phase,omitempty"`
 	Message           *string                                                 `json:"message,omitempty"`
-	SchedulerOrder    *int                                                    `json:"schedulerOrder,omitempty"`
+	QueuePosition     *int                                                    `json:"queuePosition,omitempty"`
 	Pods              []WorkloadPodApplyConfiguration                         `json:"pods,omitempty"`
 	Nodes             [][]string                                              `json:"nodes,omitempty"`
 	Ranks             [][]string                                              `json:"ranks,omitempty"`
@@ -79,11 +79,11 @@ func (b *WorkloadStatusApplyConfiguration) WithMessage(value string) *WorkloadSt
 	return b
 }
 
-// WithSchedulerOrder sets the SchedulerOrder field in the declarative configuration to the given value
+// WithQueuePosition sets the QueuePosition field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the SchedulerOrder field is set to the value of the last call.
-func (b *WorkloadStatusApplyConfiguration) WithSchedulerOrder(value int) *WorkloadStatusApplyConfiguration {
-	b.SchedulerOrder = &value
+// If called multiple times, the QueuePosition field is set to the value of the last call.
+func (b *WorkloadStatusApplyConfiguration) WithQueuePosition(value int) *WorkloadStatusApplyConfiguration {
+	b.QueuePosition = &value
 	return b
 }
 

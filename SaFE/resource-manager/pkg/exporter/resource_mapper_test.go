@@ -59,5 +59,5 @@ func TestWorkloadMapper(t *testing.T) {
 	assert.Equal(t, dbWorkload.WorkloadId, w.Name)
 	assert.Equal(t, dbWorkload.DisplayName, v1.GetDisplayName(w))
 	assert.Equal(t, dbWorkload.Resource, string(jsonutils.MarshalSilently(w.Spec.Resource)))
-	assert.Equal(t, dbutils.ParseNullTime(dbWorkload.CreateTime).Unix(), w.CreationTimestamp.Time.Unix())
+	assert.Equal(t, dbutils.ParseNullTime(dbWorkload.CreationTime).Unix(), w.CreationTimestamp.Time.Unix())
 }
