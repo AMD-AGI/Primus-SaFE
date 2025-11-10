@@ -70,6 +70,9 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
+	if status != nil {
+		klog.Infof("getK8s Resource(%s) Status(%v)", adminWorkload.Name, *status)
+	}
 	var isNeedRetry bool
 	adminWorkload, isNeedRetry, err = r.updateAdminWorkloadStatus(ctx, adminWorkload, status, message)
 	if isNeedRetry {
