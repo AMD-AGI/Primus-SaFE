@@ -13,12 +13,12 @@ then
   read HARBORPWD
 fi
 
-sed -i "s/harborAdminPassword: .*$/harborAdminPassword: ${HARBORPWD}/g" harbor/values.yaml
-sed -i "s/externalURL: .*$/externalURL: https:\/\/${HARBOR}/g" harbor/values.yaml
-sed -i "s/      core: .*$/      core: ${HARBOR}/g" harbor/values.yaml
-sed -i "s/storageClass: .*$/storageClass: ${STORAGECLASS}/g" harbor/values.yaml
+sed -i "s/harborAdminPassword: .*$/harborAdminPassword: ${HARBORPWD}/g" values.yaml
+sed -i "s/externalURL: .*$/externalURL: https:\/\/${HARBOR}/g" values.yaml
+sed -i "s/      core: .*$/      core: ${HARBOR}/g" values.yaml
+sed -i "s/storageClass: .*$/storageClass: ${STORAGECLASS}/g" values.yaml
 helm repo add harbor https://helm.goharbor.io
-helm upgrade --install harbor  harbor/harbor -n harbor --create-namespace -f harbor/values.yaml
+helm upgrade --install harbor  harbor/harbor -n harbor --create-namespace -f values.yaml
 
 kubectl apply -f - <<EOF
 apiVersion: cert-manager.io/v1
@@ -73,7 +73,7 @@ EOF
 
 kubectl -n harbor wait --for=condition=Ready certificates.cert-manager.io harbor
 
-kubectl get secret harbor-tls -n harbor -o jsonpath='{.data.ca\.crt}' | base64 --decode > harbor/harbor-ca.crt
+kubectl get secret harbor-tls -n harbor -o jsonpath='{.data.ca\.crt}' | base64 --decode > harbor-ca.crt
 
 while true; do
     addresses=$(kubectl get deploy -n higress-system  higress-gateway -o jsonpath="{.status.readyReplicas}")
@@ -86,7 +86,7 @@ while true; do
     fi
 done
 
-ansible-playbook  -i hosts.yaml --private-key ${AUTHORIZE} harbor/harbor_ca_task.yaml --become-user=root -b -vv -f 10 --timeout=10
+ansible-playbook  -i hosts.yaml --private-key ${AUTHORIZE} harbor_ca_task.yaml --become-user=root -b -vv -f 10 --timeout=10
 
 NAMESPACE="kube-system"
 CONFIGMAP="nodelocaldns"
