@@ -182,11 +182,8 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 		return nil
 	}
 	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
-	if adminWorkload == nil {
+	if adminWorkload == nil || adminWorkload.IsEnd() {
 		return err
-	}
-	if adminWorkload.IsEnd() || commonworkload.IsJob(adminWorkload) {
-		return nil
 	}
 
 	id := -1

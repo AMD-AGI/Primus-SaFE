@@ -451,6 +451,7 @@ func deleteConcernedMeta(adminNode *v1.Node) {
 	for _, k := range concernedK8sAnnotationKeys {
 		v1.RemoveAnnotation(adminNode, k)
 	}
+	v1.RemoveAnnotation(adminNode, v1.NodeTemplateInstalledAnnotation)
 }
 
 // isConcernedLabelsEqual checks if the concerned labels and annotations are equal between two objects.

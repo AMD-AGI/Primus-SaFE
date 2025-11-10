@@ -330,11 +330,6 @@ func GetImageSecret() string {
 	return getString(imageSecret, "")
 }
 
-// GetAuthoringImage returns the default authoring environment image.
-func GetAuthoringImage() string {
-	return getString(workloadAuthoringImage, "")
-}
-
 // GetUserTokenExpire returns the user token expiration time in seconds.
 func GetUserTokenExpire() int {
 	return getInt(userTokenExpireSecond, -1)

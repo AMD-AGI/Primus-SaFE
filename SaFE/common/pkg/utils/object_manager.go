@@ -9,9 +9,10 @@ import (
 	"fmt"
 	"sync"
 
+	"k8s.io/klog/v2"
+
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
-	"k8s.io/klog/v2"
 )
 
 var (
@@ -134,7 +135,7 @@ func (om *ObjectManager) Len() int {
 	return len(om.objects)
 }
 
-// GetK8sClientFactory : retrieves a Kubernetes client factory for the specified cluster from the client manager.
+// GetK8sClientFactory retrieves a Kubernetes client factory for the specified cluster from the client manager.
 // Returns the client factory if found and valid, or an error if others
 func GetK8sClientFactory(clientManager *ObjectManager, clusterId string) (*commonclient.ClientFactory, error) {
 	obj, _ := clientManager.Get(clusterId)

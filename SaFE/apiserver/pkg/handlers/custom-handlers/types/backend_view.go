@@ -12,8 +12,6 @@ type GetEnvResponse struct {
 	EnableLog bool `json:"enableLog"`
 	// Whether to enable ssh include webshell.
 	EnableSSH bool `json:"enableSsh"`
-	// The image used for authoring.
-	AuthoringImage string `json:"authoringImage"`
 	// The port for ssh
 	SSHPort int `json:"sshPort"`
 	// The ip for ssh

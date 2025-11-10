@@ -121,8 +121,8 @@ func (h *Handler) listOpsJob(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	dbSql := cvtToListOpsJobSql(query)
-	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, query.SortBy, query.Order, query.Limit, query.Offset)
+	dbSql, orderBy := cvtToListOpsJobSql(query)
+	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, orderBy, query.Limit, query.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func (h *Handler) getOpsJob(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, "", "", 1, 0)
+	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, []string{}, 1, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -502,7 +502,7 @@ func (h *Handler) parseListOpsJobQuery(c *gin.Context) (*types.ListOpsJobRequest
 	}
 	if query.SortBy == "" {
 		dbTags := dbclient.GetOpsJobFieldTags()
-		query.SortBy = dbclient.GetFieldTag(dbTags, "CreateTime")
+		query.SortBy = dbclient.GetFieldTag(dbTags, "CreationTime")
 	} else {
 		query.SortBy = strings.ToLower(query.SortBy)
 	}
@@ -537,13 +537,13 @@ func (h *Handler) parseListOpsJobQuery(c *gin.Context) (*types.ListOpsJobRequest
 
 // cvtToListOpsJobSql converts the ops job list query parameters into an SQL query.
 // It builds WHERE conditions based on filter parameters like cluster ID, phase, job type, user, and time range.
-func cvtToListOpsJobSql(query *types.ListOpsJobRequest) sqrl.Sqlizer {
+func cvtToListOpsJobSql(query *types.ListOpsJobRequest) (sqrl.Sqlizer, []string) {
 	dbTags := dbclient.GetOpsJobFieldTags()
-	createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
+	creationTime := dbclient.GetFieldTag(dbTags, "CreationTime")
 	dbSql := sqrl.And{
 		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
-		sqrl.GtOrEq{createTime: query.SinceTime},
-		sqrl.LtOrEq{createTime: query.UntilTime},
+		sqrl.GtOrEq{creationTime: query.SinceTime},
+		sqrl.LtOrEq{creationTime: query.UntilTime},
 	}
 	if clusterId := strings.TrimSpace(query.ClusterId); clusterId != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "Cluster"): clusterId})
@@ -561,7 +561,8 @@ func cvtToListOpsJobSql(query *types.ListOpsJobRequest) sqrl.Sqlizer {
 		dbSql = append(dbSql, sqrl.Like{
 			dbclient.GetFieldTag(dbTags, "UserName"): fmt.Sprintf("%%%s%%", userName)})
 	}
-	return dbSql
+	orderBy := buildOrderBy(query.SortBy, query.Order, dbTags)
+	return dbSql, orderBy
 }
 
 // cvtToGetOpsJobSql converts the get ops job request into an SQL query.
@@ -616,10 +617,10 @@ func cvtToOpsJobResponseItem(job *dbclient.OpsJob) types.OpsJobResponseItem {
 		UserName:      dbutils.ParseNullString(job.UserName),
 		Type:          v1.OpsJobType(job.Type),
 		Phase:         v1.OpsJobPhase(dbutils.ParseNullString(job.Phase)),
-		CreationTime:  dbutils.ParseNullTimeToString(job.CreateTime),
+		CreationTime:  dbutils.ParseNullTimeToString(job.CreationTime),
 		StartTime:     dbutils.ParseNullTimeToString(job.StartTime),
 		EndTime:       dbutils.ParseNullTimeToString(job.EndTime),
-		DeletionTime:  dbutils.ParseNullTimeToString(job.DeleteTime),
+		DeletionTime:  dbutils.ParseNullTimeToString(job.DeletionTime),
 		TimeoutSecond: job.Timeout,
 	}
 	if result.Phase == "" {

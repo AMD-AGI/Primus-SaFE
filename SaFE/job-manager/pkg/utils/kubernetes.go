@@ -104,6 +104,21 @@ func GetObject(informer informers.GenericInformer, name, namespace string) (*uns
 	return unstructuredObj.DeepCopy(), nil
 }
 
+// GetObjectByClientFactory retrieves an object from Kubernetes using the dynamic client factory.
+// It converts the GroupVersionKind to GroupVersionResource and fetches the object by name and namespace.
+func GetObjectByClientFactory(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), obj.GroupVersionKind())
+	if err != nil {
+		return nil, err
+	}
+	unstructuredObj, err := k8sClientFactory.DynamicClient().
+		Resource(gvr).Namespace(obj.GetNamespace()).Get(ctx, obj.GetName(), metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return unstructuredObj.DeepCopy(), nil
+}
+
 // DeleteObject deletes a Kubernetes object with appropriate grace period and propagation policy.
 func DeleteObject(ctx context.Context, k8sClientFactory *commonclient.ClientFactory, obj *unstructured.Unstructured) error {
 	gvr, err := ConvertGVKToGVR(k8sClientFactory.Mapper(), obj.GroupVersionKind())

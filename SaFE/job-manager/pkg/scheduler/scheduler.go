@@ -791,7 +791,7 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 		return nil
 	}
 	workload.Status.Conditions = append(workload.Status.Conditions, *cond)
-	workload.Status.SchedulerOrder = 0
+	workload.Status.QueuePosition = 0
 	if workload.Status.Phase == "" {
 		workload.Status.Phase = v1.WorkloadPending
 	}
@@ -803,19 +803,19 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 
 // updateUnScheduled updates the status of unscheduled workloads with ordering and reasons.
 func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads []*v1.Workload, unScheduledReasons map[string]string) {
-	order := 1
+	position := 1
 	for i, w := range workloads {
 		if v1.IsWorkloadScheduled(w) {
 			continue
 		}
 		originalWorkload := client.MergeFrom(workloads[i].DeepCopy())
 		isChanged := false
-		if workloads[i].Status.SchedulerOrder != order {
-			workloads[i].Status.SchedulerOrder = order
+		if workloads[i].Status.QueuePosition != position {
+			workloads[i].Status.QueuePosition = position
 			isChanged = true
 		}
 		reason, _ := unScheduledReasons[w.Name]
-		if reason == "" && order > 1 {
+		if reason == "" && position > 1 {
 			reason = "There are high priority or pre-created tasks that have not been scheduled yet"
 		}
 		if reason != workloads[i].Status.Message {
@@ -827,7 +827,7 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads [
 				klog.ErrorS(err, "failed to patch workload", "name", workloads[i].Name)
 			}
 		}
-		order++
+		position++
 	}
 }
 

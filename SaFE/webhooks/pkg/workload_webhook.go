@@ -347,9 +347,6 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	workload.Spec.Resource.Replica = 1
 	workload.Spec.Timeout = nil
 	workload.Spec.EntryPoint = stringutil.Base64Encode("sleep infinity")
-	if workload.Spec.Image == "" {
-		workload.Spec.Image = commonconfig.GetAuthoringImage()
-	}
 	workload.Spec.Dependencies = nil
 }
 
@@ -549,6 +546,9 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 		return err
 	}
 	if err := v.validateDisplayName(workload); err != nil {
+		return err
+	}
+	if err := v.validateCustomerLabels(workload); err != nil {
 		return err
 	}
 	return nil
@@ -754,6 +754,16 @@ func (v *WorkloadValidator) validateDisplayName(workload *v1.Workload) error {
 			v1.GetDisplayName(workload), commonutils.MaxDisplayNameLen)
 	} else if l == 0 {
 		return fmt.Errorf("the display name is empty")
+	}
+	return nil
+}
+
+// validateCustomerLabels ensures workload customer labels are valid.
+func (v *WorkloadValidator) validateCustomerLabels(workload *v1.Workload) error {
+	for key := range workload.Spec.CustomerLabels {
+		if err := validateLabelKey(key); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -18,7 +18,7 @@ Fault is the core object for recording system node failures, featuring a unique 
 |-----------|------|----------|-------------|
 | offset | int | No | Pagination offset, default 0 |
 | limit | int | No | Records per page, default 100 |
-| sortBy | string | No | Sort field, default create_time |
+| sortBy | string | No | Sort field, default creationTime |
 | order | string | No | Sort order: desc/asc, default desc |
 | nodeId | string | No | Filter by node ID (fuzzy match) |
 | monitorId | string | No | Filter by monitor ID; multiple IDs comma-separated |

@@ -15,12 +15,10 @@ import (
 )
 
 const (
-	DESC       = "desc"
-	ASC        = "asc"
-	CreateTime = "create_time"
-)
-
-const (
+	DESC = "desc"
+	ASC  = "asc"
+	
+	CreateTime  = "create_time"
 	CreatedTime = "created_at"
 )
 
@@ -36,16 +34,16 @@ type Workload struct {
 	GVK            string         `db:"gvk"`
 	Phase          sql.NullString `db:"phase"`
 	UserName       sql.NullString `db:"username"`
-	CreateTime     pq.NullTime    `db:"create_time"`
+	CreationTime   pq.NullTime    `db:"creation_time"`
 	StartTime      pq.NullTime    `db:"start_time"`
 	EndTime        pq.NullTime    `db:"end_time"`
-	DeleteTime     pq.NullTime    `db:"delete_time"`
+	DeletionTime   pq.NullTime    `db:"deletion_time"`
 	IsSupervised   bool           `db:"is_supervised"`
 	IsTolerateAll  bool           `db:"is_tolerate_all"`
 	IsDeleted      bool           `db:"is_deleted"`
 	Priority       int            `db:"priority"`
 	MaxRetry       int            `db:"max_retry"`
-	SchedulerOrder int            `db:"scheduler_order"`
+	QueuePosition  int            `db:"queue_position"`
 	DispatchCount  int            `db:"dispatch_count"`
 	TTLSecond      int            `db:"ttl_second"`
 	Timeout        int            `db:"timeout"`
@@ -81,9 +79,9 @@ type Fault struct {
 	Action         sql.NullString `db:"action"`
 	Phase          sql.NullString `db:"phase"`
 	Cluster        sql.NullString `db:"cluster"`
-	CreateTime     pq.NullTime    `db:"create_time"`
+	CreationTime   pq.NullTime    `db:"creation_time"`
 	UpdateTime     pq.NullTime    `db:"update_time"`
-	DeleteTime     pq.NullTime    `db:"delete_time"`
+	DeletionTime   pq.NullTime    `db:"deletion_time"`
 	IsAutoRepaired bool           `db:"is_auto_repaired"`
 }
 
@@ -102,10 +100,10 @@ type OpsJob struct {
 	Timeout       int            `db:"timeout"`
 	UserName      sql.NullString `db:"user_name"`
 	Workspace     sql.NullString `db:"workspace"`
-	CreateTime    pq.NullTime    `db:"create_time"`
+	CreationTime  pq.NullTime    `db:"creation_time"`
 	StartTime     pq.NullTime    `db:"start_time"`
 	EndTime       pq.NullTime    `db:"end_time"`
-	DeleteTime    pq.NullTime    `db:"delete_time"`
+	DeletionTime  pq.NullTime    `db:"deletion_time"`
 	Phase         sql.NullString `db:"phase"`
 	Conditions    sql.NullString `db:"conditions"`
 	Outputs       sql.NullString `db:"outputs"`

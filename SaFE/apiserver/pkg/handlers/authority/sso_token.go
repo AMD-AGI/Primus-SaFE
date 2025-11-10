@@ -32,7 +32,7 @@ var (
 	ssoInitOnce sync.Once
 	ssoInstance *ssoToken
 
-	DefaultOIDCScopes = []string{oidc.ScopeOpenID, "profile", "email", "groups"}
+	DefaultOIDCScopes = []string{oidc.ScopeOpenID, "profile", "email"}
 )
 
 // ssoToken implements TokenInterface for OAuth2/OpenID Connect authentication
