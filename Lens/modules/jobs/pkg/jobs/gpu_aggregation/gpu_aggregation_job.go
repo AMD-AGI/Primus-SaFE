@@ -976,10 +976,12 @@ func convertToDBLabelStats(stats *model.LabelGpuHourlyStats) *dbmodel.LabelGpuHo
 // getClusterGpuCapacity 从数据库获取集群GPU总容量
 func (j *GpuAggregationJob) getClusterGpuCapacity(ctx context.Context, clusterName string) (int, error) {
 	// 从数据库的node表查询所有GPU节点并汇总容量
+	readyStatus := "Ready"
 	nodes, _, err := database.GetFacadeForCluster(clusterName).GetNode().
 		SearchNode(ctx, filter.NodeFilter{
 			// 查询所有GPU节点（GpuCount > 0）
-			Limit: 10000, // 设置一个足够大的限制
+			K8sStatus: &readyStatus, // 只查询状态为Ready的节点
+			Limit:     10000,        // 设置一个足够大的限制
 		})
 
 	if err != nil {
