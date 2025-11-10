@@ -560,6 +560,10 @@ func (r *NodeReconciler) cleanupNodeAfterUnmanage(ctx context.Context, adminNode
 		adminNode.Spec.Workspace = nil
 		isChanged = true
 	}
+	if v1.IsNodeTemplateInstalled(adminNode) {
+		v1.RemoveAnnotation(adminNode, v1.NodeTemplateInstalledAnnotation)
+		isChanged = true
+	}
 	if !isChanged {
 		return nil
 	}
