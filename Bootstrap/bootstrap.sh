@@ -121,7 +121,6 @@ fi
 # -----------------------------------------------------------------------------
 # REVIEW: Consider pinning chart versions for reproducibility.
 helm repo add rocm https://rocm.github.io/gpu-operator
-helm repo add higress.io https://higress.io/helm-charts
 helm repo add jetstack https://charts.jetstack.io --force-update
 
 helm upgrade --install cert-manager jetstack/cert-manager \
@@ -135,10 +134,6 @@ helm repo add prometheus-community https://prometheus-community.github.io/helm-c
 
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
   --namespace prometheus --create-namespace --set installCRDs=true
- 
-helm upgrade --install higress higress.io/higress \
-  --namespace higress-system --create-namespace \
-  --set higress-core.gateway.hostNetwork=true --set global.enableGatewayAPI=true --reuse-values
  
 helm upgrade --install network-operator oci://registry-1.docker.io/primussafe/network-operator --version 25.4.0 \
   --namespace network-operator --create-namespace
