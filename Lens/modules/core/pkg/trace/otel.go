@@ -25,44 +25,55 @@ var (
 	tracerProvider *sdktrace.TracerProvider
 )
 
-// InitTracer 初始化 OpenTelemetry tracer
-// 使用环境变量配置，兼容 OpenTelemetry 标准环境变量
+// InitTracer initializes OpenTelemetry tracer
+// Uses environment variables for configuration, compatible with OpenTelemetry standard environment variables
 func InitTracer(serviceName string) error {
+	log.Infof("Starting OpenTelemetry tracer initialization for service: %s", serviceName)
 	ctx := context.Background()
 
-	// 读取 OTLP endpoint
+	// Read OTLP endpoint
 	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if endpoint == "" {
-		// 回退到旧的 Jaeger 环境变量（兼容性）
+		// Fallback to legacy Jaeger environment variable (for compatibility)
 		jaegerHost := os.Getenv("JAEGER_AGENT_HOST")
 		if jaegerHost == "" {
 			jaegerHost = "localhost"
 		}
-		// OTLP 使用 gRPC 4317 端口，而不是 Jaeger Agent 的 6831
+		// OTLP uses gRPC port 4317, not Jaeger Agent's 6831
 		endpoint = fmt.Sprintf("%s:4317", jaegerHost)
+		log.Infof("OTEL_EXPORTER_OTLP_ENDPOINT not set, using fallback endpoint: %s", endpoint)
+	} else {
+		log.Infof("Using OTEL_EXPORTER_OTLP_ENDPOINT: %s", endpoint)
 	}
 
-	// 读取采样配置
-	samplingRatio := 1.0 // 默认 100% 采样
+	// Read sampling configuration
+	samplingRatio := 1.0 // Default: 100% sampling
 	if ratioStr := os.Getenv("OTEL_TRACES_SAMPLER_ARG"); ratioStr != "" {
 		if ratio, err := strconv.ParseFloat(ratioStr, 64); err == nil {
 			samplingRatio = ratio
+			log.Infof("Using sampling ratio from OTEL_TRACES_SAMPLER_ARG: %.2f", samplingRatio)
 		}
 	} else if paramStr := os.Getenv("JAEGER_SAMPLER_PARAM"); paramStr != "" {
-		// 兼容旧的 Jaeger 环境变量
+		// Compatible with legacy Jaeger environment variable
 		if ratio, err := strconv.ParseFloat(paramStr, 64); err == nil {
 			samplingRatio = ratio
+			log.Infof("Using sampling ratio from JAEGER_SAMPLER_PARAM: %.2f", samplingRatio)
 		}
+	} else {
+		log.Infof("Using default sampling ratio: %.2f", samplingRatio)
 	}
 
-	// 读取采样器类型
+	// Read sampler type
 	samplerType := os.Getenv("OTEL_TRACES_SAMPLER")
 	if samplerType == "" {
-		samplerType = "traceidratio" // 默认使用 trace ID ratio 采样
+		samplerType = "traceidratio" // Default: use trace ID ratio sampling
+		log.Infof("OTEL_TRACES_SAMPLER not set, using default: %s", samplerType)
+	} else {
+		log.Infof("Using sampler type: %s", samplerType)
 	}
 
-	// 创建 OTLP gRPC exporter
-	log.Infof("Connecting to OTLP endpoint: %s", endpoint)
+	// Create OTLP gRPC exporter
+	log.Infof("Creating OTLP gRPC exporter, connecting to endpoint: %s", endpoint)
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -72,24 +83,29 @@ func InitTracer(serviceName string) error {
 		grpc.WithBlock(),
 	)
 	if err != nil {
+		log.Errorf("Failed to create gRPC connection to %s: %v", endpoint, err)
 		return fmt.Errorf("failed to create gRPC connection to %s: %w", endpoint, err)
 	}
+	log.Infof("Successfully established gRPC connection to %s", endpoint)
 
 	exporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(conn))
 	if err != nil {
+		log.Errorf("Failed to create OTLP trace exporter: %v", err)
 		return fmt.Errorf("failed to create OTLP trace exporter: %w", err)
 	}
+	log.Infof("Successfully created OTLP trace exporter")
 
-	// 创建 resource（服务标识信息）
+	// Create resource (service identification information)
+	log.Infof("Creating resource with service name: %s", serviceName)
 	res, err := resource.New(context.Background(),
 		resource.WithAttributes(
-			// 服务信息
+			// Service information
 			semconv.ServiceName(serviceName),
 			semconv.ServiceVersion("1.0.0"),
-			// 环境信息
+			// Environment information
 			attribute.String("environment", getEnvOrDefault("ENVIRONMENT", "production")),
 			attribute.String("cluster.name", getEnvOrDefault("DEFAULT_CLUSTER_NAME", "default")),
-			// 部署信息
+			// Deployment information
 			attribute.String("k8s.namespace.name", getEnvOrDefault("POD_NAMESPACE", "default")),
 			attribute.String("k8s.pod.name", getEnvOrDefault("POD_NAME", "unknown")),
 			attribute.String("k8s.node.name", getEnvOrDefault("NODE_NAME", "unknown")),
@@ -99,23 +115,30 @@ func InitTracer(serviceName string) error {
 		resource.WithTelemetrySDK(),
 	)
 	if err != nil {
+		log.Errorf("Failed to create resource: %v", err)
 		return fmt.Errorf("failed to create resource: %w", err)
 	}
+	log.Infof("Successfully created resource")
 
-	// 选择采样器
+	// Select sampler
 	var sampler sdktrace.Sampler
 	switch samplerType {
 	case "always_on":
 		sampler = sdktrace.AlwaysSample()
+		log.Infof("Using AlwaysSample sampler")
 	case "always_off":
 		sampler = sdktrace.NeverSample()
+		log.Infof("Using NeverSample sampler")
 	case "traceidratio", "parentbased_traceidratio":
 		sampler = sdktrace.ParentBased(sdktrace.TraceIDRatioBased(samplingRatio))
+		log.Infof("Using ParentBased TraceIDRatio sampler with ratio: %.2f", samplingRatio)
 	default:
 		sampler = sdktrace.ParentBased(sdktrace.TraceIDRatioBased(samplingRatio))
+		log.Infof("Using default ParentBased TraceIDRatio sampler with ratio: %.2f", samplingRatio)
 	}
 
-	// 创建 tracer provider
+	// Create tracer provider
+	log.Infof("Creating tracer provider with batch timeout: 5s, max batch size: 512")
 	tracerProvider = sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter,
 			sdktrace.WithBatchTimeout(5*time.Second),
@@ -124,73 +147,84 @@ func InitTracer(serviceName string) error {
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sampler),
 	)
+	log.Infof("Successfully created tracer provider")
 
-	// 设置全局 tracer provider
+	// Set global tracer provider
 	otel.SetTracerProvider(tracerProvider)
+	log.Infof("Set global tracer provider")
 
-	// 设置全局 propagator（用于跨服务传播 trace context）
+	// Set global propagator (for cross-service trace context propagation)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
 		propagation.Baggage{},
 	))
+	log.Infof("Set global text map propagator (TraceContext + Baggage)")
 
-	log.Infof("OpenTelemetry tracer initialized: service=%s, endpoint=%s, sampler=%s(%.2f)",
+	log.Infof("✓ OpenTelemetry tracer initialized successfully: service=%s, endpoint=%s, sampler=%s(%.2f)",
 		serviceName, endpoint, samplerType, samplingRatio)
+	log.Infof("✓ Trace export is now active and ready to send spans to %s", endpoint)
 
 	return nil
 }
 
-// CloseTracer 关闭 tracer 并刷新所有挂起的 spans
+// CloseTracer closes the tracer and flushes all pending spans
 func CloseTracer() error {
 	if tracerProvider != nil {
 		log.Info("Shutting down OpenTelemetry tracer...")
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return tracerProvider.Shutdown(ctx)
+		err := tracerProvider.Shutdown(ctx)
+		if err != nil {
+			log.Errorf("Failed to shutdown tracer provider: %v", err)
+			return err
+		}
+		log.Info("OpenTelemetry tracer shutdown successfully")
+		return nil
 	}
+	log.Warn("Tracer provider is nil, nothing to shutdown")
 	return nil
 }
 
-// StartSpan 从 context 创建一个新的 span
-// 如果 context 中已有 span，新 span 将作为其子 span
+// StartSpan creates a new span from context
+// If there is already a span in context, the new span will be its child span
 func StartSpan(ctx context.Context, operationName string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
 	tracer := otel.Tracer("")
 	return tracer.Start(ctx, operationName, opts...)
 }
 
-// StartSpanFromContext 从 context 创建一个新的 span（兼容旧 API）
-// 注意：返回值顺序与 StartSpan 相反，用于兼容 Jaeger SDK
+// StartSpanFromContext creates a new span from context (compatible with legacy API)
+// Note: Return value order is reversed from StartSpan, for compatibility with Jaeger SDK
 func StartSpanFromContext(ctx context.Context, operationName string, opts ...trace.SpanStartOption) (trace.Span, context.Context) {
 	tracer := otel.Tracer("")
 	newCtx, span := tracer.Start(ctx, operationName, opts...)
 	return span, newCtx
 }
 
-// GetSpan 从 context 获取当前活跃的 span
+// GetSpan gets the currently active span from context
 func GetSpan(ctx context.Context) trace.Span {
 	return trace.SpanFromContext(ctx)
 }
 
-// ContextWithSpan 将 span 设置到 context 中（兼容旧 API）
-// 注意：OpenTelemetry 通常不需要手动设置，因为 StartSpan 已经返回了新的 context
+// ContextWithSpan sets span into context (compatible with legacy API)
+// Note: OpenTelemetry usually doesn't require manual setting, as StartSpan already returns a new context
 func ContextWithSpan(ctx context.Context, span trace.Span) context.Context {
 	return trace.ContextWithSpan(ctx, span)
 }
 
-// FinishSpan 结束一个 span
+// FinishSpan ends a span
 func FinishSpan(span trace.Span) {
 	if span != nil {
 		span.End()
 	}
 }
 
-// FinishSpanFromContext 从 context 中获取 span 并结束它
+// FinishSpanFromContext gets span from context and ends it
 func FinishSpanFromContext(ctx context.Context) {
 	span := trace.SpanFromContext(ctx)
 	span.End()
 }
 
-// AddEvent 向 span 添加一个事件
+// AddEvent adds an event to span
 func AddEvent(ctx context.Context, name string, attrs ...attribute.KeyValue) {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
@@ -198,7 +232,7 @@ func AddEvent(ctx context.Context, name string, attrs ...attribute.KeyValue) {
 	}
 }
 
-// SetAttributes 设置 span 属性
+// SetAttributes sets span attributes
 func SetAttributes(ctx context.Context, attrs ...attribute.KeyValue) {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
@@ -206,7 +240,7 @@ func SetAttributes(ctx context.Context, attrs ...attribute.KeyValue) {
 	}
 }
 
-// SetAttribute 设置单个 span 属性
+// SetAttribute sets a single span attribute
 func SetAttribute(ctx context.Context, key string, value interface{}) {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
@@ -214,7 +248,7 @@ func SetAttribute(ctx context.Context, key string, value interface{}) {
 	}
 }
 
-// RecordError 记录错误到 span
+// RecordError records an error to span
 func RecordError(ctx context.Context, err error, opts ...trace.EventOption) {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() && err != nil {
@@ -223,7 +257,7 @@ func RecordError(ctx context.Context, err error, opts ...trace.EventOption) {
 	}
 }
 
-// SetStatus 设置 span 状态
+// SetStatus sets span status
 func SetStatus(ctx context.Context, code codes.Code, description string) {
 	span := trace.SpanFromContext(ctx)
 	if span.IsRecording() {
@@ -231,7 +265,7 @@ func SetStatus(ctx context.Context, code codes.Code, description string) {
 	}
 }
 
-// GetTraceID 获取当前 trace ID
+// GetTraceID gets the current trace ID
 func GetTraceID(ctx context.Context) string {
 	span := trace.SpanFromContext(ctx)
 	if span.SpanContext().HasTraceID() {
@@ -240,7 +274,7 @@ func GetTraceID(ctx context.Context) string {
 	return ""
 }
 
-// GetSpanID 获取当前 span ID
+// GetSpanID gets the current span ID
 func GetSpanID(ctx context.Context) string {
 	span := trace.SpanFromContext(ctx)
 	if span.SpanContext().HasSpanID() {
@@ -249,19 +283,19 @@ func GetSpanID(ctx context.Context) string {
 	return ""
 }
 
-// SpanFromContext 从 context 获取 span（兼容旧 API）
-// 返回 span 和一个布尔值表示是否为有效的 span
+// SpanFromContext gets span from context (compatible with legacy API)
+// Returns span and a boolean indicating whether the span is valid
 func SpanFromContext(ctx context.Context) (trace.Span, bool) {
 	span := trace.SpanFromContext(ctx)
-	// 检查 span 是否有效（正在记录或有有效的 span context）
+	// Check if span is valid (recording or has valid span context)
 	if span != nil && span.SpanContext().IsValid() {
 		return span, true
 	}
 	return span, false
 }
 
-// GetTraceIDAndSpanID 从 span 获取 trace ID 和 span ID（兼容旧 API）
-// 返回 traceID, spanID 和一个布尔值表示是否为有效的 trace
+// GetTraceIDAndSpanID gets trace ID and span ID from span (compatible with legacy API)
+// Returns traceID, spanID and a boolean indicating whether the trace is valid
 func GetTraceIDAndSpanID(span trace.Span) (string, string, bool) {
 	if span == nil {
 		return "", "", false
@@ -273,7 +307,7 @@ func GetTraceIDAndSpanID(span trace.Span) (string, string, bool) {
 	return spanCtx.TraceID().String(), spanCtx.SpanID().String(), true
 }
 
-// convertToAttribute 将 interface{} 转换为 attribute.KeyValue
+// convertToAttribute converts interface{} to attribute.KeyValue
 func convertToAttribute(key string, value interface{}) attribute.KeyValue {
 	switch v := value.(type) {
 	case string:
@@ -291,7 +325,7 @@ func convertToAttribute(key string, value interface{}) attribute.KeyValue {
 	}
 }
 
-// getEnvOrDefault 获取环境变量，如果不存在则返回默认值
+// getEnvOrDefault gets environment variable, returns default value if not exists
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
