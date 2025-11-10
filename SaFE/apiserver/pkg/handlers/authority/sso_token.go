@@ -124,7 +124,6 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 	if err != nil {
 		return nil, nil, err
 	}
-	klog.Infof("user id: %s, email: %s, code: %s", userInfo.Id, userInfo.Email, input.Code)
 
 	// Synchronize user with system
 	user, err := c.synchronizeUser(ctx, userInfo)

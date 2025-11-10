@@ -390,6 +390,7 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	}
 	user, token, err := tokenInstance.Login(c.Request.Context(), tokenInput)
 	if err != nil {
+		klog.ErrorS(err, "user login failed", "userName", query.Name)
 		return nil, err
 	}
 	result := &types.UserLoginResponse{
