@@ -29,6 +29,14 @@ type K8sResourceStatus struct {
 	ActiveReplica int
 }
 
+func (s *K8sResourceStatus) IsPending() bool {
+	if s.Phase == string(v1.K8sPending) ||
+		s.Phase == "" {
+		return true
+	}
+	return false
+}
+
 // GetK8sResourceStatus retrieves the status of a Kubernetes resource based on its unstructured object and resource template.
 func GetK8sResourceStatus(unstructuredObj *unstructured.Unstructured, rt *v1.ResourceTemplate) (*K8sResourceStatus, error) {
 	result := &K8sResourceStatus{}
