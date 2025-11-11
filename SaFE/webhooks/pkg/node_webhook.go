@@ -263,7 +263,7 @@ func (v *NodeValidator) validateCommon(ctx context.Context, node *v1.Node) error
 	if err := validateDisplayName(v1.GetDisplayName(node)); err != nil {
 		return err
 	}
-	if err := validateLabels(node); err != nil {
+	if err := validateLabels(node.GetLabels()); err != nil {
 		return err
 	}
 	if err := v.validateNodeSpec(ctx, node); err != nil {
