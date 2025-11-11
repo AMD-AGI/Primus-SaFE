@@ -3,55 +3,78 @@ package database
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
 
 	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"gorm.io/gorm"
 )
 
-// GpuAggregationFacadeInterface 定义GPU聚合数据库操作接口
+// PaginationOptions pagination options
+type PaginationOptions struct {
+	Page           int    // Page number, starting from 1
+	PageSize       int    // Number of items per page
+	OrderBy        string // Sort field: time, utilization
+	OrderDirection string // Sort direction: asc, desc
+}
+
+// PaginatedResult pagination result
+type PaginatedResult struct {
+	Total      int64       // Total number of records
+	Page       int         // Current page number
+	PageSize   int         // Number of items per page
+	TotalPages int         // Total number of pages
+	Data       interface{} // Data list
+}
+
+// GpuAggregationFacadeInterface defines GPU aggregation database operations interface
 type GpuAggregationFacadeInterface interface {
-	// ClusterGpuHourlyStats 操作
+	// ClusterGpuHourlyStats operations
 	SaveClusterHourlyStats(ctx context.Context, stats *dbmodel.ClusterGpuHourlyStats) error
 	BatchSaveClusterHourlyStats(ctx context.Context, stats []*dbmodel.ClusterGpuHourlyStats) error
 	GetClusterHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.ClusterGpuHourlyStats, error)
+	GetClusterHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
 
-	// NamespaceGpuHourlyStats 操作
+	// NamespaceGpuHourlyStats operations
 	SaveNamespaceHourlyStats(ctx context.Context, stats *dbmodel.NamespaceGpuHourlyStats) error
 	BatchSaveNamespaceHourlyStats(ctx context.Context, stats []*dbmodel.NamespaceGpuHourlyStats) error
 	GetNamespaceHourlyStats(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*dbmodel.NamespaceGpuHourlyStats, error)
 	ListNamespaceHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.NamespaceGpuHourlyStats, error)
+	GetNamespaceHourlyStatsPaginated(ctx context.Context, namespace string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
+	ListNamespaceHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
 
-	// LabelGpuHourlyStats 操作
+	// LabelGpuHourlyStats operations
 	SaveLabelHourlyStats(ctx context.Context, stats *dbmodel.LabelGpuHourlyStats) error
 	BatchSaveLabelHourlyStats(ctx context.Context, stats []*dbmodel.LabelGpuHourlyStats) error
 	GetLabelHourlyStats(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time) ([]*dbmodel.LabelGpuHourlyStats, error)
 	ListLabelHourlyStatsByKey(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]*dbmodel.LabelGpuHourlyStats, error)
+	GetLabelHourlyStatsPaginated(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
+	ListLabelHourlyStatsByKeyPaginated(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
 
-	// GpuAllocationSnapshot 操作
+	// GpuAllocationSnapshot operations
 	SaveSnapshot(ctx context.Context, snapshot *dbmodel.GpuAllocationSnapshots) error
 	GetLatestSnapshot(ctx context.Context) (*dbmodel.GpuAllocationSnapshots, error)
 	ListSnapshots(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.GpuAllocationSnapshots, error)
 
-	// 数据清理
+	// Data cleanup
 	CleanupOldSnapshots(ctx context.Context, beforeTime time.Time) (int64, error)
 	CleanupOldHourlyStats(ctx context.Context, beforeTime time.Time) (int64, error)
 
-	// 元信息查询
+	// Metadata queries
 	GetDistinctNamespaces(ctx context.Context, startTime, endTime time.Time) ([]string, error)
 	GetDistinctDimensionKeys(ctx context.Context, dimensionType string, startTime, endTime time.Time) ([]string, error)
 	GetDistinctDimensionValues(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]string, error)
 
-	// WithCluster 方法
+	// WithCluster method
 	WithCluster(clusterName string) GpuAggregationFacadeInterface
 }
 
-// GpuAggregationFacade 实现 GpuAggregationFacadeInterface
+// GpuAggregationFacade implements GpuAggregationFacadeInterface
 type GpuAggregationFacade struct {
 	BaseFacade
 }
 
-// NewGpuAggregationFacade 创建新的 GpuAggregationFacade 实例
+// NewGpuAggregationFacade creates a new GpuAggregationFacade instance
 func NewGpuAggregationFacade() GpuAggregationFacadeInterface {
 	return &GpuAggregationFacade{}
 }
@@ -62,13 +85,13 @@ func (f *GpuAggregationFacade) WithCluster(clusterName string) GpuAggregationFac
 	}
 }
 
-// ==================== ClusterGpuHourlyStats 操作实现 ====================
+// ==================== ClusterGpuHourlyStats operations implementation ====================
 
-// SaveClusterHourlyStats 保存集群小时统计（使用 ON CONFLICT 更新）
+// SaveClusterHourlyStats saves cluster hourly statistics (using ON CONFLICT update)
 func (f *GpuAggregationFacade) SaveClusterHourlyStats(ctx context.Context, stats *dbmodel.ClusterGpuHourlyStats) error {
 	q := f.getDAL().ClusterGpuHourlyStats
 
-	// 检查是否已存在
+	// Check if already exists
 	existing, err := q.WithContext(ctx).
 		Where(q.StatHour.Eq(stats.StatHour)).
 		First()
@@ -78,22 +101,22 @@ func (f *GpuAggregationFacade) SaveClusterHourlyStats(ctx context.Context, stats
 	}
 
 	if existing != nil {
-		// 更新现有记录
+		// Update existing record
 		stats.ID = existing.ID
 		return q.WithContext(ctx).Save(stats)
 	}
 
-	// 创建新记录
+	// Create new record
 	return q.WithContext(ctx).Create(stats)
 }
 
-// BatchSaveClusterHourlyStats 批量保存集群小时统计
+// BatchSaveClusterHourlyStats batch saves cluster hourly statistics
 func (f *GpuAggregationFacade) BatchSaveClusterHourlyStats(ctx context.Context, stats []*dbmodel.ClusterGpuHourlyStats) error {
 	if len(stats) == 0 {
 		return nil
 	}
 
-	// 使用事务批量插入
+	// Use transaction for batch insert
 	return f.getDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, stat := range stats {
 			if err := f.SaveClusterHourlyStats(ctx, stat); err != nil {
@@ -104,7 +127,7 @@ func (f *GpuAggregationFacade) BatchSaveClusterHourlyStats(ctx context.Context, 
 	})
 }
 
-// GetClusterHourlyStats 查询集群小时统计
+// GetClusterHourlyStats queries cluster hourly statistics
 func (f *GpuAggregationFacade) GetClusterHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.ClusterGpuHourlyStats, error) {
 	q := f.getDAL().ClusterGpuHourlyStats
 
@@ -124,13 +147,13 @@ func (f *GpuAggregationFacade) GetClusterHourlyStats(ctx context.Context, startT
 	return result, nil
 }
 
-// ==================== NamespaceGpuHourlyStats 操作实现 ====================
+// ==================== NamespaceGpuHourlyStats operations implementation ====================
 
-// SaveNamespaceHourlyStats 保存 namespace 小时统计
+// SaveNamespaceHourlyStats saves namespace hourly statistics
 func (f *GpuAggregationFacade) SaveNamespaceHourlyStats(ctx context.Context, stats *dbmodel.NamespaceGpuHourlyStats) error {
 	q := f.getDAL().NamespaceGpuHourlyStats
 
-	// 检查是否已存在
+	// Check if already exists
 	existing, err := q.WithContext(ctx).
 		Where(q.Namespace.Eq(stats.Namespace)).
 		Where(q.StatHour.Eq(stats.StatHour)).
@@ -141,22 +164,22 @@ func (f *GpuAggregationFacade) SaveNamespaceHourlyStats(ctx context.Context, sta
 	}
 
 	if existing != nil {
-		// 更新现有记录
+		// Update existing record
 		stats.ID = existing.ID
 		return q.WithContext(ctx).Save(stats)
 	}
 
-	// 创建新记录
+	// Create new record
 	return q.WithContext(ctx).Create(stats)
 }
 
-// BatchSaveNamespaceHourlyStats 批量保存 namespace 小时统计
+// BatchSaveNamespaceHourlyStats batch saves namespace hourly statistics
 func (f *GpuAggregationFacade) BatchSaveNamespaceHourlyStats(ctx context.Context, stats []*dbmodel.NamespaceGpuHourlyStats) error {
 	if len(stats) == 0 {
 		return nil
 	}
 
-	// 使用事务批量插入
+	// Use transaction for batch insert
 	return f.getDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, stat := range stats {
 			if err := f.SaveNamespaceHourlyStats(ctx, stat); err != nil {
@@ -167,7 +190,7 @@ func (f *GpuAggregationFacade) BatchSaveNamespaceHourlyStats(ctx context.Context
 	})
 }
 
-// GetNamespaceHourlyStats 查询特定 namespace 的小时统计
+// GetNamespaceHourlyStats queries hourly statistics for specific namespace
 func (f *GpuAggregationFacade) GetNamespaceHourlyStats(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*dbmodel.NamespaceGpuHourlyStats, error) {
 	q := f.getDAL().NamespaceGpuHourlyStats
 
@@ -188,7 +211,7 @@ func (f *GpuAggregationFacade) GetNamespaceHourlyStats(ctx context.Context, name
 	return result, nil
 }
 
-// ListNamespaceHourlyStats 查询所有 namespace 的小时统计
+// ListNamespaceHourlyStats queries hourly statistics for all namespaces
 func (f *GpuAggregationFacade) ListNamespaceHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.NamespaceGpuHourlyStats, error) {
 	q := f.getDAL().NamespaceGpuHourlyStats
 
@@ -209,13 +232,13 @@ func (f *GpuAggregationFacade) ListNamespaceHourlyStats(ctx context.Context, sta
 	return result, nil
 }
 
-// ==================== LabelGpuHourlyStats 操作实现 ====================
+// ==================== LabelGpuHourlyStats operations implementation ====================
 
-// SaveLabelHourlyStats 保存 label/annotation 小时统计
+// SaveLabelHourlyStats saves label/annotation hourly statistics
 func (f *GpuAggregationFacade) SaveLabelHourlyStats(ctx context.Context, stats *dbmodel.LabelGpuHourlyStats) error {
 	q := f.getDAL().LabelGpuHourlyStats
 
-	// 检查是否已存在
+	// Check if already exists
 	existing, err := q.WithContext(ctx).
 		Where(q.DimensionType.Eq(stats.DimensionType)).
 		Where(q.DimensionKey.Eq(stats.DimensionKey)).
@@ -228,22 +251,22 @@ func (f *GpuAggregationFacade) SaveLabelHourlyStats(ctx context.Context, stats *
 	}
 
 	if existing != nil {
-		// 更新现有记录
+		// Update existing record
 		stats.ID = existing.ID
 		return q.WithContext(ctx).Save(stats)
 	}
 
-	// 创建新记录
+	// Create new record
 	return q.WithContext(ctx).Create(stats)
 }
 
-// BatchSaveLabelHourlyStats 批量保存 label/annotation 小时统计
+// BatchSaveLabelHourlyStats batch saves label/annotation hourly statistics
 func (f *GpuAggregationFacade) BatchSaveLabelHourlyStats(ctx context.Context, stats []*dbmodel.LabelGpuHourlyStats) error {
 	if len(stats) == 0 {
 		return nil
 	}
 
-	// 使用事务批量插入
+	// Use transaction for batch insert
 	return f.getDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, stat := range stats {
 			if err := f.SaveLabelHourlyStats(ctx, stat); err != nil {
@@ -254,7 +277,7 @@ func (f *GpuAggregationFacade) BatchSaveLabelHourlyStats(ctx context.Context, st
 	})
 }
 
-// GetLabelHourlyStats 查询特定维度的小时统计
+// GetLabelHourlyStats queries hourly statistics for specific dimension
 func (f *GpuAggregationFacade) GetLabelHourlyStats(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time) ([]*dbmodel.LabelGpuHourlyStats, error) {
 	q := f.getDAL().LabelGpuHourlyStats
 
@@ -277,7 +300,7 @@ func (f *GpuAggregationFacade) GetLabelHourlyStats(ctx context.Context, dimensio
 	return result, nil
 }
 
-// ListLabelHourlyStatsByKey 查询特定 key 的所有 value 的小时统计
+// ListLabelHourlyStatsByKey queries hourly statistics for all values of specific key
 func (f *GpuAggregationFacade) ListLabelHourlyStatsByKey(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]*dbmodel.LabelGpuHourlyStats, error) {
 	q := f.getDAL().LabelGpuHourlyStats
 
@@ -300,15 +323,15 @@ func (f *GpuAggregationFacade) ListLabelHourlyStatsByKey(ctx context.Context, di
 	return result, nil
 }
 
-// ==================== GpuAllocationSnapshot 操作实现 ====================
+// ==================== GpuAllocationSnapshot operations implementation ====================
 
-// SaveSnapshot 保存 GPU 分配快照
+// SaveSnapshot saves GPU allocation snapshot
 func (f *GpuAggregationFacade) SaveSnapshot(ctx context.Context, snapshot *dbmodel.GpuAllocationSnapshots) error {
 	q := f.getDAL().GpuAllocationSnapshots
 	return q.WithContext(ctx).Create(snapshot)
 }
 
-// GetLatestSnapshot 获取最新的快照
+// GetLatestSnapshot gets the latest snapshot
 func (f *GpuAggregationFacade) GetLatestSnapshot(ctx context.Context) (*dbmodel.GpuAllocationSnapshots, error) {
 	q := f.getDAL().GpuAllocationSnapshots
 
@@ -330,7 +353,7 @@ func (f *GpuAggregationFacade) GetLatestSnapshot(ctx context.Context) (*dbmodel.
 	return result, nil
 }
 
-// ListSnapshots 查询指定时间范围的快照
+// ListSnapshots queries snapshots within specified time range
 func (f *GpuAggregationFacade) ListSnapshots(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.GpuAllocationSnapshots, error) {
 	q := f.getDAL().GpuAllocationSnapshots
 
@@ -350,9 +373,9 @@ func (f *GpuAggregationFacade) ListSnapshots(ctx context.Context, startTime, end
 	return result, nil
 }
 
-// ==================== 数据清理操作实现 ====================
+// ==================== Data cleanup operations implementation ====================
 
-// CleanupOldSnapshots 清理指定时间之前的快照
+// CleanupOldSnapshots cleans up snapshots before specified time
 func (f *GpuAggregationFacade) CleanupOldSnapshots(ctx context.Context, beforeTime time.Time) (int64, error) {
 	q := f.getDAL().GpuAllocationSnapshots
 
@@ -367,11 +390,11 @@ func (f *GpuAggregationFacade) CleanupOldSnapshots(ctx context.Context, beforeTi
 	return result.RowsAffected, nil
 }
 
-// CleanupOldHourlyStats 清理指定时间之前的小时统计
+// CleanupOldHourlyStats cleans up hourly statistics before specified time
 func (f *GpuAggregationFacade) CleanupOldHourlyStats(ctx context.Context, beforeTime time.Time) (int64, error) {
 	totalDeleted := int64(0)
 
-	// 清理集群统计
+	// Clean up cluster statistics
 	clusterQ := f.getDAL().ClusterGpuHourlyStats
 	clusterResult, err := clusterQ.WithContext(ctx).
 		Where(clusterQ.StatHour.Lt(beforeTime)).
@@ -381,7 +404,7 @@ func (f *GpuAggregationFacade) CleanupOldHourlyStats(ctx context.Context, before
 	}
 	totalDeleted += clusterResult.RowsAffected
 
-	// 清理 namespace 统计
+	// Clean up namespace statistics
 	namespaceQ := f.getDAL().NamespaceGpuHourlyStats
 	namespaceResult, err := namespaceQ.WithContext(ctx).
 		Where(namespaceQ.StatHour.Lt(beforeTime)).
@@ -391,7 +414,7 @@ func (f *GpuAggregationFacade) CleanupOldHourlyStats(ctx context.Context, before
 	}
 	totalDeleted += namespaceResult.RowsAffected
 
-	// 清理 label 统计
+	// Clean up label statistics
 	labelQ := f.getDAL().LabelGpuHourlyStats
 	labelResult, err := labelQ.WithContext(ctx).
 		Where(labelQ.StatHour.Lt(beforeTime)).
@@ -404,9 +427,9 @@ func (f *GpuAggregationFacade) CleanupOldHourlyStats(ctx context.Context, before
 	return totalDeleted, nil
 }
 
-// ==================== 元信息查询操作实现 ====================
+// ==================== Metadata query operations implementation ====================
 
-// GetDistinctNamespaces 获取指定时间范围内的所有不重复namespace
+// GetDistinctNamespaces gets all distinct namespaces within specified time range
 func (f *GpuAggregationFacade) GetDistinctNamespaces(ctx context.Context, startTime, endTime time.Time) ([]string, error) {
 	q := f.getDAL().NamespaceGpuHourlyStats
 
@@ -427,7 +450,7 @@ func (f *GpuAggregationFacade) GetDistinctNamespaces(ctx context.Context, startT
 	return namespaces, nil
 }
 
-// GetDistinctDimensionKeys 获取指定时间范围内的所有不重复dimension keys
+// GetDistinctDimensionKeys gets all distinct dimension keys within specified time range
 func (f *GpuAggregationFacade) GetDistinctDimensionKeys(ctx context.Context, dimensionType string, startTime, endTime time.Time) ([]string, error) {
 	q := f.getDAL().LabelGpuHourlyStats
 
@@ -449,7 +472,7 @@ func (f *GpuAggregationFacade) GetDistinctDimensionKeys(ctx context.Context, dim
 	return keys, nil
 }
 
-// GetDistinctDimensionValues 获取指定时间范围内某个dimension key的所有不重复values
+// GetDistinctDimensionValues gets all distinct values for a dimension key within specified time range
 func (f *GpuAggregationFacade) GetDistinctDimensionValues(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time) ([]string, error) {
 	q := f.getDAL().LabelGpuHourlyStats
 
@@ -470,4 +493,324 @@ func (f *GpuAggregationFacade) GetDistinctDimensionValues(ctx context.Context, d
 	}
 
 	return values, nil
+}
+
+// ==================== Pagination query operations implementation ====================
+
+// calculatePagination calculates pagination parameters
+func calculatePagination(page, pageSize int, total int64) (offset int, limit int, totalPages int) {
+	// Set default values
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20 // Default 20 items per page
+	}
+	if pageSize > 1000 {
+		pageSize = 1000 // Maximum 1000 items
+	}
+
+	// Calculate offset and total pages
+	offset = (page - 1) * pageSize
+	limit = pageSize
+	totalPages = int(math.Ceil(float64(total) / float64(pageSize)))
+
+	return offset, limit, totalPages
+}
+
+// GetClusterHourlyStatsPaginated queries cluster hourly statistics with pagination
+func (f *GpuAggregationFacade) GetClusterHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error) {
+	q := f.getDAL().ClusterGpuHourlyStats
+
+	// Query total count
+	total, err := q.WithContext(ctx).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Count()
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate pagination parameters
+	offset, limit, totalPages := calculatePagination(opts.Page, opts.PageSize, total)
+
+	// Build query with pagination
+	baseQuery := q.WithContext(ctx).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Offset(offset).
+		Limit(limit)
+
+	// Apply sorting
+	var result []*dbmodel.ClusterGpuHourlyStats
+	if opts.OrderBy == "utilization" {
+		if opts.OrderDirection == "desc" {
+			result, err = baseQuery.Order(q.AvgUtilization.Desc()).Find()
+		} else {
+			result, err = baseQuery.Order(q.AvgUtilization).Find()
+		}
+	} else {
+		// Default sort by time
+		if opts.OrderDirection == "desc" {
+			result, err = baseQuery.Order(q.StatHour.Desc()).Find()
+		} else {
+			result, err = baseQuery.Order(q.StatHour).Find()
+		}
+	}
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			result = []*dbmodel.ClusterGpuHourlyStats{}
+		} else {
+			return nil, err
+		}
+	}
+
+	return &PaginatedResult{
+		Total:      total,
+		Page:       opts.Page,
+		PageSize:   opts.PageSize,
+		TotalPages: totalPages,
+		Data:       result,
+	}, nil
+}
+
+// GetNamespaceHourlyStatsPaginated queries hourly statistics for specific namespace with pagination
+func (f *GpuAggregationFacade) GetNamespaceHourlyStatsPaginated(ctx context.Context, namespace string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error) {
+	q := f.getDAL().NamespaceGpuHourlyStats
+
+	// Query total count
+	total, err := q.WithContext(ctx).
+		Where(q.Namespace.Eq(namespace)).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Count()
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate pagination parameters
+	offset, limit, totalPages := calculatePagination(opts.Page, opts.PageSize, total)
+
+	// Build base query with pagination
+	baseQuery := q.WithContext(ctx).
+		Where(q.Namespace.Eq(namespace)).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Offset(offset).
+		Limit(limit)
+
+	// Apply sorting
+	var result []*dbmodel.NamespaceGpuHourlyStats
+	if opts.OrderBy == "utilization" {
+		if opts.OrderDirection == "desc" {
+			result, err = baseQuery.Order(q.AvgUtilization.Desc()).Find()
+		} else {
+			result, err = baseQuery.Order(q.AvgUtilization).Find()
+		}
+	} else {
+		// Default sort by time
+		if opts.OrderDirection == "desc" {
+			result, err = baseQuery.Order(q.StatHour.Desc()).Find()
+		} else {
+			result, err = baseQuery.Order(q.StatHour).Find()
+		}
+	}
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			result = []*dbmodel.NamespaceGpuHourlyStats{}
+		} else {
+			return nil, err
+		}
+	}
+
+	return &PaginatedResult{
+		Total:      total,
+		Page:       opts.Page,
+		PageSize:   opts.PageSize,
+		TotalPages: totalPages,
+		Data:       result,
+	}, nil
+}
+
+// ListNamespaceHourlyStatsPaginated queries hourly statistics for all namespaces with pagination
+func (f *GpuAggregationFacade) ListNamespaceHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error) {
+	q := f.getDAL().NamespaceGpuHourlyStats
+
+	// Query total count
+	total, err := q.WithContext(ctx).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Count()
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate pagination parameters
+	offset, limit, totalPages := calculatePagination(opts.Page, opts.PageSize, total)
+
+	// Build base query with pagination
+	baseQuery := q.WithContext(ctx).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Offset(offset).
+		Limit(limit)
+
+	// Apply sorting
+	var result []*dbmodel.NamespaceGpuHourlyStats
+	if opts.OrderBy == "utilization" {
+		if opts.OrderDirection == "desc" {
+			result, err = baseQuery.Order(q.AvgUtilization.Desc()).Find()
+		} else {
+			result, err = baseQuery.Order(q.AvgUtilization).Find()
+		}
+	} else {
+		// Default sort by time
+		if opts.OrderDirection == "desc" {
+			result, err = baseQuery.Order(q.StatHour.Desc()).Find()
+		} else {
+			result, err = baseQuery.Order(q.StatHour).Find()
+		}
+	}
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			result = []*dbmodel.NamespaceGpuHourlyStats{}
+		} else {
+			return nil, err
+		}
+	}
+
+	return &PaginatedResult{
+		Total:      total,
+		Page:       opts.Page,
+		PageSize:   opts.PageSize,
+		TotalPages: totalPages,
+		Data:       result,
+	}, nil
+}
+
+// GetLabelHourlyStatsPaginated queries hourly statistics for specific dimension with pagination
+func (f *GpuAggregationFacade) GetLabelHourlyStatsPaginated(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error) {
+	q := f.getDAL().LabelGpuHourlyStats
+
+	// Query total count
+	total, err := q.WithContext(ctx).
+		Where(q.DimensionType.Eq(dimensionType)).
+		Where(q.DimensionKey.Eq(dimensionKey)).
+		Where(q.DimensionValue.Eq(dimensionValue)).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Count()
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate pagination parameters
+	offset, limit, totalPages := calculatePagination(opts.Page, opts.PageSize, total)
+
+	// Build base query with pagination
+	baseQuery := q.WithContext(ctx).
+		Where(q.DimensionType.Eq(dimensionType)).
+		Where(q.DimensionKey.Eq(dimensionKey)).
+		Where(q.DimensionValue.Eq(dimensionValue)).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Offset(offset).
+		Limit(limit)
+
+	// Apply sorting
+	var result []*dbmodel.LabelGpuHourlyStats
+	if opts.OrderBy == "utilization" {
+		if opts.OrderDirection == "desc" {
+			result, err = baseQuery.Order(q.AvgUtilization.Desc()).Find()
+		} else {
+			result, err = baseQuery.Order(q.AvgUtilization).Find()
+		}
+	} else {
+		// Default sort by time
+		if opts.OrderDirection == "desc" {
+			result, err = baseQuery.Order(q.StatHour.Desc()).Find()
+		} else {
+			result, err = baseQuery.Order(q.StatHour).Find()
+		}
+	}
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			result = []*dbmodel.LabelGpuHourlyStats{}
+		} else {
+			return nil, err
+		}
+	}
+
+	return &PaginatedResult{
+		Total:      total,
+		Page:       opts.Page,
+		PageSize:   opts.PageSize,
+		TotalPages: totalPages,
+		Data:       result,
+	}, nil
+}
+
+// ListLabelHourlyStatsByKeyPaginated queries hourly statistics for all values of specific key with pagination
+func (f *GpuAggregationFacade) ListLabelHourlyStatsByKeyPaginated(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error) {
+	q := f.getDAL().LabelGpuHourlyStats
+
+	// Query total count
+	total, err := q.WithContext(ctx).
+		Where(q.DimensionType.Eq(dimensionType)).
+		Where(q.DimensionKey.Eq(dimensionKey)).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Count()
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate pagination parameters
+	offset, limit, totalPages := calculatePagination(opts.Page, opts.PageSize, total)
+
+	// Build base query with pagination
+	baseQuery := q.WithContext(ctx).
+		Where(q.DimensionType.Eq(dimensionType)).
+		Where(q.DimensionKey.Eq(dimensionKey)).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Offset(offset).
+		Limit(limit)
+
+	// Apply sorting
+	var result []*dbmodel.LabelGpuHourlyStats
+	if opts.OrderBy == "utilization" {
+		if opts.OrderDirection == "desc" {
+			result, err = baseQuery.Order(q.AvgUtilization.Desc()).Find()
+		} else {
+			result, err = baseQuery.Order(q.AvgUtilization).Find()
+		}
+	} else {
+		// Default sort by time
+		if opts.OrderDirection == "desc" {
+			result, err = baseQuery.Order(q.StatHour.Desc()).Find()
+		} else {
+			result, err = baseQuery.Order(q.StatHour).Find()
+		}
+	}
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			result = []*dbmodel.LabelGpuHourlyStats{}
+		} else {
+			return nil, err
+		}
+	}
+
+	return &PaginatedResult{
+		Total:      total,
+		Page:       opts.Page,
+		PageSize:   opts.PageSize,
+		TotalPages: totalPages,
+		Data:       result,
+	}, nil
 }

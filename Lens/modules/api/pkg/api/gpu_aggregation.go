@@ -6,70 +6,94 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
-	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 	"github.com/gin-gonic/gin"
 )
 
-// ClusterHourlyStatsRequest 集群小时统计查询请求
+// ClusterHourlyStatsRequest cluster hourly statistics query request
 type ClusterHourlyStatsRequest struct {
-	StartTime string `form:"start_time" binding:"required"` // RFC3339 格式
-	EndTime   string `form:"end_time" binding:"required"`   // RFC3339 格式
+	StartTime      string `form:"start_time" binding:"required"`                       // RFC3339 format
+	EndTime        string `form:"end_time" binding:"required"`                         // RFC3339 format
+	Page           int    `form:"page" binding:"omitempty,min=1"`                      // Page number, starting from 1
+	PageSize       int    `form:"page_size" binding:"omitempty,min=1,max=1000"`        // Items per page, maximum 1000
+	OrderBy        string `form:"order_by" binding:"omitempty,oneof=time utilization"` // Sort field: time or utilization
+	OrderDirection string `form:"order_direction" binding:"omitempty,oneof=asc desc"`  // Sort direction: asc or desc
 }
 
-// NamespaceHourlyStatsRequest namespace小时统计查询请求
+// NamespaceHourlyStatsRequest namespace hourly statistics query request
 type NamespaceHourlyStatsRequest struct {
-	Namespace string `form:"namespace"`                     // 可选,为空则查询所有namespace
-	StartTime string `form:"start_time" binding:"required"` // RFC3339 格式
-	EndTime   string `form:"end_time" binding:"required"`   // RFC3339 格式
+	Namespace      string `form:"namespace"`                                           // Optional, query all namespaces if empty
+	StartTime      string `form:"start_time" binding:"required"`                       // RFC3339 format
+	EndTime        string `form:"end_time" binding:"required"`                         // RFC3339 format
+	Page           int    `form:"page" binding:"omitempty,min=1"`                      // Page number, starting from 1
+	PageSize       int    `form:"page_size" binding:"omitempty,min=1,max=1000"`        // Items per page, maximum 1000
+	OrderBy        string `form:"order_by" binding:"omitempty,oneof=time utilization"` // Sort field: time or utilization
+	OrderDirection string `form:"order_direction" binding:"omitempty,oneof=asc desc"`  // Sort direction: asc or desc
 }
 
-// LabelHourlyStatsRequest label/annotation小时统计查询请求
+// LabelHourlyStatsRequest label/annotation hourly statistics query request
 type LabelHourlyStatsRequest struct {
-	DimensionType  string `form:"dimension_type" binding:"required,oneof=label annotation"` // label 或 annotation
+	DimensionType  string `form:"dimension_type" binding:"required,oneof=label annotation"` // label or annotation
 	DimensionKey   string `form:"dimension_key" binding:"required"`                         // label key
-	DimensionValue string `form:"dimension_value"`                                          // 可选,为空则查询该key的所有value
-	StartTime      string `form:"start_time" binding:"required"`                            // RFC3339 格式
-	EndTime        string `form:"end_time" binding:"required"`                              // RFC3339 格式
+	DimensionValue string `form:"dimension_value"`                                          // Optional, query all values for this key if empty
+	StartTime      string `form:"start_time" binding:"required"`                            // RFC3339 format
+	EndTime        string `form:"end_time" binding:"required"`                              // RFC3339 format
+	Page           int    `form:"page" binding:"omitempty,min=1"`                           // Page number, starting from 1
+	PageSize       int    `form:"page_size" binding:"omitempty,min=1,max=1000"`             // Items per page, maximum 1000
+	OrderBy        string `form:"order_by" binding:"omitempty,oneof=time utilization"`      // Sort field: time or utilization
+	OrderDirection string `form:"order_direction" binding:"omitempty,oneof=asc desc"`       // Sort direction: asc or desc
 }
 
-// SnapshotsRequest 快照查询请求
+// SnapshotsRequest snapshot query request
 type SnapshotsRequest struct {
-	StartTime string `form:"start_time"` // RFC3339 格式,可选
-	EndTime   string `form:"end_time"`   // RFC3339 格式,可选
+	StartTime string `form:"start_time"` // RFC3339 format, optional
+	EndTime   string `form:"end_time"`   // RFC3339 format, optional
 }
 
-// MetadataTimeRangeRequest 元信息时间范围查询请求
+// PaginatedResponse paginated response
+type PaginatedResponse struct {
+	Total      int64       `json:"total"`       // Total number of records
+	Page       int         `json:"page"`        // Current page number
+	PageSize   int         `json:"page_size"`   // Items per page
+	TotalPages int         `json:"total_pages"` // Total number of pages
+	Data       interface{} `json:"data"`        // Data list
+}
+
+// MetadataTimeRangeRequest metadata time range query request
 type MetadataTimeRangeRequest struct {
-	StartTime string `form:"start_time" binding:"required"` // RFC3339 格式
-	EndTime   string `form:"end_time" binding:"required"`   // RFC3339 格式
+	StartTime string `form:"start_time" binding:"required"` // RFC3339 format
+	EndTime   string `form:"end_time" binding:"required"`   // RFC3339 format
 }
 
-// DimensionKeysRequest 维度key查询请求
+// DimensionKeysRequest dimension keys query request
 type DimensionKeysRequest struct {
-	DimensionType string `form:"dimension_type" binding:"required,oneof=label annotation"` // label 或 annotation
-	StartTime     string `form:"start_time" binding:"required"`                            // RFC3339 格式
-	EndTime       string `form:"end_time" binding:"required"`                              // RFC3339 格式
+	DimensionType string `form:"dimension_type" binding:"required,oneof=label annotation"` // label or annotation
+	StartTime     string `form:"start_time" binding:"required"`                            // RFC3339 format
+	EndTime       string `form:"end_time" binding:"required"`                              // RFC3339 format
 }
 
-// DimensionValuesRequest 维度value查询请求
+// DimensionValuesRequest dimension values query request
 type DimensionValuesRequest struct {
-	DimensionType string `form:"dimension_type" binding:"required,oneof=label annotation"` // label 或 annotation
+	DimensionType string `form:"dimension_type" binding:"required,oneof=label annotation"` // label or annotation
 	DimensionKey  string `form:"dimension_key" binding:"required"`                         // dimension key
-	StartTime     string `form:"start_time" binding:"required"`                            // RFC3339 格式
-	EndTime       string `form:"end_time" binding:"required"`                              // RFC3339 格式
+	StartTime     string `form:"start_time" binding:"required"`                            // RFC3339 format
+	EndTime       string `form:"end_time" binding:"required"`                              // RFC3339 format
 }
 
-// getClusterHourlyStats 查询集群级别小时统计
-// @Summary 查询集群GPU小时统计
-// @Tags GPU聚合
+// getClusterHourlyStats queries cluster-level hourly statistics
+// @Summary Query cluster GPU hourly statistics
+// @Tags GPU Aggregation
 // @Accept json
 // @Produce json
-// @Param cluster query string false "集群名称"
-// @Param start_time query string true "开始时间 (RFC3339格式)"
-// @Param end_time query string true "结束时间 (RFC3339格式)"
-// @Success 200 {object} rest.Response{data=[]dbmodel.ClusterGpuHourlyStats}
+// @Param cluster query string false "Cluster name"
+// @Param start_time query string true "Start time (RFC3339 format)"
+// @Param end_time query string true "End time (RFC3339 format)"
+// @Param page query int false "Page number, starting from 1"
+// @Param page_size query int false "Items per page, default 20, maximum 1000"
+// @Param order_by query string false "Sort field (time or utilization)"
+// @Param order_direction query string false "Sort direction (asc or desc)"
+// @Success 200 {object} rest.Response{data=PaginatedResponse}
 // @Router /gpu-aggregation/cluster/hourly-stats [get]
 func getClusterHourlyStats(ctx *gin.Context) {
 	var req ClusterHourlyStatsRequest
@@ -78,7 +102,7 @@ func getClusterHourlyStats(ctx *gin.Context) {
 		return
 	}
 
-	// 解析时间
+	// Parse time
 	startTime, err := time.Parse(time.RFC3339, req.StartTime)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid))
@@ -91,7 +115,7 @@ func getClusterHourlyStats(ctx *gin.Context) {
 		return
 	}
 
-	// 获取集群客户端
+	// Get cluster client
 	cm := clientsets.GetClusterManager()
 	clusterName := ctx.Query("cluster")
 	clients, err := cm.GetClusterClientsOrDefault(clusterName)
@@ -100,27 +124,48 @@ func getClusterHourlyStats(ctx *gin.Context) {
 		return
 	}
 
-	// 查询数据
-	stats, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
-		GetClusterHourlyStats(ctx, startTime, endTime)
+	// Build pagination options
+	opts := database.PaginationOptions{
+		Page:           req.Page,
+		PageSize:       req.PageSize,
+		OrderBy:        req.OrderBy,
+		OrderDirection: req.OrderDirection,
+	}
+
+	// Query data
+	result, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
+		GetClusterHourlyStatsPaginated(ctx, startTime, endTime, opts)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Failed to get cluster hourly stats", errors.CodeDatabaseError))
 		return
 	}
 
-	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, stats))
+	// Build response
+	response := PaginatedResponse{
+		Total:      result.Total,
+		Page:       result.Page,
+		PageSize:   result.PageSize,
+		TotalPages: result.TotalPages,
+		Data:       result.Data,
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, response))
 }
 
-// getNamespaceHourlyStats 查询namespace级别小时统计
-// @Summary 查询Namespace GPU小时统计
-// @Tags GPU聚合
+// getNamespaceHourlyStats queries namespace-level hourly statistics
+// @Summary Query namespace GPU hourly statistics
+// @Tags GPU Aggregation
 // @Accept json
 // @Produce json
-// @Param cluster query string false "集群名称"
-// @Param namespace query string false "命名空间名称(可选,为空则查询所有)"
-// @Param start_time query string true "开始时间 (RFC3339格式)"
-// @Param end_time query string true "结束时间 (RFC3339格式)"
-// @Success 200 {object} rest.Response{data=[]dbmodel.NamespaceGpuHourlyStats}
+// @Param cluster query string false "Cluster name"
+// @Param namespace query string false "Namespace name (optional, query all if empty)"
+// @Param start_time query string true "Start time (RFC3339 format)"
+// @Param end_time query string true "End time (RFC3339 format)"
+// @Param page query int false "Page number, starting from 1"
+// @Param page_size query int false "Items per page, default 20, maximum 1000"
+// @Param order_by query string false "Sort field (time or utilization)"
+// @Param order_direction query string false "Sort direction (asc or desc)"
+// @Success 200 {object} rest.Response{data=PaginatedResponse}
 // @Router /gpu-aggregation/namespaces/hourly-stats [get]
 func getNamespaceHourlyStats(ctx *gin.Context) {
 	var req NamespaceHourlyStatsRequest
@@ -129,7 +174,7 @@ func getNamespaceHourlyStats(ctx *gin.Context) {
 		return
 	}
 
-	// 解析时间
+	// Parse time
 	startTime, err := time.Parse(time.RFC3339, req.StartTime)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid))
@@ -142,7 +187,7 @@ func getNamespaceHourlyStats(ctx *gin.Context) {
 		return
 	}
 
-	// 获取集群客户端
+	// Get cluster client
 	cm := clientsets.GetClusterManager()
 	clusterName := ctx.Query("cluster")
 	clients, err := cm.GetClusterClientsOrDefault(clusterName)
@@ -151,16 +196,24 @@ func getNamespaceHourlyStats(ctx *gin.Context) {
 		return
 	}
 
-	// 查询数据
-	var stats []*dbmodel.NamespaceGpuHourlyStats
+	// Build pagination options
+	opts := database.PaginationOptions{
+		Page:           req.Page,
+		PageSize:       req.PageSize,
+		OrderBy:        req.OrderBy,
+		OrderDirection: req.OrderDirection,
+	}
+
+	// Query data
+	var result *database.PaginatedResult
 	facade := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation()
 
 	if req.Namespace != "" {
-		// 查询特定namespace
-		stats, err = facade.GetNamespaceHourlyStats(ctx, req.Namespace, startTime, endTime)
+		// Query specific namespace
+		result, err = facade.GetNamespaceHourlyStatsPaginated(ctx, req.Namespace, startTime, endTime, opts)
 	} else {
-		// 查询所有namespace
-		stats, err = facade.ListNamespaceHourlyStats(ctx, startTime, endTime)
+		// Query all namespaces
+		result, err = facade.ListNamespaceHourlyStatsPaginated(ctx, startTime, endTime, opts)
 	}
 
 	if err != nil {
@@ -168,21 +221,34 @@ func getNamespaceHourlyStats(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, stats))
+	// Build response
+	response := PaginatedResponse{
+		Total:      result.Total,
+		Page:       result.Page,
+		PageSize:   result.PageSize,
+		TotalPages: result.TotalPages,
+		Data:       result.Data,
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, response))
 }
 
-// getLabelHourlyStats 查询label/annotation级别小时统计
-// @Summary 查询Label/Annotation GPU小时统计
-// @Tags GPU聚合
+// getLabelHourlyStats queries label/annotation-level hourly statistics
+// @Summary Query label/annotation GPU hourly statistics
+// @Tags GPU Aggregation
 // @Accept json
 // @Produce json
-// @Param cluster query string false "集群名称"
-// @Param dimension_type query string true "维度类型 (label或annotation)"
-// @Param dimension_key query string true "维度key"
-// @Param dimension_value query string false "维度value(可选,为空则查询该key的所有value)"
-// @Param start_time query string true "开始时间 (RFC3339格式)"
-// @Param end_time query string true "结束时间 (RFC3339格式)"
-// @Success 200 {object} rest.Response{data=[]dbmodel.LabelGpuHourlyStats}
+// @Param cluster query string false "Cluster name"
+// @Param dimension_type query string true "Dimension type (label or annotation)"
+// @Param dimension_key query string true "Dimension key"
+// @Param dimension_value query string false "Dimension value (optional, query all values for this key if empty)"
+// @Param start_time query string true "Start time (RFC3339 format)"
+// @Param end_time query string true "End time (RFC3339 format)"
+// @Param page query int false "Page number, starting from 1"
+// @Param page_size query int false "Items per page, default 20, maximum 1000"
+// @Param order_by query string false "Sort field (time or utilization)"
+// @Param order_direction query string false "Sort direction (asc or desc)"
+// @Success 200 {object} rest.Response{data=PaginatedResponse}
 // @Router /gpu-aggregation/labels/hourly-stats [get]
 func getLabelHourlyStats(ctx *gin.Context) {
 	var req LabelHourlyStatsRequest
@@ -191,7 +257,7 @@ func getLabelHourlyStats(ctx *gin.Context) {
 		return
 	}
 
-	// 解析时间
+	// Parse time
 	startTime, err := time.Parse(time.RFC3339, req.StartTime)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid))
@@ -204,7 +270,7 @@ func getLabelHourlyStats(ctx *gin.Context) {
 		return
 	}
 
-	// 获取集群客户端
+	// Get cluster client
 	cm := clientsets.GetClusterManager()
 	clusterName := ctx.Query("cluster")
 	clients, err := cm.GetClusterClientsOrDefault(clusterName)
@@ -213,18 +279,26 @@ func getLabelHourlyStats(ctx *gin.Context) {
 		return
 	}
 
-	// 查询数据
-	var stats []*dbmodel.LabelGpuHourlyStats
+	// Build pagination options
+	opts := database.PaginationOptions{
+		Page:           req.Page,
+		PageSize:       req.PageSize,
+		OrderBy:        req.OrderBy,
+		OrderDirection: req.OrderDirection,
+	}
+
+	// Query data
+	var result *database.PaginatedResult
 	facade := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation()
 
 	if req.DimensionValue != "" {
-		// 查询特定dimension value
-		stats, err = facade.GetLabelHourlyStats(ctx, req.DimensionType,
-			req.DimensionKey, req.DimensionValue, startTime, endTime)
+		// Query specific dimension value
+		result, err = facade.GetLabelHourlyStatsPaginated(ctx, req.DimensionType,
+			req.DimensionKey, req.DimensionValue, startTime, endTime, opts)
 	} else {
-		// 查询该key的所有value
-		stats, err = facade.ListLabelHourlyStatsByKey(ctx, req.DimensionType,
-			req.DimensionKey, startTime, endTime)
+		// Query all values for this key
+		result, err = facade.ListLabelHourlyStatsByKeyPaginated(ctx, req.DimensionType,
+			req.DimensionKey, startTime, endTime, opts)
 	}
 
 	if err != nil {
@@ -232,19 +306,28 @@ func getLabelHourlyStats(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, stats))
+	// Build response
+	response := PaginatedResponse{
+		Total:      result.Total,
+		Page:       result.Page,
+		PageSize:   result.PageSize,
+		TotalPages: result.TotalPages,
+		Data:       result.Data,
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, response))
 }
 
-// getLatestSnapshot 获取最新的GPU分配快照
-// @Summary 获取最新的GPU分配快照
-// @Tags GPU聚合
+// getLatestSnapshot gets the latest GPU allocation snapshot
+// @Summary Get latest GPU allocation snapshot
+// @Tags GPU Aggregation
 // @Accept json
 // @Produce json
-// @Param cluster query string false "集群名称"
+// @Param cluster query string false "Cluster name"
 // @Success 200 {object} rest.Response{data=dbmodel.GpuAllocationSnapshots}
 // @Router /gpu-aggregation/snapshots/latest [get]
 func getLatestSnapshot(ctx *gin.Context) {
-	// 获取集群客户端
+	// Get cluster client
 	cm := clientsets.GetClusterManager()
 	clusterName := ctx.Query("cluster")
 	clients, err := cm.GetClusterClientsOrDefault(clusterName)
@@ -253,7 +336,7 @@ func getLatestSnapshot(ctx *gin.Context) {
 		return
 	}
 
-	// 查询最新快照
+	// Query latest snapshot
 	snapshot, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
 		GetLatestSnapshot(ctx)
 	if err != nil {
@@ -269,14 +352,14 @@ func getLatestSnapshot(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, snapshot))
 }
 
-// listSnapshots 查询历史快照列表
-// @Summary 查询GPU分配快照历史
-// @Tags GPU聚合
+// listSnapshots queries historical snapshot list
+// @Summary Query GPU allocation snapshot history
+// @Tags GPU Aggregation
 // @Accept json
 // @Produce json
-// @Param cluster query string false "集群名称"
-// @Param start_time query string false "开始时间 (RFC3339格式,可选)"
-// @Param end_time query string false "结束时间 (RFC3339格式,可选)"
+// @Param cluster query string false "Cluster name"
+// @Param start_time query string false "Start time (RFC3339 format, optional)"
+// @Param end_time query string false "End time (RFC3339 format, optional)"
 // @Success 200 {object} rest.Response{data=[]dbmodel.GpuAllocationSnapshots}
 // @Router /gpu-aggregation/snapshots [get]
 func listSnapshots(ctx *gin.Context) {
@@ -286,7 +369,7 @@ func listSnapshots(ctx *gin.Context) {
 		return
 	}
 
-	// 获取集群客户端
+	// Get cluster client
 	cm := clientsets.GetClusterManager()
 	clusterName := ctx.Query("cluster")
 	clients, err := cm.GetClusterClientsOrDefault(clusterName)
@@ -295,11 +378,11 @@ func listSnapshots(ctx *gin.Context) {
 		return
 	}
 
-	// 默认查询最近24小时
+	// Default query last 24 hours
 	endTime := time.Now()
 	startTime := endTime.Add(-24 * time.Hour)
 
-	// 如果提供了时间参数,使用提供的时间
+	// If time parameters are provided, use them
 	if req.StartTime != "" {
 		startTime, err = time.Parse(time.RFC3339, req.StartTime)
 		if err != nil {
@@ -316,7 +399,7 @@ func listSnapshots(ctx *gin.Context) {
 		}
 	}
 
-	// 查询快照列表
+	// Query snapshot list
 	snapshots, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
 		ListSnapshots(ctx, startTime, endTime)
 	if err != nil {
@@ -327,9 +410,9 @@ func listSnapshots(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, snapshots))
 }
 
-// getClusters 获取所有集群列表
-// @Summary 获取集群列表
-// @Tags GPU聚合
+// getClusters gets all cluster list
+// @Summary Get cluster list
+// @Tags GPU Aggregation
 // @Accept json
 // @Produce json
 // @Success 200 {object} rest.Response{data=[]string}
@@ -341,14 +424,14 @@ func getClusters(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, clusterNames))
 }
 
-// getNamespaces 获取指定时间范围内的namespace列表
-// @Summary 获取Namespace列表
-// @Tags GPU聚合
+// getNamespaces gets namespace list within specified time range
+// @Summary Get namespace list
+// @Tags GPU Aggregation
 // @Accept json
 // @Produce json
-// @Param cluster query string false "集群名称"
-// @Param start_time query string true "开始时间 (RFC3339格式)"
-// @Param end_time query string true "结束时间 (RFC3339格式)"
+// @Param cluster query string false "Cluster name"
+// @Param start_time query string true "Start time (RFC3339 format)"
+// @Param end_time query string true "End time (RFC3339 format)"
 // @Success 200 {object} rest.Response{data=[]string}
 // @Router /gpu-aggregation/namespaces [get]
 func getNamespaces(ctx *gin.Context) {
@@ -358,7 +441,7 @@ func getNamespaces(ctx *gin.Context) {
 		return
 	}
 
-	// 解析时间
+	// Parse time
 	startTime, err := time.Parse(time.RFC3339, req.StartTime)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid))
@@ -371,7 +454,7 @@ func getNamespaces(ctx *gin.Context) {
 		return
 	}
 
-	// 获取集群客户端
+	// Get cluster client
 	cm := clientsets.GetClusterManager()
 	clusterName := ctx.Query("cluster")
 	clients, err := cm.GetClusterClientsOrDefault(clusterName)
@@ -380,7 +463,7 @@ func getNamespaces(ctx *gin.Context) {
 		return
 	}
 
-	// 查询数据
+	// Query data
 	namespaces, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
 		GetDistinctNamespaces(ctx, startTime, endTime)
 	if err != nil {
@@ -391,15 +474,15 @@ func getNamespaces(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, namespaces))
 }
 
-// getDimensionKeys 获取指定时间范围内的dimension keys列表
-// @Summary 获取Label/Annotation Key列表
-// @Tags GPU聚合
+// getDimensionKeys gets dimension keys list within specified time range
+// @Summary Get label/annotation key list
+// @Tags GPU Aggregation
 // @Accept json
 // @Produce json
-// @Param cluster query string false "集群名称"
-// @Param dimension_type query string true "维度类型 (label或annotation)"
-// @Param start_time query string true "开始时间 (RFC3339格式)"
-// @Param end_time query string true "结束时间 (RFC3339格式)"
+// @Param cluster query string false "Cluster name"
+// @Param dimension_type query string true "Dimension type (label or annotation)"
+// @Param start_time query string true "Start time (RFC3339 format)"
+// @Param end_time query string true "End time (RFC3339 format)"
 // @Success 200 {object} rest.Response{data=[]string}
 // @Router /gpu-aggregation/dimension-keys [get]
 func getDimensionKeys(ctx *gin.Context) {
@@ -409,7 +492,7 @@ func getDimensionKeys(ctx *gin.Context) {
 		return
 	}
 
-	// 解析时间
+	// Parse time
 	startTime, err := time.Parse(time.RFC3339, req.StartTime)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid))
@@ -422,7 +505,7 @@ func getDimensionKeys(ctx *gin.Context) {
 		return
 	}
 
-	// 获取集群客户端
+	// Get cluster client
 	cm := clientsets.GetClusterManager()
 	clusterName := ctx.Query("cluster")
 	clients, err := cm.GetClusterClientsOrDefault(clusterName)
@@ -431,7 +514,7 @@ func getDimensionKeys(ctx *gin.Context) {
 		return
 	}
 
-	// 查询数据
+	// Query data
 	keys, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
 		GetDistinctDimensionKeys(ctx, req.DimensionType, startTime, endTime)
 	if err != nil {
@@ -442,16 +525,16 @@ func getDimensionKeys(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, keys))
 }
 
-// getDimensionValues 获取指定时间范围内某个dimension key的values列表
-// @Summary 获取Label/Annotation Value列表
-// @Tags GPU聚合
+// getDimensionValues gets values list for a dimension key within specified time range
+// @Summary Get label/annotation value list
+// @Tags GPU Aggregation
 // @Accept json
 // @Produce json
-// @Param cluster query string false "集群名称"
-// @Param dimension_type query string true "维度类型 (label或annotation)"
-// @Param dimension_key query string true "维度key"
-// @Param start_time query string true "开始时间 (RFC3339格式)"
-// @Param end_time query string true "结束时间 (RFC3339格式)"
+// @Param cluster query string false "Cluster name"
+// @Param dimension_type query string true "Dimension type (label or annotation)"
+// @Param dimension_key query string true "Dimension key"
+// @Param start_time query string true "Start time (RFC3339 format)"
+// @Param end_time query string true "End time (RFC3339 format)"
 // @Success 200 {object} rest.Response{data=[]string}
 // @Router /gpu-aggregation/dimension-values [get]
 func getDimensionValues(ctx *gin.Context) {
@@ -461,7 +544,7 @@ func getDimensionValues(ctx *gin.Context) {
 		return
 	}
 
-	// 解析时间
+	// Parse time
 	startTime, err := time.Parse(time.RFC3339, req.StartTime)
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid))
@@ -474,7 +557,7 @@ func getDimensionValues(ctx *gin.Context) {
 		return
 	}
 
-	// 获取集群客户端
+	// Get cluster client
 	cm := clientsets.GetClusterManager()
 	clusterName := ctx.Query("cluster")
 	clients, err := cm.GetClusterClientsOrDefault(clusterName)
@@ -483,7 +566,7 @@ func getDimensionValues(ctx *gin.Context) {
 		return
 	}
 
-	// 查询数据
+	// Query data
 	values, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
 		GetDistinctDimensionValues(ctx, req.DimensionType, req.DimensionKey, startTime, endTime)
 	if err != nil {
