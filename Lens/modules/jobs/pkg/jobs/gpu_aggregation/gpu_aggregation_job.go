@@ -45,6 +45,7 @@ type GpuSnapshot struct {
 	NamespaceData  map[string]*NamespaceGpuData
 	LabelData      map[string]map[string]*LabelGpuData // labelKey -> labelValue -> data
 	AnnotationData map[string]map[string]*LabelGpuData // annotationKey -> annotationValue -> data
+	WorkloadData   map[string]*WorkloadGpuData         // workloadUID -> data
 }
 
 // NamespaceGpuData Namespace维度的GPU数据
@@ -64,6 +65,23 @@ type LabelGpuData struct {
 	AllocatedGPU   int
 	UtilizationSum float64
 	WorkloadCount  int
+}
+
+// WorkloadGpuData Workload维度的GPU数据
+type WorkloadGpuData struct {
+	WorkloadUID       string
+	WorkloadName      string
+	Namespace         string
+	WorkloadType      string
+	Labels            map[string]interface{}
+	Annotations       map[string]interface{}
+	RequestedGPU      int
+	AllocatedGPU      int
+	UtilizationValues []float64 // 每个采样点的使用率
+	ReplicaCount      int       // Pod数量
+	WorkloadStatus    string
+	OwnerUID          string
+	OwnerName         string
 }
 
 // NewGpuAggregationJob 创建新的聚合Job
@@ -174,6 +192,7 @@ func (j *GpuAggregationJob) sample(ctx context.Context,
 		NamespaceData:  make(map[string]*NamespaceGpuData),
 		LabelData:      make(map[string]map[string]*LabelGpuData),
 		AnnotationData: make(map[string]map[string]*LabelGpuData),
+		WorkloadData:   make(map[string]*WorkloadGpuData),
 	}
 
 	// 1. 从数据库获取集群GPU总容量
@@ -233,6 +252,9 @@ func (j *GpuAggregationJob) sample(ctx context.Context,
 
 		// 6. 收集annotation维度数据
 		j.collectAnnotationDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+
+		// 7. 收集workload维度数据
+		j.collectWorkloadDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
 	}
 
 	snapshot.AllocatedGPU = allocatedGPU
@@ -413,6 +435,56 @@ func (j *GpuAggregationJob) collectAnnotationDataFromDB(
 	}
 }
 
+// collectWorkloadDataFromDB 从数据库收集workload维度的数据
+func (j *GpuAggregationJob) collectWorkloadDataFromDB(
+	snapshot *GpuSnapshot,
+	dbPod *dbmodel.GpuPods,
+	workload *dbmodel.GpuWorkload,
+	gpuRequest int,
+	utilization float64) {
+
+	if workload == nil {
+		// 如果没有workload信息，无法收集
+		return
+	}
+
+	// Only collect top-level workloads (workloads without parent)
+	if workload.ParentUID != "" {
+		return
+	}
+
+	// 检查是否需要排除该namespace
+	if j.shouldExcludeNamespace(dbPod.Namespace) {
+		return
+	}
+
+	workloadUID := workload.UID
+	wData, exists := snapshot.WorkloadData[workloadUID]
+	if !exists {
+		wData = &WorkloadGpuData{
+			WorkloadUID:       workload.UID,
+			WorkloadName:      workload.Name,
+			Namespace:         workload.Namespace,
+			WorkloadType:      workload.Kind,
+			Labels:            workload.Labels,
+			Annotations:       workload.Annotations,
+			RequestedGPU:      0,
+			AllocatedGPU:      0,
+			UtilizationValues: make([]float64, 0),
+			ReplicaCount:      0,
+			WorkloadStatus:    workload.Status,
+			OwnerUID:          workload.ParentUID, // 使用ParentUID作为OwnerUID
+			OwnerName:         "",                 // GpuWorkload没有OwnerName字段
+		}
+		snapshot.WorkloadData[workloadUID] = wData
+	}
+
+	wData.AllocatedGPU += gpuRequest
+	wData.RequestedGPU += gpuRequest // 假设requested和allocated相同
+	wData.UtilizationValues = append(wData.UtilizationValues, utilization)
+	wData.ReplicaCount++ // 每个Pod计为一个replica
+}
+
 // shouldExcludeNamespace 判断是否应该排除该namespace
 func (j *GpuAggregationJob) shouldExcludeNamespace(namespace string) bool {
 	if !j.config.Dimensions.Namespace.Enabled {
@@ -510,6 +582,15 @@ func (j *GpuAggregationJob) aggregateHourlyData(
 		labelStats := j.aggregateLabelStats(clusterName, hour)
 		if err := j.saveLabelStats(ctx, labelStats); err != nil {
 			log.Errorf("Failed to save label/annotation stats: %v", err)
+			return err
+		}
+	}
+
+	// 4. 聚合workload级别数据
+	if j.config.Dimensions.Workload.Enabled {
+		workloadStats := j.aggregateWorkloadStats(clusterName, hour)
+		if err := j.saveWorkloadStats(ctx, workloadStats); err != nil {
+			log.Errorf("Failed to save workload stats: %v", err)
 			return err
 		}
 	}
@@ -753,6 +834,126 @@ func (j *GpuAggregationJob) aggregateLabelStats(
 	return results
 }
 
+// aggregateWorkloadStats 聚合workload级别统计
+func (j *GpuAggregationJob) aggregateWorkloadStats(
+	clusterName string,
+	hour time.Time) []*dbmodel.WorkloadGpuHourlyStats {
+
+	// workloadUID -> aggregate
+	workloadAggregates := make(map[string]*workloadAggregate)
+
+	// 遍历所有快照，聚合相同workload的数据
+	for _, snapshot := range j.snapshotCache {
+		for workloadUID, data := range snapshot.WorkloadData {
+			agg, exists := workloadAggregates[workloadUID]
+			if !exists {
+				agg = &workloadAggregate{
+					workloadUID:       workloadUID,
+					workloadName:      data.WorkloadName,
+					namespace:         data.Namespace,
+					workloadType:      data.WorkloadType,
+					labels:            data.Labels,
+					annotations:       data.Annotations,
+					allocatedSum:      0,
+					requestedSum:      0,
+					utilizationValues: make([]float64, 0),
+					replicaCounts:     make([]int, 0),
+					workloadStatus:    data.WorkloadStatus,
+					ownerUID:          data.OwnerUID,
+					ownerName:         data.OwnerName,
+				}
+				workloadAggregates[workloadUID] = agg
+			}
+
+			agg.allocatedSum += data.AllocatedGPU
+			agg.requestedSum += data.RequestedGPU
+			agg.replicaCounts = append(agg.replicaCounts, data.ReplicaCount)
+
+			// 合并该workload在该快照中的使用率数据
+			agg.utilizationValues = append(agg.utilizationValues, data.UtilizationValues...)
+		}
+	}
+
+	// 转换为数据库模型
+	results := make([]*dbmodel.WorkloadGpuHourlyStats, 0, len(workloadAggregates))
+	count := float64(len(j.snapshotCache))
+
+	for _, agg := range workloadAggregates {
+		stats := &dbmodel.WorkloadGpuHourlyStats{
+			ClusterName:       clusterName,
+			Namespace:         agg.namespace,
+			WorkloadName:      agg.workloadName,
+			WorkloadType:      agg.workloadType,
+			StatHour:          hour,
+			AllocatedGpuCount: float64(agg.allocatedSum) / count,
+			RequestedGpuCount: float64(agg.requestedSum) / count,
+			WorkloadStatus:    agg.workloadStatus,
+			SampleCount:       int32(len(agg.utilizationValues)),
+			OwnerUID:          agg.ownerUID,
+			OwnerName:         agg.ownerName,
+		}
+
+		// 转换labels和annotations为ExtType
+		if agg.labels != nil {
+			stats.Labels = dbmodel.ExtType(agg.labels)
+		} else {
+			stats.Labels = dbmodel.ExtType{}
+		}
+
+		if agg.annotations != nil {
+			stats.Annotations = dbmodel.ExtType(agg.annotations)
+		} else {
+			stats.Annotations = dbmodel.ExtType{}
+		}
+
+		// 计算使用率统计
+		sort.Float64s(agg.utilizationValues)
+		if len(agg.utilizationValues) > 0 {
+			stats.MinUtilization = agg.utilizationValues[0]
+			stats.MaxUtilization = agg.utilizationValues[len(agg.utilizationValues)-1]
+			stats.P50Utilization = calculatePercentile(agg.utilizationValues, 0.50)
+			stats.P95Utilization = calculatePercentile(agg.utilizationValues, 0.95)
+
+			utilizationSum := 0.0
+			for _, v := range agg.utilizationValues {
+				utilizationSum += v
+			}
+			stats.AvgUtilization = utilizationSum / float64(len(agg.utilizationValues))
+		}
+
+		// 计算replica统计
+		if len(agg.replicaCounts) > 0 {
+			replicaSum := 0
+			maxReplica := 0
+			minReplica := agg.replicaCounts[0]
+
+			for _, r := range agg.replicaCounts {
+				replicaSum += r
+				if r > maxReplica {
+					maxReplica = r
+				}
+				if r < minReplica {
+					minReplica = r
+				}
+			}
+
+			stats.AvgReplicaCount = float64(replicaSum) / float64(len(agg.replicaCounts))
+			stats.MaxReplicaCount = int32(maxReplica)
+			stats.MinReplicaCount = int32(minReplica)
+		}
+
+		// TODO: 添加GPU内存相关统计（需要从Prometheus查询）
+		// 暂时设置为0
+		stats.AvgGpuMemoryUsed = 0
+		stats.MaxGpuMemoryUsed = 0
+		stats.AvgGpuMemoryTotal = 0
+
+		results = append(results, stats)
+	}
+
+	return results
+}
+
 // 辅助结构体
 type namespaceAggregate struct {
 	namespace         string
@@ -768,6 +969,22 @@ type labelAggregate struct {
 	allocatedSum      int
 	utilizationValues []float64
 	workloadCountSum  int
+}
+
+type workloadAggregate struct {
+	workloadUID       string
+	workloadName      string
+	namespace         string
+	workloadType      string
+	labels            map[string]interface{}
+	annotations       map[string]interface{}
+	allocatedSum      int
+	requestedSum      int
+	utilizationValues []float64
+	replicaCounts     []int
+	workloadStatus    string
+	ownerUID          string
+	ownerName         string
 }
 
 // saveClusterStats 保存集群级别统计到数据库
@@ -835,6 +1052,25 @@ func (j *GpuAggregationJob) saveLabelStats(
 	}
 
 	log.Infof("Saved %d label/annotation stats records", len(stats))
+
+	return nil
+}
+
+// saveWorkloadStats 保存workload级别统计到数据库
+func (j *GpuAggregationJob) saveWorkloadStats(
+	ctx context.Context,
+	stats []*dbmodel.WorkloadGpuHourlyStats) error {
+
+	if len(stats) == 0 {
+		return nil
+	}
+
+	facade := database.GetFacade().GetGpuAggregation()
+	if err := facade.BatchSaveWorkloadHourlyStats(ctx, stats); err != nil {
+		return fmt.Errorf("failed to save workload stats: %w", err)
+	}
+
+	log.Infof("Saved %d workload stats records", len(stats))
 
 	return nil
 }
@@ -1153,6 +1389,8 @@ func InitDefaultConfig(ctx context.Context, clusterName string) error {
 	defaultConfig.Dimensions.Label.LabelKeys = []string{"app", "team", "env"}
 	defaultConfig.Dimensions.Label.AnnotationKeys = []string{"project", "cost-center"}
 	defaultConfig.Dimensions.Label.DefaultValue = "unknown"
+
+	defaultConfig.Dimensions.Workload.Enabled = true
 
 	// Prometheus配置
 	defaultConfig.Prometheus.WorkloadUtilizationQuery = `avg(dcgm_gpu_utilization{pod_uid="%s"})`

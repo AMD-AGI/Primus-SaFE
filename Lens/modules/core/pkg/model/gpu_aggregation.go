@@ -234,6 +234,10 @@ type GpuAggregationConfig struct {
 			AnnotationKeys []string `json:"annotation_keys"` // 要聚合的annotation keys
 			DefaultValue   string   `json:"default_value"`
 		} `json:"label"`
+
+		Workload struct {
+			Enabled bool `json:"enabled"`
+		} `json:"workload"`
 	} `json:"dimensions"`
 
 	Retention struct {
