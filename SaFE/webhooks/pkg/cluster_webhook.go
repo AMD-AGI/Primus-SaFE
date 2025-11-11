@@ -117,7 +117,7 @@ func (v *ClusterValidator) validateOnCreation(ctx context.Context, cluster *v1.C
 	if err := v.validateControlPlane(ctx, cluster); err != nil {
 		return err
 	}
-	if err := validateLabels(cluster); err != nil {
+	if err := validateLabels(cluster.GetLabels()); err != nil {
 		return err
 	}
 	return nil
@@ -188,7 +188,7 @@ func (v *ClusterValidator) validateOnUpdate(newCluster, oldCluster *v1.Cluster) 
 	if err := v.validateImmutableFields(newCluster, oldCluster); err != nil {
 		return err
 	}
-	if err := validateLabels(newCluster); err != nil {
+	if err := validateLabels(newCluster.GetLabels()); err != nil {
 		return err
 	}
 	return nil

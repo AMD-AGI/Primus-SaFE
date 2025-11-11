@@ -109,8 +109,8 @@ func validateLabelKey(name string) error {
 
 // validateLabels ensures labels are valid.
 // For keys containing '/', splits by '/' and validates each part separately.
-func validateLabels(obj metav1.Object) error {
-	for key := range obj.GetLabels() {
+func validateLabels(labels map[string]string) error {
+	for key := range labels {
 		// If key contains '/', split it and validate each part
 		parts := strings.Split(key, "/")
 		// Only allow one '/' - exactly 2 parts
