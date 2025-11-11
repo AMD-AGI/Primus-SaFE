@@ -475,6 +475,27 @@ Get operation logs for node joining/leaving cluster.
 }
 ```
 
+### 7. Batch Delete nodes
+
+Delete multiple nodes in batch.
+
+**Endpoint**: `POST /api/v1/nodes/delete`
+
+**Authentication Required**: Yes
+
+**Request Parameters**:
+
+```json
+{
+  "nodeIds": [
+    "node-001",
+    "node-002"
+  ]
+}
+```
+
+**Response**: 200 OK with no response body
+
 ---
 
 ### 9. Export Node
