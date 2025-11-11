@@ -48,7 +48,7 @@ type ListWorkloadRequest struct {
 	Offset int `form:"offset" binding:"omitempty,min=0"`
 	// Limit the number of returned results. default 100
 	Limit int `form:"limit" binding:"omitempty,min=1"`
-	// Sort field. default create_time
+	// Sort field. default creation_time
 	SortBy string `form:"sortBy" binding:"omitempty"`
 	// Sort order: desc/asc, default desc
 	Order string `form:"order" binding:"omitempty,oneof=desc asc"`
@@ -98,13 +98,15 @@ type WorkloadResponseItem struct {
 	EndTime string `json:"endTime"`
 	// Workload deletion time (RFC3339Short)
 	DeletionTime string `json:"deletionTime"`
-	// Workload run time, Calculated from the start time. e.g. 1h2m3s or 1h15s
-	RunTime string `json:"runtime"`
+	// Duration represents the total execution time of the workload.
+	// It is calculated from the start time to the end time (or current time if still running).
+	// Format examples: "1h2m3s" (1 hour, 2 minutes, 3 seconds) or "1h15s" (1 hour, 15 seconds)
+	Duration string `json:"duration"`
 	// Seconds remaining before workload timeout. Only applicable if a timeout is set.
 	// Seconds remaining until timeout, calculated from the start time. If it has not yet started, return -1
 	SecondsUntilTimeout int64 `json:"secondsUntilTimeout"`
 	// Show the queue position of the workload if it is pending.
-	SchedulerOrder int `json:"schedulerOrder"`
+	QueuePosition int `json:"queuePosition"`
 	// Number of dispatch attempts
 	DispatchCount int `json:"dispatchCount"`
 	// Whether to tolerate all node taints

@@ -360,7 +360,8 @@ func (v *OpsJobValidator) validateDumplog(ctx context.Context, job *v1.OpsJob) e
 		}
 		if v.hasDuplicateInput(job.Spec.Inputs, currentJob.Spec.Inputs, v1.ParameterWorkload) {
 			return commonerrors.NewResourceProcessing(
-				fmt.Sprintf("another ops job (%s) is running, job.type: %s", currentJob.Name, currentJob.Spec.Type))
+				fmt.Sprintf("another ops job (%s) with type %s is processing,"+
+					" please wait for it to complete", currentJob.Name, currentJob.Spec.Type))
 		}
 	}
 	return nil

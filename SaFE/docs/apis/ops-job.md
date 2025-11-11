@@ -119,7 +119,7 @@ Notes:
 |-----------|------|----------|------------------------------------------------------------|
 | offset | int | No | Pagination offset, default 0                               |
 | limit | int | No | Records per page, default 100                              |
-| sortBy | string | No | Sort field, default create_time                            |
+| sortBy | string | No | Sort field, default creationTime                           |
 | order | string | No | Sort order: desc/asc, default desc                         |
 | since | string | No | Start time (RFC3339 with milliseconds); default until-720h |
 | until | string | No | End time (RFC3339 with milliseconds); default now          |

@@ -1,0 +1,14 @@
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: {{ .Release.Name }}-apiserver-ssh
+  namespace: {{ .Release.Namespace }}
+spec:
+  parentRefs:
+    - name: ssh-gateway
+      namespace: higress-system
+      port: 2222
+  rules:
+    - backendRefs:
+        - name: {{ .Release.Name }}-apiserver
+          port: {{ default 2222 (default .Values.ssh).port }}

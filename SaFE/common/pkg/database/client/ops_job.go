@@ -26,7 +26,7 @@ var (
 		SET inputs = :inputs,
 		    start_time = :start_time,
 		    end_time = :end_time,
-		    delete_time = :delete_time,
+		    deletion_time = :deletion_time,
 		    phase = :phase,
 		    conditions = :conditions,
 		    env = :env,
@@ -63,23 +63,11 @@ func (c *Client) UpsertJob(ctx context.Context, job *OpsJob) error {
 }
 
 // SelectJobs performs the SelectJobs operation.
-func (c *Client) SelectJobs(ctx context.Context, query sqrl.Sqlizer, sortBy, order string, limit, offset int) ([]*OpsJob, error) {
+func (c *Client) SelectJobs(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*OpsJob, error) {
 	db, err := c.getDB()
 	if err != nil {
 		return nil, err
 	}
-	orderBy := func() []string {
-		var results []string
-		if sortBy == "" || order == "" {
-			return results
-		}
-		if order == DESC {
-			results = append(results, fmt.Sprintf("%s desc", sortBy))
-		} else {
-			results = append(results, fmt.Sprintf("%s asc", sortBy))
-		}
-		return results
-	}()
 	sql, args, err := sqrl.Select("*").PlaceholderFormat(sqrl.Dollar).
 		From(TOpsJob).
 		Where(query).

@@ -263,6 +263,9 @@ func (v *NodeValidator) validateCommon(ctx context.Context, node *v1.Node) error
 	if err := validateDisplayName(v1.GetDisplayName(node)); err != nil {
 		return err
 	}
+	if err := validateLabels(node.GetLabels()); err != nil {
+		return err
+	}
 	if err := v.validateNodeSpec(ctx, node); err != nil {
 		return err
 	}
@@ -339,6 +342,9 @@ func (v *NodeValidator) validateNodeTaints(node *v1.Node) error {
 			return commonerrors.NewBadRequest(
 				fmt.Sprintf("invalid taint effect. key: %s, unsupported: %s, supported: %v",
 					t.Key, t.Effect, SupportedTaintEffect))
+		}
+		if err := validateLabelKey(t.Key); err != nil {
+			return err
 		}
 		taintSet.Insert(t.Key)
 	}

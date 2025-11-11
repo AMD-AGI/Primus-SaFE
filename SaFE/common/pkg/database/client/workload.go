@@ -36,8 +36,8 @@ var (
 		    conditions = :conditions,
 		    start_time = :start_time,
 		    end_time = :end_time,
-		    delete_time = :delete_time,
-		    scheduler_order = :scheduler_order,
+		    deletion_time = :deletion_time,
+		    queue_position = :queue_position,
 		    env = :env,
 		    description = :description,
 		    pods = :pods,
@@ -154,7 +154,7 @@ func (c *Client) SetWorkloadStopped(ctx context.Context, workloadId string) erro
 		return err
 	}
 	nowTime := dbutils.NullMetaV1Time(&metav1.Time{Time: time.Now().UTC()})
-	cmd := fmt.Sprintf(`UPDATE %s SET phase='%s', end_time=$2, delete_time=$3 WHERE workload_id=$1`,
+	cmd := fmt.Sprintf(`UPDATE %s SET phase='%s', end_time=$2, deletion_time=$3 WHERE workload_id=$1`,
 		TWorkload, v1.WorkloadStopped)
 	_, err = db.ExecContext(ctx, cmd, workloadId, nowTime, nowTime)
 	if err != nil {

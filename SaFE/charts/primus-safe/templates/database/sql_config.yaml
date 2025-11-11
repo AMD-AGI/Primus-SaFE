@@ -31,16 +31,16 @@ data:
         gvk VARCHAR(128) not null,
         phase VARCHAR(128),
         username VARCHAR(128),
-        create_time TIMESTAMP,
+        creation_time TIMESTAMP,
         start_time TIMESTAMP,
         end_time TIMESTAMP,
-        delete_time TIMESTAMP,
+        deletion_time TIMESTAMP,
         is_supervised boolean,
         is_deleted boolean,
         is_tolerate_all boolean,
         priority INT,
         max_retry INT,
-        scheduler_order INT,
+        queue_position INT,
         dispatch_count int,
         ttl_second int,
         timeout int,
@@ -57,9 +57,9 @@ data:
     );
 
     create index if not exists T_WORKLOAD_ID_INDEX on workload (workload_id);
-    create index if not exists T_WORKLOAD_CREATE_TIME_INDEX  on workload (create_time);
     create index if not exists T_WORKLOAD_DISPATCH_CNT_INDEX on workload (dispatch_count);
     create index if not exists T_WORKLOAD_WORKSPACE_INDEX on workload (workspace);
+    create index if not exists T_WORKLOAD_CREATION_TIME_INDEX on workload (creation_time);
     create index if not exists T_WORKLOAD_ENDTIME_INDEX on workload (end_time);
 
     alter table workload add column if not exists user_id VARCHAR(64);
@@ -78,14 +78,14 @@ data:
         action VARCHAR(16),
         phase VARCHAR(16),
         cluster VARCHAR(64),
-        create_time TIMESTAMP,
+        creation_time TIMESTAMP,
         update_time TIMESTAMP,
-        delete_time TIMESTAMP,
+        deletion_time TIMESTAMP,
         is_auto_repaired boolean
     );
 
-    create index if not exists T_FAULT_CREATE_TIME_INDEX on fault (create_time);
     create index if not exists T_FAULT_UUID_INDEX on fault (uid);
+    create index if not exists T_FAULT_CREATION_TIME_INDEX on fault (creation_time);
 
     create table if not exists ops_job
     (
@@ -97,10 +97,10 @@ data:
         timeout int,
         user_name VARCHAR(128),
         workspace VARCHAR(64),
-        create_time TIMESTAMP,
+        creation_time TIMESTAMP,
         start_time TIMESTAMP,
         end_time TIMESTAMP,
-        delete_time TIMESTAMP,
+        deletion_time TIMESTAMP,
         phase VARCHAR(64),
         conditions TEXT,
         outputs TEXT,
@@ -108,9 +108,9 @@ data:
     );
 
     create index if not exists T_JOB_ID_INDEX on ops_job (job_id);
-    create index if not exists T_JOB_CREATE_TIME_INDEX on ops_job (create_time);
     create index if not exists T_JOB_PHASE_INDEX on ops_job (phase);
     create index if not exists T_JOB_PARAMS_INDEX on ops_job (inputs);
+    create index if not exists T_JOB_CREATION_TIME_INDEX on ops_job (creation_time);
 
     alter table ops_job add column if not exists env TEXT;
     alter table ops_job add column if not exists user_id VARCHAR(64);

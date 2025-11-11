@@ -14,7 +14,7 @@
 
 ## Overview
 
-Primus-SaFE is AMD's comprehensive, full-stack platform designed to address the critical challenges of multi-node AI training on AMD GPU clusters. Training large AI models demands unwavering stability and robust debugging capabilities at cluster scale, yet today's ROCm-based multi-node GPU deployments often rely on brittle scripts and disjointed tools to launch distributed jobs, monitor performance, and recover from failures.
+[Primus-SaFE](https://rocm.blogs.amd.com/software-tools-optimization/primus-SaFE/README.html) is AMD's comprehensive, full-stack platform designed to address the critical challenges of multi-node AI training on AMD GPU clusters. Training large AI models demands unwavering stability and robust debugging capabilities at cluster scale, yet today's ROCm-based multi-node GPU deployments often rely on brittle scripts and disjointed tools to launch distributed jobs, monitor performance, and recover from failures.
 
 Primus-SaFE transforms a collection of AMD GPU servers into a resilient, self-monitoring environment for next-generation model training by automating everything from cluster provisioning and intelligent job scheduling to real-time monitoring and hardware health validation. Running atop Kubernetes and integrated with the ROCm software stack, it provides:
 
@@ -26,6 +26,16 @@ Primus-SaFE transforms a collection of AMD GPU servers into a resilient, self-mo
 
 ---
 
+## 🧩 Primus Product Matrix
+
+|    Module    | Role | Key Features | Dependencies / Integration |
+|--------------|------|--------------|-----------------------------|
+| [**Primus-LM**](https://github.com/AMD-AGI/Primus)         | End-to-end training framework | - Supports multiple training backends (Megatron, TorchTitan, etc.)<br>- Provides high-performance, scalable distributed training<br>- Deeply integrates with Turbo and SaFE | - Can invoke Primus-Turbo kernels and modules<br>- Runs on top of Primus-SaFE for stable scheduling |
+| [**Primus-Turbo**](https://github.com/AMD-AGI/Primus-Turbo)         | High-performance operators & modules | - Provides common LLM training operators (FlashAttention, GEMM, Collectives, GroupedGemm, etc.)<br>- Modular design, directly pluggable into Primus-LM<br>- Optimized for different architectures and precisions | - Built on [**AITER**](https://github.com/ROCm/aiter), [**CK**](https://github.com/ROCm/composable_kernel), [**hipBLASLt**](https://github.com/ROCm/hipBLASLt), [**Triton**](https://github.com/ROCm/triton)  and other operator libraries<br>- Can be enabled via configuration inside Primus-LM |
+| [**Primus-SaFE**](https://github.com/AMD-AGI/Primus-SaFE)         | Stability & platform layer | - Cluster sanity check and benchmarking<br>- Kubernets scheduling with topology awareness<br>- Fault tolerance<br>- Stability enhancements | - Building a training platform based on the K8s and Slurm ecosystem |
+
+---
+
 ## Table of Contents
 
 - [Key Features](#key-features)
@@ -33,7 +43,7 @@ Primus-SaFE transforms a collection of AMD GPU servers into a resilient, self-mo
 - [Quick Start](#quick-start)
 - [Core Modules](#core-modules)
   - [Primus-Bootstrap](#primus-bootstrap-rapid-cluster-deployment)
-  - [Primus-SaFE Platform](#primus-safe-platform-intelligent-job-scheduling-and-fault-tolerance)
+  - [Primus-SaFE Core](#primus-safe-core-intelligent-job-scheduling-and-fault-tolerance)
   - [Primus-Lens](#primus-lens-full-stack-observability--visualization)
   - [Primus-Bench](#primus-bench-node-health-checks-and-performance-benchmarking)
   - [Scheduler Plugins](#scheduler-plugins-advanced-scheduling-capabilities)
@@ -199,11 +209,11 @@ bash bootstrap.sh
 
 ---
 
-### Primus-SaFE Platform: Intelligent Job Scheduling and Fault Tolerance
+### Primus-SaFE Core: Intelligent Job Scheduling and Fault Tolerance
 
 **Location:** [`SaFE/`](SaFE/)
 
-The Primus-SaFE Platform extends Kubernetes with AI-specific scheduling and fault tolerance capabilities to maximize throughput and reliability for long-running training jobs.
+The Primus-SaFE Core extends Kubernetes with AI-specific scheduling and fault tolerance capabilities to maximize throughput and reliability for long-running training jobs.
 
 **Core Services:**
 

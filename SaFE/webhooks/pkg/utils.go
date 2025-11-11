@@ -25,11 +25,13 @@ const (
 	WebhookPathPrefix = "amd-primus-safe-v1-"
 	DisplayNameRule   = "^[a-z][-a-z0-9\\.]{0,%d}[a-z0-9]$"
 	DNSNameRule       = "^[a-z][-a-z0-9]{0,%d}[a-z0-9]$"
-	DisplayNamePrompt = "the name must consist of 1 to %d lower case alphanumeric characters or '-' or '.'" +
-		", start with an alphabetic character, and end with an alphanumeric character"
-	DNSNamePrompt = "the name must consist of 1 to %d lower case alphanumeric characters or '-', " +
+	LabelKeyRule      = "^[a-z0-9]([a-z0-9._-]{0,%d}[a-z0-9])?$"
+	DisplayNamePrompt = "the name(%s) must consist of 1 to %d lower case alphanumeric characters or '-' or '.', " +
 		"start with an alphabetic character, and end with an alphanumeric character"
-
+	DNSNamePrompt = "the name(%s) must consist of 1 to %d lower case alphanumeric characters or '-', " +
+		"start with an alphabetic character, and end with an alphanumeric character"
+	LabelKeyPrompt = "the name(%s) must consist of 1 to %d lower case alphanumeric characters or '-' or '.' or '_', " +
+		"start and end with an alphanumeric character."
 	MinPort = 1
 	MaxPort = 65535
 )
@@ -37,9 +39,11 @@ const (
 var (
 	DisplayNameRegRule = fmt.Sprintf(DisplayNameRule, commonutils.MaxDisplayNameLen-2)
 	DNSNameRegRule     = fmt.Sprintf(DNSNameRule, commonutils.MaxDisplayNameLen-2)
+	LabelKeyRegRule    = fmt.Sprintf(LabelKeyRule, commonutils.MaxNameLength-2)
 
 	DisplayNameRegexp = regexp.MustCompile(DisplayNameRegRule)
 	DNSNameRegexp     = regexp.MustCompile(DNSNameRegRule)
+	LabelKeyRegexp    = regexp.MustCompile(LabelKeyRegRule)
 )
 
 // generateMutatePath generates the mutation webhook path for a given resource kind.
@@ -76,7 +80,7 @@ func validateDisplayName(name string) error {
 		return nil
 	}
 	if !DisplayNameRegexp.MatchString(name) {
-		return commonerrors.NewBadRequest(fmt.Sprintf(DisplayNamePrompt, commonutils.MaxDisplayNameLen))
+		return commonerrors.NewBadRequest(fmt.Sprintf(DisplayNamePrompt, name, commonutils.MaxDisplayNameLen))
 	}
 	return nil
 }
@@ -87,7 +91,37 @@ func validateDNSName(name string) error {
 		return nil
 	}
 	if !DNSNameRegexp.MatchString(name) {
-		return commonerrors.NewBadRequest(fmt.Sprintf(DNSNamePrompt, commonutils.MaxDisplayNameLen))
+		return commonerrors.NewBadRequest(fmt.Sprintf(DNSNamePrompt, name, commonutils.MaxDisplayNameLen))
+	}
+	return nil
+}
+
+// validateLabelKey validates a label key against the naming rules.
+func validateLabelKey(name string) error {
+	if name == "" {
+		return nil
+	}
+	if !LabelKeyRegexp.MatchString(name) {
+		return commonerrors.NewBadRequest(fmt.Sprintf(LabelKeyPrompt, name, commonutils.MaxNameLength))
+	}
+	return nil
+}
+
+// validateLabels ensures labels are valid.
+// For keys containing '/', splits by '/' and validates each part separately.
+func validateLabels(labels map[string]string) error {
+	for key := range labels {
+		// If key contains '/', split it and validate each part
+		parts := strings.Split(key, "/")
+		// Only allow one '/' - exactly 2 parts
+		if len(parts) > 2 {
+			return commonerrors.NewBadRequest(fmt.Sprintf(LabelKeyPrompt, key, commonutils.MaxNameLength))
+		}
+		for _, part := range parts {
+			if validateLabelKey(part) != nil {
+				return commonerrors.NewBadRequest(fmt.Sprintf(LabelKeyPrompt, key, commonutils.MaxNameLength))
+			}
+		}
 	}
 	return nil
 }

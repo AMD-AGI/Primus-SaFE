@@ -7,8 +7,10 @@ package custom_handlers
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +29,7 @@ import (
 
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -59,6 +62,13 @@ func (h *Handler) ListNode(c *gin.Context) {
 	handle(c, h.listNode)
 }
 
+// ExportNode handles exporting nodes based on query parameters.
+// Supports filtering and exporting in various formats.
+// Returns an exported file containing the nodes that match the query criteria.
+func (h *Handler) ExportNode(c *gin.Context) {
+	h.ExportNodeByQuery(c)
+}
+
 // GetNode retrieves detailed information about a specific node.
 // Authorizes access to the node and returns comprehensive node details
 // including resource usage and workload information.
@@ -89,6 +99,11 @@ func (h *Handler) GetNodePodLog(c *gin.Context) {
 // ListNodeRebootLog retrieves reboot logs from the node's management operations.
 func (h *Handler) ListNodeRebootLog(c *gin.Context) {
 	handle(c, h.listNodeRebootLog)
+}
+
+// DeleteNodes handles batch deleting of multiple nodes.
+func (h *Handler) DeleteNodes(c *gin.Context) {
+	handle(c, h.deleteNodes)
 }
 
 // createNode implements the node creation logic.
@@ -144,6 +159,91 @@ func (h *Handler) listNode(c *gin.Context) (interface{}, error) {
 		return buildListNodeBriefResponse(totalCount, nodes)
 	} else {
 		return h.buildListNodeResponse(ctx, query, totalCount, nodes)
+	}
+}
+
+// ExportNodeToCSV writes the node information to a CSV file using the provided writer (file or response stream).
+func ExportNodeToCSV(nodes *types.ListNodeResponse, writer io.Writer) error {
+	w := csv.NewWriter(writer)
+
+	if err := w.Write([]string{
+		"id", "internalIP", "workspace", "cluster", "available", "status",
+		"gpu(available/total)", "cpu(available/total)", "controlPlane",
+	}); err != nil {
+		klog.ErrorS(err, "failed to write csv header")
+		return err
+	}
+
+	for _, node := range nodes.Items {
+		var gpuAvail, gpuTotal int64
+		var cpuAvail, cpuTotal int64
+
+		if node.AvailResources != nil {
+			gpuAvail = node.AvailResources["amd.com/gpu"]
+			cpuAvail = node.AvailResources["cpu"]
+		}
+		if node.TotalResources != nil {
+			gpuTotal = node.TotalResources["amd.com/gpu"]
+			cpuTotal = node.TotalResources["cpu"]
+		}
+
+		record := []string{
+			node.NodeId,
+			node.InternalIP,
+			node.Workspace.Name,
+			node.ClusterId,
+			fmt.Sprintf("%t", node.Available),
+			node.Phase,
+			fmt.Sprintf("\t%d/%d", gpuAvail, gpuTotal),
+			fmt.Sprintf("\t%d/%d", cpuAvail, cpuTotal),
+			fmt.Sprintf("%t", node.IsControlPlane),
+		}
+
+		if err := w.Write(record); err != nil {
+			klog.ErrorS(err, "failed to write csv record", "node", node.NodeId)
+			return err
+		}
+	}
+	w.Flush()
+
+	if err := w.Error(); err != nil {
+		klog.ErrorS(err, "csv writer flush error")
+		return err
+	}
+
+	return nil
+}
+
+// ExportNodeByQuery can export nodes based on the provided query parameteres.
+func (h *Handler) ExportNodeByQuery(c *gin.Context) {
+	query, err := parseListNodeQuery(c)
+	if err != nil {
+		klog.ErrorS(err, "failed to parse query")
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	ctx := c.Request.Context()
+	query.Limit = -1 // Don't need limit.
+	totalCount, nodes, err := h.listNodeByQuery(c, query)
+	if err != nil {
+		klog.ErrorS(err, "failed to query node")
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	result, err := h.buildListNodeResponse(ctx, query, totalCount, nodes)
+	if err != nil {
+		klog.ErrorS(err, "failed to build node list")
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
+	res, _ := result.(*types.ListNodeResponse) //Don't use brief, so struct is ListNodeResponse
+	filename := fmt.Sprintf("node_list_%s.csv", time.Now().Format("20060102_150405"))
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	if err := ExportNodeToCSV(res, c.Writer); err != nil {
+		klog.ErrorS(err, "failed to export node to CSV")
+		apiutils.AbortWithApiError(c, err)
+		return
 	}
 }
 
@@ -269,7 +369,7 @@ func (h *Handler) buildListNodeResponse(ctx context.Context,
 			if i > 0 && item.Workspace.Id == result.Items[i-1].Workspace.Id {
 				item.Workspace.Name = result.Items[i-1].Workspace.Name
 			} else if item.Workspace.Name, err = h.getWorkspaceDisplayName(ctx, item.Workspace.Id); err != nil {
-				return nil, err
+				klog.ErrorS(err, "failed to get workspace display name", "workspaceId", item.Workspace.Id)
 			}
 		}
 		result.Items = append(result.Items, item)
@@ -303,7 +403,7 @@ func (h *Handler) getNode(c *gin.Context) (interface{}, error) {
 	result := cvtToGetNodeResponse(node, usedResource)
 	if result.Workspace.Id != "" {
 		if result.Workspace.Name, err = h.getWorkspaceDisplayName(ctx, result.Workspace.Id); err != nil {
-			return nil, err
+			klog.ErrorS(err, "failed to get workspace display name", "workspaceId", result.Workspace.Id)
 		}
 	}
 	return result, nil
@@ -363,8 +463,18 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 // deleteNode implements node deletion logic.
 // Ensures the node is not bound to a cluster and removes it from the system.
 func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
+	name := c.GetString(common.Name)
+	return h.deleteNodeImpl(c, name, requestUser, roles)
+}
+
+func (h *Handler) deleteNodeImpl(c *gin.Context, name string, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
 	ctx := c.Request.Context()
-	node, err := h.getAdminNode(ctx, c.GetString(common.Name))
+	node, err := h.getAdminNode(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +483,8 @@ func (h *Handler) deleteNode(c *gin.Context) (interface{}, error) {
 		Resource:   node,
 		Verb:       v1.DeleteVerb,
 		Workspaces: []string{v1.GetWorkspaceId(node)},
-		UserId:     c.GetString(common.UserId),
+		User:       requestUser,
+		Roles:      roles,
 	}); err != nil {
 		return nil, err
 	}
@@ -457,26 +568,13 @@ func (h *Handler) listNodeRebootLog(c *gin.Context) (interface{}, error) {
 	}
 
 	req := &types.ListNodeRebootLogRequest{}
-	if err := c.ShouldBindWith(req, binding.Query); err != nil {
+	if err = c.ShouldBindWith(req, binding.Query); err != nil {
 		klog.Errorf("failed to parse query err: %v", err)
 		return nil, err
 	}
 
-	dbTags := dbclient.GetOpsJobFieldTags()
-	createTime := dbclient.GetFieldTag(dbTags, "CreateTime")
-	dbSql := sqrl.And{
-		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
-		sqrl.Expr("outputs::jsonb @> ?", fmt.Sprintf(`[{"value": "%s"}]`, node.Name)),
-		sqrl.Eq{dbclient.GetFieldTag(dbTags, "type"): v1.OpsJobRebootType},
-	}
-	if !req.SinceTime.IsZero() {
-		dbSql = append(dbSql, sqrl.GtOrEq{createTime: req.SinceTime})
-	}
-	if !req.UntilTime.IsZero() {
-		dbSql = append(dbSql, sqrl.LtOrEq{createTime: req.UntilTime})
-	}
-
-	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, req.SortBy, req.Order, req.Limit, req.Offset)
+	dbSql, orderBy := cvtToListNodeRebootSql(req, node)
+	jobs, err := h.dbClient.SelectJobs(c.Request.Context(), dbSql, orderBy, req.Limit, req.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -489,9 +587,9 @@ func (h *Handler) listNodeRebootLog(c *gin.Context) (interface{}, error) {
 	}
 	for _, job := range jobs {
 		result.Items = append(result.Items, types.NodeRebootLogResponseItem{
-			UserId:     dbutils.ParseNullString(job.UserId),
-			UserName:   dbutils.ParseNullString(job.UserName),
-			CreateTime: dbutils.ParseNullTimeToString(job.CreateTime),
+			UserId:       dbutils.ParseNullString(job.UserId),
+			UserName:     dbutils.ParseNullString(job.UserName),
+			CreationTime: dbutils.ParseNullTimeToString(job.CreationTime),
 		})
 	}
 
@@ -543,12 +641,7 @@ func (h *Handler) getAllUsedResourcePerNode(ctx context.Context,
 				result[nodeName] = info
 			}
 			info.resource = quantity.AddResource(info.resource, resList)
-			info.workloads = append(info.workloads, types.WorkloadInfo{
-				Id:          w.Name,
-				Kind:        w.Spec.Kind,
-				UserId:      v1.GetUserName(w),
-				WorkspaceId: w.Spec.Workspace,
-			})
+			info.workloads = append(info.workloads, generateWorkloadInfo(w))
 		}
 	}
 	return result, nil
@@ -575,11 +668,7 @@ func (h *Handler) getUsedResource(ctx context.Context, node *v1.Node) (*resource
 			continue
 		}
 		result.resource = quantity.AddResource(result.resource, resList)
-		result.workloads = append(result.workloads, types.WorkloadInfo{
-			Id:          w.Name,
-			UserId:      v1.GetUserName(w),
-			WorkspaceId: w.Spec.Workspace,
-		})
+		result.workloads = append(result.workloads, generateWorkloadInfo(w))
 	}
 	return result, nil
 }
@@ -766,6 +855,49 @@ func (h *Handler) deleteRelatedFaults(ctx context.Context, node *v1.Node, newTai
 	return nil
 }
 
+// deleteNodes implements batch node deleting logic.
+// Processes multiple nodes deleting concurrently with error handling.
+func (h *Handler) deleteNodes(c *gin.Context) (interface{}, error) {
+	return h.handleBatchNodes(c, BatchDelete)
+}
+
+// handleBatchNodes processes batch operations on multiple nodes.
+// Supports delete actions with concurrent execution.
+func (h *Handler) handleBatchNodes(c *gin.Context, action WorkloadBatchAction) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
+
+	req := &types.BatchNodesRequest{}
+	if _, err = apiutils.ParseRequestBody(c.Request, req); err != nil {
+		return nil, err
+	}
+	count := len(req.NodeIds)
+	ch := make(chan string, count)
+	defer close(ch)
+	for _, id := range req.NodeIds {
+		ch <- id
+	}
+
+	success, err := concurrent.Exec(count, func() error {
+		nodeId := <-ch
+		var innerErr error
+		switch action {
+		case BatchDelete:
+			_, innerErr = h.deleteNodeImpl(c, nodeId, requestUser, roles)
+		default:
+			return commonerrors.NewInternalError("invalid action")
+		}
+		return innerErr
+	})
+	if success == 0 {
+		return nil, commonerrors.NewInternalError(err.Error())
+	}
+	return nil, nil
+}
+
 // generateNodeLabelAction determines label changes needed for a node update.
 // Compares current and requested labels to generate add/remove actions.
 func generateNodeLabelAction(node *v1.Node, req *types.PatchNodeRequest) map[string]string {
@@ -871,4 +1003,35 @@ func getPrimusTaints(taints []corev1.Taint) []corev1.Taint {
 		}
 	}
 	return result
+}
+
+// cvtToListNodeRebootSql converts the reboot log query parameters into SQL conditions and order by clauses.
+// It filters jobs that are not deleted, related to the given node, and of reboot type.
+// Time range filters and sorting options are applied if specified in the query.
+func cvtToListNodeRebootSql(query *types.ListNodeRebootLogRequest, node *v1.Node) (sqrl.Sqlizer, []string) {
+	dbTags := dbclient.GetOpsJobFieldTags()
+	creationTime := dbclient.GetFieldTag(dbTags, "CreationTime")
+	dbSql := sqrl.And{
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "IsDeleted"): false},
+		sqrl.Expr("outputs::jsonb @> ?", fmt.Sprintf(`[{"value": "%s"}]`, node.Name)),
+		sqrl.Eq{dbclient.GetFieldTag(dbTags, "type"): v1.OpsJobRebootType},
+	}
+	if !query.SinceTime.IsZero() {
+		dbSql = append(dbSql, sqrl.GtOrEq{creationTime: query.SinceTime})
+	}
+	if !query.UntilTime.IsZero() {
+		dbSql = append(dbSql, sqrl.LtOrEq{creationTime: query.UntilTime})
+	}
+	orderBy := buildOrderBy(query.SortBy, query.Order, dbTags)
+	return dbSql, orderBy
+}
+
+// generateWorkloadInfo creates a WorkloadInfo struct from a workload object.
+func generateWorkloadInfo(workload *v1.Workload) types.WorkloadInfo {
+	return types.WorkloadInfo{
+		Id:          workload.Name,
+		Kind:        workload.Spec.Kind,
+		UserId:      v1.GetUserName(workload),
+		WorkspaceId: workload.Spec.Workspace,
+	}
 }

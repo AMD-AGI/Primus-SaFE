@@ -9,10 +9,10 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"sort"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -23,8 +23,6 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
 
 const (
@@ -80,6 +78,10 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 	}
 
 	if message.action == ResourceDel && !adminWorkload.IsEnd() {
+		// wait until the job is also deleted
+		if !r.waitJobDeleted(ctx, adminWorkload, informer) {
+			return ctrlruntime.Result{RequeueAfter: time.Second * 3}, nil
+		}
 		if err = r.reSchedule(ctx, adminWorkload, message.dispatchCount); err != nil {
 			klog.ErrorS(err, "failed to reSchedule", "workload", adminWorkload.Name)
 			return ctrlruntime.Result{}, err
@@ -152,6 +154,20 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *reso
 	return false
 }
 
+func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, adminWorkload *v1.Workload, informer *ClusterInformer) bool {
+	obj, err := jobutils.GenObjectReference(ctx, r.Client, adminWorkload)
+	if err != nil {
+		return apierrors.IsNotFound(err)
+	}
+	if _, err = jobutils.GetObjectByClientFactory(ctx, informer.ClientFactory(), obj); err != nil {
+		if apierrors.IsNotFound(err) {
+			return true
+		}
+	}
+	klog.Warningf("the job of this workload %s still exist, this will retry again in 3 seconds.", adminWorkload.Name)
+	return false
+}
+
 // updateAdminWorkloadStatus updates the admin workload status based on resource status.
 // Manages workload phase transitions and condition updates.
 func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, originalWorkload *v1.Workload,
@@ -161,27 +177,13 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 	}
 	adminWorkload := originalWorkload.DeepCopy()
 	r.updateAdminWorkloadPhase(adminWorkload, status, message)
-
-	switch {
-	case adminWorkload.IsPending():
-		if status.Phase != string(v1.K8sDeleted) &&
-			status.Phase != string(v1.K8sFailed) && originalWorkload.IsPending() {
-			return originalWorkload, false, nil
-		}
-	case adminWorkload.IsRunning():
-		if isNeedRetry := r.updateAdminWorkloadNodes(adminWorkload, message); isNeedRetry {
-			return originalWorkload, true, nil
-		}
-	case adminWorkload.IsEnd():
-		if adminWorkload.Status.EndTime == nil {
-			adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
-		}
-		r.updateAdminWorkloadNodes(adminWorkload, message)
-	}
 	if adminWorkload.Status.StartTime == nil {
 		adminWorkload.Status.StartTime = &metav1.Time{Time: time.Now().UTC()}
 	}
-	if status.Phase != string(v1.K8sPending) && status.Phase != "" {
+	if adminWorkload.IsEnd() && adminWorkload.Status.EndTime == nil {
+		adminWorkload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
+	}
+	if !status.IsPending() {
 		adminWorkload.Status.Message = ""
 	}
 	adminWorkload.Status.K8sObjectUid = string(message.uid)
@@ -266,57 +268,6 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 	return nil
 }
 
-// updateAdminWorkloadNodes updates the node information for a workload.
-// Collects node assignments from workload pods.
-func (r *SyncerReconciler) updateAdminWorkloadNodes(adminWorkload *v1.Workload, message *resourceMessage) bool {
-	totalNodeCount := adminWorkload.Spec.Resource.Replica
-	if commonworkload.IsJob(adminWorkload) {
-		if adminWorkload.Spec.Resource.Replica != len(adminWorkload.Status.Pods) {
-			return true
-		}
-		// the nodes of admin workload are already updated
-		if len(adminWorkload.Status.Nodes) == message.dispatchCount {
-			return false
-		}
-	} else {
-		if totalNodeCount > len(adminWorkload.Status.Pods) {
-			return true
-		}
-	}
-	sortWorkloadPods(adminWorkload)
-
-	nodeNames := make([]string, 0, len(adminWorkload.Status.Pods))
-	ranks := make([]string, 0, len(adminWorkload.Status.Pods))
-	nodeNameSet := sets.NewSet()
-	for _, p := range adminWorkload.Status.Pods {
-		if !nodeNameSet.Has(p.K8sNodeName) {
-			nodeNames = append(nodeNames, p.K8sNodeName)
-			ranks = append(ranks, p.Rank)
-			nodeNameSet.Insert(p.K8sNodeName)
-		}
-	}
-	if len(adminWorkload.Status.Nodes) < message.dispatchCount {
-		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, nodeNames)
-		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, ranks)
-	} else if message.dispatchCount > 0 {
-		adminWorkload.Status.Nodes[message.dispatchCount-1] = nodeNames
-		adminWorkload.Status.Ranks[message.dispatchCount-1] = ranks
-	}
-	return false
-}
-
-// sortWorkloadPods sorts workload pods by host IP and pod ID.
-// Ensures consistent ordering of pods for node assignment tracking.
-func sortWorkloadPods(adminWorkload *v1.Workload) {
-	sort.Slice(adminWorkload.Status.Pods, func(i, j int) bool {
-		if adminWorkload.Status.Pods[i].HostIp == adminWorkload.Status.Pods[j].HostIp {
-			return adminWorkload.Status.Pods[i].PodId < adminWorkload.Status.Pods[j].PodId
-		}
-		return netutil.ConvertIpToInt(adminWorkload.Status.Pods[i].HostIp) >
-			netutil.ConvertIpToInt(adminWorkload.Status.Pods[j].HostIp)
-	})
-}
-
 // updateWorkloadCondition updates workload conditions based on resource status.
 // Manages condition history and ensures proper condition tracking.
 func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, dispatchCount int) {
@@ -341,7 +292,10 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sRes
 	} else {
 		currentCondition := jobutils.FindCondition(adminWorkload, newCondition)
 		if currentCondition != nil {
-			*currentCondition = *newCondition
+			if currentCondition.Status != newCondition.Status ||
+				currentCondition.Message != newCondition.Message {
+				*currentCondition = *newCondition
+			}
 		} else {
 			adminWorkload.Status.Conditions = append(adminWorkload.Status.Conditions, *newCondition)
 		}

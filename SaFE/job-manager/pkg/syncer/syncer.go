@@ -162,7 +162,7 @@ func (r *SyncerReconciler) start(ctx context.Context) error {
 	return nil
 }
 
-// Do processes resource messages from cluster informers.
+// Do process resource messages from cluster informers.
 // Routes messages to appropriate handlers based on resource type.
 // it implements the interface of common.controller.
 func (r *SyncerReconciler) Do(ctx context.Context, message *resourceMessage) (ctrlruntime.Result, error) {
