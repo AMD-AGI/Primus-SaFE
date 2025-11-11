@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/filter"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
 	"gorm.io/gorm"
 )
 
@@ -76,6 +76,9 @@ func (f *WorkloadFacade) GetGpuWorkloadByUid(ctx context.Context, uid string) (*
 			return nil, nil
 		}
 		return nil, err
+	}
+	if result.ID == 0 {
+		return nil, nil
 	}
 	return result, nil
 }
@@ -244,7 +247,7 @@ func (f *WorkloadFacade) ListChildrenWorkloadByParentUid(ctx context.Context, pa
 
 func (f *WorkloadFacade) ListWorkloadByLabelValue(ctx context.Context, labelKey, labelValue string) ([]*model.GpuWorkload, error) {
 	result := []*model.GpuWorkload{}
-	err := f.getDB().Raw(fmt.Sprintf(`SELECT * FROM gpu_workload WHERE label @> '{"%s": "%s"}'`, labelKey, labelValue)).Scan(&result).Error
+	err := f.getDB().Raw(fmt.Sprintf(`SELECT * FROM gpu_workload WHERE labels @> '{"%s": "%s"}'`, labelKey, labelValue)).Scan(&result).Error
 	if err != nil {
 		return nil, err
 	}
@@ -289,6 +292,9 @@ func (f *WorkloadFacade) GetLatestGpuWorkloadSnapshotByUid(ctx context.Context, 
 			return nil, nil
 		}
 		return nil, err
+	}
+	if result.ID == 0 {
+		return nil, nil
 	}
 	return result, nil
 }
@@ -336,6 +342,9 @@ func (f *WorkloadFacade) GetWorkloadEventByWorkloadUidAndNearestWorkloadIdAndTyp
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
@@ -356,6 +365,9 @@ func (f *WorkloadFacade) GetLatestEvent(ctx context.Context, workloadUid, neares
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
@@ -367,6 +379,9 @@ func (f *WorkloadFacade) GetLatestOtherWorkloadEvent(ctx context.Context, worklo
 			return nil, nil
 		}
 		return nil, err
+	}
+	if result.ID == 0 {
+		return nil, nil
 	}
 	return result, nil
 }
@@ -388,4 +403,3 @@ func findLeafWorkloads(workloads []*model.GpuWorkload) []*model.GpuWorkload {
 	}
 	return leaves
 }
-

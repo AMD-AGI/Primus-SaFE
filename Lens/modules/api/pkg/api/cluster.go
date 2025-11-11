@@ -3,15 +3,16 @@ package api
 import (
 	"net/http"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/rdma"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/storage"
-
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/fault"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/gpu"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/cluster"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/fault"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/rdma"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/storage"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 	"github.com/gin-gonic/gin"
 )
 
@@ -24,7 +25,18 @@ func getClusterOverview(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-
+	log.Infof("getClusterOverview: clusterName: %s", clients.ClusterName)
+	// Try to get cached data first
+	result, err := cluster.GetClusterOverviewFromCache(c, clients.ClusterName)
+	if err == nil && result != nil {
+		// Cache hit - return cached data immediately
+		log.Infof("getClusterOverview: cache hit")
+		c.JSON(http.StatusOK, rest.SuccessResp(c, result))
+		return
+	}
+	log.Infof("getClusterOverview: cache miss")
+	// Cache miss or error - fall back to real-time calculation
+	// This ensures backward compatibility and handles the case where cache is not yet populated
 	gpuNodes, err := gpu.GetGpuNodes(c, clients.K8SClientSet, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
@@ -35,7 +47,7 @@ func getClusterOverview(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	idle, particalIdle, busy, err := gpu.GetGpuNodeIdleInfo(c, clients.K8SClientSet, metadata.GpuVendorAMD)
+	idle, particalIdle, busy, err := gpu.GetGpuNodeIdleInfo(c, clients.K8SClientSet, clients.ClusterName, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
 		return
@@ -45,7 +57,7 @@ func getClusterOverview(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	allocationRate, err := gpu.GetClusterGpuAllocationRate(c, clients.K8SClientSet, metadata.GpuVendorAMD)
+	allocationRate, err := gpu.GetClusterGpuAllocationRate(c, clients.K8SClientSet, clients.ClusterName, metadata.GpuVendorAMD)
 	if err != nil {
 		_ = c.Error(err)
 		return
@@ -60,7 +72,7 @@ func getClusterOverview(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	result := &model.GpuClusterOverview{
+	result = &model.GpuClusterOverview{
 		RdmaClusterStat:    rdmaStat,
 		StorageStat:        *storageStat,
 		TotalNodes:         len(gpuNodes),

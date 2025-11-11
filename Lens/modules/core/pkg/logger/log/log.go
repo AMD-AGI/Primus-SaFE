@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/conf"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/logrus"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/conf"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/logrus"
 )
 
 type Fields map[string]interface{}

@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/AMD-AGI/primus-lens/core/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"time"
 )
 

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/sql/metrics"
-	"github.com/AMD-AGI/primus-lens/core/pkg/trace"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql/metrics"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"gorm.io/gorm/logger"
 )
 
@@ -43,5 +43,5 @@ func (n NullLogger) Trace(ctx context.Context, begin time.Time, fc func() (sql s
 		metrics.RecordSlowQueryDuration(trace.TrimPackagePrefixes(trace.GetNearestCaller(2)), timeUse.Seconds())
 		return
 	}
-	log.GlobalLogger().Tracef("[GormLog][Debug] %s. SQL: %s. RowsAffected %d. Timeuse %d ms. %s", begin, sql, rowAffected, timeUse.Milliseconds(), errStr)
+	log.GlobalLogger().Tracef("[GormLog][Trace] %s. SQL: %s. RowsAffected %d. Timeuse %d ms. %s", begin, sql, rowAffected, timeUse.Milliseconds(), errStr)
 }

@@ -1,0 +1,123 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: primus-lens-hardware-alerts
+  namespace: primus-lens
+  labels:
+    app: primus-lens
+    component: alerts
+    category: hardware
+spec:
+  groups:
+    # GPU alerts
+    - name: gpu_alerts
+      interval: 30s
+      rules:
+        - alert: GPUHighUtilization
+          expr: gpu_utilization > 95
+          for: 5m
+          labels:
+            severity: warning
+            category: gpu
+          annotations:
+            summary: "GPU utilization is very high"
+            description: "GPU {{ $labels.gpu_id }} on {{ $labels.node }} has utilization {{ $value }}% for more than 5 minutes"
+        
+        - alert: GPUMemoryHigh
+          expr: (gpu_memory_used / gpu_memory_total) * 100 > 90
+          for: 5m
+          labels:
+            severity: warning
+            category: gpu
+          annotations:
+            summary: "GPU memory usage is high"
+            description: "GPU {{ $labels.gpu_id }} on {{ $labels.node }} memory usage is {{ $value }}%"
+        
+        - alert: GPUTemperatureHigh
+          expr: gpu_temperature > 80
+          for: 10m
+          labels:
+            severity: critical
+            category: gpu
+          annotations:
+            summary: "GPU temperature is too high"
+            description: "GPU {{ $labels.gpu_id }} on {{ $labels.node }} temperature is {{ $value }}°C"
+        
+        - alert: GPUPowerLimitExceeded
+          expr: gpu_power_usage > gpu_power_limit * 0.95
+          for: 5m
+          labels:
+            severity: warning
+            category: gpu
+          annotations:
+            summary: "GPU power usage near limit"
+            description: "GPU {{ $labels.gpu_id }} on {{ $labels.node }} power usage is {{ $value }}W"
+    
+    # Network alerts (InfiniBand/RDMA)
+    - name: network_alerts
+      interval: 30s
+      rules:
+        - alert: IBPortErrors
+          expr: rate(ib_port_rcv_errors[5m]) > 100
+          for: 2m
+          labels:
+            severity: warning
+            category: network
+          annotations:
+            summary: "InfiniBand port errors detected"
+            description: "IB port {{ $labels.port }} on {{ $labels.node }} has {{ $value }} receive errors/sec"
+        
+        - alert: RDMAHighLatency
+          expr: rdma_latency_microseconds > 1000
+          for: 5m
+          labels:
+            severity: warning
+            category: network
+          annotations:
+            summary: "RDMA latency is high"
+            description: "RDMA latency on {{ $labels.node }} is {{ $value }}μs"
+        
+        - alert: NetworkBandwidthSaturated
+          expr: rate(node_network_transmit_bytes_total[5m]) / node_network_speed_bytes > 0.9
+          for: 5m
+          labels:
+            severity: warning
+            category: network
+          annotations:
+            summary: "Network bandwidth near saturation"
+            description: "Network interface {{ $labels.device }} on {{ $labels.node }} is {{ $value | humanizePercentage }} saturated"
+    
+    # Storage alerts
+    - name: storage_alerts
+      interval: 60s
+      rules:
+        - alert: DiskSpaceLow
+          expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 10
+          for: 5m
+          labels:
+            severity: warning
+            category: storage
+          annotations:
+            summary: "Disk space is running low"
+            description: "Filesystem {{ $labels.mountpoint }} on {{ $labels.node }} has only {{ $value }}% free space"
+        
+        - alert: DiskSpaceCritical
+          expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 5
+          for: 1m
+          labels:
+            severity: critical
+            category: storage
+          annotations:
+            summary: "Disk space critically low"
+            description: "Filesystem {{ $labels.mountpoint }} on {{ $labels.node }} has only {{ $value }}% free space"
+        
+        - alert: HighDiskIOLatency
+          expr: rate(node_disk_io_time_seconds_total[5m]) > 0.8
+          for: 10m
+          labels:
+            severity: warning
+            category: storage
+          annotations:
+            summary: "Disk I/O latency is high"
+            description: "Disk {{ $labels.device }} on {{ $labels.node }} has high I/O latency"
+

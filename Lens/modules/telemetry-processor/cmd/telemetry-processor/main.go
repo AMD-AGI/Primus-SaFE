@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/telemetry-processor/pkg/common/bootstrap"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/common/bootstrap"
 )
 
 func main() {

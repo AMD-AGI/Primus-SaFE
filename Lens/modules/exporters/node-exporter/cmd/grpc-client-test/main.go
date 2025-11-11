@@ -1,8 +1,8 @@
 package main
 
 import (
-	pb "github.com/AMD-AGI/primus-lens/core/pkg/pb/exporter"
-	"github.com/AMD-AGI/primus-lens/node-exporter/pkg/collector/report"
+	pb "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/pb/exporter"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/report"
 	"time"
 )
 

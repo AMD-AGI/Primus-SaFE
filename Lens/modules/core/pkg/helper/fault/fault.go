@@ -3,9 +3,9 @@ package fault
 import (
 	"context"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/k8sUtil"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/k8sUtil"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -15,6 +15,7 @@ import (
 func GetFaultyNodes(ctx context.Context, clientsets *clientsets.K8SClientSet, nodes []string) ([]string, error) {
 	faulty := []string{}
 	for _, nodeName := range nodes {
+		log.Infof("Checking node %s", nodeName)
 		node := corev1.Node{}
 		err := clientsets.ControllerRuntimeClient.Get(ctx, types.NamespacedName{Name: nodeName}, &node)
 		if err != nil {
@@ -23,11 +24,15 @@ func GetFaultyNodes(ctx context.Context, clientsets *clientsets.K8SClientSet, no
 		}
 		if len(node.Spec.Taints) > 0 {
 			faulty = append(faulty, nodeName)
+			log.Infof("Node %s is faulty", nodeName)
 			continue
 		}
 		if !k8sUtil.NodeReady(node) {
 			faulty = append(faulty, nodeName)
+			log.Infof("Node %s is faulty", nodeName)
+			continue
 		}
+		log.Infof("Node %s is not faulty", nodeName)
 	}
 	return faulty, nil
 }

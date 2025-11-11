@@ -2,9 +2,10 @@ package goroutineUtil
 
 import (
 	"fmt"
-	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
 	"runtime"
+
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
 
 func RecoverFunc(hook func(r any)) func() {

@@ -2,16 +2,14 @@ package collector
 
 import (
 	"context"
-	"github.com/AMD-AGI/primus-lens/core/pkg/constant"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
-	pb "github.com/AMD-AGI/primus-lens/core/pkg/pb/exporter"
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/mapUtil"
-	"github.com/AMD-AGI/primus-lens/node-exporter/pkg/collector/docker"
-	"github.com/AMD-AGI/primus-lens/node-exporter/pkg/collector/report"
-	"google.golang.org/protobuf/types/known/structpb"
 	"os"
 	"strings"
+
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/docker"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector/report"
 )
 
 func TryInitDocker(ctx context.Context, sockPath string) error {
@@ -85,24 +83,11 @@ func fillRDMADeviceInfoForDockerContainerInfo(info *model.DockerDeviceInfo) {
 
 func reportDockerContainer(ctx context.Context, info *model.DockerContainerInfo, typ string) {
 	go func() {
-		containerMap, err := mapUtil.EncodeMap(info)
+		err := report.ReportDockerContainer(ctx, info, typ)
 		if err != nil {
-			log.Errorf("Failed to encode container info: %v", err)
-			return
-		}
-		pbStruct, err := structpb.NewStruct(containerMap)
-		if err != nil {
-			log.Errorf("Failed to encode container info: %v", err)
-			return
-		}
-		err = report.GetDockerStreamClient().Send(&pb.ContainerEvent{
-			Type:        typ,
-			ContainerId: info.ID,
-			Data:        pbStruct,
-			Node:        nodeName,
-		})
-		if err != nil {
-			log.Errorf("Failed to send container event: %v", err)
+			log.Errorf("Failed to report docker container event: %v", err)
+		} else {
+			log.Debugf("Successfully reported docker container event: container=%s, type=%s", info.ID, typ)
 		}
 	}()
 }

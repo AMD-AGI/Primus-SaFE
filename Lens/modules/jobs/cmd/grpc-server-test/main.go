@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"github.com/AMD-AGI/primus-lens/jobs/pkg/exporter"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/exporter"
 	"time"
 )
 

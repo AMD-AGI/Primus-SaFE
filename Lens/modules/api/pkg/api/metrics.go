@@ -2,9 +2,9 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/gin-gonic/gin"
 	"math"
 	"strconv"

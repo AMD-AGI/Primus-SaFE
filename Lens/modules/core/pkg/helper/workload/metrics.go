@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/constant"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/prom"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/prom"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	promModel "github.com/prometheus/common/model"
 )
 

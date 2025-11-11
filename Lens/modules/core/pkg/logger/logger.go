@@ -2,8 +2,8 @@ package logger
 
 import (
 	"context"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/common"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/conf"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/common"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/conf"
 	"github.com/go-logr/logr"
 	"github.com/opentracing/opentracing-go"
 	"github.com/uber/jaeger-client-go"

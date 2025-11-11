@@ -31,6 +31,7 @@ type Node struct {
 	ContainerdVersion string    `gorm:"column:containerd_version" json:"containerd_version"`
 	Os                string    `gorm:"column:os" json:"os"`
 	DriverVersion     string    `gorm:"column:driver_version" json:"driver_version"`
+	Taints            ExtType   `gorm:"column:taints" json:"taints"`
 }
 
 // TableName Node's table name

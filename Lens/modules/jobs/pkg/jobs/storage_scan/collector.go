@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"k8s.io/client-go/kubernetes"
 )
 

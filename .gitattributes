@@ -1,0 +1,59 @@
+# 自动检测文本文件并规范化换行符
+* text=auto eol=lf
+
+# 明确声明所有文本文件使用 LF
+*.sh text eol=lf
+*.bash text eol=lf
+*.py text eol=lf
+*.go text eol=lf
+*.js text eol=lf
+*.ts text eol=lf
+*.jsx text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.xml text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.sql text eol=lf
+*.proto text eol=lf
+*.cmake text eol=lf
+*.dockerfile text eol=lf
+Dockerfile* text eol=lf
+Makefile text eol=lf
+*.mk text eol=lf
+
+# 配置文件
+*.conf text eol=lf
+*.config text eol=lf
+*.ini text eol=lf
+*.toml text eol=lf
+*.properties text eol=lf
+.env* text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.editorconfig text eol=lf
+
+# 二进制文件（不做换行符转换）
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.tgz binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.bin binary
+*.dat binary
+*.db binary
+

@@ -122,7 +122,7 @@ pkg/
 ### Installation
 
 ```bash
-go get github.com/AMD-AGI/primus-lens/core
+go get github.com/AMD-AGI/Primus-SaFE/Lens/core
 ```
 
 ### Basic Usage
@@ -161,7 +161,7 @@ package main
 
 import (
     "context"
-    "github.com/AMD-AGI/primus-lens/core/pkg/server"
+    "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
 )
 
 func main() {
@@ -177,8 +177,8 @@ func main() {
 ```go
 import (
     "context"
-    "github.com/AMD-AGI/primus-lens/core/pkg/database"
-    "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+    "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+    "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 )
 
 // Create node record
@@ -201,8 +201,8 @@ func GetNode(ctx context.Context, name string) (*model.Node, error) {
 
 ```go
 import (
-    "github.com/AMD-AGI/primus-lens/core/pkg/logger"
-    "github.com/AMD-AGI/primus-lens/core/pkg/logger/conf"
+    "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger"
+    "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/conf"
 )
 
 func Example() {
@@ -221,7 +221,7 @@ func Example() {
 
 ```go
 import (
-    "github.com/AMD-AGI/primus-lens/core/pkg/metrics"
+    "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/metrics"
 )
 
 func Example() {
@@ -244,7 +244,7 @@ func Example() {
 ```go
 import (
     "context"
-    appContext "github.com/AMD-AGI/primus-lens/core/pkg/context"
+    appContext "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/context"
 )
 
 func Example() {
@@ -307,7 +307,7 @@ The configuration module supports loading configuration from YAML files. Specify
 Provides safe goroutine execution with panic recovery.
 
 ```go
-import "github.com/AMD-AGI/primus-lens/core/pkg/utils/goroutineUtil"
+import "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/goroutineUtil"
 
 goroutineUtil.SafeGo(func() {
     // Your code
@@ -319,7 +319,7 @@ goroutineUtil.SafeGo(func() {
 Provides utility functions for K8s resource operations.
 
 ```go
-import "github.com/AMD-AGI/primus-lens/core/pkg/utils/k8sUtil"
+import "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/k8sUtil"
 
 // Get Pod owner
 owner := k8sUtil.GetPodOwner(pod)
@@ -357,7 +357,7 @@ go run main.go
 ### Adding New Metrics
 
 ```go
-import "github.com/AMD-AGI/primus-lens/core/pkg/metrics"
+import "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/metrics"
 
 var myCounter = metrics.NewCounter(
     "my_metric",

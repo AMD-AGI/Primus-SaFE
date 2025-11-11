@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/server"
-	"github.com/AMD-AGI/primus-lens/jobs/pkg/bootstrap"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/bootstrap"
 )
 
 func main() {

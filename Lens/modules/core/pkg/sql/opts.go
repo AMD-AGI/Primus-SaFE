@@ -1,7 +1,7 @@
 package sql
 
 import (
-	"github.com/AMD-AGI/primus-lens/core/pkg/sql/callbacks"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql/callbacks"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -31,5 +31,17 @@ func WithRestErrorStackCallback() opts {
 		db.Callback().Query().Register("error", callbacks.CreateErrorSolveCallback(callbacks.RestErrorWithStack))
 		db.Callback().Raw().Register("error", callbacks.CreateErrorSolveCallback(callbacks.RestErrorWithStack))
 		db.Callback().Row().Register("error", callbacks.CreateErrorSolveCallback(callbacks.RestErrorWithStack))
+	}
+}
+
+func WithTracingCallback() opts {
+	return func(db *gorm.DB) {
+		err := callbacks.RegisterTracingCallbacks(db)
+		if err != nil {
+			// Log error but don't fail database initialization
+			// Tracing is optional and should not break the system
+			logger := db.Logger
+			logger.Error(db.Statement.Context, "Failed to register tracing callbacks: %v", err)
+		}
 	}
 }
