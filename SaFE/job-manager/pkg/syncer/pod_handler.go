@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"sort"
 	"strings"
 	"time"
 
@@ -24,6 +25,8 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
 )
@@ -53,7 +56,7 @@ func (r *SyncerReconciler) handlePod(ctx context.Context, message *resourceMessa
 		}
 		return r.deletePod(ctx, obj, clusterInformer)
 	}
-	return r.updateWorkloadPod(ctx, obj, clusterInformer, message.workloadId)
+	return r.updateWorkloadPod(ctx, obj, clusterInformer, message)
 }
 
 // deletePod forcefully deletes a pod from the data plane.
@@ -88,7 +91,7 @@ func (r *SyncerReconciler) deletePod(ctx context.Context,
 // updateWorkloadPod updates the workload status based on pod information.
 // Synchronizes pod details like phase, node assignment, and container status.
 func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructured.Unstructured,
-	clusterInformer *ClusterInformer, workloadId string) (ctrlruntime.Result, error) {
+	clusterInformer *ClusterInformer, message *resourceMessage) (ctrlruntime.Result, error) {
 	pod := &corev1.Pod{}
 	err := unstructuredutils.ConvertUnstructuredToObject(obj, pod)
 	if err != nil {
@@ -100,7 +103,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		klog.Infof("pod(%s) is failed. reason: %s, message: %s, container: %s",
 			pod.Name, pod.Status.Reason, pod.Status.Message, string(jsonutils.MarshalSilently(pod.Status.ContainerStatuses)))
 	}
-	adminWorkload, err := r.getAdminWorkload(ctx, workloadId)
+	adminWorkload, err := r.getAdminWorkload(ctx, message.workloadId)
 	if adminWorkload == nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -123,7 +126,8 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 			continue
 		}
 		id = i
-		if p.Phase == pod.Status.Phase && p.K8sNodeName == pod.Spec.NodeName && p.StartTime != "" {
+		if p.Phase == pod.Status.Phase && p.K8sNodeName == pod.Spec.NodeName &&
+			p.StartTime != "" && p.HostIp == pod.Status.HostIP {
 			return ctrlruntime.Result{}, nil
 		}
 		break
@@ -143,7 +147,13 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	}
 	buildPodTerminatedInfo(ctx,
 		clusterInformer.dataClientFactory.ClientSet(), adminWorkload, pod, &workloadPod)
+	shouldUpdateNodes := false
 	if id >= 0 {
+		if adminWorkload.Status.Pods[id].K8sNodeName != workloadPod.K8sNodeName ||
+			adminWorkload.Status.Pods[id].HostIp != workloadPod.HostIp ||
+			adminWorkload.Status.Pods[id].Rank != workloadPod.Rank {
+			shouldUpdateNodes = true
+		}
 		adminWorkload.Status.Pods[id].K8sNodeName = workloadPod.K8sNodeName
 		adminWorkload.Status.Pods[id].AdminNodeName = workloadPod.AdminNodeName
 		adminWorkload.Status.Pods[id].Phase = workloadPod.Phase
@@ -155,8 +165,36 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		adminWorkload.Status.Pods[id].Rank = workloadPod.Rank
 	} else {
 		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods, workloadPod)
+		shouldUpdateNodes = true
+	}
+	if shouldUpdateNodes {
+		r.updateWorkloadNodes(adminWorkload, message)
 	}
 	return ctrlruntime.Result{}, r.Status().Update(ctx, adminWorkload)
+}
+
+// updateWorkloadNodes updates the node information for a workload.
+// Collects node assignments from workload pods.
+func (r *SyncerReconciler) updateWorkloadNodes(adminWorkload *v1.Workload, message *resourceMessage) {
+	sortWorkloadPods(adminWorkload)
+
+	nodeNames := make([]string, 0, len(adminWorkload.Status.Pods))
+	ranks := make([]string, 0, len(adminWorkload.Status.Pods))
+	nodeNameSet := sets.NewSet()
+	for _, p := range adminWorkload.Status.Pods {
+		if !nodeNameSet.Has(p.K8sNodeName) {
+			nodeNames = append(nodeNames, p.K8sNodeName)
+			ranks = append(ranks, p.Rank)
+			nodeNameSet.Insert(p.K8sNodeName)
+		}
+	}
+	if len(adminWorkload.Status.Nodes) < message.dispatchCount {
+		adminWorkload.Status.Nodes = append(adminWorkload.Status.Nodes, nodeNames)
+		adminWorkload.Status.Ranks = append(adminWorkload.Status.Ranks, ranks)
+	} else if message.dispatchCount > 0 {
+		adminWorkload.Status.Nodes[message.dispatchCount-1] = nodeNames
+		adminWorkload.Status.Ranks[message.dispatchCount-1] = ranks
+	}
 }
 
 // getMainContainerRank retrieves the rank value from the main container's environment variables.
@@ -198,6 +236,7 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 	}
 	newPods := append(adminWorkload.Status.Pods[:id], adminWorkload.Status.Pods[id+1:]...)
 	adminWorkload.Status.Pods = newPods
+	r.updateWorkloadNodes(adminWorkload, message)
 	if err = r.Status().Update(ctx, adminWorkload); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", adminWorkload.Name)
 		return err
@@ -269,4 +308,16 @@ func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.
 		return ""
 	}
 	return string(jsonutils.MarshalSilently(lines))
+}
+
+// sortWorkloadPods sorts workload pods by host IP and pod ID.
+// Ensures consistent ordering of pods for node assignment tracking.
+func sortWorkloadPods(adminWorkload *v1.Workload) {
+	sort.Slice(adminWorkload.Status.Pods, func(i, j int) bool {
+		if adminWorkload.Status.Pods[i].HostIp == adminWorkload.Status.Pods[j].HostIp {
+			return adminWorkload.Status.Pods[i].PodId < adminWorkload.Status.Pods[j].PodId
+		}
+		return netutil.ConvertIpToInt(adminWorkload.Status.Pods[i].HostIp) >
+			netutil.ConvertIpToInt(adminWorkload.Status.Pods[j].HostIp)
+	})
 }
