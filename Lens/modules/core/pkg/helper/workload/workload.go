@@ -99,6 +99,10 @@ func GetWorkloadResource(ctx context.Context, clusterName string, workloadUid st
 		}
 		result[podResource.GpuModel] += endTime.Sub(podResource.CreatedAt).Seconds() * float64(podResource.GpuAllocated)
 	}
+	// 将秒转换为小时
+	for gpuModel := range result {
+		result[gpuModel] = result[gpuModel] / 3600
+	}
 	return result, nil
 }
 
