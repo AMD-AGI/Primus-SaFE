@@ -5,8 +5,8 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/api"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
-	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/conf"
+	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
@@ -48,7 +48,7 @@ func StartServer(ctx context.Context) error {
 			log.Errorf("Failed to close tracer: %v", err)
 		}
 	}()
-	
+
 	logConf := conf.DefaultConfig()
 	logConf.Level = conf.TraceLevel
 	log.InitGlobalLogger(logConf)
