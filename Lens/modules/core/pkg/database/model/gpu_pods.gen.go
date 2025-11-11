@@ -24,6 +24,7 @@ type GpuPods struct {
 	UpdatedAt    time.Time `gorm:"column:updated_at" json:"updated_at"`
 	OwnerUID     string    `gorm:"column:owner_uid" json:"owner_uid"`
 	Running      bool      `gorm:"column:running" json:"running"`
+	IP           string    `gorm:"column:ip" json:"ip"`
 }
 
 // TableName GpuPods's table name

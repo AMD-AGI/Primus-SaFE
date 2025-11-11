@@ -422,7 +422,7 @@ securityContext:
 ### Core Dependencies
 - `github.com/cilium/ebpf`: eBPF library for Go
 - `github.com/yl2chen/cidranger`: CIDR range matching
-- `github.com/AMD-AGI/primus-lens/core`: Core Primus-Lens functionality
+- `github.com/AMD-AGI/Primus-SaFE/Lens/core`: Core Primus-Lens functionality
 - `k8s.io/api`: Kubernetes API types
 - `sigs.k8s.io/controller-runtime`: Kubernetes controller framework
 

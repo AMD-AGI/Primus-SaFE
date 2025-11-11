@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -225,10 +225,10 @@ func (m *MultiClusterStorageConfigListener) syncStorageConfigsFromAllClusters() 
 			continue
 		}
 
-		// Get control-plane node IPs from the cluster
-		nodeIPs, err := m.getControlPlaneNodeIPs(clusterName, k8sClient)
+		// Get Ready control plane node IPs from the cluster
+		nodeIPs, err := m.getReadyControlPlaneNodeIPs(clusterName, k8sClient)
 		if err != nil {
-			log.Errorf("Failed to get control-plane node IPs for cluster %s: %v", clusterName, err)
+			log.Errorf("Failed to get Ready control plane node IPs for cluster %s: %v", clusterName, err)
 			continue
 		}
 
@@ -339,39 +339,63 @@ func (m *MultiClusterStorageConfigListener) updateMultiStorageConfigSecret(confi
 	return nil
 }
 
-// getControlPlaneNodeIPs gets control-plane node IPs from a cluster
-func (m *MultiClusterStorageConfigListener) getControlPlaneNodeIPs(clusterName string, k8sClient *clientsets.K8SClientSet) ([]string, error) {
+// getReadyControlPlaneNodeIPs gets up to 3 Ready control-plane node IPs from a cluster
+func (m *MultiClusterStorageConfigListener) getReadyControlPlaneNodeIPs(clusterName string, k8sClient *clientsets.K8SClientSet) ([]string, error) {
 	// List all nodes
 	nodes, err := k8sClient.Clientsets.CoreV1().Nodes().List(
 		m.ctx,
-		metav1.ListOptions{
-			LabelSelector: "node-role.kubernetes.io/control-plane",
-		},
+		metav1.ListOptions{},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list control-plane nodes: %w", err)
+		return nil, fmt.Errorf("failed to list nodes: %w", err)
 	}
 
 	if len(nodes.Items) == 0 {
-		return nil, fmt.Errorf("no control-plane nodes found in cluster %s", clusterName)
+		return nil, fmt.Errorf("no nodes found in cluster %s", clusterName)
 	}
 
-	// Extract IPs from nodes
-	nodeIPs := make([]string, 0, len(nodes.Items))
+	// Filter Ready control-plane nodes and extract IPs
+	nodeIPs := make([]string, 0, 3)
 	for _, node := range nodes.Items {
+		// Only select control-plane nodes
+		_, hasControlPlaneLabel := node.Labels["node-role.kubernetes.io/control-plane"]
+		_, hasMasterLabel := node.Labels["node-role.kubernetes.io/master"]
+		if !hasControlPlaneLabel && !hasMasterLabel {
+			continue
+		}
+
+		// Check if node is Ready
+		isReady := false
+		for _, condition := range node.Status.Conditions {
+			if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionTrue {
+				isReady = true
+				break
+			}
+		}
+		if !isReady {
+			continue
+		}
+
+		// Extract IP from ready control plane node
 		for _, addr := range node.Status.Addresses {
 			if addr.Type == corev1.NodeInternalIP || addr.Type == corev1.NodeExternalIP {
 				nodeIPs = append(nodeIPs, addr.Address)
+				log.Infof("Selected Ready control plane node %s with IP %s for cluster %s", node.Name, addr.Address, clusterName)
 				break
 			}
+		}
+
+		// Limit to 3 nodes
+		if len(nodeIPs) >= 3 {
+			break
 		}
 	}
 
 	if len(nodeIPs) == 0 {
-		return nil, fmt.Errorf("no valid IP addresses found for control-plane nodes in cluster %s", clusterName)
+		return nil, fmt.Errorf("no Ready control plane nodes found in cluster %s", clusterName)
 	}
 
-	log.Infof("Found %d control-plane node IPs for cluster %s: %v", len(nodeIPs), clusterName, nodeIPs)
+	log.Infof("Found %d Ready control plane node IPs for cluster %s: %v", len(nodeIPs), clusterName, nodeIPs)
 	return nodeIPs, nil
 }
 

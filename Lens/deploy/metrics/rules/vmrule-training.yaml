@@ -1,0 +1,137 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: primus-lens-training-alerts
+  namespace: primus-lens
+  labels:
+    app: primus-lens
+    component: alerts
+    category: training
+spec:
+  groups:
+    # Training performance alerts
+    - name: training_performance_alerts
+      interval: 60s
+      rules:
+        - alert: TrainingThroughputDegraded
+          expr: |
+            (
+              avg_over_time(training_tflops[10m]) 
+              / 
+              avg_over_time(training_tflops[1h] offset 1h)
+            ) < 0.8
+          for: 10m
+          labels:
+            severity: warning
+            category: training
+          annotations:
+            summary: "Training throughput has degraded"
+            description: "Workload {{ $labels.workload_id }} throughput dropped to {{ $value | humanizePercentage }} of baseline"
+        
+        - alert: TrainingHanging
+          expr: |
+            (time() - training_last_iteration_timestamp) > 600
+          for: 5m
+          labels:
+            severity: critical
+            category: training
+          annotations:
+            summary: "Training appears to be hanging"
+            description: "Workload {{ $labels.workload_id }} has not progressed in {{ $value }} seconds"
+        
+        - alert: LossNotConverging
+          expr: |
+            deriv(training_loss[30m]) > 0
+          for: 30m
+          labels:
+            severity: warning
+            category: training
+          annotations:
+            summary: "Training loss is not converging"
+            description: "Workload {{ $labels.workload_id }} loss has been increasing for 30 minutes"
+        
+        - alert: LossExploding
+          expr: |
+            training_loss > 1000 or isNaN(training_loss)
+          for: 1m
+          labels:
+            severity: critical
+            category: training
+          annotations:
+            summary: "Training loss has exploded or is NaN"
+            description: "Workload {{ $labels.workload_id }} has abnormal loss value: {{ $value }}"
+        
+        - alert: HighSkippedIterations
+          expr: |
+            rate(training_skipped_iterations[10m]) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            category: training
+          annotations:
+            summary: "High rate of skipped iterations"
+            description: "Workload {{ $labels.workload_id }} is skipping {{ $value }} iterations/sec"
+    
+    # Training resource alerts
+    - name: training_resource_alerts
+      interval: 30s
+      rules:
+        - alert: TrainingMemoryPressure
+          expr: |
+            (training_memory_used / training_memory_total) > 0.95
+          for: 5m
+          labels:
+            severity: warning
+            category: training
+          annotations:
+            summary: "Training workload memory pressure"
+            description: "Workload {{ $labels.workload_id }} memory usage is {{ $value | humanizePercentage }}"
+        
+        - alert: TrainingGradientNormAnomaly
+          expr: |
+            training_grad_norm > 100 or training_grad_norm < 0.001
+          for: 5m
+          labels:
+            severity: warning
+            category: training
+          annotations:
+            summary: "Training gradient norm is abnormal"
+            description: "Workload {{ $labels.workload_id }} gradient norm is {{ $value }}"
+        
+        - alert: TrainingBatchTimeHigh
+          expr: |
+            training_elapsed_time_per_iteration_ms > 10000
+          for: 10m
+          labels:
+            severity: warning
+            category: training
+          annotations:
+            summary: "Training batch time is high"
+            description: "Workload {{ $labels.workload_id }} batch time is {{ $value }}ms"
+    
+    # Checkpoint alerts
+    - name: checkpoint_alerts
+      interval: 300s
+      rules:
+        - alert: CheckpointFailed
+          expr: |
+            increase(training_checkpoint_failures[1h]) > 0
+          for: 1m
+          labels:
+            severity: high
+            category: training
+          annotations:
+            summary: "Training checkpoint failed"
+            description: "Workload {{ $labels.workload_id }} checkpoint failed {{ $value }} times in the last hour"
+        
+        - alert: CheckpointTimeTooLong
+          expr: |
+            training_checkpoint_duration_seconds > 600
+          for: 1m
+          labels:
+            severity: warning
+            category: training
+          annotations:
+            summary: "Checkpoint taking too long"
+            description: "Workload {{ $labels.workload_id }} checkpoint took {{ $value }} seconds"
+

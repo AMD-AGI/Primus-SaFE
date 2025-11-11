@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"github.com/AMD-AGI/primus-lens/api/pkg/bootstrap"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/api/pkg/bootstrap"
 )
 
 func main() {

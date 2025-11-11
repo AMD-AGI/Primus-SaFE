@@ -2,7 +2,7 @@ package rdma
 
 import (
 	"fmt"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/prometheus/client_golang/prometheus"
 	"os/exec"
 	"strconv"

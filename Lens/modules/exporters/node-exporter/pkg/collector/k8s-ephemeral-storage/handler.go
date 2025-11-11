@@ -2,10 +2,10 @@ package k8s_ephemeral_storage
 
 import (
 	"context"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/goroutineUtil"
-	"github.com/AMD-AGI/primus-lens/node-exporter/pkg/kubelet"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/goroutineUtil"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/kubelet"
 	statsapi "k8s.io/kubelet/pkg/apis/stats/v1alpha1"
 	"time"
 )

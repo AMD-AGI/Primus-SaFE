@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/constant"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/k8sUtil"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/k8sUtil"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -132,15 +132,16 @@ func (l *Listener) Run(ctx context.Context) error {
 					log.Infof("Successfully removed finalizer for %s/%s, exiting listener", l.namespace, l.name)
 					return nil
 				} else {
-					// Object is running normally, ensure finalizer exists
-					if err := l.ensureFinalizer(ctx, obj); err != nil {
-						log.Errorf("Failed to ensure finalizer for %s/%s: %v", l.namespace, l.name, err)
-						// Don't exit if it's a retriable error
-						if !isRetriableError(err) {
-							log.Warnf("Non-retriable error ensuring finalizer for %s/%s, continuing anyway: %v", l.namespace, l.name, err)
+					/*
+						// Object is running normally, ensure finalizer exists
+						if err := l.ensureFinalizer(ctx, obj); err != nil {
+							log.Errorf("Failed to ensure finalizer for %s/%s: %v", l.namespace, l.name, err)
+							// Don't exit if it's a retriable error
+							if !isRetriableError(err) {
+								log.Warnf("Non-retriable error ensuring finalizer for %s/%s, continuing anyway: %v", l.namespace, l.name, err)
+							}
 						}
-					}
-
+					*/
 					// Save workload state
 					if err := l.saveGpuWorkload(ctx, obj); err != nil {
 						log.Errorf("Failed to save workload %s/%s: %v", l.namespace, l.name, err)

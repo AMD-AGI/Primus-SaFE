@@ -1,6 +1,6 @@
 package model
 
-import "github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
+import "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 
 type SearchWorkloadReq struct {
 	rest.Page

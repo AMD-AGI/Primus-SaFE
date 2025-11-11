@@ -16,7 +16,7 @@ import (
 
 	"gorm.io/plugin/dbresolver"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 )
 
 func newGpuPods(db *gorm.DB, opts ...gen.DOOption) gpuPods {
@@ -39,6 +39,7 @@ func newGpuPods(db *gorm.DB, opts ...gen.DOOption) gpuPods {
 	_gpuPods.UpdatedAt = field.NewTime(tableName, "updated_at")
 	_gpuPods.OwnerUID = field.NewString(tableName, "owner_uid")
 	_gpuPods.Running = field.NewBool(tableName, "running")
+	_gpuPods.IP = field.NewString(tableName, "ip")
 
 	_gpuPods.fillFieldMap()
 
@@ -61,6 +62,7 @@ type gpuPods struct {
 	UpdatedAt    field.Time
 	OwnerUID     field.String
 	Running      field.Bool
+	IP           field.String
 
 	fieldMap map[string]field.Expr
 }
@@ -89,6 +91,7 @@ func (g *gpuPods) updateTableName(table string) *gpuPods {
 	g.UpdatedAt = field.NewTime(table, "updated_at")
 	g.OwnerUID = field.NewString(table, "owner_uid")
 	g.Running = field.NewBool(table, "running")
+	g.IP = field.NewString(table, "ip")
 
 	g.fillFieldMap()
 
@@ -113,7 +116,7 @@ func (g *gpuPods) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (g *gpuPods) fillFieldMap() {
-	g.fieldMap = make(map[string]field.Expr, 12)
+	g.fieldMap = make(map[string]field.Expr, 13)
 	g.fieldMap["id"] = g.ID
 	g.fieldMap["namespace"] = g.Namespace
 	g.fieldMap["name"] = g.Name
@@ -126,6 +129,7 @@ func (g *gpuPods) fillFieldMap() {
 	g.fieldMap["updated_at"] = g.UpdatedAt
 	g.fieldMap["owner_uid"] = g.OwnerUID
 	g.fieldMap["running"] = g.Running
+	g.fieldMap["ip"] = g.IP
 }
 
 func (g gpuPods) clone(db *gorm.DB) gpuPods {

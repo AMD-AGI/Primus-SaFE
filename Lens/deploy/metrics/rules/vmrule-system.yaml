@@ -1,0 +1,192 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: primus-lens-system-alerts
+  namespace: primus-lens
+  labels:
+    app: primus-lens
+    component: alerts
+    category: system
+spec:
+  groups:
+    # Node health alerts
+    - name: node_alerts
+      interval: 30s
+      rules:
+        - alert: NodeDown
+          expr: up{job="node-exporter"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            category: system
+          annotations:
+            summary: "Node is down"
+            description: "Node {{ $labels.node }} has been down for more than 2 minutes"
+        
+        - alert: NodeCPUHigh
+          expr: (100 - (avg by (node) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) > 90
+          for: 10m
+          labels:
+            severity: warning
+            category: system
+          annotations:
+            summary: "Node CPU usage is high"
+            description: "Node {{ $labels.node }} CPU usage is {{ $value }}%"
+        
+        - alert: NodeMemoryHigh
+          expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+          for: 5m
+          labels:
+            severity: warning
+            category: system
+          annotations:
+            summary: "Node memory usage is high"
+            description: "Node {{ $labels.node }} memory usage is {{ $value }}%"
+        
+        - alert: NodeLoadHigh
+          expr: node_load15 / count without(cpu, mode) (node_cpu_seconds_total{mode="idle"}) > 2
+          for: 10m
+          labels:
+            severity: warning
+            category: system
+          annotations:
+            summary: "Node load average is high"
+            description: "Node {{ $labels.node }} 15-minute load average is {{ $value }}"
+    
+    # Kubernetes pod alerts
+    - name: pod_alerts
+      interval: 30s
+      rules:
+        - alert: PodCrashLooping
+          expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+            category: kubernetes
+          annotations:
+            summary: "Pod is crash looping"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is restarting frequently"
+        
+        - alert: PodNotReady
+          expr: kube_pod_status_phase{phase!="Running"} == 1
+          for: 10m
+          labels:
+            severity: warning
+            category: kubernetes
+          annotations:
+            summary: "Pod is not ready"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in {{ $labels.phase }} state for more than 10 minutes"
+        
+        - alert: PodMemoryOOM
+          expr: |
+            (
+              sum by (namespace, pod) (container_memory_working_set_bytes)
+              /
+              sum by (namespace, pod) (kube_pod_container_resource_limits{resource="memory"})
+            ) > 0.95
+          for: 2m
+          labels:
+            severity: warning
+            category: kubernetes
+          annotations:
+            summary: "Pod is near memory limit"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} memory usage is {{ $value | humanizePercentage }} of limit"
+        
+        - alert: PodCPUThrottling
+          expr: |
+            rate(container_cpu_cfs_throttled_seconds_total[5m]) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+            category: kubernetes
+          annotations:
+            summary: "Pod CPU is being throttled"
+            description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} container {{ $labels.container }} is being throttled"
+    
+    # Kubernetes workload alerts
+    - name: workload_alerts
+      interval: 60s
+      rules:
+        - alert: WorkloadPodsPending
+          expr: |
+            kube_pod_status_phase{phase="Pending"} > 0
+          for: 15m
+          labels:
+            severity: warning
+            category: kubernetes
+          annotations:
+            summary: "Workload has pending pods"
+            description: "Workload {{ $labels.namespace }}/{{ $labels.workload }} has pods in Pending state for more than 15 minutes"
+        
+        - alert: WorkloadReplicasMismatch
+          expr: |
+            kube_deployment_spec_replicas != kube_deployment_status_replicas_available
+          for: 10m
+          labels:
+            severity: warning
+            category: kubernetes
+          annotations:
+            summary: "Workload replicas mismatch"
+            description: "Workload {{ $labels.namespace }}/{{ $labels.deployment }} desired replicas ({{ $labels.spec }}) != available replicas"
+        
+        - alert: WorkloadFailed
+          expr: |
+            kube_job_status_failed > 0
+          for: 1m
+          labels:
+            severity: high
+            category: kubernetes
+          annotations:
+            summary: "Workload job has failed"
+            description: "Job {{ $labels.namespace }}/{{ $labels.job_name }} has failed"
+    
+    # Container alerts
+    - name: container_alerts
+      interval: 30s
+      rules:
+        - alert: ContainerKilled
+          expr: |
+            time() - container_last_seen{name!=""} > 60
+          for: 1m
+          labels:
+            severity: warning
+            category: kubernetes
+          annotations:
+            summary: "Container was killed"
+            description: "Container {{ $labels.name }} in pod {{ $labels.pod }} was killed"
+        
+        - alert: ContainerRestart
+          expr: |
+            rate(kube_pod_container_status_restarts_total[10m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            category: kubernetes
+          annotations:
+            summary: "Container is restarting"
+            description: "Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} is restarting frequently"
+    
+    # etcd alerts (if monitoring etcd)
+    - name: etcd_alerts
+      interval: 30s
+      rules:
+        - alert: EtcdDown
+          expr: up{job="etcd"} == 0
+          for: 1m
+          labels:
+            severity: critical
+            category: system
+          annotations:
+            summary: "etcd instance is down"
+            description: "etcd instance {{ $labels.instance }} is down"
+        
+        - alert: EtcdHighLatency
+          expr: histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+            category: system
+          annotations:
+            summary: "etcd has high fsync latency"
+            description: "etcd instance {{ $labels.instance }} p99 fsync latency is {{ $value }}s"
+

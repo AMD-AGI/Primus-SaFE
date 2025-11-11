@@ -5,12 +5,13 @@ import (
 	"strconv"
 	"time"
 
-	dbModel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/constant"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/workload"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/workload"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/prompb"
 )
 
@@ -161,20 +162,22 @@ func GetDeviceKey(device *dbModel.NodeContainerDevices) string {
 }
 
 func loadDevicePodCache(ctx context.Context) error {
+	// Use current cluster name for cache loading in current cluster
+	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
 	newNodeDevicePodCache := map[string]map[string]map[string][]string{}
-	runningGpuPod, err := database.GetFacade().GetPod().ListActiveGpuPods(ctx)
+	runningGpuPod, err := database.GetFacadeForCluster(clusterName).GetPod().ListActiveGpuPods(ctx)
 	if err != nil {
 		log.Errorf("cannot load running gpu pods: %s", err)
 		return err
 	}
 	for _, pod := range runningGpuPod {
-		runningContainer, err := database.GetFacade().GetContainer().ListRunningContainersByPodUid(ctx, pod.UID)
+		runningContainer, err := database.GetFacadeForCluster(clusterName).GetContainer().ListRunningContainersByPodUid(ctx, pod.UID)
 		if err != nil {
 			log.Errorf("cannot load running containers for pod %s: %s", pod.Name, err)
 			continue
 		}
 		for _, container := range runningContainer {
-			devices, err := database.GetFacade().GetContainer().ListContainerDevicesByContainerId(ctx, container.ContainerID)
+			devices, err := database.GetFacadeForCluster(clusterName).GetContainer().ListContainerDevicesByContainerId(ctx, container.ContainerID)
 			if err != nil {
 				log.Errorf("cannot load devices for container %s: %s", container.ContainerID, err)
 				continue
@@ -215,15 +218,17 @@ func runLoadPodWorkloadCache(ctx context.Context) {
 }
 
 func loadPodWorkloadCache(ctx context.Context) error {
+	// Use current cluster name for cache loading in current cluster
+	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
 	newPodWorkloadCache := map[string][][]string{}
 	newPodUidWorkloadCache := map[string][][]string{}
-	runningWorkload, err := database.GetFacade().GetWorkload().ListRunningWorkload(ctx)
+	runningWorkload, err := database.GetFacadeForCluster(clusterName).GetWorkload().ListRunningWorkload(ctx)
 	if err != nil {
 		log.Errorf("cannot load running workloads: %s", err)
 		return err
 	}
 	for _, w := range runningWorkload {
-		pods, err := workload.GetActivePodsByWorkloadUid(ctx, w.UID)
+		pods, err := workload.GetActivePodsByWorkloadUid(ctx, clusterName, w.UID)
 		if err != nil {
 			log.Errorf("cannot load pods for workload %s: %s", w.Name, err)
 			continue

@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/stringUtil"
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/model"
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/util"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/stringUtil"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/util"
 )
 
 func (n *Handler) doFlushTcpFlow(ctx context.Context) {

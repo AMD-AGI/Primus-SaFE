@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/filter"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"gorm.io/gorm"
 )
 
@@ -71,6 +71,9 @@ func (f *NodeFacade) GetNodeByName(ctx context.Context, name string) (*model.Nod
 			return nil, nil
 		}
 		return nil, err
+	}
+	if node.ID == 0 {
+		return nil, nil
 	}
 	return node, nil
 }
@@ -158,6 +161,9 @@ func (f *NodeFacade) GetGpuDeviceByNodeAndGpuId(ctx context.Context, nodeId int3
 		}
 		return nil, err
 	}
+	if device.ID == 0 {
+		return nil, nil
+	}
 	return device, nil
 }
 
@@ -190,6 +196,9 @@ func (f *NodeFacade) GetRdmaDeviceByNodeIdAndPort(ctx context.Context, nodeGuid 
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
@@ -219,4 +228,3 @@ func (f *NodeFacade) DeleteRdmaDeviceById(ctx context.Context, id int32) error {
 func (f *NodeFacade) CreateNodeDeviceChangelog(ctx context.Context, changelog *model.NodeDeviceChangelog) error {
 	return f.getDAL().NodeDeviceChangelog.WithContext(ctx).Create(changelog)
 }
-

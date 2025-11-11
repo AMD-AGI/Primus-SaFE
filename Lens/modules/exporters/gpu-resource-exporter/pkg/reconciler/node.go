@@ -4,31 +4,75 @@ import (
 	"context"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/node"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/k8sUtil"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+var (
+	defaultGPUVendor = metadata.GpuVendorAMD
+)
+
 type NodeReconciler struct {
-	clientSets *clientsets.K8SClientSet
+	clientSets       *clientsets.K8SClientSet
+	storageClientSet *clientsets.StorageClientSet
 }
 
 func NewNodeReconciler() *NodeReconciler {
 	n := &NodeReconciler{
-		clientSets: clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet,
+		clientSets:       clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet,
+		storageClientSet: clientsets.GetClusterManager().GetCurrentClusterClients().StorageClientSet,
 	}
 	go func() {
 		_ = n.start(context.Background())
+	}()
+	go func() {
+		_ = n.startNodeCleanup(context.Background())
 	}()
 	return n
 }
 
 func (n *NodeReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	if n.clientSets == nil {
+		n.clientSets = clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet
+	}
+	if n.storageClientSet == nil {
+		n.storageClientSet = clientsets.GetClusterManager().GetCurrentClusterClients().StorageClientSet
+	}
+
+	// Get the node
+	k8sNode := &corev1.Node{}
+	err := n.clientSets.ControllerRuntimeClient.Get(ctx, types.NamespacedName{Name: req.Name}, k8sNode)
+	if err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			return reconcile.Result{}, nil
+		}
+		log.Errorf("Error getting node %s: %v", req.Name, err)
+		return reconcile.Result{}, err
+	}
+
+	// Process node info
+	err = n.reconcileNodeInfo(ctx, k8sNode)
+	if err != nil {
+		log.Errorf("Failed to reconcile node info for %s: %v", k8sNode.Name, err)
+		return reconcile.Result{}, err
+	}
 
 	return reconcile.Result{}, nil
 }
@@ -77,8 +121,30 @@ func (n *NodeReconciler) do(ctx context.Context) error {
 }
 
 func (n *NodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).For(&corev1.Node{}).
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&corev1.Node{}).
+		WithEventFilter(predicate.Funcs{
+			CreateFunc: func(e event.CreateEvent) bool {
+				return n.isGPUNode(e.Object.(*corev1.Node))
+			},
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				return n.isGPUNode(e.ObjectNew.(*corev1.Node))
+			},
+			DeleteFunc: func(e event.DeleteEvent) bool {
+				return n.isGPUNode(e.Object.(*corev1.Node))
+			},
+			GenericFunc: func(e event.GenericEvent) bool {
+				return n.isGPUNode(e.Object.(*corev1.Node))
+			},
+		}).
 		Complete(n)
+}
+
+// isGPUNode checks if a node has GPU resources
+func (n *NodeReconciler) isGPUNode(node *corev1.Node) bool {
+	resourceName := metadata.GetResourceName(defaultGPUVendor)
+	_, hasGPU := node.Status.Capacity[corev1.ResourceName(resourceName)]
+	return hasGPU
 }
 
 func (n *NodeReconciler) desiredKubeletService() *corev1.Service {
@@ -165,42 +231,209 @@ func (n *NodeReconciler) desireKubeletServiceEndpoint(nodes *corev1.NodeList) *c
 	return endpoints
 }
 
-/*
-apiVersion: v1
-kind: Service
-metadata:
-  creationTimestamp: "2025-09-25T04:01:18Z"
-  labels:
-    app.kubernetes.io/managed-by: prometheus-operator
-    app.kubernetes.io/name: kubelet
-    k8s-app: kubelet
-  name: prometheus-kube-prometheus-kubelet
-  namespace: kube-system
-  resourceVersion: "2952"
-  uid: ab373925-b46c-49c1-a098-b07c88752b8f
-spec:
-  clusterIP: None
-  clusterIPs:
-  - None
-  internalTrafficPolicy: Cluster
-  ipFamilies:
-  - IPv4
-  - IPv6
-  ipFamilyPolicy: RequireDualStack
-  ports:
-  - name: https-metrics
-    port: 10250
-    protocol: TCP
-    targetPort: 10250
-  - name: http-metrics
-    port: 10255
-    protocol: TCP
-    targetPort: 10255
-  - name: cadvisor
-    port: 4194
-    protocol: TCP
-    targetPort: 4194
-  sessionAffinity: None
-  type: ClusterIP
-status:
-*/
+// reconcileNodeInfo updates node information in the database
+func (n *NodeReconciler) reconcileNodeInfo(ctx context.Context, k8sNode *corev1.Node) error {
+	// Get existing node from database
+	existDBNode, err := database.GetFacade().GetNode().GetNodeByName(ctx, k8sNode.Name)
+	if err != nil {
+		return err
+	}
+
+	// Build new node data
+	newDBNode := &model.Node{
+		ID:                0,
+		Name:              k8sNode.Name,
+		Address:           n.getNodeAddress(k8sNode),
+		GpuName:           node.GetGpuDeviceName(*k8sNode, defaultGPUVendor),
+		Status:            k8sUtil.NodeStatus(*k8sNode),
+		CreatedAt:         time.Now(),
+		UpdatedAt:         time.Now(),
+		CPU:               "", // TODO CPU information awaiting agent retrieval
+		CPUCount:          int32(node.GetCPUCount(*k8sNode)),
+		Memory:            node.GetMemorySizeHumanReadable(*k8sNode),
+		K8sVersion:        "1.23.1",
+		K8sStatus:         k8sUtil.NodeStatus(*k8sNode),
+		Os:                k8sNode.Status.NodeInfo.OSImage,
+		KubeletVersion:    k8sNode.Status.NodeInfo.KubeletVersion,
+		ContainerdVersion: k8sNode.Status.NodeInfo.ContainerRuntimeVersion,
+		Taints:            n.convertTaintsToExtType(k8sNode.Spec.Taints),
+	}
+
+	// Get driver version from node exporter
+	nodeExporterClient, err := clientsets.GetOrInitNodeExportersClient(ctx, k8sNode.Name, n.clientSets.ControllerRuntimeClient)
+	if err != nil {
+		log.Errorf("Failed to init node exporter client for node %s: %v", k8sNode.Name, err)
+	} else {
+		driverVer, err := nodeExporterClient.GetDriverVersion(ctx)
+		if err == nil {
+			newDBNode.DriverVersion = driverVer
+		} else {
+			if existDBNode != nil {
+				newDBNode.DriverVersion = existDBNode.DriverVersion
+			}
+			log.Errorf("Failed to get driver version from %s: %v", k8sNode.Name, err)
+		}
+	}
+
+	// Determine if this is a create or update
+	isCreate := false
+	if existDBNode == nil {
+		existDBNode = newDBNode
+		isCreate = true
+	} else {
+		// Skip update if last update was less than 10 seconds ago
+		if time.Now().Before(existDBNode.UpdatedAt.Add(10 * time.Second)) {
+			return nil
+		}
+		newDBNode.ID = existDBNode.ID
+		newDBNode.CreatedAt = existDBNode.CreatedAt
+		newDBNode.UpdatedAt = time.Now()
+		existDBNode = newDBNode
+	}
+
+	// Get GPU allocation information
+	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
+	allocatable, capacity, err := gpu.GetNodeGpuAllocation(ctx, n.clientSets, k8sNode.Name, clusterName, defaultGPUVendor)
+	if err != nil {
+		log.Errorf("Failed to get node GPU allocation for %s: %v", k8sNode.Name, err)
+		return err
+	}
+	existDBNode.GpuCount = int32(capacity)
+	existDBNode.GpuAllocation = int32(allocatable)
+
+	// Get GPU utilization
+	usage, err := gpu.CalculateNodeGpuUsage(ctx, k8sNode.Name, n.storageClientSet, defaultGPUVendor)
+	if err == nil {
+		existDBNode.GpuUtilization = usage
+	} else {
+		log.Warnf("Failed to get GPU utilization for %s: %v", k8sNode.Name, err)
+	}
+
+	// Save to database
+	if existDBNode.ID == 0 {
+		err = database.GetFacade().GetNode().CreateNode(ctx, existDBNode)
+		if err != nil {
+			log.Errorf("Failed to create node %s in database: %v", k8sNode.Name, err)
+			return err
+		}
+		if isCreate {
+			log.Infof("Created node %s in database", k8sNode.Name)
+		}
+	} else {
+		err = database.GetFacade().GetNode().UpdateNode(ctx, existDBNode)
+		if err != nil {
+			log.Errorf("Failed to update node %s in database: %v", k8sNode.Name, err)
+			return err
+		}
+		log.Debugf("Updated node %s in database", k8sNode.Name)
+	}
+
+	return nil
+}
+
+// getNodeAddress returns the first available address from the node
+func (n *NodeReconciler) getNodeAddress(k8sNode *corev1.Node) string {
+	if len(k8sNode.Status.Addresses) > 0 {
+		return k8sNode.Status.Addresses[0].Address
+	}
+	return ""
+}
+
+// convertTaintsToExtType converts Kubernetes taints to ExtType
+func (n *NodeReconciler) convertTaintsToExtType(taints []corev1.Taint) model.ExtType {
+	if len(taints) == 0 {
+		return model.ExtType{}
+	}
+
+	result := make(model.ExtType)
+	taintsList := make([]map[string]interface{}, 0, len(taints))
+
+	for _, taint := range taints {
+		taintMap := map[string]interface{}{
+			"key":    taint.Key,
+			"value":  taint.Value,
+			"effect": string(taint.Effect),
+		}
+		if taint.TimeAdded != nil {
+			taintMap["timeAdded"] = taint.TimeAdded.Time
+		}
+		taintsList = append(taintsList, taintMap)
+	}
+
+	result["taints"] = taintsList
+	return result
+}
+
+// startNodeCleanup periodically checks for nodes that exist in DB but not in the cluster
+func (n *NodeReconciler) startNodeCleanup(ctx context.Context) error {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	// Run immediately on start
+	if err := n.cleanupOrphanedNodes(ctx); err != nil {
+		log.Errorf("Initial node cleanup failed: %v", err)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if err := n.cleanupOrphanedNodes(ctx); err != nil {
+				log.Errorf("Failed to cleanup orphaned nodes: %v", err)
+			}
+		}
+	}
+}
+
+// cleanupOrphanedNodes removes nodes from DB that no longer exist in the cluster
+func (n *NodeReconciler) cleanupOrphanedNodes(ctx context.Context) error {
+	if n.clientSets == nil {
+		n.clientSets = clientsets.GetClusterManager().GetCurrentClusterClients().K8SClientSet
+	}
+
+	// Get all nodes from the cluster
+	k8sNodes := &corev1.NodeList{}
+	err := n.clientSets.ControllerRuntimeClient.List(ctx, k8sNodes)
+	if err != nil {
+		return err
+	}
+
+	// Build a set of existing node names
+	k8sNodeNames := make(map[string]bool)
+	for _, node := range k8sNodes.Items {
+		k8sNodeNames[node.Name] = true
+	}
+
+	// Get all nodes from the database
+	dbNodes, _, err := database.GetFacade().GetNode().SearchNode(ctx, filter.NodeFilter{})
+	if err != nil {
+		return err
+	}
+
+	// Delete nodes that don't exist in the cluster
+	deletedCount := 0
+	for _, dbNode := range dbNodes {
+		if !k8sNodeNames[dbNode.Name] {
+			log.Infof("Deleting orphaned node from database: %s", dbNode.Name)
+			err := n.deleteNodeByName(ctx, dbNode.Name)
+			if err != nil {
+				log.Errorf("Failed to delete node %s: %v", dbNode.Name, err)
+			} else {
+				deletedCount++
+			}
+		}
+	}
+
+	if deletedCount > 0 {
+		log.Infof("Cleaned up %d orphaned nodes from database", deletedCount)
+	}
+
+	return nil
+}
+
+// deleteNodeByName deletes a node from the database by name
+func (n *NodeReconciler) deleteNodeByName(ctx context.Context, nodeName string) error {
+	db := sql.GetDefaultDB()
+	return db.WithContext(ctx).Where("name = ?", nodeName).Delete(&model.Node{}).Error
+}

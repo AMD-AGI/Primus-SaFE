@@ -35,6 +35,16 @@ The Telemetry Processor is a core component of the Primus Lens system responsibl
 - **Training Event Detection**: Identifies and records training start events
 - **Multiple Format Support**: Handles legacy, standard, and HIP memory formats
 
+### 5. Unified Alert System
+- **Multi-Source Alert Reception**: Accepts alerts from metrics (VMAlert), logs, and traces
+- **Alert Standardization**: Converts different alert formats into a unified model
+- **Alert Enrichment**: Automatically enriches alerts with workload, pod, and node context
+- **Correlation Analysis**: Detects relationships between alerts across sources and time
+- **Alert Routing**: Routes alerts to appropriate notification channels based on rules
+- **Multi-Channel Notifications**: Supports webhook, email, DingTalk, WeChat, Slack, and AlertManager
+- **Alert Management**: Full CRUD operations for alert rules and silences
+- **Statistics and Querying**: Historical alert data with filtering and aggregation
+
 ## Architecture
 
 ### Components
@@ -47,6 +57,14 @@ telemetry-processor/
 │   ├── common/
 │   │   └── bootstrap/            # Application initialization
 │   └── module/
+│       ├── alerts/               # Alert system
+│       │   ├── model.go          # Alert data models
+│       │   ├── receiver.go       # Alert reception endpoints
+│       │   ├── processor.go      # Alert processing logic
+│       │   ├── correlator.go     # Alert correlation analysis
+│       │   ├── router.go         # Alert routing
+│       │   ├── notifier.go       # Notification channels
+│       │   └── api.go            # Alert management API
 │       ├── logs/                 # Log processing
 │       │   ├── receiver.go       # HTTP log endpoint
 │       │   ├── training_log.go   # Training metrics extraction
@@ -90,6 +108,71 @@ telemetry-processor/
 - **Endpoint**: `GET /pods/workload/cache`
 - **Description**: Returns current pod-to-workload mappings
 - **Format**: `map[podName] -> [[workloadName, workloadUID]]`
+
+### 4. Alert System
+
+#### Alert Reception
+- **Endpoint**: `POST /alerts/metric`
+- **Description**: Receives metric alerts from VMAlert
+- **Format**: VMAlert webhook format (compatible with Prometheus AlertManager)
+
+- **Endpoint**: `POST /alerts/log`
+- **Description**: Receives log-based alerts
+- **Format**: JSON with rule_name, severity, message, pattern, workload/pod/node context
+
+- **Endpoint**: `POST /alerts/trace`
+- **Description**: Receives trace-based alerts
+- **Format**: JSON with rule_name, severity, trace_id, span_id, duration, service context
+
+- **Endpoint**: `POST /alerts/webhook`
+- **Description**: Generic webhook for custom alert sources
+- **Format**: JSON with flexible schema
+
+#### Alert Query
+- **Endpoint**: `GET /alerts`
+- **Description**: List alerts with filtering
+- **Query Parameters**: source, alert_name, severity, status, workload_id, pod_name, node_name, cluster_name, starts_after, starts_before, offset, limit
+
+- **Endpoint**: `GET /alerts/:id`
+- **Description**: Get a single alert by ID
+- **Response**: Full alert details with enriched context
+
+- **Endpoint**: `GET /alerts/:id/correlations`
+- **Description**: Get correlated alerts for a given alert
+- **Response**: List of correlation groups with related alerts
+
+- **Endpoint**: `GET /alerts/statistics`
+- **Description**: Get alert statistics
+- **Query Parameters**: date_from, date_to, alert_name, source, workload_id, cluster_name, group_by
+
+#### Alert Rule Management
+- **Endpoint**: `POST /alert-rules`
+- **Description**: Create a new alert rule
+- **Request Body**: Rule configuration with name, source, rule_type, rule_config, severity, labels, annotations
+
+- **Endpoint**: `GET /alert-rules`
+- **Description**: List all alert rules
+- **Query Parameters**: source, enabled
+
+- **Endpoint**: `GET /alert-rules/:id`
+- **Description**: Get a single alert rule
+
+- **Endpoint**: `PUT /alert-rules/:id`
+- **Description**: Update an alert rule
+
+- **Endpoint**: `DELETE /alert-rules/:id`
+- **Description**: Delete an alert rule
+
+#### Silence Management
+- **Endpoint**: `POST /silences`
+- **Description**: Create a silence to suppress alerts
+- **Request Body**: Matchers, starts_at, ends_at, comment, created_by
+
+- **Endpoint**: `GET /silences`
+- **Description**: List active silences
+
+- **Endpoint**: `DELETE /silences/:id`
+- **Description**: Delete a silence
 
 ## Data Models
 
@@ -289,6 +372,298 @@ The telemetry processor integrates with other Lens components:
 ## License
 
 This project is part of the Primus Lens system developed by AMD-AGI.
+
+## Alert System Details
+
+### Alert Architecture
+
+The unified alert system provides a centralized platform for receiving, processing, correlating, and routing alerts from multiple sources.
+
+#### Alert Flow
+```
+1. Alert Sources (VMAlert/Logs/Traces)
+   ↓
+2. Reception Layer (standardization)
+   ↓
+3. Processing Layer (enrichment, deduplication)
+   ↓
+4. Storage Layer (PostgreSQL)
+   ↓
+5. Correlation Layer (relationship detection)
+   ↓
+6. Routing Layer (rule-based routing)
+   ↓
+7. Notification Layer (multi-channel delivery)
+```
+
+### Alert Sources
+
+#### 1. Metric Alerts (from VMAlert)
+VMAlert evaluates metric-based rules and sends webhooks to the telemetry processor.
+
+**Configuration Example:**
+```yaml
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAlert
+metadata:
+  name: primus-lens-vmalert
+spec:
+  notifiers:
+    - url: "http://primus-lens-telemetry-processor:8989/v1/alerts/metric"
+```
+
+**Webhook Payload:**
+```json
+{
+  "alerts": [{
+    "status": "firing",
+    "labels": {
+      "alertname": "GPUMemoryHigh",
+      "severity": "warning",
+      "workload_id": "training-job-123",
+      "pod": "worker-0",
+      "node": "gpu-node-01"
+    },
+    "annotations": {
+      "summary": "GPU memory usage above 90%",
+      "description": "GPU 0 on gpu-node-01 memory is at 95%"
+    },
+    "startsAt": "2025-11-03T10:00:00Z",
+    "fingerprint": "abc123def456"
+  }]
+}
+```
+
+#### 2. Log Alerts
+Log-based alerts are triggered by log pattern matching or log analysis.
+
+**API Example:**
+```bash
+curl -X POST http://telemetry-processor:8989/v1/alerts/log \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rule_name": "OOMDetected",
+    "severity": "critical",
+    "message": "CUDA out of memory error detected",
+    "pattern": "OutOfMemoryError|CUDA out of memory",
+    "workload_id": "training-job-123",
+    "pod_name": "worker-0",
+    "pod_id": "uuid-456",
+    "log_time": "2025-11-03T10:05:00Z",
+    "labels": {
+      "error_type": "oom"
+    }
+  }'
+```
+
+#### 3. Trace Alerts
+Trace-based alerts are triggered by performance anomalies detected in distributed traces.
+
+**API Example:**
+```bash
+curl -X POST http://telemetry-processor:8989/v1/alerts/trace \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rule_name": "SlowOperation",
+    "severity": "warning",
+    "message": "Data loading operation exceeded threshold",
+    "trace_id": "trace-789",
+    "span_id": "span-101",
+    "service_name": "dataloader",
+    "operation": "load_batch",
+    "duration": 5000,
+    "workload_id": "training-job-123"
+  }'
+```
+
+### Alert Correlation
+
+The system automatically correlates alerts based on:
+
+1. **Time-based Correlation**: Alerts occurring within a time window (default: 5 minutes)
+2. **Entity-based Correlation**: Alerts related to the same workload, pod, or node
+3. **Cross-source Correlation**: Alerts from different sources (metric + log + trace)
+4. **Causal Correlation**: Known cause-effect relationships (e.g., high memory → OOM)
+
+**Example Correlation:**
+```json
+{
+  "correlation_id": "corr-abc123",
+  "alerts": [
+    {
+      "id": "alert-1",
+      "source": "metric",
+      "alert_name": "GPUMemoryHigh",
+      "starts_at": "2025-11-03T10:00:00Z"
+    },
+    {
+      "id": "alert-2",
+      "source": "log",
+      "alert_name": "OOMDetected",
+      "starts_at": "2025-11-03T10:02:00Z"
+    }
+  ],
+  "correlation_type": "causal",
+  "correlation_score": 0.85,
+  "reason": "high GPU memory leads to OOM; same workload; occurred within 2 minutes"
+}
+```
+
+### Alert Routing and Notifications
+
+#### Routing Rules
+Alerts can be routed to different channels based on matchers:
+
+```json
+{
+  "matchers": [
+    {"name": "severity", "value": "critical"},
+    {"name": "workload_id", "value": "prod-*", "is_regex": true}
+  ],
+  "channels": [
+    {
+      "type": "webhook",
+      "config": {
+        "url": "http://alert-handler/critical"
+      }
+    },
+    {
+      "type": "dingtalk",
+      "config": {
+        "webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=xxx"
+      }
+    }
+  ],
+  "group_by": ["alertname", "workload_id"],
+  "group_wait": "30s",
+  "repeat_interval": "4h"
+}
+```
+
+#### Supported Channels
+- **Webhook**: Generic HTTP POST
+- **Email**: SMTP-based email notifications
+- **DingTalk**: DingTalk bot webhooks
+- **WeChat**: WeChat Work bot webhooks
+- **Slack**: Slack incoming webhooks
+- **AlertManager**: Forward to Prometheus AlertManager
+
+### Alert Silences
+
+Silences suppress notifications for alerts matching specific criteria:
+
+**Create Silence Example:**
+```bash
+curl -X POST http://telemetry-processor:8989/v1/silences \
+  -H "Content-Type: application/json" \
+  -d '{
+    "matchers": [
+      {"name": "alertname", "value": "GPUMemoryHigh"},
+      {"name": "workload_id", "value": "test-job-*"}
+    ],
+    "starts_at": "2025-11-03T10:00:00Z",
+    "ends_at": "2025-11-03T12:00:00Z",
+    "comment": "Maintenance window for test workloads",
+    "created_by": "admin@example.com"
+  }'
+```
+
+### Alert Rules
+
+Dynamic alert rules can be created for log and trace-based alerting:
+
+**Create Log Alert Rule:**
+```bash
+curl -X POST http://telemetry-processor:8989/v1/alert-rules \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "NCCLError",
+    "source": "log",
+    "enabled": true,
+    "rule_type": "pattern",
+    "rule_config": {
+      "pattern": "NCCL error|NCCL WARN",
+      "threshold": {
+        "count": 3,
+        "window": "10m"
+      }
+    },
+    "severity": "warning",
+    "labels": {
+      "category": "network"
+    },
+    "annotations": {
+      "summary": "NCCL communication errors detected",
+      "description": "Multiple NCCL errors indicate network issues"
+    }
+  }'
+```
+
+### Database Schema
+
+The alert system uses the following tables:
+
+1. **alert_events**: Stores all alert events with enriched context
+2. **alert_correlations**: Stores relationships between alerts
+3. **alert_statistics**: Aggregated alert statistics for fast querying
+4. **alert_rules**: Dynamic alert rule configurations
+5. **alert_silences**: Silence configurations
+6. **alert_notifications**: Notification history and status
+
+### Querying Alerts
+
+**List Recent Critical Alerts:**
+```bash
+curl "http://telemetry-processor:8989/v1/alerts?severity=critical&limit=20"
+```
+
+**Get Alerts for a Workload:**
+```bash
+curl "http://telemetry-processor:8989/v1/alerts?workload_id=training-job-123&status=firing"
+```
+
+**Get Alert Statistics:**
+```bash
+curl "http://telemetry-processor:8989/v1/alerts/statistics?date_from=2025-11-01&date_to=2025-11-03&group_by=day"
+```
+
+### Integration with VMAlert
+
+To configure VMAlert to send alerts to the telemetry processor:
+
+1. Deploy VMAlert with operator
+2. Configure notifier URL to point to telemetry processor
+3. Create VMRule resources with alert rules
+4. Alerts will be automatically sent to the processor
+
+**Example VMRule:**
+```yaml
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: gpu-alerts
+spec:
+  groups:
+    - name: gpu_health
+      interval: 30s
+      rules:
+        - alert: GPUMemoryHigh
+          expr: gpu_memory_used / gpu_memory_total > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "GPU memory usage high"
+            description: "GPU {{ $labels.gpu_id }} memory is at {{ $value }}%"
+```
+
+### Performance Considerations
+
+- **Async Processing**: Correlation and notification are performed asynchronously
+- **Batch Operations**: Statistics are updated in batches
+- **Index Optimization**: Database indexes on frequently queried fields
+- **Cache Usage**: In-memory caching for active alerts and rules
+- **Time-based Cleanup**: Old alert events are automatically archived
 
 ## Contributing
 

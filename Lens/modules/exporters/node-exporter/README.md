@@ -635,7 +635,7 @@ modprobe mlx5_ib
 ## Dependencies
 
 ### Core Dependencies
-- `github.com/AMD-AGI/primus-lens/core`: Core Primus-Lens functionality
+- `github.com/AMD-AGI/Primus-SaFE/Lens/core`: Core Primus-Lens functionality
 - `github.com/containerd/containerd`: Containerd client
 - `github.com/docker/docker`: Docker client
 - `github.com/prometheus/client_golang`: Prometheus metrics

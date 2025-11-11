@@ -6,28 +6,35 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/constant"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/filter"
-	dbModel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/workload"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/sliceUtil"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/filter"
+	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/workload"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/sliceUtil"
 	"github.com/gin-gonic/gin"
 )
 
 func getConsumerInfo(c *gin.Context) {
+	cm := clientsets.GetClusterManager()
 	page := &rest.Page{}
 	err := c.BindQuery(page)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	}
-	runningWorkload, err := database.GetFacade().GetWorkload().ListRunningWorkload(c)
+	clusterName := c.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = c.Error(err)
+		return
+	}
+	runningWorkload, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().ListRunningWorkload(c)
 	if err != nil {
 		_ = c.Error(err)
 		return
@@ -41,22 +48,22 @@ func getConsumerInfo(c *gin.Context) {
 			Uid:       dbWorkload.UID,
 			Stat: model.GpuStat{
 				GpuRequest:     int(dbWorkload.GpuRequest),
-			GpuUtilization: 0,
-		},
-		Pods:   nil,
-		Source: getSource(dbWorkload),
-	}
-	cm := clientsets.GetClusterManager()
-	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
-	clusterName := c.Query("cluster")
-	clients, err2 := cm.GetClusterClientsOrDefault(clusterName)
-	if err2 != nil {
-		// If failed to get cluster, fall back to current cluster
-		clients = cm.GetCurrentClusterClients()
-	}
-	storageClient := clients.StorageClientSet
-	r.Stat.GpuUtilization, _ = workload.GetCurrentWorkloadGpuUtilization(c, dbWorkload.UID, storageClient)
-	result = append(result, r)
+				GpuUtilization: 0,
+			},
+			Pods:   nil,
+			Source: getSource(dbWorkload),
+		}
+		cm := clientsets.GetClusterManager()
+		// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+		clusterName := c.Query("cluster")
+		clients, err2 := cm.GetClusterClientsOrDefault(clusterName)
+		if err2 != nil {
+			// If failed to get cluster, fall back to current cluster
+			clients = cm.GetCurrentClusterClients()
+		}
+		storageClient := clients.StorageClientSet
+		r.Stat.GpuUtilization, _ = workload.GetCurrentWorkloadGpuUtilization(c, dbWorkload.UID, storageClient)
+		result = append(result, r)
 	}
 	data, _, total, _ := sliceUtil.PaginateSlice(result, page.PageNum, page.PageSize)
 	c.JSON(http.StatusOK, rest.SuccessResp(c, struct {
@@ -69,8 +76,17 @@ func getConsumerInfo(c *gin.Context) {
 }
 
 func listWorkloads(ctx *gin.Context) {
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
 	page := &model.SearchWorkloadReq{}
-	err := ctx.BindQuery(page)
+	err = ctx.BindQuery(page)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -100,14 +116,14 @@ func listWorkloads(ctx *gin.Context) {
 			f.OrderBy = "end_at"
 		}
 	}
-	workloads, count, err := database.GetFacade().GetWorkload().QueryWorkload(ctx, f)
+	workloads, count, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().QueryWorkload(ctx, f)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
 	}
 	result := []model.WorkloadListItem{}
 	for _, w := range workloads {
-		item, _ := cvtDBWorkloadListItem(ctx, w)
+		item, _ := cvtDBWorkloadListItem(ctx, clients.ClusterName, w)
 		result = append(result, item)
 	}
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, struct {
@@ -120,12 +136,21 @@ func listWorkloads(ctx *gin.Context) {
 }
 
 func getWorkloadsMetadata(ctx *gin.Context) {
-	namespaces, err := database.GetFacade().GetWorkload().GetWorkloadsNamespaceList(ctx)
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
 	}
-	kinds, err := database.GetFacade().GetWorkload().GetWorkloadKindList(ctx)
+
+	namespaces, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().GetWorkloadsNamespaceList(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+	kinds, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().GetWorkloadKindList(ctx)
 	if err != nil {
 		_ = ctx.Error(err)
 
@@ -139,7 +164,7 @@ func getWorkloadsMetadata(ctx *gin.Context) {
 	}))
 }
 
-func cvtDBWorkloadListItem(ctx context.Context, dbWorkload *dbModel.GpuWorkload) (model.WorkloadListItem, error) {
+func cvtDBWorkloadListItem(ctx context.Context, clusterName string, dbWorkload *dbModel.GpuWorkload) (model.WorkloadListItem, error) {
 	result := model.WorkloadListItem{
 		Kind:         dbWorkload.Kind,
 		Name:         dbWorkload.Name,
@@ -155,13 +180,13 @@ func cvtDBWorkloadListItem(ctx context.Context, dbWorkload *dbModel.GpuWorkload)
 		EndAt:       dbWorkload.UpdatedAt.Unix(),
 		Source:      getSource(dbWorkload),
 	}
-	gpuAllocation, err := workload.GetWorkloadResource(ctx, dbWorkload.UID)
+	gpuAllocation, err := workload.GetWorkloadResource(ctx, clusterName, dbWorkload.UID)
 	if err != nil {
 		log.Errorf("Failed to get gpu allocation info: %v", err)
 	} else {
 		result.GpuAllocation = gpuAllocation
 	}
-	gpuAllocated, err := workload.GetWorkloadGpuAllocatedCount(ctx, dbWorkload.UID)
+	gpuAllocated, err := workload.GetWorkloadGpuAllocatedCount(ctx, clusterName, dbWorkload.UID)
 	if err != nil {
 		log.Errorf("Failed to get gpu allocated count: %v", err)
 	} else {
@@ -171,8 +196,17 @@ func cvtDBWorkloadListItem(ctx context.Context, dbWorkload *dbModel.GpuWorkload)
 }
 
 func getWorkloadHierarchy(ctx *gin.Context) {
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
 	uid := ctx.Param("uid")
-	rootWorkload, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, uid)
+	rootWorkload, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().GetGpuWorkloadByUid(ctx, uid)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -181,7 +215,7 @@ func getWorkloadHierarchy(ctx *gin.Context) {
 		_ = ctx.Error(errors.NewError().WithCode(errors.RequestDataNotExisted))
 		return
 	}
-	tree, err := buildHierarchy(ctx, uid)
+	tree, err := buildHierarchy(ctx, clients.ClusterName, uid)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -189,8 +223,8 @@ func getWorkloadHierarchy(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, tree))
 }
 
-func buildHierarchy(ctx context.Context, uid string) (*model.WorkloadHierarchyItem, error) {
-	workload, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, uid)
+func buildHierarchy(ctx context.Context, clusterName string, uid string) (*model.WorkloadHierarchyItem, error) {
+	workload, err := database.GetFacadeForCluster(clusterName).GetWorkload().GetGpuWorkloadByUid(ctx, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +240,7 @@ func buildHierarchy(ctx context.Context, uid string) (*model.WorkloadHierarchyIt
 		Children:  []model.WorkloadHierarchyItem{},
 	}
 
-	children, _, err := database.GetFacade().GetWorkload().QueryWorkload(ctx, &filter.WorkloadFilter{
+	children, _, err := database.GetFacadeForCluster(clusterName).GetWorkload().QueryWorkload(ctx, &filter.WorkloadFilter{
 		ParentUid: &uid,
 	})
 	if err != nil {
@@ -214,7 +248,7 @@ func buildHierarchy(ctx context.Context, uid string) (*model.WorkloadHierarchyIt
 	}
 
 	for _, child := range children {
-		childNode, err := buildHierarchy(ctx, child.UID)
+		childNode, err := buildHierarchy(ctx, clusterName, child.UID)
 		if err != nil {
 			return nil, err
 		}
@@ -227,8 +261,17 @@ func buildHierarchy(ctx context.Context, uid string) (*model.WorkloadHierarchyIt
 }
 
 func getWorkloadInfo(ctx *gin.Context) {
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
 	uid := ctx.Param("uid")
-	dbWorkload, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, uid)
+	dbWorkload, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().GetGpuWorkloadByUid(ctx, uid)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -252,7 +295,7 @@ func getWorkloadInfo(ctx *gin.Context) {
 	if dbWorkload.EndAt.Unix() < int64(8*time.Hour) {
 		workloadInfo.EndTime = 0
 	}
-	pods, err := workload.GetWorkloadPods(ctx, dbWorkload.UID)
+	pods, err := workload.GetWorkloadPods(ctx, clients.ClusterName, dbWorkload.UID)
 	if err != nil {
 		_ = ctx.Error(err)
 		return
@@ -264,7 +307,7 @@ func getWorkloadInfo(ctx *gin.Context) {
 			PodName:      pod.Name,
 		})
 	}
-	gpuAllocation, err := workload.GetWorkloadResource(ctx, dbWorkload.UID)
+	gpuAllocation, err := workload.GetWorkloadResource(ctx, clients.ClusterName, dbWorkload.UID)
 	if err != nil {
 		_ = ctx.Error(err)
 

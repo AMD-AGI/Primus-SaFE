@@ -3,29 +3,31 @@ package kubelet
 import (
 	"context"
 	"fmt"
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/k8sUtil"
+
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/k8sUtil"
 	corev1 "k8s.io/api/core/v1"
 )
 
-func GetKubeletClient(node *corev1.Node) (*clientsets.Client, error) {
-	return clientsets.GetOrInitKubeletClient(node.Name, fmt.Sprintf("https://%s:%d", node.Status.Addresses[0].Address, node.Status.DaemonEndpoints.KubeletEndpoint.Port))
+// GetKubeletClient returns a kubelet client for the given node with cluster-specific authentication
+func GetKubeletClient(node *corev1.Node, clusterName string) (*clientsets.Client, error) {
+	return clientsets.GetOrInitKubeletClient(node.Name, fmt.Sprintf("https://%s:%d", node.Status.Addresses[0].Address, node.Status.DaemonEndpoints.KubeletEndpoint.Port), clusterName)
 }
 
-func GetGpuPodsByKubeletAddress(ctx context.Context, nodeName, kubeletAddress string, vendor metadata.GpuVendor) ([]corev1.Pod, error) {
-	kubeletClient, err := clientsets.GetOrInitKubeletClient(nodeName, kubeletAddress)
+func GetGpuPodsByKubeletAddress(ctx context.Context, nodeName, kubeletAddress, clusterName string, vendor metadata.GpuVendor) ([]corev1.Pod, error) {
+	kubeletClient, err := clientsets.GetOrInitKubeletClient(nodeName, kubeletAddress, clusterName)
 	if err != nil {
 		return nil, err
 	}
 	return getGpuPods(ctx, kubeletClient, vendor)
 }
 
-func GetGpuPods(ctx context.Context, node *corev1.Node, vendor metadata.GpuVendor) ([]corev1.Pod, error) {
+func GetGpuPods(ctx context.Context, node *corev1.Node, clusterName string, vendor metadata.GpuVendor) ([]corev1.Pod, error) {
 	if !k8sUtil.NodeReady(*node) {
 		return []corev1.Pod{}, nil
 	}
-	client, err := GetKubeletClient(node)
+	client, err := GetKubeletClient(node, clusterName)
 	if err != nil {
 		return nil, err
 	}

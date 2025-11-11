@@ -1,7 +1,7 @@
 package exporter
 
 import (
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/policy"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/policy"
 	"github.com/yl2chen/cidranger"
 	"net"
 )

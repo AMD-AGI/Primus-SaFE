@@ -102,7 +102,7 @@ The module inherits configuration from the Primus-Lens core system:
 ## Dependencies
 
 ### Core Dependencies
-- `github.com/AMD-AGI/primus-lens/core`: Core Primus-Lens functionality
+- `github.com/AMD-AGI/Primus-SaFE/Lens/core`: Core Primus-Lens functionality
 - `k8s.io/api`: Kubernetes API types
 - `k8s.io/apimachinery`: Kubernetes API machinery
 - `sigs.k8s.io/controller-runtime`: Controller runtime framework

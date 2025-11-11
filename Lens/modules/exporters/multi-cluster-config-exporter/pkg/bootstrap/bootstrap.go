@@ -3,9 +3,9 @@ package bootstrap
 import (
 	"context"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/config"
-	"github.com/AMD-AGI/primus-lens/core/pkg/controller"
-	exporterController "github.com/AMD-AGI/primus-lens/multi-cluster-config-exporter/pkg/controller"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
+	exporterController "github.com/AMD-AGI/Primus-SaFE/Lens/multi-cluster-config-exporter/pkg/controller"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )

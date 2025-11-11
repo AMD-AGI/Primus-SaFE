@@ -3,8 +3,8 @@ package kubelet
 import (
 	"context"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/kubelet"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/kubelet"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -21,7 +21,9 @@ func Init(ctx context.Context, nodeNameParam string) error {
 	if err != nil {
 		return err
 	}
-	kubeletClient, err = kubelet.GetKubeletClient(node)
+	// Use current cluster (empty string for default authentication)
+	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
+	kubeletClient, err = kubelet.GetKubeletClient(node, clusterName)
 	if err != nil {
 		return err
 	}

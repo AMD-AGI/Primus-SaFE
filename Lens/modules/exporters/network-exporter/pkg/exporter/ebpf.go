@@ -3,9 +3,9 @@ package exporter
 import (
 	"context"
 
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/bpf/tcpconn"
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/bpf/tcpflow"
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/bpf/tcpconn"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/bpf/tcpflow"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/model"
 )
 
 func (n *Handler) syncTcpConn(ctx context.Context) {

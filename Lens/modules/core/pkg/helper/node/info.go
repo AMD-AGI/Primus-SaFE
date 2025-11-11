@@ -3,12 +3,12 @@ package node
 import (
 	"context"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/gpu"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/k8sUtil"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/k8sUtil"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -32,14 +32,14 @@ func GetNodeGpuModel(ctx context.Context, nodeName string) (string, error) {
 	return node.GpuName, nil
 }
 
-func GetGpuNodeInfo(ctx context.Context, nodeName string, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet, vendor metadata.GpuVendor) (*model.GPUNode, error) {
+func GetGpuNodeInfo(ctx context.Context, nodeName string, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet, clusterName string, vendor metadata.GpuVendor) (*model.GPUNode, error) {
 	node := &corev1.Node{}
 	err := clientSets.ControllerRuntimeClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)
 	if err != nil {
 		return nil, err
 	}
 	gpuDeviceName := GetGpuDeviceName(*node, vendor)
-	alloc, capacity, err := gpu.GetNodeGpuAllocation(ctx, clientSets, nodeName, vendor)
+	alloc, capacity, err := gpu.GetNodeGpuAllocation(ctx, clientSets, nodeName, clusterName, vendor)
 	if err != nil {
 		return nil, err
 	}

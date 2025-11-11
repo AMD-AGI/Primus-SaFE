@@ -221,3 +221,4 @@ SaFE/node-agent/charts/*.tgz
 
 # Lens CD directory - contains deployment specific configurations
 Lens/cd/
+Lens/docs/local/

@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/constant"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/kubelet"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/kubelet"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	promModel "github.com/prometheus/common/model"
 	corev1 "k8s.io/api/core/v1"
@@ -19,7 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func GetClusterGpuAllocationRate(ctx context.Context, clientsets *clientsets.K8SClientSet, vendor metadata.GpuVendor) (float64, error) {
+func GetClusterGpuAllocationRate(ctx context.Context, clientsets *clientsets.K8SClientSet, clusterName string, vendor metadata.GpuVendor) (float64, error) {
 	nodes, err := GetGpuNodes(ctx, clientsets, vendor)
 	if err != nil {
 		return 0, err
@@ -27,7 +27,7 @@ func GetClusterGpuAllocationRate(ctx context.Context, clientsets *clientsets.K8S
 	totalCapacity := 0.0
 	totalAllocated := 0.0
 	for _, node := range nodes {
-		allocated, capacity, err := GetNodeGpuAllocation(ctx, clientsets, node, vendor)
+		allocated, capacity, err := GetNodeGpuAllocation(ctx, clientsets, node, clusterName, vendor)
 		if err != nil {
 			return 0, err
 		}
@@ -40,13 +40,13 @@ func GetClusterGpuAllocationRate(ctx context.Context, clientsets *clientsets.K8S
 	return totalAllocated / totalCapacity * 100, nil
 }
 
-func GetNodeGpuAllocation(ctx context.Context, clientSets *clientsets.K8SClientSet, nodeName string, vendor metadata.GpuVendor) (int, int, error) {
+func GetNodeGpuAllocation(ctx context.Context, clientSets *clientsets.K8SClientSet, nodeName string, clusterName string, vendor metadata.GpuVendor) (int, int, error) {
 	node := &corev1.Node{}
 	err := clientSets.ControllerRuntimeClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)
 	if err != nil {
 		return 0, 0, err
 	}
-	allocated, err := GetAllocatedGpuResources(ctx, node, vendor)
+	allocated, err := GetAllocatedGpuResources(ctx, node, clusterName, vendor)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -54,9 +54,9 @@ func GetNodeGpuAllocation(ctx context.Context, clientSets *clientsets.K8SClientS
 
 }
 
-func GetAllocatedGpuResources(ctx context.Context, node *corev1.Node, vendor metadata.GpuVendor) (int, error) {
+func GetAllocatedGpuResources(ctx context.Context, node *corev1.Node, clusterName string, vendor metadata.GpuVendor) (int, error) {
 	gpuResource := metadata.GetResourceName(vendor)
-	gpuPods, err := kubelet.GetGpuPods(ctx, node, vendor)
+	gpuPods, err := kubelet.GetGpuPods(ctx, node, clusterName, vendor)
 	if err != nil {
 		return 0, err
 	}
@@ -105,14 +105,14 @@ func GetGpuNodes(ctx context.Context, clientsets *clientsets.K8SClientSet, vendo
 	return result, nil
 }
 
-func GetGpuNodesAllocation(ctx context.Context, clientsets *clientsets.K8SClientSet, vendor metadata.GpuVendor) ([]model.GpuAllocation, error) {
+func GetGpuNodesAllocation(ctx context.Context, clientsets *clientsets.K8SClientSet, clusterName string, vendor metadata.GpuVendor) ([]model.GpuAllocation, error) {
 	nodes, err := GetGpuNodes(ctx, clientsets, vendor)
 	if err != nil {
 		return nil, err
 	}
 	results := make([]model.GpuAllocation, 0, len(nodes))
 	for _, node := range nodes {
-		allocated, capacity, err := GetNodeGpuAllocation(ctx, clientsets, node, vendor)
+		allocated, capacity, err := GetNodeGpuAllocation(ctx, clientsets, node, clusterName, vendor)
 		if err != nil {
 			return nil, err
 		}
@@ -216,13 +216,13 @@ func GetNodeGpuVramUsageHistory(ctx context.Context, clientsets *clientsets.Stor
 	return timeSeries, nil
 }
 
-func GetGpuNodeIdleInfo(ctx context.Context, clientsets *clientsets.K8SClientSet, vendor metadata.GpuVendor) (fullyIdle int, partiallyIdle int, busy int, err error) {
+func GetGpuNodeIdleInfo(ctx context.Context, clientsets *clientsets.K8SClientSet, clusterName string, vendor metadata.GpuVendor) (fullyIdle int, partiallyIdle int, busy int, err error) {
 	nodeNames, err := GetGpuNodes(ctx, clientsets, vendor)
 	if err != nil {
 		return 0, 0, 0, err
 	}
 	for _, name := range nodeNames {
-		allocated, capacity, err := GetNodeGpuAllocation(ctx, clientsets, name, vendor)
+		allocated, capacity, err := GetNodeGpuAllocation(ctx, clientsets, name, clusterName, vendor)
 		if err != nil {
 			log.Errorf("GetNodeGpuAllocation for node %s failed: %v", name, err)
 			return 0, 0, 0, err
