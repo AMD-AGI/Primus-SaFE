@@ -145,7 +145,7 @@ This tool requires privileged access to modify system-level configurations:
 
 ## Module Information
 
-- **Module Path**: `github.com/AMD-AGI/primus-lens/system-tuner`
+- **Module Path**: `github.com/AMD-AGI/Primus-SaFE/Lens/system-tuner`
 - **Go Version**: 1.24
 - **Version**: 0.1
 

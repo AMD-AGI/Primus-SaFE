@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
 
 // ClusterClientSet contains all clients for a single cluster

@@ -99,7 +99,7 @@ multi-cluster-config-exporter/
 - `k8s.io/api` - Kubernetes API types
 - `k8s.io/apimachinery` - Kubernetes API machinery
 - `k8s.io/client-go` - Kubernetes client library
-- `github.com/AMD-AGI/primus-lens/core` - Primus-Lens core framework
+- `github.com/AMD-AGI/Primus-SaFE/Lens/core` - Primus-Lens core framework
 
 ## Logging
 

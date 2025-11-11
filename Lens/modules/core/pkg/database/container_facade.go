@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"gorm.io/gorm"
 )
 
@@ -47,7 +48,12 @@ func (f *ContainerFacade) WithCluster(clusterName string) ContainerFacadeInterfa
 
 // NodeContainer operation implementations
 func (f *ContainerFacade) CreateNodeContainer(ctx context.Context, nodeContainer *model.NodeContainer) error {
-	return f.getDAL().NodeContainer.WithContext(ctx).Create(nodeContainer)
+	err := f.getDAL().NodeContainer.WithContext(ctx).Create(nodeContainer)
+	if err != nil {
+		log.Errorf("CreateNodeContainer failed: %v", err)
+		return err
+	}
+	return nil
 }
 
 func (f *ContainerFacade) UpdateNodeContainer(ctx context.Context, nodeContainer *model.NodeContainer) error {
@@ -62,6 +68,9 @@ func (f *ContainerFacade) GetNodeContainerByContainerId(ctx context.Context, con
 			return nil, nil
 		}
 		return nil, err
+	}
+	if result.ID == 0 {
+		return nil, nil
 	}
 	return result, nil
 }
@@ -101,6 +110,10 @@ func (f *ContainerFacade) GetNodeContainerDeviceByContainerIdAndDeviceUid(ctx co
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
+
 	return result, nil
 }
 
@@ -120,4 +133,3 @@ func (f *ContainerFacade) ListContainerDevicesByContainerId(ctx context.Context,
 func (f *ContainerFacade) CreateNodeContainerEvent(ctx context.Context, nodeContainerEvent *model.NodeContainerEvent) error {
 	return f.getDAL().NodeContainerEvent.WithContext(ctx).Create(nodeContainerEvent)
 }
-

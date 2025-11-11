@@ -6,13 +6,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/constant"
-	"github.com/AMD-AGI/primus-lens/core/pkg/database"
-	dbModel "github.com/AMD-AGI/primus-lens/core/pkg/database/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/mapUtil"
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/regexUtil"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/mapUtil"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/regexUtil"
 )
 
 var (

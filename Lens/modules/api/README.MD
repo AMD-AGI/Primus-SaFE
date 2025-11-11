@@ -11,6 +11,7 @@ The `api` module is the RESTful API service of the Primus-Lens project, providin
 - **Workload Management APIs**: Workload listing, hierarchy, detailed information, metrics, training performance
 - **GPU Monitoring APIs**: GPU utilization, allocation rate, historical trends, heatmaps
 - **Storage Management APIs**: Storage statistics and usage information
+- **Metric Alert Rule Management APIs**: Create, update, delete, and sync metric-based alert rules to clusters
 - **RESTful Architecture**: Standard HTTP REST APIs with JSON request/response format
 - **Middleware Integration**: CORS, error handling, distributed tracing, logging
 - **Database Integration**: Seamless integration with core module's database layer
@@ -30,7 +31,8 @@ api/
 │   │   ├── workload.go       # Workload management APIs
 │   │   ├── gpu.go            # GPU device APIs
 │   │   ├── metrics.go        # Metrics query APIs
-│   │   └── storage.go        # Storage management APIs
+│   │   ├── storage.go        # Storage management APIs
+│   │   └── metric_alert_rule.go # Metric alert rule management APIs
 │   └── bootstrap/
 │       └── bootstrap.go      # Server initialization and configuration
 ├── go.mod
@@ -189,6 +191,70 @@ Get metadata for all workloads.
 #### GET /api/storage/stat
 Get storage statistics including capacity, usage, and availability.
 
+### Metric Alert Rule Management
+
+#### POST /api/metric-alert-rules
+Create a new metric alert rule and optionally sync to cluster.
+
+**Request Body:**
+```json
+{
+  "name": "high-gpu-temperature",
+  "cluster_name": "prod-cluster-1",
+  "enabled": true,
+  "groups": [...],
+  "description": "Alert when GPU temperature exceeds threshold",
+  "auto_sync": true
+}
+```
+
+#### GET /api/metric-alert-rules
+List metric alert rules with filtering and pagination.
+
+**Query Parameters:**
+- `name` (string): Filter by rule name
+- `cluster_name` (string): Filter by cluster
+- `enabled` (boolean): Filter by enabled status
+- `sync_status` (string): Filter by sync status (pending/synced/failed)
+- `pageNum` (int): Page number
+- `pageSize` (int): Page size
+
+#### GET /api/metric-alert-rules/:id
+Get detailed information for a specific metric alert rule.
+
+#### PUT /api/metric-alert-rules/:id
+Update an existing metric alert rule.
+
+#### DELETE /api/metric-alert-rules/:id
+Delete a metric alert rule and remove it from cluster.
+
+#### POST /api/metric-alert-rules/:id/clone
+Clone a metric alert rule to another cluster.
+
+**Request Body:**
+```json
+{
+  "target_cluster_name": "prod-cluster-2",
+  "new_name": "high-gpu-temperature-cluster2",
+  "auto_sync": true
+}
+```
+
+#### POST /api/metric-alert-rules/sync
+Manually trigger rule synchronization to Kubernetes cluster.
+
+**Request Body:**
+```json
+{
+  "rule_ids": [123, 456]
+}
+```
+
+#### GET /api/metric-alert-rules/:id/status
+Get the real-time status of VMRule in Kubernetes cluster.
+
+For detailed API documentation, see [Metric Alert Rules API Documentation](docs/METRIC_ALERT_RULES_API.md).
+
 ## Quick Start
 
 ### Requirements
@@ -317,8 +383,8 @@ func RegisterRouter(group *gin.RouterGroup) error {
 
 ```go
 import (
-    "github.com/AMD-AGI/primus-lens/core/pkg/helper/gpu"
-    "github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
+    "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
+    "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 )
 
 data, err := gpu.GetGpuNodes(ctx, clientsets.GetCurrentClusterK8SClientSet(), metadata.GpuVendorAMD)
@@ -329,7 +395,7 @@ data, err := gpu.GetGpuNodes(ctx, clientsets.GetCurrentClusterK8SClientSet(), me
 All API handlers should use the unified error handling mechanism:
 
 ```go
-import "github.com/AMD-AGI/primus-lens/core/pkg/errors"
+import "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 
 // Return error through gin context
 if err != nil {
@@ -349,7 +415,7 @@ if resource == nil {
 Use the standard response format from the core module:
 
 ```go
-import "github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
+import "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 
 // Success response
 c.JSON(http.StatusOK, rest.SuccessResp(c, data))
@@ -447,7 +513,7 @@ spec:
 
 Main dependencies include:
 
-- **Core Module**: github.com/AMD-AGI/primus-lens/core
+- **Core Module**: github.com/AMD-AGI/Primus-SaFE/Lens/core
 - **Web Framework**: gin-gonic/gin
 - **Kubernetes Client**: k8s.io/client-go, k8s.io/api
 

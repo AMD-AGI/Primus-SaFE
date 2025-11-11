@@ -2,8 +2,8 @@ package exporter
 
 import (
 	"context"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
-	"github.com/AMD-AGI/primus-lens/core/pkg/router"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
 	"github.com/gin-gonic/gin"
 	"net/http"
 	"os"

@@ -1,0 +1,150 @@
+# GPU Usage Analysis Agent Configuration
+
+# API Configuration
+api:
+  host: "0.0.0.0"
+  port: 8001
+  title: "GPU Usage Analysis Agent API"
+  version: "1.0.0"
+  cors:
+    enabled: true
+    origins:
+      - "*"
+
+# Lens API Configuration
+lens:
+  api_url: "http://localhost:30182"
+  cluster_name: ""  # Default cluster, can be overridden per request
+  timeout: 30  # seconds
+
+# LLM Configuration
+llm:
+  provider: "openai"  # openai, anthropic, local
+  model: "gpt-4o-2024-11-20"
+  api_key: ""  # Set via environment variable LLM_API_KEY
+  base_url: ""  # Optional, for custom API endpoints
+  temperature: 0
+  max_tokens: 2000
+  verify_ssl: false  # Set to false to skip SSL certificate verification (not recommended for production)
+  
+  # Alternative configurations
+  alternatives:
+    openai:
+      model: "gpt-4"
+      fallback_model: "gpt-3.5-turbo"
+    anthropic:
+      model: "claude-3-opus-20240229"
+      fallback_model: "claude-3-sonnet-20240229"
+    local:
+      model: "llama-2-13b-chat"
+      base_url: "http://localhost:8000"
+
+# Agent Configuration
+agent:
+  max_iterations: 10
+  timeout: 120  # seconds
+  
+  # Enable/disable features
+  features:
+    trend_analysis: true
+    comparison: true
+    drill_down: true
+    anomaly_detection: false  # TODO: implement
+    cost_analysis: false  # TODO: implement
+    knowledge_base: false  # TODO: implement
+
+# Cache Configuration - LLM API response cache
+cache:
+  enabled: true
+  backend: "disk"  # memory, disk, redis
+  
+  # Memory cache configuration
+  memory:
+    max_size: 1000
+    ttl: 300  # seconds
+  
+  # Disk cache configuration
+  disk:
+    cache_dir: ".cache/llm"
+    ttl: 3600  # seconds (1 hour)
+  
+  # Redis cache configuration
+  redis:
+    host: "localhost"
+    port: 6379
+    db: 0
+    password: null
+    prefix: "llm_cache:"
+    ttl: 3600  # seconds
+
+# Chat History Storage Configuration
+storage:
+  enabled: true
+  backend: "file"  # file, db
+  
+  # File storage configuration
+  file:
+    storage_dir: ".storage/conversations"
+  
+  # Database storage configuration
+  db:
+    db_path: ".storage/conversations.db"
+  
+  # PostgreSQL storage configuration
+  pg:
+    host: "localhost"
+    port: 5432
+    database: "primus_lens"
+    user: "primus_lens"
+    password: ""  # Set via environment variable PG_PASSWORD
+    schema: "public"
+    min_connections: 1
+    max_connections: 10
+    sslmode: "prefer"  # disable, allow, prefer, require, verify-ca, verify-full
+  
+  # Cleanup policy
+  retention_days: 30  # Retention days
+  auto_cleanup: true  # Whether to auto cleanup expired data
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "json"
+  output: "stdout"
+  
+  # Log conversation history
+  conversation:
+    enabled: true
+    retention_days: 30
+
+# Monitoring Configuration
+monitoring:
+  enabled: true
+  metrics:
+    - "query_response_time"
+    - "llm_call_count"
+    - "tool_call_count"
+    - "error_rate"
+  
+  alerts:
+    error_rate_threshold: 0.1
+    response_time_p95_threshold: 5000  # milliseconds
+
+# Knowledge Base Configuration (Optional)
+knowledge_base:
+  enabled: false
+  backend: "milvus"
+  milvus:
+    host: "localhost"
+    port: 19530
+    collection_name: "gpu_usage_knowledge"
+    embedding_model: "text-embedding-ada-002"
+
+# Security Configuration
+security:
+  api_key_enabled: false
+  api_keys: []
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 60
+

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -72,6 +72,9 @@ func (f *PodFacade) GetGpuPodsByPodUid(ctx context.Context, podUid string) (*mod
 			return nil, nil
 		}
 		return nil, err
+	}
+	if result.ID == 0 {
+		return nil, nil
 	}
 	return result, nil
 }
@@ -168,6 +171,9 @@ func (f *PodFacade) GetLastPodSnapshot(ctx context.Context, podUid string, resou
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
@@ -181,6 +187,9 @@ func (f *PodFacade) GetPodResourceByUid(ctx context.Context, uid string) (*model
 		}
 		return nil, err
 	}
+	if result.ID == 0 {
+		return nil, nil
+	}
 	return result, nil
 }
 
@@ -191,4 +200,3 @@ func (f *PodFacade) CreatePodResource(ctx context.Context, podResource *model.Po
 func (f *PodFacade) UpdatePodResource(ctx context.Context, podResource *model.PodResource) error {
 	return f.getDAL().PodResource.WithContext(ctx).Save(podResource)
 }
-

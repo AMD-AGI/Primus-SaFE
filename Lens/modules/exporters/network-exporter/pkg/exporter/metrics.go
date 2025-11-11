@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/network-exporter/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/model"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 )

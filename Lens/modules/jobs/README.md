@@ -147,7 +147,7 @@ The application will:
 - **Cron Scheduler**: `github.com/robfig/cron/v3`
 - **gRPC**: `google.golang.org/grpc`
 - **Prometheus**: `github.com/prometheus/client_golang`
-- **Primus Lens Core**: `github.com/AMD-AGI/primus-lens/core`
+- **Primus Lens Core**: `github.com/AMD-AGI/Primus-SaFE/Lens/core`
 
 See `go.mod` for complete dependency list.
 

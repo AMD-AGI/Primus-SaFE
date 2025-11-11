@@ -102,6 +102,18 @@ jobs:
           MATRIX+=']}'
           echo "Generated matrix: $MATRIX"
           echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+  
+  output-version:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display Image Version
+        run: |
+          echo "================================================"
+          echo "📦 Image Version: ${{ needs.detect-changes.outputs.image_version }}"
+          echo "📅 Build DateTime: ${{ needs.detect-changes.outputs.date_time }}"
+          echo "================================================"
+  
   build:
     needs: detect-changes
     runs-on: primus-safe-tw

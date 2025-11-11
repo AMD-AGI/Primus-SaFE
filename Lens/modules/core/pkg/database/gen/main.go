@@ -3,12 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/conf"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/sql"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/conf"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gen"

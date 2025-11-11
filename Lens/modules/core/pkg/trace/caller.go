@@ -16,7 +16,7 @@ var (
 		regexp.MustCompile(`^primus-lens/[^*]+/database/[^*]+/dal[^*]+$`),
 	}
 	packagePrefixList = []string{
-		"github.com/AMD-AGI/primus-lens",
+		"github.com/AMD-AGI/Primus-SaFE/Lens",
 	}
 )
 
