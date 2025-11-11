@@ -2,8 +2,10 @@ package metadata
 
 const (
 	WorkloadStatusRunning = "Running"
+	WorkloadStatusPending = "Pending"
 	WorkloadStatusDone    = "Done"
 	WorkloadStatusDeleted = "Deleted"
+	WorkloadStatusFailed  = "Failed"
 )
 
 var (
@@ -11,6 +13,8 @@ var (
 		WorkloadStatusRunning: "green",
 		WorkloadStatusDone:    "blue",
 		WorkloadStatusDeleted: "gray",
+		WorkloadStatusPending: "yellow",
+		WorkloadStatusFailed:  "red",
 	}
 )
 

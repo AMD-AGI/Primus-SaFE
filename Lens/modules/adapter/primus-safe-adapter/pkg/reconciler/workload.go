@@ -122,6 +122,17 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 		Source:       constant.ContainerSourceK8S,
 		Status:       metadata.WorkloadStatusRunning,
 	}
+	switch workload.Status.Phase {
+	case primusSafeV1.WorkloadPending:
+		dbWorkload.Status = metadata.WorkloadStatusPending
+	case primusSafeV1.WorkloadRunning:
+		dbWorkload.Status = metadata.WorkloadStatusRunning
+	case primusSafeV1.WorkloadSucceeded:
+		dbWorkload.Status = metadata.WorkloadStatusDone
+	case primusSafeV1.WorkloadFailed:
+		dbWorkload.Status = metadata.WorkloadStatusFailed
+	}
+
 	for key, value := range workload.Labels {
 		if primusSafeConstant.WorkloadDispatchCountLabel == key {
 			count, _ := strconv.Atoi(value)
