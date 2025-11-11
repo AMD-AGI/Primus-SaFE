@@ -10,7 +10,7 @@ from gpu_usage_agent.tools import GPUAnalysisTools
 
 @pytest.fixture
 def tools():
-    """创建工具实例"""
+    """Create tools instance"""
     return GPUAnalysisTools(
         api_base_url="http://localhost:8080",
         cluster_name="test-cluster"
@@ -19,7 +19,7 @@ def tools():
 
 @pytest.fixture
 def mock_response():
-    """创建模拟的 API 响应"""
+    """Create mock API response"""
     return {
         "code": 0,
         "message": "success",
@@ -42,13 +42,13 @@ def mock_response():
 
 
 def test_tools_initialization(tools):
-    """测试工具初始化"""
+    """Test tools initialization"""
     assert tools.api_base_url == "http://localhost:8080"
     assert tools.cluster_name == "test-cluster"
 
 
 def test_make_request(tools, mock_response):
-    """测试 API 请求"""
+    """Test API request"""
     with patch('requests.get') as mock_get:
         mock_get.return_value.json.return_value = mock_response
         mock_get.return_value.raise_for_status = Mock()
@@ -60,7 +60,7 @@ def test_make_request(tools, mock_response):
 
 
 def test_query_gpu_usage_trend_cluster(tools, mock_response):
-    """测试查询集群使用率趋势"""
+    """Test querying cluster utilization trend"""
     with patch.object(tools, '_make_request', return_value=mock_response):
         result_str = tools.query_gpu_usage_trend(
             dimension="cluster",
@@ -77,7 +77,7 @@ def test_query_gpu_usage_trend_cluster(tools, mock_response):
 
 
 def test_query_gpu_usage_trend_namespace(tools, mock_response):
-    """测试查询 namespace 使用率趋势"""
+    """Test querying namespace utilization trend"""
     with patch.object(tools, '_make_request', return_value=mock_response):
         result_str = tools.query_gpu_usage_trend(
             dimension="namespace",
@@ -94,7 +94,7 @@ def test_query_gpu_usage_trend_namespace(tools, mock_response):
 
 
 def test_query_gpu_usage_trend_label(tools, mock_response):
-    """测试查询 label 使用率趋势"""
+    """Test querying label utilization trend"""
     with patch.object(tools, '_make_request', return_value=mock_response):
         result_str = tools.query_gpu_usage_trend(
             dimension="label",

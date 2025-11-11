@@ -1,4 +1,4 @@
-"""PostgreSQL存储实现"""
+"""PostgreSQL storage implementation"""
 
 import json
 import logging

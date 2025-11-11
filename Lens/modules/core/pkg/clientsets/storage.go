@@ -159,7 +159,6 @@ func initStorageClients(ctx context.Context, clusterName string, cfg PrimusLensC
 		SSLMode:     cfg.Postgres.SSLMode,
 		Driver:      sql.DriverNamePostgres,
 	}
-	log.Infof("sqlConfig: %+v", sqlConfig)
 	log.Infof("Initializing storage clients for cluster '%s' ", clusterName)
 	gormDb, err := sql.InitGormDB(clusterName, sqlConfig,
 		sql.WithTracingCallback(),

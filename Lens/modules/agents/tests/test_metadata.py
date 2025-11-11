@@ -9,7 +9,7 @@ from gpu_usage_agent.tools import GPUAnalysisTools
 
 @pytest.fixture
 def tools():
-    """创建工具实例"""
+    """Create tools instance"""
     return GPUAnalysisTools(
         api_base_url="http://localhost:8080",
         cluster_name="test-cluster"
@@ -17,7 +17,7 @@ def tools():
 
 
 def test_get_available_clusters(tools):
-    """测试获取集群列表"""
+    """Test getting cluster list"""
     mock_response = {
         "code": 0,
         "message": "success",
@@ -35,7 +35,7 @@ def test_get_available_clusters(tools):
 
 
 def test_get_available_namespaces(tools):
-    """测试获取 namespace 列表"""
+    """Test getting namespace list"""
     mock_response = {
         "code": 0,
         "message": "success",
@@ -53,7 +53,7 @@ def test_get_available_namespaces(tools):
 
 
 def test_get_available_namespaces_with_cluster(tools):
-    """测试获取指定集群的 namespace 列表"""
+    """Test getting namespace list for a specific cluster"""
     mock_response = {
         "code": 0,
         "message": "success",
@@ -72,7 +72,7 @@ def test_get_available_namespaces_with_cluster(tools):
 
 
 def test_get_available_dimension_keys_label(tools):
-    """测试获取 label keys"""
+    """Test getting label keys"""
     mock_response = {
         "code": 0,
         "message": "success",
@@ -90,7 +90,7 @@ def test_get_available_dimension_keys_label(tools):
 
 
 def test_get_available_dimension_keys_annotation(tools):
-    """测试获取 annotation keys"""
+    """Test getting annotation keys"""
     mock_response = {
         "code": 0,
         "message": "success",
@@ -106,7 +106,7 @@ def test_get_available_dimension_keys_annotation(tools):
 
 
 def test_get_available_dimension_keys_invalid_type(tools):
-    """测试无效的维度类型"""
+    """Test invalid dimension type"""
     result_str = tools.get_available_dimension_keys("invalid_type", 7)
     result = json.loads(result_str)
     
@@ -115,7 +115,7 @@ def test_get_available_dimension_keys_invalid_type(tools):
 
 
 def test_get_available_clusters_error(tools):
-    """测试获取集群列表失败"""
+    """Test cluster list retrieval failure"""
     mock_error = {
         "code": 500,
         "message": "Internal server error",
@@ -131,7 +131,7 @@ def test_get_available_clusters_error(tools):
 
 
 def test_get_available_namespaces_empty(tools):
-    """测试没有可用 namespace 的情况"""
+    """Test scenario with no available namespaces"""
     mock_response = {
         "code": 0,
         "message": "success",
@@ -147,7 +147,7 @@ def test_get_available_namespaces_empty(tools):
 
 
 def test_metadata_tools_in_tool_list(tools):
-    """测试元数据工具是否在工具列表中"""
+    """Test if metadata tools are in the tool list"""
     tool_list = tools.get_tools()
     tool_names = [tool.__name__ for tool in tool_list]
     

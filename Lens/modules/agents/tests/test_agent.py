@@ -10,14 +10,14 @@ from gpu_usage_agent.state import GPUAnalysisState
 
 @pytest.fixture
 def mock_llm():
-    """创建模拟的 LLM"""
+    """Create a mock LLM"""
     llm = Mock()
     return llm
 
 
 @pytest.fixture
 def agent(mock_llm):
-    """创建 Agent 实例"""
+    """Create an Agent instance"""
     return GPUUsageAnalysisAgent(
         llm=mock_llm,
         api_base_url="http://localhost:8080",
@@ -26,7 +26,7 @@ def agent(mock_llm):
 
 
 def test_agent_initialization(agent):
-    """测试 Agent 初始化"""
+    """Test Agent initialization"""
     assert agent.api_base_url == "http://localhost:8080"
     assert agent.cluster_name == "test-cluster"
     assert agent.max_iterations == 10
@@ -34,8 +34,8 @@ def test_agent_initialization(agent):
 
 
 def test_understand_query_trend(agent, mock_llm):
-    """测试理解查询 - 趋势分析"""
-    # 模拟 LLM 返回
+    """Test query understanding - trend analysis"""
+    # Mock LLM response
     mock_response = Mock()
     mock_response.content = '''
     {
@@ -46,13 +46,13 @@ def test_understand_query_trend(agent, mock_llm):
             "metric": "utilization"
         },
         "needs_clarification": false,
-        "understanding": "用户想查看最近7天集群GPU使用率趋势"
+        "understanding": "User wants to view cluster GPU utilization trend for the past 7 days"
     }
     '''
     mock_llm.invoke.return_value = mock_response
     
     state: GPUAnalysisState = {
-        "user_query": "最近7天的GPU使用率趋势如何？",
+        "user_query": "What is the GPU utilization trend over the past 7 days?",
         "conversation_history": [],
         "intent": [],
         "entities": {},
@@ -80,16 +80,16 @@ def test_understand_query_trend(agent, mock_llm):
 
 
 def test_chat_basic_query(agent, mock_llm):
-    """测试基本对话"""
-    # 模拟 LLM 返回
+    """Test basic conversation"""
+    # Mock LLM response
     mock_response = Mock()
-    mock_response.content = "这是一个测试回答"
+    mock_response.content = "This is a test answer"
     mock_llm.invoke.return_value = mock_response
     
     with patch.object(agent, 'graph') as mock_graph:
         mock_graph.invoke.return_value = {
-            "answer": "最近7天集群GPU使用率整体呈上升趋势",
-            "insights": ["使用率从55%上升到68%"],
+            "answer": "Cluster GPU utilization shows an overall upward trend over the past 7 days",
+            "insights": ["Utilization increased from 55% to 68%"],
             "data_collected": [],
             "conversation_history": [],
             "intent": ["trend"],
@@ -99,7 +99,7 @@ def test_chat_basic_query(agent, mock_llm):
             "iterations": 1
         }
         
-        result = agent.chat("最近7天的GPU使用率趋势如何？")
+        result = agent.chat("What is the GPU utilization trend over the past 7 days?")
         
         assert "answer" in result
         assert "insights" in result
@@ -108,25 +108,25 @@ def test_chat_basic_query(agent, mock_llm):
 
 @pytest.mark.asyncio
 async def test_achat(agent):
-    """测试异步对话"""
+    """Test asynchronous conversation"""
     with patch.object(agent, 'chat') as mock_chat:
         mock_chat.return_value = {
-            "answer": "测试回答",
+            "answer": "Test answer",
             "insights": [],
             "data_collected": [],
             "conversation_history": [],
             "debug_info": {}
         }
         
-        result = await agent.achat("测试查询")
+        result = await agent.achat("Test query")
         
-        assert result["answer"] == "测试回答"
+        assert result["answer"] == "Test answer"
 
 
 def test_should_continue_after_understand_clarify(agent):
-    """测试需要澄清的情况"""
+    """Test scenario requiring clarification"""
     state: GPUAnalysisState = {
-        "user_query": "查询",
+        "user_query": "Query",
         "conversation_history": [],
         "intent": [],
         "entities": {},
@@ -137,7 +137,7 @@ def test_should_continue_after_understand_clarify(agent):
         "insights": [],
         "answer": "",
         "needs_clarification": True,
-        "clarification_question": "请提供更多信息",
+        "clarification_question": "Please provide more information",
         "should_continue": True,
         "cluster_name": "",
         "start_time": None,
@@ -149,11 +149,11 @@ def test_should_continue_after_understand_clarify(agent):
     result = agent._should_continue_after_understand(state)
     
     assert result == "clarify"
-    assert state["answer"] == "请提供更多信息"
+    assert state["answer"] == "Please provide more information"
 
 
 def test_should_call_tool_continue(agent):
-    """测试应该继续调用工具"""
+    """Test should continue calling tools"""
     state: GPUAnalysisState = {
         "user_query": "",
         "conversation_history": [],
@@ -182,7 +182,7 @@ def test_should_call_tool_continue(agent):
 
 
 def test_should_call_tool_max_iterations(agent):
-    """测试达到最大迭代次数"""
+    """Test reaching maximum iteration count"""
     state: GPUAnalysisState = {
         "user_query": "",
         "conversation_history": [],

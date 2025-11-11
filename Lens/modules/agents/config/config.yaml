@@ -25,7 +25,7 @@ llm:
   base_url: ""  # Optional, for custom API endpoints
   temperature: 0
   max_tokens: 2000
-  verify_ssl: false  # 设置为 false 跳过 SSL 证书验证 (不推荐用于生产环境)
+  verify_ssl: false  # Set to false to skip SSL certificate verification (not recommended for production)
   
   # Alternative configurations
   alternatives:
@@ -53,22 +53,22 @@ agent:
     cost_analysis: false  # TODO: implement
     knowledge_base: false  # TODO: implement
 
-# Cache Configuration - LLM API 响应缓存
+# Cache Configuration - LLM API response cache
 cache:
   enabled: true
   backend: "disk"  # memory, disk, redis
   
-  # 内存缓存配置
+  # Memory cache configuration
   memory:
     max_size: 1000
     ttl: 300  # seconds
   
-  # 磁盘缓存配置
+  # Disk cache configuration
   disk:
     cache_dir: ".cache/llm"
     ttl: 3600  # seconds (1 hour)
   
-  # Redis 缓存配置
+  # Redis cache configuration
   redis:
     host: "localhost"
     port: 6379
@@ -82,15 +82,15 @@ storage:
   enabled: true
   backend: "file"  # file, db
   
-  # 文件存储配置
+  # File storage configuration
   file:
     storage_dir: ".storage/conversations"
   
-  # 数据库存储配置
+  # Database storage configuration
   db:
     db_path: ".storage/conversations.db"
   
-  # PostgreSQL 存储配置
+  # PostgreSQL storage configuration
   pg:
     host: "localhost"
     port: 5432
@@ -102,9 +102,9 @@ storage:
     max_connections: 10
     sslmode: "prefer"  # disable, allow, prefer, require, verify-ca, verify-full
   
-  # 清理策略
-  retention_days: 30  # 保留天数
-  auto_cleanup: true  # 是否自动清理过期数据
+  # Cleanup policy
+  retention_days: 30  # Retention days
+  auto_cleanup: true  # Whether to auto cleanup expired data
 
 # Logging Configuration
 logging:
