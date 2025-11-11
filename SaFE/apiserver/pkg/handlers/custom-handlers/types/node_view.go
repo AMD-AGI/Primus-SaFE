@@ -200,3 +200,8 @@ type NodeRebootLogResponseItem struct {
 	UserName     string `json:"userName"`
 	CreationTime string `json:"creationTime"`
 }
+
+type BatchNodesRequest struct {
+	// List of node IDs to be processed
+	NodeIds []string `json:"nodeIds"`
+}
