@@ -113,6 +113,9 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		// Label/Annotation级别小时统计
 		gpuAggregationGroup.GET("/labels/hourly-stats", getLabelHourlyStats)
 
+		// Workload级别小时统计
+		gpuAggregationGroup.GET("/workloads/hourly-stats", getWorkloadHourlyStats)
+
 		// 快照查询
 		gpuAggregationGroup.GET("/snapshots/latest", getLatestSnapshot)
 		gpuAggregationGroup.GET("/snapshots", listSnapshots)

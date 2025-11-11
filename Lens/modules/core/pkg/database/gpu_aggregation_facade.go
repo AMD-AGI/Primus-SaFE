@@ -51,6 +51,16 @@ type GpuAggregationFacadeInterface interface {
 	GetLabelHourlyStatsPaginated(ctx context.Context, dimensionType, dimensionKey, dimensionValue string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
 	ListLabelHourlyStatsByKeyPaginated(ctx context.Context, dimensionType, dimensionKey string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
 
+	// WorkloadGpuHourlyStats operations
+	SaveWorkloadHourlyStats(ctx context.Context, stats *dbmodel.WorkloadGpuHourlyStats) error
+	BatchSaveWorkloadHourlyStats(ctx context.Context, stats []*dbmodel.WorkloadGpuHourlyStats) error
+	GetWorkloadHourlyStats(ctx context.Context, namespace, workloadName string, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error)
+	ListWorkloadHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error)
+	ListWorkloadHourlyStatsByNamespace(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error)
+	GetWorkloadHourlyStatsPaginated(ctx context.Context, namespace, workloadName, workloadType string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
+	ListWorkloadHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
+	ListWorkloadHourlyStatsByNamespacePaginated(ctx context.Context, namespace string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error)
+
 	// GpuAllocationSnapshot operations
 	SaveSnapshot(ctx context.Context, snapshot *dbmodel.GpuAllocationSnapshots) error
 	GetLatestSnapshot(ctx context.Context) (*dbmodel.GpuAllocationSnapshots, error)
@@ -813,4 +823,187 @@ func (f *GpuAggregationFacade) ListLabelHourlyStatsByKeyPaginated(ctx context.Co
 		TotalPages: totalPages,
 		Data:       result,
 	}, nil
+}
+
+// ==================== WorkloadGpuHourlyStats operations implementation ====================
+
+// SaveWorkloadHourlyStats saves workload hourly statistics
+func (f *GpuAggregationFacade) SaveWorkloadHourlyStats(ctx context.Context, stats *dbmodel.WorkloadGpuHourlyStats) error {
+	q := f.getDAL().WorkloadGpuHourlyStats
+
+	// Check if already exists
+	existing, err := q.WithContext(ctx).
+		Where(q.ClusterName.Eq(stats.ClusterName)).
+		Where(q.Namespace.Eq(stats.Namespace)).
+		Where(q.WorkloadName.Eq(stats.WorkloadName)).
+		Where(q.StatHour.Eq(stats.StatHour)).
+		First()
+
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+
+	if existing != nil {
+		// Update existing record
+		stats.ID = existing.ID
+		return q.WithContext(ctx).Save(stats)
+	}
+
+	// Create new record
+	return q.WithContext(ctx).Create(stats)
+}
+
+// BatchSaveWorkloadHourlyStats batch saves workload hourly statistics
+func (f *GpuAggregationFacade) BatchSaveWorkloadHourlyStats(ctx context.Context, stats []*dbmodel.WorkloadGpuHourlyStats) error {
+	if len(stats) == 0 {
+		return nil
+	}
+
+	// Use transaction for batch insert
+	return f.getDB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, stat := range stats {
+			if err := f.SaveWorkloadHourlyStats(ctx, stat); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// GetWorkloadHourlyStats queries hourly statistics for specific workload
+func (f *GpuAggregationFacade) GetWorkloadHourlyStats(ctx context.Context, namespace, workloadName string, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
+	q := f.getDAL().WorkloadGpuHourlyStats
+
+	result, err := q.WithContext(ctx).
+		Where(q.Namespace.Eq(namespace)).
+		Where(q.WorkloadName.Eq(workloadName)).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Order(q.StatHour.Asc()).
+		Find()
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []*dbmodel.WorkloadGpuHourlyStats{}, nil
+		}
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// ListWorkloadHourlyStats queries all workload hourly statistics
+func (f *GpuAggregationFacade) ListWorkloadHourlyStats(ctx context.Context, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
+	q := f.getDAL().WorkloadGpuHourlyStats
+
+	result, err := q.WithContext(ctx).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Order(q.StatHour.Asc()).
+		Find()
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []*dbmodel.WorkloadGpuHourlyStats{}, nil
+		}
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// ListWorkloadHourlyStatsByNamespace queries workload hourly statistics by namespace
+func (f *GpuAggregationFacade) ListWorkloadHourlyStatsByNamespace(ctx context.Context, namespace string, startTime, endTime time.Time) ([]*dbmodel.WorkloadGpuHourlyStats, error) {
+	q := f.getDAL().WorkloadGpuHourlyStats
+
+	result, err := q.WithContext(ctx).
+		Where(q.Namespace.Eq(namespace)).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime)).
+		Order(q.StatHour.Asc()).
+		Find()
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []*dbmodel.WorkloadGpuHourlyStats{}, nil
+		}
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// GetWorkloadHourlyStatsPaginated queries hourly statistics for workload with filters and pagination
+func (f *GpuAggregationFacade) GetWorkloadHourlyStatsPaginated(ctx context.Context, namespace, workloadName, workloadType string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error) {
+	q := f.getDAL().WorkloadGpuHourlyStats
+
+	// Build base query with filters
+	query := q.WithContext(ctx).
+		Where(q.StatHour.Gte(startTime)).
+		Where(q.StatHour.Lte(endTime))
+
+	if namespace != "" {
+		query = query.Where(q.Namespace.Eq(namespace))
+	}
+	if workloadName != "" {
+		query = query.Where(q.WorkloadName.Eq(workloadName))
+	}
+	if workloadType != "" {
+		query = query.Where(q.WorkloadType.Eq(workloadType))
+	}
+
+	// Query total count
+	total, err := query.Count()
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate pagination parameters
+	offset, limit, totalPages := calculatePagination(opts.Page, opts.PageSize, total)
+
+	// Add pagination
+	query = query.Offset(offset).Limit(limit)
+
+	// Apply sorting
+	var result []*dbmodel.WorkloadGpuHourlyStats
+	if opts.OrderBy == "utilization" {
+		if opts.OrderDirection == "desc" {
+			result, err = query.Order(q.AvgUtilization.Desc()).Find()
+		} else {
+			result, err = query.Order(q.AvgUtilization).Find()
+		}
+	} else {
+		// Default sort by time
+		if opts.OrderDirection == "desc" {
+			result, err = query.Order(q.StatHour.Desc()).Find()
+		} else {
+			result, err = query.Order(q.StatHour).Find()
+		}
+	}
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			result = []*dbmodel.WorkloadGpuHourlyStats{}
+		} else {
+			return nil, err
+		}
+	}
+
+	return &PaginatedResult{
+		Total:      total,
+		Page:       opts.Page,
+		PageSize:   opts.PageSize,
+		TotalPages: totalPages,
+		Data:       result,
+	}, nil
+}
+
+// ListWorkloadHourlyStatsPaginated queries all workload hourly statistics with pagination
+func (f *GpuAggregationFacade) ListWorkloadHourlyStatsPaginated(ctx context.Context, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error) {
+	return f.GetWorkloadHourlyStatsPaginated(ctx, "", "", "", startTime, endTime, opts)
+}
+
+// ListWorkloadHourlyStatsByNamespacePaginated queries workload hourly statistics by namespace with pagination
+func (f *GpuAggregationFacade) ListWorkloadHourlyStatsByNamespacePaginated(ctx context.Context, namespace string, startTime, endTime time.Time, opts PaginationOptions) (*PaginatedResult, error) {
+	return f.GetWorkloadHourlyStatsPaginated(ctx, namespace, "", "", startTime, endTime, opts)
 }

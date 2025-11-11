@@ -29,7 +29,6 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		AlertStatistics:           newAlertStatistics(db, opts...),
 		ClusterGpuHourlyStats:     newClusterGpuHourlyStats(db, opts...),
 		ClusterOverviewCache:      newClusterOverviewCache(db, opts...),
-		Conversations:             newConversations(db, opts...),
 		Fault:                     newFault(db, opts...),
 		GenericCache:              newGenericCache(db, opts...),
 		GpuAllocationSnapshots:    newGpuAllocationSnapshots(db, opts...),
@@ -60,6 +59,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		SystemConfigHistory:       newSystemConfigHistory(db, opts...),
 		TrainingPerformance:       newTrainingPerformance(db, opts...),
 		WorkloadEvent:             newWorkloadEvent(db, opts...),
+		WorkloadGpuHourlyStats:    newWorkloadGpuHourlyStats(db, opts...),
 		WorkloadPodReference:      newWorkloadPodReference(db, opts...),
 		WorkloadResource:          newWorkloadResource(db, opts...),
 	}
@@ -79,7 +79,6 @@ type Query struct {
 	AlertStatistics           alertStatistics
 	ClusterGpuHourlyStats     clusterGpuHourlyStats
 	ClusterOverviewCache      clusterOverviewCache
-	Conversations             conversations
 	Fault                     fault
 	GenericCache              genericCache
 	GpuAllocationSnapshots    gpuAllocationSnapshots
@@ -110,6 +109,7 @@ type Query struct {
 	SystemConfigHistory       systemConfigHistory
 	TrainingPerformance       trainingPerformance
 	WorkloadEvent             workloadEvent
+	WorkloadGpuHourlyStats    workloadGpuHourlyStats
 	WorkloadPodReference      workloadPodReference
 	WorkloadResource          workloadResource
 }
@@ -130,7 +130,6 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		AlertStatistics:           q.AlertStatistics.clone(db),
 		ClusterGpuHourlyStats:     q.ClusterGpuHourlyStats.clone(db),
 		ClusterOverviewCache:      q.ClusterOverviewCache.clone(db),
-		Conversations:             q.Conversations.clone(db),
 		Fault:                     q.Fault.clone(db),
 		GenericCache:              q.GenericCache.clone(db),
 		GpuAllocationSnapshots:    q.GpuAllocationSnapshots.clone(db),
@@ -161,6 +160,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		SystemConfigHistory:       q.SystemConfigHistory.clone(db),
 		TrainingPerformance:       q.TrainingPerformance.clone(db),
 		WorkloadEvent:             q.WorkloadEvent.clone(db),
+		WorkloadGpuHourlyStats:    q.WorkloadGpuHourlyStats.clone(db),
 		WorkloadPodReference:      q.WorkloadPodReference.clone(db),
 		WorkloadResource:          q.WorkloadResource.clone(db),
 	}
@@ -188,7 +188,6 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		AlertStatistics:           q.AlertStatistics.replaceDB(db),
 		ClusterGpuHourlyStats:     q.ClusterGpuHourlyStats.replaceDB(db),
 		ClusterOverviewCache:      q.ClusterOverviewCache.replaceDB(db),
-		Conversations:             q.Conversations.replaceDB(db),
 		Fault:                     q.Fault.replaceDB(db),
 		GenericCache:              q.GenericCache.replaceDB(db),
 		GpuAllocationSnapshots:    q.GpuAllocationSnapshots.replaceDB(db),
@@ -219,6 +218,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		SystemConfigHistory:       q.SystemConfigHistory.replaceDB(db),
 		TrainingPerformance:       q.TrainingPerformance.replaceDB(db),
 		WorkloadEvent:             q.WorkloadEvent.replaceDB(db),
+		WorkloadGpuHourlyStats:    q.WorkloadGpuHourlyStats.replaceDB(db),
 		WorkloadPodReference:      q.WorkloadPodReference.replaceDB(db),
 		WorkloadResource:          q.WorkloadResource.replaceDB(db),
 	}
@@ -236,7 +236,6 @@ type queryCtx struct {
 	AlertStatistics           *alertStatisticsDo
 	ClusterGpuHourlyStats     *clusterGpuHourlyStatsDo
 	ClusterOverviewCache      *clusterOverviewCacheDo
-	Conversations             *conversationsDo
 	Fault                     *faultDo
 	GenericCache              *genericCacheDo
 	GpuAllocationSnapshots    *gpuAllocationSnapshotsDo
@@ -267,6 +266,7 @@ type queryCtx struct {
 	SystemConfigHistory       *systemConfigHistoryDo
 	TrainingPerformance       *trainingPerformanceDo
 	WorkloadEvent             *workloadEventDo
+	WorkloadGpuHourlyStats    *workloadGpuHourlyStatsDo
 	WorkloadPodReference      *workloadPodReferenceDo
 	WorkloadResource          *workloadResourceDo
 }
@@ -284,7 +284,6 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		AlertStatistics:           q.AlertStatistics.WithContext(ctx),
 		ClusterGpuHourlyStats:     q.ClusterGpuHourlyStats.WithContext(ctx),
 		ClusterOverviewCache:      q.ClusterOverviewCache.WithContext(ctx),
-		Conversations:             q.Conversations.WithContext(ctx),
 		Fault:                     q.Fault.WithContext(ctx),
 		GenericCache:              q.GenericCache.WithContext(ctx),
 		GpuAllocationSnapshots:    q.GpuAllocationSnapshots.WithContext(ctx),
@@ -315,6 +314,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		SystemConfigHistory:       q.SystemConfigHistory.WithContext(ctx),
 		TrainingPerformance:       q.TrainingPerformance.WithContext(ctx),
 		WorkloadEvent:             q.WorkloadEvent.WithContext(ctx),
+		WorkloadGpuHourlyStats:    q.WorkloadGpuHourlyStats.WithContext(ctx),
 		WorkloadPodReference:      q.WorkloadPodReference.WithContext(ctx),
 		WorkloadResource:          q.WorkloadResource.WithContext(ctx),
 	}

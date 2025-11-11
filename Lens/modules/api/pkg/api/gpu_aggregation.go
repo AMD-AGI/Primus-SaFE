@@ -45,6 +45,19 @@ type LabelHourlyStatsRequest struct {
 	OrderDirection string `form:"order_direction" binding:"omitempty,oneof=asc desc"`       // Sort direction: asc or desc
 }
 
+// WorkloadHourlyStatsRequest workload hourly statistics query request
+type WorkloadHourlyStatsRequest struct {
+	Namespace      string `form:"namespace"`                                           // Optional, query all namespaces if empty
+	WorkloadName   string `form:"workload_name"`                                       // Optional, query all workloads if empty
+	WorkloadType   string `form:"workload_type"`                                       // Optional, filter by workload type (Job, Deployment, StatefulSet, etc.)
+	StartTime      string `form:"start_time" binding:"required"`                       // RFC3339 format
+	EndTime        string `form:"end_time" binding:"required"`                         // RFC3339 format
+	Page           int    `form:"page" binding:"omitempty,min=1"`                      // Page number, starting from 1
+	PageSize       int    `form:"page_size" binding:"omitempty,min=1,max=1000"`        // Items per page, maximum 1000
+	OrderBy        string `form:"order_by" binding:"omitempty,oneof=time utilization"` // Sort field: time or utilization
+	OrderDirection string `form:"order_direction" binding:"omitempty,oneof=asc desc"`  // Sort direction: asc or desc
+}
+
 // SnapshotsRequest snapshot query request
 type SnapshotsRequest struct {
 	StartTime string `form:"start_time"` // RFC3339 format, optional
@@ -127,7 +140,7 @@ func getClusterHourlyStats(ctx *gin.Context) {
 	// Build pagination options
 	opts := database.PaginationOptions{
 		Page:           req.Page,
-		PageSize:       req.PageSize,
+		PageSize:       10000,
 		OrderBy:        req.OrderBy,
 		OrderDirection: req.OrderDirection,
 	}
@@ -199,7 +212,7 @@ func getNamespaceHourlyStats(ctx *gin.Context) {
 	// Build pagination options
 	opts := database.PaginationOptions{
 		Page:           req.Page,
-		PageSize:       req.PageSize,
+		PageSize:       10000,
 		OrderBy:        req.OrderBy,
 		OrderDirection: req.OrderDirection,
 	}
@@ -282,7 +295,7 @@ func getLabelHourlyStats(ctx *gin.Context) {
 	// Build pagination options
 	opts := database.PaginationOptions{
 		Page:           req.Page,
-		PageSize:       req.PageSize,
+		PageSize:       10000,
 		OrderBy:        req.OrderBy,
 		OrderDirection: req.OrderDirection,
 	}
@@ -303,6 +316,80 @@ func getLabelHourlyStats(ctx *gin.Context) {
 
 	if err != nil {
 		_ = ctx.Error(errors.WrapError(err, "Failed to get label hourly stats", errors.CodeDatabaseError))
+		return
+	}
+
+	// Build response
+	response := PaginatedResponse{
+		Total:      result.Total,
+		Page:       result.Page,
+		PageSize:   result.PageSize,
+		TotalPages: result.TotalPages,
+		Data:       result.Data,
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, response))
+}
+
+// getWorkloadHourlyStats queries workload-level hourly statistics
+// @Summary Query workload GPU hourly statistics
+// @Tags GPU Aggregation
+// @Accept json
+// @Produce json
+// @Param cluster query string false "Cluster name"
+// @Param namespace query string false "Namespace (optional, query all if empty)"
+// @Param workload_name query string false "Workload name (optional, query all if empty)"
+// @Param workload_type query string false "Workload type (optional, e.g., Job, Deployment, StatefulSet)"
+// @Param start_time query string true "Start time (RFC3339 format)"
+// @Param end_time query string true "End time (RFC3339 format)"
+// @Param page query int false "Page number, starting from 1"
+// @Param page_size query int false "Items per page, default 20, maximum 1000"
+// @Param order_by query string false "Sort field (time or utilization)"
+// @Param order_direction query string false "Sort direction (asc or desc)"
+// @Success 200 {object} rest.Response{data=PaginatedResponse}
+// @Router /gpu-aggregation/workloads/hourly-stats [get]
+func getWorkloadHourlyStats(ctx *gin.Context) {
+	var req WorkloadHourlyStatsRequest
+	if err := ctx.ShouldBindQuery(&req); err != nil {
+		_ = ctx.Error(errors.WrapError(err, "Invalid request parameters", errors.RequestParameterInvalid))
+		return
+	}
+
+	// Parse time
+	startTime, err := time.Parse(time.RFC3339, req.StartTime)
+	if err != nil {
+		_ = ctx.Error(errors.WrapError(err, "Invalid start_time format", errors.RequestParameterInvalid))
+		return
+	}
+
+	endTime, err := time.Parse(time.RFC3339, req.EndTime)
+	if err != nil {
+		_ = ctx.Error(errors.WrapError(err, "Invalid end_time format", errors.RequestParameterInvalid))
+		return
+	}
+
+	// Get cluster client
+	cm := clientsets.GetClusterManager()
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// Build pagination options
+	opts := database.PaginationOptions{
+		Page:           req.Page,
+		PageSize:       10000,
+		OrderBy:        req.OrderBy,
+		OrderDirection: req.OrderDirection,
+	}
+
+	// Query data
+	result, err := database.GetFacadeForCluster(clients.ClusterName).GetGpuAggregation().
+		GetWorkloadHourlyStatsPaginated(ctx, req.Namespace, req.WorkloadName, req.WorkloadType, startTime, endTime, opts)
+	if err != nil {
+		_ = ctx.Error(errors.WrapError(err, "Failed to get workload hourly stats", errors.CodeDatabaseError))
 		return
 	}
 
