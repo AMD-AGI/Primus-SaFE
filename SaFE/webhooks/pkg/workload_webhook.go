@@ -548,7 +548,7 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, workload *v1.Wor
 	if err := v.validateDisplayName(workload); err != nil {
 		return err
 	}
-	if err := v.validateCustomerLabels(workload); err != nil {
+	if err := validateLabels(workload.Spec.CustomerLabels); err != nil {
 		return err
 	}
 	return nil
