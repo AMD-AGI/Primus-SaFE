@@ -121,6 +121,7 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 		Labels:       map[string]interface{}{},
 		Source:       constant.ContainerSourceK8S,
 		Status:       metadata.WorkloadStatusRunning,
+		Annotations:  map[string]interface{}{},
 	}
 	switch workload.Status.Phase {
 	case primusSafeV1.WorkloadPending:
@@ -141,6 +142,10 @@ func (r *WorkloadReconciler) saveWorkloadToDB(ctx context.Context, workload *pri
 			dbWorkload.Labels[key] = value
 		}
 	}
+	for key, value := range workload.Annotations {
+		dbWorkload.Annotations[key] = value
+	}
+
 	if workload.DeletionTimestamp != nil {
 		dbWorkload.Status = metadata.WorkloadStatusDone
 		dbWorkload.EndAt = workload.DeletionTimestamp.Time
