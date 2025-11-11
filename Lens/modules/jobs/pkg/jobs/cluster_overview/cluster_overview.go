@@ -13,8 +13,11 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/storage"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	coreModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/k8sUtil"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/common"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 type ClusterOverviewJob struct {
@@ -22,13 +25,22 @@ type ClusterOverviewJob struct {
 
 // Run executes the cluster overview caching job
 func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
+	// Create main trace span
+	span, ctx := trace.StartSpanFromContext(ctx, "cluster_overview_job.Run")
+	defer trace.FinishSpan(span)
+
+	// Record total job start time
+	jobStartTime := time.Now()
+
 	stats := common.NewExecutionStats()
 
 	// Use current cluster name for job running in current cluster
 	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
 
-	log.Infof("Starting cluster overview cache job for cluster: %s", clusterName)
-	startTime := time.Now()
+	span.SetAttributes(
+		attribute.String("job.name", "cluster_overview"),
+		attribute.String("cluster.name", clusterName),
+	)
 
 	// Initialize cache object
 	cache := &dbmodel.ClusterOverviewCache{
@@ -36,74 +48,180 @@ func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8S
 	}
 
 	// 1. Get GPU nodes
-	log.Infof("[Step 1/7] Getting GPU nodes for cluster: %s", clusterName)
+	gpuNodesSpan, gpuNodesCtx := trace.StartSpanFromContext(ctx, "getGpuNodes")
+	gpuNodesSpan.SetAttributes(
+		attribute.String("cluster.name", clusterName),
+		attribute.String("gpu.vendor", string(metadata.GpuVendorAMD)),
+	)
+
 	queryStart := time.Now()
-	gpuNodes, err := gpu.GetGpuNodes(ctx, clientSets, metadata.GpuVendorAMD)
+	gpuNodes, err := gpu.GetGpuNodes(gpuNodesCtx, clientSets, metadata.GpuVendorAMD)
 	if err != nil {
+		gpuNodesSpan.RecordError(err)
+		gpuNodesSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		gpuNodesSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(gpuNodesSpan)
+
 		log.Errorf("Failed to get GPU nodes: %v", err)
+		span.SetStatus(codes.Error, "Failed to get GPU nodes")
 		return stats, err
 	}
-	stats.QueryDuration += time.Since(queryStart).Seconds()
+
+	duration := time.Since(queryStart)
+	gpuNodesSpan.SetAttributes(
+		attribute.Int("nodes.count", len(gpuNodes)),
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+	)
+	gpuNodesSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(gpuNodesSpan)
+
+	stats.QueryDuration += duration.Seconds()
 	cache.TotalNodes = int32(len(gpuNodes))
-	log.Infof("[Step 1/7] Got %d GPU nodes, took: %v", len(gpuNodes), time.Since(queryStart))
 
 	// 2. Get faulty nodes from database
-	log.Infof("[Step 2/7] Checking faulty nodes from database")
+	faultyNodesSpan, faultyNodesCtx := trace.StartSpanFromContext(ctx, "getFaultyNodesFromDB")
+	faultyNodesSpan.SetAttributes(attribute.Int("nodes.input_count", len(gpuNodes)))
+
 	step2Start := time.Now()
-	faultyNodes, err := j.getFaultyNodesFromDB(ctx, gpuNodes)
+	faultyNodes, err := j.getFaultyNodesFromDB(faultyNodesCtx, gpuNodes)
 	if err != nil {
+		faultyNodesSpan.RecordError(err)
+		faultyNodesSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		faultyNodesSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(faultyNodesSpan)
+
 		log.Errorf("Failed to get faulty nodes from database: %v", err)
+		span.SetStatus(codes.Error, "Failed to get faulty nodes")
 		return stats, err
 	}
+
+	duration = time.Since(step2Start)
 	cache.FaultyNodes = int32(len(faultyNodes))
 	cache.HealthyNodes = cache.TotalNodes - cache.FaultyNodes
-	log.Infof("[Step 2/7] Found %d faulty nodes, %d healthy nodes, took: %v", len(faultyNodes), cache.HealthyNodes, time.Since(step2Start))
+
+	faultyNodesSpan.SetAttributes(
+		attribute.Int("nodes.faulty_count", len(faultyNodes)),
+		attribute.Int("nodes.healthy_count", int(cache.HealthyNodes)),
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+	)
+	faultyNodesSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(faultyNodesSpan)
 
 	// 3. Get GPU node idle info
-	log.Infof("[Step 3/7] Getting GPU node idle info")
+	idleInfoSpan, idleInfoCtx := trace.StartSpanFromContext(ctx, "getGpuNodeIdleInfo")
+	idleInfoSpan.SetAttributes(
+		attribute.String("cluster.name", clusterName),
+		attribute.String("gpu.vendor", string(metadata.GpuVendorAMD)),
+	)
+
 	step3Start := time.Now()
-	idle, partialIdle, busy, err := gpu.GetGpuNodeIdleInfo(ctx, clientSets, clusterName, metadata.GpuVendorAMD)
+	idle, partialIdle, busy, err := gpu.GetGpuNodeIdleInfo(idleInfoCtx, clientSets, clusterName, metadata.GpuVendorAMD)
 	if err != nil {
+		idleInfoSpan.RecordError(err)
+		idleInfoSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		idleInfoSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(idleInfoSpan)
+
 		log.Errorf("Failed to get GPU node idle info: %v", err)
+		span.SetStatus(codes.Error, "Failed to get GPU node idle info")
 		return stats, err
 	}
+
+	duration = time.Since(step3Start)
 	cache.FullyIdleNodes = int32(idle)
 	cache.PartiallyIdleNodes = int32(partialIdle)
 	cache.BusyNodes = int32(busy)
-	log.Infof("[Step 3/7] Idle nodes: %d fully idle, %d partially idle, %d busy, took: %v", idle, partialIdle, busy, time.Since(step3Start))
+
+	idleInfoSpan.SetAttributes(
+		attribute.Int("nodes.fully_idle", idle),
+		attribute.Int("nodes.partially_idle", partialIdle),
+		attribute.Int("nodes.busy", busy),
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+	)
+	idleInfoSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(idleInfoSpan)
 
 	// 4. Calculate GPU usage
-	log.Infof("[Step 4/7] Calculating GPU usage")
+	usageSpan, usageCtx := trace.StartSpanFromContext(ctx, "calculateGpuUsage")
+	usageSpan.SetAttributes(attribute.String("gpu.vendor", string(metadata.GpuVendorAMD)))
+
 	step4Start := time.Now()
-	usage, err := gpu.CalculateGpuUsage(ctx, storageClientSet, metadata.GpuVendorAMD)
+	usage, err := gpu.CalculateGpuUsage(usageCtx, storageClientSet, metadata.GpuVendorAMD)
 	if err != nil {
+		usageSpan.RecordError(err)
+		usageSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		usageSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(usageSpan)
+
 		log.Errorf("Failed to calculate GPU usage: %v", err)
-		// Don't fail the entire job for this error, just log it
+		// Don't fail the entire job for this error
 		usage = 0
+	} else {
+		duration = time.Since(step4Start)
+		usageSpan.SetAttributes(
+			attribute.Float64("gpu.utilization", usage),
+			attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+		)
+		usageSpan.SetStatus(codes.Ok, "")
+		trace.FinishSpan(usageSpan)
 	}
 	cache.Utilization = usage
-	log.Infof("[Step 4/7] GPU utilization: %.2f%%, took: %v", usage, time.Since(step4Start))
 
 	// 5. Get cluster GPU allocation rate
-	log.Infof("[Step 5/7] Getting cluster GPU allocation rate")
+	allocationSpan, allocationCtx := trace.StartSpanFromContext(ctx, "getClusterGpuAllocationRate")
+	allocationSpan.SetAttributes(
+		attribute.String("cluster.name", clusterName),
+		attribute.String("gpu.vendor", string(metadata.GpuVendorAMD)),
+	)
+
 	step5Start := time.Now()
-	allocationRate, err := gpu.GetClusterGpuAllocationRate(ctx, clientSets, clusterName, metadata.GpuVendorAMD)
+	allocationRate, err := gpu.GetClusterGpuAllocationRate(allocationCtx, clientSets, clusterName, metadata.GpuVendorAMD)
 	if err != nil {
+		allocationSpan.RecordError(err)
+		allocationSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		allocationSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(allocationSpan)
+
 		log.Errorf("Failed to get cluster GPU allocation rate: %v", err)
+		span.SetStatus(codes.Error, "Failed to get GPU allocation rate")
 		return stats, err
 	}
+
+	duration = time.Since(step5Start)
 	cache.AllocationRate = allocationRate
-	log.Infof("[Step 5/7] GPU allocation rate: %.2f%%, took: %v", allocationRate, time.Since(step5Start))
+
+	allocationSpan.SetAttributes(
+		attribute.Float64("gpu.allocation_rate", allocationRate),
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+	)
+	allocationSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(allocationSpan)
 
 	// 6. Get storage statistics
-	log.Infof("[Step 6/7] Getting storage statistics")
+	storageSpan, storageCtx := trace.StartSpanFromContext(ctx, "getStorageStatistics")
+
 	step6Start := time.Now()
-	storageStat, err := storage.GetStorageStatWithClientSet(ctx, storageClientSet)
+	storageStat, err := storage.GetStorageStatWithClientSet(storageCtx, storageClientSet)
 	if err != nil {
+		storageSpan.RecordError(err)
+		storageSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		storageSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(storageSpan)
+
 		log.Errorf("Failed to get storage statistics: %v", err)
-		// Don't fail the entire job for this error, just log it
+		// Don't fail the entire job for this error
 		storageStat = &coreModel.StorageStat{}
+	} else {
+		duration = time.Since(step6Start)
+		storageSpan.SetAttributes(
+			attribute.Float64("storage.usage_percentage", storageStat.UsagePercentage),
+			attribute.Float64("storage.inodes_usage_percentage", storageStat.InodesUsagePercentage),
+			attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+		)
+		storageSpan.SetStatus(codes.Ok, "")
+		trace.FinishSpan(storageSpan)
 	}
+
 	cache.StorageTotalSpace = storageStat.TotalSpace
 	cache.StorageUsedSpace = storageStat.UsedSpace
 	cache.StorageUsagePercentage = storageStat.UsagePercentage
@@ -112,98 +230,135 @@ func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8S
 	cache.StorageInodesUsagePercentage = storageStat.InodesUsagePercentage
 	cache.StorageReadBandwidth = storageStat.ReadBandwidth
 	cache.StorageWriteBandwidth = storageStat.WriteBandwidth
-	log.Infof("[Step 6/7] Storage stats: usage %.2f%%, inodes %.2f%%, took: %v", storageStat.UsagePercentage, storageStat.InodesUsagePercentage, time.Since(step6Start))
 
 	// 7. Get RDMA cluster statistics
-	log.Infof("[Step 7/7] Getting RDMA cluster statistics")
+	rdmaSpan, rdmaCtx := trace.StartSpanFromContext(ctx, "getRdmaClusterStatistics")
+
 	step7Start := time.Now()
-	rdmaStat, err := rdma.GetRdmaClusterStat(ctx, storageClientSet)
+	rdmaStat, err := rdma.GetRdmaClusterStat(rdmaCtx, storageClientSet)
 	if err != nil {
+		rdmaSpan.RecordError(err)
+		rdmaSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		rdmaSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(rdmaSpan)
+
 		log.Errorf("Failed to get RDMA cluster statistics: %v", err)
-		// Don't fail the entire job for this error, just log it
+		// Don't fail the entire job for this error
 		rdmaStat = coreModel.RdmaClusterStat{}
+	} else {
+		duration = time.Since(step7Start)
+		rdmaSpan.SetAttributes(
+			attribute.Int64("rdma.total_tx", int64(rdmaStat.TotalTx)),
+			attribute.Int64("rdma.total_rx", int64(rdmaStat.TotalRx)),
+			attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+		)
+		rdmaSpan.SetStatus(codes.Ok, "")
+		trace.FinishSpan(rdmaSpan)
 	}
+
 	cache.RdmaTotalTx = rdmaStat.TotalTx
 	cache.RdmaTotalRx = rdmaStat.TotalRx
-	log.Infof("[Step 7/7] RDMA stats: Tx=%d, Rx=%d, took: %v", rdmaStat.TotalTx, rdmaStat.TotalRx, time.Since(step7Start))
 
 	// 8. Save to database (upsert logic)
-	log.Infof("[Database] Starting to save cluster overview cache to database")
+	saveSpan, saveCtx := trace.StartSpanFromContext(ctx, "saveClusterOverviewCache")
+	saveSpan.SetAttributes(attribute.String("cluster.name", clusterName))
+
 	saveStart := time.Now()
 	facade := database.GetFacade().GetClusterOverviewCache()
 
-	log.Infof("[Database] Checking for existing cache record")
-	existingCache, err := facade.GetClusterOverviewCache(ctx)
+	existingCache, err := facade.GetClusterOverviewCache(saveCtx)
 	if err != nil {
+		saveSpan.RecordError(err)
+		saveSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		saveSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(saveSpan)
+
 		log.Errorf("Failed to check existing cluster overview cache: %v", err)
+		span.SetStatus(codes.Error, "Failed to check existing cache")
 		return stats, err
 	}
 
 	if existingCache != nil {
-		// Update existing record
-		log.Infof("[Database] Updating existing cache record (ID: %d)", existingCache.ID)
 		cache.ID = existingCache.ID
 		cache.CreatedAt = existingCache.CreatedAt
-		err = facade.UpdateClusterOverviewCache(ctx, cache)
+		err = facade.UpdateClusterOverviewCache(saveCtx, cache)
 		stats.ItemsUpdated = 1
+		saveSpan.SetAttributes(
+			attribute.String("operation", "update"),
+			attribute.Int64("cache.id", int64(existingCache.ID)),
+		)
 	} else {
-		// Create new record
-		log.Infof("[Database] Creating new cache record")
-		err = facade.CreateClusterOverviewCache(ctx, cache)
+		err = facade.CreateClusterOverviewCache(saveCtx, cache)
 		stats.ItemsCreated = 1
+		saveSpan.SetAttributes(attribute.String("operation", "create"))
 	}
 
 	if err != nil {
+		saveSpan.RecordError(err)
+		saveSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		saveSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(saveSpan)
+
 		log.Errorf("Failed to save cluster overview cache: %v", err)
+		span.SetStatus(codes.Error, "Failed to save cache")
 		return stats, err
 	}
-	stats.SaveDuration = time.Since(saveStart).Seconds()
-	log.Infof("[Database] Successfully saved cache to database, took: %v", time.Since(saveStart))
 
-	duration := time.Since(startTime)
+	duration = time.Since(saveStart)
+	stats.SaveDuration = duration.Seconds()
+	saveSpan.SetAttributes(attribute.Float64("duration_ms", float64(duration.Milliseconds())))
+	saveSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(saveSpan)
+
 	stats.RecordsProcessed = 1
 	stats.AddCustomMetric("total_nodes", len(gpuNodes))
 	stats.AddCustomMetric("healthy_nodes", cache.HealthyNodes)
 	stats.AddCustomMetric("faulty_nodes", cache.FaultyNodes)
 	stats.AddMessage("Cluster overview cache updated successfully")
 
-	log.Infof("Cluster overview cache job completed successfully for cluster: %s, took: %v", clusterName, duration)
-
+	// Record total job duration
+	totalDuration := time.Since(jobStartTime)
+	span.SetAttributes(attribute.Float64("total_duration_ms", float64(totalDuration.Milliseconds())))
+	span.SetStatus(codes.Ok, "")
 	return stats, nil
 }
 
 // getFaultyNodesFromDB gets faulty nodes from database based on taints and K8SStatus
 func (j *ClusterOverviewJob) getFaultyNodesFromDB(ctx context.Context, nodeNames []string) ([]string, error) {
+	span, ctx := trace.StartSpanFromContext(ctx, "getFaultyNodesFromDB.query")
+	defer trace.FinishSpan(span)
+
+	span.SetAttributes(attribute.Int("nodes.input_count", len(nodeNames)))
+
 	if len(nodeNames) == 0 {
+		span.SetStatus(codes.Ok, "No nodes to check")
 		return []string{}, nil
 	}
 
-	// Query nodes from database by names
 	nodeFacade := database.GetFacade().GetNode()
 	faultyNodes := []string{}
+	queryErrorCount := 0
+	notFoundCount := 0
 
 	for _, nodeName := range nodeNames {
-		log.Debugf("Checking node %s from database", nodeName)
 		dbNode, err := nodeFacade.GetNodeByName(ctx, nodeName)
 		if err != nil {
+			queryErrorCount++
 			log.Errorf("Failed to get node %s from database: %v", nodeName, err)
-			// Continue checking other nodes even if one fails
 			continue
 		}
 
 		if dbNode == nil {
-			log.Warnf("Node %s not found in database", nodeName)
+			notFoundCount++
 			continue
 		}
 
 		// Check if node has taints
 		hasTaints := false
 		if dbNode.Taints != nil && len(dbNode.Taints) > 0 {
-			// Check if taints field actually contains taint data
 			if taintsList, ok := dbNode.Taints["taints"]; ok {
 				if taints, ok := taintsList.([]interface{}); ok && len(taints) > 0 {
 					hasTaints = true
-					log.Debugf("Node %s has %d taints", nodeName, len(taints))
 				}
 			}
 		}
@@ -214,11 +369,15 @@ func (j *ClusterOverviewJob) getFaultyNodesFromDB(ctx context.Context, nodeNames
 		// Node is faulty if it has taints or is not ready
 		if hasTaints || isNotReady {
 			faultyNodes = append(faultyNodes, nodeName)
-			log.Infof("Node %s is faulty (hasTaints=%v, status=%s)", nodeName, hasTaints, dbNode.K8sStatus)
-		} else {
-			log.Debugf("Node %s is healthy (status=%s)", nodeName, dbNode.K8sStatus)
 		}
 	}
+
+	span.SetAttributes(
+		attribute.Int("nodes.faulty_count", len(faultyNodes)),
+		attribute.Int("nodes.query_error_count", queryErrorCount),
+		attribute.Int("nodes.not_found_count", notFoundCount),
+	)
+	span.SetStatus(codes.Ok, "")
 
 	return faultyNodes, nil
 }

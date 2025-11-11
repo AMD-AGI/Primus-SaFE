@@ -9,23 +9,23 @@ import (
 
 func HandleLogging() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 记录请求开始时间
+		// Record request start time
 		startTime := time.Now()
 
-		// 处理请求
+		// Process request
 		c.Next()
 
-		// 计算响应时间
+		// Calculate response time
 		duration := time.Since(startTime)
 
-		// 获取请求信息
+		// Get request information
 		statusCode := c.Writer.Status()
 		method := c.Request.Method
 		path := c.Request.URL.Path
 		clientIP := c.ClientIP()
 		userAgent := c.Request.UserAgent()
 
-		// 打印日志
+		// Print log
 		log.GlobalLogger().WithContext(c).Infof(
 			"Request: Method=%s | Path=%s | Status=%d | IP=%s | Duration=%v | UserAgent=%s",
 			method,

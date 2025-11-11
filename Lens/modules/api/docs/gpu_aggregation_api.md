@@ -8,9 +8,14 @@
 
 | 端点 | 方法 | 描述 |
 |------|------|------|
+| `/clusters` | GET | 获取集群列表 |
+| `/namespaces` | GET | 获取命名空间列表 |
+| `/dimension-keys` | GET | 获取维度键列表 |
+| `/dimension-values` | GET | 获取维度值列表 |
 | `/cluster/hourly-stats` | GET | 查询集群级别小时统计 |
 | `/namespaces/hourly-stats` | GET | 查询 Namespace 级别小时统计 |
 | `/labels/hourly-stats` | GET | 查询 Label/Annotation 级别小时统计 |
+| `/workloads/hourly-stats` | GET | 查询 Workload 级别小时统计 |
 | `/snapshots/latest` | GET | 获取最新的 GPU 分配快照 |
 | `/snapshots` | GET | 查询历史快照列表 |
 
@@ -220,7 +225,141 @@ curl "http://localhost:8080/api/v1/gpu-aggregation/labels/hourly-stats?dimension
 
 ---
 
-## 4. 获取最新的 GPU 分配快照
+## 4. 查询 Workload 级别小时统计
+
+获取各个 workload（Job、Deployment、StatefulSet 等）的 GPU 分配和使用情况。
+
+### 请求
+
+```
+GET /api/v1/gpu-aggregation/workloads/hourly-stats
+```
+
+### 查询参数
+
+| 参数 | 类型 | 必填 | 描述 |
+|------|------|------|------|
+| `cluster` | string | 否 | 集群名称 |
+| `namespace` | string | 否 | 命名空间名称（为空则查询所有 namespace） |
+| `workload_name` | string | 否 | 工作负载名称（为空则查询所有 workload） |
+| `workload_type` | string | 否 | 工作负载类型（Job, Deployment, StatefulSet, DaemonSet 等） |
+| `start_time` | string | 是 | 开始时间（RFC3339 格式） |
+| `end_time` | string | 是 | 结束时间（RFC3339 格式） |
+| `page` | int | 否 | 页码，从 1 开始 |
+| `page_size` | int | 否 | 每页条数，默认 20，最大 1000 |
+| `order_by` | string | 否 | 排序字段（time 或 utilization） |
+| `order_direction` | string | 否 | 排序方向（asc 或 desc） |
+
+### 响应示例
+
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "total": 150,
+    "page": 1,
+    "page_size": 20,
+    "total_pages": 8,
+    "data": [
+      {
+        "id": 1,
+        "cluster_name": "cluster-1",
+        "namespace": "ml-training",
+        "workload_name": "bert-training-job",
+        "workload_type": "Job",
+        "stat_hour": "2025-11-05T14:00:00Z",
+        "allocated_gpu_count": 8.0,
+        "requested_gpu_count": 8.0,
+        "avg_utilization": 85.67,
+        "max_utilization": 98.20,
+        "min_utilization": 72.34,
+        "p50_utilization": 85.12,
+        "p95_utilization": 96.50,
+        "avg_gpu_memory_used": 28.5,
+        "max_gpu_memory_used": 31.2,
+        "avg_gpu_memory_total": 32.0,
+        "avg_replica_count": 1.0,
+        "max_replica_count": 1,
+        "min_replica_count": 1,
+        "workload_status": "Running",
+        "sample_count": 3600,
+        "owner_uid": "abc-def-123",
+        "owner_name": "bert-training",
+        "labels": {
+          "team": "research",
+          "project": "nlp",
+          "priority": "high"
+        },
+        "annotations": {
+          "cost-center": "cc-001",
+          "project-id": "proj-123"
+        },
+        "created_at": "2025-11-05T15:00:01Z",
+        "updated_at": "2025-11-05T15:00:01Z"
+      },
+      {
+        "id": 2,
+        "cluster_name": "cluster-1",
+        "namespace": "ml-inference",
+        "workload_name": "inference-server",
+        "workload_type": "Deployment",
+        "stat_hour": "2025-11-05T14:00:00Z",
+        "allocated_gpu_count": 4.0,
+        "requested_gpu_count": 4.0,
+        "avg_utilization": 62.34,
+        "max_utilization": 81.00,
+        "min_utilization": 42.00,
+        "p50_utilization": 61.00,
+        "p95_utilization": 78.50,
+        "avg_gpu_memory_used": 12.8,
+        "max_gpu_memory_used": 15.6,
+        "avg_gpu_memory_total": 16.0,
+        "avg_replica_count": 2.5,
+        "max_replica_count": 3,
+        "min_replica_count": 2,
+        "workload_status": "Running",
+        "sample_count": 3600,
+        "owner_uid": "xyz-uvw-456",
+        "owner_name": "inference-deployment",
+        "labels": {
+          "team": "production",
+          "app": "inference"
+        },
+        "annotations": {},
+        "created_at": "2025-11-05T15:00:01Z",
+        "updated_at": "2025-11-05T15:00:01Z"
+      }
+    ]
+  }
+}
+```
+
+### 示例请求
+
+```bash
+# 查询所有 workload 的统计
+curl "http://localhost:8080/api/v1/gpu-aggregation/workloads/hourly-stats?start_time=2025-11-05T00:00:00Z&end_time=2025-11-05T23:59:59Z"
+
+# 查询特定 namespace 的 workload
+curl "http://localhost:8080/api/v1/gpu-aggregation/workloads/hourly-stats?namespace=ml-training&start_time=2025-11-05T00:00:00Z&end_time=2025-11-05T23:59:59Z"
+
+# 查询特定 workload
+curl "http://localhost:8080/api/v1/gpu-aggregation/workloads/hourly-stats?namespace=ml-training&workload_name=bert-training-job&start_time=2025-11-01T00:00:00Z&end_time=2025-11-07T23:59:59Z"
+
+# 按工作负载类型过滤（只查询 Job 类型）
+curl "http://localhost:8080/api/v1/gpu-aggregation/workloads/hourly-stats?workload_type=Job&start_time=2025-11-05T00:00:00Z&end_time=2025-11-05T23:59:59Z"
+
+# 带分页和排序（按利用率降序排列）
+curl "http://localhost:8080/api/v1/gpu-aggregation/workloads/hourly-stats?start_time=2025-11-05T00:00:00Z&end_time=2025-11-05T23:59:59Z&page=1&page_size=50&order_by=utilization&order_direction=desc"
+
+# 查询特定集群和 namespace 的 Deployment 类型工作负载
+curl "http://localhost:8080/api/v1/gpu-aggregation/workloads/hourly-stats?cluster=cluster-1&namespace=production&workload_type=Deployment&start_time=2025-11-01T00:00:00Z&end_time=2025-11-07T23:59:59Z"
+```
+
+---
+
+## 5. 获取最新的 GPU 分配快照
 
 获取最新一次采样的 GPU 分配快照，包含详细的 workload 信息。
 
@@ -413,6 +552,19 @@ MONTH_END=$(date -u +"%Y-%m-%dT23:59:59Z")
 curl "http://localhost:8080/api/v1/gpu-aggregation/namespaces/hourly-stats?start_time=$MONTH_START&end_time=$MONTH_END" > monthly_gpu_report.json
 ```
 
+### 场景5：分析工作负载性能
+
+```bash
+# 查找利用率最低的工作负载（可能浪费资源）
+curl "http://localhost:8080/api/v1/gpu-aggregation/workloads/hourly-stats?start_time=2025-11-05T00:00:00Z&end_time=2025-11-05T23:59:59Z&order_by=utilization&order_direction=asc&page_size=10"
+
+# 追踪特定训练任务的 GPU 使用情况
+curl "http://localhost:8080/api/v1/gpu-aggregation/workloads/hourly-stats?namespace=ml-training&workload_name=bert-training-job&start_time=2025-11-01T00:00:00Z&end_time=2025-11-07T23:59:59Z"
+
+# 对比不同类型工作负载的效率
+curl "http://localhost:8080/api/v1/gpu-aggregation/workloads/hourly-stats?workload_type=Job&start_time=2025-11-05T00:00:00Z&end_time=2025-11-05T23:59:59Z"
+```
+
 ---
 
 ## 注意事项
@@ -422,6 +574,9 @@ curl "http://localhost:8080/api/v1/gpu-aggregation/namespaces/hourly-stats?start
 3. **数据延迟**：小时统计数据在每小时结束后约1-2分钟内生成
 4. **快照频率**：默认每5分钟采样一次
 5. **数据保留**：建议定期清理历史数据以节省存储空间
+6. **分页支持**：集群、命名空间、标签和工作负载级别的小时统计查询都支持分页，最大页面大小为 1000
+7. **工作负载统计**：提供最细粒度的 GPU 使用视图，包括副本数、内存使用量和工作负载状态等详细指标
+8. **标签和注解**：工作负载的 labels 和 annotations 以 JSONB 格式存储，支持灵活查询
 
 ---
 

@@ -89,7 +89,7 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 	if len(referencedWorkload) == 0 {
 		return nil
 	}
-	// 将当前 Workload（父）的 UID 设置为子 workload 的 parent_uid
+	// Set current Workload (parent) UID as parent_uid for child workloads
 	for _, childWorkload := range referencedWorkload {
 		if childWorkload.UID == dbWorkload.UID {
 			if childWorkload.ParentUID == childWorkload.UID {
@@ -114,7 +114,7 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 		}
 	}
 
-	// 复制子workload的pod引用到父workload
+	// Copy pod references from child workloads to parent workload
 	err = w.copyChildPodReferencesToParent(ctx, facade, dbWorkload, referencedWorkload)
 	if err != nil {
 		log.Errorf("failed to copy child pod references to parent workload %s/%s: %v",
@@ -126,7 +126,7 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 }
 
 func (w *WorkloadMatcher) copyChildPodReferencesToParent(ctx context.Context, facade database.FacadeInterface, parentWorkload *model.GpuWorkload, childWorkloads []*model.GpuWorkload) error {
-	// 收集所有子workload的UID（排除父workload自己）
+	// Collect all child workload UIDs (excluding parent workload itself)
 	childUIDs := make([]string, 0, len(childWorkloads))
 	for _, child := range childWorkloads {
 		if child.UID != parentWorkload.UID {
@@ -138,19 +138,19 @@ func (w *WorkloadMatcher) copyChildPodReferencesToParent(ctx context.Context, fa
 		return nil
 	}
 
-	// 获取父workload已有的pod引用
+	// Get existing pod references for parent workload
 	existingParentRefs, err := facade.GetWorkload().ListWorkloadPodReferenceByWorkloadUid(ctx, parentWorkload.UID)
 	if err != nil {
 		return err
 	}
 
-	// 创建已存在的pod UID集合，用于快速查找
+	// Create set of existing pod UIDs for quick lookup
 	existingPodUIDs := make(map[string]bool)
 	for _, ref := range existingParentRefs {
 		existingPodUIDs[ref.PodUID] = true
 	}
 
-	// 收集所有子workload的pod引用
+	// Collect all pod references from child workloads
 	allChildPodUIDs := make(map[string]bool)
 	for _, childUID := range childUIDs {
 		childPodRefs, err := facade.GetWorkload().ListWorkloadPodReferenceByWorkloadUid(ctx, childUID)
@@ -163,7 +163,7 @@ func (w *WorkloadMatcher) copyChildPodReferencesToParent(ctx context.Context, fa
 		}
 	}
 
-	// 为父workload创建尚不存在的pod引用
+	// Create pod references for parent workload that don't exist yet
 	createdCount := 0
 	for podUID := range allChildPodUIDs {
 		if !existingPodUIDs[podUID] {

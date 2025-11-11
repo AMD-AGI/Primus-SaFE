@@ -20,16 +20,16 @@ var schemes = &runtime.SchemeBuilder{
 }
 
 func Init(ctx context.Context, cfg *config.Config) error {
-	// 启用 Jaeger tracer
+	// Enable Jaeger tracer
 	err := trace.InitTracer("primus-safe-adapter")
 	if err != nil {
 		log.Errorf("Failed to init tracer: %v", err)
-		// 不阻断启动，降级为不追踪
+		// Don't block startup, degrade to non-tracing mode
 	} else {
 		log.Info("Jaeger tracer initialized successfully for adapter service")
 	}
 
-	// 注册 cleanup 函数
+	// Register cleanup function
 	go func() {
 		<-ctx.Done()
 		if err := trace.CloseTracer(); err != nil {

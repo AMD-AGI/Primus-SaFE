@@ -2,7 +2,7 @@ package config
 
 import "gorm.io/gorm"
 
-// setOptions 定义 Set 操作的可选参数
+// setOptions defines optional parameters for Set operations
 type setOptions struct {
 	description   string
 	category      string
@@ -14,69 +14,69 @@ type setOptions struct {
 	changeReason  string
 }
 
-// SetOption 是配置 Set 操作的函数选项
+// SetOption is a function option for configuring Set operations
 type SetOption func(*setOptions)
 
-// WithDescription 设置配置描述
+// WithDescription sets the configuration description
 func WithDescription(description string) SetOption {
 	return func(o *setOptions) {
 		o.description = description
 	}
 }
 
-// WithCategory 设置配置类别
+// WithCategory sets the configuration category
 func WithCategory(category string) SetOption {
 	return func(o *setOptions) {
 		o.category = category
 	}
 }
 
-// WithEncrypted 标记配置为加密
+// WithEncrypted marks configuration as encrypted
 func WithEncrypted(encrypted bool) SetOption {
 	return func(o *setOptions) {
 		o.isEncrypted = encrypted
 	}
 }
 
-// WithReadonly 标记配置为只读
+// WithReadonly marks configuration as readonly
 func WithReadonly(readonly bool) SetOption {
 	return func(o *setOptions) {
 		o.isReadonly = readonly
 	}
 }
 
-// WithCreatedBy 设置创建者
+// WithCreatedBy sets the creator
 func WithCreatedBy(createdBy string) SetOption {
 	return func(o *setOptions) {
 		o.createdBy = createdBy
 	}
 }
 
-// WithUpdatedBy 设置更新者
+// WithUpdatedBy sets the updater
 func WithUpdatedBy(updatedBy string) SetOption {
 	return func(o *setOptions) {
 		o.updatedBy = updatedBy
 	}
 }
 
-// WithRecordHistory 设置是否记录历史
+// WithRecordHistory sets whether to record history
 func WithRecordHistory(record bool) SetOption {
 	return func(o *setOptions) {
 		o.recordHistory = record
 	}
 }
 
-// WithChangeReason 设置变更原因
+// WithChangeReason sets the reason for change
 func WithChangeReason(reason string) SetOption {
 	return func(o *setOptions) {
 		o.changeReason = reason
 	}
 }
 
-// ListFilter 是列表查询的过滤器函数
+// ListFilter is a filter function for list queries
 type ListFilter func(*gorm.DB) *gorm.DB
 
-// WithCategoryFilter 根据类别过滤
+// WithCategoryFilter filters by category
 func WithCategoryFilter(category string) ListFilter {
 	return func(db *gorm.DB) *gorm.DB {
 		if category != "" {
@@ -86,21 +86,21 @@ func WithCategoryFilter(category string) ListFilter {
 	}
 }
 
-// WithReadonlyFilter 根据只读状态过滤
+// WithReadonlyFilter filters by readonly status
 func WithReadonlyFilter(readonly bool) ListFilter {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Where("is_readonly = ?", readonly)
 	}
 }
 
-// WithEncryptedFilter 根据加密状态过滤
+// WithEncryptedFilter filters by encryption status
 func WithEncryptedFilter(encrypted bool) ListFilter {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Where("is_encrypted = ?", encrypted)
 	}
 }
 
-// WithOrderBy 设置排序
+// WithOrderBy sets the ordering
 func WithOrderBy(orderBy string) ListFilter {
 	return func(db *gorm.DB) *gorm.DB {
 		if orderBy != "" {
@@ -110,7 +110,7 @@ func WithOrderBy(orderBy string) ListFilter {
 	}
 }
 
-// WithLimit 限制返回数量
+// WithLimit limits the number of results
 func WithLimit(limit int) ListFilter {
 	return func(db *gorm.DB) *gorm.DB {
 		if limit > 0 {

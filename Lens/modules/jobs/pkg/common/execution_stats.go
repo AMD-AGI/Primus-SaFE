@@ -4,73 +4,73 @@ import (
 	"time"
 )
 
-// ExecutionStats 表示Job执行的统计信息
+// ExecutionStats represents job execution statistics
 type ExecutionStats struct {
-	// RecordsProcessed 处理的记录数
+	// RecordsProcessed is the number of records processed
 	RecordsProcessed int64 `json:"records_processed,omitempty"`
 	
-	// BytesTransferred 传输的字节数
+	// BytesTransferred is the number of bytes transferred
 	BytesTransferred int64 `json:"bytes_transferred,omitempty"`
 	
-	// ItemsCreated 创建的项目数
+	// ItemsCreated is the number of items created
 	ItemsCreated int64 `json:"items_created,omitempty"`
 	
-	// ItemsUpdated 更新的项目数
+	// ItemsUpdated is the number of items updated
 	ItemsUpdated int64 `json:"items_updated,omitempty"`
 	
-	// ItemsDeleted 删除的项目数
+	// ItemsDeleted is the number of items deleted
 	ItemsDeleted int64 `json:"items_deleted,omitempty"`
 	
-	// CacheHits 缓存命中数
+	// CacheHits is the number of cache hits
 	CacheHits int64 `json:"cache_hits,omitempty"`
 	
-	// CacheMisses 缓存未命中数
+	// CacheMisses is the number of cache misses
 	CacheMisses int64 `json:"cache_misses,omitempty"`
 	
-	// QueryDuration 查询耗时（秒）
+	// QueryDuration is the query duration in seconds
 	QueryDuration float64 `json:"query_duration,omitempty"`
 	
-	// ProcessDuration 处理耗时（秒）
+	// ProcessDuration is the processing duration in seconds
 	ProcessDuration float64 `json:"process_duration,omitempty"`
 	
-	// SaveDuration 保存耗时（秒）
+	// SaveDuration is the save duration in seconds
 	SaveDuration float64 `json:"save_duration,omitempty"`
 	
-	// ErrorCount 错误计数
+	// ErrorCount is the error count
 	ErrorCount int64 `json:"error_count,omitempty"`
 	
-	// WarningCount 警告计数
+	// WarningCount is the warning count
 	WarningCount int64 `json:"warning_count,omitempty"`
 	
-	// CustomMetrics 自定义指标，允许job添加特定的统计信息
+	// CustomMetrics allows jobs to add specific statistics
 	CustomMetrics map[string]interface{} `json:"custom_metrics,omitempty"`
 	
-	// Messages 执行过程中的消息列表
+	// Messages is the list of messages during execution
 	Messages []string `json:"messages,omitempty"`
 }
 
-// ExecutionResult 表示Job执行的结果
+// ExecutionResult represents the result of job execution
 type ExecutionResult struct {
-	// Success 是否成功
+	// Success indicates whether the execution was successful
 	Success bool `json:"success"`
 	
-	// Error 错误信息
+	// Error contains error information if any
 	Error error `json:"error,omitempty"`
 	
-	// Stats 执行统计信息
+	// Stats contains execution statistics
 	Stats *ExecutionStats `json:"stats,omitempty"`
 	
-	// StartTime 开始时间
+	// StartTime is the start time
 	StartTime time.Time `json:"start_time"`
 	
-	// EndTime 结束时间
+	// EndTime is the end time
 	EndTime time.Time `json:"end_time"`
 	
-	// Duration 执行时长（秒）
+	// Duration is the execution duration in seconds
 	Duration float64 `json:"duration"`
 }
 
-// NewExecutionStats 创建新的执行统计信息
+// NewExecutionStats creates a new execution statistics instance
 func NewExecutionStats() *ExecutionStats {
 	return &ExecutionStats{
 		CustomMetrics: make(map[string]interface{}),
@@ -78,7 +78,7 @@ func NewExecutionStats() *ExecutionStats {
 	}
 }
 
-// AddMessage 添加消息
+// AddMessage adds a message to the statistics
 func (s *ExecutionStats) AddMessage(message string) {
 	if s.Messages == nil {
 		s.Messages = make([]string, 0)
@@ -86,7 +86,7 @@ func (s *ExecutionStats) AddMessage(message string) {
 	s.Messages = append(s.Messages, message)
 }
 
-// AddCustomMetric 添加自定义指标
+// AddCustomMetric adds a custom metric to the statistics
 func (s *ExecutionStats) AddCustomMetric(key string, value interface{}) {
 	if s.CustomMetrics == nil {
 		s.CustomMetrics = make(map[string]interface{})
@@ -94,7 +94,7 @@ func (s *ExecutionStats) AddCustomMetric(key string, value interface{}) {
 	s.CustomMetrics[key] = value
 }
 
-// Merge 合并另一个ExecutionStats的数据
+// Merge merges data from another ExecutionStats
 func (s *ExecutionStats) Merge(other *ExecutionStats) {
 	if other == nil {
 		return
@@ -113,7 +113,7 @@ func (s *ExecutionStats) Merge(other *ExecutionStats) {
 	s.ErrorCount += other.ErrorCount
 	s.WarningCount += other.WarningCount
 	
-	// 合并自定义指标
+	// Merge custom metrics
 	if other.CustomMetrics != nil {
 		if s.CustomMetrics == nil {
 			s.CustomMetrics = make(map[string]interface{})
@@ -123,7 +123,7 @@ func (s *ExecutionStats) Merge(other *ExecutionStats) {
 		}
 	}
 	
-	// 合并消息
+	// Merge messages
 	if other.Messages != nil {
 		if s.Messages == nil {
 			s.Messages = make([]string, 0)

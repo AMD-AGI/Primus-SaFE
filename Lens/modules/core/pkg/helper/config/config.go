@@ -11,19 +11,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// Manager 提供系统配置的读写管理
+// Manager provides read/write management for system configurations
 type Manager struct {
 	db *gorm.DB
 }
 
-// NewManager 创建一个新的配置管理器
+// NewManager creates a new configuration manager
 func NewManager(db *gorm.DB) *Manager {
 	return &Manager{
 		db: db,
 	}
 }
 
-// NewManagerForCluster 根据集群名称创建配置管理器
+// NewManagerForCluster creates a configuration manager for a specific cluster
 func NewManagerForCluster(clusterName string) *Manager {
 	facade := database.GetFacadeForCluster(clusterName)
 	return &Manager{
@@ -31,9 +31,9 @@ func NewManagerForCluster(clusterName string) *Manager {
 	}
 }
 
-// Get 根据 key 获取配置并解析到指定的 struct 中
-// key: 配置键
-// dest: 目标 struct 指针，配置值将解析到此结构中
+// Get retrieves configuration by key and parses it into the specified struct
+// key: configuration key
+// dest: destination struct pointer where the configuration value will be parsed into
 func (m *Manager) Get(ctx context.Context, key string, dest interface{}) error {
 	if dest == nil {
 		return fmt.Errorf("destination pointer cannot be nil")
@@ -50,11 +50,11 @@ func (m *Manager) Get(ctx context.Context, key string, dest interface{}) error {
 		return fmt.Errorf("failed to get config: %w", err)
 	}
 
-	// 将 ExtType (map[string]interface{}) 转换为目标结构
+	// Convert ExtType (map[string]interface{}) to target structure
 	return unmarshalExtType(config.Value, dest)
 }
 
-// GetRaw 根据 key 获取原始配置对象
+// GetRaw retrieves the raw configuration object by key
 func (m *Manager) GetRaw(ctx context.Context, key string) (*model.SystemConfig, error) {
 	var config model.SystemConfig
 	err := m.db.WithContext(ctx).
@@ -69,23 +69,23 @@ func (m *Manager) GetRaw(ctx context.Context, key string) (*model.SystemConfig, 
 	return &config, nil
 }
 
-// Set 设置配置值
-// key: 配置键
-// value: 配置值（将被序列化为 JSON）
-// opts: 可选参数，如 description, category, updatedBy 等
+// Set sets a configuration value
+// key: configuration key
+// value: configuration value (will be serialized to JSON)
+// opts: optional parameters such as description, category, updatedBy, etc.
 func (m *Manager) Set(ctx context.Context, key string, value interface{}, opts ...SetOption) error {
 	options := &setOptions{}
 	for _, opt := range opts {
 		opt(options)
 	}
 
-	// 将 value 转换为 ExtType
+	// Convert value to ExtType
 	extValue, err := marshalToExtType(value)
 	if err != nil {
 		return fmt.Errorf("failed to marshal value: %w", err)
 	}
 
-	// 查找现有配置
+	// Look for existing configuration
 	var existing model.SystemConfig
 	err = m.db.WithContext(ctx).
 		Where("key = ?", key).
@@ -94,7 +94,7 @@ func (m *Manager) Set(ctx context.Context, key string, value interface{}, opts .
 	now := time.Now()
 
 	if err == gorm.ErrRecordNotFound {
-		// 创建新配置
+		// Create new configuration
 		config := model.SystemConfig{
 			Key:         key,
 			Value:       extValue,
@@ -113,12 +113,12 @@ func (m *Manager) Set(ctx context.Context, key string, value interface{}, opts .
 		return fmt.Errorf("failed to check existing config: %w", err)
 	}
 
-	// 检查是否为只读配置
+	// Check if configuration is readonly
 	if existing.IsReadonly {
 		return fmt.Errorf("config key '%s' is readonly and cannot be modified", key)
 	}
 
-	// 记录历史版本
+	// Record history version
 	if options.recordHistory {
 		history := model.SystemConfigHistory{
 			ConfigID:     existing.ID,
@@ -135,7 +135,7 @@ func (m *Manager) Set(ctx context.Context, key string, value interface{}, opts .
 		}
 	}
 
-	// 更新配置
+	// Update configuration
 	updates := map[string]interface{}{
 		"value":      extValue,
 		"version":    existing.Version + 1,
@@ -158,9 +158,9 @@ func (m *Manager) Set(ctx context.Context, key string, value interface{}, opts .
 		Updates(updates).Error
 }
 
-// Delete 删除配置
+// Delete deletes a configuration
 func (m *Manager) Delete(ctx context.Context, key string) error {
-	// 检查配置是否存在且是否为只读
+	// Check if configuration exists and is readonly
 	var config model.SystemConfig
 	err := m.db.WithContext(ctx).
 		Where("key = ?", key).
@@ -181,7 +181,7 @@ func (m *Manager) Delete(ctx context.Context, key string) error {
 		Delete(&model.SystemConfig{}).Error
 }
 
-// List 列出所有配置
+// List lists all configurations
 func (m *Manager) List(ctx context.Context, filters ...ListFilter) ([]model.SystemConfig, error) {
 	query := m.db.WithContext(ctx).Model(&model.SystemConfig{})
 
@@ -198,12 +198,12 @@ func (m *Manager) List(ctx context.Context, filters ...ListFilter) ([]model.Syst
 	return configs, nil
 }
 
-// ListByCategory 根据类别列出配置
+// ListByCategory lists configurations by category
 func (m *Manager) ListByCategory(ctx context.Context, category string) ([]model.SystemConfig, error) {
 	return m.List(ctx, WithCategoryFilter(category))
 }
 
-// GetHistory 获取配置的历史记录
+// GetHistory retrieves the history records of a configuration
 func (m *Manager) GetHistory(ctx context.Context, key string, limit int) ([]model.SystemConfigHistory, error) {
 	var history []model.SystemConfigHistory
 	query := m.db.WithContext(ctx).
@@ -222,7 +222,7 @@ func (m *Manager) GetHistory(ctx context.Context, key string, limit int) ([]mode
 	return history, nil
 }
 
-// Exists 检查配置键是否存在
+// Exists checks if a configuration key exists
 func (m *Manager) Exists(ctx context.Context, key string) (bool, error) {
 	var count int64
 	err := m.db.WithContext(ctx).
@@ -235,12 +235,12 @@ func (m *Manager) Exists(ctx context.Context, key string) (bool, error) {
 	return count > 0, nil
 }
 
-// GetOrDefault 获取配置，如果不存在则返回默认值
+// GetOrDefault retrieves configuration, or returns default value if not found
 func (m *Manager) GetOrDefault(ctx context.Context, key string, dest interface{}, defaultValue interface{}) error {
 	err := m.Get(ctx, key, dest)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound || (err != nil && err.Error() == fmt.Sprintf("config key '%s' not found", key)) {
-			// 使用默认值
+			// Use default value
 			return unmarshalExtType(defaultValue, dest)
 		}
 		return err
@@ -248,9 +248,9 @@ func (m *Manager) GetOrDefault(ctx context.Context, key string, dest interface{}
 	return nil
 }
 
-// Rollback 回滚到指定版本
+// Rollback rolls back to a specified version
 func (m *Manager) Rollback(ctx context.Context, key string, version int32, updatedBy string) error {
-	// 获取历史版本
+	// Retrieve history version
 	var history model.SystemConfigHistory
 	err := m.db.WithContext(ctx).
 		Where("key = ? AND version = ?", key, version).
@@ -262,7 +262,7 @@ func (m *Manager) Rollback(ctx context.Context, key string, version int32, updat
 		return fmt.Errorf("failed to get history: %w", err)
 	}
 
-	// 设置回滚值
+	// Set rollback value
 	return m.Set(ctx, key, history.OldValue,
 		WithUpdatedBy(updatedBy),
 		WithChangeReason(fmt.Sprintf("Rollback to version %d", version)),
@@ -272,19 +272,19 @@ func (m *Manager) Rollback(ctx context.Context, key string, version int32, updat
 
 // Helper functions
 
-// marshalToExtType 将任意类型转换为 ExtType
+// marshalToExtType converts any type to ExtType
 func marshalToExtType(value interface{}) (model.ExtType, error) {
-	// 如果已经是 ExtType，直接返回
+	// If already ExtType, return directly
 	if extType, ok := value.(model.ExtType); ok {
 		return extType, nil
 	}
 
-	// 如果是 map[string]interface{}，直接转换
+	// If map[string]interface{}, convert directly
 	if m, ok := value.(map[string]interface{}); ok {
 		return model.ExtType(m), nil
 	}
 
-	// 其他类型通过 JSON 序列化转换
+	// Convert other types through JSON serialization
 	jsonBytes, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
@@ -299,7 +299,7 @@ func marshalToExtType(value interface{}) (model.ExtType, error) {
 	return extType, nil
 }
 
-// unmarshalExtType 将 ExtType 或其他类型解析到目标 struct
+// unmarshalExtType parses ExtType or other types to target struct
 func unmarshalExtType(value interface{}, dest interface{}) error {
 	jsonBytes, err := json.Marshal(value)
 	if err != nil {

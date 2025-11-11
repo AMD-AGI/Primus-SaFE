@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// UnaryClientInterceptor 用于客户端 Unary 调用
+// UnaryClientInterceptor for client-side Unary calls
 func UnaryClientInterceptor() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		span, ctx := StartSpanFromContext(ctx, "gRPC.Client."+method,
@@ -47,7 +47,7 @@ func UnaryClientInterceptor() grpc.UnaryClientInterceptor {
 	}
 }
 
-// UnaryServerInterceptor 用于服务端 Unary 调用
+// UnaryServerInterceptor for server-side Unary calls
 func UnaryServerInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		md, ok := metadata.FromIncomingContext(ctx)
@@ -80,7 +80,7 @@ func UnaryServerInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
-// StreamClientInterceptor 用于客户端 Stream 调用
+// StreamClientInterceptor for client-side Stream calls
 func StreamClientInterceptor() grpc.StreamClientInterceptor {
 	return func(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 		span, ctx := StartSpanFromContext(ctx, "gRPC.ClientStream."+method,
@@ -116,7 +116,7 @@ func StreamClientInterceptor() grpc.StreamClientInterceptor {
 	}
 }
 
-// StreamServerInterceptor 用于服务端 Stream 调用
+// StreamServerInterceptor for server-side Stream calls
 func StreamServerInterceptor() grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		ctx := ss.Context()

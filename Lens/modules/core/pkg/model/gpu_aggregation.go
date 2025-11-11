@@ -2,129 +2,129 @@ package model
 
 import "time"
 
-// ClusterGpuHourlyStats 集群级别小时聚合统计
+// ClusterGpuHourlyStats is cluster-level hourly aggregated statistics
 type ClusterGpuHourlyStats struct {
 	ID          uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
 	ClusterName string    `gorm:"type:varchar(100);not null;index:idx_cluster_hour" json:"clusterName"`
 	StatHour    time.Time `gorm:"type:timestamp;not null;index:idx_cluster_hour;index:idx_hour" json:"statHour"`
 
-	// GPU分配统计
+	// GPU allocation statistics
 	TotalGpuCapacity  int     `gorm:"not null;default:0" json:"totalGpuCapacity"`
 	AllocatedGpuCount float64 `gorm:"type:double precision;not null;default:0" json:"allocatedGpuCount"`
 	AllocationRate    float64 `gorm:"type:double precision;not null;default:0" json:"allocationRate"`
 
-	// GPU使用率统计
+	// GPU utilization statistics
 	AvgUtilization float64 `gorm:"type:double precision;not null;default:0" json:"avgUtilization"`
 	MaxUtilization float64 `gorm:"type:double precision;not null;default:0" json:"maxUtilization"`
 	MinUtilization float64 `gorm:"type:double precision;not null;default:0" json:"minUtilization"`
 	P50Utilization float64 `gorm:"type:double precision;not null;default:0" json:"p50Utilization"`
 	P95Utilization float64 `gorm:"type:double precision;not null;default:0" json:"p95Utilization"`
 
-	// 采样统计
+	// Sampling statistics
 	SampleCount int `gorm:"not null;default:0" json:"sampleCount"`
 
-	// 时间戳
+	// Timestamps
 	CreatedAt time.Time `gorm:"not null;default:CURRENT_TIMESTAMP" json:"createdAt"`
 	UpdatedAt time.Time `gorm:"not null;default:CURRENT_TIMESTAMP" json:"updatedAt"`
 }
 
-// TableName 指定表名
+// TableName specifies the table name
 func (ClusterGpuHourlyStats) TableName() string {
 	return "cluster_gpu_hourly_stats"
 }
 
-// NamespaceGpuHourlyStats Namespace级别小时聚合统计
+// NamespaceGpuHourlyStats is namespace-level hourly aggregated statistics
 type NamespaceGpuHourlyStats struct {
 	ID          uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
 	ClusterName string    `gorm:"type:varchar(100);not null;index:idx_cluster_ns_hour" json:"clusterName"`
 	Namespace   string    `gorm:"type:varchar(253);not null;index:idx_cluster_ns_hour;index:idx_namespace" json:"namespace"`
 	StatHour    time.Time `gorm:"type:timestamp;not null;index:idx_cluster_ns_hour;index:idx_namespace" json:"statHour"`
 
-	// GPU容量统计
+	// GPU capacity statistics
 	TotalGpuCapacity int `gorm:"not null;default:0" json:"totalGpuCapacity"`
 
-	// GPU分配统计
+	// GPU allocation statistics
 	AllocatedGpuCount float64 `gorm:"type:double precision;not null;default:0" json:"allocatedGpuCount"`
 
-	// GPU使用率统计
+	// GPU utilization statistics
 	AvgUtilization float64 `gorm:"type:double precision;not null;default:0" json:"avgUtilization"`
 	MaxUtilization float64 `gorm:"type:double precision;not null;default:0" json:"maxUtilization"`
 	MinUtilization float64 `gorm:"type:double precision;not null;default:0" json:"minUtilization"`
 
-	// Workload统计
+	// Workload statistics
 	ActiveWorkloadCount int `gorm:"not null;default:0" json:"activeWorkloadCount"`
 
-	// 时间戳
+	// Timestamps
 	CreatedAt time.Time `gorm:"not null;default:CURRENT_TIMESTAMP" json:"createdAt"`
 	UpdatedAt time.Time `gorm:"not null;default:CURRENT_TIMESTAMP" json:"updatedAt"`
 }
 
-// TableName 指定表名
+// TableName specifies the table name
 func (NamespaceGpuHourlyStats) TableName() string {
 	return "namespace_gpu_hourly_stats"
 }
 
-// LabelGpuHourlyStats Label/Annotation聚合小时统计
+// LabelGpuHourlyStats is label/annotation aggregated hourly statistics
 type LabelGpuHourlyStats struct {
 	ID             uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
 	ClusterName    string    `gorm:"type:varchar(100);not null;index:idx_cluster_type_key_value_hour" json:"clusterName"`
-	DimensionType  string    `gorm:"type:varchar(20);not null;index:idx_cluster_type_key_value_hour;index:idx_type_key" json:"dimensionType"` // 'label' 或 'annotation'
-	DimensionKey   string    `gorm:"type:varchar(255);not null;index:idx_cluster_type_key_value_hour;index:idx_type_key" json:"dimensionKey"` // label/annotation的key
-	DimensionValue string    `gorm:"type:text;not null;index:idx_cluster_type_key_value_hour" json:"dimensionValue"`                          // label/annotation的value
+	DimensionType  string    `gorm:"type:varchar(20);not null;index:idx_cluster_type_key_value_hour;index:idx_type_key" json:"dimensionType"` // 'label' or 'annotation'
+	DimensionKey   string    `gorm:"type:varchar(255);not null;index:idx_cluster_type_key_value_hour;index:idx_type_key" json:"dimensionKey"` // label/annotation key
+	DimensionValue string    `gorm:"type:text;not null;index:idx_cluster_type_key_value_hour" json:"dimensionValue"`                          // label/annotation value
 	StatHour       time.Time `gorm:"type:timestamp;not null;index:idx_cluster_type_key_value_hour;index:idx_type_key" json:"statHour"`
 
-	// GPU分配统计
+	// GPU allocation statistics
 	AllocatedGpuCount float64 `gorm:"type:double precision;not null;default:0" json:"allocatedGpuCount"`
 
-	// GPU使用率统计
+	// GPU utilization statistics
 	AvgUtilization float64 `gorm:"type:double precision;not null;default:0" json:"avgUtilization"`
 	MaxUtilization float64 `gorm:"type:double precision;not null;default:0" json:"maxUtilization"`
 	MinUtilization float64 `gorm:"type:double precision;not null;default:0" json:"minUtilization"`
 
-	// Workload统计
+	// Workload statistics
 	ActiveWorkloadCount int `gorm:"not null;default:0" json:"activeWorkloadCount"`
 
-	// 时间戳
+	// Timestamps
 	CreatedAt time.Time `gorm:"not null;default:CURRENT_TIMESTAMP" json:"createdAt"`
 	UpdatedAt time.Time `gorm:"not null;default:CURRENT_TIMESTAMP" json:"updatedAt"`
 }
 
-// TableName 指定表名
+// TableName specifies the table name
 func (LabelGpuHourlyStats) TableName() string {
 	return "label_gpu_hourly_stats"
 }
 
-// GpuAllocationSnapshot GPU分配快照 (支持多维度)
+// GpuAllocationSnapshot is GPU allocation snapshot (supports multiple dimensions)
 type GpuAllocationSnapshot struct {
 	ID           uint64    `gorm:"primaryKey;autoIncrement" json:"id"`
 	ClusterName  string    `gorm:"type:varchar(100);not null;index:idx_cluster_time;index:idx_dimension" json:"clusterName"`
 	SnapshotTime time.Time `gorm:"type:timestamp;not null;index:idx_cluster_time;index:idx_time;index:idx_dimension" json:"snapshotTime"`
 
-	// 维度信息
+	// Dimension information
 	DimensionType  string  `gorm:"type:varchar(20);not null;index:idx_dimension" json:"dimensionType"` // 'cluster', 'namespace', 'label', 'annotation'
-	DimensionKey   *string `gorm:"type:varchar(255);index:idx_dimension" json:"dimensionKey"`          // label/annotation的key (可为NULL)
-	DimensionValue *string `gorm:"type:text;index:idx_dimension" json:"dimensionValue"`                // namespace名称或label/annotation的value (可为NULL)
+	DimensionKey   *string `gorm:"type:varchar(255);index:idx_dimension" json:"dimensionKey"`          // label/annotation key (nullable)
+	DimensionValue *string `gorm:"type:text;index:idx_dimension" json:"dimensionValue"`                // namespace name or label/annotation value (nullable)
 
-	// GPU容量和分配
+	// GPU capacity and allocation
 	TotalGpuCapacity  int `gorm:"not null;default:0" json:"totalGpuCapacity"`
 	AllocatedGpuCount int `gorm:"not null;default:0" json:"allocatedGpuCount"`
 
-	AllocationDetails string    `gorm:"type:jsonb;not null;default:'{}'" json:"allocationDetails"` // JSON格式存储详细信息
+	AllocationDetails string    `gorm:"type:jsonb;not null;default:'{}'" json:"allocationDetails"` // Store details in JSON format
 	CreatedAt         time.Time `gorm:"not null;default:CURRENT_TIMESTAMP" json:"createdAt"`
 }
 
-// TableName 指定表名
+// TableName specifies the table name
 func (GpuAllocationSnapshot) TableName() string {
 	return "gpu_allocation_snapshots"
 }
 
-// AllocationDetails 快照详细信息的JSON结构
+// AllocationDetails is the JSON structure for snapshot details
 type AllocationDetails struct {
 	Namespaces  map[string]NamespaceAllocation  `json:"namespaces"`
 	Annotations map[string]AnnotationAllocation `json:"annotations"`
 }
 
-// NamespaceAllocation Namespace分配信息
+// NamespaceAllocation is namespace allocation information
 type NamespaceAllocation struct {
 	AllocatedGPU  int                `json:"allocatedGpu"`
 	Utilization   float64            `json:"utilization"`
@@ -132,14 +132,14 @@ type NamespaceAllocation struct {
 	Workloads     []WorkloadSnapshot `json:"workloads"`
 }
 
-// AnnotationAllocation Annotation分配信息
+// AnnotationAllocation is annotation allocation information
 type AnnotationAllocation struct {
 	AllocatedGPU  int     `json:"allocatedGpu"`
 	Utilization   float64 `json:"utilization"`
 	WorkloadCount int     `json:"workloadCount"`
 }
 
-// WorkloadSnapshot Workload快照信息
+// WorkloadSnapshot is workload snapshot information
 type WorkloadSnapshot struct {
 	UID          string  `json:"uid"`
 	Name         string  `json:"name"`
@@ -149,7 +149,7 @@ type WorkloadSnapshot struct {
 	Utilization  float64 `json:"utilization"`
 }
 
-// ReportQuery 报表查询参数
+// ReportQuery is report query parameters
 type ReportQuery struct {
 	ClusterName   string    `json:"clusterName"`
 	StartTime     time.Time `json:"startTime"`
@@ -160,7 +160,7 @@ type ReportQuery struct {
 	Namespace     string    `json:"namespace,omitempty"`
 }
 
-// ReportData 报表数据
+// ReportData is report data
 type ReportData struct {
 	TimeRange   TimeRange        `json:"timeRange"`
 	Granularity string           `json:"granularity"`
@@ -169,44 +169,44 @@ type ReportData struct {
 	Summary     ReportSummary    `json:"summary"`
 }
 
-// TimeRange 时间范围
+// TimeRange is time range
 type TimeRange struct {
 	Start time.Time `json:"start"`
 	End   time.Time `json:"end"`
 }
 
-// DimensionStats 某个维度的统计数据
+// DimensionStats is statistics data for a specific dimension
 type DimensionStats struct {
-	Dimension string      `json:"dimension"` // namespace名称、annotation值等
+	Dimension string      `json:"dimension"` // namespace name, annotation value, etc.
 	Stats     []TimeStats `json:"stats"`
 }
 
-// TimeStats 某个时间点的统计数据
+// TimeStats is statistics data at a specific time point
 type TimeStats struct {
 	Timestamp           time.Time `json:"timestamp"`
-	AvgAllocationRate   float64   `json:"avgAllocationRate,omitempty"` // 仅集群级别有
+	AvgAllocationRate   float64   `json:"avgAllocationRate,omitempty"` // Only available at cluster level
 	AvgUtilization      float64   `json:"avgUtilization"`
 	MaxUtilization      float64   `json:"maxUtilization"`
 	MinUtilization      float64   `json:"minUtilization,omitempty"`
 	AllocatedGpuCount   float64   `json:"allocatedGpuCount"`
-	ActiveWorkloadCount int       `json:"activeWorkloadCount,omitempty"` // namespace/annotation级别
+	ActiveWorkloadCount int       `json:"activeWorkloadCount,omitempty"` // namespace/annotation level
 }
 
-// ReportSummary 报表汇总
+// ReportSummary is report summary
 type ReportSummary struct {
-	TotalAllocatedGpuHours float64 `json:"totalAllocatedGpuHours"` // GPU-小时
+	TotalAllocatedGpuHours float64 `json:"totalAllocatedGpuHours"` // GPU-hours
 	AvgAllocationRate      float64 `json:"avgAllocationRate"`
 	AvgUtilization         float64 `json:"avgUtilization"`
 	MaxUtilization         float64 `json:"maxUtilization"`
 	TotalWorkloads         int     `json:"totalWorkloads,omitempty"`
 }
 
-// GpuAggregationConfig GPU聚合配置
+// GpuAggregationConfig is GPU aggregation configuration
 type GpuAggregationConfig struct {
 	Enabled bool `json:"enabled"`
 
 	Sampling struct {
-		Interval string `json:"interval"` // 如 "5m"
+		Interval string `json:"interval"` // e.g. "5m"
 		Timeout  string `json:"timeout"`
 		Enabled  bool   `json:"enabled"`
 	} `json:"sampling"`
@@ -230,8 +230,8 @@ type GpuAggregationConfig struct {
 
 		Label struct {
 			Enabled        bool     `json:"enabled"`
-			LabelKeys      []string `json:"label_keys"`      // 要聚合的label keys
-			AnnotationKeys []string `json:"annotation_keys"` // 要聚合的annotation keys
+			LabelKeys      []string `json:"label_keys"`      // Label keys to aggregate
+			AnnotationKeys []string `json:"annotation_keys"` // Annotation keys to aggregate
 			DefaultValue   string   `json:"default_value"`
 		} `json:"label"`
 

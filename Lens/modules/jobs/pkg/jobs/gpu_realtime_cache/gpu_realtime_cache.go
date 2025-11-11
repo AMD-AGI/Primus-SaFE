@@ -11,7 +11,10 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/common"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -28,13 +31,23 @@ type GpuRealtimeCacheJob struct {
 
 // Run executes the GPU realtime cache job
 func (j *GpuRealtimeCacheJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
+	// Create main trace span
+	span, ctx := trace.StartSpanFromContext(ctx, "gpu_realtime_cache_job.Run")
+	defer trace.FinishSpan(span)
+
+	// Record total job start time
+	jobStartTime := time.Now()
+
 	stats := common.NewExecutionStats()
-	
+
 	// Use current cluster name for job running in current cluster
 	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
 
-	log.Debugf("Starting GPU realtime cache job for cluster: %s", clusterName)
-	startTime := time.Now()
+	span.SetAttributes(
+		attribute.String("job.name", "gpu_realtime_cache"),
+		attribute.String("cluster.name", clusterName),
+		attribute.Int("cache_expiration_minutes", int(CacheExpirationDuration.Minutes())),
+	)
 
 	// Get generic cache facade
 	cacheFacade := database.GetFacadeForCluster(clusterName).GetGenericCache()
@@ -64,10 +77,23 @@ func (j *GpuRealtimeCacheJob) Run(ctx context.Context, clientSets *clientsets.K8
 		stats.ItemsUpdated++
 	}
 
-	duration := time.Since(startTime)
 	stats.RecordsProcessed = 2
 	stats.AddMessage("GPU realtime cache updated successfully")
-	log.Debugf("GPU realtime cache job completed for cluster: %s, took: %v", clusterName, duration)
+
+	// Record total job duration
+	totalDuration := time.Since(jobStartTime)
+	span.SetAttributes(
+		attribute.Int64("items_updated", stats.ItemsUpdated),
+		attribute.Int64("error_count", stats.ErrorCount),
+		attribute.Float64("query_duration_seconds", stats.QueryDuration),
+		attribute.Float64("total_duration_ms", float64(totalDuration.Milliseconds())),
+	)
+
+	if stats.ErrorCount > 0 {
+		span.SetStatus(codes.Error, "Some cache operations failed")
+	} else {
+		span.SetStatus(codes.Ok, "")
+	}
 
 	return stats, nil
 }
@@ -79,22 +105,80 @@ func (j *GpuRealtimeCacheJob) cacheGpuAllocationInfo(
 	clusterName string,
 	cacheFacade database.GenericCacheFacadeInterface,
 ) (int, error) {
+	span, ctx := trace.StartSpanFromContext(ctx, "cacheGpuAllocationInfo")
+	defer trace.FinishSpan(span)
+
+	span.SetAttributes(
+		attribute.String("cluster.name", clusterName),
+		attribute.String("gpu.vendor", string(metadata.GpuVendorAMD)),
+	)
+
 	// Get GPU nodes allocation
-	allocationInfo, err := gpu.GetGpuNodesAllocation(ctx, clientSets, clusterName, metadata.GpuVendorAMD)
+	getAllocationSpan, getAllocationCtx := trace.StartSpanFromContext(ctx, "getGpuNodesAllocation")
+	getAllocationSpan.SetAttributes(
+		attribute.String("cluster.name", clusterName),
+		attribute.String("gpu.vendor", string(metadata.GpuVendorAMD)),
+	)
+
+	startTime := time.Now()
+	allocationInfo, err := gpu.GetGpuNodesAllocation(getAllocationCtx, clientSets, clusterName, metadata.GpuVendorAMD)
+	duration := time.Since(startTime)
+
 	if err != nil {
+		getAllocationSpan.RecordError(err)
+		getAllocationSpan.SetAttributes(
+			attribute.String("error.message", err.Error()),
+			attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+		)
+		getAllocationSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(getAllocationSpan)
+
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to get GPU nodes allocation")
 		return 0, fmt.Errorf("failed to get GPU nodes allocation: %w", err)
 	}
 
-	// Set cache key with cluster name
+	getAllocationSpan.SetAttributes(
+		attribute.Int("nodes_count", len(allocationInfo)),
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+	)
+	getAllocationSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(getAllocationSpan)
+
+	// Store in cache
+	setCacheSpan, setCacheCtx := trace.StartSpanFromContext(ctx, "setCacheData")
+	setCacheSpan.SetAttributes(
+		attribute.String("cache.key", CacheKeyGpuAllocationInfo),
+		attribute.Int("cache.expiration_minutes", int(CacheExpirationDuration.Minutes())),
+		attribute.Int("nodes_count", len(allocationInfo)),
+	)
+
 	cacheKey := CacheKeyGpuAllocationInfo
 	expiresAt := time.Now().Add(CacheExpirationDuration)
 
-	// Store in cache
-	if err := cacheFacade.Set(ctx, cacheKey, allocationInfo, &expiresAt); err != nil {
+	startTime = time.Now()
+	if err := cacheFacade.Set(setCacheCtx, cacheKey, allocationInfo, &expiresAt); err != nil {
+		duration := time.Since(startTime)
+		setCacheSpan.RecordError(err)
+		setCacheSpan.SetAttributes(
+			attribute.String("error.message", err.Error()),
+			attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+		)
+		setCacheSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(setCacheSpan)
+
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to set cache")
 		return 0, fmt.Errorf("failed to set cache for GPU allocation info: %w", err)
 	}
 
-	log.Debugf("Successfully cached GPU allocation info for cluster: %s, count: %d", clusterName, len(allocationInfo))
+	duration = time.Since(startTime)
+	setCacheSpan.SetAttributes(attribute.Float64("duration_ms", float64(duration.Milliseconds())))
+	setCacheSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(setCacheSpan)
+
+	span.SetAttributes(attribute.Int("nodes_count", len(allocationInfo)))
+	span.SetStatus(codes.Ok, "")
 	return len(allocationInfo), nil
 }
 
@@ -106,18 +190,74 @@ func (j *GpuRealtimeCacheJob) cacheGpuUtilization(
 	clusterName string,
 	cacheFacade database.GenericCacheFacadeInterface,
 ) error {
+	span, ctx := trace.StartSpanFromContext(ctx, "cacheGpuUtilization")
+	defer trace.FinishSpan(span)
+
+	span.SetAttributes(
+		attribute.String("cluster.name", clusterName),
+		attribute.String("gpu.vendor", string(metadata.GpuVendorAMD)),
+	)
+
 	// Calculate GPU usage
-	usage, err := gpu.CalculateGpuUsage(ctx, storageClientSet, metadata.GpuVendorAMD)
+	calculateUsageSpan, calculateUsageCtx := trace.StartSpanFromContext(ctx, "calculateGpuUsage")
+	calculateUsageSpan.SetAttributes(attribute.String("gpu.vendor", string(metadata.GpuVendorAMD)))
+
+	startTime := time.Now()
+	usage, err := gpu.CalculateGpuUsage(calculateUsageCtx, storageClientSet, metadata.GpuVendorAMD)
+	duration := time.Since(startTime)
+
 	if err != nil {
+		calculateUsageSpan.RecordError(err)
+		calculateUsageSpan.SetAttributes(
+			attribute.String("error.message", err.Error()),
+			attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+			attribute.Float64("usage_fallback", 0),
+		)
+		calculateUsageSpan.SetStatus(codes.Error, "Using fallback value 0")
+		trace.FinishSpan(calculateUsageSpan)
+
 		log.Warnf("Failed to calculate GPU usage: %v, using 0", err)
 		usage = 0
+	} else {
+		calculateUsageSpan.SetAttributes(
+			attribute.Float64("usage_percent", usage),
+			attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+		)
+		calculateUsageSpan.SetStatus(codes.Ok, "")
+		trace.FinishSpan(calculateUsageSpan)
 	}
 
 	// Get cluster GPU allocation rate
-	allocationRate, err := gpu.GetClusterGpuAllocationRate(ctx, clientSets, clusterName, metadata.GpuVendorAMD)
+	getAllocationRateSpan, getAllocationRateCtx := trace.StartSpanFromContext(ctx, "getClusterGpuAllocationRate")
+	getAllocationRateSpan.SetAttributes(
+		attribute.String("cluster.name", clusterName),
+		attribute.String("gpu.vendor", string(metadata.GpuVendorAMD)),
+	)
+
+	startTime = time.Now()
+	allocationRate, err := gpu.GetClusterGpuAllocationRate(getAllocationRateCtx, clientSets, clusterName, metadata.GpuVendorAMD)
+	duration = time.Since(startTime)
+
 	if err != nil {
+		getAllocationRateSpan.RecordError(err)
+		getAllocationRateSpan.SetAttributes(
+			attribute.String("error.message", err.Error()),
+			attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+		)
+		getAllocationRateSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(getAllocationRateSpan)
+
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to get allocation rate")
 		return fmt.Errorf("failed to get cluster GPU allocation rate: %w", err)
 	}
+
+	getAllocationRateSpan.SetAttributes(
+		attribute.Float64("allocation_rate_percent", allocationRate),
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+	)
+	getAllocationRateSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(getAllocationRateSpan)
 
 	// Build utilization result
 	result := &model.GPUUtilization{
@@ -125,17 +265,44 @@ func (j *GpuRealtimeCacheJob) cacheGpuUtilization(
 		Utilization:    usage,
 	}
 
-	// Set cache key with cluster name
+	// Store in cache
+	setCacheSpan, setCacheCtx := trace.StartSpanFromContext(ctx, "setCacheData")
+	setCacheSpan.SetAttributes(
+		attribute.String("cache.key", CacheKeyGpuUtilization),
+		attribute.Int("cache.expiration_minutes", int(CacheExpirationDuration.Minutes())),
+		attribute.Float64("allocation_rate_percent", allocationRate),
+		attribute.Float64("utilization_percent", usage),
+	)
+
 	cacheKey := CacheKeyGpuUtilization
 	expiresAt := time.Now().Add(CacheExpirationDuration)
 
-	// Store in cache
-	if err := cacheFacade.Set(ctx, cacheKey, result, &expiresAt); err != nil {
+	startTime = time.Now()
+	if err := cacheFacade.Set(setCacheCtx, cacheKey, result, &expiresAt); err != nil {
+		duration := time.Since(startTime)
+		setCacheSpan.RecordError(err)
+		setCacheSpan.SetAttributes(
+			attribute.String("error.message", err.Error()),
+			attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+		)
+		setCacheSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(setCacheSpan)
+
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to set cache")
 		return fmt.Errorf("failed to set cache for GPU utilization: %w", err)
 	}
 
-	log.Debugf("Successfully cached GPU utilization for cluster: %s, allocation: %.2f%%, utilization: %.2f%%",
-		clusterName, allocationRate, usage)
+	duration = time.Since(startTime)
+	setCacheSpan.SetAttributes(attribute.Float64("duration_ms", float64(duration.Milliseconds())))
+	setCacheSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(setCacheSpan)
+
+	span.SetAttributes(
+		attribute.Float64("allocation_rate_percent", allocationRate),
+		attribute.Float64("utilization_percent", usage),
+	)
+	span.SetStatus(codes.Ok, "")
 	return nil
 }
 

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// CachedManager 带缓存的配置管理器
+// CachedManager is a configuration manager with caching
 type CachedManager struct {
 	*Manager
 	cache       sync.Map // key -> cacheEntry
@@ -20,7 +20,7 @@ type cacheEntry struct {
 	expireTime time.Time
 }
 
-// NewCachedManager 创建带缓存的配置管理器
+// NewCachedManager creates a cached configuration manager
 func NewCachedManager(manager *Manager, cacheTTL time.Duration) *CachedManager {
 	return &CachedManager{
 		Manager:  manager,
@@ -28,30 +28,30 @@ func NewCachedManager(manager *Manager, cacheTTL time.Duration) *CachedManager {
 	}
 }
 
-// NewCachedManagerForCluster 根据集群名称创建带缓存的配置管理器
+// NewCachedManagerForCluster creates a cached configuration manager for a specific cluster
 func NewCachedManagerForCluster(clusterName string, cacheTTL time.Duration) *CachedManager {
 	return NewCachedManager(NewManagerForCluster(clusterName), cacheTTL)
 }
 
-// GetCached 从缓存中获取配置，如果缓存不存在或过期则从数据库加载
+// GetCached retrieves configuration from cache, loads from database if cache doesn't exist or is expired
 func (cm *CachedManager) GetCached(ctx context.Context, key string, dest interface{}) error {
-	// 检查缓存
+	// Check cache
 	if entry, ok := cm.cache.Load(key); ok {
 		cached := entry.(cacheEntry)
 		if time.Now().Before(cached.expireTime) {
-			// 缓存有效
+			// Cache is valid
 			return unmarshalExtType(cached.value, dest)
 		}
-		// 缓存过期，删除
+		// Cache expired, delete it
 		cm.cache.Delete(key)
 	}
 
-	// 从数据库加载
+	// Load from database
 	if err := cm.Manager.Get(ctx, key, dest); err != nil {
 		return err
 	}
 
-	// 更新缓存
+	// Update cache
 	cm.cache.Store(key, cacheEntry{
 		value:      dest,
 		expireTime: time.Now().Add(cm.cacheTTL),
@@ -60,13 +60,13 @@ func (cm *CachedManager) GetCached(ctx context.Context, key string, dest interfa
 	return nil
 }
 
-// SetCached 设置配置并更新缓存
+// SetCached sets configuration and updates cache
 func (cm *CachedManager) SetCached(ctx context.Context, key string, value interface{}, opts ...SetOption) error {
 	if err := cm.Manager.Set(ctx, key, value, opts...); err != nil {
 		return err
 	}
 
-	// 更新缓存
+	// Update cache
 	cm.cache.Store(key, cacheEntry{
 		value:      value,
 		expireTime: time.Now().Add(cm.cacheTTL),
@@ -75,7 +75,7 @@ func (cm *CachedManager) SetCached(ctx context.Context, key string, value interf
 	return nil
 }
 
-// InvalidateCache 使指定键的缓存失效
+// InvalidateCache invalidates the cache for a specific key
 func (cm *CachedManager) InvalidateCache(key string) {
 	cm.cache.Delete(key)
 }

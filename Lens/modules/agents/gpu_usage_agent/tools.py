@@ -149,14 +149,16 @@ class GPUAnalysisTools:
         
         # Check response status (success status code is 2000)
         meta = result.get("meta", {})
-        if meta.get("code") != 2000:
+        if meta.get("code") not in [2000, 0]:
             return json.dumps({
                 "error": meta.get("message", "Unknown error"),
                 "data": None
             })
         
         # Process data and calculate trend statistics
-        data_points = result.get("data", [])
+        # API now returns paginated data structure: data.data contains actual array
+        data_wrapper = result.get("data", {})
+        data_points = data_wrapper.get("data", []) if isinstance(data_wrapper, dict) else data_wrapper
         if not data_points:
             return json.dumps({
                 "data_points": [],
@@ -269,7 +271,7 @@ class GPUAnalysisTools:
         
         # Check response status (success status code is 2000)
         meta = result.get("meta", {})
-        if meta.get("code") != 2000:
+        if meta.get("code") not in [2000, 0]:
             return json.dumps({
                 "error": meta.get("message", "Unknown error"),
                 "workloads": []
@@ -307,12 +309,13 @@ class GPUAnalysisTools:
         
         # Check response status (success status code is 2000)
         meta = result.get("meta", {})
-        if meta.get("code") != 2000:
+        if meta.get("code") not in [2000, 0]:
             return json.dumps({
                 "error": meta.get("message", "Unknown error"),
                 "data": None
             })
         
+        # Return the data wrapper (includes pagination info if present)
         return json.dumps(result.get("data", {}), ensure_ascii=False)
     
     def get_workload_metadata(self) -> str:
@@ -329,7 +332,7 @@ class GPUAnalysisTools:
         
         # Check response status (success status code is 2000)
         meta = result.get("meta", {})
-        if meta.get("code") != 2000:
+        if meta.get("code") not in [2000, 0]:
             return json.dumps({
                 "error": meta.get("message", "Unknown error"),
                 "namespaces": [],
@@ -337,10 +340,18 @@ class GPUAnalysisTools:
             })
         
         data = result.get("data", {})
-        return json.dumps({
-            "namespaces": data.get("namespaces", []),
-            "kinds": data.get("kinds", [])
-        }, ensure_ascii=False)
+        # Handle both old format and new paginated format
+        if "data" in data and isinstance(data["data"], dict):
+            inner_data = data["data"]
+            return json.dumps({
+                "namespaces": inner_data.get("namespaces", []),
+                "kinds": inner_data.get("kinds", [])
+            }, ensure_ascii=False)
+        else:
+            return json.dumps({
+                "namespaces": data.get("namespaces", []),
+                "kinds": data.get("kinds", [])
+            }, ensure_ascii=False)
     
     def get_available_clusters(self) -> str:
         """
@@ -356,13 +367,19 @@ class GPUAnalysisTools:
         
         # Check response status (success status code is 2000)
         meta = result.get("meta", {})
-        if meta.get("code") != 2000:
+        if meta.get("code") not in [2000, 0]:
             return json.dumps({
                 "error": meta.get("message", "Unknown error"),
                 "clusters": []
             })
         
-        clusters = result.get("data", [])
+        # Handle paginated response structure
+        data_wrapper = result.get("data", {})
+        if isinstance(data_wrapper, dict) and "data" in data_wrapper:
+            clusters = data_wrapper.get("data", [])
+        else:
+            clusters = data_wrapper if isinstance(data_wrapper, list) else []
+        
         return json.dumps({
             "clusters": clusters,
             "count": len(clusters)
@@ -400,13 +417,19 @@ class GPUAnalysisTools:
         
         # Check response status (success status code is 2000)
         meta = result.get("meta", {})
-        if meta.get("code") != 2000:
+        if meta.get("code") not in [2000, 0]:
             return json.dumps({
                 "error": meta.get("message", "Unknown error"),
                 "namespaces": []
             })
         
-        namespaces = result.get("data", [])
+        # Handle paginated response structure
+        data_wrapper = result.get("data", {})
+        if isinstance(data_wrapper, dict) and "data" in data_wrapper:
+            namespaces = data_wrapper.get("data", [])
+        else:
+            namespaces = data_wrapper if isinstance(data_wrapper, list) else []
+        
         return json.dumps({
             "namespaces": namespaces,
             "count": len(namespaces),
@@ -454,13 +477,19 @@ class GPUAnalysisTools:
         
         # Check response status (success status code is 2000)
         meta = result.get("meta", {})
-        if meta.get("code") != 2000:
+        if meta.get("code") not in [2000, 0]:
             return json.dumps({
                 "error": meta.get("message", "Unknown error"),
                 "dimension_keys": []
             })
         
-        dimension_keys = result.get("data", [])
+        # Handle paginated response structure
+        data_wrapper = result.get("data", {})
+        if isinstance(data_wrapper, dict) and "data" in data_wrapper:
+            dimension_keys = data_wrapper.get("data", [])
+        else:
+            dimension_keys = data_wrapper if isinstance(data_wrapper, list) else []
+        
         return json.dumps({
             "dimension_type": dimension_type,
             "dimension_keys": dimension_keys,
@@ -512,13 +541,19 @@ class GPUAnalysisTools:
         
         # Check response status (success status code is 2000)
         meta = result.get("meta", {})
-        if meta.get("code") != 2000:
+        if meta.get("code") not in [2000, 0]:
             return json.dumps({
                 "error": meta.get("message", "Unknown error"),
                 "dimension_values": []
             })
         
-        dimension_values = result.get("data", [])
+        # Handle paginated response structure
+        data_wrapper = result.get("data", {})
+        if isinstance(data_wrapper, dict) and "data" in data_wrapper:
+            dimension_values = data_wrapper.get("data", [])
+        else:
+            dimension_values = data_wrapper if isinstance(data_wrapper, list) else []
+        
         return json.dumps({
             "dimension_type": dimension_type,
             "dimension_key": dimension_key,

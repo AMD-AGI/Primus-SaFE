@@ -2,6 +2,7 @@ package callbacks
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"go.opentelemetry.io/otel/attribute"
@@ -12,7 +13,8 @@ import (
 )
 
 const (
-	tracingSpanKey = "_tracing_span"
+	tracingSpanKey      = "_tracing_span"
+	tracingStartTimeKey = "_tracing_start_time"
 )
 
 // beforeQuery is called before query execution
@@ -61,6 +63,9 @@ func startSpan(db *gorm.DB, operationName string) {
 		return
 	}
 
+	// Record start time for duration calculation
+	startTime := time.Now()
+
 	ctx := db.Statement.Context
 	span, newCtx := trace.StartSpanFromContext(ctx, operationName,
 		oteltrace.WithSpanKind(oteltrace.SpanKindClient),
@@ -71,8 +76,9 @@ func startSpan(db *gorm.DB, operationName string) {
 		semconv.DBSystemPostgreSQL,
 	)
 
-	// Store span in db instance for later retrieval
+	// Store span and start time in db instance for later retrieval
 	db.InstanceSet(tracingSpanKey, span)
+	db.InstanceSet(tracingStartTimeKey, startTime)
 
 	// Update context with new span
 	db.Statement.Context = newCtx
@@ -90,10 +96,26 @@ func finishSpan(db *gorm.DB, sqlType string) {
 		return
 	}
 
+	// Calculate duration if start time exists
+	var duration time.Duration
+	if startTimeInterface, exists := db.InstanceGet(tracingStartTimeKey); exists {
+		if startTime, ok := startTimeInterface.(time.Time); ok {
+			duration = time.Since(startTime)
+		}
+	}
+
 	// Add database operation details
 	attrs := []attribute.KeyValue{
 		attribute.String("db.type", "postgres"),
 		attribute.String("db.sql_type", sqlType),
+	}
+
+	// Add duration attributes if calculated
+	if duration > 0 {
+		attrs = append(attrs,
+			attribute.Float64("db.duration_ms", float64(duration.Milliseconds())),
+			attribute.Int64("db.duration_ns", duration.Nanoseconds()),
+		)
 	}
 
 	if db.Statement != nil {

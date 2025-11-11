@@ -14,18 +14,18 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 )
 
-// Job 接口定义（最小化定义以避免循环导入）
+// Job interface definition (minimized to avoid circular imports)
 type Job interface {
 	Schedule() string
 }
 
-// HistoryService 历史记录服务
+// HistoryService is the job execution history recording service
 type HistoryService struct {
 	clusterName string
 	hostname    string
 }
 
-// NewHistoryService 创建新的历史记录服务
+// NewHistoryService creates a new history service
 func NewHistoryService() *HistoryService {
 	clusterName := clientsets.GetClusterManager().GetCurrentClusterName()
 	hostname, _ := os.Hostname()
@@ -36,7 +36,7 @@ func NewHistoryService() *HistoryService {
 	}
 }
 
-// RecordJobExecution 记录Job执行历史
+// RecordJobExecution records job execution history
 func (h *HistoryService) RecordJobExecution(
 	ctx context.Context,
 	job Job,
@@ -46,7 +46,7 @@ func (h *HistoryService) RecordJobExecution(
 	jobType := getJobType(job)
 	schedule := job.Schedule()
 
-	// 确定状态
+	// Determine status
 	status := "success"
 	if !result.Success {
 		if ctx.Err() == context.Canceled {
@@ -58,7 +58,7 @@ func (h *HistoryService) RecordJobExecution(
 		}
 	}
 
-	// 构建历史记录
+	// Build history record
 	history := &dbmodel.JobExecutionHistory{
 		JobName:         jobName,
 		JobType:         jobType,
@@ -71,13 +71,13 @@ func (h *HistoryService) RecordJobExecution(
 		Hostname:        h.hostname,
 	}
 
-	// 设置错误信息
+	// Set error information
 	if result.Error != nil {
 		history.ErrorMessage = result.Error.Error()
 		history.ErrorStack = string(debug.Stack())
 	}
 
-	// 序列化元数据
+	// Serialize metadata
 	metadata := dbmodel.ExtType{
 		"cluster_name": h.clusterName,
 		"hostname":     h.hostname,
@@ -85,7 +85,7 @@ func (h *HistoryService) RecordJobExecution(
 	}
 	history.Metadata = metadata
 
-	// 序列化执行统计信息 - 将统计数据转换为 map
+	// Serialize execution statistics - convert stats to map
 	if result.Stats != nil {
 		statsBytes, err := json.Marshal(result.Stats)
 		if err == nil {
@@ -96,7 +96,7 @@ func (h *HistoryService) RecordJobExecution(
 		}
 	}
 
-	// 保存到数据库
+	// Save to database
 	db := clientsets.GetClusterManager().GetCurrentClusterClients().StorageClientSet.DB
 	if err := db.Create(history).Error; err != nil {
 		log.Errorf("Failed to save job execution history for %s: %v", jobName, err)
@@ -109,14 +109,14 @@ func (h *HistoryService) RecordJobExecution(
 	return nil
 }
 
-// getJobType 获取Job的完整类型名称
+// getJobType gets the full type name of the Job
 func getJobType(job Job) string {
 	jobType := reflect.TypeOf(job)
 	if jobType.Kind() == reflect.Ptr {
 		jobType = jobType.Elem()
 	}
 
-	// 返回包名+类型名
+	// Return package name + type name
 	pkgPath := jobType.PkgPath()
 	typeName := jobType.Name()
 
@@ -126,7 +126,7 @@ func getJobType(job Job) string {
 	return typeName
 }
 
-// getJobName 返回job的名称（使用类型名）
+// getJobName returns the job name (using type name)
 func getJobName(job Job) string {
 	jobType := reflect.TypeOf(job)
 	if jobType.Kind() == reflect.Ptr {
@@ -135,7 +135,7 @@ func getJobName(job Job) string {
 	return jobType.Name()
 }
 
-// QueryJobHistory 查询Job执行历史
+// QueryJobHistory queries job execution history
 func (h *HistoryService) QueryJobHistory(
 	jobName string,
 	limit int,
@@ -157,7 +157,7 @@ func (h *HistoryService) QueryJobHistory(
 	return histories, nil
 }
 
-// QueryJobHistoryByTimeRange 查询指定时间范围的Job执行历史
+// QueryJobHistoryByTimeRange queries job execution history within a specified time range
 func (h *HistoryService) QueryJobHistoryByTimeRange(
 	jobName string,
 	startTime, endTime time.Time,
@@ -176,7 +176,7 @@ func (h *HistoryService) QueryJobHistoryByTimeRange(
 	return histories, nil
 }
 
-// QueryAllJobsHistory 查询所有Job的最近执行历史
+// QueryAllJobsHistory queries recent execution history for all jobs
 func (h *HistoryService) QueryAllJobsHistory(limit int) ([]*dbmodel.JobExecutionHistory, error) {
 	db := clientsets.GetClusterManager().GetCurrentClusterClients().StorageClientSet.DB
 
@@ -194,7 +194,7 @@ func (h *HistoryService) QueryAllJobsHistory(limit int) ([]*dbmodel.JobExecution
 	return histories, nil
 }
 
-// GetJobStatistics 获取Job的统计信息
+// GetJobStatistics gets job statistics
 func (h *HistoryService) GetJobStatistics(jobName string, days int) (*JobStatistics, error) {
 	startTime := time.Now().AddDate(0, 0, -days)
 
@@ -233,7 +233,7 @@ func (h *HistoryService) GetJobStatistics(jobName string, days int) (*JobStatist
 	return stats, nil
 }
 
-// JobStatistics Job统计信息
+// JobStatistics holds job statistics information
 type JobStatistics struct {
 	JobName         string  `json:"job_name"`
 	TotalRuns       int     `json:"total_runs"`
@@ -245,7 +245,7 @@ type JobStatistics struct {
 	TotalDuration   float64 `json:"total_duration"`
 }
 
-// CleanupOldHistory 清理旧的历史记录
+// CleanupOldHistory cleans up old history records
 func (h *HistoryService) CleanupOldHistory(retentionDays int) (int64, error) {
 	db := clientsets.GetClusterManager().GetCurrentClusterClients().StorageClientSet.DB
 

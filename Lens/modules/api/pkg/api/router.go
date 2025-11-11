@@ -95,7 +95,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		alertRuleAdviceGroup.POST(":id/apply", ApplyAlertRuleAdvice)
 	}
 
-	// GPU Aggregation routes - GPU聚合数据查询
+	// GPU Aggregation routes - GPU aggregation data query
 	gpuAggregationGroup := group.Group("/gpu-aggregation")
 	{
 		// 元信息查询

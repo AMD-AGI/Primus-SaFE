@@ -8,25 +8,25 @@ import (
 	"gorm.io/gorm"
 )
 
-// 全局单例管理器映射，按集群名称存储
+// Global singleton manager map, stored by cluster name
 var (
-	// managers 存储普通配置管理器的单例
+	// managers stores singleton instances of regular configuration managers
 	managers = make(map[string]*Manager)
-	// cachedManagers 存储带缓存的配置管理器的单例
+	// cachedManagers stores singleton instances of cached configuration managers
 	cachedManagers = make(map[string]*CachedManager)
-	// managerMutex 保护 managers 映射的并发访问
+	// managerMutex protects concurrent access to managers map
 	managerMutex sync.RWMutex
-	// cachedManagerMutex 保护 cachedManagers 映射的并发访问
+	// cachedManagerMutex protects concurrent access to cachedManagers map
 	cachedManagerMutex sync.RWMutex
-	// defaultCacheTTL 默认缓存有效期
+	// defaultCacheTTL is the default cache TTL
 	defaultCacheTTL = 5 * time.Minute
 )
 
-// GetOrInitConfigManager 获取或初始化指定集群的配置管理器（单例）
-// clusterName: 集群名称，空字符串表示默认集群
-// 返回该集群的单例配置管理器
+// GetOrInitConfigManager gets or initializes the configuration manager for a specified cluster (singleton)
+// clusterName: cluster name, empty string indicates default cluster
+// Returns the singleton configuration manager for the cluster
 func GetOrInitConfigManager(clusterName string) *Manager {
-	// 先尝试读取
+	// Try to read first
 	managerMutex.RLock()
 	if mgr, exists := managers[clusterName]; exists {
 		managerMutex.RUnlock()
@@ -34,25 +34,25 @@ func GetOrInitConfigManager(clusterName string) *Manager {
 	}
 	managerMutex.RUnlock()
 
-	// 需要创建新的管理器
+	// Need to create a new manager
 	managerMutex.Lock()
 	defer managerMutex.Unlock()
 
-	// 双重检查，避免重复创建
+	// Double-check to avoid duplicate creation
 	if mgr, exists := managers[clusterName]; exists {
 		return mgr
 	}
 
-	// 创建新的管理器
+	// Create new manager
 	var mgr *Manager
 	if clusterName == "" {
-		// 使用默认数据库
+		// Use default database
 		facade := database.GetFacade()
 		mgr = &Manager{
 			db: facade.GetSystemConfig().GetDB(),
 		}
 	} else {
-		// 使用指定集群的数据库
+		// Use database for specified cluster
 		mgr = NewManagerForCluster(clusterName)
 	}
 
@@ -60,16 +60,16 @@ func GetOrInitConfigManager(clusterName string) *Manager {
 	return mgr
 }
 
-// GetOrInitCachedConfigManager 获取或初始化指定集群的带缓存配置管理器（单例）
-// clusterName: 集群名称，空字符串表示默认集群
-// cacheTTL: 缓存有效期，如果为 0 则使用默认值（5分钟）
-// 返回该集群的单例带缓存配置管理器
+// GetOrInitCachedConfigManager gets or initializes the cached configuration manager for a specified cluster (singleton)
+// clusterName: cluster name, empty string indicates default cluster
+// cacheTTL: cache TTL, if 0 uses default value (5 minutes)
+// Returns the singleton cached configuration manager for the cluster
 func GetOrInitCachedConfigManager(clusterName string, cacheTTL time.Duration) *CachedManager {
 	if cacheTTL == 0 {
 		cacheTTL = defaultCacheTTL
 	}
 
-	// 先尝试读取
+	// Try to read first
 	cachedManagerMutex.RLock()
 	if mgr, exists := cachedManagers[clusterName]; exists {
 		cachedManagerMutex.RUnlock()
@@ -77,16 +77,16 @@ func GetOrInitCachedConfigManager(clusterName string, cacheTTL time.Duration) *C
 	}
 	cachedManagerMutex.RUnlock()
 
-	// 需要创建新的管理器
+	// Need to create a new manager
 	cachedManagerMutex.Lock()
 	defer cachedManagerMutex.Unlock()
 
-	// 双重检查，避免重复创建
+	// Double-check to avoid duplicate creation
 	if mgr, exists := cachedManagers[clusterName]; exists {
 		return mgr
 	}
 
-	// 创建新的带缓存管理器
+	// Create new cached manager
 	baseManager := GetOrInitConfigManager(clusterName)
 	cachedMgr := NewCachedManager(baseManager, cacheTTL)
 
@@ -94,32 +94,32 @@ func GetOrInitCachedConfigManager(clusterName string, cacheTTL time.Duration) *C
 	return cachedMgr
 }
 
-// GetDefaultConfigManager 获取默认集群的配置管理器（单例）
-// 等同于 GetOrInitConfigManager("")
+// GetDefaultConfigManager gets the configuration manager for the default cluster (singleton)
+// Equivalent to GetOrInitConfigManager("")
 func GetDefaultConfigManager() *Manager {
 	return GetOrInitConfigManager("")
 }
 
-// GetDefaultCachedConfigManager 获取默认集群的带缓存配置管理器（单例）
-// 使用默认缓存有效期（5分钟）
+// GetDefaultCachedConfigManager gets the cached configuration manager for the default cluster (singleton)
+// Uses default cache TTL (5 minutes)
 func GetDefaultCachedConfigManager() *CachedManager {
 	return GetOrInitCachedConfigManager("", defaultCacheTTL)
 }
 
-// GetConfigManagerForCluster 获取指定集群的配置管理器（单例）
-// 等同于 GetOrInitConfigManager(clusterName)
+// GetConfigManagerForCluster gets the configuration manager for a specified cluster (singleton)
+// Equivalent to GetOrInitConfigManager(clusterName)
 func GetConfigManagerForCluster(clusterName string) *Manager {
 	return GetOrInitConfigManager(clusterName)
 }
 
-// GetCachedConfigManagerForCluster 获取指定集群的带缓存配置管理器（单例）
-// 使用默认缓存有效期（5分钟）
+// GetCachedConfigManagerForCluster gets the cached configuration manager for a specified cluster (singleton)
+// Uses default cache TTL (5 minutes)
 func GetCachedConfigManagerForCluster(clusterName string) *CachedManager {
 	return GetOrInitCachedConfigManager(clusterName, defaultCacheTTL)
 }
 
-// ResetConfigManager 重置指定集群的配置管理器
-// 通常用于测试或需要重新初始化的场景
+// ResetConfigManager resets the configuration manager for a specified cluster
+// Usually used for testing or scenarios requiring reinitialization
 func ResetConfigManager(clusterName string) {
 	managerMutex.Lock()
 	delete(managers, clusterName)
@@ -130,8 +130,8 @@ func ResetConfigManager(clusterName string) {
 	cachedManagerMutex.Unlock()
 }
 
-// ResetAllConfigManagers 重置所有配置管理器
-// 通常用于测试场景
+// ResetAllConfigManagers resets all configuration managers
+// Usually used for testing scenarios
 func ResetAllConfigManagers() {
 	managerMutex.Lock()
 	managers = make(map[string]*Manager)
@@ -142,37 +142,37 @@ func ResetAllConfigManagers() {
 	cachedManagerMutex.Unlock()
 }
 
-// SetDefaultCacheTTL 设置默认缓存有效期
-// 仅影响后续创建的缓存管理器，不影响已存在的
+// SetDefaultCacheTTL sets the default cache TTL
+// Only affects subsequently created cache managers, does not affect existing ones
 func SetDefaultCacheTTL(ttl time.Duration) {
 	if ttl > 0 {
 		defaultCacheTTL = ttl
 	}
 }
 
-// GetDefaultCacheTTL 获取默认缓存有效期
+// GetDefaultCacheTTL gets the default cache TTL
 func GetDefaultCacheTTL() time.Duration {
 	return defaultCacheTTL
 }
 
-// ConfigManagerStats 配置管理器统计信息
+// ConfigManagerStats contains configuration manager statistics
 type ConfigManagerStats struct {
-	TotalManagers       int                    `json:"total_managers"`        // 总管理器数量
-	TotalCachedManagers int                    `json:"total_cached_managers"` // 总缓存管理器数量
-	Clusters            []string               `json:"clusters"`              // 集群列表
-	CachedClusters      []string               `json:"cached_clusters"`       // 使用缓存的集群列表
-	DefaultCacheTTL     string                 `json:"default_cache_ttl"`     // 默认缓存TTL
-	CacheStats          map[string]interface{} `json:"cache_stats,omitempty"` // 缓存统计（如果有）
+	TotalManagers       int                    `json:"total_managers"`        // Total number of managers
+	TotalCachedManagers int                    `json:"total_cached_managers"` // Total number of cached managers
+	Clusters            []string               `json:"clusters"`              // List of clusters
+	CachedClusters      []string               `json:"cached_clusters"`       // List of clusters using cache
+	DefaultCacheTTL     string                 `json:"default_cache_ttl"`     // Default cache TTL
+	CacheStats          map[string]interface{} `json:"cache_stats,omitempty"` // Cache statistics (if available)
 }
 
-// GetConfigManagerStats 获取配置管理器的统计信息
+// GetConfigManagerStats gets statistics for configuration managers
 func GetConfigManagerStats() *ConfigManagerStats {
 	stats := &ConfigManagerStats{
 		DefaultCacheTTL: defaultCacheTTL.String(),
 		CacheStats:      make(map[string]interface{}),
 	}
 
-	// 统计普通管理器
+	// Count regular managers
 	managerMutex.RLock()
 	stats.TotalManagers = len(managers)
 	stats.Clusters = make([]string, 0, len(managers))
@@ -185,7 +185,7 @@ func GetConfigManagerStats() *ConfigManagerStats {
 	}
 	managerMutex.RUnlock()
 
-	// 统计缓存管理器
+	// Count cached managers
 	cachedManagerMutex.RLock()
 	stats.TotalCachedManagers = len(cachedManagers)
 	stats.CachedClusters = make([]string, 0, len(cachedManagers))
@@ -195,7 +195,7 @@ func GetConfigManagerStats() *ConfigManagerStats {
 			clusterName = "<default>"
 		}
 		stats.CachedClusters = append(stats.CachedClusters, clusterName)
-		// 获取每个集群的缓存统计
+		// Get cache statistics for each cluster
 		stats.CacheStats[clusterName] = cachedMgr.GetCacheStats()
 	}
 	cachedManagerMutex.RUnlock()
@@ -203,17 +203,17 @@ func GetConfigManagerStats() *ConfigManagerStats {
 	return stats
 }
 
-// WithDB 创建一个使用指定数据库连接的配置管理器
-// 不使用单例模式，每次调用都返回新实例
-// db: GORM 数据库连接
+// WithDB creates a configuration manager using a specified database connection
+// Does not use singleton pattern, returns new instance on each call
+// db: GORM database connection
 func WithDB(db *gorm.DB) *Manager {
 	return NewManager(db)
 }
 
-// WithDBAndCache 创建一个使用指定数据库连接的带缓存配置管理器
-// 不使用单例模式，每次调用都返回新实例
-// db: GORM 数据库连接
-// cacheTTL: 缓存有效期
+// WithDBAndCache creates a cached configuration manager using a specified database connection
+// Does not use singleton pattern, returns new instance on each call
+// db: GORM database connection
+// cacheTTL: cache TTL
 func WithDBAndCache(db *gorm.DB, cacheTTL time.Duration) *CachedManager {
 	if cacheTTL == 0 {
 		cacheTTL = defaultCacheTTL

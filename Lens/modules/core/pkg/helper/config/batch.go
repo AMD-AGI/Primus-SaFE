@@ -7,7 +7,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 )
 
-// BatchConfig 批量配置项
+// BatchConfig represents a batch configuration item
 type BatchConfig struct {
 	Key         string
 	Value       interface{}
@@ -18,7 +18,7 @@ type BatchConfig struct {
 	CreatedBy   string
 }
 
-// BatchSet 批量设置配置
+// BatchSet sets configurations in batch
 func (m *Manager) BatchSet(ctx context.Context, configs []BatchConfig) error {
 	for _, cfg := range configs {
 		opts := []SetOption{
@@ -37,9 +37,9 @@ func (m *Manager) BatchSet(ctx context.Context, configs []BatchConfig) error {
 	return nil
 }
 
-// BatchGet 批量获取配置
-// keys: 配置键列表
-// 返回: map[key]SystemConfig
+// BatchGet retrieves configurations in batch
+// keys: list of configuration keys
+// Returns: map[key]SystemConfig
 func (m *Manager) BatchGet(ctx context.Context, keys []string) (map[string]model.SystemConfig, error) {
 	var configs []model.SystemConfig
 	err := m.db.WithContext(ctx).
@@ -57,8 +57,8 @@ func (m *Manager) BatchGet(ctx context.Context, keys []string) (map[string]model
 	return result, nil
 }
 
-// BatchGetParsed 批量获取并解析配置
-// configMap: map[key]destPointer，将配置值解析到对应的指针中
+// BatchGetParsed retrieves and parses configurations in batch
+// configMap: map[key]destPointer, parses configuration values into corresponding pointers
 func (m *Manager) BatchGetParsed(ctx context.Context, configMap map[string]interface{}) error {
 	keys := make([]string, 0, len(configMap))
 	for key := range configMap {

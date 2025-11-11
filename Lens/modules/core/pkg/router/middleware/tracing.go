@@ -2,8 +2,8 @@ package middleware
 
 import (
 	"net/http"
+	"time"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -14,6 +14,9 @@ import (
 
 func HandleTracing() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Record start time for duration calculation
+		startTime := time.Now()
+
 		ctx := c.Request.Context()
 
 		// Extract trace context from HTTP headers
@@ -27,14 +30,6 @@ func HandleTracing() gin.HandlerFunc {
 			oteltrace.WithSpanKind(oteltrace.SpanKindServer),
 		)
 
-		// Get trace ID and span ID for logging
-		spanContext := span.SpanContext()
-		traceID := spanContext.TraceID().String()
-		spanID := spanContext.SpanID().String()
-
-		log.Infof("🔍 [TRACE] Created span for %s, TraceID=%s, SpanID=%s",
-			operationName, traceID, spanID)
-
 		// Set HTTP-related attributes
 		span.SetAttributes(
 			semconv.HTTPMethod(c.Request.Method),
@@ -47,8 +42,15 @@ func HandleTracing() gin.HandlerFunc {
 
 		// Set status code and finish span when request completes
 		defer func() {
+			// Calculate request duration
+			duration := time.Since(startTime)
+
 			statusCode := c.Writer.Status()
-			span.SetAttributes(semconv.HTTPStatusCode(statusCode))
+			span.SetAttributes(
+				semconv.HTTPStatusCode(statusCode),
+				attribute.Float64("http.duration_ms", float64(duration.Milliseconds())),
+				attribute.Int64("http.duration_ns", duration.Nanoseconds()),
+			)
 
 			if statusCode >= 400 {
 				span.SetStatus(codes.Error, "HTTP error")
@@ -56,8 +58,6 @@ func HandleTracing() gin.HandlerFunc {
 				span.SetStatus(codes.Ok, "")
 			}
 			span.End()
-			log.Infof("🔍 [TRACE] Finished span for %s, TraceID=%s, SpanID=%s, Status=%d",
-				operationName, traceID, spanID, statusCode)
 		}()
 
 		// Update context in request

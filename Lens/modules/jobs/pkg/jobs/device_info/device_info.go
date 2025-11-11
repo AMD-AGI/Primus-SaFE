@@ -15,7 +15,10 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	boModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/common"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 var (
@@ -26,20 +29,58 @@ type DeviceInfoJob struct {
 }
 
 func (d *DeviceInfoJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
+	// Create main trace span
+	span, ctx := trace.StartSpanFromContext(ctx, "device_info_job.Run")
+	defer trace.FinishSpan(span)
+
+	// Record total job start time
+	jobStartTime := time.Now()
+
 	stats := common.NewExecutionStats()
-	
-	nodes, err := gpu.GetGpuNodes(ctx, clientSets, defaultGPUVendor)
+
+	span.SetAttributes(
+		attribute.String("job.name", "device_info"),
+		attribute.String("gpu.vendor", string(defaultGPUVendor)),
+	)
+
+	// Get GPU nodes
+	nodesSpan, nodesCtx := trace.StartSpanFromContext(ctx, "getGpuNodes")
+	nodesSpan.SetAttributes(attribute.String("gpu.vendor", string(defaultGPUVendor)))
+
+	queryStart := time.Now()
+	nodes, err := gpu.GetGpuNodes(nodesCtx, clientSets, defaultGPUVendor)
 	if err != nil {
+		nodesSpan.RecordError(err)
+		nodesSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		nodesSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(nodesSpan)
+
+		span.SetStatus(codes.Error, "Failed to get GPU nodes")
 		return stats, err
 	}
-	
+
+	duration := time.Since(queryStart)
+	nodesSpan.SetAttributes(
+		attribute.Int("nodes.count", len(nodes)),
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+	)
+	nodesSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(nodesSpan)
+
+	span.SetAttributes(attribute.Int("nodes.total_count", len(nodes)))
+
+	// Process nodes concurrently
+	processSpan, processCtx := trace.StartSpanFromContext(ctx, "processNodes")
+	processSpan.SetAttributes(attribute.Int("nodes.count", len(nodes)))
+
+	processStart := time.Now()
 	wg := &sync.WaitGroup{}
 	for i := range nodes {
 		nodeName := nodes[i]
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := d.getDeviceInfoForSingleNode(ctx, clientSets, nodeName, stats)
+			err := d.getDeviceInfoForSingleNode(processCtx, clientSets, nodeName, stats)
 			if err != nil {
 				atomic.AddInt64(&stats.ErrorCount, 1)
 				log.Errorf("Fail get device info for node %s: %v", nodeName, err)
@@ -47,11 +88,23 @@ func (d *DeviceInfoJob) Run(ctx context.Context, clientSets *clientsets.K8SClien
 		}()
 	}
 	wg.Wait()
-	
+
+	duration = time.Since(processStart)
+	processSpan.SetAttributes(
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+		attribute.Int64("errors.count", stats.ErrorCount),
+	)
+	processSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(processSpan)
+
 	stats.RecordsProcessed = int64(len(nodes))
 	stats.AddCustomMetric("nodes_count", len(nodes))
 	stats.AddMessage("Device info updated successfully")
-	
+
+	// Record total job duration
+	totalDuration := time.Since(jobStartTime)
+	span.SetAttributes(attribute.Float64("total_duration_ms", float64(totalDuration.Milliseconds())))
+	span.SetStatus(codes.Ok, "")
 	return stats, nil
 }
 
@@ -60,34 +113,113 @@ func (d *DeviceInfoJob) Schedule() string {
 }
 
 func (d *DeviceInfoJob) getDeviceInfoForSingleNode(ctx context.Context, clientSets *clientsets.K8SClientSet, nodeName string, stats *common.ExecutionStats) error {
-	dbNode, err := database.GetFacade().GetNode().GetNodeByName(ctx, nodeName)
+	span, ctx := trace.StartSpanFromContext(ctx, "getDeviceInfoForSingleNode")
+	defer trace.FinishSpan(span)
+
+	span.SetAttributes(attribute.String("node.name", nodeName))
+
+	// Get node from database
+	nodeSpan, nodeCtx := trace.StartSpanFromContext(ctx, "getNodeByName")
+	nodeSpan.SetAttributes(attribute.String("node.name", nodeName))
+
+	dbNode, err := database.GetFacade().GetNode().GetNodeByName(nodeCtx, nodeName)
 	if err != nil {
+		nodeSpan.RecordError(err)
+		nodeSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		nodeSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(nodeSpan)
+
+		span.SetStatus(codes.Error, "Failed to get node from database")
 		return err
 	}
 	if dbNode == nil {
-		return fmt.Errorf("fail to get node by name %s.Record not exist", nodeName)
-	}
-	nodeExporterClient, err := clientsets.GetOrInitNodeExportersClient(ctx, nodeName, clientSets.ControllerRuntimeClient)
-	if err != nil {
+		err := fmt.Errorf("fail to get node by name %s.Record not exist", nodeName)
+		nodeSpan.RecordError(err)
+		nodeSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		nodeSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(nodeSpan)
+
+		span.SetStatus(codes.Error, "Node not found in database")
 		return err
 	}
+	nodeSpan.SetAttributes(attribute.Int64("node.id", int64(dbNode.ID)))
+	nodeSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(nodeSpan)
+
+	span.SetAttributes(attribute.Int64("node.id", int64(dbNode.ID)))
+
+	// Get or initialize node exporter client
+	clientSpan, clientCtx := trace.StartSpanFromContext(ctx, "getOrInitNodeExportersClient")
+	clientSpan.SetAttributes(attribute.String("node.name", nodeName))
+
+	nodeExporterClient, err := clientsets.GetOrInitNodeExportersClient(clientCtx, nodeName, clientSets.ControllerRuntimeClient)
+	if err != nil {
+		clientSpan.RecordError(err)
+		clientSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		clientSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(clientSpan)
+
+		span.SetStatus(codes.Error, "Failed to get node exporter client")
+		return err
+	}
+	clientSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(clientSpan)
+
+	// Get GPU device info
 	err = d.getGPUDeviceInfo(ctx, nodeExporterClient, dbNode, stats)
 	if err != nil {
-		return err
-	}
-	err = d.getRDMADeviceInfo(ctx, nodeExporterClient, dbNode, stats)
-	if err != nil {
+		span.RecordError(err)
+		span.SetAttributes(attribute.String("error.step", "getGPUDeviceInfo"))
+		span.SetStatus(codes.Error, "Failed to get GPU device info")
 		return err
 	}
 
+	// Get RDMA device info
+	err = d.getRDMADeviceInfo(ctx, nodeExporterClient, dbNode, stats)
+	if err != nil {
+		span.RecordError(err)
+		span.SetAttributes(attribute.String("error.step", "getRDMADeviceInfo"))
+		span.SetStatus(codes.Error, "Failed to get RDMA device info")
+		return err
+	}
+
+	span.SetStatus(codes.Ok, "")
 	return nil
 }
 
 func (d *DeviceInfoJob) getRDMADeviceInfo(ctx context.Context, nodeExporterClient *clientsets.NodeExporterClient, dbNode *model.Node, stats *common.ExecutionStats) error {
-	rdmaDevices, err := nodeExporterClient.GetRdmaDevices(ctx)
+	span, ctx := trace.StartSpanFromContext(ctx, "getRDMADeviceInfo")
+	defer trace.FinishSpan(span)
+
+	span.SetAttributes(
+		attribute.String("node.name", dbNode.Name),
+		attribute.Int64("node.id", int64(dbNode.ID)),
+	)
+
+	// Get RDMA devices from node exporter
+	getDevicesSpan, getDevicesCtx := trace.StartSpanFromContext(ctx, "getRdmaDevices")
+	getDevicesSpan.SetAttributes(attribute.String("node.name", dbNode.Name))
+
+	queryStart := time.Now()
+	rdmaDevices, err := nodeExporterClient.GetRdmaDevices(getDevicesCtx)
 	if err != nil {
+		getDevicesSpan.RecordError(err)
+		getDevicesSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		getDevicesSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(getDevicesSpan)
+
+		span.SetStatus(codes.Error, "Failed to get RDMA devices")
 		return err
 	}
+
+	duration := time.Since(queryStart)
+	getDevicesSpan.SetAttributes(
+		attribute.Int("devices.count", len(rdmaDevices)),
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+	)
+	getDevicesSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(getDevicesSpan)
+
 	created := []model.RdmaDevice{}
 	deleted := []model.RdmaDevice{}
 	for i := range rdmaDevices {
@@ -176,20 +308,74 @@ func (d *DeviceInfoJob) getRDMADeviceInfo(ctx context.Context, nodeExporterClien
 			log.Errorf("Fail to create node device changelog: %v", err)
 		}
 	}
+
+	span.SetAttributes(
+		attribute.Int("devices.created_count", len(created)),
+		attribute.Int("devices.deleted_count", len(deleted)),
+	)
+	span.SetStatus(codes.Ok, "")
 	return nil
 }
 
 func (d *DeviceInfoJob) getGPUDeviceInfo(ctx context.Context, nodeExporterClient *clientsets.NodeExporterClient, dbNode *model.Node, stats *common.ExecutionStats) error {
+	span, ctx := trace.StartSpanFromContext(ctx, "getGPUDeviceInfo")
+	defer trace.FinishSpan(span)
+
+	span.SetAttributes(
+		attribute.String("node.name", dbNode.Name),
+		attribute.Int64("node.id", int64(dbNode.ID)),
+	)
+
 	gpuMaps := map[int]boModel.GPUInfo{}
 	cardMetricsMaps := map[int]boModel.CardMetrics{}
-	gpus, err := nodeExporterClient.GetGPUs(ctx)
+
+	// Get GPUs from node exporter
+	getGPUsSpan, getGPUsCtx := trace.StartSpanFromContext(ctx, "getGPUs")
+	getGPUsSpan.SetAttributes(attribute.String("node.name", dbNode.Name))
+
+	queryStart := time.Now()
+	gpus, err := nodeExporterClient.GetGPUs(getGPUsCtx)
 	if err != nil {
+		getGPUsSpan.RecordError(err)
+		getGPUsSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		getGPUsSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(getGPUsSpan)
+
+		span.SetStatus(codes.Error, "Failed to get GPUs")
 		return err
 	}
-	cardMetrics, err := nodeExporterClient.GetCardMetrics(ctx)
+
+	duration := time.Since(queryStart)
+	getGPUsSpan.SetAttributes(
+		attribute.Int("gpus.count", len(gpus)),
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+	)
+	getGPUsSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(getGPUsSpan)
+
+	// Get card metrics from node exporter
+	getMetricsSpan, getMetricsCtx := trace.StartSpanFromContext(ctx, "getCardMetrics")
+	getMetricsSpan.SetAttributes(attribute.String("node.name", dbNode.Name))
+
+	queryStart = time.Now()
+	cardMetrics, err := nodeExporterClient.GetCardMetrics(getMetricsCtx)
 	if err != nil {
+		getMetricsSpan.RecordError(err)
+		getMetricsSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		getMetricsSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(getMetricsSpan)
+
+		span.SetStatus(codes.Error, "Failed to get card metrics")
 		return err
 	}
+
+	duration = time.Since(queryStart)
+	getMetricsSpan.SetAttributes(
+		attribute.Int("metrics.count", len(cardMetrics)),
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+	)
+	getMetricsSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(getMetricsSpan)
 	for i := range gpus {
 		gpuInfo := gpus[i]
 		gpuMaps[i] = gpuInfo
@@ -302,5 +488,12 @@ func (d *DeviceInfoJob) getGPUDeviceInfo(ctx context.Context, nodeExporterClient
 			log.Errorf("Fail to create node device changelog: %v", err)
 		}
 	}
+
+	span.SetAttributes(
+		attribute.Int("devices.created_count", len(created)),
+		attribute.Int("devices.deleted_count", len(deleted)),
+		attribute.Int("devices.total_count", len(gpus)),
+	)
+	span.SetStatus(codes.Ok, "")
 	return nil
 }
