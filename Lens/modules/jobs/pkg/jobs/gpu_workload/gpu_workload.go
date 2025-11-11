@@ -64,8 +64,6 @@ func (g *GpuWorkloadJob) checkWorkload(ctx context.Context, clusterName string, 
 		// Check if this is a "no kind match" error (CRD not installed or unknown Kind)
 		// This can happen when other plugins insert workloads with custom types
 		if isNoKindMatchError(err) {
-			log.Warnf("Skipping workload %s/%s with unknown Kind %s (GroupVersion: %s): %v",
-				dbWorkload.Namespace, dbWorkload.Name, dbWorkload.Kind, dbWorkload.GroupVersion, err)
 			return nil
 		}
 
@@ -104,10 +102,7 @@ func isNoKindMatchError(err error) bool {
 	// Check error message for common patterns indicating Kind not found
 	errMsg := strings.ToLower(err.Error())
 	return strings.Contains(errMsg, "with unknown Kind") ||
-		strings.Contains(errMsg, "no kind match") ||
-		strings.Contains(errMsg, "kind") && strings.Contains(errMsg, "not found") ||
-		strings.Contains(errMsg, "unable to recognize") ||
-		strings.Contains(errMsg, "could not find") && strings.Contains(errMsg, "kind")
+		strings.Contains(errMsg, "no matches for kind")
 }
 
 func (g *GpuWorkloadJob) fillCurrentGpuCount(ctx context.Context, clusterName string, dbWorkload *dbModel.GpuWorkload, clientSets *clientsets.K8SClientSet) (podCount int, err error) {
