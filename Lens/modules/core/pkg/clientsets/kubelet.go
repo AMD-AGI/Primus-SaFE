@@ -252,8 +252,6 @@ func GetOrInitKubeletClient(nodeName, address, clusterName string) (*Client, err
 					Warningf("Failed to get cluster config from ClusterManager: %v, using default authentication", err)
 			} else if clientSet.K8SClientSet != nil && clientSet.K8SClientSet.Config != nil {
 				config = ClusterConfigFromRestConfig(clientSet.K8SClientSet.Config)
-				log.GlobalLogger().WithField("cluster", clusterName).WithField("node", nodeName).
-					Infof("Using cluster-specific config for kubelet client")
 			}
 		} else {
 			log.GlobalLogger().Warning("ClusterManager not initialized, using default authentication")
