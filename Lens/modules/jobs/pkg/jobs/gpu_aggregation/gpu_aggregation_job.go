@@ -150,7 +150,7 @@ func (j *GpuAggregationJob) Run(ctx context.Context,
 			totalDuration := time.Since(jobStartTime)
 			span.SetAttributes(attribute.Float64("total_duration_ms", float64(totalDuration.Milliseconds())))
 			span.SetStatus(codes.Ok, "Config not found, job disabled")
-			return stats, nil // 返回 nil 不影响调度器继续运行
+			return stats, nil // Return nil to allow scheduler to continue running
 		}
 		configSpan.SetStatus(codes.Ok, "")
 		trace.FinishSpan(configSpan)
@@ -625,32 +625,32 @@ func (j *GpuAggregationJob) collectWorkloadDataFromDB(
 			UtilizationValues: make([]float64, 0),
 			ReplicaCount:      0,
 			WorkloadStatus:    workload.Status,
-			OwnerUID:          workload.ParentUID, // 使用ParentUID作为OwnerUID
-			OwnerName:         "",                 // GpuWorkload没有OwnerName字段
+			OwnerUID:          workload.ParentUID, // Use ParentUID as OwnerUID
+			OwnerName:         "",                 // GpuWorkload doesn't have OwnerName field
 		}
 		snapshot.WorkloadData[workloadUID] = wData
 	}
 
 	wData.AllocatedGPU += gpuRequest
-	wData.RequestedGPU += gpuRequest // 假设requested和allocated相同
+	wData.RequestedGPU += gpuRequest // Assume requested and allocated are the same
 	wData.UtilizationValues = append(wData.UtilizationValues, utilization)
-	wData.ReplicaCount++ // 每个Pod计为一个replica
+	wData.ReplicaCount++ // Each pod counts as one replica
 }
 
-// shouldExcludeNamespace 判断是否应该排除该namespace
+// shouldExcludeNamespace determines whether this namespace should be excluded
 func (j *GpuAggregationJob) shouldExcludeNamespace(namespace string) bool {
 	if !j.config.Dimensions.Namespace.Enabled {
 		return true
 	}
 
-	// 检查是否在排除列表中
+	// Check if in exclusion list
 	for _, excluded := range j.config.Dimensions.Namespace.ExcludeNamespaces {
 		if namespace == excluded {
 			return true
 		}
 	}
 
-	// 检查是否为系统namespace
+	// Check if it's a system namespace
 	if !j.config.Dimensions.Namespace.IncludeSystemNamespaces {
 		systemNamespaces := []string{"kube-system", "kube-public", "kube-node-lease"}
 		for _, sysNs := range systemNamespaces {
@@ -663,7 +663,7 @@ func (j *GpuAggregationJob) shouldExcludeNamespace(namespace string) bool {
 	return false
 }
 
-// queryWorkloadUtilization 查询workload的GPU使用率
+// queryWorkloadUtilization queries the GPU utilization of a workload
 func (j *GpuAggregationJob) queryWorkloadUtilization(
 	ctx context.Context,
 	storageClientSet *clientsets.StorageClientSet,
@@ -672,7 +672,7 @@ func (j *GpuAggregationJob) queryWorkloadUtilization(
 	span, ctx := trace.StartSpanFromContext(ctx, "queryWorkloadUtilization")
 	defer trace.FinishSpan(span)
 
-	// 使用配置的查询模板
+	// Use configured query template
 	query := fmt.Sprintf(j.config.Prometheus.WorkloadUtilizationQuery, workloadUID)
 
 	span.SetAttributes(
@@ -681,7 +681,7 @@ func (j *GpuAggregationJob) queryWorkloadUtilization(
 		attribute.Int("prometheus.query_step", j.config.Prometheus.QueryStep),
 	)
 
-	// 查询最近1分钟的平均值
+	// Query average for the last 1 minute
 	endTime := time.Now()
 	startTime := endTime.Add(-1 * time.Minute)
 
@@ -704,7 +704,7 @@ func (j *GpuAggregationJob) queryWorkloadUtilization(
 		return 0, nil
 	}
 
-	// 计算平均值
+	// Calculate average
 	sum := 0.0
 	for _, point := range series[0].Values {
 		sum += point.Value
@@ -721,7 +721,7 @@ func (j *GpuAggregationJob) queryWorkloadUtilization(
 	return avg, nil
 }
 
-// aggregateHourlyData 聚合小时数据
+// aggregateHourlyData aggregates hourly data
 func (j *GpuAggregationJob) aggregateHourlyData(
 	ctx context.Context,
 	clusterName string,
@@ -735,7 +735,7 @@ func (j *GpuAggregationJob) aggregateHourlyData(
 	log.Infof("Aggregating %d snapshots for hour: %v", len(j.snapshotCache), hour)
 	startTime := time.Now()
 
-	// 1. 聚合集群级别数据
+	// 1. Aggregate cluster-level data
 	if j.config.Dimensions.Cluster.Enabled {
 		clusterSpan, clusterCtx := trace.StartSpanFromContext(ctx, "aggregateClusterStats")
 		clusterSpan.SetAttributes(
@@ -764,7 +764,7 @@ func (j *GpuAggregationJob) aggregateHourlyData(
 		trace.FinishSpan(clusterSpan)
 	}
 
-	// 2. 聚合namespace级别数据
+	// 2. Aggregate namespace-level data
 	if j.config.Dimensions.Namespace.Enabled {
 		nsSpan, nsCtx := trace.StartSpanFromContext(ctx, "aggregateNamespaceStats")
 		nsSpan.SetAttributes(
@@ -789,7 +789,7 @@ func (j *GpuAggregationJob) aggregateHourlyData(
 		trace.FinishSpan(nsSpan)
 	}
 
-	// 3. 聚合label/annotation级别数据
+	// 3. Aggregate label/annotation level data
 	if j.config.Dimensions.Label.Enabled {
 		labelSpan, labelCtx := trace.StartSpanFromContext(ctx, "aggregateLabelStats")
 		labelSpan.SetAttributes(
@@ -814,30 +814,28 @@ func (j *GpuAggregationJob) aggregateHourlyData(
 		trace.FinishSpan(labelSpan)
 	}
 
-	// 4. 聚合workload级别数据
-	if j.config.Dimensions.Workload.Enabled {
-		workloadSpan, workloadCtx := trace.StartSpanFromContext(ctx, "aggregateWorkloadStats")
-		workloadSpan.SetAttributes(
-			attribute.String("cluster.name", clusterName),
-			attribute.String("stat.hour", hour.Format(time.RFC3339)),
-		)
+	// 4. Aggregate workload-level data
+	workloadSpan, workloadCtx := trace.StartSpanFromContext(ctx, "aggregateWorkloadStats")
+	workloadSpan.SetAttributes(
+		attribute.String("cluster.name", clusterName),
+		attribute.String("stat.hour", hour.Format(time.RFC3339)),
+	)
 
-		workloadStats := j.aggregateWorkloadStats(clusterName, hour)
-		workloadSpan.SetAttributes(attribute.Int("workload.stats_count", len(workloadStats)))
+	workloadStats := j.aggregateWorkloadStats(clusterName, hour)
+	workloadSpan.SetAttributes(attribute.Int("workload.stats_count", len(workloadStats)))
 
-		if err := j.saveWorkloadStats(workloadCtx, workloadStats); err != nil {
-			workloadSpan.RecordError(err)
-			workloadSpan.SetAttributes(attribute.String("error.message", err.Error()))
-			workloadSpan.SetStatus(codes.Error, err.Error())
-			trace.FinishSpan(workloadSpan)
-
-			log.Errorf("Failed to save workload stats: %v", err)
-			return err
-		}
-
-		workloadSpan.SetStatus(codes.Ok, "")
+	if err := j.saveWorkloadStats(workloadCtx, workloadStats); err != nil {
+		workloadSpan.RecordError(err)
+		workloadSpan.SetAttributes(attribute.String("error.message", err.Error()))
+		workloadSpan.SetStatus(codes.Error, err.Error())
 		trace.FinishSpan(workloadSpan)
+
+		log.Errorf("Failed to save workload stats: %v", err)
+		return err
 	}
+
+	workloadSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(workloadSpan)
 
 	duration := time.Since(startTime)
 	log.Infof("Hourly aggregation completed for hour: %v, took: %v", hour, duration)
@@ -845,7 +843,7 @@ func (j *GpuAggregationJob) aggregateHourlyData(
 	return nil
 }
 
-// aggregateClusterStats 聚合集群级别统计
+// aggregateClusterStats aggregates cluster-level statistics
 func (j *GpuAggregationJob) aggregateClusterStats(
 	clusterName string,
 	hour time.Time) *model.ClusterGpuHourlyStats {
@@ -864,7 +862,7 @@ func (j *GpuAggregationJob) aggregateClusterStats(
 		totalCapacitySum += snapshot.TotalCapacity
 		allocatedSum += snapshot.AllocatedGPU
 
-		// 计算该快照的平均使用率
+		// Calculate average utilization for this snapshot
 		var utilization float64
 		if snapshot.ActiveGPUCount > 0 {
 			utilization = snapshot.UtilizationSum / float64(snapshot.ActiveGPUCount)
@@ -872,7 +870,7 @@ func (j *GpuAggregationJob) aggregateClusterStats(
 		utilizationValues = append(utilizationValues, utilization)
 	}
 
-	// 计算平均值
+	// Calculate averages
 	count := float64(len(j.snapshotCache))
 	stats.TotalGpuCapacity = int(float64(totalCapacitySum) / count)
 	stats.AllocatedGpuCount = float64(allocatedSum) / count
@@ -881,7 +879,7 @@ func (j *GpuAggregationJob) aggregateClusterStats(
 		stats.AllocationRate = (stats.AllocatedGpuCount / float64(stats.TotalGpuCapacity)) * 100
 	}
 
-	// 计算使用率统计
+	// Calculate utilization statistics
 	sort.Float64s(utilizationValues)
 	stats.MinUtilization = utilizationValues[0]
 	stats.MaxUtilization = utilizationValues[len(utilizationValues)-1]
@@ -897,12 +895,12 @@ func (j *GpuAggregationJob) aggregateClusterStats(
 	return stats
 }
 
-// aggregateNamespaceStats 聚合namespace级别统计
+// aggregateNamespaceStats aggregates namespace-level statistics
 func (j *GpuAggregationJob) aggregateNamespaceStats(
 	clusterName string,
 	hour time.Time) []*model.NamespaceGpuHourlyStats {
 
-	// 先聚合所有快照中相同namespace的数据
+	// First aggregate data for the same namespace across all snapshots
 	namespaceAggregates := make(map[string]*namespaceAggregate)
 
 	for _, snapshot := range j.snapshotCache {
@@ -921,7 +919,7 @@ func (j *GpuAggregationJob) aggregateNamespaceStats(
 			agg.allocatedSum += data.AllocatedGPU
 			agg.workloadCountSum += data.WorkloadCount
 
-			// 计算该快照中该namespace的平均使用率
+			// Calculate average utilization for this namespace in this snapshot
 			var nsUtilization float64
 			if data.AllocatedGPU > 0 {
 				nsUtilization = data.UtilizationSum / float64(data.AllocatedGPU)
@@ -930,7 +928,7 @@ func (j *GpuAggregationJob) aggregateNamespaceStats(
 		}
 	}
 
-	// 转换为数据库模型
+	// Convert to database model
 	results := make([]*model.NamespaceGpuHourlyStats, 0, len(namespaceAggregates))
 	count := float64(len(j.snapshotCache))
 
@@ -943,7 +941,7 @@ func (j *GpuAggregationJob) aggregateNamespaceStats(
 			ActiveWorkloadCount: int(float64(agg.workloadCountSum) / count),
 		}
 
-		// 计算使用率统计
+		// Calculate utilization statistics
 		sort.Float64s(agg.utilizationValues)
 		if len(agg.utilizationValues) > 0 {
 			stats.MinUtilization = agg.utilizationValues[0]
@@ -962,7 +960,7 @@ func (j *GpuAggregationJob) aggregateNamespaceStats(
 	return results
 }
 
-// aggregateLabelStats 聚合label和annotation级别统计
+// aggregateLabelStats aggregates label and annotation level statistics
 func (j *GpuAggregationJob) aggregateLabelStats(
 	clusterName string,
 	hour time.Time) []*model.LabelGpuHourlyStats {
@@ -970,7 +968,7 @@ func (j *GpuAggregationJob) aggregateLabelStats(
 	// dimensionType -> dimensionKey -> dimensionValue -> aggregate
 	labelAggregates := make(map[string]map[string]map[string]*labelAggregate)
 
-	// 聚合label数据
+	// Aggregate label data
 	for _, snapshot := range j.snapshotCache {
 		for labelKey, valueMap := range snapshot.LabelData {
 			if _, exists := labelAggregates["label"]; !exists {
@@ -1005,7 +1003,7 @@ func (j *GpuAggregationJob) aggregateLabelStats(
 			}
 		}
 
-		// 聚合annotation数据
+		// Aggregate annotation data
 		for annotationKey, valueMap := range snapshot.AnnotationData {
 			if _, exists := labelAggregates["annotation"]; !exists {
 				labelAggregates["annotation"] = make(map[string]map[string]*labelAggregate)
@@ -1040,7 +1038,7 @@ func (j *GpuAggregationJob) aggregateLabelStats(
 		}
 	}
 
-	// 转换为数据库模型
+	// Convert to database model
 	results := make([]*model.LabelGpuHourlyStats, 0)
 	count := float64(len(j.snapshotCache))
 
@@ -1057,7 +1055,7 @@ func (j *GpuAggregationJob) aggregateLabelStats(
 					ActiveWorkloadCount: int(float64(agg.workloadCountSum) / count),
 				}
 
-				// 计算使用率统计
+				// Calculate utilization statistics
 				sort.Float64s(agg.utilizationValues)
 				if len(agg.utilizationValues) > 0 {
 					stats.MinUtilization = agg.utilizationValues[0]
@@ -1078,7 +1076,7 @@ func (j *GpuAggregationJob) aggregateLabelStats(
 	return results
 }
 
-// aggregateWorkloadStats 聚合workload级别统计
+// aggregateWorkloadStats aggregates workload-level statistics
 func (j *GpuAggregationJob) aggregateWorkloadStats(
 	clusterName string,
 	hour time.Time) []*dbmodel.WorkloadGpuHourlyStats {
@@ -1086,7 +1084,7 @@ func (j *GpuAggregationJob) aggregateWorkloadStats(
 	// workloadUID -> aggregate
 	workloadAggregates := make(map[string]*workloadAggregate)
 
-	// 遍历所有快照，聚合相同workload的数据
+	// Iterate through all snapshots and aggregate data for the same workload
 	for _, snapshot := range j.snapshotCache {
 		for workloadUID, data := range snapshot.WorkloadData {
 			agg, exists := workloadAggregates[workloadUID]
@@ -1113,12 +1111,12 @@ func (j *GpuAggregationJob) aggregateWorkloadStats(
 			agg.requestedSum += data.RequestedGPU
 			agg.replicaCounts = append(agg.replicaCounts, data.ReplicaCount)
 
-			// 合并该workload在该快照中的使用率数据
+			// Merge utilization data for this workload in this snapshot
 			agg.utilizationValues = append(agg.utilizationValues, data.UtilizationValues...)
 		}
 	}
 
-	// 转换为数据库模型
+	// Convert to database model
 	results := make([]*dbmodel.WorkloadGpuHourlyStats, 0, len(workloadAggregates))
 	count := float64(len(j.snapshotCache))
 
@@ -1137,7 +1135,7 @@ func (j *GpuAggregationJob) aggregateWorkloadStats(
 			OwnerName:         agg.ownerName,
 		}
 
-		// 转换labels和annotations为ExtType
+		// Convert labels and annotations to ExtType
 		if agg.labels != nil {
 			stats.Labels = dbmodel.ExtType(agg.labels)
 		} else {
@@ -1150,7 +1148,7 @@ func (j *GpuAggregationJob) aggregateWorkloadStats(
 			stats.Annotations = dbmodel.ExtType{}
 		}
 
-		// 计算使用率统计
+		// Calculate utilization statistics
 		sort.Float64s(agg.utilizationValues)
 		if len(agg.utilizationValues) > 0 {
 			stats.MinUtilization = agg.utilizationValues[0]
@@ -1165,7 +1163,7 @@ func (j *GpuAggregationJob) aggregateWorkloadStats(
 			stats.AvgUtilization = utilizationSum / float64(len(agg.utilizationValues))
 		}
 
-		// 计算replica统计
+		// Calculate replica statistics
 		if len(agg.replicaCounts) > 0 {
 			replicaSum := 0
 			maxReplica := 0
@@ -1186,8 +1184,8 @@ func (j *GpuAggregationJob) aggregateWorkloadStats(
 			stats.MinReplicaCount = int32(minReplica)
 		}
 
-		// TODO: 添加GPU内存相关统计（需要从Prometheus查询）
-		// 暂时设置为0
+		// TODO: Add GPU memory related statistics (requires Prometheus query)
+		// Set to 0 for now
 		stats.AvgGpuMemoryUsed = 0
 		stats.MaxGpuMemoryUsed = 0
 		stats.AvgGpuMemoryTotal = 0
@@ -1198,7 +1196,7 @@ func (j *GpuAggregationJob) aggregateWorkloadStats(
 	return results
 }
 
-// 辅助结构体
+// Helper structs
 type namespaceAggregate struct {
 	namespace         string
 	allocatedSum      int
@@ -1231,12 +1229,12 @@ type workloadAggregate struct {
 	ownerName         string
 }
 
-// saveClusterStats 保存集群级别统计到数据库
+// saveClusterStats saves cluster-level statistics to database
 func (j *GpuAggregationJob) saveClusterStats(
 	ctx context.Context,
 	stats *model.ClusterGpuHourlyStats) error {
 
-	// 转换为数据库模型
+	// Convert to database model
 	dbStats := convertToDBClusterStats(stats)
 
 	facade := database.GetFacade().GetGpuAggregation()
@@ -1250,7 +1248,7 @@ func (j *GpuAggregationJob) saveClusterStats(
 	return nil
 }
 
-// saveNamespaceStats 保存namespace级别统计到数据库
+// saveNamespaceStats saves namespace-level statistics to database
 func (j *GpuAggregationJob) saveNamespaceStats(
 	ctx context.Context,
 	stats []*model.NamespaceGpuHourlyStats) error {
@@ -1259,7 +1257,7 @@ func (j *GpuAggregationJob) saveNamespaceStats(
 		return nil
 	}
 
-	// 转换为数据库模型
+	// Convert to database model
 	dbStats := make([]*dbmodel.NamespaceGpuHourlyStats, len(stats))
 	for i, stat := range stats {
 		dbStats[i] = convertToDBNamespaceStats(stat)
@@ -1275,7 +1273,7 @@ func (j *GpuAggregationJob) saveNamespaceStats(
 	return nil
 }
 
-// saveLabelStats 保存label/annotation级别统计到数据库
+// saveLabelStats saves label/annotation level statistics to database
 func (j *GpuAggregationJob) saveLabelStats(
 	ctx context.Context,
 	stats []*model.LabelGpuHourlyStats) error {
@@ -1284,7 +1282,7 @@ func (j *GpuAggregationJob) saveLabelStats(
 		return nil
 	}
 
-	// 转换为数据库模型
+	// Convert to database model
 	dbStats := make([]*dbmodel.LabelGpuHourlyStats, len(stats))
 	for i, stat := range stats {
 		dbStats[i] = convertToDBLabelStats(stat)
@@ -1300,7 +1298,7 @@ func (j *GpuAggregationJob) saveLabelStats(
 	return nil
 }
 
-// saveWorkloadStats 保存workload级别统计到数据库
+// saveWorkloadStats saves workload-level statistics to database
 func (j *GpuAggregationJob) saveWorkloadStats(
 	ctx context.Context,
 	stats []*dbmodel.WorkloadGpuHourlyStats) error {
@@ -1319,12 +1317,12 @@ func (j *GpuAggregationJob) saveWorkloadStats(
 	return nil
 }
 
-// saveSnapshotToDatabase 保存快照到数据库
+// saveSnapshotToDatabase saves snapshot to database
 func (j *GpuAggregationJob) saveSnapshotToDatabase(
 	ctx context.Context,
 	snapshot *GpuSnapshot) error {
 
-	// 构建详细信息JSON
+	// Build allocation details JSON
 	details := model.AllocationDetails{
 		Namespaces:  make(map[string]model.NamespaceAllocation),
 		Annotations: make(map[string]model.AnnotationAllocation),
@@ -1363,17 +1361,17 @@ func (j *GpuAggregationJob) saveSnapshotToDatabase(
 		return fmt.Errorf("failed to marshal allocation details: %w", err)
 	}
 
-	// 将 JSON 解析为 ExtType (map[string]interface{})
+	// Parse JSON into ExtType (map[string]interface{})
 	var allocationDetails dbmodel.ExtType
 	if err := json.Unmarshal(detailsJSON, &allocationDetails); err != nil {
 		return fmt.Errorf("failed to unmarshal allocation details: %w", err)
 	}
 
-	// 转换为数据库模型
+	// Convert to database model
 	dbSnapshot := &dbmodel.GpuAllocationSnapshots{
 		ClusterName:       snapshot.ClusterName,
 		SnapshotTime:      snapshot.Timestamp,
-		DimensionType:     "cluster", // 集群级别快照
+		DimensionType:     "cluster", // Cluster-level snapshot
 		TotalGpuCapacity:  int32(snapshot.TotalCapacity),
 		AllocatedGpuCount: int32(snapshot.AllocatedGPU),
 		AllocationDetails: allocationDetails,
@@ -1387,13 +1385,13 @@ func (j *GpuAggregationJob) saveSnapshotToDatabase(
 	return nil
 }
 
-// Schedule 返回Job的调度表达式
+// Schedule returns the job's scheduling expression
 func (j *GpuAggregationJob) Schedule() string {
-	// 每5分钟执行一次采样
+	// Execute sampling every 5 minutes
 	return "@every 5m"
 }
 
-// calculatePercentile 计算百分位数
+// calculatePercentile calculates percentile value
 func calculatePercentile(sortedValues []float64, percentile float64) float64 {
 	if len(sortedValues) == 0 {
 		return 0
@@ -1403,9 +1401,9 @@ func calculatePercentile(sortedValues []float64, percentile float64) float64 {
 	return sortedValues[index]
 }
 
-// ==================== 类型转换函数 ====================
+// ==================== Type Conversion Functions ====================
 
-// convertToDBClusterStats 将应用层模型转换为数据库模型
+// convertToDBClusterStats converts application layer model to database model
 func convertToDBClusterStats(stats *model.ClusterGpuHourlyStats) *dbmodel.ClusterGpuHourlyStats {
 	return &dbmodel.ClusterGpuHourlyStats{
 		ClusterName:       stats.ClusterName,
@@ -1422,7 +1420,7 @@ func convertToDBClusterStats(stats *model.ClusterGpuHourlyStats) *dbmodel.Cluste
 	}
 }
 
-// convertToDBNamespaceStats 将应用层模型转换为数据库模型
+// convertToDBNamespaceStats converts application layer model to database model
 func convertToDBNamespaceStats(stats *model.NamespaceGpuHourlyStats) *dbmodel.NamespaceGpuHourlyStats {
 	return &dbmodel.NamespaceGpuHourlyStats{
 		ClusterName:         stats.ClusterName,
@@ -1437,7 +1435,7 @@ func convertToDBNamespaceStats(stats *model.NamespaceGpuHourlyStats) *dbmodel.Na
 	}
 }
 
-// convertToDBLabelStats 将应用层模型转换为数据库模型
+// convertToDBLabelStats converts application layer model to database model
 func convertToDBLabelStats(stats *model.LabelGpuHourlyStats) *dbmodel.LabelGpuHourlyStats {
 	return &dbmodel.LabelGpuHourlyStats{
 		ClusterName:         stats.ClusterName,
@@ -1453,20 +1451,20 @@ func convertToDBLabelStats(stats *model.LabelGpuHourlyStats) *dbmodel.LabelGpuHo
 	}
 }
 
-// getClusterGpuCapacity 从数据库获取集群GPU总容量
+// getClusterGpuCapacity gets cluster GPU total capacity from database
 func (j *GpuAggregationJob) getClusterGpuCapacity(ctx context.Context, clusterName string) (int, error) {
 	span, ctx := trace.StartSpanFromContext(ctx, "getClusterGpuCapacity.query")
 	defer trace.FinishSpan(span)
 
 	span.SetAttributes(attribute.String("cluster.name", clusterName))
 
-	// 从数据库的node表查询所有GPU节点并汇总容量
+	// Query all GPU nodes from database node table and sum capacity
 	readyStatus := "Ready"
 	nodes, _, err := database.GetFacadeForCluster(clusterName).GetNode().
 		SearchNode(ctx, filter.NodeFilter{
-			// 查询所有GPU节点（GpuCount > 0）
-			K8sStatus: &readyStatus, // 只查询状态为Ready的节点
-			Limit:     10000,        // 设置一个足够大的限制
+			// Query all GPU nodes (GpuCount > 0)
+			K8sStatus: &readyStatus, // Only query nodes with Ready status
+			Limit:     10000,        // Set a sufficiently large limit
 		})
 
 	if err != nil {
@@ -1496,7 +1494,7 @@ func (j *GpuAggregationJob) getClusterGpuCapacity(ctx context.Context, clusterNa
 	return totalCapacity, nil
 }
 
-// buildPodToWorkloadMapping 构建Pod UID到Workload的映射关系
+// buildPodToWorkloadMapping builds mapping from Pod UID to Workload
 func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 	ctx context.Context,
 	clusterName string,
@@ -1515,13 +1513,13 @@ func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 		return make(map[string]*dbmodel.GpuWorkload), nil
 	}
 
-	// 收集所有Pod UIDs
+	// Collect all Pod UIDs
 	podUIDs := make([]string, 0, len(dbPods))
 	for _, pod := range dbPods {
 		podUIDs = append(podUIDs, pod.UID)
 	}
 
-	// 查询Pod到Workload的引用关系
+	// Query Pod to Workload reference relationships
 	refSpan, refCtx := trace.StartSpanFromContext(ctx, "listWorkloadPodReferences")
 	refSpan.SetAttributes(attribute.Int("pod_uids.count", len(podUIDs)))
 
@@ -1548,7 +1546,7 @@ func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 		return make(map[string]*dbmodel.GpuWorkload), nil
 	}
 
-	// 收集所有Workload UIDs
+	// Collect all Workload UIDs
 	workloadUIDs := make([]string, 0, len(workloadRefs))
 	podToWorkloadUID := make(map[string]string)
 	for _, ref := range workloadRefs {
@@ -1556,7 +1554,7 @@ func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 		podToWorkloadUID[ref.PodUID] = ref.WorkloadUID
 	}
 
-	// 查询最顶层的Workload信息（包含labels）
+	// Query top-level Workload information (including labels)
 	workloadSpan, workloadCtx := trace.StartSpanFromContext(ctx, "listTopLevelWorkloads")
 	workloadSpan.SetAttributes(attribute.Int("workload_uids.count", len(workloadUIDs)))
 
@@ -1576,13 +1574,13 @@ func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 	workloadSpan.SetStatus(codes.Ok, "")
 	trace.FinishSpan(workloadSpan)
 
-	// 构建Workload UID到Workload的映射
+	// Build mapping from Workload UID to Workload
 	workloadUIDToWorkload := make(map[string]*dbmodel.GpuWorkload)
 	for i := range workloads {
 		workloadUIDToWorkload[workloads[i].UID] = workloads[i]
 	}
 
-	// 构建Pod UID到Workload的映射
+	// Build mapping from Pod UID to Workload
 	result := make(map[string]*dbmodel.GpuWorkload)
 	for podUID, workloadUID := range podToWorkloadUID {
 		if workload, exists := workloadUIDToWorkload[workloadUID]; exists {
@@ -1600,14 +1598,14 @@ func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 	return result, nil
 }
 
-// loadConfig 从配置管理器加载配置
+// loadConfig loads configuration from config manager
 func (j *GpuAggregationJob) loadConfig(ctx context.Context) error {
 	var cfg model.GpuAggregationConfig
 
-	// 从配置管理器读取配置
+	// Read configuration from config manager
 	err := j.configManager.Get(ctx, ConfigKeyGpuAggregation, &cfg)
 	if err != nil {
-		// 配置不存在
+		// Config doesn't exist
 		log.Infof("GPU aggregation config not found (key: %s), job will not run. Please set config first.", ConfigKeyGpuAggregation)
 		return fmt.Errorf("config not found: %w", err)
 	}
@@ -1619,21 +1617,21 @@ func (j *GpuAggregationJob) loadConfig(ctx context.Context) error {
 	return nil
 }
 
-// ReloadConfig 重新加载配置（用于配置热更新）
+// ReloadConfig reloads configuration (for hot config reload)
 func (j *GpuAggregationJob) ReloadConfig(ctx context.Context) error {
 	log.Infof("Reloading GPU aggregation config from config manager")
 	return j.loadConfig(ctx)
 }
 
-// GetConfig 获取当前配置（只读）
+// GetConfig gets current configuration (read-only)
 func (j *GpuAggregationJob) GetConfig() *model.GpuAggregationConfig {
 	return j.config
 }
 
-// UpdateConfig 更新配置到配置管理器
+// UpdateConfig updates configuration to config manager
 func (j *GpuAggregationJob) UpdateConfig(ctx context.Context, cfg *model.GpuAggregationConfig, updatedBy string) error {
 	err := j.configManager.Set(ctx, ConfigKeyGpuAggregation, cfg,
-		config.WithDescription("GPU使用率聚合任务配置"),
+		config.WithDescription("GPU utilization aggregation job configuration"),
 		config.WithCategory("job"),
 		config.WithUpdatedBy(updatedBy),
 		config.WithRecordHistory(true),
@@ -1643,18 +1641,18 @@ func (j *GpuAggregationJob) UpdateConfig(ctx context.Context, cfg *model.GpuAggr
 		return fmt.Errorf("failed to update config: %w", err)
 	}
 
-	// 更新本地配置
+	// Update local configuration
 	j.config = cfg
 	log.Infof("GPU aggregation config updated successfully by %s", updatedBy)
 
 	return nil
 }
 
-// InitDefaultConfig 初始化默认配置（如果配置不存在）
+// InitDefaultConfig initializes default configuration (if config doesn't exist)
 func InitDefaultConfig(ctx context.Context, clusterName string) error {
 	configManager := config.GetConfigManagerForCluster(clusterName)
 
-	// 检查配置是否已存在
+	// Check if configuration already exists
 	exists, err := configManager.Exists(ctx, ConfigKeyGpuAggregation)
 	if err != nil {
 		return fmt.Errorf("failed to check config existence: %w", err)
@@ -1665,22 +1663,22 @@ func InitDefaultConfig(ctx context.Context, clusterName string) error {
 		return nil
 	}
 
-	// 创建默认配置
+	// Create default configuration
 	defaultConfig := &model.GpuAggregationConfig{
 		Enabled: true,
 	}
 
-	// 采样配置
+	// Sampling configuration
 	defaultConfig.Sampling.Enabled = true
 	defaultConfig.Sampling.Interval = "5m"
 	defaultConfig.Sampling.Timeout = "2m"
 
-	// 聚合配置
+	// Aggregation configuration
 	defaultConfig.Aggregation.Enabled = true
 	defaultConfig.Aggregation.TriggerOffsetMinutes = 5
 	defaultConfig.Aggregation.Timeout = "5m"
 
-	// 维度配置
+	// Dimension configuration
 	defaultConfig.Dimensions.Cluster.Enabled = true
 
 	defaultConfig.Dimensions.Namespace.Enabled = true
@@ -1694,14 +1692,14 @@ func InitDefaultConfig(ctx context.Context, clusterName string) error {
 
 	defaultConfig.Dimensions.Workload.Enabled = true
 
-	// Prometheus配置
+	// Prometheus configuration
 	defaultConfig.Prometheus.WorkloadUtilizationQuery = `avg(dcgm_gpu_utilization{pod_uid="%s"})`
-	defaultConfig.Prometheus.QueryStep = 30 // 30秒
+	defaultConfig.Prometheus.QueryStep = 30 // 30 seconds
 	defaultConfig.Prometheus.QueryTimeout = "30s"
 
-	// 保存默认配置
+	// Save default configuration
 	err = configManager.Set(ctx, ConfigKeyGpuAggregation, defaultConfig,
-		config.WithDescription("GPU使用率聚合任务配置"),
+		config.WithDescription("GPU utilization aggregation job configuration"),
 		config.WithCategory("job"),
 		config.WithCreatedBy("system"),
 		config.WithRecordHistory(true),
