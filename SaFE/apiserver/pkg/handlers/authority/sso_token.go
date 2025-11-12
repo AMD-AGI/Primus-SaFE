@@ -143,9 +143,13 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 	if err != nil {
 		return nil, nil, err
 	}
-	userToken, err := c.updateUserInfoInDB(ctx, rawIDToken, userInfo)
-	if err != nil {
-		return nil, nil, err
+	userToken := ""
+	if commonconfig.IsDBEnable() {
+		if userToken, err = c.updateUserInfoInDB(ctx, rawIDToken, userInfo); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		userToken = rawIDToken
 	}
 	response := &TokenResponse{
 		Expire: userInfo.Exp,
@@ -248,25 +252,20 @@ func (c *ssoToken) synchronizeUser(ctx context.Context, userInfo *UserInfo) (*v1
 
 // updateUserInfoInDB updates user token information in database
 // Generates a new session ID and stores user token with expiration time
-// Returns the session ID for successful update or raw token if DB is disabled
+// Returns the session ID for successful update
 func (c *ssoToken) updateUserInfoInDB(ctx context.Context, rawIDToken string, userInfo *UserInfo) (string, error) {
-	var userToken string
-	if commonconfig.IsDBEnable() {
-		userToken = string(uuid.NewUUID())
-		err := c.dbClient.UpsertUserToken(ctx, &dbclient.UserToken{
-			UserId:       userInfo.Id,
-			SessionId:    userToken,
-			Token:        rawIDToken,
-			CreationTime: time.Now().UTC().Unix(),
-			ExpireTime:   userInfo.Exp,
-		})
-		if err != nil {
-			return "", commonerrors.NewInternalError(fmt.Sprintf("failed to upsert user token: %v", err))
-		}
-	} else {
-		userToken = rawIDToken
+	sessionId := string(uuid.NewUUID())
+	err := c.dbClient.UpsertUserToken(ctx, &dbclient.UserToken{
+		UserId:       userInfo.Id,
+		SessionId:    sessionId,
+		Token:        rawIDToken,
+		CreationTime: time.Now().UTC().Unix(),
+		ExpireTime:   userInfo.Exp,
+	})
+	if err != nil {
+		return "", commonerrors.NewInternalError(fmt.Sprintf("failed to upsert user token: %v", err))
 	}
-	return userToken, nil
+	return sessionId, nil
 }
 
 // oauth2Config creates and returns an OAuth2 configuration
