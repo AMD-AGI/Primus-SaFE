@@ -125,6 +125,10 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 		}
 	}
 
+	log.Infof("Copying pod references from child workloads to parent workload %s/%s.Children count: %d", dbWorkload.Namespace, dbWorkload.Name, len(children))
+	for _, child := range referencedWorkload {
+		log.Infof("Child workload: %s/%s, Parent UID: %s", child.Namespace, child.Name, child.ParentUID)
+	}
 	// Always copy pod references from child workloads to parent workload
 	// This ensures that pod changes in child workloads are always synced to parent
 	err = w.copyChildPodReferencesToParent(ctx, facade, dbWorkload, referencedWorkload)
