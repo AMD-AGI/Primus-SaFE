@@ -13,16 +13,20 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
+	sqrl "github.com/Masterminds/squirrel"
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
@@ -44,6 +48,7 @@ type ssoToken struct {
 
 	client.Client
 	httpClient httpclient.Interface
+	dbClient   dbclient.Interface
 	provider   *oidc.Provider
 	verifier   *oidc.IDTokenVerifier
 }
@@ -68,6 +73,12 @@ func SSOInstance() *ssoToken {
 
 // initializeSSOToken initializes and returns a new ssoToken instance
 func initializeSSOToken(cli client.Client) (*ssoToken, error) {
+	var dbClient *dbclient.Client
+	if commonconfig.IsDBEnable() {
+		if dbClient = dbclient.NewClient(); dbClient == nil {
+			return nil, fmt.Errorf("failed to new db client")
+		}
+	}
 	ssoTokenInstance := &ssoToken{
 		endpoint:     commonconfig.GetSSOEndpoint(),
 		clientId:     commonconfig.GetSSOClientId(),
@@ -75,6 +86,7 @@ func initializeSSOToken(cli client.Client) (*ssoToken, error) {
 		redirectURI:  commonconfig.GetSSORedirectURI(),
 		Client:       cli,
 		httpClient:   httpclient.NewClient(),
+		dbClient:     dbClient,
 	}
 	// Validate required configuration
 	if ssoTokenInstance.endpoint == "" || ssoTokenInstance.clientId == "" ||
@@ -120,7 +132,7 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 	}
 
 	// Validate ID token and extract user info
-	userInfo, err := c.Validate(ctx, rawIDToken)
+	userInfo, err := c.validate(ctx, rawIDToken)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -131,16 +143,45 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 	if err != nil {
 		return nil, nil, err
 	}
+	userToken := ""
+	if commonconfig.IsDBEnable() {
+		if userToken, err = c.updateUserInfoInDB(ctx, rawIDToken, userInfo); err != nil {
+			return nil, nil, err
+		}
+	} else {
+		userToken = rawIDToken
+	}
 	response := &TokenResponse{
-		Expire:   userInfo.Exp,
-		RawToken: rawIDToken,
+		Expire: userInfo.Exp,
+		Token:  userToken,
 	}
 	return user, response, nil
 }
 
-// Validate verifies ID token and extracts user information
-// Implements TokenInterface.Validate method for OAuth2 tokens
+// Validate verifies the user token based on the provided rawToken
+// If database is enabled, treats rawToken as session-id and retrieves the actual token from database first
+// Then validates the retrieved token through OIDC provider to extract user information
+// Returns user info from validated token or appropriate error
 func (c *ssoToken) Validate(ctx context.Context, rawToken string) (*UserInfo, error) {
+	if commonconfig.IsDBEnable() {
+		dbTags := dbclient.GetUserTokenFieldTags()
+		dbSql := sqrl.And{
+			sqrl.Eq{dbclient.GetFieldTag(dbTags, "SessionId"): rawToken},
+		}
+		nowTime := time.Now().Unix()
+		dbSql = append(dbSql, sqrl.Gt{dbclient.GetFieldTag(dbTags, "ExpireTime"): nowTime})
+		userToken, err := c.dbClient.SelectUserTokens(ctx, dbSql, nil, 1, 0)
+		if err != nil || len(userToken) == 0 {
+			return nil, commonerrors.NewUnauthorized("token not present")
+		}
+		rawToken = userToken[0].Token
+	}
+	return c.validate(ctx, rawToken)
+}
+
+// validate verifies ID token and extracts user information
+// Implements TokenInterface.Validate method for OAuth2 tokens
+func (c *ssoToken) validate(ctx context.Context, rawToken string) (*UserInfo, error) {
 	idToken, err := c.verifier.Verify(ctx, rawToken)
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify ID token: %v", err)
@@ -155,7 +196,7 @@ func (c *ssoToken) Validate(ctx context.Context, rawToken string) (*UserInfo, er
 	if err = json.Indent(buff, claims, "", "  "); err != nil {
 		return nil, fmt.Errorf("failed to indent ID token claims: %v", err)
 	}
-	// klog.Infof("user buffer: %s", buff.String())
+	// klog.Infof("user buffer: %s, tokensize: %d", buff.String(), len(rawToken))
 	userInfo := &UserInfo{}
 	err = json.Unmarshal(buff.Bytes(), userInfo)
 	if err != nil {
@@ -207,6 +248,24 @@ func (c *ssoToken) synchronizeUser(ctx context.Context, userInfo *UserInfo) (*v1
 		}
 	}
 	return user, err
+}
+
+// updateUserInfoInDB updates user token information in database
+// Generates a new session ID and stores user token with expiration time
+// Returns the session ID for successful update
+func (c *ssoToken) updateUserInfoInDB(ctx context.Context, rawIDToken string, userInfo *UserInfo) (string, error) {
+	sessionId := string(uuid.NewUUID())
+	err := c.dbClient.UpsertUserToken(ctx, &dbclient.UserToken{
+		UserId:       userInfo.Id,
+		SessionId:    sessionId,
+		Token:        rawIDToken,
+		CreationTime: time.Now().UTC().Unix(),
+		ExpireTime:   userInfo.Exp,
+	})
+	if err != nil {
+		return "", commonerrors.NewInternalError(fmt.Sprintf("failed to upsert user token: %v", err))
+	}
+	return sessionId, nil
 }
 
 // oauth2Config creates and returns an OAuth2 configuration

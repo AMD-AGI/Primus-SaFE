@@ -81,12 +81,12 @@ func (t *defaultToken) Login(ctx context.Context, input TokenInput) (*v1.User, *
 	}
 
 	// Generate and encode token
-	result.RawToken, err = generateDefaultToken(userId, result.Expire)
+	result.Token, err = generateDefaultToken(userId, result.Expire)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate user token")
 		return nil, nil, err
 	}
-	result.RawToken = stringutil.Base64Encode(result.RawToken)
+	result.Token = stringutil.Base64Encode(result.Token)
 	return user, result, nil
 }
 
