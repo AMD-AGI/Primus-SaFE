@@ -171,7 +171,7 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 
 	// Build statistics record
 	statistic := &safemodel.WorkloadStatistic{
-		WorkloadID:      string(workload.UID),
+		WorkloadID:      string(workload.Name),
 		WorkloadUID:     string(workload.UID),
 		Cluster:         clusterID,
 		Workspace:       workload.Spec.Workspace,
