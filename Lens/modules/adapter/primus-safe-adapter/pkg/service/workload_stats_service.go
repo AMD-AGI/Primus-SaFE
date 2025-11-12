@@ -137,16 +137,18 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 	endTime := time.Now()
 	startTime := endTime.Add(-ThreeHours)
 
+	log.Infof("Getting hourly stats from cluster %s for workload %s/%s from %s to %s",
+		clusterID, workload.Namespace, workload.Name, startTime, endTime)
 	// Get data from the last 3 hours from workload_gpu_hourly_stats table
 	hourlyStats, err := lensFacade.GetGpuAggregation().ListWorkloadHourlyStatsByNamespace(
 		ctx,
-		workload.Namespace,
+		workload.Spec.Workspace,
 		startTime,
 		endTime,
 	)
 	if err != nil {
 		log.Errorf("Failed to get hourly stats from cluster %s for workload %s/%s: %v",
-			clusterID, workload.Namespace, workload.Name, err)
+			clusterID, workload.Spec.Workspace, workload.Name, err)
 		return err
 	}
 
