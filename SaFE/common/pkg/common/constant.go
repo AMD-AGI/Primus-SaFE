@@ -60,6 +60,7 @@ const (
 	UserManagedWorkspaces = "managedWorkspaces"
 	Name                  = "name"
 	PodId                 = "podId"
+	AddonName             = "addonName"
 )
 
 const (
