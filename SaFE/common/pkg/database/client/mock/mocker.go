@@ -452,6 +452,21 @@ func (mr *MockInterfaceMockRecorder) SelectPublicKeys(ctx, query, orderBy, limit
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectPublicKeys", reflect.TypeOf((*MockInterface)(nil).SelectPublicKeys), ctx, query, orderBy, limit, offset)
 }
 
+// SelectUserTokens mocks base method.
+func (m *MockInterface) SelectUserTokens(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.UserToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectUserTokens", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.UserToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectUserTokens indicates an expected call of SelectUserTokens.
+func (mr *MockInterfaceMockRecorder) SelectUserTokens(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectUserTokens", reflect.TypeOf((*MockInterface)(nil).SelectUserTokens), ctx, query, orderBy, limit, offset)
+}
+
 // SelectWorkloads mocks base method.
 func (m *MockInterface) SelectWorkloads(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.Workload, error) {
 	m.ctrl.T.Helper()
@@ -689,6 +704,20 @@ func (m *MockInterface) UpsertRegistryInfo(ctx context.Context, registryInfo *mo
 func (mr *MockInterfaceMockRecorder) UpsertRegistryInfo(ctx, registryInfo interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertRegistryInfo", reflect.TypeOf((*MockInterface)(nil).UpsertRegistryInfo), ctx, registryInfo)
+}
+
+// UpsertUserToken mocks base method.
+func (m *MockInterface) UpsertUserToken(ctx context.Context, userToken *client.UserToken) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertUserToken", ctx, userToken)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertUserToken indicates an expected call of UpsertUserToken.
+func (mr *MockInterfaceMockRecorder) UpsertUserToken(ctx, userToken interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertUserToken", reflect.TypeOf((*MockInterface)(nil).UpsertUserToken), ctx, userToken)
 }
 
 // UpsertWorkload mocks base method.
@@ -1601,4 +1630,56 @@ func (m *MockNotificationInterface) UpdateNotification(ctx context.Context, data
 func (mr *MockNotificationInterfaceMockRecorder) UpdateNotification(ctx, data interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateNotification", reflect.TypeOf((*MockNotificationInterface)(nil).UpdateNotification), ctx, data)
+}
+
+// MockUserTokenInterface is a mock of UserTokenInterface interface.
+type MockUserTokenInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockUserTokenInterfaceMockRecorder
+}
+
+// MockUserTokenInterfaceMockRecorder is the mock recorder for MockUserTokenInterface.
+type MockUserTokenInterfaceMockRecorder struct {
+	mock *MockUserTokenInterface
+}
+
+// NewMockUserTokenInterface creates a new mock instance.
+func NewMockUserTokenInterface(ctrl *gomock.Controller) *MockUserTokenInterface {
+	mock := &MockUserTokenInterface{ctrl: ctrl}
+	mock.recorder = &MockUserTokenInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockUserTokenInterface) EXPECT() *MockUserTokenInterfaceMockRecorder {
+	return m.recorder
+}
+
+// SelectUserTokens mocks base method.
+func (m *MockUserTokenInterface) SelectUserTokens(ctx context.Context, query squirrel.Sqlizer, orderBy []string, limit, offset int) ([]*client.UserToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectUserTokens", ctx, query, orderBy, limit, offset)
+	ret0, _ := ret[0].([]*client.UserToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectUserTokens indicates an expected call of SelectUserTokens.
+func (mr *MockUserTokenInterfaceMockRecorder) SelectUserTokens(ctx, query, orderBy, limit, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectUserTokens", reflect.TypeOf((*MockUserTokenInterface)(nil).SelectUserTokens), ctx, query, orderBy, limit, offset)
+}
+
+// UpsertUserToken mocks base method.
+func (m *MockUserTokenInterface) UpsertUserToken(ctx context.Context, userToken *client.UserToken) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertUserToken", ctx, userToken)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertUserToken indicates an expected call of UpsertUserToken.
+func (mr *MockUserTokenInterfaceMockRecorder) UpsertUserToken(ctx, userToken interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertUserToken", reflect.TypeOf((*MockUserTokenInterface)(nil).UpsertUserToken), ctx, userToken)
 }

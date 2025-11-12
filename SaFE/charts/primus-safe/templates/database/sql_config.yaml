@@ -240,5 +240,15 @@ data:
     );
 
 
-    alter table notification
-        owner to "primus-safe";
+    alter table notification owner to "primus-safe";
+
+    create table user_token
+    (
+        user_id    varchar(64) NOT NULL PRIMARY KEY,
+        session_id VARCHAR(64) NOT NULL,
+        token      TEXT NOT NULL,
+        creation_time bigint,
+        expire_time bigint
+    );
+
+    alter table user_token owner to "primus-safe";

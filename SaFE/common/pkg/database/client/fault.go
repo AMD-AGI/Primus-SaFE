@@ -45,7 +45,7 @@ func (c *Client) UpsertFault(ctx context.Context, fault *Fault) error {
 			return err
 		}
 	} else {
-		_, err = db.NamedExecContext(ctx, genInsertCommand(*fault, insertFaultFormat, "id"), fault)
+		_, err = db.NamedExecContext(ctx, generateCommand(*fault, insertFaultFormat, "id"), fault)
 		if err != nil {
 			klog.ErrorS(err, "failed to insert fault db")
 			return err
