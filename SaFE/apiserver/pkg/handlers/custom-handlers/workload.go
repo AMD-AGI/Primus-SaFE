@@ -204,6 +204,20 @@ func (h *Handler) listWorkload(c *gin.Context) (interface{}, error) {
 	}
 	for _, w := range workloads {
 		workload := h.cvtDBWorkloadToResponseItem(ctx, w)
+
+		// Query workload statistics to get GPU usage
+		stat, err := h.dbClient.GetWorkloadStatisticByWorkloadID(ctx, w.WorkloadId)
+		if err != nil {
+			klog.V(4).InfoS("failed to get workload statistic", "workloadId", w.WorkloadId, "error", err)
+			workload.AvgGpuUsage = -1
+		} else if stat == nil {
+			// No statistics available
+			workload.AvgGpuUsage = -1
+		} else {
+			// Use the average GPU usage from statistics
+			workload.AvgGpuUsage = stat.AvgGpuUsage3H
+		}
+
 		result.Items = append(result.Items, workload)
 	}
 	return result, nil
@@ -904,6 +918,7 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 		IsTolerateAll: w.IsTolerateAll,
 		WorkloadUid:   dbutils.ParseNullString(w.WorkloadUId),
 		K8sObjectUid:  dbutils.ParseNullString(w.K8sObjectUid),
+		AvgGpuUsage:   -1, // Default value when statistics are not available
 	}
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
