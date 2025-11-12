@@ -30,17 +30,15 @@ const (
 
 // WorkloadStatsService provides workload statistics collection service
 type WorkloadStatsService struct {
-	k8sClient  client.Client
-	safeDB     *gorm.DB
-	lensFacade database.FacadeInterface
+	k8sClient client.Client
+	safeDB    *gorm.DB
 }
 
 // NewWorkloadStatsService creates a new workload statistics service
 func NewWorkloadStatsService(k8sClient client.Client, safeDB *gorm.DB) *WorkloadStatsService {
 	return &WorkloadStatsService{
-		k8sClient:  k8sClient,
-		safeDB:     safeDB,
-		lensFacade: database.GetFacade(),
+		k8sClient: k8sClient,
+		safeDB:    safeDB,
 	}
 }
 
@@ -124,18 +122,31 @@ func (s *WorkloadStatsService) isWorkloadRunning(workload *primusSafeV1.Workload
 
 // processWorkloadStats processes statistics data for a single workload
 func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workload *primusSafeV1.Workload) error {
+	// Get cluster ID from workload
+	clusterID := primusSafeV1.GetClusterId(workload)
+	if clusterID == "" {
+		klog.Warningf("Workload %s/%s has no cluster ID, using default cluster",
+			workload.Namespace, workload.Name)
+		clusterID = "default"
+	}
+
+	// Get lens facade for the specific cluster
+	lensFacade := database.GetFacade().WithCluster(clusterID)
+
 	// Calculate the time point 3 hours ago
 	endTime := time.Now()
 	startTime := endTime.Add(-ThreeHours)
 
 	// Get data from the last 3 hours from workload_gpu_hourly_stats table
-	hourlyStats, err := s.lensFacade.GetGpuAggregation().ListWorkloadHourlyStatsByNamespace(
+	hourlyStats, err := lensFacade.GetGpuAggregation().ListWorkloadHourlyStatsByNamespace(
 		ctx,
 		workload.Namespace,
 		startTime,
 		endTime,
 	)
 	if err != nil {
+		klog.Errorf("Failed to get hourly stats from cluster %s for workload %s/%s: %v",
+			clusterID, workload.Namespace, workload.Name, err)
 		return err
 	}
 
@@ -148,8 +159,8 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 	}
 
 	if len(workloadStats) == 0 {
-		klog.V(4).Infof("No hourly stats found for workload %s/%s in the last 3 hours",
-			workload.Namespace, workload.Name)
+		klog.V(4).Infof("No hourly stats found for workload %s/%s in cluster %s in the last 3 hours",
+			workload.Namespace, workload.Name, clusterID)
 		return nil
 	}
 
@@ -160,7 +171,7 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 	statistic := &safemodel.WorkloadStatistic{
 		WorkloadID:      string(workload.UID),
 		WorkloadUID:     string(workload.UID),
-		Cluster:         s.getClusterName(workload),
+		Cluster:         clusterID,
 		Workspace:       workload.Namespace,
 		StatisticType:   StatisticType3H,
 		AvgGpuUsage3H:   avgUtilization,
@@ -192,16 +203,6 @@ func (s *WorkloadStatsService) calculateUtilization(stats []*lensmodel.WorkloadG
 
 	avg = sum / float64(len(stats))
 	return avg, max
-}
-
-// getClusterName retrieves the cluster name
-func (s *WorkloadStatsService) getClusterName(workload *primusSafeV1.Workload) string {
-	// Try to get cluster name from labels
-	if clusterName, ok := workload.Labels["cluster"]; ok {
-		return clusterName
-	}
-	// Return default value if no label exists
-	return "default"
 }
 
 // upsertWorkloadStatistic inserts or updates workload statistics data
