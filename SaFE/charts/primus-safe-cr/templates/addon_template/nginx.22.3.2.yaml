@@ -1,0 +1,20 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: amd.com/v1
+kind: AddonTemplate
+metadata:
+  labels:
+    primus-safe.display.name: "nginx.22.3.2"
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.addon.default: ""
+  name: nginx.22.3.2
+spec:
+  category: plugin
+  description: nginx ("engine x") is an HTTP web server, reverse proxy, content cache, load balancer, TCP/UDP proxy server, and mail proxy server.
+  url: oci://registry-1.docker.io/primussafe/nginx
+  version: "22.3.2"
+  type: helm
+  helmDefaultNamespace: default
