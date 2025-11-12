@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"gorm.io/gorm"
-	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	lensmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	safedal "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/dal"
 	safemodel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
@@ -50,28 +50,28 @@ func (s *WorkloadStatsService) Name() string {
 // Run executes the workload statistics collection task
 func (s *WorkloadStatsService) Run(ctx context.Context) error {
 	startTime := time.Now()
-	klog.V(4).Info("Starting workload stats collection")
+	log.Info("Starting workload stats collection")
 
 	// Get currently running workloads
 	workloads, err := s.getRunningWorkloads(ctx)
 	if err != nil {
-		klog.Errorf("Failed to get running workloads: %v", err)
+		log.Errorf("Failed to get running workloads: %v", err)
 		return err
 	}
 
 	if len(workloads) == 0 {
-		klog.V(4).Info("No running workloads found")
+		log.Info("No running workloads found")
 		return nil
 	}
 
-	klog.V(4).Infof("Found %d running workloads", len(workloads))
+	log.Infof("Found %d running workloads", len(workloads))
 
 	// Process statistics data for each workload
 	successCount := 0
 	failCount := 0
 	for _, workload := range workloads {
 		if err := s.processWorkloadStats(ctx, &workload); err != nil {
-			klog.Errorf("Failed to process workload %s/%s: %v",
+			log.Errorf("Failed to process workload %s/%s: %v",
 				workload.Namespace, workload.Name, err)
 			failCount++
 		} else {
@@ -80,7 +80,7 @@ func (s *WorkloadStatsService) Run(ctx context.Context) error {
 	}
 
 	duration := time.Since(startTime)
-	klog.Infof("Workload stats collection completed: success=%d, failed=%d, duration=%v",
+	log.Infof("Workload stats collection completed: success=%d, failed=%d, duration=%v",
 		successCount, failCount, duration)
 
 	return nil
@@ -125,7 +125,7 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 	// Get cluster ID from workload
 	clusterID := primusSafeV1.GetClusterId(workload)
 	if clusterID == "" {
-		klog.Warningf("Workload %s/%s has no cluster ID, using default cluster",
+		log.Warnf("Workload %s/%s has no cluster ID, using default cluster",
 			workload.Namespace, workload.Name)
 		clusterID = "default"
 	}
@@ -145,7 +145,7 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 		endTime,
 	)
 	if err != nil {
-		klog.Errorf("Failed to get hourly stats from cluster %s for workload %s/%s: %v",
+		log.Errorf("Failed to get hourly stats from cluster %s for workload %s/%s: %v",
 			clusterID, workload.Namespace, workload.Name, err)
 		return err
 	}
@@ -159,7 +159,7 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 	}
 
 	if len(workloadStats) == 0 {
-		klog.V(4).Infof("No hourly stats found for workload %s/%s in cluster %s in the last 3 hours",
+		log.Infof("No hourly stats found for workload %s/%s in cluster %s in the last 3 hours",
 			workload.Namespace, workload.Name, clusterID)
 		return nil
 	}
@@ -221,15 +221,16 @@ func (s *WorkloadStatsService) upsertWorkloadStatistic(ctx context.Context, stat
 	}
 
 	if existing != nil {
+		log.Infof("Updating existing workload statistic record: %+v", existing)
 		// Update existing record
 		statistic.ID = existing.ID
 		statistic.CreatedAt = existing.CreatedAt
-		_, err = ws.WithContext(ctx).
-			Where(ws.ID.Eq(existing.ID)).
-			Updates(statistic)
+		err = ws.WithContext(ctx).
+			Save(statistic)
 		return err
 	}
 
 	// Create new record
+	log.Infof("Creating new workload statistic record: %+v", statistic)
 	return ws.WithContext(ctx).Create(statistic)
 }
