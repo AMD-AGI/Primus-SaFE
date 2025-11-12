@@ -915,7 +915,7 @@ func cvtExportedImagesToResponse(exportedImages []ExportedImageItem) []GetImageR
 			CreatedTime: timeutil.FormatRFC3339(item.CreatedTime),
 			UserName:    item.UserName,
 			Status:      item.Status,
-			IncludeType: "export",
+			IncludeType: "custom", // Custom user image exported from workload
 			// Note: Size, Arch, Os, Digest would need to be fetched from Harbor API
 		}
 		

@@ -159,7 +159,61 @@ Import image from external registry to internal Harbor.
 
 ---
 
-### 6. Get Harbor Statistics
+### 6. List Exported Images
+
+**Endpoint**: `GET /api/v1/images/custom`
+
+**Authentication Required**: Yes
+
+**Description**: Lists images that have been exported from workloads using OpsJob (type: exportimage). This endpoint queries the ops_job table to retrieve export history and present it in the same format as the standard image list.
+
+**Query Parameters**: Same as "List Images" endpoint, except:
+- Does NOT support `tag` parameter (no tag field in ops_job table)
+- Does NOT support `flat` parameter (always returns grouped format)
+- `ready=true` filters jobs with phase='Succeeded'
+
+**Response Example**:
+```json
+{
+  "totalCount": 3,
+  "images": [
+    {
+      "registryHost": "harbor.exported",
+      "repo": "rocm/pytorch",
+      "artifacts": [
+        {
+          "imageTag": "20250112",
+          "description": "Exported from source: rocm/pytorch:rocm6.2_ubuntu22.04_py3.10_pytorch_release_2.3.0",
+          "createdTime": "2025-01-12T08:35:20Z",
+          "userName": "admin",
+          "status": "Succeeded",
+          "includeType": "custom"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Field Description**:
+- `registryHost`: Registry hostname (placeholder: "harbor.exported")
+- `repo`: Repository path extracted from target image (e.g., "rocm/pytorch")
+- `artifacts[].imageTag`: Exported image tag (timestamp-based)
+- `artifacts[].description`: Export details including source image name
+- `artifacts[].createdTime`: Export job creation time (RFC3339 format)
+- `artifacts[].userName`: User who initiated the export
+- `artifacts[].status`: Export job status (Succeeded/Failed/Running/Pending)
+- `artifacts[].includeType`: Always "custom" for user-exported images
+
+**Notes**:
+- This endpoint queries the `ops_job` table (type='exportimage'), not the `image` table
+- Only fields available from ops_job are populated; image metadata like size/arch/os/digest are not available
+- Use `ready=true` to filter only successfully exported images (phase='Succeeded')
+- Exported images are grouped by repository, similar to imported images
+
+---
+
+### 7. Get Harbor Statistics
 
 **Endpoint**: `GET /api/v1/harbor/stats`
 
