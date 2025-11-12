@@ -192,11 +192,9 @@ data:
         deleted_at      timestamp with time zone,
         deleted_by      varchar(128)
     );
+    alter table image owner to "primus-safe";
 
-    alter table image
-        owner to "primus-safe";
-
-    CREATE TABLE public_key (
+    CREATE TABLE if not exists public_key (
        id BIGSERIAL PRIMARY KEY,
        user_id VARCHAR(64) NOT NULL,
        description VARCHAR(100) NOT NULL,
@@ -211,7 +209,7 @@ data:
     CREATE UNIQUE INDEX idx_publickey_userid_pubkey ON public_key(user_id, public_key, delete_time);
     alter table public_key owner to "primus-safe";
 
-    CREATE TABLE ssh_session_records (
+    CREATE TABLE if not exists ssh_session_records (
        id BIGSERIAL PRIMARY KEY,
        user_id VARCHAR(64) NOT NULL,
        ssh_type VARCHAR(64) NOT NULL,
@@ -222,9 +220,9 @@ data:
        disconnect_time TIMESTAMPTZ,
        create_time TIMESTAMPTZ NOT NULL DEFAULT now()
     );
-
     alter table ssh_session_records owner to "primus-safe";
-    create table notification
+
+    create table if not exists notification
     (
         id         serial,
         kind       varchar(64),
@@ -238,11 +236,9 @@ data:
         created_at timestamptz,
         sent_at    timestamptz
     );
-
-
     alter table notification owner to "primus-safe";
 
-    create table user_token
+    create table if not exists user_token
     (
         user_id    varchar(64) NOT NULL PRIMARY KEY,
         session_id VARCHAR(64) NOT NULL,
@@ -250,5 +246,5 @@ data:
         creation_time bigint,
         expire_time bigint
     );
-
+    create index if not exists T_SESSION_ID_INDEX on user_token (session_id);
     alter table user_token owner to "primus-safe";
