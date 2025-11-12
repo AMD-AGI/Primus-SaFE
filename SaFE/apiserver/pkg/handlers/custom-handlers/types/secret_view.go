@@ -33,8 +33,12 @@ type CreateSecretRequest struct {
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params []map[SecretParam]string `json:"params"`
-	// Whether to bind the secret to all workspaces, only for image secret
+	// BindAllWorkspaces indicates whether the secret should be bound to all workspaces.
+	// This field is only for image secrets and can only be set by administrators.
 	BindAllWorkspaces bool `json:"bindAllWorkspaces,omitempty"`
+	// BindWorkspaceIds is the list of workspaces to be bound with the secret.
+	// This field is only for image secrets and can be operated by users who have access permissions to the corresponding workspaces.
+	BindWorkspaceIds []string `json:"bindWorkspaceIds,omitempty"`
 }
 
 type CreateSecretResponse struct {

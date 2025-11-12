@@ -16,7 +16,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -56,7 +55,7 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 		return fmt.Errorf("failed to modify volumes: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "imagePullSecrets")
-	if err = modifyImageSecrets(obj, workload, workspace, path); err != nil {
+	if err = modifyImageSecrets(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify image secrets: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "priorityClassName")
@@ -257,20 +256,16 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 	return nil
 }
 
-// modifyImageSecrets adds image pull secrets to the Kubernetes object based on workspace configuration.
-func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, path []string) error {
+// modifyImageSecrets adds image pull secrets to the Kubernetes object based on workload configuration.
+func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	secrets, _, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
 		return err
 	}
-
-	if workspace != nil {
-		for _, s := range workspace.Spec.ImageSecrets {
-			secrets = append(secrets, buildImageSecret(s.Name))
+	for _, s := range workload.Spec.Secrets {
+		if s.Type == v1.SecretImage {
+			secrets = append(secrets, buildImageSecret(s.Id))
 		}
-	} else if commonconfig.GetImageSecret() != "" {
-		imageSecret := commonutils.GenerateClusterSecret(v1.GetClusterId(workload), commonconfig.GetImageSecret())
-		secrets = append(secrets, buildImageSecret(imageSecret))
 	}
 	if err = unstructured.SetNestedSlice(obj.Object, secrets, path...); err != nil {
 		return err

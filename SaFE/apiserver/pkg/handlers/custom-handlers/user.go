@@ -98,8 +98,10 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewInternalError("the user registration is not enabled")
 	}
 
-	req, err := parseCreateUserQuery(requestUser, c)
+	req := &types.CreateUserRequest{}
+	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
+		klog.ErrorS(err, "fail to parseRequestBody", "body", string(body))
 		return nil, err
 	}
 
@@ -124,7 +126,7 @@ func generateUser(req *types.CreateUserRequest, requestUser *v1.User) *v1.User {
 			},
 		},
 		Spec: v1.UserSpec{
-			Type: v1.DefaultUser,
+			Type: v1.DefaultUserType,
 		},
 	}
 
@@ -371,7 +373,7 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	var tokenInstance authority.TokenInterface
-	if query.Type == v1.SSOUser {
+	if query.Type == v1.SSOUserType {
 		if !commonconfig.IsSSOEnable() {
 			return nil, commonerrors.NewInternalError("SSO is not enabled")
 		}
@@ -468,23 +470,6 @@ func (h *Handler) logout(c *gin.Context) (interface{}, error) {
 	info := &types.UserLoginResponse{}
 	setCookie(c, info, "")
 	return nil, nil
-}
-
-// parseCreateUserQuery parses and validates the user creation request.
-// Ensures required fields are present and validates based on requester permissions.
-func parseCreateUserQuery(requestUser *v1.User, c *gin.Context) (*types.CreateUserRequest, error) {
-	req := &types.CreateUserRequest{}
-	body, err := apiutils.ParseRequestBody(c.Request, req)
-	if err != nil {
-		klog.ErrorS(err, "fail to parseRequestBody", "body", string(body))
-		return nil, err
-	}
-	if requestUser == nil || !requestUser.IsSystemAdmin() {
-		if req.Password == "" {
-			return nil, commonerrors.NewBadRequest("the password is empty")
-		}
-	}
-	return req, nil
 }
 
 // parseLoginQuery parses and validates the user login request.

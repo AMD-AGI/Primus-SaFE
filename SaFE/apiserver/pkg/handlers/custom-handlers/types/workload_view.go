@@ -160,6 +160,8 @@ type GetWorkloadResponse struct {
 	Dependencies []string `json:"dependencies,omitempty"`
 	// Cron Job configuration
 	CronJobs []v1.CronJob `json:"cronJobs,omitempty"`
+	// The secrets used by the workload. Only the user themselves or an administrator can get this info.
+	Secrets []v1.SecretEntity `json:"secrets,omitempty"`
 }
 
 type WorkloadPodWrapper struct {

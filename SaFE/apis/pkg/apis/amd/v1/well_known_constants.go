@@ -139,6 +139,7 @@ const (
 
 	K8sHostName = "kubernetes.io/hostname"
 
-	SecretImage SecretType = "image"
-	SecretSSH   SecretType = "ssh"
+	SecretImage   SecretType = "image"
+	SecretSSH     SecretType = "ssh"
+	SecretDefault SecretType = "default"
 )

@@ -290,25 +290,33 @@ func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob,
 	if err != nil {
 		return nil, err
 	}
-
-	if err = h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
-		Context: c.Request.Context(),
-		User:    requestUser,
-	}); err != nil {
-		return nil, err
-	}
-
 	req := &types.CreatePreflightRequest{}
 	if err = jsonutils.Unmarshal(body, req); err != nil {
 		return nil, err
 	}
 	job := genDefaultOpsJob(c, &req.BaseOpsJobRequest)
+	
+	var workspaces []string
+	if workspaceParams := job.GetParameters(v1.ParameterWorkspace); workspaceParams != nil {
+		for _, p := range workspaceParams {
+			workspaces = append(workspaces, p.Value)
+		}
+	}
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.PreflightKind,
+		Verb:         v1.CreateVerb,
+		User:         requestUser,
+		Workspaces:   workspaces,
+	}); err != nil {
+		return nil, err
+	}
+
 	job.Spec.Resource = req.Resource
 	job.Spec.Image = req.Image
 	job.Spec.EntryPoint = req.EntryPoint
 	job.Spec.Env = req.Env
 	job.Spec.Hostpath = req.Hostpath
-
 	if err = h.generateOpsJobNodesInput(c.Request.Context(), job, &req.BaseOpsJobRequest); err != nil {
 		return nil, err
 	}
@@ -366,7 +374,7 @@ func (h *Handler) generateRebootJob(c *gin.Context, body []byte) (*v1.OpsJob, er
 	if err != nil {
 		return nil, err
 	}
-	if err := h.accessController.Authorize(authority.AccessInput{
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.NodeKind,
 		Verb:         v1.UpdateVerb,

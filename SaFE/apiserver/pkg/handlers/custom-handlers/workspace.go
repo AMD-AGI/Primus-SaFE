@@ -300,6 +300,9 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1
 		if err != nil {
 			return err
 		}
+		if v1.GetSecretType(secret) != string(v1.SecretImage) {
+			return commonerrors.NewBadRequest("the secret type is not image")
+		}
 		imageSecrets = append(imageSecrets, *commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
 	}
 	workspace.Spec.ImageSecrets = imageSecrets

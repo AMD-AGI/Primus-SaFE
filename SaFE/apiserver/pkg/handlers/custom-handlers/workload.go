@@ -135,7 +135,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	workload, err := h.generateWorkload(c, req, body)
+	workload, err := h.generateWorkload(req, body)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
@@ -158,6 +158,8 @@ func (h *Handler) createWorkloadImpl(c *gin.Context, workload *v1.Workload, requ
 			"priority", workload.Spec.Priority, "user", c.GetString(common.UserName))
 		return nil, err
 	}
+	v1.SetLabel(workload, v1.UserIdLabel, requestUser.Name)
+	v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserName(requestUser))
 	if err = h.Create(c.Request.Context(), workload); err != nil {
 		return nil, err
 	}
@@ -232,7 +234,7 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, requestUser, roles); err != nil {
 		return nil, err
 	}
-	return h.cvtDBWorkloadToGetResponse(ctx, dbWorkload), nil
+	return h.cvtDBWorkloadToGetResponse(ctx, requestUser, roles, dbWorkload), nil
 }
 
 // deleteWorkload implements single workload deletion logic.
@@ -424,7 +426,17 @@ func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1
 	if err != nil {
 		return nil, err
 	}
-	workload := cvtDBWorkloadToAdminWorkload(c, dbWorkload)
+	workload := cvtDBWorkloadToAdminWorkload(dbWorkload)
+	// Only the user themselves or an administrator can get this info.
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:  c.Request.Context(),
+		Resource: workload,
+		Verb:     v1.GetVerb,
+		User:     requestUser,
+		Roles:    roles,
+	}); err != nil {
+		return nil, err
+	}
 	klog.Infof("cloning workload from %s to %s", name, workload.Name)
 	return h.createWorkloadImpl(c, workload, requestUser, roles)
 }
@@ -586,17 +598,15 @@ func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workloa
 
 // generateWorkload creates a new workload object based on the creation request.
 // Populates workload metadata, specifications, and customer labels.
-func (h *Handler) generateWorkload(c *gin.Context, req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
+func (h *Handler) generateWorkload(req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName(req.DisplayName),
 			Labels: map[string]string{
 				v1.DisplayNameLabel: req.DisplayName,
-				v1.UserIdLabel:      c.GetString(common.UserId),
 			},
 			Annotations: map[string]string{
 				v1.DescriptionAnnotation: req.Description,
-				v1.UserNameAnnotation:    c.GetString(common.UserName),
 			},
 		},
 	}
@@ -942,61 +952,75 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 
 // cvtDBWorkloadToGetResponse converts a database workload record to a detailed response format.
 // Maps all database fields to the appropriate response structure including conditions, pods, etc.
-func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context, w *dbclient.Workload) *types.GetWorkloadResponse {
+func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
+	user *v1.User, roles []*v1.Role, dbWorkload *dbclient.Workload) *types.GetWorkloadResponse {
 	result := &types.GetWorkloadResponse{
-		WorkloadResponseItem: h.cvtDBWorkloadToResponseItem(ctx, w),
-		Image:                w.Image,
-		IsSupervised:         w.IsSupervised,
-		MaxRetry:             w.MaxRetry,
+		WorkloadResponseItem: h.cvtDBWorkloadToResponseItem(ctx, dbWorkload),
+		Image:                dbWorkload.Image,
+		IsSupervised:         dbWorkload.IsSupervised,
+		MaxRetry:             dbWorkload.MaxRetry,
 	}
-	if result.GroupVersionKind.Kind != common.AuthoringKind && w.EntryPoint != "" {
-		if stringutil.IsBase64(w.EntryPoint) {
-			result.EntryPoint = stringutil.Base64Decode(w.EntryPoint)
+	if result.GroupVersionKind.Kind != common.AuthoringKind && dbWorkload.EntryPoint != "" {
+		if stringutil.IsBase64(dbWorkload.EntryPoint) {
+			result.EntryPoint = stringutil.Base64Decode(dbWorkload.EntryPoint)
 		}
 	}
-	if w.TTLSecond > 0 {
-		result.TTLSecondsAfterFinished = pointer.Int(w.TTLSecond)
+	if dbWorkload.TTLSecond > 0 {
+		result.TTLSecondsAfterFinished = pointer.Int(dbWorkload.TTLSecond)
 	}
-	if str := dbutils.ParseNullString(w.Conditions); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Conditions); str != "" {
 		json.Unmarshal([]byte(str), &result.Conditions)
 	}
-	if str := dbutils.ParseNullString(w.Pods); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Pods); str != "" {
 		json.Unmarshal([]byte(str), &result.Pods)
 		for i, p := range result.Pods {
 			result.Pods[i].SSHAddr = h.buildSSHAddress(ctx, &p.WorkloadPod, result.UserId, result.WorkspaceId)
 		}
 	}
-	if str := dbutils.ParseNullString(w.Nodes); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Nodes); str != "" {
 		json.Unmarshal([]byte(str), &result.Nodes)
 	}
-	if str := dbutils.ParseNullString(w.Ranks); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Ranks); str != "" {
 		json.Unmarshal([]byte(str), &result.Ranks)
 	}
-	if str := dbutils.ParseNullString(w.CustomerLabels); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.CustomerLabels); str != "" {
 		var customerLabels map[string]string
 		json.Unmarshal([]byte(str), &customerLabels)
 		if len(customerLabels) > 0 {
 			result.CustomerLabels, result.SpecifiedNodes = parseCustomerLabelsAndNodes(customerLabels)
 		}
 	}
-	if str := dbutils.ParseNullString(w.Liveness); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Liveness); str != "" {
 		json.Unmarshal([]byte(str), &result.Liveness)
 	}
-	if str := dbutils.ParseNullString(w.Readiness); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Readiness); str != "" {
 		json.Unmarshal([]byte(str), &result.Readiness)
 	}
-	if str := dbutils.ParseNullString(w.Service); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Service); str != "" {
 		json.Unmarshal([]byte(str), &result.Service)
 	}
-	if str := dbutils.ParseNullString(w.Env); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Env); str != "" {
 		json.Unmarshal([]byte(str), &result.Env)
 		result.Env = maps.RemoveValue(result.Env, "")
 	}
-	if str := dbutils.ParseNullString(w.Dependencies); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.Dependencies); str != "" {
 		json.Unmarshal([]byte(str), &result.Dependencies)
 	}
-	if str := dbutils.ParseNullString(w.CronJobs); str != "" {
+	if str := dbutils.ParseNullString(dbWorkload.CronJobs); str != "" {
 		json.Unmarshal([]byte(str), &result.CronJobs)
+	}
+	// Only the user themselves or an administrator can get this info.
+	if err := h.accessController.Authorize(authority.AccessInput{
+		Context:       ctx,
+		ResourceKind:  v1.WorkloadKind,
+		ResourceOwner: result.UserId,
+		Verb:          v1.GetVerb,
+		User:          user,
+		Roles:         roles,
+	}); err == nil {
+		if str := dbutils.ParseNullString(dbWorkload.Secrets); str != "" {
+			json.Unmarshal([]byte(str), &result.Secrets)
+		}
 	}
 	return result
 }
@@ -1084,17 +1108,17 @@ func generateWorkloadForAuth(name, userId, workspace, clusterId string) *v1.Work
 
 // cvtDBWorkloadToAdminWorkload converts a database workload record to a workload CR object.
 // Used for cloning workloads from database records to create new workload objects.
-func cvtDBWorkloadToAdminWorkload(c *gin.Context, dbItem *dbclient.Workload) *v1.Workload {
+func cvtDBWorkloadToAdminWorkload(dbItem *dbclient.Workload) *v1.Workload {
 	result := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName(dbItem.DisplayName),
 			Labels: map[string]string{
 				v1.DisplayNameLabel: dbItem.DisplayName,
-				v1.UserIdLabel:      c.GetString(common.UserId),
+				v1.UserIdLabel:      dbutils.ParseNullString(dbItem.UserId),
 			},
 			Annotations: map[string]string{
 				v1.DescriptionAnnotation: dbutils.ParseNullString(dbItem.Description),
-				v1.UserNameAnnotation:    c.GetString(common.UserName),
+				v1.UserNameAnnotation:    dbutils.ParseNullString(dbItem.UserName),
 			},
 		},
 		Spec: v1.WorkloadSpec{
@@ -1136,6 +1160,9 @@ func cvtDBWorkloadToAdminWorkload(c *gin.Context, dbItem *dbclient.Workload) *v1
 	}
 	if str := dbutils.ParseNullString(dbItem.CronJobs); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.CronJobs)
+	}
+	if str := dbutils.ParseNullString(dbItem.Secrets); str != "" {
+		json.Unmarshal([]byte(str), &result.Spec.Secrets)
 	}
 	return result
 }

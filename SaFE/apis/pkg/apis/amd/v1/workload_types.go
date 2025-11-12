@@ -107,6 +107,13 @@ type CronJob struct {
 	Action CronAction `json:"action"`
 }
 
+type SecretEntity struct {
+	// secret id, required
+	Id string `json:"id"`
+	// secret type, optional. This field is set internally. e.g. ssh/image/default
+	Type SecretType `json:"type"`
+}
+
 type WorkloadSpec struct {
 	// Workload resource requirements
 	Resource WorkloadResource `json:"resource"`
@@ -126,7 +133,7 @@ type WorkloadSpec struct {
 	IsSupervised bool `json:"isSupervised,omitempty"`
 	// Group: An extension field that is not currently in use
 	// Version: version of workload, default value is v1
-	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default PyTorchJob
+	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring/CICD, default PyTorchJob
 	GroupVersionKind `json:"groupVersionKind"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`
@@ -156,6 +163,9 @@ type WorkloadSpec struct {
 	Dependencies []string `json:"dependencies,omitempty"`
 	// Cron Job configuration
 	CronJobs []CronJob `json:"cronJobs,omitempty"`
+	// The secrets used by the workload. Including some token secrets (only for CI/CD) and specified image secrets.
+	// Image secrets automatically use all image secrets bound to the workspace.
+	Secrets []SecretEntity `json:"secrets,omitempty"`
 }
 
 type WorkloadStatus struct {

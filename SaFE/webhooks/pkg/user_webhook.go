@@ -94,7 +94,7 @@ func (m *UserMutator) mutateCommon(ctx context.Context, user *v1.User) {
 // mutateMetadata applies mutations to the resource.
 func (m *UserMutator) mutateMetadata(user *v1.User) {
 	if user.Spec.Type == "" {
-		user.Spec.Type = v1.DefaultUser
+		user.Spec.Type = v1.DefaultUserType
 	}
 	metav1.SetMetaDataLabel(&user.ObjectMeta, v1.UserIdLabel, user.Name)
 }
@@ -293,11 +293,14 @@ func (v *UserValidator) validateImmutableFields(newUser, oldUser *v1.User) error
 // validateRequiredParams ensures user type and roles are not empty.
 func (v *UserValidator) validateRequiredParams(user *v1.User) error {
 	var errs []error
-	if user.Spec.Type == "" {
-		errs = append(errs, fmt.Errorf("the user's type is empty"))
+	if user.Spec.Type != v1.DefaultUserType && user.Spec.Type != v1.SSOUserType {
+		errs = append(errs, fmt.Errorf("the user's type is not supported"))
 	}
 	if len(user.Spec.Roles) == 0 {
 		errs = append(errs, fmt.Errorf("the user's roles is empty"))
+	}
+	if user.Spec.Type == v1.DefaultUserType && user.Spec.Password == "" {
+		errs = append(errs, fmt.Errorf("the user's password is empty"))
 	}
 	if err := utilerrors.NewAggregate(errs); err != nil {
 		return err

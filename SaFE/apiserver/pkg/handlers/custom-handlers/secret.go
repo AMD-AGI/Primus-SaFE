@@ -74,15 +74,6 @@ func (h *Handler) DeleteSecret(c *gin.Context) {
 // Validates the request, generates a secret object, creates it in the cluster,
 // and updates workspace secret associations.
 func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
-	if err := h.accessController.Authorize(authority.AccessInput{
-		Context:      c.Request.Context(),
-		ResourceKind: authority.SecretResourceKind,
-		Verb:         v1.CreateVerb,
-		UserId:       c.GetString(common.UserId),
-	}); err != nil {
-		return nil, err
-	}
-
 	req := &types.CreateSecretRequest{}
 	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
@@ -90,7 +81,7 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	secret, err := generateSecret(req)
+	secret, err := h.generateSecret(c, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate secret")
 		return nil, err
@@ -406,23 +397,41 @@ func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secr
 
 // generateSecret creates a new secret object based on the creation request.
 // Validates the request parameters and populates the secret metadata and data.
-func generateSecret(req *types.CreateSecretRequest) (*corev1.Secret, error) {
+func (h *Handler) generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Secret, error) {
 	if req.Name == "" {
 		return nil, commonerrors.NewBadRequest("the name is empty")
 	}
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.SecretResourceKind,
+		Verb:         v1.CreateVerb,
+		User:         requestUser,
+		Workspaces:   req.BindWorkspaceIds,
+	}); err != nil {
+		return nil, err
+	}
+
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      req.Name,
 			Namespace: common.PrimusSafeNamespace,
 			Labels: map[string]string{
 				v1.SecretTypeLabel: string(req.Type),
+				v1.UserIdLabel:     requestUser.Name,
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: v1.GetUserName(requestUser),
 			},
 		},
 	}
 	if req.BindAllWorkspaces {
 		v1.SetLabel(secret, v1.SecretAllWorkspaceLabel, v1.TrueStr)
 	}
-	if err := buildSecretData(req.Type, req.Params, secret); err != nil {
+	if err = buildSecretData(req.Type, req.Params, secret); err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 	if req.Name != "" {

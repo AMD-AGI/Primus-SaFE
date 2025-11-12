@@ -239,7 +239,7 @@ func (c *ssoToken) synchronizeUser(ctx context.Context, userInfo *UserInfo) (*v1
 				},
 			},
 			Spec: v1.UserSpec{
-				Type: v1.SSOUser,
+				Type: v1.SSOUserType,
 			},
 		}
 		if err = c.Create(ctx, user); err != nil {

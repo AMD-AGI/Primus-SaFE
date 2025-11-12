@@ -16,8 +16,8 @@ type UserRestrictedType int
 const (
 	UserKind = "User"
 
-	DefaultUser UserType = "default"
-	SSOUser     UserType = "sso"
+	DefaultUserType UserType = "default"
+	SSOUserType     UserType = "sso"
 
 	UserNormal UserRestrictedType = 0
 	UserFrozen UserRestrictedType = 1

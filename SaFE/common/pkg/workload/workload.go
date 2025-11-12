@@ -217,18 +217,17 @@ func IsApplication(w *v1.Workload) bool {
 	return false
 }
 
-// IsJob returns true if the condition is met.
-func IsJob(w *v1.Workload) bool {
-	if w.SpecKind() == common.PytorchJobKind ||
-		w.SpecKind() == common.AuthoringKind || w.SpecKind() == common.JobKind {
+// IsAuthoring returns true if the workload is authoring.
+func IsAuthoring(w *v1.Workload) bool {
+	if w.SpecKind() == common.AuthoringKind {
 		return true
 	}
 	return false
 }
 
-// IsAuthoring returns true if the condition is met.
-func IsAuthoring(w *v1.Workload) bool {
-	if w.SpecKind() == common.AuthoringKind {
+// IsCICD returns true if workload is cicd
+func IsCICD(w *v1.Workload) bool {
+	if w.SpecKind() == common.CICDKind {
 		return true
 	}
 	return false

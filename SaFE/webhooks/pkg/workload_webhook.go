@@ -125,6 +125,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateMaxRetry(workload)
 	m.mutateEnv(nil, workload)
 	m.mutateTTLSeconds(workload)
+	m.mutateSecrets(workload, workspace)
 	return true
 }
 
@@ -448,6 +449,30 @@ func (m *WorkloadMutator) mutateCronJobs(workload *v1.Workload) {
 	}
 }
 
+// mutateSecrets handles workload Secrets configuration, ensuring necessary image pull secrets are added
+// 1. Inherit ImageSecrets from workspace if available
+// 2. Add default cluster image secret if no workspace but global config exists
+func (m *WorkloadMutator) mutateSecrets(workload *v1.Workload, workspace *v1.Workspace) {
+	secretsSet := sets.NewSet()
+	for _, s := range workload.Spec.Secrets {
+		secretsSet.Insert(s.Id)
+	}
+	if workspace != nil {
+		for _, s := range workspace.Spec.ImageSecrets {
+			if secretsSet.Has(s.Name) {
+				continue
+			}
+			secretsSet.Insert(s.Name)
+			workload.Spec.Secrets = append(workload.Spec.Secrets, v1.SecretEntity{Id: s.Name, Type: v1.SecretImage})
+		}
+	} else if commonconfig.GetImageSecret() != "" {
+		clusterSecretId := commonutils.GenerateClusterSecret(v1.GetClusterId(workload), commonconfig.GetImageSecret())
+		if !secretsSet.Has(clusterSecretId) {
+			workload.Spec.Secrets = append(workload.Spec.Secrets, v1.SecretEntity{Id: clusterSecretId, Type: v1.SecretImage})
+		}
+	}
+}
+
 // WorkloadValidator validates Workload resources on create and update operations.
 type WorkloadValidator struct {
 	client.Client
@@ -754,16 +779,6 @@ func (v *WorkloadValidator) validateDisplayName(workload *v1.Workload) error {
 			v1.GetDisplayName(workload), commonutils.MaxDisplayNameLen)
 	} else if l == 0 {
 		return fmt.Errorf("the display name is empty")
-	}
-	return nil
-}
-
-// validateCustomerLabels ensures workload customer labels are valid.
-func (v *WorkloadValidator) validateCustomerLabels(workload *v1.Workload) error {
-	for key := range workload.Spec.CustomerLabels {
-		if err := validateLabelKey(key); err != nil {
-			return err
-		}
 	}
 	return nil
 }
