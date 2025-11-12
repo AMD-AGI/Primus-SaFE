@@ -72,7 +72,7 @@ func (s *WorkloadStatsService) Run(ctx context.Context) error {
 	for _, workload := range workloads {
 		if err := s.processWorkloadStats(ctx, &workload); err != nil {
 			log.Errorf("Failed to process workload %s/%s: %v",
-				workload.Namespace, workload.Name, err)
+				workload.Spec.Workspace, workload.Name, err)
 			failCount++
 		} else {
 			successCount++
@@ -126,7 +126,7 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 	clusterID := primusSafeV1.GetClusterId(workload)
 	if clusterID == "" {
 		log.Warnf("Workload %s/%s has no cluster ID, using default cluster",
-			workload.Namespace, workload.Name)
+			workload.Spec.Workspace, workload.Name)
 		clusterID = "default"
 	}
 
@@ -138,7 +138,7 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 	startTime := endTime.Add(-ThreeHours)
 
 	log.Infof("Getting hourly stats from cluster %s for workload %s/%s from %s to %s",
-		clusterID, workload.Namespace, workload.Name, startTime, endTime)
+		clusterID, workload.Spec.Workspace, workload.Name, startTime, endTime)
 	// Get data from the last 3 hours from workload_gpu_hourly_stats table
 	hourlyStats, err := lensFacade.GetGpuAggregation().ListWorkloadHourlyStatsByNamespace(
 		ctx,
@@ -162,7 +162,7 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 
 	if len(workloadStats) == 0 {
 		log.Infof("No hourly stats found for workload %s/%s in cluster %s in the last 3 hours",
-			workload.Namespace, workload.Name, clusterID)
+			workload.Spec.Workspace, workload.Name, clusterID)
 		return nil
 	}
 
@@ -174,7 +174,7 @@ func (s *WorkloadStatsService) processWorkloadStats(ctx context.Context, workloa
 		WorkloadID:      string(workload.UID),
 		WorkloadUID:     string(workload.UID),
 		Cluster:         clusterID,
-		Workspace:       workload.Namespace,
+		Workspace:       workload.Spec.Workspace,
 		StatisticType:   StatisticType3H,
 		AvgGpuUsage3H:   avgUtilization,
 		MaxGpuUsage3H:   maxUtilization,
