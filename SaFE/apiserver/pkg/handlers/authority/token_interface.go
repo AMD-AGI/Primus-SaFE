@@ -24,7 +24,7 @@ type TokenResponse struct {
 	// The timestamp when the user token expires, in seconds.
 	Expire int64 `json:"expire"`
 	// User token
-	RawToken string `json:"token"`
+	Token string `json:"token"`
 }
 
 // UserInfo represents user information extracted from ID token

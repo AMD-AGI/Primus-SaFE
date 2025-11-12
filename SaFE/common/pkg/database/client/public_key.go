@@ -14,8 +14,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
 const (
@@ -45,7 +45,7 @@ func (c *Client) InsertPublicKey(ctx context.Context, publicKey *PublicKey) erro
 		return nil
 	}
 
-	_, err = db.NamedExecContext(ctx, genInsertCommand(*publicKey, insertPublicKeyFormat, "id"), publicKey)
+	_, err = db.NamedExecContext(ctx, generateCommand(*publicKey, insertPublicKeyFormat, "id"), publicKey)
 	if err != nil {
 		return fmt.Errorf("failed to insert publicKey db err: %v", err)
 	}
