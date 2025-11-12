@@ -174,6 +174,9 @@ func parseListImageQuery(c *gin.Context) (*ImageServiceRequest, error) {
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
+	if query.PageNum <= 0 {
+		query.PageNum = 1
+	}
 	if query.PageSize <= 0 {
 		query.PageSize = DefaultQueryLimit
 	}
