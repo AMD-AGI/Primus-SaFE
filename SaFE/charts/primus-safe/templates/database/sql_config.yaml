@@ -136,8 +136,7 @@ data:
         deleted_at timestamptz
     );
 
-    alter table registry_info
-        owner to "primus-safe";
+    alter table registry_info owner to "primus-safe";
 
     create table if not exists image_import_job
     (
@@ -155,8 +154,7 @@ data:
         created_at timestamptz
     );
 
-    alter table image_import_job
-        owner to "primus-safe";
+    alter table image_import_job owner to "primus-safe";
 
     create table if not exists image_digest
     (
@@ -173,8 +171,7 @@ data:
         deleted_at   timestamp with time zone
     );
 
-    alter table image_digest
-        owner to "primus-safe";
+    alter table image_digest owner to "primus-safe";
 
     create table if not exists image
     (
@@ -205,8 +202,8 @@ data:
        delete_time TIMESTAMP
     );
 
-    CREATE INDEX idx_publickey_userid ON public_key(user_id);
-    CREATE UNIQUE INDEX idx_publickey_userid_pubkey ON public_key(user_id, public_key, delete_time);
+    CREATE INDEX if not exists idx_publickey_userid ON public_key(user_id);
+    CREATE UNIQUE INDEX  if not exists idx_publickey_userid_pubkey ON public_key(user_id, public_key, delete_time);
     alter table public_key owner to "primus-safe";
 
     CREATE TABLE if not exists ssh_session_records (
