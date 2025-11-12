@@ -369,19 +369,30 @@ func (j *GpuAggregationJob) sample(ctx context.Context,
 		activeGPUCount += gpuRequest
 
 		// Get workload information associated with this pod (for labels and annotations)
-		workload := podUIDToWorkload[dbPod.UID]
+		// A pod may be associated with multiple workloads
+		workloads := podUIDToWorkload[dbPod.UID]
 
-		// 4. Collect namespace dimension data
-		j.collectNamespaceDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		// 4. Collect namespace dimension data (use first workload if available)
+		var primaryWorkload *dbmodel.GpuWorkload
+		if len(workloads) > 0 {
+			primaryWorkload = workloads[0]
+		}
+		j.collectNamespaceDataFromDB(&snapshot, dbPod, primaryWorkload, gpuRequest, utilization)
 
-		// 5. Collect label dimension data
-		j.collectLabelDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		// 5. Collect label dimension data for all associated workloads
+		for _, workload := range workloads {
+			j.collectLabelDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		}
 
-		// 6. Collect annotation dimension data
-		j.collectAnnotationDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		// 6. Collect annotation dimension data for all associated workloads
+		for _, workload := range workloads {
+			j.collectAnnotationDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		}
 
-		// 7. Collect workload dimension data
-		j.collectWorkloadDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		// 7. Collect workload dimension data for all associated workloads
+		for _, workload := range workloads {
+			j.collectWorkloadDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		}
 	}
 
 	collectSpan.SetAttributes(
@@ -1692,7 +1703,7 @@ func (j *GpuAggregationJob) getClusterGpuCapacity(ctx context.Context, clusterNa
 func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 	ctx context.Context,
 	clusterName string,
-	dbPods []*dbmodel.GpuPods) (map[string]*dbmodel.GpuWorkload, error) {
+	dbPods []*dbmodel.GpuPods) (map[string][]*dbmodel.GpuWorkload, error) {
 
 	span, ctx := trace.StartSpanFromContext(ctx, "buildPodToWorkloadMapping.query")
 	defer trace.FinishSpan(span)
@@ -1704,7 +1715,7 @@ func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 
 	if len(dbPods) == 0 {
 		span.SetStatus(codes.Ok, "No pods to process")
-		return make(map[string]*dbmodel.GpuWorkload), nil
+		return make(map[string][]*dbmodel.GpuWorkload), nil
 	}
 
 	// Collect all Pod UIDs
@@ -1737,15 +1748,21 @@ func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 		log.Infof("No workload references found for pods")
 		span.SetAttributes(attribute.Int("references.count", 0))
 		span.SetStatus(codes.Ok, "No references found")
-		return make(map[string]*dbmodel.GpuWorkload), nil
+		return make(map[string][]*dbmodel.GpuWorkload), nil
 	}
 
-	// Collect all Workload UIDs
-	workloadUIDs := make([]string, 0, len(workloadRefs))
-	podToWorkloadUID := make(map[string]string)
+	// Collect all Workload UIDs and build Pod to Workload UIDs mapping (one-to-many)
+	workloadUIDSet := make(map[string]struct{})
+	podToWorkloadUIDs := make(map[string][]string)
 	for _, ref := range workloadRefs {
-		workloadUIDs = append(workloadUIDs, ref.WorkloadUID)
-		podToWorkloadUID[ref.PodUID] = ref.WorkloadUID
+		workloadUIDSet[ref.WorkloadUID] = struct{}{}
+		podToWorkloadUIDs[ref.PodUID] = append(podToWorkloadUIDs[ref.PodUID], ref.WorkloadUID)
+	}
+
+	// Convert set to slice
+	workloadUIDs := make([]string, 0, len(workloadUIDSet))
+	for uid := range workloadUIDSet {
+		workloadUIDs = append(workloadUIDs, uid)
 	}
 
 	// Query top-level Workload information (including labels)
@@ -1774,21 +1791,31 @@ func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 		workloadUIDToWorkload[workloads[i].UID] = workloads[i]
 	}
 
-	// Build mapping from Pod UID to Workload
-	result := make(map[string]*dbmodel.GpuWorkload)
-	for podUID, workloadUID := range podToWorkloadUID {
-		if workload, exists := workloadUIDToWorkload[workloadUID]; exists {
-			result[podUID] = workload
+	// Build mapping from Pod UID to Workloads (one-to-many)
+	result := make(map[string][]*dbmodel.GpuWorkload)
+	totalMappings := 0
+	for podUID, workloadUIDs := range podToWorkloadUIDs {
+		workloadList := make([]*dbmodel.GpuWorkload, 0, len(workloadUIDs))
+		for _, workloadUID := range workloadUIDs {
+			if workload, exists := workloadUIDToWorkload[workloadUID]; exists {
+				workloadList = append(workloadList, workload)
+				totalMappings++
+			}
+		}
+		if len(workloadList) > 0 {
+			result[podUID] = workloadList
 		}
 	}
 
 	span.SetAttributes(
-		attribute.Int("result.mapping_count", len(result)),
+		attribute.Int("result.pod_count", len(result)),
+		attribute.Int("result.total_mappings", totalMappings),
 		attribute.Int("result.workload_count", len(workloads)),
 	)
 	span.SetStatus(codes.Ok, "")
 
-	log.Infof("Built pod to workload mapping: %d pods, %d workloads", len(result), len(workloads))
+	log.Infof("Built pod to workload mapping: %d pods, %d total mappings, %d unique workloads",
+		len(result), totalMappings, len(workloads))
 	return result, nil
 }
 
