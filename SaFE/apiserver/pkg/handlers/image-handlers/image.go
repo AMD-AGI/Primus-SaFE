@@ -789,10 +789,9 @@ func buildExportImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []strin
 	}
 	
 	// Build ORDER BY clause
+	// Note: ops_job table uses "creation_time", not "created_at" like image table
 	orderByField := dbClient.GetFieldTag(dbTags, "CreationTime")
-	if query.OrderBy != "" {
-		orderByField = query.OrderBy
-	}
+	// Ignore query.OrderBy as it may contain image table field names
 	order := "DESC"
 	if query.Order != "" {
 		order = strings.ToUpper(query.Order)
