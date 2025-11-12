@@ -92,6 +92,8 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 		job, err = h.generateDumpLogJob(c, body)
 	case v1.OpsJobRebootType:
 		job, err = h.generateRebootJob(c, body)
+	case v1.OpsJobExportImageType:
+		job, err = h.generateExportImageJob(c, body)
 	default:
 		err = fmt.Errorf("unsupported ops job type(%s)", req.Type)
 	}
@@ -381,6 +383,85 @@ func (h *Handler) generateRebootJob(c *gin.Context, body []byte) (*v1.OpsJob, er
 	}
 
 	return genDefaultOpsJob(c, req), nil
+}
+
+// generateExportImageJob creates an export-image-type ops job.
+// It parses the workload ID from request body, retrieves workload information,
+// and generates a job object to export the workload image to Harbor.
+func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse request to get workload ID
+	req := &types.BaseOpsJobRequest{}
+	if err := json.Unmarshal(body, req); err != nil {
+		return nil, commonerrors.NewBadRequest("failed to parse request body: " + err.Error())
+	}
+
+	// Extract workload ID from inputs
+	var workloadId string
+	for _, param := range req.Inputs {
+		if param.Name == v1.ParameterWorkload || param.Name == "workloadId" {
+			workloadId = param.Value
+			break
+		}
+	}
+	if workloadId == "" {
+		return nil, commonerrors.NewBadRequest("workload ID is required in inputs")
+	}
+
+	// Get workload information for authorization
+	ctx := c.Request.Context()
+	workload, err := h.getWorkloadForAuth(ctx, workloadId)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check authorization
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:    ctx,
+		Resource:   workload,
+		Verb:       v1.GetVerb,
+		Workspaces: []string{workload.Spec.Workspace},
+		User:       requestUser,
+	}); err != nil {
+		return nil, err
+	}
+
+	// Get full workload to access image field
+	adminWorkload, err := h.getAdminWorkload(ctx, workloadId)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate workload has image
+	if adminWorkload.Spec.Image == "" {
+		return nil, commonerrors.NewBadRequest("workload image is empty")
+	}
+
+	// Build BaseOpsJobRequest for genDefaultOpsJob
+	jobName := fmt.Sprintf("export-image-%s", workloadId)
+	jobReq := &types.BaseOpsJobRequest{
+		Name: jobName,
+		Type: v1.OpsJobExportImageType,
+		Inputs: []v1.Parameter{
+			{Name: v1.ParameterWorkload, Value: workloadId},
+			{Name: "image", Value: adminWorkload.Spec.Image},
+		},
+		TimeoutSecond:           commonconfig.GetOpsJobTimeoutSecond(),
+		TTLSecondsAfterFinished: commonconfig.GetOpsJobTTLSecond(),
+	}
+
+	// Generate base OpsJob using genDefaultOpsJob
+	job := genDefaultOpsJob(c, jobReq)
+
+	// Add export-image specific labels
+	job.Labels[v1.WorkloadIdLabel] = workloadId
+	job.Labels[v1.WorkspaceIdLabel] = adminWorkload.Spec.Workspace
+
+	return job, nil
 }
 
 // genDefaultOpsJob creates a default ops job object with common properties.

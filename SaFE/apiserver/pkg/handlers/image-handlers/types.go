@@ -200,3 +200,16 @@ type Image struct {
 	CreatedAt   int64  `json:"created_at"`
 	CreatedBy   string `json:"created_by"`
 }
+
+// ExportedImageItem represents a single exported image extracted from ops_job table.
+type ExportedImageItem struct {
+	JobId        string    // Job ID from ops_job
+	SourceImage  string    // Source image from inputs
+	TargetImage  string    // Target image from outputs
+	Status       string    // Job phase: Pending/Running/Succeeded/Failed
+	UserName     string    // User who triggered the export
+	CreatedTime  time.Time // Job creation time
+	StartTime    time.Time // Job start time
+	EndTime      time.Time // Job end time
+	Message      string    // Success/failure message
+}

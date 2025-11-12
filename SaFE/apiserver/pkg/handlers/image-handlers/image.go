@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	sqrl "github.com/Masterminds/squirrel"
 	"github.com/cespare/xxhash/v2"
 	manifestv5 "github.com/containers/image/v5/manifest"
 	"github.com/containers/image/v5/transports/alltransports"
@@ -34,6 +35,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -112,6 +114,44 @@ func (h *ImageHandler) listImage(c *gin.Context) (interface{}, error) {
 		TotalCount: count,
 	}
 	results.Items = cvtImageToResponse(images, DefaultOS, DefaultArch)
+	return results, nil
+}
+
+// listExportedImage lists images that were exported from workloads by querying ops_job table.
+func (h *ImageHandler) listExportedImage(c *gin.Context) (interface{}, error) {
+	query, err := parseListImageQuery(c)
+	if err != nil {
+		klog.ErrorS(err, "fail to parseListImageQuery")
+		return nil, err
+	}
+
+	// Build SQL query for export jobs from ops_job table
+	dbSql, orderBy := buildExportImageJobQuery(query)
+
+	// Query export jobs from ops_job table
+	jobs, err := h.dbClient.SelectJobs(c, dbSql, orderBy, query.PageSize, (query.PageNum-1)*query.PageSize)
+	if err != nil {
+		klog.ErrorS(err, "failed to query export jobs")
+		return nil, err
+	}
+
+	// Count total records
+	count, err := h.dbClient.CountJobs(c, dbSql)
+	if err != nil {
+		klog.ErrorS(err, "failed to count export jobs")
+		return nil, err
+	}
+
+	// Convert ops_job records to ExportedImageItem
+	exportedItems := convertOpsJobToExportedImages(jobs)
+
+	// Convert to GetImageResponse format (grouped by repo)
+	results := &GetImageResponse{
+		TotalCount: count,
+	}
+	results.Items = cvtExportedImagesToResponse(exportedItems)
+
+	klog.V(4).Infof("listed %d exported images", len(exportedItems))
 	return results, nil
 }
 
@@ -726,4 +766,178 @@ func (h *ImageHandler) fetchDockerToken(_ context.Context, imagePath string) (st
 	}
 
 	return tokenResponse.Token, nil
+}
+
+// buildExportImageJobQuery builds SQL query for export image jobs from ops_job table.
+func buildExportImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []string) {
+	dbTags := dbClient.GetOpsJobFieldTags()
+	
+	// Build WHERE clause
+	dbSql := sqrl.And{
+		sqrl.Eq{dbClient.GetFieldTag(dbTags, "Type"): string(v1.OpsJobExportImageType)},
+		sqrl.Eq{dbClient.GetFieldTag(dbTags, "IsDeleted"): false},
+	}
+	
+	// Filter by user name if specified
+	if query.UserName != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "UserName"): query.UserName})
+	}
+	
+	// Filter by ready status (only show succeeded jobs)
+	if query.Ready {
+		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "Phase"): string(v1.OpsJobSucceeded)})
+	}
+	
+	// Build ORDER BY clause
+	orderByField := dbClient.GetFieldTag(dbTags, "CreationTime")
+	if query.OrderBy != "" {
+		orderByField = query.OrderBy
+	}
+	order := "DESC"
+	if query.Order != "" {
+		order = strings.ToUpper(query.Order)
+	}
+	orderBy := []string{fmt.Sprintf("%s %s", orderByField, order)}
+	
+	return dbSql, orderBy
+}
+
+// convertOpsJobToExportedImages converts ops_job records to ExportedImageItem slice.
+func convertOpsJobToExportedImages(jobs []*dbClient.OpsJob) []ExportedImageItem {
+	result := make([]ExportedImageItem, 0, len(jobs))
+	
+	for _, job := range jobs {
+		item := ExportedImageItem{
+			JobId:       job.JobId,
+			Status:      dbutils.ParseNullString(job.Phase),
+			UserName:    dbutils.ParseNullString(job.UserName),
+			CreatedTime: dbutils.ParseNullTime(job.CreationTime),
+			StartTime:   dbutils.ParseNullTime(job.StartTime),
+			EndTime:     dbutils.ParseNullTime(job.EndTime),
+		}
+		
+		// Parse inputs to extract source image
+		if len(job.Inputs) > 0 {
+			inputsStr := string(job.Inputs)
+			// Parse TEXT[] format: {"{name:workload,value:xxx}","{name:image,value:yyy}"}
+			if strings.Contains(inputsStr, "name:image") {
+				parts := strings.Split(inputsStr, ",")
+				for _, part := range parts {
+					if strings.Contains(part, "name:image") && strings.Contains(part, "value:") {
+						start := strings.Index(part, "value:") + 6
+						end := len(part)
+						if idx := strings.Index(part[start:], "}"); idx != -1 {
+							end = start + idx
+						}
+						item.SourceImage = strings.TrimSpace(part[start:end])
+						break
+					}
+				}
+			}
+		}
+		
+		// Parse outputs to extract target image
+		if outputsStr := dbutils.ParseNullString(job.Outputs); outputsStr != "" {
+			var outputs []v1.Parameter
+			if err := json.Unmarshal([]byte(outputsStr), &outputs); err == nil {
+				for _, param := range outputs {
+					switch param.Name {
+					case "target":
+						item.TargetImage = param.Value
+					case "message":
+						item.Message = param.Value
+					}
+				}
+			}
+		}
+		
+		// Parse conditions to extract failure message if needed
+		if item.Message == "" {
+			if conditionsStr := dbutils.ParseNullString(job.Conditions); conditionsStr != "" {
+				var conditions []metav1.Condition
+				if err := json.Unmarshal([]byte(conditionsStr), &conditions); err == nil {
+					for i := len(conditions) - 1; i >= 0; i-- {
+						if conditions[i].Message != "" {
+							item.Message = conditions[i].Message
+							break
+						}
+					}
+				}
+			}
+		}
+		
+		result = append(result, item)
+	}
+	
+	return result
+}
+
+// cvtExportedImagesToResponse converts ExportedImageItem slice to GetImageResponse format (grouped by repo).
+func cvtExportedImagesToResponse(exportedImages []ExportedImageItem) []GetImageResponseItem {
+	repoMap := map[string]int{}
+	result := make([]GetImageResponseItem, 0)
+	
+	// Note: Target image from controller doesn't include registry host
+	// It's in format: "Custom/namespace/repository:tag"
+	// We need to get the default registry to construct full path
+	
+	for _, item := range exportedImages {
+		// Skip if no target image
+		if item.TargetImage == "" {
+			continue
+		}
+		
+		// Parse target image format: "Custom/rocm/pytorch:20250112"
+		// Format: [project]/[namespace]/[repository]:[tag]
+		// Example: "Custom" is the Harbor project name
+		var repo, imageTag string
+		
+		// Split by last ":"
+		imageWithoutTag := item.TargetImage
+		if colonIdx := strings.LastIndex(item.TargetImage, ":"); colonIdx != -1 {
+			imageWithoutTag = item.TargetImage[:colonIdx]
+			imageTag = item.TargetImage[colonIdx+1:]
+		} else {
+			imageTag = "latest"
+		}
+		
+		// repo is everything after first "/" (Custom/rocm/pytorch → rocm/pytorch)
+		if slashIdx := strings.Index(imageWithoutTag, "/"); slashIdx != -1 {
+			repo = imageWithoutTag[slashIdx+1:] // "rocm/pytorch"
+		} else {
+			repo = imageWithoutTag
+		}
+		
+		// Create artifact item
+		artifact := ArtifactItem{
+			ImageTag:    imageTag,
+			Description: fmt.Sprintf("Exported from source: %s", item.SourceImage),
+			CreatedTime: timeutil.FormatRFC3339(item.CreatedTime),
+			UserName:    item.UserName,
+			Status:      item.Status,
+			IncludeType: "export",
+			// Note: Size, Arch, Os, Digest would need to be fetched from Harbor API
+		}
+		
+		// For exported images, we use a placeholder registry host
+		// In production, this should be fetched from the default registry config
+		registryHost := "harbor.exported" // Placeholder, could be fetched from config
+		
+		// Group by registry+repo
+		fullUrl := strings.Join([]string{registryHost, repo}, "/")
+		if index, ok := repoMap[fullUrl]; !ok {
+			// New repo
+			result = append(result, GetImageResponseItem{
+				RegistryHost: registryHost,
+				Repo:         repo,
+				Artifacts:    []ArtifactItem{artifact},
+			})
+			repoMap[fullUrl] = len(result) - 1
+		} else {
+			// Existing repo, append artifact
+			result[index].Artifacts = append(result[index].Artifacts, artifact)
+		}
+	}
+	
+	return result
 }
