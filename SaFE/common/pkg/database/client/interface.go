@@ -24,6 +24,7 @@ type Interface interface {
 	PublicKeyInterface
 	SshSessionRecordsInterface
 	NotificationInterface
+	WorkloadStatisticInterface
 }
 
 type WorkloadInterface interface {
@@ -100,4 +101,19 @@ type NotificationInterface interface {
 	SubmitNotification(ctx context.Context, data *model.Notification) error
 	ListUnprocessedNotifications(ctx context.Context) ([]*model.Notification, error)
 	UpdateNotification(ctx context.Context, data *model.Notification) error
+}
+
+type WorkloadStatisticInterface interface {
+	GetWorkloadStatisticByID(ctx context.Context, id int32) (*model.WorkloadStatistic, error)
+	GetWorkloadStatisticByWorkloadID(ctx context.Context, workloadID string) (*model.WorkloadStatistic, error)
+	GetWorkloadStatisticsByWorkloadID(ctx context.Context, workloadID string) ([]*model.WorkloadStatistic, error)
+	GetWorkloadStatisticByWorkloadUID(ctx context.Context, workloadUID string) (*model.WorkloadStatistic, error)
+	GetWorkloadStatisticsByWorkloadUID(ctx context.Context, workloadUID string) ([]*model.WorkloadStatistic, error)
+	GetWorkloadStatisticsByClusterAndWorkspace(ctx context.Context, cluster, workspace string) ([]*model.WorkloadStatistic, error)
+	GetWorkloadStatisticsByType(ctx context.Context, statisticType string) ([]*model.WorkloadStatistic, error)
+	CreateWorkloadStatistic(ctx context.Context, stat *model.WorkloadStatistic) error
+	UpsertWorkloadStatistic(ctx context.Context, stat *model.WorkloadStatistic) error
+	UpdateWorkloadStatistic(ctx context.Context, stat *model.WorkloadStatistic) error
+	DeleteWorkloadStatistic(ctx context.Context, id int32) error
+	DeleteWorkloadStatisticsByWorkloadID(ctx context.Context, workloadID string) error
 }
