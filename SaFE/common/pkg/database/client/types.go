@@ -17,7 +17,7 @@ import (
 const (
 	DESC = "desc"
 	ASC  = "asc"
-	
+
 	CreateTime  = "create_time"
 	CreatedTime = "created_at"
 )
@@ -134,8 +134,11 @@ func getFieldTags(obj interface{}) map[string]string {
 	return result
 }
 
-// genInsertCommand implements internal logic for the operation.
-func genInsertCommand(obj interface{}, format, ignoreTag string) string {
+// generateCommand generates SQL command string using reflection
+// Iterates through struct fields and builds column and value lists
+// Skips fields with specified ignoreTag
+// Returns formatted SQL command with columns and values
+func generateCommand(obj interface{}, format, ignoreTag string) string {
 	t := reflect.TypeOf(obj)
 	columns := make([]string, 0, t.NumField())
 	values := make([]string, 0, t.NumField())
@@ -191,4 +194,18 @@ type SshSessionRecords struct {
 func GetSshSessionRecordsFieldTags() map[string]string {
 	f := SshSessionRecords{}
 	return getFieldTags(f)
+}
+
+type UserToken struct {
+	UserId       string `db:"user_id"`
+	SessionId    string `db:"session_id"`
+	Token        string `db:"token"`
+	CreationTime int64  `db:"creation_time"`
+	ExpireTime   int64  `db:"expire_time"`
+}
+
+// GetUserTokenFieldTags returns the UserTokenFieldTags value.
+func GetUserTokenFieldTags() map[string]string {
+	token := UserToken{}
+	return getFieldTags(token)
 }

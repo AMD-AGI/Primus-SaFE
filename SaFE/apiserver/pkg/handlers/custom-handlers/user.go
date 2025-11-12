@@ -388,13 +388,13 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 		Username: query.Name,
 		Password: query.Password,
 	}
-	user, token, err := tokenInstance.Login(c.Request.Context(), tokenInput)
+	user, resp, err := tokenInstance.Login(c.Request.Context(), tokenInput)
 	if err != nil {
 		return nil, err
 	}
 	result := &types.UserLoginResponse{
-		Expire:           token.Expire,
-		Token:            token.RawToken,
+		Expire:           resp.Expire,
+		Token:            resp.Token,
 		UserResponseItem: h.cvtToUserResponseItem(c.Request.Context(), user),
 	}
 	if query.IsFromConsole {

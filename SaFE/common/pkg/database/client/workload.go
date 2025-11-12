@@ -73,7 +73,7 @@ func (c *Client) UpsertWorkload(ctx context.Context, workload *Workload) error {
 			klog.ErrorS(err, "failed to upsert workload db", "id", workload.WorkloadId)
 		}
 	} else {
-		_, err = db.NamedExecContext(ctx, genInsertCommand(*workload, insertWorkloadFormat, "id"), workload)
+		_, err = db.NamedExecContext(ctx, generateCommand(*workload, insertWorkloadFormat, "id"), workload)
 		if err != nil {
 			klog.ErrorS(err, "failed to insert workload db", "id", workload.WorkloadId)
 		}
