@@ -24,6 +24,7 @@ type Interface interface {
 	PublicKeyInterface
 	SshSessionRecordsInterface
 	NotificationInterface
+	UserTokenInterface
 }
 
 type WorkloadInterface interface {
@@ -100,4 +101,9 @@ type NotificationInterface interface {
 	SubmitNotification(ctx context.Context, data *model.Notification) error
 	ListUnprocessedNotifications(ctx context.Context) ([]*model.Notification, error)
 	UpdateNotification(ctx context.Context, data *model.Notification) error
+}
+
+type UserTokenInterface interface {
+	UpsertUserToken(ctx context.Context, userToken *UserToken) error
+	SelectUserTokens(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*UserToken, error)
 }

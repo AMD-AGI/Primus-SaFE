@@ -1,10 +1,10 @@
-module github.com/AMD-AGI/primus-lens/slurm-exporter
+module github.com/AMD-AGI/Primus-SaFE/Lens/slurm-exporter
 
 go 1.24.5
 
-replace github.com/AMD-AGI/primus-lens/core => ../../core
+replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../../core
 
-require github.com/AMD-AGI/primus-lens/core v0.0.0-00010101000000-000000000000
+require github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
 
 require (
 	github.com/gogo/protobuf v1.3.2 // indirect

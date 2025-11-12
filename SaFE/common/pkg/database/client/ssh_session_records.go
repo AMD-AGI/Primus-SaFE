@@ -13,8 +13,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
-	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
 const (
@@ -36,7 +36,7 @@ func (c *Client) InsertSshSessionRecord(ctx context.Context, record *SshSessionR
 		return insertId, err
 	}
 
-	rows, err := db.NamedQueryContext(ctx, genInsertCommand(*record, insertSshSessionRecordFormat, "id"), record)
+	rows, err := db.NamedQueryContext(ctx, generateCommand(*record, insertSshSessionRecordFormat, "id"), record)
 	if err != nil {
 		return insertId, fmt.Errorf("failed to insert ssh_session_records db err: %v", err)
 	}

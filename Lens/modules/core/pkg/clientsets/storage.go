@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/sql"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql"
 	"github.com/VictoriaMetrics/VictoriaMetrics/app/vmalert/remotewrite"
 	"github.com/opensearch-project/opensearch-go"
 	"github.com/prometheus/client_golang/api"
@@ -22,6 +22,7 @@ type StorageClientSet struct {
 	OpenSearch      *opensearch.Client // OpenSearch client
 	PrometheusRead  api.Client         // Prometheus HTTP API client
 	PrometheusWrite *remotewrite.Client
+	Config          *PrimusLensClientConfig // Storage configuration for debugging
 }
 
 var (
@@ -58,12 +59,13 @@ func loadCurrentClusterStorageClients(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	client, err := initStorageClients(ctx, *cfg)
+	clusterName := getCurrentClusterName()
+	client, err := initStorageClients(ctx, clusterName, *cfg)
 	if err != nil {
 		return err
 	}
 	currentClusterStorageClientSet = client
-	log.Info("Initialized single-cluster storage clients successfully")
+	log.Infof("Initialized single-cluster storage clients successfully for cluster: %s", clusterName)
 	return nil
 }
 
@@ -87,15 +89,17 @@ func loadMultiClusterStorageClients(ctx context.Context) error {
 	multiClusterStorageConfigJsonBytes = cfgJsonBytes
 	newMultiClusterStorageClientSet := map[string]*StorageClientSet{}
 	for clusterName, singleCLusterConfig := range cfg {
-		storageClientSet, err := initStorageClients(ctx, singleCLusterConfig)
+		storageClientSet, err := initStorageClients(ctx, clusterName, singleCLusterConfig)
 		if err != nil {
-			return err
+			log.Errorf("Failed to initialize storage clients for cluster %s: %v", clusterName, err)
+			continue
 		}
 		newMultiClusterStorageClientSet[clusterName] = storageClientSet
+		log.Infof("Initialized storage clients for cluster %s successfully", clusterName)
 	}
 	multiClusterStorageClientSet = newMultiClusterStorageClientSet
 	log.Info("Initialized multi-cluster storage clients successfully")
-	return nil
+	return errors.NewError().WithCode(errors.CodeInitializeError).WithMessage("Failed to initialize storage clients for some clusters").WithError(err)
 }
 
 func loadSingleClusterStorageConfig(ctx context.Context, k8sClient *K8SClientSet) (*PrimusLensClientConfig, error) {
@@ -141,7 +145,7 @@ func loadMultiClusterStorageConfig(ctx context.Context) (PrimusLensMultiClusterC
 	return cfg, nil
 }
 
-func initStorageClients(ctx context.Context, cfg PrimusLensClientConfig) (*StorageClientSet, error) {
+func initStorageClients(ctx context.Context, clusterName string, cfg PrimusLensClientConfig) (*StorageClientSet, error) {
 	clientSet := &StorageClientSet{}
 	sqlConfig := sql.DatabaseConfig{
 		Host:        fmt.Sprintf("%s.%s.svc.cluster.local", cfg.Postgres.Service, cfg.Postgres.Namespace),
@@ -155,13 +159,18 @@ func initStorageClients(ctx context.Context, cfg PrimusLensClientConfig) (*Stora
 		SSLMode:     cfg.Postgres.SSLMode,
 		Driver:      sql.DriverNamePostgres,
 	}
-	gormDb, err := sql.InitGormDB("default", sqlConfig)
+	log.Infof("Initializing storage clients for cluster '%s' ", clusterName)
+	gormDb, err := sql.InitGormDB(clusterName, sqlConfig,
+		sql.WithTracingCallback(),
+		sql.WithErrorStackCallback(),
+	)
 	if err != nil {
 		return nil, errors.NewError().
 			WithCode(errors.CodeInitializeError).
-			WithMessage("Failed to initialize default db").
+			WithMessagef("Failed to initialize db for cluster '%s'", clusterName).
 			WithError(err)
 	}
+	log.Infof("Successfully initialized DB for cluster '%s', DB pointer: %p", clusterName, gormDb)
 	clientSet.DB = gormDb
 	// Init Opensearch client
 	opensearchClient, err := opensearch.NewClient(opensearch.Config{
@@ -208,12 +217,14 @@ func initStorageClients(ctx context.Context, cfg PrimusLensClientConfig) (*Stora
 			WithError(err)
 	}
 	clientSet.PrometheusWrite = cli
+	// Store configuration for debugging
+	clientSet.Config = &cfg
 	return clientSet, nil
 }
 
 // InitStorageClients exported method for initializing storage clients from config
-func InitStorageClients(ctx context.Context, cfg PrimusLensClientConfig) (*StorageClientSet, error) {
-	return initStorageClients(ctx, cfg)
+func InitStorageClients(ctx context.Context, clusterName string, cfg PrimusLensClientConfig) (*StorageClientSet, error) {
+	return initStorageClients(ctx, clusterName, cfg)
 }
 
 func initPrometheusClient(endpoints string) (api.Client, error) {

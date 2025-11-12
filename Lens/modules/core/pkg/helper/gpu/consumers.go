@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/kubelet"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/k8sUtil"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/kubelet"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/k8sUtil"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -16,8 +16,8 @@ import (
 )
 
 // GetGpuConsumerInfo gets the gpu consumer info
-func GetGpuConsumerInfo(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSets *clientsets.StorageClientSet, vendor metadata.GpuVendor) ([]model.TopLevelGpuResource, error) {
-	pods, err := GetGpuAllocatedPods(ctx, clientSets, vendor)
+func GetGpuConsumerInfo(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSets *clientsets.StorageClientSet, clusterName string, vendor metadata.GpuVendor) ([]model.TopLevelGpuResource, error) {
+	pods, err := GetGpuAllocatedPods(ctx, clientSets, clusterName, vendor)
 	if err != nil {
 		return nil, err
 	}
@@ -127,14 +127,14 @@ func countGpuRequest(pod *corev1.Pod, vendor metadata.GpuVendor) int {
 	}
 	return total
 }
-func GetGpuAllocatedPods(ctx context.Context, clientSets *clientsets.K8SClientSet, vendor metadata.GpuVendor) ([]corev1.Pod, error) {
+func GetGpuAllocatedPods(ctx context.Context, clientSets *clientsets.K8SClientSet, clusterName string, vendor metadata.GpuVendor) ([]corev1.Pod, error) {
 	result := []corev1.Pod{}
 	nodes, err := GetGpuNodes(ctx, clientSets, vendor)
 	if err != nil {
 		return nil, err
 	}
 	for _, node := range nodes {
-		pods, err := getGpuPodByNode(ctx, node, clientSets, vendor)
+		pods, err := getGpuPodByNode(ctx, node, clientSets, clusterName, vendor)
 		if err != nil {
 			return nil, err
 		}
@@ -143,13 +143,13 @@ func GetGpuAllocatedPods(ctx context.Context, clientSets *clientsets.K8SClientSe
 	return result, nil
 }
 
-func getGpuPodByNode(ctx context.Context, nodeName string, clientSets *clientsets.K8SClientSet, vendor metadata.GpuVendor) ([]corev1.Pod, error) {
+func getGpuPodByNode(ctx context.Context, nodeName string, clientSets *clientsets.K8SClientSet, clusterName string, vendor metadata.GpuVendor) ([]corev1.Pod, error) {
 	node := &corev1.Node{}
 	err := clientSets.ControllerRuntimeClient.Get(ctx, types.NamespacedName{Name: nodeName}, node)
 	if err != nil {
 		return nil, err
 	}
-	gpuPods, err := kubelet.GetGpuPods(ctx, node, vendor)
+	gpuPods, err := kubelet.GetGpuPods(ctx, node, clusterName, vendor)
 	if err != nil {
 		return nil, err
 	}

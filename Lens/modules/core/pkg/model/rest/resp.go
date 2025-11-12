@@ -5,9 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
-	"github.com/AMD-AGI/primus-lens/core/pkg/trace"
-	"github.com/AMD-AGI/primus-lens/core/pkg/utils/mapUtil"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/mapUtil"
 	"io"
 )
 

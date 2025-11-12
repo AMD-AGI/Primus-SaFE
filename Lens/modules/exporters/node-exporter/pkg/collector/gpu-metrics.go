@@ -6,10 +6,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/gpu"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/kubelet"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/metadata"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/kubelet"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -23,11 +23,16 @@ var (
 		Name: "gpu_utilization",
 		Help: "gpu utilization",
 	}, []string{"gpu_id"})
+	gpuSocketPower = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "gpu_socket_power_watts",
+		Help: "gpu socket power in watts",
+	}, []string{"gpu_id"})
 )
 
 func init() {
 	prometheus.MustRegister(nodeK8SGpuAllocationRate)
 	prometheus.MustRegister(gpuUtilization)
+	prometheus.MustRegister(gpuSocketPower)
 }
 
 func runLoadGpuMetrics(ctx context.Context) {
@@ -41,6 +46,10 @@ func runLoadGpuMetrics(ctx context.Context) {
 			log.Errorf("Failed to load gpu allocation rate: %v", err)
 
 		}
+		err = loadGpuPower(ctx)
+		if err != nil {
+			log.Errorf("Failed to load gpu power: %v", err)
+		}
 		time.Sleep(5 * time.Second)
 	}
 }
@@ -49,7 +58,8 @@ func loadGpuAllocationRate(ctx context.Context) error {
 	gpuCount := len(GetGpuDeviceInfo())
 	nodeName := os.Getenv("NODE_NAME")
 	nodeIp := os.Getenv("NODE_IP")
-	pods, err := kubelet.GetGpuPodsByKubeletAddress(ctx, nodeName, fmt.Sprintf("https://%s:%d", nodeIp, 10250), metadata.GpuVendorAMD)
+	// Use empty string for current cluster default authentication in node-exporter
+	pods, err := kubelet.GetGpuPodsByKubeletAddress(ctx, nodeName, fmt.Sprintf("https://%s:%d", nodeIp, 10250), "", metadata.GpuVendorAMD)
 	if err != nil {
 		return err
 	}
@@ -65,6 +75,13 @@ func loadGpuAllocationRate(ctx context.Context) error {
 func loadGpuUtilization(ctx context.Context) error {
 	for _, metrics := range GetCardMetrics() {
 		gpuUtilization.WithLabelValues(fmt.Sprintf("%d", metrics.Gpu)).Set(metrics.GPUUsePercent)
+	}
+	return nil
+}
+
+func loadGpuPower(ctx context.Context) error {
+	for _, powerInfo := range GetGPUPowerInfo() {
+		gpuSocketPower.WithLabelValues(fmt.Sprintf("%d", powerInfo.GPU)).Set(powerInfo.Power.SocketPower.Value)
 	}
 	return nil
 }

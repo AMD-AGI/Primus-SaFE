@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model"
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
 
 var nsenterPrefix = []string{
@@ -139,4 +140,34 @@ func GetStateInfo() ([]model.CardMetrics, error) {
 		result = append(result, metrics)
 	}
 	return result, nil
+}
+
+// GetPowerInfo 获取所有 GPU 的功耗信息
+func GetPowerInfo() ([]model.GPUPowerInfo, error) {
+	cmds := []string{}
+	cmds = append(cmds, nsenterPrefix...)
+	cmds = append(cmds, []string{
+		"amd-smi", "metric", "-p", "--json",
+	}...)
+
+	cmd := exec.Command("nsenter", cmds...)
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+
+	err := cmd.Run()
+	if err != nil {
+		return nil, fmt.Errorf("Fail to execute amd-smi static -p: %v, stderr: %s", err, errBuf.String())
+	}
+
+	jsonBytes := outBuf.Bytes()
+	actualJsonBytes := extractJSON(string(jsonBytes))
+
+	var powerInfos []model.GPUPowerInfo
+	err = json.Unmarshal([]byte(actualJsonBytes), &powerInfos)
+	if err != nil {
+		return nil, fmt.Errorf("fail to parse power info json: %v", err)
+	}
+
+	return powerInfos, nil
 }

@@ -316,3 +316,62 @@ func (c *CardMetrics) UnmarshalJSON(data []byte) error {
 	}
 	return nil
 }
+
+// GPUPowerInfo 表示单个 GPU 的功耗信息
+type GPUPowerInfo struct {
+	GPU   int       `json:"gpu"`
+	Power PowerInfo `json:"power"`
+}
+
+// PowerInfo 表示 GPU 的功耗详细信息
+type PowerInfo struct {
+	SocketPower     ValueWithUnit    `json:"socket_power"`
+	GfxVoltage      VoltageValueOrNA `json:"gfx_voltage"`
+	SocVoltage      VoltageValueOrNA `json:"soc_voltage"`
+	MemVoltage      VoltageValueOrNA `json:"mem_voltage"`
+	ThrottleStatus  string           `json:"throttle_status"`
+	PowerManagement string           `json:"power_management"`
+}
+
+// VoltageValueOrNA 表示电压值，可能是数值或 "N/A"
+type VoltageValueOrNA struct {
+	Value float64 `json:"value"`
+	Unit  string  `json:"unit"`
+	IsNA  bool    `json:"-"`
+}
+
+func (v *VoltageValueOrNA) UnmarshalJSON(data []byte) error {
+	type Alias struct {
+		Value interface{} `json:"value"`
+		Unit  string      `json:"unit"`
+	}
+
+	var tmp Alias
+	if err := json.Unmarshal(data, &tmp); err != nil {
+		return err
+	}
+
+	v.Unit = tmp.Unit
+
+	switch val := tmp.Value.(type) {
+	case float64:
+		v.Value = val
+		v.IsNA = false
+	case string:
+		if val == "N/A" {
+			v.IsNA = true
+			v.Value = 0
+		} else {
+			if f, err := strconv.ParseFloat(val, 64); err == nil {
+				v.Value = f
+				v.IsNA = false
+			} else {
+				return fmt.Errorf("invalid voltage value: %s", val)
+			}
+		}
+	default:
+		return fmt.Errorf("unexpected type for voltage value: %T", val)
+	}
+
+	return nil
+}

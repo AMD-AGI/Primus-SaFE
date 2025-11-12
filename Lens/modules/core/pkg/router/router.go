@@ -1,7 +1,7 @@
 package router
 
 import (
-	"github.com/AMD-AGI/primus-lens/core/pkg/router/middleware"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -15,6 +15,7 @@ func RegisterGroup(group GroupRegister) {
 
 func InitRouter(engine *gin.Engine) error {
 	g := engine.Group("/v1")
+	g.Use(middleware.HandleLogging())
 	g.Use(middleware.HandleErrors())
 	g.Use(middleware.HandleTracing())
 	g.Use(middleware.CorsMiddleware())

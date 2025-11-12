@@ -14,7 +14,11 @@ import (
 
 func TestGenInsertWorkloadCmd(t *testing.T) {
 	workload := Workload{}
-	cmd := genInsertCommand(workload, insertWorkloadFormat, "id")
+	cmd := generateCommand(workload, insertWorkloadFormat, "id")
+	fmt.Println(cmd)
+
+	userToken := UserToken{}
+	cmd = generateCommand(userToken, upsertUserTokenFormat, "")
 	fmt.Println(cmd)
 }
 

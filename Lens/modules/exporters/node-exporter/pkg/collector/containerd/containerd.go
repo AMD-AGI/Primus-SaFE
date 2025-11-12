@@ -2,8 +2,8 @@ package containerd
 
 import (
 	"context"
-	"github.com/AMD-AGI/primus-lens/core/pkg/errors"
-	"github.com/AMD-AGI/primus-lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/containerd/containerd"
 	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 )

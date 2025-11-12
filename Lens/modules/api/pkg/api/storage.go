@@ -3,9 +3,9 @@ package api
 import (
 	"net/http"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/clientsets"
-	"github.com/AMD-AGI/primus-lens/core/pkg/helper/storage"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/storage"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,7 +18,7 @@ func getStorageStat(ctx *gin.Context) {
 		_ = ctx.Error(err)
 		return
 	}
-	
+
 	stats, err := storage.GetStorageStatWithClientSet(ctx, clients.StorageClientSet)
 	if err != nil {
 		_ = ctx.Error(err)

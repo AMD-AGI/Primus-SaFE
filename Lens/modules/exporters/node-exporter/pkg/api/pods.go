@@ -1,7 +1,7 @@
 package api
 
 import (
-	"github.com/AMD-AGI/primus-lens/node-exporter/pkg/collector"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/collector"
 	"github.com/gin-gonic/gin"
 	"net/http"
 )

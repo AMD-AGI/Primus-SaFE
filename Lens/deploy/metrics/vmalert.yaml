@@ -1,0 +1,67 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAlert
+metadata:
+  name: primus-lens-vmalert
+  namespace: primus-lens
+spec:
+  replicaCount: 2
+  
+  # Data source configuration
+  datasource:
+    url: "http://vmselect-primus-lens-metrics.primus-lens.svc.cluster.local:8481/select/0/prometheus"
+  
+  # Alert notifier configuration - send alerts to telemetry-processor
+  notifiers:
+    - url: "http://primus-lens-telemetry-processor.primus-lens.svc.cluster.local:8989/v1/alerts/metric"
+      headers:
+        - "Content-Type: application/json"
+        - "X-Alert-Source: vmalert"
+  
+  # Remote write for alert metrics (optional)
+  remoteWrite:
+    url: "http://vminsert-primus-lens-metrics.primus-lens.svc.cluster.local:8480/insert/0/prometheus"
+  
+  # Rule selector - selects VMRule resources with matching labels
+  ruleSelector:
+    matchLabels:
+      app: primus-lens
+      component: alerts
+  
+  # External labels added to all alerts
+  externalLabels:
+    cluster: "primus-lens"
+    environment: "production"
+  
+  # Evaluation interval for alert rules
+  evaluationInterval: "30s"
+  
+  # Resources
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  
+  # Service account
+  serviceAccountName: primus-lens
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: primus-lens-vmalert
+  namespace: primus-lens
+  labels:
+    app: primus-lens-vmalert
+spec:
+  selector:
+    app.kubernetes.io/name: vmalert
+    app.kubernetes.io/instance: primus-lens-vmalert
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP
+

@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/AMD-AGI/primus-lens/node-exporter/pkg/bootstrap"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/node-exporter/pkg/bootstrap"
 )
 
 func main() {

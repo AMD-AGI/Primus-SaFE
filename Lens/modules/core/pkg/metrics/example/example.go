@@ -3,7 +3,7 @@ package example
 import (
 	"bytes"
 	"context"
-	"github.com/AMD-AGI/primus-lens/core/pkg/metrics"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/metrics"
 	"net/http"
 )
 

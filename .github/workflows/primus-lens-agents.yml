@@ -1,0 +1,90 @@
+name: Primus-Lens-Agents-Build
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      agents_changed: ${{ steps.changed-files.outputs.agents_any_changed }}
+      image_version: ${{ steps.get-image-version.outputs.image_version }}
+      date_time: ${{ steps.get-current-time.outputs.date_time }}
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Calculate ImageVersion
+      id: get-image-version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "image_version=$TAG" >> $GITHUB_OUTPUT
+        else
+          echo "image_version=latest" >> $GITHUB_OUTPUT
+        fi
+    - name: Get Current Time
+      id: get-current-time
+      run: |
+        FORMATTED_DATE=$(TZ='Asia/Shanghai' date +'%Y%m%d%H%M')
+        echo "date_time=$FORMATTED_DATE" >> $GITHUB_OUTPUT
+    - name: Get changed files
+      id: changed-files
+      uses: tj-actions/changed-files@v40
+      with:
+        files_yaml: |
+          agents:
+            - Lens/modules/agents/**
+
+  build:
+    needs: detect-changes
+    runs-on: primus-safe-tw
+    timeout-minutes: 7200
+    if: ${{ needs.detect-changes.outputs.agents_changed == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Login registries
+        run: |
+          buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io
+          buildah login --tls-verify=false -u "${{ secrets.HARBOR_USERNAME }}" -p "${{ secrets.HARBOR_PASSWORD }}" "${{ secrets.HARBOR_HOST }}"
+
+      - name: Build and push with Buildah
+        env:
+          DOCKERIO_REPOSITORY: docker.io/primussafe
+          HARBOR_REPOSITORY: ${{ secrets.HARBOR_HOST }}/primussafe
+          IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
+          DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
+          IMAGE_NAME: primus-lens-agents
+        run: |
+          set -e
+          echo "🚧 Building ${IMAGE_NAME}..."
+
+          buildah bud \
+            --layers \
+            -t ${IMAGE_NAME}:${IMAGE_VERSION} \
+            -t ${IMAGE_NAME}:${DATE_TIME} \
+            -f Lens/modules/agents/Dockerfile \
+            Lens/modules/agents/
+          
+
+          for repo in ${DOCKERIO_REPOSITORY} ${HARBOR_REPOSITORY}; do
+            echo "🚀 Pushing ${IMAGE_NAME} to $repo..."
+            buildah tag ${IMAGE_NAME}:${IMAGE_VERSION} ${repo}/${IMAGE_NAME}:${IMAGE_VERSION}
+            buildah tag ${IMAGE_NAME}:${DATE_TIME} ${repo}/${IMAGE_NAME}:${DATE_TIME}
+            echo "Pushing tags: ${repo}/${IMAGE_NAME}:${IMAGE_VERSION}"
+            buildah push --tls-verify=false ${repo}/${IMAGE_NAME}:${IMAGE_VERSION}
+            echo "Pushing tags: ${repo}/${IMAGE_NAME}:${DATE_TIME}"
+            buildah push --tls-verify=false ${repo}/${IMAGE_NAME}:${DATE_TIME}
+          done
+
+
+

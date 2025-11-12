@@ -4,9 +4,9 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/AMD-AGI/primus-lens/core/pkg/constant"
-	"github.com/AMD-AGI/primus-lens/core/pkg/model/rest"
-	"github.com/AMD-AGI/primus-lens/telemetry-processor/pkg/module/pods"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model/rest"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/pods"
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/prompb"
 	"github.com/gin-gonic/gin"
 	"github.com/klauspost/compress/snappy"
