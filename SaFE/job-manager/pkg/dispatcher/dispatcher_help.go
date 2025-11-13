@@ -185,14 +185,14 @@ func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNe
 }
 
 // modifyVolumeMounts configures volume mounts for the container based on workspace and workload specifications.
-// It includes shared memory volumes, workspace volumes, and host path volumes of workload.
+// It includes shared memory volumes, workspace volumes, host path volumes and secret with default-type of workload.
 func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workload, workspace *v1.Workspace) {
 	var volumeMounts []interface{}
 	volumeMountObjs, ok := mainContainer["volumeMounts"]
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
-	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", ""))
+	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
 	maxId := 0
 	if workspace != nil {
 		for _, vol := range workspace.Spec.Volumes {
@@ -200,7 +200,7 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workl
 				maxId = vol.Id
 			}
 			if vol.MountPath != "" {
-				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath)
+				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath, false)
 				volumeMounts = append(volumeMounts, volumeMount)
 			}
 		}
@@ -208,7 +208,15 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workl
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumeMount := buildVolumeMount(volumeName, hostpath, "")
+		volumeMount := buildVolumeMount(volumeName, hostpath, "", false)
+		volumeMounts = append(volumeMounts, volumeMount)
+	}
+	for _, secret := range workload.Spec.Secrets {
+		if secret.Type != v1.SecretDefault {
+			continue
+		}
+		mountPath := fmt.Sprintf("/etc/secrets/%s", secret.Id)
+		volumeMount := buildVolumeMount(secret.Id, mountPath, "", true)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	mainContainer["volumeMounts"] = volumeMounts
@@ -239,13 +247,17 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			hasNewVolume = true
 		}
 	}
-
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volume := buildHostPathVolume(volumeName, hostpath)
-		volumes = append(volumes, volume)
+		volumes = append(volumes, buildHostPathVolume(volumeName, hostpath))
 		hasNewVolume = true
+	}
+	for _, secret := range workload.Spec.Secrets {
+		if secret.Type == v1.SecretDefault {
+			volumes = append(volumes, buildSecretVolume(secret.Id))
+			hasNewVolume = true
+		}
 	}
 	if !hasNewVolume {
 		return nil
@@ -485,10 +497,11 @@ func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {
 }
 
 // buildVolumeMount creates a volume mount definition.
-func buildVolumeMount(name, mountPath, subPath string) interface{} {
+func buildVolumeMount(name, mountPath, subPath string, readOnly bool) interface{} {
 	volMount := map[string]interface{}{
 		"mountPath": mountPath,
 		"name":      name,
+		"readOnly":  readOnly,
 	}
 	if subPath != "" {
 		volMount["subPath"] = subPath
@@ -513,6 +526,17 @@ func buildPvcVolume(volumeName string) interface{} {
 			"claimName": volumeName,
 		},
 		"name": volumeName,
+	}
+}
+
+// buildSecretVolume creates a volume definition for a Kubernetes secret.
+// This allows containers to mount the secret data as a volume.
+func buildSecretVolume(secretName string) interface{} {
+	return map[string]interface{}{
+		"secret": map[string]interface{}{
+			"secretName": secretName,
+		},
+		"name": secretName,
 	}
 }
 

@@ -87,7 +87,7 @@ spec:
                 description: |-
                   Group: An extension field that is not currently in use
                   Version: version of workload, default value is v1
-                  Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default PyTorchJob
+                  Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring/CICD, default PyTorchJob
                 properties:
                   group:
                     type: string
@@ -202,6 +202,23 @@ spec:
                 - memory
                 - replica
                 type: object
+              secrets:
+                description: |-
+                  The secrets used by the workload. Including some token secrets (only for CI/CD) and specified image secrets.
+                  Image secrets automatically use all image secrets bound to the workspace.
+                items:
+                  properties:
+                    id:
+                      description: Secret id, required
+                      type: string
+                    type:
+                      description: Secret type, optional. e.g. ssh/image/default
+                      type: string
+                  required:
+                  - id
+                  - type
+                  type: object
+                type: array
               service:
                 description: Service configuration
                 properties:

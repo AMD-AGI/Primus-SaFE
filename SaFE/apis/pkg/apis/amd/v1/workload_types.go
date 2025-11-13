@@ -108,9 +108,9 @@ type CronJob struct {
 }
 
 type SecretEntity struct {
-	// secret id, required
+	// Secret id, required
 	Id string `json:"id"`
-	// secret type, optional. This field is set internally. e.g. ssh/image/default
+	// Secret type, optional. e.g. ssh/image/default
 	Type SecretType `json:"type"`
 }
 

@@ -129,12 +129,6 @@ const (
 type SecretType string
 
 const (
-	Pending  Phase = "Pending"
-	Creating Phase = "Creating"
-	Ready    Phase = "Ready"
-	Unknown  Phase = "Unknown"
-	Deleted  Phase = "Deleted"
-
 	TrueStr = "true"
 
 	K8sHostName = "kubernetes.io/hostname"

@@ -137,7 +137,8 @@ func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWo
 	return true
 }
 
-// mutateCommon applies mutations to the resource.
+// mutateCommon normalizes resources, hostpaths, priority, image, entry point, host network,
+// customer labels and cron jobs.
 func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) bool {
 	m.mutateResource(workload, workspace)
 	m.mutateHostpath(workload, workspace)
@@ -150,7 +151,7 @@ func (m *WorkloadMutator) mutateCommon(ctx context.Context, workload *v1.Workloa
 	return true
 }
 
-// mutateMeta applies mutations to the resource.
+// mutateMeta sets normalized name, ownership, labels, main container and finalizer.
 func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
 	if workload.Name != "" {
 		workload.Name = stringutil.NormalizeName(workload.Name)
@@ -186,7 +187,7 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
 }
 
-// mutateGvk applies mutations to the resource.
+// mutateGvk defaults kind/version and clears group.
 func (m *WorkloadMutator) mutateGvk(workload *v1.Workload) {
 	if workload.Spec.Kind == "" {
 		workload.Spec.Kind = common.PytorchJobKind
@@ -198,7 +199,7 @@ func (m *WorkloadMutator) mutateGvk(workload *v1.Workload) {
 	workload.Spec.Group = ""
 }
 
-// mutatePriority applies mutations to the resource.
+// mutatePriority clamps priority within allowed bounds.
 func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
 	isChanged := false
 	if workload.Spec.Priority > common.HighPriorityInt {
@@ -211,7 +212,7 @@ func (m *WorkloadMutator) mutatePriority(workload *v1.Workload) bool {
 	return isChanged
 }
 
-// mutateResource applies mutations to the resource.
+// mutateResource sets GPU name, shared memory and default ephemeral storage.
 func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Workspace) bool {
 	isChanged := false
 	if workload.Spec.Resource.GPU == "0" {
@@ -239,8 +240,7 @@ func (m *WorkloadMutator) mutateResource(workload *v1.Workload, workspace *v1.Wo
 	return isChanged
 }
 
-// mutateHostpath removes duplicate hostpath entries from workload that are already included in workspace.
-// Workloads inherit all hostpath volumes from their workspace by default.
+// mutateHostpath removes hostpaths duplicated by the workspace; workloads inherit workspace hostpaths.
 func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Workspace) {
 	if len(workload.Spec.Hostpath) == 0 {
 		return
@@ -263,7 +263,7 @@ func (m *WorkloadMutator) mutateHostpath(workload *v1.Workload, workspace *v1.Wo
 	workload.Spec.Hostpath = hostpath
 }
 
-// mutateHealthCheck applies mutations to the resource.
+// mutateHealthCheck fills default probe timings for liveness/readiness.
 func (m *WorkloadMutator) mutateHealthCheck(workload *v1.Workload) {
 	if workload.Spec.Readiness != nil {
 		mutateHealthCheck(workload.Spec.Readiness)
@@ -273,7 +273,7 @@ func (m *WorkloadMutator) mutateHealthCheck(workload *v1.Workload) {
 	}
 }
 
-// mutateHealthCheck applies mutations to the resource.
+// mutateHealthCheck sets default initial delay, period and failures.
 func mutateHealthCheck(field *v1.HealthCheck) {
 	if field.InitialDelaySeconds == 0 {
 		field.InitialDelaySeconds = DefaultInitialDelaySeconds
@@ -286,7 +286,7 @@ func mutateHealthCheck(field *v1.HealthCheck) {
 	}
 }
 
-// mutateService applies mutations to the resource.
+// mutateService uppercases protocol and defaults to TCP.
 func (m *WorkloadMutator) mutateService(workload *v1.Workload) {
 	if workload.Spec.Service == nil {
 		return
@@ -317,7 +317,7 @@ func (m *WorkloadMutator) isHostNetworkEnabled(workload *v1.Workload, nf *v1.Nod
 	return true
 }
 
-// mutateDeployment applies mutations to the resource.
+// mutateDeployment resets supervision and rollout defaults for Deployments.
 func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
@@ -335,13 +335,13 @@ func (m *WorkloadMutator) mutateDeployment(workload *v1.Workload) {
 	}
 }
 
-// mutateStatefulSet applies mutations to the resource.
+// mutateStatefulSet resets supervision and retries for StatefulSets.
 func (m *WorkloadMutator) mutateStatefulSet(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
 }
 
-// mutateAuthoring applies mutations to the resource.
+// mutateAuthoring sets one-replica, entrypoint for Authoring.
 func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	workload.Spec.IsSupervised = false
 	workload.Spec.MaxRetry = 0
@@ -351,13 +351,13 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	workload.Spec.Dependencies = nil
 }
 
-// mutateImage applies mutations to the resource.
+// mutateImage trims image name and entry point.
 func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {
 	workload.Spec.Image = strings.TrimSpace(workload.Spec.Image)
 	workload.Spec.EntryPoint = strings.TrimSpace(workload.Spec.EntryPoint)
 }
 
-// mutateMaxRetry applies mutations to the resource.
+// mutateMaxRetry bounds MaxRetry to [0, DefaultMaxFailover].
 func (m *WorkloadMutator) mutateMaxRetry(workload *v1.Workload) {
 	if workload.Spec.MaxRetry > DefaultMaxFailover {
 		workload.Spec.MaxRetry = DefaultMaxFailover
@@ -367,7 +367,7 @@ func (m *WorkloadMutator) mutateMaxRetry(workload *v1.Workload) {
 	}
 }
 
-// mutateEnv applies mutations to the resource.
+// mutateEnv removes empty values and preserves deletions from the old spec.
 func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 	newWorkload.Spec.Env = maps.RemoveValue(newWorkload.Spec.Env, "")
 	// A null or empty value means the field should be removed.
@@ -380,14 +380,14 @@ func (m *WorkloadMutator) mutateEnv(oldWorkload, newWorkload *v1.Workload) {
 	}
 }
 
-// mutateTTLSeconds applies mutations to the resource.
+// mutateTTLSeconds sets a default TTL if not provided.
 func (m *WorkloadMutator) mutateTTLSeconds(workload *v1.Workload) {
 	if workload.Spec.TTLSecondsAfterFinished == nil {
 		workload.Spec.TTLSecondsAfterFinished = ptr.To(commonconfig.GetWorkloadTTLSecond())
 	}
 }
 
-// mutateEntryPoint applies mutations to the resource.
+// mutateEntryPoint base64-encodes entry point for the required jobs.
 func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
 	if commonworkload.IsAuthoring(workload) || commonworkload.IsOpsJob(workload) {
 		return
@@ -397,8 +397,8 @@ func (m *WorkloadMutator) mutateEntryPoint(workload *v1.Workload) {
 	}
 }
 
-// mutateHostNetwork determines whether to enable host network for the workload based on replica count and GPU resources.
-// If host network is enabled and RDMA is configured, it also sets the RDMA resource requirements.
+// mutateHostNetwork enables hostNetwork when replica equals per-node GPU count.
+// Also sets RDMA resources if enabled and flavor defines RDMA capacity.
 func (m *WorkloadMutator) mutateHostNetwork(ctx context.Context, workload *v1.Workload) {
 	flavorId := v1.GetNodeFlavorId(workload)
 	if flavorId == "" {

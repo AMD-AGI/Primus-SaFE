@@ -410,6 +410,8 @@ func (v *OpsJobValidator) validateImmutableFields(newJob, oldJob *v1.OpsJob) err
 	return nil
 }
 
+// hasDuplicateInput checks whether the given parameter name has the same value
+// in both parameter lists.
 func (v *OpsJobValidator) hasDuplicateInput(params1, params2 []v1.Parameter, paramName string) bool {
 	params1Map := make(map[string]string)
 	for _, p := range params1 {

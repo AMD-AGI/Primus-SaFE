@@ -18,18 +18,19 @@ type WorkloadSpecApplyConfiguration struct {
 	Env                                 map[string]string                   `json:"env,omitempty"`
 	IsSupervised                        *bool                               `json:"isSupervised,omitempty"`
 	*GroupVersionKindApplyConfiguration `json:"groupVersionKind,omitempty"`
-	MaxRetry                            *int                           `json:"maxRetry,omitempty"`
-	Priority                            *int                           `json:"priority,omitempty"`
-	TTLSecondsAfterFinished             *int                           `json:"ttlSecondsAfterFinished,omitempty"`
-	Timeout                             *int                           `json:"timeout,omitempty"`
-	CustomerLabels                      map[string]string              `json:"customerLabels,omitempty"`
-	Liveness                            *HealthCheckApplyConfiguration `json:"liveness,omitempty"`
-	Readiness                           *HealthCheckApplyConfiguration `json:"readiness,omitempty"`
-	Service                             *ServiceApplyConfiguration     `json:"service,omitempty"`
-	IsTolerateAll                       *bool                          `json:"isTolerateAll,omitempty"`
-	Hostpath                            []string                       `json:"hostpath,omitempty"`
-	Dependencies                        []string                       `json:"dependencies,omitempty"`
-	CronJobs                            []CronJobApplyConfiguration    `json:"cronJobs,omitempty"`
+	MaxRetry                            *int                             `json:"maxRetry,omitempty"`
+	Priority                            *int                             `json:"priority,omitempty"`
+	TTLSecondsAfterFinished             *int                             `json:"ttlSecondsAfterFinished,omitempty"`
+	Timeout                             *int                             `json:"timeout,omitempty"`
+	CustomerLabels                      map[string]string                `json:"customerLabels,omitempty"`
+	Liveness                            *HealthCheckApplyConfiguration   `json:"liveness,omitempty"`
+	Readiness                           *HealthCheckApplyConfiguration   `json:"readiness,omitempty"`
+	Service                             *ServiceApplyConfiguration       `json:"service,omitempty"`
+	IsTolerateAll                       *bool                            `json:"isTolerateAll,omitempty"`
+	Hostpath                            []string                         `json:"hostpath,omitempty"`
+	Dependencies                        []string                         `json:"dependencies,omitempty"`
+	CronJobs                            []CronJobApplyConfiguration      `json:"cronJobs,omitempty"`
+	Secrets                             []SecretEntityApplyConfiguration `json:"secrets,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
@@ -248,6 +249,19 @@ func (b *WorkloadSpecApplyConfiguration) WithCronJobs(values ...*CronJobApplyCon
 			panic("nil value passed to WithCronJobs")
 		}
 		b.CronJobs = append(b.CronJobs, *values[i])
+	}
+	return b
+}
+
+// WithSecrets adds the given value to the Secrets field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Secrets field.
+func (b *WorkloadSpecApplyConfiguration) WithSecrets(values ...*SecretEntityApplyConfiguration) *WorkloadSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithSecrets")
+		}
+		b.Secrets = append(b.Secrets, *values[i])
 	}
 	return b
 }

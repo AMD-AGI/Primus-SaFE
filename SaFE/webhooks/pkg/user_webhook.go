@@ -99,6 +99,7 @@ func (m *UserMutator) mutateMetadata(user *v1.User) {
 	metav1.SetMetaDataLabel(&user.ObjectMeta, v1.UserIdLabel, user.Name)
 }
 
+// mutateLabels updates user label hashes and the user type label.
 func (m *UserMutator) mutateLabels(user *v1.User) {
 	if val := v1.GetUserEmail(user); val != "" {
 		v1.SetLabel(user, v1.UserEmailMd5Label, stringutil.MD5(val))
