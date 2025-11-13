@@ -7,12 +7,16 @@ package ops_job
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/ssh"
+	"github.com/containers/image/v5/copy"
+	"github.com/containers/image/v5/signature"
+	"github.com/containers/image/v5/transports/alltransports"
+	"github.com/containers/image/v5/types"
 	corev1 "k8s.io/api/core/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -26,10 +30,10 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	rmutils "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
 const (
@@ -43,20 +47,10 @@ const (
 	imageImportSecretName = "primus-safe-image-import-reg-cred"
 
 	// Registry project name
-	registryProject = "Custom"
+	registryProject = "custom"
 )
 
-// RegistryAuth represents Docker registry authentication structure
-type RegistryAuth struct {
-	Auths map[string]RegistryAuthItem `json:"auths"`
-}
-
-// RegistryAuthItem represents authentication item for a registry
-type RegistryAuthItem struct {
-	Auth string `json:"auth"`
-}
-
-// ExportImageJobReconciler reconciles image export jobs using SSH + nerdctl
+// ExportImageJobReconciler reconciles image export jobs using containers/image library
 type ExportImageJobReconciler struct {
 	*OpsJobBaseReconciler
 	dbClient dbclient.Interface
@@ -171,32 +165,6 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
 	}
 
-	// Get workload to find the node
-	workload := &v1.Workload{}
-	if err := r.Get(ctx, client.ObjectKey{Name: workloadId}, workload); err != nil {
-		klog.ErrorS(err, "failed to get workload", "workloadId", workloadId)
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, "failed to get workload", nil)
-	}
-
-	// Get node information from workload pods
-	if len(workload.Status.Pods) == 0 {
-		err := commonerrors.NewBadRequest("workload has no pods")
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
-	}
-
-	// Use the first pod's admin node name
-	adminNodeName := workload.Status.Pods[0].AdminNodeName
-	if adminNodeName == "" {
-		err := commonerrors.NewBadRequest("workload pod is not scheduled to any node")
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
-	}
-
-	node := &v1.Node{}
-	if err := r.Get(ctx, client.ObjectKey{Name: adminNodeName}, node); err != nil {
-		klog.ErrorS(err, "failed to get node", "nodeName", adminNodeName)
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, "failed to get node", nil)
-	}
-
 	// Query default Harbor registry
 	defaultRegistry, err := r.dbClient.GetDefaultRegistryInfo(ctx)
 	if err != nil {
@@ -231,19 +199,13 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, "failed to create image record", nil)
 	}
 
-	klog.Infof("Starting image export: workload=%s, source=%s, target=%s, imageId=%d, node=%s",
-		workloadId, sourceImage, targetImage, dbImage.ID, node.Name)
+	klog.Infof("Starting image export: workload=%s, source=%s, target=%s, imageId=%d",
+		workloadId, sourceImage, targetImage, dbImage.ID)
 
-	// Get Harbor credentials from Secret
-	harborAuth, err := r.getHarborCredentials(ctx, defaultRegistry.URL)
-	if err != nil {
-		klog.ErrorS(err, "failed to get Harbor credentials")
-		return ctrlruntime.Result{}, r.handleExportFailure(ctx, job, dbImage, err.Error())
-	}
-
-	// Execute image export via SSH
-	if err := r.exportImageViaSSH(ctx, node, sourceImage, targetImage, defaultRegistry.URL, harborAuth); err != nil {
-		klog.ErrorS(err, "failed to export image", "source", sourceImage, "target", targetImage)
+	// Execute image copy using containers/image library (running in controller Pod, K8s cluster network)
+	fullTargetImage := fmt.Sprintf("%s/%s", defaultRegistry.URL, targetImage)
+	if err := r.copyImageDirectly(ctx, sourceImage, fullTargetImage, defaultRegistry); err != nil {
+		klog.ErrorS(err, "failed to copy image", "source", sourceImage, "target", fullTargetImage)
 		return ctrlruntime.Result{}, r.handleExportFailure(ctx, job, dbImage, err.Error())
 	}
 
@@ -278,155 +240,87 @@ func (r *ExportImageJobReconciler) handleExportFailure(ctx context.Context, job 
 	return r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, nil)
 }
 
-// getHarborCredentials retrieves Harbor credentials from Secret
-// This function reads the same Secret format as used in image.go (ImageImportSecretName)
-// Secret structure: {"auths": {"registry_url": {"auth": "base64(username:password)"}}}
-func (r *ExportImageJobReconciler) getHarborCredentials(ctx context.Context, registryURL string) (string, error) {
-	// Get Secret
-	secret := &corev1.Secret{}
-	if err := r.Get(ctx, apitypes.NamespacedName{
-		Name:      imageImportSecretName,
-		Namespace: defaultNamespace,
-	}, secret); err != nil {
-		return "", fmt.Errorf("failed to get secret %s: %w", imageImportSecretName, err)
-	}
-
-	// Parse config.json
-	configData, ok := secret.Data["config.json"]
-	if !ok {
-		return "", fmt.Errorf("config.json not found in secret")
-	}
-
-	var registryAuth RegistryAuth
-	if err := json.Unmarshal(configData, &registryAuth); err != nil {
-		return "", fmt.Errorf("failed to parse registry auth: %w", err)
-	}
-
-	// Find auth for the registry
-	authItem, ok := registryAuth.Auths[registryURL]
-	if !ok {
-		return "", fmt.Errorf("no authentication found for registry %s", registryURL)
-	}
-
-	// Return base64 encoded auth string (format: base64(username:password))
-	// This is the same format as Docker config.json uses
-	return authItem.Auth, nil
-}
-
-// exportImageViaSSH exports image using SSH connection and nerdctl commands
-func (r *ExportImageJobReconciler) exportImageViaSSH(
+// copyImageDirectly copies image from source to Harbor using containers/image library
+// This method runs in the controller Pod (K8s cluster network), same as Import image
+func (r *ExportImageJobReconciler) copyImageDirectly(
 	ctx context.Context,
-	node *v1.Node,
 	sourceImage string,
 	targetImage string,
-	registry string,
-	harborAuth string,
+	registry *model.RegistryInfo,
 ) error {
-	// Establish SSH connection
-	sshClient, err := rmutils.GetSSHClient(ctx, r.Client, node)
+	klog.Infof("Starting direct image copy: %s -> %s", sourceImage, targetImage)
+
+	// Step 1: Parse source and destination image references
+	srcRef, err := alltransports.ParseImageName(fmt.Sprintf("docker://%s", sourceImage))
 	if err != nil {
-		return fmt.Errorf("failed to create SSH client: %w", err)
-	}
-	defer sshClient.Close()
-
-	klog.Infof("SSH connected to node %s", node.Name)
-
-	// Step 1: Login to Harbor
-	if err := r.loginHarbor(sshClient, registry, harborAuth); err != nil {
-		return fmt.Errorf("failed to login Harbor: %w", err)
+		return fmt.Errorf("failed to parse source image: %w", err)
 	}
 
-	// Construct full image path with registry for tag and push operations
-	// targetImage is "Custom/admin/nginx:20250112", need to prepend registry
-	fullTargetImage := fmt.Sprintf("%s/%s", registry, targetImage)
-
-	// Step 2: Tag image
-	if err := r.tagImage(sshClient, sourceImage, fullTargetImage); err != nil {
-		return fmt.Errorf("failed to tag image: %w", err)
+	destRef, err := alltransports.ParseImageName(fmt.Sprintf("docker://%s", targetImage))
+	if err != nil {
+		return fmt.Errorf("failed to parse destination image: %w", err)
 	}
 
-	// Step 3: Push image
-	if err := r.pushImage(sshClient, fullTargetImage, registry); err != nil {
-		return fmt.Errorf("failed to push image: %w", err)
+	// Step 2: Create policy context (for signature verification)
+	policyContext, err := signature.NewPolicyContext(&signature.Policy{
+		Default: []signature.PolicyRequirement{signature.NewPRInsecureAcceptAnything()},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create policy context: %w", err)
+	}
+	defer policyContext.Destroy()
+
+	// Step 3: Setup source system context (for pulling from source registry)
+	sourceCtx := &types.SystemContext{
+		DockerInsecureSkipTLSVerify: types.OptionalBoolTrue,
 	}
 
-	klog.Infof("Successfully pushed image %s to registry %s", targetImage, registry)
+	// Step 4: Setup destination system context (for pushing to Harbor)
+	destCtx, err := r.getHarborSystemContext(ctx, registry)
+	if err != nil {
+		return fmt.Errorf("failed to get Harbor system context: %w", err)
+	}
+
+	// Step 5: Execute image copy (registry-to-registry direct copy)
+	klog.V(4).Infof("Copying image from %s to %s", sourceImage, targetImage)
+	_, err = copy.Image(ctx, policyContext, destRef, srcRef, &copy.Options{
+		SourceCtx:      sourceCtx,
+		DestinationCtx: destCtx,
+		ImageListSelection: copy.CopySystemImage,
+		ReportWriter: nil, // Could add progress reporting here
+	})
+	if err != nil {
+		return fmt.Errorf("image copy failed: %w", err)
+	}
+
+	klog.Infof("Successfully copied image %s to %s", sourceImage, targetImage)
 	return nil
 }
 
-// loginHarbor logs into Harbor registry using nerdctl
-// It creates the Docker config.json file directly instead of using nerdctl login command
-func (r *ExportImageJobReconciler) loginHarbor(sshClient *ssh.Client, registry string, auth string) error {
-	session, err := sshClient.NewSession()
+// getHarborSystemContext creates system context with Harbor authentication
+func (r *ExportImageJobReconciler) getHarborSystemContext(ctx context.Context, registry *model.RegistryInfo) (*types.SystemContext, error) {
+	// Decrypt username and password from database
+	username, err := crypto.NewCrypto().Decrypt(registry.Username)
 	if err != nil {
-		return fmt.Errorf("failed to create SSH session: %w", err)
-	}
-	defer session.Close()
-
-	// Create config.json with the auth directly (nerdctl reads the same format as Docker)
-	// This is simpler and more reliable than parsing username:password
-	configJSON := fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`, registry, auth)
-	
-	// Write config.json to /root/.docker/ (nerdctl will read from there)
-	cmd := fmt.Sprintf(`sudo mkdir -p /root/.docker && echo '%s' | sudo tee /root/.docker/config.json > /dev/null`, configJSON)
-
-	klog.V(4).Infof("Configuring Docker auth for registry %s", registry)
-
-	output, err := session.CombinedOutput(cmd)
-	if err != nil {
-		return fmt.Errorf("failed to configure auth: %s, error: %w", string(output), err)
+		return nil, fmt.Errorf("failed to decrypt Harbor username: %w", err)
 	}
 
-	klog.Infof("Successfully configured auth for Harbor registry %s", registry)
-	return nil
-}
-
-// tagImage tags the source image with target name
-func (r *ExportImageJobReconciler) tagImage(sshClient *ssh.Client, sourceImage string, targetImage string) error {
-	session, err := sshClient.NewSession()
+	password, err := crypto.NewCrypto().Decrypt(registry.Password)
 	if err != nil {
-		return fmt.Errorf("failed to create SSH session: %w", err)
-	}
-	defer session.Close()
-
-	cmd := fmt.Sprintf("sudo nerdctl tag %s %s", sourceImage, targetImage)
-	klog.V(4).Infof("Tagging image: %s -> %s", sourceImage, targetImage)
-
-	output, err := session.CombinedOutput(cmd)
-	if err != nil {
-		return fmt.Errorf("tag failed: %s, error: %w", string(output), err)
+		return nil, fmt.Errorf("failed to decrypt Harbor password: %w", err)
 	}
 
-	klog.Infof("Successfully tagged image %s as %s", sourceImage, targetImage)
-	return nil
-}
-
-// pushImage pushes the image to registry using nerdctl
-// registry parameter is used to configure insecure-registry if needed
-func (r *ExportImageJobReconciler) pushImage(sshClient *ssh.Client, imageName string, registry string) error {
-	session, err := sshClient.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create SSH session: %w", err)
-	}
-	defer session.Close()
-
-	// Add --insecure-registry flag to allow HTTP connections or self-signed certificates
-	// This is necessary when Harbor is configured without proper HTTPS setup
-	cmd := fmt.Sprintf("sudo nerdctl push --insecure-registry %s", imageName)
-	klog.V(4).Infof("Pushing image: %s (insecure registry enabled)", imageName)
-
-	output, err := session.CombinedOutput(cmd)
-	if err != nil {
-		return fmt.Errorf("push failed: %s, error: %w", string(output), err)
-	}
-
-	klog.Infof("Successfully pushed image %s", imageName)
-	return nil
+	return &types.SystemContext{
+		DockerInsecureSkipTLSVerify: types.OptionalBoolTrue,
+		DockerAuthConfig: &types.DockerAuthConfig{
+			Username: username,
+			Password: password,
+		},
+	}, nil
 }
 
 // generateTargetImageName generates the target image name without registry host
 // Format: Custom/namespace/repository:YYYYMMDD
-// Example: "rocm/7.0-preview:tag" -> "Custom/rocm/7.0-preview:20250112"
 func generateTargetImageName(sourceImage string) (string, error) {
 	// Remove tag from source image
 	imageWithoutTag := sourceImage
@@ -435,10 +329,6 @@ func generateTargetImageName(sourceImage string) (string, error) {
 	}
 
 	// Split by "/" to extract namespace/repository structure
-	// Examples:
-	//   "rocm/7.0-preview" -> ["rocm", "7.0-preview"]
-	//   "docker.io/library/nginx" -> ["docker.io", "library", "nginx"]
-	//   "nginx" -> ["nginx"]
 	parts := strings.Split(imageWithoutTag, "/")
 	if len(parts) == 0 {
 		return "", fmt.Errorf("invalid source image format: %s", sourceImage)
