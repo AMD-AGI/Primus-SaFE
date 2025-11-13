@@ -106,7 +106,11 @@ func getPodName(labelValues map[string]string) string {
 	if podName != "" {
 		return podName
 	}
-	return labelValues["pod_name"]
+	podName = labelValues["pod_name"]
+	if podName != "" {
+		return podName
+	}
+	return labelValues["exported_pod"]
 }
 
 func GetWorkloadsByPodName(podName string) [][]string {
