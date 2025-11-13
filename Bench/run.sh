@@ -34,6 +34,7 @@ if [ -n "${IO_BENCHMARK_MOUNT:-}" ]; then
 fi
 
 # ==== Step 2: SSH preflight ====
+export SSH_PORT=${SSH_PORT:-22366}
 cd "${PRIMUSBENCH_PATH}/preflight/ssh"
 bash run.sh
 
@@ -118,21 +119,51 @@ if [[ "$RANK" == "0" ]]; then
     bash run.sh 2>&1 | tee $preflight_network_logname
     cd $PRIMUSBENCH_PATH
 
-    # unhealthy_nodes=($(grep -oP "unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tr -d "'" | tr ',' ' '))
-    # healthy_nodes_ip=$(printf "%s\n" "${nodes_ip[@]}" "${unhealthy_nodes[@]/#/!}" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | uniq -u)
+    # Extract unhealthy nodes from network check
     match=$(grep -oP "unhealthy nodes: \[\K[^\]]+" "$preflight_network_logname" | tail -n1)
     if [[ -n "$match" ]]; then
         unhealthy_nodes=($(echo "$match" | tr -d "'" | tr ',' ' '))
     else
         unhealthy_nodes=()
     fi
-    echo "unhealthy_nodes: ${unhealthy_nodes[*]}"
-    mapfile -t healthy_nodes_ip < <(
-        printf "%s\n" "${nodes_ip[@]}" "${unhealthy_nodes[@]/#/!}" |
-        sort -t. -k1,1n -k2,2n -k3,3n -k4,4n |
-        uniq -u
-    )
-    ok "Network check complete. Healthy nodes: ${healthy_nodes_ip[*]}"
+    log "Unhealthy nodes detected: ${YELLOW}${unhealthy_nodes[*]:-none}${RESET}"
+    
+    # Filter out unhealthy nodes from all nodes
+    healthy_nodes_ip=()
+    if [ ${#unhealthy_nodes[@]} -eq 0 ]; then
+        # No unhealthy nodes, all nodes are healthy
+        healthy_nodes_ip=("${nodes_ip[@]}")
+    else
+        # Filter out unhealthy nodes
+        for ip in "${nodes_ip[@]}"; do
+            is_healthy=true
+            for unhealthy_ip in "${unhealthy_nodes[@]}"; do
+                if [[ "$ip" == "$unhealthy_ip" ]]; then
+                    is_healthy=false
+                    break
+                fi
+            done
+            if $is_healthy; then
+                healthy_nodes_ip+=("$ip")
+            fi
+        done
+    fi
+    ok "Network check complete. Healthy nodes (${#healthy_nodes_ip[@]}/${#nodes_ip[@]}): ${healthy_nodes_ip[*]}"
+    
+    # Exit if no healthy nodes
+    if [ ${#healthy_nodes_ip[@]} -eq 0 ]; then
+        err "No healthy nodes available after network check, aborting."
+        CUDA_VISIBLE_DEVICES="" torchrun \
+        --nproc_per_node=1 \
+        --nnodes=$WORLD_SIZE \
+        --node_rank=$RANK \
+        --master_addr=$MASTER_ADDR \
+        --master_port=$MASTER_PORT \
+        preflight/network/wait_ready.py
+        err "PrimusBench failed!"
+        exit 1
+    fi
+    
     INVENTORY_FILE="bench_inventory.ini"
     echo "[all]" > $INVENTORY_FILE
     for ip in "${healthy_nodes_ip[@]}"; do
@@ -178,6 +209,8 @@ if [[ "$RANK" == "0" ]]; then
     echo
     log "📊 Kernel Launch Overhead results:"
     jq . < "${OUTPUT_PATH}/kernel_overhead_results.json"
+
+    ok "✅ PrimusBench completed successfully!"
 fi
 
 log "${LOG_HEADER} [$(date +'%Y-%m-%d %H:%M:%S')] Waiting for rank 0 to complete bench..."
@@ -189,4 +222,4 @@ CUDA_VISIBLE_DEVICES="" torchrun \
     --master_port=$MASTER_PORT \
     preflight/network/wait_ready.py
 
-ok "✅ PrimusBench completed successfully!"
+ok "✅ PrimusBench completed!"
