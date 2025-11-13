@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
@@ -175,19 +176,18 @@ func (j *GpuAggregationJob) Run(ctx context.Context,
 	now := time.Now()
 	currentHour := now.Truncate(time.Hour)
 
-	// If hour has changed, aggregate data for the previous hour first
-	if currentHour.After(j.currentHour) && len(j.snapshotCache) > 0 {
-		log.Infof("Hour changed, aggregating data for hour: %v", j.currentHour)
+	// If hour has changed, aggregate data for the previous hour from database
+	if currentHour.After(j.currentHour) {
+		log.Infof("Hour changed, aggregating data for hour: %v from database", j.currentHour)
 		aggStart := time.Now()
 
 		aggSpan, aggCtx := trace.StartSpanFromContext(ctx, "aggregateHourlyData")
 		aggSpan.SetAttributes(
 			attribute.String("cluster.name", clusterName),
 			attribute.String("stat.hour", j.currentHour.Format(time.RFC3339)),
-			attribute.Int("snapshot.count", len(j.snapshotCache)),
 		)
 
-		if err := j.aggregateHourlyData(aggCtx, clusterName, j.currentHour); err != nil {
+		if err := j.aggregateHourlyDataFromDB(aggCtx, clusterName, j.currentHour); err != nil {
 			aggSpan.RecordError(err)
 			aggSpan.SetAttributes(
 				attribute.String("error.message", err.Error()),
@@ -208,11 +208,10 @@ func (j *GpuAggregationJob) Run(ctx context.Context,
 
 			stats.ProcessDuration += duration.Seconds()
 			stats.ItemsCreated++ // Created one hourly aggregation record
-			stats.AddMessage(fmt.Sprintf("Aggregated hourly data for %v", j.currentHour))
+			stats.AddMessage(fmt.Sprintf("Aggregated hourly data for %v from database", j.currentHour))
 		}
 
-		// Clear cache, start a new hour
-		j.snapshotCache = j.snapshotCache[:0]
+		// Update current hour
 		j.currentHour = currentHour
 	}
 
@@ -370,19 +369,30 @@ func (j *GpuAggregationJob) sample(ctx context.Context,
 		activeGPUCount += gpuRequest
 
 		// Get workload information associated with this pod (for labels and annotations)
-		workload := podUIDToWorkload[dbPod.UID]
+		// A pod may be associated with multiple workloads
+		workloads := podUIDToWorkload[dbPod.UID]
 
-		// 4. Collect namespace dimension data
-		j.collectNamespaceDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		// 4. Collect namespace dimension data (use first workload if available)
+		var primaryWorkload *dbmodel.GpuWorkload
+		if len(workloads) > 0 {
+			primaryWorkload = workloads[0]
+		}
+		j.collectNamespaceDataFromDB(&snapshot, dbPod, primaryWorkload, gpuRequest, utilization)
 
-		// 5. Collect label dimension data
-		j.collectLabelDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		// 5. Collect label dimension data for all associated workloads
+		for _, workload := range workloads {
+			j.collectLabelDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		}
 
-		// 6. Collect annotation dimension data
-		j.collectAnnotationDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		// 6. Collect annotation dimension data for all associated workloads
+		for _, workload := range workloads {
+			j.collectAnnotationDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		}
 
-		// 7. Collect workload dimension data
-		j.collectWorkloadDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		// 7. Collect workload dimension data for all associated workloads
+		for _, workload := range workloads {
+			j.collectWorkloadDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+		}
 	}
 
 	collectSpan.SetAttributes(
@@ -721,7 +731,70 @@ func (j *GpuAggregationJob) queryWorkloadUtilization(
 	return avg, nil
 }
 
-// aggregateHourlyData aggregates hourly data
+// aggregateHourlyDataFromDB aggregates hourly data by loading snapshots from database
+func (j *GpuAggregationJob) aggregateHourlyDataFromDB(
+	ctx context.Context,
+	clusterName string,
+	hour time.Time) error {
+
+	// Load snapshots from database for the specified hour
+	startTime := hour
+	endTime := hour.Add(time.Hour)
+
+	log.Infof("Loading snapshots from database for hour: %v (from %v to %v)", hour, startTime, endTime)
+
+	loadSpan, loadCtx := trace.StartSpanFromContext(ctx, "loadSnapshotsFromDB")
+	loadSpan.SetAttributes(
+		attribute.String("cluster.name", clusterName),
+		attribute.String("start_time", startTime.Format(time.RFC3339)),
+		attribute.String("end_time", endTime.Format(time.RFC3339)),
+	)
+
+	facade := database.GetFacadeForCluster(clusterName).GetGpuAggregation()
+	dbSnapshots, err := facade.ListSnapshots(loadCtx, startTime, endTime)
+	if err != nil {
+		loadSpan.RecordError(err)
+		loadSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(loadSpan)
+		return fmt.Errorf("failed to load snapshots from database: %w", err)
+	}
+
+	loadSpan.SetAttributes(attribute.Int("snapshots.count", len(dbSnapshots)))
+	loadSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(loadSpan)
+
+	if len(dbSnapshots) == 0 {
+		log.Warnf("No snapshots found in database for hour: %v", hour)
+		return nil
+	}
+
+	log.Infof("Loaded %d snapshots from database for hour: %v", len(dbSnapshots), hour)
+
+	// Convert database snapshots to memory format
+	convertSpan, convertCtx := trace.StartSpanFromContext(ctx, "convertSnapshots")
+	snapshots, err := j.convertDBSnapshotsToMemory(convertCtx, dbSnapshots)
+	if err != nil {
+		convertSpan.RecordError(err)
+		convertSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(convertSpan)
+		return fmt.Errorf("failed to convert snapshots: %w", err)
+	}
+	convertSpan.SetAttributes(attribute.Int("converted.count", len(snapshots)))
+	convertSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(convertSpan)
+
+	// Store converted snapshots temporarily for aggregation
+	originalCache := j.snapshotCache
+	j.snapshotCache = snapshots
+	defer func() {
+		j.snapshotCache = originalCache
+	}()
+
+	// Perform aggregation using existing logic
+	return j.aggregateHourlyData(ctx, clusterName, hour)
+}
+
+// aggregateHourlyData aggregates hourly data from in-memory snapshots
 func (j *GpuAggregationJob) aggregateHourlyData(
 	ctx context.Context,
 	clusterName string,
@@ -733,7 +806,7 @@ func (j *GpuAggregationJob) aggregateHourlyData(
 	}
 
 	log.Infof("Aggregating %d snapshots for hour: %v", len(j.snapshotCache), hour)
-	startTime := time.Now()
+	aggStartTime := time.Now()
 
 	// 1. Aggregate cluster-level data
 	if j.config.Dimensions.Cluster.Enabled {
@@ -837,10 +910,121 @@ func (j *GpuAggregationJob) aggregateHourlyData(
 	workloadSpan.SetStatus(codes.Ok, "")
 	trace.FinishSpan(workloadSpan)
 
-	duration := time.Since(startTime)
+	duration := time.Since(aggStartTime)
 	log.Infof("Hourly aggregation completed for hour: %v, took: %v", hour, duration)
 
 	return nil
+}
+
+// convertDBSnapshotsToMemory converts database snapshots to in-memory GpuSnapshot format
+func (j *GpuAggregationJob) convertDBSnapshotsToMemory(
+	ctx context.Context,
+	dbSnapshots []*dbmodel.GpuAllocationSnapshots) ([]GpuSnapshot, error) {
+
+	snapshots := make([]GpuSnapshot, 0, len(dbSnapshots))
+
+	for _, dbSnapshot := range dbSnapshots {
+		snapshot := GpuSnapshot{
+			Timestamp:      dbSnapshot.SnapshotTime,
+			ClusterName:    dbSnapshot.ClusterName,
+			TotalCapacity:  int(dbSnapshot.TotalGpuCapacity),
+			AllocatedGPU:   int(dbSnapshot.AllocatedGpuCount),
+			NamespaceData:  make(map[string]*NamespaceGpuData),
+			LabelData:      make(map[string]map[string]*LabelGpuData),
+			AnnotationData: make(map[string]map[string]*LabelGpuData),
+			WorkloadData:   make(map[string]*WorkloadGpuData),
+		}
+
+		// Parse allocation details from ExtType (map[string]interface{})
+		// First marshal to JSON, then unmarshal to AllocationDetails
+		detailsJSON, err := json.Marshal(dbSnapshot.AllocationDetails)
+		if err != nil {
+			log.Warnf("Failed to marshal allocation details for snapshot at %v: %v", dbSnapshot.SnapshotTime, err)
+			continue
+		}
+
+		var details model.AllocationDetails
+		if err := json.Unmarshal(detailsJSON, &details); err != nil {
+			log.Warnf("Failed to parse allocation details for snapshot at %v: %v", dbSnapshot.SnapshotTime, err)
+			continue
+		}
+
+		// Convert namespace data
+		for namespace, nsAlloc := range details.Namespaces {
+			nsData := &NamespaceGpuData{
+				Namespace:      namespace,
+				AllocatedGPU:   nsAlloc.AllocatedGPU,
+				UtilizationSum: nsAlloc.Utilization * float64(nsAlloc.AllocatedGPU),
+				WorkloadCount:  nsAlloc.WorkloadCount,
+				Workloads:      nsAlloc.Workloads,
+			}
+			snapshot.NamespaceData[namespace] = nsData
+		}
+
+		// Convert annotation data (stored as "key:value" -> AnnotationAllocation)
+		for key, annAlloc := range details.Annotations {
+			// Parse "key:value" format
+			parts := splitAnnotationKey(key)
+			if len(parts) != 2 {
+				log.Warnf("Invalid annotation key format: %s", key)
+				continue
+			}
+			annotationKey := parts[0]
+			annotationValue := parts[1]
+
+			if _, exists := snapshot.AnnotationData[annotationKey]; !exists {
+				snapshot.AnnotationData[annotationKey] = make(map[string]*LabelGpuData)
+			}
+
+			annData := &LabelGpuData{
+				DimensionType:  "annotation",
+				DimensionKey:   annotationKey,
+				DimensionValue: annotationValue,
+				AllocatedGPU:   annAlloc.AllocatedGPU,
+				UtilizationSum: annAlloc.Utilization * float64(annAlloc.AllocatedGPU),
+				WorkloadCount:  annAlloc.WorkloadCount,
+			}
+			snapshot.AnnotationData[annotationKey][annotationValue] = annData
+		}
+
+		// Convert workload data
+		for workloadUID, wSnapshot := range details.Workloads {
+			wData := &WorkloadGpuData{
+				WorkloadUID:       workloadUID,
+				WorkloadName:      wSnapshot.Name,
+				Namespace:         wSnapshot.Namespace,
+				WorkloadType:      wSnapshot.Kind,
+				AllocatedGPU:      wSnapshot.AllocatedGPU,
+				UtilizationValues: []float64{wSnapshot.Utilization}, // Store as single value
+				ReplicaCount:      1,
+			}
+			snapshot.WorkloadData[workloadUID] = wData
+		}
+
+		// Calculate utilization sum and active GPU count
+		utilizationSum := 0.0
+		activeGPUCount := 0
+		for _, nsData := range snapshot.NamespaceData {
+			utilizationSum += nsData.UtilizationSum
+			activeGPUCount += nsData.AllocatedGPU
+		}
+		snapshot.UtilizationSum = utilizationSum
+		snapshot.ActiveGPUCount = activeGPUCount
+
+		snapshots = append(snapshots, snapshot)
+	}
+
+	log.Infof("Converted %d database snapshots to memory format", len(snapshots))
+	return snapshots, nil
+}
+
+// splitAnnotationKey splits "key:value" into [key, value]
+func splitAnnotationKey(s string) []string {
+	idx := strings.Index(s, ":")
+	if idx == -1 {
+		return []string{s}
+	}
+	return []string{s[:idx], s[idx+1:]}
 }
 
 // aggregateClusterStats aggregates cluster-level statistics
@@ -1326,6 +1510,7 @@ func (j *GpuAggregationJob) saveSnapshotToDatabase(
 	details := model.AllocationDetails{
 		Namespaces:  make(map[string]model.NamespaceAllocation),
 		Annotations: make(map[string]model.AnnotationAllocation),
+		Workloads:   make(map[string]model.WorkloadSnapshot),
 	}
 
 	for namespace, data := range snapshot.NamespaceData {
@@ -1353,6 +1538,26 @@ func (j *GpuAggregationJob) saveSnapshotToDatabase(
 				Utilization:   utilization,
 				WorkloadCount: data.WorkloadCount,
 			}
+		}
+	}
+
+	for workloadUID, data := range snapshot.WorkloadData {
+		utilization := 0.0
+		// Calculate average utilization from UtilizationValues
+		if len(data.UtilizationValues) > 0 {
+			sum := 0.0
+			for _, val := range data.UtilizationValues {
+				sum += val
+			}
+			utilization = sum / float64(len(data.UtilizationValues))
+		}
+		details.Workloads[workloadUID] = model.WorkloadSnapshot{
+			UID:          workloadUID,
+			Name:         data.WorkloadName,
+			Namespace:    data.Namespace,
+			Kind:         data.WorkloadType,
+			AllocatedGPU: data.AllocatedGPU,
+			Utilization:  utilization,
 		}
 	}
 
@@ -1498,7 +1703,7 @@ func (j *GpuAggregationJob) getClusterGpuCapacity(ctx context.Context, clusterNa
 func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 	ctx context.Context,
 	clusterName string,
-	dbPods []*dbmodel.GpuPods) (map[string]*dbmodel.GpuWorkload, error) {
+	dbPods []*dbmodel.GpuPods) (map[string][]*dbmodel.GpuWorkload, error) {
 
 	span, ctx := trace.StartSpanFromContext(ctx, "buildPodToWorkloadMapping.query")
 	defer trace.FinishSpan(span)
@@ -1510,7 +1715,7 @@ func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 
 	if len(dbPods) == 0 {
 		span.SetStatus(codes.Ok, "No pods to process")
-		return make(map[string]*dbmodel.GpuWorkload), nil
+		return make(map[string][]*dbmodel.GpuWorkload), nil
 	}
 
 	// Collect all Pod UIDs
@@ -1543,15 +1748,21 @@ func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 		log.Infof("No workload references found for pods")
 		span.SetAttributes(attribute.Int("references.count", 0))
 		span.SetStatus(codes.Ok, "No references found")
-		return make(map[string]*dbmodel.GpuWorkload), nil
+		return make(map[string][]*dbmodel.GpuWorkload), nil
 	}
 
-	// Collect all Workload UIDs
-	workloadUIDs := make([]string, 0, len(workloadRefs))
-	podToWorkloadUID := make(map[string]string)
+	// Collect all Workload UIDs and build Pod to Workload UIDs mapping (one-to-many)
+	workloadUIDSet := make(map[string]struct{})
+	podToWorkloadUIDs := make(map[string][]string)
 	for _, ref := range workloadRefs {
-		workloadUIDs = append(workloadUIDs, ref.WorkloadUID)
-		podToWorkloadUID[ref.PodUID] = ref.WorkloadUID
+		workloadUIDSet[ref.WorkloadUID] = struct{}{}
+		podToWorkloadUIDs[ref.PodUID] = append(podToWorkloadUIDs[ref.PodUID], ref.WorkloadUID)
+	}
+
+	// Convert set to slice
+	workloadUIDs := make([]string, 0, len(workloadUIDSet))
+	for uid := range workloadUIDSet {
+		workloadUIDs = append(workloadUIDs, uid)
 	}
 
 	// Query top-level Workload information (including labels)
@@ -1580,21 +1791,31 @@ func (j *GpuAggregationJob) buildPodToWorkloadMapping(
 		workloadUIDToWorkload[workloads[i].UID] = workloads[i]
 	}
 
-	// Build mapping from Pod UID to Workload
-	result := make(map[string]*dbmodel.GpuWorkload)
-	for podUID, workloadUID := range podToWorkloadUID {
-		if workload, exists := workloadUIDToWorkload[workloadUID]; exists {
-			result[podUID] = workload
+	// Build mapping from Pod UID to Workloads (one-to-many)
+	result := make(map[string][]*dbmodel.GpuWorkload)
+	totalMappings := 0
+	for podUID, workloadUIDs := range podToWorkloadUIDs {
+		workloadList := make([]*dbmodel.GpuWorkload, 0, len(workloadUIDs))
+		for _, workloadUID := range workloadUIDs {
+			if workload, exists := workloadUIDToWorkload[workloadUID]; exists {
+				workloadList = append(workloadList, workload)
+				totalMappings++
+			}
+		}
+		if len(workloadList) > 0 {
+			result[podUID] = workloadList
 		}
 	}
 
 	span.SetAttributes(
-		attribute.Int("result.mapping_count", len(result)),
+		attribute.Int("result.pod_count", len(result)),
+		attribute.Int("result.total_mappings", totalMappings),
 		attribute.Int("result.workload_count", len(workloads)),
 	)
 	span.SetStatus(codes.Ok, "")
 
-	log.Infof("Built pod to workload mapping: %d pods, %d workloads", len(result), len(workloads))
+	log.Infof("Built pod to workload mapping: %d pods, %d total mappings, %d unique workloads",
+		len(result), totalMappings, len(workloads))
 	return result, nil
 }
 

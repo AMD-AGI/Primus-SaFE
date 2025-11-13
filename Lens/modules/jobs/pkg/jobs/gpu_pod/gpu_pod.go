@@ -229,7 +229,6 @@ func (g *GpuPodJob) checkForSinglePod(ctx context.Context, dbPod *dbModel.GpuPod
 		trace.FinishSpan(updateSpan)
 
 		atomic.AddInt64(&stats.ItemsUpdated, 1)
-		log.Infof("Updated pod %s/%s phase to %s", dbPod.Namespace, dbPod.Name, dbPod.Phase)
 
 		span.SetAttributes(attribute.Bool("pod.updated", true))
 	} else {
