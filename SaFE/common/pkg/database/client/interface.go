@@ -25,6 +25,7 @@ type Interface interface {
 	SshSessionRecordsInterface
 	NotificationInterface
 	WorkloadStatisticInterface
+	UserTokenInterface
 }
 
 type WorkloadInterface interface {
@@ -116,4 +117,9 @@ type WorkloadStatisticInterface interface {
 	UpdateWorkloadStatistic(ctx context.Context, stat *model.WorkloadStatistic) error
 	DeleteWorkloadStatistic(ctx context.Context, id int32) error
 	DeleteWorkloadStatisticsByWorkloadID(ctx context.Context, workloadID string) error
+}
+
+type UserTokenInterface interface {
+	UpsertUserToken(ctx context.Context, userToken *UserToken) error
+	SelectUserTokens(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*UserToken, error)
 }

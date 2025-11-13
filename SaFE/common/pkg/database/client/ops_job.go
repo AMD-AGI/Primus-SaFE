@@ -53,7 +53,7 @@ func (c *Client) UpsertJob(ctx context.Context, job *OpsJob) error {
 			return err
 		}
 	} else {
-		_, err = db.NamedExecContext(ctx, genInsertCommand(*job, insertJobFormat, "id"), job)
+		_, err = db.NamedExecContext(ctx, generateCommand(*job, insertJobFormat, "id"), job)
 		if err != nil {
 			klog.ErrorS(err, "failed to insert job db", "id", job.JobId)
 			return err

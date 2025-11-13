@@ -7,17 +7,17 @@ apiVersion: amd.com/v1
 kind: AddonTemplate
 metadata:
   labels:
-    primus-safe.display.name: "csi-wekafsplugin.2.7.7"
+    primus-safe.display.name: "csi-wekafs.2.7.7"
     app.kubernetes.io/managed-by: Helm
     primus-safe.addon.default: ""
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
-  name: csi-wekafsplugin.2.7.7
+  name: csi-wekafs.2.7.7
 spec:
   category: plugin
   description: Helm chart for Deployment of WekaIO Container Storage Interface (CSI) plugin for WekaFS - the world fastest filesystem
   url: oci://registry-1.docker.io/primussafe/csi-wekafsplugin
   version: "2.7.7"
   type: helm
-  helmDefaultNamespace: csi-wekafsplugin
+  helmDefaultNamespace: csi-wekafs
