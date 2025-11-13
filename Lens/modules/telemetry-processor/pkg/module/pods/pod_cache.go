@@ -100,7 +100,6 @@ func GetPodLabelValue(labels []prompb.Label) (podName string, podUid string) {
 	return "", ""
 }
 
-
 func getPodNameValue(labelValues map[string]string) string {
 	if podName, ok := labelValues["pod"]; ok {
 		return podName
@@ -113,7 +112,6 @@ func getPodNameValue(labelValues map[string]string) string {
 	}
 	return ""
 }
-
 
 func GetWorkloadsByPodName(podName string) [][]string {
 	if workloads, ok := podWorkloadCache[podName]; ok {

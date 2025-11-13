@@ -72,6 +72,7 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 			}
 			continue
 		}
+		tsName :=""
 
 		for _, workload := range workloads {
 			if len(workload) < 2 {
@@ -97,6 +98,7 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 				label := ts.Labels[i]
 				if label.Name == "__name__" {
 					label.Value = fmt.Sprintf("workload_%s", label.Value)
+					tsName = label.Value
 					newTsNames[label.Value] = true
 				}
 				if label.Name == "job" {
@@ -112,7 +114,7 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 					Value:     sample.Value,
 				}
 				if sample.Value < 0 {
-					log.Warnf("Negative value found in timeseries for pod %s, workload %s: %v", podName, workloadName, sample)
+					log.Warnf("Negative value found in timeseries for pod %s, workload %s ts name: %s: %v", podName, workloadName, tsName, sample)
 					filteredSampleCount++
 					continue
 				}

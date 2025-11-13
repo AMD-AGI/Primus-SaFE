@@ -27,12 +27,17 @@ var (
 		Name: "gpu_socket_power_watts",
 		Help: "gpu socket power in watts",
 	}, []string{"gpu_id"})
+	gpuPCIEBandwidth = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "gpu_pcie_bandwidth_mbs",
+		Help: "gpu pcie bandwidth in Mb/s",
+	}, []string{"gpu_id"})
 )
 
 func init() {
 	prometheus.MustRegister(nodeK8SGpuAllocationRate)
 	prometheus.MustRegister(gpuUtilization)
 	prometheus.MustRegister(gpuSocketPower)
+	prometheus.MustRegister(gpuPCIEBandwidth)
 }
 
 func runLoadGpuMetrics(ctx context.Context) {
@@ -49,6 +54,10 @@ func runLoadGpuMetrics(ctx context.Context) {
 		err = loadGpuPower(ctx)
 		if err != nil {
 			log.Errorf("Failed to load gpu power: %v", err)
+		}
+		err = loadGpuPCIE(ctx)
+		if err != nil {
+			log.Errorf("Failed to load gpu pcie: %v", err)
 		}
 		time.Sleep(5 * time.Second)
 	}
@@ -82,6 +91,15 @@ func loadGpuUtilization(ctx context.Context) error {
 func loadGpuPower(ctx context.Context) error {
 	for _, powerInfo := range GetGPUPowerInfo() {
 		gpuSocketPower.WithLabelValues(fmt.Sprintf("%d", powerInfo.GPU)).Set(powerInfo.Power.SocketPower.Value)
+	}
+	return nil
+}
+
+func loadGpuPCIE(ctx context.Context) error {
+	pcieInfos := GetPCIEGPUMetricsInfo()
+	for _, pcieInfo := range pcieInfos {
+		gpuID := fmt.Sprintf("%d", pcieInfo.GPU)
+		gpuPCIEBandwidth.WithLabelValues(gpuID).Set(pcieInfo.PCIE.Bandwidth.Value)
 	}
 	return nil
 }
