@@ -346,7 +346,7 @@ func (r *ExportImageJobReconciler) exportImageViaSSH(
 	}
 
 	// Step 3: Push image
-	if err := r.pushImage(sshClient, fullTargetImage); err != nil {
+	if err := r.pushImage(sshClient, fullTargetImage, registry); err != nil {
 		return fmt.Errorf("failed to push image: %w", err)
 	}
 
@@ -402,15 +402,18 @@ func (r *ExportImageJobReconciler) tagImage(sshClient *ssh.Client, sourceImage s
 }
 
 // pushImage pushes the image to registry using nerdctl
-func (r *ExportImageJobReconciler) pushImage(sshClient *ssh.Client, imageName string) error {
+// registry parameter is used to configure insecure-registry if needed
+func (r *ExportImageJobReconciler) pushImage(sshClient *ssh.Client, imageName string, registry string) error {
 	session, err := sshClient.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create SSH session: %w", err)
 	}
 	defer session.Close()
 
-	cmd := fmt.Sprintf("sudo nerdctl push %s", imageName)
-	klog.V(4).Infof("Pushing image: %s", imageName)
+	// Add --insecure-registry flag to allow HTTP connections or self-signed certificates
+	// This is necessary when Harbor is configured without proper HTTPS setup
+	cmd := fmt.Sprintf("sudo nerdctl push --insecure-registry %s", imageName)
+	klog.V(4).Infof("Pushing image: %s (insecure registry enabled)", imageName)
 
 	output, err := session.CombinedOutput(cmd)
 	if err != nil {
