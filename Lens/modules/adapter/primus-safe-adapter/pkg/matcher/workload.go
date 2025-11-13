@@ -61,27 +61,8 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 	if err != nil {
 		return err
 	}
-	if countInter, ok := dbWorkload.Labels[primusSafeConstant.WorkloadDispatchCountLabel]; ok {
-		var count = 0
-		var err error
-		if countStr, ok := countInter.(string); ok {
-			count, err = strconv.Atoi(countStr)
-			if err != nil {
-				log.Warnf("workload %s/%s has invalid dispatch count label. Label value: %v type: %T. Error: %v", dbWorkload.Namespace, dbWorkload.Name, countInter, countInter, err)
-				return nil
-			}
-		} else if countInt, ok := countInter.(int); ok {
-			count = countInt
-		} else if countFloat, ok := countInter.(float64); ok {
-			count = int(countFloat)
-		} else {
-			log.Warnf("workload %s/%s has invalid dispatch count label. Label value: %v type: %T", dbWorkload.Namespace, dbWorkload.Name, countInter, countInter)
-			return nil
-		}
-		if len(children) == int(count) {
-			return nil
-		}
-	}
+
+	// Get referenced workloads (potential child workloads)
 	referencedWorkload, err := facade.GetWorkload().ListWorkloadByLabelValue(ctx, primusSafeConstant.WorkloadIdLabel, dbWorkload.Name)
 	if err != nil {
 		return err
@@ -89,11 +70,51 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 	if len(referencedWorkload) == 0 {
 		return nil
 	}
-	// Set current Workload (parent) UID as parent_uid for child workloads
-	for _, childWorkload := range referencedWorkload {
-		if childWorkload.UID == dbWorkload.UID {
-			if childWorkload.ParentUID == childWorkload.UID {
-				childWorkload.ParentUID = ""
+
+	// Check if we need to update parent_uid relationships
+	needUpdateParentUID := true
+	if countInter, ok := dbWorkload.Labels[primusSafeConstant.WorkloadDispatchCountLabel]; ok {
+		var count = 0
+		var err error
+		if countStr, ok := countInter.(string); ok {
+			count, err = strconv.Atoi(countStr)
+			if err != nil {
+				log.Warnf("workload %s/%s has invalid dispatch count label. Label value: %v type: %T. Error: %v", dbWorkload.Namespace, dbWorkload.Name, countInter, countInter, err)
+				// Still need to copy pod references even if count label is invalid
+				needUpdateParentUID = false
+			}
+		} else if countInt, ok := countInter.(int); ok {
+			count = countInt
+		} else if countFloat, ok := countInter.(float64); ok {
+			count = int(countFloat)
+		} else {
+			log.Warnf("workload %s/%s has invalid dispatch count label. Label value: %v type: %T", dbWorkload.Namespace, dbWorkload.Name, countInter, countInter)
+			// Still need to copy pod references even if count label is invalid
+			needUpdateParentUID = false
+		}
+		// If children count matches expected count, skip parent_uid updates but still copy pod references
+		if len(children) == int(count) {
+			needUpdateParentUID = false
+		}
+	}
+
+	// Set current Workload (parent) UID as parent_uid for child workloads (only if needed)
+	if needUpdateParentUID {
+		for _, childWorkload := range referencedWorkload {
+			if childWorkload.UID == dbWorkload.UID {
+				if childWorkload.ParentUID == childWorkload.UID {
+					childWorkload.ParentUID = ""
+					err = facade.GetWorkload().UpdateGpuWorkload(ctx, childWorkload)
+					if err != nil {
+						log.Errorf("failed to update child workload %s/%s parent_uid: %v",
+							childWorkload.Namespace, childWorkload.Name, err)
+						continue
+					}
+				}
+				continue
+			}
+			if childWorkload.ParentUID == "" {
+				childWorkload.ParentUID = dbWorkload.UID
 				err = facade.GetWorkload().UpdateGpuWorkload(ctx, childWorkload)
 				if err != nil {
 					log.Errorf("failed to update child workload %s/%s parent_uid: %v",
@@ -101,20 +122,15 @@ func (w *WorkloadMatcher) scanForSingleWorkload(ctx context.Context, dbWorkload 
 					continue
 				}
 			}
-			continue
-		}
-		if childWorkload.ParentUID == "" {
-			childWorkload.ParentUID = dbWorkload.UID
-			err = facade.GetWorkload().UpdateGpuWorkload(ctx, childWorkload)
-			if err != nil {
-				log.Errorf("failed to update child workload %s/%s parent_uid: %v",
-					childWorkload.Namespace, childWorkload.Name, err)
-				continue
-			}
 		}
 	}
 
-	// Copy pod references from child workloads to parent workload
+	log.Infof("Copying pod references from child workloads to parent workload %s/%s.Children count: %d", dbWorkload.Namespace, dbWorkload.Name, len(children))
+	for _, child := range referencedWorkload {
+		log.Infof("Child workload: %s/%s, Parent UID: %s", child.Namespace, child.Name, child.ParentUID)
+	}
+	// Always copy pod references from child workloads to parent workload
+	// This ensures that pod changes in child workloads are always synced to parent
 	err = w.copyChildPodReferencesToParent(ctx, facade, dbWorkload, referencedWorkload)
 	if err != nil {
 		log.Errorf("failed to copy child pod references to parent workload %s/%s: %v",

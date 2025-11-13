@@ -191,7 +191,8 @@ Get workload list with filtering and pagination support.
       "isTolerateAll": false,
       "timeout": 3600,
       "secondsUntilTimeout": 1800,
-      "message": ""
+      "message": "",
+      "avgGpuUsage": 22.13
     }
   ]
 }

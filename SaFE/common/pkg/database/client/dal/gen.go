@@ -27,7 +27,9 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		PublicKey:         newPublicKey(db, opts...),
 		RegistryInfo:      newRegistryInfo(db, opts...),
 		SSHSessionRecords: newSSHSessionRecords(db, opts...),
+		UserToken:         newUserToken(db, opts...),
 		Workload:          newWorkload(db, opts...),
+		WorkloadStatistic: newWorkloadStatistic(db, opts...),
 	}
 }
 
@@ -43,7 +45,9 @@ type Query struct {
 	PublicKey         publicKey
 	RegistryInfo      registryInfo
 	SSHSessionRecords sSHSessionRecords
+	UserToken         userToken
 	Workload          workload
+	WorkloadStatistic workloadStatistic
 }
 
 func (q *Query) Available() bool { return q.db != nil }
@@ -60,7 +64,9 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		PublicKey:         q.PublicKey.clone(db),
 		RegistryInfo:      q.RegistryInfo.clone(db),
 		SSHSessionRecords: q.SSHSessionRecords.clone(db),
+		UserToken:         q.UserToken.clone(db),
 		Workload:          q.Workload.clone(db),
+		WorkloadStatistic: q.WorkloadStatistic.clone(db),
 	}
 }
 
@@ -84,7 +90,9 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		PublicKey:         q.PublicKey.replaceDB(db),
 		RegistryInfo:      q.RegistryInfo.replaceDB(db),
 		SSHSessionRecords: q.SSHSessionRecords.replaceDB(db),
+		UserToken:         q.UserToken.replaceDB(db),
 		Workload:          q.Workload.replaceDB(db),
+		WorkloadStatistic: q.WorkloadStatistic.replaceDB(db),
 	}
 }
 
@@ -98,7 +106,9 @@ type queryCtx struct {
 	PublicKey         *publicKeyDo
 	RegistryInfo      *registryInfoDo
 	SSHSessionRecords *sSHSessionRecordsDo
+	UserToken         *userTokenDo
 	Workload          *workloadDo
+	WorkloadStatistic *workloadStatisticDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
@@ -112,7 +122,9 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		PublicKey:         q.PublicKey.WithContext(ctx),
 		RegistryInfo:      q.RegistryInfo.WithContext(ctx),
 		SSHSessionRecords: q.SSHSessionRecords.WithContext(ctx),
+		UserToken:         q.UserToken.WithContext(ctx),
 		Workload:          q.Workload.WithContext(ctx),
+		WorkloadStatistic: q.WorkloadStatistic.WithContext(ctx),
 	}
 }
 

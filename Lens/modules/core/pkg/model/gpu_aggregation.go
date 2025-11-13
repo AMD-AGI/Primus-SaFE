@@ -122,6 +122,7 @@ func (GpuAllocationSnapshot) TableName() string {
 type AllocationDetails struct {
 	Namespaces  map[string]NamespaceAllocation  `json:"namespaces"`
 	Annotations map[string]AnnotationAllocation `json:"annotations"`
+	Workloads   map[string]WorkloadSnapshot     `json:"workloads"`
 }
 
 // NamespaceAllocation is namespace allocation information

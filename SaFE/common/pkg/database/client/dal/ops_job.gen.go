@@ -35,10 +35,10 @@ func newOpsJob(db *gorm.DB, opts ...gen.DOOption) opsJob {
 	_opsJob.Timeout = field.NewInt32(tableName, "timeout")
 	_opsJob.UserName = field.NewString(tableName, "user_name")
 	_opsJob.Workspace = field.NewString(tableName, "workspace")
-	_opsJob.CreateTime = field.NewTime(tableName, "create_time")
+	_opsJob.CreationTime = field.NewTime(tableName, "creation_time")
 	_opsJob.StartTime = field.NewTime(tableName, "start_time")
 	_opsJob.EndTime = field.NewTime(tableName, "end_time")
-	_opsJob.DeleteTime = field.NewTime(tableName, "delete_time")
+	_opsJob.DeletionTime = field.NewTime(tableName, "deletion_time")
 	_opsJob.Phase = field.NewString(tableName, "phase")
 	_opsJob.Conditions = field.NewString(tableName, "conditions")
 	_opsJob.Outputs = field.NewString(tableName, "outputs")
@@ -68,10 +68,10 @@ type opsJob struct {
 	Timeout       field.Int32
 	UserName      field.String
 	Workspace     field.String
-	CreateTime    field.Time
+	CreationTime  field.Time
 	StartTime     field.Time
 	EndTime       field.Time
-	DeleteTime    field.Time
+	DeletionTime  field.Time
 	Phase         field.String
 	Conditions    field.String
 	Outputs       field.String
@@ -107,10 +107,10 @@ func (o *opsJob) updateTableName(table string) *opsJob {
 	o.Timeout = field.NewInt32(table, "timeout")
 	o.UserName = field.NewString(table, "user_name")
 	o.Workspace = field.NewString(table, "workspace")
-	o.CreateTime = field.NewTime(table, "create_time")
+	o.CreationTime = field.NewTime(table, "creation_time")
 	o.StartTime = field.NewTime(table, "start_time")
 	o.EndTime = field.NewTime(table, "end_time")
-	o.DeleteTime = field.NewTime(table, "delete_time")
+	o.DeletionTime = field.NewTime(table, "deletion_time")
 	o.Phase = field.NewString(table, "phase")
 	o.Conditions = field.NewString(table, "conditions")
 	o.Outputs = field.NewString(table, "outputs")
@@ -155,10 +155,10 @@ func (o *opsJob) fillFieldMap() {
 	o.fieldMap["timeout"] = o.Timeout
 	o.fieldMap["user_name"] = o.UserName
 	o.fieldMap["workspace"] = o.Workspace
-	o.fieldMap["create_time"] = o.CreateTime
+	o.fieldMap["creation_time"] = o.CreationTime
 	o.fieldMap["start_time"] = o.StartTime
 	o.fieldMap["end_time"] = o.EndTime
-	o.fieldMap["delete_time"] = o.DeleteTime
+	o.fieldMap["deletion_time"] = o.DeletionTime
 	o.fieldMap["phase"] = o.Phase
 	o.fieldMap["conditions"] = o.Conditions
 	o.fieldMap["outputs"] = o.Outputs

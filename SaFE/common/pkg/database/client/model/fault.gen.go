@@ -20,9 +20,9 @@ type Fault struct {
 	Action         string    `gorm:"column:action" json:"action"`
 	Phase          string    `gorm:"column:phase" json:"phase"`
 	Cluster        string    `gorm:"column:cluster" json:"cluster"`
-	CreateTime     time.Time `gorm:"column:create_time" json:"create_time"`
+	CreationTime   time.Time `gorm:"column:creation_time" json:"creation_time"`
 	UpdateTime     time.Time `gorm:"column:update_time" json:"update_time"`
-	DeleteTime     time.Time `gorm:"column:delete_time" json:"delete_time"`
+	DeletionTime   time.Time `gorm:"column:deletion_time" json:"deletion_time"`
 	IsAutoRepaired bool      `gorm:"column:is_auto_repaired" json:"is_auto_repaired"`
 }
 

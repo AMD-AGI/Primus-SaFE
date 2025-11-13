@@ -78,6 +78,57 @@ func NewClient() *Client {
 	return instance
 }
 
+// NewClientWithConfig creates a new database Client instance with the provided configuration.
+// Unlike NewClient, this method creates a new instance each time it's called (non-singleton).
+// It validates the parameters, establishes connections using both sqlx and gorm.
+//
+// Parameters:
+//   - cfg: Database configuration
+//
+// Returns:
+//   - *Client: New database client instance
+//   - error: Error if initialization fails
+func NewClientWithConfig(cfg *utils.DBConfig) (*Client, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("database config cannot be nil")
+	}
+
+	// Validate configuration parameters
+	if err := checkParams(cfg); err != nil {
+		klog.ErrorS(err, "failed to check db params")
+		return nil, err
+	}
+
+	// Connect using sqlx
+	db, err := utils.Connect(cfg, utils.PgDriver)
+	if err != nil {
+		klog.Errorf("failed to connect to database: %s", err.Error())
+		return nil, err
+	}
+
+	// Verify connection
+	err = db.Ping()
+	if err != nil {
+		klog.ErrorS(err, "failed to ping db")
+		return nil, err
+	}
+
+	// Connect using GORM
+	gormDb, err := utils.ConnectGorm(cfg)
+	if err != nil {
+		klog.ErrorS(err, "failed to connect gorm db")
+		// Close sqlx connection before returning error
+		db.Close()
+		return nil, err
+	}
+
+	client := &Client{db: db, DBConfig: cfg, gorm: gormDb}
+	klog.Infof("created new db-client successfully! host: %s, dbname: %s, conn-timeout: %d(s), request-timeout: %d(s)",
+		cfg.Host, cfg.DBName, cfg.ConnectTimeout, int(cfg.RequestTimeout.Seconds()))
+
+	return client, nil
+}
+
 // Close performs the Close operation.
 func (c *Client) Close() {
 	err := c.db.Close()
@@ -92,6 +143,17 @@ func (c *Client) getDB() (*sqlx.DB, error) {
 		return nil, commonerrors.NewInternalError("The client of db has not been initialized")
 	}
 	return c.db.Unsafe(), nil
+}
+
+// GetGormDB retrieves the GORM DB instance for external use.
+// Returns:
+//   - *gorm.DB: GORM database instance
+//   - error: Error if the client has not been initialized
+func (c *Client) GetGormDB() (*gorm.DB, error) {
+	if c.gorm == nil {
+		return nil, commonerrors.NewInternalError("The GORM client has not been initialized")
+	}
+	return c.gorm, nil
 }
 
 // checkParams checks Params and returns the result.

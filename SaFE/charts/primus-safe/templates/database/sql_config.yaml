@@ -136,7 +136,8 @@ data:
         deleted_at timestamptz
     );
 
-    alter table registry_info owner to "primus-safe";
+    alter table registry_info
+        owner to "primus-safe";
 
     create table if not exists image_import_job
     (
@@ -154,7 +155,8 @@ data:
         created_at timestamptz
     );
 
-    alter table image_import_job owner to "primus-safe";
+    alter table image_import_job
+        owner to "primus-safe";
 
     create table if not exists image_digest
     (
@@ -171,7 +173,8 @@ data:
         deleted_at   timestamp with time zone
     );
 
-    alter table image_digest owner to "primus-safe";
+    alter table image_digest
+        owner to "primus-safe";
 
     create table if not exists image
     (
@@ -189,9 +192,11 @@ data:
         deleted_at      timestamp with time zone,
         deleted_by      varchar(128)
     );
-    alter table image owner to "primus-safe";
 
-    CREATE TABLE if not exists public_key (
+    alter table image
+        owner to "primus-safe";
+
+    CREATE TABLE public_key (
        id BIGSERIAL PRIMARY KEY,
        user_id VARCHAR(64) NOT NULL,
        description VARCHAR(100) NOT NULL,
@@ -202,11 +207,11 @@ data:
        delete_time TIMESTAMP
     );
 
-    CREATE INDEX if not exists idx_publickey_userid ON public_key(user_id);
-    CREATE UNIQUE INDEX  if not exists idx_publickey_userid_pubkey ON public_key(user_id, public_key, delete_time);
+    CREATE INDEX idx_publickey_userid ON public_key(user_id);
+    CREATE UNIQUE INDEX idx_publickey_userid_pubkey ON public_key(user_id, public_key, delete_time);
     alter table public_key owner to "primus-safe";
 
-    CREATE TABLE if not exists ssh_session_records (
+    CREATE TABLE ssh_session_records (
        id BIGSERIAL PRIMARY KEY,
        user_id VARCHAR(64) NOT NULL,
        ssh_type VARCHAR(64) NOT NULL,
@@ -217,9 +222,9 @@ data:
        disconnect_time TIMESTAMPTZ,
        create_time TIMESTAMPTZ NOT NULL DEFAULT now()
     );
-    alter table ssh_session_records owner to "primus-safe";
 
-    create table if not exists notification
+    alter table ssh_session_records owner to "primus-safe";
+    create table notification
     (
         id         serial,
         kind       varchar(64),
@@ -233,7 +238,10 @@ data:
         created_at timestamptz,
         sent_at    timestamptz
     );
-    alter table notification owner to "primus-safe";
+
+
+    alter table notification
+        owner to "primus-safe";
 
     create table if not exists user_token
     (
@@ -242,6 +250,30 @@ data:
         token      TEXT NOT NULL,
         creation_time bigint,
         expire_time bigint
-    );
+        );
     create index if not exists T_SESSION_ID_INDEX on user_token (session_id);
     alter table user_token owner to "primus-safe";
+
+
+    create table if not exists workload_statistic
+    (
+        id SERIAL PRIMARY KEY,
+        workload_id VARCHAR(64) not null,
+        workload_uid VARCHAR(36),
+        cluster VARCHAR(64),
+        workspace VARCHAR(64),
+        statistic_type VARCHAR(32) not null,
+        avg_gpu_usage_3h DECIMAL(5, 2),
+        max_gpu_usage_3h DECIMAL(5, 2),
+        data_points_count INT,
+        created_at TIMESTAMPTZ not null default now(),
+        updated_at TIMESTAMPTZ
+        );
+
+    create index if not exists T_WORKLOAD_STAT_WORKLOAD_ID_INDEX on workload_statistic (workload_id);
+    create index if not exists T_WORKLOAD_STAT_WORKLOAD_UID_INDEX on workload_statistic (workload_uid);
+    create index if not exists T_WORKLOAD_STAT_WORKSPACE_INDEX on workload_statistic (workspace);
+    create index if not exists T_WORKLOAD_STAT_CREATED_AT_INDEX on workload_statistic (created_at);
+    create index if not exists T_WORKLOAD_STAT_TYPE_INDEX on workload_statistic (statistic_type);
+
+    alter table workload_statistic owner to "primus-safe";

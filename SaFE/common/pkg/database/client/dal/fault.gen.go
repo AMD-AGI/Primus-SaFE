@@ -35,9 +35,9 @@ func newFault(db *gorm.DB, opts ...gen.DOOption) fault {
 	_fault.Action = field.NewString(tableName, "action")
 	_fault.Phase = field.NewString(tableName, "phase")
 	_fault.Cluster = field.NewString(tableName, "cluster")
-	_fault.CreateTime = field.NewTime(tableName, "create_time")
+	_fault.CreationTime = field.NewTime(tableName, "creation_time")
 	_fault.UpdateTime = field.NewTime(tableName, "update_time")
-	_fault.DeleteTime = field.NewTime(tableName, "delete_time")
+	_fault.DeletionTime = field.NewTime(tableName, "deletion_time")
 	_fault.IsAutoRepaired = field.NewBool(tableName, "is_auto_repaired")
 
 	_fault.fillFieldMap()
@@ -57,9 +57,9 @@ type fault struct {
 	Action         field.String
 	Phase          field.String
 	Cluster        field.String
-	CreateTime     field.Time
+	CreationTime   field.Time
 	UpdateTime     field.Time
-	DeleteTime     field.Time
+	DeletionTime   field.Time
 	IsAutoRepaired field.Bool
 
 	fieldMap map[string]field.Expr
@@ -85,9 +85,9 @@ func (f *fault) updateTableName(table string) *fault {
 	f.Action = field.NewString(table, "action")
 	f.Phase = field.NewString(table, "phase")
 	f.Cluster = field.NewString(table, "cluster")
-	f.CreateTime = field.NewTime(table, "create_time")
+	f.CreationTime = field.NewTime(table, "creation_time")
 	f.UpdateTime = field.NewTime(table, "update_time")
-	f.DeleteTime = field.NewTime(table, "delete_time")
+	f.DeletionTime = field.NewTime(table, "deletion_time")
 	f.IsAutoRepaired = field.NewBool(table, "is_auto_repaired")
 
 	f.fillFieldMap()
@@ -122,9 +122,9 @@ func (f *fault) fillFieldMap() {
 	f.fieldMap["action"] = f.Action
 	f.fieldMap["phase"] = f.Phase
 	f.fieldMap["cluster"] = f.Cluster
-	f.fieldMap["create_time"] = f.CreateTime
+	f.fieldMap["creation_time"] = f.CreationTime
 	f.fieldMap["update_time"] = f.UpdateTime
-	f.fieldMap["delete_time"] = f.DeleteTime
+	f.fieldMap["deletion_time"] = f.DeletionTime
 	f.fieldMap["is_auto_repaired"] = f.IsAutoRepaired
 }
 
