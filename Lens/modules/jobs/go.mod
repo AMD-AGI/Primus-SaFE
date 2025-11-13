@@ -1,6 +1,6 @@
 module github.com/AMD-AGI/Primus-SaFE/Lens/jobs
 
-go 1.24.5
+go 1.24.7
 
 replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../core
 

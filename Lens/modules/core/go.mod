@@ -1,6 +1,6 @@
 module github.com/AMD-AGI/Primus-SaFE/Lens/core
 
-go 1.24.5
+go 1.24.7
 
 require (
 	github.com/VictoriaMetrics/VictoriaMetrics v1.96.0
