@@ -371,21 +371,26 @@ func (r *ExportImageJobReconciler) loginHarbor(sshClient *ssh.Client, registry s
 	}
 	defer session.Close()
 
-	// Create config.json with the auth directly (nerdctl reads the same format as Docker)
-	// This is simpler and more reliable than parsing username:password
-	configJSON := fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"}}}`, registry, auth)
+	// Extract registry host without protocol for config.json key
+	registryHost := strings.TrimPrefix(registry, "https://")
+	registryHost = strings.TrimPrefix(registryHost, "http://")
+
+	// Create config.json with the auth
+	configJSON := fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"},"%s":{"auth":"%s"}}}`, 
+		registryHost, auth,  // Key without protocol (primary)
+		registry, auth)       // Key with protocol (fallback)
 	
 	// Write config.json to /root/.docker/ (nerdctl will read from there)
 	cmd := fmt.Sprintf(`sudo mkdir -p /root/.docker && echo '%s' | sudo tee /root/.docker/config.json > /dev/null`, configJSON)
 
-	klog.V(4).Infof("Configuring Docker auth for registry %s", registry)
+	klog.V(4).Infof("Configuring Docker auth for registry: %s (host: %s)", registry, registryHost)
 
 	output, err := session.CombinedOutput(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to configure auth: %s, error: %w", string(output), err)
 	}
 
-	klog.Infof("Successfully configured auth for Harbor registry %s", registry)
+	klog.Infof("Successfully configured auth for Harbor registry %s", registryHost)
 	return nil
 }
 
