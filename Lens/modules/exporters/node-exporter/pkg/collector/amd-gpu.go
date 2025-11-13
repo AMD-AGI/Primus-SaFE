@@ -131,7 +131,6 @@ func doRefreshPowerAndPCIEInfo(ctx context.Context) error {
 		return err
 	}
 
-	// 分离 power 和 pcie 信息
 	powerInfos := make([]model.GPUPowerInfo, len(metricsInfos))
 	pcieInfos := make([]model.GPUPCIEInfo, len(metricsInfos))
 

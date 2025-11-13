@@ -4639,7 +4639,7 @@
             "uid": "${cluster}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(workload_pcie_bandwidth{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,gpu_id)",
+          "expr": "sum(rate(workload_gpu_pcie_bandwidth_mbs{workload_uid=\"$workload_uid\"}[1m])) by (primus_lens_node_name,gpu_id)",
           "legendFormat": "GPU {{gpu_id}}",
           "range": true,
           "refId": "A"
@@ -4924,5 +4924,5 @@
   "timezone": "browser",
   "title": "Workload Metrics",
   "uid": "workload-metrics",
-  "version": 6
+  "version": 7
 }
