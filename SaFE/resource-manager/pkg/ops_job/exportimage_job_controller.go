@@ -7,6 +7,7 @@ package ops_job
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -43,7 +44,7 @@ const (
 	imageImportSecretName = "primus-safe-image-import-reg-cred"
 
 	// Registry project name
-	registryProject = "custom"
+	registryProject = "Custom"
 )
 
 // RegistryAuth represents Docker registry authentication structure
@@ -235,14 +236,14 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 		workloadId, sourceImage, targetImage, dbImage.ID, node.Name)
 
 	// Get Harbor credentials from Secret
-	harborAuth, err := r.getHarborCredentials(ctx, defaultRegistry.URL)
+	harborUsername, harborPassword, err := r.getHarborCredentials(ctx, defaultRegistry.URL)
 	if err != nil {
 		klog.ErrorS(err, "failed to get Harbor credentials")
 		return ctrlruntime.Result{}, r.handleExportFailure(ctx, job, dbImage, err.Error())
 	}
 
 	// Execute image export via SSH
-	if err := r.exportImageViaSSH(ctx, node, sourceImage, targetImage, defaultRegistry.URL, harborAuth); err != nil {
+	if err := r.exportImageViaSSH(ctx, node, sourceImage, targetImage, defaultRegistry.URL, harborUsername, harborPassword); err != nil {
 		klog.ErrorS(err, "failed to export image", "source", sourceImage, "target", targetImage)
 		return ctrlruntime.Result{}, r.handleExportFailure(ctx, job, dbImage, err.Error())
 	}
@@ -278,39 +279,53 @@ func (r *ExportImageJobReconciler) handleExportFailure(ctx context.Context, job 
 	return r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, nil)
 }
 
-// getHarborCredentials retrieves Harbor credentials from Secret
+// getHarborCredentials retrieves Harbor username and password from Secret
 // This function reads the same Secret format as used in image.go (ImageImportSecretName)
 // Secret structure: {"auths": {"registry_url": {"auth": "base64(username:password)"}}}
-func (r *ExportImageJobReconciler) getHarborCredentials(ctx context.Context, registryURL string) (string, error) {
+// Returns decoded username and password for nerdctl login
+func (r *ExportImageJobReconciler) getHarborCredentials(ctx context.Context, registryURL string) (username, password string, err error) {
 	// Get Secret
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, apitypes.NamespacedName{
 		Name:      imageImportSecretName,
 		Namespace: defaultNamespace,
 	}, secret); err != nil {
-		return "", fmt.Errorf("failed to get secret %s: %w", imageImportSecretName, err)
+		return "", "", fmt.Errorf("failed to get secret %s: %w", imageImportSecretName, err)
 	}
 
 	// Parse config.json
 	configData, ok := secret.Data["config.json"]
 	if !ok {
-		return "", fmt.Errorf("config.json not found in secret")
+		return "", "", fmt.Errorf("config.json not found in secret")
 	}
 
 	var registryAuth RegistryAuth
 	if err := json.Unmarshal(configData, &registryAuth); err != nil {
-		return "", fmt.Errorf("failed to parse registry auth: %w", err)
+		return "", "", fmt.Errorf("failed to parse registry auth: %w", err)
 	}
 
 	// Find auth for the registry
 	authItem, ok := registryAuth.Auths[registryURL]
 	if !ok {
-		return "", fmt.Errorf("no authentication found for registry %s", registryURL)
+		return "", "", fmt.Errorf("no authentication found for registry %s", registryURL)
 	}
 
-	// Return base64 encoded auth string (format: base64(username:password))
-	// This is the same format as Docker config.json uses
-	return authItem.Auth, nil
+	// Decode base64 auth to get username:password
+	// auth is base64 encoded string: base64("username:password")
+	authDecoded, err := base64.StdEncoding.DecodeString(authItem.Auth)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to decode auth for registry %s: %w", registryURL, err)
+	}
+
+	// Split username:password
+	credentials := string(authDecoded)
+	parts := strings.SplitN(credentials, ":", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid auth format for registry %s, expected username:password", registryURL)
+	}
+
+	klog.V(4).Infof("Retrieved credentials for registry %s, username: %s", registryURL, parts[0])
+	return parts[0], parts[1], nil
 }
 
 // exportImageViaSSH exports image using SSH connection and nerdctl commands
@@ -320,7 +335,8 @@ func (r *ExportImageJobReconciler) exportImageViaSSH(
 	sourceImage string,
 	targetImage string,
 	registry string,
-	harborAuth string,
+	harborUsername string,
+	harborPassword string,
 ) error {
 	// Establish SSH connection
 	sshClient, err := rmutils.GetSSHClient(ctx, r.Client, node)
@@ -331,22 +347,14 @@ func (r *ExportImageJobReconciler) exportImageViaSSH(
 
 	klog.Infof("SSH connected to node %s", node.Name)
 
-	// Ensure registry uses HTTPS protocol for Harbor authentication
-	// Remove any existing protocol prefix first, then add https://
-	registryClean := strings.TrimPrefix(registry, "https://")
-	registryClean = strings.TrimPrefix(registryClean, "http://")
-	registryWithHTTPS := "https://" + registryClean
-
-	klog.Infof("Using HTTPS for Harbor registry: %s", registryWithHTTPS)
-
-	// Step 1: Login to Harbor (use HTTPS URL)
-	if err := r.loginHarbor(sshClient, registryWithHTTPS, harborAuth); err != nil {
+	// Step 1: Login to Harbor
+	if err := r.loginHarbor(sshClient, registry, harborUsername, harborPassword); err != nil {
 		return fmt.Errorf("failed to login Harbor: %w", err)
 	}
 
 	// Construct full image path with registry for tag and push operations
-	// Note: Use registry without protocol for docker tag/push commands
-	fullTargetImage := fmt.Sprintf("%s/%s", registryClean, targetImage)
+	// targetImage is "Custom/admin/nginx:20250112", need to prepend registry
+	fullTargetImage := fmt.Sprintf("%s/%s", registry, targetImage)
 
 	// Step 2: Tag image
 	if err := r.tagImage(sshClient, sourceImage, fullTargetImage); err != nil {
@@ -358,39 +366,40 @@ func (r *ExportImageJobReconciler) exportImageViaSSH(
 		return fmt.Errorf("failed to push image: %w", err)
 	}
 
-	klog.Infof("Successfully pushed image %s to registry %s", targetImage, registryClean)
+	klog.Infof("Successfully pushed image %s to registry %s", targetImage, registry)
 	return nil
 }
 
-// loginHarbor logs into Harbor registry using nerdctl
-// It creates the Docker config.json file directly instead of using nerdctl login command
-func (r *ExportImageJobReconciler) loginHarbor(sshClient *ssh.Client, registry string, auth string) error {
+// loginHarbor logs into Harbor registry using nerdctl login command
+func (r *ExportImageJobReconciler) loginHarbor(sshClient *ssh.Client, registry, username, password string) error {
 	session, err := sshClient.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create SSH session: %w", err)
 	}
 	defer session.Close()
 
-	// Extract registry host without protocol for config.json key
-	registryHost := strings.TrimPrefix(registry, "https://")
-	registryHost = strings.TrimPrefix(registryHost, "http://")
+	klog.Infof("Logging into Harbor registry %s as user %s", registry, username)
 
-	// Create config.json with the auth
-	configJSON := fmt.Sprintf(`{"auths":{"%s":{"auth":"%s"},"%s":{"auth":"%s"}}}`, 
-		registryHost, auth,  // Key without protocol (primary)
-		registry, auth)       // Key with protocol (fallback)
-	
-	// Write config.json to /root/.docker/ (nerdctl will read from there)
-	cmd := fmt.Sprintf(`sudo mkdir -p /root/.docker && echo '%s' | sudo tee /root/.docker/config.json > /dev/null`, configJSON)
+	// Use nerdctl login with password stdin for security
+	// Password won't appear in process list or command history
+	cmd := fmt.Sprintf("echo '%s' | sudo nerdctl login %s -u %s --password-stdin", password, registry, username)
 
-	klog.V(4).Infof("Configuring Docker auth for registry: %s (host: %s)", registry, registryHost)
+	klog.V(4).Infof("Executing nerdctl login for registry %s", registry)
 
 	output, err := session.CombinedOutput(cmd)
+	outputStr := string(output)
+
 	if err != nil {
-		return fmt.Errorf("failed to configure auth: %s, error: %w", string(output), err)
+		return fmt.Errorf("nerdctl login failed: %s, error: %w", outputStr, err)
 	}
 
-	klog.Infof("Successfully configured auth for Harbor registry %s", registryHost)
+	// Check if login succeeded
+	if !strings.Contains(strings.ToLower(outputStr), "login succeeded") && 
+	   !strings.Contains(strings.ToLower(outputStr), "logged in") {
+		return fmt.Errorf("nerdctl login returned unexpected output: %s", outputStr)
+	}
+
+	klog.Infof("Successfully logged into Harbor registry %s", registry)
 	return nil
 }
 
