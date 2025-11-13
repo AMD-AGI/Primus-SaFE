@@ -169,47 +169,49 @@ Import image from external registry to internal Harbor.
 
 **Query Parameters**: Same as "List Images" endpoint, except:
 - Does NOT support `tag` parameter (no tag field in ops_job table)
-- Does NOT support `flat` parameter (always returns grouped format)
+- Does NOT support `flat` parameter (always returns list format)
 - `ready=true` filters jobs with phase='Succeeded'
+- **NEW**: `workload=xxx` filters by workload ID
 
 **Response Example**:
 ```json
 {
-  "totalCount": 3,
-  "images": [
+  "totalCount": 2,
+  "items": [
     {
-      "registryHost": "harbor.exported",
-      "repo": "rocm/pytorch",
-      "artifacts": [
-        {
-          "imageTag": "20250112",
-          "description": "Exported from source: rocm/pytorch:rocm6.2_ubuntu22.04_py3.10_pytorch_release_2.3.0",
-          "createdTime": "2025-01-12T08:35:20Z",
-          "userName": "admin",
-          "status": "Succeeded",
-          "includeType": "custom"
-        }
-      ]
+      "imageName": "custom/library/busybox:20251113",
+      "workload": "my-busybox-workload",
+      "status": "Succeeded",
+      "createdTime": "2025-11-13T12:14:27Z",
+      "remark": "Production backup",
+      "log": "Image exported successfully"
+    },
+    {
+      "imageName": "custom/rocm/pytorch:20251113",
+      "workload": "pytorch-training-001",
+      "status": "Failed",
+      "createdTime": "2025-11-13T11:30:15Z",
+      "remark": "Test export",
+      "log": "failed to push image: 401 Unauthorized"
     }
   ]
 }
 ```
 
-**Field Description**:
-- `registryHost`: Registry hostname (placeholder: "harbor.exported")
-- `repo`: Repository path extracted from target image (e.g., "rocm/pytorch")
-- `artifacts[].imageTag`: Exported image tag (timestamp-based)
-- `artifacts[].description`: Export details including source image name
-- `artifacts[].createdTime`: Export job creation time (RFC3339 format)
-- `artifacts[].userName`: User who initiated the export
-- `artifacts[].status`: Export job status (Succeeded/Failed/Running/Pending)
-- `artifacts[].includeType`: Always "custom" for user-exported images
+**Field Description** (6 fields total):
+1. `imageName`: Target image name in Harbor (from ops_job.outputs.target), e.g. `custom/library/busybox:20251113`
+2. `workload`: Source workload ID (from ops_job.inputs.workload)
+3. `status`: Export job status (from ops_job.phase): `Pending`/`Running`/`Succeeded`/`Failed`
+4. `createdTime`: Export job creation time (from ops_job.creation_time, RFC3339 format)
+5. `remark`: User-defined remark (from ops_job.inputs.label), empty if not provided during job creation
+6. `log`: Status message or error details (from ops_job.conditions[].message)
 
 **Notes**:
 - This endpoint queries the `ops_job` table (type='exportimage'), not the `image` table
-- Only fields available from ops_job are populated; image metadata like size/arch/os/digest are not available
+- Returns a simplified list format with **6 fields**
 - Use `ready=true` to filter only successfully exported images (phase='Succeeded')
-- Exported images are grouped by repository, similar to imported images
+- Use `workload=xxx` to filter exports from a specific workload
+- To add a remark to an export job, include `{ "name": "label", "value": "your remark" }` in the inputs when creating the OpsJob
 
 ---
 

@@ -82,13 +82,16 @@ OpsJob(operations job) performs specific administrative tasks in the system. Com
   "name": "export-workload-image",
   "type": "exportimage",
   "inputs": [
-    { "name": "workload", "value": "pytorch-training-001" }
+    { "name": "workload", "value": "pytorch-training-001" },
+    { "name": "label", "value": "Production backup" }
   ],
   "timeoutSecond": 3600
 }
 ```
 
-**Note**: The system will automatically retrieve the workload's image and add it to inputs as `{ "name": "image", "value": "..." }`.
+**Notes**:
+- The system will automatically retrieve the workload's image and add it to inputs as `{ "name": "image", "value": "..." }`.
+- The `label` parameter is optional and will be displayed as "remark" in the exported image list (`GET /api/v1/images/custom`).
 
 **Request Parameters**:
 

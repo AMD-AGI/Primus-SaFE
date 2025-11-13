@@ -142,16 +142,15 @@ func (h *ImageHandler) listExportedImage(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	// Convert ops_job records to ExportedImageItem
-	exportedItems := convertOpsJobToExportedImages(jobs)
+	// Convert ops_job records to simplified list format
+	items := convertOpsJobToExportedImageList(jobs)
 
-	// Convert to GetImageResponse format (grouped by repo)
-	results := &GetImageResponse{
+	results := &ExportedImageListResponse{
 		TotalCount: count,
+		Items:      items,
 	}
-	results.Items = cvtExportedImagesToResponse(exportedItems)
 
-	klog.V(4).Infof("listed %d exported images", len(exportedItems))
+	klog.V(4).Infof("listed %d exported images", len(items))
 	return results, nil
 }
 
@@ -791,6 +790,12 @@ func buildExportImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []strin
 		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "Phase"): string(v1.OpsJobSucceeded)})
 	}
 	
+	// Filter by workload ID if specified (using JSONB containment query)
+	if query.Workload != "" {
+		dbSql = append(dbSql, sqrl.Expr("inputs::jsonb @> ?", 
+			fmt.Sprintf(`[{"name":"workload","value":"%s"}]`, query.Workload)))
+	}
+	
 	// Build ORDER BY clause
 	// Note: ops_job table uses "creation_time", not "created_at" like image table
 	orderByField := dbClient.GetFieldTag(dbTags, "CreationTime")
@@ -802,6 +807,78 @@ func buildExportImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []strin
 	orderBy := []string{fmt.Sprintf("%s %s", orderByField, order)}
 	
 	return dbSql, orderBy
+}
+
+// convertOpsJobToExportedImageList converts ops_job records to ExportedImageListItem slice.
+func convertOpsJobToExportedImageList(jobs []*dbClient.OpsJob) []ExportedImageListItem {
+	result := make([]ExportedImageListItem, 0, len(jobs))
+	
+	for _, job := range jobs {
+		item := ExportedImageListItem{
+			Status:      dbutils.ParseNullString(job.Phase),
+			CreatedTime: timeutil.FormatRFC3339(dbutils.ParseNullTime(job.CreationTime)),
+		}
+		
+		// Parse inputs to extract workload and label
+		if len(job.Inputs) > 0 {
+			inputsStr := string(job.Inputs)
+			// Parse TEXT[] format: {"{name:workload,value:xxx}","{name:label,value:yyy}"}
+			parts := strings.Split(inputsStr, ",")
+			
+			for _, part := range parts {
+				// Extract workload ID
+				if strings.Contains(part, "name:workload") && strings.Contains(part, "value:") {
+					start := strings.Index(part, "value:") + 6
+					end := len(part)
+					if idx := strings.Index(part[start:], "}"); idx != -1 {
+						end = start + idx
+					}
+					item.Workload = strings.TrimSpace(part[start:end])
+				}
+				
+				// Extract label (remark)
+				if strings.Contains(part, "name:label") && strings.Contains(part, "value:") {
+					start := strings.Index(part, "value:") + 6
+					end := len(part)
+					if idx := strings.Index(part[start:], "}"); idx != -1 {
+						end = start + idx
+					}
+					item.Remark = strings.TrimSpace(part[start:end])
+				}
+			}
+		}
+		
+		// Parse outputs to extract target image name
+		if outputsStr := dbutils.ParseNullString(job.Outputs); outputsStr != "" {
+			var outputs []v1.Parameter
+			if err := json.Unmarshal([]byte(outputsStr), &outputs); err == nil {
+				for _, param := range outputs {
+					if param.Name == "target" {
+						item.ImageName = param.Value
+						break
+					}
+				}
+			}
+		}
+		
+		// Parse conditions to extract log message
+		if conditionsStr := dbutils.ParseNullString(job.Conditions); conditionsStr != "" {
+			var conditions []metav1.Condition
+			if err := json.Unmarshal([]byte(conditionsStr), &conditions); err == nil {
+				// Get the most recent condition message
+				for i := len(conditions) - 1; i >= 0; i-- {
+					if conditions[i].Message != "" {
+						item.Log = conditions[i].Message
+						break
+					}
+				}
+			}
+		}
+		
+		result = append(result, item)
+	}
+	
+	return result
 }
 
 // convertOpsJobToExportedImages converts ops_job records to ExportedImageItem slice.
