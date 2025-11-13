@@ -139,7 +139,6 @@ func runLoadDevicePodCache(ctx context.Context) {
 			log.Infof("stopping device pod cache loader")
 			return
 		default:
-			// continue loading
 			time.Sleep(20 * time.Second) // Adjust the interval as needed
 		}
 	}
