@@ -29,7 +29,6 @@ func newHandler() (*Handler, error) {
 	h := &Handler{
 		lg: log.GlobalLogger().WithField("module", "k8s-ephemeral-storage"),
 	}
-	h.lg.Infof("new ephemeral storage handler")
 	return h, nil
 }
 
@@ -38,7 +37,6 @@ type Handler struct {
 }
 
 func (h *Handler) Init(ctx context.Context) error {
-	h.lg.Infof("init ephemeral storage handler")
 	goroutineUtil.RunGoroutineWithLog(func() {
 		h.runReadEphemeralStorageMetrics(ctx, 10*time.Second)
 	})
@@ -66,11 +64,9 @@ func (h *Handler) runReadEphemeralStorageMetrics(ctx context.Context, interval t
 func (h *Handler) readEphemeralStorageMetrics(ctx context.Context) error {
 	stat := kubelet.GetKubeletClient().GetKubeletStats(ctx)
 	if stat == nil {
-		h.lg.GlobalLogger().WithContext(ctx).Errorln("get kubelet stats failed")
 		return nil
 	}
 	nodeName := kubelet.GetNodeName()
-	log.Infof("get kubelet stats success, node name: %s, stats: %+v",nodeName, stat)
 	h.getPodEphemeralStorageMetrics(ctx, nodeName, stat)
 	h.getNodeEphemeralStorageMetrics(ctx, nodeName, stat)
 	return nil
@@ -78,12 +74,10 @@ func (h *Handler) readEphemeralStorageMetrics(ctx context.Context) error {
 
 func (h *Handler) getPodEphemeralStorageMetrics(ctx context.Context, nodeName string, stat *statsapi.Summary) {
 	for _, pod := range stat.Pods {
-		h.lg.Infof("get pod ephemeral storage metrics, pod name: %s, namespace: %s, ephemeral storage: %+v", pod.PodRef.Name, pod.PodRef.Namespace, pod.EphemeralStorage)
 		if pod.EphemeralStorage != nil {
 			usage := float64(0)
 			if pod.EphemeralStorage.UsedBytes != nil {
 				usage = float64(*pod.EphemeralStorage.UsedBytes)
-				h.lg.Infof("set pod ephemeral storage metrics, pod name: %s, namespace: %s, usage: %f", pod.PodRef.Name, pod.PodRef.Namespace, usage)
 				PodEphemeralStorageUsageBytes.Set(usage, pod.PodRef.Namespace, pod.PodRef.Name, nodeName)
 			}
 		}
