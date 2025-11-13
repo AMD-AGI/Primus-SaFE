@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -33,14 +34,60 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 	newTimeseries := []prompbmarshal.TimeSeries{}
 	newTsNames := map[string]bool{}
 	for _, ts := range timeseries {
+		// 检查是否需要调试此指标
+		needDebug := shouldDebug(ts.Labels)
+		metricName := getName(ts.Labels)
+		labelMap := labelsToMap(ts.Labels)
+
 		podName, podUid := pods.GetPodLabelValue(ts.Labels)
 		if podName == "" && podUid == "" {
+			if needDebug {
+				recordDebug(DebugRecord{
+					Timestamp:   time.Now(),
+					MetricName:  metricName,
+					Labels:      labelMap,
+					PodName:     podName,
+					PodUID:      podUid,
+					Status:      "filtered",
+					Reason:      "missing_pod_info: podName and podUid are both empty",
+					SampleCount: len(ts.Samples),
+				})
+			}
 			continue
 		}
+
 		workloads := pods.GetWorkloadsByPodName(podName)
+		if len(workloads) == 0 {
+			if needDebug {
+				recordDebug(DebugRecord{
+					Timestamp:   time.Now(),
+					MetricName:  metricName,
+					Labels:      labelMap,
+					PodName:     podName,
+					PodUID:      podUid,
+					Status:      "filtered",
+					Reason:      fmt.Sprintf("no_workload_found: no workload mapping found for pod %s", podName),
+					SampleCount: len(ts.Samples),
+				})
+			}
+			continue
+		}
+
 		for _, workload := range workloads {
 			if len(workload) < 2 {
 				log.Errorf("workload cache for pod %s has less than 2 elements: %v", podName, workload)
+				if needDebug {
+					recordDebug(DebugRecord{
+						Timestamp:   time.Now(),
+						MetricName:  metricName,
+						Labels:      labelMap,
+						PodName:     podName,
+						PodUID:      podUid,
+						Status:      "filtered",
+						Reason:      fmt.Sprintf("invalid_workload_cache: workload cache has less than 2 elements: %v", workload),
+						SampleCount: len(ts.Samples),
+					})
+				}
 				continue
 			}
 			workloadName := workload[0]
@@ -53,11 +100,12 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 					newTsNames[label.Value] = true
 				}
 				if label.Name == "job" {
-					label.Value = fmt.Sprintf("primus-lens-telemetry-processor")
+					label.Value = "primus-lens-telemetry-processor"
 				}
 				newLabels = append(newLabels, prompbmarshal.Label{Name: label.Name, Value: label.Value})
 			}
 			newSamples := []prompbmarshal.Sample{}
+			filteredSampleCount := 0
 			for _, sample := range ts.Samples {
 				newSample := prompbmarshal.Sample{
 					Timestamp: sample.Timestamp,
@@ -65,10 +113,29 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 				}
 				if sample.Value < 0 {
 					log.Warnf("Negative value found in timeseries for pod %s, workload %s: %v", podName, workloadName, sample)
+					filteredSampleCount++
 					continue
 				}
 				newSamples = append(newSamples, newSample)
 			}
+
+			// 如果所有样本都被过滤了，记录并跳过
+			if len(newSamples) == 0 {
+				if needDebug {
+					recordDebug(DebugRecord{
+						Timestamp:   time.Now(),
+						MetricName:  metricName,
+						Labels:      labelMap,
+						PodName:     podName,
+						PodUID:      podUid,
+						Status:      "filtered",
+						Reason:      fmt.Sprintf("all_samples_negative: %d samples were filtered due to negative values", filteredSampleCount),
+						SampleCount: len(ts.Samples),
+					})
+				}
+				continue
+			}
+
 			newTs := prompbmarshal.TimeSeries{
 				Labels: append(newLabels, prompbmarshal.Label{Name: "pod_name", Value: podName},
 					prompbmarshal.Label{Name: "pod_uid", Value: podUid},
@@ -77,6 +144,25 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 				Samples: newSamples,
 			}
 			newTimeseries = append(newTimeseries, newTs)
+
+			// 记录成功通过的情况
+			if needDebug {
+				reason := fmt.Sprintf("passed: successfully relabeled with workload %s (uid: %s), %d samples kept",
+					workloadName, workloadUid, len(newSamples))
+				if filteredSampleCount > 0 {
+					reason += fmt.Sprintf(", %d samples filtered due to negative values", filteredSampleCount)
+				}
+				recordDebug(DebugRecord{
+					Timestamp:   time.Now(),
+					MetricName:  metricName,
+					Labels:      labelMap,
+					PodName:     podName,
+					PodUID:      podUid,
+					Status:      "passed",
+					Reason:      reason,
+					SampleCount: len(ts.Samples),
+				})
+			}
 		}
 	}
 	if len(newTimeseries) > 0 {

@@ -88,7 +88,7 @@ func GetPodLabelValue(labels []prompb.Label) (podName string, podUid string) {
 		return
 	}
 	// filter kube state metrics
-	podName = labelValues["pod"]
+	podName = getPodNameValue(labelValues)
 	podUid = labelValues["uid"]
 	if podName != "" && podUid != "" {
 		return podName, podUid
@@ -99,6 +99,21 @@ func GetPodLabelValue(labels []prompb.Label) (podName string, podUid string) {
 	}
 	return "", ""
 }
+
+
+func getPodNameValue(labelValues map[string]string) string {
+	if podName, ok := labelValues["pod"]; ok {
+		return podName
+	}
+	if podName, ok := labelValues["pod_name"]; ok {
+		return podName
+	}
+	if podName, ok := labelValues["exported_pod"]; ok {
+		return podName
+	}
+	return ""
+}
+
 
 func GetWorkloadsByPodName(podName string) [][]string {
 	if workloads, ok := podWorkloadCache[podName]; ok {
