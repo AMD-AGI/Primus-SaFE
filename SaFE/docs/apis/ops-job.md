@@ -88,7 +88,9 @@ OpsJob(operations job) performs specific administrative tasks in the system. Com
 }
 ```
 
-**Note**: The system will automatically retrieve the workload's image and add it to inputs as `{ "name": "image", "value": "..." }`.
+**Note**: 
+- The system will automatically retrieve the workload's image and add it to inputs as `{ "name": "image", "value": "..." }`.
+- The target image name will be converted to **lowercase** to comply with Harbor naming requirements. For example, `docker.io/library/busybox:latest` will be exported as `custom/library/busybox:20251113`.
 
 **Request Parameters**:
 

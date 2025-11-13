@@ -461,11 +461,12 @@ func generateTargetImageName(sourceImage string) (string, error) {
 	// Generate timestamp tag (YYYYMMDD format)
 	timestamp := time.Now().Format("20060102")
 
-	// Create target image path: Custom/namespace/repository:YYYYMMDD
+	// Create target image path: custom/namespace/repository:YYYYMMDD
+	// Convert to lowercase as Harbor requires lowercase repository names
 	targetImage := fmt.Sprintf("%s/%s/%s:%s",
-		registryProject, // "Custom"
-		namespace,
-		repository,
+		strings.ToLower(registryProject), // "custom" (lowercase)
+		strings.ToLower(namespace),
+		strings.ToLower(repository),
 		timestamp)
 
 	return targetImage, nil
