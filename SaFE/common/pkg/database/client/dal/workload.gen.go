@@ -38,16 +38,16 @@ func newWorkload(db *gorm.DB, opts ...gen.DOOption) workload {
 	_workload.Gvk = field.NewString(tableName, "gvk")
 	_workload.Phase = field.NewString(tableName, "phase")
 	_workload.Username = field.NewString(tableName, "username")
-	_workload.CreateTime = field.NewTime(tableName, "create_time")
+	_workload.CreationTime = field.NewTime(tableName, "creation_time")
 	_workload.StartTime = field.NewTime(tableName, "start_time")
 	_workload.EndTime = field.NewTime(tableName, "end_time")
-	_workload.DeleteTime = field.NewTime(tableName, "delete_time")
+	_workload.DeletionTime = field.NewTime(tableName, "deletion_time")
 	_workload.IsSupervised = field.NewBool(tableName, "is_supervised")
 	_workload.IsDeleted = field.NewBool(tableName, "is_deleted")
 	_workload.IsTolerateAll = field.NewBool(tableName, "is_tolerate_all")
 	_workload.Priority = field.NewInt32(tableName, "priority")
 	_workload.MaxRetry = field.NewInt32(tableName, "max_retry")
-	_workload.SchedulerOrder = field.NewInt32(tableName, "scheduler_order")
+	_workload.QueuePosition = field.NewInt32(tableName, "queue_position")
 	_workload.DispatchCount = field.NewInt32(tableName, "dispatch_count")
 	_workload.TTLSecond = field.NewInt32(tableName, "ttl_second")
 	_workload.Timeout = field.NewInt32(tableName, "timeout")
@@ -88,16 +88,16 @@ type workload struct {
 	Gvk            field.String
 	Phase          field.String
 	Username       field.String
-	CreateTime     field.Time
+	CreationTime   field.Time
 	StartTime      field.Time
 	EndTime        field.Time
-	DeleteTime     field.Time
+	DeletionTime   field.Time
 	IsSupervised   field.Bool
 	IsDeleted      field.Bool
 	IsTolerateAll  field.Bool
 	Priority       field.Int32
 	MaxRetry       field.Int32
-	SchedulerOrder field.Int32
+	QueuePosition  field.Int32
 	DispatchCount  field.Int32
 	TTLSecond      field.Int32
 	Timeout        field.Int32
@@ -144,16 +144,16 @@ func (w *workload) updateTableName(table string) *workload {
 	w.Gvk = field.NewString(table, "gvk")
 	w.Phase = field.NewString(table, "phase")
 	w.Username = field.NewString(table, "username")
-	w.CreateTime = field.NewTime(table, "create_time")
+	w.CreationTime = field.NewTime(table, "creation_time")
 	w.StartTime = field.NewTime(table, "start_time")
 	w.EndTime = field.NewTime(table, "end_time")
-	w.DeleteTime = field.NewTime(table, "delete_time")
+	w.DeletionTime = field.NewTime(table, "deletion_time")
 	w.IsSupervised = field.NewBool(table, "is_supervised")
 	w.IsDeleted = field.NewBool(table, "is_deleted")
 	w.IsTolerateAll = field.NewBool(table, "is_tolerate_all")
 	w.Priority = field.NewInt32(table, "priority")
 	w.MaxRetry = field.NewInt32(table, "max_retry")
-	w.SchedulerOrder = field.NewInt32(table, "scheduler_order")
+	w.QueuePosition = field.NewInt32(table, "queue_position")
 	w.DispatchCount = field.NewInt32(table, "dispatch_count")
 	w.TTLSecond = field.NewInt32(table, "ttl_second")
 	w.Timeout = field.NewInt32(table, "timeout")
@@ -209,16 +209,16 @@ func (w *workload) fillFieldMap() {
 	w.fieldMap["gvk"] = w.Gvk
 	w.fieldMap["phase"] = w.Phase
 	w.fieldMap["username"] = w.Username
-	w.fieldMap["create_time"] = w.CreateTime
+	w.fieldMap["creation_time"] = w.CreationTime
 	w.fieldMap["start_time"] = w.StartTime
 	w.fieldMap["end_time"] = w.EndTime
-	w.fieldMap["delete_time"] = w.DeleteTime
+	w.fieldMap["deletion_time"] = w.DeletionTime
 	w.fieldMap["is_supervised"] = w.IsSupervised
 	w.fieldMap["is_deleted"] = w.IsDeleted
 	w.fieldMap["is_tolerate_all"] = w.IsTolerateAll
 	w.fieldMap["priority"] = w.Priority
 	w.fieldMap["max_retry"] = w.MaxRetry
-	w.fieldMap["scheduler_order"] = w.SchedulerOrder
+	w.fieldMap["queue_position"] = w.QueuePosition
 	w.fieldMap["dispatch_count"] = w.DispatchCount
 	w.fieldMap["ttl_second"] = w.TTLSecond
 	w.fieldMap["timeout"] = w.Timeout

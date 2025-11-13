@@ -119,6 +119,8 @@ type WorkloadResponseItem struct {
 	WorkloadUid string `json:"workloadUid"`
 	// K8s object UID corresponding to the workload. e.g. Associated PyTorchJob UID
 	K8sObjectUid string `json:"k8sObjectUid"`
+	// Average GPU usage in the last 3 hours. Returns -1 if no statistics available
+	AvgGpuUsage float64 `json:"avgGpuUsage"`
 }
 
 type GetWorkloadResponse struct {
