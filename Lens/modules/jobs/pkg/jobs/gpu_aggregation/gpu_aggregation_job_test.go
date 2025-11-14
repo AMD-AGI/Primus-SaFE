@@ -144,8 +144,30 @@ func TestShouldExcludeNamespace(t *testing.T) {
 		{
 			name: "namespace dimension disabled",
 			config: &model.GpuAggregationConfig{
-				Dimensions: model.GpuAggregationDimensions{
-					Namespace: model.NamespaceDimension{
+				Dimensions: struct {
+					Cluster struct {
+						Enabled bool `json:"enabled"`
+					} `json:"cluster"`
+					Namespace struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					} `json:"namespace"`
+					Label struct {
+						Enabled        bool     `json:"enabled"`
+						LabelKeys      []string `json:"label_keys"`
+						AnnotationKeys []string `json:"annotation_keys"`
+						DefaultValue   string   `json:"default_value"`
+					} `json:"label"`
+					Workload struct {
+						Enabled bool `json:"enabled"`
+					} `json:"workload"`
+				}{
+					Namespace: struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					}{
 						Enabled: false,
 					},
 				},
@@ -156,10 +178,32 @@ func TestShouldExcludeNamespace(t *testing.T) {
 		{
 			name: "namespace in exclusion list",
 			config: &model.GpuAggregationConfig{
-				Dimensions: model.GpuAggregationDimensions{
-					Namespace: model.NamespaceDimension{
-						Enabled:            true,
-						ExcludeNamespaces:  []string{"test", "dev", "staging"},
+				Dimensions: struct {
+					Cluster struct {
+						Enabled bool `json:"enabled"`
+					} `json:"cluster"`
+					Namespace struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					} `json:"namespace"`
+					Label struct {
+						Enabled        bool     `json:"enabled"`
+						LabelKeys      []string `json:"label_keys"`
+						AnnotationKeys []string `json:"annotation_keys"`
+						DefaultValue   string   `json:"default_value"`
+					} `json:"label"`
+					Workload struct {
+						Enabled bool `json:"enabled"`
+					} `json:"workload"`
+				}{
+					Namespace: struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					}{
+						Enabled:                 true,
+						ExcludeNamespaces:       []string{"test", "dev", "staging"},
 						IncludeSystemNamespaces: true,
 					},
 				},
@@ -170,10 +214,32 @@ func TestShouldExcludeNamespace(t *testing.T) {
 		{
 			name: "system namespace excluded when flag is false",
 			config: &model.GpuAggregationConfig{
-				Dimensions: model.GpuAggregationDimensions{
-					Namespace: model.NamespaceDimension{
-						Enabled:            true,
-						ExcludeNamespaces:  []string{},
+				Dimensions: struct {
+					Cluster struct {
+						Enabled bool `json:"enabled"`
+					} `json:"cluster"`
+					Namespace struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					} `json:"namespace"`
+					Label struct {
+						Enabled        bool     `json:"enabled"`
+						LabelKeys      []string `json:"label_keys"`
+						AnnotationKeys []string `json:"annotation_keys"`
+						DefaultValue   string   `json:"default_value"`
+					} `json:"label"`
+					Workload struct {
+						Enabled bool `json:"enabled"`
+					} `json:"workload"`
+				}{
+					Namespace: struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					}{
+						Enabled:                 true,
+						ExcludeNamespaces:       []string{},
 						IncludeSystemNamespaces: false,
 					},
 				},
@@ -184,10 +250,32 @@ func TestShouldExcludeNamespace(t *testing.T) {
 		{
 			name: "kube-public excluded when flag is false",
 			config: &model.GpuAggregationConfig{
-				Dimensions: model.GpuAggregationDimensions{
-					Namespace: model.NamespaceDimension{
-						Enabled:            true,
-						ExcludeNamespaces:  []string{},
+				Dimensions: struct {
+					Cluster struct {
+						Enabled bool `json:"enabled"`
+					} `json:"cluster"`
+					Namespace struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					} `json:"namespace"`
+					Label struct {
+						Enabled        bool     `json:"enabled"`
+						LabelKeys      []string `json:"label_keys"`
+						AnnotationKeys []string `json:"annotation_keys"`
+						DefaultValue   string   `json:"default_value"`
+					} `json:"label"`
+					Workload struct {
+						Enabled bool `json:"enabled"`
+					} `json:"workload"`
+				}{
+					Namespace: struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					}{
+						Enabled:                 true,
+						ExcludeNamespaces:       []string{},
 						IncludeSystemNamespaces: false,
 					},
 				},
@@ -198,10 +286,32 @@ func TestShouldExcludeNamespace(t *testing.T) {
 		{
 			name: "kube-node-lease excluded when flag is false",
 			config: &model.GpuAggregationConfig{
-				Dimensions: model.GpuAggregationDimensions{
-					Namespace: model.NamespaceDimension{
-						Enabled:            true,
-						ExcludeNamespaces:  []string{},
+				Dimensions: struct {
+					Cluster struct {
+						Enabled bool `json:"enabled"`
+					} `json:"cluster"`
+					Namespace struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					} `json:"namespace"`
+					Label struct {
+						Enabled        bool     `json:"enabled"`
+						LabelKeys      []string `json:"label_keys"`
+						AnnotationKeys []string `json:"annotation_keys"`
+						DefaultValue   string   `json:"default_value"`
+					} `json:"label"`
+					Workload struct {
+						Enabled bool `json:"enabled"`
+					} `json:"workload"`
+				}{
+					Namespace: struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					}{
+						Enabled:                 true,
+						ExcludeNamespaces:       []string{},
 						IncludeSystemNamespaces: false,
 					},
 				},
@@ -212,10 +322,32 @@ func TestShouldExcludeNamespace(t *testing.T) {
 		{
 			name: "system namespace included when flag is true",
 			config: &model.GpuAggregationConfig{
-				Dimensions: model.GpuAggregationDimensions{
-					Namespace: model.NamespaceDimension{
-						Enabled:            true,
-						ExcludeNamespaces:  []string{},
+				Dimensions: struct {
+					Cluster struct {
+						Enabled bool `json:"enabled"`
+					} `json:"cluster"`
+					Namespace struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					} `json:"namespace"`
+					Label struct {
+						Enabled        bool     `json:"enabled"`
+						LabelKeys      []string `json:"label_keys"`
+						AnnotationKeys []string `json:"annotation_keys"`
+						DefaultValue   string   `json:"default_value"`
+					} `json:"label"`
+					Workload struct {
+						Enabled bool `json:"enabled"`
+					} `json:"workload"`
+				}{
+					Namespace: struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					}{
+						Enabled:                 true,
+						ExcludeNamespaces:       []string{},
 						IncludeSystemNamespaces: true,
 					},
 				},
@@ -226,10 +358,32 @@ func TestShouldExcludeNamespace(t *testing.T) {
 		{
 			name: "regular namespace not excluded",
 			config: &model.GpuAggregationConfig{
-				Dimensions: model.GpuAggregationDimensions{
-					Namespace: model.NamespaceDimension{
-						Enabled:            true,
-						ExcludeNamespaces:  []string{"test"},
+				Dimensions: struct {
+					Cluster struct {
+						Enabled bool `json:"enabled"`
+					} `json:"cluster"`
+					Namespace struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					} `json:"namespace"`
+					Label struct {
+						Enabled        bool     `json:"enabled"`
+						LabelKeys      []string `json:"label_keys"`
+						AnnotationKeys []string `json:"annotation_keys"`
+						DefaultValue   string   `json:"default_value"`
+					} `json:"label"`
+					Workload struct {
+						Enabled bool `json:"enabled"`
+					} `json:"workload"`
+				}{
+					Namespace: struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					}{
+						Enabled:                 true,
+						ExcludeNamespaces:       []string{"test"},
 						IncludeSystemNamespaces: false,
 					},
 				},
@@ -240,10 +394,32 @@ func TestShouldExcludeNamespace(t *testing.T) {
 		{
 			name: "empty exclusion list",
 			config: &model.GpuAggregationConfig{
-				Dimensions: model.GpuAggregationDimensions{
-					Namespace: model.NamespaceDimension{
-						Enabled:            true,
-						ExcludeNamespaces:  []string{},
+				Dimensions: struct {
+					Cluster struct {
+						Enabled bool `json:"enabled"`
+					} `json:"cluster"`
+					Namespace struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					} `json:"namespace"`
+					Label struct {
+						Enabled        bool     `json:"enabled"`
+						LabelKeys      []string `json:"label_keys"`
+						AnnotationKeys []string `json:"annotation_keys"`
+						DefaultValue   string   `json:"default_value"`
+					} `json:"label"`
+					Workload struct {
+						Enabled bool `json:"enabled"`
+					} `json:"workload"`
+				}{
+					Namespace: struct {
+						Enabled                 bool     `json:"enabled"`
+						IncludeSystemNamespaces bool     `json:"include_system_namespaces"`
+						ExcludeNamespaces       []string `json:"exclude_namespaces"`
+					}{
+						Enabled:                 true,
+						ExcludeNamespaces:       []string{},
 						IncludeSystemNamespaces: true,
 					},
 				},
@@ -440,11 +616,9 @@ func TestNewGpuAggregationJob(t *testing.T) {
 func TestNewGpuAggregationJobWithConfig(t *testing.T) {
 	config := &model.GpuAggregationConfig{
 		Enabled: true,
-		Sampling: model.SamplingConfig{
-			Enabled:  true,
-			Interval: "5m",
-		},
 	}
+	config.Sampling.Enabled = true
+	config.Sampling.Interval = "5m"
 
 	job := NewGpuAggregationJobWithConfig(config)
 
@@ -477,4 +651,3 @@ func TestGetConfigNil(t *testing.T) {
 	result := job.GetConfig()
 	assert.Nil(t, result, "GetConfig should return nil when config is nil")
 }
-

@@ -8,8 +8,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/exporter"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/jobs"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -22,7 +21,7 @@ func Init(ctx context.Context, cfg *config.Config) error {
 	if cfg.Jobs == nil {
 		return errors.New("jobs config is required")
 	}
-	
+
 	// Initialize OpenTelemetry tracer
 	err := trace.InitTracer("primus-lens-jobs")
 	if err != nil {
@@ -31,7 +30,7 @@ func Init(ctx context.Context, cfg *config.Config) error {
 	} else {
 		log.Info("OpenTelemetry tracer initialized successfully for jobs service")
 	}
-	
+
 	// Register cleanup function
 	go func() {
 		<-ctx.Done()
@@ -39,11 +38,7 @@ func Init(ctx context.Context, cfg *config.Config) error {
 			log.Errorf("Failed to close tracer: %v", err)
 		}
 	}()
-	
-	err = exporter.StartServer(ctx, cfg.Jobs.GrpcPort)
-	if err != nil {
-		return err
-	}
+
 	err = controller.RegisterScheme(schemes)
 	if err != nil {
 		return err

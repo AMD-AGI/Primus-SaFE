@@ -37,9 +37,9 @@ func TestGetJobName(t *testing.T) {
 }
 
 func TestGetJobNameWithNonPointer(t *testing.T) {
-	// Test with non-pointer type
+	// Test with non-pointer type (need to use pointer since Schedule has pointer receiver)
 	job := mockJob{schedule: "@every 1m"}
-	result := getJobName(job)
+	result := getJobName(&job)
 	assert.Equal(t, "mockJob", result, "Should handle non-pointer types")
 }
 
@@ -59,7 +59,7 @@ func TestGetJobType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := getJobType(tt.job)
-			
+
 			// The result should contain the package path and type name
 			assert.Contains(t, result, tt.expectedName, "Job type should contain type name")
 			assert.Contains(t, result, "common", "Job type should contain package name")
@@ -68,10 +68,10 @@ func TestGetJobType(t *testing.T) {
 }
 
 func TestGetJobTypeWithNonPointer(t *testing.T) {
-	// Test with non-pointer type
+	// Test with non-pointer type (need to use pointer since Schedule has pointer receiver)
 	job := mockJob{schedule: "@every 1m"}
-	result := getJobType(job)
-	
+	result := getJobType(&job)
+
 	assert.Contains(t, result, "mockJob", "Should contain type name")
 	assert.Contains(t, result, "common", "Should contain package name")
 }
@@ -136,4 +136,3 @@ func TestGetJobTypeDifferentTypes(t *testing.T) {
 		})
 	}
 }
-

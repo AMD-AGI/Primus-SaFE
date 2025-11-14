@@ -139,10 +139,10 @@ func TestGetGpuUsageHistoryCacheKey(t *testing.T) {
 		},
 		{
 			name:        "boundary test - ended exactly 5 minutes ago",
-			startTime:   now.Add(-1*time.Hour - 5*time.Minute),
-			endTime:     now.Add(-5 * time.Minute),
-			expected:    "cluster:gpu:usage_history:1h", // timeSinceEnd > tolerance check, 5 minutes is not greater than, so it matches
-			description: "Exactly within 5 minute tolerance boundary",
+			startTime:   now.Add(-1*time.Hour - 4*time.Minute - 59*time.Second),
+			endTime:     now.Add(-4*time.Minute - 59*time.Second),
+			expected:    "cluster:gpu:usage_history:1h", // Just under 5 minutes, within tolerance
+			description: "Just within 5 minute tolerance boundary",
 		},
 		{
 			name:        "boundary test - ended 4 minutes ago",

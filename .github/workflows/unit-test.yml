@@ -57,11 +57,15 @@ jobs:
             echo "COVERAGE=0%" >> $GITHUB_ENV
           fi
 
+          # Set artifact name without slashes
+          MODULE_NAME=$(echo "${{ matrix.module }}" | tr '/' '-')
+          echo "ARTIFACT_NAME=coverage-safe-${MODULE_NAME}" >> $GITHUB_ENV
+
       - name: Upload Coverage Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: coverage-safe-${{ matrix.module }}
+          name: ${{ env.ARTIFACT_NAME }}
           path: SaFE/${{ matrix.module }}/coverage.out
           retention-days: 30
 
@@ -114,12 +118,16 @@ jobs:
             echo "⚠️  No coverage file generated for ${{ matrix.module }}"
             echo "COVERAGE=0%" >> $GITHUB_ENV
           fi
+          
+          # Set artifact name without slashes
+          MODULE_NAME=$(echo "${{ matrix.module }}" | tr '/' '-')
+          echo "ARTIFACT_NAME=coverage-lens-${MODULE_NAME}" >> $GITHUB_ENV
 
       - name: Upload Coverage Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: coverage-lens-${{ matrix.module }}
+          name: ${{ env.ARTIFACT_NAME }}
           path: Lens/modules/${{ matrix.module }}/coverage.out
           retention-days: 30
 

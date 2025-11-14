@@ -453,9 +453,11 @@ func TestConcurrentAccess(t *testing.T) {
 		for i := 0; i < numGoroutines; i++ {
 			go func(id int) {
 				defer wg.Done()
+				// Each goroutine gets its own context to avoid data races
+				localCtx := ctx
 				key := "key-" + string(rune(id))
 				value := "value-" + string(rune(id))
-				ctx = WithObject(ctx, key, value)
+				_ = WithObject(localCtx, key, value)
 			}(i)
 		}
 		
@@ -475,8 +477,10 @@ func TestConcurrentAccess(t *testing.T) {
 		for i := 0; i < numOperations; i++ {
 			go func(id int) {
 				defer wg.Done()
+				// Each goroutine gets its own context to avoid data races
+				localCtx := ctx
 				key := "key-" + string(rune(id))
-				ctx = WithObject(ctx, key, id)
+				_ = WithObject(localCtx, key, id)
 			}(i)
 		}
 		
