@@ -115,7 +115,7 @@ func TestSearchGpuNodeReq_ToNodeFilter(t *testing.T) {
 				Desc:    true,
 			},
 			expectedOffset:     0,
-			expectedLimit:      20,
+			expectedLimit:      10,
 			expectedOrder:      "desc",
 			expectedOrderBy:    "gpu_count",
 			expectedNameNil:    true,
@@ -151,7 +151,7 @@ func TestSearchGpuNodeReq_ToNodeFilter(t *testing.T) {
 		{
 			name: "empty request",
 			req:  SearchGpuNodeReq{},
-			expectedOffset:     -10,
+			expectedOffset:     0,
 			expectedLimit:      10,
 			expectedOrder:      "asc",
 			expectedOrderBy:    "",
