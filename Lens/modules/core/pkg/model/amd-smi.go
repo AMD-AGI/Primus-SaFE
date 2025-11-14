@@ -317,13 +317,26 @@ func (c *CardMetrics) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// GPUPowerInfo 表示单个 GPU 的功耗信息
+// GPUPowerInfo represents power information for a single GPU
 type GPUPowerInfo struct {
 	GPU   int       `json:"gpu"`
 	Power PowerInfo `json:"power"`
 }
 
-// PowerInfo 表示 GPU 的功耗详细信息
+// GPUMetricsInfo represents metrics information for a single GPU (including power and PCIE)
+type GPUMetricsInfo struct {
+	GPU   int       `json:"gpu"`
+	Power PowerInfo `json:"power"`
+	PCIE  PCIEInfo  `json:"pcie"`
+}
+
+// GPUPCIEInfo represents PCIE information for a single GPU
+type GPUPCIEInfo struct {
+	GPU  int      `json:"gpu"`
+	PCIE PCIEInfo `json:"pcie"`
+}
+
+// PowerInfo represents detailed power information for a GPU
 type PowerInfo struct {
 	SocketPower     ValueWithUnit    `json:"socket_power"`
 	GfxVoltage      VoltageValueOrNA `json:"gfx_voltage"`
@@ -333,7 +346,62 @@ type PowerInfo struct {
 	PowerManagement string           `json:"power_management"`
 }
 
-// VoltageValueOrNA 表示电压值，可能是数值或 "N/A"
+// PCIEInfo represents detailed PCIE information for a GPU
+type PCIEInfo struct {
+	Width                    StringOrNA    `json:"width"`
+	Speed                    ValueWithUnit `json:"speed"`
+	Bandwidth                ValueWithUnit `json:"bandwidth"`
+	ReplayCount              StringOrNA    `json:"replay_count"`
+	L0ToRecoveryCount        StringOrNA    `json:"l0_to_recovery_count"`
+	ReplayRollOverCount      StringOrNA    `json:"replay_roll_over_count"`
+	NAKSentCount             StringOrNA    `json:"nak_sent_count"`
+	NAKReceivedCount         StringOrNA    `json:"nak_received_count"`
+	CurrentBandwidthSent     StringOrNA    `json:"current_bandwidth_sent"`
+	CurrentBandwidthReceived StringOrNA    `json:"current_bandwidth_received"`
+	MaxPacketSize            StringOrNA    `json:"max_packet_size"`
+	LCPerfOtherEndRecovery   StringOrNA    `json:"lc_perf_other_end_recovery"`
+}
+
+// StringOrNA represents a string or numeric value that may be "N/A"
+type StringOrNA struct {
+	Value string `json:"-"`
+	IsNA  bool   `json:"-"`
+}
+
+func (s *StringOrNA) UnmarshalJSON(data []byte) error {
+	// Try to parse as string
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		if str == "N/A" {
+			s.IsNA = true
+			s.Value = ""
+		} else {
+			s.IsNA = false
+			s.Value = str
+		}
+		return nil
+	}
+
+	// Try to parse as number
+	var num float64
+	if err := json.Unmarshal(data, &num); err == nil {
+		s.IsNA = false
+		s.Value = strconv.FormatFloat(num, 'f', -1, 64)
+		return nil
+	}
+
+	// Try to parse as ValueWithUnit object
+	var vwu ValueWithUnit
+	if err := json.Unmarshal(data, &vwu); err == nil {
+		s.IsNA = false
+		s.Value = strconv.FormatFloat(vwu.Value, 'f', -1, 64)
+		return nil
+	}
+
+	return fmt.Errorf("unable to unmarshal StringOrNA from: %s", string(data))
+}
+
+// VoltageValueOrNA represents a voltage value that may be numeric or "N/A"
 type VoltageValueOrNA struct {
 	Value float64 `json:"value"`
 	Unit  string  `json:"unit"`
