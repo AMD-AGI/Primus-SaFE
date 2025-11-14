@@ -373,6 +373,12 @@ func (r *ExportImageJobReconciler) exportImageViaSSH(
 		return fmt.Errorf("failed to push image: %w", err)
 	}
 
+	// Step 4: Clean up local image (optional, to save node storage)
+	if err := r.deleteImage(ctx, sshClient, fullTargetImage); err != nil {
+		// Log warning but don't fail the job if cleanup fails
+		klog.Warningf("Failed to delete local image %s: %v ", fullTargetImage, err)
+	}
+
 	klog.Infof("Successfully pushed image %s to registry %s", targetImage, registry)
 	return nil
 }
@@ -452,6 +458,29 @@ func (r *ExportImageJobReconciler) pushImage(sshClient *ssh.Client, imageName st
 	}
 
 	klog.Infof("Successfully pushed image %s", imageName)
+	return nil
+}
+
+// deleteImage deletes an image from the node using nerdctl rmi
+func (r *ExportImageJobReconciler) deleteImage(ctx context.Context, sshClient *ssh.Client, imageName string) error {
+	session, err := sshClient.NewSession()
+	if err != nil {
+		return fmt.Errorf("failed to create SSH session: %w", err)
+	}
+	defer session.Close()
+
+	klog.Infof("Deleting image: %s", imageName)
+
+	// Use nerdctl rmi to remove image
+	cmd := fmt.Sprintf("sudo nerdctl rmi %s", imageName)
+	klog.V(4).Infof("Executing: %s", cmd)
+
+	output, err := session.CombinedOutput(cmd)
+	if err != nil {
+		return fmt.Errorf("delete image failed: %s, error: %w", string(output), err)
+	}
+
+	klog.Infof("Successfully deleted image %s", imageName)
 	return nil
 }
 
