@@ -1,6 +1,6 @@
 module github.com/AMD-AIG-AIMA/SAFE/webhooks
 
-go 1.24.2
+go 1.24.7
 
 require (
 	github.com/AMD-AIG-AIMA/SAFE/apis v0.0.0
