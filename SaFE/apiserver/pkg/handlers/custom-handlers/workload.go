@@ -161,12 +161,7 @@ func (h *Handler) createWorkloadImpl(c *gin.Context, workload *v1.Workload, requ
 	if err = h.Create(c.Request.Context(), workload); err != nil {
 		return nil, err
 	}
-	cond := &metav1.Condition{
-		Type:    string(v1.AdminScheduling),
-		Status:  metav1.ConditionTrue,
-		Message: "the workload is scheduling",
-	}
-	if err = h.patchPhase(c.Request.Context(), workload, v1.WorkloadPending, cond); err != nil {
+	if err = h.patchPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
 		return nil, err
 	}
 	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d",
