@@ -161,7 +161,12 @@ func (h *Handler) createWorkloadImpl(c *gin.Context, workload *v1.Workload, requ
 	if err = h.Create(c.Request.Context(), workload); err != nil {
 		return nil, err
 	}
-	if err = h.patchPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
+	cond := &metav1.Condition{
+		Type:    string(v1.AdminScheduling),
+		Status:  metav1.ConditionTrue,
+		Message: "the workload is scheduling",
+	}
+	if err = h.patchPhase(c.Request.Context(), workload, v1.WorkloadPending, cond); err != nil {
 		return nil, err
 	}
 	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d",
@@ -480,9 +485,8 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 
 // patchPhase updates the phase of a workload and optionally adds a condition.
 // Handles status updates including setting end time for stopped workloads.
-func (h *Handler) patchPhase(ctx context.Context, workload *v1.Workload,
-	phase v1.WorkloadPhase, cond *metav1.Condition,
-) error {
+func (h *Handler) patchPhase(ctx context.Context,
+	workload *v1.Workload, phase v1.WorkloadPhase, cond *metav1.Condition) error {
 	originalWorkload := client.MergeFrom(workload.DeepCopy())
 	if phase != "" {
 		workload.Status.Phase = phase

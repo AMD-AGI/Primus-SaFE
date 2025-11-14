@@ -187,7 +187,9 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		adminWorkload.Status.Message = ""
 	}
 	adminWorkload.Status.K8sObjectUid = string(message.uid)
-	updateWorkloadCondition(adminWorkload, status, message.dispatchCount)
+	cond := jobutils.NewCondition(status.Phase, status.Message,
+		commonworkload.GenerateDispatchReason(message.dispatchCount))
+	updateWorkloadCondition(adminWorkload, cond)
 	if reflect.DeepEqual(adminWorkload.Status, originalWorkload.Status) {
 		return originalWorkload, false, nil
 	}
@@ -236,6 +238,9 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 	}
 	if workload.Status.Phase != v1.WorkloadPending {
 		workload.Status.Phase = v1.WorkloadPending
+		reason := commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload) + 1)
+		cond := jobutils.NewCondition(string(v1.AdminScheduling), "the workload is re-scheduling", reason)
+		updateWorkloadCondition(workload, cond)
 		isStatusChanged = true
 	}
 	if len(workload.Status.Nodes) < count {
@@ -270,8 +275,7 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 
 // updateWorkloadCondition updates workload conditions based on resource status.
 // Manages condition history and ensures proper condition tracking.
-func updateWorkloadCondition(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, dispatchCount int) {
-	newCondition := jobutils.NewCondition(status.Phase, status.Message, commonworkload.GenerateDispatchReason(dispatchCount))
+func updateWorkloadCondition(adminWorkload *v1.Workload, newCondition *metav1.Condition) {
 	if commonworkload.IsApplication(adminWorkload) {
 		lastCondition := adminWorkload.GetLastCondition()
 		if lastCondition != nil && newCondition.Type == lastCondition.Type && newCondition.Reason == lastCondition.Reason {
