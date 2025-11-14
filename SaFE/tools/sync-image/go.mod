@@ -1,6 +1,6 @@
 module github.com/AMD-AIG-AIMA/SAFE/tools/syncimage
 
-go 1.22.6
+go 1.24.7
 
 require (
 	github.com/containers/common v0.61.0

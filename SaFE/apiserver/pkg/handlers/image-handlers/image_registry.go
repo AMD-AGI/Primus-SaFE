@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"time"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/gin-gonic/gin"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
@@ -25,6 +28,16 @@ func (h *ImageHandler) createImageRegistry(c *gin.Context) (*model.RegistryInfo,
 	if err := body.Validate(true); err != nil {
 		return nil, err
 	}
+
+	if err := h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageRegisterKind,
+		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	result, err := h.upsertImageRegistryInfo(c, body)
 	if err != nil {
 		return nil, err
@@ -49,6 +62,16 @@ func (h *ImageHandler) updateImageRegistry(c *gin.Context) (*model.RegistryInfo,
 	if err := body.Validate(false); err != nil {
 		return nil, err
 	}
+
+	if err := h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageRegisterKind,
+		Verb:         v1.UpdateVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	body.Id = int32(id)
 	result, err := h.upsertImageRegistryInfo(c, body)
 	if err != nil {
@@ -67,6 +90,16 @@ func (h *ImageHandler) deleteImageRegistry(c *gin.Context) (interface{}, error) 
 	if err != nil {
 		return nil, commonerrors.NewBadRequest("invalid id: " + err.Error())
 	}
+
+	if err := h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageRegisterKind,
+		Verb:         v1.DeleteVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	existInfo, err := h.dbClient.GetRegistryInfoById(c, int32(id))
 	if err != nil {
 		return nil, err
@@ -86,6 +119,16 @@ func (h *ImageHandler) listImageRegistry(c *gin.Context) ([]*ImageRegistryInfo, 
 	if err := c.ShouldBindQuery(page); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
+
+	if err := h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageRegisterKind,
+		Verb:         v1.ListVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	dbResults, err := h.dbClient.ListRegistryInfos(c, page.PageNum, page.PageSize)
 	if err != nil {
 		return nil, err
