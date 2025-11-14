@@ -400,7 +400,7 @@ func (h *ImageHandler) retryDispatchImportImageJob(c *gin.Context) (interface{},
 
 func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image, info *model.ImageImportJob) (*batchv1.Job, error) {
 	jobName := generateImportImageJobName(image.ID)
-	imagePullSecrets, err := h.listImagePullSecretsName(c, h.Client, DefaultNamespace)
+	imagePullSecrets, err := h.listImagePullSecretsName(c, h.Client, common.DefaultNamespace)
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +428,7 @@ func newImportImageJob(
 	env *ImportImageEnv,
 	userName string,
 ) (*batchv1.Job, error) {
-	namespace := DefaultNamespace
+	namespace := common.DefaultNamespace
 	envs := defaultSyncImageEnv()
 	if len(env.OsArch) > 0 && env.OsArch != OsArchAll {
 		envs[OverrideOS] = env.Os
@@ -484,7 +484,7 @@ func newImportImageJob(
 		Name: volumeName,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
-				SecretName: ImageImportSecretName,
+				SecretName: common.ImageImportSecretName,
 			},
 		},
 	})
@@ -784,7 +784,7 @@ func deserializeParams(strInput string) []v1.Parameter {
 		// Trim spaces and quotes (handle "label:value" format)
 		p = strings.TrimSpace(p)
 		p = strings.Trim(p, "\"")
-		
+
 		param := v1.CvtStringToParam(p)
 		if param != nil {
 			result = append(result, *param)
@@ -796,30 +796,30 @@ func deserializeParams(strInput string) []v1.Parameter {
 // buildExportImageJobQuery builds SQL query for export image jobs from ops_job table.
 func buildExportImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []string) {
 	dbTags := dbClient.GetOpsJobFieldTags()
-	
+
 	// Build WHERE clause
 	dbSql := sqrl.And{
 		sqrl.Eq{dbClient.GetFieldTag(dbTags, "Type"): string(v1.OpsJobExportImageType)},
 		sqrl.Eq{dbClient.GetFieldTag(dbTags, "IsDeleted"): false},
 	}
-	
+
 	// Filter by user name if specified
 	if query.UserName != "" {
 		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "UserName"): query.UserName})
 	}
-	
+
 	// Filter by ready status (only show succeeded jobs)
 	if query.Ready {
 		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "Phase"): string(v1.OpsJobSucceeded)})
 	}
-	
+
 	// Filter by workload ID if specified (using text pattern matching)
 	if query.Workload != "" {
 		// Pattern: workload:xxx followed by comma or closing brace
 		pattern := fmt.Sprintf("workload:%s[,}]", query.Workload)
 		dbSql = append(dbSql, sqrl.Expr("inputs::text ~ ?", pattern))
 	}
-	
+
 	// Build ORDER BY clause
 	// Note: ops_job table uses "creation_time", not "created_at" like image table
 	orderByField := dbClient.GetFieldTag(dbTags, "CreationTime")
@@ -829,20 +829,20 @@ func buildExportImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []strin
 		order = strings.ToUpper(query.Order)
 	}
 	orderBy := []string{fmt.Sprintf("%s %s", orderByField, order)}
-	
+
 	return dbSql, orderBy
 }
 
 // convertOpsJobToExportedImageList converts ops_job records to ExportedImageListItem slice.
 func convertOpsJobToExportedImageList(jobs []*dbClient.OpsJob) []ExportedImageListItem {
 	result := make([]ExportedImageListItem, 0, len(jobs))
-	
+
 	for _, job := range jobs {
 		item := ExportedImageListItem{
 			Status:      dbutils.ParseNullString(job.Phase),
 			CreatedTime: timeutil.FormatRFC3339(dbutils.ParseNullTime(job.CreationTime)),
 		}
-		
+
 		// Parse inputs using the standard deserializeParams function
 		// Format: {workload:xxx,label:yyy,image:zzz}
 		if len(job.Inputs) > 0 {
@@ -856,7 +856,7 @@ func convertOpsJobToExportedImageList(jobs []*dbClient.OpsJob) []ExportedImageLi
 				}
 			}
 		}
-		
+
 		// Parse outputs to extract target image name
 		if outputsStr := dbutils.ParseNullString(job.Outputs); outputsStr != "" {
 			var outputs []v1.Parameter
@@ -869,7 +869,7 @@ func convertOpsJobToExportedImageList(jobs []*dbClient.OpsJob) []ExportedImageLi
 				}
 			}
 		}
-		
+
 		// Parse conditions to extract log message
 		if conditionsStr := dbutils.ParseNullString(job.Conditions); conditionsStr != "" {
 			var conditions []metav1.Condition
@@ -883,9 +883,9 @@ func convertOpsJobToExportedImageList(jobs []*dbClient.OpsJob) []ExportedImageLi
 				}
 			}
 		}
-		
+
 		result = append(result, item)
 	}
-	
+
 	return result
 }

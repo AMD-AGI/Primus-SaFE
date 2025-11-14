@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -34,12 +35,6 @@ import (
 const (
 	// Default concurrent workers for image export
 	exportImageDefaultConcurrent = 3
-
-	// Default namespace for resources
-	defaultNamespace = "primus-safe"
-
-	// Secret name containing Harbor authentication
-	imageImportSecretName = "primus-safe-image-import-reg-cred"
 
 	// Registry project name
 	registryProject = "Custom"
@@ -241,14 +236,14 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 	}
 
 	// Execute image export via SSH
-	if err := r.exportImageViaSSH(ctx, node, sourceImage, targetImage, containerID, defaultRegistry.URL, harborUsername, harborPassword); err != nil {
+	if err := r.exportImageViaSSH(ctx, node, targetImage, containerID, defaultRegistry.URL, harborUsername, harborPassword); err != nil {
 		klog.ErrorS(err, "failed to export image", "source", sourceImage, "target", targetImage)
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
 	}
 
 	// Construct full target image path (with registry) for outputs
 	fullTargetImage := fmt.Sprintf("%s/%s", defaultRegistry.URL, targetImage)
-	
+
 	klog.Infof("Successfully exported image: workload=%s, target=%s", workloadId, fullTargetImage)
 
 	// Update OpsJob status to succeeded with full image path
@@ -300,10 +295,10 @@ func (r *ExportImageJobReconciler) getHarborCredentials(ctx context.Context, reg
 	// Get Secret
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, apitypes.NamespacedName{
-		Name:      imageImportSecretName,
-		Namespace: defaultNamespace,
+		Name:      common.ImageImportSecretName,
+		Namespace: common.DefaultNamespace,
 	}, secret); err != nil {
-		return "", "", fmt.Errorf("failed to get secret %s: %w", imageImportSecretName, err)
+		return "", "", fmt.Errorf("failed to get secret %s: %w", common.ImageImportSecretName, err)
 	}
 
 	// Parse config.json
@@ -345,7 +340,6 @@ func (r *ExportImageJobReconciler) getHarborCredentials(ctx context.Context, reg
 func (r *ExportImageJobReconciler) exportImageViaSSH(
 	ctx context.Context,
 	node *v1.Node,
-	sourceImage string,
 	targetImage string,
 	containerID string,
 	registry string,
@@ -482,7 +476,7 @@ func generateTargetImageName(sourceImage string) (string, error) {
 	}
 
 	var namespace, repository string
-	
+
 	if len(parts) == 1 {
 		// Single part: "nginx" -> Custom/library/nginx
 		namespace = "library"
