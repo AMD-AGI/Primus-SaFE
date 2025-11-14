@@ -13,10 +13,8 @@ const (
 )
 
 const (
-	DefaultQueryLimit     = 50
-	DefaultNamespace      = "primus-safe"
-	ImageImportSecretName = "primus-safe-image-import-reg-cred"
-	ImagePullSecretName   = "primus-safe-image"
+	DefaultQueryLimit   = 50
+	ImagePullSecretName = "primus-safe-image"
 )
 
 const (

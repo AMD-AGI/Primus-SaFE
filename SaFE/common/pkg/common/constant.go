@@ -72,3 +72,8 @@ const (
 	ImageImportFailedStatus  = "Failed"
 	ImageImportPendingStatus = "Pending"
 )
+
+const (
+	DefaultNamespace      = "primus-safe"
+	ImageImportSecretName = "primus-safe-image-import-reg-cred"
+)
