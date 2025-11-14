@@ -781,6 +781,10 @@ func deserializeParams(strInput string) []v1.Parameter {
 	splitParams := strings.Split(strInput, ",")
 	var result []v1.Parameter
 	for _, p := range splitParams {
+		// Trim spaces and quotes (handle "label:value" format)
+		p = strings.TrimSpace(p)
+		p = strings.Trim(p, "\"")
+		
 		param := v1.CvtStringToParam(p)
 		if param != nil {
 			result = append(result, *param)
