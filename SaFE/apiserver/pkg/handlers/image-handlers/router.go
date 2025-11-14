@@ -24,6 +24,9 @@ func InitImageRouter(e *gin.Engine, h *ImageHandler) {
 		imageGroup.GET("", func(c *gin.Context) {
 			handle(c, h.listImage)
 		})
+		imageGroup.GET("custom", func(c *gin.Context) {
+			handle(c, h.listExportedImage)
+		})
 		imageGroup.DELETE(":id", func(c *gin.Context) {
 			handle(c, h.deleteImage)
 		})
