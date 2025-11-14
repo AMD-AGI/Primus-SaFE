@@ -589,9 +589,11 @@ func (v *WorkspaceValidator) validateImmutableFields(newWorkspace, oldWorkspace 
 	if newWorkspace.Spec.Cluster != "" && newWorkspace.Spec.Cluster != oldWorkspace.Spec.Cluster {
 		return field.Forbidden(field.NewPath("spec").Key("cluster"), "immutable")
 	}
-	if oldWorkspace.Spec.NodeFlavor != "" && newWorkspace.Spec.NodeFlavor != "" {
-		if newWorkspace.Spec.NodeFlavor != oldWorkspace.Spec.NodeFlavor {
-			return field.Forbidden(field.NewPath("spec").Key("nodeFlavor"), "immutable")
+	if newWorkspace.Spec.Replica > 0 {
+		if oldWorkspace.Spec.NodeFlavor != "" && newWorkspace.Spec.NodeFlavor != "" {
+			if newWorkspace.Spec.NodeFlavor != oldWorkspace.Spec.NodeFlavor {
+				return field.Forbidden(field.NewPath("spec").Key("nodeFlavor"), "immutable")
+			}
 		}
 	}
 	return nil
