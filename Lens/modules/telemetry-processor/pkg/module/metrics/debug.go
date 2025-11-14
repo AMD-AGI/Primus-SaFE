@@ -10,27 +10,27 @@ import (
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/prompb"
 )
 
-// DebugConfig 调试配置
+// DebugConfig debug configuration
 type DebugConfig struct {
-	Enabled        bool              `json:"enabled"`         // 是否开启调试
-	MetricPattern  string            `json:"metric_pattern"`  // 指标名称模式（支持正则）
-	LabelSelectors map[string]string `json:"label_selectors"` // 标签选择器，key=value 格式
-	MaxRecords     int               `json:"max_records"`     // 最大记录数，防止内存溢出
+	Enabled        bool              `json:"enabled"`         // whether to enable debugging
+	MetricPattern  string            `json:"metric_pattern"`  // metric name pattern (supports regex)
+	LabelSelectors map[string]string `json:"label_selectors"` // label selectors in key=value format
+	MaxRecords     int               `json:"max_records"`     // maximum number of records to prevent memory overflow
 }
 
-// DebugRecord 调试记录
+// DebugRecord debug record
 type DebugRecord struct {
 	Timestamp   time.Time         `json:"timestamp"`
 	MetricName  string            `json:"metric_name"`
 	Labels      map[string]string `json:"labels"`
 	PodName     string            `json:"pod_name"`
 	PodUID      string            `json:"pod_uid"`
-	Status      string            `json:"status"`       // "passed" 或 "filtered"
-	Reason      string            `json:"reason"`       // 不通过的原因或通过的信息
-	SampleCount int               `json:"sample_count"` // 样本数量
+	Status      string            `json:"status"`       // "passed" or "filtered"
+	Reason      string            `json:"reason"`       // reason for rejection or information about passing
+	SampleCount int               `json:"sample_count"` // number of samples
 }
 
-// DebugManager 调试管理器
+// DebugManager debug manager
 type DebugManager struct {
 	mu      sync.RWMutex
 	config  *DebugConfig
@@ -38,23 +38,23 @@ type DebugManager struct {
 	stats   DebugStats
 }
 
-// DebugStats 调试统计
+// DebugStats debug statistics
 type DebugStats struct {
-	TotalMatched   int       `json:"total_matched"`  // 总匹配数
-	TotalPassed    int       `json:"total_passed"`   // 通过数
-	TotalFiltered  int       `json:"total_filtered"` // 过滤数
+	TotalMatched   int       `json:"total_matched"`  // total number of matches
+	TotalPassed    int       `json:"total_passed"`   // number passed
+	TotalFiltered  int       `json:"total_filtered"` // number filtered
 	LastUpdateTime time.Time `json:"last_update_time"`
 }
 
 var debugManager = &DebugManager{
 	config: &DebugConfig{
 		Enabled:    false,
-		MaxRecords: 1000, // 默认最多保存 1000 条记录
+		MaxRecords: 1000, // default maximum of 1000 records
 	},
 	records: make([]DebugRecord, 0),
 }
 
-// SetDebugConfig 设置调试配置
+// SetDebugConfig sets debug configuration
 func SetDebugConfig(config *DebugConfig) {
 	debugManager.mu.Lock()
 	defer debugManager.mu.Unlock()
@@ -64,7 +64,7 @@ func SetDebugConfig(config *DebugConfig) {
 	}
 	debugManager.config = config
 
-	// 如果开启了调试，清空之前的记录
+	// Clear previous records if debugging is enabled
 	if config.Enabled {
 		debugManager.records = make([]DebugRecord, 0)
 		debugManager.stats = DebugStats{
@@ -73,7 +73,7 @@ func SetDebugConfig(config *DebugConfig) {
 	}
 }
 
-// GetDebugConfig 获取调试配置
+// GetDebugConfig gets debug configuration
 func GetDebugConfig() *DebugConfig {
 	debugManager.mu.RLock()
 	defer debugManager.mu.RUnlock()
@@ -82,19 +82,19 @@ func GetDebugConfig() *DebugConfig {
 	return &configCopy
 }
 
-// GetDebugRecords 获取调试记录
+// GetDebugRecords gets debug records
 func GetDebugRecords() ([]DebugRecord, DebugStats) {
 	debugManager.mu.RLock()
 	defer debugManager.mu.RUnlock()
 
-	// 返回副本，避免并发问题
+	// Return a copy to avoid concurrency issues
 	recordsCopy := make([]DebugRecord, len(debugManager.records))
 	copy(recordsCopy, debugManager.records)
 
 	return recordsCopy, debugManager.stats
 }
 
-// ClearDebugRecords 清空调试记录
+// ClearDebugRecords clears debug records
 func ClearDebugRecords() {
 	debugManager.mu.Lock()
 	defer debugManager.mu.Unlock()
@@ -105,7 +105,7 @@ func ClearDebugRecords() {
 	}
 }
 
-// shouldDebug 判断是否需要调试这个时间序列
+// shouldDebug determines whether to debug this time series
 func shouldDebug(labels []prompb.Label) bool {
 	debugManager.mu.RLock()
 	defer debugManager.mu.RUnlock()
@@ -114,7 +114,7 @@ func shouldDebug(labels []prompb.Label) bool {
 		return false
 	}
 
-	// 检查 metric name
+	// Check metric name
 	metricName := getName(labels)
 	if debugManager.config.MetricPattern != "" {
 		matched, err := regexp.MatchString(debugManager.config.MetricPattern, metricName)
@@ -123,11 +123,11 @@ func shouldDebug(labels []prompb.Label) bool {
 		}
 	}
 
-	// 检查 label selectors
+	// Check label selectors
 	if len(debugManager.config.LabelSelectors) > 0 {
 		labelMap := labelsToMap(labels)
 		for key, value := range debugManager.config.LabelSelectors {
-			// 支持简单的通配符匹配
+			// Support simple wildcard matching
 			if !matchLabelValue(labelMap[key], value) {
 				return false
 			}
@@ -137,12 +137,12 @@ func shouldDebug(labels []prompb.Label) bool {
 	return true
 }
 
-// recordDebug 记录调试信息
+// recordDebug records debug information
 func recordDebug(record DebugRecord) {
 	debugManager.mu.Lock()
 	defer debugManager.mu.Unlock()
 
-	// 更新统计
+	// Update statistics
 	debugManager.stats.TotalMatched++
 	if record.Status == "passed" {
 		debugManager.stats.TotalPassed++
@@ -151,9 +151,9 @@ func recordDebug(record DebugRecord) {
 	}
 	debugManager.stats.LastUpdateTime = time.Now()
 
-	// 添加记录，如果超过最大记录数，删除最旧的
+	// Add record, remove oldest if exceeding max records
 	if len(debugManager.records) >= debugManager.config.MaxRecords {
-		// 删除最旧的 10% 记录，避免频繁操作
+		// Remove oldest 10% of records to avoid frequent operations
 		removeCount := debugManager.config.MaxRecords / 10
 		if removeCount < 1 {
 			removeCount = 1
@@ -164,7 +164,7 @@ func recordDebug(record DebugRecord) {
 	debugManager.records = append(debugManager.records, record)
 }
 
-// labelsToMap 将 prompb.Label 数组转换为 map
+// labelsToMap converts prompb.Label array to map
 func labelsToMap(labels []prompb.Label) map[string]string {
 	result := make(map[string]string)
 	for _, label := range labels {
@@ -173,25 +173,25 @@ func labelsToMap(labels []prompb.Label) map[string]string {
 	return result
 }
 
-// matchLabelValue 匹配标签值，支持通配符 *
+// matchLabelValue matches label values, supports wildcard *
 func matchLabelValue(actual, pattern string) bool {
 	if pattern == "*" {
 		return actual != ""
 	}
 
-	// 如果包含 *，使用正则匹配
+	// Use regex matching if contains *
 	if strings.Contains(pattern, "*") {
-		// 将通配符转换为正则表达式
+		// Convert wildcard to regular expression
 		regexPattern := "^" + strings.ReplaceAll(regexp.QuoteMeta(pattern), "\\*", ".*") + "$"
 		matched, err := regexp.MatchString(regexPattern, actual)
 		return err == nil && matched
 	}
 
-	// 精确匹配
+	// Exact match
 	return actual == pattern
 }
 
-// formatDebugReason 格式化调试原因
+// formatDebugReason formats debug reason
 func formatDebugReason(reason string, details ...interface{}) string {
 	if len(details) > 0 {
 		return fmt.Sprintf("%s: %v", reason, details)

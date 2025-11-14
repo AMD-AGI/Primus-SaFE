@@ -34,7 +34,7 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 	newTimeseries := []prompbmarshal.TimeSeries{}
 	newTsNames := map[string]bool{}
 	for _, ts := range timeseries {
-		// 检查是否需要调试此指标
+		// Check if this metric needs debugging
 		needDebug := shouldDebug(ts.Labels)
 		metricName := getName(ts.Labels)
 		labelMap := labelsToMap(ts.Labels)
@@ -72,7 +72,7 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 			}
 			continue
 		}
-		tsName :=""
+		tsName := ""
 
 		for _, workload := range workloads {
 			if len(workload) < 2 {
@@ -121,7 +121,7 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 				newSamples = append(newSamples, newSample)
 			}
 
-			// 如果所有样本都被过滤了，记录并跳过
+			// If all samples are filtered, record and skip
 			if len(newSamples) == 0 {
 				if needDebug {
 					recordDebug(DebugRecord{
@@ -147,7 +147,7 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 			}
 			newTimeseries = append(newTimeseries, newTs)
 
-			// 记录成功通过的情况
+			// Record successful pass
 			if needDebug {
 				reason := fmt.Sprintf("passed: successfully relabeled with workload %s (uid: %s), %d samples kept",
 					workloadName, workloadUid, len(newSamples))

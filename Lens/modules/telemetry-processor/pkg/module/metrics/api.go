@@ -47,7 +47,7 @@ func GetPodWorkloadCache(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, pods.GetPodWorkloadCache()))
 }
 
-// SetDebugConfig 设置调试配置
+// SetDebugConfigHandler sets debug configuration
 // POST /api/v1/metrics/debug/config
 // Body: {"enabled": true, "metric_pattern": "gpu_.*", "label_selectors": {"pod": "test-pod-*"}, "max_records": 1000}
 func SetDebugConfigHandler(ctx *gin.Context) {
@@ -64,14 +64,14 @@ func SetDebugConfigHandler(ctx *gin.Context) {
 	}))
 }
 
-// GetDebugConfigHandler 获取当前调试配置
+// GetDebugConfigHandler gets current debug configuration
 // GET /api/v1/metrics/debug/config
 func GetDebugConfigHandler(ctx *gin.Context) {
 	config := GetDebugConfig()
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, config))
 }
 
-// GetDebugRecordsHandler 获取调试记录
+// GetDebugRecordsHandler gets debug records
 // GET /api/v1/metrics/debug/records
 func GetDebugRecordsHandler(ctx *gin.Context) {
 	records, stats := GetDebugRecords()
@@ -81,7 +81,7 @@ func GetDebugRecordsHandler(ctx *gin.Context) {
 	}))
 }
 
-// ClearDebugRecordsHandler 清空调试记录
+// ClearDebugRecordsHandler clears debug records
 // DELETE /api/v1/metrics/debug/records
 func ClearDebugRecordsHandler(ctx *gin.Context) {
 	ClearDebugRecords()
@@ -90,7 +90,7 @@ func ClearDebugRecordsHandler(ctx *gin.Context) {
 	}))
 }
 
-// DisableDebugHandler 快速关闭调试
+// DisableDebugHandler quickly disables debugging
 // POST /api/v1/metrics/debug/disable
 func DisableDebugHandler(ctx *gin.Context) {
 	config := GetDebugConfig()

@@ -142,7 +142,7 @@ func GetStateInfo() ([]model.CardMetrics, error) {
 	return result, nil
 }
 
-// GetMetrics 获取所有 GPU 的指标信息（包含功耗和 PCIE）
+// GetMetrics retrieves metrics information for all GPUs (including power and PCIE)
 func GetMetrics() ([]model.GPUMetricsInfo, error) {
 	cmds := []string{}
 	cmds = append(cmds, nsenterPrefix...)
