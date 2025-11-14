@@ -442,7 +442,7 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 	}
 
 	// Build BaseOpsJobRequest for genDefaultOpsJob
-	timestamp := time.Now().Format("20060102150405")
+	timestamp := time.Now().Format("200601021504")
 	jobName := fmt.Sprintf("export-image-%s-%s", workloadId, timestamp)
 
 	// Preserve user's original inputs (including label if provided)

@@ -23,16 +23,16 @@ type Workload struct {
 	Gvk            string    `gorm:"column:gvk;not null" json:"gvk"`
 	Phase          string    `gorm:"column:phase" json:"phase"`
 	Username       string    `gorm:"column:username" json:"username"`
-	CreateTime     time.Time `gorm:"column:create_time" json:"create_time"`
+	CreationTime   time.Time `gorm:"column:creation_time" json:"creation_time"`
 	StartTime      time.Time `gorm:"column:start_time" json:"start_time"`
 	EndTime        time.Time `gorm:"column:end_time" json:"end_time"`
-	DeleteTime     time.Time `gorm:"column:delete_time" json:"delete_time"`
+	DeletionTime   time.Time `gorm:"column:deletion_time" json:"deletion_time"`
 	IsSupervised   bool      `gorm:"column:is_supervised" json:"is_supervised"`
 	IsDeleted      bool      `gorm:"column:is_deleted" json:"is_deleted"`
 	IsTolerateAll  bool      `gorm:"column:is_tolerate_all" json:"is_tolerate_all"`
 	Priority       int32     `gorm:"column:priority" json:"priority"`
 	MaxRetry       int32     `gorm:"column:max_retry" json:"max_retry"`
-	SchedulerOrder int32     `gorm:"column:scheduler_order" json:"scheduler_order"`
+	QueuePosition  int32     `gorm:"column:queue_position" json:"queue_position"`
 	DispatchCount  int32     `gorm:"column:dispatch_count" json:"dispatch_count"`
 	TTLSecond      int32     `gorm:"column:ttl_second" json:"ttl_second"`
 	Timeout        int32     `gorm:"column:timeout" json:"timeout"`

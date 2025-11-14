@@ -20,6 +20,7 @@ var (
 	driverVersion        = ""
 	cardMetrics          = []model.CardMetrics{}
 	gpuPowerInfo         = []model.GPUPowerInfo{}
+	pcieMetricsInfo      = []model.GPUPCIEInfo{}
 	cardDriDeviceMapping = map[string]model.DriDevice{}
 	driCardInfoMapping   = map[string]model.GPUInfo{}
 )
@@ -44,6 +45,10 @@ func GetGPUPowerInfo() []model.GPUPowerInfo {
 	return gpuPowerInfo
 }
 
+func GetPCIEGPUMetricsInfo() []model.GPUPCIEInfo {
+	return pcieMetricsInfo
+}
+
 func startRefreshGPUInfo(ctx context.Context) {
 	singleCycle := func() {
 		err := doRefreshDriverVersion(ctx)
@@ -59,9 +64,9 @@ func startRefreshGPUInfo(ctx context.Context) {
 		if err != nil {
 			log.Errorf("Failed to refresh card metrics: %v", err)
 		}
-		err = doRefreshPowerInfo(ctx)
+		err = doRefreshPowerAndPCIEInfo(ctx)
 		if err != nil {
-			log.Errorf("Failed to refresh power info: %v", err)
+			log.Errorf("Failed to refresh power and pcie info: %v", err)
 		}
 	}
 	singleCycle()
@@ -120,12 +125,28 @@ func doRefreshCardMetrics(ctx context.Context) error {
 	return nil
 }
 
-func doRefreshPowerInfo(ctx context.Context) error {
-	powerInfo, err := amdsmi.GetPowerInfo()
+func doRefreshPowerAndPCIEInfo(ctx context.Context) error {
+	metricsInfos, err := amdsmi.GetMetrics()
 	if err != nil {
 		return err
 	}
-	gpuPowerInfo = powerInfo
+
+	powerInfos := make([]model.GPUPowerInfo, len(metricsInfos))
+	pcieInfos := make([]model.GPUPCIEInfo, len(metricsInfos))
+
+	for i, info := range metricsInfos {
+		powerInfos[i] = model.GPUPowerInfo{
+			GPU:   info.GPU,
+			Power: info.Power,
+		}
+		pcieInfos[i] = model.GPUPCIEInfo{
+			GPU:  info.GPU,
+			PCIE: info.PCIE,
+		}
+	}
+
+	gpuPowerInfo = powerInfos
+	pcieMetricsInfo = pcieInfos
 	return nil
 }
 

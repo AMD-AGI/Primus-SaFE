@@ -220,6 +220,9 @@ func TestGetActiveResource(t *testing.T) {
 	n1 := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "n1",
+			Labels: map[string]string{
+				v1.ClusterIdLabel: "c1",
+			},
 		},
 		Status: v1.NodeStatus{
 			MachineStatus: v1.MachineStatus{
@@ -233,6 +236,9 @@ func TestGetActiveResource(t *testing.T) {
 	n2 := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "n2",
+			Labels: map[string]string{
+				v1.ClusterIdLabel: "c1",
+			},
 		},
 		Status: v1.NodeStatus{
 			MachineStatus: v1.MachineStatus{

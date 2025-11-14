@@ -209,9 +209,6 @@ func (r *WorkloadReconciler) linkChildrenWorkloads(ctx context.Context, workload
 			updatedCount++
 			log.Infof("Successfully linked child workload %s/%s (uid=%s) to parent %s (uid=%s)",
 				child.Namespace, child.Name, child.UID, workload.Name, workload.UID)
-		} else {
-			log.Debugf("Child workload %s/%s already has parent_uid=%s, skipping",
-				child.Namespace, child.Name, child.ParentUID)
 		}
 	}
 

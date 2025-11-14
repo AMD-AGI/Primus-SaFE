@@ -1,7 +1,7 @@
 apiVersion: "kubeflow.org/v1"
 kind: PyTorchJob
 metadata:
-  name: network
+  name: bench-jobs
 spec:
   pytorchReplicaSpecs:
     Master:

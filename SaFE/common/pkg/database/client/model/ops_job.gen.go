@@ -20,10 +20,10 @@ type OpsJob struct {
 	Timeout       int32     `gorm:"column:timeout" json:"timeout"`
 	UserName      string    `gorm:"column:user_name" json:"user_name"`
 	Workspace     string    `gorm:"column:workspace" json:"workspace"`
-	CreateTime    time.Time `gorm:"column:create_time" json:"create_time"`
+	CreationTime  time.Time `gorm:"column:creation_time" json:"creation_time"`
 	StartTime     time.Time `gorm:"column:start_time" json:"start_time"`
 	EndTime       time.Time `gorm:"column:end_time" json:"end_time"`
-	DeleteTime    time.Time `gorm:"column:delete_time" json:"delete_time"`
+	DeletionTime  time.Time `gorm:"column:deletion_time" json:"deletion_time"`
 	Phase         string    `gorm:"column:phase" json:"phase"`
 	Conditions    string    `gorm:"column:conditions" json:"conditions"`
 	Outputs       string    `gorm:"column:outputs" json:"outputs"`
