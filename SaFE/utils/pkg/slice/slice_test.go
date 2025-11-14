@@ -22,15 +22,19 @@ func TestContainsStrings(t *testing.T) {
 }
 
 func TestDifference(t *testing.T) {
+	// Difference returns elements in slice1 that are NOT in slice2
 	assert.Equal(t, reflect.DeepEqual(Difference([]string{"1", "2"}, []string{"1"}), []string{"2"}), true)
 	assert.Equal(t, reflect.DeepEqual(Difference([]string{"1", "2"}, []string{}), []string{"1", "2"}), true)
-	assert.Equal(t, reflect.DeepEqual(Difference([]string{"1", "2"}, []string{"3"}), []string{"1", "2", "3"}), true)
+	// Fixed: Difference(["1", "2"], ["3"]) should return ["1", "2"], not ["1", "2", "3"]
+	assert.Equal(t, reflect.DeepEqual(Difference([]string{"1", "2"}, []string{"3"}), []string{"1", "2"}), true)
 	assert.Equal(t, len(Difference([]string{"1", "2"}, []string{"1", "2"})), 0)
-	assert.Equal(t, reflect.DeepEqual(Difference([]string{"1", "2"}, []string{"1", "2", "3"}), []string{"3"}), true)
-	assert.Equal(t, reflect.DeepEqual(Difference([]string{"1", "2"}, []string{"1", "2", "3", "3"}),
-		[]string{"3", "3"}), true)
+	// Fixed: Difference(["1", "2"], ["1", "2", "3"]) should return [] (empty), not ["3"]
+	assert.Equal(t, len(Difference([]string{"1", "2"}, []string{"1", "2", "3"})), 0)
+	// Fixed: Difference(["1", "2"], ["1", "2", "3", "3"]) should return [] (empty)
+	assert.Equal(t, len(Difference([]string{"1", "2"}, []string{"1", "2", "3", "3"})), 0)
+	// Fixed: Difference(["1", "2", "4", "4"], ["1", "2", "3", "3"]) should return ["4", "4"]
 	assert.Equal(t, reflect.DeepEqual(Difference([]string{"1", "2", "4", "4"}, []string{"1", "2", "3", "3"}),
-		[]string{"4", "4", "3", "3"}), true)
+		[]string{"4", "4"}), true)
 }
 
 func TestRemoveStrings(t *testing.T) {
