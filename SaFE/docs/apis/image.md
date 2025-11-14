@@ -183,7 +183,7 @@ Import image from external registry to internal Harbor.
       "workload": "my-busybox-workload",
       "status": "Succeeded",
       "createdTime": "2025-11-13T12:14:27Z",
-      "remark": "Production backup",
+      "label": "Production backup",
       "log": "Image exported successfully"
     },
     {
@@ -191,7 +191,7 @@ Import image from external registry to internal Harbor.
       "workload": "pytorch-training-001",
       "status": "Failed",
       "createdTime": "2025-11-13T11:30:15Z",
-      "remark": "Test export",
+      "label": "Test export",
       "log": "failed to push image: 401 Unauthorized"
     }
   ]
@@ -203,7 +203,7 @@ Import image from external registry to internal Harbor.
 2. `workload`: Source workload ID (from ops_job.inputs.workload)
 3. `status`: Export job status (from ops_job.phase): `Pending`/`Running`/`Succeeded`/`Failed`
 4. `createdTime`: Export job creation time (from ops_job.creation_time, RFC3339 format)
-5. `remark`: User-defined remark (from ops_job.inputs.label), empty if not provided during job creation
+5. `label`: User-defined label (from ops_job.inputs.label), empty if not provided during job creation
 6. `log`: Status message or error details (from ops_job.conditions[].message)
 
 **Notes**:
@@ -211,7 +211,7 @@ Import image from external registry to internal Harbor.
 - Returns a simplified list format with **6 fields**
 - Use `ready=true` to filter only successfully exported images (phase='Succeeded')
 - Use `workload=xxx` to filter exports from a specific workload
-- To add a remark to an export job, include `{ "name": "label", "value": "your remark" }` in the inputs when creating the OpsJob
+- To add a label to an export job, include `{ "name": "label", "value": "your label text" }` in the inputs when creating the OpsJob
 
 ---
 

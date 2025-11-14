@@ -227,6 +227,6 @@ type ExportedImageListItem struct {
 	Workload    string `json:"workload"`    // Source workload ID from inputs
 	Status      string `json:"status"`      // Export status: Pending/Failed/Succeeded/Running
 	CreatedTime string `json:"createdTime"` // Export creation time (RFC3339)
-	Remark      string `json:"remark"`      // User-defined label from inputs
+	Label       string `json:"label"`       // User-defined label from inputs
 	Log         string `json:"log"`         // Message from conditions field
 }

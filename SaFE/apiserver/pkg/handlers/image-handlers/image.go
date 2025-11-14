@@ -770,6 +770,25 @@ func (h *ImageHandler) fetchDockerToken(_ context.Context, imagePath string) (st
 	return tokenResponse.Token, nil
 }
 
+// deserializeParams converts a serialized parameter string into a slice of Parameter objects.
+// It parses the string representation of parameters (format: {name:value,name2:value2}) and converts them to structured format.
+func deserializeParams(strInput string) []v1.Parameter {
+	if len(strInput) <= 1 {
+		return nil
+	}
+	// Remove surrounding braces: {workload:xxx,image:yyy} → workload:xxx,image:yyy
+	strInput = strInput[1 : len(strInput)-1]
+	splitParams := strings.Split(strInput, ",")
+	var result []v1.Parameter
+	for _, p := range splitParams {
+		param := v1.CvtStringToParam(p)
+		if param != nil {
+			result = append(result, *param)
+		}
+	}
+	return result
+}
+
 // buildExportImageJobQuery builds SQL query for export image jobs from ops_job table.
 func buildExportImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []string) {
 	dbTags := dbClient.GetOpsJobFieldTags()
@@ -819,31 +838,16 @@ func convertOpsJobToExportedImageList(jobs []*dbClient.OpsJob) []ExportedImageLi
 			CreatedTime: timeutil.FormatRFC3339(dbutils.ParseNullTime(job.CreationTime)),
 		}
 		
-		// Parse inputs to extract workload and label
+		// Parse inputs using the standard deserializeParams function
+		// Format: {workload:xxx,label:yyy,image:zzz}
 		if len(job.Inputs) > 0 {
-			inputsStr := string(job.Inputs)
-			// Parse TEXT[] format: {"{name:workload,value:xxx}","{name:label,value:yyy}"}
-			parts := strings.Split(inputsStr, ",")
-			
-			for _, part := range parts {
-				// Extract workload ID
-				if strings.Contains(part, "name:workload") && strings.Contains(part, "value:") {
-					start := strings.Index(part, "value:") + 6
-					end := len(part)
-					if idx := strings.Index(part[start:], "}"); idx != -1 {
-						end = start + idx
-					}
-					item.Workload = strings.TrimSpace(part[start:end])
-				}
-				
-				// Extract label (remark)
-				if strings.Contains(part, "name:label") && strings.Contains(part, "value:") {
-					start := strings.Index(part, "value:") + 6
-					end := len(part)
-					if idx := strings.Index(part[start:], "}"); idx != -1 {
-						end = start + idx
-					}
-					item.Remark = strings.TrimSpace(part[start:end])
+			inputs := deserializeParams(string(job.Inputs))
+			for _, param := range inputs {
+				switch param.Name {
+				case "workload":
+					item.Workload = param.Value
+				case "label":
+					item.Label = param.Value
 				}
 			}
 		}
