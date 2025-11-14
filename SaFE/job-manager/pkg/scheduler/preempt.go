@@ -32,8 +32,8 @@ type WorkloadWrapper struct {
 // target: lower-priority tasks within the same workspace.
 // Returns true if preemption is successful, false otherwise.
 func (r *SchedulerReconciler) preempt(ctx context.Context, requestWorkload *v1.Workload,
-	runningWorkloads []*v1.Workload, leftAvailResources corev1.ResourceList) (bool, error) {
-	targetWorkloads, err := r.preemptLowPriorityWorkloads(ctx, requestWorkload, leftAvailResources, runningWorkloads)
+	scheduledWorkloads []*v1.Workload, leftAvailResources corev1.ResourceList) (bool, error) {
+	targetWorkloads, err := r.preemptLowPriorityWorkloads(ctx, requestWorkload, leftAvailResources, scheduledWorkloads)
 	if err != nil {
 		return false, err
 	}
@@ -57,34 +57,34 @@ func (r *SchedulerReconciler) preempt(ctx context.Context, requestWorkload *v1.W
 // The preemption policy is: preemption must be enabled in the workspace,
 // and the sum of resources from all lower-priority tasks plus the remaining available resource can meet the high-priority task.
 func (r *SchedulerReconciler) preemptLowPriorityWorkloads(ctx context.Context, requestWorkload *v1.Workload,
-	leftResources corev1.ResourceList, runningWorkloads []*v1.Workload) ([]*v1.Workload, error) {
+	leftResources corev1.ResourceList, scheduledWorkloads []*v1.Workload) ([]*v1.Workload, error) {
 	if !v1.IsWorkloadEnablePreempt(requestWorkload) {
 		return nil, nil
 	}
-	sortedRunningWorkloads, err := r.sortRunningWorkloads(ctx, requestWorkload, runningWorkloads)
+	sortedWorkloads, err := r.sortWorkloads(ctx, requestWorkload, scheduledWorkloads)
 	if err != nil {
 		klog.Error(err.Error())
 		return nil, err
 	}
-	if len(sortedRunningWorkloads) == 0 {
+	if len(sortedWorkloads) == 0 {
 		return nil, nil
 	}
 
 	totalResources := quantity.Copy(leftResources)
 	requestResources, _ := commonworkload.CvtToResourceList(requestWorkload)
-	result := make([]*v1.Workload, 0, len(sortedRunningWorkloads))
-	for i := range sortedRunningWorkloads {
-		w := sortedRunningWorkloads[i].workload
+	result := make([]*v1.Workload, 0, len(sortedWorkloads))
+	for i := range sortedWorkloads {
+		w := sortedWorkloads[i].workload
 		if w.Spec.Priority >= requestWorkload.Spec.Priority {
 			break
 		}
 		if v1.IsWorkloadPreempted(w) {
 			continue
 		}
-		totalResources = quantity.AddResource(totalResources, sortedRunningWorkloads[i].resources)
+		totalResources = quantity.AddResource(totalResources, sortedWorkloads[i].resources)
 		if ok, _ := quantity.IsSubResource(requestResources, totalResources); ok {
 			for j := 0; j <= i; j++ {
-				result = append(result, sortedRunningWorkloads[j].workload)
+				result = append(result, sortedWorkloads[j].workload)
 			}
 			return result, nil
 		}
@@ -92,12 +92,12 @@ func (r *SchedulerReconciler) preemptLowPriorityWorkloads(ctx context.Context, r
 	return nil, nil
 }
 
-// isPreemptable checks if a workload can preempt other running workloads based on priority.
-func (r *SchedulerReconciler) isPreemptable(requestWorkload *v1.Workload, runningWorkloads []*v1.Workload) bool {
+// isPreemptable checks if a workload can preempt other scheduled workloads based on priority.
+func (r *SchedulerReconciler) isPreemptable(requestWorkload *v1.Workload, scheduledWorkloads []*v1.Workload) bool {
 	if !v1.IsWorkloadEnablePreempt(requestWorkload) {
 		return false
 	}
-	for _, w := range runningWorkloads {
+	for _, w := range scheduledWorkloads {
 		if requestWorkload.Spec.Priority > w.Spec.Priority {
 			return true
 		}
@@ -105,10 +105,10 @@ func (r *SchedulerReconciler) isPreemptable(requestWorkload *v1.Workload, runnin
 	return false
 }
 
-// sortRunningWorkloads sorts running workloads for preemption consideration.
-func (r *SchedulerReconciler) sortRunningWorkloads(ctx context.Context,
-	requestWorkload *v1.Workload, runningWorkloads []*v1.Workload) (WorkloadWrapperSlice, error) {
-	if len(runningWorkloads) == 0 {
+// sortWorkloads sorts running workloads for preemption consideration.
+func (r *SchedulerReconciler) sortWorkloads(ctx context.Context,
+	requestWorkload *v1.Workload, targetWorkloads []*v1.Workload) (WorkloadWrapperSlice, error) {
+	if len(targetWorkloads) == 0 {
 		return nil, nil
 	}
 	nf := &v1.NodeFlavor{}
@@ -117,10 +117,10 @@ func (r *SchedulerReconciler) sortRunningWorkloads(ctx context.Context,
 		return nil, err
 	}
 	var result []*WorkloadWrapper
-	for i, w := range runningWorkloads {
+	for i, w := range targetWorkloads {
 		resources, _ := commonworkload.CvtToResourceList(w)
 		result = append(result, &WorkloadWrapper{
-			workload:      runningWorkloads[i],
+			workload:      targetWorkloads[i],
 			resources:     resources,
 			resourceScore: buildResourceWeight(requestWorkload, resources, nf),
 		})
