@@ -72,11 +72,23 @@ rules:
     - cluster
     - nodeflavor
     - nodetemplate
+    - imageregister
   grantedUsers:
     - "*"
   verbs:
     - get
     - list
+- resources:
+    - publickey
+    - imageimport
+  grantedUsers:
+    - "*"
+  verbs:
+    - create
+    - get
+    - list
+    - update
+    - delete
 ---
 apiVersion: amd.com/v1
 kind: Role

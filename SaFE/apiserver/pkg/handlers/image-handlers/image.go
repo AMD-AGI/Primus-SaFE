@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/cespare/xxhash/v2"
 	manifestv5 "github.com/containers/image/v5/manifest"
 	"github.com/containers/image/v5/transports/alltransports"
@@ -71,6 +72,15 @@ func (h *ImageHandler) deleteImage(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageImportKind,
+		Verb:         v1.DeleteVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	existImage, err := h.dbClient.GetImage(c, imageID)
 	if err != nil {
 		return nil, err
@@ -91,6 +101,15 @@ func (h *ImageHandler) listImage(c *gin.Context) (interface{}, error) {
 	query, err := parseListImageQuery(c)
 	if err != nil {
 		klog.ErrorS(err, "fail to parseListImageQuery")
+		return nil, err
+	}
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageImportKind,
+		Verb:         v1.ListVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
 		return nil, err
 	}
 
@@ -161,13 +180,22 @@ func parseListImageQuery(c *gin.Context) (*ImageServiceRequest, error) {
 
 // getImportingDetail retrieves detailed layer information for an importing image.
 // Returns the import job's layer details if the image and import job exist.
-func (h *ImageHandler) getImportingDetail(ctx *gin.Context) (*ImportDetailResponse, error) {
-	id, err := parseImageID(ctx.Param("id"))
+func (h *ImageHandler) getImportingDetail(c *gin.Context) (*ImportDetailResponse, error) {
+	id, err := parseImageID(c.Param("id"))
 	if err != nil {
 		return nil, err
 	}
 
-	existImage, err := h.dbClient.GetImage(ctx, id)
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageImportKind,
+		Verb:         v1.GetVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
+	existImage, err := h.dbClient.GetImage(c, id)
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +203,7 @@ func (h *ImageHandler) getImportingDetail(ctx *gin.Context) (*ImportDetailRespon
 		return nil, commonerrors.NewNotFound("get image by id", strconv.Itoa(int(id)))
 	}
 
-	importImage, err := h.dbClient.GetImportImageByImageID(ctx, existImage.ID)
+	importImage, err := h.dbClient.GetImportImageByImageID(c, existImage.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -275,6 +303,15 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
 
+	if err := h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageImportKind,
+		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	userName := c.GetString(common.UserName)
 	imageInfo, err := h.getImportImageInfo(c, body)
 	if err != nil {
@@ -348,6 +385,15 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 func (h *ImageHandler) retryDispatchImportImageJob(c *gin.Context) (interface{}, error) {
 	id, err := parseImageID(c.Param("id"))
 	if err != nil {
+		return nil, err
+	}
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageImportKind,
+		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
 		return nil, err
 	}
 

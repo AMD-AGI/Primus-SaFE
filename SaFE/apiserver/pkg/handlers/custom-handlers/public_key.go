@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	sqrl "github.com/Masterminds/squirrel"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -63,6 +65,14 @@ func (h *Handler) createPublicKey(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "fail to parse create public key request", "body", string(body))
 		return nil, err
 	}
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.PublicKeyKind,
+		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
 
 	nowTime := dbutils.NullMetaV1Time(&metav1.Time{Time: time.Now().UTC()})
 	publicKey := &dbclient.PublicKey{
@@ -88,6 +98,15 @@ func (h *Handler) listPublicKeys(c *gin.Context) (interface{}, error) {
 	query, err := parseListPublicKeyQuery(c)
 	if err != nil {
 		klog.ErrorS(err, "fail to parse list public key request", "body", query)
+		return nil, err
+	}
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.PublicKeyKind,
+		Verb:         v1.ListVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
 		return nil, err
 	}
 
@@ -127,6 +146,15 @@ func (h *Handler) deletePublicKey(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.PublicKeyKind,
+		Verb:         v1.DeleteVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	if err := h.dbClient.DeletePublicKey(c.Request.Context(), c.GetString(common.UserId), int64(publicKeyId)); err != nil {
 		return nil, err
 	}
@@ -153,6 +181,15 @@ func (h *Handler) setPublicKeyStatus(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.PublicKeyKind,
+		Verb:         v1.UpdateVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
 	err = h.dbClient.SetPublicKeyStatus(c.Request.Context(), c.GetString(common.UserId), int64(publicKeyId), req.Status)
 	return nil, err
 }
@@ -174,6 +211,15 @@ func (h *Handler) setPublicKeyDescription(c *gin.Context) (interface{}, error) {
 	}
 	publicKeyId, err := strconv.Atoi(id)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.PublicKeyKind,
+		Verb:         v1.UpdateVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
 		return nil, err
 	}
 
