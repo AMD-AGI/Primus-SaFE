@@ -76,12 +76,29 @@ OpsJob(operations job) performs specific administrative tasks in the system. Com
 }
 ```
 
+**Request Example (exportimage)**:
+```json
+{
+  "name": "export-workload-image",
+  "type": "exportimage",
+  "inputs": [
+    { "name": "workload", "value": "pytorch-training-001" },
+    { "name": "label", "value": "Production backup" }
+  ],
+  "timeoutSecond": 3600
+}
+```
+
+**Notes**:
+- The system will automatically retrieve the workload's image and add it to inputs as `{ "name": "image", "value": "..." }`.
+- The `label` parameter is optional and will be displayed as "remark" in the exported image list (`GET /api/v1/images/custom`).
+
 **Request Parameters**:
 
 | Parameter | Type | Required | Description                                                                                               |
 |-----------|------|----------|-----------------------------------------------------------------------------------------------------------|
 | name | string | Yes | Used to generate ops job ID; normalized with random suffix                                                |
-| type | string | Yes | Ops job type: addon/preflight/dumplog/reboot                                                              |
+| type | string | Yes | Ops job type: addon/preflight/dumplog/reboot/exportimage                                                  |
 | inputs[].name | string | Yes | Target selector; allowed: node, addon.template, workload, workspace, cluster, node.template               |
 | inputs[].value | string | Yes | Value for the selector (e.g. nodeId, workloadId, workspaceId, clusterId)                                  |
 | timeoutSecond | int | No | Timeout seconds; ≤0 means no timeout                                                                      |
@@ -102,6 +119,7 @@ Notes:
 - For dumplog, inputs must include a workload selector.
 - For addon, typically include `addon.template` and one of node/workload/workspace/cluster.
 - For preflight, inputs must include one of node/workload/workspace/cluster.
+- For exportimage, inputs must include a workload selector. The job will export the workload's image to Harbor registry.
 
 **Response**: `{ "jobId": "opsjob-abc123" }`
 
@@ -126,7 +144,7 @@ Notes:
 | clusterId | string | No | Filter by cluster ID                                       |
 | userName | string | No | Filter by submitter username (fuzzy match)                 |
 | phase | string | No | Filter by job status: Succeeded/Failed/Running/Pending     |
-| type | string | No | Filter by job type: addon/dumplog/preflight/reboot         |
+| type | string | No | Filter by job type: addon/dumplog/preflight/reboot/exportimage |
 
 **Response Example**:
 ```json
@@ -163,7 +181,7 @@ Notes:
 | workspaceId | string | The workspace which the job belongs to              |
 | userId | string | User ID of job submitter                            |
 | userName | string | Username of job submitter                           |
-| type | string | Job type: addon/dumplog/preflight/reboot            |
+| type | string | Job type: addon/dumplog/preflight/reboot/exportimage |
 | phase | string | Job status: Succeeded/Failed/Running/Pending        |
 | creationTime | string | Creation time (RFC3339)                             |
 | startTime | string | Start time (RFC3339), empty if not started          |

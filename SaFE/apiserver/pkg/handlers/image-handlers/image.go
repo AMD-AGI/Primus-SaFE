@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	sqrl "github.com/Masterminds/squirrel"
 	"github.com/cespare/xxhash/v2"
 	manifestv5 "github.com/containers/image/v5/manifest"
 	"github.com/containers/image/v5/transports/alltransports"
@@ -35,6 +36,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -153,6 +155,43 @@ func cvtImageToFlatResponse(images []*model.Image) []Image {
 	return res
 }
 
+// listExportedImage lists images that were exported from workloads by querying ops_job table.
+func (h *ImageHandler) listExportedImage(c *gin.Context) (interface{}, error) {
+	query, err := parseListImageQuery(c)
+	if err != nil {
+		klog.ErrorS(err, "fail to parseListImageQuery")
+		return nil, err
+	}
+
+	// Build SQL query for export jobs from ops_job table
+	dbSql, orderBy := buildExportImageJobQuery(query)
+
+	// Query export jobs from ops_job table
+	jobs, err := h.dbClient.SelectJobs(c, dbSql, orderBy, query.PageSize, (query.PageNum-1)*query.PageSize)
+	if err != nil {
+		klog.ErrorS(err, "failed to query export jobs")
+		return nil, err
+	}
+
+	// Count total records
+	count, err := h.dbClient.CountJobs(c, dbSql)
+	if err != nil {
+		klog.ErrorS(err, "failed to count export jobs")
+		return nil, err
+	}
+
+	// Convert ops_job records to simplified list format
+	items := convertOpsJobToExportedImageList(jobs)
+
+	results := &ExportedImageListResponse{
+		TotalCount: count,
+		Items:      items,
+	}
+
+	klog.V(4).Infof("listed %d exported images", len(items))
+	return results, nil
+}
+
 // parseListImageQuery extracts and validates query parameters for listing images.
 // Sets default values for pagination, ordering, and filters if not provided.
 func parseListImageQuery(c *gin.Context) (*ImageServiceRequest, error) {
@@ -160,7 +199,9 @@ func parseListImageQuery(c *gin.Context) (*ImageServiceRequest, error) {
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
-
+	if query.PageNum <= 0 {
+		query.PageNum = 1
+	}
 	if query.PageSize <= 0 {
 		query.PageSize = DefaultQueryLimit
 	}
@@ -434,7 +475,7 @@ func (h *ImageHandler) retryDispatchImportImageJob(c *gin.Context) (interface{},
 // Configures the job with source/dest info, registry auth, and image pull secrets.
 func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image, info *model.ImageImportJob) (*batchv1.Job, error) {
 	jobName := generateImportImageJobName(image.ID)
-	imagePullSecrets, err := h.listImagePullSecretsName(c, h.Client, DefaultNamespace)
+	imagePullSecrets, err := h.listImagePullSecretsName(c, h.Client, common.DefaultNamespace)
 	if err != nil {
 		return nil, err
 	}
@@ -473,7 +514,7 @@ func newImportImageJob(
 	env *ImportImageEnv,
 	userName string,
 ) (*batchv1.Job, error) {
-	namespace := DefaultNamespace
+	namespace := common.DefaultNamespace
 	envs := defaultSyncImageEnv()
 
 	// Set platform-specific override or all-platform mode
@@ -530,7 +571,7 @@ func newImportImageJob(
 							Name: "registry-auth",
 							VolumeSource: corev1.VolumeSource{
 								Secret: &corev1.SecretVolumeSource{
-									SecretName: ImageImportSecretName,
+									SecretName: common.ImageImportSecretName,
 								},
 							},
 						},
@@ -895,4 +936,124 @@ func parseImageID(idStr string) (int32, error) {
 		return 0, commonerrors.NewBadRequest("invalid image id")
 	}
 	return int32(imageID), nil
+}
+
+// deserializeParams converts a serialized parameter string into a slice of Parameter objects.
+// It parses the string representation of parameters (format: {name:value,name2:value2}) and converts them to structured format.
+func deserializeParams(strInput string) []v1.Parameter {
+	if len(strInput) <= 1 {
+		return nil
+	}
+	// Remove surrounding braces: {workload:xxx,image:yyy} → workload:xxx,image:yyy
+	strInput = strInput[1 : len(strInput)-1]
+	splitParams := strings.Split(strInput, ",")
+	var result []v1.Parameter
+	for _, p := range splitParams {
+		// Trim spaces and quotes (handle "label:value" format)
+		p = strings.TrimSpace(p)
+		p = strings.Trim(p, "\"")
+
+		param := v1.CvtStringToParam(p)
+		if param != nil {
+			result = append(result, *param)
+		}
+	}
+	return result
+}
+
+// buildExportImageJobQuery builds SQL query for export image jobs from ops_job table.
+func buildExportImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []string) {
+	dbTags := dbClient.GetOpsJobFieldTags()
+
+	// Build WHERE clause
+	dbSql := sqrl.And{
+		sqrl.Eq{dbClient.GetFieldTag(dbTags, "Type"): string(v1.OpsJobExportImageType)},
+		sqrl.Eq{dbClient.GetFieldTag(dbTags, "IsDeleted"): false},
+	}
+
+	// Filter by user name if specified
+	if query.UserName != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "UserName"): query.UserName})
+	}
+
+	// Filter by ready status (only show succeeded jobs)
+	if query.Ready {
+		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "Phase"): string(v1.OpsJobSucceeded)})
+	}
+
+	// Filter by workload ID if specified (using text pattern matching)
+	if query.Workload != "" {
+		// Pattern: workload:xxx followed by comma or closing brace
+		pattern := fmt.Sprintf("workload:%s[,}]", query.Workload)
+		dbSql = append(dbSql, sqrl.Expr("inputs::text ~ ?", pattern))
+	}
+
+	// Build ORDER BY clause
+	// Note: ops_job table uses "creation_time", not "created_at" like image table
+	orderByField := dbClient.GetFieldTag(dbTags, "CreationTime")
+	// Ignore query.OrderBy as it may contain image table field names
+	order := "DESC"
+	if query.Order != "" {
+		order = strings.ToUpper(query.Order)
+	}
+	orderBy := []string{fmt.Sprintf("%s %s", orderByField, order)}
+
+	return dbSql, orderBy
+}
+
+// convertOpsJobToExportedImageList converts ops_job records to ExportedImageListItem slice.
+func convertOpsJobToExportedImageList(jobs []*dbClient.OpsJob) []ExportedImageListItem {
+	result := make([]ExportedImageListItem, 0, len(jobs))
+
+	for _, job := range jobs {
+		item := ExportedImageListItem{
+			Status:      dbutils.ParseNullString(job.Phase),
+			CreatedTime: timeutil.FormatRFC3339(dbutils.ParseNullTime(job.CreationTime)),
+		}
+
+		// Parse inputs using the standard deserializeParams function
+		// Format: {workload:xxx,label:yyy,image:zzz}
+		if len(job.Inputs) > 0 {
+			inputs := deserializeParams(string(job.Inputs))
+			for _, param := range inputs {
+				switch param.Name {
+				case "workload":
+					item.Workload = param.Value
+				case "label":
+					item.Label = param.Value
+				}
+			}
+		}
+
+		// Parse outputs to extract target image name
+		if outputsStr := dbutils.ParseNullString(job.Outputs); outputsStr != "" {
+			var outputs []v1.Parameter
+			if err := json.Unmarshal([]byte(outputsStr), &outputs); err == nil {
+				for _, param := range outputs {
+					if param.Name == "target" {
+						item.ImageName = param.Value
+						break
+					}
+				}
+			}
+		}
+
+		// Parse conditions to extract log message
+		if conditionsStr := dbutils.ParseNullString(job.Conditions); conditionsStr != "" {
+			var conditions []metav1.Condition
+			if err := json.Unmarshal([]byte(conditionsStr), &conditions); err == nil {
+				// Get the most recent condition message
+				for i := len(conditions) - 1; i >= 0; i-- {
+					if conditions[i].Message != "" {
+						item.Log = conditions[i].Message
+						break
+					}
+				}
+			}
+		}
+
+		result = append(result, item)
+	}
+
+	return result
 }

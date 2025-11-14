@@ -29,5 +29,8 @@ func SetupOpsJobs(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupRebootJobController(mgr); err != nil {
 		return fmt.Errorf("reboot-job controller: %v", err)
 	}
+	if err := SetupExportImageJobController(ctx, mgr); err != nil {
+		return fmt.Errorf("exportimage-job controller: %v", err)
+	}
 	return nil
 }

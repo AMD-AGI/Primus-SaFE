@@ -159,7 +159,65 @@ Import image from external registry to internal Harbor.
 
 ---
 
-### 6. Get Harbor Statistics
+### 6. List Exported Images
+
+**Endpoint**: `GET /api/v1/images/custom`
+
+**Authentication Required**: Yes
+
+**Description**: Lists images that have been exported from workloads using OpsJob (type: exportimage). This endpoint queries the ops_job table to retrieve export history and present it in the same format as the standard image list.
+
+**Query Parameters**: Same as "List Images" endpoint, except:
+- Does NOT support `tag` parameter (no tag field in ops_job table)
+- Does NOT support `flat` parameter (always returns list format)
+- `ready=true` filters jobs with phase='Succeeded'
+- **NEW**: `workload=xxx` filters by workload ID
+
+**Response Example**:
+```json
+{
+  "totalCount": 2,
+  "items": [
+    {
+      "imageName": "harbor.tas.primus-safe.amd.com/custom/library/busybox:20251113162030",
+      "workload": "my-busybox-workload",
+      "status": "Succeeded",
+      "createdTime": "2025-11-13T12:14:27Z",
+      "label": "Production backup",
+      "log": "Image exported successfully"
+    },
+    {
+      "imageName": "harbor.tas.primus-safe.amd.com/custom/rocm/pytorch:20251113143015",
+      "workload": "pytorch-training-001",
+      "status": "Failed",
+      "createdTime": "2025-11-13T11:30:15Z",
+      "label": "Test export",
+      "log": "failed to push image: 401 Unauthorized"
+    }
+  ]
+}
+```
+
+**Field Description** (6 fields total):
+1. `imageName`: **Full** target image path in Harbor including registry (from ops_job.outputs.target), e.g. `harbor.tas.primus-safe.amd.com/custom/library/busybox:20251113162030`
+2. `workload`: Source workload ID (from ops_job.inputs.workload)
+3. `status`: Export job status (from ops_job.phase): `Pending`/`Running`/`Succeeded`/`Failed`
+4. `createdTime`: Export job creation time (from ops_job.creation_time, RFC3339 format)
+5. `label`: User-defined label (from ops_job.inputs.label), empty if not provided during job creation
+6. `log`: Status message or error details (from ops_job.conditions[].message)
+
+**Note**: The `imageName` field contains the complete image path including registry URL, so you can directly use it with `docker pull` or `nerdctl pull` commands.
+
+**Notes**:
+- This endpoint queries the `ops_job` table (type='exportimage'), not the `image` table
+- Returns a simplified list format with **6 fields**
+- Use `ready=true` to filter only successfully exported images (phase='Succeeded')
+- Use `workload=xxx` to filter exports from a specific workload
+- To add a label to an export job, include `{ "name": "label", "value": "your label text" }` in the inputs when creating the OpsJob
+
+---
+
+### 7. Get Harbor Statistics
 
 **Endpoint**: `GET /api/v1/harbor/stats`
 
