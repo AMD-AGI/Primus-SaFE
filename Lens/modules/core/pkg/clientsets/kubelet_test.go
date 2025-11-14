@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -778,10 +779,21 @@ func TestClient_GetKubeletPodMap(t *testing.T) {
 // TestClient_ContextCancellation tests that HTTP methods respect context cancellation
 func TestClient_ContextCancellation(t *testing.T) {
 	// Create a server that delays response
+	requestReceived := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Signal that request was received
+		select {
+		case requestReceived <- struct{}{}:
+		default:
+		}
+		// Wait for either context cancellation or a long delay
 		select {
 		case <-r.Context().Done():
+			// Request was cancelled
 			return
+		case <-time.After(30 * time.Second):
+			// Timeout - should not reach here in the test
+			w.WriteHeader(http.StatusOK)
 		}
 	}))
 	defer server.Close()
@@ -793,27 +805,41 @@ func TestClient_ContextCancellation(t *testing.T) {
 		t.Fatalf("Failed to create client: %v", err)
 	}
 
-	// Create a context that's already cancelled
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	// Test 1: Context cancelled before request
+	t.Run("cancelled before request", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
 
-	// GetKubeletStats should return nil on context cancellation
-	stats := client.GetKubeletStats(ctx)
-	if stats != nil {
-		t.Error("Expected nil stats from cancelled context")
-	}
+		// GetKubeletStats should return nil on context cancellation
+		stats := client.GetKubeletStats(ctx)
+		if stats != nil {
+			t.Error("Expected nil stats from cancelled context")
+		}
+	})
 
-	// GetKubeletPods should return error on context cancellation
-	_, err = client.GetKubeletPods(ctx)
-	if err == nil {
-		t.Error("Expected error from cancelled context for GetKubeletPods")
-	}
+	// Test 2: Context cancelled during request with timeout
+	t.Run("cancelled with timeout", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
 
-	// GetKubeletPodMap should return error on context cancellation
-	_, err = client.GetKubeletPodMap(ctx)
-	if err == nil {
-		t.Error("Expected error from cancelled context for GetKubeletPodMap")
-	}
+		// GetKubeletPods should return error on context timeout
+		_, err = client.GetKubeletPods(ctx)
+		if err == nil {
+			t.Error("Expected error from timeout context for GetKubeletPods")
+		}
+	})
+
+	// Test 3: GetKubeletPodMap with timeout
+	t.Run("GetKubeletPodMap with timeout", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		// GetKubeletPodMap should return error on context timeout
+		_, err = client.GetKubeletPodMap(ctx)
+		if err == nil {
+			t.Error("Expected error from timeout context for GetKubeletPodMap")
+		}
+	})
 }
 
 // Helper function for test

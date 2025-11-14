@@ -172,7 +172,7 @@ func (s *Client) GetRestyClient() *resty.Client {
 }
 
 func (s *Client) GetKubeletStats(ctx context.Context) *statsapi.Summary {
-	resp, err := s.kubeletApi.R().SetResult(&statsapi.Summary{}).Get(kubeletStatsApi)
+	resp, err := s.kubeletApi.R().SetContext(ctx).SetResult(&statsapi.Summary{}).Get(kubeletStatsApi)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).WithError(err).Errorln("Failed to get kubelet stats")
 		return nil
@@ -185,7 +185,7 @@ func (s *Client) GetKubeletStats(ctx context.Context) *statsapi.Summary {
 }
 
 func (s *Client) GetKubeletPods(ctx context.Context) (*corev1.PodList, error) {
-	resp, err := s.kubeletApi.R().SetResult(&corev1.PodList{}).Get(podsApi)
+	resp, err := s.kubeletApi.R().SetContext(ctx).SetResult(&corev1.PodList{}).Get(podsApi)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).WithError(err).Errorln("Failed to get kubelet pods")
 		return nil, err
