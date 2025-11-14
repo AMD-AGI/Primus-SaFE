@@ -241,14 +241,14 @@ func (c *Client) DeleteObject(ctx context.Context, key string, timeout int64) er
 }
 
 // GeneratePresignedURL generate presigned URL for temporary object access.
-func (c *Client) GeneratePresignedURL(ctx context.Context, key string, expireDay int32) (string, error) {
+func (c *Client) GeneratePresignedURL(ctx context.Context, key string, expireHour int32) (string, error) {
 	presigner := s3.NewPresignClient(c.s3Client)
 
 	resp, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket: c.Bucket,
 		Key:    aws.String(c.WithPrefixKey(key)),
 	}, func(o *s3.PresignOptions) {
-		o.Expires = time.Duration(expireDay) * 24 * time.Hour
+		o.Expires = time.Duration(expireHour) * time.Hour
 	})
 	if err != nil {
 		return "", err

@@ -29,5 +29,5 @@ type Interface interface {
 	PutObject(ctx context.Context, key, value string, timeout int64) (*s3.PutObjectOutput, error)
 	DeleteObject(ctx context.Context, key string, timeout int64) error
 
-	GeneratePresignedURL(ctx context.Context, key string, expireDay int32) (string, error)
+	GeneratePresignedURL(ctx context.Context, key string, expireHour int32) (string, error)
 }

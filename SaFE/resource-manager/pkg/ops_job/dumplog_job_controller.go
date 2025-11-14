@@ -462,11 +462,11 @@ func (r *DumpLogJobReconciler) clearScroll(client *commonsearch.SearchClient, sc
 
 // setOutput updates job status with the S3 presigned URL for log access.
 func (r *DumpLogJobReconciler) setOutput(ctx context.Context, job *v1.OpsJob, workloadId string) error {
-	var expireDay int32 = 1
-	if commonconfig.GetS3ExpireDay() > 0 && expireDay > commonconfig.GetS3ExpireDay() {
-		expireDay = commonconfig.GetS3ExpireDay()
+	var expireHour int32 = 3
+	if commonconfig.GetS3ExpireDay() > 0 {
+		expireHour = commonconfig.GetS3ExpireDay() * 24
 	}
-	endpoint, err := r.s3Client.GeneratePresignedURL(ctx, workloadId, expireDay)
+	endpoint, err := r.s3Client.GeneratePresignedURL(ctx, workloadId, expireHour)
 	if err != nil {
 		return err
 	}
