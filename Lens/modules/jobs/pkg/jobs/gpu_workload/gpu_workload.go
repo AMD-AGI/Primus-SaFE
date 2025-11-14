@@ -259,7 +259,7 @@ func isNoKindMatchError(err error) bool {
 
 	// Check error message for common patterns indicating Kind not found
 	errMsg := strings.ToLower(err.Error())
-	return strings.Contains(errMsg, "with unknown Kind") ||
+	return strings.Contains(errMsg, "with unknown kind") ||
 		strings.Contains(errMsg, "no matches for kind")
 }
 
