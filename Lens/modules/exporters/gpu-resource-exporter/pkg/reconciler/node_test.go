@@ -21,7 +21,7 @@ func TestIsGPUNode(t *testing.T) {
 		expected bool
 	}{
 		{
-			name: "有AMD GPU的节点",
+			name: "node with AMD GPU",
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "gpu-node-1",
@@ -35,7 +35,7 @@ func TestIsGPUNode(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "无GPU的节点",
+			name: "node without GPU",
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "cpu-node-1",
@@ -50,7 +50,7 @@ func TestIsGPUNode(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "空Capacity的节点",
+			name: "node with empty Capacity",
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "empty-node",
@@ -62,7 +62,7 @@ func TestIsGPUNode(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "有多种资源包括GPU的节点",
+			name: "node with multiple resources including GPU",
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "mixed-node",
@@ -78,7 +78,7 @@ func TestIsGPUNode(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "GPU数量为0的节点",
+			name: "node with zero GPU count",
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "zero-gpu-node",
@@ -89,7 +89,7 @@ func TestIsGPUNode(t *testing.T) {
 					},
 				},
 			},
-			expected: true, // 只要有这个资源键就返回 true
+			expected: true, // returns true as long as this resource key exists
 		},
 	}
 
@@ -110,7 +110,7 @@ func TestGetNodeAddress(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "有内部IP地址",
+			name: "with internal IP address",
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-1",
@@ -127,7 +127,7 @@ func TestGetNodeAddress(t *testing.T) {
 			expected: "192.168.1.100",
 		},
 		{
-			name: "有外部IP地址",
+			name: "with external IP address",
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-2",
@@ -144,7 +144,7 @@ func TestGetNodeAddress(t *testing.T) {
 			expected: "203.0.113.50",
 		},
 		{
-			name: "有多个地址-返回第一个",
+			name: "multiple addresses - return first one",
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-3",
@@ -169,7 +169,7 @@ func TestGetNodeAddress(t *testing.T) {
 			expected: "10.0.0.5",
 		},
 		{
-			name: "空地址列表",
+			name: "empty address list",
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-4",
@@ -181,7 +181,7 @@ func TestGetNodeAddress(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "nil地址列表",
+			name: "nil address list",
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-5",
@@ -191,7 +191,7 @@ func TestGetNodeAddress(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "只有主机名",
+			name: "hostname only",
 			node: &corev1.Node{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "node-6",
@@ -228,7 +228,7 @@ func TestConvertTaintsToExtType(t *testing.T) {
 		validate func(t *testing.T, result model.ExtType)
 	}{
 		{
-			name:   "空taints",
+			name:   "empty taints",
 			taints: []corev1.Taint{},
 			validate: func(t *testing.T, result model.ExtType) {
 				assert.Empty(t, result, "Result should be empty for empty taints")
@@ -242,7 +242,7 @@ func TestConvertTaintsToExtType(t *testing.T) {
 			},
 		},
 		{
-			name: "单个taint-无TimeAdded",
+			name: "single taint - no TimeAdded",
 			taints: []corev1.Taint{
 				{
 					Key:    "node.kubernetes.io/not-ready",
@@ -255,7 +255,7 @@ func TestConvertTaintsToExtType(t *testing.T) {
 				taintsList, ok := result["taints"].([]map[string]interface{})
 				assert.True(t, ok, "taints should be a slice of maps")
 				assert.Len(t, taintsList, 1)
-				
+
 				taint := taintsList[0]
 				assert.Equal(t, "node.kubernetes.io/not-ready", taint["key"])
 				assert.Equal(t, "true", taint["value"])
@@ -265,7 +265,7 @@ func TestConvertTaintsToExtType(t *testing.T) {
 			},
 		},
 		{
-			name: "单个taint-有TimeAdded",
+			name: "single taint - with TimeAdded",
 			taints: []corev1.Taint{
 				{
 					Key:       "node.kubernetes.io/memory-pressure",
@@ -279,7 +279,7 @@ func TestConvertTaintsToExtType(t *testing.T) {
 				taintsList, ok := result["taints"].([]map[string]interface{})
 				assert.True(t, ok)
 				assert.Len(t, taintsList, 1)
-				
+
 				taint := taintsList[0]
 				assert.Equal(t, "node.kubernetes.io/memory-pressure", taint["key"])
 				assert.Equal(t, "true", taint["value"])
@@ -290,7 +290,7 @@ func TestConvertTaintsToExtType(t *testing.T) {
 			},
 		},
 		{
-			name: "多个taints",
+			name: "multiple taints",
 			taints: []corev1.Taint{
 				{
 					Key:    "node.kubernetes.io/not-ready",
@@ -314,25 +314,25 @@ func TestConvertTaintsToExtType(t *testing.T) {
 				taintsList, ok := result["taints"].([]map[string]interface{})
 				assert.True(t, ok)
 				assert.Len(t, taintsList, 3)
-				
-				// 验证第一个 taint
+
+				// verify first taint
 				assert.Equal(t, "node.kubernetes.io/not-ready", taintsList[0]["key"])
 				assert.Equal(t, string(corev1.TaintEffectNoSchedule), taintsList[0]["effect"])
-				
-				// 验证第二个 taint（带 TimeAdded）
+
+				// verify second taint (with TimeAdded)
 				assert.Equal(t, "node.kubernetes.io/disk-pressure", taintsList[1]["key"])
 				assert.Equal(t, string(corev1.TaintEffectNoExecute), taintsList[1]["effect"])
 				_, hasTimeAdded := taintsList[1]["timeAdded"]
 				assert.True(t, hasTimeAdded)
-				
-				// 验证第三个 taint
+
+				// verify third taint
 				assert.Equal(t, "dedicated", taintsList[2]["key"])
 				assert.Equal(t, "gpu-workload", taintsList[2]["value"])
 				assert.Equal(t, string(corev1.TaintEffectPreferNoSchedule), taintsList[2]["effect"])
 			},
 		},
 		{
-			name: "空值的taint",
+			name: "taint with empty value",
 			taints: []corev1.Taint{
 				{
 					Key:    "test-key",
@@ -347,7 +347,7 @@ func TestConvertTaintsToExtType(t *testing.T) {
 			},
 		},
 		{
-			name: "所有Effect类型",
+			name: "all Effect types",
 			taints: []corev1.Taint{
 				{
 					Key:    "effect-noschedule",
@@ -385,37 +385,37 @@ func TestDesiredKubeletService(t *testing.T) {
 
 	svc := n.desiredKubeletService()
 
-	// 验证基本属性
+	// verify basic properties
 	assert.NotNil(t, svc, "Service should not be nil")
 	assert.Equal(t, "primus-lens-kubelet-service", svc.Name)
 	assert.Equal(t, "kube-system", svc.Namespace)
 
-	// 验证标签
+	// verify labels
 	assert.Equal(t, "primus-lens", svc.Labels["app.kubernetes.io/managed-by"])
 	assert.Equal(t, "kubelet", svc.Labels["app.kubernetes.io/name"])
 	assert.Equal(t, "kubelet", svc.Labels["k8s-app"])
 
-	// 验证 Spec
+	// verify Spec
 	assert.Equal(t, "None", svc.Spec.ClusterIP)
 	assert.Equal(t, corev1.ServiceTypeClusterIP, svc.Spec.Type)
 
-	// 验证端口配置
+	// verify port configuration
 	assert.Len(t, svc.Spec.Ports, 3, "Should have 3 ports")
 
-	// 验证 https-metrics 端口
+	// verify https-metrics port
 	httpsPort := findServicePort(svc.Spec.Ports, "https-metrics")
 	assert.NotNil(t, httpsPort, "https-metrics port should exist")
 	assert.Equal(t, int32(10250), httpsPort.Port)
 	assert.Equal(t, corev1.ProtocolTCP, httpsPort.Protocol)
 	assert.Equal(t, intstr.FromInt(10250), httpsPort.TargetPort)
 
-	// 验证 http-metrics 端口
+	// verify http-metrics port
 	httpPort := findServicePort(svc.Spec.Ports, "http-metrics")
 	assert.NotNil(t, httpPort, "http-metrics port should exist")
 	assert.Equal(t, int32(10255), httpPort.Port)
 	assert.Equal(t, corev1.ProtocolTCP, httpPort.Protocol)
 
-	// 验证 cadvisor 端口
+	// verify cadvisor port
 	cadvisorPort := findServicePort(svc.Spec.Ports, "cadvisor")
 	assert.NotNil(t, cadvisorPort, "cadvisor port should exist")
 	assert.Equal(t, int32(4194), cadvisorPort.Port)
@@ -431,7 +431,7 @@ func TestDesireKubeletServiceEndpoint(t *testing.T) {
 		validate func(t *testing.T, ep *corev1.Endpoints)
 	}{
 		{
-			name: "空节点列表",
+			name: "empty node list",
 			nodes: &corev1.NodeList{
 				Items: []corev1.Node{},
 			},
@@ -445,7 +445,7 @@ func TestDesireKubeletServiceEndpoint(t *testing.T) {
 			},
 		},
 		{
-			name: "单个节点-有内部IP",
+			name: "single node - with internal IP",
 			nodes: &corev1.NodeList{
 				Items: []corev1.Node{
 					{
@@ -467,7 +467,7 @@ func TestDesireKubeletServiceEndpoint(t *testing.T) {
 			validate: func(t *testing.T, ep *corev1.Endpoints) {
 				assert.Len(t, ep.Subsets, 1)
 				assert.Len(t, ep.Subsets[0].Addresses, 1)
-				
+
 				addr := ep.Subsets[0].Addresses[0]
 				assert.Equal(t, "192.168.1.10", addr.IP)
 				assert.Equal(t, "node-1", *addr.NodeName)
@@ -476,7 +476,7 @@ func TestDesireKubeletServiceEndpoint(t *testing.T) {
 			},
 		},
 		{
-			name: "单个节点-有外部IP",
+			name: "single node - with external IP",
 			nodes: &corev1.NodeList{
 				Items: []corev1.Node{
 					{
@@ -501,7 +501,7 @@ func TestDesireKubeletServiceEndpoint(t *testing.T) {
 			},
 		},
 		{
-			name: "单个节点-有内部IP和外部IP",
+			name: "single node - with internal IP and external IP",
 			nodes: &corev1.NodeList{
 				Items: []corev1.Node{
 					{
@@ -525,14 +525,14 @@ func TestDesireKubeletServiceEndpoint(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, ep *corev1.Endpoints) {
-				// 应该包含两个地址
+				// should contain two addresses
 				assert.Len(t, ep.Subsets[0].Addresses, 2)
 				assert.Equal(t, "10.0.0.5", ep.Subsets[0].Addresses[0].IP)
 				assert.Equal(t, "198.51.100.30", ep.Subsets[0].Addresses[1].IP)
 			},
 		},
 		{
-			name: "多个节点",
+			name: "multiple nodes",
 			nodes: &corev1.NodeList{
 				Items: []corev1.Node{
 					{
@@ -572,7 +572,7 @@ func TestDesireKubeletServiceEndpoint(t *testing.T) {
 			},
 			validate: func(t *testing.T, ep *corev1.Endpoints) {
 				assert.Len(t, ep.Subsets[0].Addresses, 3)
-				
+
 				ips := []string{}
 				for _, addr := range ep.Subsets[0].Addresses {
 					ips = append(ips, addr.IP)
@@ -583,7 +583,7 @@ func TestDesireKubeletServiceEndpoint(t *testing.T) {
 			},
 		},
 		{
-			name: "节点无有效地址",
+			name: "node without valid address",
 			nodes: &corev1.NodeList{
 				Items: []corev1.Node{
 					{
@@ -603,7 +603,7 @@ func TestDesireKubeletServiceEndpoint(t *testing.T) {
 				},
 			},
 			validate: func(t *testing.T, ep *corev1.Endpoints) {
-				// 只有 HostName，不应该被包含
+				// only HostName, should not be included
 				assert.Empty(t, ep.Subsets[0].Addresses)
 			},
 		},
@@ -612,35 +612,35 @@ func TestDesireKubeletServiceEndpoint(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ep := n.desireKubeletServiceEndpoint(tt.nodes)
-			
-			// 通用验证
+
+			// common verification
 			assert.NotNil(t, ep, "Endpoints should not be nil")
 			assert.Equal(t, "primus-lens-kubelet-service", ep.Name)
 			assert.Equal(t, "kube-system", ep.Namespace)
-			
-			// 验证端口配置
+
+			// verify port configuration
 			assert.Len(t, ep.Subsets[0].Ports, 3)
-			
+
 			ports := ep.Subsets[0].Ports
 			httpsPort := findEndpointPort(ports, "https-metrics")
 			assert.NotNil(t, httpsPort)
 			assert.Equal(t, int32(10250), httpsPort.Port)
-			
+
 			httpPort := findEndpointPort(ports, "http-metrics")
 			assert.NotNil(t, httpPort)
 			assert.Equal(t, int32(10255), httpPort.Port)
-			
+
 			cadvisorPort := findEndpointPort(ports, "cadvisor")
 			assert.NotNil(t, cadvisorPort)
 			assert.Equal(t, int32(4194), cadvisorPort.Port)
-			
-			// 自定义验证
+
+			// custom verification
 			tt.validate(t, ep)
 		})
 	}
 }
 
-// 辅助函数：查找 Service Port
+// helper function: find Service Port
 func findServicePort(ports []corev1.ServicePort, name string) *corev1.ServicePort {
 	for i := range ports {
 		if ports[i].Name == name {
@@ -650,7 +650,7 @@ func findServicePort(ports []corev1.ServicePort, name string) *corev1.ServicePor
 	return nil
 }
 
-// 辅助函数：查找 Endpoint Port
+// helper function: find Endpoint Port
 func findEndpointPort(ports []corev1.EndpointPort, name string) *corev1.EndpointPort {
 	for i := range ports {
 		if ports[i].Name == name {
@@ -659,4 +659,3 @@ func findEndpointPort(ports []corev1.EndpointPort, name string) *corev1.Endpoint
 	}
 	return nil
 }
-

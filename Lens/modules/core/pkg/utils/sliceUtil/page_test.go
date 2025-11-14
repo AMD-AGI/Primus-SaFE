@@ -7,7 +7,7 @@ import (
 )
 
 func TestPaginateSlice(t *testing.T) {
-	t.Run("正常分页", func(t *testing.T) {
+	t.Run("normal pagination", func(t *testing.T) {
 		data := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 		paged, totalPages, total, hasNext := PaginateSlice(data, 1, 3)
 		
@@ -17,7 +17,7 @@ func TestPaginateSlice(t *testing.T) {
 		assert.True(t, hasNext)
 	})
 
-	t.Run("第二页", func(t *testing.T) {
+	t.Run("second page", func(t *testing.T) {
 		data := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 		paged, totalPages, total, hasNext := PaginateSlice(data, 2, 3)
 		
@@ -27,7 +27,7 @@ func TestPaginateSlice(t *testing.T) {
 		assert.True(t, hasNext)
 	})
 
-	t.Run("最后一页", func(t *testing.T) {
+	t.Run("last page", func(t *testing.T) {
 		data := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 		paged, totalPages, total, hasNext := PaginateSlice(data, 4, 3)
 		
@@ -37,7 +37,7 @@ func TestPaginateSlice(t *testing.T) {
 		assert.False(t, hasNext)
 	})
 
-	t.Run("页码超出范围", func(t *testing.T) {
+	t.Run("page number out of range", func(t *testing.T) {
 		data := []int{1, 2, 3, 4, 5}
 		paged, totalPages, total, hasNext := PaginateSlice(data, 10, 3)
 		
@@ -47,7 +47,7 @@ func TestPaginateSlice(t *testing.T) {
 		assert.False(t, hasNext)
 	})
 
-	t.Run("空数据", func(t *testing.T) {
+	t.Run("empty data", func(t *testing.T) {
 		data := []int{}
 		paged, totalPages, total, hasNext := PaginateSlice(data, 1, 10)
 		
@@ -57,7 +57,7 @@ func TestPaginateSlice(t *testing.T) {
 		assert.False(t, hasNext)
 	})
 
-	t.Run("页码为0时默认为1", func(t *testing.T) {
+	t.Run("page defaults to 1 when 0", func(t *testing.T) {
 		data := []int{1, 2, 3, 4, 5}
 		paged, totalPages, total, hasNext := PaginateSlice(data, 0, 2)
 		
@@ -67,7 +67,7 @@ func TestPaginateSlice(t *testing.T) {
 		assert.True(t, hasNext)
 	})
 
-	t.Run("页大小为0时默认为10", func(t *testing.T) {
+	t.Run("page size defaults to 10 when 0", func(t *testing.T) {
 		data := []int{1, 2, 3, 4, 5}
 		paged, totalPages, total, hasNext := PaginateSlice(data, 1, 0)
 		
@@ -77,7 +77,7 @@ func TestPaginateSlice(t *testing.T) {
 		assert.False(t, hasNext)
 	})
 
-	t.Run("页大小为负数时默认为10", func(t *testing.T) {
+	t.Run("page size defaults to 10 when negative", func(t *testing.T) {
 		data := []int{1, 2, 3, 4, 5}
 		paged, totalPages, total, hasNext := PaginateSlice(data, 1, -5)
 		
@@ -87,7 +87,7 @@ func TestPaginateSlice(t *testing.T) {
 		assert.False(t, hasNext)
 	})
 
-	t.Run("字符串切片分页", func(t *testing.T) {
+	t.Run("string slice pagination", func(t *testing.T) {
 		data := []string{"a", "b", "c", "d", "e"}
 		paged, totalPages, total, hasNext := PaginateSlice(data, 1, 2)
 		
@@ -97,7 +97,7 @@ func TestPaginateSlice(t *testing.T) {
 		assert.True(t, hasNext)
 	})
 
-	t.Run("结构体切片分页", func(t *testing.T) {
+	t.Run("struct slice pagination", func(t *testing.T) {
 		type User struct {
 			Name string
 			Age  int
@@ -118,7 +118,7 @@ func TestPaginateSlice(t *testing.T) {
 		assert.True(t, hasNext)
 	})
 
-	t.Run("单页数据", func(t *testing.T) {
+	t.Run("single page data", func(t *testing.T) {
 		data := []int{1, 2, 3}
 		paged, totalPages, total, hasNext := PaginateSlice(data, 1, 10)
 		
@@ -128,7 +128,7 @@ func TestPaginateSlice(t *testing.T) {
 		assert.False(t, hasNext)
 	})
 
-	t.Run("页大小等于数据长度", func(t *testing.T) {
+	t.Run("page size equals data length", func(t *testing.T) {
 		data := []int{1, 2, 3, 4, 5}
 		paged, totalPages, total, hasNext := PaginateSlice(data, 1, 5)
 		

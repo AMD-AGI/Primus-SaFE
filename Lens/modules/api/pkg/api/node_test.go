@@ -19,179 +19,179 @@ func TestGetGpuUsageHistoryCacheKey(t *testing.T) {
 		description string
 	}{
 		{
-			name:        "1小时查询-最近数据",
+			name:        "1 hour query - recent data",
 			startTime:   now.Add(-1 * time.Hour),
 			endTime:     now,
 			expected:    "cluster:gpu:usage_history:1h",
-			description: "查询最近1小时的数据",
+			description: "Query data for the last 1 hour",
 		},
 		{
-			name:        "6小时查询-最近数据",
+			name:        "6 hours query - recent data",
 			startTime:   now.Add(-6 * time.Hour),
 			endTime:     now,
 			expected:    "cluster:gpu:usage_history:6h",
-			description: "查询最近6小时的数据",
+			description: "Query data for the last 6 hours",
 		},
 		{
-			name:        "24小时查询-最近数据",
+			name:        "24 hours query - recent data",
 			startTime:   now.Add(-24 * time.Hour),
 			endTime:     now,
 			expected:    "cluster:gpu:usage_history:24h",
-			description: "查询最近24小时的数据",
+			description: "Query data for the last 24 hours",
 		},
 		{
-			name:        "55分钟查询-在1小时范围内",
+			name:        "55 minutes query - within 1 hour range",
 			startTime:   now.Add(-55 * time.Minute),
 			endTime:     now,
 			expected:    "cluster:gpu:usage_history:1h",
-			description: "55分钟接近1小时，应该匹配1小时缓存",
+			description: "55 minutes is close to 1 hour, should match 1 hour cache",
 		},
 		{
-			name:        "65分钟查询-在1小时范围内",
+			name:        "65 minutes query - within 1 hour range",
 			startTime:   now.Add(-65 * time.Minute),
 			endTime:     now,
 			expected:    "cluster:gpu:usage_history:1h",
-			description: "65分钟接近1小时，应该匹配1小时缓存",
+			description: "65 minutes is close to 1 hour, should match 1 hour cache",
 		},
 		{
-			name:        "5小时45分钟-在6小时范围内",
+			name:        "5 hours 45 minutes - within 6 hours range",
 			startTime:   now.Add(-5*time.Hour - 45*time.Minute),
 			endTime:     now,
 			expected:    "cluster:gpu:usage_history:6h",
-			description: "接近6小时，应该匹配6小时缓存",
+			description: "Close to 6 hours, should match 6 hours cache",
 		},
 		{
-			name:        "6小时15分钟-在6小时范围内",
+			name:        "6 hours 15 minutes - within 6 hours range",
 			startTime:   now.Add(-6*time.Hour - 15*time.Minute),
 			endTime:     now,
 			expected:    "cluster:gpu:usage_history:6h",
-			description: "接近6小时，应该匹配6小时缓存",
+			description: "Close to 6 hours, should match 6 hours cache",
 		},
 		{
-			name:        "23小时30分钟-在24小时范围内",
+			name:        "23 hours 30 minutes - within 24 hours range",
 			startTime:   now.Add(-23*time.Hour - 30*time.Minute),
 			endTime:     now,
 			expected:    "cluster:gpu:usage_history:24h",
-			description: "接近24小时，应该匹配24小时缓存",
+			description: "Close to 24 hours, should match 24 hours cache",
 		},
 		{
-			name:        "24小时30分钟-在24小时范围内",
+			name:        "24 hours 30 minutes - within 24 hours range",
 			startTime:   now.Add(-24*time.Hour - 30*time.Minute),
 			endTime:     now,
 			expected:    "cluster:gpu:usage_history:24h",
-			description: "接近24小时，应该匹配24小时缓存",
+			description: "Close to 24 hours, should match 24 hours cache",
 		},
 		{
-			name:        "2小时查询-不匹配任何缓存",
+			name:        "2 hours query - no cache match",
 			startTime:   now.Add(-2 * time.Hour),
 			endTime:     now,
 			expected:    "",
-			description: "2小时不在任何缓存范围内",
+			description: "2 hours is not in any cache range",
 		},
 		{
-			name:        "3小时查询-不匹配任何缓存",
+			name:        "3 hours query - no cache match",
 			startTime:   now.Add(-3 * time.Hour),
 			endTime:     now,
 			expected:    "",
-			description: "3小时不在任何缓存范围内",
+			description: "3 hours is not in any cache range",
 		},
 		{
-			name:        "12小时查询-不匹配任何缓存",
+			name:        "12 hours query - no cache match",
 			startTime:   now.Add(-12 * time.Hour),
 			endTime:     now,
 			expected:    "",
-			description: "12小时不在任何缓存范围内",
+			description: "12 hours is not in any cache range",
 		},
 		{
-			name:        "30分钟查询-太短",
+			name:        "30 minutes query - too short",
 			startTime:   now.Add(-30 * time.Minute),
 			endTime:     now,
 			expected:    "",
-			description: "30分钟小于1小时范围",
+			description: "30 minutes is less than 1 hour range",
 		},
 		{
-			name:        "45分钟查询-太短",
+			name:        "45 minutes query - too short",
 			startTime:   now.Add(-45 * time.Minute),
 			endTime:     now,
 			expected:    "",
-			description: "45分钟小于1小时范围",
+			description: "45 minutes is less than 1 hour range",
 		},
 		{
-			name:        "历史数据-10分钟前结束",
+			name:        "historical data - ended 10 minutes ago",
 			startTime:   now.Add(-2 * time.Hour),
 			endTime:     now.Add(-10 * time.Minute),
 			expected:    "",
-			description: "结束时间超过5分钟容差，不使用缓存",
+			description: "End time exceeds 5 minute tolerance, do not use cache",
 		},
 		{
-			name:        "历史数据-1小时前结束",
+			name:        "historical data - ended 1 hour ago",
 			startTime:   now.Add(-2 * time.Hour),
 			endTime:     now.Add(-1 * time.Hour),
 			expected:    "",
-			description: "不是最近的查询，不使用缓存",
+			description: "Not a recent query, do not use cache",
 		},
 		{
-			name:        "历史数据-昨天的1小时",
+			name:        "historical data - yesterday's 1 hour",
 			startTime:   now.Add(-25 * time.Hour),
 			endTime:     now.Add(-24 * time.Hour),
 			expected:    "",
-			description: "昨天的历史数据，不使用缓存",
+			description: "Yesterday's historical data, do not use cache",
 		},
 		{
-			name:        "边界测试-刚好5分钟前结束",
+			name:        "boundary test - ended exactly 5 minutes ago",
 			startTime:   now.Add(-1*time.Hour - 5*time.Minute),
 			endTime:     now.Add(-5 * time.Minute),
-			expected:    "cluster:gpu:usage_history:1h", // timeSinceEnd > tolerance 判断，5分钟刚好不大于，所以匹配
-			description: "刚好在5分钟容差边界内",
+			expected:    "cluster:gpu:usage_history:1h", // timeSinceEnd > tolerance check, 5 minutes is not greater than, so it matches
+			description: "Exactly within 5 minute tolerance boundary",
 		},
 		{
-			name:        "边界测试-4分钟前结束",
+			name:        "boundary test - ended 4 minutes ago",
 			startTime:   now.Add(-1*time.Hour - 4*time.Minute),
 			endTime:     now.Add(-4 * time.Minute),
 			expected:    "cluster:gpu:usage_history:1h",
-			description: "在5分钟容差范围内",
+			description: "Within 5 minute tolerance range",
 		},
 		{
-			name:        "边界测试-6分钟前结束",
+			name:        "boundary test - ended 6 minutes ago",
 			startTime:   now.Add(-1*time.Hour - 6*time.Minute),
 			endTime:     now.Add(-6 * time.Minute),
 			expected:    "",
-			description: "超出5分钟容差，不使用缓存",
+			description: "Exceeds 5 minute tolerance, do not use cache",
 		},
 		{
-			name:        "未来时间-不使用缓存",
+			name:        "future time - do not use cache",
 			startTime:   now.Add(1 * time.Hour),
 			endTime:     now.Add(2 * time.Hour),
-			expected:    "cluster:gpu:usage_history:1h", // 未来时间的 duration 也是1小时，可能会匹配
-			description: "未来时间（可能会匹配持续时间）",
+			expected:    "cluster:gpu:usage_history:1h", // Future time duration is also 1 hour, may match
+			description: "Future time (may match duration)",
 		},
 		{
-			name:        "边界测试-50分钟",
+			name:        "boundary test - 50 minutes",
 			startTime:   now.Add(-50 * time.Minute),
 			endTime:     now,
 			expected:    "cluster:gpu:usage_history:1h",
-			description: "刚好50分钟，匹配1小时缓存的下限",
+			description: "Exactly 50 minutes, matches 1 hour cache lower bound",
 		},
 		{
-			name:        "边界测试-70分钟",
+			name:        "boundary test - 70 minutes",
 			startTime:   now.Add(-70 * time.Minute),
 			endTime:     now,
 			expected:    "cluster:gpu:usage_history:1h",
-			description: "刚好70分钟，匹配1小时缓存的上限",
+			description: "Exactly 70 minutes, matches 1 hour cache upper bound",
 		},
 		{
-			name:        "边界测试-49分钟",
+			name:        "boundary test - 49 minutes",
 			startTime:   now.Add(-49 * time.Minute),
 			endTime:     now,
 			expected:    "",
-			description: "49分钟小于50分钟下限",
+			description: "49 minutes is less than 50 minute lower bound",
 		},
 		{
-			name:        "边界测试-71分钟",
+			name:        "boundary test - 71 minutes",
 			startTime:   now.Add(-71 * time.Minute),
 			endTime:     now,
 			expected:    "",
-			description: "71分钟超过70分钟上限",
+			description: "71 minutes exceeds 70 minute upper bound",
 		},
 	}
 
@@ -212,7 +212,7 @@ func TestFilterTimePoints(t *testing.T) {
 		expected  []model.TimePoint
 	}{
 		{
-			name: "所有点都在范围内",
+			name: "all points within range",
 			points: []model.TimePoint{
 				{Timestamp: 100, Value: 10.0},
 				{Timestamp: 200, Value: 20.0},
@@ -227,7 +227,7 @@ func TestFilterTimePoints(t *testing.T) {
 			},
 		},
 		{
-			name: "部分点在范围内",
+			name: "some points within range",
 			points: []model.TimePoint{
 				{Timestamp: 100, Value: 10.0},
 				{Timestamp: 200, Value: 20.0},
@@ -244,7 +244,7 @@ func TestFilterTimePoints(t *testing.T) {
 			},
 		},
 		{
-			name: "没有点在范围内",
+			name: "no points within range",
 			points: []model.TimePoint{
 				{Timestamp: 100, Value: 10.0},
 				{Timestamp: 200, Value: 20.0},
@@ -255,14 +255,14 @@ func TestFilterTimePoints(t *testing.T) {
 			expected:  []model.TimePoint{},
 		},
 		{
-			name:      "空切片",
+			name:      "empty slice",
 			points:    []model.TimePoint{},
 			startUnix: 100,
 			endUnix:   200,
 			expected:  []model.TimePoint{},
 		},
 		{
-			name: "单个点-在范围内",
+			name: "single point - within range",
 			points: []model.TimePoint{
 				{Timestamp: 150, Value: 15.0},
 			},
@@ -273,7 +273,7 @@ func TestFilterTimePoints(t *testing.T) {
 			},
 		},
 		{
-			name: "单个点-在范围外",
+			name: "single point - outside range",
 			points: []model.TimePoint{
 				{Timestamp: 250, Value: 25.0},
 			},
@@ -282,7 +282,7 @@ func TestFilterTimePoints(t *testing.T) {
 			expected:  []model.TimePoint{},
 		},
 		{
-			name: "边界测试-刚好在起点",
+			name: "boundary test - exactly at start point",
 			points: []model.TimePoint{
 				{Timestamp: 100, Value: 10.0},
 				{Timestamp: 200, Value: 20.0},
@@ -295,7 +295,7 @@ func TestFilterTimePoints(t *testing.T) {
 			},
 		},
 		{
-			name: "边界测试-刚好在终点",
+			name: "boundary test - exactly at end point",
 			points: []model.TimePoint{
 				{Timestamp: 100, Value: 10.0},
 				{Timestamp: 200, Value: 20.0},
@@ -308,7 +308,7 @@ func TestFilterTimePoints(t *testing.T) {
 			},
 		},
 		{
-			name: "边界测试-刚好超出起点",
+			name: "boundary test - just beyond start point",
 			points: []model.TimePoint{
 				{Timestamp: 99, Value: 9.9},
 				{Timestamp: 100, Value: 10.0},
@@ -322,7 +322,7 @@ func TestFilterTimePoints(t *testing.T) {
 			},
 		},
 		{
-			name: "边界测试-刚好超出终点",
+			name: "boundary test - just beyond end point",
 			points: []model.TimePoint{
 				{Timestamp: 100, Value: 10.0},
 				{Timestamp: 200, Value: 20.0},
@@ -336,7 +336,7 @@ func TestFilterTimePoints(t *testing.T) {
 			},
 		},
 		{
-			name: "负数时间戳",
+			name: "negative timestamps",
 			points: []model.TimePoint{
 				{Timestamp: -200, Value: -20.0},
 				{Timestamp: -100, Value: -10.0},
@@ -351,7 +351,7 @@ func TestFilterTimePoints(t *testing.T) {
 			},
 		},
 		{
-			name: "时间戳为0",
+			name: "timestamp is zero",
 			points: []model.TimePoint{
 				{Timestamp: 0, Value: 0.0},
 			},
@@ -385,7 +385,7 @@ func TestFilterGpuUsageHistoryByTimeRange(t *testing.T) {
 		expected model.GpuUtilizationHistory
 	}{
 		{
-			name: "完整的历史数据-所有字段都有数据",
+			name: "complete history data - all fields have data",
 			history: model.GpuUtilizationHistory{
 				AllocationRate: []model.TimePoint{
 					{Timestamp: startUnix - 100, Value: 50.0},
@@ -422,7 +422,7 @@ func TestFilterGpuUsageHistoryByTimeRange(t *testing.T) {
 			},
 		},
 		{
-			name: "空的历史数据",
+			name: "empty history data",
 			history: model.GpuUtilizationHistory{
 				AllocationRate:  []model.TimePoint{},
 				Utilization:     []model.TimePoint{},
@@ -435,7 +435,7 @@ func TestFilterGpuUsageHistoryByTimeRange(t *testing.T) {
 			},
 		},
 		{
-			name: "部分字段有数据",
+			name: "some fields have data",
 			history: model.GpuUtilizationHistory{
 				AllocationRate: []model.TimePoint{
 					{Timestamp: startUnix + 100, Value: 60.0},
@@ -452,7 +452,7 @@ func TestFilterGpuUsageHistoryByTimeRange(t *testing.T) {
 			},
 		},
 		{
-			name: "所有数据都在范围外",
+			name: "all data outside range",
 			history: model.GpuUtilizationHistory{
 				AllocationRate: []model.TimePoint{
 					{Timestamp: startUnix - 200, Value: 50.0},
@@ -483,29 +483,29 @@ func TestFilterGpuUsageHistoryByTimeRange(t *testing.T) {
 }
 
 func TestFilterTimePoints_Performance(t *testing.T) {
-	// 创建大量数据点
+	// Create large amount of data points
 	largePoints := make([]model.TimePoint, 10000)
 	for i := 0; i < 10000; i++ {
 		largePoints[i] = model.TimePoint{
-			Timestamp: int64(i * 60), // 每分钟一个点
+			Timestamp: int64(i * 60), // One point per minute
 			Value:     float64(i),
 		}
 	}
 
-	// 测试过滤性能
+	// Test filtering performance
 	startUnix := int64(100 * 60)
 	endUnix := int64(200 * 60)
 
 	result := filterTimePoints(largePoints, startUnix, endUnix)
 
-	// 验证结果
-	assert.Len(t, result, 101) // 应该包含100到200，共101个点
+	// Verify result
+	assert.Len(t, result, 101) // Should contain 100 to 200, a total of 101 points
 	assert.Equal(t, startUnix, result[0].Timestamp)
 	assert.Equal(t, endUnix, result[len(result)-1].Timestamp)
 }
 
 func BenchmarkFilterTimePoints(b *testing.B) {
-	// 创建测试数据
+	// Create test data
 	points := make([]model.TimePoint, 1000)
 	for i := 0; i < 1000; i++ {
 		points[i] = model.TimePoint{
@@ -528,7 +528,7 @@ func BenchmarkFilterGpuUsageHistoryByTimeRange(b *testing.B) {
 	startTime := now.Add(-1 * time.Hour)
 	endTime := now
 
-	// 创建测试数据
+	// Create test data
 	points := make([]model.TimePoint, 100)
 	for i := 0; i < 100; i++ {
 		points[i] = model.TimePoint{

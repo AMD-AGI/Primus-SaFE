@@ -8,7 +8,7 @@ import (
 )
 
 func TestRegexToStruct(t *testing.T) {
-	t.Run("基本字符串字段匹配", func(t *testing.T) {
+	t.Run("basic string field matching", func(t *testing.T) {
 		type Person struct {
 			Name string
 			Age  string
@@ -25,7 +25,7 @@ func TestRegexToStruct(t *testing.T) {
 		assert.Equal(t, "30", result.Age)
 	})
 
-	t.Run("整数字段匹配", func(t *testing.T) {
+	t.Run("integer field matching", func(t *testing.T) {
 		type Person struct {
 			Name string
 			Age  int
@@ -42,7 +42,7 @@ func TestRegexToStruct(t *testing.T) {
 		assert.Equal(t, 30, result.Age)
 	})
 
-	t.Run("浮点数字段匹配", func(t *testing.T) {
+	t.Run("float field matching", func(t *testing.T) {
 		type Product struct {
 			Name  string
 			Price float64
@@ -59,7 +59,7 @@ func TestRegexToStruct(t *testing.T) {
 		assert.Equal(t, 12.50, result.Price)
 	})
 
-	t.Run("混合类型字段", func(t *testing.T) {
+	t.Run("mixed type fields", func(t *testing.T) {
 		type Record struct {
 			ID     int
 			Name   string
@@ -80,11 +80,11 @@ func TestRegexToStruct(t *testing.T) {
 		assert.Equal(t, "active", result.Status)
 	})
 
-	t.Run("部分字段匹配", func(t *testing.T) {
+	t.Run("partial field matching", func(t *testing.T) {
 		type Person struct {
 			Name    string
 			Age     int
-			Ignored string // 不在正则表达式中
+			Ignored string // not in regex
 		}
 
 		re := regexp.MustCompile(`(?P<Name>\w+) is (?P<Age>\d+) years old`)
@@ -97,10 +97,10 @@ func TestRegexToStruct(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "John", result.Name)
 		assert.Equal(t, 30, result.Age)
-		assert.Equal(t, "original value", result.Ignored) // 应该保持不变
+		assert.Equal(t, "original value", result.Ignored) // should remain unchanged
 	})
 
-	t.Run("未命名的捕获组被忽略", func(t *testing.T) {
+	t.Run("unnamed capture groups ignored", func(t *testing.T) {
 		type Person struct {
 			Name string
 		}
@@ -115,7 +115,7 @@ func TestRegexToStruct(t *testing.T) {
 		assert.Equal(t, "John", result.Name)
 	})
 
-	t.Run("输入不匹配正则表达式", func(t *testing.T) {
+	t.Run("input does not match regex", func(t *testing.T) {
 		type Person struct {
 			Name string
 			Age  int
@@ -131,7 +131,7 @@ func TestRegexToStruct(t *testing.T) {
 		assert.Contains(t, err.Error(), "no match found")
 	})
 
-	t.Run("输出参数不是指针", func(t *testing.T) {
+	t.Run("output parameter is not pointer", func(t *testing.T) {
 		type Person struct {
 			Name string
 		}
@@ -140,13 +140,13 @@ func TestRegexToStruct(t *testing.T) {
 		input := "John"
 		
 		var result Person
-		err := RegexToStruct(re, input, result) // 传递值而不是指针
+		err := RegexToStruct(re, input, result) // passing value instead of pointer
 		
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "must be a pointer to a struct")
 	})
 
-	t.Run("输出参数不是结构体", func(t *testing.T) {
+	t.Run("output parameter is not struct", func(t *testing.T) {
 		re := regexp.MustCompile(`(?P<Value>\w+)`)
 		input := "test"
 		
@@ -157,7 +157,7 @@ func TestRegexToStruct(t *testing.T) {
 		assert.Contains(t, err.Error(), "must be a pointer to a struct")
 	})
 
-	t.Run("无效的整数转换", func(t *testing.T) {
+	t.Run("invalid integer conversion", func(t *testing.T) {
 		type Data struct {
 			Value int
 		}
@@ -169,10 +169,10 @@ func TestRegexToStruct(t *testing.T) {
 		err := RegexToStruct(re, input, &result)
 		
 		assert.NoError(t, err)
-		assert.Equal(t, 0, result.Value) // 转换失败，保持默认值
+		assert.Equal(t, 0, result.Value) // conversion fails, keeps default value
 	})
 
-	t.Run("无效的浮点数转换", func(t *testing.T) {
+	t.Run("invalid float conversion", func(t *testing.T) {
 		type Data struct {
 			Value float64
 		}
@@ -184,10 +184,10 @@ func TestRegexToStruct(t *testing.T) {
 		err := RegexToStruct(re, input, &result)
 		
 		assert.NoError(t, err)
-		assert.Equal(t, 0.0, result.Value) // 转换失败，保持默认值
+		assert.Equal(t, 0.0, result.Value) // conversion fails, keeps default value
 	})
 
-	t.Run("空字符串匹配", func(t *testing.T) {
+	t.Run("empty string matching", func(t *testing.T) {
 		type Data struct {
 			Value string
 		}
@@ -202,7 +202,7 @@ func TestRegexToStruct(t *testing.T) {
 		assert.Equal(t, "", result.Value)
 	})
 
-	t.Run("复杂的URL解析", func(t *testing.T) {
+	t.Run("complex URL parsing", func(t *testing.T) {
 		type URL struct {
 			Protocol string
 			Host     string

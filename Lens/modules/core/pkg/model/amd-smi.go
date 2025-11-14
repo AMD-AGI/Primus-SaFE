@@ -317,13 +317,13 @@ func (c *CardMetrics) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// GPUPowerInfo 表示单个 GPU 的功耗信息
+// GPUPowerInfo represents power information for a single GPU
 type GPUPowerInfo struct {
 	GPU   int       `json:"gpu"`
 	Power PowerInfo `json:"power"`
 }
 
-// PowerInfo 表示 GPU 的功耗详细信息
+// PowerInfo represents detailed power information for a GPU
 type PowerInfo struct {
 	SocketPower     ValueWithUnit    `json:"socket_power"`
 	GfxVoltage      VoltageValueOrNA `json:"gfx_voltage"`
@@ -333,7 +333,7 @@ type PowerInfo struct {
 	PowerManagement string           `json:"power_management"`
 }
 
-// VoltageValueOrNA 表示电压值，可能是数值或 "N/A"
+// VoltageValueOrNA represents a voltage value that can be numeric or "N/A"
 type VoltageValueOrNA struct {
 	Value float64 `json:"value"`
 	Unit  string  `json:"unit"`

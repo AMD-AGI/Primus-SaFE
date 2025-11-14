@@ -19,7 +19,7 @@ func TestIsWorkloadRunning(t *testing.T) {
 		expected bool
 	}{
 		{
-			name: "Running状态",
+			name: "Running state",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -32,7 +32,7 @@ func TestIsWorkloadRunning(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "Pending状态",
+			name: "Pending state",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -45,7 +45,7 @@ func TestIsWorkloadRunning(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "Succeeded状态",
+			name: "Succeeded state",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -58,7 +58,7 @@ func TestIsWorkloadRunning(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "Failed状态",
+			name: "Failed state",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -71,7 +71,7 @@ func TestIsWorkloadRunning(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "空状态",
+			name: "empty state",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -84,7 +84,7 @@ func TestIsWorkloadRunning(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "未初始化的状态",
+			name: "uninitialized state",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -113,13 +113,13 @@ func TestCalculateUtilization(t *testing.T) {
 		expectedMax float64
 	}{
 		{
-			name:        "空数据",
+			name:        "empty data",
 			stats:       []*lensmodel.WorkloadGpuHourlyStats{},
 			expectedAvg: 0.0,
 			expectedMax: 0.0,
 		},
 		{
-			name: "单条数据",
+			name: "single data point",
 			stats: []*lensmodel.WorkloadGpuHourlyStats{
 				{
 					AvgUtilization: 75.5,
@@ -130,7 +130,7 @@ func TestCalculateUtilization(t *testing.T) {
 			expectedMax: 90.0,
 		},
 		{
-			name: "多条数据-正常场景",
+			name: "multiple data points - normal scenario",
 			stats: []*lensmodel.WorkloadGpuHourlyStats{
 				{
 					AvgUtilization: 50.0,
@@ -149,7 +149,7 @@ func TestCalculateUtilization(t *testing.T) {
 			expectedMax: 90.0,
 		},
 		{
-			name: "所有数据相同",
+			name: "all data identical",
 			stats: []*lensmodel.WorkloadGpuHourlyStats{
 				{
 					AvgUtilization: 50.0,
@@ -168,7 +168,7 @@ func TestCalculateUtilization(t *testing.T) {
 			expectedMax: 50.0,
 		},
 		{
-			name: "包含零值",
+			name: "contains zero values",
 			stats: []*lensmodel.WorkloadGpuHourlyStats{
 				{
 					AvgUtilization: 0.0,
@@ -183,7 +183,7 @@ func TestCalculateUtilization(t *testing.T) {
 			expectedMax: 100.0,
 		},
 		{
-			name: "小数精度测试",
+			name: "decimal precision test",
 			stats: []*lensmodel.WorkloadGpuHourlyStats{
 				{
 					AvgUtilization: 33.33,
@@ -198,7 +198,7 @@ func TestCalculateUtilization(t *testing.T) {
 			expectedMax: 99.99,
 		},
 		{
-			name: "大量数据",
+			name: "large amount of data",
 			stats: func() []*lensmodel.WorkloadGpuHourlyStats {
 				stats := make([]*lensmodel.WorkloadGpuHourlyStats, 100)
 				for i := 0; i < 100; i++ {
@@ -213,7 +213,7 @@ func TestCalculateUtilization(t *testing.T) {
 			expectedMax: 198.0, // 99 * 2
 		},
 		{
-			name: "最大值在中间",
+			name: "max value in middle",
 			stats: []*lensmodel.WorkloadGpuHourlyStats{
 				{
 					AvgUtilization: 50.0,
@@ -221,7 +221,7 @@ func TestCalculateUtilization(t *testing.T) {
 				},
 				{
 					AvgUtilization: 60.0,
-					MaxUtilization: 95.0, // 最大值
+					MaxUtilization: 95.0, // max value
 				},
 				{
 					AvgUtilization: 40.0,
@@ -232,7 +232,7 @@ func TestCalculateUtilization(t *testing.T) {
 			expectedMax: 95.0,
 		},
 		{
-			name: "边界值测试-100%利用率",
+			name: "boundary value test - 100% utilization",
 			stats: []*lensmodel.WorkloadGpuHourlyStats{
 				{
 					AvgUtilization: 100.0,

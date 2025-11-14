@@ -15,55 +15,55 @@ func TestParseIPv4(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name:        "正常IPv4地址-localhost",
-			input:       "0100007F", // 127.0.0.1 的小端序hex
+			name:        "normal IPv4 address - localhost",
+			input:       "0100007F", // 127.0.0.1 in little-endian hex
 			expected:    "127.0.0.1",
 			expectError: false,
 		},
 		{
-			name:        "正常IPv4地址-0.0.0.0",
+			name:        "normal IPv4 address - 0.0.0.0",
 			input:       "00000000",
 			expected:    "0.0.0.0",
 			expectError: false,
 		},
 		{
-			name:        "正常IPv4地址-192.168.1.1",
-			input:       "0101A8C0", // 192.168.1.1 的小端序
+			name:        "normal IPv4 address - 192.168.1.1",
+			input:       "0101A8C0", // 192.168.1.1 in little-endian
 			expected:    "192.168.1.1",
 			expectError: false,
 		},
 		{
-			name:        "正常IPv4地址-10.0.0.1",
-			input:       "0100000A", // 10.0.0.1 的小端序
+			name:        "normal IPv4 address - 10.0.0.1",
+			input:       "0100000A", // 10.0.0.1 in little-endian
 			expected:    "10.0.0.1",
 			expectError: false,
 		},
 		{
-			name:        "正常IPv4地址-255.255.255.255",
+			name:        "normal IPv4 address - 255.255.255.255",
 			input:       "FFFFFFFF",
 			expected:    "255.255.255.255",
 			expectError: false,
 		},
 		{
-			name:        "无效输入-非hex字符",
+			name:        "invalid input - non-hex characters",
 			input:       "ZZZZZZZZ",
 			expected:    "",
 			expectError: true,
 		},
 		{
-			name:        "无效输入-长度不足但能解析",
+			name:        "invalid input - insufficient length but parseable",
 			input:       "01000",
-			expected:    "0.16.0.0", // strconv.ParseUint会解析成功
+			expected:    "0.16.0.0", // strconv.ParseUint will parse successfully
 			expectError: false,
 		},
 		{
-			name:        "无效输入-空字符串",
+			name:        "invalid input - empty string",
 			input:       "",
 			expected:    "",
 			expectError: true,
 		},
 		{
-			name:        "无效输入-长度超过8",
+			name:        "invalid input - length exceeds 8",
 			input:       "0100007F00",
 			expected:    "",
 			expectError: true,
@@ -73,7 +73,7 @@ func TestParseIPv4(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := parseIPv4(tt.input)
-			
+
 			if tt.expectError {
 				assert.Error(t, err)
 				assert.Nil(t, result)
@@ -96,7 +96,7 @@ func TestParseIPv6(t *testing.T) {
 	}{
 		{
 			name:        "IPv6-localhost",
-			input:       "00000000000000000000000001000000", // ::1 的小端序
+			input:       "00000000000000000000000001000000", // ::1 in little-endian
 			expected:    "::1",
 			expectError: false,
 		},
@@ -107,31 +107,31 @@ func TestParseIPv6(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:        "IPv6-特定地址",
+			name:        "IPv6 - specific address",
 			input:       "00000000000000000000000000000001",
-			expected:    "::100:0", // Go会使用最短的IPv6表示法
+			expected:    "::100:0", // Go will use shortest IPv6 notation
 			expectError: false,
 		},
 		{
-			name:        "IPv6-另一个地址",
+			name:        "IPv6 - another address",
 			input:       "FFFFFFFF00000000000000000000FFFF",
 			expected:    "ffff:ffff::ffff:0",
 			expectError: false,
 		},
 		{
-			name:        "无效输入-长度不足但能解析",
+			name:        "invalid input - insufficient length but parseable",
 			input:       "0000000000000000",
 			expected:    "::",
 			expectError: false,
 		},
 		{
-			name:        "无效输入-非hex字符",
+			name:        "invalid input - non-hex characters",
 			input:       "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
 			expected:    "",
 			expectError: true,
 		},
 		{
-			name:        "无效输入-空字符串返回零地址",
+			name:        "invalid input - empty string returns zero address",
 			input:       "",
 			expected:    "::",
 			expectError: false,
@@ -141,7 +141,7 @@ func TestParseIPv6(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := parseIPv6(tt.input)
-			
+
 			if tt.expectError {
 				assert.Error(t, err)
 			} else {
@@ -156,94 +156,94 @@ func TestParseIPv6(t *testing.T) {
 
 func TestParseAddr(t *testing.T) {
 	tests := []struct {
-		name        string
-		input       string
-		expectedIP  string
+		name         string
+		input        string
+		expectedIP   string
 		expectedPort uint16
-		expectError bool
+		expectError  bool
 	}{
 		{
-			name:         "IPv4地址带端口-127.0.0.1:80",
+			name:         "IPv4 address with port - 127.0.0.1:80",
 			input:        "0100007F:0050", // 127.0.0.1:80
 			expectedIP:   "127.0.0.1",
 			expectedPort: 80,
 			expectError:  false,
 		},
 		{
-			name:         "IPv4地址带端口-0.0.0.0:8080",
+			name:         "IPv4 address with port - 0.0.0.0:8080",
 			input:        "00000000:1F90", // 0.0.0.0:8080 (0x1F90 = 8080)
 			expectedIP:   "0.0.0.0",
 			expectedPort: 8080,
 			expectError:  false,
 		},
 		{
-			name:         "IPv4地址带端口-192.168.1.100:443",
+			name:         "IPv4 address with port - 192.168.1.100:443",
 			input:        "6401A8C0:01BB", // 192.168.1.100:443 (0x01BB = 443)
 			expectedIP:   "192.168.1.100",
 			expectedPort: 443,
 			expectError:  false,
 		},
 		{
-			name:         "IPv4地址带端口-端口为0",
+			name:         "IPv4 address with port - port is 0",
 			input:        "0100007F:0000",
 			expectedIP:   "127.0.0.1",
 			expectedPort: 0,
 			expectError:  false,
 		},
 		{
-			name:         "IPv4地址带端口-端口为65535",
+			name:         "IPv4 address with port - port is 65535",
 			input:        "0100007F:FFFF",
 			expectedIP:   "127.0.0.1",
 			expectedPort: 65535,
 			expectError:  false,
 		},
 		{
-			name:         "IPv6地址带端口-[::1]:80",
+			name:         "IPv6 address with port - [::1]:80",
 			input:        "00000000000000000000000001000000:0050",
 			expectedIP:   "::1",
 			expectedPort: 80,
 			expectError:  false,
 		},
 		{
-			name:         "IPv6地址带端口-全零地址",
+			name:         "IPv6 address with port - all-zero address",
 			input:        "00000000000000000000000000000000:1F90",
 			expectedIP:   "::",
 			expectedPort: 8080,
 			expectError:  false,
 		},
 		{
-			name:        "无效输入-缺少端口",
+			name:        "invalid input - missing port",
 			input:       "0100007F",
 			expectedIP:  "",
 			expectError: true,
 		},
 		{
-			name:        "无效输入-缺少冒号",
+			name:        "invalid input - missing colon",
 			input:       "0100007F0050",
 			expectedIP:  "",
 			expectError: true,
 		},
 		{
-			name:        "无效输入-空字符串",
+			name:        "invalid input - empty string",
 			input:       "",
 			expectedIP:  "",
 			expectError: true,
 		},
 		{
-			name:        "无效输入-端口非hex",
+			name:        "invalid input - port not hex",
 			input:       "0100007F:ZZZZ",
 			expectedIP:  "",
 			expectError: true,
 		},
 		{
-			name:        "无效输入-IP非hex",
+			name:        "invalid input - IP not hex",
 			input:       "ZZZZZZZZ:0050",
 			expectedIP:  "",
 			expectError: true,
 		},
 		{
-			name:        "无效输入-IP长度不对",
-			input:       "01000:0050", // 不是8或32字符
+			name:        "invalid input - incorrect IP length",
+			input:       "01000:0050", // not 8 or 32 characters
 			expectedIP:  "",
 			expectError: true,
 		},
@@ -252,7 +252,7 @@ func TestParseAddr(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := parseAddr(tt.input)
-			
+
 			if tt.expectError {
 				assert.Error(t, err)
 				assert.Nil(t, result)
@@ -273,67 +273,67 @@ func TestGetProcName(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "正常进程名",
+			name:     "normal process name",
 			input:    []byte("(sshd)"),
 			expected: "sshd",
 		},
 		{
-			name:     "正常进程名-包含空格",
+			name:     "normal process name - with spaces",
 			input:    []byte("(my process)"),
 			expected: "my process",
 		},
 		{
-			name:     "正常进程名-包含数字",
+			name:     "normal process name - with numbers",
 			input:    []byte("(nginx-1)"),
 			expected: "nginx-1",
 		},
 		{
-			name:     "正常进程名-包含特殊字符",
+			name:     "normal process name - with special characters",
 			input:    []byte("(my-app_v1.0)"),
 			expected: "my-app_v1.0",
 		},
 		{
-			name:     "进程名为空",
+			name:     "empty process name",
 			input:    []byte("()"),
 			expected: "",
 		},
 		{
-			name:     "只有左括号",
+			name:     "only left parenthesis",
 			input:    []byte("(sshd"),
 			expected: "",
 		},
 		{
-			name:     "只有右括号",
+			name:     "only right parenthesis",
 			input:    []byte("sshd)"),
 			expected: "",
 		},
 		{
-			name:     "缺少括号",
+			name:     "missing parentheses",
 			input:    []byte("sshd"),
 			expected: "",
 		},
 		{
-			name:     "空字节数组",
+			name:     "empty byte array",
 			input:    []byte(""),
 			expected: "",
 		},
 		{
-			name:     "括号顺序错误",
+			name:     "incorrect parenthesis order",
 			input:    []byte(")sshd("),
 			expected: "",
 		},
 		{
-			name:     "多个括号对-取最外层",
+			name:     "multiple parenthesis pairs - take outermost",
 			input:    []byte("(outer(inner))"),
-			expected: "outer(inner)", // LastIndex会找到最后一个右括号
+			expected: "outer(inner)", // LastIndex will find the last right parenthesis
 		},
 		{
-			name:     "包含完整stat格式",
+			name:     "contains complete stat format",
 			input:    []byte("1234 (process-name) S 1 1234 1234"),
 			expected: "process-name",
 		},
 		{
-			name:     "长进程名",
+			name:     "long process name",
 			input:    []byte("(very-long-process-name-with-many-characters)"),
 			expected: "very-long-process-name-with-many-characters",
 		},
@@ -348,12 +348,12 @@ func TestGetProcName(t *testing.T) {
 }
 
 func TestSocket_String(t *testing.T) {
-	t.Run("Socket基本功能", func(t *testing.T) {
+	t.Run("Socket basic functionality", func(t *testing.T) {
 		socket := &Socket{
 			IP:   net.ParseIP("192.168.1.1"),
 			Port: 8080,
 		}
-		
+
 		assert.NotNil(t, socket)
 		assert.Equal(t, "192.168.1.1", socket.IP.String())
 		assert.Equal(t, uint16(8080), socket.Port)
@@ -364,10 +364,9 @@ func TestSocket_String(t *testing.T) {
 			IP:   net.ParseIP("::1"),
 			Port: 443,
 		}
-		
+
 		assert.NotNil(t, socket)
 		assert.Equal(t, "::1", socket.IP.String())
 		assert.Equal(t, uint16(443), socket.Port)
 	})
 }
-

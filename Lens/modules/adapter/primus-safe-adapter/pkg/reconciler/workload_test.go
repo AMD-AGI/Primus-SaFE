@@ -20,7 +20,7 @@ func TestCalculateGpuRequest(t *testing.T) {
 		expected int32
 	}{
 		{
-			name: "正常计算-单副本单GPU",
+			name: "normal calculation - single replica single GPU",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -36,7 +36,7 @@ func TestCalculateGpuRequest(t *testing.T) {
 			expected: 1,
 		},
 		{
-			name: "正常计算-多副本多GPU",
+			name: "normal calculation - multiple replicas multiple GPUs",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -52,7 +52,7 @@ func TestCalculateGpuRequest(t *testing.T) {
 			expected: 32,
 		},
 		{
-			name: "零副本",
+			name: "zero replicas",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -68,7 +68,7 @@ func TestCalculateGpuRequest(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name: "GPU数量为0",
+			name: "GPU count is 0",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -84,7 +84,7 @@ func TestCalculateGpuRequest(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name: "无效的GPU字符串-空字符串",
+			name: "invalid GPU string - empty string",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -100,7 +100,7 @@ func TestCalculateGpuRequest(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name: "无效的GPU字符串-非数字",
+			name: "invalid GPU string - non-numeric",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -116,7 +116,7 @@ func TestCalculateGpuRequest(t *testing.T) {
 			expected: 0,
 		},
 		{
-			name: "大数值计算",
+			name: "large value calculation",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -132,7 +132,7 @@ func TestCalculateGpuRequest(t *testing.T) {
 			expected: 800,
 		},
 		{
-			name: "负数GPU字符串",
+			name: "negative GPU string",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",
@@ -148,7 +148,7 @@ func TestCalculateGpuRequest(t *testing.T) {
 			expected: -8,
 		},
 		{
-			name: "小数GPU字符串-应该失败",
+			name: "decimal GPU string - should fail",
 			workload: &primusSafeV1.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workload",

@@ -14,245 +14,245 @@ func TestConvertToFloat(t *testing.T) {
 		input    any
 		expected float64
 	}{
-		// float64 类型
+		// float64 type
 		{
-			name:     "float64类型-正数",
+			name:     "float64 type - positive number",
 			input:    float64(123.45),
 			expected: 123.45,
 		},
 		{
-			name:     "float64类型-负数",
+			name:     "float64 type - negative number",
 			input:    float64(-123.45),
 			expected: -123.45,
 		},
 		{
-			name:     "float64类型-零",
+			name:     "float64 type - zero",
 			input:    float64(0),
 			expected: 0,
 		},
 		{
-			name:     "float64类型-NaN",
+			name:     "float64 type - NaN",
 			input:    math.NaN(),
 			expected: math.NaN(),
 		},
 		{
-			name:     "float64类型-正无穷",
+			name:     "float64 type - positive infinity",
 			input:    math.Inf(1),
 			expected: math.Inf(1),
 		},
 		{
-			name:     "float64类型-负无穷",
+			name:     "float64 type - negative infinity",
 			input:    math.Inf(-1),
 			expected: math.Inf(-1),
 		},
 
-		// float32 类型
+		// float32 type
 		{
-			name:     "float32类型-正数",
+			name:     "float32 type - positive number",
 			input:    float32(123.45),
 			expected: float64(float32(123.45)),
 		},
 		{
-			name:     "float32类型-负数",
+			name:     "float32 type - negative number",
 			input:    float32(-123.45),
 			expected: float64(float32(-123.45)),
 		},
 
-		// int 类型
+		// int type
 		{
-			name:     "int类型-正数",
+			name:     "int type - positive number",
 			input:    int(123),
 			expected: 123.0,
 		},
 		{
-			name:     "int类型-负数",
+			name:     "int type - negative number",
 			input:    int(-123),
 			expected: -123.0,
 		},
 		{
-			name:     "int类型-零",
+			name:     "int type - zero",
 			input:    int(0),
 			expected: 0.0,
 		},
 		{
-			name:     "int类型-最大值",
+			name:     "int type - max value",
 			input:    int(math.MaxInt32),
 			expected: float64(math.MaxInt32),
 		},
 
-		// int8 类型
+		// int8 type
 		{
-			name:     "int8类型-正数",
+			name:     "int8 type - positive number",
 			input:    int8(100),
 			expected: 100.0,
 		},
 		{
-			name:     "int8类型-负数",
+			name:     "int8 type - negative number",
 			input:    int8(-100),
 			expected: -100.0,
 		},
 		{
-			name:     "int8类型-最大值",
+			name:     "int8 type - max value",
 			input:    int8(127),
 			expected: 127.0,
 		},
 		{
-			name:     "int8类型-最小值",
+			name:     "int8 type - min value",
 			input:    int8(-128),
 			expected: -128.0,
 		},
 
-		// int16 类型
+		// int16 type
 		{
-			name:     "int16类型-正数",
+			name:     "int16 type - positive number",
 			input:    int16(1000),
 			expected: 1000.0,
 		},
 		{
-			name:     "int16类型-负数",
+			name:     "int16 type - negative number",
 			input:    int16(-1000),
 			expected: -1000.0,
 		},
 
-		// int32 类型
+		// int32 type
 		{
-			name:     "int32类型-正数",
+			name:     "int32 type - positive number",
 			input:    int32(100000),
 			expected: 100000.0,
 		},
 		{
-			name:     "int32类型-负数",
+			name:     "int32 type - negative number",
 			input:    int32(-100000),
 			expected: -100000.0,
 		},
 
-		// int64 类型
+		// int64 type
 		{
-			name:     "int64类型-正数",
+			name:     "int64 type - positive number",
 			input:    int64(1000000000),
 			expected: 1000000000.0,
 		},
 		{
-			name:     "int64类型-负数",
+			name:     "int64 type - negative number",
 			input:    int64(-1000000000),
 			expected: -1000000000.0,
 		},
 		{
-			name:     "int64类型-最大安全整数",
+			name:     "int64 type - max safe integer",
 			input:    int64(9007199254740991), // 2^53 - 1
 			expected: 9007199254740991.0,
 		},
 
-		// uint 类型
+		// uint type
 		{
-			name:     "uint类型-正数",
+			name:     "uint type - positive number",
 			input:    uint(123),
 			expected: 123.0,
 		},
 		{
-			name:     "uint类型-零",
+			name:     "uint type - zero",
 			input:    uint(0),
 			expected: 0.0,
 		},
 
-		// uint8 类型
+		// uint8 type
 		{
-			name:     "uint8类型-正数",
+			name:     "uint8 type - positive number",
 			input:    uint8(200),
 			expected: 200.0,
 		},
 		{
-			name:     "uint8类型-最大值",
+			name:     "uint8 type - max value",
 			input:    uint8(255),
 			expected: 255.0,
 		},
 
-		// uint16 类型
+		// uint16 type
 		{
-			name:     "uint16类型-正数",
+			name:     "uint16 type - positive number",
 			input:    uint16(50000),
 			expected: 50000.0,
 		},
 		{
-			name:     "uint16类型-最大值",
+			name:     "uint16 type - max value",
 			input:    uint16(65535),
 			expected: 65535.0,
 		},
 
-		// uint32 类型
+		// uint32 type
 		{
-			name:     "uint32类型-正数",
+			name:     "uint32 type - positive number",
 			input:    uint32(1000000),
 			expected: 1000000.0,
 		},
 
-		// uint64 类型
+		// uint64 type
 		{
-			name:     "uint64类型-正数",
+			name:     "uint64 type - positive number",
 			input:    uint64(1000000000000),
 			expected: 1000000000000.0,
 		},
 
-		// json.Number 类型
+		// json.Number type
 		{
-			name:     "json.Number类型-整数",
+			name:     "json.Number type - integer",
 			input:    json.Number("123"),
 			expected: 123.0,
 		},
 		{
-			name:     "json.Number类型-浮点数",
+			name:     "json.Number type - float",
 			input:    json.Number("123.45"),
 			expected: 123.45,
 		},
 		{
-			name:     "json.Number类型-负数",
+			name:     "json.Number type - negative number",
 			input:    json.Number("-123.45"),
 			expected: -123.45,
 		},
 		{
-			name:     "json.Number类型-科学计数法",
+			name:     "json.Number type - scientific notation",
 			input:    json.Number("1.23e2"),
 			expected: 123.0,
 		},
 		{
-			name:     "json.Number类型-无效数字",
+			name:     "json.Number type - invalid number",
 			input:    json.Number("invalid"),
 			expected: 0.0,
 		},
 
-		// 不支持的类型
+		// unsupported types
 		{
-			name:     "字符串类型",
+			name:     "string type",
 			input:    "123",
 			expected: 0.0,
 		},
 		{
-			name:     "布尔类型-true",
+			name:     "bool type - true",
 			input:    true,
 			expected: 0.0,
 		},
 		{
-			name:     "布尔类型-false",
+			name:     "bool type - false",
 			input:    false,
 			expected: 0.0,
 		},
 		{
-			name:     "nil值",
+			name:     "nil value",
 			input:    nil,
 			expected: 0.0,
 		},
 		{
-			name:     "切片类型",
+			name:     "slice type",
 			input:    []int{1, 2, 3},
 			expected: 0.0,
 		},
 		{
-			name:     "map类型",
+			name:     "map type",
 			input:    map[string]int{"a": 1},
 			expected: 0.0,
 		},
 		{
-			name:     "结构体类型",
+			name:     "struct type",
 			input:    struct{ Value int }{Value: 123},
 			expected: 0.0,
 		},
@@ -262,7 +262,7 @@ func TestConvertToFloat(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := convertToFloat(tt.input)
 			
-			// 特殊处理 NaN 的情况
+			// Special handling for NaN case
 			if math.IsNaN(tt.expected) {
 				assert.True(t, math.IsNaN(result), "Expected NaN but got %v", result)
 			} else if math.IsInf(tt.expected, 1) {
@@ -277,20 +277,20 @@ func TestConvertToFloat(t *testing.T) {
 }
 
 func TestConvertToFloat_EdgeCases(t *testing.T) {
-	t.Run("非常大的整数", func(t *testing.T) {
-		// 测试大整数转换
-		bigInt := int64(9223372036854775807) // int64 最大值
+	t.Run("very large integer", func(t *testing.T) {
+		// Test large integer conversion
+		bigInt := int64(9223372036854775807) // int64 max value
 		result := convertToFloat(bigInt)
 		assert.Equal(t, float64(bigInt), result)
 	})
 
-	t.Run("非常大的无符号整数", func(t *testing.T) {
-		bigUint := uint64(18446744073709551615) // uint64 最大值
+	t.Run("very large unsigned integer", func(t *testing.T) {
+		bigUint := uint64(18446744073709551615) // uint64 max value
 		result := convertToFloat(bigUint)
 		assert.Equal(t, float64(bigUint), result)
 	})
 
-	t.Run("零值的各种表示", func(t *testing.T) {
+	t.Run("various zero representations", func(t *testing.T) {
 		zeros := []any{
 			int(0),
 			int8(0),
@@ -313,12 +313,12 @@ func TestConvertToFloat_EdgeCases(t *testing.T) {
 		}
 	})
 
-	t.Run("json.Number空字符串", func(t *testing.T) {
+	t.Run("json.Number empty string", func(t *testing.T) {
 		result := convertToFloat(json.Number(""))
 		assert.Equal(t, 0.0, result)
 	})
 
-	t.Run("json.Number特殊格式", func(t *testing.T) {
+	t.Run("json.Number special formats", func(t *testing.T) {
 		tests := []struct {
 			input    json.Number
 			expected float64
@@ -338,16 +338,16 @@ func TestConvertToFloat_EdgeCases(t *testing.T) {
 }
 
 func TestConvertToFloat_TypePrecision(t *testing.T) {
-	t.Run("float32精度损失", func(t *testing.T) {
-		// float32 无法精确表示某些数字
+	t.Run("float32 precision loss", func(t *testing.T) {
+		// float32 cannot precisely represent certain numbers
 		f32 := float32(1.23456789)
 		result := convertToFloat(f32)
-		// 结果应该是 float32 转 float64 后的值，会有精度差异
+		// Result should be the value after float32 converts to float64, with precision difference
 		assert.InDelta(t, float64(f32), result, 1e-6)
 	})
 
-	t.Run("大整数转浮点数精度", func(t *testing.T) {
-		// 测试大整数转换时的精度
+	t.Run("large integer to float precision", func(t *testing.T) {
+		// Test precision when converting large integers
 		largeInt := int64(1234567890123456)
 		result := convertToFloat(largeInt)
 		assert.Equal(t, float64(largeInt), result)
@@ -360,7 +360,7 @@ func BenchmarkConvertToFloat(b *testing.B) {
 		int64(123456789),
 		float64(123.45),
 		json.Number("123.45"),
-		"invalid", // 不支持的类型
+		"invalid", // unsupported type
 	}
 
 	b.ResetTimer()

@@ -22,7 +22,7 @@ func TestGetConditionFromSnapshot(t *testing.T) {
 			expected: nil,
 		},
 		{
-			name: "空Status的snapshot",
+			name: "snapshot with empty Status",
 			snapshot: &model.PodSnapshot{
 				PodUID:    "test-uid",
 				PodName:   "test-pod",
@@ -32,7 +32,7 @@ func TestGetConditionFromSnapshot(t *testing.T) {
 			expected: nil,
 		},
 		{
-			name: "包含单个Condition的snapshot",
+			name: "snapshot with single Condition",
 			snapshot: &model.PodSnapshot{
 				PodUID:    "test-uid",
 				PodName:   "test-pod",
@@ -56,7 +56,7 @@ func TestGetConditionFromSnapshot(t *testing.T) {
 			},
 		},
 		{
-			name: "包含多个Conditions的snapshot",
+			name: "snapshot with multiple Conditions",
 			snapshot: &model.PodSnapshot{
 				PodUID:    "test-uid",
 				PodName:   "test-pod",
@@ -98,7 +98,7 @@ func TestGetConditionFromSnapshot(t *testing.T) {
 			},
 		},
 		{
-			name: "Conditions为nil",
+			name: "Conditions is nil",
 			snapshot: &model.PodSnapshot{
 				PodUID:    "test-uid",
 				PodName:   "test-pod",
@@ -110,7 +110,7 @@ func TestGetConditionFromSnapshot(t *testing.T) {
 			expected: nil,
 		},
 		{
-			name: "Conditions为空数组",
+			name: "Conditions is empty array",
 			snapshot: &model.PodSnapshot{
 				PodUID:    "test-uid",
 				PodName:   "test-pod",
@@ -122,7 +122,7 @@ func TestGetConditionFromSnapshot(t *testing.T) {
 			expected: []corev1.PodCondition{},
 		},
 		{
-			name: "包含False状态的Condition",
+			name: "Condition with False status",
 			snapshot: &model.PodSnapshot{
 				PodUID:    "test-uid",
 				PodName:   "test-pod",
@@ -183,7 +183,7 @@ func TestCompareSnapshotAndGetNewEvent(t *testing.T) {
 		validate        func(t *testing.T, events []*model.GpuPodsEvent)
 	}{
 		{
-			name: "无旧快照-所有True条件都是新事件",
+			name: "no former snapshot - all True conditions are new events",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pod",
@@ -221,7 +221,7 @@ func TestCompareSnapshotAndGetNewEvent(t *testing.T) {
 			},
 		},
 		{
-			name: "新增一个条件",
+			name: "add one condition",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pod",
@@ -267,7 +267,7 @@ func TestCompareSnapshotAndGetNewEvent(t *testing.T) {
 			},
 		},
 		{
-			name: "无新增条件-所有条件都已存在",
+			name: "no new conditions - all conditions already exist",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pod",
@@ -306,7 +306,7 @@ func TestCompareSnapshotAndGetNewEvent(t *testing.T) {
 			},
 		},
 		{
-			name: "忽略False状态的条件",
+			name: "ignore False status conditions",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pod",
@@ -336,14 +336,14 @@ func TestCompareSnapshotAndGetNewEvent(t *testing.T) {
 					},
 				},
 			},
-			expectedCount: 1, // 只有 Scheduled (True) 会被记录
+			expectedCount: 1, // only Scheduled (True) will be recorded
 			validate: func(t *testing.T, events []*model.GpuPodsEvent) {
 				assert.Len(t, events, 1)
 				assert.Equal(t, string(corev1.PodScheduled), events[0].EventType)
 			},
 		},
 		{
-			name: "多个新增条件",
+			name: "multiple new conditions",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pod",
@@ -394,7 +394,7 @@ func TestCompareSnapshotAndGetNewEvent(t *testing.T) {
 			},
 		},
 		{
-			name: "Pod无ContainerStatus",
+			name: "Pod without ContainerStatus",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pod",
@@ -403,7 +403,7 @@ func TestCompareSnapshotAndGetNewEvent(t *testing.T) {
 				},
 				Status: corev1.PodStatus{
 					Phase:             corev1.PodPending,
-					ContainerStatuses: []corev1.ContainerStatus{}, // 空数组
+					ContainerStatuses: []corev1.ContainerStatus{}, // empty array
 				},
 			},
 			formerSnapshot: nil,
@@ -424,7 +424,7 @@ func TestCompareSnapshotAndGetNewEvent(t *testing.T) {
 			},
 		},
 		{
-			name: "条件状态从False变为True",
+			name: "condition status changes from False to True",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-pod",
@@ -460,7 +460,7 @@ func TestCompareSnapshotAndGetNewEvent(t *testing.T) {
 					},
 				},
 			},
-			expectedCount: 1, // False -> True 应该被视为新事件
+			expectedCount: 1, // False -> True should be considered as new event
 			validate: func(t *testing.T, events []*model.GpuPodsEvent) {
 				assert.Len(t, events, 1)
 				assert.Equal(t, string(corev1.PodReady), events[0].EventType)
@@ -487,7 +487,7 @@ func TestCompareSnapshotAndGetNewEvent_EdgeCases(t *testing.T) {
 	g := &GpuPodsReconciler{}
 	ctx := context.Background()
 
-	t.Run("两个snapshot都为nil", func(t *testing.T) {
+	t.Run("both snapshots are nil", func(t *testing.T) {
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				UID: "test-uid",
@@ -502,7 +502,7 @@ func TestCompareSnapshotAndGetNewEvent_EdgeCases(t *testing.T) {
 		assert.Empty(t, events)
 	})
 
-	t.Run("当前snapshot为空", func(t *testing.T) {
+	t.Run("current snapshot is empty", func(t *testing.T) {
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				UID: "test-uid",

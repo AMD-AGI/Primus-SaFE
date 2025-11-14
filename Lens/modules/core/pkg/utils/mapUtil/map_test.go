@@ -9,7 +9,7 @@ import (
 )
 
 func TestConvertInterfaceToExt(t *testing.T) {
-	t.Run("简单结构体转换", func(t *testing.T) {
+	t.Run("simple struct conversion", func(t *testing.T) {
 		type Person struct {
 			Name string
 			Age  int
@@ -20,10 +20,10 @@ func TestConvertInterfaceToExt(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, "John", result["Name"])
-		assert.Equal(t, float64(30), result["Age"]) // JSON unmarshal 会将数字转为 float64
+		assert.Equal(t, float64(30), result["Age"]) // JSON unmarshal converts numbers to float64
 	})
 
-	t.Run("嵌套结构体转换", func(t *testing.T) {
+	t.Run("nested struct conversion", func(t *testing.T) {
 		type Address struct {
 			City    string
 			Country string
@@ -50,7 +50,7 @@ func TestConvertInterfaceToExt(t *testing.T) {
 		assert.Equal(t, "USA", address["Country"])
 	})
 
-	t.Run("map直接转换", func(t *testing.T) {
+	t.Run("direct map conversion", func(t *testing.T) {
 		input := map[string]interface{}{
 			"key1": "value1",
 			"key2": 123,
@@ -65,7 +65,7 @@ func TestConvertInterfaceToExt(t *testing.T) {
 }
 
 func TestConvertToStringMap(t *testing.T) {
-	t.Run("基本类型转换", func(t *testing.T) {
+	t.Run("basic type conversion", func(t *testing.T) {
 		input := map[string]interface{}{
 			"string": "hello",
 			"int":    123,
@@ -81,7 +81,7 @@ func TestConvertToStringMap(t *testing.T) {
 		assert.Equal(t, "true", result["bool"])
 	})
 
-	t.Run("空map", func(t *testing.T) {
+	t.Run("empty map", func(t *testing.T) {
 		input := map[string]interface{}{}
 		result := ConvertToStringMap(input)
 
@@ -89,7 +89,7 @@ func TestConvertToStringMap(t *testing.T) {
 		assert.Empty(t, result)
 	})
 
-	t.Run("nil值转换", func(t *testing.T) {
+	t.Run("nil value conversion", func(t *testing.T) {
 		input := map[string]interface{}{
 			"nil": nil,
 		}
@@ -101,7 +101,7 @@ func TestConvertToStringMap(t *testing.T) {
 }
 
 func TestConvertToInterfaceMap(t *testing.T) {
-	t.Run("字符串map转接口map", func(t *testing.T) {
+	t.Run("string map to interface map", func(t *testing.T) {
 		input := map[string]string{
 			"key1": "value1",
 			"key2": "value2",
@@ -113,7 +113,7 @@ func TestConvertToInterfaceMap(t *testing.T) {
 		assert.Equal(t, "value2", result["key2"])
 	})
 
-	t.Run("空map", func(t *testing.T) {
+	t.Run("empty map", func(t *testing.T) {
 		input := map[string]string{}
 		result := ConvertToInterfaceMap(input)
 
@@ -123,7 +123,7 @@ func TestConvertToInterfaceMap(t *testing.T) {
 }
 
 func TestDecodeKeyFromMap(t *testing.T) {
-	t.Run("成功解码", func(t *testing.T) {
+	t.Run("successful decoding", func(t *testing.T) {
 		type Person struct {
 			Name string
 			Age  int
@@ -144,7 +144,7 @@ func TestDecodeKeyFromMap(t *testing.T) {
 		assert.Equal(t, 30, person.Age)
 	})
 
-	t.Run("key不存在", func(t *testing.T) {
+	t.Run("key does not exist", func(t *testing.T) {
 		input := map[string]interface{}{
 			"other": "value",
 		}
@@ -158,7 +158,7 @@ func TestDecodeKeyFromMap(t *testing.T) {
 }
 
 func TestEncodeMap(t *testing.T) {
-	t.Run("结构体编码为map", func(t *testing.T) {
+	t.Run("struct encoded to map", func(t *testing.T) {
 		type Person struct {
 			Name string
 			Age  int
@@ -172,7 +172,7 @@ func TestEncodeMap(t *testing.T) {
 		assert.Equal(t, float64(30), result["Age"])
 	})
 
-	t.Run("带JSON标签的结构体", func(t *testing.T) {
+	t.Run("struct with JSON tags", func(t *testing.T) {
 		type Person struct {
 			Name string `json:"name"`
 			Age  int    `json:"age"`
@@ -188,7 +188,7 @@ func TestEncodeMap(t *testing.T) {
 }
 
 func TestDecodeFromMap(t *testing.T) {
-	t.Run("map解码为结构体", func(t *testing.T) {
+	t.Run("map decoded to struct", func(t *testing.T) {
 		type Person struct {
 			Name string
 			Age  int
@@ -207,7 +207,7 @@ func TestDecodeFromMap(t *testing.T) {
 		assert.Equal(t, 30, person.Age)
 	})
 
-	t.Run("类型不匹配", func(t *testing.T) {
+	t.Run("type mismatch", func(t *testing.T) {
 		type Person struct {
 			Name string
 			Age  int
@@ -226,7 +226,7 @@ func TestDecodeFromMap(t *testing.T) {
 }
 
 func TestDecodeKeyFromMapIfExists(t *testing.T) {
-	t.Run("key存在时解码", func(t *testing.T) {
+	t.Run("decode when key exists", func(t *testing.T) {
 		type Person struct {
 			Name string
 		}
@@ -244,7 +244,7 @@ func TestDecodeKeyFromMapIfExists(t *testing.T) {
 		assert.Equal(t, "John", person.Name)
 	})
 
-	t.Run("key不存在时不报错", func(t *testing.T) {
+	t.Run("no error when key does not exist", func(t *testing.T) {
 		type Person struct {
 			Name string
 		}
@@ -257,12 +257,12 @@ func TestDecodeKeyFromMapIfExists(t *testing.T) {
 		err := DecodeKeyFromMapIfExists(input, "missing", &person)
 
 		assert.NoError(t, err)
-		assert.Equal(t, "", person.Name) // 保持默认值
+		assert.Equal(t, "", person.Name) // keeps default value
 	})
 }
 
 func TestParseJSONMap(t *testing.T) {
-	t.Run("解析有效JSON", func(t *testing.T) {
+	t.Run("parse valid JSON", func(t *testing.T) {
 		jsonStr := `{"key1":"value1","key2":"value2"}`
 		result, err := ParseJSONMap(jsonStr)
 
@@ -271,14 +271,14 @@ func TestParseJSONMap(t *testing.T) {
 		assert.Equal(t, "value2", result["key2"])
 	})
 
-	t.Run("解析空字符串", func(t *testing.T) {
+	t.Run("parse empty string", func(t *testing.T) {
 		result, err := ParseJSONMap("")
 
 		assert.NoError(t, err)
 		assert.Nil(t, result)
 	})
 
-	t.Run("解析空JSON对象", func(t *testing.T) {
+	t.Run("parse empty JSON object", func(t *testing.T) {
 		jsonStr := `{}`
 		result, err := ParseJSONMap(jsonStr)
 
@@ -287,21 +287,21 @@ func TestParseJSONMap(t *testing.T) {
 		assert.Empty(t, result)
 	})
 
-	t.Run("解析无效JSON", func(t *testing.T) {
+	t.Run("parse invalid JSON", func(t *testing.T) {
 		jsonStr := `{invalid json}`
 		_, err := ParseJSONMap(jsonStr)
 
 		assert.Error(t, err)
 	})
 
-	t.Run("解析JSON数组失败", func(t *testing.T) {
+	t.Run("parsing JSON array fails", func(t *testing.T) {
 		jsonStr := `["value1","value2"]`
 		_, err := ParseJSONMap(jsonStr)
 
 		assert.Error(t, err)
 	})
 
-	t.Run("解析带特殊字符的JSON", func(t *testing.T) {
+	t.Run("parse JSON with special characters", func(t *testing.T) {
 		jsonStr := `{"key":"value with spaces","special":"!@#$%"}`
 		result, err := ParseJSONMap(jsonStr)
 
@@ -312,7 +312,7 @@ func TestParseJSONMap(t *testing.T) {
 }
 
 func TestRoundTripConversion(t *testing.T) {
-	t.Run("结构体编码解码往返", func(t *testing.T) {
+	t.Run("struct encode-decode round trip", func(t *testing.T) {
 		type Person struct {
 			Name string `json:"name"`
 			Age  int    `json:"age"`
@@ -320,11 +320,11 @@ func TestRoundTripConversion(t *testing.T) {
 
 		original := Person{Name: "John", Age: 30}
 
-		// 编码
+		// encode
 		encoded, err := EncodeMap(original)
 		require.NoError(t, err)
 
-		// 解码
+		// decode
 		var decoded Person
 		err = DecodeFromMap(encoded, &decoded)
 		require.NoError(t, err)
@@ -333,19 +333,19 @@ func TestRoundTripConversion(t *testing.T) {
 		assert.Equal(t, original.Age, decoded.Age)
 	})
 
-	t.Run("map转换往返", func(t *testing.T) {
+	t.Run("map conversion round trip", func(t *testing.T) {
 		original := map[string]interface{}{
 			"string": "hello",
 			"number": 123,
 		}
 
-		// 转为字符串map
+		// convert to string map
 		stringMap := ConvertToStringMap(original)
-		// 转回接口map
+		// convert back to interface map
 		interfaceMap := ConvertToInterfaceMap(stringMap)
 
 		assert.Equal(t, "hello", interfaceMap["string"])
-		assert.Equal(t, "123", interfaceMap["number"]) // 注意：数字变成了字符串
+		assert.Equal(t, "123", interfaceMap["number"]) // note: number becomes string
 	})
 }
 
@@ -379,20 +379,20 @@ func TestComplexNestedStructure(t *testing.T) {
 		},
 	}
 
-	// 编码为 map
+	// encode to map
 	encoded, err := EncodeMap(original)
 	require.NoError(t, err)
 
-	// 验证编码结果
+	// verify encoding result
 	assert.Equal(t, "John Doe", encoded["name"])
 	assert.Equal(t, float64(30), encoded["age"])
 
-	// 解码回结构体
+	// decode back to struct
 	var decoded Person
 	err = DecodeFromMap(encoded, &decoded)
 	require.NoError(t, err)
 
-	// 验证解码结果
+	// verify decoding result
 	assert.Equal(t, original.Name, decoded.Name)
 	assert.Equal(t, original.Age, decoded.Age)
 	assert.Equal(t, original.Address.Street, decoded.Address.Street)
@@ -402,14 +402,14 @@ func TestComplexNestedStructure(t *testing.T) {
 }
 
 func TestEdgeCases(t *testing.T) {
-	t.Run("nil map转换", func(t *testing.T) {
+	t.Run("nil map conversion", func(t *testing.T) {
 		var input map[string]interface{}
 		result := ConvertToStringMap(input)
 		assert.NotNil(t, result)
 		assert.Empty(t, result)
 	})
 
-	t.Run("带omitempty的结构体", func(t *testing.T) {
+	t.Run("struct with omitempty", func(t *testing.T) {
 		type Config struct {
 			Required string  `json:"required"`
 			Optional *string `json:"optional,omitempty"`
@@ -421,10 +421,10 @@ func TestEdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "value", encoded["required"])
 		_, exists := encoded["optional"]
-		assert.False(t, exists) // omitempty 应该导致字段被省略
+		assert.False(t, exists) // omitempty should cause field to be omitted
 	})
 
-	t.Run("JSON格式化后的map解析", func(t *testing.T) {
+	t.Run("parse formatted JSON map", func(t *testing.T) {
 		data := map[string]string{
 			"key1": "value1",
 			"key2": "value2",

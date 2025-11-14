@@ -11,7 +11,7 @@ import (
 )
 
 func TestIsPodDone(t *testing.T) {
-	t.Run("Pod成功完成", func(t *testing.T) {
+	t.Run("pod completed successfully", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Status: corev1.PodStatus{
 				Phase: corev1.PodSucceeded,
@@ -22,7 +22,7 @@ func TestIsPodDone(t *testing.T) {
 		assert.True(t, result)
 	})
 
-	t.Run("Pod运行中", func(t *testing.T) {
+	t.Run("pod running", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Status: corev1.PodStatus{
 				Phase: corev1.PodRunning,
@@ -33,7 +33,7 @@ func TestIsPodDone(t *testing.T) {
 		assert.False(t, result)
 	})
 
-	t.Run("Pod失败", func(t *testing.T) {
+	t.Run("pod failed", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Status: corev1.PodStatus{
 				Phase: corev1.PodFailed,
@@ -44,7 +44,7 @@ func TestIsPodDone(t *testing.T) {
 		assert.False(t, result)
 	})
 
-	t.Run("Pod挂起", func(t *testing.T) {
+	t.Run("pod pending", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Status: corev1.PodStatus{
 				Phase: corev1.PodPending,
@@ -62,7 +62,7 @@ func TestIsPodDone(t *testing.T) {
 }
 
 func TestIsPodRunning(t *testing.T) {
-	t.Run("Pod运行中且就绪", func(t *testing.T) {
+	t.Run("pod running and ready", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Status: corev1.PodStatus{
 				Phase: corev1.PodRunning,
@@ -79,7 +79,7 @@ func TestIsPodRunning(t *testing.T) {
 		assert.True(t, result)
 	})
 
-	t.Run("Pod运行中但未就绪", func(t *testing.T) {
+	t.Run("pod running but not ready", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Status: corev1.PodStatus{
 				Phase: corev1.PodRunning,
@@ -96,7 +96,7 @@ func TestIsPodRunning(t *testing.T) {
 		assert.False(t, result)
 	})
 
-	t.Run("Pod不在运行状态", func(t *testing.T) {
+	t.Run("pod not running", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Status: corev1.PodStatus{
 				Phase: corev1.PodPending,
@@ -112,7 +112,7 @@ func TestIsPodRunning(t *testing.T) {
 		assert.False(t, result)
 	})
 
-	t.Run("Pod运行中但无就绪条件", func(t *testing.T) {
+	t.Run("pod running but no ready condition", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Status: corev1.PodStatus{
 				Phase:      corev1.PodRunning,
@@ -128,7 +128,7 @@ func TestIsPodRunning(t *testing.T) {
 func TestHasGPU(t *testing.T) {
 	gpuResource := "nvidia.com/gpu"
 
-	t.Run("Pod请求GPU资源", func(t *testing.T) {
+	t.Run("pod requests GPU resources", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -147,7 +147,7 @@ func TestHasGPU(t *testing.T) {
 		assert.True(t, result)
 	})
 
-	t.Run("Pod限制GPU资源", func(t *testing.T) {
+	t.Run("pod limits GPU resources", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -166,7 +166,7 @@ func TestHasGPU(t *testing.T) {
 		assert.True(t, result)
 	})
 
-	t.Run("Pod无GPU资源", func(t *testing.T) {
+	t.Run("pod has no GPU resources", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -186,7 +186,7 @@ func TestHasGPU(t *testing.T) {
 		assert.False(t, result)
 	})
 
-	t.Run("GPU资源为零", func(t *testing.T) {
+	t.Run("GPU resource is zero", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -205,7 +205,7 @@ func TestHasGPU(t *testing.T) {
 		assert.False(t, result)
 	})
 
-	t.Run("多容器有GPU", func(t *testing.T) {
+	t.Run("multiple containers with GPU", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -231,7 +231,7 @@ func TestHasGPU(t *testing.T) {
 func TestGetGpuAllocated(t *testing.T) {
 	gpuResource := "nvidia.com/gpu"
 
-	t.Run("单容器单GPU", func(t *testing.T) {
+	t.Run("single container single GPU", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -250,7 +250,7 @@ func TestGetGpuAllocated(t *testing.T) {
 		assert.Equal(t, 1, result)
 	})
 
-	t.Run("单容器多GPU", func(t *testing.T) {
+	t.Run("single container multiple GPUs", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -269,7 +269,7 @@ func TestGetGpuAllocated(t *testing.T) {
 		assert.Equal(t, 4, result)
 	})
 
-	t.Run("多容器累加GPU", func(t *testing.T) {
+	t.Run("multiple containers accumulated GPUs", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -295,7 +295,7 @@ func TestGetGpuAllocated(t *testing.T) {
 		assert.Equal(t, 5, result)
 	})
 
-	t.Run("无GPU", func(t *testing.T) {
+	t.Run("no GPU", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -310,7 +310,7 @@ func TestGetGpuAllocated(t *testing.T) {
 		assert.Equal(t, 0, result)
 	})
 
-	t.Run("部分容器有GPU", func(t *testing.T) {
+	t.Run("partial containers with GPU", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
@@ -339,7 +339,7 @@ func TestGetGpuAllocated(t *testing.T) {
 func TestGetCompeletedAt(t *testing.T) {
 	now := metav1.Now()
 
-	t.Run("Pod已完成", func(t *testing.T) {
+	t.Run("pod completed", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Status: corev1.PodStatus{
 				Conditions: []corev1.PodCondition{
@@ -357,7 +357,7 @@ func TestGetCompeletedAt(t *testing.T) {
 		assert.Equal(t, now.Time, result)
 	})
 
-	t.Run("Pod未完成", func(t *testing.T) {
+	t.Run("pod not completed", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Status: corev1.PodStatus{
 				Conditions: []corev1.PodCondition{
@@ -373,7 +373,7 @@ func TestGetCompeletedAt(t *testing.T) {
 		assert.True(t, result.IsZero())
 	})
 
-	t.Run("Pod失败但不是完成状态", func(t *testing.T) {
+	t.Run("pod failed but not completed", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Status: corev1.PodStatus{
 				Conditions: []corev1.PodCondition{
@@ -390,7 +390,7 @@ func TestGetCompeletedAt(t *testing.T) {
 		assert.True(t, result.IsZero())
 	})
 
-	t.Run("无条件", func(t *testing.T) {
+	t.Run("no conditions", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Status: corev1.PodStatus{
 				Conditions: []corev1.PodCondition{},
@@ -401,7 +401,7 @@ func TestGetCompeletedAt(t *testing.T) {
 		assert.True(t, result.IsZero())
 	})
 
-	t.Run("多个条件但只有一个是完成", func(t *testing.T) {
+	t.Run("multiple conditions but only one is completed", func(t *testing.T) {
 		pod := &corev1.Pod{
 			Status: corev1.PodStatus{
 				Conditions: []corev1.PodCondition{
@@ -425,10 +425,10 @@ func TestGetCompeletedAt(t *testing.T) {
 }
 
 func TestPodIntegration(t *testing.T) {
-	t.Run("完整的Pod生命周期", func(t *testing.T) {
+	t.Run("complete pod lifecycle", func(t *testing.T) {
 		gpuResource := "nvidia.com/gpu"
 
-		// 创建一个带GPU的Pod
+		// create a pod with GPU
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-gpu-pod",
@@ -465,15 +465,15 @@ func TestPodIntegration(t *testing.T) {
 			},
 		}
 
-		// 验证GPU
+		// verify GPU
 		assert.True(t, HasGPU(pod, gpuResource))
 		assert.Equal(t, 2, GetGpuAllocated(pod, gpuResource))
 
-		// 验证运行状态
+		// verify running status
 		assert.True(t, IsPodRunning(pod))
 		assert.False(t, IsPodDone(pod))
 
-		// 模拟Pod完成
+		// simulate pod completion
 		pod.Status.Phase = corev1.PodSucceeded
 		pod.Status.Conditions = []corev1.PodCondition{
 			{

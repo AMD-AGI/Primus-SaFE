@@ -13,7 +13,7 @@ func TestTcpEgressMetricValue_String(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "正常Egress指标-outbound",
+			name: "normal Egress metric-outbound",
 			metric: TcpEgressMetricValue{
 				Raddr:     "192.168.1.1",
 				Rport:     8080,
@@ -24,7 +24,7 @@ func TestTcpEgressMetricValue_String(t *testing.T) {
 			expected: "192.168.1.1_" + string(rune(8080)) + "_outbound_bandwidth",
 		},
 		{
-			name: "IPv6地址",
+			name: "IPv6 address",
 			metric: TcpEgressMetricValue{
 				Raddr:     "2001:db8::1",
 				Rport:     443,
@@ -35,7 +35,7 @@ func TestTcpEgressMetricValue_String(t *testing.T) {
 			expected: "2001:db8::1_" + string(rune(443)) + "_outbound_latency",
 		},
 		{
-			name: "端口为0",
+			name: "port is 0",
 			metric: TcpEgressMetricValue{
 				Raddr:     "10.0.0.1",
 				Rport:     0,
@@ -46,7 +46,7 @@ func TestTcpEgressMetricValue_String(t *testing.T) {
 			expected: "10.0.0.1_" + string(rune(0)) + "_outbound_connections",
 		},
 		{
-			name: "空地址",
+			name: "empty address",
 			metric: TcpEgressMetricValue{
 				Raddr:     "",
 				Rport:     8080,
@@ -57,7 +57,7 @@ func TestTcpEgressMetricValue_String(t *testing.T) {
 			expected: "_" + string(rune(8080)) + "_outbound_throughput",
 		},
 		{
-			name: "高端口号",
+			name: "high port number",
 			metric: TcpEgressMetricValue{
 				Raddr:     "192.168.1.1",
 				Rport:     65535,
@@ -68,7 +68,7 @@ func TestTcpEgressMetricValue_String(t *testing.T) {
 			expected: "192.168.1.1_" + string(rune(65535)) + "_outbound_packets",
 		},
 		{
-			name: "Inbound方向",
+			name: "Inbound direction",
 			metric: TcpEgressMetricValue{
 				Raddr:     "10.0.0.1",
 				Rport:     9090,
@@ -95,7 +95,7 @@ func TestTcpIngressMetricValue_String(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "正常Ingress指标-inbound",
+			name: "normal Ingress metric-inbound",
 			metric: TcpIngressMetricValue{
 				Lport:     8080,
 				Raddr:     "192.168.1.100",
@@ -106,7 +106,7 @@ func TestTcpIngressMetricValue_String(t *testing.T) {
 			expected: string(rune(8080)) + "_192.168.1.100_inbound_bandwidth",
 		},
 		{
-			name: "IPv6远程地址",
+			name: "IPv6 remote address",
 			metric: TcpIngressMetricValue{
 				Lport:     443,
 				Raddr:     "::1",
@@ -117,7 +117,7 @@ func TestTcpIngressMetricValue_String(t *testing.T) {
 			expected: string(rune(443)) + "_::1_inbound_latency",
 		},
 		{
-			name: "本地端口为0",
+			name: "local port is 0",
 			metric: TcpIngressMetricValue{
 				Lport:     0,
 				Raddr:     "10.0.0.1",
@@ -128,7 +128,7 @@ func TestTcpIngressMetricValue_String(t *testing.T) {
 			expected: string(rune(0)) + "_10.0.0.1_inbound_connections",
 		},
 		{
-			name: "空远程地址",
+			name: "empty remote address",
 			metric: TcpIngressMetricValue{
 				Lport:     8080,
 				Raddr:     "",
@@ -139,7 +139,7 @@ func TestTcpIngressMetricValue_String(t *testing.T) {
 			expected: string(rune(8080)) + "__inbound_throughput",
 		},
 		{
-			name: "高端口号",
+			name: "high port number",
 			metric: TcpIngressMetricValue{
 				Lport:     65535,
 				Raddr:     "192.168.1.1",
@@ -150,7 +150,7 @@ func TestTcpIngressMetricValue_String(t *testing.T) {
 			expected: string(rune(65535)) + "_192.168.1.1_inbound_packets",
 		},
 		{
-			name: "Outbound方向",
+			name: "Outbound direction",
 			metric: TcpIngressMetricValue{
 				Lport:     9090,
 				Raddr:     "10.0.0.1",
@@ -171,7 +171,7 @@ func TestTcpIngressMetricValue_String(t *testing.T) {
 }
 
 func TestMetricValue_Fields(t *testing.T) {
-	t.Run("TcpEgressMetricValue所有字段", func(t *testing.T) {
+	t.Run("TcpEgressMetricValue all fields", func(t *testing.T) {
 		metric := TcpEgressMetricValue{
 			Raddr:     "192.168.1.1",
 			Rport:     8080,
@@ -187,7 +187,7 @@ func TestMetricValue_Fields(t *testing.T) {
 		assert.Equal(t, 1024.5, metric.Value)
 	})
 	
-	t.Run("TcpIngressMetricValue所有字段", func(t *testing.T) {
+	t.Run("TcpIngressMetricValue all fields", func(t *testing.T) {
 		metric := TcpIngressMetricValue{
 			Lport:     443,
 			Raddr:     "10.0.0.1",
@@ -205,19 +205,19 @@ func TestMetricValue_Fields(t *testing.T) {
 }
 
 func TestMetricValue_EdgeCases(t *testing.T) {
-	t.Run("TcpEgressMetricValue-零值", func(t *testing.T) {
+	t.Run("TcpEgressMetricValue-zero value", func(t *testing.T) {
 		metric := TcpEgressMetricValue{}
 		result := metric.String()
 		assert.Equal(t, "_"+string(rune(0))+"__", result)
 	})
 	
-	t.Run("TcpIngressMetricValue-零值", func(t *testing.T) {
+	t.Run("TcpIngressMetricValue-zero value", func(t *testing.T) {
 		metric := TcpIngressMetricValue{}
 		result := metric.String()
 		assert.Equal(t, string(rune(0))+"___", result)
 	})
 	
-	t.Run("TcpEgressMetricValue-特殊字符", func(t *testing.T) {
+	t.Run("TcpEgressMetricValue-special characters", func(t *testing.T) {
 		metric := TcpEgressMetricValue{
 			Raddr:     "192.168.1.1",
 			Rport:     8080,
@@ -230,7 +230,7 @@ func TestMetricValue_EdgeCases(t *testing.T) {
 		assert.Contains(t, result, "band_width")
 	})
 	
-	t.Run("TcpIngressMetricValue-特殊字符", func(t *testing.T) {
+	t.Run("TcpIngressMetricValue-special characters", func(t *testing.T) {
 		metric := TcpIngressMetricValue{
 			Lport:     8080,
 			Raddr:     "192.168.1.1",
@@ -245,7 +245,7 @@ func TestMetricValue_EdgeCases(t *testing.T) {
 }
 
 func TestMetricValue_CompareDifferentInstances(t *testing.T) {
-	t.Run("不同Egress指标生成不同String", func(t *testing.T) {
+	t.Run("different Egress metrics generate different Strings", func(t *testing.T) {
 		metric1 := TcpEgressMetricValue{
 			Raddr:     "192.168.1.1",
 			Rport:     8080,
@@ -256,7 +256,7 @@ func TestMetricValue_CompareDifferentInstances(t *testing.T) {
 		
 		metric2 := TcpEgressMetricValue{
 			Raddr:     "192.168.1.1",
-			Rport:     8081, // 不同端口
+			Rport:     8081, // different port
 			Direction: "outbound",
 			Type:      "bandwidth",
 			Value:     1024.5,
@@ -265,7 +265,7 @@ func TestMetricValue_CompareDifferentInstances(t *testing.T) {
 		assert.NotEqual(t, metric1.String(), metric2.String())
 	})
 	
-	t.Run("不同Ingress指标生成不同String", func(t *testing.T) {
+	t.Run("different Ingress metrics generate different Strings", func(t *testing.T) {
 		metric1 := TcpIngressMetricValue{
 			Lport:     8080,
 			Raddr:     "192.168.1.1",
@@ -276,7 +276,7 @@ func TestMetricValue_CompareDifferentInstances(t *testing.T) {
 		
 		metric2 := TcpIngressMetricValue{
 			Lport:     8080,
-			Raddr:     "192.168.1.2", // 不同地址
+			Raddr:     "192.168.1.2", // different address
 			Direction: "inbound",
 			Type:      "bandwidth",
 			Value:     2048.5,

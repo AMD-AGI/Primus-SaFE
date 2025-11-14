@@ -13,27 +13,27 @@ func TestSnakeCaseToCamelCase(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "简单的蛇形命名",
+			name:     "simple snake case",
 			input:    "hello_world",
 			expected: "helloWorld",
 		},
 		{
-			name:     "多个下划线",
+			name:     "multiple underscores",
 			input:    "this_is_a_test",
 			expected: "thisIsATest",
 		},
 		{
-			name:     "单个单词",
+			name:     "single word",
 			input:    "hello",
 			expected: "hello",
 		},
 		{
-			name:     "两个单词",
+			name:     "two words",
 			input:    "user_name",
 			expected: "userName",
 		},
 		{
-			name:     "包含数字",
+			name:     "contains numbers",
 			input:    "user_id_123",
 			expected: "userId123",
 		},
@@ -54,27 +54,27 @@ func TestSnakeCaseToUpperCamelCase(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "简单的蛇形命名",
+			name:     "simple snake case",
 			input:    "hello_world",
 			expected: "HelloWorld",
 		},
 		{
-			name:     "多个下划线",
+			name:     "multiple underscores",
 			input:    "this_is_a_test",
 			expected: "ThisIsATest",
 		},
 		{
-			name:     "单个单词",
+			name:     "single word",
 			input:    "hello",
 			expected: "Hello",
 		},
 		{
-			name:     "两个单词",
+			name:     "two words",
 			input:    "user_name",
 			expected: "UserName",
 		},
 		{
-			name:     "包含数字",
+			name:     "contains numbers",
 			input:    "user_id_123",
 			expected: "UserId123",
 		},
@@ -95,37 +95,37 @@ func TestCamelCaseToSnakeCase(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "简单的驼峰命名",
+			name:     "simple camel case",
 			input:    "helloWorld",
 			expected: "hello_world",
 		},
 		{
-			name:     "大写开头的驼峰",
+			name:     "upper camel case",
 			input:    "HelloWorld",
 			expected: "hello_world",
 		},
 		{
-			name:     "多个大写字母",
+			name:     "multiple capital letters",
 			input:    "thisIsATest",
 			expected: "this_is_a_test",
 		},
 		{
-			name:     "单个单词小写",
+			name:     "single word lowercase",
 			input:    "hello",
 			expected: "hello",
 		},
 		{
-			name:     "单个单词大写",
+			name:     "single word uppercase",
 			input:    "Hello",
 			expected: "hello",
 		},
 		{
-			name:     "包含数字",
+			name:     "contains numbers",
 			input:    "userId123",
 			expected: "user_id123",
 		},
 		{
-			name:     "连续大写字母",
+			name:     "consecutive uppercase letters",
 			input:    "HTTPServer",
 			expected: "h_t_t_p_server",
 		},
@@ -146,12 +146,12 @@ func TestRoundTripConversion(t *testing.T) {
 		camelCase string
 	}{
 		{
-			name:      "简单转换",
+			name:      "simple conversion",
 			snakeCase: "hello_world",
 			camelCase: "helloWorld",
 		},
 		{
-			name:      "多单词转换",
+			name:      "multi-word conversion",
 			snakeCase: "this_is_a_test",
 			camelCase: "thisIsATest",
 		},

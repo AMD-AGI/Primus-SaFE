@@ -18,7 +18,7 @@ func TestGetDirectionName(t *testing.T) {
 			expected:  FlowTypeNameIngress,
 		},
 		{
-			name:      "FlowTypeIngress-显式0",
+			name:      "FlowTypeIngress-explicit 0",
 			direction: 0,
 			expected:  "ingress",
 		},
@@ -28,22 +28,22 @@ func TestGetDirectionName(t *testing.T) {
 			expected:  FlowTypeNameEgress,
 		},
 		{
-			name:      "FlowTypeEgress-显式1",
+			name:      "FlowTypeEgress-explicit 1",
 			direction: 1,
 			expected:  "egress",
 		},
 		{
-			name:      "其他值-2",
+			name:      "other value - 2",
 			direction: 2,
-			expected:  FlowTypeNameEgress, // 默认返回egress
+			expected:  FlowTypeNameEgress, // default returns egress
 		},
 		{
-			name:      "其他值-负数",
+			name:      "other value - negative number",
 			direction: -1,
 			expected:  FlowTypeNameEgress,
 		},
 		{
-			name:      "其他值-大数",
+			name:      "other value - large number",
 			direction: 100,
 			expected:  FlowTypeNameEgress,
 		},
@@ -64,7 +64,7 @@ func TestTcpConnUpstream_String(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "正常IPv4地址",
+			name: "normal IPv4 address",
 			upstream: TcpConnUpstream{
 				Addr:       "192.168.1.1",
 				Port:       8080,
@@ -72,10 +72,10 @@ func TestTcpConnUpstream_String(t *testing.T) {
 				ConnCount:  10,
 				CloseCount: 5,
 			},
-			expected: "192.168.1.1-" + string(rune(8080)) + "-2", // string(int32)转Unicode字符
+			expected: "192.168.1.1-" + string(rune(8080)) + "-2", // string(int32) converts to Unicode character
 		},
 		{
-			name: "IPv6地址",
+			name: "IPv6 address",
 			upstream: TcpConnUpstream{
 				Addr:       "::1",
 				Port:       443,
@@ -86,7 +86,7 @@ func TestTcpConnUpstream_String(t *testing.T) {
 			expected: "::1-" + string(rune(443)) + "-10",
 		},
 		{
-			name: "端口为0",
+			name: "port is 0",
 			upstream: TcpConnUpstream{
 				Addr:       "10.0.0.1",
 				Port:       0,
@@ -97,7 +97,7 @@ func TestTcpConnUpstream_String(t *testing.T) {
 			expected: "10.0.0.1-" + string(rune(0)) + "-2",
 		},
 		{
-			name: "空地址",
+			name: "empty address",
 			upstream: TcpConnUpstream{
 				Addr:       "",
 				Port:       80,
@@ -124,7 +124,7 @@ func TestTcpConnDownstream_String(t *testing.T) {
 		expected   string
 	}{
 		{
-			name: "正常IPv4地址",
+			name: "normal IPv4 address",
 			downstream: TcpConnDownstream{
 				LocalPort:  8080,
 				RemoteAddr: "192.168.1.100",
@@ -135,7 +135,7 @@ func TestTcpConnDownstream_String(t *testing.T) {
 			expected: string(rune(8080)) + "-192.168.1.100-2",
 		},
 		{
-			name: "IPv6地址",
+			name: "IPv6 address",
 			downstream: TcpConnDownstream{
 				LocalPort:  443,
 				RemoteAddr: "2001:db8::1",
@@ -146,7 +146,7 @@ func TestTcpConnDownstream_String(t *testing.T) {
 			expected: string(rune(443)) + "-2001:db8::1-10",
 		},
 		{
-			name: "端口为0",
+			name: "port is 0",
 			downstream: TcpConnDownstream{
 				LocalPort:  0,
 				RemoteAddr: "10.0.0.1",
@@ -157,7 +157,7 @@ func TestTcpConnDownstream_String(t *testing.T) {
 			expected: string(rune(0)) + "-10.0.0.1-2",
 		},
 		{
-			name: "空远程地址",
+			name: "empty remote address",
 			downstream: TcpConnDownstream{
 				LocalPort:  80,
 				RemoteAddr: "",
@@ -184,7 +184,7 @@ func TestTcpFlowCacheKey_String(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "正常IPv4流",
+			name: "normal IPv4 flow",
 			key: TcpFlowCacheKey{
 				SAddr:  "192.168.1.1",
 				Daddr:  "10.0.0.1",
@@ -195,7 +195,7 @@ func TestTcpFlowCacheKey_String(t *testing.T) {
 			expected: "192.168.1.1-10.0.0.1-12345-80-2",
 		},
 		{
-			name: "IPv6流",
+			name: "IPv6 flow",
 			key: TcpFlowCacheKey{
 				SAddr:  "::1",
 				Daddr:  "2001:db8::1",
@@ -206,7 +206,7 @@ func TestTcpFlowCacheKey_String(t *testing.T) {
 			expected: "::1-2001:db8::1-54321-443-10",
 		},
 		{
-			name: "端口为0",
+			name: "port is 0",
 			key: TcpFlowCacheKey{
 				SAddr:  "192.168.1.1",
 				Daddr:  "192.168.1.2",
@@ -217,7 +217,7 @@ func TestTcpFlowCacheKey_String(t *testing.T) {
 			expected: "192.168.1.1-192.168.1.2-0-0-2",
 		},
 		{
-			name: "空地址",
+			name: "empty address",
 			key: TcpFlowCacheKey{
 				SAddr:  "",
 				Daddr:  "",
@@ -228,7 +228,7 @@ func TestTcpFlowCacheKey_String(t *testing.T) {
 			expected: "--8080-9090-2",
 		},
 		{
-			name: "高端口号",
+			name: "high port numbers",
 			key: TcpFlowCacheKey{
 				SAddr:  "192.168.1.1",
 				Daddr:  "192.168.1.2",
@@ -249,7 +249,7 @@ func TestTcpFlowCacheKey_String(t *testing.T) {
 }
 
 func TestTcpFlowEvent(t *testing.T) {
-	t.Run("TcpFlowEvent结构体创建", func(t *testing.T) {
+	t.Run("TcpFlowEvent struct creation", func(t *testing.T) {
 		event := TcpFlowEvent{
 			TcpFlowCacheKey: TcpFlowCacheKey{
 				SAddr:  "192.168.1.1",
@@ -271,7 +271,7 @@ func TestTcpFlowEvent(t *testing.T) {
 }
 
 func TestTcpFlowDataValue(t *testing.T) {
-	t.Run("TcpFlowDataValue结构体创建", func(t *testing.T) {
+	t.Run("TcpFlowDataValue struct creation", func(t *testing.T) {
 		value := TcpFlowDataValue{
 			RttTotal:  1000000,
 			PktCount:  500,
@@ -285,7 +285,7 @@ func TestTcpFlowDataValue(t *testing.T) {
 		assert.Equal(t, uint64(10), value.ConnCount)
 	})
 	
-	t.Run("计算平均RTT", func(t *testing.T) {
+	t.Run("calculate average RTT", func(t *testing.T) {
 		value := TcpFlowDataValue{
 			RttTotal:  10000,
 			PktCount:  100,
@@ -293,14 +293,14 @@ func TestTcpFlowDataValue(t *testing.T) {
 			ConnCount: 0,
 		}
 		
-		// 平均RTT = RttTotal / PktCount
+		// average RTT = RttTotal / PktCount
 		avgRtt := float64(value.RttTotal) / float64(value.PktCount)
 		assert.Equal(t, 100.0, avgRtt)
 	})
 }
 
 func TestTcpConnReport(t *testing.T) {
-	t.Run("TcpConnReport-ingress方向", func(t *testing.T) {
+	t.Run("TcpConnReport-ingress direction", func(t *testing.T) {
 		report := TcpConnReport{
 			Direction: FlowTypeIngress,
 			Node:      "node-1",
@@ -322,7 +322,7 @@ func TestTcpConnReport(t *testing.T) {
 		assert.Equal(t, int32(60), report.Duration)
 	})
 	
-	t.Run("TcpConnReport-egress方向", func(t *testing.T) {
+	t.Run("TcpConnReport-egress direction", func(t *testing.T) {
 		report := TcpConnReport{
 			Direction: FlowTypeEgress,
 			Node:      "node-2",

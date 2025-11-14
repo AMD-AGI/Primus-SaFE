@@ -14,91 +14,91 @@ func TestCalculateMaxValue(t *testing.T) {
 		expected uint64
 	}{
 		{
-			name:     "1位-最大值为0",
+			name:     "1 bit - max value is 0",
 			bits:     1,
 			expected: 0, // 2^0 - 1 = 0
 		},
 		{
-			name:     "2位-最大值为1",
+			name:     "2 bits - max value is 1",
 			bits:     2,
 			expected: 1, // 2^1 - 1 = 1
 		},
 		{
-			name:     "8位-最大值为127",
+			name:     "8 bits - max value is 127",
 			bits:     8,
 			expected: 127, // 2^7 - 1 = 127
 		},
 		{
-			name:     "16位-最大值为32767",
+			name:     "16 bits - max value is 32767",
 			bits:     16,
 			expected: 32767, // 2^15 - 1 = 32767
 		},
 		{
-			name:     "32位-最大值",
+			name:     "32 bits - max value",
 			bits:     32,
 			expected: 2147483647, // 2^31 - 1
 		},
 		{
-			name:     "64位-最大值",
+			name:     "64 bits - max value",
 			bits:     64,
 			expected: 9223372036854775807, // 2^63 - 1
 		},
 		{
-			name:     "4位-最大值为7",
+			name:     "4 bits - max value is 7",
 			bits:     4,
 			expected: 7, // 2^3 - 1 = 7
 		},
 		{
-			name:     "10位-最大值为511",
+			name:     "10 bits - max value is 511",
 			bits:     10,
 			expected: 511, // 2^9 - 1 = 511
 		},
 		{
-			name:     "20位-最大值",
+			name:     "20 bits - max value",
 			bits:     20,
 			expected: 524287, // 2^19 - 1
 		},
 		
-		// 边界值测试
+		// boundary value tests
 		{
-			name:     "边界值-最小有效位数1",
+			name:     "boundary value - minimum valid bits 1",
 			bits:     1,
 			expected: 0,
 		},
 		{
-			name:     "边界值-最大有效位数64",
+			name:     "boundary value - maximum valid bits 64",
 			bits:     64,
 			expected: 9223372036854775807,
 		},
 		
-		// 无效输入 - 应返回 0
+		// invalid input - should return 0
 		{
-			name:     "无效输入-0位",
+			name:     "invalid input - 0 bits",
 			bits:     0,
 			expected: 0,
 		},
 		{
-			name:     "无效输入-负数",
+			name:     "invalid input - negative number",
 			bits:     -1,
 			expected: 0,
 		},
 		{
-			name:     "无效输入-负数大值",
+			name:     "invalid input - large negative number",
 			bits:     -100,
 			expected: 0,
 		},
 		{
-			name:     "无效输入-超过64位",
+			name:     "invalid input - exceeds 64 bits",
 			bits:     65,
 			expected: 0,
 		},
 		{
-			name:     "无效输入-远超64位",
+			name:     "invalid input - far exceeds 64 bits",
 			bits:     100,
 			expected: 0,
 		},
 		{
-			name:     "无效输入-远超64位的大值",
+			name:     "invalid input - very large value far exceeding 64 bits",
 			bits:     1000,
 			expected: 0,
 		},
@@ -107,13 +107,13 @@ func TestCalculateMaxValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := CalculateMaxValue(tt.bits)
-			assert.Equal(t, tt.expected, result, "计算的最大值不匹配")
+			assert.Equal(t, tt.expected, result, "calculated max value mismatch")
 		})
 	}
 }
 
 func TestCalculateMaxValue_CommonBitSizes(t *testing.T) {
-	// 测试常用的位数大小
+	// test common bit sizes
 	commonTests := []struct {
 		bits     int
 		expected uint64
@@ -138,7 +138,7 @@ func TestCalculateMaxValue_CommonBitSizes(t *testing.T) {
 	}
 
 	for _, tt := range commonTests {
-		t.Run(fmt.Sprintf("%d位", tt.bits), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%d bits", tt.bits), func(t *testing.T) {
 			result := CalculateMaxValue(tt.bits)
 			assert.Equal(t, tt.expected, result)
 		})
@@ -146,7 +146,7 @@ func TestCalculateMaxValue_CommonBitSizes(t *testing.T) {
 }
 
 func TestCalculateMaxValue_PowerOfTwo(t *testing.T) {
-	// 验证计算公式：max = 2^(bits-1) - 1
+	// verify calculation formula: max = 2^(bits-1) - 1
 	tests := []struct {
 		bits     int
 		expected uint64
@@ -160,9 +160,9 @@ func TestCalculateMaxValue_PowerOfTwo(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(fmt.Sprintf("验证公式-2^%d-1", tt.bits-1), func(t *testing.T) {
+		t.Run(fmt.Sprintf("verify formula - 2^%d-1", tt.bits-1), func(t *testing.T) {
 			result := CalculateMaxValue(tt.bits)
-			// 手动计算预期值并验证
+			// manually calculate expected value and verify
 			var manualCalc uint64
 			if tt.bits >= 1 && tt.bits <= 64 {
 				manualCalc = (uint64(1) << uint(tt.bits-1)) - 1

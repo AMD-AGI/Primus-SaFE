@@ -80,7 +80,7 @@ func (cm *CachedManager) InvalidateCache(key string) {
 	cm.cache.Delete(key)
 }
 
-// InvalidateAllCache 清空所有缓存
+// InvalidateAllCache invalidates all cache
 func (cm *CachedManager) InvalidateAllCache() {
 	cm.cache.Range(func(key, value interface{}) bool {
 		cm.cache.Delete(key)
@@ -88,7 +88,7 @@ func (cm *CachedManager) InvalidateAllCache() {
 	})
 }
 
-// RefreshCache 刷新指定键的缓存
+// RefreshCache refreshes the cache for the specified key
 func (cm *CachedManager) RefreshCache(ctx context.Context, key string) error {
 	cm.InvalidateCache(key)
 
@@ -105,7 +105,7 @@ func (cm *CachedManager) RefreshCache(ctx context.Context, key string) error {
 	return nil
 }
 
-// Preload 预加载指定的配置键到缓存
+// Preload preloads specified configuration keys to cache
 func (cm *CachedManager) Preload(ctx context.Context, keys []string) error {
 	configs, err := cm.Manager.BatchGet(ctx, keys)
 	if err != nil {
@@ -123,7 +123,7 @@ func (cm *CachedManager) Preload(ctx context.Context, keys []string) error {
 	return nil
 }
 
-// GetCacheStats 获取缓存统计信息
+// GetCacheStats retrieves cache statistics
 func (cm *CachedManager) GetCacheStats() map[string]interface{} {
 	var (
 		total   int

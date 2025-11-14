@@ -16,17 +16,17 @@ func TestIsRetriableError(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "nil错误",
+			name:     "nil error",
 			err:      nil,
 			expected: false,
 		},
 		{
-			name:     "普通错误-不可重试",
+			name:     "normal error - not retriable",
 			err:      errors.New("some error"),
 			expected: false,
 		},
 		{
-			name: "Timeout错误-可重试",
+			name: "Timeout error - retriable",
 			err: apierrors.NewTimeoutError(
 				"request timeout",
 				1,
@@ -34,7 +34,7 @@ func TestIsRetriableError(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "ServerTimeout错误-可重试",
+			name: "ServerTimeout error - retriable",
 			err: apierrors.NewServerTimeout(
 				schema.GroupResource{Group: "apps", Resource: "deployments"},
 				"get",
@@ -43,7 +43,7 @@ func TestIsRetriableError(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "Conflict错误-可重试",
+			name: "Conflict error - retriable",
 			err: apierrors.NewConflict(
 				schema.GroupResource{Group: "apps", Resource: "deployments"},
 				"test-deployment",
@@ -52,21 +52,21 @@ func TestIsRetriableError(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "ServiceUnavailable错误-可重试",
+			name: "ServiceUnavailable error - retriable",
 			err: apierrors.NewServiceUnavailable(
 				"service unavailable",
 			),
 			expected: true,
 		},
 		{
-			name: "InternalError错误-可重试",
+			name: "InternalError error - retriable",
 			err: apierrors.NewInternalError(
 				errors.New("internal error"),
 			),
 			expected: true,
 		},
 		{
-			name: "TooManyRequests错误-可重试",
+			name: "TooManyRequests error - retriable",
 			err: apierrors.NewTooManyRequests(
 				"too many requests",
 				1,
@@ -74,7 +74,7 @@ func TestIsRetriableError(t *testing.T) {
 			expected: true,
 		},
 		{
-			name: "NotFound错误-不可重试",
+			name: "NotFound error - not retriable",
 			err: apierrors.NewNotFound(
 				schema.GroupResource{Group: "apps", Resource: "deployments"},
 				"test-deployment",
@@ -82,21 +82,21 @@ func TestIsRetriableError(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "BadRequest错误-不可重试",
+			name: "BadRequest error - not retriable",
 			err: apierrors.NewBadRequest(
 				"bad request",
 			),
 			expected: false,
 		},
 		{
-			name: "Unauthorized错误-不可重试",
+			name: "Unauthorized error - not retriable",
 			err: apierrors.NewUnauthorized(
 				"unauthorized",
 			),
 			expected: false,
 		},
 		{
-			name: "Forbidden错误-不可重试",
+			name: "Forbidden error - not retriable",
 			err: apierrors.NewForbidden(
 				schema.GroupResource{Group: "apps", Resource: "deployments"},
 				"test-deployment",
@@ -105,7 +105,7 @@ func TestIsRetriableError(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "AlreadyExists错误-不可重试",
+			name: "AlreadyExists error - not retriable",
 			err: apierrors.NewAlreadyExists(
 				schema.GroupResource{Group: "apps", Resource: "deployments"},
 				"test-deployment",
@@ -113,7 +113,7 @@ func TestIsRetriableError(t *testing.T) {
 			expected: false,
 		},
 		{
-			name: "Invalid错误-不可重试",
+			name: "Invalid error - not retriable",
 			err: apierrors.NewInvalid(
 				schema.GroupKind{Group: "apps", Kind: "Deployment"},
 				"test-deployment",
@@ -138,22 +138,22 @@ func TestIsRetriableError_EdgeCases(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "嵌套的可重试错误",
+			name:     "nested retriable error",
 			err:      apierrors.NewConflict(schema.GroupResource{}, "", apierrors.NewTimeoutError("timeout", 1)),
 			expected: true,
 		},
 		{
-			name: "多种可重试错误组合-Timeout",
+			name: "multiple retriable errors combination - Timeout",
 			err: func() error {
-				// 创建一个 timeout 错误
+				// create a timeout error
 				return apierrors.NewTimeoutError("timeout", 5)
 			}(),
 			expected: true,
 		},
 		{
-			name: "多种可重试错误组合-TooManyRequests",
+			name: "multiple retriable errors combination - TooManyRequests",
 			err: func() error {
-				// 创建一个限流错误
+				// create a rate limiting error
 				return apierrors.NewTooManyRequests("rate limited", 10)
 			}(),
 			expected: true,

@@ -12,6 +12,7 @@ require (
 	github.com/docker/docker v23.0.3+incompatible
 	github.com/gin-gonic/gin v1.10.1
 	github.com/prometheus/client_golang v1.22.0
+	github.com/stretchr/testify v1.10.0
 	k8s.io/api v0.33.3
 	k8s.io/apimachinery v0.33.3
 	k8s.io/cri-api v0.33.3
@@ -107,6 +108,7 @@ require (
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/procfs v0.17.0 // indirect

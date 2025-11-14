@@ -14,7 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// mockClient 是一个用于测试的 mock controller-runtime client
+// mockClient is a mock controller-runtime client for testing
 type mockClientOwner struct {
 	client.Client
 	getFunc       func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error
@@ -36,7 +36,7 @@ func (m *mockClientOwner) Scheme() *runtime.Scheme {
 	return runtime.NewScheme()
 }
 
-// mockRESTMapper 是一个简单的 mock RESTMapper
+// mockRESTMapper is a simple mock RESTMapper
 type mockRESTMapperOwner struct {
 	meta.RESTMapper
 	mappingFunc func(gk schema.GroupKind, versions ...string) (*meta.RESTMapping, error)
@@ -50,7 +50,7 @@ func (m *mockRESTMapperOwner) RESTMapping(gk schema.GroupKind, versions ...strin
 }
 
 func TestGetOwnerObject(t *testing.T) {
-	t.Run("获取Owner对象成功", func(t *testing.T) {
+	t.Run("get owner object successfully", func(t *testing.T) {
 		ctx := context.Background()
 		namespace := "default"
 
@@ -90,7 +90,7 @@ func TestGetOwnerObject(t *testing.T) {
 		assert.Equal(t, namespace, obj.GetNamespace())
 	})
 
-	t.Run("Owner是集群级别资源", func(t *testing.T) {
+	t.Run("owner is cluster-scoped resource", func(t *testing.T) {
 		ctx := context.Background()
 		namespace := "default"
 
@@ -110,7 +110,7 @@ func TestGetOwnerObject(t *testing.T) {
 				},
 			},
 			getFunc: func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
-				// 验证集群资源不应该有 namespace
+				// verify cluster resource should not have namespace
 				assert.Empty(t, key.Namespace)
 				
 				u := obj.(*unstructured.Unstructured)
@@ -130,7 +130,7 @@ func TestGetOwnerObject(t *testing.T) {
 		assert.Empty(t, obj.GetNamespace())
 	})
 
-	t.Run("获取不存在的Owner", func(t *testing.T) {
+	t.Run("get non-existent owner", func(t *testing.T) {
 		ctx := context.Background()
 		namespace := "default"
 
@@ -159,11 +159,11 @@ func TestGetOwnerObject(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("多级Owner链", func(t *testing.T) {
+	t.Run("multi-level owner chain", func(t *testing.T) {
 		ctx := context.Background()
 		namespace := "default"
 
-		// Pod -> ReplicaSet -> Deployment 的 Owner 链
+		// owner chain: Pod -> ReplicaSet -> Deployment
 		deploymentOwnerRef := metav1.OwnerReference{
 			APIVersion: "apps/v1",
 			Kind:       "Deployment",
@@ -189,7 +189,7 @@ func TestGetOwnerObject(t *testing.T) {
 			getFunc: func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
 				u := obj.(*unstructured.Unstructured)
 				
-				// 根据请求的名称返回不同的对象
+				// return different objects based on requested name
 				if key.Name == replicaSetOwnerRef.Name {
 					u.SetAPIVersion(replicaSetOwnerRef.APIVersion)
 					u.SetKind(replicaSetOwnerRef.Kind)
@@ -197,7 +197,7 @@ func TestGetOwnerObject(t *testing.T) {
 					u.SetNamespace(namespace)
 					u.SetUID(replicaSetOwnerRef.UID)
 					
-					// ReplicaSet 有一个 Deployment owner
+					// ReplicaSet has a Deployment owner
 					u.SetOwnerReferences([]metav1.OwnerReference{deploymentOwnerRef})
 				} else if key.Name == deploymentOwnerRef.Name {
 					u.SetAPIVersion(deploymentOwnerRef.APIVersion)
@@ -211,13 +211,13 @@ func TestGetOwnerObject(t *testing.T) {
 			},
 		}
 
-		// 首先获取 ReplicaSet
+		// first get ReplicaSet
 		replicaSet, err := GetOwnerObject(ctx, mockClient, replicaSetOwnerRef, namespace)
 		assert.NoError(t, err)
 		assert.NotNil(t, replicaSet)
 		assert.Equal(t, replicaSetOwnerRef.Name, replicaSet.GetName())
 
-		// 然后获取 ReplicaSet 的 owner (Deployment)
+		// then get ReplicaSet's owner (Deployment)
 		owners := replicaSet.GetOwnerReferences()
 		assert.Len(t, owners, 1)
 
@@ -264,12 +264,12 @@ func TestGetOwnerObject(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.NotNil(t, obj)
-		// 验证这是控制器 owner
+		// verify this is controller owner
 		assert.NotNil(t, ownerRef.Controller)
 		assert.True(t, *ownerRef.Controller)
 	})
 
-	t.Run("空Owner Reference", func(t *testing.T) {
+	t.Run("empty owner reference", func(t *testing.T) {
 		ctx := context.Background()
 		namespace := "default"
 
@@ -283,16 +283,16 @@ func TestGetOwnerObject(t *testing.T) {
 			},
 		}
 
-		// 空的 OwnerReference 应该导致错误，因为无法解析 API version 和 kind
+		// empty OwnerReference should cause error because API version and kind cannot be parsed
 		_, err := GetOwnerObject(ctx, mockClient, ownerRef, namespace)
 
-		// 应该因为无效的 API version 或 kind 而失败
+		// should fail due to invalid API version or kind
 		assert.Error(t, err)
 	})
 }
 
 func TestOwnerReferenceHelpers(t *testing.T) {
-	t.Run("检查是否有Controller Owner", func(t *testing.T) {
+	t.Run("check if has controller owner", func(t *testing.T) {
 		trueVal := true
 		falseVal := false
 
@@ -322,7 +322,7 @@ func TestOwnerReferenceHelpers(t *testing.T) {
 		assert.Equal(t, "owner2", controllerOwner.Name)
 	})
 
-	t.Run("验证OwnerReference字段", func(t *testing.T) {
+	t.Run("verify OwnerReference fields", func(t *testing.T) {
 		trueVal := true
 		falseVal := false
 

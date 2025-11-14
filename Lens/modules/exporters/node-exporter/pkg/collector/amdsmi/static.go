@@ -142,7 +142,7 @@ func GetStateInfo() ([]model.CardMetrics, error) {
 	return result, nil
 }
 
-// GetPowerInfo 获取所有 GPU 的功耗信息
+// GetPowerInfo retrieves power information for all GPUs
 func GetPowerInfo() ([]model.GPUPowerInfo, error) {
 	cmds := []string{}
 	cmds = append(cmds, nsenterPrefix...)

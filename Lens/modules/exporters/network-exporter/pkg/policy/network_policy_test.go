@@ -7,7 +7,7 @@ import (
 )
 
 func TestNetworkPolicy_Structure(t *testing.T) {
-	t.Run("创建NetworkPolicy结构体", func(t *testing.T) {
+	t.Run("create NetworkPolicy struct", func(t *testing.T) {
 		policy := NetworkPolicy{
 			InternalHosts: []string{"10.0.0.0/8"},
 			K8SPod:        []string{"10.244.0.0/16"},
@@ -34,7 +34,7 @@ func TestNetworkPolicy_Structure(t *testing.T) {
 		assert.Equal(t, 1, len(policy.Localhost))
 	})
 
-	t.Run("创建空NetworkPolicy", func(t *testing.T) {
+	t.Run("create empty NetworkPolicy", func(t *testing.T) {
 		policy := NetworkPolicy{}
 		
 		assert.NotNil(t, policy)
@@ -47,7 +47,7 @@ func TestNetworkPolicy_Structure(t *testing.T) {
 		assert.Nil(t, policy.Localhost)
 	})
 
-	t.Run("NetworkPolicy字段类型验证", func(t *testing.T) {
+	t.Run("NetworkPolicy field type validation", func(t *testing.T) {
 		policy := NetworkPolicy{
 			InternalHosts:     []string{},
 			K8SPod:            []string{},
@@ -77,40 +77,40 @@ func TestNetworkPolicy_Structure(t *testing.T) {
 }
 
 func TestGetDefaultPolicy(t *testing.T) {
-	t.Run("获取默认策略", func(t *testing.T) {
+	t.Run("get default policy", func(t *testing.T) {
 		policy := GetDefaultPolicy()
 		
 		assert.NotNil(t, policy)
 		assert.NotNil(t, policy.InternalHosts)
 		
-		// 验证默认的内部网络段
+		// verify default internal network segments
 		assert.Contains(t, policy.InternalHosts, "10.0.0.0/8")
 		assert.Contains(t, policy.InternalHosts, "172.16.0.0/12")
 		assert.Contains(t, policy.InternalHosts, "192.168.0.0/16")
 		assert.Equal(t, 3, len(policy.InternalHosts))
 	})
 
-	t.Run("GetDefaultPolicy返回值的独立性", func(t *testing.T) {
+	t.Run("GetDefaultPolicy return value independence", func(t *testing.T) {
 		policy1 := GetDefaultPolicy()
 		policy2 := GetDefaultPolicy()
 		
-		// 两次调用应该返回相同的值
+		// two calls should return the same value
 		assert.Equal(t, policy1.InternalHosts, policy2.InternalHosts)
 		
-		// 修改返回值不应该影响其他调用
+		// modifying return value should not affect other calls
 		policy1.InternalHosts = append(policy1.InternalHosts, "203.0.113.0/24")
 		
-		// policy2 不应该被修改（因为返回的是副本）
+		// policy2 should not be modified (because a copy is returned)
 		policy3 := GetDefaultPolicy()
 		assert.NotEqual(t, len(policy1.InternalHosts), len(policy3.InternalHosts))
 	})
 
-	t.Run("验证默认策略的CIDR格式", func(t *testing.T) {
+	t.Run("verify default policy CIDR format", func(t *testing.T) {
 		policy := GetDefaultPolicy()
 		
 		for _, cidr := range policy.InternalHosts {
-			assert.Contains(t, cidr, "/", "CIDR应该包含子网掩码")
-			assert.NotEmpty(t, cidr, "CIDR不应该为空")
+			assert.Contains(t, cidr, "/", "CIDR should contain subnet mask")
+			assert.NotEmpty(t, cidr, "CIDR should not be empty")
 		}
 	})
 }
@@ -121,7 +121,7 @@ func TestDefaultPolicy_InternalHosts(t *testing.T) {
 		expected []string
 	}{
 		{
-			name: "验证所有默认内部网络段",
+			name: "verify all default internal network segments",
 			expected: []string{
 				"10.0.0.0/8",      // Class A private network
 				"172.16.0.0/12",   // Class B private network
@@ -144,7 +144,7 @@ func TestDefaultPolicy_InternalHosts(t *testing.T) {
 }
 
 func TestNetworkPolicy_EdgeCases(t *testing.T) {
-	t.Run("NetworkPolicy包含大量条目", func(t *testing.T) {
+	t.Run("NetworkPolicy contains large number of entries", func(t *testing.T) {
 		largeList := make([]string, 1000)
 		for i := 0; i < 1000; i++ {
 			largeList[i] = "entry-" + string(rune(i))
@@ -157,7 +157,7 @@ func TestNetworkPolicy_EdgeCases(t *testing.T) {
 		assert.Equal(t, 1000, len(policy.AbnormalBlackList))
 	})
 
-	t.Run("NetworkPolicy包含重复条目", func(t *testing.T) {
+	t.Run("NetworkPolicy contains duplicate entries", func(t *testing.T) {
 		policy := NetworkPolicy{
 			InternalHosts: []string{
 				"10.0.0.0/8",
@@ -167,10 +167,10 @@ func TestNetworkPolicy_EdgeCases(t *testing.T) {
 		}
 		
 		assert.Equal(t, 3, len(policy.InternalHosts))
-		// 注意：结构体不会自动去重，这是预期行为
+		// note: struct does not automatically deduplicate, this is expected behavior
 	})
 
-	t.Run("NetworkPolicy包含特殊字符", func(t *testing.T) {
+	t.Run("NetworkPolicy contains special characters", func(t *testing.T) {
 		policy := NetworkPolicy{
 			Dns: []string{
 				"test-dns.example.com",
@@ -187,8 +187,8 @@ func TestNetworkPolicy_EdgeCases(t *testing.T) {
 }
 
 func TestNetworkPolicy_JSONTags(t *testing.T) {
-	t.Run("验证结构体有正确的JSON标签", func(t *testing.T) {
-		// 这个测试确保结构体可以正确序列化/反序列化为JSON
+	t.Run("verify struct has correct JSON tags", func(t *testing.T) {
+		// this test ensures struct can be properly serialized/deserialized to JSON
 		policy := NetworkPolicy{
 			InternalHosts:     []string{"10.0.0.0/8"},
 			K8SPod:            []string{"pod-cidr"},
@@ -199,7 +199,7 @@ func TestNetworkPolicy_JSONTags(t *testing.T) {
 			Localhost:         []string{"localhost"},
 		}
 		
-		// 验证所有字段都已设置
+		// verify all fields are set
 		assert.NotEmpty(t, policy.InternalHosts)
 		assert.NotEmpty(t, policy.K8SPod)
 		assert.NotEmpty(t, policy.K8SSvc)
@@ -211,7 +211,7 @@ func TestNetworkPolicy_JSONTags(t *testing.T) {
 }
 
 func TestNetworkPolicy_Comparison(t *testing.T) {
-	t.Run("比较两个相同的策略", func(t *testing.T) {
+	t.Run("compare two identical policies", func(t *testing.T) {
 		policy1 := NetworkPolicy{
 			InternalHosts: []string{"10.0.0.0/8"},
 			K8SPod:        []string{"pod"},
@@ -226,7 +226,7 @@ func TestNetworkPolicy_Comparison(t *testing.T) {
 		assert.Equal(t, policy1.K8SPod, policy2.K8SPod)
 	})
 
-	t.Run("比较两个不同的策略", func(t *testing.T) {
+	t.Run("compare two different policies", func(t *testing.T) {
 		policy1 := NetworkPolicy{
 			InternalHosts: []string{"10.0.0.0/8"},
 		}
@@ -240,50 +240,50 @@ func TestNetworkPolicy_Comparison(t *testing.T) {
 }
 
 func TestNetworkPolicy_ModifyAfterCreation(t *testing.T) {
-	t.Run("创建后修改策略", func(t *testing.T) {
+	t.Run("modify policy after creation", func(t *testing.T) {
 		policy := NetworkPolicy{
 			InternalHosts: []string{"10.0.0.0/8"},
 		}
 		
 		assert.Equal(t, 1, len(policy.InternalHosts))
 		
-		// 添加新的条目
+		// add new entry
 		policy.InternalHosts = append(policy.InternalHosts, "192.168.0.0/16")
 		assert.Equal(t, 2, len(policy.InternalHosts))
 		
-		// 修改黑名单
+		// modify blacklist
 		policy.AbnormalBlackList = []string{"malicious.com"}
 		assert.Equal(t, 1, len(policy.AbnormalBlackList))
 		
-		// 清空白名单
+		// clear whitelist
 		policy.AbnormalWhiteList = []string{}
 		assert.Empty(t, policy.AbnormalWhiteList)
 	})
 
-	t.Run("修改切片不影响原始数据", func(t *testing.T) {
+	t.Run("modifying slice does not affect original data", func(t *testing.T) {
 		original := []string{"10.0.0.0/8", "192.168.0.0/16"}
 		policy := NetworkPolicy{
 			InternalHosts: original,
 		}
 		
-		// 修改策略的切片
+		// modify policy slice
 		policy.InternalHosts = append(policy.InternalHosts, "172.16.0.0/12")
 		
-		// 原始切片应该也被修改（Go的切片共享底层数组）
-		// 但如果容量不够，会创建新数组
+		// original slice should also be modified (Go slices share underlying array)
+		// but if capacity is insufficient, a new array will be created
 		assert.Equal(t, 3, len(policy.InternalHosts))
 	})
 }
 
 func TestNetworkPolicy_NilSlices(t *testing.T) {
-	t.Run("处理nil切片", func(t *testing.T) {
+	t.Run("handle nil slices", func(t *testing.T) {
 		policy := NetworkPolicy{}
 		
-		// nil切片应该与空切片行为不同
+		// nil slice should behave differently from empty slice
 		assert.Nil(t, policy.InternalHosts)
 		assert.Equal(t, 0, len(policy.InternalHosts))
 		
-		// append到nil切片会创建新切片
+		// appending to nil slice creates new slice
 		policy.InternalHosts = append(policy.InternalHosts, "10.0.0.0/8")
 		assert.NotNil(t, policy.InternalHosts)
 		assert.Equal(t, 1, len(policy.InternalHosts))
@@ -291,13 +291,13 @@ func TestNetworkPolicy_NilSlices(t *testing.T) {
 }
 
 func TestGetDefaultPolicy_Consistency(t *testing.T) {
-	t.Run("多次调用返回一致的值", func(t *testing.T) {
+	t.Run("multiple calls return consistent values", func(t *testing.T) {
 		results := make([]NetworkPolicy, 10)
 		for i := 0; i < 10; i++ {
 			results[i] = GetDefaultPolicy()
 		}
 		
-		// 所有结果的InternalHosts应该相同
+		// all results' InternalHosts should be the same
 		for i := 1; i < 10; i++ {
 			assert.Equal(t, results[0].InternalHosts, results[i].InternalHosts)
 		}
@@ -311,7 +311,7 @@ func TestNetworkPolicy_FieldCombinations(t *testing.T) {
 		check  func(t *testing.T, p NetworkPolicy)
 	}{
 		{
-			name: "只有InternalHosts",
+			name: "only InternalHosts",
 			policy: NetworkPolicy{
 				InternalHosts: []string{"10.0.0.0/8"},
 			},
@@ -322,7 +322,7 @@ func TestNetworkPolicy_FieldCombinations(t *testing.T) {
 			},
 		},
 		{
-			name: "只有黑名单",
+			name: "only blacklist",
 			policy: NetworkPolicy{
 				AbnormalBlackList: []string{"malicious.com"},
 			},
@@ -332,7 +332,7 @@ func TestNetworkPolicy_FieldCombinations(t *testing.T) {
 			},
 		},
 		{
-			name: "同时有黑名单和白名单",
+			name: "both blacklist and whitelist",
 			policy: NetworkPolicy{
 				AbnormalBlackList: []string{"bad.com"},
 				AbnormalWhiteList: []string{"good.com"},

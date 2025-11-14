@@ -18,7 +18,7 @@ func TestGetSource(t *testing.T) {
 		description string
 	}{
 		{
-			name: "Source为空-返回k8s",
+			name: "Source is empty - returns k8s",
 			workload: &dbModel.GpuWorkload{
 				ID:           1,
 				GroupVersion: "v1",
@@ -29,10 +29,10 @@ func TestGetSource(t *testing.T) {
 				Source:       "",
 			},
 			expected:    constant.ContainerSourceK8S,
-			description: "当Source字段为空时，应该返回默认的k8s",
+			description: "When Source field is empty, should return default k8s",
 		},
 		{
-			name: "Source为k8s",
+			name: "Source is k8s",
 			workload: &dbModel.GpuWorkload{
 				ID:           2,
 				GroupVersion: "v1",
@@ -43,10 +43,10 @@ func TestGetSource(t *testing.T) {
 				Source:       constant.ContainerSourceK8S,
 			},
 			expected:    constant.ContainerSourceK8S,
-			description: "Source显式设置为k8s时，应该返回k8s",
+			description: "When Source explicitly set to k8s, should return k8s",
 		},
 		{
-			name: "Source为docker",
+			name: "Source is docker",
 			workload: &dbModel.GpuWorkload{
 				ID:           3,
 				GroupVersion: "",
@@ -57,10 +57,10 @@ func TestGetSource(t *testing.T) {
 				Source:       constant.ContainerSourceDocker,
 			},
 			expected:    constant.ContainerSourceDocker,
-			description: "Source设置为docker时，应该返回docker",
+			description: "When Source set to docker, should return docker",
 		},
 		{
-			name: "Source为自定义值",
+			name: "Source is custom value",
 			workload: &dbModel.GpuWorkload{
 				ID:           4,
 				GroupVersion: "custom.io/v1",
@@ -71,10 +71,10 @@ func TestGetSource(t *testing.T) {
 				Source:       "custom-runtime",
 			},
 			expected:    "custom-runtime",
-			description: "Source为自定义值时，应该返回该自定义值",
+			description: "When Source is custom value, should return that custom value",
 		},
 		{
-			name: "Source为空格",
+			name: "Source is whitespace",
 			workload: &dbModel.GpuWorkload{
 				ID:           5,
 				GroupVersion: "v1",
@@ -85,10 +85,10 @@ func TestGetSource(t *testing.T) {
 				Source:       "   ",
 			},
 			expected:    "   ",
-			description: "Source为空格时，应该返回空格（不被视为空字符串）",
+			description: "When Source is whitespace, should return whitespace (not treated as empty string)",
 		},
 		{
-			name: "Deployment工作负载-Source为空",
+			name: "Deployment workload - Source is empty",
 			workload: &dbModel.GpuWorkload{
 				ID:           6,
 				GroupVersion: "apps/v1",
@@ -101,10 +101,10 @@ func TestGetSource(t *testing.T) {
 				Source:       "",
 			},
 			expected:    constant.ContainerSourceK8S,
-			description: "Deployment类型的工作负载，Source为空时应返回k8s",
+			description: "Deployment type workload, when Source is empty should return k8s",
 		},
 		{
-			name: "StatefulSet工作负载-Source为k8s",
+			name: "StatefulSet workload - Source is k8s",
 			workload: &dbModel.GpuWorkload{
 				ID:           7,
 				GroupVersion: "apps/v1",
@@ -117,10 +117,10 @@ func TestGetSource(t *testing.T) {
 				Source:       constant.ContainerSourceK8S,
 			},
 			expected:    constant.ContainerSourceK8S,
-			description: "StatefulSet类型的工作负载应返回k8s",
+			description: "StatefulSet type workload should return k8s",
 		},
 		{
-			name: "Job工作负载-Source为空",
+			name: "Job workload - Source is empty",
 			workload: &dbModel.GpuWorkload{
 				ID:           8,
 				GroupVersion: "batch/v1",
@@ -133,10 +133,10 @@ func TestGetSource(t *testing.T) {
 				Source:       "",
 			},
 			expected:    constant.ContainerSourceK8S,
-			description: "Job类型的工作负载，Source为空时应返回k8s",
+			description: "Job type workload, when Source is empty should return k8s",
 		},
 		{
-			name: "包含完整字段的工作负载-Source为空",
+			name: "Workload with complete fields - Source is empty",
 			workload: &dbModel.GpuWorkload{
 				ID:           9,
 				GroupVersion: "v1",
@@ -156,10 +156,10 @@ func TestGetSource(t *testing.T) {
 				Annotations:  dbModel.ExtType{},
 			},
 			expected:    constant.ContainerSourceK8S,
-			description: "包含所有字段的完整工作负载对象，Source为空时应返回k8s",
+			description: "Complete workload object with all fields, when Source is empty should return k8s",
 		},
 		{
-			name: "包含完整字段的工作负载-Source为docker",
+			name: "Workload with complete fields - Source is docker",
 			workload: &dbModel.GpuWorkload{
 				ID:           10,
 				GroupVersion: "",
@@ -179,7 +179,7 @@ func TestGetSource(t *testing.T) {
 				Annotations:  dbModel.ExtType{},
 			},
 			expected:    constant.ContainerSourceDocker,
-			description: "完整的Docker容器工作负载应返回docker",
+			description: "Complete Docker container workload should return docker",
 		},
 	}
 
@@ -192,14 +192,14 @@ func TestGetSource(t *testing.T) {
 }
 
 func TestGetSource_EdgeCases(t *testing.T) {
-	t.Run("nil工作负载-应该panic", func(t *testing.T) {
-		// 当传入nil时，函数会panic，因为会尝试访问nil的字段
+	t.Run("nil workload - should panic", func(t *testing.T) {
+		// When passing nil, the function will panic because it tries to access nil's fields
 		assert.Panics(t, func() {
 			getSource(nil)
-		}, "传入nil应该会panic")
+		}, "Passing nil should panic")
 	})
 
-	t.Run("最小化工作负载对象-只有Source字段", func(t *testing.T) {
+	t.Run("minimal workload object - only Source field", func(t *testing.T) {
 		workload := &dbModel.GpuWorkload{
 			Source: "test-source",
 		}
@@ -207,7 +207,7 @@ func TestGetSource_EdgeCases(t *testing.T) {
 		assert.Equal(t, "test-source", result)
 	})
 
-	t.Run("最小化工作负载对象-Source为空", func(t *testing.T) {
+	t.Run("minimal workload object - Source is empty", func(t *testing.T) {
 		workload := &dbModel.GpuWorkload{
 			Source: "",
 		}
@@ -215,7 +215,7 @@ func TestGetSource_EdgeCases(t *testing.T) {
 		assert.Equal(t, constant.ContainerSourceK8S, result)
 	})
 
-	t.Run("Source为特殊字符", func(t *testing.T) {
+	t.Run("Source with special characters", func(t *testing.T) {
 		specialSources := []string{
 			"k8s-v2",
 			"docker-compose",
@@ -227,7 +227,7 @@ func TestGetSource_EdgeCases(t *testing.T) {
 			"custom/runtime",
 			"runtime@v1",
 			"runtime:latest",
-			"运行时",           // 中文
+			"运行时",           // Chinese characters
 			"🐳",             // emoji
 			"source\nwith\nnewline",
 			"source\twith\ttab",
@@ -239,14 +239,14 @@ func TestGetSource_EdgeCases(t *testing.T) {
 					Source: source,
 				}
 				result := getSource(workload)
-				assert.Equal(t, source, result, "应该原样返回Source字段")
+				assert.Equal(t, source, result, "Should return Source field as-is")
 			})
 		}
 	})
 }
 
 func TestGetSource_BusinessScenarios(t *testing.T) {
-	t.Run("K8s Pod场景", func(t *testing.T) {
+	t.Run("K8s Pod scenarios", func(t *testing.T) {
 		scenarios := []struct {
 			name        string
 			kind        string
@@ -254,10 +254,10 @@ func TestGetSource_BusinessScenarios(t *testing.T) {
 			source      string
 			expected    string
 		}{
-			{"标准Pod", "Pod", "default", "", constant.ContainerSourceK8S},
-			{"训练Pod", "Pod", "ml-training", "", constant.ContainerSourceK8S},
-			{"系统Pod", "Pod", "kube-system", "", constant.ContainerSourceK8S},
-			{"显式k8s Pod", "Pod", "default", constant.ContainerSourceK8S, constant.ContainerSourceK8S},
+			{"standard Pod", "Pod", "default", "", constant.ContainerSourceK8S},
+			{"training Pod", "Pod", "ml-training", "", constant.ContainerSourceK8S},
+			{"system Pod", "Pod", "kube-system", "", constant.ContainerSourceK8S},
+			{"explicit k8s Pod", "Pod", "default", constant.ContainerSourceK8S, constant.ContainerSourceK8S},
 		}
 
 		for _, scenario := range scenarios {
@@ -273,7 +273,7 @@ func TestGetSource_BusinessScenarios(t *testing.T) {
 		}
 	})
 
-	t.Run("Docker容器场景", func(t *testing.T) {
+	t.Run("Docker container scenarios", func(t *testing.T) {
 		workload := &dbModel.GpuWorkload{
 			Kind:      "Container",
 			Namespace: "",
@@ -284,7 +284,7 @@ func TestGetSource_BusinessScenarios(t *testing.T) {
 		assert.Equal(t, constant.ContainerSourceDocker, result)
 	})
 
-	t.Run("混合环境场景", func(t *testing.T) {
+	t.Run("mixed environment scenarios", func(t *testing.T) {
 		workloads := []*dbModel.GpuWorkload{
 			{Name: "k8s-pod-1", Source: ""},
 			{Name: "k8s-pod-2", Source: constant.ContainerSourceK8S},
@@ -301,20 +301,20 @@ func TestGetSource_BusinessScenarios(t *testing.T) {
 
 		for i, workload := range workloads {
 			result := getSource(workload)
-			assert.Equal(t, expected[i], result, "工作负载 %s 的Source应该是 %s", workload.Name, expected[i])
+			assert.Equal(t, expected[i], result, "Workload %s Source should be %s", workload.Name, expected[i])
 		}
 	})
 }
 
 func TestGetSource_Consistency(t *testing.T) {
-	t.Run("多次调用返回一致结果", func(t *testing.T) {
+	t.Run("multiple calls return consistent results", func(t *testing.T) {
 		workload := &dbModel.GpuWorkload{
 			ID:     1,
 			Name:   "test-pod",
 			Source: "",
 		}
 
-		// 多次调用应该返回相同的结果
+		// Multiple calls should return the same result
 		result1 := getSource(workload)
 		result2 := getSource(workload)
 		result3 := getSource(workload)
@@ -324,7 +324,7 @@ func TestGetSource_Consistency(t *testing.T) {
 		assert.Equal(t, constant.ContainerSourceK8S, result1)
 	})
 
-	t.Run("修改Source后返回新值", func(t *testing.T) {
+	t.Run("returns new value after modifying Source", func(t *testing.T) {
 		workload := &dbModel.GpuWorkload{
 			ID:     1,
 			Name:   "test-pod",
@@ -334,12 +334,12 @@ func TestGetSource_Consistency(t *testing.T) {
 		result1 := getSource(workload)
 		assert.Equal(t, constant.ContainerSourceK8S, result1)
 
-		// 修改Source
+		// Modify Source
 		workload.Source = constant.ContainerSourceDocker
 		result2 := getSource(workload)
 		assert.Equal(t, constant.ContainerSourceDocker, result2)
 
-		// 再次修改
+		// Modify again
 		workload.Source = "custom"
 		result3 := getSource(workload)
 		assert.Equal(t, "custom", result3)

@@ -9,7 +9,7 @@ import (
 )
 
 func TestNodeReady(t *testing.T) {
-	t.Run("节点就绪", func(t *testing.T) {
+	t.Run("node ready", func(t *testing.T) {
 		node := corev1.Node{
 			Status: corev1.NodeStatus{
 				Conditions: []corev1.NodeCondition{
@@ -25,7 +25,7 @@ func TestNodeReady(t *testing.T) {
 		assert.True(t, result)
 	})
 
-	t.Run("节点未就绪", func(t *testing.T) {
+	t.Run("node not ready", func(t *testing.T) {
 		node := corev1.Node{
 			Status: corev1.NodeStatus{
 				Conditions: []corev1.NodeCondition{
@@ -41,7 +41,7 @@ func TestNodeReady(t *testing.T) {
 		assert.False(t, result)
 	})
 
-	t.Run("节点状态未知", func(t *testing.T) {
+	t.Run("node status unknown", func(t *testing.T) {
 		node := corev1.Node{
 			Status: corev1.NodeStatus{
 				Conditions: []corev1.NodeCondition{
@@ -57,7 +57,7 @@ func TestNodeReady(t *testing.T) {
 		assert.False(t, result)
 	})
 
-	t.Run("无就绪状态条件", func(t *testing.T) {
+	t.Run("no ready condition", func(t *testing.T) {
 		node := corev1.Node{
 			Status: corev1.NodeStatus{
 				Conditions: []corev1.NodeCondition{
@@ -73,7 +73,7 @@ func TestNodeReady(t *testing.T) {
 		assert.False(t, result)
 	})
 
-	t.Run("空条件列表", func(t *testing.T) {
+	t.Run("empty conditions list", func(t *testing.T) {
 		node := corev1.Node{
 			Status: corev1.NodeStatus{
 				Conditions: []corev1.NodeCondition{},
@@ -84,7 +84,7 @@ func TestNodeReady(t *testing.T) {
 		assert.False(t, result)
 	})
 
-	t.Run("多个条件但只有Ready为True", func(t *testing.T) {
+	t.Run("multiple conditions but only Ready is True", func(t *testing.T) {
 		node := corev1.Node{
 			Status: corev1.NodeStatus{
 				Conditions: []corev1.NodeCondition{
@@ -110,7 +110,7 @@ func TestNodeReady(t *testing.T) {
 }
 
 func TestNodeStatus(t *testing.T) {
-	t.Run("节点状态为Ready", func(t *testing.T) {
+	t.Run("node status is Ready", func(t *testing.T) {
 		node := corev1.Node{
 			Status: corev1.NodeStatus{
 				Conditions: []corev1.NodeCondition{
@@ -126,7 +126,7 @@ func TestNodeStatus(t *testing.T) {
 		assert.Equal(t, NodeStatusReady, status)
 	})
 
-	t.Run("节点状态为NotReady", func(t *testing.T) {
+	t.Run("node status is NotReady", func(t *testing.T) {
 		node := corev1.Node{
 			Status: corev1.NodeStatus{
 				Conditions: []corev1.NodeCondition{
@@ -142,7 +142,7 @@ func TestNodeStatus(t *testing.T) {
 		assert.Equal(t, NodeStatusNotReady, status)
 	})
 
-	t.Run("节点状态为Unknown", func(t *testing.T) {
+	t.Run("node status is Unknown", func(t *testing.T) {
 		node := corev1.Node{
 			Status: corev1.NodeStatus{
 				Conditions: []corev1.NodeCondition{
@@ -158,7 +158,7 @@ func TestNodeStatus(t *testing.T) {
 		assert.Equal(t, NodeStatusUnknown, status)
 	})
 
-	t.Run("无就绪状态条件返回Unknown", func(t *testing.T) {
+	t.Run("no ready condition returns Unknown", func(t *testing.T) {
 		node := corev1.Node{
 			Status: corev1.NodeStatus{
 				Conditions: []corev1.NodeCondition{
@@ -174,7 +174,7 @@ func TestNodeStatus(t *testing.T) {
 		assert.Equal(t, NodeStatusUnknown, status)
 	})
 
-	t.Run("空条件列表返回Unknown", func(t *testing.T) {
+	t.Run("empty conditions list returns Unknown", func(t *testing.T) {
 		node := corev1.Node{
 			Status: corev1.NodeStatus{
 				Conditions: []corev1.NodeCondition{},
@@ -185,7 +185,7 @@ func TestNodeStatus(t *testing.T) {
 		assert.Equal(t, NodeStatusUnknown, status)
 	})
 
-	t.Run("验证常量值", func(t *testing.T) {
+	t.Run("verify constant values", func(t *testing.T) {
 		assert.Equal(t, "Ready", NodeStatusReady)
 		assert.Equal(t, "NotReady", NodeStatusNotReady)
 		assert.Equal(t, "Unknown", NodeStatusUnknown)
@@ -193,7 +193,7 @@ func TestNodeStatus(t *testing.T) {
 }
 
 func TestNodeStatusComprehensive(t *testing.T) {
-	t.Run("完整的节点对象", func(t *testing.T) {
+	t.Run("complete node object", func(t *testing.T) {
 		node := corev1.Node{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "test-node",
@@ -232,7 +232,7 @@ func TestNodeStatusComprehensive(t *testing.T) {
 		assert.Equal(t, NodeStatusReady, NodeStatus(node))
 	})
 
-	t.Run("有问题的节点", func(t *testing.T) {
+	t.Run("problematic node", func(t *testing.T) {
 		node := corev1.Node{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "problematic-node",

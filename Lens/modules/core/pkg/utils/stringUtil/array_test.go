@@ -14,43 +14,43 @@ func TestIn(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "字符串存在于列表中",
+			name:     "string exists in list",
 			s:        "apple",
 			strs:     []string{"apple", "banana", "orange"},
 			expected: true,
 		},
 		{
-			name:     "字符串不存在于列表中",
+			name:     "string does not exist in list",
 			s:        "grape",
 			strs:     []string{"apple", "banana", "orange"},
 			expected: false,
 		},
 		{
-			name:     "空列表",
+			name:     "empty list",
 			s:        "apple",
 			strs:     []string{},
 			expected: false,
 		},
 		{
-			name:     "空字符串存在于列表中",
+			name:     "empty string exists in list",
 			s:        "",
 			strs:     []string{"", "apple"},
 			expected: true,
 		},
 		{
-			name:     "空字符串不存在于列表中",
+			name:     "empty string does not exist in list",
 			s:        "",
 			strs:     []string{"apple", "banana"},
 			expected: false,
 		},
 		{
-			name:     "单个元素列表-匹配",
+			name:     "single element list - match",
 			s:        "apple",
 			strs:     []string{"apple"},
 			expected: true,
 		},
 		{
-			name:     "单个元素列表-不匹配",
+			name:     "single element list - no match",
 			s:        "banana",
 			strs:     []string{"apple"},
 			expected: false,
@@ -73,43 +73,43 @@ func TestSliceEqual(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "两个相同的列表",
+			name:     "two identical lists",
 			s1:       []string{"apple", "banana", "orange"},
 			s2:       []string{"apple", "banana", "orange"},
 			expected: true,
 		},
 		{
-			name:     "两个相同元素但顺序不同的列表",
+			name:     "two lists with same elements but different order",
 			s1:       []string{"apple", "banana", "orange"},
 			s2:       []string{"orange", "banana", "apple"},
 			expected: true,
 		},
 		{
-			name:     "长度不同的列表",
+			name:     "lists with different lengths",
 			s1:       []string{"apple", "banana"},
 			s2:       []string{"apple", "banana", "orange"},
 			expected: false,
 		},
 		{
-			name:     "元素不同的列表",
+			name:     "lists with different elements",
 			s1:       []string{"apple", "banana"},
 			s2:       []string{"apple", "grape"},
 			expected: false,
 		},
 		{
-			name:     "两个空列表",
+			name:     "two empty lists",
 			s1:       []string{},
 			s2:       []string{},
 			expected: true,
 		},
 		{
-			name:     "一个空列表和一个非空列表",
+			name:     "one empty list and one non-empty list",
 			s1:       []string{},
 			s2:       []string{"apple"},
 			expected: false,
 		},
 		{
-			name:     "包含重复元素的列表",
+			name:     "list with duplicate elements",
 			s1:       []string{"apple", "apple", "banana"},
 			s2:       []string{"apple", "banana"},
 			expected: false,
@@ -132,43 +132,43 @@ func TestIsSubset(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "a是b的子集",
+			name:     "a is subset of b",
 			a:        []string{"apple", "banana"},
 			b:        []string{"apple", "banana", "orange", "grape"},
 			expected: true,
 		},
 		{
-			name:     "a不是b的子集",
+			name:     "a is not subset of b",
 			a:        []string{"apple", "mango"},
 			b:        []string{"apple", "banana", "orange"},
 			expected: false,
 		},
 		{
-			name:     "a和b相同",
+			name:     "a and b are identical",
 			a:        []string{"apple", "banana"},
 			b:        []string{"apple", "banana"},
 			expected: true,
 		},
 		{
-			name:     "a为空集",
+			name:     "a is empty set",
 			a:        []string{},
 			b:        []string{"apple", "banana"},
 			expected: true,
 		},
 		{
-			name:     "b为空集但a不为空",
+			name:     "b is empty but a is not",
 			a:        []string{"apple"},
 			b:        []string{},
 			expected: false,
 		},
 		{
-			name:     "a和b都为空",
+			name:     "both a and b are empty",
 			a:        []string{},
 			b:        []string{},
 			expected: true,
 		},
 		{
-			name:     "a包含重复元素都在b中",
+			name:     "a contains duplicate elements all in b",
 			a:        []string{"apple", "apple"},
 			b:        []string{"apple", "banana"},
 			expected: true,

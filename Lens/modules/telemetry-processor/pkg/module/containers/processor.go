@@ -69,9 +69,9 @@ func processK8sContainerEvent(ctx context.Context, req *ContainerEventRequest) e
 	}
 
 	// Create or update container record
-	// 如果容器不存在（nil）或者 ID 为 0（空对象），需要设置所有字段
+	// If container doesn't exist (nil) or ID is 0 (empty object), need to set all fields
 	if existContainer == nil || existContainer.ID == 0 {
-		// 如果是 nil，创建新对象；如果 ID=0，重新设置所有字段
+		// If nil, create new object; if ID=0, reset all fields
 		if existContainer == nil {
 			existContainer = &dbModel.NodeContainer{}
 		}

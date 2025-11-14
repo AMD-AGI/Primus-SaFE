@@ -10,21 +10,21 @@ import (
 )
 
 func TestNewCache(t *testing.T) {
-	t.Run("创建缓存-使用默认过期时间", func(t *testing.T) {
+	t.Run("create cache - use default expiration time", func(t *testing.T) {
 		cache := NewCache[string](nil, 0)
 		assert.NotNil(t, cache)
 		assert.NotNil(t, cache.Items)
-		assert.Equal(t, time.Duration(0), cache.defaultExpire) // 传入0时，defaultExpire为0
+		assert.Equal(t, time.Duration(0), cache.defaultExpire) // when passing 0, defaultExpire is 0
 	})
 
-	t.Run("创建缓存-自定义过期时间", func(t *testing.T) {
+	t.Run("create cache - custom expiration time", func(t *testing.T) {
 		customExpire := 10 * time.Second
 		cache := NewCache[int](nil, customExpire)
 		assert.NotNil(t, cache)
 		assert.Equal(t, customExpire, cache.defaultExpire)
 	})
 
-	t.Run("创建缓存-带过期回调", func(t *testing.T) {
+	t.Run("create cache - with expiration callback", func(t *testing.T) {
 		called := false
 		callback := func(key string, value string) {
 			called = true
@@ -33,18 +33,18 @@ func TestNewCache(t *testing.T) {
 		assert.NotNil(t, cache)
 		assert.NotNil(t, cache.expireCallback)
 		
-		// 验证回调未被调用
+		// verify callback is not called
 		assert.False(t, called)
 	})
 
-	t.Run("创建缓存-负数过期时间不使用", func(t *testing.T) {
+	t.Run("create cache - negative expiration time not used", func(t *testing.T) {
 		cache := NewCache[string](nil, -1*time.Second)
-		assert.Equal(t, defaultDuration, cache.defaultExpire) // 负数时使用defaultDuration
+		assert.Equal(t, defaultDuration, cache.defaultExpire) // use defaultDuration when negative
 	})
 }
 
 func TestCache_SetAndGet(t *testing.T) {
-	t.Run("Set和Get-基本功能", func(t *testing.T) {
+	t.Run("Set and Get - basic functionality", func(t *testing.T) {
 		cache := NewCache[string](nil, time.Hour)
 		
 		cache.Set("key1", "value1", time.Hour)
@@ -54,7 +54,7 @@ func TestCache_SetAndGet(t *testing.T) {
 		assert.Equal(t, "value1", value)
 	})
 
-	t.Run("Get-不存在的键", func(t *testing.T) {
+	t.Run("Get - non-existent key", func(t *testing.T) {
 		cache := NewCache[string](nil, time.Hour)
 		
 		value, ok := cache.Get("non-existent")
@@ -62,7 +62,7 @@ func TestCache_SetAndGet(t *testing.T) {
 		assert.Equal(t, "", value)
 	})
 
-	t.Run("Set-覆盖已存在的键", func(t *testing.T) {
+	t.Run("Set - overwrite existing key", func(t *testing.T) {
 		cache := NewCache[int](nil, time.Hour)
 		
 		cache.Set("counter", 1, time.Hour)
@@ -73,7 +73,7 @@ func TestCache_SetAndGet(t *testing.T) {
 		assert.Equal(t, 2, value)
 	})
 
-	t.Run("Set-使用零值过期时间（应使用默认）", func(t *testing.T) {
+	t.Run("Set - use zero expiration time (should use default)", func(t *testing.T) {
 		cache := NewCache[string](nil, time.Hour)
 		
 		cache.Set("key", "value", 0)
@@ -83,22 +83,22 @@ func TestCache_SetAndGet(t *testing.T) {
 		assert.Equal(t, "value", value)
 	})
 
-	t.Run("不同类型的值", func(t *testing.T) {
-		// string类型
+	t.Run("different value types", func(t *testing.T) {
+		// string type
 		cacheStr := NewCache[string](nil, time.Hour)
 		cacheStr.Set("k", "v", time.Hour)
 		v1, ok := cacheStr.Get("k")
 		assert.True(t, ok)
 		assert.Equal(t, "v", v1)
 
-		// int类型
+		// int type
 		cacheInt := NewCache[int](nil, time.Hour)
 		cacheInt.Set("k", 42, time.Hour)
 		v2, ok := cacheInt.Get("k")
 		assert.True(t, ok)
 		assert.Equal(t, 42, v2)
 
-		// struct类型
+		// struct type
 		type TestStruct struct {
 			Name string
 			Age  int
@@ -113,32 +113,32 @@ func TestCache_SetAndGet(t *testing.T) {
 }
 
 func TestCache_Expiration(t *testing.T) {
-	t.Run("过期的项不可获取", func(t *testing.T) {
+	t.Run("expired items cannot be retrieved", func(t *testing.T) {
 		cache := NewCache[string](nil, time.Hour)
 		
 		cache.Set("key", "value", 50*time.Millisecond)
 		
-		// 立即获取应该成功
+		// immediate get should succeed
 		value, ok := cache.Get("key")
 		assert.True(t, ok)
 		assert.Equal(t, "value", value)
 		
-		// 等待过期
+		// wait for expiration
 		time.Sleep(100 * time.Millisecond)
 		
-		// 获取应该失败
+		// get should fail
 		_, ok = cache.Get("key")
 		assert.False(t, ok)
 	})
 
-	t.Run("永不过期（defaultExpire<=0）", func(t *testing.T) {
-		cache := NewCache[string](nil, 0) // defaultExpire为0
+	t.Run("never expire (defaultExpire<=0)", func(t *testing.T) {
+		cache := NewCache[string](nil, 0) // defaultExpire is 0
 		
-		cache.Set("key", "value", time.Hour) // 显式设置较长的过期时间
+		cache.Set("key", "value", time.Hour) // explicitly set long expiration time
 		
 		time.Sleep(10 * time.Millisecond)
 		
-		// 由于设置了较长的过期时间，不会过期
+		// will not expire because long expiration time was set
 		value, ok := cache.Get("key")
 		assert.True(t, ok)
 		assert.Equal(t, "value", value)
@@ -146,7 +146,7 @@ func TestCache_Expiration(t *testing.T) {
 }
 
 func TestCache_Delete(t *testing.T) {
-	t.Run("删除存在的项", func(t *testing.T) {
+	t.Run("delete existing item", func(t *testing.T) {
 		cache := NewCache[string](nil, time.Hour)
 		
 		cache.Set("key", "value", time.Hour)
@@ -156,10 +156,10 @@ func TestCache_Delete(t *testing.T) {
 		assert.False(t, ok)
 	})
 
-	t.Run("删除不存在的项", func(t *testing.T) {
+	t.Run("delete non-existent item", func(t *testing.T) {
 		cache := NewCache[string](nil, time.Hour)
 		
-		// 不应该panic
+		// should not panic
 		cache.Delete("non-existent")
 		
 		assert.Equal(t, 0, cache.Len())
@@ -167,12 +167,12 @@ func TestCache_Delete(t *testing.T) {
 }
 
 func TestCache_Len(t *testing.T) {
-	t.Run("Len-空缓存", func(t *testing.T) {
+	t.Run("Len - empty cache", func(t *testing.T) {
 		cache := NewCache[string](nil, time.Hour)
 		assert.Equal(t, 0, cache.Len())
 	})
 
-	t.Run("Len-添加项后", func(t *testing.T) {
+	t.Run("Len - after adding items", func(t *testing.T) {
 		cache := NewCache[string](nil, time.Hour)
 		
 		cache.Set("key1", "value1", time.Hour)
@@ -185,7 +185,7 @@ func TestCache_Len(t *testing.T) {
 		assert.Equal(t, 3, cache.Len())
 	})
 
-	t.Run("Len-删除项后", func(t *testing.T) {
+	t.Run("Len - after deleting items", func(t *testing.T) {
 		cache := NewCache[string](nil, time.Hour)
 		
 		cache.Set("key1", "value1", time.Hour)
@@ -198,7 +198,7 @@ func TestCache_Len(t *testing.T) {
 }
 
 func TestCache_Upsert(t *testing.T) {
-	t.Run("Upsert-插入新项", func(t *testing.T) {
+	t.Run("Upsert - insert new item", func(t *testing.T) {
 		cache := NewCache[int](nil, time.Hour)
 		
 		cache.Upsert("counter", func(old Item[int]) Item[int] {
@@ -210,7 +210,7 @@ func TestCache_Upsert(t *testing.T) {
 		assert.Equal(t, 1, value)
 	})
 
-	t.Run("Upsert-更新已存在的项", func(t *testing.T) {
+	t.Run("Upsert - update existing item", func(t *testing.T) {
 		cache := NewCache[int](nil, time.Hour)
 		
 		cache.Set("counter", 5, time.Hour)
@@ -224,7 +224,7 @@ func TestCache_Upsert(t *testing.T) {
 		assert.Equal(t, 6, value)
 	})
 
-	t.Run("Upsert-多次递增", func(t *testing.T) {
+	t.Run("Upsert - multiple increments", func(t *testing.T) {
 		cache := NewCache[int](nil, time.Hour)
 		
 		for i := 0; i < 10; i++ {
@@ -238,21 +238,21 @@ func TestCache_Upsert(t *testing.T) {
 		assert.Equal(t, 10, value)
 	})
 
-	t.Run("Upsert-刷新过期时间", func(t *testing.T) {
+	t.Run("Upsert - refresh expiration time", func(t *testing.T) {
 		cache := NewCache[int](nil, 100*time.Millisecond)
 		
 		cache.Set("key", 1, 50*time.Millisecond)
 		
 		time.Sleep(30 * time.Millisecond)
 		
-		// Upsert 会刷新过期时间
+		// Upsert will refresh expiration time
 		cache.Upsert("key", func(old Item[int]) Item[int] {
 			return Item[int]{Value: old.Value + 1}
 		})
 		
 		time.Sleep(60 * time.Millisecond)
 		
-		// 由于Upsert刷新了过期时间，项应该仍然存在
+		// item should still exist because Upsert refreshed the expiration time
 		value, ok := cache.Get("key")
 		assert.True(t, ok)
 		assert.Equal(t, 2, value)
@@ -260,7 +260,7 @@ func TestCache_Upsert(t *testing.T) {
 }
 
 func TestCache_Range(t *testing.T) {
-	t.Run("Range-遍历所有项", func(t *testing.T) {
+	t.Run("Range - iterate all items", func(t *testing.T) {
 		cache := NewCache[int](nil, time.Hour)
 		
 		cache.Set("a", 1, time.Hour)
@@ -279,7 +279,7 @@ func TestCache_Range(t *testing.T) {
 		assert.Equal(t, 3, visited["c"])
 	})
 
-	t.Run("Range-提前终止遍历", func(t *testing.T) {
+	t.Run("Range - early termination", func(t *testing.T) {
 		cache := NewCache[int](nil, time.Hour)
 		
 		cache.Set("a", 1, time.Hour)
@@ -289,13 +289,13 @@ func TestCache_Range(t *testing.T) {
 		count := 0
 		cache.Range(func(key string, value int) bool {
 			count++
-			return count < 2 // 只遍历2个项
+			return count < 2 // only iterate 2 items
 		})
 		
 		assert.Equal(t, 2, count)
 	})
 
-	t.Run("Range-自动清理过期项", func(t *testing.T) {
+	t.Run("Range - auto cleanup expired items", func(t *testing.T) {
 		callbackCount := 0
 		cache := NewCache[string](func(key string, value string) {
 			callbackCount++
@@ -312,18 +312,18 @@ func TestCache_Range(t *testing.T) {
 			return true
 		})
 		
-		// 只应该访问未过期的项
+		// should only visit non-expired items
 		assert.Equal(t, 1, len(visited))
 		assert.Equal(t, "value1", visited["active"])
 		
-		// 过期回调应该被调用
+		// expiration callback should be called
 		assert.Equal(t, 1, callbackCount)
 		
-		// 过期项应该被从缓存中删除
+		// expired items should be removed from cache
 		assert.Equal(t, 1, cache.Len())
 	})
 
-	t.Run("Range-空缓存", func(t *testing.T) {
+	t.Run("Range - empty cache", func(t *testing.T) {
 		cache := NewCache[int](nil, time.Hour)
 		
 		count := 0
@@ -337,14 +337,14 @@ func TestCache_Range(t *testing.T) {
 }
 
 func TestCache_ConcurrentAccess(t *testing.T) {
-	t.Run("并发Set和Get", func(t *testing.T) {
+	t.Run("concurrent Set and Get", func(t *testing.T) {
 		cache := NewCache[int](nil, time.Hour)
 		
 		var wg sync.WaitGroup
 		numGoroutines := 100
 		numOperations := 1000
 		
-		// 并发写入
+		// concurrent writes
 		for i := 0; i < numGoroutines; i++ {
 			wg.Add(1)
 			go func(id int) {
@@ -355,7 +355,7 @@ func TestCache_ConcurrentAccess(t *testing.T) {
 			}(i)
 		}
 		
-		// 并发读取
+		// concurrent reads
 		for i := 0; i < numGoroutines; i++ {
 			wg.Add(1)
 			go func(id int) {
@@ -368,11 +368,11 @@ func TestCache_ConcurrentAccess(t *testing.T) {
 		
 		wg.Wait()
 		
-		// 验证所有键都被写入
+		// verify all keys were written
 		assert.Equal(t, numGoroutines, cache.Len())
 	})
 
-	t.Run("并发Upsert", func(t *testing.T) {
+	t.Run("concurrent Upsert", func(t *testing.T) {
 		cache := NewCache[int](nil, time.Hour)
 		
 		var wg sync.WaitGroup
@@ -397,17 +397,17 @@ func TestCache_ConcurrentAccess(t *testing.T) {
 		assert.Equal(t, numGoroutines, value)
 	})
 
-	t.Run("并发Range和Delete", func(t *testing.T) {
+	t.Run("concurrent Range and Delete", func(t *testing.T) {
 		cache := NewCache[int](nil, time.Hour)
 		
-		// 预先填充数据
+		// pre-populate data
 		for i := 0; i < 100; i++ {
 			cache.Set(fmt.Sprintf("key-%d", i), i, time.Hour)
 		}
 		
 		var wg sync.WaitGroup
 		
-		// 并发Range
+		// concurrent Range
 		for i := 0; i < 10; i++ {
 			wg.Add(1)
 			go func() {
@@ -418,7 +418,7 @@ func TestCache_ConcurrentAccess(t *testing.T) {
 			}()
 		}
 		
-		// 并发Delete
+		// concurrent Delete
 		for i := 0; i < 50; i++ {
 			wg.Add(1)
 			go func(id int) {
@@ -429,13 +429,13 @@ func TestCache_ConcurrentAccess(t *testing.T) {
 		
 		wg.Wait()
 		
-		// 应该剩余50个项
+		// should have 50 items remaining
 		assert.Equal(t, 50, cache.Len())
 	})
 }
 
 func TestCache_ExpireCallback(t *testing.T) {
-	t.Run("过期回调被正确调用", func(t *testing.T) {
+	t.Run("expiration callback is correctly invoked", func(t *testing.T) {
 		expiredKeys := make([]string, 0)
 		expiredValues := make([]string, 0)
 		var mu sync.Mutex
@@ -454,7 +454,7 @@ func TestCache_ExpireCallback(t *testing.T) {
 		
 		time.Sleep(60 * time.Millisecond)
 		
-		// 触发Range来清理过期项
+		// trigger Range to cleanup expired items
 		cache.Range(func(key string, value string) bool {
 			return true
 		})
@@ -466,14 +466,14 @@ func TestCache_ExpireCallback(t *testing.T) {
 		mu.Unlock()
 	})
 
-	t.Run("无过期回调时不会panic", func(t *testing.T) {
+	t.Run("no panic when no expiration callback", func(t *testing.T) {
 		cache := NewCache[string](nil, 50*time.Millisecond)
 		
 		cache.Set("key", "value", 30*time.Millisecond)
 		
 		time.Sleep(60 * time.Millisecond)
 		
-		// 不应该panic
+		// should not panic
 		cache.Range(func(key string, value string) bool {
 			return true
 		})

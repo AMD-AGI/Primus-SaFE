@@ -9,7 +9,7 @@ import (
 )
 
 func TestSafeGoroutine(t *testing.T) {
-	t.Run("正常执行", func(t *testing.T) {
+	t.Run("normal execution", func(t *testing.T) {
 		executed := false
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -23,7 +23,7 @@ func TestSafeGoroutine(t *testing.T) {
 		assert.True(t, executed)
 	})
 
-	t.Run("捕获panic", func(t *testing.T) {
+	t.Run("capture panic", func(t *testing.T) {
 		recovered := false
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -34,21 +34,21 @@ func TestSafeGoroutine(t *testing.T) {
 
 		SafeGoroutine(func() {
 			defer wg.Done()
-			panic("测试panic")
+			panic("test panic")
 		}, callback)
 
 		wg.Wait()
 		assert.True(t, recovered)
 	})
 
-	t.Run("不带回调的panic捕获", func(t *testing.T) {
+	t.Run("panic capture without callback", func(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(1)
 
 		assert.NotPanics(t, func() {
 			SafeGoroutine(func() {
 				defer wg.Done()
-				panic("测试panic")
+				panic("test panic")
 			})
 		})
 
@@ -57,7 +57,7 @@ func TestSafeGoroutine(t *testing.T) {
 }
 
 func TestRunGoroutineWithLog(t *testing.T) {
-	t.Run("在goroutine中正常执行", func(t *testing.T) {
+	t.Run("normal execution in goroutine", func(t *testing.T) {
 		executed := false
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -71,14 +71,14 @@ func TestRunGoroutineWithLog(t *testing.T) {
 		assert.True(t, executed)
 	})
 
-	t.Run("在goroutine中捕获panic", func(t *testing.T) {
+	t.Run("capture panic in goroutine", func(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Add(1)
 
 		assert.NotPanics(t, func() {
 			RunGoroutineWithLog(func() {
 				defer wg.Done()
-				panic("测试panic")
+				panic("test panic")
 			})
 		})
 
@@ -87,20 +87,20 @@ func TestRunGoroutineWithLog(t *testing.T) {
 }
 
 func TestSafeGoroutineWithLog(t *testing.T) {
-	t.Run("正常执行", func(t *testing.T) {
+	t.Run("normal execution", func(t *testing.T) {
 		executed := false
 		SafeGoroutineWithLog(func() {
 			executed = true
 		})
-		// 给一点时间让goroutine执行
+		// give some time for goroutine to execute
 		time.Sleep(10 * time.Millisecond)
 		assert.True(t, executed)
 	})
 
-	t.Run("捕获panic", func(t *testing.T) {
+	t.Run("capture panic", func(t *testing.T) {
 		assert.NotPanics(t, func() {
 			SafeGoroutineWithLog(func() {
-				panic("测试panic")
+				panic("test panic")
 			})
 			time.Sleep(10 * time.Millisecond)
 		})
@@ -108,7 +108,7 @@ func TestSafeGoroutineWithLog(t *testing.T) {
 }
 
 func TestRecovery(t *testing.T) {
-	t.Run("没有panic时不调用回调", func(t *testing.T) {
+	t.Run("callback not called when no panic", func(t *testing.T) {
 		callbackCalled := false
 		callback := func(r interface{}) {
 			callbackCalled = true
@@ -116,13 +116,13 @@ func TestRecovery(t *testing.T) {
 
 		func() {
 			defer Recovery(callback)
-			// 正常执行
+			// normal execution
 		}()
 
 		assert.False(t, callbackCalled)
 	})
 
-	t.Run("panic时调用回调", func(t *testing.T) {
+	t.Run("callback called on panic", func(t *testing.T) {
 		callbackCalled := false
 		var panicValue interface{}
 		callback := func(r interface{}) {
@@ -132,14 +132,14 @@ func TestRecovery(t *testing.T) {
 
 		func() {
 			defer Recovery(callback)
-			panic("测试panic")
+			panic("test panic")
 		}()
 
 		assert.True(t, callbackCalled)
-		assert.Equal(t, "测试panic", panicValue)
+		assert.Equal(t, "test panic", panicValue)
 	})
 
-	t.Run("多个回调都被调用", func(t *testing.T) {
+	t.Run("all callbacks are called", func(t *testing.T) {
 		callback1Called := false
 		callback2Called := false
 
@@ -152,21 +152,21 @@ func TestRecovery(t *testing.T) {
 
 		func() {
 			defer Recovery(callback1, callback2)
-			panic("测试panic")
+			panic("test panic")
 		}()
 
 		assert.True(t, callback1Called)
 		assert.True(t, callback2Called)
 	})
 
-	t.Run("没有回调时使用默认日志", func(t *testing.T) {
+	t.Run("use default logging when no callback", func(t *testing.T) {
 		assert.NotPanics(t, func() {
 			defer Recovery()
-			panic("测试panic")
+			panic("test panic")
 		})
 	})
 
-	t.Run("nil回调被跳过", func(t *testing.T) {
+	t.Run("nil callbacks are skipped", func(t *testing.T) {
 		callbackCalled := false
 		callback := func(r interface{}) {
 			callbackCalled = true
@@ -174,10 +174,9 @@ func TestRecovery(t *testing.T) {
 
 		func() {
 			defer Recovery(nil, callback, nil)
-			panic("测试panic")
+			panic("test panic")
 		}()
 
 		assert.True(t, callbackCalled)
 	})
 }
-

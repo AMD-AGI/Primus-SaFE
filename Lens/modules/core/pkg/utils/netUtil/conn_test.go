@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockConn 是一个模拟的网络连接
+// mockConn is a mock network connection
 type mockConn struct {
 	readData    []byte
 	readPos     int
@@ -72,7 +72,7 @@ func (m *mockConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-// mockTimeoutError 模拟超时错误
+// mockTimeoutError simulates timeout error
 type mockTimeoutError struct{}
 
 func (e *mockTimeoutError) Error() string   { return "timeout" }
@@ -80,7 +80,7 @@ func (e *mockTimeoutError) Timeout() bool   { return true }
 func (e *mockTimeoutError) Temporary() bool { return true }
 
 func TestStatConnRead(t *testing.T) {
-	t.Run("成功读取数据", func(t *testing.T) {
+	t.Run("successfully read data", func(t *testing.T) {
 		ms := metrics.NewSet()
 		cm := &connMetrics{}
 		cm.init(ms, "test", "test_conn", "localhost:8080")
@@ -101,7 +101,7 @@ func TestStatConnRead(t *testing.T) {
 		assert.Equal(t, "hello world", string(buf[:n]))
 	})
 
-	t.Run("读取错误", func(t *testing.T) {
+	t.Run("read error", func(t *testing.T) {
 		ms := metrics.NewSet()
 		cm := &connMetrics{}
 		cm.init(ms, "test", "test_conn", "localhost:8080")
@@ -120,7 +120,7 @@ func TestStatConnRead(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("读取EOF不算错误", func(t *testing.T) {
+	t.Run("reading EOF is not an error", func(t *testing.T) {
 		ms := metrics.NewSet()
 		cm := &connMetrics{}
 		cm.init(ms, "test", "test_conn", "localhost:8080")
@@ -134,19 +134,19 @@ func TestStatConnRead(t *testing.T) {
 		}
 
 		buf := make([]byte, 100)
-		// 第一次读取成功
+		// first read succeeds
 		n, err := sc.Read(buf)
 		assert.NoError(t, err)
 		assert.Equal(t, 4, n)
 
-		// 第二次读取返回EOF
+		// second read returns EOF
 		_, err = sc.Read(buf)
 		assert.Equal(t, io.EOF, err)
 	})
 }
 
 func TestStatConnWrite(t *testing.T) {
-	t.Run("成功写入数据", func(t *testing.T) {
+	t.Run("successfully write data", func(t *testing.T) {
 		ms := metrics.NewSet()
 		cm := &connMetrics{}
 		cm.init(ms, "test", "test_conn", "localhost:8080")
@@ -165,7 +165,7 @@ func TestStatConnWrite(t *testing.T) {
 		assert.Equal(t, "hello world", string(mock.writeData))
 	})
 
-	t.Run("写入错误", func(t *testing.T) {
+	t.Run("write error", func(t *testing.T) {
 		ms := metrics.NewSet()
 		cm := &connMetrics{}
 		cm.init(ms, "test", "test_conn", "localhost:8080")
@@ -184,7 +184,7 @@ func TestStatConnWrite(t *testing.T) {
 		assert.Error(t, err)
 	})
 
-	t.Run("写入超时", func(t *testing.T) {
+	t.Run("write timeout", func(t *testing.T) {
 		ms := metrics.NewSet()
 		cm := &connMetrics{}
 		cm.init(ms, "test", "test_conn", "localhost:8080")
@@ -208,11 +208,11 @@ func TestStatConnWrite(t *testing.T) {
 }
 
 func TestStatConnClose(t *testing.T) {
-	t.Run("成功关闭连接", func(t *testing.T) {
+	t.Run("successfully close connection", func(t *testing.T) {
 		ms := metrics.NewSet()
 		cm := &connMetrics{}
 		cm.init(ms, "test", "test_conn", "localhost:8080")
-		cm.conns.Inc() // 模拟连接计数增加
+		cm.conns.Inc() // simulate connection count increment
 
 		mock := &mockConn{}
 		sc := &statConn{
@@ -226,7 +226,7 @@ func TestStatConnClose(t *testing.T) {
 		assert.True(t, mock.closeCalled)
 	})
 
-	t.Run("关闭连接失败", func(t *testing.T) {
+	t.Run("failed to close connection", func(t *testing.T) {
 		ms := metrics.NewSet()
 		cm := &connMetrics{}
 		cm.init(ms, "test", "test_conn", "localhost:8080")
@@ -246,7 +246,7 @@ func TestStatConnClose(t *testing.T) {
 		assert.True(t, mock.closeCalled)
 	})
 
-	t.Run("多次关闭连接", func(t *testing.T) {
+	t.Run("close connection multiple times", func(t *testing.T) {
 		ms := metrics.NewSet()
 		cm := &connMetrics{}
 		cm.init(ms, "test", "test_conn", "localhost:8080")
@@ -258,15 +258,15 @@ func TestStatConnClose(t *testing.T) {
 			cm:   cm,
 		}
 
-		// 第一次关闭
+		// first close
 		err := sc.Close()
 		assert.NoError(t, err)
 		assert.True(t, mock.closeCalled)
 
-		// 重置标志
+		// reset flag
 		mock.closeCalled = false
 
-		// 第二次关闭不应该真正关闭底层连接
+		// second close should not actually close underlying connection
 		err = sc.Close()
 		assert.NoError(t, err)
 		assert.False(t, mock.closeCalled)
@@ -279,7 +279,7 @@ func TestConnMetricsInit(t *testing.T) {
 
 	cm.init(ms, "test_group", "test_name", "test_addr")
 
-	// 验证所有指标都已初始化
+	// verify all metrics are initialized
 	assert.NotNil(t, cm.readCalls)
 	assert.NotNil(t, cm.readBytes)
 	assert.NotNil(t, cm.readErrors)
@@ -293,7 +293,7 @@ func TestConnMetricsInit(t *testing.T) {
 }
 
 func TestStatConnMetricsIncrement(t *testing.T) {
-	t.Run("读取操作增加指标", func(t *testing.T) {
+	t.Run("read operation increments metrics", func(t *testing.T) {
 		ms := metrics.NewSet()
 		cm := &connMetrics{}
 		cm.init(ms, "test", "test_conn", "localhost:8080")
@@ -310,12 +310,12 @@ func TestStatConnMetricsIncrement(t *testing.T) {
 		_, err := sc.Read(buf)
 		require.NoError(t, err)
 
-		// 验证指标是否正确增加
+		// verify metrics are correctly incremented
 		assert.Equal(t, uint64(1), cm.readCalls.Get())
 		assert.Equal(t, uint64(9), cm.readBytes.Get())
 	})
 
-	t.Run("写入操作增加指标", func(t *testing.T) {
+	t.Run("write operation increments metrics", func(t *testing.T) {
 		ms := metrics.NewSet()
 		cm := &connMetrics{}
 		cm.init(ms, "test", "test_conn", "localhost:8080")
@@ -330,7 +330,7 @@ func TestStatConnMetricsIncrement(t *testing.T) {
 		_, err := sc.Write(data)
 		require.NoError(t, err)
 
-		// 验证指标是否正确增加
+		// verify metrics are correctly incremented
 		assert.Equal(t, uint64(1), cm.writeCalls.Get())
 		assert.Equal(t, uint64(9), cm.writtenBytes.Get())
 	})

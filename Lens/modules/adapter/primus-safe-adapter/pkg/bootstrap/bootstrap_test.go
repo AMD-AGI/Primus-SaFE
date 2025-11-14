@@ -15,7 +15,7 @@ func TestDecodeSecretData(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name: "正常解码-简单字符串",
+			name: "normal decoding - simple string",
 			data: map[string][]byte{
 				"username": []byte("admin"),
 				"password": []byte("secret123"),
@@ -25,7 +25,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "正常解码-密码",
+			name: "normal decoding - password",
 			data: map[string][]byte{
 				"username": []byte("admin"),
 				"password": []byte("secret123"),
@@ -35,7 +35,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "键不存在",
+			name: "key not exists",
 			data: map[string][]byte{
 				"username": []byte("admin"),
 			},
@@ -44,7 +44,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name: "空值",
+			name: "empty value",
 			data: map[string][]byte{
 				"username": []byte(""),
 			},
@@ -53,14 +53,14 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:        "空map",
+			name:        "empty map",
 			data:        map[string][]byte{},
 			key:         "username",
 			expected:    "",
 			expectError: true,
 		},
 		{
-			name: "包含特殊字符",
+			name: "contains special characters",
 			data: map[string][]byte{
 				"host": []byte("postgres.example.com:5432"),
 			},
@@ -69,7 +69,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "包含中文字符",
+			name: "contains Chinese characters",
 			data: map[string][]byte{
 				"description": []byte("数据库连接配置"),
 			},
@@ -78,7 +78,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "包含换行符",
+			name: "contains newlines",
 			data: map[string][]byte{
 				"multiline": []byte("line1\nline2\nline3"),
 			},
@@ -87,7 +87,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "包含空格",
+			name: "contains spaces",
 			data: map[string][]byte{
 				"spaced": []byte("  value with spaces  "),
 			},
@@ -96,7 +96,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "数字字符串",
+			name: "numeric string",
 			data: map[string][]byte{
 				"port": []byte("5432"),
 			},
@@ -105,7 +105,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "布尔字符串",
+			name: "boolean string",
 			data: map[string][]byte{
 				"enabled": []byte("true"),
 			},
@@ -114,7 +114,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "JSON字符串",
+			name: "JSON string",
 			data: map[string][]byte{
 				"config": []byte(`{"key": "value", "number": 123}`),
 			},
@@ -123,7 +123,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "Base64编码的数据",
+			name: "Base64 encoded data",
 			data: map[string][]byte{
 				"token": []byte("dGVzdC10b2tlbi0xMjM0NTY="),
 			},
@@ -132,7 +132,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "包含特殊符号",
+			name: "contains special symbols",
 			data: map[string][]byte{
 				"special": []byte("!@#$%^&*()_+-=[]{}|;:,.<>?"),
 			},
@@ -141,7 +141,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "nil byte数组",
+			name: "nil byte array",
 			data: map[string][]byte{
 				"nil_value": nil,
 			},
@@ -150,7 +150,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "大小写敏感的键",
+			name: "case sensitive keys",
 			data: map[string][]byte{
 				"Username": []byte("admin"),
 				"username": []byte("user"),
@@ -160,7 +160,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "键名包含特殊字符",
+			name: "key name contains special characters",
 			data: map[string][]byte{
 				"db.host": []byte("localhost"),
 			},
@@ -169,7 +169,7 @@ func TestDecodeSecretData(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "长字符串值",
+			name: "long string value",
 			data: map[string][]byte{
 				"long": []byte("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."),
 			},
@@ -203,7 +203,7 @@ func TestDecodeSecretData_RealWorldScenarios(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name: "PostgreSQL配置-完整数据",
+			name: "PostgreSQL config - complete data",
 			data: map[string][]byte{
 				"dbname":   []byte("primus_safe"),
 				"host":     []byte("postgres.primus-safe.svc.cluster.local"),
@@ -216,7 +216,7 @@ func TestDecodeSecretData_RealWorldScenarios(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "PostgreSQL配置-获取端口",
+			name: "PostgreSQL config - get port",
 			data: map[string][]byte{
 				"dbname":   []byte("primus_safe"),
 				"host":     []byte("postgres.primus-safe.svc.cluster.local"),
@@ -229,7 +229,7 @@ func TestDecodeSecretData_RealWorldScenarios(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "PostgreSQL配置-缺少必需字段",
+			name: "PostgreSQL config - missing required field",
 			data: map[string][]byte{
 				"dbname": []byte("primus_safe"),
 				"host":   []byte("postgres.primus-safe.svc.cluster.local"),

@@ -8,21 +8,21 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/config"
 )
 
-// ExampleGetOrInitConfigManager 演示如何获取单例配置管理器
+// ExampleGetOrInitConfigManager demonstrates how to get a singleton configuration manager
 func ExampleGetOrInitConfigManager() {
 	ctx := context.Background()
 
-	// 获取默认集群的配置管理器（单例）
+	// Get the configuration manager for the default cluster (singleton)
 	manager := config.GetOrInitConfigManager("")
 
-	// 定义配置结构
+	// Define configuration structure
 	type AppConfig struct {
 		AppName string `json:"app_name"`
 		Version string `json:"version"`
 		Debug   bool   `json:"debug"`
 	}
 
-	// 设置配置
+	// Set configuration
 	appConfig := AppConfig{
 		AppName: "Primus Lens",
 		Version: "1.0.0",
@@ -30,7 +30,7 @@ func ExampleGetOrInitConfigManager() {
 	}
 
 	err := manager.Set(ctx, "app.config", appConfig,
-		config.WithDescription("应用配置"),
+		config.WithDescription("Application configuration"),
 		config.WithCategory("application"),
 	)
 	if err != nil {
@@ -38,7 +38,7 @@ func ExampleGetOrInitConfigManager() {
 		return
 	}
 
-	// 读取配置
+	// Read configuration
 	var result AppConfig
 	err = manager.Get(ctx, "app.config", &result)
 	if err != nil {
@@ -49,40 +49,40 @@ func ExampleGetOrInitConfigManager() {
 	fmt.Printf("App: %s, Version: %s\n", result.AppName, result.Version)
 }
 
-// ExampleGetDefaultConfigManager 演示使用默认配置管理器
+// ExampleGetDefaultConfigManager demonstrates using the default configuration manager
 func ExampleGetDefaultConfigManager() {
-	// 获取默认集群的配置管理器
-	// 多次调用返回同一个实例
+	// Get the configuration manager for the default cluster
+	// Multiple calls return the same instance
 	manager1 := config.GetDefaultConfigManager()
 	manager2 := config.GetDefaultConfigManager()
 
-	// manager1 和 manager2 是同一个实例
+	// manager1 and manager2 are the same instance
 	fmt.Printf("Same instance: %v\n", manager1 == manager2)
 	// Output: Same instance: true
 }
 
-// ExampleGetConfigManagerForCluster 演示获取特定集群的配置管理器
+// ExampleGetConfigManagerForCluster demonstrates getting configuration manager for a specific cluster
 func ExampleGetConfigManagerForCluster() {
 
-	// 获取 cluster-a 的配置管理器
+	// Get configuration manager for cluster-a
 	managerA := config.GetConfigManagerForCluster("cluster-a")
 
-	// 获取 cluster-b 的配置管理器
+	// Get configuration manager for cluster-b
 	managerB := config.GetConfigManagerForCluster("cluster-b")
 
-	// 两个集群使用不同的管理器实例
+	// Two clusters use different manager instances
 	fmt.Printf("Different instances: %v\n", managerA != managerB)
 
-	// 但同一个集群的多次获取是同一个实例
+	// But multiple gets for the same cluster return the same instance
 	managerA2 := config.GetConfigManagerForCluster("cluster-a")
 	fmt.Printf("Same cluster, same instance: %v\n", managerA == managerA2)
 }
 
-// ExampleGetDefaultCachedConfigManager 演示使用带缓存的配置管理器
+// ExampleGetDefaultCachedConfigManager demonstrates using cached configuration manager
 func ExampleGetDefaultCachedConfigManager() {
 	ctx := context.Background()
 
-	// 获取默认的带缓存配置管理器
+	// Get default cached configuration manager
 	cachedManager := config.GetDefaultCachedConfigManager()
 
 	type ServiceConfig struct {
@@ -97,14 +97,14 @@ func ExampleGetDefaultCachedConfigManager() {
 		Timeout: 30,
 	}
 
-	// 设置配置
+	// Set configuration
 	err := cachedManager.SetCached(ctx, "service.config", serviceConfig)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
 
-	// 第一次读取（从数据库）
+	// First read (from database)
 	var result1 ServiceConfig
 	err = cachedManager.GetCached(ctx, "service.config", &result1)
 	if err != nil {
@@ -112,7 +112,7 @@ func ExampleGetDefaultCachedConfigManager() {
 		return
 	}
 
-	// 第二次读取（从缓存，更快）
+	// Second read (from cache, faster)
 	var result2 ServiceConfig
 	err = cachedManager.GetCached(ctx, "service.config", &result2)
 	if err != nil {
@@ -123,25 +123,25 @@ func ExampleGetDefaultCachedConfigManager() {
 	fmt.Printf("Service: %s:%d\n", result1.Host, result1.Port)
 }
 
-// ExampleGetOrInitCachedConfigManager 演示自定义缓存 TTL
+// ExampleGetOrInitCachedConfigManager demonstrates custom cache TTL
 func ExampleGetOrInitCachedConfigManager() {
-	// 获取带 10 分钟缓存的配置管理器
+	// Get configuration manager with 10 minute cache
 	cachedManager := config.GetOrInitCachedConfigManager("default", 10*time.Minute)
 
-	// 获取缓存统计
+	// Get cache statistics
 	stats := cachedManager.GetCacheStats()
 	fmt.Printf("Cache TTL: %v\n", stats["cache_ttl"])
 }
 
-// ExampleGetConfigManagerStats 演示获取配置管理器统计信息
+// ExampleGetConfigManagerStats demonstrates getting configuration manager statistics
 func ExampleGetConfigManagerStats() {
-	// 初始化多个集群的管理器
+	// Initialize managers for multiple clusters
 	config.GetOrInitConfigManager("")
 	config.GetConfigManagerForCluster("cluster-a")
 	config.GetConfigManagerForCluster("cluster-b")
 	config.GetDefaultCachedConfigManager()
 
-	// 获取统计信息
+	// Get statistics
 	stats := config.GetConfigManagerStats()
 
 	fmt.Printf("Total managers: %d\n", stats.TotalManagers)
@@ -151,53 +151,53 @@ func ExampleGetConfigManagerStats() {
 	fmt.Printf("Default cache TTL: %s\n", stats.DefaultCacheTTL)
 }
 
-// ExampleSetDefaultCacheTTL 演示设置默认缓存 TTL
+// ExampleSetDefaultCacheTTL demonstrates setting default cache TTL
 func ExampleSetDefaultCacheTTL() {
-	// 设置默认缓存 TTL 为 15 分钟
+	// Set default cache TTL to 15 minutes
 	config.SetDefaultCacheTTL(15 * time.Minute)
 
-	// 获取默认 TTL
+	// Get default TTL
 	ttl := config.GetDefaultCacheTTL()
 	fmt.Printf("Default cache TTL: %s\n", ttl)
 
-	// 之后创建的缓存管理器将使用新的 TTL
+	// Cache managers created afterwards will use the new TTL
 	cachedManager := config.GetDefaultCachedConfigManager()
-	_ = cachedManager // 使用管理器
+	_ = cachedManager // Use manager
 }
 
-// ExampleResetConfigManager 演示重置配置管理器
+// ExampleResetConfigManager demonstrates resetting configuration manager
 func ExampleResetConfigManager() {
-	// 初始化管理器
+	// Initialize manager
 	manager1 := config.GetConfigManagerForCluster("test-cluster")
 
-	// 重置指定集群的管理器
+	// Reset manager for specified cluster
 	config.ResetConfigManager("test-cluster")
 
-	// 再次获取将创建新的实例
+	// Getting again will create a new instance
 	manager2 := config.GetConfigManagerForCluster("test-cluster")
 
-	// manager1 和 manager2 是不同的实例
+	// manager1 and manager2 are different instances
 	fmt.Printf("Different instances after reset: %v\n", manager1 != manager2)
 }
 
-// Example_simpleUsage 演示最简单的使用方式
+// Example_simpleUsage demonstrates the simplest usage
 func Example_simpleUsage() {
 	ctx := context.Background()
 
-	// 1. 获取配置管理器（单例）
+	// 1. Get configuration manager (singleton)
 	manager := config.GetDefaultConfigManager()
 
-	// 2. 定义配置结构
+	// 2. Define configuration structure
 	type MyConfig struct {
 		Host string `json:"host"`
 		Port int    `json:"port"`
 	}
 
-	// 3. 设置配置
+	// 3. Set configuration
 	cfg := MyConfig{Host: "localhost", Port: 8080}
 	manager.Set(ctx, "my.service", cfg)
 
-	// 4. 读取配置
+	// 4. Read configuration
 	var result MyConfig
 	manager.Get(ctx, "my.service", &result)
 
@@ -205,11 +205,11 @@ func Example_simpleUsage() {
 	// Output: localhost:8080
 }
 
-// Example_multiCluster 演示多集群场景
+// Example_multiCluster demonstrates multi-cluster scenario
 func Example_multiCluster() {
 	ctx := context.Background()
 
-	// 不同集群使用不同的配置管理器
+	// Different clusters use different configuration managers
 	clusterA := config.GetConfigManagerForCluster("cluster-a")
 	clusterB := config.GetConfigManagerForCluster("cluster-b")
 
@@ -217,13 +217,13 @@ func Example_multiCluster() {
 		Name string `json:"name"`
 	}
 
-	// 为 cluster-a 设置配置
+	// Set configuration for cluster-a
 	clusterA.Set(ctx, "cluster.info", ClusterConfig{Name: "Cluster A"})
 
-	// 为 cluster-b 设置配置
+	// Set configuration for cluster-b
 	clusterB.Set(ctx, "cluster.info", ClusterConfig{Name: "Cluster B"})
 
-	// 读取各自的配置
+	// Read respective configurations
 	var cfgA, cfgB ClusterConfig
 	clusterA.Get(ctx, "cluster.info", &cfgA)
 	clusterB.Get(ctx, "cluster.info", &cfgB)
@@ -232,34 +232,34 @@ func Example_multiCluster() {
 	fmt.Printf("Cluster B: %s\n", cfgB.Name)
 }
 
-// Example_withCache 演示使用缓存提升性能
+// Example_withCache demonstrates using cache to improve performance
 func Example_withCache() {
 	ctx := context.Background()
 
-	// 获取带缓存的配置管理器
+	// Get cached configuration manager
 	cachedManager := config.GetDefaultCachedConfigManager()
 
 	type Config struct {
 		Value string `json:"value"`
 	}
 
-	// 预加载配置
+	// Preload configurations
 	configs := []string{"config1", "config2", "config3"}
 	cachedManager.Preload(ctx, configs)
 
-	// 后续读取将从缓存中获取
+	// Subsequent reads will be from cache
 	var cfg Config
 	cachedManager.GetCached(ctx, "config1", &cfg)
 
-	// 查看缓存统计
+	// View cache statistics
 	stats := cachedManager.GetCacheStats()
 	fmt.Printf("Cache stats: %+v\n", stats)
 }
 
-// Example_threadSafe 演示线程安全的单例获取
+// Example_threadSafe demonstrates thread-safe singleton retrieval
 func Example_threadSafe() {
-	// 多个 goroutine 同时获取配置管理器
-	// 保证只创建一个实例
+	// Multiple goroutines get configuration manager simultaneously
+	// Ensures only one instance is created
 	done := make(chan *config.Manager, 10)
 
 	for i := 0; i < 10; i++ {
@@ -269,13 +269,13 @@ func Example_threadSafe() {
 		}()
 	}
 
-	// 收集所有管理器实例
+	// Collect all manager instances
 	managers := make([]*config.Manager, 10)
 	for i := 0; i < 10; i++ {
 		managers[i] = <-done
 	}
 
-	// 验证都是同一个实例
+	// Verify all are the same instance
 	allSame := true
 	for i := 1; i < 10; i++ {
 		if managers[i] != managers[0] {

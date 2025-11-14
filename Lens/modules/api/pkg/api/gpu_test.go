@@ -16,7 +16,7 @@ func TestCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 		expected model.GpuDeviceInfo
 	}{
 		{
-			name: "正常GPU设备-整GB内存",
+			name: "normal GPU device - integer GB memory",
 			input: &dbModel.GpuDevice{
 				GpuID:       0,
 				GpuModel:    "AMD MI300X",
@@ -35,7 +35,7 @@ func TestCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 			},
 		},
 		{
-			name: "正常GPU设备-16GB内存",
+			name: "normal GPU device - 16GB memory",
 			input: &dbModel.GpuDevice{
 				GpuID:       1,
 				GpuModel:    "AMD MI250X",
@@ -54,7 +54,7 @@ func TestCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 			},
 		},
 		{
-			name: "GPU设备-32GB内存",
+			name: "GPU device - 32GB memory",
 			input: &dbModel.GpuDevice{
 				GpuID:       2,
 				GpuModel:    "AMD MI210",
@@ -73,7 +73,7 @@ func TestCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 			},
 		},
 		{
-			name: "空闲GPU-0%利用率",
+			name: "idle GPU - 0% utilization",
 			input: &dbModel.GpuDevice{
 				GpuID:       0,
 				GpuModel:    "AMD MI300X",
@@ -92,7 +92,7 @@ func TestCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 			},
 		},
 		{
-			name: "满载GPU-100%利用率",
+			name: "full load GPU - 100% utilization",
 			input: &dbModel.GpuDevice{
 				GpuID:       3,
 				GpuModel:    "AMD MI250",
@@ -111,7 +111,7 @@ func TestCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 			},
 		},
 		{
-			name: "小内存GPU-8GB",
+			name: "small memory GPU - 8GB",
 			input: &dbModel.GpuDevice{
 				GpuID:       4,
 				GpuModel:    "AMD Radeon VII",
@@ -130,7 +130,7 @@ func TestCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 			},
 		},
 		{
-			name: "不规则内存大小-向下取整",
+			name: "irregular memory size - rounded down",
 			input: &dbModel.GpuDevice{
 				GpuID:       5,
 				GpuModel:    "AMD GPU",
@@ -149,7 +149,7 @@ func TestCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 			},
 		},
 		{
-			name: "零内存GPU",
+			name: "zero memory GPU",
 			input: &dbModel.GpuDevice{
 				GpuID:       6,
 				GpuModel:    "Test GPU",
@@ -168,7 +168,7 @@ func TestCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 			},
 		},
 		{
-			name: "负数DeviceId",
+			name: "negative DeviceId",
 			input: &dbModel.GpuDevice{
 				GpuID:       -1,
 				GpuModel:    "Unknown GPU",
@@ -187,7 +187,7 @@ func TestCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 			},
 		},
 		{
-			name: "空型号名称",
+			name: "empty model name",
 			input: &dbModel.GpuDevice{
 				GpuID:       0,
 				GpuModel:    "",
@@ -206,7 +206,7 @@ func TestCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 			},
 		},
 		{
-			name: "完整的数据库对象-包含所有字段",
+			name: "complete database object - includes all fields",
 			input: &dbModel.GpuDevice{
 				ID:             100,
 				NodeID:         10,
@@ -244,17 +244,17 @@ func TestCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 }
 
 func TestBatchCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
-	t.Run("空列表", func(t *testing.T) {
+	t.Run("empty list", func(t *testing.T) {
 		input := []*dbModel.GpuDevice{}
 		result := batchCvtGpuDevice2GpuDeviceInfo(input)
 		
-		// 空切片可能返回 nil 或空切片，两者都是合法的
+		// Empty slice may return nil or empty slice, both are legal
 		if result != nil {
 			assert.Empty(t, result)
 		}
 	})
 
-	t.Run("单个GPU设备", func(t *testing.T) {
+	t.Run("single GPU device", func(t *testing.T) {
 		input := []*dbModel.GpuDevice{
 			{
 				GpuID:       0,
@@ -275,7 +275,7 @@ func TestBatchCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 		assert.Equal(t, 75.5, result[0].Utilization)
 	})
 
-	t.Run("多个GPU设备", func(t *testing.T) {
+	t.Run("multiple GPU devices", func(t *testing.T) {
 		input := []*dbModel.GpuDevice{
 			{
 				GpuID:       0,
@@ -307,24 +307,24 @@ func TestBatchCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 		
 		assert.Len(t, result, 3)
 		
-		// 验证第一个设备
+		// Verify first device
 		assert.Equal(t, 0, result[0].DeviceId)
 		assert.Equal(t, "AMD MI300X", result[0].Model)
 		assert.Equal(t, "80GB", result[0].Memory)
 		
-		// 验证第二个设备
+		// Verify second device
 		assert.Equal(t, 1, result[1].DeviceId)
 		assert.Equal(t, "AMD MI250X", result[1].Model)
 		assert.Equal(t, "16GB", result[1].Memory)
 		
-		// 验证第三个设备
+		// Verify third device
 		assert.Equal(t, 2, result[2].DeviceId)
 		assert.Equal(t, "AMD MI210", result[2].Model)
 		assert.Equal(t, "32GB", result[2].Memory)
 	})
 
-	t.Run("大量GPU设备", func(t *testing.T) {
-		// 模拟一个有8个GPU的节点
+	t.Run("large number of GPU devices", func(t *testing.T) {
+		// Simulate a node with 8 GPUs
 		input := make([]*dbModel.GpuDevice, 8)
 		for i := 0; i < 8; i++ {
 			input[i] = &dbModel.GpuDevice{
@@ -341,7 +341,7 @@ func TestBatchCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 		
 		assert.Len(t, result, 8)
 		
-		// 验证每个设备的转换是否正确
+		// Verify each device conversion is correct
 		for i := 0; i < 8; i++ {
 			assert.Equal(t, i, result[i].DeviceId)
 			assert.Equal(t, "80GB", result[i].Memory)
@@ -349,7 +349,7 @@ func TestBatchCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 		}
 	})
 
-	t.Run("包含nil元素的列表", func(t *testing.T) {
+	t.Run("list with nil elements", func(t *testing.T) {
 		input := []*dbModel.GpuDevice{
 			{
 				GpuID:       0,
@@ -359,7 +359,7 @@ func TestBatchCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 				Temperature: 65.0,
 				Power:       350.5,
 			},
-			nil, // nil 元素会导致 panic
+			nil, // nil element will cause panic
 			{
 				GpuID:       2,
 				GpuModel:    "AMD MI210",
@@ -370,8 +370,8 @@ func TestBatchCvtGpuDevice2GpuDeviceInfo(t *testing.T) {
 			},
 		}
 
-		// 这个测试会 panic，因为代码没有处理 nil 的情况
-		// 在实际使用中应该避免传入 nil 元素
+		// This test will panic because the code doesn't handle nil
+		// In actual use, nil elements should be avoided
 		assert.Panics(t, func() {
 			batchCvtGpuDevice2GpuDeviceInfo(input)
 		})
@@ -400,11 +400,11 @@ func TestCvtGpuDevice2GpuDeviceInfo_MemoryConversion(t *testing.T) {
 		{"128GB", 131072, "128GB"},
 		{"192GB", 196608, "192GB"},
 		{"256GB", 262144, "256GB"},
-		{"不是整GB-1.5GB", 1536, "1GB"}, // 向下取整
-		{"不是整GB-2.5GB", 2560, "2GB"}, // 向下取整
-		{"不是整GB-7.5GB", 7680, "7GB"}, // 向下取整
-		{"小于1GB-512MB", 512, "0GB"},
-		{"小于1GB-768MB", 768, "0GB"},
+		{"not integer GB - 1.5GB", 1536, "1GB"}, // rounded down
+		{"not integer GB - 2.5GB", 2560, "2GB"}, // rounded down
+		{"not integer GB - 7.5GB", 7680, "7GB"}, // rounded down
+		{"less than 1GB - 512MB", 512, "0GB"},
+		{"less than 1GB - 768MB", 768, "0GB"},
 	}
 
 	for _, tt := range tests {
@@ -441,7 +441,7 @@ func BenchmarkCvtGpuDevice2GpuDeviceInfo(b *testing.B) {
 }
 
 func BenchmarkBatchCvtGpuDevice2GpuDeviceInfo(b *testing.B) {
-	// 创建8个GPU设备的切片
+	// Create slice of 8 GPU devices
 	devices := make([]*dbModel.GpuDevice, 8)
 	for i := 0; i < 8; i++ {
 		devices[i] = &dbModel.GpuDevice{

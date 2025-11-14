@@ -371,7 +371,7 @@ func TestScheduler_LongRunningTask(t *testing.T) {
 	assert.LessOrEqual(t, runCount, int32(4), "Long task should not queue up excessively")
 }
 
-// TestScheduler_ZeroInterval 测试零间隔的情况
-// 注意：time.NewTicker 不支持零或负间隔，会 panic
-// 实际使用中应该由调用方确保传入的间隔值大于零
-// 此测试用例已移除，因为它测试的是一个不应该发生的无效场景
+// TestScheduler_ZeroInterval tests zero interval case
+// Note: time.NewTicker does not support zero or negative intervals and will panic
+// In actual use, the caller should ensure the interval value is greater than zero
+// This test case has been removed because it tests an invalid scenario that should not occur

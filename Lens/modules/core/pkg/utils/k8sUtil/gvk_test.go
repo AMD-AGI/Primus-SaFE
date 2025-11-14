@@ -14,28 +14,28 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// TestGvkToGvr 测试 GvkToGvr 函数
-// 注意：GvkToGvr 函数依赖于实际的 Kubernetes 客户端和 Discovery API，
-// 在单元测试中很难完全模拟，因此这里只做基本的测试
+// TestGvkToGvr tests GvkToGvr function
+// Note: GvkToGvr depends on actual Kubernetes client and Discovery API,
+// which is difficult to fully simulate in unit tests, so only basic tests are done here
 func TestGvkToGvr(t *testing.T) {
-	t.Run("无效的apiVersion格式", func(t *testing.T) {
+	t.Run("invalid apiVersion format", func(t *testing.T) {
 		apiVersion := "invalid//version"
 		kind := "Pod"
 
-		// 使用 nil 客户端测试错误情况
+		// test error case with nil client
 		_, err := GvkToGvr(apiVersion, kind, nil)
 
 		assert.Error(t, err)
 	})
 
-	t.Run("有效的apiVersion解析", func(t *testing.T) {
-		// 测试 GroupVersion 解析逻辑
+	t.Run("valid apiVersion parsing", func(t *testing.T) {
+		// test GroupVersion parsing logic
 		gv, err := schema.ParseGroupVersion("apps/v1")
 		assert.NoError(t, err)
 		assert.Equal(t, "apps", gv.Group)
 		assert.Equal(t, "v1", gv.Version)
 
-		// 测试核心 API
+		// test core API
 		gv, err = schema.ParseGroupVersion("v1")
 		assert.NoError(t, err)
 		assert.Equal(t, "", gv.Group)
@@ -43,7 +43,7 @@ func TestGvkToGvr(t *testing.T) {
 	})
 }
 
-// mockClient 是一个用于测试的 mock controller-runtime client
+// mockClient is a mock controller-runtime client for testing
 type mockClient struct {
 	client.Client
 	getFunc       func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error
@@ -65,7 +65,7 @@ func (m *mockClient) Scheme() *runtime.Scheme {
 	return runtime.NewScheme()
 }
 
-// mockRESTMapper 是一个简单的 mock RESTMapper
+// mockRESTMapper is a simple mock RESTMapper
 type mockRESTMapper struct {
 	meta.RESTMapper
 	mappingFunc func(gk schema.GroupKind, versions ...string) (*meta.RESTMapping, error)
@@ -79,7 +79,7 @@ func (m *mockRESTMapper) RESTMapping(gk schema.GroupKind, versions ...string) (*
 }
 
 func TestGetObjectByGvk(t *testing.T) {
-	t.Run("获取命名空间资源", func(t *testing.T) {
+	t.Run("get namespaced resource", func(t *testing.T) {
 		ctx := context.Background()
 		apiVersion := "v1"
 		kind := "Pod"
@@ -107,7 +107,7 @@ func TestGetObjectByGvk(t *testing.T) {
 		mock := &mockClient{
 			restMapperVal: mockMapper,
 			getFunc: func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
-				// 设置返回的对象
+				// set returned object
 				u := obj.(*unstructured.Unstructured)
 				u.SetName(name)
 				u.SetNamespace(namespace)
@@ -126,7 +126,7 @@ func TestGetObjectByGvk(t *testing.T) {
 		assert.Equal(t, kind, obj.GetKind())
 	})
 
-	t.Run("获取集群级别资源", func(t *testing.T) {
+	t.Run("get cluster-scoped resource", func(t *testing.T) {
 		ctx := context.Background()
 		apiVersion := "v1"
 		kind := "Node"
@@ -153,7 +153,7 @@ func TestGetObjectByGvk(t *testing.T) {
 		mock := &mockClient{
 			restMapperVal: mockMapper,
 			getFunc: func(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
-				// 集群资源不应该有 namespace
+				// cluster resource should not have namespace
 				assert.Empty(t, key.Namespace)
 				u := obj.(*unstructured.Unstructured)
 				u.SetName(name)
@@ -168,10 +168,10 @@ func TestGetObjectByGvk(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, obj)
 		assert.Equal(t, name, obj.GetName())
-		assert.Empty(t, obj.GetNamespace()) // 集群资源没有 namespace
+		assert.Empty(t, obj.GetNamespace()) // cluster resource has no namespace
 	})
 
-	t.Run("REST mapping 失败", func(t *testing.T) {
+	t.Run("REST mapping fails", func(t *testing.T) {
 		ctx := context.Background()
 		apiVersion := "v1"
 		kind := "UnknownKind"
@@ -194,7 +194,7 @@ func TestGetObjectByGvk(t *testing.T) {
 		assert.Contains(t, err.Error(), "cannot get REST mapping")
 	})
 
-	t.Run("获取对象失败", func(t *testing.T) {
+	t.Run("get object fails", func(t *testing.T) {
 		ctx := context.Background()
 		apiVersion := "v1"
 		kind := "Pod"
@@ -234,7 +234,7 @@ func TestGetObjectByGvk(t *testing.T) {
 }
 
 func TestSchemaConversions(t *testing.T) {
-	t.Run("GroupVersion解析", func(t *testing.T) {
+	t.Run("GroupVersion parsing", func(t *testing.T) {
 		tests := []struct {
 			name        string
 			apiVersion  string
@@ -243,21 +243,21 @@ func TestSchemaConversions(t *testing.T) {
 			expectErr   bool
 		}{
 			{
-				name:        "核心API",
+				name:        "core API",
 				apiVersion:  "v1",
 				expectGroup: "",
 				expectVer:   "v1",
 				expectErr:   false,
 			},
 			{
-				name:        "带组的API",
+				name:        "API with group",
 				apiVersion:  "apps/v1",
 				expectGroup: "apps",
 				expectVer:   "v1",
 				expectErr:   false,
 			},
 			{
-				name:        "自定义资源",
+				name:        "custom resource",
 				apiVersion:  "example.com/v1alpha1",
 				expectGroup: "example.com",
 				expectVer:   "v1alpha1",
@@ -292,7 +292,7 @@ func TestSchemaConversions(t *testing.T) {
 }
 
 func TestAPIResourceDiscovery(t *testing.T) {
-	t.Run("API资源列表结构", func(t *testing.T) {
+	t.Run("API resource list structure", func(t *testing.T) {
 		resources := []*metav1.APIResourceList{
 			{
 				GroupVersion: "v1",

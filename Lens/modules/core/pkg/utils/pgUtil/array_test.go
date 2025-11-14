@@ -13,27 +13,27 @@ func TestStringArrayToPgArray(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "空数组",
+			name:     "empty array",
 			input:    []string{},
 			expected: "{}",
 		},
 		{
-			name:     "单个元素",
+			name:     "single element",
 			input:    []string{"tag1"},
-			expected: `{"tag1"}`, // pq.Array 总是给字符串加引号
+			expected: `{"tag1"}`, // pq.Array always quotes strings
 		},
 		{
-			name:     "多个元素",
+			name:     "multiple elements",
 			input:    []string{"tag1", "tag2", "tag3"},
-			expected: `{"tag1","tag2","tag3"}`, // pq.Array 总是给字符串加引号
+			expected: `{"tag1","tag2","tag3"}`, // pq.Array always quotes strings
 		},
 		{
-			name:     "包含空格的元素",
+			name:     "element with spaces",
 			input:    []string{"tag with space", "normal"},
-			expected: `{"tag with space","normal"}`, // pq.Array 总是给字符串加引号
+			expected: `{"tag with space","normal"}`, // pq.Array always quotes strings
 		},
 		{
-			name:     "包含特殊字符的元素",
+			name:     "element with special characters",
 			input:    []string{"tag,comma", "tag{brace}"},
 			expected: `{"tag,comma","tag{brace}"}`,
 		},
@@ -54,32 +54,32 @@ func TestPgArrayToStringArray(t *testing.T) {
 		expected []string
 	}{
 		{
-			name:     "空字符串",
+			name:     "empty string",
 			input:    "",
 			expected: []string{},
 		},
 		{
-			name:     "空数组",
+			name:     "empty array",
 			input:    "{}",
 			expected: []string{},
 		},
 		{
-			name:     "单个元素",
+			name:     "single element",
 			input:    "{tag1}",
 			expected: []string{"tag1"},
 		},
 		{
-			name:     "多个元素",
+			name:     "multiple elements",
 			input:    "{tag1,tag2,tag3}",
 			expected: []string{"tag1", "tag2", "tag3"},
 		},
 		{
-			name:     "包含空格的元素",
+			name:     "element with spaces",
 			input:    `{"tag with space",normal}`,
 			expected: []string{"tag with space", "normal"},
 		},
 		{
-			name:     "包含特殊字符的元素",
+			name:     "element with special characters",
 			input:    `{"tag,comma","tag{brace}"}`,
 			expected: []string{"tag,comma", "tag{brace}"},
 		},
@@ -99,15 +99,15 @@ func TestRoundTrip(t *testing.T) {
 		input []string
 	}{
 		{
-			name:  "空数组往返",
+			name:  "empty array round trip",
 			input: []string{},
 		},
 		{
-			name:  "简单数组往返",
+			name:  "simple array round trip",
 			input: []string{"tag1", "tag2", "tag3"},
 		},
 		{
-			name:  "复杂数组往返",
+			name:  "complex array round trip",
 			input: []string{"tag with space", "tag,comma", "normal"},
 		},
 	}
