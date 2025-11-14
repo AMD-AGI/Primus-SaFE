@@ -809,10 +809,11 @@ func buildExportImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []strin
 		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "Phase"): string(v1.OpsJobSucceeded)})
 	}
 	
-	// Filter by workload ID if specified (using JSONB containment query)
+	// Filter by workload ID if specified (using text pattern matching)
 	if query.Workload != "" {
-		dbSql = append(dbSql, sqrl.Expr("inputs::jsonb @> ?", 
-			fmt.Sprintf(`[{"name":"workload","value":"%s"}]`, query.Workload)))
+		// Pattern: workload:xxx followed by comma or closing brace
+		pattern := fmt.Sprintf("workload:%s[,}]", query.Workload)
+		dbSql = append(dbSql, sqrl.Expr("inputs::text ~ ?", pattern))
 	}
 	
 	// Build ORDER BY clause
