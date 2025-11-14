@@ -285,3 +285,26 @@ spec:
     prePaths:
       - status
     replicaPath: active
+---
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
+  name: autoscaling-runner-set
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.workload.kind: CICDScaleSet
+    primus-safe.workload.version: v1
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  groupVersionKind:
+    group: "actions.github.com"
+    version: v1alpha1
+    kind: AutoscalingRunnerSet
+  resourceSpecs:
+    - prePaths:
+        - spec
+      templatePaths:
+        - template
+      replica: 1

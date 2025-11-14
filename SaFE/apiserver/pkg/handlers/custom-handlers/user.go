@@ -129,12 +129,6 @@ func generateUser(req *types.CreateUserRequest, requestUser *v1.User) *v1.User {
 			Type: v1.DefaultUserType,
 		},
 	}
-
-	// Only administrators can specify user type; others can only create default user.
-	if requestUser != nil && requestUser.IsSystemAdmin() {
-		user.Spec.Type = req.Type
-		commonuser.AssignWorkspace(user, req.Workspaces...)
-	}
 	if req.Password != "" {
 		user.Spec.Password = stringutil.Base64Encode(req.Password)
 	}

@@ -203,6 +203,8 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 		return v1.InferScope
 	case common.AuthoringKind:
 		return v1.AuthoringScope
+	case common.CICDScaleSetKind, common.CICDRunnerKind:
+		return v1.CICDScope
 	default:
 		return ""
 	}
@@ -225,9 +227,9 @@ func IsAuthoring(w *v1.Workload) bool {
 	return false
 }
 
-// IsCICD returns true if workload is cicd
+// IsCICD returns true if workload is about cicd
 func IsCICD(w *v1.Workload) bool {
-	if w.SpecKind() == common.CICDKind {
+	if w.SpecKind() == common.CICDScaleSetKind || w.SpecKind() == common.CICDRunnerKind {
 		return true
 	}
 	return false

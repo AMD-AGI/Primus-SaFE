@@ -36,6 +36,7 @@ const (
 	TrainScope     WorkspaceScope = "Train"
 	InferScope     WorkspaceScope = "Infer"
 	AuthoringScope WorkspaceScope = "Authoring"
+	CICDScope      WorkspaceScope = "CICD"
 
 	HOSTPATH WorkspaceVolumeType = "hostpath"
 	PFS      WorkspaceVolumeType = "pfs"

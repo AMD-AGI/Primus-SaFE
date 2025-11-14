@@ -16,12 +16,8 @@ type CreateUserRequest struct {
 	Name string `json:"name,omitempty"`
 	// User mail
 	Email string `json:"email,omitempty"`
-	// User type, e.g. default
-	Type v1.UserType `json:"type,omitempty"`
 	// User password
 	Password string `json:"password,omitempty"`
-	// The workspaces which user can access
-	Workspaces []string `json:"workspaces,omitempty"`
 	// User avatar URL
 	AvatarUrl string `json:"avatarUrl,omitempty"`
 }

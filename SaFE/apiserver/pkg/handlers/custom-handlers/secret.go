@@ -74,19 +74,35 @@ func (h *Handler) DeleteSecret(c *gin.Context) {
 // Validates the request, generates a secret object, creates it in the cluster,
 // and updates workspace secret associations.
 func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: authority.SecretResourceKind,
+		Verb:         v1.CreateVerb,
+		User:         requestUser,
+	}); err != nil {
+		return nil, err
+	}
+
 	req := &types.CreateSecretRequest{}
 	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-
-	secret, err := h.generateSecret(c, req)
+	if req.BindAllWorkspaces {
+		if err = h.checkUpdateWorkspacesPermission(c.Request.Context(), requestUser); err != nil {
+			return nil, err
+		}
+	}
+	secret, err := generateSecret(req, requestUser)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate secret")
 		return nil, err
 	}
-
 	if secret, err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Create(
 		c.Request.Context(), secret, metav1.CreateOptions{}); err != nil {
 		klog.ErrorS(err, "failed to create secret")
@@ -96,6 +112,7 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 	if err = h.updateWorkspaceSecret(c.Request.Context(), secret); err != nil {
 		return nil, err
 	}
+
 	return &types.CreateSecretResponse{
 		SecretId: secret.Name,
 	}, nil
@@ -147,20 +164,17 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 // getSecret implements the logic for retrieving a single secret's information.
 // Authorizes the request and retrieves the secret by name from the cluster.
 func (h *Handler) getSecret(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.getAndSetUsername(c)
+	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name))
 	if err != nil {
 		return nil, err
 	}
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
+		Resource:     secret,
 		ResourceKind: authority.SecretResourceKind,
 		Verb:         v1.GetVerb,
-		User:         requestUser,
+		UserId:       c.GetString(common.UserId),
 	}); err != nil {
-		return nil, err
-	}
-	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name))
-	if err != nil {
 		return nil, err
 	}
 	return cvtToSecretResponseItem(secret), nil
@@ -181,19 +195,26 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name))
+	if err != nil {
+		return nil, err
+	}
+
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
+		Resource:     secret,
 		ResourceKind: authority.SecretResourceKind,
 		Verb:         v1.UpdateVerb,
 		User:         requestUser,
 	}); err != nil {
 		return nil, err
 	}
-
-	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name))
-	if err != nil {
-		return nil, err
+	if req.BindAllWorkspaces != nil && *req.BindAllWorkspaces {
+		if err = h.checkUpdateWorkspacesPermission(c.Request.Context(), requestUser); err != nil {
+			return nil, err
+		}
 	}
+
 	if err = updateSecret(secret, req); err != nil {
 		return nil, err
 	}
@@ -259,7 +280,6 @@ func (h *Handler) updateClusterSecret(ctx context.Context, secret *corev1.Secret
 func (h *Handler) updateWorkspaceSecret(ctx context.Context, inputSecret *corev1.Secret) error {
 	isApplyAllWorkspace := v1.IsSecretBindAllWorkspaces(inputSecret)
 	secretReference := commonutils.GenObjectReference(inputSecret.TypeMeta, inputSecret.ObjectMeta)
-
 	if err := backoff.ConflictRetry(func() error {
 		workspaceList := &v1.WorkspaceList{}
 		if err := h.List(ctx, workspaceList, &client.ListOptions{}); err != nil {
@@ -395,24 +415,31 @@ func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secr
 	return secret, err
 }
 
+// checkUpdateWorkspacesPermission checks if user has permission to update all workspaces
+func (h *Handler) checkUpdateWorkspacesPermission(ctx context.Context, requestUser *v1.User) error {
+	workspaceList := &v1.WorkspaceList{}
+	if err := h.List(ctx, workspaceList, &client.ListOptions{}); err != nil {
+		return err
+	}
+	for _, workspace := range workspaceList.Items {
+		if err := h.accessController.Authorize(authority.AccessInput{
+			Context:    ctx,
+			Resource:   &workspace,
+			Verb:       v1.UpdateVerb,
+			Workspaces: []string{workspace.Name},
+			User:       requestUser,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // generateSecret creates a new secret object based on the creation request.
 // Validates the request parameters and populates the secret metadata and data.
-func (h *Handler) generateSecret(c *gin.Context, req *types.CreateSecretRequest) (*corev1.Secret, error) {
+func generateSecret(req *types.CreateSecretRequest, requestUser *v1.User) (*corev1.Secret, error) {
 	if req.Name == "" {
 		return nil, commonerrors.NewBadRequest("the name is empty")
-	}
-	requestUser, err := h.getAndSetUsername(c)
-	if err != nil {
-		return nil, err
-	}
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:      c.Request.Context(),
-		ResourceKind: authority.SecretResourceKind,
-		Verb:         v1.CreateVerb,
-		User:         requestUser,
-		Workspaces:   req.BindWorkspaceIds,
-	}); err != nil {
-		return nil, err
 	}
 
 	secret := &corev1.Secret{
@@ -431,7 +458,7 @@ func (h *Handler) generateSecret(c *gin.Context, req *types.CreateSecretRequest)
 	if req.BindAllWorkspaces {
 		v1.SetLabel(secret, v1.SecretAllWorkspaceLabel, v1.TrueStr)
 	}
-	if err = buildSecretData(req.Type, req.Params, secret); err != nil {
+	if err := buildSecretData(req.Type, req.Params, secret); err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 	if req.Name != "" {
@@ -469,7 +496,7 @@ func buildSecretData(reqType v1.SecretType, allParams []map[types.SecretParam]st
 		data[types.DockerConfigJson] = jsonutils.MarshalSilently(dockerConf)
 	case v1.SecretSSH:
 		if len(allParams) == 0 {
-			return fmt.Errorf("the input params is empty")
+			return fmt.Errorf("the input params are empty")
 		}
 		params := allParams[0]
 		if !existKey(params, types.UserNameParam) {
@@ -484,6 +511,15 @@ func buildSecretData(reqType v1.SecretType, allParams []map[types.SecretParam]st
 			data[types.SSHAuthPubKey] = []byte(stringutil.Base64Decode(params[types.PublicKeyParam]))
 		} else {
 			return fmt.Errorf("the password or keypair is empty")
+		}
+	case v1.SecretDefault:
+		secretType = corev1.SecretTypeOpaque
+		if len(allParams) == 0 {
+			return fmt.Errorf("the input params are empty")
+		}
+		params := allParams[0]
+		for k, v := range params {
+			data[string(k)] = []byte(v)
 		}
 	default:
 		return fmt.Errorf("the secret type %s is not supported", reqType)
@@ -531,7 +567,6 @@ func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 		CreationTime:      timeutil.FormatRFC3339(secret.CreationTimestamp.Time),
 		BindAllWorkspaces: v1.IsSecretBindAllWorkspaces(secret),
 	}
-
 	switch result.Type {
 	case string(v1.SecretImage):
 		dockerConf := &types.DockerConfig{}
@@ -551,6 +586,13 @@ func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 		params[types.UserNameParam] = string(secret.Data[string(types.UserNameParam)])
 		params[types.PrivateKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthKey]))
 		params[types.PublicKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthPubKey]))
+		result.Params = append(result.Params, params)
+	case string(v1.SecretDefault):
+		result.Params = make([]map[types.SecretParam]string, 0, len(secret.Data))
+		params := make(map[types.SecretParam]string)
+		for k, v := range secret.Data {
+			params[types.SecretParam(k)] = string(v)
+		}
 		result.Params = append(result.Params, params)
 	}
 	return result

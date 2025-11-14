@@ -82,7 +82,7 @@ rules:
 - resources:
     - secret
   grantedUsers:
-    - workspace-user
+    - "*"
   verbs:
     - create
 ---

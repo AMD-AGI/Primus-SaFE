@@ -26,9 +26,10 @@ const (
 type CreateSecretRequest struct {
 	// Used to generate the secret ID, which will do normalization processing, e.g. lowercase
 	Name string `json:"name,omitempty"`
-	// Secret type, e.g. image, ssh
+	// Secret type, e.g. image, ssh, default
 	Type v1.SecretType `json:"type"`
-	// Parameters required for creating the secret, including username, password, privateKey, publicKey.
+	// Parameters required for creating the secret, including username, password, privateKey, publicKey and so on
+	// for a default secret, you can define any parameters.
 	// the private key, public key and password need to be Base64 encoded.
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
@@ -36,9 +37,6 @@ type CreateSecretRequest struct {
 	// BindAllWorkspaces indicates whether the secret should be bound to all workspaces.
 	// This field is only for image secrets and can only be set by administrators.
 	BindAllWorkspaces bool `json:"bindAllWorkspaces,omitempty"`
-	// BindWorkspaceIds is the list of workspaces to be bound with the secret.
-	// This field is only for image secrets and can be operated by users who have access permissions to the corresponding workspaces.
-	BindWorkspaceIds []string `json:"bindWorkspaceIds,omitempty"`
 }
 
 type CreateSecretResponse struct {
@@ -90,5 +88,6 @@ type PatchSecretRequest struct {
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params *[]map[SecretParam]string `json:"params,omitempty"`
 	// Whether to bind the secret to all workspaces, only for image secret
+	// This field is only for image secrets and can only be set by administrators.
 	BindAllWorkspaces *bool `json:"bindAllWorkspaces,omitempty"`
 }

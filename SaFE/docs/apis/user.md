@@ -19,8 +19,6 @@ Create a new user account.
   "name": "zhangsan",
   "email": "zhangsan@example.com",
   "password": "SecurePassword123!",
-  "type": "default",
-  "workspaces": [],
   "avatarUrl": "https://example.com/avatar.jpg"
 }
 ```
@@ -32,8 +30,6 @@ Create a new user account.
 | name | string | Yes | Username (unique)                                                |
 | email | string | No | Email address                                                    |
 | password | string | Yes* | Password (required for regular user registration)                |
-| type | string | No | User type: default/sso, only system admin can specify            |
-| workspaces | []string | No | List of accessible workspace IDs (only system admin can specify) |
 | avatarUrl | string | No | Avatar URL                                                       |
 
 **Response Example**:

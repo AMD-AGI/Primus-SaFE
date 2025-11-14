@@ -69,6 +69,9 @@ web:
 preprocess:
   # Preprocessing component image version. used for pytorch-job etc.
   image: "preprocess:latest"
+cicd:
+  # cicd component image version. used for starting jobs for runner
+  image: "cicd-proxy:latest"
 db:
   # Enable database for historical job queries, defaults to true
   enable: true

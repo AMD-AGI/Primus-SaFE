@@ -117,6 +117,8 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 		m.mutateStatefulSet(workload)
 	case common.AuthoringKind:
 		m.mutateAuthoring(workload)
+	case common.CICDScaleSetKind:
+		m.mutateCICDScaleSet(workload)
 	}
 
 	m.mutateCommon(ctx, workload, workspace)
@@ -125,7 +127,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	m.mutateMaxRetry(workload)
 	m.mutateEnv(nil, workload)
 	m.mutateTTLSeconds(workload)
-	m.mutateSecrets(workload, workspace)
+	m.mutateImageSecrets(workload, workspace)
 	return true
 }
 
@@ -351,6 +353,15 @@ func (m *WorkloadMutator) mutateAuthoring(workload *v1.Workload) {
 	workload.Spec.Dependencies = nil
 }
 
+// mutateCICDScaleSet sets one-replica, disable Supervised for cicd.
+func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
+	workload.Spec.IsSupervised = false
+	workload.Spec.MaxRetry = 0
+	workload.Spec.Resource.Replica = 1
+	workload.Spec.Timeout = nil
+	workload.Spec.Dependencies = nil
+}
+
 // mutateImage trims image name and entry point.
 func (m *WorkloadMutator) mutateImage(workload *v1.Workload) {
 	workload.Spec.Image = strings.TrimSpace(workload.Spec.Image)
@@ -449,10 +460,10 @@ func (m *WorkloadMutator) mutateCronJobs(workload *v1.Workload) {
 	}
 }
 
-// mutateSecrets handles workload Secrets configuration, ensuring necessary image pull secrets are added
+// mutateImageSecrets handles workload Secrets configuration, ensuring necessary image pull secrets are added
 // 1. Inherit ImageSecrets from workspace if available
 // 2. Add default cluster image secret if no workspace but global config exists
-func (m *WorkloadMutator) mutateSecrets(workload *v1.Workload, workspace *v1.Workspace) {
+func (m *WorkloadMutator) mutateImageSecrets(workload *v1.Workload, workspace *v1.Workspace) {
 	secretsSet := sets.NewSet()
 	for _, s := range workload.Spec.Secrets {
 		secretsSet.Insert(s.Id)
