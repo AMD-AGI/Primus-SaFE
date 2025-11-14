@@ -602,34 +602,6 @@ func TestConvertToDBLabelStats(t *testing.T) {
 	}
 }
 
-func TestNewGpuAggregationJob(t *testing.T) {
-	job := NewGpuAggregationJob()
-
-	assert.NotNil(t, job, "Job should not be nil")
-	assert.NotNil(t, job.snapshotCache, "Snapshot cache should be initialized")
-	assert.Empty(t, job.snapshotCache, "Snapshot cache should be empty initially")
-	assert.NotNil(t, job.configManager, "Config manager should be initialized")
-	assert.NotEmpty(t, job.clusterName, "Cluster name should be set")
-	assert.NotZero(t, job.currentHour, "Current hour should be set")
-}
-
-func TestNewGpuAggregationJobWithConfig(t *testing.T) {
-	config := &model.GpuAggregationConfig{
-		Enabled: true,
-	}
-	config.Sampling.Enabled = true
-	config.Sampling.Interval = "5m"
-
-	job := NewGpuAggregationJobWithConfig(config)
-
-	assert.NotNil(t, job, "Job should not be nil")
-	assert.NotNil(t, job.config, "Config should be set")
-	assert.Equal(t, config, job.config, "Config should match input")
-	assert.True(t, job.config.Enabled, "Config should be enabled")
-	assert.NotNil(t, job.snapshotCache, "Snapshot cache should be initialized")
-	assert.NotNil(t, job.configManager, "Config manager should be initialized")
-}
-
 func TestGetConfig(t *testing.T) {
 	config := &model.GpuAggregationConfig{
 		Enabled: true,

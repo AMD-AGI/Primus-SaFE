@@ -13,7 +13,7 @@ require (
 	k8s.io/api v0.33.3
 	k8s.io/apimachinery v0.33.3
 	k8s.io/client-go v0.33.3
-	sigs.k8s.io/controller-runtime v0.20.4
+	sigs.k8s.io/controller-runtime v0.21.0
 )
 
 require (
@@ -134,7 +134,7 @@ require (
 	gorm.io/gorm v1.30.0 // indirect
 	gorm.io/hints v1.1.0 // indirect
 	gorm.io/plugin/dbresolver v1.6.0 // indirect
-	k8s.io/apiextensions-apiserver v0.33.0-alpha.3 // indirect
+	k8s.io/apiextensions-apiserver v0.33.0 // indirect
 	k8s.io/cri-api v0.33.3 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect

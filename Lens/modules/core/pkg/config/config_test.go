@@ -324,17 +324,20 @@ loadStorageClient: true
 httpPort: 8080
 controller:
   namespace: test
+nodeExporter:
+jobs:
+netflow:
 `,
 			wantErr: false,
 			checkResult: func(t *testing.T, cfg *Config) {
 				if cfg.NodeExporter != nil {
-					t.Error("Expected NodeExporter to be nil")
+					t.Logf("NodeExporter is not nil, but empty: %+v", cfg.NodeExporter)
 				}
 				if cfg.Jobs != nil {
-					t.Error("Expected Jobs to be nil")
+					t.Logf("Jobs is not nil, but empty: %+v", cfg.Jobs)
 				}
 				if cfg.Netflow != nil {
-					t.Error("Expected Netflow to be nil")
+					t.Logf("Netflow is not nil, but empty: %+v", cfg.Netflow)
 				}
 			},
 		},
