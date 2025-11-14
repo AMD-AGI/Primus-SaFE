@@ -481,11 +481,11 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 		return err
 	}
 
-	schedulingWorkloads, runningWorkloads, err := r.getUnfinishedWorkloads(ctx, workspace)
+	schedulingWorkloads, scheduledWorkloads, err := r.getUnfinishedWorkloads(ctx, workspace)
 	if err != nil || len(schedulingWorkloads) == 0 {
 		return err
 	}
-	leftAvailResources, leftTotalResources, err := r.getLeftTotalResources(ctx, workspace, runningWorkloads)
+	leftAvailResources, leftTotalResources, err := r.getLeftTotalResources(ctx, workspace, scheduledWorkloads)
 	if err != nil {
 		return err
 	}
@@ -500,7 +500,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 		} else {
 			leftResources = &leftAvailResources
 		}
-		ok, reason, err := r.canScheduleWorkload(ctx, w, runningWorkloads, requestResources, *leftResources)
+		ok, reason, err := r.canScheduleWorkload(ctx, w, scheduledWorkloads, requestResources, *leftResources)
 		if err != nil {
 			return err
 		}
@@ -509,8 +509,8 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 			// Process scheduling workloads based on priority and policy
 			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads
 			// (excluding the workload which specified node), then break out of the queue directly and continue waiting.
-			if reason == CronjobReason {
-				// Cron job workloads that are not yet ready to start should be skipped
+			if reason == CronjobReason || reason == DependencyReason || w.IsEnd() {
+				// CronJob or a job with dependencies that are not yet ready to start should be skipped
 				continue
 			} else if workspace.IsEnableFifo() {
 				// In FIFO mode, if current workload cannot be scheduled, subsequent ones won't be either
@@ -532,7 +532,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 			w.Name, v1.GetWorkloadDispatchCnt(w)+1)
 		leftAvailResources = quantity.SubResource(leftAvailResources, requestResources)
 		leftTotalResources = quantity.SubResource(leftTotalResources, requestResources)
-		runningWorkloads = append(runningWorkloads, schedulingWorkloads[i])
+		scheduledWorkloads = append(scheduledWorkloads, schedulingWorkloads[i])
 		scheduledCount++
 	}
 	if scheduledCount != len(schedulingWorkloads) {
@@ -543,7 +543,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 
 // canScheduleWorkload checks if a workload can be scheduled based on resource availability.
 func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWorkload *v1.Workload,
-	runningWorkloads []*v1.Workload, requestResources, leftResources corev1.ResourceList) (bool, string, error) {
+	scheduledWorkloads []*v1.Workload, requestResources, leftResources corev1.ResourceList) (bool, string, error) {
 	for _, job := range requestWorkload.Spec.CronJobs {
 		if job.Action == v1.CronStart {
 			_, scheduleTime, err := timeutil.CvtTime3339ToCronStandard(job.Schedule)
@@ -553,13 +553,11 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 		}
 	}
 	hasEnoughQuota, key := quantity.IsSubResource(requestResources, leftResources)
-	var reason string
-	var err error
-
 	isDependencyReady, err := r.checkWorkloadDependencies(ctx, requestWorkload)
 	if err != nil {
 		return false, "", err
 	}
+	var reason string
 	if !isDependencyReady {
 		reason = DependencyReason
 		klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
@@ -569,11 +567,11 @@ func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWo
 	isPreemptable := false
 	if !hasEnoughQuota {
 		reason = fmt.Sprintf("Insufficient total %s resources", formatResourceName(key))
-		isPreemptable, err = r.preempt(ctx, requestWorkload, runningWorkloads, leftResources)
+		isPreemptable, err = r.preempt(ctx, requestWorkload, scheduledWorkloads, leftResources)
 	} else {
-		hasEnoughQuota, reason, err = r.checkNodeResources(ctx, requestWorkload, runningWorkloads)
+		hasEnoughQuota, reason, err = r.checkNodeResources(ctx, requestWorkload, scheduledWorkloads)
 		if !hasEnoughQuota {
-			isPreemptable = r.isPreemptable(requestWorkload, runningWorkloads)
+			isPreemptable = r.isPreemptable(requestWorkload, scheduledWorkloads)
 		}
 	}
 	if err != nil {
@@ -598,18 +596,17 @@ func (r *SchedulerReconciler) checkWorkloadDependencies(ctx context.Context, wor
 			depWorkload := &v1.Workload{}
 			if err := r.Get(ctx, client.ObjectKey{Name: dep, Namespace: workload.Namespace}, depWorkload); err != nil {
 				if apierrors.IsNotFound(err) {
-					// workload could not find default failed
-					if err := jobutils.SetWorkloadFailed(ctx, r.Client, workload, fmt.Sprintf("dependency workload %s not found", dep)); err != nil {
+					if err = jobutils.SetWorkloadFailed(ctx, r.Client, workload, fmt.Sprintf("dependency workload %s not found", dep)); err != nil {
 						klog.Errorf("failed to set workload %s dependency failed", workload.Name)
 						return true, err
 					}
-					return isReady, fmt.Errorf("the dependency workload(%s) is not found", dep)
+					return false, nil
 				}
 				return isReady, err
 			}
 			phase = depWorkload.Status.Phase
 			if depWorkload.IsEnd() {
-				workload.SetDependenciesPhase(dep, workload.Status.Phase)
+				workload.SetDependenciesPhase(dep, depWorkload.Status.Phase)
 				isChange = true
 			}
 		}
@@ -703,26 +700,26 @@ func (r *SchedulerReconciler) getUnfinishedWorkloads(ctx context.Context, worksp
 	if err != nil {
 		return nil, nil, err
 	}
-	var schedulingWorkloads, runningWorkloads []*v1.Workload
+	var schedulingWorkloads, scheduledWorkloads []*v1.Workload
 	for i, w := range workloads {
 		if !v1.IsWorkloadScheduled(w) {
 			schedulingWorkloads = append(schedulingWorkloads, workloads[i])
 		} else {
-			runningWorkloads = append(runningWorkloads, workloads[i].DeepCopy())
+			scheduledWorkloads = append(scheduledWorkloads, workloads[i].DeepCopy())
 		}
 	}
 	if len(schedulingWorkloads) > 0 {
 		sort.Sort(WorkloadList(schedulingWorkloads))
 	}
-	if len(runningWorkloads) > 0 {
-		sort.Sort(WorkloadList(runningWorkloads))
+	if len(scheduledWorkloads) > 0 {
+		sort.Sort(WorkloadList(scheduledWorkloads))
 	}
-	return schedulingWorkloads, runningWorkloads, nil
+	return schedulingWorkloads, scheduledWorkloads, nil
 }
 
 // getLeftTotalResources Retrieve the total amount of left resources. The system usually reserves a certain amount of CPU, memory, and other resources.
 func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
-	workspace *v1.Workspace, runningWorkloads []*v1.Workload) (corev1.ResourceList, corev1.ResourceList, error) {
+	workspace *v1.Workspace, workloads []*v1.Workload) (corev1.ResourceList, corev1.ResourceList, error) {
 	filterFunc := func(nodeName string) bool {
 		n := &v1.Node{}
 		if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, n); err != nil {
@@ -731,7 +728,7 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 		return !n.IsAvailable(false)
 	}
 	usedResource := make(corev1.ResourceList)
-	for _, w := range runningWorkloads {
+	for _, w := range workloads {
 		var resourceList corev1.ResourceList
 		var err error
 		if w.IsRunning() {
@@ -749,6 +746,8 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 	leftAvailResource := quantity.SubResource(availResource, usedResource)
 	totalResource := quantity.GetAvailableResource(workspace.Status.TotalResources)
 	leftTotalResource := quantity.SubResource(totalResource, usedResource)
+	klog.Infof("total resource: %v, total used: %v, left total: %v, left avail: %v",
+		totalResource, usedResource, leftTotalResource, leftAvailResource)
 	return leftAvailResource, leftTotalResource, nil
 }
 
@@ -805,7 +804,7 @@ func (r *SchedulerReconciler) updateStatus(ctx context.Context, workload *v1.Wor
 func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads []*v1.Workload, unScheduledReasons map[string]string) {
 	position := 1
 	for i, w := range workloads {
-		if v1.IsWorkloadScheduled(w) {
+		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
 			continue
 		}
 		originalWorkload := client.MergeFrom(workloads[i].DeepCopy())
@@ -860,6 +859,5 @@ func (r *SchedulerReconciler) setDependenciesPhase(ctx context.Context, workload
 		}
 		return nil
 	}
-
 	return r.Status().Update(ctx, depWorkload)
 }
