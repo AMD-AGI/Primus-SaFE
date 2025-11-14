@@ -24,11 +24,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	rmutils "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
@@ -216,67 +214,82 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
 	}
 
-	// Create image record in database
-	dbImage := &model.Image{
-		Tag:            targetImage,
-		Description:    fmt.Sprintf("Exported from workload %s, source: %s", workloadId, sourceImage),
-		CreatedBy:      v1.GetUserName(job),
-		CreatedAt:      time.Now().UTC(),
-		Status:         common.ImageImportingStatus,
-		Source:         "export",
-		RelationDigest: map[string]interface{}{},
-	}
-
-	if err := r.dbClient.UpsertImage(ctx, dbImage); err != nil {
-		klog.ErrorS(err, "failed to create image record in database")
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, "failed to create image record", nil)
-	}
-
-	klog.Infof("Starting image export: workload=%s, source=%s, target=%s, imageId=%d, node=%s",
-		workloadId, sourceImage, targetImage, dbImage.ID, node.Name)
+	klog.Infof("Starting image export: workload=%s, source=%s, target=%s, node=%s",
+		workloadId, sourceImage, targetImage, node.Name)
 
 	// Get Harbor credentials from Secret
 	harborUsername, harborPassword, err := r.getHarborCredentials(ctx, defaultRegistry.URL)
 	if err != nil {
 		klog.ErrorS(err, "failed to get Harbor credentials")
-		return ctrlruntime.Result{}, r.handleExportFailure(ctx, job, dbImage, err.Error())
+		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
+	}
+
+	// Get Pod name and namespace from workload
+	podName := workload.Status.Pods[0].PodId
+	if podName == "" {
+		err := commonerrors.NewBadRequest("workload pod name is empty")
+		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
+	}
+
+	namespace := workload.Spec.Workspace // Pod namespace is the workspace ID
+
+	// Get container ID from Pod
+	containerID, err := r.getContainerIDFromPod(ctx, podName, namespace)
+	if err != nil {
+		klog.ErrorS(err, "failed to get container ID", "pod", podName, "namespace", namespace)
+		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, fmt.Sprintf("failed to get container ID: %v", err), nil)
 	}
 
 	// Execute image export via SSH
-	if err := r.exportImageViaSSH(ctx, node, sourceImage, targetImage, defaultRegistry.URL, harborUsername, harborPassword); err != nil {
+	if err := r.exportImageViaSSH(ctx, node, sourceImage, targetImage, containerID, defaultRegistry.URL, harborUsername, harborPassword); err != nil {
 		klog.ErrorS(err, "failed to export image", "source", sourceImage, "target", targetImage)
-		return ctrlruntime.Result{}, r.handleExportFailure(ctx, job, dbImage, err.Error())
+		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
 	}
 
-	// Update image status to ready
-	dbImage.Status = "ready"
-	dbImage.UpdatedAt = time.Now().UTC()
-	if err := r.dbClient.UpsertImage(ctx, dbImage); err != nil {
-		klog.ErrorS(err, "failed to update image status to ready", "imageId", dbImage.ID)
-	}
+	// Construct full target image path (with registry) for outputs
+	fullTargetImage := fmt.Sprintf("%s/%s", defaultRegistry.URL, targetImage)
+	
+	klog.Infof("Successfully exported image: workload=%s, target=%s", workloadId, fullTargetImage)
 
-	klog.Infof("Successfully exported image: workload=%s, target=%s, imageId=%d",
-		workloadId, targetImage, dbImage.ID)
-
-	// Update OpsJob status to succeeded
+	// Update OpsJob status to succeeded with full image path
 	outputs := []v1.Parameter{
 		{Name: "status", Value: "completed"},
-		{Name: "target", Value: targetImage},
+		{Name: "target", Value: fullTargetImage}, // Store full path with registry
 		{Name: "message", Value: "Image exported successfully"},
 	}
 	return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, "Image exported successfully", outputs)
 }
 
-// handleExportFailure handles export failure by updating database and job status
-func (r *ExportImageJobReconciler) handleExportFailure(ctx context.Context, job *v1.OpsJob, dbImage *model.Image, errMsg string) error {
-	// Update image status to failed
-	dbImage.Status = "failed"
-	dbImage.Description = fmt.Sprintf("%s (Error: %s)", dbImage.Description, errMsg)
-	dbImage.UpdatedAt = time.Now().UTC()
-	_ = r.dbClient.UpsertImage(ctx, dbImage)
+// getContainerIDFromPod retrieves the container ID from a Kubernetes Pod
+// Returns the container ID without the runtime prefix (e.g., removes "containerd://")
+func (r *ExportImageJobReconciler) getContainerIDFromPod(ctx context.Context, podName, namespace string) (string, error) {
+	// Get Pod from Kubernetes
+	pod := &corev1.Pod{}
+	if err := r.Get(ctx, client.ObjectKey{Name: podName, Namespace: namespace}, pod); err != nil {
+		return "", fmt.Errorf("failed to get Pod %s/%s: %w", namespace, podName, err)
+	}
 
-	// Update OpsJob status to failed
-	return r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, nil)
+	// Check if Pod has container statuses
+	if len(pod.Status.ContainerStatuses) == 0 {
+		return "", fmt.Errorf("Pod %s has no container statuses", podName)
+	}
+
+	// Get the first container's ID
+	containerID := pod.Status.ContainerStatuses[0].ContainerID
+	if containerID == "" {
+		return "", fmt.Errorf("container ID is empty for Pod %s", podName)
+	}
+
+	// Remove runtime prefix (e.g., "containerd://6bf0a2bc63a5...")
+	if strings.Contains(containerID, "://") {
+		parts := strings.SplitN(containerID, "://", 2)
+		if len(parts) == 2 {
+			containerID = parts[1]
+		}
+	}
+
+	klog.V(4).Infof("Retrieved container ID for Pod %s: %s", podName, containerID)
+	return containerID, nil
 }
 
 // getHarborCredentials retrieves Harbor username and password from Secret
@@ -334,6 +347,7 @@ func (r *ExportImageJobReconciler) exportImageViaSSH(
 	node *v1.Node,
 	sourceImage string,
 	targetImage string,
+	containerID string,
 	registry string,
 	harborUsername string,
 	harborPassword string,
@@ -347,18 +361,17 @@ func (r *ExportImageJobReconciler) exportImageViaSSH(
 
 	klog.Infof("SSH connected to node %s", node.Name)
 
-	// Step 1: Login to Harbor
-	if err := r.loginHarbor(sshClient, registry, harborUsername, harborPassword); err != nil {
-		return fmt.Errorf("failed to login Harbor: %w", err)
-	}
-
-	// Construct full image path with registry for tag and push operations
-	// targetImage is "Custom/admin/nginx:20250112", need to prepend registry
+	// Construct full image path with registry
 	fullTargetImage := fmt.Sprintf("%s/%s", registry, targetImage)
 
-	// Step 2: Tag image
-	if err := r.tagImage(sshClient, sourceImage, fullTargetImage); err != nil {
-		return fmt.Errorf("failed to tag image: %w", err)
+	// Step 1: Commit container to image (creates image directly with target name)
+	if err := r.commitContainerToImage(sshClient, containerID, fullTargetImage); err != nil {
+		return fmt.Errorf("failed to commit container: %w", err)
+	}
+
+	// Step 2: Login to Harbor
+	if err := r.loginHarbor(sshClient, registry, harborUsername, harborPassword); err != nil {
+		return fmt.Errorf("failed to login Harbor: %w", err)
 	}
 
 	// Step 3: Push image
@@ -367,6 +380,31 @@ func (r *ExportImageJobReconciler) exportImageViaSSH(
 	}
 
 	klog.Infof("Successfully pushed image %s to registry %s", targetImage, registry)
+	return nil
+}
+
+// commitContainerToImage commits a container to an image by container ID
+// Uses the real container ID obtained from Kubernetes Pod status
+func (r *ExportImageJobReconciler) commitContainerToImage(sshClient *ssh.Client, containerID, targetImage string) error {
+	session, err := sshClient.NewSession()
+	if err != nil {
+		return fmt.Errorf("failed to create SSH session: %w", err)
+	}
+	defer session.Close()
+
+	klog.Infof("Committing container %s to image %s", containerID, targetImage)
+
+	// Use nerdctl commit with container ID
+	// containerID should already have the runtime prefix removed (e.g., "6bf0a2bc63a5...")
+	commitCmd := fmt.Sprintf("sudo nerdctl commit %s %s", containerID, targetImage)
+	klog.V(4).Infof("Executing: %s", commitCmd)
+
+	output, err := session.CombinedOutput(commitCmd)
+	if err != nil {
+		return fmt.Errorf("commit failed: %s, error: %w", string(output), err)
+	}
+
+	klog.Infof("Successfully committed container %s to image %s", containerID, targetImage)
 	return nil
 }
 
@@ -394,32 +432,12 @@ func (r *ExportImageJobReconciler) loginHarbor(sshClient *ssh.Client, registry, 
 	}
 
 	// Check if login succeeded
-	if !strings.Contains(strings.ToLower(outputStr), "login succeeded") && 
-	   !strings.Contains(strings.ToLower(outputStr), "logged in") {
+	if !strings.Contains(strings.ToLower(outputStr), "login succeeded") &&
+		!strings.Contains(strings.ToLower(outputStr), "logged in") {
 		return fmt.Errorf("nerdctl login returned unexpected output: %s", outputStr)
 	}
 
 	klog.Infof("Successfully logged into Harbor registry %s", registry)
-	return nil
-}
-
-// tagImage tags the source image with target name
-func (r *ExportImageJobReconciler) tagImage(sshClient *ssh.Client, sourceImage string, targetImage string) error {
-	session, err := sshClient.NewSession()
-	if err != nil {
-		return fmt.Errorf("failed to create SSH session: %w", err)
-	}
-	defer session.Close()
-
-	cmd := fmt.Sprintf("sudo nerdctl tag %s %s", sourceImage, targetImage)
-	klog.V(4).Infof("Tagging image: %s -> %s", sourceImage, targetImage)
-
-	output, err := session.CombinedOutput(cmd)
-	if err != nil {
-		return fmt.Errorf("tag failed: %s, error: %w", string(output), err)
-	}
-
-	klog.Infof("Successfully tagged image %s as %s", sourceImage, targetImage)
 	return nil
 }
 
@@ -480,10 +498,10 @@ func generateTargetImageName(sourceImage string) (string, error) {
 		repository = parts[len(parts)-1]
 	}
 
-	// Generate timestamp tag (YYYYMMDD format)
-	timestamp := time.Now().Format("20060102")
+	// Generate timestamp tag (YYYYMMDDHHmmss format - precise to seconds)
+	timestamp := time.Now().Format("20060102150405")
 
-	// Create target image path: custom/namespace/repository:YYYYMMDD
+	// Create target image path: custom/namespace/repository:YYYYMMDDHHmmss
 	// Convert to lowercase as Harbor requires lowercase repository names
 	targetImage := fmt.Sprintf("%s/%s/%s:%s",
 		strings.ToLower(registryProject), // "custom" (lowercase)

@@ -179,7 +179,7 @@ Import image from external registry to internal Harbor.
   "totalCount": 2,
   "items": [
     {
-      "imageName": "custom/library/busybox:20251113",
+      "imageName": "harbor.tas.primus-safe.amd.com/custom/library/busybox:20251113162030",
       "workload": "my-busybox-workload",
       "status": "Succeeded",
       "createdTime": "2025-11-13T12:14:27Z",
@@ -187,7 +187,7 @@ Import image from external registry to internal Harbor.
       "log": "Image exported successfully"
     },
     {
-      "imageName": "custom/rocm/pytorch:20251113",
+      "imageName": "harbor.tas.primus-safe.amd.com/custom/rocm/pytorch:20251113143015",
       "workload": "pytorch-training-001",
       "status": "Failed",
       "createdTime": "2025-11-13T11:30:15Z",
@@ -199,12 +199,14 @@ Import image from external registry to internal Harbor.
 ```
 
 **Field Description** (6 fields total):
-1. `imageName`: Target image name in Harbor (from ops_job.outputs.target), e.g. `custom/library/busybox:20251113`
+1. `imageName`: **Full** target image path in Harbor including registry (from ops_job.outputs.target), e.g. `harbor.tas.primus-safe.amd.com/custom/library/busybox:20251113162030`
 2. `workload`: Source workload ID (from ops_job.inputs.workload)
 3. `status`: Export job status (from ops_job.phase): `Pending`/`Running`/`Succeeded`/`Failed`
 4. `createdTime`: Export job creation time (from ops_job.creation_time, RFC3339 format)
 5. `label`: User-defined label (from ops_job.inputs.label), empty if not provided during job creation
 6. `log`: Status message or error details (from ops_job.conditions[].message)
+
+**Note**: The `imageName` field contains the complete image path including registry URL, so you can directly use it with `docker pull` or `nerdctl pull` commands.
 
 **Notes**:
 - This endpoint queries the `ops_job` table (type='exportimage'), not the `image` table
