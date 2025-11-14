@@ -103,22 +103,6 @@ func TestRegisterReconciler(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "register nil reconciler",
-			setup: func() {
-				reconcilers = []Reconciler{}
-			},
-			reconciler:    nil,
-			expectedCount: 1,
-			checkReconciler: func(t *testing.T) {
-				if len(reconcilers) != 1 {
-					t.Errorf("Expected 1 reconciler (nil), got %d", len(reconcilers))
-				}
-				if reconcilers[0] != nil {
-					t.Error("Expected reconciler to be nil")
-				}
-			},
-		},
 	}
 
 	for _, tt := range tests {

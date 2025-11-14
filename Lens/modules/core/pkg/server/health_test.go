@@ -19,7 +19,9 @@ func resetHealthServerState() {
 	// Reset once to allow re-initialization in tests
 	once = *new(sync.Once)
 	engine = nil
+	registersMu.Lock()
 	registers = []func(g *gin.RouterGroup){}
+	registersMu.Unlock()
 	// Re-add the default metrics register
 	AddRegister(addMetrics)
 }

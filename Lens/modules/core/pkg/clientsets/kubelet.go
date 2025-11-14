@@ -29,6 +29,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/go-resty/resty/v2"
 	corev1 "k8s.io/api/core/v1"
@@ -191,7 +192,9 @@ func (s *Client) GetKubeletPods(ctx context.Context) (*corev1.PodList, error) {
 	}
 	if resp.StatusCode() != http.StatusOK {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get kubelet pods, status code: %d.Resp %s", resp.StatusCode(), resp.String())
-		return nil, err
+		return nil, errors.NewError().
+			WithCode(errors.InternalError).
+			WithMessage(fmt.Sprintf("Failed to get kubelet pods, status code: %d", resp.StatusCode()))
 	}
 	return resp.Result().(*corev1.PodList), nil
 }
