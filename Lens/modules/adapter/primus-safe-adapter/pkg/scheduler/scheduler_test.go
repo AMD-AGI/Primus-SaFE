@@ -209,7 +209,7 @@ func TestScheduler_ContextCancellation(t *testing.T) {
 	s.Start(ctx)
 
 	// Wait for some executions
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(120 * time.Millisecond)
 
 	runCountBefore := task.GetRunCount()
 
@@ -217,14 +217,20 @@ func TestScheduler_ContextCancellation(t *testing.T) {
 	cancel()
 
 	// Wait a bit to ensure task stops
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	runCountAfter := task.GetRunCount()
 
 	s.Stop()
 
 	// Task should have stopped after context cancellation
-	assert.Equal(t, runCountBefore, runCountAfter, "Task should stop after context cancellation")
+	// Allow at most 1 additional execution due to race condition between context cancellation and ticker
+	assert.LessOrEqual(t, runCountAfter-runCountBefore, int32(1), "Task should stop after context cancellation (allowing 1 execution due to race condition)")
+	
+	// Verify task eventually stopped (no more than 1 extra execution)
+	time.Sleep(100 * time.Millisecond)
+	runCountFinal := task.GetRunCount()
+	assert.Equal(t, runCountAfter, runCountFinal, "Task should not execute after stopping")
 }
 
 func TestScheduler_MultipleTasks(t *testing.T) {
