@@ -38,6 +38,7 @@ const (
 type WorkloadConditionType string
 
 const (
+	AdminScheduling WorkloadConditionType = "AdminScheduling"
 	AdminScheduled  WorkloadConditionType = "AdminScheduled"
 	AdminDispatched WorkloadConditionType = "AdminDispatched"
 	K8sPending      WorkloadConditionType = "K8sPending"
