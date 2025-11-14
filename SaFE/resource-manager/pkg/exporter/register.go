@@ -51,7 +51,7 @@ func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 				if err := dbClient.UpsertWorkload(ctx, dbWorkload); err != nil {
 					if !obj.GetDeletionTimestamp().IsZero() &&
 						time.Now().UTC().Sub(obj.GetDeletionTimestamp().Time).Hours() > MaxTTLHour {
-						klog.Errorf("failed to upsert workload(%s), ignore it: %v", dbWorkload.Id, err)
+						klog.Errorf("failed to upsert workload(%d), ignore it: %v", dbWorkload.Id, err)
 						return nil
 					}
 					return err
