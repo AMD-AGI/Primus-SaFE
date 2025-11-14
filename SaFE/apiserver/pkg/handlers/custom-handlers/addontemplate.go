@@ -34,12 +34,16 @@ func (h *Handler) GetAddonTemplate(c *gin.Context) {
 
 // listAddonTemplate implements the addon template listing logic.
 // Retrieves all addon templates, sorts them by name, and converts them to response items.
+// Supports filtering by type parameter from query string.
 func (h *Handler) listAddonTemplate(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	addonTemplateList := &v1.AddonTemplateList{}
 	if err := h.List(ctx, addonTemplateList, &client.ListOptions{}); err != nil {
 		return nil, err
 	}
+
+	// Get type filter from query parameter
+	typeFilter := c.Query("type")
 
 	result := types.ListAddonTemplateResponse{}
 	if len(addonTemplateList.Items) > 0 {
@@ -48,6 +52,10 @@ func (h *Handler) listAddonTemplate(c *gin.Context) (interface{}, error) {
 		})
 	}
 	for _, item := range addonTemplateList.Items {
+		// Filter by type if specified
+		if typeFilter != "" && string(item.Spec.Type) != typeFilter {
+			continue
+		}
 		result.Items = append(result.Items, cvtToAddonTemplateResponseItem(&item))
 	}
 	result.TotalCount = len(result.Items)
@@ -117,4 +125,3 @@ func cvtToGetAddonTemplateResponse(addonTemplate *v1.AddonTemplate) types.GetAdd
 
 	return result
 }
-
