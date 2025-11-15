@@ -7,6 +7,8 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.21%2B-326CE5?logo=kubernetes)](https://kubernetes.io/)
 [![ROCm](https://img.shields.io/badge/ROCm-Compatible-ED1C24?logo=amd)](https://rocm.docs.amd.com/)
+[![codecov](https://codecov.io/gh/AMD-AGI/Primus-SaFE/graph/badge.svg)](https://codecov.io/gh/AMD-AGI/Primus-SaFE)
+[![Unit Tests](https://github.com/AMD-AGI/Primus-SaFE/actions/workflows/unit-test.yml/badge.svg)](https://github.com/AMD-AGI/Primus-SaFE/actions/workflows/unit-test.yml)
 
 </div>
 

@@ -84,9 +84,9 @@ func (m *Manager) BatchGetParsed(ctx context.Context, configMap map[string]inter
 	return nil
 }
 
-// BatchDelete 批量删除配置
+// BatchDelete deletes configurations in batch
 func (m *Manager) BatchDelete(ctx context.Context, keys []string) error {
-	// 检查是否有只读配置
+	// Check if there are readonly configurations
 	var readonlyConfigs []string
 	err := m.db.WithContext(ctx).
 		Model(&model.SystemConfig{}).
@@ -105,15 +105,15 @@ func (m *Manager) BatchDelete(ctx context.Context, keys []string) error {
 		Delete(&model.SystemConfig{}).Error
 }
 
-// CopyConfig 复制配置到新的键
+// CopyConfig copies configuration to a new key
 func (m *Manager) CopyConfig(ctx context.Context, sourceKey, targetKey string, updatedBy string) error {
-	// 获取源配置
+	// Get source configuration
 	source, err := m.GetRaw(ctx, sourceKey)
 	if err != nil {
 		return fmt.Errorf("failed to get source config: %w", err)
 	}
 
-	// 检查目标键是否已存在
+	// Check if target key already exists
 	exists, err := m.Exists(ctx, targetKey)
 	if err != nil {
 		return fmt.Errorf("failed to check target key existence: %w", err)
@@ -122,12 +122,12 @@ func (m *Manager) CopyConfig(ctx context.Context, sourceKey, targetKey string, u
 		return fmt.Errorf("target key '%s' already exists", targetKey)
 	}
 
-	// 创建新配置
+	// Create new configuration
 	return m.Set(ctx, targetKey, source.Value,
 		WithDescription(source.Description),
 		WithCategory(source.Category),
 		WithEncrypted(source.IsEncrypted),
-		WithReadonly(false), // 复制的配置默认不是只读的
+		WithReadonly(false), // Copied configuration is not readonly by default
 		WithCreatedBy(updatedBy),
 		WithUpdatedBy(updatedBy),
 	)

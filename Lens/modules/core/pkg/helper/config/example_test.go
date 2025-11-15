@@ -8,7 +8,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/config"
 )
 
-// 示例配置结构
+// Example configuration structures
 type DatabaseConfig struct {
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
@@ -23,15 +23,15 @@ type FeatureFlags struct {
 	MaxUploadSize     int  `json:"max_upload_size"`
 }
 
-// ExampleManager_Get 演示如何获取配置并解析到结构体
+// ExampleManager_Get demonstrates how to get configuration and parse it to a struct
 func ExampleManager_Get() {
 	ctx := context.Background()
 	manager := config.NewManagerForCluster("default")
 
-	// 定义接收配置的结构体
+	// Define struct to receive configuration
 	var dbConfig DatabaseConfig
 
-	// 获取配置
+	// Get configuration
 	err := manager.Get(ctx, "database.config", &dbConfig)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -42,12 +42,12 @@ func ExampleManager_Get() {
 	fmt.Printf("Database Port: %d\n", dbConfig.Port)
 }
 
-// ExampleManager_Set 演示如何设置配置
+// ExampleManager_Set demonstrates how to set configuration
 func ExampleManager_Set() {
 	ctx := context.Background()
 	manager := config.NewManagerForCluster("default")
 
-	// 创建配置对象
+	// Create configuration object
 	dbConfig := DatabaseConfig{
 		Host:     "localhost",
 		Port:     5432,
@@ -56,7 +56,7 @@ func ExampleManager_Set() {
 		Database: "primus_lens",
 	}
 
-	// 设置配置
+	// Set configuration
 	err := manager.Set(ctx, "database.config", dbConfig,
 		config.WithDescription("Database connection configuration"),
 		config.WithCategory("database"),
@@ -71,21 +71,21 @@ func ExampleManager_Set() {
 	fmt.Println("Configuration set successfully")
 }
 
-// ExampleManager_GetOrDefault 演示如何获取配置并提供默认值
+// ExampleManager_GetOrDefault demonstrates how to get configuration with default value
 func ExampleManager_GetOrDefault() {
 	ctx := context.Background()
 	manager := config.NewManagerForCluster("default")
 
 	var features FeatureFlags
 
-	// 默认配置
+	// Default configuration
 	defaultFeatures := FeatureFlags{
 		EnableNewUI:       false,
 		EnableBetaFeature: false,
 		MaxUploadSize:     10485760, // 10MB
 	}
 
-	// 获取配置，如果不存在则使用默认值
+	// Get configuration, use default value if not exists
 	err := manager.GetOrDefault(ctx, "feature.flags", &features, defaultFeatures)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -96,12 +96,12 @@ func ExampleManager_GetOrDefault() {
 	fmt.Printf("Max Upload Size: %d bytes\n", features.MaxUploadSize)
 }
 
-// ExampleManager_List 演示如何列出配置
+// ExampleManager_List demonstrates how to list configurations
 func ExampleManager_List() {
 	ctx := context.Background()
 	manager := config.NewManagerForCluster("default")
 
-	// 列出特定类别的配置
+	// List configurations of a specific category
 	configs, err := manager.ListByCategory(ctx, "database")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -113,12 +113,12 @@ func ExampleManager_List() {
 	}
 }
 
-// ExampleManager_BatchSet 演示批量设置配置
+// ExampleManager_BatchSet demonstrates batch setting configurations
 func ExampleManager_BatchSet() {
 	ctx := context.Background()
 	manager := config.NewManagerForCluster("default")
 
-	// 准备批量配置
+	// Prepare batch configurations
 	batchConfigs := []config.BatchConfig{
 		{
 			Key: "smtp.host",
@@ -143,7 +143,7 @@ func ExampleManager_BatchSet() {
 		},
 	}
 
-	// 批量设置
+	// Batch set
 	err := manager.BatchSet(ctx, batchConfigs)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -153,23 +153,23 @@ func ExampleManager_BatchSet() {
 	fmt.Println("Batch configuration set successfully")
 }
 
-// ExampleCachedManager_GetCached 演示如何使用缓存管理器
+// ExampleCachedManager_GetCached demonstrates how to use cached manager
 func ExampleCachedManager_GetCached() {
 	ctx := context.Background()
 
-	// 创建带缓存的管理器，缓存有效期 5 分钟
+	// Create cached manager with 5 minute cache TTL
 	cachedManager := config.NewCachedManagerForCluster("default", 5*time.Minute)
 
 	var dbConfig DatabaseConfig
 
-	// 第一次调用会从数据库读取
+	// First call reads from database
 	err := cachedManager.GetCached(ctx, "database.config", &dbConfig)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return
 	}
 
-	// 第二次调用会从缓存读取（更快）
+	// Second call reads from cache (faster)
 	err = cachedManager.GetCached(ctx, "database.config", &dbConfig)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -179,12 +179,12 @@ func ExampleCachedManager_GetCached() {
 	fmt.Printf("Database configuration loaded: %s:%d\n", dbConfig.Host, dbConfig.Port)
 }
 
-// ExampleManager_GetHistory 演示如何获取配置历史
+// ExampleManager_GetHistory demonstrates how to get configuration history
 func ExampleManager_GetHistory() {
 	ctx := context.Background()
 	manager := config.NewManagerForCluster("default")
 
-	// 获取最近 10 条历史记录
+	// Get latest 10 history records
 	history, err := manager.GetHistory(ctx, "database.config", 10)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -197,12 +197,12 @@ func ExampleManager_GetHistory() {
 	}
 }
 
-// ExampleManager_Rollback 演示如何回滚配置
+// ExampleManager_Rollback demonstrates how to rollback configuration
 func ExampleManager_Rollback() {
 	ctx := context.Background()
 	manager := config.NewManagerForCluster("default")
 
-	// 回滚到版本 3
+	// Rollback to version 3
 	err := manager.Rollback(ctx, "database.config", 3, "admin")
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -212,12 +212,12 @@ func ExampleManager_Rollback() {
 	fmt.Println("Configuration rolled back successfully")
 }
 
-// ExampleCachedManager_Preload 演示如何预加载配置到缓存
+// ExampleCachedManager_Preload demonstrates how to preload configurations to cache
 func ExampleCachedManager_Preload() {
 	ctx := context.Background()
 	cachedManager := config.NewCachedManagerForCluster("default", 5*time.Minute)
 
-	// 预加载多个配置到缓存
+	// Preload multiple configurations to cache
 	keys := []string{
 		"database.config",
 		"feature.flags",
@@ -231,7 +231,7 @@ func ExampleCachedManager_Preload() {
 		return
 	}
 
-	// 获取缓存统计
+	// Get cache statistics
 	stats := cachedManager.GetCacheStats()
 	fmt.Printf("Cache stats: %+v\n", stats)
 }

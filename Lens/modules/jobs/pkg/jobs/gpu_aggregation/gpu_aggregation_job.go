@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -17,7 +18,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/common"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
@@ -1602,7 +1603,17 @@ func calculatePercentile(sortedValues []float64, percentile float64) float64 {
 		return 0
 	}
 
-	index := int(float64(len(sortedValues)-1) * percentile)
+	// Handle boundary cases
+	if percentile == 0 {
+		return sortedValues[0]
+	}
+	if percentile == 1 {
+		return sortedValues[len(sortedValues)-1]
+	}
+
+	// Use ceiling method for percentile calculation
+	// position = ceil(percentile * n) - 1
+	index := int(math.Ceil(percentile*float64(len(sortedValues)))) - 1
 	return sortedValues[index]
 }
 

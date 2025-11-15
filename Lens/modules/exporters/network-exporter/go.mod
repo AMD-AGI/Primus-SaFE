@@ -1,6 +1,6 @@
 module github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter
 
-go 1.24.5
+go 1.24.7
 
 replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../../core
 
@@ -10,6 +10,7 @@ require (
 	github.com/gin-gonic/gin v1.11.0
 	github.com/prometheus/client_golang v1.22.0
 	github.com/prometheus/client_model v0.6.2
+	github.com/stretchr/testify v1.11.1
 	github.com/yl2chen/cidranger v1.0.2
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.33.3
@@ -76,6 +77,7 @@ require (
 	github.com/opentracing/opentracing-go v1.2.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/common v0.65.0 // indirect
 	github.com/prometheus/procfs v0.17.0 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect

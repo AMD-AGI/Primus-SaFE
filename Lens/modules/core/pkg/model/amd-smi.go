@@ -55,6 +55,38 @@ type BusInfo struct {
 	SlotType             string        `json:"slot_type"`
 }
 
+func (b *BusInfo) UnmarshalJSON(data []byte) error {
+	// Create a temporary struct with the same fields but without custom unmarshaling
+	type Alias BusInfo
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(b),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Convert MaxPCIeWidth from float64 to int if it's a number
+	if b.MaxPCIeWidth != nil {
+		switch v := b.MaxPCIeWidth.(type) {
+		case float64:
+			b.MaxPCIeWidth = int(v)
+		case int:
+			// Already an int, no conversion needed
+		case string:
+			// Try to parse string as int
+			if intVal, err := strconv.Atoi(v); err == nil {
+				b.MaxPCIeWidth = intVal
+			}
+			// Otherwise keep as string (e.g., "N/A")
+		}
+	}
+
+	return nil
+}
+
 type NAOrInt struct {
 	Value int  `json:"value"`
 	NA    bool `json:"na"`
