@@ -54,6 +54,11 @@ func newNode(t *testing.T) (*Node, *fake.Clientset) {
 }
 
 func TestWatchNode(t *testing.T) {
+	// Mock NSENTER to avoid permission issues
+	savedNSENTER := NSENTER
+	NSENTER = ""
+	defer func() { NSENTER = savedNSENTER }()
+
 	n, fakeClientSet := newNode(t)
 	err := n.Start()
 	assert.NilError(t, err)
