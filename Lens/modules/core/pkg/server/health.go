@@ -12,6 +12,7 @@ import (
 var once sync.Once
 
 var engine *gin.Engine
+var engineMu sync.RWMutex
 
 var defaultGather prometheus.Gatherer
 
@@ -48,6 +49,7 @@ func AddDefaultRegister(path string, method func() (interface{}, error)) {
 
 func InitHealthServer(port int) {
 	once.Do(func() {
+		engineMu.Lock()
 		engine = gin.New()
 		g := engine.Group("")
 		g.Use(gin.Recovery())
@@ -60,8 +62,12 @@ func InitHealthServer(port int) {
 		}
 		registersMu.Unlock()
 		
+		// Keep a local reference for the goroutine
+		localEngine := engine
+		engineMu.Unlock()
+		
 		go func() {
-			engine.Run(fmt.Sprintf(":%d", port))
+			localEngine.Run(fmt.Sprintf(":%d", port))
 		}()
 	})
 }
