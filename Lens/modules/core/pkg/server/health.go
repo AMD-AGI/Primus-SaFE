@@ -12,6 +12,7 @@ import (
 var once sync.Once
 
 var engine *gin.Engine
+var engineMu sync.RWMutex
 
 var defaultGather prometheus.Gatherer
 
@@ -21,12 +22,15 @@ func init() {
 }
 
 var registers []func(g *gin.RouterGroup)
+var registersMu sync.Mutex
 
 func SetDefaultGather(g prometheus.Gatherer) {
 	defaultGather = g
 }
 
 func AddRegister(register func(g *gin.RouterGroup)) {
+	registersMu.Lock()
+	defer registersMu.Unlock()
 	registers = append(registers, register)
 }
 
@@ -35,7 +39,7 @@ func AddDefaultRegister(path string, method func() (interface{}, error)) {
 		g.GET(path, func(c *gin.Context) {
 			data, err := method()
 			if err != nil {
-				c.Error(err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
 			c.JSON(http.StatusOK, data)
@@ -45,13 +49,25 @@ func AddDefaultRegister(path string, method func() (interface{}, error)) {
 
 func InitHealthServer(port int) {
 	once.Do(func() {
+		engineMu.Lock()
 		engine = gin.New()
 		g := engine.Group("")
 		g.Use(gin.Recovery())
 		g.Use(gin.Logger())
-		addMetrics(g)
+		
+		// Apply all registered routes
+		registersMu.Lock()
+		for _, reg := range registers {
+			reg(g)
+		}
+		registersMu.Unlock()
+		
+		// Keep a local reference for the goroutine
+		localEngine := engine
+		engineMu.Unlock()
+		
 		go func() {
-			engine.Run(fmt.Sprintf(":%d", port))
+			localEngine.Run(fmt.Sprintf(":%d", port))
 		}()
 	})
 }

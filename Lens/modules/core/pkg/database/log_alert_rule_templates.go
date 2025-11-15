@@ -50,7 +50,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 		{
 			Name:        "Generic-Error-Detection",
 			Category:    "basic",
-			Description: "通用错误日志检测，匹配 ERROR、FATAL、Exception 等关键字",
+			Description: "Generic error log detection, matches ERROR, FATAL, Exception and other keywords",
 			TemplateConfig: buildTemplateConfig(map[string]interface{}{
 				"label_selectors": []map[string]interface{}{
 					{
@@ -66,8 +66,8 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 				},
 				"severity": "warning",
 				"alert_template": map[string]interface{}{
-					"summary":     "检测到错误日志",
-					"description": "Pod {{.PodName}} 产生错误日志: {{.LogMessage}}",
+					"summary":     "Error log detected",
+					"description": "Pod {{.PodName}} generated error log: {{.LogMessage}}",
 					"labels": map[string]string{
 						"category": "error",
 					},
@@ -82,7 +82,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 		{
 			Name:        "GPU-OOM-Detection",
 			Category:    "gpu",
-			Description: "GPU 内存溢出检测",
+			Description: "GPU out of memory detection",
 			TemplateConfig: buildTemplateConfig(map[string]interface{}{
 				"label_selectors": []map[string]interface{}{
 					{
@@ -98,8 +98,8 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 				},
 				"severity": "critical",
 				"alert_template": map[string]interface{}{
-					"summary":     "GPU 内存溢出",
-					"description": "工作负载 {{.WorkloadName}} 的 Pod {{.PodName}} 发生 GPU OOM",
+					"summary":     "GPU out of memory",
+					"description": "Pod {{.PodName}} of workload {{.WorkloadName}} experienced GPU OOM",
 					"labels": map[string]string{
 						"category":  "gpu",
 						"component": "memory",
@@ -115,7 +115,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 		{
 			Name:        "GPU-OOM-Frequency",
 			Category:    "gpu",
-			Description: "GPU 频繁 OOM 检测（10分钟内3次以上）",
+			Description: "GPU frequent OOM detection (more than 3 times in 10 minutes)",
 			TemplateConfig: buildTemplateConfig(map[string]interface{}{
 				"label_selectors": []map[string]interface{}{
 					{
@@ -136,8 +136,8 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 				},
 				"severity": "critical",
 				"alert_template": map[string]interface{}{
-					"summary":     "GPU 频繁内存溢出",
-					"description": "工作负载 {{.WorkloadName}} 在过去10分钟内发生多次 GPU OOM",
+					"summary":     "GPU frequent out of memory",
+					"description": "Workload {{.WorkloadName}} experienced multiple GPU OOM in the past 10 minutes",
 					"labels": map[string]string{
 						"category":  "gpu",
 						"component": "memory",
@@ -154,7 +154,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 		{
 			Name:        "NCCL-Error-Detection",
 			Category:    "network",
-			Description: "NCCL 通信错误检测",
+			Description: "NCCL communication error detection",
 			TemplateConfig: buildTemplateConfig(map[string]interface{}{
 				"label_selectors": []map[string]interface{}{
 					{
@@ -170,8 +170,8 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 				},
 				"severity": "critical",
 				"alert_template": map[string]interface{}{
-					"summary":     "NCCL 通信错误",
-					"description": "工作负载 {{.WorkloadName}} 的 Pod {{.PodName}} 出现 NCCL 错误: {{.LogMessage}}",
+					"summary":     "NCCL communication error",
+					"description": "Pod {{.PodName}} of workload {{.WorkloadName}} encountered NCCL error: {{.LogMessage}}",
 					"labels": map[string]string{
 						"category":  "network",
 						"component": "nccl",
@@ -187,7 +187,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 		{
 			Name:        "InfiniBand-Error-Detection",
 			Category:    "network",
-			Description: "InfiniBand 网络错误检测",
+			Description: "InfiniBand network error detection",
 			TemplateConfig: buildTemplateConfig(map[string]interface{}{
 				"label_selectors": []map[string]interface{}{
 					{
@@ -203,8 +203,8 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 				},
 				"severity": "warning",
 				"alert_template": map[string]interface{}{
-					"summary":     "InfiniBand 网络错误",
-					"description": "节点 {{.NodeName}} 的 InfiniBand 网络出现错误",
+					"summary":     "InfiniBand network error",
+					"description": "Node {{.NodeName}} encountered InfiniBand network error",
 					"labels": map[string]string{
 						"category":  "network",
 						"component": "infiniband",
@@ -220,7 +220,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 		{
 			Name:        "Training-Loss-NaN",
 			Category:    "training",
-			Description: "训练损失值 NaN 检测",
+			Description: "Training loss NaN detection",
 			TemplateConfig: buildTemplateConfig(map[string]interface{}{
 				"label_selectors": []map[string]interface{}{
 					{
@@ -236,8 +236,8 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 				},
 				"severity": "critical",
 				"alert_template": map[string]interface{}{
-					"summary":     "训练损失值异常",
-					"description": "工作负载 {{.WorkloadName}} 的训练损失值为 NaN",
+					"summary":     "Training loss anomaly",
+					"description": "Workload {{.WorkloadName}} has training loss value of NaN",
 					"labels": map[string]string{
 						"category":  "training",
 						"component": "loss",
@@ -253,7 +253,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 		{
 			Name:        "Training-Checkpoint-Failed",
 			Category:    "training",
-			Description: "训练检查点保存失败检测",
+			Description: "Training checkpoint save failure detection",
 			TemplateConfig: buildTemplateConfig(map[string]interface{}{
 				"label_selectors": []map[string]interface{}{
 					{
@@ -269,8 +269,8 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 				},
 				"severity": "warning",
 				"alert_template": map[string]interface{}{
-					"summary":     "检查点保存失败",
-					"description": "工作负载 {{.WorkloadName}} 的检查点保存失败",
+					"summary":     "Checkpoint save failed",
+					"description": "Checkpoint save failed for workload {{.WorkloadName}}",
 					"labels": map[string]string{
 						"category":  "training",
 						"component": "checkpoint",
@@ -286,7 +286,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 		{
 			Name:        "Training-Throughput-Degradation",
 			Category:    "performance",
-			Description: "训练吞吐量下降检测（TFLOPS < 100）",
+			Description: "Training throughput degradation detection (TFLOPS < 100)",
 			TemplateConfig: buildTemplateConfig(map[string]interface{}{
 				"label_selectors": []map[string]interface{}{
 					{
@@ -307,8 +307,8 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 				},
 				"severity": "warning",
 				"alert_template": map[string]interface{}{
-					"summary":     "训练吞吐量下降",
-					"description": "工作负载 {{.WorkloadName}} 的 TFLOPS 持续低于预期",
+					"summary":     "Training throughput degradation",
+					"description": "TFLOPS of workload {{.WorkloadName}} consistently below expected",
 					"labels": map[string]string{
 						"category":  "performance",
 						"component": "throughput",
@@ -324,7 +324,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 		{
 			Name:        "Pod-Restart-Detection",
 			Category:    "basic",
-			Description: "Pod 重启检测",
+			Description: "Pod restart detection",
 			TemplateConfig: buildTemplateConfig(map[string]interface{}{
 				"label_selectors": []map[string]interface{}{
 					{
@@ -340,8 +340,8 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 				},
 				"severity": "warning",
 				"alert_template": map[string]interface{}{
-					"summary":     "Pod 重启",
-					"description": "Pod {{.PodName}} 在节点 {{.NodeName}} 上重启",
+					"summary":     "Pod restarted",
+					"description": "Pod {{.PodName}} restarted on node {{.NodeName}}",
 					"labels": map[string]string{
 						"category":  "kubernetes",
 						"component": "pod",
@@ -357,7 +357,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 		{
 			Name:        "Production-Critical-Error",
 			Category:    "basic",
-			Description: "生产环境严重错误检测",
+			Description: "Production environment critical error detection",
 			TemplateConfig: buildTemplateConfig(map[string]interface{}{
 				"label_selectors": []map[string]interface{}{
 					{
@@ -374,8 +374,8 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 				},
 				"severity": "critical",
 				"alert_template": map[string]interface{}{
-					"summary":     "生产环境严重错误",
-					"description": "生产环境命名空间 {{.Namespace}} 的 Pod {{.PodName}} 产生严重错误",
+					"summary":     "Production critical error",
+					"description": "Pod {{.PodName}} in production namespace {{.Namespace}} generated critical error",
 					"labels": map[string]string{
 						"category":    "production",
 						"environment": "prod",
@@ -391,7 +391,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 		{
 			Name:        "Disk-Space-Warning",
 			Category:    "basic",
-			Description: "磁盘空间不足警告",
+			Description: "Disk space insufficient warning",
 			TemplateConfig: buildTemplateConfig(map[string]interface{}{
 				"label_selectors": []map[string]interface{}{
 					{
@@ -407,8 +407,8 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 				},
 				"severity": "warning",
 				"alert_template": map[string]interface{}{
-					"summary":     "磁盘空间不足",
-					"description": "节点 {{.NodeName}} 的磁盘空间不足",
+					"summary":     "Disk space insufficient",
+					"description": "Node {{.NodeName}} has insufficient disk space",
 					"labels": map[string]string{
 						"category":  "storage",
 						"component": "disk",
@@ -424,7 +424,7 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 		{
 			Name:        "Connection-Timeout",
 			Category:    "network",
-			Description: "连接超时检测",
+			Description: "Connection timeout detection",
 			TemplateConfig: buildTemplateConfig(map[string]interface{}{
 				"label_selectors": []map[string]interface{}{},
 				"match_type":      "pattern",
@@ -434,8 +434,8 @@ func getBuiltinTemplates() []*model.LogAlertRuleTemplates {
 				},
 				"severity": "warning",
 				"alert_template": map[string]interface{}{
-					"summary":     "连接超时",
-					"description": "Pod {{.PodName}} 出现连接超时",
+					"summary":     "Connection timeout",
+					"description": "Pod {{.PodName}} experienced connection timeout",
 					"labels": map[string]string{
 						"category":  "network",
 						"component": "connection",

@@ -1,15 +1,15 @@
 package config
 
-// 这个文件提供了一些常见配置使用的便捷示例
+// This file provides convenient examples of common configuration usage
 
 import (
 	"context"
 )
 
 // Example configurations structures
-// 示例配置结构体
+// Example configuration structures
 
-// DatabaseConfig 数据库配置
+// DatabaseConfig database configuration
 type DatabaseConfig struct {
 	Host            string `json:"host"`
 	Port            int    `json:"port"`
@@ -20,8 +20,8 @@ type DatabaseConfig struct {
 	ConnMaxLifetime int    `json:"conn_max_lifetime"`
 }
 
-// SMTPConfig SMTP 配置
-type SMTPConfig struct {
+// SMTPConfig SMTP configuration
+type SMTPConfig struct{
 	Host       string `json:"host"`
 	Port       int    `json:"port"`
 	Username   string `json:"username"`
@@ -32,7 +32,7 @@ type SMTPConfig struct {
 	EnableAuth bool   `json:"enable_auth"`
 }
 
-// FeatureFlags 功能开关配置
+// FeatureFlags feature flags configuration
 type FeatureFlags struct {
 	EnableNewUI        bool   `json:"enable_new_ui"`
 	EnableBetaFeature  bool   `json:"enable_beta_feature"`
@@ -43,7 +43,7 @@ type FeatureFlags struct {
 	LogLevel           string `json:"log_level"`
 }
 
-// CacheConfig 缓存配置
+// CacheConfig cache configuration
 type CacheConfig struct {
 	Enabled     bool   `json:"enabled"`
 	Type        string `json:"type"` // redis, memcached, memory
@@ -56,7 +56,7 @@ type CacheConfig struct {
 	IdleTimeout int    `json:"idle_timeout"`
 }
 
-// SecurityConfig 安全配置
+// SecurityConfig security configuration
 type SecurityConfig struct {
 	JWTSecret              string   `json:"jwt_secret"`
 	JWTExpirationHours     int      `json:"jwt_expiration_hours"`
@@ -71,7 +71,7 @@ type SecurityConfig struct {
 }
 
 // Predefined configuration keys
-// 预定义配置键常量
+// Predefined configuration key constants
 const (
 	KeyDatabaseConfig = "system.database.config"
 	KeySMTPConfig     = "system.smtp.config"
@@ -81,7 +81,7 @@ const (
 )
 
 // Configuration categories
-// 配置分类常量
+// Configuration category constants
 const (
 	CategorySystem   = "system"
 	CategoryDatabase = "database"
@@ -94,9 +94,9 @@ const (
 )
 
 // Utility functions for common operations
-// 常用操作的工具函数
+// Utility functions for common operations
 
-// GetDatabaseConfig 获取数据库配置
+// GetDatabaseConfig retrieves database configuration
 func GetDatabaseConfig(ctx context.Context, manager *Manager) (*DatabaseConfig, error) {
 	var config DatabaseConfig
 	err := manager.Get(ctx, KeyDatabaseConfig, &config)
@@ -106,17 +106,17 @@ func GetDatabaseConfig(ctx context.Context, manager *Manager) (*DatabaseConfig, 
 	return &config, nil
 }
 
-// SetDatabaseConfig 设置数据库配置
+// SetDatabaseConfig sets database configuration
 func SetDatabaseConfig(ctx context.Context, manager *Manager, config *DatabaseConfig, updatedBy string) error {
 	return manager.Set(ctx, KeyDatabaseConfig, config,
-		WithDescription("数据库连接配置"),
+		WithDescription("Database connection configuration"),
 		WithCategory(CategoryDatabase),
 		WithUpdatedBy(updatedBy),
 		WithRecordHistory(true),
 	)
 }
 
-// GetFeatureFlags 获取功能开关配置
+// GetFeatureFlags retrieves feature flags configuration
 func GetFeatureFlags(ctx context.Context, manager *Manager) (*FeatureFlags, error) {
 	var flags FeatureFlags
 	err := manager.Get(ctx, KeyFeatureFlags, &flags)
@@ -126,17 +126,17 @@ func GetFeatureFlags(ctx context.Context, manager *Manager) (*FeatureFlags, erro
 	return &flags, nil
 }
 
-// SetFeatureFlags 设置功能开关配置
+// SetFeatureFlags sets feature flags configuration
 func SetFeatureFlags(ctx context.Context, manager *Manager, flags *FeatureFlags, updatedBy string) error {
 	return manager.Set(ctx, KeyFeatureFlags, flags,
-		WithDescription("系统功能开关配置"),
+		WithDescription("System feature flags configuration"),
 		WithCategory(CategoryFeature),
 		WithUpdatedBy(updatedBy),
 		WithRecordHistory(true),
 	)
 }
 
-// GetSecurityConfig 获取安全配置
+// GetSecurityConfig retrieves security configuration
 func GetSecurityConfig(ctx context.Context, manager *Manager) (*SecurityConfig, error) {
 	var config SecurityConfig
 	err := manager.Get(ctx, KeySecurityConfig, &config)
@@ -146,22 +146,22 @@ func GetSecurityConfig(ctx context.Context, manager *Manager) (*SecurityConfig, 
 	return &config, nil
 }
 
-// SetSecurityConfig 设置安全配置（加密存储）
+// SetSecurityConfig sets security configuration (encrypted storage)
 func SetSecurityConfig(ctx context.Context, manager *Manager, config *SecurityConfig, updatedBy string) error {
 	return manager.Set(ctx, KeySecurityConfig, config,
-		WithDescription("系统安全配置"),
+		WithDescription("System security configuration"),
 		WithCategory(CategorySecurity),
-		WithEncrypted(true), // 标记为加密
+		WithEncrypted(true), // Mark as encrypted
 		WithUpdatedBy(updatedBy),
 		WithRecordHistory(true),
 	)
 }
 
-// InitDefaultConfigs 初始化默认配置
+// InitDefaultConfigs initializes default configurations
 func InitDefaultConfigs(ctx context.Context, manager *Manager) error {
-	// 检查配置是否已存在，不存在则创建默认值
+	// Check if configuration exists, create default values if not
 
-	// 默认数据库配置
+	// Default database configuration
 	exists, err := manager.Exists(ctx, KeyDatabaseConfig)
 	if err != nil {
 		return err
@@ -181,7 +181,7 @@ func InitDefaultConfigs(ctx context.Context, manager *Manager) error {
 		}
 	}
 
-	// 默认功能开关
+	// Default feature flags
 	exists, err = manager.Exists(ctx, KeyFeatureFlags)
 	if err != nil {
 		return err
@@ -201,7 +201,7 @@ func InitDefaultConfigs(ctx context.Context, manager *Manager) error {
 		}
 	}
 
-	// 默认缓存配置
+	// Default cache configuration
 	exists, err = manager.Exists(ctx, KeyCacheConfig)
 	if err != nil {
 		return err
@@ -219,7 +219,7 @@ func InitDefaultConfigs(ctx context.Context, manager *Manager) error {
 			IdleTimeout: 300,
 		}
 		if err := manager.Set(ctx, KeyCacheConfig, defaultCache,
-			WithDescription("缓存配置"),
+			WithDescription("Cache configuration"),
 			WithCategory(CategoryCache),
 			WithCreatedBy("system"),
 		); err != nil {

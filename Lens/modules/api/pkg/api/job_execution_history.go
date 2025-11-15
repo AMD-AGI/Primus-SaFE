@@ -13,20 +13,20 @@ import (
 )
 
 // ListJobExecutionHistories handles GET /api/job-execution-histories
-// 查询参数:
-//   - cluster: 指定集群名称 (可选，默认使用配置的默认集群或当前集群)
-//   - job_name: 按任务名称过滤 (支持模糊匹配)
-//   - job_type: 按任务类型过滤 (支持模糊匹配)
-//   - status: 按状态过滤 (running/success/failed/cancelled/timeout)
-//   - cluster_name: 按集群名称过滤
-//   - hostname: 按主机名过滤
-//   - start_time_from: 开始时间范围 (RFC3339格式)
-//   - start_time_to: 结束时间范围 (RFC3339格式)
-//   - min_duration: 最小执行时长(秒)
-//   - max_duration: 最大执行时长(秒)
-//   - page_num: 页码 (默认: 1)
-//   - page_size: 每页大小 (默认: 20, 最大: 100)
-//   - order_by: 排序字段 (默认: started_at DESC)
+// Query parameters:
+//   - cluster: Cluster name (optional, defaults to default cluster or current cluster)
+//   - job_name: Filter by job name (supports fuzzy matching)
+//   - job_type: Filter by job type (supports fuzzy matching)
+//   - status: Filter by status (running/success/failed/cancelled/timeout)
+//   - cluster_name: Filter by cluster name
+//   - hostname: Filter by hostname
+//   - start_time_from: Start time range (RFC3339 format)
+//   - start_time_to: End time range (RFC3339 format)
+//   - min_duration: Minimum execution duration (seconds)
+//   - max_duration: Maximum execution duration (seconds)
+//   - page_num: Page number (default: 1)
+//   - page_size: Page size (default: 20, max: 100)
+//   - order_by: Sort field (default: started_at DESC)
 func ListJobExecutionHistories(c *gin.Context) {
 	// Get cluster clients based on query parameter
 	cm := clientsets.GetClusterManager()
@@ -128,9 +128,9 @@ func ListJobExecutionHistories(c *gin.Context) {
 }
 
 // GetJobExecutionHistory handles GET /api/job-execution-histories/:id
-// 根据ID获取任务执行历史详情
-// 查询参数:
-//   - cluster: 指定集群名称 (可选，默认使用配置的默认集群或当前集群)
+// Get job execution history details by ID
+// Query parameters:
+//   - cluster: Cluster name (optional, defaults to default cluster or current cluster)
 func GetJobExecutionHistory(c *gin.Context) {
 	// Get cluster clients based on query parameter
 	cm := clientsets.GetClusterManager()
@@ -166,10 +166,10 @@ func GetJobExecutionHistory(c *gin.Context) {
 }
 
 // GetRecentFailures handles GET /api/job-execution-histories/recent-failures
-// 获取最近的失败记录
-// 查询参数:
-//   - cluster: 指定集群名称 (可选，默认使用配置的默认集群或当前集群)
-//   - limit: 返回记录数 (默认: 10, 最大: 100)
+// Get recent failure records
+// Query parameters:
+//   - cluster: Cluster name (optional, defaults to default cluster or current cluster)
+//   - limit: Number of records to return (default: 10, max: 100)
 func GetRecentFailures(c *gin.Context) {
 	// Get cluster clients based on query parameter
 	cm := clientsets.GetClusterManager()
@@ -203,9 +203,9 @@ func GetRecentFailures(c *gin.Context) {
 }
 
 // GetJobStatistics handles GET /api/job-execution-histories/statistics/:job_name
-// 获取指定任务的统计信息
-// 查询参数:
-//   - cluster: 指定集群名称 (可选，默认使用配置的默认集群或当前集群)
+// Get statistics for a specific job
+// Query parameters:
+//   - cluster: Cluster name (optional, defaults to default cluster or current cluster)
 func GetJobStatistics(c *gin.Context) {
 	// Get cluster clients based on query parameter
 	cm := clientsets.GetClusterManager()
@@ -235,9 +235,9 @@ func GetJobStatistics(c *gin.Context) {
 }
 
 // GetDistinctJobTypes handles GET /api/job-execution-histories/distinct/job-types
-// 获取所有不同的任务类型
-// 查询参数:
-//   - cluster: 指定集群名称 (可选，默认使用配置的默认集群或当前集群)
+// Get all distinct job types
+// Query parameters:
+//   - cluster: Cluster name (optional, defaults to default cluster or current cluster)
 func GetDistinctJobTypes(c *gin.Context) {
 	// Get cluster clients based on query parameter
 	cm := clientsets.GetClusterManager()

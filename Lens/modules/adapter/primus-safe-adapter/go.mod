@@ -1,6 +1,6 @@
 module github.com/AMD-AGI/Primus-SaFE/Lens/primus-safe-adapter
 
-go 1.24.5
+go 1.24.7
 
 replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../../core
 
@@ -14,11 +14,12 @@ require (
 	github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
 	github.com/AMD-AIG-AIMA/SAFE/apis v0.0.0
 	github.com/AMD-AIG-AIMA/SAFE/common v0.0.0
+	github.com/stretchr/testify v1.11.1
 	gorm.io/gorm v1.30.0
 	k8s.io/api v0.34.1
 	k8s.io/apimachinery v0.34.1
 	k8s.io/klog/v2 v2.130.1
-	sigs.k8s.io/controller-runtime v0.22.1
+	sigs.k8s.io/controller-runtime v0.21.0
 )
 
 require (
@@ -90,6 +91,7 @@ require (
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
@@ -158,6 +160,7 @@ require (
 	gorm.io/datatypes v1.2.4 // indirect
 	gorm.io/driver/mysql v1.6.0 // indirect
 	gorm.io/driver/postgres v1.6.0 // indirect
+	gorm.io/driver/sqlite v1.4.3 // indirect
 	gorm.io/gen v0.3.27 // indirect
 	gorm.io/hints v1.1.0 // indirect
 	gorm.io/plugin/dbresolver v1.6.0 // indirect

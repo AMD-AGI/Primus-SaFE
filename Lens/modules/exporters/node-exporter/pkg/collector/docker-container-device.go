@@ -72,7 +72,13 @@ func fillRDMADeviceInfoForDockerContainerInfo(info *model.DockerDeviceInfo) {
 	if !strings.Contains(info.PathOnHost, "uverbs") {
 		return
 	}
-	deviceIdStr := strings.Split(info.PathOnHost, "uverbs")[1]
+	// Find the last occurrence of "uverbs" and extract the device ID after it
+	parts := strings.Split(info.PathOnHost, "uverbs")
+	if len(parts) < 2 {
+		return
+	}
+	// Take the last part after the last "uverbs"
+	deviceIdStr := parts[len(parts)-1]
 	if existDevice, ok := rdmaDeviceMapping[deviceIdStr]; ok {
 		info.DeviceType = constant.DeviceTypeRDMA
 		info.DeviceId = existDevice.IfIndex

@@ -1,8 +1,6 @@
 module github.com/AMD-AGI/Primus-SaFE/Lens/multi-cluster-config-exporter
 
-go 1.24.5
-
-toolchain go1.24.9
+go 1.24.7
 
 replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../../core
 

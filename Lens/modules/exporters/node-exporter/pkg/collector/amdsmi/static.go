@@ -29,6 +29,10 @@ func ParseGPUInfoArray(jsonData []byte) ([]model.GPUInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Ensure we always return a non-nil slice, even for null JSON
+	if gpus == nil {
+		gpus = []model.GPUInfo{}
+	}
 	return gpus, nil
 }
 

@@ -12,7 +12,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/common"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )

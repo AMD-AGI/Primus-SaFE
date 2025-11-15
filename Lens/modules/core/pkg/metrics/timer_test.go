@@ -17,8 +17,12 @@ type testSuite struct {
 }
 
 func TestSuite(t *testing.T) {
-	timer := NewTimer("http_request", "help", []string{"http_code", "url"}, WithBuckets([]float64{0.1, 1, 5, 10, 50, 100}), WithQuantile(map[float64]float64{0.1: 0.01, 0.5: 0.01, 0.7: 0.01, 0.9: 0.001, 0.99: 0.001}))
-	timer2 := NewTimer("http_request2", "help", []string{"http_code", "url"})
+	// Use empty namespace to avoid prefix in test
+	timer := NewTimer("http_request", "help", []string{"http_code", "url"}, 
+		WithNamespace(""),
+		WithBuckets([]float64{0.1, 1, 5, 10, 50, 100}), 
+		WithQuantile(map[float64]float64{0.1: 0.01, 0.5: 0.01, 0.7: 0.01, 0.9: 0.001, 0.99: 0.001}))
+	timer2 := NewTimer("http_request2", "help", []string{"http_code", "url"}, WithNamespace(""))
 	ts := &testSuite{
 		timer:  timer,
 		timer2: timer2,

@@ -24,31 +24,31 @@ func checkAndSetMaxMapCount() {
 
 	data, err := os.ReadFile("/host-proc/sys/vm/max_map_count")
 	if err != nil {
-		fmt.Println(fmt.Sprintf("Error reading max_map_count: %v", err))
+		fmt.Printf("Error reading max_map_count: %v\n", err)
 		return
 	}
 	val, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil {
-		fmt.Println(fmt.Sprintf("Error parsing max_map_count: %v", err))
+		fmt.Printf("Error parsing max_map_count: %v\n", err)
 		return
 	}
-	fmt.Println(fmt.Sprintf(fmt.Sprintf("Current vm.max_map_count: %d", val)))
+	fmt.Printf("Current vm.max_map_count: %d\n", val)
 	if val >= MaxMapCountThreshold {
-		fmt.Println(fmt.Sprintf("vm.max_map_count is already >= %d, no change needed", MaxMapCountThreshold))
+		fmt.Printf("vm.max_map_count is already >= %d, no change needed\n", MaxMapCountThreshold)
 		return
 	}
 
-	fmt.Println(fmt.Sprintf("Current vm.max_map_count: %d", val))
+	fmt.Printf("Current vm.max_map_count: %d\n", val)
 	ensureSysctlFileValue()
-	fmt.Println(fmt.Sprintf("Executing sysctl -p to apply changes"))
+	fmt.Println("Executing sysctl -p to apply changes")
 	//nsenter --target 1 --mount --uts --ipc --net --pid --
 	cmd := exec.Command("nsenter", "--target", "1", "--mount", "--uts", "--ipc", "--net", "--pid", "--", "sysctl", "-p")
 	if err := cmd.Run(); err != nil {
-		fmt.Println(fmt.Sprintf("Failed to apply sysctl: %v", err))
+		fmt.Printf("Failed to apply sysctl: %v\n", err)
 		return
 	}
 
-	fmt.Println(fmt.Sprintf("vm.max_map_count set to %d", MaxMapCountThreshold))
+	fmt.Printf("vm.max_map_count set to %d\n", MaxMapCountThreshold)
 }
 
 func ensureSysctlFileValue() {
@@ -57,7 +57,7 @@ func ensureSysctlFileValue() {
 
 	content, err := os.ReadFile(sysctlFile)
 	if err != nil {
-		fmt.Println(fmt.Sprintf("Error reading %s: %v", sysctlFile, err))
+		fmt.Printf("Error reading %s: %v\n", sysctlFile, err)
 		return
 	}
 
@@ -68,13 +68,13 @@ func ensureSysctlFileValue() {
 			currentValStr := strings.TrimSpace(strings.SplitN(line, "=", 2)[1])
 			currentVal, err := strconv.Atoi(currentValStr)
 			if err != nil {
-				fmt.Println(fmt.Sprintf("Error parsing existing max_map_count in %s: %v", sysctlFile, err))
+				fmt.Printf("Error parsing existing max_map_count in %s: %v\n", sysctlFile, err)
 				lines[i] = targetLine
 				found = true
 				break
 			}
 			if currentVal >= MaxMapCountThreshold {
-				fmt.Println(fmt.Sprintf("max_map_count in %s is already >= %d, no change needed", sysctlFile, MaxMapCountThreshold))
+				fmt.Printf("max_map_count in %s is already >= %d, no change needed\n", sysctlFile, MaxMapCountThreshold)
 				return
 			}
 			lines[i] = targetLine
@@ -84,23 +84,23 @@ func ensureSysctlFileValue() {
 	}
 
 	if !found {
-		fmt.Println(fmt.Sprintf("Error: max_map_count not found in %s", sysctlFile))
+		fmt.Printf("Error: max_map_count not found in %s\n", sysctlFile)
 		lines = append(lines, targetLine)
 	}
 
 	err = os.WriteFile(sysctlFile, []byte(strings.Join(lines, "\n")), 0644)
 	if err != nil {
-		fmt.Println(fmt.Sprintf("Failed to write %s: %v", sysctlFile, err))
+		fmt.Printf("Failed to write %s: %v\n", sysctlFile, err)
 		return
 	}
 }
 
 func checkAndSetMaxOpenFiles() {
 	if err := ensureLimitLine(limitsFile, "soft", MaxOpenFilesThreshold); err != nil {
-		fmt.Println(fmt.Sprintf("Error: %v", err))
+		fmt.Printf("Error: %v\n", err)
 	}
 	if err := ensureLimitLine(limitsFile, "hard", MaxOpenFilesThreshold); err != nil {
-		fmt.Println(fmt.Sprintf("Error: %v", err))
+		fmt.Printf("Error: %v\n", err)
 	}
 }
 
@@ -141,7 +141,7 @@ func ensureLimitLine(file string, lineType string, threshold int) error {
 }
 
 func main() {
-	fmt.Println(fmt.Sprintf("System-Tuner v0.1"))
+	fmt.Println("System-Tuner v0.1")
 	for {
 		checkAndSetMaxMapCount()
 		checkAndSetMaxOpenFiles()

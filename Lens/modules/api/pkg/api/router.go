@@ -98,39 +98,39 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	// GPU Aggregation routes - GPU aggregation data query
 	gpuAggregationGroup := group.Group("/gpu-aggregation")
 	{
-		// 元信息查询
+		// Metadata queries
 		gpuAggregationGroup.GET("/clusters", getClusters)
 		gpuAggregationGroup.GET("/namespaces", getNamespaces)
 		gpuAggregationGroup.GET("/dimension-keys", getDimensionKeys)
 		gpuAggregationGroup.GET("/dimension-values", getDimensionValues)
 
-		// 集群级别小时统计
+		// Cluster-level hourly stats
 		gpuAggregationGroup.GET("/cluster/hourly-stats", getClusterHourlyStats)
 
-		// Namespace级别小时统计
+		// Namespace-level hourly stats
 		gpuAggregationGroup.GET("/namespaces/hourly-stats", getNamespaceHourlyStats)
 
-		// Label/Annotation级别小时统计
+		// Label/Annotation-level hourly stats
 		gpuAggregationGroup.GET("/labels/hourly-stats", getLabelHourlyStats)
 
-		// Workload级别小时统计
+		// Workload-level hourly stats
 		gpuAggregationGroup.GET("/workloads/hourly-stats", getWorkloadHourlyStats)
 
-		// 快照查询
+		// Snapshot queries
 		gpuAggregationGroup.GET("/snapshots/latest", getLatestSnapshot)
 		gpuAggregationGroup.GET("/snapshots", listSnapshots)
 	}
 
-	// Job Execution History routes - 任务执行历史查询
+	// Job Execution History routes - Job execution history query
 	jobHistoryGroup := group.Group("/job-execution-histories")
 	{
-		// 获取最近的失败记录 - 必须在 :id 之前定义
+		// Get recent failure records - must be defined before :id
 		jobHistoryGroup.GET("/recent-failures", GetRecentFailures)
-		// 获取任务统计信息 - 必须在 :id 之前定义
+		// Get job statistics - must be defined before :id
 		jobHistoryGroup.GET("/statistics/:job_name", GetJobStatistics)
-		// 列表查询 - 支持多种过滤条件
+		// List query - supports multiple filter conditions
 		jobHistoryGroup.GET("", ListJobExecutionHistories)
-		// 获取详情
+		// Get details
 		jobHistoryGroup.GET("/:id", GetJobExecutionHistory)
 	}
 

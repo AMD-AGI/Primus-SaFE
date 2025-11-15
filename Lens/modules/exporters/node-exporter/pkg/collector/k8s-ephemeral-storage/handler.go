@@ -49,11 +49,12 @@ func (h *Handler) runReadEphemeralStorageMetrics(ctx context.Context, interval t
 		case <-ctx.Done():
 			return
 		default:
+			h.lg.Infof("read ephemeral storage metrics")
 			err := h.readEphemeralStorageMetrics(ctx)
 			if err != nil {
 				h.lg.Errorf("read ephemeral storage metrics failed %s", err)
 			} else {
-
+				h.lg.Infof("read ephemeral storage metrics success")
 			}
 			time.Sleep(interval)
 		}
