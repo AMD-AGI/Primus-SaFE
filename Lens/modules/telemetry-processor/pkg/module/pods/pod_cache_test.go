@@ -60,7 +60,7 @@ func TestGetName(t *testing.T) {
 	}
 }
 
-func TestGetPodName(t *testing.T) {
+func TestGetPodNameValues(t *testing.T) {
 	tests := []struct {
 		name        string
 		labelValues map[string]string
@@ -130,7 +130,7 @@ func TestGetPodName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := getPodName(tt.labelValues)
+			result := getPodNameValue(tt.labelValues)
 			assert.Equal(t, tt.expected, result, "getPodName should return correct pod name")
 		})
 	}
@@ -573,4 +573,3 @@ func TestGetPodLabelValueWithKubeStateMetrics(t *testing.T) {
 		})
 	}
 }
-
