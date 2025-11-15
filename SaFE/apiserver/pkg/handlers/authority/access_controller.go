@@ -17,6 +17,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 )
 
@@ -158,7 +159,11 @@ func (a *AccessController) authorize(in AccessInput) error {
 	if len(commonuser.GetManagedWorkspace(in.User)) > 0 {
 		if role, err := a.getWorkspaceAdminRole(in.Context); err == nil {
 			rules := a.getPolicyRules(role, resourceKind, resourceName, isOwner, isWorkspaceUser)
+			klog.Infof("role: %s, kind: %s, name: %s, isOwner: %t, isWorkspaceUser: %t, rules: %s",
+				string(jsonutils.MarshalSilently(role)), resourceKind, resourceName, isOwner, isWorkspaceUser,
+				string(jsonutils.MarshalSilently(rules)))
 			if isMatchVerb(rules, in.Verb) {
+				klog.Infof("the action is allowed")
 				return nil
 			}
 		}
