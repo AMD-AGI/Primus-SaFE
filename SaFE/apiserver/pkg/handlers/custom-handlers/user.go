@@ -7,6 +7,7 @@ package custom_handlers
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"sort"
 	"time"
@@ -168,7 +169,7 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 				continue
 			}
 		}
-		if !h.authListUser(c, query, requestUser, &item, roles) {
+		if h.authGetUser(c, query.WorkspaceId, requestUser, &item, roles, v1.ListVerb) != nil {
 			continue
 		}
 		result.Items = append(result.Items, h.cvtToUserResponseItem(c.Request.Context(), &item))
@@ -177,28 +178,35 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
-// authListUser checks if requestUser has permission to list targetUser.
+// authGetUser checks if requestUser has permission to list targetUser.
 // System admins always have access. For other users, at least one shared workspace
 // with ListVerb permission is required.
-func (h *Handler) authListUser(c *gin.Context, query *types.ListUserRequest,
-	requestUser, targetUser *v1.User, roles []*v1.Role) bool {
+func (h *Handler) authGetUser(c *gin.Context, targetWorkspace string,
+	requestUser, targetUser *v1.User, roles []*v1.Role, verb v1.RoleVerb) error {
 	if requestUser.IsSystemAdmin() {
-		return true
+		return nil
 	}
 	var workspaces []string
-	if query.WorkspaceId != "" {
-		workspaces = append(workspaces, query.WorkspaceId)
+	if targetWorkspace != "" {
+		workspaces = append(workspaces, targetWorkspace)
 	} else {
 		workspaces = commonuser.GetWorkspace(targetUser)
 	}
+
+	isAuthGranted := false
 	// If the requester and target user share any workspace, info can be fetched
 	for _, w := range workspaces {
-		if h.authUserAction(c, requestUser, targetUser, []string{w}, "", roles, v1.ListVerb) != nil {
+		if h.authUserAction(c, requestUser, targetUser, []string{w}, "", roles, verb) != nil {
 			continue
 		}
-		return true
+		isAuthGranted = true
+		break
 	}
-	return false
+	if !isAuthGranted {
+		return commonerrors.NewForbidden(
+			fmt.Sprintf("The user is not allowed to %s %s", verb, v1.UserKind))
+	}
+	return nil
 }
 
 // getUser implements the logic for retrieving a single user's information.
@@ -219,19 +227,8 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 			return nil, err
 		}
 	}
-	workspaces := commonuser.GetWorkspace(targetUser)
-	isAuthGranted := false
 	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
-	// If the requester and target user share any workspace, info can be fetched.
-	for _, w := range workspaces {
-		if err2 := h.authUserAction(c, requestUser, targetUser, []string{w}, "", roles, v1.GetVerb); err2 != nil {
-			err = err2
-			continue
-		}
-		isAuthGranted = true
-		break
-	}
-	if !isAuthGranted {
+	if err = h.authGetUser(c, "", requestUser, targetUser, roles, v1.GetVerb); err != nil {
 		return nil, err
 	}
 	return h.cvtToUserResponseItem(c.Request.Context(), targetUser), nil
