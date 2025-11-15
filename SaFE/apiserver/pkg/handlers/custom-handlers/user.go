@@ -171,7 +171,6 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 			}
 		}
 		if h.authUserGet(c, query.WorkspaceId, requestUser, &item, roles, v1.ListVerb) != nil {
-			klog.Infof("user %s is ignored", item.Name)
 			continue
 		}
 		result.Items = append(result.Items, h.cvtToUserResponseItem(c.Request.Context(), &item))
