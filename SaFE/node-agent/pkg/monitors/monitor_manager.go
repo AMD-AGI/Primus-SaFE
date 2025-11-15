@@ -206,23 +206,15 @@ func (mgr *MonitorManager) reloadMonitors() error {
 	// Add a new monitor or process the existing monitor
 	for _, newConf := range newMonitorConfigs {
 		currentMonitor := mgr.getMonitor(newConf.Id)
-		if currentMonitor == nil {
+		switch {
+		case currentMonitor == nil:
 			mgr.addMonitor(newConf)
-			continue
-		}
-
-		currentMonitor.mu.RLock()
-		cronjobChanged := currentMonitor.config.Cronjob != newConf.Cronjob
-		currentMonitor.mu.RUnlock()
-
-		if cronjobChanged {
+		case currentMonitor.config.Cronjob != newConf.Cronjob:
 			// If the key configuration of monitor is changed, restart it
 			mgr.removeMonitor(newConf.Id)
 			mgr.addMonitor(newConf)
-		} else {
-			currentMonitor.mu.Lock()
+		default:
 			*currentMonitor.config = *newConf
-			currentMonitor.mu.Unlock()
 			if currentMonitor.IsExited() {
 				currentMonitor.Start()
 			}
@@ -262,12 +254,7 @@ func (mgr *MonitorManager) isMonitorsChanged(newConfigs []*MonitorConfig) bool {
 			isChanged = true
 			return false
 		}
-
-		monitor.mu.RLock()
-		configCopy := *monitor.config
-		monitor.mu.RUnlock()
-
-		if !reflect.DeepEqual(configCopy, *newConfig) {
+		if !reflect.DeepEqual(*monitor.config, *newConfig) {
 			isChanged = true
 			return false
 		}

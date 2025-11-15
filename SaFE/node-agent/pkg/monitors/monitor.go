@@ -7,7 +7,6 @@ package monitors
 
 import (
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -40,8 +39,6 @@ type Monitor struct {
 	consecutiveCount int
 	// Mark whether the service has exited
 	isExited bool
-	// Mutex to protect isExited field
-	mu sync.RWMutex
 }
 
 type NodeInfo struct {
@@ -80,9 +77,7 @@ func (m *Monitor) Start() {
 		return
 	}
 	go m.startCronJob()
-	m.mu.Lock()
 	m.isExited = false
-	m.mu.Unlock()
 }
 
 // Stop the monitoring process.
@@ -90,9 +85,7 @@ func (m *Monitor) Stop() {
 	if !m.IsExited() && m.tomb != nil {
 		m.tomb.Stop()
 	}
-	m.mu.Lock()
 	m.isExited = true
-	m.mu.Unlock()
 }
 
 // startCronJob initializes and starts the cron scheduler for this monitor.
@@ -125,22 +118,14 @@ func (m *Monitor) startCronJob() {
 
 // Run executes the monitoring script and processes the results. It implements the cron.Job interface.
 func (m *Monitor) Run() {
-	m.mu.RLock()
 	args := []string{m.scriptPath}
 	for _, arg := range m.config.Arguments {
-		argCopy := arg
-		m.mu.RUnlock()
-		if argCopy = m.convertReservedWord(argCopy); argCopy != "" {
-			args = append(args, argCopy)
+		if arg = m.convertReservedWord(arg); arg != "" {
+			args = append(args, arg)
 		}
-		m.mu.RLock()
 	}
 
 	timeout := time.Second * time.Duration(m.config.TimeoutSecond)
-	monitorId := m.config.Id
-	consecutiveCount := m.config.ConsecutiveCount
-	m.mu.RUnlock()
-
 	statusCode, output := utils.ExecuteScript(args, timeout)
 	// If the result is unknown, ignore it
 	if statusCode != types.StatusOk && statusCode != types.StatusError {
@@ -148,22 +133,20 @@ func (m *Monitor) Run() {
 	}
 
 	msg := &types.MonitorMessage{
-		Id:         monitorId,
+		Id:         m.config.Id,
 		StatusCode: statusCode,
 		Value:      output,
 	}
 
-	m.mu.Lock()
 	if statusCode == types.StatusOk {
 		(*m.queue).Add(msg)
 		m.consecutiveCount = 0
 	} else {
 		m.consecutiveCount++
-		if m.consecutiveCount >= consecutiveCount {
+		if m.consecutiveCount >= m.config.ConsecutiveCount {
 			(*m.queue).Add(msg)
 		}
 	}
-	m.mu.Unlock()
 }
 
 // convertReservedWord replaces reserved words in arguments with actual values.
@@ -199,7 +182,5 @@ func (m *Monitor) generateNodeInfo() *NodeInfo {
 
 // IsExited returns whether the monitor has been stopped.
 func (m *Monitor) IsExited() bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	return m.isExited
 }

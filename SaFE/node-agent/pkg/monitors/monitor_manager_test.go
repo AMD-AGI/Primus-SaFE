@@ -120,10 +120,7 @@ func TestMonitorAdded(t *testing.T) {
 	assert.Equal(t, getMonitorsCount(manager), 1)
 	monitor := manager.getMonitor("safe.0")
 	assert.Equal(t, monitor != nil, true)
-	monitor.mu.RLock()
-	script := monitor.config.Script
-	monitor.mu.RUnlock()
-	assert.Equal(t, script, "test1.sh")
+	assert.Equal(t, monitor.config.Script, "test1.sh")
 	assert.Equal(t, monitor.IsExited(), false)
 
 	addFakeConfig(t, newMonitorConfig("safe.1", "test2.sh"))
@@ -153,17 +150,11 @@ func TestMonitorRemoved(t *testing.T) {
 	assert.Equal(t, getMonitorsCount(manager), 2)
 	monitor := manager.getMonitor("safe.0")
 	assert.Equal(t, monitor != nil, true)
-	monitor.mu.RLock()
-	script1 := monitor.config.Script
-	monitor.mu.RUnlock()
-	assert.Equal(t, script1, "test1.sh")
+	assert.Equal(t, monitor.config.Script, "test1.sh")
 	assert.Equal(t, monitor.IsExited(), false)
 	monitor2 := manager.getMonitor("safe.1")
 	assert.Equal(t, monitor2 != nil, true)
-	monitor2.mu.RLock()
-	script2 := monitor2.config.Script
-	monitor2.mu.RUnlock()
-	assert.Equal(t, script2, "test2.sh")
+	assert.Equal(t, monitor2.config.Script, "test2.sh")
 	assert.Equal(t, monitor2.IsExited(), false)
 	time.Sleep(time.Millisecond * 200)
 
@@ -173,10 +164,7 @@ func TestMonitorRemoved(t *testing.T) {
 	assert.Equal(t, getMonitorsCount(manager), 1)
 	monitor = manager.getMonitor("safe.0")
 	assert.Equal(t, monitor != nil, true)
-	monitor.mu.RLock()
-	script := monitor.config.Script
-	monitor.mu.RUnlock()
-	assert.Equal(t, script, "test1.sh")
+	assert.Equal(t, monitor.config.Script, "test1.sh")
 	monitor2 = manager.getMonitor("safe.1")
 	assert.Equal(t, monitor2 == nil, true)
 
@@ -236,10 +224,7 @@ func TestMonitorChipChanged(t *testing.T) {
 	monitor := manager.getMonitor("safe.0")
 	assert.Equal(t, monitor != nil, true)
 	assert.Equal(t, monitor.IsExited(), false)
-	monitor.mu.RLock()
-	chip := monitor.config.Chip
-	monitor.mu.RUnlock()
-	assert.Equal(t, chip, "")
+	assert.Equal(t, monitor.config.Chip, "")
 
 	config := newMonitorConfig("safe.0", "test1.sh")
 	config.Chip = string(v1.AmdGpuChip)
@@ -250,10 +235,7 @@ func TestMonitorChipChanged(t *testing.T) {
 	monitor2 := manager.getMonitor("safe.0")
 	assert.Equal(t, monitor, monitor2)
 	assert.Equal(t, monitor2.IsExited(), false)
-	monitor2.mu.RLock()
-	chip2 := monitor2.config.Chip
-	monitor2.mu.RUnlock()
-	assert.Equal(t, chip2, string(v1.AmdGpuChip))
+	assert.Equal(t, monitor2.config.Chip, string(v1.AmdGpuChip))
 }
 
 func getMonitorsCount(manager *MonitorManager) int {
