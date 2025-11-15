@@ -71,15 +71,10 @@ func NewNodeWithClientSet(ctx context.Context, opts *types.Options, k8sClientSet
 
 // Start initializes and starts the node watcher goroutine.
 func (n *Node) Start() error {
-	n.mu.Lock()
 	if n == nil || n.k8sNode == nil {
-		n.mu.Unlock()
 		return fmt.Errorf("please initialize node first")
 	}
-	nodeName := n.k8sNode.Name
-	n.mu.Unlock()
-
-	klog.Infof("begin to start node watcher: %s", nodeName)
+	klog.Infof("begin to start node watcher: %s", n.k8sNode.Name)
 	if err := n.updateStartTime(); err != nil {
 		klog.ErrorS(err, "failed to update start time")
 	}
@@ -92,14 +87,8 @@ func (n *Node) update() {
 	for {
 		select {
 		case <-n.ctx.Done():
-			n.mu.Lock()
-			nodeName := ""
 			if n.k8sNode != nil {
-				nodeName = n.k8sNode.Name
-			}
-			n.mu.Unlock()
-			if nodeName != "" {
-				klog.Infof("stop node watcher: %s", nodeName)
+				klog.Infof("stop node watcher: %s", n.k8sNode.Name)
 			}
 			return
 		default:
@@ -131,16 +120,12 @@ func (n *Node) updateStartTime() error {
 
 // FindConditionByType finds a node condition by its type string.
 func (n *Node) FindConditionByType(conditionType string) *corev1.NodeCondition {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
 	if n.k8sNode == nil {
 		return nil
 	}
 	for i, currentCond := range n.k8sNode.Status.Conditions {
 		if conditionType == string(currentCond.Type) {
-			cond := n.k8sNode.Status.Conditions[i]
-			return &cond
+			return &n.k8sNode.Status.Conditions[i]
 		}
 	}
 	return nil
@@ -148,16 +133,12 @@ func (n *Node) FindConditionByType(conditionType string) *corev1.NodeCondition {
 
 // FindCondition finds a node condition using a custom comparison function.
 func (n *Node) FindCondition(cond *corev1.NodeCondition, isCondEqual func(cond1, cond2 *corev1.NodeCondition) bool) *corev1.NodeCondition {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
 	if n.k8sNode == nil {
 		return nil
 	}
 	for i, currentCond := range n.k8sNode.Status.Conditions {
 		if isCondEqual(&currentCond, cond) {
-			foundCond := n.k8sNode.Status.Conditions[i]
-			return &foundCond
+			return &n.k8sNode.Status.Conditions[i]
 		}
 	}
 	return nil
@@ -165,13 +146,9 @@ func (n *Node) FindCondition(cond *corev1.NodeCondition, isCondEqual func(cond1,
 
 // UpdateConditions updates the node's status conditions with retry logic for conflict handling.
 func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
-	n.mu.Lock()
 	if n.k8sNode == nil {
-		n.mu.Unlock()
 		return fmt.Errorf("please initialize node first")
 	}
-	n.mu.Unlock()
-
 	var err error
 	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		n.mu.Lock()
@@ -200,33 +177,23 @@ func (n *Node) UpdateConditions(conditions []corev1.NodeCondition) error {
 
 // updateNodeStartTime updates the node's startup time label.
 func (n *Node) updateNodeStartTime(startTime time.Time) error {
-	n.mu.Lock()
-	nodeName := n.k8sNode.Name
-	currentStartTime := v1.GetNodeStartupTime(n.k8sNode)
-	n.mu.Unlock()
-
 	startTimeStr := strconv.FormatInt(startTime.Unix(), 10)
-	if currentStartTime == startTimeStr {
+	if v1.GetNodeStartupTime(n.k8sNode) == startTimeStr {
 		return nil
 	}
 	data := fmt.Sprintf(`{"metadata":{"labels":{"%s": "%s"}}}`, v1.NodeStartupTimeLabel, startTimeStr)
 	k8sNode, err := n.k8sClient.Nodes().Patch(n.ctx,
-		nodeName, apitypes.MergePatchType, []byte(data), metav1.PatchOptions{})
+		n.k8sNode.Name, apitypes.MergePatchType, []byte(data), metav1.PatchOptions{})
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
-	n.mu.Lock()
 	n.k8sNode = k8sNode
-	n.mu.Unlock()
 	return nil
 }
 
-// GetK8sNode returns a deep copy of the current Kubernetes node object.
-// It uses mutex lock to prevent data races during concurrent access.
+// GetK8sNode returns the current Kubernetes node object.
 func (n *Node) GetK8sNode() *corev1.Node {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return n.k8sNode.DeepCopy()
+	return n.k8sNode
 }
 
 // IsMatchGpuChip checks if the node's GPU chip matches the specified chip type.
@@ -245,17 +212,14 @@ func (n *Node) IsMatchGpuChip(chip string) bool {
 
 // GetGpuQuantity returns the allocatable GPU quantity for the node.
 func (n *Node) GetGpuQuantity() resource.Quantity {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
 	if n.k8sNode == nil {
 		return resource.Quantity{}
 	}
 	var gpuQuantity resource.Quantity
 	switch {
-	case n.isAmdGpuLocked():
+	case n.isAmdGpu():
 		gpuQuantity, _ = n.k8sNode.Status.Allocatable[common.AmdGpu]
-	case n.isNvGpuLocked():
+	case n.isNvGpu():
 		gpuQuantity, _ = n.k8sNode.Status.Allocatable[common.NvidiaGpu]
 	}
 	return gpuQuantity
@@ -263,13 +227,6 @@ func (n *Node) GetGpuQuantity() resource.Quantity {
 
 // isNvGpu checks if the node has NVIDIA GPU hardware.
 func (n *Node) isNvGpu() bool {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return n.isNvGpuLocked()
-}
-
-// isNvGpuLocked checks if the node has NVIDIA GPU hardware (must be called with lock held).
-func (n *Node) isNvGpuLocked() bool {
 	if n.k8sNode == nil {
 		return false
 	}
@@ -279,13 +236,6 @@ func (n *Node) isNvGpuLocked() bool {
 
 // isAmdGpu checks if the node has AMD GPU hardware.
 func (n *Node) isAmdGpu() bool {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	return n.isAmdGpuLocked()
-}
-
-// isAmdGpuLocked checks if the node has AMD GPU hardware (must be called with lock held).
-func (n *Node) isAmdGpuLocked() bool {
 	if n.k8sNode == nil {
 		return false
 	}
@@ -296,18 +246,14 @@ func (n *Node) isAmdGpuLocked() bool {
 // syncK8sNode synchronizes the local node cache with the latest version from Kubernetes API.
 func (n *Node) syncK8sNode() error {
 	n.mu.Lock()
-	nodeName := n.k8sNode.Name
-	n.mu.Unlock()
+	defer n.mu.Unlock()
 
-	k8sNode, err := n.k8sClient.Nodes().Get(n.ctx, nodeName, metav1.GetOptions{})
+	k8sNode, err := n.k8sClient.Nodes().Get(n.ctx, n.GetK8sNode().Name, metav1.GetOptions{})
 	if err != nil {
 		klog.ErrorS(err, "failed to get k8s node")
 		return err
 	}
-
-	n.mu.Lock()
 	n.k8sNode = k8sNode.DeepCopy()
-	n.mu.Unlock()
 	return nil
 }
 
