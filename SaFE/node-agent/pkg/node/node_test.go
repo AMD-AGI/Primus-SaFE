@@ -54,18 +54,15 @@ func newNode(t *testing.T) (*Node, *fake.Clientset, context.CancelFunc) {
 }
 
 func TestWatchNode(t *testing.T) {
+	// Mock NSENTER to avoid permission issues
+	savedNSENTER := NSENTER
+	NSENTER = ""
+	defer func() { NSENTER = savedNSENTER }()
+
 	n, fakeClientSet, cancel := newNode(t)
 	defer cancel()
 
-	// Override SYNC_INTERVAL for this node instance to speed up tests
-	savedInterval := SYNC_INTERVAL
-	SYNC_INTERVAL = time.Millisecond * 100
-
 	err := n.Start()
-
-	// Restore immediately after Start() to minimize data race window
-	SYNC_INTERVAL = savedInterval
-
 	assert.NilError(t, err)
 
 	data, _ := json.Marshal(map[string]interface{}{
@@ -79,7 +76,8 @@ func TestWatchNode(t *testing.T) {
 		apitypes.MergePatchType, data, metav1.PatchOptions{})
 	assert.NilError(t, err)
 
-	time.Sleep(time.Millisecond * 200)
+	// Wait for node sync (default SYNC_INTERVAL is 3s)
+	time.Sleep(time.Second * 4)
 	val, _ := n.GetK8sNode().Labels["test.key"]
 	assert.Equal(t, val, "test.val")
 }
