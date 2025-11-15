@@ -69,6 +69,16 @@ jobs:
           path: SaFE/${{ matrix.module }}/coverage.out
           retention-days: 30
 
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./SaFE/${{ matrix.module }}/coverage.out
+          flags: safe-${{ matrix.module }}
+          name: safe-${{ matrix.module }}
+          fail_ci_if_error: false
+
   test-lens:
     name: Test Lens Modules
     runs-on: ubuntu-latest
@@ -129,6 +139,16 @@ jobs:
           name: ${{ env.ARTIFACT_NAME }}
           path: Lens/modules/${{ matrix.module }}/coverage.out
           retention-days: 30
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./Lens/modules/${{ matrix.module }}/coverage.out
+          flags: lens-${{ matrix.module }}
+          name: lens-${{ matrix.module }}
+          fail_ci_if_error: false
 
   coverage-summary:
     name: Coverage Summary
