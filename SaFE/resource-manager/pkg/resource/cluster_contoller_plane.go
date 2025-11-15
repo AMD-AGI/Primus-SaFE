@@ -821,7 +821,7 @@ func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *
 				}
 				continue
 			}
-			klog.Errorf("get addon template %s failed %+v", addon, err)
+			klog.Errorf("get addon template %s failed %+v", name, err)
 		}
 	}
 	return reconcile.Result{}, nil

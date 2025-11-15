@@ -88,7 +88,7 @@ func GetPodLabelValue(labels []prompb.Label) (podName string, podUid string) {
 		return
 	}
 	// filter kube state metrics
-	podName = getPodName(labelValues)
+	podName = getPodNameValue(labelValues)
 	podUid = labelValues["uid"]
 	if podName != "" && podUid != "" {
 		return podName, podUid
@@ -97,20 +97,20 @@ func GetPodLabelValue(labels []prompb.Label) (podName string, podUid string) {
 	if podName != "" {
 		return podName, "unknown"
 	}
-
 	return "", ""
 }
 
-func getPodName(labelValues map[string]string) string {
-	podName := labelValues["pod"]
-	if podName != "" {
+func getPodNameValue(labelValues map[string]string) string {
+	if podName, ok := labelValues["pod"]; ok {
 		return podName
 	}
-	podName = labelValues["pod_name"]
-	if podName != "" {
+	if podName, ok := labelValues["pod_name"]; ok {
 		return podName
 	}
-	return labelValues["exported_pod"]
+	if podName, ok := labelValues["exported_pod"]; ok {
+		return podName
+	}
+	return ""
 }
 
 func GetWorkloadsByPodName(podName string) [][]string {
@@ -139,6 +139,7 @@ func runLoadDevicePodCache(ctx context.Context) {
 			log.Infof("stopping device pod cache loader")
 			return
 		default:
+			// continue loading
 			time.Sleep(20 * time.Second) // Adjust the interval as needed
 		}
 	}

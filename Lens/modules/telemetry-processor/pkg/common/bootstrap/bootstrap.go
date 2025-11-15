@@ -47,6 +47,13 @@ func initRouter(group *gin.RouterGroup) error {
 	group.GET("pods/cache", metrics.GetPodCache)
 	group.GET("pods/workload/cache", metrics.GetPodWorkloadCache)
 	group.POST("logs", logs.ReceiveHttpLogs)
+	
+	// Metrics debug endpoints
+	group.POST("metrics/debug/config", metrics.SetDebugConfigHandler)
+	group.GET("metrics/debug/config", metrics.GetDebugConfigHandler)
+	group.GET("metrics/debug/records", metrics.GetDebugRecordsHandler)
+	group.DELETE("metrics/debug/records", metrics.ClearDebugRecordsHandler)
+	group.POST("metrics/debug/disable", metrics.DisableDebugHandler)
 
 	// Container event endpoints
 	group.POST("container-events", containers.ReceiveContainerEvent)

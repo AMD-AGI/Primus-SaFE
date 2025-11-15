@@ -25,10 +25,11 @@ const (
 	OpsJobRunning   OpsJobPhase = "Running"
 	OpsJobPending   OpsJobPhase = "Pending"
 
-	OpsJobAddonType     OpsJobType = "addon"
-	OpsJobDumpLogType   OpsJobType = "dumplog"
-	OpsJobPreflightType OpsJobType = "preflight"
-	OpsJobRebootType    OpsJobType = "reboot"
+	OpsJobAddonType        OpsJobType = "addon"
+	OpsJobDumpLogType      OpsJobType = "dumplog"
+	OpsJobPreflightType    OpsJobType = "preflight"
+	OpsJobRebootType       OpsJobType = "reboot"
+	OpsJobExportImageType  OpsJobType = "exportimage"
 
 	ParameterNode          = "node"
 	ParameterNodeTemplate  = "node.template"

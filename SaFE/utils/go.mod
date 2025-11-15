@@ -1,6 +1,6 @@
 module github.com/AMD-AIG-AIMA/SAFE/utils
 
-go 1.24.2
+go 1.24.7
 
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0

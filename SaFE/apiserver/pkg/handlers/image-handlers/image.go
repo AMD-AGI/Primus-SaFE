@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	sqrl "github.com/Masterminds/squirrel"
 	"github.com/cespare/xxhash/v2"
 	manifestv5 "github.com/containers/image/v5/manifest"
 	"github.com/containers/image/v5/transports/alltransports"
@@ -34,10 +36,13 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
+// createImage creates a new image record in the database.
+// Validates the request and persists the image metadata with current timestamp and user info.
 func (h *ImageHandler) createImage(c *gin.Context) (interface{}, error) {
 	req := &CreateImageRequest{}
 	body, err := apiutils.ParseRequestBody(c.Request, req)
@@ -55,40 +60,58 @@ func (h *ImageHandler) createImage(c *gin.Context) (interface{}, error) {
 		CreatedAt:   time.Now(),
 		CreatedBy:   c.GetString(common.UserId),
 	}
-	err = h.dbClient.UpsertImage(c, image)
-	if err != nil {
+	if err := h.dbClient.UpsertImage(c, image); err != nil {
 		return nil, err
 	}
 	return nil, nil
 }
 
+// deleteImage soft-deletes an image by ID from the database.
+// Returns nil if the image doesn't exist, otherwise marks it as deleted.
 func (h *ImageHandler) deleteImage(c *gin.Context) (interface{}, error) {
-	imageIDStr := c.Param("id")
-	if imageIDStr == "" {
-		return nil, commonerrors.NewBadRequest("image id is empty")
-	}
-	imageID, err := strconv.Atoi(imageIDStr)
+	imageID, err := parseImageID(c.Param("id"))
 	if err != nil {
-		return nil, commonerrors.NewBadRequest("invalid image id")
+		return nil, err
 	}
-	existImage, err := h.dbClient.GetImage(c, int32(imageID))
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageImportKind,
+		Verb:         v1.DeleteVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
+	existImage, err := h.dbClient.GetImage(c, imageID)
 	if err != nil {
 		return nil, err
 	}
 	if existImage == nil {
 		return nil, nil
 	}
-	err = h.dbClient.DeleteImage(c, int32(imageID), existImage.DeletedBy)
-	if err != nil {
+
+	if err := h.dbClient.DeleteImage(c, imageID, existImage.DeletedBy); err != nil {
 		return nil, err
 	}
 	return nil, nil
 }
 
+// listImage retrieves a paginated list of images based on filter criteria.
+// Supports both flat format (simple list) and grouped format (by repository).
 func (h *ImageHandler) listImage(c *gin.Context) (interface{}, error) {
 	query, err := parseListImageQuery(c)
 	if err != nil {
 		klog.ErrorS(err, "fail to parseListImageQuery")
+		return nil, err
+	}
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageImportKind,
+		Verb:         v1.ListVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
 		return nil, err
 	}
 
@@ -105,21 +128,24 @@ func (h *ImageHandler) listImage(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "fail to SelectImages", "sql")
 		return nil, err
 	}
+
 	if query.Flat {
 		return cvtImageToFlatResponse(images), nil
 	}
-	results := &GetImageResponse{
+
+	return &GetImageResponse{
 		TotalCount: count,
-	}
-	results.Items = cvtImageToResponse(images, DefaultOS, DefaultArch)
-	return results, nil
+		Items:      cvtImageToResponse(images, DefaultOS, DefaultArch),
+	}, nil
 }
 
+// cvtImageToFlatResponse converts database images to a flat list format.
+// Each image contains basic metadata without grouping by repository.
 func cvtImageToFlatResponse(images []*model.Image) []Image {
-	res := make([]Image, 0)
+	res := make([]Image, 0, len(images))
 	for _, image := range images {
 		res = append(res, Image{
-			Id:          int32(image.ID),
+			Id:          image.ID,
 			Tag:         image.Tag,
 			Description: image.Description,
 			CreatedBy:   image.CreatedBy,
@@ -129,10 +155,52 @@ func cvtImageToFlatResponse(images []*model.Image) []Image {
 	return res
 }
 
+// listExportedImage lists images that were exported from workloads by querying ops_job table.
+func (h *ImageHandler) listExportedImage(c *gin.Context) (interface{}, error) {
+	query, err := parseListImageQuery(c)
+	if err != nil {
+		klog.ErrorS(err, "fail to parseListImageQuery")
+		return nil, err
+	}
+
+	// Build SQL query for export jobs from ops_job table
+	dbSql, orderBy := buildExportImageJobQuery(query)
+
+	// Query export jobs from ops_job table
+	jobs, err := h.dbClient.SelectJobs(c, dbSql, orderBy, query.PageSize, (query.PageNum-1)*query.PageSize)
+	if err != nil {
+		klog.ErrorS(err, "failed to query export jobs")
+		return nil, err
+	}
+
+	// Count total records
+	count, err := h.dbClient.CountJobs(c, dbSql)
+	if err != nil {
+		klog.ErrorS(err, "failed to count export jobs")
+		return nil, err
+	}
+
+	// Convert ops_job records to simplified list format
+	items := convertOpsJobToExportedImageList(jobs)
+
+	results := &ExportedImageListResponse{
+		TotalCount: count,
+		Items:      items,
+	}
+
+	klog.V(4).Infof("listed %d exported images", len(items))
+	return results, nil
+}
+
+// parseListImageQuery extracts and validates query parameters for listing images.
+// Sets default values for pagination, ordering, and filters if not provided.
 func parseListImageQuery(c *gin.Context) (*ImageServiceRequest, error) {
 	query := &ImageServiceRequest{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
+	}
+	if query.PageNum <= 0 {
+		query.PageNum = 1
 	}
 	if query.PageSize <= 0 {
 		query.PageSize = DefaultQueryLimit
@@ -151,52 +219,57 @@ func parseListImageQuery(c *gin.Context) (*ImageServiceRequest, error) {
 	return query, nil
 }
 
-func (h *ImageHandler) getImportingDetail(ctx *gin.Context) (*ImportDetailResponse, error) {
-	idStr := ctx.Param("id")
-	id, err := strconv.Atoi(idStr)
+// getImportingDetail retrieves detailed layer information for an importing image.
+// Returns the import job's layer details if the image and import job exist.
+func (h *ImageHandler) getImportingDetail(c *gin.Context) (*ImportDetailResponse, error) {
+	id, err := parseImageID(c.Param("id"))
 	if err != nil {
-		return nil, commonerrors.NewBadRequest("invalid id: " + err.Error())
+		return nil, err
 	}
-	existImage, err := h.dbClient.GetImage(ctx, int32(id))
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageImportKind,
+		Verb:         v1.GetVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
+	existImage, err := h.dbClient.GetImage(c, id)
 	if err != nil {
 		return nil, err
 	}
 	if existImage == nil {
-		return nil, commonerrors.NewNotFound("get image by id", idStr)
+		return nil, commonerrors.NewNotFound("get image by id", strconv.Itoa(int(id)))
 	}
-	importImage, err := h.dbClient.GetImportImageByImageID(ctx, existImage.ID)
+
+	importImage, err := h.dbClient.GetImportImageByImageID(c, existImage.ID)
 	if err != nil {
 		return nil, err
 	}
 	if importImage == nil {
-		return nil, commonerrors.NewNotFound("get import image by id", idStr)
+		return nil, commonerrors.NewNotFound("get import image by id", strconv.Itoa(int(id)))
 	}
+
 	return &ImportDetailResponse{
 		LayersDetail: importImage.Layer,
 	}, nil
 }
 
+// cvtImageToResponse converts database images to a grouped response format.
+// Groups images by registry host and repository, includes platform-specific metadata.
 func cvtImageToResponse(images []*model.Image, os, arch string) []GetImageResponseItem {
-	repoMap := map[string]int{}
+	repoMap := make(map[string]int)
 	res := make([]GetImageResponseItem, 0)
+
 	for _, image := range images {
-		var RegistryHost, repo, tag string
-		imageTag := image.Tag
-		if spn := strings.SplitN(imageTag, "/", 2); len(spn) == 2 {
-			RegistryHost = spn[0]
-			if slc := strings.SplitN(spn[1], ":", 2); len(slc) == 2 {
-				repo = slc[0]
-				tag = slc[1]
-			} else {
-				klog.Errorf("image:%s is invalid, skip", imageTag)
-				continue
-			}
-		} else {
-			klog.Errorf("image:%s is invalid, skip", imageTag)
+		registryHost, repo, tag, err := parseImageTag(image.Tag)
+		if err != nil {
+			klog.Errorf("image:%s is invalid, skip: %v", image.Tag, err)
 			continue
 		}
 
-		fullUrl := strings.Join([]string{RegistryHost, repo}, "/")
 		artifact := ArtifactItem{
 			ImageTag:    tag,
 			Description: image.Description,
@@ -207,34 +280,54 @@ func cvtImageToResponse(images []*model.Image, os, arch string) []GetImageRespon
 			IncludeType: image.Source,
 		}
 
+		// Extract platform-specific digest and size
 		if image.RelationDigest != nil {
-			arch := fmt.Sprintf(OSArchFormat, os, arch)
+			archKey := fmt.Sprintf(OSArchFormat, os, arch)
 			relationDigestMap := make(map[string]*RelationDigest)
-			if err := decodeJsonb(image.RelationDigest, &relationDigestMap); err == nil && relationDigestMap[arch] != nil {
-				artifact.Size = relationDigestMap[arch].Size
-				artifact.Arch = arch
+			if err := decodeJsonb(image.RelationDigest, &relationDigestMap); err == nil && relationDigestMap[archKey] != nil {
+				artifact.Size = relationDigestMap[archKey].Size
+				artifact.Arch = archKey
 				artifact.Os = os
-				artifact.Digest = relationDigestMap[arch].Digest
+				artifact.Digest = relationDigestMap[archKey].Digest
 			}
 		}
 
+		fullUrl := strings.Join([]string{registryHost, repo}, "/")
 		if index, ok := repoMap[fullUrl]; !ok {
-			// if not in repoMap, it is a new repo
+			// New repository - create new entry
 			res = append(res, GetImageResponseItem{
-				RegistryHost: RegistryHost,
+				RegistryHost: registryHost,
 				Repo:         repo,
-				Artifacts: []ArtifactItem{
-					artifact,
-				},
+				Artifacts:    []ArtifactItem{artifact},
 			})
 			repoMap[fullUrl] = len(res) - 1
 		} else {
+			// Existing repository - append artifact
 			res[index].Artifacts = append(res[index].Artifacts, artifact)
 		}
 	}
 	return res
 }
 
+// parseImageTag extracts registry host, repository, and tag from an image tag string.
+// Expects format: <host>/<repo>:<tag> and returns an error if format is invalid.
+func parseImageTag(imageTag string) (registryHost, repo, tag string, err error) {
+	parts := strings.SplitN(imageTag, "/", 2)
+	if len(parts) != 2 {
+		return "", "", "", fmt.Errorf("invalid format: missing '/'")
+	}
+	registryHost = parts[0]
+
+	repoTag := strings.SplitN(parts[1], ":", 2)
+	if len(repoTag) != 2 {
+		return "", "", "", fmt.Errorf("invalid format: missing ':'")
+	}
+	repo, tag = repoTag[0], repoTag[1]
+	return registryHost, repo, tag, nil
+}
+
+// decodeJsonb decodes a JSONB map into a target struct.
+// Performs a marshal-unmarshal cycle to convert between generic map and typed struct.
 func decodeJsonb(data map[string]interface{}, to interface{}) error {
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
@@ -243,48 +336,50 @@ func decodeJsonb(data map[string]interface{}, to interface{}) error {
 	return json.Unmarshal(jsonBytes, to)
 }
 
+// importImage initiates an asynchronous image import job from source to destination registry.
+// Creates database records, dispatches a Kubernetes job, and updates status to importing.
 func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
-	var err error
-	resp := &ImportImageResponse{}
 	body := &ImportImageServiceRequest{}
-	if err = c.ShouldBindJSON(&body); err != nil {
+	if err := c.ShouldBindJSON(&body); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
-	userName := c.GetString(common.UserName)
 
+	if err := h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageImportKind,
+		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
+	userName := c.GetString(common.UserName)
 	imageInfo, err := h.getImportImageInfo(c, body)
 	if err != nil {
 		return nil, err
 	}
 
-	existImageID, err := h.existImageVlid(c, imageInfo.DestImageName)
+	// Check if image already exists
+	existImageID, err := h.existImageValid(c, imageInfo.DestImageName)
 	if err != nil {
 		return nil, err
 	}
 	if existImageID != 0 {
-		resp.AlreadyImageID = existImageID
-		resp.Message = "Image already existed. We don't need to import it again"
-		return resp, nil
+		return &ImportImageResponse{
+			AlreadyImageID: existImageID,
+			Message:        "Image already existed. We don't need to import it again",
+		}, nil
 	}
 
-	importImageEnv := &ImportImageEnv{
-		SourceImageName: imageInfo.SourceImageName,
-		DestImageName:   imageInfo.DestImageName,
-		OsArch:          imageInfo.OsArch,
-		Description:     fmt.Sprintf("Import from %s", imageInfo.SourceImageName),
+	// Create image record
+	relationDigest := map[string]interface{}{
+		imageInfo.OsArch: &RelationDigest{Digest: "", Size: imageInfo.Size},
 	}
-
-	relationDigest := map[string]interface{}{}
-	defaultDigestItem := &RelationDigest{
-		Digest: "",
-		Size:   imageInfo.Size,
-	}
-	relationDigest[importImageEnv.OsArch] = defaultDigestItem
 	dbImage := &model.Image{
 		Tag:            imageInfo.DestImageName,
 		CreatedBy:      userName,
 		CreatedAt:      time.Now().UTC(),
-		Description:    fmt.Sprintf("Import from %s", importImageEnv.SourceImageName),
+		Description:    fmt.Sprintf("Import from %s", imageInfo.SourceImageName),
 		Status:         common.ImageImportPendingStatus,
 		RelationDigest: relationDigest,
 		Source:         "import",
@@ -293,62 +388,82 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
+	// Create import job record
 	importImageInfo := &model.ImageImportJob{
 		SrcTag:    imageInfo.SourceImageName,
 		DstName:   imageInfo.DestImageName,
-		Os:        importImageEnv.Os,
-		Arch:      importImageEnv.Arch,
+		Os:        imageInfo.Os,
+		Arch:      imageInfo.Arch,
 		CreatedAt: time.Now().UTC(),
 		ImageID:   dbImage.ID,
 	}
-
 	if err := h.dbClient.UpsertImageImportJob(c, importImageInfo); err != nil {
 		return nil, err
 	}
 
+	// Dispatch Kubernetes job
 	job, err := h.dispatchImportImageJob(c, dbImage, importImageInfo)
 	if err != nil {
 		return nil, err
 	}
+
+	// Update status to importing
 	dbImage.Status = common.ImageImportingStatus
 	if err := h.dbClient.UpsertImage(c, dbImage); err != nil {
 		return nil, err
 	}
+
 	importImageInfo.JobName = job.Name
 	if err := h.dbClient.UpsertImageImportJob(c, importImageInfo); err != nil {
 		return nil, err
 	}
-	return resp, nil
+
+	return &ImportImageResponse{}, nil
 }
 
+// retryDispatchImportImageJob retries a failed or stuck import job by dispatching a new one.
+// Retrieves existing image and import job records, then creates a fresh Kubernetes job.
 func (h *ImageHandler) retryDispatchImportImageJob(c *gin.Context) (interface{}, error) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
+	id, err := parseImageID(c.Param("id"))
 	if err != nil {
-		return nil, commonerrors.NewBadRequest("invalid id: " + err.Error())
+		return nil, err
 	}
-	existImage, err := h.dbClient.GetImage(c, int32(id))
+
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		ResourceKind: common.ImageImportKind,
+		Verb:         v1.CreateVerb,
+		UserId:       c.GetString(common.UserId),
+	}); err != nil {
+		return nil, err
+	}
+
+	existImage, err := h.dbClient.GetImage(c, id)
 	if err != nil {
 		return nil, err
 	}
 	if existImage == nil {
-		return nil, commonerrors.NewNotFound("get image by id", idStr)
+		return nil, commonerrors.NewNotFound("get image by id", strconv.Itoa(int(id)))
 	}
+
 	importImage, err := h.dbClient.GetImportImageByImageID(c, existImage.ID)
 	if err != nil {
 		return nil, err
 	}
 	if importImage == nil {
-		return nil, commonerrors.NewNotFound("get import image by id", idStr)
+		return nil, commonerrors.NewNotFound("get import image by id", strconv.Itoa(int(id)))
 	}
+
 	job, err := h.dispatchImportImageJob(c, existImage, importImage)
 	if err != nil {
 		return nil, err
 	}
+
 	existImage.Status = common.ImageImportingStatus
 	if err := h.dbClient.UpsertImage(c, existImage); err != nil {
 		return nil, err
 	}
+
 	importImage.JobName = job.Name
 	if err := h.dbClient.UpsertImageImportJob(c, importImage); err != nil {
 		return nil, err
@@ -356,28 +471,41 @@ func (h *ImageHandler) retryDispatchImportImageJob(c *gin.Context) (interface{},
 	return nil, nil
 }
 
+// dispatchImportImageJob creates and submits a Kubernetes Job to import an image.
+// Configures the job with source/dest info, registry auth, and image pull secrets.
 func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image, info *model.ImageImportJob) (*batchv1.Job, error) {
 	jobName := generateImportImageJobName(image.ID)
-	imagePullSecrets, err := h.listImagePullSecretsName(c, h.Client, DefaultNamespace)
+	imagePullSecrets, err := h.listImagePullSecretsName(c, h.Client, common.DefaultNamespace)
 	if err != nil {
 		return nil, err
 	}
-	job, err := newImportImageJob(image.ID, jobName, SyncerImage, imagePullSecrets, &ImportImageEnv{
-		SourceImageName: info.SrcTag,
-		DestImageName:   info.DstName,
-		OsArch:          fmt.Sprintf(OSArchFormat, info.Os, info.Arch),
-		Os:              info.Os,
-		Arch:            info.Arch,
-	}, image.CreatedBy)
+
+	job, err := newImportImageJob(
+		image.ID,
+		jobName,
+		SyncerImage,
+		imagePullSecrets,
+		&ImportImageEnv{
+			SourceImageName: info.SrcTag,
+			DestImageName:   info.DstName,
+			OsArch:          fmt.Sprintf(OSArchFormat, info.Os, info.Arch),
+			Os:              info.Os,
+			Arch:            info.Arch,
+		},
+		image.CreatedBy,
+	)
 	if err != nil {
 		return nil, err
 	}
-	if err = h.Client.Create(c.Request.Context(), job); err != nil {
+
+	if err := h.Client.Create(c.Request.Context(), job); err != nil {
 		return nil, err
 	}
 	return job, nil
 }
 
+// newImportImageJob constructs a Kubernetes Job spec for importing an image.
+// Configures container with sync-image tool, environment variables, and registry authentication.
 func newImportImageJob(
 	imageId int32,
 	jobName,
@@ -386,8 +514,10 @@ func newImportImageJob(
 	env *ImportImageEnv,
 	userName string,
 ) (*batchv1.Job, error) {
-	namespace := DefaultNamespace
+	namespace := common.DefaultNamespace
 	envs := defaultSyncImageEnv()
+
+	// Set platform-specific override or all-platform mode
 	if len(env.OsArch) > 0 && env.OsArch != OsArchAll {
 		envs[OverrideOS] = env.Os
 		envs[OverrideArch] = env.Arch
@@ -396,6 +526,7 @@ func newImportImageJob(
 	}
 	envs[SrcImageEnv] = env.SourceImageName
 	envs[DestImageEnv] = env.DestImageName
+
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
@@ -424,93 +555,109 @@ func newImportImageJob(
 							Name:  "import-image",
 							Image: syncImage,
 							Env:   transEnvMapToEnv(envs),
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "registry-auth",
+									ReadOnly:  true,
+									MountPath: "/root/.docker",
+								},
+							},
 						},
 					},
 					RestartPolicy:    corev1.RestartPolicyNever,
-					ImagePullSecrets: make([]corev1.LocalObjectReference, 0),
+					ImagePullSecrets: buildImagePullSecrets(imagePullSecrets),
+					Volumes: []corev1.Volume{
+						{
+							Name: "registry-auth",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: common.ImageImportSecretName,
+								},
+							},
+						},
+					},
 				},
 			},
 		},
 	}
-	for _, secret := range imagePullSecrets {
-		job.Spec.Template.Spec.ImagePullSecrets = append(job.Spec.Template.Spec.ImagePullSecrets, corev1.LocalObjectReference{
-			Name: secret,
-		})
-	}
-	volumeName := "registry-auth"
-	job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, corev1.Volume{
-		Name: volumeName,
-		VolumeSource: corev1.VolumeSource{
-			Secret: &corev1.SecretVolumeSource{
-				SecretName: ImageImportSecretName,
-			},
-		},
-	})
-	job.Spec.Template.Spec.Containers[0].VolumeMounts = append(job.Spec.Template.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
-		Name:      volumeName,
-		ReadOnly:  true,
-		MountPath: "/root/.docker",
-	})
 	return job, nil
 }
 
+// buildImagePullSecrets converts a list of secret names to LocalObjectReference slice.
+// Helper function to construct ImagePullSecrets for pod spec.
+func buildImagePullSecrets(secretNames []string) []corev1.LocalObjectReference {
+	secrets := make([]corev1.LocalObjectReference, 0, len(secretNames))
+	for _, name := range secretNames {
+		secrets = append(secrets, corev1.LocalObjectReference{Name: name})
+	}
+	return secrets
+}
+
+// transEnvMapToEnv converts a string map to Kubernetes EnvVar slice.
+// Each map entry becomes a single environment variable in the container.
 func transEnvMapToEnv(envMap map[string]string) []corev1.EnvVar {
-	var envs []corev1.EnvVar
+	envs := make([]corev1.EnvVar, 0, len(envMap))
 	for k, v := range envMap {
-		envs = append(envs, corev1.EnvVar{
-			Name:  k,
-			Value: v,
-		})
+		envs = append(envs, corev1.EnvVar{Name: k, Value: v})
 	}
 	return envs
 }
 
+// defaultSyncImageEnv returns default environment variables for the sync-image container.
+// Configures source/destination settings, TLS verification, and API service endpoint.
 func defaultSyncImageEnv() map[string]string {
-	kvmap := make(map[string]string)
-	kvmap[DEBUG] = StringValueTrue
-	kvmap[GlobalTLSVerify] = StringValueTrue
-	kvmap[OverrideArch] = ""
-	kvmap[OverrideOS] = ""
-	kvmap[CommandTimeout] = "0"
-	kvmap[SourceType] = "docker"
-	kvmap[DestinationType] = "docker"
-	kvmap[All] = "false"
-	kvmap[SrcUserName] = ""
-	kvmap[SrcPassword] = ""
-	kvmap[TLSVerify] = "true"
-	kvmap[DestUserName] = ""
-	kvmap[DestPassword] = ""
-	kvmap[DestTLSVerify] = "true"
-
-	kvmap[SrcImageEnv] = ""
-	kvmap[DestImageEnv] = ""
-	kvmap[UpstreamDomain] = ApiServiceName
-	return kvmap
+	return map[string]string{
+		DEBUG:           StringValueTrue,
+		GlobalTLSVerify: StringValueTrue,
+		OverrideArch:    "",
+		OverrideOS:      "",
+		CommandTimeout:  "0",
+		SourceType:      "docker",
+		DestinationType: "docker",
+		All:             "false",
+		SrcUserName:     "",
+		SrcPassword:     "",
+		TLSVerify:       "true",
+		DestUserName:    "",
+		DestPassword:    "",
+		DestTLSVerify:   "true",
+		SrcImageEnv:     "",
+		DestImageEnv:    "",
+		UpstreamDomain:  ApiServiceName,
+	}
 }
 
+// generateImportImageJobName generates a unique job name for an import job.
+// Uses image ID and timestamp hash to ensure uniqueness across retries.
 func generateImportImageJobName(imageId int32) string {
 	return fmt.Sprintf("imptimg-%d-%016x", imageId, xxhash.Sum64String(time.Now().String()))
 }
 
+// getImportImageInfo validates and prepares image metadata for import operation.
+// Checks source image existence, calculates size, and determines destination name.
 func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageServiceRequest) (*ImportImageMetaInfo, error) {
 	imageInfo := &ImportImageMetaInfo{
 		SourceImageName: req.Source,
 		OsArch:          fmt.Sprintf(OSArchFormat, DefaultOS, DefaultArch),
 		Os:              DefaultOS,
 		Arch:            DefaultArch,
+		Status:          common.ImageImportingStatus,
 	}
-	imageInfo.Status = common.ImageImportingStatus
+
 	if req.SourceRegistry != "" {
 		imageInfo.SourceImageName = fmt.Sprintf("%s/%s", req.SourceRegistry, req.Source)
 	}
+
+	// Get default push registry
 	defaultPushRegistry, err := h.dbClient.GetDefaultRegistryInfo(c)
 	if err != nil {
 		klog.ErrorS(err, "GetPushRegistryInfo error")
 		return nil, commonerrors.NewInternalError("Database Error")
 	}
 	if defaultPushRegistry == nil {
-		return nil, commonerrors.NewBadRequest("Default push registry not exist.Please contract your administrator")
+		return nil, commonerrors.NewBadRequest("Default push registry not exist. Please contact your administrator")
 	}
+
 	imageInfo.DestImageName, err = generateTargetImageName(defaultPushRegistry.URL, imageInfo.SourceImageName)
 	if err != nil {
 		return nil, err
@@ -523,16 +670,20 @@ func (h *ImageHandler) getImportImageInfo(c context.Context, req *ImportImageSer
 	return imageInfo, nil
 }
 
+// generateTargetImageName constructs the destination image name in the target registry.
+// Strips source registry host and prepends target registry with sync-image project namespace.
 func generateTargetImageName(targetRegistryHost, sourceImage string) (string, error) {
 	slc := strings.SplitN(sourceImage, "/", 2)
 	if len(slc) != 2 {
-		return "", fmt.Errorf("source image name is valid")
+		return "", fmt.Errorf("source image name is invalid")
 	}
 	repoAndTag := slc[1]
 	return fmt.Sprintf("%s/%s/%s", targetRegistryHost, SyncImageProject, repoAndTag), nil
 }
 
-func (h *ImageHandler) existImageVlid(c context.Context, destImageName string) (int32, error) {
+// existImageValid checks if an image with the given tag already exists in database.
+// Returns the existing image ID if found, otherwise returns 0.
+func (h *ImageHandler) existImageValid(c context.Context, destImageName string) (int32, error) {
 	existImage, err := h.dbClient.GetImageByTag(c, destImageName)
 	if err != nil {
 		klog.ErrorS(err, "get image by image tag error")
@@ -544,9 +695,14 @@ func (h *ImageHandler) existImageVlid(c context.Context, destImageName string) (
 	return 0, nil
 }
 
+// checkImageExistsUsingLibrary verifies source image exists and retrieves its size.
+// Uses container image library to inspect manifest and calculate total layer sizes.
 func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageName string, imageInfo *ImportImageMetaInfo) error {
 	list := strings.Split(imageInfo.OsArch, "/")
-	hostName := strings.Split(imageName, "/")[0]
+	if len(list) != 2 {
+		return commonerrors.NewBadRequest("invalid os/arch format")
+	}
+	hostName := strings.Split(imageInfo.SourceImageName, "/")[0]
 	os, arch := list[0], list[1]
 
 	sysCtx, err := h.getImageSystemCtx(ctx, hostName, imageName)
@@ -556,15 +712,12 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 	}
 
 	imageName = fmt.Sprintf("docker://%s", imageName)
-
-	// Parse the reference
 	ref, err := alltransports.ParseImageName(imageName)
 	if err != nil {
 		klog.Errorf("Error parsing reference: %s", err)
 		return commonerrors.NewInternalError(fmt.Sprintf("Parsing Reference Error: %s", err))
 	}
 
-	// Create an image source
 	src, err := ref.NewImageSource(ctx, sysCtx)
 	if err != nil {
 		klog.Errorf("Image not found or inaccessible: %s", err)
@@ -572,51 +725,20 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 	}
 	defer src.Close()
 
-	// Retrieve the manifest to confirm the image exists
 	manifest, manifestType, err := src.GetManifest(ctx, nil)
 	if err != nil {
 		klog.Errorf("Getting Manifest Error: %s", err)
 		return commonerrors.NewInternalError(fmt.Sprintf("Getting Manifest Error: %s", err))
 	}
 
-	var totalSize int64
+	totalSize := int64(0)
+
+	// Handle multi-platform manifests (index/list)
 	if manifestType == imagespecv1.MediaTypeImageIndex || manifestType == manifestv5.DockerV2ListMediaType {
-		var targetDigest imagedigest.Digest
 		totalSize += int64(len(manifest))
-
-		if manifestType == imagespecv1.MediaTypeImageIndex {
-			var index imagespecv1.Index
-			if err := json.Unmarshal(manifest, &index); err != nil {
-				klog.Errorf("Error parsing OCI index: %s", err)
-				return commonerrors.NewInternalError(fmt.Sprintf("Parsing OCI index Error: %s", err))
-			}
-
-			for _, m := range index.Manifests {
-				if m.Platform != nil &&
-					m.Platform.OS == os &&
-					m.Platform.Architecture == arch {
-					targetDigest = m.Digest
-					break
-				}
-			}
-		} else {
-			var schema2List manifestv5.Schema2List
-			if err := json.Unmarshal(manifest, &schema2List); err != nil {
-				klog.Errorf("Error parsing Docker manifest list: %s", err)
-				return commonerrors.NewInternalError(fmt.Sprintf("Parsing Docker manifest list Error: %s", err))
-			}
-
-			for _, m := range schema2List.Manifests {
-				if m.Platform.OS == os &&
-					m.Platform.Architecture == arch {
-					targetDigest = m.Digest
-					break
-				}
-			}
-		}
-		if targetDigest == "" {
-			klog.Errorf("No matching manifest found for OS %s and architecture %s", os, arch)
-			return commonerrors.NewInternalError(fmt.Sprintf("No matching manifest found for OS %s and architecture %s", os, arch))
+		targetDigest, err := h.extractPlatformDigest(manifest, manifestType, os, arch)
+		if err != nil {
+			return err
 		}
 
 		manifest, manifestType, err = src.GetManifest(ctx, &targetDigest)
@@ -626,13 +748,62 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 		}
 	}
 
+	// Calculate total size from platform-specific manifest
 	totalSize += int64(len(manifest))
+	layerSize, err := h.calculateManifestSize(manifest, manifestType)
+	if err != nil {
+		return err
+	}
+	totalSize += layerSize
+
+	imageInfo.Size = totalSize
+	klog.Infof("Image %s exists, size: %d", imageName, totalSize)
+	return nil
+}
+
+// extractPlatformDigest extracts the digest for a specific OS/arch from a multi-platform manifest.
+// Supports both OCI Image Index and Docker Manifest List formats.
+func (h *ImageHandler) extractPlatformDigest(manifest []byte, manifestType string, os, arch string) (imagedigest.Digest, error) {
+	if manifestType == imagespecv1.MediaTypeImageIndex {
+		var index imagespecv1.Index
+		if err := json.Unmarshal(manifest, &index); err != nil {
+			klog.Errorf("Error parsing OCI index: %s", err)
+			return "", commonerrors.NewInternalError(fmt.Sprintf("Parsing OCI index Error: %s", err))
+		}
+
+		for _, m := range index.Manifests {
+			if m.Platform != nil && m.Platform.OS == os && m.Platform.Architecture == arch {
+				return m.Digest, nil
+			}
+		}
+	} else {
+		var schema2List manifestv5.Schema2List
+		if err := json.Unmarshal(manifest, &schema2List); err != nil {
+			klog.Errorf("Error parsing Docker manifest list: %s", err)
+			return "", commonerrors.NewInternalError(fmt.Sprintf("Parsing Docker manifest list Error: %s", err))
+		}
+
+		for _, m := range schema2List.Manifests {
+			if m.Platform.OS == os && m.Platform.Architecture == arch {
+				return m.Digest, nil
+			}
+		}
+	}
+
+	return "", commonerrors.NewInternalError(fmt.Sprintf("No matching manifest found for OS %s and architecture %s", os, arch))
+}
+
+// calculateManifestSize calculates total size of all layers in a manifest.
+// Supports both OCI Image Manifest and Docker v2 Schema 2 formats.
+func (h *ImageHandler) calculateManifestSize(manifest []byte, manifestType string) (int64, error) {
+	totalSize := int64(0)
+
 	switch manifestType {
 	case imagespecv1.MediaTypeImageManifest:
 		var v1Manifest imagespecv1.Manifest
 		if err := json.Unmarshal(manifest, &v1Manifest); err != nil {
 			klog.Errorf("Error parsing OCI manifest: %s", err)
-			return commonerrors.NewInternalError(fmt.Sprintf("Parsing OCI manifest Error: %s", err))
+			return 0, commonerrors.NewInternalError(fmt.Sprintf("Parsing OCI manifest Error: %s", err))
 		}
 		for _, layer := range v1Manifest.Layers {
 			totalSize += layer.Size
@@ -643,69 +814,96 @@ func (h *ImageHandler) checkImageExistsUsingLibrary(ctx context.Context, imageNa
 		var v2Manifest manifestv5.Schema2
 		if err := json.Unmarshal(manifest, &v2Manifest); err != nil {
 			klog.Errorf("Error parsing Docker manifest: %s", err)
-			return commonerrors.NewInternalError(fmt.Sprintf("Parsing Docker manifest Error: %s", err))
+			return 0, commonerrors.NewInternalError(fmt.Sprintf("Parsing Docker manifest Error: %s", err))
 		}
 		for _, layer := range v2Manifest.LayerInfos() {
 			totalSize += layer.Size
 		}
 		totalSize += v2Manifest.ConfigInfo().Size
+
+	default:
+		return 0, commonerrors.NewInternalError(fmt.Sprintf("Unsupported manifest type: %s", manifestType))
 	}
 
-	imageInfo.Size = totalSize
-
-	klog.Infof("Image %s exists, size: %d", imageName, totalSize)
-	return nil
+	return totalSize, nil
 }
 
+// getImageSystemCtx creates a SystemContext with authentication for accessing a registry.
+// Fetches registry credentials from database or Docker Hub token for public registries.
 func (h *ImageHandler) getImageSystemCtx(ctx context.Context, hostName string, imageName string) (*v5types.SystemContext, error) {
 	sysCtx := &v5types.SystemContext{DockerInsecureSkipTLSVerify: v5types.OptionalBoolTrue}
-	if strings.HasSuffix(hostName, "docker.io") {
 
-		// library/alpine:latest
-		item := strings.Join(strings.Split(imageName, "/")[1:], "/")
-		// library/alpine:latest -> library/alpine
-		imagePath := strings.Split(item, ":")[0]
-
-		token, err := h.fetchDockerToken(ctx, imagePath)
-		if err != nil {
-			klog.Errorf("Error fetching token, err is: %s \n", err)
-			return nil, err
+	accountInfo, err := h.dbClient.GetRegistryInfoByUrl(ctx, hostName)
+	if err != nil {
+		// Special handling for Docker Hub
+		if strings.HasSuffix(hostName, "docker.io") {
+			return h.getDockerHubSystemCtx(ctx, imageName)
 		}
-		sysCtx.DockerBearerRegistryToken = token
-	} else {
-		accountInfo, err := h.dbClient.GetRegistryInfoByUrl(ctx, hostName)
-		if err != nil {
-			klog.Errorf("Error getting registry info, err is: %s \n", err)
-			return nil, err
-		}
-
-		if accountInfo != nil {
-			password := ""
-			if accountInfo.Password != "" {
-				password, err = crypto.NewCrypto().Decrypt(accountInfo.Password)
-				if err != nil {
-					klog.Errorf("Error decrypting password, err is: %s \n", err)
-					return nil, err
-				}
-			}
-
-			userName := ""
-			if accountInfo.Username != "" {
-				userName, err = crypto.NewCrypto().Decrypt(accountInfo.Username)
-				if err != nil {
-					klog.Errorf("Error decrypting username, err is: %s \n", err)
-					return nil, err
-				}
-			}
-			sysCtx.DockerAuthConfig = &v5types.DockerAuthConfig{
-				Username: userName,
-				Password: password,
-			}
-		}
+		klog.Errorf("Error getting registry info, err is: %s", err)
+		return nil, err
 	}
+
+	if accountInfo != nil {
+		authConfig, err := h.decryptRegistryAuth(accountInfo)
+		if err != nil {
+			return nil, err
+		}
+		sysCtx.DockerAuthConfig = authConfig
+	}
+
 	return sysCtx, nil
 }
 
+// getDockerHubSystemCtx creates a SystemContext with Docker Hub authentication token.
+// Fetches an anonymous token from Docker Hub auth service for pulling public images.
+func (h *ImageHandler) getDockerHubSystemCtx(ctx context.Context, imageName string) (*v5types.SystemContext, error) {
+	// Extract image path: library/alpine:latest -> library/alpine
+	item := strings.Join(strings.Split(imageName, "/")[1:], "/")
+	imagePath := strings.Split(item, ":")[0]
+
+	token, err := h.fetchDockerToken(ctx, imagePath)
+	if err != nil {
+		klog.Errorf("Error fetching token, err is: %s", err)
+		return nil, err
+	}
+
+	return &v5types.SystemContext{
+		DockerInsecureSkipTLSVerify: v5types.OptionalBoolTrue,
+		DockerBearerRegistryToken:   token,
+	}, nil
+}
+
+// decryptRegistryAuth decrypts username and password from registry account info.
+// Returns a DockerAuthConfig with decrypted credentials for registry authentication.
+func (h *ImageHandler) decryptRegistryAuth(accountInfo *model.RegistryInfo) (*v5types.DockerAuthConfig, error) {
+	password := ""
+	if accountInfo.Password != "" {
+		var err error
+		password, err = crypto.NewCrypto().Decrypt(accountInfo.Password)
+		if err != nil {
+			klog.Errorf("Error decrypting password, err is: %s", err)
+			return nil, err
+		}
+	}
+
+	userName := ""
+	if accountInfo.Username != "" {
+		var err error
+		userName, err = crypto.NewCrypto().Decrypt(accountInfo.Username)
+		if err != nil {
+			klog.Errorf("Error decrypting username, err is: %s", err)
+			return nil, err
+		}
+	}
+
+	return &v5types.DockerAuthConfig{
+		Username: userName,
+		Password: password,
+	}, nil
+}
+
+// fetchDockerToken retrieves an anonymous access token from Docker Hub auth service.
+// The token is used for pulling public images without authentication.
 func (h *ImageHandler) fetchDockerToken(_ context.Context, imagePath string) (string, error) {
 	url := fmt.Sprintf("https://auth.docker.io/token?service=registry.docker.io&scope=repository:%s:pull", imagePath)
 	resp, err := h.httpClient.Get(url)
@@ -720,10 +918,142 @@ func (h *ImageHandler) fetchDockerToken(_ context.Context, imagePath string) (st
 	var tokenResponse struct {
 		Token string `json:"token"`
 	}
-
 	if err := json.Unmarshal(resp.Body, &tokenResponse); err != nil {
 		return "", fmt.Errorf("error parsing JSON: %w", err)
 	}
 
 	return tokenResponse.Token, nil
+}
+
+// parseImageID parses and validates an image ID from a string parameter.
+// Returns an error if the ID is empty or not a valid integer.
+func parseImageID(idStr string) (int32, error) {
+	if idStr == "" {
+		return 0, commonerrors.NewBadRequest("image id is empty")
+	}
+	imageID, err := strconv.Atoi(idStr)
+	if err != nil {
+		return 0, commonerrors.NewBadRequest("invalid image id")
+	}
+	return int32(imageID), nil
+}
+
+// deserializeParams converts a serialized parameter string into a slice of Parameter objects.
+// It parses the string representation of parameters (format: {name:value,name2:value2}) and converts them to structured format.
+func deserializeParams(strInput string) []v1.Parameter {
+	if len(strInput) <= 1 {
+		return nil
+	}
+	// Remove surrounding braces: {workload:xxx,image:yyy} → workload:xxx,image:yyy
+	strInput = strInput[1 : len(strInput)-1]
+	splitParams := strings.Split(strInput, ",")
+	var result []v1.Parameter
+	for _, p := range splitParams {
+		// Trim spaces and quotes (handle "label:value" format)
+		p = strings.TrimSpace(p)
+		p = strings.Trim(p, "\"")
+
+		param := v1.CvtStringToParam(p)
+		if param != nil {
+			result = append(result, *param)
+		}
+	}
+	return result
+}
+
+// buildExportImageJobQuery builds SQL query for export image jobs from ops_job table.
+func buildExportImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []string) {
+	dbTags := dbClient.GetOpsJobFieldTags()
+
+	// Build WHERE clause
+	dbSql := sqrl.And{
+		sqrl.Eq{dbClient.GetFieldTag(dbTags, "Type"): string(v1.OpsJobExportImageType)},
+		sqrl.Eq{dbClient.GetFieldTag(dbTags, "IsDeleted"): false},
+	}
+
+	// Filter by user name if specified
+	if query.UserName != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "UserName"): query.UserName})
+	}
+
+	// Filter by ready status (only show succeeded jobs)
+	if query.Ready {
+		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "Phase"): string(v1.OpsJobSucceeded)})
+	}
+
+	// Filter by workload ID if specified (using text pattern matching)
+	if query.Workload != "" {
+		// Pattern: workload:xxx followed by comma or closing brace
+		pattern := fmt.Sprintf("workload:%s[,}]", query.Workload)
+		dbSql = append(dbSql, sqrl.Expr("inputs::text ~ ?", pattern))
+	}
+
+	// Build ORDER BY clause
+	// Note: ops_job table uses "creation_time", not "created_at" like image table
+	orderByField := dbClient.GetFieldTag(dbTags, "CreationTime")
+	// Ignore query.OrderBy as it may contain image table field names
+	order := "DESC"
+	if query.Order != "" {
+		order = strings.ToUpper(query.Order)
+	}
+	orderBy := []string{fmt.Sprintf("%s %s", orderByField, order)}
+
+	return dbSql, orderBy
+}
+
+// convertOpsJobToExportedImageList converts ops_job records to ExportedImageListItem slice.
+func convertOpsJobToExportedImageList(jobs []*dbClient.OpsJob) []ExportedImageListItem {
+	result := make([]ExportedImageListItem, 0, len(jobs))
+
+	for _, job := range jobs {
+		item := ExportedImageListItem{
+			Status:      dbutils.ParseNullString(job.Phase),
+			CreatedTime: timeutil.FormatRFC3339(dbutils.ParseNullTime(job.CreationTime)),
+		}
+
+		// Parse inputs using the standard deserializeParams function
+		// Format: {workload:xxx,label:yyy,image:zzz}
+		if len(job.Inputs) > 0 {
+			inputs := deserializeParams(string(job.Inputs))
+			for _, param := range inputs {
+				switch param.Name {
+				case "workload":
+					item.Workload = param.Value
+				case "label":
+					item.Label = param.Value
+				}
+			}
+		}
+
+		// Parse outputs to extract target image name
+		if outputsStr := dbutils.ParseNullString(job.Outputs); outputsStr != "" {
+			var outputs []v1.Parameter
+			if err := json.Unmarshal([]byte(outputsStr), &outputs); err == nil {
+				for _, param := range outputs {
+					if param.Name == "target" {
+						item.ImageName = param.Value
+						break
+					}
+				}
+			}
+		}
+
+		// Parse conditions to extract log message
+		if conditionsStr := dbutils.ParseNullString(job.Conditions); conditionsStr != "" {
+			var conditions []metav1.Condition
+			if err := json.Unmarshal([]byte(conditionsStr), &conditions); err == nil {
+				// Get the most recent condition message
+				for i := len(conditions) - 1; i >= 0; i-- {
+					if conditions[i].Message != "" {
+						item.Log = conditions[i].Message
+						break
+					}
+				}
+			}
+		}
+
+		result = append(result, item)
+	}
+
+	return result
 }
