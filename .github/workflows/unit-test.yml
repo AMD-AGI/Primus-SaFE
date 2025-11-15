@@ -112,6 +112,11 @@ jobs:
           cache-dependency-path: |
             Lens/modules/${{ matrix.module }}/go.sum
 
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y btrfs-progs libbtrfs-dev
+
       - name: Run Tests with Coverage
         working-directory: Lens/modules/${{ matrix.module }}
         run: |
