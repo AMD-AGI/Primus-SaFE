@@ -16,7 +16,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/k8sUtil"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/common"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	corev1 "k8s.io/api/core/v1"
@@ -259,7 +259,7 @@ func isNoKindMatchError(err error) bool {
 
 	// Check error message for common patterns indicating Kind not found
 	errMsg := strings.ToLower(err.Error())
-	return strings.Contains(errMsg, "with unknown Kind") ||
+	return strings.Contains(errMsg, "with unknown kind") ||
 		strings.Contains(errMsg, "no matches for kind")
 }
 
