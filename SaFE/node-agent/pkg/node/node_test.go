@@ -40,22 +40,32 @@ func genNode() *corev1.Node {
 	}
 }
 
-func newNode(t *testing.T) (*Node, *fake.Clientset) {
+func newNode(t *testing.T) (*Node, *fake.Clientset, context.CancelFunc) {
 	testNode := genNode()
 	// create fake clientSet
 	fakeClientSet := fake.NewClientset(testNode)
 	opts := &types.Options{
 		NodeName: testNode.Name,
 	}
-	SYNC_INTERVAL = time.Millisecond * 100
-	n, err := NewNodeWithClientSet(context.Background(), opts, fakeClientSet)
+	ctx, cancel := context.WithCancel(context.Background())
+	n, err := NewNodeWithClientSet(ctx, opts, fakeClientSet)
 	assert.NilError(t, err)
-	return n, fakeClientSet
+	return n, fakeClientSet, cancel
 }
 
 func TestWatchNode(t *testing.T) {
-	n, fakeClientSet := newNode(t)
+	n, fakeClientSet, cancel := newNode(t)
+	defer cancel()
+
+	// Override SYNC_INTERVAL for this node instance to speed up tests
+	savedInterval := SYNC_INTERVAL
+	SYNC_INTERVAL = time.Millisecond * 100
+
 	err := n.Start()
+
+	// Restore immediately after Start() to minimize data race window
+	SYNC_INTERVAL = savedInterval
+
 	assert.NilError(t, err)
 
 	data, _ := json.Marshal(map[string]interface{}{
@@ -75,7 +85,9 @@ func TestWatchNode(t *testing.T) {
 }
 
 func TestGetGpuQuantity(t *testing.T) {
-	n, _ := newNode(t)
+	n, _, cancel := newNode(t)
+	defer cancel()
+
 	quantity := n.GetGpuQuantity()
 	assert.Equal(t, quantity.Value(), int64(8))
 	assert.Equal(t, n.IsMatchGpuChip(string(v1.AmdGpuChip)), true)
@@ -83,7 +95,9 @@ func TestGetGpuQuantity(t *testing.T) {
 }
 
 func TestUpdateCondition(t *testing.T) {
-	n, _ := newNode(t)
+	n, _, cancel := newNode(t)
+	defer cancel()
+
 	condition := corev1.NodeCondition{
 		Type:   "safe.101",
 		Status: "True",
@@ -97,7 +111,9 @@ func TestUpdateCondition(t *testing.T) {
 }
 
 func TestUpdateStartTime(t *testing.T) {
-	n, _ := newNode(t)
+	n, _, cancel := newNode(t)
+	defer cancel()
+
 	nowTime := time.Now()
 	err := n.updateNodeStartTime(nowTime)
 	assert.NilError(t, err)
