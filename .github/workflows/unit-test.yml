@@ -25,6 +25,12 @@ jobs:
           - resource-manager
           - utils
           - webhooks
+        race:
+          - true
+          - false
+        exclude:
+          - module: node-agent
+            race: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -36,12 +42,21 @@ jobs:
           cache-dependency-path: |
             SaFE/${{ matrix.module }}/go.sum
 
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y btrfs-progs libbtrfs-dev
+
       - name: Run Tests with Coverage
         working-directory: SaFE/${{ matrix.module }}
         run: |
           echo "🧪 Testing ${{ matrix.module }}..."
-          go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
-          
+          if [ "${{ matrix.race }}" = "false" ]; then
+            go test -v -coverprofile=coverage.out ./...
+          else
+            go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+          fi
+
       - name: Generate Coverage Report
         working-directory: SaFE/${{ matrix.module }}
         if: always()
