@@ -171,6 +171,7 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 			}
 		}
 		if h.authUserGet(c, query.WorkspaceId, requestUser, &item, roles, v1.ListVerb) != nil {
+			klog.Infof("user %s is ignored", item.Name)
 			continue
 		}
 		result.Items = append(result.Items, h.cvtToUserResponseItem(c.Request.Context(), &item))
@@ -184,9 +185,6 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 // with ListVerb permission is required.
 func (h *Handler) authUserGet(c *gin.Context, targetWorkspace string,
 	requestUser, targetUser *v1.User, roles []*v1.Role, verb v1.RoleVerb) error {
-	if requestUser.IsSystemAdmin() {
-		return nil
-	}
 	var workspaces []string
 	if targetWorkspace != "" {
 		workspaces = append(workspaces, targetWorkspace)
@@ -195,13 +193,19 @@ func (h *Handler) authUserGet(c *gin.Context, targetWorkspace string,
 	}
 
 	isAuthGranted := false
-	// If the requester and target user share any workspace, info can be fetched
-	for _, w := range workspaces {
-		if h.authUserAction(c, requestUser, targetUser, []string{w}, "", roles, verb) != nil {
-			continue
+	if len(workspaces) == 0 {
+		if h.authUserAction(c, requestUser, targetUser, nil, "", roles, verb) == nil {
+			isAuthGranted = true
 		}
-		isAuthGranted = true
-		break
+	} else {
+		// If the requester and target user share any workspace, info can be fetched
+		for _, w := range workspaces {
+			if h.authUserAction(c, requestUser, targetUser, []string{w}, "", roles, verb) != nil {
+				continue
+			}
+			isAuthGranted = true
+			break
+		}
 	}
 	if !isAuthGranted {
 		return commonerrors.NewForbidden(
