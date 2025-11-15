@@ -150,8 +150,10 @@ func (a *AccessController) authorize(in AccessInput) error {
 	resourceKind, resourceName := a.extractResourceInfo(in)
 
 	roles := a.extendRolesWithWorkspaceAdmin(in)
+	klog.Infof("roles :%v", roles)
 	for _, r := range roles {
 		rules := a.getPolicyRules(r, resourceKind, resourceName, isOwner, isWorkspaceUser)
+		klog.Infof("rules :%v", rules)
 		if isMatchVerb(rules, in.Verb) {
 			return nil
 		}
@@ -220,8 +222,7 @@ func (a *AccessController) extendRolesWithWorkspaceAdmin(in AccessInput) []*v1.R
 // getPolicyRules retrieves applicable policy rules from a role based on
 // resource type, ownership, and workspace membership.
 func (a *AccessController) getPolicyRules(role *v1.Role,
-	resourceKind, resourceName string, isOwner, isWorkspaceUser bool,
-) []*v1.PolicyRule {
+	resourceKind, resourceName string, isOwner, isWorkspaceUser bool) []*v1.PolicyRule {
 	var result []*v1.PolicyRule
 	for i, r := range role.Rules {
 		if !slice.Contains(r.Resources, AllResource) && !slice.Contains(r.Resources, resourceKind) {

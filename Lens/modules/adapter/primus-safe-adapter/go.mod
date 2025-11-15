@@ -1,6 +1,8 @@
 module github.com/AMD-AGI/Primus-SaFE/Lens/primus-safe-adapter
 
-go 1.24.5
+go 1.24.7
+
+toolchain go1.24.9
 
 replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../../core
 

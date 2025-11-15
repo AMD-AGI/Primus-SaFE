@@ -116,3 +116,10 @@ rules:
     - workspace-user
   verbs:
     - update
+- resources:
+    - user
+  grantedUsers:
+    - "*"
+  verbs:
+    - list
+    - get

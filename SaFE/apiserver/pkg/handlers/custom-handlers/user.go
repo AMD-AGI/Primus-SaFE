@@ -28,7 +28,6 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -151,7 +150,6 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	labelSelector := buildListUserSelector(query)
 	userList := &v1.UserList{}
 	err = h.List(c.Request.Context(), userList, &client.ListOptions{LabelSelector: labelSelector})
@@ -171,8 +169,20 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 				continue
 			}
 			workspaces = append(workspaces, query.WorkspaceId)
+		} else {
+			workspaces = commonuser.GetWorkspace(&item)
 		}
-		if err = h.authUserAction(c, requestUser, &item, workspaces, "", roles, v1.ListVerb); err != nil {
+		isAuthGranted := false
+		// If the requester and target user share any workspace, info can be fetched
+		for _, w := range workspaces {
+			if h.authUserAction(c, requestUser, &item, []string{w}, "", roles, v1.ListVerb) != nil {
+				continue
+			}
+			isAuthGranted = true
+			break
+		}
+		if !isAuthGranted {
+			klog.Infof("the user ignored: %s", item.Name)
 			continue
 		}
 		result.Items = append(result.Items, h.cvtToUserResponseItem(c.Request.Context(), &item))
@@ -199,7 +209,19 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 			return nil, err
 		}
 	}
-	if err = h.authUserAction(c, requestUser, targetUser, nil, "", nil, v1.GetVerb); err != nil {
+	workspaces := commonuser.GetWorkspace(targetUser)
+	isAuthGranted := false
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
+	// If the requester and target user share any workspace, info can be fetched.
+	for _, w := range workspaces {
+		if err2 := h.authUserAction(c, requestUser, targetUser, []string{w}, "", roles, v1.GetVerb); err2 != nil {
+			err = err2
+			continue
+		}
+		isAuthGranted = true
+		break
+	}
+	if !isAuthGranted {
 		return nil, err
 	}
 	return h.cvtToUserResponseItem(c.Request.Context(), targetUser), nil
@@ -339,7 +361,7 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.authUserAction(c, requestUser, targetUser,
-		nil, "", nil, v1.DeleteVerb); err != nil {
+		commonuser.GetWorkspace(targetUser), "", nil, v1.DeleteVerb); err != nil {
 		return nil, err
 	}
 	if err = h.Delete(c.Request.Context(), targetUser); err != nil {
@@ -415,11 +437,10 @@ func setCookie(c *gin.Context, userInfo *types.UserLoginResponse, userType v1.Us
 		maxAge = int(userInfo.Expire - time.Now().Unix())
 	default:
 	}
-	domain := "." + netutil.GetSecondLevelDomain(c.Request.Host)
+	domain := "." + c.Request.Host
 	c.SetCookie(authority.CookieToken, userInfo.Token, maxAge, "/", domain, false, true)
 	c.SetCookie(common.UserId, userInfo.Id, maxAge, "/", domain, false, true)
 	c.SetCookie(common.UserType, string(userType), maxAge, "/", domain, false, true)
-
 }
 
 // cvtToUserResponseItem converts a user object to a response item format.
