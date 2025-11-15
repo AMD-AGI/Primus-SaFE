@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -169,7 +170,7 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 				continue
 			}
 		}
-		if h.authGetUser(c, query.WorkspaceId, requestUser, &item, roles, v1.ListVerb) != nil {
+		if h.authUserGet(c, query.WorkspaceId, requestUser, &item, roles, v1.ListVerb) != nil {
 			continue
 		}
 		result.Items = append(result.Items, h.cvtToUserResponseItem(c.Request.Context(), &item))
@@ -178,10 +179,10 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
-// authGetUser checks if requestUser has permission to list targetUser.
-// System admins always have access. For other users, at least one shared workspace
+// authUserGet checks if requestUser has permission to list targetUser.
+// System admins or workspace admins always have access. For other users, at least one shared workspace
 // with ListVerb permission is required.
-func (h *Handler) authGetUser(c *gin.Context, targetWorkspace string,
+func (h *Handler) authUserGet(c *gin.Context, targetWorkspace string,
 	requestUser, targetUser *v1.User, roles []*v1.Role, verb v1.RoleVerb) error {
 	if requestUser.IsSystemAdmin() {
 		return nil
@@ -228,7 +229,7 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 		}
 	}
 	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
-	if err = h.authGetUser(c, "", requestUser, targetUser, roles, v1.GetVerb); err != nil {
+	if err = h.authUserGet(c, "", requestUser, targetUser, roles, v1.GetVerb); err != nil {
 		return nil, err
 	}
 	return h.cvtToUserResponseItem(c.Request.Context(), targetUser), nil
@@ -370,6 +371,16 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 	if err = h.authUserAction(c, requestUser, targetUser,
 		commonuser.GetWorkspace(targetUser), "", nil, v1.DeleteVerb); err != nil {
 		return nil, err
+	}
+	if workspaceIds := commonuser.GetManagedWorkspace(targetUser); len(workspaceIds) > 0 {
+		for _, id := range workspaceIds {
+			if err = h.removeWorkspaceManager(c.Request.Context(), id, targetUser.Name); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				return nil, err
+			}
+		}
 	}
 	if err = h.Delete(c.Request.Context(), targetUser); err != nil {
 		return nil, err

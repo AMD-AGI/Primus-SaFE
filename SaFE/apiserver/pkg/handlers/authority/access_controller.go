@@ -149,13 +149,21 @@ func (a *AccessController) authorize(in AccessInput) error {
 	isOwner, isWorkspaceUser := a.determineOwnership(&in)
 	resourceKind, resourceName := a.extractResourceInfo(in)
 
-	roles := a.extendRolesWithWorkspaceAdmin(in)
-	for _, r := range roles {
+	for _, r := range in.Roles {
 		rules := a.getPolicyRules(r, resourceKind, resourceName, isOwner, isWorkspaceUser)
 		if isMatchVerb(rules, in.Verb) {
 			return nil
 		}
 	}
+	if len(commonuser.GetManagedWorkspace(in.User)) > 0 {
+		if role, err := a.getWorkspaceAdminRole(in.Context); err == nil {
+			rules := a.getPolicyRules(role, resourceKind, resourceName, isOwner, isWorkspaceUser)
+			if isMatchVerb(rules, in.Verb) {
+				return nil
+			}
+		}
+	}
+
 	return commonerrors.NewForbidden(
 		fmt.Sprintf("The user is not allowed to %s %s", in.Verb, resourceKind))
 }
@@ -202,21 +210,6 @@ func (a *AccessController) determineOwnership(in *AccessInput) (isOwner bool, is
 	return isOwner, isWorkspaceUser
 }
 
-// extendRolesWithWorkspaceAdmin extends the user's roles with workspace admin role
-// if the user has administrative rights in the specified workspaces.
-func (a *AccessController) extendRolesWithWorkspaceAdmin(in AccessInput) []*v1.Role {
-	roles := make([]*v1.Role, 0, len(in.Roles)+1)
-	roles = append(roles, in.Roles...)
-
-	if len(in.Workspaces) > 0 && commonuser.HasWorkspaceManagedRight(in.User, in.Workspaces...) {
-		role := &v1.Role{}
-		if err := a.Get(in.Context, client.ObjectKey{Name: string(v1.WorkspaceAdminRole)}, role); err == nil {
-			roles = append(roles, role)
-		}
-	}
-	return roles
-}
-
 // getPolicyRules retrieves applicable policy rules from a role based on
 // resource type, ownership, and workspace membership.
 func (a *AccessController) getPolicyRules(role *v1.Role,
@@ -253,6 +246,14 @@ func (a *AccessController) getPolicyRules(role *v1.Role,
 		}
 	}
 	return result
+}
+
+// getWorkspaceAdminRole retrieves the workspace administrator role from the system.
+// Returns the role object and any error encountered during retrieval.
+func (a *AccessController) getWorkspaceAdminRole(ctx context.Context) (*v1.Role, error) {
+	role := &v1.Role{}
+	err := a.Get(ctx, client.ObjectKey{Name: string(v1.WorkspaceAdminRole)}, role)
+	return role, err
 }
 
 // isMatchVerb checks if any of the provided policy rules allow the specified verb/action.
