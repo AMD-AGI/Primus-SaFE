@@ -129,9 +129,11 @@ func (m *Monitor) Run() {
 	args := []string{m.scriptPath}
 	for _, arg := range m.config.Arguments {
 		argCopy := arg
+		m.mu.RUnlock()
 		if argCopy = m.convertReservedWord(argCopy); argCopy != "" {
 			args = append(args, argCopy)
 		}
+		m.mu.RLock()
 	}
 
 	timeout := time.Second * time.Duration(m.config.TimeoutSecond)
