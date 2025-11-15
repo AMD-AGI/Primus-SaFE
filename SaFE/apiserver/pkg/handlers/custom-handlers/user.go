@@ -163,32 +163,42 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	}
 	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	for _, item := range userList.Items {
-		var workspaces []string
 		if query.WorkspaceId != "" {
 			if !commonuser.HasWorkspaceRight(&item, query.WorkspaceId) {
 				continue
 			}
-			workspaces = append(workspaces, query.WorkspaceId)
-		} else {
-			workspaces = commonuser.GetWorkspace(&item)
 		}
-		isAuthGranted := false
-		// If the requester and target user share any workspace, info can be fetched
-		for _, w := range workspaces {
-			if h.authUserAction(c, requestUser, &item, []string{w}, "", roles, v1.ListVerb) != nil {
-				continue
-			}
-			isAuthGranted = true
-			break
-		}
-		if !isAuthGranted {
-			klog.Infof("the user ignored: %s", item.Name)
+		if !h.authListUser(c, query, requestUser, &item, roles) {
 			continue
 		}
 		result.Items = append(result.Items, h.cvtToUserResponseItem(c.Request.Context(), &item))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
+}
+
+// authListUser checks if requestUser has permission to list targetUser.
+// System admins always have access. For other users, at least one shared workspace
+// with ListVerb permission is required.
+func (h *Handler) authListUser(c *gin.Context, query *types.ListUserRequest,
+	requestUser, targetUser *v1.User, roles []*v1.Role) bool {
+	if requestUser.IsSystemAdmin() {
+		return true
+	}
+	var workspaces []string
+	if query.WorkspaceId != "" {
+		workspaces = append(workspaces, query.WorkspaceId)
+	} else {
+		workspaces = commonuser.GetWorkspace(targetUser)
+	}
+	// If the requester and target user share any workspace, info can be fetched
+	for _, w := range workspaces {
+		if h.authUserAction(c, requestUser, targetUser, []string{w}, "", roles, v1.ListVerb) != nil {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // getUser implements the logic for retrieving a single user's information.

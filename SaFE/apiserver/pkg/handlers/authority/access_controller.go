@@ -17,7 +17,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
-	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 )
 
@@ -151,10 +150,8 @@ func (a *AccessController) authorize(in AccessInput) error {
 	resourceKind, resourceName := a.extractResourceInfo(in)
 
 	roles := a.extendRolesWithWorkspaceAdmin(in)
-	klog.Infof("roles :%s", string(jsonutils.MarshalSilently(roles)))
 	for _, r := range roles {
 		rules := a.getPolicyRules(r, resourceKind, resourceName, isOwner, isWorkspaceUser)
-		klog.Infof("rules :%s", string(jsonutils.MarshalSilently(rules)))
 		if isMatchVerb(rules, in.Verb) {
 			return nil
 		}
