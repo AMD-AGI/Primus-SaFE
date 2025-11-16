@@ -7,12 +7,14 @@ package custom_handlers
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"sort"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -28,7 +30,6 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
@@ -151,7 +152,6 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	labelSelector := buildListUserSelector(query)
 	userList := &v1.UserList{}
 	err = h.List(c.Request.Context(), userList, &client.ListOptions{LabelSelector: labelSelector})
@@ -165,20 +165,52 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	}
 	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	for _, item := range userList.Items {
-		var workspaces []string
 		if query.WorkspaceId != "" {
 			if !commonuser.HasWorkspaceRight(&item, query.WorkspaceId) {
 				continue
 			}
-			workspaces = append(workspaces, query.WorkspaceId)
 		}
-		if err = h.authUserAction(c, requestUser, &item, workspaces, "", roles, v1.ListVerb); err != nil {
+		if h.authUserGet(c, query.WorkspaceId, requestUser, &item, roles, v1.ListVerb) != nil {
 			continue
 		}
 		result.Items = append(result.Items, h.cvtToUserResponseItem(c.Request.Context(), &item))
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
+}
+
+// authUserGet checks if requestUser has permission to list targetUser.
+// System admins or workspace admins always have access. For other users, at least one shared workspace
+// with ListVerb permission is required.
+func (h *Handler) authUserGet(c *gin.Context, targetWorkspace string,
+	requestUser, targetUser *v1.User, roles []*v1.Role, verb v1.RoleVerb) error {
+	var workspaces []string
+	if targetWorkspace != "" {
+		workspaces = append(workspaces, targetWorkspace)
+	} else {
+		workspaces = commonuser.GetWorkspace(targetUser)
+	}
+
+	isAuthGranted := false
+	if len(workspaces) == 0 {
+		if h.authUserAction(c, requestUser, targetUser, nil, "", roles, verb) == nil {
+			isAuthGranted = true
+		}
+	} else {
+		// If the requester and target user share any workspace, info can be fetched
+		for _, w := range workspaces {
+			if h.authUserAction(c, requestUser, targetUser, []string{w}, "", roles, verb) != nil {
+				continue
+			}
+			isAuthGranted = true
+			break
+		}
+	}
+	if !isAuthGranted {
+		return commonerrors.NewForbidden(
+			fmt.Sprintf("The user is not allowed to %s %s", verb, v1.UserKind))
+	}
+	return nil
 }
 
 // getUser implements the logic for retrieving a single user's information.
@@ -199,7 +231,8 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 			return nil, err
 		}
 	}
-	if err = h.authUserAction(c, requestUser, targetUser, nil, "", nil, v1.GetVerb); err != nil {
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
+	if err = h.authUserGet(c, "", requestUser, targetUser, roles, v1.GetVerb); err != nil {
 		return nil, err
 	}
 	return h.cvtToUserResponseItem(c.Request.Context(), targetUser), nil
@@ -339,8 +372,18 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = h.authUserAction(c, requestUser, targetUser,
-		nil, "", nil, v1.DeleteVerb); err != nil {
+		commonuser.GetWorkspace(targetUser), "", nil, v1.DeleteVerb); err != nil {
 		return nil, err
+	}
+	if workspaceIds := commonuser.GetManagedWorkspace(targetUser); len(workspaceIds) > 0 {
+		for _, id := range workspaceIds {
+			if err = h.removeWorkspaceManager(c.Request.Context(), id, targetUser.Name); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				return nil, err
+			}
+		}
 	}
 	if err = h.Delete(c.Request.Context(), targetUser); err != nil {
 		return nil, err
@@ -415,11 +458,10 @@ func setCookie(c *gin.Context, userInfo *types.UserLoginResponse, userType v1.Us
 		maxAge = int(userInfo.Expire - time.Now().Unix())
 	default:
 	}
-	domain := "." + netutil.GetSecondLevelDomain(c.Request.Host)
+	domain := "." + c.Request.Host
 	c.SetCookie(authority.CookieToken, userInfo.Token, maxAge, "/", domain, false, true)
 	c.SetCookie(common.UserId, userInfo.Id, maxAge, "/", domain, false, true)
 	c.SetCookie(common.UserType, string(userType), maxAge, "/", domain, false, true)
-
 }
 
 // cvtToUserResponseItem converts a user object to a response item format.
