@@ -140,7 +140,9 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 	modifyEnv(mainContainer, env, v1.IsEnableHostNetwork(workload))
 	modifyVolumeMounts(mainContainer, workload, workspace)
 	modifySecurityContext(mainContainer, workload)
-	mainContainer["ports"] = buildPorts(workload)
+	if workload.SpecKind() != common.CICDScaleSetKind {
+		mainContainer["ports"] = buildPorts(workload)
+	}
 	if healthz := buildHealthCheck(workload.Spec.Liveness); healthz != nil {
 		mainContainer["livenessProbe"] = healthz
 	}
@@ -288,7 +290,7 @@ func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, p
 // modifySecurityContext configures the security context for OpsJob preflight operations.
 // Sets privileged mode for preflight checks.
 func modifySecurityContext(mainContainer map[string]interface{}, workload *v1.Workload) {
-	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) {
+	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) || !commonworkload.IsCICD(workload) {
 		return
 	}
 	mainContainer["securityContext"] = map[string]interface{}{
@@ -395,7 +397,9 @@ func buildCommands(workload *v1.Workload) []interface{} {
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload) string {
 	result := ""
-	if commonworkload.IsOpsJob(workload) {
+	if workload.SpecKind() == common.CICDScaleSetKind {
+		return workload.Spec.EntryPoint
+	} else if commonworkload.IsOpsJob(workload) {
 		result = stringutil.Base64Decode(workload.Spec.EntryPoint)
 	} else {
 		result = Launcher + " '" + workload.Spec.EntryPoint + "'"

@@ -18,6 +18,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, replica int) {
@@ -109,7 +110,15 @@ func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Worklo
 	ok := findEnv(envs, "HANG_CHECK_INTERVAL", "")
 	assert.Equal(t, ok, false)
 
-	if workload.Spec.GroupVersionKind.Kind != common.JobKind {
+	if workload.SpecKind() == common.CICDScaleSetKind {
+		ok = findEnv(envs, jobutils.ImageEnv, workload.Spec.Image)
+		assert.Equal(t, ok, true)
+		ok = findEnv(envs, jobutils.EntrypointEnv, workload.Spec.EntryPoint)
+		assert.Equal(t, ok, true)
+		res := string(jsonutils.MarshalSilently(workload.Spec.Resource))
+		ok = findEnv(envs, jobutils.ResourcesEnv, res)
+		assert.Equal(t, ok, true)
+	} else if workload.SpecKind() != common.JobKind {
 		if v1.IsEnableHostNetwork(workload) {
 			ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "ens51f0")
 			assert.Equal(t, ok, true)
@@ -393,7 +402,7 @@ func checkSecurityContext(t *testing.T, obj *unstructured.Unstructured, workload
 	securityContext, found, err := unstructured.NestedMap(mainContainer, []string{"securityContext"}...)
 	assert.NilError(t, err)
 	privileged, ok := securityContext["privileged"]
-	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
+	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) || commonworkload.IsCICD(workload) {
 		assert.Equal(t, ok, true)
 		assert.Equal(t, privileged.(bool), true)
 		_, ok := securityContext["capabilities"]

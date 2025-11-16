@@ -6,6 +6,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -18,8 +19,15 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
+)
+
+const (
+	ResourcesEnv  = "resources"
+	ImageEnv      = "image"
+	EntrypointEnv = "entrypoint"
 )
 
 type K8sResourceStatus struct {
@@ -196,6 +204,24 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer, gpuName string) ([]int64, []corev1.ResourceList, error) {
 	var replicaList []int64
 	var resourceList []corev1.ResourceList
+	if v1.GetLabel(rt, v1.WorkloadKindLabel) == common.CICDScaleSetKind {
+		resourceStr, err := getEnvValue(unstructuredObj, rt, mainContainer, ResourcesEnv)
+		if err != nil {
+			return nil, nil, err
+		}
+		workloadResource := &v1.WorkloadResource{}
+		if err = json.Unmarshal([]byte(resourceStr), workloadResource); err != nil {
+			return nil, nil, err
+		}
+		podResource, err := commonworkload.GetPodResources(workloadResource)
+		if err != nil {
+			return nil, nil, err
+		}
+		replicaList = append(replicaList, int64(workloadResource.Replica))
+		resourceList = append(resourceList, podResource)
+		return replicaList, resourceList, nil
+	}
+
 	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.ReplicasPaths...)
@@ -257,6 +283,11 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 // GetCommand Retrieve the command of the main container.
 func GetCommand(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) ([]string, error) {
+	if v1.GetLabel(rt, v1.WorkloadKindLabel) == common.CICDScaleSetKind {
+		val, err := getEnvValue(unstructuredObj, rt, mainContainer, EntrypointEnv)
+		return []string{val}, err
+	}
+
 	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
@@ -301,6 +332,10 @@ func GetCommand(unstructuredObj *unstructured.Unstructured,
 // GetImage Retrieve the image address of the main container.
 func GetImage(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) (string, error) {
+	if v1.GetLabel(rt, v1.WorkloadKindLabel) == common.CICDScaleSetKind {
+		return getEnvValue(unstructuredObj, rt, mainContainer, ImageEnv)
+	}
+
 	for _, t := range rt.Spec.ResourceSpecs {
 		path := t.PrePaths
 		path = append(path, t.TemplatePaths...)
@@ -521,4 +556,24 @@ func GetEnv(unstructuredObj *unstructured.Unstructured,
 		}
 	}
 	return nil, fmt.Errorf("no env found")
+}
+
+// getEnvValue retrieves the value of a specific environment variable from the main container
+// Returns empty string if the environment variable is not found
+func getEnvValue(unstructuredObj *unstructured.Unstructured,
+	rt *v1.ResourceTemplate, mainContainer, name string) (string, error) {
+	envs, err := GetEnv(unstructuredObj, rt, mainContainer)
+	if err != nil {
+		return "", err
+	}
+	for _, env := range envs {
+		envObj, ok := env.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if envObj["name"] == name {
+			return envObj["value"].(string), nil
+		}
+	}
+	return "", nil
 }

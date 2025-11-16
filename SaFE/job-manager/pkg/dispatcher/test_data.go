@@ -310,4 +310,63 @@ data:
                     fieldPath: metadata.labels
           terminationGracePeriodSeconds: 5
 `
+
+	TestCICDScaleSetTemplateConfig = `
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: github-scale-set-template
+  namespace: "primus-safe"
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: CICDScaleSet
+  annotations:
+    # The main container name should match the configuration defined in the template below
+    primus-safe.main.container: runner
+data:
+ template: |
+  apiVersion: actions.github.com/v1alpha1
+  kind: AutoscalingRunnerSet
+  metadata:
+    annotations:
+      actions.github.com/runner-group-name: Default
+      runner-scale-set-id: "1"
+    labels:
+      app.kubernetes.io/component: autoscaling-runner-set
+      app.kubernetes.io/part-of: gha-rs
+      app.kubernetes.io/version: 0.13.0
+  spec:
+    template:
+      spec:
+        containers:
+        - command:
+            - /bin/bash
+            - -c
+            - run.sh
+          env:
+            - name: RUNNER_ALLOW_RUNASROOT
+              value: "1"
+            - name: APISERVER_ENDPOINT
+              value: http://apiserver.tw325.primus-safe.amd.com
+          image: docker.io/primussafe/cicd-proxy.latest
+          name: runner
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: "2"
+              memory: 4Gi
+          securityContext:
+            privileged: true
+        restartPolicy: Never
+        serviceAccountName: primus-safe
+        tolerations:
+          - effect: NoSchedule
+            operator: Exists
+          - effect: PreferNoSchedule
+            operator: Exists
+          - effect: NoExecute
+            operator: Exists
+`
 )

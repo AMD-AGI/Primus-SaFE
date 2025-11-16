@@ -631,11 +631,36 @@ var (
 		},
 	}
 
+	TestCICDScaleSetTemplate = &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "job",
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+				v1.WorkloadKindLabel:    common.CICDScaleSetKind,
+			},
+		},
+		Spec: v1.ResourceTemplateSpec{
+			GroupVersionKind: v1.GroupVersionKind{
+				Group:   "actions.github.com",
+				Version: "v1alpha1",
+				Kind:    "AutoscalingRunnerSet",
+			},
+			ResourceSpecs: []v1.ResourceSpec{{
+				PrePaths:      []string{"spec"},
+				TemplatePaths: []string{"template"},
+				Replica:       1,
+			}},
+		},
+	}
+
 	TestWorkloadData = &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-workload",
 			Labels: map[string]string{
 				v1.ClusterIdLabel: "test-cluster",
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: "test-user",
 			},
 			CreationTimestamp: metav1.NewTime(time.Now()),
 		},

@@ -474,3 +474,35 @@ func TestCreateK8sJob(t *testing.T) {
 	checkPriorityClass(t, obj, workload, &templates[0])
 	checkSecurityContext(t, obj, workload, &templates[0])
 }
+
+func TestCreateCICDScaleSet(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
+		Version: "v1",
+		Kind:    common.CICDScaleSetKind,
+	}
+	workload.Spec.Resource.Replica = 2
+	workload.Spec.JobPort = 0
+	workload.Spec.SSHPort = 0
+	workload.Spec.Workspace = workspace.Name
+
+	configmap, err := parseConfigmap(TestCICDScaleSetTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap,
+		jobutils.TestCICDScaleSetTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload)
+	assert.NilError(t, err)
+	// fmt.Println(unstructuredutils.ToString(obj))
+
+	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
+	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkEnvs(t, obj, workload, &templates[0])
+	checkLabels(t, obj, workload, &templates[0])
+	checkSecurityContext(t, obj, workload, &templates[0])
+}
