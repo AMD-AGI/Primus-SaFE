@@ -1,0 +1,254 @@
+name: Unit Tests
+
+on:
+  push:
+    branches:
+      - '**'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test-safe:
+    name: Test SaFE Modules
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - apis
+          - apiserver
+          - common
+          - job-manager
+          - node-agent
+          - resource-manager
+          - utils
+          - webhooks
+        race:
+          - true
+        exclude:
+          - module: node-agent
+            race: true
+        include:
+          - module: node-agent
+            race: false
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.7'
+          cache-dependency-path: |
+            SaFE/${{ matrix.module }}/go.sum
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y btrfs-progs libbtrfs-dev
+
+      - name: Run Tests with Coverage
+        working-directory: SaFE/${{ matrix.module }}
+        run: |
+          echo "🧪 Testing ${{ matrix.module }}..."
+          if [ "${{ matrix.race }}" = "false" ]; then
+            go test -v -coverprofile=coverage.out ./...
+          else
+            go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+          fi
+
+      - name: Generate Coverage Report
+        working-directory: SaFE/${{ matrix.module }}
+        if: always()
+        run: |
+          if [ -f coverage.out ]; then
+            echo "📊 Coverage Report for ${{ matrix.module }}:"
+            go tool cover -func=coverage.out | tail -n 1
+            COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
+            echo "Total Coverage: $COVERAGE"
+            echo "COVERAGE=$COVERAGE" >> $GITHUB_ENV
+          else
+            echo "⚠️  No coverage file generated for ${{ matrix.module }}"
+            echo "COVERAGE=0%" >> $GITHUB_ENV
+          fi
+
+          # Set artifact name without slashes
+          MODULE_NAME=$(echo "${{ matrix.module }}" | tr '/' '-')
+          echo "ARTIFACT_NAME=coverage-safe-${MODULE_NAME}" >> $GITHUB_ENV
+
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: SaFE/${{ matrix.module }}/coverage.out
+          retention-days: 30
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./SaFE/${{ matrix.module }}/coverage.out
+          flags: safe-${{ matrix.module }}
+          name: safe-${{ matrix.module }}
+          fail_ci_if_error: false
+
+  test-lens:
+    name: Test Lens Modules
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - adapter/primus-safe-adapter
+          - api
+          - core
+          - exporters/gpu-resource-exporter
+          - exporters/multi-cluster-config-exporter
+          - exporters/network-exporter
+          - exporters/node-exporter
+          - jobs
+          - system-tuner
+          - telemetry-processor
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.7'
+          cache-dependency-path: |
+            Lens/modules/${{ matrix.module }}/go.sum
+
+      - name: Run Tests with Coverage
+        working-directory: Lens/modules/${{ matrix.module }}
+        run: |
+          echo "🧪 Testing ${{ matrix.module }}..."
+          go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+          
+      - name: Generate Coverage Report
+        working-directory: Lens/modules/${{ matrix.module }}
+        if: always()
+        run: |
+          if [ -f coverage.out ]; then
+            echo "📊 Coverage Report for ${{ matrix.module }}:"
+            go tool cover -func=coverage.out | tail -n 1
+            COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
+            echo "Total Coverage: $COVERAGE"
+            echo "COVERAGE=$COVERAGE" >> $GITHUB_ENV
+          else
+            echo "⚠️  No coverage file generated for ${{ matrix.module }}"
+            echo "COVERAGE=0%" >> $GITHUB_ENV
+          fi
+          
+          # Set artifact name without slashes
+          MODULE_NAME=$(echo "${{ matrix.module }}" | tr '/' '-')
+          echo "ARTIFACT_NAME=coverage-lens-${MODULE_NAME}" >> $GITHUB_ENV
+
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: Lens/modules/${{ matrix.module }}/coverage.out
+          retention-days: 30
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./Lens/modules/${{ matrix.module }}/coverage.out
+          flags: lens-${{ matrix.module }}
+          name: lens-${{ matrix.module }}
+          fail_ci_if_error: false
+
+  coverage-summary:
+    name: Coverage Summary
+    runs-on: ubuntu-latest
+    needs: [test-safe, test-lens]
+    if: always()
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download All Coverage Reports
+        uses: actions/download-artifact@v4
+        with:
+          path: coverage-reports
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Generate Combined Coverage Summary
+        run: |
+          echo "# 📊 Unit Test Coverage Summary" > coverage-summary.md
+          echo "" >> coverage-summary.md
+          echo "## SaFE Modules" >> coverage-summary.md
+          echo "" >> coverage-summary.md
+          echo "| Module | Coverage |" >> coverage-summary.md
+          echo "|--------|----------|" >> coverage-summary.md
+          
+          for dir in coverage-reports/coverage-safe-*/; do
+            if [ -d "$dir" ]; then
+              module=$(basename "$dir" | sed 's/coverage-safe-//')
+              if [ -f "$dir/coverage.out" ]; then
+                coverage=$(go tool cover -func="$dir/coverage.out" 2>/dev/null | grep total | awk '{print $3}' || echo "N/A")
+                echo "| $module | $coverage |" >> coverage-summary.md
+              else
+                echo "| $module | No tests |" >> coverage-summary.md
+              fi
+            fi
+          done
+          
+          echo "" >> coverage-summary.md
+          echo "## Lens Modules" >> coverage-summary.md
+          echo "" >> coverage-summary.md
+          echo "| Module | Coverage |" >> coverage-summary.md
+          echo "|--------|----------|" >> coverage-summary.md
+          
+          for dir in coverage-reports/coverage-lens-*/; do
+            if [ -d "$dir" ]; then
+              module=$(basename "$dir" | sed 's/coverage-lens-//')
+              if [ -f "$dir/coverage.out" ]; then
+                coverage=$(go tool cover -func="$dir/coverage.out" 2>/dev/null | grep total | awk '{print $3}' || echo "N/A")
+                echo "| $module | $coverage |" >> coverage-summary.md
+              else
+                echo "| $module | No tests |" >> coverage-summary.md
+              fi
+            fi
+          done
+          
+          echo "" >> coverage-summary.md
+          echo "---" >> coverage-summary.md
+          echo "*Generated at: $(date -u '+%Y-%m-%d %H:%M:%S UTC')*" >> coverage-summary.md
+          
+          cat coverage-summary.md
+
+      - name: Upload Coverage Summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-summary
+          path: coverage-summary.md
+          retention-days: 90
+
+      - name: Comment PR with Coverage
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('coverage-summary.md', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+

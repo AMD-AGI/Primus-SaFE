@@ -115,6 +115,8 @@ if [[ "$sso_enable" == "true" ]]; then
   sso_redirect_uri=$(get_input_with_default "Enter SSO redirect uri(empty to disable SSO): " "")
 fi
 
+install_node_agent=$(get_input_with_default "install node-agent ? (y/n): " "n")
+
 echo "✅ Ethernet nic: \"$ethernet_nic\""
 echo "✅ Rdma nic: \"$rdma_nic\""
 echo "✅ Cluster Scale: \"$cluster_scale\""
@@ -302,26 +304,29 @@ install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
 install_or_upgrade_helm_chart "primus-safe-cr" "$values_yaml"
 rm -f "$values_yaml"
 
-echo
-echo "========================================="
-echo "🔧 Step 5: install primus-safe data plane"
-echo "========================================="
 
-cd ../node-agent/charts/
-src_values_yaml="node-agent/values.yaml"
-if [ ! -f "$src_values_yaml" ]; then
-  echo "Error: $src_values_yaml does not exist"
-  exit 1
+if [[ "$install_node_agent" == "y" ]]; then
+  echo
+  echo "========================================="
+  echo "🔧 Step 5: install primus-safe data plane"
+  echo "========================================="
+
+  cd ../node-agent/charts/
+  src_values_yaml="node-agent/values.yaml"
+  if [ ! -f "$src_values_yaml" ]; then
+    echo "Error: $src_values_yaml does not exist"
+    exit 1
+  fi
+  values_yaml="node-agent/.values.yaml"
+  cp "$src_values_yaml" "${values_yaml}"
+
+  sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
+  sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
+  sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
+
+  install_or_upgrade_helm_chart "node-agent" "$values_yaml"
+  rm -f "$values_yaml"
 fi
-values_yaml="node-agent/.values.yaml"
-cp "$src_values_yaml" "${values_yaml}"
-
-sed -i "s/nccl_socket_ifname: \".*\"/nccl_socket_ifname: \"$ethernet_nic\"/" "$values_yaml"
-sed -i "s/nccl_ib_hca: \".*\"/nccl_ib_hca: \"$rdma_nic\"/" "$values_yaml"
-sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
-
-install_or_upgrade_helm_chart "node-agent" "$values_yaml"
-rm -f "$values_yaml"
 
 echo
 echo "========================================="
@@ -339,4 +344,5 @@ s3_enable=$s3_enable
 sso_enable=$sso_enable
 ingress=$ingress
 sub_domain=$sub_domain
+install_node_agent=$install_node_agent
 EOF

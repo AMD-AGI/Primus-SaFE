@@ -29,6 +29,10 @@ func ParseGPUInfoArray(jsonData []byte) ([]model.GPUInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Ensure we always return a non-nil slice, even for null JSON
+	if gpus == nil {
+		gpus = []model.GPUInfo{}
+	}
 	return gpus, nil
 }
 
@@ -142,12 +146,12 @@ func GetStateInfo() ([]model.CardMetrics, error) {
 	return result, nil
 }
 
-// GetPowerInfo 获取所有 GPU 的功耗信息
-func GetPowerInfo() ([]model.GPUPowerInfo, error) {
+// GetMetrics retrieves metrics information for all GPUs (including power and PCIE)
+func GetMetrics() ([]model.GPUMetricsInfo, error) {
 	cmds := []string{}
 	cmds = append(cmds, nsenterPrefix...)
 	cmds = append(cmds, []string{
-		"amd-smi", "metric", "-p", "--json",
+		"amd-smi", "metric", "-p", "-P", "--json",
 	}...)
 
 	cmd := exec.Command("nsenter", cmds...)
@@ -157,17 +161,17 @@ func GetPowerInfo() ([]model.GPUPowerInfo, error) {
 
 	err := cmd.Run()
 	if err != nil {
-		return nil, fmt.Errorf("Fail to execute amd-smi static -p: %v, stderr: %s", err, errBuf.String())
+		return nil, fmt.Errorf("Fail to execute amd-smi metric -p -P: %v, stderr: %s", err, errBuf.String())
 	}
 
 	jsonBytes := outBuf.Bytes()
 	actualJsonBytes := extractJSON(string(jsonBytes))
 
-	var powerInfos []model.GPUPowerInfo
-	err = json.Unmarshal([]byte(actualJsonBytes), &powerInfos)
+	var metricsInfos []model.GPUMetricsInfo
+	err = json.Unmarshal([]byte(actualJsonBytes), &metricsInfos)
 	if err != nil {
-		return nil, fmt.Errorf("fail to parse power info json: %v", err)
+		return nil, fmt.Errorf("fail to parse metrics info json: %v", err)
 	}
 
-	return powerInfos, nil
+	return metricsInfos, nil
 }

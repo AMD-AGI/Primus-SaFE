@@ -4,77 +4,57 @@
 #
 # See LICENSE for license information.
 ###############################################################################
-export IMAGE=${IMAGE:-primussafe/superbench:202408191128}
-export CONFIG=${CONFIG:-amd_mi300.yaml}
-PORT=$((( RANDOM % 10000 ) + 20000 ))
 
-HOSTS=("$@")
-all_node_list=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
+print_usage() {
+cat << EOF
+Usage: bash $(basename "$0") [--help]
 
-declare -A node_ip_map
-declare -A ip_node_map
+Environment variables (must set before running):
 
-for n in $all_node_list; do
-  ip=$(getent hosts "$n" | awk '{print $1}')
-  node_ip_map[$n]=$ip
-  ip_node_map[$ip]=$n
-done
+    NNODES=1                                    # Number of nodes (default: 1)
+    MASTER_PORT=12345     Master port [default: 12345]
+    IMAGE=primussafe/primusbench:202510221446   # Image of SuperBench (default: primussafe/primusbench:202510221446)
+    NCCL_SOCKET_IFNAME=eno0                     # NCCL socket interface name (default: eno0)
+    GLOO_SOCKET_IFNAME=rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7                      # Gloo socket interface name (default: rdma0,rdma1,rdma2,rdma3,rdma4,rdma5,rdma6,rdma7)
+Example:
 
-for n in "${!node_ip_map[@]}"; do
-  echo "$n -> ${node_ip_map[$n]}"
-done
+    NNODES=2 IMAGE=primussafe/primusbench:202510221446 bash salloc_slurm.sh
 
-for n in "${!ip_node_map[@]}"; do
-  echo "$n -> ${ip_node_map[$n]}"
-done
+EOF
+}
 
-TIMESTMAP=$(date +'%Y-%m-%d_%H-%M-%S')
-PRIMUSBENCH_PATH=$(pwd)
-if [ -z "$OUTPUT_PATH" ]; then
-    if [ -n "$SHARE_PATH" ]; then
-        OUTPUT_PATH="$SHARE_PATH/output/$TIMESTMAP"
-    else
-        OUTPUT_PATH="$PRIMUSBENCH_PATH/output/$TIMESTMAP"
-    fi
-fi
-mkdir -p $OUTPUT_PATH
-export PREFLIGHT_NODE_IMAGE=${PREFLIGHT_NODE_IMAGE:-"docker.io/primussafe/diagnose_node:202509222007"}
-preflightr_node_logname=${OUTPUT_PATH}/preflight_node.log
-srun --export=ALL,DOCKER_IMAGE=${PREFLIGHT_NODE_IMAGE} \
-    bash $PRIMUSBENCH_PATH/preflight/node/slurm/start_docker.sh 2>&1 | tee $preflightr_node_logname
+export NNODES=${NNODES:-2}
+export IMAGE=${IMAGE:-primussafe/primusbench:202510221446}
+export PARTITION=${PARTITION:-amd-tw}
+export TIME=${TIME:-4:30:00}
+export MASTER_PORT=${MASTER_PORT:-12345}
+export SSH_PORT=$(( RANDOM % 9999 + 30001 ))
+export PRIMUSBENCH_PATH=$(pwd)
+export LOG_DIR=${LOG_DIR:-"./outputs"}
+LOG_FILE="${LOG_DIR}/log_slurm.txt"
+mkdir -p "$LOG_DIR"
 
-nodes=($(awk '/All check passed/ {gsub(/[\[\]:]/,""); print $2}' $preflightr_node_logname))
-node_list=$(IFS=,; echo "${nodes[*]}")
-echo "nodes---${nodes[@]}"
-echo "node_list---${node_list}"
-
-preflight_network_logname=${OUTPUT_PATH}/preflight_network.log
-export PREFLIGHT_NETWORK_IMAGE=${PREFLIGHT_NETWORK_IMAGE:-"docker.io/primussafe/diagnose_network:202509222007"}
-srun --export=ALL,DOCKER_IMAGE=${PREFLIGHT_NETWORK_IMAGE},SSH_PORT=$(( RANDOM % 9999 + 30001 )) \
-  --nodelist=${node_list} \
-    bash $PRIMUSBENCH_PATH/preflight/network/slurm/start_docker.sh 2>&1 | tee $preflight_network_logname
-
-ips=($(awk '/Final unhealthy nodes/{getline; print}' $preflight_network_logname))
-
-if [ ${#ips[@]} -gt 0 ]; then
-    echo "Found unhealthy nodes:"
-    for ip in "${ips[@]}"; do
-        echo "  $ip"
-    done
-fi
-
-declare -A unhealthy
-while read -r line; do
-    if [[ "$line" =~ \[(ERROR|WARNING)\] ]]; then
-        node=$(echo "$line" | grep -oP '\[NODE-[0-9]+: \K[^\]]+')
-        if [[ -n "$node" ]]; then
-            msg=$(echo "$line" | sed -E 's/.*\] (❌: )?//')
-            unhealthy["$node"]="$msg"
+srun -N "${NNODES}" \
+    --exclusive \
+    --export ALL \
+    --ntasks-per-node=1 \
+    --cpus-per-task="${CPUS_PER_TASK:-256}" \
+    bash -c "
+        readarray -t node_array < <(scontrol show hostnames \"\$SLURM_JOB_NODELIST\")
+        if [ \"\$SLURM_NODEID\" = \"0\" ]; then
+            echo \"========== Slurm cluster info ==========\"
+            echo \"SLURM_NODELIST: \${node_array[*]}\"
+            echo \"SLURM_NNODES: \${SLURM_NNODES}\"
+            echo \"SLURM_GPUS_ON_NODE: \${SLURM_GPUS_ON_NODE}\"
+            echo \"\"
         fi
-    fi
-done < "$preflight_node_logname"
-
-echo "unhealthy nodes :"
-for n in "${!unhealthy[@]}"; do
-    echo "$n -> ${unhealthy[$n]}"
-done
+        export MASTER_ADDR=\${node_array[0]}
+        export MASTER_PORT=\${MASTER_PORT}
+        export NNODES=\${SLURM_NNODES}
+        export NODE_RANK=\${SLURM_PROCID}
+        export GPUS_PER_NODE=\${SLURM_GPUS_ON_NODE}
+        export IMAGE=\${IMAGE}
+        export NCCL_SOCKET_IFNAME=\${NCCL_SOCKET_IFNAME}
+        export GLOO_SOCKET_IFNAME=\${GLOO_SOCKET_IFNAME}
+        cd ${PRIMUSBENCH_PATH} && bash run_local.sh \"\$@\" 2>&1 | tee ${LOG_FILE}
+    " bash "$@"

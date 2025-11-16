@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kustomize/kyaml/sliceutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -371,6 +372,24 @@ func (h *Handler) getWorkspaceDisplayName(ctx context.Context, workspaceId strin
 		return "", err
 	}
 	return v1.GetDisplayName(workspace), nil
+}
+
+// removeWorkspaceManager removes a user from the workspace's manager list.
+// If the user is not in the manager list, no change is made.
+func (h *Handler) removeWorkspaceManager(ctx context.Context, workspaceId, userId string) error {
+	workspace, err := h.getAdminWorkspace(ctx, workspaceId)
+	if err != nil {
+		return err
+	}
+	newManagers := sliceutil.Remove(workspace.Spec.Managers, userId)
+	if len(newManagers) == len(workspace.Spec.Managers) {
+		return nil
+	}
+	workspace.Spec.Managers = newManagers
+	if err = h.Update(ctx, workspace); err != nil {
+		return err
+	}
+	return nil
 }
 
 // generateWorkspace creates a new workspace object based on the creation request.

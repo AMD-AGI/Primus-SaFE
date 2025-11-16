@@ -29,6 +29,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/errors"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/go-resty/resty/v2"
 	corev1 "k8s.io/api/core/v1"
@@ -171,7 +172,7 @@ func (s *Client) GetRestyClient() *resty.Client {
 }
 
 func (s *Client) GetKubeletStats(ctx context.Context) *statsapi.Summary {
-	resp, err := s.kubeletApi.R().SetResult(&statsapi.Summary{}).Get(kubeletStatsApi)
+	resp, err := s.kubeletApi.R().SetContext(ctx).SetResult(&statsapi.Summary{}).Get(kubeletStatsApi)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).WithError(err).Errorln("Failed to get kubelet stats")
 		return nil
@@ -184,14 +185,16 @@ func (s *Client) GetKubeletStats(ctx context.Context) *statsapi.Summary {
 }
 
 func (s *Client) GetKubeletPods(ctx context.Context) (*corev1.PodList, error) {
-	resp, err := s.kubeletApi.R().SetResult(&corev1.PodList{}).Get(podsApi)
+	resp, err := s.kubeletApi.R().SetContext(ctx).SetResult(&corev1.PodList{}).Get(podsApi)
 	if err != nil {
 		log.GlobalLogger().WithContext(ctx).WithError(err).Errorln("Failed to get kubelet pods")
 		return nil, err
 	}
 	if resp.StatusCode() != http.StatusOK {
 		log.GlobalLogger().WithContext(ctx).Errorf("Failed to get kubelet pods, status code: %d.Resp %s", resp.StatusCode(), resp.String())
-		return nil, err
+		return nil, errors.NewError().
+			WithCode(errors.InternalError).
+			WithMessage(fmt.Sprintf("Failed to get kubelet pods, status code: %d", resp.StatusCode()))
 	}
 	return resp.Result().(*corev1.PodList), nil
 }

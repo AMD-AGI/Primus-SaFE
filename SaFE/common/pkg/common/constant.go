@@ -21,7 +21,10 @@ const (
 	PodKind          = "Pod"
 	EventKind        = "Event"
 	ConfigmapKind    = "ConfigMap"
-	DefaultVersion   = "v1"
+	PublicKeyKind     = "PublicKey"
+	ImageImportKind   = "ImageImport"
+	ImageRegisterKind = "ImageRegister"
+	DefaultVersion    = "v1"
 
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"
@@ -62,6 +65,7 @@ const (
 	UserManagedWorkspaces = "managedWorkspaces"
 	Name                  = "name"
 	PodId                 = "podId"
+	AddonName             = "addonName"
 )
 
 const (
@@ -69,4 +73,9 @@ const (
 	ImageImportingStatus     = "Importing"
 	ImageImportFailedStatus  = "Failed"
 	ImageImportPendingStatus = "Pending"
+)
+
+const (
+	DefaultNamespace      = "primus-safe"
+	ImageImportSecretName = "primus-safe-image-import-reg-cred"
 )

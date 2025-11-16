@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -39,10 +40,11 @@ func NewImageHandler(mgr ctrlruntime.Manager) (*ImageHandler, error) {
 	}
 
 	h := &ImageHandler{
-		Client:     mgr.GetClient(),
-		clientSet:  clientSet,
-		dbClient:   dbClient,
-		httpClient: httpclient.NewClient(),
+		Client:           mgr.GetClient(),
+		clientSet:        clientSet,
+		dbClient:         dbClient,
+		httpClient:       httpclient.NewClient(),
+		accessController: authority.NewAccessController(mgr.GetClient()),
 	}
 	err = h.initHarbor(context.Background())
 	if err != nil {
@@ -53,9 +55,10 @@ func NewImageHandler(mgr ctrlruntime.Manager) (*ImageHandler, error) {
 
 type ImageHandler struct {
 	client.Client
-	clientSet  kubernetes.Interface
-	dbClient   dbclient.Interface
-	httpClient httpclient.Interface
+	clientSet        kubernetes.Interface
+	dbClient         dbclient.Interface
+	httpClient       httpclient.Interface
+	accessController *authority.AccessController
 }
 
 type handleFunc[T any] func(*gin.Context) (T, error)

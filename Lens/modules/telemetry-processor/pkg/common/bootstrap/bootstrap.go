@@ -17,16 +17,16 @@ import (
 )
 
 func Bootstrap(ctx context.Context) error {
-	// 启用 OpenTelemetry tracer
+	// Initialize OpenTelemetry tracer
 	err := trace.InitTracer("primus-lens-telemetry-processor")
 	if err != nil {
 		log.Errorf("Failed to init OpenTelemetry tracer: %v", err)
-		// 不阻断启动，降级为不追踪
+		// Don't block startup, degrade to no tracing
 	} else {
 		log.Info("OpenTelemetry tracer initialized successfully for telemetry-processor service")
 	}
 
-	// 注册 cleanup 函数
+	// Register cleanup function
 	go func() {
 		<-ctx.Done()
 		if err := trace.CloseTracer(); err != nil {
@@ -47,6 +47,13 @@ func initRouter(group *gin.RouterGroup) error {
 	group.GET("pods/cache", metrics.GetPodCache)
 	group.GET("pods/workload/cache", metrics.GetPodWorkloadCache)
 	group.POST("logs", logs.ReceiveHttpLogs)
+	
+	// Metrics debug endpoints
+	group.POST("metrics/debug/config", metrics.SetDebugConfigHandler)
+	group.GET("metrics/debug/config", metrics.GetDebugConfigHandler)
+	group.GET("metrics/debug/records", metrics.GetDebugRecordsHandler)
+	group.DELETE("metrics/debug/records", metrics.ClearDebugRecordsHandler)
+	group.POST("metrics/debug/disable", metrics.DisableDebugHandler)
 
 	// Container event endpoints
 	group.POST("container-events", containers.ReceiveContainerEvent)

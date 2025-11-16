@@ -11,7 +11,7 @@ import (
 	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/common"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	corev1 "k8s.io/api/core/v1"
@@ -229,7 +229,6 @@ func (g *GpuPodJob) checkForSinglePod(ctx context.Context, dbPod *dbModel.GpuPod
 		trace.FinishSpan(updateSpan)
 
 		atomic.AddInt64(&stats.ItemsUpdated, 1)
-		log.Infof("Updated pod %s/%s phase to %s", dbPod.Namespace, dbPod.Name, dbPod.Phase)
 
 		span.SetAttributes(attribute.Bool("pod.updated", true))
 	} else {
