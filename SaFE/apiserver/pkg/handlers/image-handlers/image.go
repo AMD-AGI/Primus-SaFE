@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	sqrl "github.com/Masterminds/squirrel"
 	"github.com/cespare/xxhash/v2"
 	manifestv5 "github.com/containers/image/v5/manifest"
@@ -29,6 +28,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
+
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
@@ -76,7 +77,7 @@ func (h *ImageHandler) deleteImage(c *gin.Context) (interface{}, error) {
 
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
-		ResourceKind: common.ImageImportKind,
+		ResourceKind: authority.ImageImportKind,
 		Verb:         v1.DeleteVerb,
 		UserId:       c.GetString(common.UserId),
 	}); err != nil {
@@ -108,7 +109,7 @@ func (h *ImageHandler) listImage(c *gin.Context) (interface{}, error) {
 
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
-		ResourceKind: common.ImageImportKind,
+		ResourceKind: authority.ImageImportKind,
 		Verb:         v1.ListVerb,
 		UserId:       c.GetString(common.UserId),
 	}); err != nil {
@@ -229,7 +230,7 @@ func (h *ImageHandler) getImportingDetail(c *gin.Context) (*ImportDetailResponse
 
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
-		ResourceKind: common.ImageImportKind,
+		ResourceKind: authority.ImageImportKind,
 		Verb:         v1.GetVerb,
 		UserId:       c.GetString(common.UserId),
 	}); err != nil {
@@ -346,7 +347,7 @@ func (h *ImageHandler) importImage(c *gin.Context) (interface{}, error) {
 
 	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
-		ResourceKind: common.ImageImportKind,
+		ResourceKind: authority.ImageImportKind,
 		Verb:         v1.CreateVerb,
 		UserId:       c.GetString(common.UserId),
 	}); err != nil {
@@ -431,7 +432,7 @@ func (h *ImageHandler) retryDispatchImportImageJob(c *gin.Context) (interface{},
 
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
-		ResourceKind: common.ImageImportKind,
+		ResourceKind: authority.ImageImportKind,
 		Verb:         v1.CreateVerb,
 		UserId:       c.GetString(common.UserId),
 	}); err != nil {

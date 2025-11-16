@@ -9,7 +9,8 @@ const (
 	PrimusSafeNamespace        = "primus-safe"
 	PrimusFault                = "primus-safe-fault"
 	PrimusFailover             = "primus-safe-failover"
-	PrimusRouterCustomRootPath = "api/v1"
+	DefaultVersion             = "v1"
+	PrimusRouterCustomRootPath = "api/" + DefaultVersion
 
 	AuthoringKind    = "Authoring"
 	PytorchJobKind   = "PyTorchJob"
@@ -21,10 +22,6 @@ const (
 	PodKind          = "Pod"
 	EventKind        = "Event"
 	ConfigmapKind    = "ConfigMap"
-	PublicKeyKind     = "PublicKey"
-	ImageImportKind   = "ImageImport"
-	ImageRegisterKind = "ImageRegister"
-	DefaultVersion    = "v1"
 
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"

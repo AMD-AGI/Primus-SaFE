@@ -12,6 +12,9 @@ const (
 	UserIdentityResource  = "user/identity"
 	SecretResourceKind    = "secret"
 	PreflightKind         = "preflight"
+	PublicKeyKind         = "PublicKey"
+	ImageImportKind       = "ImageImport"
+	ImageRegisterKind     = "ImageRegister"
 	AllResource           = "*"
 
 	GrantedAllUser       = "*"
