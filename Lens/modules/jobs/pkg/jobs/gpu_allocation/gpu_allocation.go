@@ -8,7 +8,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/jobs/pkg/common"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"

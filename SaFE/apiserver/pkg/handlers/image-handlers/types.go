@@ -18,6 +18,7 @@ type ImageServiceRequest struct {
 	Tag      string `form:"tag" binding:"omitempty"`
 	Ready    bool   `form:"ready"  binding:"omitempty"`
 	UserName string `form:"userName" binding:"omitempty"`
+	Workload string `form:"workload" binding:"omitempty"` // Filter by workload ID
 	Flat     bool   `form:"flat" binding:"omitempty"`
 }
 
@@ -199,4 +200,20 @@ type Image struct {
 	Description string `json:"description,omitempty"`
 	CreatedAt   int64  `json:"created_at"`
 	CreatedBy   string `json:"created_by"`
+}
+
+// ExportedImageListResponse represents the response for listing exported images.
+type ExportedImageListResponse struct {
+	TotalCount int                      `json:"totalCount"`
+	Items      []ExportedImageListItem  `json:"items"`
+}
+
+// ExportedImageListItem represents a single exported image record in the list.
+type ExportedImageListItem struct {
+	ImageName   string `json:"imageName"`   // Target image name, e.g. custom/library/busybox:20251113
+	Workload    string `json:"workload"`    // Source workload ID from inputs
+	Status      string `json:"status"`      // Export status: Pending/Failed/Succeeded/Running
+	CreatedTime string `json:"createdTime"` // Export creation time (RFC3339)
+	Label       string `json:"label"`       // User-defined label from inputs
+	Log         string `json:"log"`         // Message from conditions field
 }

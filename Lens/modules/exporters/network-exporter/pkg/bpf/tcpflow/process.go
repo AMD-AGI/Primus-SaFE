@@ -5,15 +5,16 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"net"
+	"sync"
+	"time"
+
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/network-exporter/pkg/metrics"
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
-	"net"
-	"sync"
-	"time"
 )
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -target amd64,arm64 -cc clang -cflags $CFLAGS bpf ./bpf/tcpflow.bpf.c
