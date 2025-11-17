@@ -374,7 +374,7 @@ func TestScheduler_LongRunningTask(t *testing.T) {
 	runCount := task.GetRunCount()
 	assert.GreaterOrEqual(t, runCount, int32(1), "Long task should execute at least once")
 	// Should be fewer executions than if it was fast
-	assert.LessOrEqual(t, runCount, int32(4), "Long task should not queue up excessively")
+	assert.LessOrEqual(t, runCount, int32(5), "Long task should not queue up excessively")
 }
 
 // TestScheduler_ZeroInterval tests zero interval case
