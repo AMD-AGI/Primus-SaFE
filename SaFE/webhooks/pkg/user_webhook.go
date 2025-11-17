@@ -76,18 +76,19 @@ func (m *UserMutator) mutateOnCreation(ctx context.Context, user *v1.User) {
 	m.mutateMetadata(user)
 	m.mutateCommon(ctx, user)
 	m.mutateDefaultWorkspace(ctx, user)
+	m.mutateManagedWorkspaces(ctx, user, true)
 }
 
 // mutateOnUpdate applies mutations during updates.
 func (m *UserMutator) mutateOnUpdate(ctx context.Context, user *v1.User) {
 	m.mutateCommon(ctx, user)
+	m.mutateManagedWorkspaces(ctx, user, false)
 }
 
 // mutateCommon applies mutations to the resource.
 func (m *UserMutator) mutateCommon(ctx context.Context, user *v1.User) {
 	m.mutateRoles(user)
 	m.mutateWorkspace(ctx, user)
-	m.mutateManagedWorkspace(ctx, user)
 	m.mutateLabels(user)
 }
 
@@ -182,25 +183,25 @@ func (m *UserMutator) mutateDefaultWorkspace(ctx context.Context, user *v1.User)
 	commonuser.AssignWorkspace(user, userWorkspaces...)
 }
 
-// mutateManagedWorkspace filters out non-existent or unauthorized workspaces from user's managed workspace list.
-// It ensures users can only manage workspaces they have access rights to and that actually exist.
-func (m *UserMutator) mutateManagedWorkspace(ctx context.Context, user *v1.User) {
+// mutateManagedWorkspaces filters and validates managed workspaces for a user.
+// It removes duplicates, checks access rights if required, and ensures workspaces exist.
+func (m *UserMutator) mutateManagedWorkspaces(ctx context.Context, user *v1.User, isCheckAccessRight bool) {
 	workspaceSet := sets.NewSet()
 	allWorkspaces := commonuser.GetManagedWorkspace(user)
-	workspaces := make([]string, 0, len(allWorkspaces))
+	validWorkspaces := make([]string, 0, len(allWorkspaces))
 	for _, w := range allWorkspaces {
 		if workspaceSet.Has(w) {
 			continue
 		}
 		workspaceSet.Insert(w)
-		if !commonuser.HasWorkspaceRight(user, w) {
+		if isCheckAccessRight && !commonuser.HasWorkspaceRight(user, w) {
 			continue
 		}
 		if _, err := getWorkspace(ctx, m.Client, w); err == nil {
-			workspaces = append(workspaces, w)
+			validWorkspaces = append(validWorkspaces, w)
 		}
 	}
-	commonuser.AssignManagedWorkspace(user, workspaces...)
+	commonuser.AssignManagedWorkspace(user, validWorkspaces...)
 }
 
 // UserValidator validates User resources on create and update operations.
