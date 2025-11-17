@@ -255,6 +255,9 @@ func (v *UserValidator) validateOnUpdate(ctx context.Context, newUser, oldUser *
 	if err := v.validateCommon(ctx, newUser); err != nil {
 		return err
 	}
+	if err := v.validateAccessRemoved(newUser, oldUser); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -312,6 +315,20 @@ func (v *UserValidator) validateRoles(ctx context.Context, user *v1.User) error 
 		err := v.Get(ctx, client.ObjectKey{Name: string(r)}, role)
 		if err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// validateAccessRemoved ensures that a user's management permissions are removed before revoking their access to a workspace.
+// Returns an error if the user still manages a workspace that they no longer have access to.
+func (v *UserValidator) validateAccessRemoved(newUser, oldUser *v1.User) error {
+	newUserAccessibleSet := sets.NewSetByKeys(commonuser.GetWorkspace(newUser)...)
+	newUserManagedSet := sets.NewSetByKeys(commonuser.GetManagedWorkspace(newUser)...)
+	oldUserAccessibleList := commonuser.GetWorkspace(oldUser)
+	for _, w := range oldUserAccessibleList {
+		if !newUserAccessibleSet.Has(w) && newUserManagedSet.Has(w) {
+			return commonerrors.NewForbidden(fmt.Sprintf("Please remove the user's workspace(%s) management first.", w))
 		}
 	}
 	return nil

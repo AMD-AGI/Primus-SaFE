@@ -64,7 +64,7 @@ func SetupDumpLogJobController(ctx context.Context, mgr manager.Manager) error {
 		return nil
 	}
 	s3Client, err := commons3.NewClient(ctx, commons3.Option{
-		Subdir: "log", ExpireDay: commonconfig.GetS3ExpireDay()})
+		Subdir: "", ExpireDay: commonconfig.GetS3ExpireDay()})
 	if err != nil {
 		return err
 	}
