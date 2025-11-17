@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -71,7 +72,8 @@ type AddonJobReconciler struct {
 func SetupAddonJobController(mgr manager.Manager) error {
 	r := &AddonJobReconciler{
 		OpsJobBaseReconciler: &OpsJobBaseReconciler{
-			Client: mgr.GetClient(),
+			Client:        mgr.GetClient(),
+			clientManager: commonutils.NewObjectManagerSingleton(),
 		},
 		allJobs: make(map[string]*AddonJob),
 	}
