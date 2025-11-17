@@ -260,7 +260,7 @@ func (v *OpsJobValidator) validateOnCreation(ctx context.Context, job *v1.OpsJob
 	case v1.OpsJobDumpLogType:
 		err = v.validateDumplog(ctx, job)
 	case v1.OpsJobRebootType:
-
+	case v1.OpsJobExportImageType:
 	}
 	if err != nil {
 		return err
@@ -456,7 +456,7 @@ func (v *OpsJobValidator) listRelatedRunningJobs(ctx context.Context, cluster st
 // validateNodes ensures all nodes belong to the same cluster and flavor.
 // Additionally, both cluster and node flavor must not be empty.
 func (v *OpsJobValidator) validateNodes(ctx context.Context, job *v1.OpsJob) error {
-	if job.Spec.Type == v1.OpsJobRebootType {
+	if job.Spec.Type == v1.OpsJobRebootType || job.Spec.Type == v1.OpsJobExportImageType {
 		return nil
 	}
 	nodeParams := job.GetParameters(v1.ParameterNode)

@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	apitypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -68,7 +70,8 @@ func SetupExportImageJobController(ctx context.Context, mgr manager.Manager) err
 	// Create reconciler instance
 	r := &ExportImageJobReconciler{
 		OpsJobBaseReconciler: &OpsJobBaseReconciler{
-			Client: mgr.GetClient(),
+			Client:        mgr.GetClient(),
+			clientManager: utils.NewObjectManagerSingleton(),
 		},
 		dbClient: dbclient.NewClient(),
 	}
@@ -226,10 +229,11 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, err.Error(), nil)
 	}
 
-	namespace := workload.Spec.Workspace // Pod namespace is the workspace ID
+	namespace := v1.GetWorkspaceId(workload) // Pod namespace is the workspace ID
+	cluster := v1.GetClusterId(workload)
 
 	// Get container ID from Pod
-	containerID, err := r.getContainerIDFromPod(ctx, podName, namespace)
+	containerID, err := r.getContainerIDFromPod(ctx, podName, cluster, namespace)
 	if err != nil {
 		klog.ErrorS(err, "failed to get container ID", "pod", podName, "namespace", namespace)
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, fmt.Sprintf("failed to get container ID: %v", err), nil)
@@ -257,16 +261,21 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 
 // getContainerIDFromPod retrieves the container ID from a Kubernetes Pod
 // Returns the container ID without the runtime prefix (e.g., removes "containerd://")
-func (r *ExportImageJobReconciler) getContainerIDFromPod(ctx context.Context, podName, namespace string) (string, error) {
+func (r *ExportImageJobReconciler) getContainerIDFromPod(ctx context.Context, podName, cluster, namespace string) (string, error) {
 	// Get Pod from Kubernetes
 	pod := &corev1.Pod{}
-	if err := r.Get(ctx, client.ObjectKey{Name: podName, Namespace: namespace}, pod); err != nil {
+	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, cluster)
+	if err != nil {
+		return "", err
+	}
+	pod, err = k8sClients.ClientSet().CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
 		return "", fmt.Errorf("failed to get Pod %s/%s: %w", namespace, podName, err)
 	}
 
 	// Check if Pod has container statuses
 	if len(pod.Status.ContainerStatuses) == 0 {
-		return "", fmt.Errorf("Pod %s has no container statuses", podName)
+		return "", fmt.Errorf("pod %s has no container statuses", podName)
 	}
 
 	// Get the first container's ID
