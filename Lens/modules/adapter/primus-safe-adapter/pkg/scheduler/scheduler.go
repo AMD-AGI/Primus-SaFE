@@ -115,6 +115,22 @@ func (s *Scheduler) runTask(ctx context.Context, name string, st *scheduledTask)
 	}
 
 	for {
+		// First select: check if we should stop
+		select {
+		case <-ctx.Done():
+			klog.Infof("Task %s stopped due to context cancellation", name)
+			return
+		case <-s.stopChan:
+			klog.Infof("Task %s stopped due to scheduler shutdown", name)
+			return
+		case <-st.stopChan:
+			klog.Infof("Task %s stopped", name)
+			return
+		default:
+			// Continue to wait for next tick
+		}
+
+		// Second select: wait for next tick or stop signal
 		select {
 		case <-ctx.Done():
 			klog.Infof("Task %s stopped due to context cancellation", name)
