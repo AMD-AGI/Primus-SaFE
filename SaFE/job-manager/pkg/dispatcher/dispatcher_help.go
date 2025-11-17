@@ -409,10 +409,16 @@ func buildEntryPoint(workload *v1.Workload) string {
 
 // buildLabels creates a map of labels for workload identification and tracking.
 func buildLabels(workload *v1.Workload) map[string]interface{} {
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		v1.WorkloadIdLabel:          workload.Name,
 		v1.WorkloadDispatchCntLabel: buildDispatchCount(workload),
 	}
+	for key, val := range workload.Labels {
+		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
+			result[key] = val
+		}
+	}
+	return result
 }
 
 // buildResources constructs resource requirements for the workload container.
@@ -609,6 +615,22 @@ func buildSelector(workload *v1.Workload) map[string]interface{} {
 func buildImageSecret(secretId string) interface{} {
 	return map[string]interface{}{
 		"name": secretId,
+	}
+}
+
+// buildGithubConfig constructs GitHub configuration parameters for a workload.
+func buildGithubConfig(workload *v1.Workload) map[string]interface{} {
+	secretId := ""
+	for _, item := range workload.Spec.Secrets {
+		if item.Type == v1.SecretDefault {
+			secretId = item.Id
+			break
+		}
+	}
+	configUrl := v1.GetLabel(workload, v1.GithubConfigUrl)
+	return map[string]interface{}{
+		"githubConfigSecret": secretId,
+		"githubConfigUrl":    configUrl,
 	}
 }
 

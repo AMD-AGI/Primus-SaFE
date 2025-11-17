@@ -160,7 +160,8 @@ func (r *SchedulerReconciler) handleWorkspaceEvent() handler.EventHandler {
 				klog.Error(err.Error())
 			}
 			// Since workspace resource updates may impact scheduling decisions, a rescheduling reconciliation is triggered.
-			if !quantity.Equal(oldWorkspace.Status.AvailableResources, newWorkspace.Status.AvailableResources) {
+			if !quantity.Equal(oldWorkspace.Status.AvailableResources, newWorkspace.Status.AvailableResources) ||
+				oldWorkspace.Spec.QueuePolicy != newWorkspace.Spec.QueuePolicy {
 				r.Add(&SchedulerMessage{
 					ClusterId:   newWorkspace.Spec.Cluster,
 					WorkspaceId: newWorkspace.Name,

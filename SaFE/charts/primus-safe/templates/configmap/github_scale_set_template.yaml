@@ -24,7 +24,6 @@ data:
   metadata:
     annotations:
       actions.github.com/runner-group-name: Default
-      runner-scale-set-id: "1"
     labels:
       app.kubernetes.io/component: autoscaling-runner-set
       app.kubernetes.io/part-of: gha-rs

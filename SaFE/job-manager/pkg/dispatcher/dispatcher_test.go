@@ -483,8 +483,8 @@ func TestCreateCICDScaleSet(t *testing.T) {
 		Kind:    common.CICDScaleSetKind,
 	}
 	workload.Spec.Resource.Replica = 2
-	workload.Spec.JobPort = 0
-	workload.Spec.SSHPort = 0
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretDefault}}
+	v1.SetLabel(workload, v1.GithubConfigUrl, "test-url")
 	workload.Spec.Workspace = workspace.Name
 
 	configmap, err := parseConfigmap(TestCICDScaleSetTemplateConfig)
@@ -501,8 +501,24 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	// fmt.Println(unstructuredutils.ToString(obj))
 
 	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
+	checkGithubConfig(t, obj)
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0])
 	checkLabels(t, obj, workload, &templates[0])
 	checkSecurityContext(t, obj, workload, &templates[0])
+}
+
+func checkGithubConfig(t *testing.T, obj *unstructured.Unstructured) {
+	specObject, found, err := unstructured.NestedMap(obj.Object, []string{"spec"}...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, len(specObject) == 0, false)
+
+	val, found := specObject["githubConfigSecret"]
+	assert.Equal(t, found, true)
+	assert.Equal(t, val.(string), "test-secret")
+
+	val, found = specObject["githubConfigUrl"]
+	assert.Equal(t, found, true)
+	assert.Equal(t, val.(string), "test-url")
 }

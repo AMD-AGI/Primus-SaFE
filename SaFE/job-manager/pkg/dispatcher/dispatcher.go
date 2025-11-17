@@ -240,15 +240,40 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 			return nil, commonerrors.NewInternalError(err.Error())
 		}
 	}
+	setK8sObjectMeta(result, adminWorkload)
+	return result, nil
+}
+
+func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workload) {
 	result.SetName(adminWorkload.Name)
 	result.SetNamespace(adminWorkload.Spec.Workspace)
-	result.SetLabels(convertToStringMap(buildLabels(adminWorkload)))
+	labels := convertToStringMap(buildLabels(adminWorkload))
+	annotations := make(map[string]string)
 	if v1.GetUserName(adminWorkload) != "" {
-		result.SetAnnotations(map[string]string{
-			v1.UserNameAnnotation: v1.GetUserName(adminWorkload),
-		})
+		annotations[v1.UserNameAnnotation] = v1.GetUserName(adminWorkload)
 	}
-	return result, nil
+	/**
+	if adminWorkload.SpecKind() == common.CICDScaleSetKind {
+		labels["actions.github.com/scale-set-name"] = adminWorkload.Name
+		labels["app.kubernetes.io/instance"] = adminWorkload.Name
+		labels["app.kubernetes.io/name"] = adminWorkload.Name
+		labels["actions.github.com/scale-set-namespace"] = adminWorkload.Spec.Workspace
+
+		annotations["actions.github.com/runner-scale-set-name"] = adminWorkload.Name
+		for _, item := range adminWorkload.Spec.Secrets {
+			if item.Type == v1.SecretDefault {
+				annotations["actions.github.com/cleanup-github-secret-name"] = item.Id
+				break
+			}
+		}
+	}
+	*/
+	if len(labels) > 0 {
+		result.SetLabels(labels)
+	}
+	if len(annotations) > 0 {
+		result.SetAnnotations(annotations)
+	}
 }
 
 // getWorkloadTemplate retrieves the workload template configuration based on its version and kind.
@@ -398,9 +423,6 @@ func isEnvChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt
 
 // isSharedMemoryChanged checks if the shared memory configuration of the workload has changed.
 func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	if v1.GetLabel(rt, v1.WorkloadKindLabel) == common.CICDScaleSetKind {
-		return false
-	}
 	memoryStorageSize, err := jobutils.GetMemoryStorageSize(obj, rt)
 	if err != nil {
 		if adminWorkload.Spec.Resource.SharedMemory == "" {
@@ -413,9 +435,6 @@ func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 
 // isPriorityClassChanged checks if the priority of the workload has changed.
 func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	if v1.GetLabel(rt, v1.WorkloadKindLabel) == common.CICDScaleSetKind {
-		return false
-	}
 	priorityClassName, err := jobutils.GetPriorityClassName(obj, rt)
 	if err != nil {
 		return true
@@ -426,10 +445,7 @@ func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstru
 // updateUnstructuredObject updates the unstructured object with workload specifications.
 func updateUnstructuredObject(obj *unstructured.Unstructured, adminWorkload *v1.Workload, rt *v1.ResourceTemplate) error {
 	if v1.GetLabel(rt, v1.WorkloadKindLabel) == common.CICDScaleSetKind {
-		if len(rt.Spec.ResourceSpecs) == 0 {
-			return fmt.Errorf("no resource template found")
-		}
-		return updateCICDScaleSet(adminWorkload, obj, rt.Spec.ResourceSpecs[0])
+		return updateCICDScaleSet(adminWorkload, obj, rt)
 	}
 
 	var preAllocatedReplica int64 = 0
@@ -487,9 +503,29 @@ func updateReplica(adminWorkload *v1.Workload,
 	return nil
 }
 
-// updateCICDScaleSet updates the main container configuration for the cicd scale set.
+// updateCICDScaleSet updates the Unstructured object only for the cicd scale set.
 func updateCICDScaleSet(adminWorkload *v1.Workload,
-	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
+	obj *unstructured.Unstructured, rt *v1.ResourceTemplate) error {
+	if len(rt.Spec.ResourceSpecs) == 0 {
+		return fmt.Errorf("no resource template found")
+	}
+
+	specObject, ok, err := unstructured.NestedMap(obj.Object, "spec")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("failed to find object with path: [spec]")
+	}
+	githubConfig := buildGithubConfig(adminWorkload)
+	for key, val := range githubConfig {
+		specObject[key] = val
+	}
+	if err = unstructured.SetNestedMap(obj.Object, specObject, "spec"); err != nil {
+		return err
+	}
+
+	resourceSpec := rt.Spec.ResourceSpecs[0]
 	templatePath := resourceSpec.GetTemplatePath()
 	path := append(templatePath, "spec", "containers")
 	containers, found, err := unstructured.NestedSlice(obj.Object, path...)
