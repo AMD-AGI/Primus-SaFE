@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -69,7 +70,8 @@ func SetupExportImageJobController(ctx context.Context, mgr manager.Manager) err
 	// Create reconciler instance
 	r := &ExportImageJobReconciler{
 		OpsJobBaseReconciler: &OpsJobBaseReconciler{
-			Client: mgr.GetClient(),
+			Client:        mgr.GetClient(),
+			clientManager: utils.NewObjectManagerSingleton(),
 		},
 		dbClient: dbclient.NewClient(),
 	}
