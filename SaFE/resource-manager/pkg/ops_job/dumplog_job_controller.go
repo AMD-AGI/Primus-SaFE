@@ -171,15 +171,16 @@ func (r *DumpLogJobReconciler) processDumpLogJob(ctx context.Context, job *v1.Op
 		err = r.multiUpload(ctx, opensearchClient, job, workload, searchResult)
 	}
 	r.clearScroll(opensearchClient, searchResult.ScrollId)
+	logName := buildLogName(workload.workloadId)
 	if err != nil {
-		if err2 := r.s3Client.DeleteObject(ctx, workload.workloadId, 0); err2 != nil {
-			klog.ErrorS(err2, "failed to delete object", "object", workload.workloadId)
+		if err2 := r.s3Client.DeleteObject(ctx, logName, 0); err2 != nil {
+			klog.ErrorS(err2, "failed to delete object", "object", logName)
 		}
-		klog.Infof("failed to upload %s log", workload.workloadId)
+		klog.Infof("failed to upload %s log", logName)
 		return ctrlruntime.Result{}, commonerrors.NewInternalError(err.Error())
 	}
 
-	if err = r.setOutput(ctx, job, workload.workloadId); err == nil {
+	if err = r.setOutput(ctx, job, logName); err == nil {
 		klog.Infof("Processing dumplog job %s for workload %s", job.Name, workload.workloadId)
 		return ctrlruntime.Result{}, nil
 	} else {
@@ -192,11 +193,12 @@ func (r *DumpLogJobReconciler) processDumpLogJob(ctx context.Context, job *v1.Op
 func (r *DumpLogJobReconciler) singleUpload(ctx context.Context, job *v1.OpsJob,
 	workload *workloadInfo, searchResult *commonsearch.OpenSearchResponse) error {
 	content := serializeSearchResponse(searchResult)
-	_, err := r.s3Client.PutObject(ctx, workload.workloadId, content, int64(job.Spec.TimeoutSecond))
+	logName := buildLogName(workload.workloadId)
+	_, err := r.s3Client.PutObject(ctx, logName, content, int64(job.Spec.TimeoutSecond))
 	if err != nil {
 		return err
 	}
-	klog.Infof("uploaded %s log Successfully", workload.workloadId)
+	klog.Infof("uploaded %s log Successfully", logName)
 	return nil
 }
 
@@ -206,7 +208,9 @@ func (r *DumpLogJobReconciler) multiUpload(
 	client *commonsearch.SearchClient,
 	job *v1.OpsJob,
 	workload *workloadInfo, searchResult *commonsearch.OpenSearchResponse) error {
-	uploadId, err := r.s3Client.CreateMultiPartUpload(ctx, workload.workloadId, job.GetLeftTime())
+
+	logName := buildLogName(workload.workloadId)
+	uploadId, err := r.s3Client.CreateMultiPartUpload(ctx, logName, job.GetLeftTime())
 	if err != nil {
 		return err
 	}
@@ -223,7 +227,7 @@ func (r *DumpLogJobReconciler) multiUpload(
 	}()
 
 	param := &commons3.MultiUploadParam{
-		Key:      workload.workloadId,
+		Key:      logName,
 		UploadId: uploadId,
 		CompletedParts: make([]types.CompletedPart, 0,
 			(searchResult.Hits.Total.Value/commonsearch.MaxDocsPerQuery)+1),
@@ -461,12 +465,12 @@ func (r *DumpLogJobReconciler) clearScroll(client *commonsearch.SearchClient, sc
 }
 
 // setOutput updates job status with the S3 presigned URL for log access.
-func (r *DumpLogJobReconciler) setOutput(ctx context.Context, job *v1.OpsJob, workloadId string) error {
+func (r *DumpLogJobReconciler) setOutput(ctx context.Context, job *v1.OpsJob, logName string) error {
 	var expireHour int32 = 3
 	if commonconfig.GetS3ExpireDay() > 0 {
 		expireHour = commonconfig.GetS3ExpireDay() * 24
 	}
-	endpoint, err := r.s3Client.GeneratePresignedURL(ctx, workloadId, expireHour)
+	endpoint, err := r.s3Client.GeneratePresignedURL(ctx, logName, expireHour)
 	if err != nil {
 		return err
 	}
@@ -506,4 +510,8 @@ func serializeSearchResponse(data *commonsearch.OpenSearchResponse) string {
 		logBuffer.WriteString("\n")
 	}
 	return logBuffer.String()
+}
+
+func buildLogName(workloadId string) string {
+	return workloadId + ".log"
 }
