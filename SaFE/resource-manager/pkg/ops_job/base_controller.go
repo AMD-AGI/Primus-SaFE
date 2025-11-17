@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,6 +43,7 @@ type ClearFunc func(ctx context.Context, job *v1.OpsJob) error
 
 type OpsJobBaseReconciler struct {
 	client.Client
+	clientManager *commonutils.ObjectManager
 }
 
 // Reconcile is the common main control loop for OpsJob resources that delegates to component-specific logic.
