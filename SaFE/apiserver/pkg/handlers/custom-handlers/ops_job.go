@@ -513,6 +513,7 @@ func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJ
 	// Check authorization
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:    ctx,
+		Resource:   workspaceObj,
 		Verb:       v1.GetVerb,
 		User:       requestUser,
 		Workspaces: []string{workspace},
