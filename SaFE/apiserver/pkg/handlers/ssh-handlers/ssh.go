@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -231,9 +232,19 @@ func (conn *SSHConn) Read(p []byte) (n int, err error) {
 	}
 	n, err = conn.s.Read(p)
 	if err != nil && err == io.EOF {
-		time.Sleep(60 * time.Second)
-		conn.SetExitReason("User actively disconnected")
-		_ = conn.Close()
+		// Only SCP needs immediate close to avoid blocking
+		// Other commands should wait to ensure all output is flushed
+		rawCmd := conn.s.RawCommand()
+		if strings.HasPrefix(rawCmd, "scp ") {
+			// SCP completed, close immediately
+			conn.SetExitReason("SCP transfer completed")
+			_ = conn.Close()
+		} else {
+			// Other commands, wait before closing
+			time.Sleep(60 * time.Second)
+			conn.SetExitReason("User actively disconnected")
+			_ = conn.Close()
+		}
 	}
 	return n, err
 }
