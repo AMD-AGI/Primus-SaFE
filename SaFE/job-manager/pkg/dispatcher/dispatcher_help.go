@@ -413,11 +413,6 @@ func buildLabels(workload *v1.Workload) map[string]interface{} {
 		v1.WorkloadIdLabel:          workload.Name,
 		v1.WorkloadDispatchCntLabel: buildDispatchCount(workload),
 	}
-	for key, val := range workload.Labels {
-		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
-			result[key] = val
-		}
-	}
 	return result
 }
 
@@ -466,10 +461,12 @@ func buildEnvironment(workload *v1.Workload) []interface{} {
 		"name":  "DISPATCH_COUNT",
 		"value": strconv.Itoa(v1.GetWorkloadDispatchCnt(workload) + 1),
 	})
-	result = append(result, map[string]interface{}{
-		"name":  "SSH_PORT",
-		"value": strconv.Itoa(workload.Spec.SSHPort),
-	})
+	if workload.Spec.SSHPort > 0 {
+		result = append(result, map[string]interface{}{
+			"name":  "SSH_PORT",
+			"value": strconv.Itoa(workload.Spec.SSHPort),
+		})
+	}
 	return result
 }
 
@@ -627,23 +624,11 @@ func buildGithubConfig(workload *v1.Workload) map[string]interface{} {
 			break
 		}
 	}
-	configUrl := v1.GetLabel(workload, v1.GithubConfigUrl)
+	configUrl := workload.Spec.Env[common.GithubConfigUrl]
 	return map[string]interface{}{
 		"githubConfigSecret": secretId,
 		"githubConfigUrl":    configUrl,
 	}
-}
-
-// convertToStringMap converts a map[string]interface{} to map[string]string.
-// Only includes entries where the value is a string.
-func convertToStringMap(input map[string]interface{}) map[string]string {
-	result := make(map[string]string)
-	for key, value := range input {
-		if strValue, ok := value.(string); ok {
-			result[key] = strValue
-		}
-	}
-	return result
 }
 
 // convertEnvsToStringMap extracts name-value pairs from environment variable definitions.

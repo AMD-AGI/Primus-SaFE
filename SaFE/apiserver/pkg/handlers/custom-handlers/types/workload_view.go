@@ -22,8 +22,6 @@ type CreateWorkloadRequest struct {
 	Description string `json:"description,omitempty"`
 	// Workspace ID to which the workload is delivered
 	WorkspaceId string `json:"workspaceId,omitempty"`
-	// The labels of the workload, The key cannot start with "primus-safe".
-	Labels map[string]string `json:"labels,omitempty"`
 }
 
 type CreateWorkloadResponse struct {

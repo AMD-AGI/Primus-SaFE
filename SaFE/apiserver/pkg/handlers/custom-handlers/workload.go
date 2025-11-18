@@ -640,11 +640,6 @@ func (h *Handler) generateWorkload(req *types.CreateWorkloadRequest, body []byte
 	if req.WorkspaceId != "" {
 		workload.Spec.Workspace = req.WorkspaceId
 	}
-	for key, val := range req.Labels {
-		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
-			workload.Labels[key] = val
-		}
-	}
 	return workload, nil
 }
 

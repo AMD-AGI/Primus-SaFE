@@ -92,7 +92,6 @@ const (
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
-	GithubConfigUrl                   = "githubConfigUrl"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."

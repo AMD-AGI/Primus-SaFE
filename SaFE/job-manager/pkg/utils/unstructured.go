@@ -205,12 +205,12 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 	var replicaList []int64
 	var resourceList []corev1.ResourceList
 	if v1.GetLabel(rt, v1.WorkloadKindLabel) == common.CICDScaleSetKind {
-		resourceStr, err := getEnvValue(unstructuredObj, rt, mainContainer, ResourcesEnv)
-		if err != nil {
-			return nil, nil, err
+		resourceStr, ok := unstructuredObj.GetAnnotations()[ResourcesEnv]
+		if !ok {
+			return nil, nil, nil
 		}
 		workloadResource := &v1.WorkloadResource{}
-		if err = json.Unmarshal([]byte(resourceStr), workloadResource); err != nil {
+		if err := json.Unmarshal([]byte(resourceStr), workloadResource); err != nil {
 			return nil, nil, err
 		}
 		podResource, err := commonworkload.GetPodResources(workloadResource)
@@ -284,8 +284,8 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 func GetCommand(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) ([]string, error) {
 	if v1.GetLabel(rt, v1.WorkloadKindLabel) == common.CICDScaleSetKind {
-		val, err := getEnvValue(unstructuredObj, rt, mainContainer, EntrypointEnv)
-		return []string{val}, err
+		val, _ := unstructuredObj.GetAnnotations()[EntrypointEnv]
+		return []string{val}, nil
 	}
 
 	for _, t := range rt.Spec.ResourceSpecs {
@@ -333,7 +333,8 @@ func GetCommand(unstructuredObj *unstructured.Unstructured,
 func GetImage(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) (string, error) {
 	if v1.GetLabel(rt, v1.WorkloadKindLabel) == common.CICDScaleSetKind {
-		return getEnvValue(unstructuredObj, rt, mainContainer, ImageEnv)
+		val, _ := unstructuredObj.GetAnnotations()[ImageEnv]
+		return val, nil
 	}
 
 	for _, t := range rt.Spec.ResourceSpecs {
@@ -556,24 +557,4 @@ func GetEnv(unstructuredObj *unstructured.Unstructured,
 		}
 	}
 	return nil, fmt.Errorf("no env found")
-}
-
-// getEnvValue retrieves the value of a specific environment variable from the main container
-// Returns empty string if the environment variable is not found
-func getEnvValue(unstructuredObj *unstructured.Unstructured,
-	rt *v1.ResourceTemplate, mainContainer, name string) (string, error) {
-	envs, err := GetEnv(unstructuredObj, rt, mainContainer)
-	if err != nil {
-		return "", err
-	}
-	for _, env := range envs {
-		envObj, ok := env.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if envObj["name"] == name {
-			return envObj["value"].(string), nil
-		}
-	}
-	return "", nil
 }

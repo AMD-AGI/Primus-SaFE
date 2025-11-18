@@ -7,6 +7,7 @@ package dispatcher
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -484,7 +485,7 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	}
 	workload.Spec.Resource.Replica = 2
 	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretDefault}}
-	v1.SetLabel(workload, v1.GithubConfigUrl, "test-url")
+	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
 	workload.Spec.Workspace = workspace.Name
 
 	configmap, err := parseConfigmap(TestCICDScaleSetTemplateConfig)
@@ -498,14 +499,14 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.generateK8sObject(context.Background(), workload)
 	assert.NilError(t, err)
-	// fmt.Println(unstructuredutils.ToString(obj))
+	fmt.Println(unstructuredutils.ToString(obj))
 
 	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
 	checkGithubConfig(t, obj)
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkEnvs(t, obj, workload, &templates[0])
 	checkLabels(t, obj, workload, &templates[0])
 	checkSecurityContext(t, obj, workload, &templates[0])
+	checkCICDAnnotation(t, obj, workload)
 }
 
 func checkGithubConfig(t *testing.T, obj *unstructured.Unstructured) {
@@ -521,4 +522,18 @@ func checkGithubConfig(t *testing.T, obj *unstructured.Unstructured) {
 	val, found = specObject["githubConfigUrl"]
 	assert.Equal(t, found, true)
 	assert.Equal(t, val.(string), "test-url")
+}
+
+func checkCICDAnnotation(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
+	val, ok := obj.GetAnnotations()[jobutils.EntrypointEnv]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, val, workload.Spec.EntryPoint)
+
+	val, ok = obj.GetAnnotations()[jobutils.ImageEnv]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, val, workload.Spec.Image)
+
+	val, ok = obj.GetAnnotations()[jobutils.ResourcesEnv]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, val, val, string(jsonutils.MarshalSilently(workload.Spec.Resource)))
 }

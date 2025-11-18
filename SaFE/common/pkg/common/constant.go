@@ -32,6 +32,7 @@ const (
 	KubePublicNamespace    = "kube-public"
 	PytorchJobPortName     = "pytorchjob-port"
 	SSHPortName            = "ssh-port"
+	GithubConfigUrl        = "GITHUB_CONFIG_URL"
 	JsonContentType        = "application/json; charset=utf-8"
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 

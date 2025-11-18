@@ -127,7 +127,7 @@ func (r *DumpLogJobReconciler) start(ctx context.Context) {
 	}
 }
 
-// Do processes a dump log job by retrieving logs and uploading to S3.
+// Do process a dump log job by retrieving logs and uploading to S3.
 func (r *DumpLogJobReconciler) Do(ctx context.Context, jobId string) (ctrlruntime.Result, error) {
 	job := &v1.OpsJob{}
 	if err := r.Get(ctx, client.ObjectKey{Name: jobId}, job); err != nil {
@@ -147,7 +147,7 @@ func (r *DumpLogJobReconciler) Do(ctx context.Context, jobId string) (ctrlruntim
 	return result, err
 }
 
-// do performs the main dump log operation including search, upload, and status update.
+// do perform the main dump log operation including search, upload, and status update.
 func (r *DumpLogJobReconciler) processDumpLogJob(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	workload, err := r.getInputWorkload(ctx, job)
 	if err != nil {

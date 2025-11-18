@@ -247,8 +247,22 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workload) {
 	result.SetName(adminWorkload.Name)
 	result.SetNamespace(adminWorkload.Spec.Workspace)
-	labels := convertToStringMap(buildLabels(adminWorkload))
-	annotations := make(map[string]string)
+	labels := result.GetLabels()
+	if len(labels) == 0 {
+		labels = make(map[string]string)
+	}
+
+	newLabels := buildLabels(adminWorkload)
+	for key, val := range newLabels {
+		if strValue, ok := val.(string); ok {
+			labels[key] = strValue
+		}
+	}
+	
+	annotations := result.GetAnnotations()
+	if len(annotations) == 0 {
+		annotations = make(map[string]string)
+	}
 	if v1.GetUserName(adminWorkload) != "" {
 		annotations[v1.UserNameAnnotation] = v1.GetUserName(adminWorkload)
 	}
@@ -524,34 +538,15 @@ func updateCICDScaleSet(adminWorkload *v1.Workload,
 	if err = unstructured.SetNestedMap(obj.Object, specObject, "spec"); err != nil {
 		return err
 	}
-
-	resourceSpec := rt.Spec.ResourceSpecs[0]
-	templatePath := resourceSpec.GetTemplatePath()
-	path := append(templatePath, "spec", "containers")
-	containers, found, err := unstructured.NestedSlice(obj.Object, path...)
-	if err != nil {
-		return err
+	annotations := obj.GetAnnotations()
+	if len(annotations) == 0 {
+		annotations = make(map[string]string)
 	}
-	if !found || len(containers) == 0 {
-		return fmt.Errorf("failed to find container with path: %v", path)
-	}
-
-	mainContainer, err := getMainContainer(containers, v1.GetMainContainer(adminWorkload))
-	if err != nil {
-		return err
-	}
-
-	if len(adminWorkload.Spec.Env) == 0 {
-		adminWorkload.Spec.Env = make(map[string]string)
-	}
-	adminWorkload.Spec.Env[jobutils.ResourcesEnv] =
+	annotations[jobutils.ResourcesEnv] =
 		string(jsonutils.MarshalSilently(adminWorkload.Spec.Resource))
-	adminWorkload.Spec.Env[jobutils.ImageEnv] = adminWorkload.Spec.Image
-	adminWorkload.Spec.Env[jobutils.EntrypointEnv] = adminWorkload.Spec.EntryPoint
-	updateContainerEnv(adminWorkload, mainContainer)
-	if err = unstructured.SetNestedField(obj.Object, containers, path...); err != nil {
-		return err
-	}
+	annotations[jobutils.ImageEnv] = adminWorkload.Spec.Image
+	annotations[jobutils.EntrypointEnv] = adminWorkload.Spec.EntryPoint
+	obj.SetAnnotations(annotations)
 	return nil
 }
 
@@ -619,7 +614,7 @@ func updateContainerEnv(adminWorkload *v1.Workload, mainContainer map[string]int
 		specValue, ok := adminWorkload.Spec.Env[nameStr]
 		if ok && specValue != value.(string) {
 			isChanged = true
-			// A empty value means the field should be deleted.
+			// An empty value means the field should be deleted.
 			if specValue == "" {
 				continue
 			}
