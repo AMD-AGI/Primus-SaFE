@@ -195,7 +195,13 @@ func (r *PrewarmJobReconciler) Do(ctx context.Context, jobName string) (ctrlrunt
 		job.Name, finalReady, finalDesired)
 
 	// Set job as completed with final status
-	successRate := float64(finalReady) / float64(finalDesired) * 100
+	var successRate float64
+	if finalDesired > 0 {
+		successRate = float64(finalReady) / float64(finalDesired) * 100
+	} else {
+		successRate = 100.0
+	}
+
 	outputs := []v1.Parameter{
 		{Name: "status", Value: "completed"},
 		{Name: "message", Value: "Image prewarming completed successfully"},
@@ -353,7 +359,7 @@ func (r *PrewarmJobReconciler) checkDaemonSetReady(ctx context.Context, k8sClien
 			}
 
 			// Check if all pods are ready
-			if ready == desired && desired > 0 {
+			if ready == desired && desired >= 0 {
 				// Delete DaemonSet after success
 				if delErr := r.deleteDaemonSet(ctx, k8sClients, dsName); delErr != nil {
 					klog.ErrorS(delErr, "Failed to delete DaemonSet after completion", "daemonset", dsName)
