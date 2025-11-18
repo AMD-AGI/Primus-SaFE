@@ -47,29 +47,30 @@ func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8S
 		ClusterName: clusterName,
 	}
 
-	// 1. Get GPU nodes
-	gpuNodesSpan, gpuNodesCtx := trace.StartSpanFromContext(ctx, "getGpuNodes")
+	// 1. Get GPU nodes from database
+	gpuNodesSpan, gpuNodesCtx := trace.StartSpanFromContext(ctx, "getGpuNodesFromDB")
 	gpuNodesSpan.SetAttributes(
 		attribute.String("cluster.name", clusterName),
 		attribute.String("gpu.vendor", string(metadata.GpuVendorAMD)),
 	)
 
 	queryStart := time.Now()
-	gpuNodes, err := gpu.GetGpuNodes(gpuNodesCtx, clientSets, metadata.GpuVendorAMD)
+	gpuNodes, err := database.GetFacade().GetNode().ListGpuNodes(gpuNodesCtx)
 	if err != nil {
 		gpuNodesSpan.RecordError(err)
 		gpuNodesSpan.SetAttributes(attribute.String("error.message", err.Error()))
 		gpuNodesSpan.SetStatus(codes.Error, err.Error())
 		trace.FinishSpan(gpuNodesSpan)
 
-		log.Errorf("Failed to get GPU nodes: %v", err)
+		log.Errorf("Failed to get GPU nodes from database: %v", err)
 		span.SetStatus(codes.Error, "Failed to get GPU nodes")
 		return stats, err
 	}
 
+
 	duration := time.Since(queryStart)
 	gpuNodesSpan.SetAttributes(
-		attribute.Int("nodes.count", len(gpuNodes)),
+		attribute.Int("nodes.total_count", len(gpuNodes)),
 		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
 	)
 	gpuNodesSpan.SetStatus(codes.Ok, "")
@@ -77,13 +78,16 @@ func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8S
 
 	stats.QueryDuration += duration.Seconds()
 	cache.TotalNodes = int32(len(gpuNodes))
-
+	gpuNodeNames := []string{}
+	for _, node := range gpuNodes {
+		gpuNodeNames = append(gpuNodeNames, node.Name)
+	}
 	// 2. Get faulty nodes from database
 	faultyNodesSpan, faultyNodesCtx := trace.StartSpanFromContext(ctx, "getFaultyNodesFromDB")
 	faultyNodesSpan.SetAttributes(attribute.Int("nodes.input_count", len(gpuNodes)))
 
 	step2Start := time.Now()
-	faultyNodes, err := j.getFaultyNodesFromDB(faultyNodesCtx, gpuNodes)
+	faultyNodes, err := j.getFaultyNodesFromDB(faultyNodesCtx, gpuNodeNames)
 	if err != nil {
 		faultyNodesSpan.RecordError(err)
 		faultyNodesSpan.SetAttributes(attribute.String("error.message", err.Error()))
@@ -175,7 +179,7 @@ func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8S
 	)
 
 	step5Start := time.Now()
-	allocationRate, err := gpu.GetClusterGpuAllocationRate(allocationCtx, clientSets, clusterName, metadata.GpuVendorAMD)
+	allocationRate, err := gpu.GetClusterGpuAllocationRateFromDB(allocationCtx, database.GetFacade().GetPod(), database.GetFacade().GetNode())
 	if err != nil {
 		allocationSpan.RecordError(err)
 		allocationSpan.SetAttributes(attribute.String("error.message", err.Error()))
@@ -321,6 +325,23 @@ func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8S
 	span.SetAttributes(attribute.Float64("total_duration_ms", float64(totalDuration.Milliseconds())))
 	span.SetStatus(codes.Ok, "")
 	return stats, nil
+}
+
+// hasTaints checks if a node has any taints
+func hasTaints(taints dbmodel.ExtType) bool {
+	if taints == nil {
+		return false
+	}
+
+	// Check if "taints" key exists and has values
+	if taintsVal, ok := taints["taints"]; ok {
+		// Try to convert to slice
+		if taintsSlice, ok := taintsVal.([]interface{}); ok {
+			return len(taintsSlice) > 0
+		}
+	}
+
+	return false
 }
 
 // getFaultyNodesFromDB gets faulty nodes from database based on taints and K8SStatus

@@ -8,6 +8,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	dbmodel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/kubelet"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -38,6 +39,53 @@ func GetClusterGpuAllocationRate(ctx context.Context, clientsets *clientsets.K8S
 	if totalCapacity == 0 {
 		return 0, nil
 	}
+	return totalAllocated / totalCapacity * 100, nil
+}
+
+// GetClusterGpuAllocationRateFromDB calculates cluster GPU allocation rate from database
+// It queries GPU nodes and active GPU pods from database and calculates the overall allocation rate
+func GetClusterGpuAllocationRateFromDB(ctx context.Context, podFacade database.PodFacadeInterface, nodeFacade database.NodeFacadeInterface) (float64, error) {
+	// Get all GPU nodes from database
+	nodes, err := nodeFacade.ListGpuNodes(ctx)
+	if err != nil {
+		return 0, err
+	}
+
+	totalCapacity := 0.0
+	totalAllocated := 0.0
+
+	for _, node := range nodes {
+		capacity := int(node.GpuCount)
+		if capacity == 0 {
+			continue
+		}
+
+		// Skip nodes with taints
+		if hasTaints(node.Taints) {
+			continue
+		}
+
+		// Get active GPU pods from database
+		gpuPods, err := podFacade.GetActiveGpuPodByNodeName(ctx, node.Name)
+		if err != nil {
+			log.Errorf("GetActiveGpuPodByNodeName for node %s failed: %v", node.Name, err)
+			return 0, err
+		}
+
+		// Calculate total allocated GPUs from pods
+		allocated := 0
+		for _, pod := range gpuPods {
+			allocated += int(pod.GpuAllocated)
+		}
+
+		totalCapacity += float64(capacity)
+		totalAllocated += float64(allocated)
+	}
+
+	if totalCapacity == 0 {
+		return 0, nil
+	}
+
 	return totalAllocated / totalCapacity * 100, nil
 }
 
@@ -259,6 +307,11 @@ func GetGpuNodeIdleInfoFromDB(ctx context.Context, podFacade database.PodFacadeI
 			continue
 		}
 
+		// Skip nodes with taints
+		if hasTaints(node.Taints) {
+			continue
+		}
+
 		// Get active GPU pods from database
 		gpuPods, err := podFacade.GetActiveGpuPodByNodeName(ctx, node.Name)
 		if err != nil {
@@ -285,4 +338,21 @@ func GetGpuNodeIdleInfoFromDB(ctx context.Context, podFacade database.PodFacadeI
 	}
 
 	return fullyIdle, partiallyIdle, busy, nil
+}
+
+// hasTaints checks if a node has any taints
+func hasTaints(taints dbmodel.ExtType) bool {
+	if taints == nil {
+		return false
+	}
+
+	// Check if "taints" key exists and has values
+	if taintsVal, ok := taints["taints"]; ok {
+		// Try to convert to slice
+		if taintsSlice, ok := taintsVal.([]interface{}); ok {
+			return len(taintsSlice) > 0
+		}
+	}
+
+	return false
 }
