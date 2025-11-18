@@ -17,6 +17,7 @@ func load() error {
 	if err := LoadConfig(path); err != nil {
 		return err
 	}
+
 	return nil
 }
 
