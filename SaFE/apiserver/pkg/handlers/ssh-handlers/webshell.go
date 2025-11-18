@@ -252,6 +252,11 @@ func (conn *WebsocketConn) WritePing(data []byte) error {
 
 // WriteCloseMessage writes a close message to the websocket connection.
 func (conn *WebsocketConn) WriteCloseMessage(code int, text string) error {
+	select {
+	case <-conn.closeCh:
+		return fmt.Errorf("websocket already closed")
+	default:
+	}
 	conn.writeMu.Lock()
 	err := conn.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(code, text))
 	conn.writeMu.Unlock()
