@@ -7,6 +7,7 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/kubelet"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -240,5 +241,48 @@ func GetGpuNodeIdleInfo(ctx context.Context, clientsets *clientsets.K8SClientSet
 		}
 		partiallyIdle++
 	}
+	return fullyIdle, partiallyIdle, busy, nil
+}
+
+// GetGpuNodeIdleInfoFromDB gets GPU node idle information from database
+// It queries active GPU pods from database and calculates allocation based on node capacity
+func GetGpuNodeIdleInfoFromDB(ctx context.Context, podFacade database.PodFacadeInterface, nodeFacade database.NodeFacadeInterface) (fullyIdle int, partiallyIdle int, busy int, err error) {
+	// Get all GPU nodes from database
+	nodes, err := nodeFacade.ListGpuNodes(ctx)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	for _, node := range nodes {
+		capacity := int(node.GpuCount)
+		if capacity == 0 {
+			continue
+		}
+
+		// Get active GPU pods from database
+		gpuPods, err := podFacade.GetActiveGpuPodByNodeName(ctx, node.Name)
+		if err != nil {
+			log.Errorf("GetActiveGpuPodByNodeName for node %s failed: %v", node.Name, err)
+			return 0, 0, 0, err
+		}
+
+		// Calculate total allocated GPUs from pods
+		allocated := 0
+		for _, pod := range gpuPods {
+			allocated += int(pod.GpuAllocated)
+		}
+
+		// Classify node based on allocation
+		if allocated == capacity {
+			busy++
+			continue
+		}
+		if allocated == 0 {
+			fullyIdle++
+			continue
+		}
+		partiallyIdle++
+	}
+
 	return fullyIdle, partiallyIdle, busy, nil
 }

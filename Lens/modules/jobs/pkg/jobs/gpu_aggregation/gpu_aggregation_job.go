@@ -574,7 +574,8 @@ func (j *GpuAggregationJob) collectAnnotationDataFromDB(
 	for _, annotationKey := range j.config.Dimensions.Label.AnnotationKeys {
 		annotationValue := annotations[annotationKey]
 		if annotationValue == "" {
-			annotationValue = j.config.Dimensions.Label.DefaultValue
+			// annotationValue = j.config.Dimensions.Label.DefaultValue
+			continue
 		}
 
 		// Ensure annotationKey's map exists
