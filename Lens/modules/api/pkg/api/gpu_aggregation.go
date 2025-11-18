@@ -508,7 +508,15 @@ func getClusters(ctx *gin.Context) {
 	cm := clientsets.GetClusterManager()
 	clusterNames := cm.GetClusterNames()
 
-	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, clusterNames))
+	// Filter out "default" cluster
+	filteredClusters := make([]string, 0, len(clusterNames))
+	for _, name := range clusterNames {
+		if name != "default" {
+			filteredClusters = append(filteredClusters, name)
+		}
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, filteredClusters))
 }
 
 // getNamespaces gets namespace list within specified time range
@@ -558,7 +566,15 @@ func getNamespaces(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, namespaces))
+	// Filter out "default" namespace
+	filteredNamespaces := make([]string, 0, len(namespaces))
+	for _, ns := range namespaces {
+		if ns != "default" {
+			filteredNamespaces = append(filteredNamespaces, ns)
+		}
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, filteredNamespaces))
 }
 
 // getDimensionKeys gets dimension keys list within specified time range
