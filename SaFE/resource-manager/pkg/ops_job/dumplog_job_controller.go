@@ -63,8 +63,7 @@ func SetupDumpLogJobController(ctx context.Context, mgr manager.Manager) error {
 	if !commonconfig.IsS3Enable() || !commonconfig.IsOpenSearchEnable() {
 		return nil
 	}
-	s3Client, err := commons3.NewClient(ctx, commons3.Option{
-		Subdir: "log", ExpireDay: commonconfig.GetS3ExpireDay()})
+	s3Client, err := commons3.NewClient(ctx, commons3.Option{ExpireDay: commonconfig.GetS3ExpireDay()})
 	if err != nil {
 		return err
 	}
