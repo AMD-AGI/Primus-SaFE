@@ -115,7 +115,7 @@ func (j *ClusterOverviewJob) Run(ctx context.Context, clientSets *clientsets.K8S
 	)
 
 	step3Start := time.Now()
-	idle, partialIdle, busy, err := gpu.GetGpuNodeIdleInfo(idleInfoCtx, clientSets, clusterName, metadata.GpuVendorAMD)
+	idle, partialIdle, busy, err := gpu.GetGpuNodeIdleInfoFromDB(idleInfoCtx, database.GetFacade().GetPod(), database.GetFacade().GetNode())
 	if err != nil {
 		idleInfoSpan.RecordError(err)
 		idleInfoSpan.SetAttributes(attribute.String("error.message", err.Error()))
