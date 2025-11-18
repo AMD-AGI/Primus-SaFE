@@ -62,22 +62,6 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 		return nil
 	})
 
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if err := conn.WriteMessage(websocket.PingMessage, []byte("PING")); err != nil {
-					klog.Errorf("write ping err: %v", err)
-					return
-				}
-			case <-c.Request.Context().Done():
-				return
-			}
-		}
-	}()
-
 	userInfo := &UserInfo{
 		User:      c.GetString(common.UserId),
 		Pod:       strings.TrimSpace(c.Param(common.PodId)),
@@ -87,27 +71,33 @@ func (h *SshHandler) WebShell(c *gin.Context) {
 	}
 	rows, _ := strconv.Atoi(req.Rows)
 	cols, _ := strconv.Atoi(req.Cols)
-	sessionInfo := h.NewSessionInfo(userInfo, newWebsocketConn(conn), rows, cols, WebShell, true)
+	wsConn := newWebsocketConn(conn).(*WebsocketConn)
+	sessionInfo := h.NewSessionInfo(userInfo, wsConn, rows, cols, WebShell, true)
+
+	// Start ping goroutine using WebsocketConn to avoid concurrent writes
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := wsConn.WritePing([]byte("PING")); err != nil {
+					klog.Errorf("write ping err: %v", err)
+					return
+				}
+			case <-c.Request.Context().Done():
+				return
+			}
+		}
+	}()
 	if err := h.SessionConn(c.Request.Context(), sessionInfo); err != nil {
 		klog.Errorf("session conn err: %v", err)
 	}
 
-	if err := closeWebSocket(conn); err != nil {
+	if err := wsConn.WriteCloseMessage(websocket.CloseNormalClosure, "bye"); err != nil {
 		klog.Errorf("close websocket err: %v", err)
 	}
-
-	return
-}
-
-// closeWebSocket sends a close frame and closes the websocket connection.
-func closeWebSocket(conn *websocket.Conn) error {
-	err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "bye"))
-	if err != nil {
-		return err
-	}
-	time.Sleep(1 * time.Second)
-
-	return nil
+	time.Sleep(time.Second)
 }
 
 // WebsocketConn implements Conn interface for websocket-based sessions.
@@ -117,6 +107,7 @@ type WebsocketConn struct {
 	windowCh   chan *remotecommand.TerminalSize
 	closeCh    chan struct{}
 	once       sync.Once
+	writeMu    sync.Mutex // protects concurrent writes to websocket
 }
 
 // newWebsocketConn creates a new WebsocketConn from a websocket.Conn.
@@ -197,14 +188,18 @@ func (conn *WebsocketConn) Write(p []byte) (n int, err error) {
 		return 0, fmt.Errorf("websocket closed")
 	default:
 	}
+	conn.writeMu.Lock()
 	err = conn.conn.WriteMessage(websocket.BinaryMessage, p)
+	conn.writeMu.Unlock()
 	return len(p), err
 }
 
 // Close closes the websocket connection.
 func (conn *WebsocketConn) Close() error {
 	conn.once.Do(func() {
+		conn.writeMu.Lock()
 		_ = conn.conn.WriteMessage(websocket.CloseMessage, []byte{})
+		conn.writeMu.Unlock()
 		close(conn.closeCh)
 	})
 	return nil
@@ -240,4 +235,25 @@ func (conn *WebsocketConn) ClosedChan() chan struct{} {
 // RawCommand returns the raw command string.
 func (conn *WebsocketConn) RawCommand() string {
 	return ""
+}
+
+// WritePing writes a ping message to the websocket connection.
+func (conn *WebsocketConn) WritePing(data []byte) error {
+	select {
+	case <-conn.closeCh:
+		return fmt.Errorf("websocket closed")
+	default:
+	}
+	conn.writeMu.Lock()
+	err := conn.conn.WriteMessage(websocket.PingMessage, data)
+	conn.writeMu.Unlock()
+	return err
+}
+
+// WriteCloseMessage writes a close message to the websocket connection.
+func (conn *WebsocketConn) WriteCloseMessage(code int, text string) error {
+	conn.writeMu.Lock()
+	err := conn.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(code, text))
+	conn.writeMu.Unlock()
+	return err
 }
