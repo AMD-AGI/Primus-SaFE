@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -349,9 +350,9 @@ type forwardChannelData struct {
 
 // IsShellCommand checks if the given command is a valid shell command.
 func IsShellCommand(cmd string) bool {
-	shells := []string{"sh", "bash", "zsh", "ash", "ksh", "csh", "tcsh", "bash --login -c bash"}
+	shells := []string{"sh", "bash", "zsh", "ash", "ksh", "csh", "tcsh", "bash --login -c bash", "scp"}
 	for _, shell := range shells {
-		if cmd == shell {
+		if strings.HasPrefix(cmd, shell) {
 			return true
 		}
 	}
