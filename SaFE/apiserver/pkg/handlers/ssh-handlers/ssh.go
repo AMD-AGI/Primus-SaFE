@@ -197,8 +197,6 @@ func (h *SshHandler) handleSession(s Session) {
 	if err := h.SessionConn(s.Context(), sessionInfo); err != nil {
 		sendError(s, err.Error())
 	}
-
-	return
 }
 
 // ParseUserInfo parses the user string into a UserInfo struct.

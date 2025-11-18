@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
@@ -30,8 +32,6 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
-	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
@@ -45,17 +45,22 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 		return err
 	}
 
-	isInteractive := sessionInfo.isPty || IsShellCommand(sessionInfo.userConn.RawCommand())
+	rawCmd := sessionInfo.userConn.RawCommand()
+	isInteractive := sessionInfo.isPty || IsShellCommand(rawCmd)
+	// SCP needs stdin for data transfer but should execute as a command
+	isScp := strings.HasPrefix(rawCmd, "scp ")
+	needStdin := isInteractive || isScp
+
 	execOptions := &corev1.PodExecOptions{
 		Container: sessionInfo.userInfo.Container,
 		Command:   []string{sessionInfo.userInfo.CMD},
-		Stdin:     isInteractive,
+		Stdin:     needStdin,
 		Stdout:    true,
 		Stderr:    true,
 		TTY:       sessionInfo.isPty,
 	}
 	if !isInteractive {
-		execOptions.Command = append(execOptions.Command, "-c", sessionInfo.userConn.RawCommand())
+		execOptions.Command = append(execOptions.Command, "-c", rawCmd)
 	}
 
 	req := k8sClients.ClientSet().CoreV1().RESTClient().Post().
@@ -107,8 +112,10 @@ func (h *SshHandler) SessionConn(ctx context.Context, sessionInfo *SessionInfo) 
 			TerminalSizeQueue: sessionInfo,
 			Tty:               sessionInfo.isPty,
 		}
-		if !isInteractive {
+		if !needStdin {
 			options.Stdin = nil
+		}
+		if !isInteractive {
 			options.TerminalSizeQueue = nil
 		}
 		err = executor.StreamWithContext(ctx, options)
@@ -350,9 +357,9 @@ type forwardChannelData struct {
 
 // IsShellCommand checks if the given command is a valid shell command.
 func IsShellCommand(cmd string) bool {
-	shells := []string{"sh", "bash", "zsh", "ash", "ksh", "csh", "tcsh", "bash --login -c bash", "scp"}
+	shells := []string{"sh", "bash", "zsh", "ash", "ksh", "csh", "tcsh", "bash --login -c bash"}
 	for _, shell := range shells {
-		if strings.HasPrefix(cmd, shell) {
+		if cmd == shell {
 			return true
 		}
 	}
