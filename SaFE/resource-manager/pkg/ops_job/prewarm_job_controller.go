@@ -7,6 +7,7 @@ package ops_job
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -129,7 +130,7 @@ func (r *PrewarmJobReconciler) Do(ctx context.Context, jobName string) (ctrlrunt
 	}
 	if image == "" || workspace == "" {
 		errMsg := "missing image or workspace parameter in job inputs"
-		klog.ErrorS(fmt.Errorf(errMsg), "Missing image or workspace parameter in prewarm job inputs", "job", job.Name)
+		klog.ErrorS(errors.New(errMsg), "Missing image or workspace parameter in prewarm job inputs", "job", job.Name)
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, nil)
 	}
 
