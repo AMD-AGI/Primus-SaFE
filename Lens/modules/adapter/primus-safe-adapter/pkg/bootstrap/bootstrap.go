@@ -95,6 +95,15 @@ func RegisterController(ctx context.Context) error {
 		return err
 	}
 	controller.RegisterReconciler(workloadReconciler)
+	
+	// Register WorkspaceReconciler
+	workspaceReconciler := &reconciler.WorkspaceReconciler{}
+	err = workspaceReconciler.Init(ctx)
+	if err != nil {
+		return err
+	}
+	controller.RegisterReconciler(workspaceReconciler)
+	
 	return nil
 }
 
