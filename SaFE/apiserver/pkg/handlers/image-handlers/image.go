@@ -192,6 +192,43 @@ func (h *ImageHandler) listExportedImage(c *gin.Context) (interface{}, error) {
 	return results, nil
 }
 
+// listPrewarmImage lists prewarm image jobs by querying ops_job table.
+func (h *ImageHandler) listPrewarmImage(c *gin.Context) (interface{}, error) {
+	query, err := parseListImageQuery(c)
+	if err != nil {
+		klog.ErrorS(err, "fail to parseListImageQuery")
+		return nil, err
+	}
+
+	// Build SQL query for prewarm jobs from ops_job table
+	dbSql, orderBy := buildPrewarmImageJobQuery(query)
+
+	// Query prewarm jobs from ops_job table
+	jobs, err := h.dbClient.SelectJobs(c, dbSql, orderBy, query.PageSize, (query.PageNum-1)*query.PageSize)
+	if err != nil {
+		klog.ErrorS(err, "failed to query prewarm jobs")
+		return nil, err
+	}
+
+	// Count total records
+	count, err := h.dbClient.CountJobs(c, dbSql)
+	if err != nil {
+		klog.ErrorS(err, "failed to count prewarm jobs")
+		return nil, err
+	}
+
+	// Convert ops_job records to prewarm image list format
+	items := convertOpsJobToPrewarmImageList(jobs)
+
+	results := &PrewarmImageListResponse{
+		TotalCount: count,
+		Items:      items,
+	}
+
+	klog.V(4).Infof("listed %d prewarm images", len(items))
+	return results, nil
+}
+
 // parseListImageQuery extracts and validates query parameters for listing images.
 // Sets default values for pagination, ordering, and filters if not provided.
 func parseListImageQuery(c *gin.Context) (*ImageServiceRequest, error) {
@@ -999,6 +1036,76 @@ func buildExportImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []strin
 	orderBy := []string{fmt.Sprintf("%s %s", orderByField, order)}
 
 	return dbSql, orderBy
+}
+
+// buildPrewarmImageJobQuery builds SQL query for prewarm image jobs from ops_job table.
+func buildPrewarmImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []string) {
+	dbTags := dbClient.GetOpsJobFieldTags()
+
+	dbSql := sqrl.And{
+		sqrl.Eq{dbClient.GetFieldTag(dbTags, "Type"): string(v1.OpsJobPrewarmType)},
+		sqrl.Eq{dbClient.GetFieldTag(dbTags, "IsDeleted"): false},
+	}
+
+	if query.UserName != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "UserName"): query.UserName})
+	}
+
+	if query.Ready {
+		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "Phase"): string(v1.OpsJobSucceeded)})
+	}
+
+	orderByField := dbClient.GetFieldTag(dbTags, "CreationTime")
+	order := "DESC"
+	if query.Order != "" {
+		order = strings.ToUpper(query.Order)
+	}
+	orderBy := []string{fmt.Sprintf("%s %s", orderByField, order)}
+
+	return dbSql, orderBy
+}
+
+// convertOpsJobToPrewarmImageList converts ops_job records to PrewarmImageListItem slice.
+func convertOpsJobToPrewarmImageList(jobs []*dbClient.OpsJob) []PrewarmImageListItem {
+	result := make([]PrewarmImageListItem, 0, len(jobs))
+
+	for _, job := range jobs {
+		item := PrewarmImageListItem{
+			Status:      dbutils.ParseNullString(job.Phase),
+			CreatedTime: timeutil.FormatRFC3339(dbutils.ParseNullTime(job.CreationTime)),
+			EndTime:     timeutil.FormatRFC3339(dbutils.ParseNullTime(job.EndTime)),
+		}
+
+		// Parse inputs to extract image and workspace
+		if len(job.Inputs) > 0 {
+			inputs := deserializeParams(string(job.Inputs))
+			for _, param := range inputs {
+				switch param.Name {
+				case "image":
+					item.ImageName = param.Value
+				case "workspace":
+					item.Workspace = param.Value
+				}
+			}
+		}
+
+		// Parse outputs to extract status and prewarm_progress
+		if outputsStr := dbutils.ParseNullString(job.Outputs); outputsStr != "" {
+			var outputs []v1.Parameter
+			if err := json.Unmarshal([]byte(outputsStr), &outputs); err == nil {
+				for _, param := range outputs {
+					switch param.Name {
+					case "status":
+						item.Status = param.Value
+					case "prewarm_progress":
+						item.PrewarmProgress = param.Value
+					}
+				}
+			}
+		}
+		result = append(result, item)
+	}
+	return result
 }
 
 // convertOpsJobToExportedImageList converts ops_job records to ExportedImageListItem slice.

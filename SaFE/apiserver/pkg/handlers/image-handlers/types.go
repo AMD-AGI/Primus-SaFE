@@ -204,8 +204,8 @@ type Image struct {
 
 // ExportedImageListResponse represents the response for listing exported images.
 type ExportedImageListResponse struct {
-	TotalCount int                      `json:"totalCount"`
-	Items      []ExportedImageListItem  `json:"items"`
+	TotalCount int                     `json:"totalCount"`
+	Items      []ExportedImageListItem `json:"items"`
 }
 
 // ExportedImageListItem represents a single exported image record in the list.
@@ -216,4 +216,20 @@ type ExportedImageListItem struct {
 	CreatedTime string `json:"createdTime"` // Export creation time (RFC3339)
 	Label       string `json:"label"`       // User-defined label from inputs
 	Log         string `json:"log"`         // Message from conditions field
+}
+
+// PrewarmImageListResponse represents the response for listing prewarm images.
+type PrewarmImageListResponse struct {
+	TotalCount int                    `json:"totalCount"`
+	Items      []PrewarmImageListItem `json:"items"`
+}
+
+// PrewarmImageListItem represents a single prewarm image record in the list.
+type PrewarmImageListItem struct {
+	ImageName       string `json:"imageName"`
+	Workspace       string `json:"workspace"`
+	Status          string `json:"status"`
+	PrewarmProgress string `json:"prewarmProgress"`
+	CreatedTime     string `json:"createdTime"`
+	EndTime         string `json:"endTime"`
 }
