@@ -5,6 +5,12 @@ on:
       - '**'
     tags:
       - '**'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        required: true
+        default: 'main'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -142,7 +148,7 @@ jobs:
 
           buildah bud \
             --layers \
-            --build-arg GOPRIXY=https://goproxy.io,direct \
+            --build-arg GOPROXY=${{ secrets.GOPROXY }},direct \
             --build-arg BUILDPATH=${{ matrix.buildpath }} \
             --build-arg BASEPATH=${{ matrix.basepath }} \
             --build-arg APPNAME=${{ matrix.name }} \
