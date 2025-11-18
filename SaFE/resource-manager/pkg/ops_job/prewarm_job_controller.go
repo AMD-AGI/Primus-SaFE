@@ -135,7 +135,7 @@ func (r *PrewarmJobReconciler) Do(ctx context.Context, jobName string) (ctrlrunt
 	}
 
 	dsName := fmt.Sprintf("image-prewarm-%s", job.Name)
-	cluster := v1.GetClusterId(job) // todo is job ok?
+	cluster := v1.GetClusterId(job)
 
 	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, cluster)
 	if err != nil {

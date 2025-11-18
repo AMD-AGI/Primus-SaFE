@@ -503,20 +503,25 @@ func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJ
 		return nil, commonerrors.NewBadRequest("workspace is required in inputs")
 	}
 
-	// Get workload information for authorization
+	// Get workspace information to retrieve cluster id
 	ctx := c.Request.Context()
+	workspaceObj, err := h.getAdminWorkspace(ctx, workspace)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest("failed to get workspace: " + err.Error())
+	}
 
 	// Check authorization
 	if err = h.accessController.Authorize(authority.AccessInput{
-		Context: ctx,
-		Verb:    v1.GetVerb,
-		User:    requestUser,
+		Context:    ctx,
+		Verb:       v1.GetVerb,
+		User:       requestUser,
+		Workspaces: []string{workspace},
 	}); err != nil {
 		return nil, err
 	}
 
 	// Build job name
-	jobName := fmt.Sprintf("image-%s", image)
+	jobName := fmt.Sprintf("prewarm-%s", image)
 
 	// Build BaseOpsJobRequest for prewarm job
 	jobReq := &types.BaseOpsJobRequest{
@@ -530,8 +535,9 @@ func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJ
 	// Generate base OpsJob using genDefaultOpsJob
 	job := genDefaultOpsJob(c, jobReq)
 
-	// Add workspace label for statistics and tracking
+	// Add workspace and cluster labels for statistics and tracking
 	job.Labels[v1.WorkspaceIdLabel] = workspace
+	job.Labels[v1.ClusterIdLabel] = workspaceObj.Spec.Cluster
 
 	return job, nil
 }
