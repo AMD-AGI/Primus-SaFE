@@ -476,7 +476,7 @@ func (h *ImageHandler) retryDispatchImportImageJob(c *gin.Context) (interface{},
 // Configures the job with source/dest info, registry auth, and image pull secrets.
 func (h *ImageHandler) dispatchImportImageJob(c *gin.Context, image *model.Image, info *model.ImageImportJob) (*batchv1.Job, error) {
 	jobName := generateImportImageJobName(image.ID)
-	imagePullSecrets, err := h.listImagePullSecretsName(c, h.Client, common.DefaultNamespace)
+	imagePullSecrets, err := h.listImagePullSecretsName(c, h.Client, common.PrimusSafeNamespace)
 	if err != nil {
 		return nil, err
 	}
@@ -515,7 +515,7 @@ func newImportImageJob(
 	env *ImportImageEnv,
 	userName string,
 ) (*batchv1.Job, error) {
-	namespace := common.DefaultNamespace
+	namespace := common.PrimusSafeNamespace
 	envs := defaultSyncImageEnv()
 
 	// Set platform-specific override or all-platform mode

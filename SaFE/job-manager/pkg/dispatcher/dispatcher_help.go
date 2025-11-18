@@ -194,7 +194,9 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workl
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
-	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
+	if workload.SpecKind() == common.PytorchJobKind {
+		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
+	}
 	maxId := 0
 	if workspace != nil {
 		for _, vol := range workspace.Spec.Volumes {
@@ -397,9 +399,7 @@ func buildCommands(workload *v1.Workload) []interface{} {
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload) string {
 	result := ""
-	if workload.SpecKind() == common.CICDScaleSetKind {
-		return workload.Spec.EntryPoint
-	} else if commonworkload.IsOpsJob(workload) {
+	if commonworkload.IsOpsJob(workload) || workload.SpecKind() == common.CICDScaleSetKind {
 		result = stringutil.Base64Decode(workload.Spec.EntryPoint)
 	} else {
 		result = Launcher + " '" + workload.Spec.EntryPoint + "'"

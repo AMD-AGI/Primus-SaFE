@@ -22,12 +22,14 @@ import (
 
 func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, replica int) {
 	path := append(template.PrePaths, template.ReplicasPaths...)
-	objReplica := jobutils.GetUnstructuredInt(obj.Object, path)
-	assert.Equal(t, objReplica, int64(replica))
-	if workload.Spec.Kind == common.JobKind {
-		path = append(template.PrePaths, "completions")
-		objReplica = jobutils.GetUnstructuredInt(obj.Object, path)
+	if workload.SpecKind() != common.CICDScaleSetKind {
+		objReplica := jobutils.GetUnstructuredInt(obj.Object, path)
 		assert.Equal(t, objReplica, int64(replica))
+		if workload.SpecKind() == common.JobKind {
+			path = append(template.PrePaths, "completions")
+			objReplica = jobutils.GetUnstructuredInt(obj.Object, path)
+			assert.Equal(t, objReplica, int64(replica))
+		}
 	}
 
 	path = append(template.PrePaths, template.TemplatePaths...)
@@ -109,7 +111,7 @@ func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Worklo
 	ok := findEnv(envs, "HANG_CHECK_INTERVAL", "")
 	assert.Equal(t, ok, false)
 
-	if workload.SpecKind() != common.JobKind {
+	if workload.SpecKind() != common.JobKind && workload.SpecKind() != common.CICDScaleSetKind {
 		if v1.IsEnableHostNetwork(workload) {
 			ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "ens51f0")
 			assert.Equal(t, ok, true)

@@ -360,6 +360,10 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 	workload.Spec.Resource.Replica = 1
 	workload.Spec.Timeout = nil
 	workload.Spec.Dependencies = nil
+	val, ok := workload.Spec.Env[common.CicdProxyEnable]
+	if ok && val == v1.TrueStr {
+		workload.Spec.Env[v1.CICDProxyEnableAnnotation] = v1.TrueStr
+	}
 }
 
 // mutateImage trims image name and entry point.

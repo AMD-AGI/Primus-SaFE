@@ -9,7 +9,6 @@ metadata:
   labels:
     primus-safe.display.name: "gha-runner-scale-set-0.13.0"
     app.kubernetes.io/managed-by: Helm
-    primus-safe.addon.default: ""
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}

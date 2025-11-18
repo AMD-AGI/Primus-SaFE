@@ -258,13 +258,16 @@ func setK8sObjectMeta(result *unstructured.Unstructured, adminWorkload *v1.Workl
 			labels[key] = strValue
 		}
 	}
-	
+
 	annotations := result.GetAnnotations()
 	if len(annotations) == 0 {
 		annotations = make(map[string]string)
 	}
 	if v1.GetUserName(adminWorkload) != "" {
 		annotations[v1.UserNameAnnotation] = v1.GetUserName(adminWorkload)
+	}
+	if v1.IsCICDProxyEnable(adminWorkload) {
+		annotations[v1.CICDProxyEnableAnnotation] = v1.TrueStr
 	}
 	/**
 	if adminWorkload.SpecKind() == common.CICDScaleSetKind {
@@ -458,8 +461,14 @@ func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstru
 
 // updateUnstructuredObject updates the unstructured object with workload specifications.
 func updateUnstructuredObject(obj *unstructured.Unstructured, adminWorkload *v1.Workload, rt *v1.ResourceTemplate) error {
-	if v1.GetLabel(rt, v1.WorkloadKindLabel) == common.CICDScaleSetKind {
-		return updateCICDScaleSet(adminWorkload, obj, rt)
+	if adminWorkload.SpecKind() == common.CICDScaleSetKind {
+		if err := updateCICDGithub(adminWorkload, obj, rt); err != nil {
+			return err
+		}
+	}
+	if v1.IsCICDProxyEnable(adminWorkload) {
+		updateCICDProxy(adminWorkload, obj)
+		return nil
 	}
 
 	var preAllocatedReplica int64 = 0
@@ -498,12 +507,15 @@ func updateUnstructuredObject(obj *unstructured.Unstructured, adminWorkload *v1.
 // updateReplica updates the replica count in the unstructured object.
 func updateReplica(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec, replica int64) error {
+	if adminWorkload.SpecKind() == common.CICDScaleSetKind {
+		return nil
+	}
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.ReplicasPaths...)
 	if err := unstructured.SetNestedField(obj.Object, replica, path...); err != nil {
 		return err
 	}
-	if adminWorkload.Spec.Kind == common.JobKind {
+	if adminWorkload.SpecKind() == common.JobKind {
 		end := len(path) - 1
 		if end < 0 {
 			end = 0
@@ -517,8 +529,23 @@ func updateReplica(adminWorkload *v1.Workload,
 	return nil
 }
 
-// updateCICDScaleSet updates the Unstructured object only for the cicd scale set.
-func updateCICDScaleSet(adminWorkload *v1.Workload,
+// updateCICDProxy sets annotations containing resource, image, and entrypoint information from the workload spec.
+// These annotations are used by the CICD proxy to configure the runner appropriately.
+func updateCICDProxy(adminWorkload *v1.Workload, obj *unstructured.Unstructured) {
+	annotations := obj.GetAnnotations()
+	if len(annotations) == 0 {
+		annotations = make(map[string]string)
+	}
+	annotations[jobutils.ResourcesEnv] =
+		string(jsonutils.MarshalSilently(adminWorkload.Spec.Resource))
+	annotations[jobutils.ImageEnv] = adminWorkload.Spec.Image
+	annotations[jobutils.EntrypointEnv] = adminWorkload.Spec.EntryPoint
+	obj.SetAnnotations(annotations)
+}
+
+// updateCICDGithub updates the GitHub configuration for CICD workloads in the unstructured object.
+// Returns an error if no resource templates are found or if nested field operations fail.
+func updateCICDGithub(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, rt *v1.ResourceTemplate) error {
 	if len(rt.Spec.ResourceSpecs) == 0 {
 		return fmt.Errorf("no resource template found")
@@ -538,15 +565,6 @@ func updateCICDScaleSet(adminWorkload *v1.Workload,
 	if err = unstructured.SetNestedMap(obj.Object, specObject, "spec"); err != nil {
 		return err
 	}
-	annotations := obj.GetAnnotations()
-	if len(annotations) == 0 {
-		annotations = make(map[string]string)
-	}
-	annotations[jobutils.ResourcesEnv] =
-		string(jsonutils.MarshalSilently(adminWorkload.Spec.Resource))
-	annotations[jobutils.ImageEnv] = adminWorkload.Spec.Image
-	annotations[jobutils.EntrypointEnv] = adminWorkload.Spec.EntryPoint
-	obj.SetAnnotations(annotations)
 	return nil
 }
 
@@ -646,6 +664,9 @@ func updateContainerEnv(adminWorkload *v1.Workload, mainContainer map[string]int
 
 // updateSharedMemory updates the shared memory volume configuration.
 func updateSharedMemory(adminWorkload *v1.Workload, obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
+	if adminWorkload.SpecKind() != common.PytorchJobKind {
+		return nil
+	}
 	path := resourceSpec.PrePaths
 	path = append(path, resourceSpec.TemplatePaths...)
 	path = append(path, "spec", "volumes")

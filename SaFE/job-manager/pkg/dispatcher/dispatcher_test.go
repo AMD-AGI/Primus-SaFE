@@ -7,7 +7,6 @@ package dispatcher
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -26,6 +25,7 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
 )
 
@@ -483,9 +483,46 @@ func TestCreateCICDScaleSet(t *testing.T) {
 		Version: "v1",
 		Kind:    common.CICDScaleSetKind,
 	}
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretDefault}}
+	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.EntryPoint = stringutil.Base64Encode("bash test.sh")
+
+	configmap, err := parseConfigmap(TestCICDScaleSetTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap,
+		jobutils.TestCICDScaleSetTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload)
+	assert.NilError(t, err)
+	// fmt.Println(unstructuredutils.ToString(obj))
+
+	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
+	checkGithubConfig(t, obj)
+	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkLabels(t, obj, workload, &templates[0])
+	checkSecurityContext(t, obj, workload, &templates[0])
+	checkResources(t, obj, workload, &templates[0], workload.Spec.Resource.Replica)
+	checkEnvs(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload, &templates[0])
+	checkHostNetwork(t, obj, workload, &templates[0])
+}
+
+func TestCreateCICDProxy(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
+		Version: "v1",
+		Kind:    common.CICDScaleSetKind,
+	}
 	workload.Spec.Resource.Replica = 2
 	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretDefault}}
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
+	v1.SetAnnotation(workload, v1.CICDProxyEnableAnnotation, v1.TrueStr)
 	workload.Spec.Workspace = workspace.Name
 
 	configmap, err := parseConfigmap(TestCICDScaleSetTemplateConfig)
@@ -499,14 +536,14 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	r := DispatcherReconciler{Client: adminClient}
 	obj, err := r.generateK8sObject(context.Background(), workload)
 	assert.NilError(t, err)
-	fmt.Println(unstructuredutils.ToString(obj))
+	// fmt.Println(unstructuredutils.ToString(obj))
 
 	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
 	checkGithubConfig(t, obj)
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkLabels(t, obj, workload, &templates[0])
 	checkSecurityContext(t, obj, workload, &templates[0])
-	checkCICDAnnotation(t, obj, workload)
+	checkCICDProxyAnnotation(t, obj, workload)
 }
 
 func checkGithubConfig(t *testing.T, obj *unstructured.Unstructured) {
@@ -524,7 +561,7 @@ func checkGithubConfig(t *testing.T, obj *unstructured.Unstructured) {
 	assert.Equal(t, val.(string), "test-url")
 }
 
-func checkCICDAnnotation(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
+func checkCICDProxyAnnotation(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload) {
 	val, ok := obj.GetAnnotations()[jobutils.EntrypointEnv]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, val, workload.Spec.EntryPoint)
@@ -535,5 +572,9 @@ func checkCICDAnnotation(t *testing.T, obj *unstructured.Unstructured, workload 
 
 	val, ok = obj.GetAnnotations()[jobutils.ResourcesEnv]
 	assert.Equal(t, ok, true)
-	assert.Equal(t, val, val, string(jsonutils.MarshalSilently(workload.Spec.Resource)))
+	assert.Equal(t, val, string(jsonutils.MarshalSilently(workload.Spec.Resource)))
+
+	val, ok = obj.GetAnnotations()[v1.CICDProxyEnableAnnotation]
+	assert.Equal(t, ok, true)
+	assert.Equal(t, val, v1.TrueStr)
 }

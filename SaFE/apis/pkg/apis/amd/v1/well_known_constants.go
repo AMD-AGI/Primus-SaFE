@@ -92,6 +92,7 @@ const (
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
+	CICDProxyEnableAnnotation         = WorkloadPrefix + "cicd.proxy.enable"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."

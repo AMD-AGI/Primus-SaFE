@@ -11,6 +11,7 @@ const (
 	PrimusFailover             = "primus-safe-failover"
 	DefaultVersion             = "v1"
 	PrimusRouterCustomRootPath = "api/" + DefaultVersion
+	ImageImportSecretName      = "primus-safe-image-import-reg-cred"
 
 	AuthoringKind    = "Authoring"
 	PytorchJobKind   = "PyTorchJob"
@@ -23,6 +24,9 @@ const (
 	EventKind        = "Event"
 	ConfigmapKind    = "ConfigMap"
 
+	GithubConfigUrl = "GITHUB_CONFIG_URL"
+	CicdProxyEnable = "CICD_PROXY_ENABLE"
+
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"
 	HigressSSHPort   = 22
@@ -32,7 +36,6 @@ const (
 	KubePublicNamespace    = "kube-public"
 	PytorchJobPortName     = "pytorchjob-port"
 	SSHPortName            = "ssh-port"
-	GithubConfigUrl        = "GITHUB_CONFIG_URL"
 	JsonContentType        = "application/json; charset=utf-8"
 	KubernetesControlPlane = "node-role.kubernetes.io/control-plane"
 
@@ -71,9 +74,4 @@ const (
 	ImageImportingStatus     = "Importing"
 	ImageImportFailedStatus  = "Failed"
 	ImageImportPendingStatus = "Pending"
-)
-
-const (
-	DefaultNamespace      = "primus-safe"
-	ImageImportSecretName = "primus-safe-image-import-reg-cred"
 )

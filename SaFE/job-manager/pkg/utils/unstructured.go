@@ -204,7 +204,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer, gpuName string) ([]int64, []corev1.ResourceList, error) {
 	var replicaList []int64
 	var resourceList []corev1.ResourceList
-	if v1.GetLabel(rt, v1.WorkloadKindLabel) == common.CICDScaleSetKind {
+	if v1.IsCICDProxyEnable(unstructuredObj) {
 		resourceStr, ok := unstructuredObj.GetAnnotations()[ResourcesEnv]
 		if !ok {
 			return nil, nil, nil
@@ -283,7 +283,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 // GetCommand Retrieve the command of the main container.
 func GetCommand(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) ([]string, error) {
-	if v1.GetLabel(rt, v1.WorkloadKindLabel) == common.CICDScaleSetKind {
+	if v1.IsCICDProxyEnable(unstructuredObj) {
 		val, _ := unstructuredObj.GetAnnotations()[EntrypointEnv]
 		return []string{val}, nil
 	}
@@ -332,7 +332,7 @@ func GetCommand(unstructuredObj *unstructured.Unstructured,
 // GetImage Retrieve the image address of the main container.
 func GetImage(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) (string, error) {
-	if v1.GetLabel(rt, v1.WorkloadKindLabel) == common.CICDScaleSetKind {
+	if v1.IsCICDProxyEnable(unstructuredObj) {
 		val, _ := unstructuredObj.GetAnnotations()[ImageEnv]
 		return val, nil
 	}
