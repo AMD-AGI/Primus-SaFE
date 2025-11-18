@@ -57,9 +57,6 @@ func NewClient(ctx context.Context, opt Option) (Interface, error) {
 
 // newFromConfig create S3 client based on configuration.
 func newFromConfig(config *Config, opt Option) (*Client, error) {
-	if opt.Subdir == "" {
-		return nil, fmt.Errorf("the Subdir of option is empty")
-	}
 	s3Client := s3.NewFromConfig(config.GetS3Config(), func(o *s3.Options) {
 		o.UsePathStyle = true
 	})
