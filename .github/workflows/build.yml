@@ -150,11 +150,13 @@ jobs:
 
           buildah bud \
             --layers \
-            --build-arg GOPRIXY=https://goproxy.io,direct \
+            --tls-verify=false \
+            --build-arg GOPROXY=${{ secrets.GOPROXY }},direct \
             --build-arg BUILDPATH=${{ matrix.buildpath }} \
             --build-arg BASEPATH=${{ matrix.basepath }} \
             --build-arg APPNAME=${{ matrix.name }} \
             --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
+            --build-arg REGISTRY=${{ secrets.REGISTRY }} \
             -t ${{ matrix.name }}:${IMAGE_VERSION} \
             -t ${{ matrix.name }}:${DATE_TIME} \
             -f ${{ matrix.dockerfile_path }} .
