@@ -142,6 +142,7 @@ jobs:
 
           buildah bud \
             --layers \
+            --tls-verify=false \
             --build-arg GOPROXY=${{ secrets.GOPROXY }},direct \
             --build-arg BUILDPATH=${{ matrix.buildpath }} \
             --build-arg BASEPATH=${{ matrix.basepath }} \
