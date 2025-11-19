@@ -7,7 +7,7 @@
 
 # Rebuild bnxt
 if [ -f "${PATH_TO_BNXT_TAR_PACKAGE}" ]; then
-  source /shared-data/utils.sh
+  . /shared-data/utils.sh
   install_if_not_exists libibverbs-dev ibverbs-utils infiniband-diags rdma-core librdmacm-dev libibverbs-dev libibumad-dev
   echo "Rebuild bnxt from $PATH_TO_BNXT_TAR_PACKAGE ..." && \
   tar xzf "${PATH_TO_BNXT_TAR_PACKAGE}" -C /tmp/ && \
