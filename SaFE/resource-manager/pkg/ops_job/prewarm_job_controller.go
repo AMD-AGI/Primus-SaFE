@@ -235,14 +235,6 @@ func (r *PrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context, job 
 		}
 	}
 
-	// Update progress
-	if desired > 0 {
-		successRate := int(float64(ready) / float64(desired) * 100)
-		if err := r.updatePrewarmProgress(ctx, job.Name, successRate); err != nil {
-			klog.V(4).ErrorS(err, "Failed to update prewarm progress", "job", job.Name)
-		}
-	}
-
 	if ready == desired && desired >= 0 {
 		klog.Infof("Prewarm job %s completed: %d/%d nodes ready", job.Name, ready, desired)
 
@@ -252,6 +244,13 @@ func (r *PrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context, job 
 
 		outputs := r.buildJobOutputs("Completed", "Image prewarming completed successfully", ready, desired)
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, "Image prewarming completed successfully", outputs)
+	}
+
+	if desired > 0 {
+		successRate := int(float64(ready) / float64(desired) * 100)
+		if err := r.updatePrewarmProgress(ctx, job.Name, successRate); err != nil {
+			klog.V(4).ErrorS(err, "Failed to update prewarm progress", "job", job.Name)
+		}
 	}
 
 	return ctrlruntime.Result{RequeueAfter: 5 * time.Second}, nil
