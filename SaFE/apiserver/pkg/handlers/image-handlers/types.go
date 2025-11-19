@@ -21,6 +21,7 @@ type ImageServiceRequest struct {
 	Workload  string `form:"workload" binding:"omitempty"` // Filter by workload ID
 	Image     string `form:"image" binding:"omitempty"`
 	Workspace string `form:"workspace" binding:"omitempty"`
+	Status    string `form:"status" binding:"omitempty"`
 	Flat      bool   `form:"flat" binding:"omitempty"`
 }
 

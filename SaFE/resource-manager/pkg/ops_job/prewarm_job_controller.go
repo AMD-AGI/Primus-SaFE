@@ -138,7 +138,7 @@ func (r *PrewarmJobReconciler) Do(ctx context.Context, jobName string) (ctrlrunt
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, nil)
 	}
 
-	dsName := fmt.Sprintf("image-prewarm-%s", job.Name)
+	dsName := job.Name
 	cluster := v1.GetClusterId(job)
 
 	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, cluster)
@@ -170,7 +170,7 @@ func (r *PrewarmJobReconciler) Do(ctx context.Context, jobName string) (ctrlrunt
 
 // checkAndUpdateJobStatus checks DaemonSet status and updates job accordingly
 func (r *PrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
-	dsName := fmt.Sprintf("image-prewarm-%s", job.Name)
+	dsName := job.Name
 	cluster := v1.GetClusterId(job)
 
 	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, cluster)
@@ -208,10 +208,12 @@ func (r *PrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context, job 
 	// Check for timeout
 	if job.Status.StartedAt != nil {
 		elapsed := time.Since(job.Status.StartedAt.Time)
-		timeout := time.Duration(job.Spec.TimeoutSecond) * time.Second
+		timeoutSecond := commonconfig.GetPrewarmTimeoutSecond()
+		timeout := time.Duration(timeoutSecond) * time.Second
 
 		if elapsed >= timeout {
-			klog.Errorf("Prewarm job %s timeout after %v (ready: %d/%d)", job.Name, elapsed, ready, desired)
+			klog.Errorf("Prewarm job %s timeout after %v (timeout: %ds, ready: %d/%d)",
+				job.Name, elapsed, timeoutSecond, ready, desired)
 
 			// Get failed pods info before cleanup
 			failedPods := r.getFailedPodsInfo(ctx, k8sClients, dsName)
@@ -235,7 +237,7 @@ func (r *PrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context, job 
 
 	// Update progress
 	if desired > 0 {
-		successRate := float64(ready) / float64(desired) * 100
+		successRate := int(float64(ready) / float64(desired) * 100)
 		if err := r.updatePrewarmProgress(ctx, job.Name, successRate); err != nil {
 			klog.V(4).ErrorS(err, "Failed to update prewarm progress", "job", job.Name)
 		}
@@ -257,17 +259,17 @@ func (r *PrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context, job 
 
 // buildJobOutputs builds the output parameters for job completion
 func (r *PrewarmJobReconciler) buildJobOutputs(status, message string, ready, desired int32) []v1.Parameter {
-	var successRate float64
+	var successRate int
 	if desired > 0 {
-		successRate = float64(ready) / float64(desired) * 100
+		successRate = int(float64(ready) / float64(desired) * 100)
 	} else {
-		successRate = 100.0
+		successRate = 100
 	}
 
 	return []v1.Parameter{
 		{Name: "status", Value: status},
 		{Name: "message", Value: message},
-		{Name: "prewarm_progress", Value: fmt.Sprintf("%.2f%%", successRate)},
+		{Name: "prewarm_progress", Value: fmt.Sprintf("%d%%", successRate)},
 		{Name: "nodes_ready", Value: fmt.Sprintf("%d", ready)},
 		{Name: "nodes_total", Value: fmt.Sprintf("%d", desired)},
 	}
@@ -369,11 +371,6 @@ func (r *PrewarmJobReconciler) createPrewarmDaemonSet(ctx context.Context, k8sCl
 					NodeSelector: map[string]string{
 						v1.WorkspaceIdLabel: workspace,
 					},
-					Tolerations: []corev1.Toleration{
-						{
-							Operator: corev1.TolerationOpExists,
-						},
-					},
 				},
 			},
 		},
@@ -388,7 +385,7 @@ func (r *PrewarmJobReconciler) createPrewarmDaemonSet(ctx context.Context, k8sCl
 }
 
 // updatePrewarmProgress updates the job output with current prewarm progress
-func (r *PrewarmJobReconciler) updatePrewarmProgress(ctx context.Context, jobName string, successRate float64) error {
+func (r *PrewarmJobReconciler) updatePrewarmProgress(ctx context.Context, jobName string, successRate int) error {
 	job := &v1.OpsJob{}
 	if err := r.Get(ctx, client.ObjectKey{Name: jobName}, job); err != nil {
 		return err
@@ -396,7 +393,7 @@ func (r *PrewarmJobReconciler) updatePrewarmProgress(ctx context.Context, jobNam
 
 	// Update or add progress output
 	progressKey := "prewarm_progress"
-	progressValue := fmt.Sprintf("%.2f%%", successRate)
+	progressValue := fmt.Sprintf("%d%%", successRate)
 
 	// Check if progress output already exists and update it
 	found := false

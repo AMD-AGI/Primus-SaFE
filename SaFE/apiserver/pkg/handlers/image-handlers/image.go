@@ -221,6 +221,18 @@ func (h *ImageHandler) listPrewarmImage(c *gin.Context) (interface{}, error) {
 	// Convert ops_job records to prewarm image list format
 	items := h.convertOpsJobToPrewarmImageList(c.Request.Context(), jobs)
 
+	// Apply status filter at application layer (status is from outputs, not phase)
+	if query.Status != "" {
+		filteredItems := make([]PrewarmImageListItem, 0, len(items))
+		for _, item := range items {
+			if item.Status == query.Status {
+				filteredItems = append(filteredItems, item)
+			}
+		}
+		items = filteredItems
+		count = len(items)
+	}
+
 	results := &PrewarmImageListResponse{
 		TotalCount: count,
 		Items:      items,
