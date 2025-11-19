@@ -1710,6 +1710,7 @@ func convertToDBNamespaceStats(stats *model.NamespaceGpuHourlyStats) *dbmodel.Na
 		StatHour:            stats.StatHour,
 		TotalGpuCapacity:    int32(stats.TotalGpuCapacity),
 		AllocatedGpuCount:   stats.AllocatedGpuCount,
+		AllocationRate:      stats.AllocationRate,
 		AvgUtilization:      stats.AvgUtilization,
 		MaxUtilization:      stats.MaxUtilization,
 		MinUtilization:      stats.MinUtilization,
