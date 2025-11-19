@@ -56,10 +56,15 @@ jobs:
             - SaFE/utils/**
           job_manager:
             - SaFE/apis/**
-            - SaFE/job-manager/**
+            - SaFE/job-manager/pkg/**
+            - SaFE/job-manager/cmd/** 
+            - SaFE/job-manager/installer/run.sh
+            - SaFE/job-manager/installer/Dockerfile
             - SaFE/charts/primus-safe/templates/job-manager/**
             - SaFE/common/**
             - SaFE/utils/**
+          preprocess:
+            - SaFE/job-manager/installer/preprocess/**
           webhooks:
             - SaFE/apis/**
             - SaFE/webhooks/**
@@ -99,6 +104,9 @@ jobs:
         fi
         if [[ "${{ steps.changed-files.outputs.job_manager_any_changed }}" == "true" ]]; then
           MATRIX+='{"name":"job-manager","basepath":"SaFE/job-manager",dockerfile_path:"SaFE/job-manager/installer/Dockerfile"},'
+        fi
+        if [[ "${{ steps.changed-files.outputs.preprocess_any_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"preprocess","basepath":"SaFE/job-manager/installer/preprocess",dockerfile_path:"SaFE/job-manager/installer/preprocess/Dockerfile"},'
         fi
         if [[ "${{ steps.changed-files.outputs.webhooks_any_changed }}" == "true" ]]; then
           MATRIX+='{"name":"webhooks","basepath":"SaFE/webhooks",dockerfile_path:"SaFE/webhooks/installer/Dockerfile"},'
