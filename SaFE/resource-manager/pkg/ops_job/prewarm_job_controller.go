@@ -169,7 +169,7 @@ func (r *PrewarmJobReconciler) Do(ctx context.Context, jobName string) (ctrlrunt
 
 		// Include partial progress in outputs even on failure
 		failureOutputs := []v1.Parameter{
-			{Name: "status", Value: "failed"},
+			{Name: "status", Value: "Failed"},
 			{Name: "message", Value: errMsg},
 		}
 		if finalDesired > 0 {
@@ -203,7 +203,7 @@ func (r *PrewarmJobReconciler) Do(ctx context.Context, jobName string) (ctrlrunt
 	}
 
 	outputs := []v1.Parameter{
-		{Name: "status", Value: "completed"},
+		{Name: "status", Value: "Completed"},
 		{Name: "message", Value: "Image prewarming completed successfully"},
 		{Name: "prewarm_progress", Value: fmt.Sprintf("%.2f%%", successRate)},
 		{Name: "nodes_ready", Value: fmt.Sprintf("%d", finalReady)},

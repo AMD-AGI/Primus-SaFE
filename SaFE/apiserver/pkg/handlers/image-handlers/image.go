@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
@@ -218,7 +219,7 @@ func (h *ImageHandler) listPrewarmImage(c *gin.Context) (interface{}, error) {
 	}
 
 	// Convert ops_job records to prewarm image list format
-	items := convertOpsJobToPrewarmImageList(jobs)
+	items := h.convertOpsJobToPrewarmImageList(c.Request.Context(), jobs)
 
 	results := &PrewarmImageListResponse{
 		TotalCount: count,
@@ -989,10 +990,12 @@ func deserializeParams(strInput string) []v1.Parameter {
 		// Trim spaces and quotes (handle "label:value" format)
 		p = strings.TrimSpace(p)
 		p = strings.Trim(p, "\"")
-
-		param := v1.CvtStringToParam(p)
-		if param != nil {
-			result = append(result, *param)
+		parts := strings.SplitN(p, ":", 2)
+		if len(parts) == 2 {
+			result = append(result, v1.Parameter{
+				Name:  parts[0],
+				Value: parts[1],
+			})
 		}
 	}
 	return result
@@ -1066,7 +1069,7 @@ func buildPrewarmImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []stri
 }
 
 // convertOpsJobToPrewarmImageList converts ops_job records to PrewarmImageListItem slice.
-func convertOpsJobToPrewarmImageList(jobs []*dbClient.OpsJob) []PrewarmImageListItem {
+func (h *ImageHandler) convertOpsJobToPrewarmImageList(ctx context.Context, jobs []*dbClient.OpsJob) []PrewarmImageListItem {
 	result := make([]PrewarmImageListItem, 0, len(jobs))
 
 	for _, job := range jobs {
@@ -1076,6 +1079,7 @@ func convertOpsJobToPrewarmImageList(jobs []*dbClient.OpsJob) []PrewarmImageList
 			EndTime:     timeutil.FormatRFC3339(dbutils.ParseNullTime(job.EndTime)),
 		}
 
+		var workspaceId string
 		// Parse inputs to extract image and workspace
 		if len(job.Inputs) > 0 {
 			inputs := deserializeParams(string(job.Inputs))
@@ -1084,8 +1088,18 @@ func convertOpsJobToPrewarmImageList(jobs []*dbClient.OpsJob) []PrewarmImageList
 				case "image":
 					item.ImageName = param.Value
 				case "workspace":
-					item.Workspace = param.Value
+					workspaceId = param.Value
 				}
+			}
+		}
+
+		if workspaceId != "" {
+			workspace := &v1.Workspace{}
+			if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err == nil {
+				item.Workspace = v1.GetDisplayName(workspace)
+			} else {
+				item.Workspace = workspaceId
+				klog.V(4).ErrorS(err, "Failed to get workspace displayName, using ID", "workspaceId", workspaceId)
 			}
 		}
 

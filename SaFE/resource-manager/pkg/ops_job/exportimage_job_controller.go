@@ -252,7 +252,7 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 
 	// Update OpsJob status to succeeded with full image path
 	outputs := []v1.Parameter{
-		{Name: "status", Value: "completed"},
+		{Name: "status", Value: "Completed"},
 		{Name: "target", Value: fullTargetImage}, // Store full path with registry
 		{Name: "message", Value: "Image exported successfully"},
 	}
