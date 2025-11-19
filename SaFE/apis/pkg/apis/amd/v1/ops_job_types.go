@@ -39,6 +39,7 @@ const (
 	ParameterWorkspace     = "workspace"
 	ParameterCluster       = "cluster"
 	ParameterEndpoint      = "endpoint"
+	ParameterImage         = "image"
 )
 
 type Parameter struct {

@@ -556,7 +556,7 @@ func getWorkloadIdFromJob(job *v1.OpsJob) string {
 // getSourceImageFromJob extracts source image from OpsJob parameters
 func getSourceImageFromJob(job *v1.OpsJob) string {
 	for _, param := range job.Spec.Inputs {
-		if param.Name == "image" {
+		if param.Name == v1.ParameterImage {
 			return param.Value
 		}
 	}

@@ -9,9 +9,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
@@ -85,23 +87,25 @@ func (r *PrewarmJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
 	return job.Spec.Type != v1.OpsJobPrewarmType
 }
 
-// handle processes pending prewarm jobs by adding them to worker queue
+// handle processes prewarm jobs in different phases
 func (r *PrewarmJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
 	if job.IsPending() {
 		if err := r.setJobPhase(ctx, job, v1.OpsJobRunning); err != nil {
 			klog.ErrorS(err, "Failed to set job phase to Running", "job", job.Name)
 			return ctrlruntime.Result{}, err
 		}
-
 		r.Add(job.Name)
-
-		return newRequeueAfterResult(job), nil
+		return ctrlruntime.Result{RequeueAfter: 5 * time.Second}, nil
 	}
+
+	if job.Status.Phase == v1.OpsJobRunning {
+		return r.checkAndUpdateJobStatus(ctx, job)
+	}
+
 	return ctrlruntime.Result{}, nil
 }
 
-// Do processes the prewarm job by creating DaemonSet and waiting for completion
-// This runs in a worker goroutine and can block for up to 1 hour
+// Do creates the DaemonSet for prewarming. Runs once in worker goroutine.
 func (r *PrewarmJobReconciler) Do(ctx context.Context, jobName string) (ctrlruntime.Result, error) {
 	klog.Infof("Worker started processing prewarm job %s", jobName)
 
@@ -147,8 +151,8 @@ func (r *PrewarmJobReconciler) Do(ctx context.Context, jobName string) (ctrlrunt
 	// Check if DaemonSet already exists
 	exists, _ := r.daemonSetExists(ctx, k8sClients, dsName)
 	if exists {
-		errMsg := fmt.Sprintf("DaemonSet is already exist")
-		klog.ErrorS(err, "DaemonSet is already exist", "daemonset", dsName, "job", job.Name)
+		errMsg := fmt.Sprintf("DaemonSet %s already exists", dsName)
+		klog.V(4).Infof("DaemonSet %s already exists for job %s, skipping creation", dsName, job.Name)
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, nil)
 	}
 
@@ -160,64 +164,163 @@ func (r *PrewarmJobReconciler) Do(ctx context.Context, jobName string) (ctrlrunt
 		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, nil)
 	}
 
-	// This is OK because we're in a worker goroutine, not blocking the reconcile loop
-	finalReady, finalDesired, err := r.checkDaemonSetReady(ctx, k8sClients, dsName, job.Name)
-	if err != nil {
-		// Timeout or error occurred (DaemonSet already deleted)
-		errMsg := fmt.Sprintf("image prewarming failed: %v", err)
-		klog.ErrorS(err, "DaemonSet failed to become ready", "daemonset", dsName, "job", job.Name)
+	klog.Infof("DaemonSet %s created successfully for prewarm job %s", dsName, job.Name)
+	return ctrlruntime.Result{}, nil
+}
 
-		// Include partial progress in outputs even on failure
-		failureOutputs := []v1.Parameter{
-			{Name: "status", Value: "Failed"},
-			{Name: "message", Value: errMsg},
-		}
-		if finalDesired > 0 {
-			successRate := float64(finalReady) / float64(finalDesired) * 100
-			failureOutputs = append(failureOutputs, v1.Parameter{
-				Name:  "prewarm_progress",
-				Value: fmt.Sprintf("%.2f%%", successRate),
-			})
-			failureOutputs = append(failureOutputs, v1.Parameter{
-				Name:  "nodes_ready",
-				Value: fmt.Sprintf("%d", finalReady),
-			})
-			failureOutputs = append(failureOutputs, v1.Parameter{
-				Name:  "nodes_total",
-				Value: fmt.Sprintf("%d", finalDesired),
-			})
-		}
-		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, failureOutputs)
+// checkAndUpdateJobStatus checks DaemonSet status and updates job accordingly
+func (r *PrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context, job *v1.OpsJob) (ctrlruntime.Result, error) {
+	dsName := fmt.Sprintf("image-prewarm-%s", job.Name)
+	cluster := v1.GetClusterId(job)
+
+	k8sClients, err := rmutils.GetK8sClientFactory(r.clientManager, cluster)
+	if err != nil {
+		errMsg := fmt.Sprintf("failed to get k8s client factory: %v", err)
+		klog.ErrorS(err, "Failed to get k8s client factory", "job", job.Name)
+		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, nil)
 	}
 
-	// DaemonSet is ready and has been deleted successfully
-	klog.Infof("Image prewarming completed successfully for job %s: %d/%d nodes ready",
-		job.Name, finalReady, finalDesired)
+	// Get DaemonSet status
+	ds, err := k8sClients.ClientSet().AppsV1().DaemonSets(common.DefaultNamespace).Get(ctx, dsName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			const gracePeriod = 30 * time.Second
+			if job.Status.StartedAt != nil {
+				elapsed := time.Since(job.Status.StartedAt.Time)
+				if elapsed < gracePeriod {
+					klog.V(4).Infof("DaemonSet %s not found yet (elapsed: %v), waiting for worker to create it", dsName, elapsed)
+					return ctrlruntime.Result{RequeueAfter: 5 * time.Second}, nil
+				}
+			}
 
-	// Set job as completed with final status
+			errMsg := "DaemonSet not found, possibly deleted externally or creation failed"
+			klog.ErrorS(err, errMsg, "daemonset", dsName, "job", job.Name)
+			return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, nil)
+		}
+		// Transient error, retry
+		klog.V(4).ErrorS(err, "Failed to get DaemonSet, will retry", "daemonset", dsName)
+		return ctrlruntime.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	ready := ds.Status.NumberReady
+	desired := ds.Status.DesiredNumberScheduled
+
+	// Check for timeout
+	if job.Status.StartedAt != nil {
+		elapsed := time.Since(job.Status.StartedAt.Time)
+		timeout := time.Duration(job.Spec.TimeoutSecond) * time.Second
+
+		if elapsed >= timeout {
+			klog.Errorf("Prewarm job %s timeout after %v (ready: %d/%d)", job.Name, elapsed, ready, desired)
+
+			// Get failed pods info before cleanup
+			failedPods := r.getFailedPodsInfo(ctx, k8sClients, dsName)
+
+			// Delete DaemonSet
+			if delErr := r.deleteDaemonSet(ctx, k8sClients, dsName); delErr != nil {
+				klog.ErrorS(delErr, "Failed to delete DaemonSet after timeout", "daemonset", dsName)
+			}
+
+			// Build failure message with failed pods info
+			errMsg := fmt.Sprintf("Timeout after %v (ready: %d/%d)", elapsed.Round(time.Second), ready, desired)
+			if len(failedPods) > 0 {
+				errMsg += fmt.Sprintf(". Failed pods: %s", failedPods)
+			}
+
+			// Build outputs
+			failureOutputs := r.buildJobOutputs("Failed", errMsg, ready, desired)
+			return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobFailed, errMsg, failureOutputs)
+		}
+	}
+
+	// Update progress
+	if desired > 0 {
+		successRate := float64(ready) / float64(desired) * 100
+		if err := r.updatePrewarmProgress(ctx, job.Name, successRate); err != nil {
+			klog.V(4).ErrorS(err, "Failed to update prewarm progress", "job", job.Name)
+		}
+	}
+
+	if ready == desired && desired >= 0 {
+		klog.Infof("Prewarm job %s completed: %d/%d nodes ready", job.Name, ready, desired)
+
+		if delErr := r.deleteDaemonSet(ctx, k8sClients, dsName); delErr != nil {
+			klog.ErrorS(delErr, "Failed to delete DaemonSet after completion", "daemonset", dsName)
+		}
+
+		outputs := r.buildJobOutputs("Completed", "Image prewarming completed successfully", ready, desired)
+		return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, "Image prewarming completed successfully", outputs)
+	}
+
+	return ctrlruntime.Result{RequeueAfter: 5 * time.Second}, nil
+}
+
+// buildJobOutputs builds the output parameters for job completion
+func (r *PrewarmJobReconciler) buildJobOutputs(status, message string, ready, desired int32) []v1.Parameter {
 	var successRate float64
-	if finalDesired > 0 {
-		successRate = float64(finalReady) / float64(finalDesired) * 100
+	if desired > 0 {
+		successRate = float64(ready) / float64(desired) * 100
 	} else {
 		successRate = 100.0
 	}
 
-	outputs := []v1.Parameter{
-		{Name: "status", Value: "Completed"},
-		{Name: "message", Value: "Image prewarming completed successfully"},
+	return []v1.Parameter{
+		{Name: "status", Value: status},
+		{Name: "message", Value: message},
 		{Name: "prewarm_progress", Value: fmt.Sprintf("%.2f%%", successRate)},
-		{Name: "nodes_ready", Value: fmt.Sprintf("%d", finalReady)},
-		{Name: "nodes_total", Value: fmt.Sprintf("%d", finalDesired)},
+		{Name: "nodes_ready", Value: fmt.Sprintf("%d", ready)},
+		{Name: "nodes_total", Value: fmt.Sprintf("%d", desired)},
+	}
+}
+
+// getFailedPodsInfo retrieves information about failed pods in the DaemonSet
+func (r *PrewarmJobReconciler) getFailedPodsInfo(ctx context.Context, k8sClients *k8sclient.ClientFactory, dsName string) string {
+	labelSelector := fmt.Sprintf("app=%s", dsName)
+	pods, err := k8sClients.ClientSet().CoreV1().Pods(common.DefaultNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		klog.V(4).ErrorS(err, "Failed to list pods for DaemonSet", "daemonset", dsName)
+		return ""
 	}
 
-	klog.Infof("Setting prewarm job %s as succeeded with %d/%d nodes (%.2f%% success rate)",
-		job.Name, finalReady, finalDesired, successRate)
-	return ctrlruntime.Result{}, r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, "Image prewarming completed successfully", outputs)
+	var failedNodes []string
+	for _, pod := range pods.Items {
+		// Check if pod is not running successfully
+		if pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodSucceeded {
+			nodeName := pod.Spec.NodeName
+			reason := string(pod.Status.Phase)
+
+			// Get more detailed failure reason from container statuses
+			for _, cs := range pod.Status.ContainerStatuses {
+				if cs.State.Waiting != nil {
+					reason = fmt.Sprintf("%s: %s", cs.State.Waiting.Reason, cs.State.Waiting.Message)
+					break
+				} else if cs.State.Terminated != nil {
+					reason = fmt.Sprintf("%s: %s", cs.State.Terminated.Reason, cs.State.Terminated.Message)
+					break
+				}
+			}
+
+			failedInfo := fmt.Sprintf("%s(%s)", nodeName, reason)
+			failedNodes = append(failedNodes, failedInfo)
+			klog.Warningf("Pod %s on node %s failed: %s", pod.Name, nodeName, reason)
+		}
+	}
+
+	if len(failedNodes) > 0 {
+		// Limit to first 5 failed nodes to avoid too long message
+		if len(failedNodes) > 5 {
+			return fmt.Sprintf("%s and %d more", strings.Join(failedNodes[:5], ", "), len(failedNodes)-5)
+		}
+		return strings.Join(failedNodes, ", ")
+	}
+	return ""
 }
 
 // daemonSetExists checks if a DaemonSet with the given name exists
 func (r *PrewarmJobReconciler) daemonSetExists(ctx context.Context, k8sClients *k8sclient.ClientFactory, dsName string) (bool, error) {
-	_, err := k8sClients.ClientSet().AppsV1().DaemonSets("default").Get(ctx, dsName, metav1.GetOptions{})
+	_, err := k8sClients.ClientSet().AppsV1().DaemonSets(common.DefaultNamespace).Get(ctx, dsName, metav1.GetOptions{})
 	if err != nil {
 		klog.ErrorS(err, "Error checking DaemonSet existence", "daemonset", dsName)
 		return false, err
@@ -233,7 +336,7 @@ func (r *PrewarmJobReconciler) createPrewarmDaemonSet(ctx context.Context, k8sCl
 	ds := &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      dsName,
-			Namespace: "default",
+			Namespace: common.DefaultNamespace,
 		},
 		Spec: appsv1.DaemonSetSpec{
 			Selector: &metav1.LabelSelector{
@@ -266,112 +369,22 @@ func (r *PrewarmJobReconciler) createPrewarmDaemonSet(ctx context.Context, k8sCl
 					NodeSelector: map[string]string{
 						v1.WorkspaceIdLabel: workspace,
 					},
+					Tolerations: []corev1.Toleration{
+						{
+							Operator: corev1.TolerationOpExists,
+						},
+					},
 				},
 			},
 		},
 	}
-	ds, err := k8sClients.ClientSet().AppsV1().DaemonSets("default").Create(ctx, ds, metav1.CreateOptions{})
+	ds, err := k8sClients.ClientSet().AppsV1().DaemonSets(common.DefaultNamespace).Create(ctx, ds, metav1.CreateOptions{})
 	if err != nil {
 		klog.ErrorS(err, "Failed to create DaemonSet", "daemonset", dsName, "image", image)
 		return nil, err
 	}
 
 	return ds, nil
-}
-
-// checkDaemonSetReady waits for all pods in the DaemonSet to be ready or timeout
-// It waits up to configured timeout (default 3600 seconds) for the DaemonSet to become ready
-// After completion (success or timeout), it deletes the DaemonSet
-// Returns the final ready count, desired count, and error if timeout or any other error occurs
-func (r *PrewarmJobReconciler) checkDaemonSetReady(ctx context.Context, k8sClients *k8sclient.ClientFactory, dsName string, jobName string) (int32, int32, error) {
-	// Get timeout from configuration (default 3600 seconds if not configured)
-	timeoutSecond := commonconfig.GetPrewarmTimeoutSecond()
-	const (
-		checkInterval = 5 * time.Second // Check every 5 seconds
-	)
-	timeout := time.Duration(timeoutSecond) * time.Second
-
-	klog.Infof("Waiting for DaemonSet %s to be ready (timeout: %v)", dsName, timeout)
-	startTime := time.Now()
-	ticker := time.NewTicker(checkInterval)
-	defer ticker.Stop()
-
-	var lastReady, lastDesired int32
-	var lastRecordedReady int32 = -1 // Track last recorded ready count for progress updates
-
-	for {
-		select {
-		case <-ctx.Done():
-			// Context cancelled, cleanup and return error
-			klog.Warningf("Context cancelled while waiting for DaemonSet %s", dsName)
-			// Use a new context for cleanup since the original one is cancelled
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if delErr := r.deleteDaemonSet(cleanupCtx, k8sClients, dsName); delErr != nil {
-				klog.ErrorS(delErr, "Failed to delete DaemonSet after context cancellation", "daemonset", dsName)
-			}
-			return lastReady, lastDesired, fmt.Errorf("context cancelled while waiting for DaemonSet %s", dsName)
-
-		case <-ticker.C:
-			elapsed := time.Since(startTime)
-
-			// Check if timeout reached
-			if elapsed >= timeout {
-				klog.Errorf("Timeout waiting for DaemonSet %s to be ready after %v (ready: %d, desired: %d)",
-					dsName, elapsed, lastReady, lastDesired)
-
-				// Delete DaemonSet after timeout
-				if delErr := r.deleteDaemonSet(ctx, k8sClients, dsName); delErr != nil {
-					klog.ErrorS(delErr, "Failed to delete DaemonSet after timeout", "daemonset", dsName)
-					return lastReady, lastDesired, fmt.Errorf("timeout waiting for DaemonSet %s and failed to delete: %v", dsName, delErr)
-				}
-				klog.Infof("Successfully deleted DaemonSet %s after timeout", dsName)
-
-				return lastReady, lastDesired, fmt.Errorf("timeout after %v waiting for DaemonSet %s to be ready (ready: %d/%d)",
-					timeout, dsName, lastReady, lastDesired)
-			}
-
-			// Get current DaemonSet status
-			currentDs, err := k8sClients.ClientSet().AppsV1().DaemonSets("default").Get(ctx, dsName, metav1.GetOptions{})
-			if err != nil {
-				klog.ErrorS(err, "Failed to get DaemonSet status", "daemonset", dsName, "elapsed", elapsed)
-				// Don't fail immediately on transient errors, continue waiting
-				continue
-			}
-
-			ready := currentDs.Status.NumberReady
-			desired := currentDs.Status.DesiredNumberScheduled
-
-			// Update last known values
-			lastReady = ready
-			lastDesired = desired
-			// Record progress when ready count increases
-			if desired > 0 && ready > lastRecordedReady {
-				successRate := float64(ready) / float64(desired) * 100
-				if err := r.updatePrewarmProgress(ctx, jobName, successRate); err != nil {
-					klog.ErrorS(err, "Failed to update prewarm progress", "job", jobName, "ready", ready, "desired", desired)
-					// Don't fail the job, just log the error
-				} else {
-					klog.Infof("Prewarm progress updated for job %s: %d/%d nodes ready (%.2f%%)",
-						jobName, ready, desired, successRate)
-					lastRecordedReady = ready
-				}
-			}
-
-			// Check if all pods are ready
-			if ready == desired && desired >= 0 {
-				// Delete DaemonSet after success
-				if delErr := r.deleteDaemonSet(ctx, k8sClients, dsName); delErr != nil {
-					klog.ErrorS(delErr, "Failed to delete DaemonSet after completion", "daemonset", dsName)
-					return ready, desired, fmt.Errorf("DaemonSet %s ready but failed to delete: %v", dsName, delErr)
-				}
-				klog.Infof("Successfully deleted DaemonSet %s after image prewarming completed", dsName)
-
-				// Success - all pods ready and DaemonSet deleted
-				return ready, desired, nil
-			}
-		}
-	}
 }
 
 // updatePrewarmProgress updates the job output with current prewarm progress
@@ -413,7 +426,7 @@ func (r *PrewarmJobReconciler) updatePrewarmProgress(ctx context.Context, jobNam
 // deleteDaemonSet deletes the DaemonSet after image prewarming is complete
 func (r *PrewarmJobReconciler) deleteDaemonSet(ctx context.Context, k8sClients *k8sclient.ClientFactory, dsName string) error {
 
-	err := k8sClients.ClientSet().AppsV1().DaemonSets("default").Delete(ctx, dsName, metav1.DeleteOptions{})
+	err := k8sClients.ClientSet().AppsV1().DaemonSets(common.DefaultNamespace).Delete(ctx, dsName, metav1.DeleteOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			klog.V(4).Infof("DaemonSet %s already deleted", dsName)

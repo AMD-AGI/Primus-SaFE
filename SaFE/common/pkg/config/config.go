@@ -268,7 +268,7 @@ func GetOpsJobTimeoutSecond() int {
 
 // GetPrewarmTimeoutSecond returns the timeout in seconds for prewarm jobs.
 func GetPrewarmTimeoutSecond() int {
-	return getInt(prewarmTimeoutSecond, 3600)
+	return getInt(prewarmTimeoutSecond, 900)
 }
 
 // GetPrewarmWorkerConcurrent returns the number of concurrent workers for prewarm jobs.

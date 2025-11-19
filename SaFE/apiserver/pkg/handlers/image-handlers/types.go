@@ -11,15 +11,17 @@ import (
 )
 
 type ImageServiceRequest struct {
-	PageNum  int    `form:"page_num" binding:"omitempty,min=0" `
-	PageSize int    `form:"page_size" binding:"omitempty,min=1"`
-	OrderBy  string `form:"orderBy" binding:"omitempty"`
-	Order    string `form:"order" binding:"omitempty,oneof=desc asc"`
-	Tag      string `form:"tag" binding:"omitempty"`
-	Ready    bool   `form:"ready"  binding:"omitempty"`
-	UserName string `form:"userName" binding:"omitempty"`
-	Workload string `form:"workload" binding:"omitempty"` // Filter by workload ID
-	Flat     bool   `form:"flat" binding:"omitempty"`
+	PageNum   int    `form:"page_num" binding:"omitempty,min=0" `
+	PageSize  int    `form:"page_size" binding:"omitempty,min=1"`
+	OrderBy   string `form:"orderBy" binding:"omitempty"`
+	Order     string `form:"order" binding:"omitempty,oneof=desc asc"`
+	Tag       string `form:"tag" binding:"omitempty"`
+	Ready     bool   `form:"ready"  binding:"omitempty"`
+	UserName  string `form:"userName" binding:"omitempty"`
+	Workload  string `form:"workload" binding:"omitempty"` // Filter by workload ID
+	Image     string `form:"image" binding:"omitempty"`
+	Workspace string `form:"workspace" binding:"omitempty"`
+	Flat      bool   `form:"flat" binding:"omitempty"`
 }
 
 type ArtifactItem struct {
@@ -227,7 +229,8 @@ type PrewarmImageListResponse struct {
 // PrewarmImageListItem represents a single prewarm image record in the list.
 type PrewarmImageListItem struct {
 	ImageName       string `json:"imageName"`
-	Workspace       string `json:"workspace"`
+	WorkspaceId     string `json:"workspaceId"`
+	WorkspaceName   string `json:"workspaceName"`
 	Status          string `json:"status"`
 	PrewarmProgress string `json:"prewarmProgress"`
 	CreatedTime     string `json:"createdTime"`

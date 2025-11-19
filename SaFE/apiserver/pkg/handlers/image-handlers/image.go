@@ -1058,6 +1058,16 @@ func buildPrewarmImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []stri
 		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "Phase"): string(v1.OpsJobSucceeded)})
 	}
 
+	if query.Image != "" {
+		pattern := fmt.Sprintf("image:%s[,}]", query.Image)
+		dbSql = append(dbSql, sqrl.Expr("inputs::text ~ ?", pattern))
+	}
+
+	if query.Workspace != "" {
+		pattern := fmt.Sprintf("workspace:%s[,}]", query.Workspace)
+		dbSql = append(dbSql, sqrl.Expr("inputs::text ~ ?", pattern))
+	}
+
 	orderByField := dbClient.GetFieldTag(dbTags, "CreationTime")
 	order := "DESC"
 	if query.Order != "" {
@@ -1085,21 +1095,22 @@ func (h *ImageHandler) convertOpsJobToPrewarmImageList(ctx context.Context, jobs
 			inputs := deserializeParams(string(job.Inputs))
 			for _, param := range inputs {
 				switch param.Name {
-				case "image":
+				case v1.ParameterImage:
 					item.ImageName = param.Value
-				case "workspace":
+				case v1.ParameterWorkspace:
 					workspaceId = param.Value
 				}
 			}
 		}
 
 		if workspaceId != "" {
+			item.WorkspaceId = workspaceId
 			workspace := &v1.Workspace{}
 			if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err == nil {
-				item.Workspace = v1.GetDisplayName(workspace)
+				item.WorkspaceName = v1.GetDisplayName(workspace)
 			} else {
-				item.Workspace = workspaceId
-				klog.V(4).ErrorS(err, "Failed to get workspace displayName, using ID", "workspaceId", workspaceId)
+				item.WorkspaceName = workspaceId
+				klog.V(4).ErrorS(err, "Failed to get workspace displayName, using ID as name", "workspaceId", workspaceId)
 			}
 		}
 
