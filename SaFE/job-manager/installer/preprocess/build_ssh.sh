@@ -6,7 +6,7 @@
 #
 
 if [ "$WORKLOAD_KIND" = "Authoring" ]; then
-  source /shared-data/utils.sh
+  . /shared-data/utils.sh
   install_if_not_exists openssh-server
   if [ $? -eq 0 ]; then
     echo "openssh-server installation succeeded"
