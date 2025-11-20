@@ -22,6 +22,7 @@ type WorkloadPodApplyConfiguration struct {
 	Rank          *string                       `json:"rank,omitempty"`
 	StartTime     *string                       `json:"startTime,omitempty"`
 	EndTime       *string                       `json:"endTime,omitempty"`
+	FailedMessage *string                       `json:"failedMessage,omitempty"`
 	Containers    []ContainerApplyConfiguration `json:"containers,omitempty"`
 }
 
@@ -100,6 +101,14 @@ func (b *WorkloadPodApplyConfiguration) WithStartTime(value string) *WorkloadPod
 // If called multiple times, the EndTime field is set to the value of the last call.
 func (b *WorkloadPodApplyConfiguration) WithEndTime(value string) *WorkloadPodApplyConfiguration {
 	b.EndTime = &value
+	return b
+}
+
+// WithFailedMessage sets the FailedMessage field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FailedMessage field is set to the value of the last call.
+func (b *WorkloadPodApplyConfiguration) WithFailedMessage(value string) *WorkloadPodApplyConfiguration {
+	b.FailedMessage = &value
 	return b
 }
 

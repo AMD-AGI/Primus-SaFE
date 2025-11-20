@@ -371,6 +371,9 @@ spec:
                     endTime:
                       description: Pod end time
                       type: string
+                    failedMessage:
+                      description: Pod failed reason. may be empty
+                      type: string
                     hostIP:
                       description: The node's IP address where the Pod is running
                       type: string
