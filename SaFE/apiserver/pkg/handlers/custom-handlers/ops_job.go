@@ -521,9 +521,7 @@ func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJ
 		return nil, err
 	}
 
-	// Build job name
-	safeImageName := sanitizeImageNameForK8s(image)
-	jobName := fmt.Sprintf("prewarm-%s", safeImageName)
+	jobName := fmt.Sprintf("prewarm-%s", time.Now().Format("200601021504"))
 
 	// Build BaseOpsJobRequest for prewarm job
 	jobReq := &types.BaseOpsJobRequest{
@@ -542,51 +540,6 @@ func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJ
 	job.Labels[v1.ClusterIdLabel] = workspaceObj.Spec.Cluster
 
 	return job, nil
-}
-
-// sanitizeImageNameForK8s converts an image name to a Kubernetes-compliant resource name.
-// Example: "harbor.example.com/sync/tasimage/primus:pr-275" -> "tasimage-primus-pr-275"
-func sanitizeImageNameForK8s(imageName string) string {
-	imageWithoutTag := imageName
-	if colonIndex := strings.LastIndex(imageName, ":"); colonIndex != -1 {
-		imageWithoutTag = imageName[:colonIndex] + "-" + imageName[colonIndex+1:]
-	}
-
-	parts := strings.Split(imageWithoutTag, "/")
-
-	var relevantParts []string
-	if len(parts) > 2 {
-		relevantParts = parts[len(parts)-2:]
-	} else if len(parts) == 2 {
-		relevantParts = []string{parts[1]}
-	} else {
-		relevantParts = parts
-	}
-
-	result := strings.Join(relevantParts, "-")
-	result = strings.ToLower(result)
-
-	result = strings.ReplaceAll(result, ".", "-")
-	result = strings.ReplaceAll(result, "_", "-")
-	result = strings.ReplaceAll(result, "/", "-")
-
-	// Remove consecutive dashes
-	for strings.Contains(result, "--") {
-		result = strings.ReplaceAll(result, "--", "-")
-	}
-
-	result = strings.Trim(result, "-")
-
-	maxLen := 49
-	if len(result) > maxLen {
-		result = result[:maxLen]
-		result = strings.TrimRight(result, "-")
-	}
-	if result == "" {
-		result = "image"
-	}
-
-	return result
 }
 
 // genDefaultOpsJob creates a default ops job object with common properties.
