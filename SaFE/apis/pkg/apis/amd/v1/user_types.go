@@ -22,7 +22,8 @@ const (
 	UserNormal UserRestrictedType = 0
 	UserFrozen UserRestrictedType = 1
 
-	SystemAdminRole UserRole = "system-admin"
+	SystemAdminRole         UserRole = "system-admin"
+	SystemAdminReadonlyRole UserRole = "system-admin-readonly"
 	// only for internal-use, The user will not be assigned the workspace-admin role
 	WorkspaceAdminRole UserRole = "workspace-admin"
 	DefaultRole        UserRole = "default"
@@ -76,17 +77,23 @@ func init() {
 	SchemeBuilder.Register(&User{}, &UserList{})
 }
 
-// IsSystemAdmin returns true if the condition is met.
+// IsSystemAdmin returns true if the user has the SystemAdminRole role.
 func (u *User) IsSystemAdmin() bool {
 	return IsContainRole(u.Spec.Roles, SystemAdminRole)
 }
 
-// IsRestricted returns true if the condition is met.
+// IsSystemAdminReadonly returns true if the user has the SystemAdminReadonlyRole role.
+func (u *User) IsSystemAdminReadonly() bool {
+	return IsContainRole(u.Spec.Roles, SystemAdminReadonlyRole)
+}
+
+// IsRestricted returns true if the user's RestrictedType is greater than 0 (i.e., UserFrozen).
 func (u *User) IsRestricted() bool {
 	return u.Spec.RestrictedType > 0
 }
 
-// IsContainRole returns true if the condition is met.
+// IsContainRole checks if the given input role exists in the provided roles slice.
+// Returns true if the role is found, false otherwise.
 func IsContainRole(roles []UserRole, input UserRole) bool {
 	for _, r := range roles {
 		if r == input {
