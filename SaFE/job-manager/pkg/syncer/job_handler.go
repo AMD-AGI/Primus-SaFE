@@ -331,6 +331,7 @@ func getFailedPodInfo(workload *v1.Workload) string {
 	type FailedPodInfo struct {
 		Pod       string       `json:"pod"`
 		Node      string       `json:"node"`
+		Message   string       `json:"message,omitempty"`
 		Container v1.Container `json:"container"`
 	}
 	var result []FailedPodInfo
@@ -340,8 +341,9 @@ func getFailedPodInfo(workload *v1.Workload) string {
 			continue
 		}
 		info := FailedPodInfo{
-			Pod:  pod.PodId,
-			Node: pod.K8sNodeName,
+			Pod:     pod.PodId,
+			Node:    pod.K8sNodeName,
+			Message: pod.FailedMessage,
 		}
 		for _, c := range pod.Containers {
 			if c.ExitCode == int32(0) {
