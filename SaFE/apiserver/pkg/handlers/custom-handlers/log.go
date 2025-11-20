@@ -95,7 +95,7 @@ func (h *Handler) getServiceLog(c *gin.Context) (interface{}, error) {
 	if err := h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
 		Context: c.Request.Context(),
 		UserId:  c.GetString(common.UserId),
-	}); err != nil {
+	}, true); err != nil {
 		return nil, err
 	}
 	query, err := parseServiceLogQuery(c)
