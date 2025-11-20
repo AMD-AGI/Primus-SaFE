@@ -60,6 +60,7 @@ type NamespaceGpuData struct {
 	UtilizationSum float64
 	WorkloadCount  int
 	Workloads      []model.WorkloadSnapshot
+	processedPods  map[string]bool // Track processed pod names to avoid duplicates (namespace+name as key)
 }
 
 // LabelGpuData is GPU data at the label/annotation dimension
@@ -349,11 +350,28 @@ func (j *GpuAggregationJob) sample(ctx context.Context,
 	utilizationQueryCount := 0
 	utilizationErrorCount := 0
 
+	// Track processed pods to avoid duplicates (pods with same namespace+name but different UIDs)
+	processedPods := make(map[string]bool)
+	duplicateCount := 0
+
 	for _, dbPod := range dbPods {
 		gpuRequest := int(dbPod.GpuAllocated)
 		if gpuRequest == 0 {
 			continue
 		}
+
+		// Create unique key for deduplication: namespace+name
+		podKey := dbPod.Namespace + "/" + dbPod.Name
+
+		// Check if this pod (by name) has already been processed
+		if processedPods[podKey] {
+			duplicateCount++
+			log.Debugf("Duplicate pod detected: %s (UID: %s), skipping", dbPod.Name, dbPod.UID)
+			continue
+		}
+
+		// Mark this pod as processed
+		processedPods[podKey] = true
 
 		allocatedGPU += gpuRequest
 
@@ -396,11 +414,17 @@ func (j *GpuAggregationJob) sample(ctx context.Context,
 		}
 	}
 
+	if duplicateCount > 0 {
+		log.Infof("Skipped %d duplicate pods during collection", duplicateCount)
+	}
+
 	collectSpan.SetAttributes(
 		attribute.Int("gpu.allocated", allocatedGPU),
 		attribute.Int("gpu.active_count", activeGPUCount),
 		attribute.Int("utilization.query_count", utilizationQueryCount),
 		attribute.Int("utilization.error_count", utilizationErrorCount),
+		attribute.Int("pods.duplicate_count", duplicateCount),
+		attribute.Int("pods.processed_count", len(processedPods)),
 	)
 	collectSpan.SetStatus(codes.Ok, "")
 	trace.FinishSpan(collectSpan)
@@ -461,11 +485,25 @@ func (j *GpuAggregationJob) collectNamespaceDataFromDB(
 	nsData, exists := snapshot.NamespaceData[namespace]
 	if !exists {
 		nsData = &NamespaceGpuData{
-			Namespace: namespace,
-			Workloads: make([]model.WorkloadSnapshot, 0),
+			Namespace:     namespace,
+			Workloads:     make([]model.WorkloadSnapshot, 0),
+			processedPods: make(map[string]bool),
 		}
 		snapshot.NamespaceData[namespace] = nsData
 	}
+
+	// Create unique key for deduplication: namespace+name
+	podKey := namespace + "/" + dbPod.Name
+
+	// Check if this pod (by name) has already been processed
+	if nsData.processedPods[podKey] {
+		log.Debugf("Pod %s (UID: %s) already processed in namespace %s, skipping duplicate",
+			dbPod.Name, dbPod.UID, namespace)
+		return
+	}
+
+	// Mark this pod as processed
+	nsData.processedPods[podKey] = true
 
 	nsData.AllocatedGPU += gpuRequest
 	nsData.UtilizationSum += utilization * float64(gpuRequest)
@@ -519,7 +557,7 @@ func (j *GpuAggregationJob) collectLabelDataFromDB(
 	for _, labelKey := range j.config.Dimensions.Label.LabelKeys {
 		labelValue := labels[labelKey]
 		if labelValue == "" {
-			labelValue = j.config.Dimensions.Label.DefaultValue
+			continue
 		}
 
 		// Ensure labelKey's map exists
@@ -574,7 +612,7 @@ func (j *GpuAggregationJob) collectAnnotationDataFromDB(
 	for _, annotationKey := range j.config.Dimensions.Label.AnnotationKeys {
 		annotationValue := annotations[annotationKey]
 		if annotationValue == "" {
-			annotationValue = j.config.Dimensions.Label.DefaultValue
+			continue
 		}
 
 		// Ensure annotationKey's map exists
@@ -846,7 +884,7 @@ func (j *GpuAggregationJob) aggregateHourlyData(
 			attribute.String("stat.hour", hour.Format(time.RFC3339)),
 		)
 
-		namespaceStats := j.aggregateNamespaceStats(clusterName, hour)
+		namespaceStats := j.aggregateNamespaceStats(nsCtx, clusterName, hour)
 		nsSpan.SetAttributes(attribute.Int("namespace.stats_count", len(namespaceStats)))
 
 		if err := j.saveNamespaceStats(nsCtx, namespaceStats); err != nil {
@@ -958,6 +996,7 @@ func (j *GpuAggregationJob) convertDBSnapshotsToMemory(
 				UtilizationSum: nsAlloc.Utilization * float64(nsAlloc.AllocatedGPU),
 				WorkloadCount:  nsAlloc.WorkloadCount,
 				Workloads:      nsAlloc.Workloads,
+				processedPods:  make(map[string]bool), // Initialize for consistency
 			}
 			snapshot.NamespaceData[namespace] = nsData
 		}
@@ -1082,6 +1121,7 @@ func (j *GpuAggregationJob) aggregateClusterStats(
 
 // aggregateNamespaceStats aggregates namespace-level statistics
 func (j *GpuAggregationJob) aggregateNamespaceStats(
+	ctx context.Context,
 	clusterName string,
 	hour time.Time) []*model.NamespaceGpuHourlyStats {
 
@@ -1140,6 +1180,31 @@ func (j *GpuAggregationJob) aggregateNamespaceStats(
 		}
 
 		results = append(results, stats)
+	}
+
+	// Query namespace_info to get GpuResource and calculate AllocationRate
+	namespaceInfoList, err := database.GetFacadeForCluster(clusterName).GetNamespaceInfo().List(ctx)
+	if err != nil {
+		log.Warnf("Failed to query namespace_info: %v, AllocationRate will not be calculated", err)
+	} else {
+		// Build namespace -> GpuResource mapping
+		namespaceGpuResourceMap := make(map[string]int32)
+		for _, nsInfo := range namespaceInfoList {
+			namespaceGpuResourceMap[nsInfo.Name] = nsInfo.GpuResource
+		}
+
+		// Set TotalGpuCapacity and calculate AllocationRate for each namespace
+		for _, stats := range results {
+			if gpuResource, exists := namespaceGpuResourceMap[stats.Namespace]; exists && gpuResource > 0 {
+				stats.TotalGpuCapacity = int(gpuResource)
+				stats.AllocationRate = (stats.AllocatedGpuCount / float64(stats.TotalGpuCapacity)) * 100
+			} else {
+				// If namespace_info doesn't exist or GpuResource is 0, set to 0
+				stats.TotalGpuCapacity = 0
+				stats.AllocationRate = 0
+				log.Debugf("Namespace %s not found in namespace_info or has 0 GpuResource", stats.Namespace)
+			}
+		}
 	}
 
 	return results
@@ -1644,6 +1709,7 @@ func convertToDBNamespaceStats(stats *model.NamespaceGpuHourlyStats) *dbmodel.Na
 		StatHour:            stats.StatHour,
 		TotalGpuCapacity:    int32(stats.TotalGpuCapacity),
 		AllocatedGpuCount:   stats.AllocatedGpuCount,
+		AllocationRate:      stats.AllocationRate,
 		AvgUtilization:      stats.AvgUtilization,
 		MaxUtilization:      stats.MaxUtilization,
 		MinUtilization:      stats.MinUtilization,

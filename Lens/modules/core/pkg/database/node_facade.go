@@ -17,6 +17,7 @@ type NodeFacadeInterface interface {
 	UpdateNode(ctx context.Context, node *model.Node) error
 	GetNodeByName(ctx context.Context, name string) (*model.Node, error)
 	SearchNode(ctx context.Context, f filter.NodeFilter) ([]*model.Node, int, error)
+	ListGpuNodes(ctx context.Context) ([]*model.Node, error)
 
 	// GpuDevice operations
 	GetGpuDeviceByNodeAndGpuId(ctx context.Context, nodeId int32, gpuId int) (*model.GpuDevice, error)
@@ -149,6 +150,18 @@ func (f *NodeFacade) SearchNode(ctx context.Context, filter filter.NodeFilter) (
 		return nil, 0, err
 	}
 	return nodes, int(count), nil
+}
+
+func (f *NodeFacade) ListGpuNodes(ctx context.Context) ([]*model.Node, error) {
+	q := f.getDAL().Node
+	nodes, err := q.WithContext(ctx).Where(q.GpuCount.Gt(0)).Where(q.Status.Eq("Ready")).Find()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []*model.Node{}, nil
+		}
+		return nil, err
+	}
+	return nodes, nil
 }
 
 // GpuDevice operation implementations
