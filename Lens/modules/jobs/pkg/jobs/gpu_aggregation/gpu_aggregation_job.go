@@ -522,6 +522,7 @@ func (j *GpuAggregationJob) collectNamespaceDataFromDB(
 		Kind:         workloadKind,
 		AllocatedGPU: gpuRequest,
 		Utilization:  utilization,
+		ReplicaCount: 1, // Each pod in namespace data represents 1 replica
 	}
 	nsData.Workloads = append(nsData.Workloads, workloadSnapshot)
 }
@@ -1036,7 +1037,7 @@ func (j *GpuAggregationJob) convertDBSnapshotsToMemory(
 				WorkloadType:      wSnapshot.Kind,
 				AllocatedGPU:      wSnapshot.AllocatedGPU,
 				UtilizationValues: []float64{wSnapshot.Utilization}, // Store as single value
-				ReplicaCount:      1,
+				ReplicaCount:      wSnapshot.ReplicaCount,
 			}
 			snapshot.WorkloadData[workloadUID] = wData
 		}
@@ -1624,6 +1625,7 @@ func (j *GpuAggregationJob) saveSnapshotToDatabase(
 			Kind:         data.WorkloadType,
 			AllocatedGPU: data.AllocatedGPU,
 			Utilization:  utilization,
+			ReplicaCount: data.ReplicaCount,
 		}
 	}
 

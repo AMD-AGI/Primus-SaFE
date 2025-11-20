@@ -149,6 +149,7 @@ type WorkloadSnapshot struct {
 	Kind         string  `json:"kind"`
 	AllocatedGPU int     `json:"allocatedGpu"`
 	Utilization  float64 `json:"utilization"`
+	ReplicaCount int     `json:"replicaCount"`
 }
 
 // ReportQuery is report query parameters
