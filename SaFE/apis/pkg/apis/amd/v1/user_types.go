@@ -76,17 +76,18 @@ func init() {
 	SchemeBuilder.Register(&User{}, &UserList{})
 }
 
-// IsSystemAdmin returns true if the condition is met.
+// IsSystemAdmin returns true if the user is system-admin
 func (u *User) IsSystemAdmin() bool {
 	return IsContainRole(u.Spec.Roles, SystemAdminRole)
 }
 
-// IsRestricted returns true if the condition is met.
+// IsRestricted returns true if the user is restricted
 func (u *User) IsRestricted() bool {
 	return u.Spec.RestrictedType > 0
 }
 
-// IsContainRole returns true if the condition is met.
+// IsContainRole checks if the specified role exists in the given roles slice.
+// Returns true if the input role is found in the roles list, false otherwise.
 func IsContainRole(roles []UserRole, input UserRole) bool {
 	for _, r := range roles {
 		if r == input {

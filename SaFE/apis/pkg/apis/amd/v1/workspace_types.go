@@ -153,7 +153,7 @@ func (w *Workspace) IsEnd() bool {
 	return false
 }
 
-// IsAbnormal returns true if the condition is met.
+// IsAbnormal returns true if the workspace is abnormal
 func (w *Workspace) IsAbnormal() bool {
 	if w.Status.Phase == WorkspaceAbnormal {
 		return true
@@ -169,7 +169,8 @@ func (w *Workspace) IsPending() bool {
 	return false
 }
 
-// IsEnableFifo returns true if the condition is met.
+// IsEnableFifo returns true if the workspace uses FIFO (First In, First Out) queue policy.
+// If QueuePolicy is not set, FIFO mode is enabled.
 func (w *Workspace) IsEnableFifo() bool {
 	if w.Spec.QueuePolicy == "" || w.Spec.QueuePolicy == QueueFifoPolicy {
 		return true

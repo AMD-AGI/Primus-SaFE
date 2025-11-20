@@ -210,7 +210,7 @@ func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	}
 }
 
-// IsApplication returns true if the condition is met.
+// IsApplication returns true if the workload is an application type (Deployment or StatefulSet).
 func IsApplication(w *v1.Workload) bool {
 	if w.SpecKind() == common.DeploymentKind ||
 		w.SpecKind() == common.StatefulSetKind {
@@ -219,7 +219,16 @@ func IsApplication(w *v1.Workload) bool {
 	return false
 }
 
-// IsAuthoring returns true if the workload is authoring.
+// IsJob returns true if the workload is a job type (PyTorchJob, Authoring, or Job).
+func IsJob(w *v1.Workload) bool {
+	if w.SpecKind() == common.PytorchJobKind ||
+		w.SpecKind() == common.AuthoringKind || w.SpecKind() == common.JobKind {
+		return true
+	}
+	return false
+}
+
+// IsAuthoring returns true if the workload is authoring type.
 func IsAuthoring(w *v1.Workload) bool {
 	if w.SpecKind() == common.AuthoringKind {
 		return true
@@ -235,12 +244,14 @@ func IsCICD(w *v1.Workload) bool {
 	return false
 }
 
-// IsOpsJob returns true if the condition is met.
+// IsJob returns true if the workload is about ops job
 func IsOpsJob(w *v1.Workload) bool {
 	return v1.GetOpsJobId(w) != ""
 }
 
-// IsResourceEqual returns true if the condition is met.
+// IsResourceEqual compares the resource specifications of two workloads.
+// Returns true if both workloads have the same replica count and identical resource requirements,
+// false otherwise or if there's an error during resource conversion.
 func IsResourceEqual(workload1, workload2 *v1.Workload) bool {
 	if workload1.Spec.Resource.Replica != workload2.Spec.Resource.Replica {
 		return false
