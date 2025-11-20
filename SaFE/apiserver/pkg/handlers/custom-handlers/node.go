@@ -358,6 +358,15 @@ func (h *Handler) buildListNodeResponse(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	// Get GPU utilization from node_statistic table
+	nodeGpuUtilization, err := h.getNodeGpuUtilization(ctx, query.GetClusterId(), nodes)
+	if err != nil {
+		klog.ErrorS(err, "failed to get node GPU utilization from node_statistic")
+		// Don't fail the entire request, just log the error
+		nodeGpuUtilization = make(map[string]float64)
+	}
+
 	result := &types.ListNodeResponse{
 		TotalCount: totalCount,
 	}
@@ -365,6 +374,12 @@ func (h *Handler) buildListNodeResponse(ctx context.Context,
 		var item types.NodeResponseItem
 		usedResource, _ := allUsedResource[n.Name]
 		item = cvtToNodeResponseItem(n, usedResource)
+
+		// Add GPU utilization from node_statistic if available
+		if gpuUtil, ok := nodeGpuUtilization[n.Name]; ok {
+			item.GpuUtilization = &gpuUtil
+		}
+
 		if item.Workspace.Id != "" {
 			if i > 0 && item.Workspace.Id == result.Items[i-1].Workspace.Id {
 				item.Workspace.Name = result.Items[i-1].Workspace.Name
@@ -1034,4 +1049,21 @@ func generateWorkloadInfo(workload *v1.Workload) types.WorkloadInfo {
 		UserId:      v1.GetUserName(workload),
 		WorkspaceId: workload.Spec.Workspace,
 	}
+}
+
+// getNodeGpuUtilization retrieves GPU utilization for nodes from node_statistic table
+// Returns a map with node name as key and GPU utilization as value
+func (h *Handler) getNodeGpuUtilization(ctx context.Context, clusterId string, nodes []*v1.Node) (map[string]float64, error) {
+	if len(nodes) == 0 {
+		return make(map[string]float64), nil
+	}
+
+	// Build node names list
+	nodeNames := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		nodeNames = append(nodeNames, node.Name)
+	}
+
+	// Use database client to query node_statistic table
+	return h.dbClient.GetNodeGpuUtilizationMap(ctx, clusterId, nodeNames)
 }
