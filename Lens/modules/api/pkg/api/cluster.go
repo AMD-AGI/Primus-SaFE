@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/cluster"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/fault"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
@@ -57,7 +58,7 @@ func getClusterOverview(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	allocationRate, err := gpu.GetClusterGpuAllocationRate(c, clients.K8SClientSet, clients.ClusterName, metadata.GpuVendorAMD)
+	allocationRate, err := gpu.GetClusterGpuAllocationRateFromDB(c, database.GetFacade().GetPod(), database.GetFacade().GetNode())
 	if err != nil {
 		_ = c.Error(err)
 		return

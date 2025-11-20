@@ -14,7 +14,7 @@ import (
 type PaginationOptions struct {
 	Page           int    // Page number, starting from 1
 	PageSize       int    // Number of items per page
-	OrderBy        string // Sort field: time, utilization
+	OrderBy        string // Sort field: time, utilization, allocated_gpu_count
 	OrderDirection string // Sort direction: asc, desc
 }
 
@@ -738,6 +738,12 @@ func (f *GpuAggregationFacade) GetLabelHourlyStatsPaginated(ctx context.Context,
 		} else {
 			result, err = baseQuery.Order(q.AvgUtilization).Find()
 		}
+	} else if opts.OrderBy == "allocated_gpu_count" {
+		if opts.OrderDirection == "desc" {
+			result, err = baseQuery.Order(q.AllocatedGpuCount.Desc()).Find()
+		} else {
+			result, err = baseQuery.Order(q.AllocatedGpuCount).Find()
+		}
 	} else {
 		// Default sort by time
 		if opts.OrderDirection == "desc" {
@@ -798,6 +804,12 @@ func (f *GpuAggregationFacade) ListLabelHourlyStatsByKeyPaginated(ctx context.Co
 			result, err = baseQuery.Order(q.AvgUtilization.Desc()).Find()
 		} else {
 			result, err = baseQuery.Order(q.AvgUtilization).Find()
+		}
+	} else if opts.OrderBy == "allocated_gpu_count" {
+		if opts.OrderDirection == "desc" {
+			result, err = baseQuery.Order(q.AllocatedGpuCount.Desc()).Find()
+		} else {
+			result, err = baseQuery.Order(q.AllocatedGpuCount).Find()
 		}
 	} else {
 		// Default sort by time
@@ -971,6 +983,12 @@ func (f *GpuAggregationFacade) GetWorkloadHourlyStatsPaginated(ctx context.Conte
 			result, err = query.Order(q.AvgUtilization.Desc()).Find()
 		} else {
 			result, err = query.Order(q.AvgUtilization).Find()
+		}
+	} else if opts.OrderBy == "allocated_gpu_count" {
+		if opts.OrderDirection == "desc" {
+			result, err = query.Order(q.AllocatedGpuCount.Desc()).Find()
+		} else {
+			result, err = query.Order(q.AllocatedGpuCount).Find()
 		}
 	} else {
 		// Default sort by time
