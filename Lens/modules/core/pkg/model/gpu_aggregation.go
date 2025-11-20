@@ -45,6 +45,7 @@ type NamespaceGpuHourlyStats struct {
 
 	// GPU allocation statistics
 	AllocatedGpuCount float64 `gorm:"type:double precision;not null;default:0" json:"allocatedGpuCount"`
+	AllocationRate    float64 `gorm:"type:double precision;not null;default:0;comment:GPU allocation rate (allocated_gpu_count / total_gpu_capacity) during this hour" json:"allocationRate"`
 
 	// GPU utilization statistics
 	AvgUtilization float64 `gorm:"type:double precision;not null;default:0" json:"avgUtilization"`

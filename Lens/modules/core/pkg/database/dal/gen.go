@@ -45,6 +45,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		LogAlertRules:             newLogAlertRules(db, opts...),
 		MetricAlertRules:          newMetricAlertRules(db, opts...),
 		NamespaceGpuHourlyStats:   newNamespaceGpuHourlyStats(db, opts...),
+		NamespaceInfo:             newNamespaceInfo(db, opts...),
 		Node:                      newNode(db, opts...),
 		NodeContainer:             newNodeContainer(db, opts...),
 		NodeContainerDevices:      newNodeContainerDevices(db, opts...),
@@ -95,6 +96,7 @@ type Query struct {
 	LogAlertRules             logAlertRules
 	MetricAlertRules          metricAlertRules
 	NamespaceGpuHourlyStats   namespaceGpuHourlyStats
+	NamespaceInfo             namespaceInfo
 	Node                      node
 	NodeContainer             nodeContainer
 	NodeContainerDevices      nodeContainerDevices
@@ -146,6 +148,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		LogAlertRules:             q.LogAlertRules.clone(db),
 		MetricAlertRules:          q.MetricAlertRules.clone(db),
 		NamespaceGpuHourlyStats:   q.NamespaceGpuHourlyStats.clone(db),
+		NamespaceInfo:             q.NamespaceInfo.clone(db),
 		Node:                      q.Node.clone(db),
 		NodeContainer:             q.NodeContainer.clone(db),
 		NodeContainerDevices:      q.NodeContainerDevices.clone(db),
@@ -204,6 +207,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		LogAlertRules:             q.LogAlertRules.replaceDB(db),
 		MetricAlertRules:          q.MetricAlertRules.replaceDB(db),
 		NamespaceGpuHourlyStats:   q.NamespaceGpuHourlyStats.replaceDB(db),
+		NamespaceInfo:             q.NamespaceInfo.replaceDB(db),
 		Node:                      q.Node.replaceDB(db),
 		NodeContainer:             q.NodeContainer.replaceDB(db),
 		NodeContainerDevices:      q.NodeContainerDevices.replaceDB(db),
@@ -252,6 +256,7 @@ type queryCtx struct {
 	LogAlertRules             *logAlertRulesDo
 	MetricAlertRules          *metricAlertRulesDo
 	NamespaceGpuHourlyStats   *namespaceGpuHourlyStatsDo
+	NamespaceInfo             *namespaceInfoDo
 	Node                      *nodeDo
 	NodeContainer             *nodeContainerDo
 	NodeContainerDevices      *nodeContainerDevicesDo
@@ -300,6 +305,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		LogAlertRules:             q.LogAlertRules.WithContext(ctx),
 		MetricAlertRules:          q.MetricAlertRules.WithContext(ctx),
 		NamespaceGpuHourlyStats:   q.NamespaceGpuHourlyStats.WithContext(ctx),
+		NamespaceInfo:             q.NamespaceInfo.WithContext(ctx),
 		Node:                      q.Node.WithContext(ctx),
 		NodeContainer:             q.NodeContainer.WithContext(ctx),
 		NodeContainerDevices:      q.NodeContainerDevices.WithContext(ctx),

@@ -15,7 +15,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -65,23 +64,43 @@ func (g *GpuPodJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet
 	listSpan.SetStatus(codes.Ok, "")
 	trace.FinishSpan(listSpan)
 
-	// Concurrently check each pod
-	processSpan, processCtx := trace.StartSpanFromContext(ctx, "processActivePods")
-	processSpan.SetAttributes(attribute.Int("pods_count", len(activePods)))
+	// Group pods by namespace
+	groupSpan, _ := trace.StartSpanFromContext(ctx, "groupPodsByNamespace")
+	startTime = time.Now()
+	podsByNamespace := make(map[string][]*dbModel.GpuPods)
+	for i := range activePods {
+		namespace := activePods[i].Namespace
+		podsByNamespace[namespace] = append(podsByNamespace[namespace], activePods[i])
+	}
+	duration = time.Since(startTime)
+
+	groupSpan.SetAttributes(
+		attribute.Int("total_pods", len(activePods)),
+		attribute.Int("namespace_count", len(podsByNamespace)),
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+	)
+	groupSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(groupSpan)
+
+	// Process each namespace concurrently
+	processSpan, processCtx := trace.StartSpanFromContext(ctx, "processNamespaces")
+	processSpan.SetAttributes(
+		attribute.Int("pods_count", len(activePods)),
+		attribute.Int("namespace_count", len(podsByNamespace)),
+	)
 
 	startTime = time.Now()
 	wg := &sync.WaitGroup{}
-	for i := range activePods {
-		dbPod := activePods[i]
+	for namespace, pods := range podsByNamespace {
 		wg.Add(1)
-		go func() {
+		go func(ns string, nsPods []*dbModel.GpuPods) {
 			defer wg.Done()
-			err := g.checkForSinglePod(processCtx, dbPod, clientSets, stats)
+			err := g.checkPodsInNamespace(processCtx, ns, nsPods, clientSets, stats)
 			if err != nil {
 				atomic.AddInt64(&stats.ErrorCount, 1)
-				log.Errorf("Failed to check pod %s/%s: %v", dbPod.Namespace, dbPod.Name, err)
+				log.Errorf("Failed to check pods in namespace %s: %v", ns, err)
 			}
-		}()
+		}(namespace, pods)
 	}
 	wg.Wait()
 	duration = time.Since(startTime)
@@ -115,8 +134,82 @@ func (g *GpuPodJob) Schedule() string {
 	return "@every 5s"
 }
 
-func (g *GpuPodJob) checkForSinglePod(ctx context.Context, dbPod *dbModel.GpuPods, clientSets *clientsets.K8SClientSet, stats *common.ExecutionStats) error {
-	span, ctx := trace.StartSpanFromContext(ctx, "checkForSinglePod")
+func (g *GpuPodJob) checkPodsInNamespace(ctx context.Context, namespace string, dbPods []*dbModel.GpuPods, clientSets *clientsets.K8SClientSet, stats *common.ExecutionStats) error {
+	span, ctx := trace.StartSpanFromContext(ctx, "checkPodsInNamespace")
+	defer trace.FinishSpan(span)
+
+	span.SetAttributes(
+		attribute.String("namespace", namespace),
+		attribute.Int("db_pods_count", len(dbPods)),
+	)
+
+	// List all pods in this namespace from K8s
+	listSpan, listCtx := trace.StartSpanFromContext(ctx, "listPodsInNamespace")
+	listSpan.SetAttributes(attribute.String("namespace", namespace))
+
+	podList := &corev1.PodList{}
+	startTime := time.Now()
+	err := clientSets.ControllerRuntimeClient.List(listCtx, podList, client.InNamespace(namespace))
+	duration := time.Since(startTime)
+
+	if err != nil {
+		listSpan.RecordError(err)
+		listSpan.SetAttributes(
+			attribute.String("error.message", err.Error()),
+			attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+		)
+		listSpan.SetStatus(codes.Error, err.Error())
+		trace.FinishSpan(listSpan)
+
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "Failed to list pods in namespace")
+		log.Errorf("Failed to list pods in namespace %s: %v", namespace, err)
+		return err
+	}
+
+	listSpan.SetAttributes(
+		attribute.Int("k8s_pods_count", len(podList.Items)),
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+	)
+	listSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(listSpan)
+
+	// Build a map of K8s pods by name for quick lookup
+	k8sPodMap := make(map[string]*corev1.Pod)
+	for i := range podList.Items {
+		pod := &podList.Items[i]
+		k8sPodMap[pod.Name] = pod
+	}
+
+	// Check each DB pod against K8s pods
+	compareSpan, compareCtx := trace.StartSpanFromContext(ctx, "comparePodsWithDB")
+	compareSpan.SetAttributes(
+		attribute.String("namespace", namespace),
+		attribute.Int("db_pods_count", len(dbPods)),
+		attribute.Int("k8s_pods_count", len(k8sPodMap)),
+	)
+
+	startTime = time.Now()
+	for _, dbPod := range dbPods {
+		err := g.checkSinglePodWithK8sPod(compareCtx, dbPod, k8sPodMap[dbPod.Name], stats)
+		if err != nil {
+			log.Errorf("Failed to check pod %s/%s: %v", dbPod.Namespace, dbPod.Name, err)
+		}
+	}
+	duration = time.Since(startTime)
+
+	compareSpan.SetAttributes(
+		attribute.Float64("duration_ms", float64(duration.Milliseconds())),
+	)
+	compareSpan.SetStatus(codes.Ok, "")
+	trace.FinishSpan(compareSpan)
+
+	span.SetStatus(codes.Ok, "")
+	return nil
+}
+
+func (g *GpuPodJob) checkSinglePodWithK8sPod(ctx context.Context, dbPod *dbModel.GpuPods, k8sPod *corev1.Pod, stats *common.ExecutionStats) error {
+	span, ctx := trace.StartSpanFromContext(ctx, "checkSinglePodWithK8sPod")
 	defer trace.FinishSpan(span)
 
 	span.SetAttributes(
@@ -125,44 +218,14 @@ func (g *GpuPodJob) checkForSinglePod(ctx context.Context, dbPod *dbModel.GpuPod
 		attribute.String("pod.phase_before", dbPod.Phase),
 	)
 
-	// Get pod information from K8s
-	getPodSpan, getPodCtx := trace.StartSpanFromContext(ctx, "getPodFromK8s")
-	getPodSpan.SetAttributes(
-		attribute.String("pod.namespace", dbPod.Namespace),
-		attribute.String("pod.name", dbPod.Name),
-	)
-
-	pod := &corev1.Pod{}
 	changed := false
-	startTime := time.Now()
-	err := clientSets.ControllerRuntimeClient.Get(getPodCtx, types.NamespacedName{
-		Namespace: dbPod.Namespace,
-		Name:      dbPod.Name,
-	}, pod)
-	duration := time.Since(startTime)
 
-	getPodSpan.SetAttributes(attribute.Float64("duration_ms", float64(duration.Milliseconds())))
-
-	if err != nil {
-		if client.IgnoreNotFound(err) != nil {
-			getPodSpan.RecordError(err)
-			getPodSpan.SetAttributes(attribute.String("error.message", err.Error()))
-			getPodSpan.SetStatus(codes.Error, err.Error())
-			trace.FinishSpan(getPodSpan)
-
-			span.RecordError(err)
-			span.SetAttributes(attribute.String("error.message", err.Error()))
-			span.SetStatus(codes.Error, "Failed to get pod from K8s")
-			log.Errorf("Failed to get pod %s/%s: %v", dbPod.Namespace, dbPod.Name, err)
-			return err
-		}
-		// Pod not found, mark it as deleted
-		getPodSpan.SetAttributes(
+	if k8sPod == nil {
+		// Pod not found in K8s, mark it as deleted
+		span.SetAttributes(
 			attribute.Bool("pod.not_found", true),
 			attribute.Bool("pod.marking_deleted", true),
 		)
-		getPodSpan.SetStatus(codes.Ok, "Pod not found, marking as deleted")
-		trace.FinishSpan(getPodSpan)
 
 		dbPod.Phase = string(corev1.PodSucceeded)
 		dbPod.Running = false
@@ -170,21 +233,35 @@ func (g *GpuPodJob) checkForSinglePod(ctx context.Context, dbPod *dbModel.GpuPod
 		changed = true
 
 		span.SetAttributes(
-			attribute.Bool("pod.not_found", true),
 			attribute.Bool("pod.marked_deleted", true),
 			attribute.String("pod.phase_after", dbPod.Phase),
 		)
 	} else {
-		getPodSpan.SetAttributes(
-			attribute.String("pod.phase", string(pod.Status.Phase)),
+		// Pod found in K8s
+		span.SetAttributes(
+			attribute.String("pod.phase", string(k8sPod.Status.Phase)),
 			attribute.Bool("pod.found", true),
+			attribute.String("pod.uid", string(k8sPod.UID)),
+			attribute.String("db_pod.uid", dbPod.UID),
 		)
-		getPodSpan.SetStatus(codes.Ok, "")
-		trace.FinishSpan(getPodSpan)
 
-		if dbPod.Phase != string(pod.Status.Phase) {
-			log.Infof("Pod %s/%s phase changed from %s to %s", dbPod.Namespace, dbPod.Name, dbPod.Phase, pod.Status.Phase)
-			dbPod.Phase = string(pod.Status.Phase)
+		// Check if UID matches - if not, this is a different pod with the same name
+		if dbPod.UID != string(k8sPod.UID) {
+			log.Infof("Pod %s/%s UID mismatch (DB: %s, K8s: %s), marking old pod as deleted",
+				dbPod.Namespace, dbPod.Name, dbPod.UID, k8sPod.UID)
+			dbPod.Phase = string(corev1.PodSucceeded)
+			dbPod.Running = false
+			dbPod.Deleted = true
+			changed = true
+
+			span.SetAttributes(
+				attribute.Bool("pod.uid_mismatch", true),
+				attribute.Bool("pod.marked_deleted", true),
+				attribute.String("pod.phase_after", dbPod.Phase),
+			)
+		} else if dbPod.Phase != string(k8sPod.Status.Phase) {
+			log.Infof("Pod %s/%s phase changed from %s to %s", dbPod.Namespace, dbPod.Name, dbPod.Phase, k8sPod.Status.Phase)
+			dbPod.Phase = string(k8sPod.Status.Phase)
 			changed = true
 
 			span.SetAttributes(
@@ -204,9 +281,9 @@ func (g *GpuPodJob) checkForSinglePod(ctx context.Context, dbPod *dbModel.GpuPod
 			attribute.Bool("pod.deleted", dbPod.Deleted),
 		)
 
-		startTime = time.Now()
-		err = database.GetFacade().GetPod().UpdateGpuPods(updateCtx, dbPod)
-		duration = time.Since(startTime)
+		startTime := time.Now()
+		err := database.GetFacade().GetPod().UpdateGpuPods(updateCtx, dbPod)
+		duration := time.Since(startTime)
 
 		if err != nil {
 			updateSpan.RecordError(err)

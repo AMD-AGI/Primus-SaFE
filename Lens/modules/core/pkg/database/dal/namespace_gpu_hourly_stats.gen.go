@@ -39,6 +39,7 @@ func newNamespaceGpuHourlyStats(db *gorm.DB, opts ...gen.DOOption) namespaceGpuH
 	_namespaceGpuHourlyStats.ActiveWorkloadCount = field.NewInt32(tableName, "active_workload_count")
 	_namespaceGpuHourlyStats.CreatedAt = field.NewTime(tableName, "created_at")
 	_namespaceGpuHourlyStats.UpdatedAt = field.NewTime(tableName, "updated_at")
+	_namespaceGpuHourlyStats.AllocationRate = field.NewFloat64(tableName, "allocation_rate")
 
 	_namespaceGpuHourlyStats.fillFieldMap()
 
@@ -61,6 +62,7 @@ type namespaceGpuHourlyStats struct {
 	ActiveWorkloadCount field.Int32
 	CreatedAt           field.Time
 	UpdatedAt           field.Time
+	AllocationRate      field.Float64 // GPU allocation rate (allocated_gpu_count / total_gpu_capacity) during this hour
 
 	fieldMap map[string]field.Expr
 }
@@ -89,6 +91,7 @@ func (n *namespaceGpuHourlyStats) updateTableName(table string) *namespaceGpuHou
 	n.ActiveWorkloadCount = field.NewInt32(table, "active_workload_count")
 	n.CreatedAt = field.NewTime(table, "created_at")
 	n.UpdatedAt = field.NewTime(table, "updated_at")
+	n.AllocationRate = field.NewFloat64(table, "allocation_rate")
 
 	n.fillFieldMap()
 
@@ -117,7 +120,7 @@ func (n *namespaceGpuHourlyStats) GetFieldByName(fieldName string) (field.OrderE
 }
 
 func (n *namespaceGpuHourlyStats) fillFieldMap() {
-	n.fieldMap = make(map[string]field.Expr, 12)
+	n.fieldMap = make(map[string]field.Expr, 13)
 	n.fieldMap["id"] = n.ID
 	n.fieldMap["cluster_name"] = n.ClusterName
 	n.fieldMap["namespace"] = n.Namespace
@@ -130,6 +133,7 @@ func (n *namespaceGpuHourlyStats) fillFieldMap() {
 	n.fieldMap["active_workload_count"] = n.ActiveWorkloadCount
 	n.fieldMap["created_at"] = n.CreatedAt
 	n.fieldMap["updated_at"] = n.UpdatedAt
+	n.fieldMap["allocation_rate"] = n.AllocationRate
 }
 
 func (n namespaceGpuHourlyStats) clone(db *gorm.DB) namespaceGpuHourlyStats {

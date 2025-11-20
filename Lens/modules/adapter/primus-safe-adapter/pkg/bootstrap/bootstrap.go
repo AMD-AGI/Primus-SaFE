@@ -95,6 +95,15 @@ func RegisterController(ctx context.Context) error {
 		return err
 	}
 	controller.RegisterReconciler(workloadReconciler)
+
+	// Register WorkspaceReconciler
+	workspaceReconciler := &reconciler.WorkspaceReconciler{}
+	err = workspaceReconciler.Init(ctx)
+	if err != nil {
+		return err
+	}
+	controller.RegisterReconciler(workspaceReconciler)
+
 	return nil
 }
 
@@ -139,16 +148,22 @@ func initScheduledTasks(ctx context.Context, cfg *config.Config) error {
 	// Create workload stats service
 	workloadStatsService := service.NewWorkloadStatsService(k8sClient, safeDB)
 
+	// Create node stats service
+	nodeStatsService := service.NewNodeStatsService(safeDB)
+
 	// Create and configure scheduler
 	globalScheduler = scheduler.NewScheduler()
 
 	// Add workload stats collection task (runs every 30 seconds)
 	globalScheduler.AddTask(workloadStatsService, 30*time.Second)
 
+	// Add node stats collection task (runs every 60 seconds)
+	globalScheduler.AddTask(nodeStatsService, 60*time.Second)
+
 	// Start scheduler in background
 	go globalScheduler.Start(ctx)
 
-	log.Info("Scheduler started with workload stats collection task (interval: 30s)")
+	log.Info("Scheduler started with workload stats collection task (interval: 30s) and node stats collection task (interval: 60s)")
 	return nil
 }
 

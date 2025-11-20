@@ -24,6 +24,7 @@ type NamespaceGpuHourlyStats struct {
 	ActiveWorkloadCount int32     `gorm:"column:active_workload_count;not null" json:"active_workload_count"`
 	CreatedAt           time.Time `gorm:"column:created_at;not null;default:CURRENT_TIMESTAMP" json:"created_at"`
 	UpdatedAt           time.Time `gorm:"column:updated_at;not null;default:CURRENT_TIMESTAMP" json:"updated_at"`
+	AllocationRate      float64   `gorm:"column:allocation_rate;not null;comment:GPU allocation rate (allocated_gpu_count / total_gpu_capacity) during this hour" json:"allocation_rate"` // GPU allocation rate (allocated_gpu_count / total_gpu_capacity) during this hour
 }
 
 // TableName NamespaceGpuHourlyStats's table name
