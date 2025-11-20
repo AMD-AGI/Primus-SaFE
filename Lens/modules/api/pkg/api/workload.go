@@ -223,6 +223,62 @@ func getWorkloadHierarchy(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, tree))
 }
 
+func getWorkloadHierarchyByKindName(ctx *gin.Context) {
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// Get filter parameters from query
+	kind := ctx.Query("kind")
+	name := ctx.Query("name")
+	namespace := ctx.Query("namespace")
+
+	// Validate required parameters
+	if kind == "" || name == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "kind and name are required"})
+		return
+	}
+
+	// Build filter
+	f := &filter.WorkloadFilter{
+		Kind: &kind,
+		Name: &name,
+	}
+	if namespace != "" {
+		f.Namespace = &namespace
+	}
+
+	// Query workload by kind and name
+	workloads, _, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().QueryWorkload(ctx, f)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	if len(workloads) == 0 {
+		_ = ctx.Error(errors.NewError().WithCode(errors.RequestDataNotExisted))
+		return
+	}
+
+	// If multiple workloads found (same kind+name in different namespaces), return the first one
+	// Or if namespace is specified, it should be unique
+	rootWorkload := workloads[0]
+
+	// Build hierarchy tree
+	tree, err := buildHierarchy(ctx, clients.ClusterName, rootWorkload.UID)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, tree))
+}
+
 func buildHierarchy(ctx context.Context, clusterName string, uid string) (*model.WorkloadHierarchyItem, error) {
 	workload, err := database.GetFacadeForCluster(clusterName).GetWorkload().GetGpuWorkloadByUid(ctx, uid)
 	if err != nil {
