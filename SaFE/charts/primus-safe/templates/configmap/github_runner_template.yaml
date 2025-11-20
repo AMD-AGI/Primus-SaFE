@@ -1,0 +1,79 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: github-runner-template
+  namespace: {{ .Release.Namespace }}
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: CICDRunner
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    # The main container name should match the configuration defined in the template below
+    primus-safe.main.container: runner
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+data:
+ template: |
+  apiVersion: batch/v1
+  kind: Job
+  metadata:
+    annotations:
+      actions.github.com/runner-group-name: Default
+    labels:
+      app.kubernetes.io/component: runner
+      app.kubernetes.io/part-of: gha-runner-scale-set
+      app.kubernetes.io/version: 0.13.0
+  spec:
+    template:
+      spec:
+        containers:
+        - name: runner
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: RUNNER_ALLOW_RUNASROOT
+              value: "1"
+          securityContext:
+            privileged: true
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: kube-api-access-gq8sq
+              readOnly: true
+        restartPolicy: Never
+        dnsPolicy: ClusterFirst
+        enableServiceLinks: true
+        schedulerName: kube-scheduler-plugins
+        serviceAccountName: {{ .Values.cicd.role_name }}
+        terminationGracePeriodSeconds: 30
+        tolerations:
+          - effect: NoSchedule
+            operator: Exists
+          - effect: PreferNoSchedule
+            operator: Exists
+          - effect: NoExecute
+            operator: Exists
+        volumes:
+          - name: kube-api-access-gq8sq
+            projected:
+              defaultMode: 420
+              sources:
+              - serviceAccountToken:
+                  expirationSeconds: 3607
+                  path: token
+              - configMap:
+                  items:
+                  - key: ca.crt
+                    path: ca.crt
+                  name: kube-root-ca.crt
+              - downwardAPI:
+                  items:
+                  - fieldRef:
+                      apiVersion: v1
+                      fieldPath: metadata.namespace
+                    path: namespace

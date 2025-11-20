@@ -5,6 +5,6 @@
 # See LICENSE for license information.
 #
 
-echo "hello world!"
-
-sleep 600
+# Run workload client and return its exit code
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec python3 "${SCRIPT_DIR}/workload_client.py"

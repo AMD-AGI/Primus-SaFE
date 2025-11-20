@@ -598,7 +598,7 @@ func (r *ClusterReconciler) guaranteeCICDClusterRoleBinding(ctx context.Context,
 		},
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     common.ClusterRole,
+			Kind:     common.ClusterRoleKind,
 			Name:     roleName,
 		},
 		// Subjects intentionally omitted; label ties binding to the role for management

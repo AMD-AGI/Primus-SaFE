@@ -289,6 +289,51 @@ spec:
 apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
+  name: job
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.workload.kind: CICDRunner
+    primus-safe.workload.version: v1
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  groupVersionKind:
+    group: batch
+    version: v1
+    kind: Job
+  resourceSpecs:
+    - prePaths:
+        - spec
+      templatePaths:
+        - template
+      replicasPaths:
+        - parallelism
+  resourceStatus:
+    prePaths:
+      - status
+      - conditions
+    messagePaths:
+      - message
+    reasonPaths:
+      - reason
+    phases:
+      - matchExpressions:
+          status: 'True'
+          type: Complete
+        phase: K8sSucceeded
+      - matchExpressions:
+          status: 'True'
+          type: Failed
+        phase: K8sFailed
+  activeReplica:
+    prePaths:
+      - status
+    replicaPath: active
+---
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
   name: autoscaling-runner-set
   labels:
     app.kubernetes.io/managed-by: Helm

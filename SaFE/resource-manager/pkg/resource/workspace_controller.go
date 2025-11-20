@@ -605,14 +605,14 @@ func (r *WorkspaceReconciler) createCICDServiceAccount(ctx context.Context, work
 	found := false
 	for i := range crb.Subjects {
 		s := crb.Subjects[i]
-		if s.Kind == common.ServiceAccount && s.Name == saName && s.Namespace == saNamespace {
+		if s.Kind == common.ServiceAccountKind && s.Name == saName && s.Namespace == saNamespace {
 			found = true
 			break
 		}
 	}
 	if !found {
 		crb.Subjects = append(crb.Subjects, rbacv1.Subject{
-			Kind:      common.ServiceAccount,
+			Kind:      common.ServiceAccountKind,
 			Name:      saName,
 			Namespace: saNamespace,
 		})
@@ -648,7 +648,7 @@ func (r *WorkspaceReconciler) deleteCICDServiceAccount(ctx context.Context, work
 			changed := false
 			for i := range crb.Subjects {
 				s := crb.Subjects[i]
-				if s.Kind == common.ServiceAccount && s.Name == saName && s.Namespace == saNamespace {
+				if s.Kind == common.ServiceAccountKind && s.Name == saName && s.Namespace == saNamespace {
 					changed = true
 					continue
 				}
