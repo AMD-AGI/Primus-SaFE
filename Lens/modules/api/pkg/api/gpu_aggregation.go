@@ -34,28 +34,28 @@ type NamespaceHourlyStatsRequest struct {
 
 // LabelHourlyStatsRequest label/annotation hourly statistics query request
 type LabelHourlyStatsRequest struct {
-	DimensionType  string `form:"dimension_type" binding:"required,oneof=label annotation"` // label or annotation
-	DimensionKey   string `form:"dimension_key" binding:"required"`                         // label key
-	DimensionValue string `form:"dimension_value"`                                          // Optional, query all values for this key if empty
-	StartTime      string `form:"start_time" binding:"required"`                            // RFC3339 format
-	EndTime        string `form:"end_time" binding:"required"`                              // RFC3339 format
-	Page           int    `form:"page" binding:"omitempty,min=1"`                           // Page number, starting from 1
-	PageSize       int    `form:"page_size" binding:"omitempty,min=1,max=1000"`             // Items per page, maximum 1000
-	OrderBy        string `form:"order_by" binding:"omitempty,oneof=time utilization"`      // Sort field: time or utilization
-	OrderDirection string `form:"order_direction" binding:"omitempty,oneof=asc desc"`       // Sort direction: asc or desc
+	DimensionType  string `form:"dimension_type" binding:"required,oneof=label annotation"`                // label or annotation
+	DimensionKey   string `form:"dimension_key" binding:"required"`                                        // label key
+	DimensionValue string `form:"dimension_value"`                                                         // Optional, query all values for this key if empty
+	StartTime      string `form:"start_time" binding:"required"`                                           // RFC3339 format
+	EndTime        string `form:"end_time" binding:"required"`                                             // RFC3339 format
+	Page           int    `form:"page" binding:"omitempty,min=1"`                                          // Page number, starting from 1
+	PageSize       int    `form:"page_size" binding:"omitempty,min=1,max=1000"`                            // Items per page, maximum 1000
+	OrderBy        string `form:"order_by" binding:"omitempty,oneof=time utilization allocated_gpu_count"` // Sort field: time, utilization or allocated_gpu_count
+	OrderDirection string `form:"order_direction" binding:"omitempty,oneof=asc desc"`                      // Sort direction: asc or desc
 }
 
 // WorkloadHourlyStatsRequest workload hourly statistics query request
 type WorkloadHourlyStatsRequest struct {
-	Namespace      string `form:"namespace"`                                           // Optional, query all namespaces if empty
-	WorkloadName   string `form:"workload_name"`                                       // Optional, query all workloads if empty
-	WorkloadType   string `form:"workload_type"`                                       // Optional, filter by workload type (Job, Deployment, StatefulSet, etc.)
-	StartTime      string `form:"start_time" binding:"required"`                       // RFC3339 format
-	EndTime        string `form:"end_time" binding:"required"`                         // RFC3339 format
-	Page           int    `form:"page" binding:"omitempty,min=1"`                      // Page number, starting from 1
-	PageSize       int    `form:"page_size" binding:"omitempty,min=1,max=1000"`        // Items per page, maximum 1000
-	OrderBy        string `form:"order_by" binding:"omitempty,oneof=time utilization"` // Sort field: time or utilization
-	OrderDirection string `form:"order_direction" binding:"omitempty,oneof=asc desc"`  // Sort direction: asc or desc
+	Namespace      string `form:"namespace"`                                                               // Optional, query all namespaces if empty
+	WorkloadName   string `form:"workload_name"`                                                           // Optional, query all workloads if empty
+	WorkloadType   string `form:"workload_type"`                                                           // Optional, filter by workload type (Job, Deployment, StatefulSet, etc.)
+	StartTime      string `form:"start_time" binding:"required"`                                           // RFC3339 format
+	EndTime        string `form:"end_time" binding:"required"`                                             // RFC3339 format
+	Page           int    `form:"page" binding:"omitempty,min=1"`                                          // Page number, starting from 1
+	PageSize       int    `form:"page_size" binding:"omitempty,min=1,max=1000"`                            // Items per page, maximum 1000
+	OrderBy        string `form:"order_by" binding:"omitempty,oneof=time utilization allocated_gpu_count"` // Sort field: time, utilization or allocated_gpu_count
+	OrderDirection string `form:"order_direction" binding:"omitempty,oneof=asc desc"`                      // Sort direction: asc or desc
 }
 
 // SnapshotsRequest snapshot query request
@@ -259,7 +259,7 @@ func getNamespaceHourlyStats(ctx *gin.Context) {
 // @Param end_time query string true "End time (RFC3339 format)"
 // @Param page query int false "Page number, starting from 1"
 // @Param page_size query int false "Items per page, default 20, maximum 1000"
-// @Param order_by query string false "Sort field (time or utilization)"
+// @Param order_by query string false "Sort field (time, utilization or allocated_gpu_count)"
 // @Param order_direction query string false "Sort direction (asc or desc)"
 // @Success 200 {object} rest.Response{data=PaginatedResponse}
 // @Router /gpu-aggregation/labels/hourly-stats [get]
@@ -344,7 +344,7 @@ func getLabelHourlyStats(ctx *gin.Context) {
 // @Param end_time query string true "End time (RFC3339 format)"
 // @Param page query int false "Page number, starting from 1"
 // @Param page_size query int false "Items per page, default 20, maximum 1000"
-// @Param order_by query string false "Sort field (time or utilization)"
+// @Param order_by query string false "Sort field (time, utilization or allocated_gpu_count)"
 // @Param order_direction query string false "Sort direction (asc or desc)"
 // @Success 200 {object} rest.Response{data=PaginatedResponse}
 // @Router /gpu-aggregation/workloads/hourly-stats [get]
@@ -508,7 +508,15 @@ func getClusters(ctx *gin.Context) {
 	cm := clientsets.GetClusterManager()
 	clusterNames := cm.GetClusterNames()
 
-	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, clusterNames))
+	// Filter out "default" cluster
+	filteredClusters := make([]string, 0, len(clusterNames))
+	for _, name := range clusterNames {
+		if name != "default" {
+			filteredClusters = append(filteredClusters, name)
+		}
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, filteredClusters))
 }
 
 // getNamespaces gets namespace list within specified time range
@@ -558,7 +566,15 @@ func getNamespaces(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, namespaces))
+	// Filter out "default" namespace
+	filteredNamespaces := make([]string, 0, len(namespaces))
+	for _, ns := range namespaces {
+		if ns != "default" {
+			filteredNamespaces = append(filteredNamespaces, ns)
+		}
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, filteredNamespaces))
 }
 
 // getDimensionKeys gets dimension keys list within specified time range

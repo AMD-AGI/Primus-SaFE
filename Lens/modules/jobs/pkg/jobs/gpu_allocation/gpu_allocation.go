@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/gpu"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/metadata"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
@@ -55,7 +56,7 @@ func (g *GpuAllocationJob) Run(ctx context.Context, clientSets *clientsets.K8SCl
 	)
 
 	queryStart := time.Now()
-	allocationRate, err := gpu.GetClusterGpuAllocationRate(allocationCtx, clientSets, clusterName, metadata.GpuVendorAMD)
+	allocationRate, err := gpu.GetClusterGpuAllocationRateFromDB(allocationCtx, database.GetFacade().GetPod(), database.GetFacade().GetNode())
 	if err != nil {
 		allocationSpan.RecordError(err)
 		allocationSpan.SetAttributes(attribute.String("error.message", err.Error()))

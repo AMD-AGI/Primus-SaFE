@@ -235,7 +235,7 @@ func (j *GpuRealtimeCacheJob) cacheGpuUtilization(
 	)
 
 	startTime = time.Now()
-	allocationRate, err := gpu.GetClusterGpuAllocationRate(getAllocationRateCtx, clientSets, clusterName, metadata.GpuVendorAMD)
+	allocationRate, err := gpu.GetClusterGpuAllocationRateFromDB(getAllocationRateCtx, database.GetFacade().GetPod(), database.GetFacade().GetNode())
 	duration = time.Since(startTime)
 
 	if err != nil {

@@ -80,7 +80,7 @@ func getClusterGPUUtilization(c *gin.Context) {
 		_ = c.Error(err)
 		return
 	}
-	allocationRate, err := gpu.GetClusterGpuAllocationRate(c, clients.K8SClientSet, clients.ClusterName, metadata.GpuVendorAMD)
+	allocationRate, err := gpu.GetClusterGpuAllocationRateFromDB(c, database.GetFacade().GetPod(), database.GetFacade().GetNode())
 	if err != nil {
 		_ = c.Error(err)
 		return

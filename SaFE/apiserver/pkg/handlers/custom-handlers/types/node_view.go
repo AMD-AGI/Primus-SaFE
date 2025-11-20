@@ -121,6 +121,8 @@ type NodeResponseItem struct {
 	IsControlPlane bool `json:"isControlPlane"`
 	// Indicates whether the addons of node-template are installed.
 	IsAddonsInstalled bool `json:"isAddonsInstalled"`
+	// GPU utilization percentage from node statistics (0-100)
+	GpuUtilization *float64 `json:"gpuUtilization,omitempty"`
 }
 
 type GetNodeResponse struct {
