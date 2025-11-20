@@ -125,10 +125,10 @@ func (r *PrewarmJobReconciler) Do(ctx context.Context, jobName string) (ctrlrunt
 	// Extract image and workspace from inputs
 	var image, workspace string
 	for _, input := range job.Spec.Inputs {
-		if input.Name == "image" {
+		if input.Name == v1.ParameterImage {
 			image = input.Value
 		}
-		if input.Name == "workspace" {
+		if input.Name == v1.ParameterWorkspace {
 			workspace = input.Value
 		}
 	}
@@ -199,7 +199,7 @@ func (r *PrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context, job 
 		}
 		// Transient error, retry
 		klog.V(4).ErrorS(err, "Failed to get DaemonSet, will retry", "daemonset", dsName)
-		return ctrlruntime.Result{RequeueAfter: 5 * time.Second}, nil
+		return ctrlruntime.Result{}, err
 	}
 
 	ready := ds.Status.NumberReady
@@ -253,7 +253,7 @@ func (r *PrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context, job 
 		}
 	}
 
-	return ctrlruntime.Result{RequeueAfter: 5 * time.Second}, nil
+	return ctrlruntime.Result{RequeueAfter: time.Minute}, nil
 }
 
 // buildJobOutputs builds the output parameters for job completion
@@ -356,12 +356,12 @@ func (r *PrewarmJobReconciler) createPrewarmDaemonSet(ctx context.Context, k8sCl
 							Command:         []string{"sleep", "infinity"},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("50m"),
-									corev1.ResourceMemory: resource.MustParse("256Mi"),
+									corev1.ResourceCPU:    resource.MustParse("10m"),
+									corev1.ResourceMemory: resource.MustParse("64Mi"),
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("200m"),
-									corev1.ResourceMemory: resource.MustParse("512Mi"),
+									corev1.ResourceCPU:    resource.MustParse("50m"),
+									corev1.ResourceMemory: resource.MustParse("128Mi"),
 								},
 							},
 						},

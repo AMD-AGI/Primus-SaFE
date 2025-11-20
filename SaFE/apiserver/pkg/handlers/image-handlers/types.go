@@ -236,4 +236,6 @@ type PrewarmImageListItem struct {
 	PrewarmProgress string `json:"prewarmProgress"`
 	CreatedTime     string `json:"createdTime"`
 	EndTime         string `json:"endTime"`
+	UserName        string `json:"userName"`
+	ErrorMessage    string `json:"errorMessage"`
 }

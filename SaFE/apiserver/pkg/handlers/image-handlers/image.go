@@ -221,18 +221,6 @@ func (h *ImageHandler) listPrewarmImage(c *gin.Context) (interface{}, error) {
 	// Convert ops_job records to prewarm image list format
 	items := h.convertOpsJobToPrewarmImageList(c.Request.Context(), jobs)
 
-	// Apply status filter at application layer (status is from outputs, not phase)
-	if query.Status != "" {
-		filteredItems := make([]PrewarmImageListItem, 0, len(items))
-		for _, item := range items {
-			if item.Status == query.Status {
-				filteredItems = append(filteredItems, item)
-			}
-		}
-		items = filteredItems
-		count = len(items)
-	}
-
 	results := &PrewarmImageListResponse{
 		TotalCount: count,
 		Items:      items,
@@ -1080,6 +1068,11 @@ func buildPrewarmImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []stri
 		dbSql = append(dbSql, sqrl.Expr("inputs::text ~ ?", pattern))
 	}
 
+	if query.Status != "" {
+		statusFilter := fmt.Sprintf(`[{"name": "status", "value": "%s"}]`, query.Status)
+		dbSql = append(dbSql, sqrl.Expr("outputs::jsonb @> ?::jsonb", statusFilter))
+	}
+
 	orderByField := dbClient.GetFieldTag(dbTags, "CreationTime")
 	order := "DESC"
 	if query.Order != "" {
@@ -1099,6 +1092,7 @@ func (h *ImageHandler) convertOpsJobToPrewarmImageList(ctx context.Context, jobs
 			Status:      dbutils.ParseNullString(job.Phase),
 			CreatedTime: timeutil.FormatRFC3339(dbutils.ParseNullTime(job.CreationTime)),
 			EndTime:     timeutil.FormatRFC3339(dbutils.ParseNullTime(job.EndTime)),
+			UserName:    dbutils.ParseNullString(job.UserName),
 		}
 
 		var workspaceId string
@@ -1140,6 +1134,19 @@ func (h *ImageHandler) convertOpsJobToPrewarmImageList(ctx context.Context, jobs
 				}
 			}
 		}
+
+		if conditionsStr := dbutils.ParseNullString(job.Conditions); conditionsStr != "" {
+			var conditions []metav1.Condition
+			if err := json.Unmarshal([]byte(conditionsStr), &conditions); err == nil {
+				for i := len(conditions) - 1; i >= 0; i-- {
+					if conditions[i].Message != "" {
+						item.ErrorMessage = conditions[i].Message
+						break
+					}
+				}
+			}
+		}
+
 		result = append(result, item)
 	}
 	return result
