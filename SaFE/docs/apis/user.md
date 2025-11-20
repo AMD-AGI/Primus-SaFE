@@ -101,20 +101,20 @@ User authentication and access token retrieval.
 
 **Response Field Description**:
 
-| Field | Type | Description                                     |
-|-------|------|-------------------------------------------------|
-| id | string | User ID                                         |
-| name | string | Username                                        |
-| email | string | Email address                                   |
-| type | string | User type: default/sso                          |
-| roles | []string | User roles. e.g. system-admin, default          |
-| workspaces | []object | Workspaces the user can access (non-admin only) |
-| managedWorkspaces | []object | Workspaces the user can manage (non-admin only) |
-| creationTime | string | User creation time (RFC3339)                    |
-| restrictedType | int | Restriction: 0 normal, 1 frozen                 |
-| avatarUrl | string | Avatar URL                                      |
-| token | string | User token, encrypted internally.               |
-| expire | int | Token expire time (Unix seconds)                |
+| Field | Type | Description                                                   |
+|-------|------|---------------------------------------------------------------|
+| id | string | User ID                                                       |
+| name | string | Username                                                      |
+| email | string | Email address                                                 |
+| type | string | User type: default/sso                                        |
+| roles | []string | User roles. e.g. system-admin, system-admin-readonly, default |
+| workspaces | []object | Workspaces the user can access (non-admin only)               |
+| managedWorkspaces | []object | Workspaces the user can manage (non-admin only)               |
+| creationTime | string | User creation time (RFC3339)                                  |
+| restrictedType | int | Restriction: 0 normal, 1 frozen                               |
+| avatarUrl | string | Avatar URL                                                    |
+| token | string | User token, encrypted internally.                             |
+| expire | int | Token expire time (Unix seconds)                              |
 
 Nested workspace object:
 
@@ -307,10 +307,11 @@ Delete a specific user.
 
 ## User Roles
 
-| Role | Description | Permissions                                             |
-|------|-------------|---------------------------------------------------------|
-| system-admin | System administrator | Full control, can manage all resources                  |
-| default | Regular user | Can only access authorized workspaces or other resource |
+| Role              | Description                    | Permissions                                             |
+|-------------------|--------------------------------|---------------------------------------------------------|
+| system-admin      | System administrator           | Full control, can manage all resources                  |
+| system-admin-only | System administrator read-only | Can view all resources, but cannot perform operations such as creating, updating, or deleting                            |
+| default           | Regular user                   | Can only access authorized workspaces or other resource |
 
 ## User Restriction Types
 
