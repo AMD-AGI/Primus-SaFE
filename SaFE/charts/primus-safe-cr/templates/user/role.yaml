@@ -23,6 +23,24 @@ rules:
 apiVersion: amd.com/v1
 kind: Role
 metadata:
+  name: system-admin-readonly
+  labels:
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+rules:
+  - resources:
+      - "*"
+    grantedUsers:
+      - "*"
+    verbs:
+      - get
+      - list
+---
+apiVersion: amd.com/v1
+kind: Role
+metadata:
   name: default
   labels:
     app.kubernetes.io/managed-by: Helm

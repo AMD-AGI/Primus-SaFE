@@ -296,7 +296,7 @@ func (h *Handler) generatePreflightJob(c *gin.Context, body []byte) (*v1.OpsJob,
 	if err = h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
 		Context: c.Request.Context(),
 		User:    requestUser,
-	}); err != nil {
+	}, false); err != nil {
 		return nil, err
 	}
 
@@ -615,7 +615,7 @@ func (h *Handler) parseListOpsJobQuery(c *gin.Context) (*types.ListOpsJobRequest
 	if err = h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
 		Context: c.Request.Context(),
 		UserId:  c.GetString(common.UserId),
-	}); err != nil {
+	}, true); err != nil {
 		query.UserId = c.GetString(common.UserId)
 	}
 	return query, nil
@@ -665,7 +665,7 @@ func (h *Handler) cvtToGetOpsJobSql(c *gin.Context) (sqrl.Sqlizer, error) {
 	if err := h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
 		Context: c.Request.Context(),
 		UserId:  c.GetString(common.UserId),
-	}); err != nil {
+	}, true); err != nil {
 		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "UserId"): c.GetString(common.UserId)})
 	}
 	return dbSql, nil

@@ -94,17 +94,20 @@ func (a *AccessController) Authorize(in AccessInput) error {
 
 // AuthorizeSystemAdmin checks if the user has system administrator privileges.
 // Returns an error if the user is not a system admin.
-func (a *AccessController) AuthorizeSystemAdmin(in AccessInput) error {
+func (a *AccessController) AuthorizeSystemAdmin(in AccessInput, readOnlyAllowed bool) error {
 	if in.User == nil {
 		var err error
 		if in.User, err = a.GetRequestUser(in.Context, in.UserId); err != nil {
 			return err
 		}
 	}
-	if !in.User.IsSystemAdmin() {
-		return commonerrors.NewForbidden(SystemAdminRequired)
+	if in.User.IsSystemAdmin() {
+		return nil
 	}
-	return nil
+	if readOnlyAllowed && in.User.IsSystemAdminReadonly() {
+		return nil
+	}
+	return commonerrors.NewForbidden(SystemAdminRequired)
 }
 
 // GetRequestUser retrieves a user object by userId from the k8s cluster.
