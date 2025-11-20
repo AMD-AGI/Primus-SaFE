@@ -1058,6 +1058,12 @@ func (h *Handler) getNodeGpuUtilization(ctx context.Context, clusterId string, n
 		return make(map[string]float64), nil
 	}
 
+	// If dbClient is not initialized, return empty map
+	// This can happen in test scenarios or when database is not configured
+	if h.dbClient == nil {
+		return make(map[string]float64), nil
+	}
+
 	// Build node names list
 	nodeNames := make([]string, 0, len(nodes))
 	for _, node := range nodes {

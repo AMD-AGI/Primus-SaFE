@@ -9,6 +9,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -31,13 +32,19 @@ func TestNodeStatsService_Run_NoClusters(t *testing.T) {
 }
 
 func TestNodeStatsService_Run_Context(t *testing.T) {
-	// Test that the service respects context cancellation
-	service := NewNodeStatsService(nil)
+	// Initialize cluster manager for testing
+	// We disable both K8S and Storage client loading since we're just testing
+	// that the service can handle no clusters scenario
 	ctx := context.Background()
+	err := clientsets.InitClusterManager(ctx, false, false, false)
+	if err != nil {
+		t.Fatalf("Failed to initialize cluster manager: %v", err)
+	}
 
-	// The Run method should return without error even with nil DB
-	// because it will fail early on cluster name retrieval
-	err := service.Run(ctx)
+	// Test that the service handles no clusters gracefully
+	service := NewNodeStatsService(nil)
+
+	// The Run method should return without error when no clusters are found
+	err = service.Run(ctx)
 	assert.Nil(t, err)
 }
-
