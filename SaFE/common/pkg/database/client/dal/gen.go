@@ -22,6 +22,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		Image:             newImage(db, opts...),
 		ImageDigest:       newImageDigest(db, opts...),
 		ImageImportJob:    newImageImportJob(db, opts...),
+		NodeStatistic:     newNodeStatistic(db, opts...),
 		Notification:      newNotification(db, opts...),
 		OpsJob:            newOpsJob(db, opts...),
 		PublicKey:         newPublicKey(db, opts...),
@@ -40,6 +41,7 @@ type Query struct {
 	Image             image
 	ImageDigest       imageDigest
 	ImageImportJob    imageImportJob
+	NodeStatistic     nodeStatistic
 	Notification      notification
 	OpsJob            opsJob
 	PublicKey         publicKey
@@ -59,6 +61,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		Image:             q.Image.clone(db),
 		ImageDigest:       q.ImageDigest.clone(db),
 		ImageImportJob:    q.ImageImportJob.clone(db),
+		NodeStatistic:     q.NodeStatistic.clone(db),
 		Notification:      q.Notification.clone(db),
 		OpsJob:            q.OpsJob.clone(db),
 		PublicKey:         q.PublicKey.clone(db),
@@ -85,6 +88,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		Image:             q.Image.replaceDB(db),
 		ImageDigest:       q.ImageDigest.replaceDB(db),
 		ImageImportJob:    q.ImageImportJob.replaceDB(db),
+		NodeStatistic:     q.NodeStatistic.replaceDB(db),
 		Notification:      q.Notification.replaceDB(db),
 		OpsJob:            q.OpsJob.replaceDB(db),
 		PublicKey:         q.PublicKey.replaceDB(db),
@@ -101,6 +105,7 @@ type queryCtx struct {
 	Image             *imageDo
 	ImageDigest       *imageDigestDo
 	ImageImportJob    *imageImportJobDo
+	NodeStatistic     *nodeStatisticDo
 	Notification      *notificationDo
 	OpsJob            *opsJobDo
 	PublicKey         *publicKeyDo
@@ -117,6 +122,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		Image:             q.Image.WithContext(ctx),
 		ImageDigest:       q.ImageDigest.WithContext(ctx),
 		ImageImportJob:    q.ImageImportJob.WithContext(ctx),
+		NodeStatistic:     q.NodeStatistic.WithContext(ctx),
 		Notification:      q.Notification.WithContext(ctx),
 		OpsJob:            q.OpsJob.WithContext(ctx),
 		PublicKey:         q.PublicKey.WithContext(ctx),
