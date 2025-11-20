@@ -6,3 +6,5 @@
 #
 
 echo "hello world!"
+
+sleep 600

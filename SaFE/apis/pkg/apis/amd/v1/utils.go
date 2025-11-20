@@ -317,9 +317,9 @@ func IsSecretBindAllWorkspaces(obj metav1.Object) bool {
 	return GetLabel(obj, SecretAllWorkspaceLabel) == TrueStr
 }
 
-// IsCICDProxyEnable checks whether cicd proxy is enabled
-func IsCICDProxyEnable(obj metav1.Object) bool {
-	return GetAnnotation(obj, CICDProxyEnableAnnotation) == TrueStr
+// IsCICDUnifiedBuildEnable checks whether cicd unified build is enabled
+func IsCICDUnifiedBuildEnable(obj metav1.Object) bool {
+	return GetAnnotation(obj, CICDUnifiedBuildAnnotation) == TrueStr
 }
 
 // atoi converts a string to an integer, returning 0 if conversion fails.

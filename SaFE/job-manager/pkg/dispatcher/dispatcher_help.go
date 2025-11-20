@@ -18,6 +18,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -157,8 +158,8 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 
 // modifyEnv updates environment variables in the main container.
 // It handles special network interface names when host networking is not enabled.
-func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNetwork bool) {
-	if len(env) == 0 && isHostNetwork {
+func modifyEnv(mainContainer map[string]interface{}, envs []interface{}, isHostNetwork bool) {
+	if len(envs) == 0 && isHostNetwork {
 		return
 	}
 	var currentEnv []interface{}
@@ -167,21 +168,33 @@ func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNe
 		currentEnv = envObjs.([]interface{})
 	}
 
-	if !isHostNetwork {
-		for i := range currentEnv {
-			envObj := currentEnv[i].(map[string]interface{})
-			name, ok := envObj["name"]
-			if !ok {
-				continue
-			}
-			if stringutil.StrCaseEqual(name.(string), "NCCL_SOCKET_IFNAME") ||
-				stringutil.StrCaseEqual(name.(string), "GLOO_SOCKET_IFNAME") {
+	currentNameSet := sets.NewSet()
+	for i := range currentEnv {
+		envObj := currentEnv[i].(map[string]interface{})
+		name, ok := envObj["name"]
+		if !ok {
+			continue
+		}
+		nameStr := name.(string)
+		currentNameSet.Insert(nameStr)
+		if !isHostNetwork {
+			if stringutil.StrCaseEqual(nameStr, "NCCL_SOCKET_IFNAME") ||
+				stringutil.StrCaseEqual(nameStr, "GLOO_SOCKET_IFNAME") {
 				envObj["value"] = "eth0"
 			}
 		}
 	}
-	if len(env) > 0 {
-		currentEnv = append(currentEnv, env...)
+	for i := range envs {
+		envObj := envs[i].(map[string]interface{})
+		name, ok := envObj["name"]
+		if !ok {
+			continue
+		}
+		nameStr := name.(string)
+		if currentNameSet.Has(nameStr) {
+			continue
+		}
+		currentEnv = append(currentEnv, envs[i])
 	}
 	mainContainer["env"] = currentEnv
 }
@@ -194,7 +207,7 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workl
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
-	if workload.SpecKind() == common.PytorchJobKind {
+	if commonworkload.IsJob(workload) {
 		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
 	}
 	maxId := 0
@@ -292,11 +305,11 @@ func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, p
 // modifySecurityContext configures the security context for OpsJob preflight operations.
 // Sets privileged mode for preflight checks.
 func modifySecurityContext(mainContainer map[string]interface{}, workload *v1.Workload) {
-	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) || !commonworkload.IsCICD(workload) {
-		return
-	}
-	mainContainer["securityContext"] = map[string]interface{}{
-		"privileged": true,
+	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) ||
+		commonworkload.IsCICD(workload) {
+		mainContainer["securityContext"] = map[string]interface{}{
+			"privileged": true,
+		}
 	}
 }
 
@@ -399,8 +412,8 @@ func buildCommands(workload *v1.Workload) []interface{} {
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload) string {
 	result := ""
-	if commonworkload.IsOpsJob(workload) || workload.SpecKind() == common.CICDScaleSetKind {
-		result = stringutil.Base64Decode(workload.Spec.EntryPoint)
+	if workload.SpecKind() == common.CICDScaleSetKind {
+		result = workload.Spec.EntryPoint
 	} else {
 		result = Launcher + " '" + workload.Spec.EntryPoint + "'"
 	}

@@ -20,6 +20,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,6 +34,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
@@ -135,7 +137,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	workload, err := h.generateWorkload(req, body)
+	workload, err := h.generateWorkload(c.Request.Context(), req, body)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
@@ -611,7 +613,7 @@ func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workloa
 
 // generateWorkload creates a new workload object based on the creation request.
 // Populates workload metadata, specifications, and customer labels.
-func (h *Handler) generateWorkload(req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
+func (h *Handler) generateWorkload(ctx context.Context, req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName(req.DisplayName),
@@ -640,7 +642,34 @@ func (h *Handler) generateWorkload(req *types.CreateWorkloadRequest, body []byte
 	if req.WorkspaceId != "" {
 		workload.Spec.Workspace = req.WorkspaceId
 	}
+	if req.Kind == common.CICDScaleSetKind {
+		if !commonconfig.IsCICDEnable() {
+			return nil, commonerrors.NewNotImplemented("the CICD is not enabled")
+		}
+		controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
+		if err != nil {
+			return nil, err
+		}
+		commonworkload.SetEnv(workload, common.AdminControlPlane, controlPlaneIp)
+	}
 	return workload, nil
+}
+
+func (h *Handler) getAdminControlPlaneIp(ctx context.Context) (string, error) {
+	nodeList := &corev1.NodeList{}
+	labelSelector := labels.SelectorFromSet(map[string]string{common.KubernetesControlPlane: ""})
+	if err := h.List(ctx,
+		nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		return "", err
+	}
+	if len(nodeList.Items) == 0 {
+		return "", commonerrors.NewInternalError("failed to find the control plane")
+	}
+	internalIp := commonnodes.GetInternalIp(&nodeList.Items[0])
+	if internalIp == "" {
+		return "", commonerrors.NewInternalError("failed to find the control plane ip")
+	}
+	return internalIp, nil
 }
 
 // handleBatchWorkloads processes batch operations on multiple workloads.

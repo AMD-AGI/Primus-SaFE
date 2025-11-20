@@ -23,9 +23,12 @@ const (
 	PodKind          = "Pod"
 	EventKind        = "Event"
 	ConfigmapKind    = "ConfigMap"
+	ClusterRole      = "ClusterRole"
+	ServiceAccount   = "ServiceAccount"
 
-	GithubConfigUrl = "GITHUB_CONFIG_URL"
-	CicdProxyEnable = "CICD_PROXY_ENABLE"
+	GithubConfigUrl    = "GITHUB_CONFIG_URL"
+	AdminControlPlane  = "ADMIN_CONTROL_PLANE"
+	UnifiedBuildEnable = "UNIFIED_BUILD_ENABLE"
 
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"

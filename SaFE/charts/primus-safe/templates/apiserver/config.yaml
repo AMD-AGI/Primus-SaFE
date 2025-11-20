@@ -74,6 +74,8 @@ data:
       secret_path: {{ .Values.sso.secret_path }}
       # Whether to enable sso
       enable: {{ .Values.sso.enable }}
+    cicd:
+      enable: {{ .Values.cicd.enable }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-apiserver

@@ -16,6 +16,8 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
@@ -31,11 +33,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
@@ -92,8 +97,21 @@ func (r *WorkspaceReconciler) relevantChangePredicate() predicate.Predicate {
 		return false
 	}
 
+	const maxRetry = 30
+	waitTime := time.Second * 5
+	maxWaitTime := waitTime * maxRetry
 	return predicate.Funcs{
 		CreateFunc: func(evt event.CreateEvent) bool {
+			// On workspace creation, ensure SA and CRB subject on the data plane
+			if ws, ok := evt.Object.(*v1.Workspace); ok {
+				backoff.Retry(func() error {
+					if err := r.createCICDServiceAccount(context.TODO(), ws); err != nil {
+						klog.ErrorS(err, "failed to create workspace ServiceAccount", "workspace", ws.Name)
+						return err
+					}
+					return nil
+				}, maxWaitTime, waitTime)
+			}
 			return true
 		},
 		UpdateFunc: func(evt event.UpdateEvent) bool {
@@ -105,6 +123,16 @@ func (r *WorkspaceReconciler) relevantChangePredicate() predicate.Predicate {
 			return isRelevantFieldChanged(oldWorkspace, newWorkspace)
 		},
 		DeleteFunc: func(evt event.DeleteEvent) bool {
+			// On workspace deletion, remove SA and CRB subject from the data plane
+			if ws, ok := evt.Object.(*v1.Workspace); ok {
+				backoff.Retry(func() error {
+					if err := r.deleteCICDServiceAccount(context.TODO(), ws); err != nil {
+						klog.ErrorS(err, "failed to delete workspace ServiceAccount", "workspace", ws.Name)
+						return err
+					}
+					return nil
+				}, maxWaitTime, waitTime)
+			}
 			return false
 		},
 		GenericFunc: func(evt event.GenericEvent) bool {
@@ -522,6 +550,127 @@ func (r *WorkspaceReconciler) removeNodesAction(ctx context.Context, workspace *
 	delete(workspace.Annotations, v1.WorkspaceNodesAction)
 	if err := r.Update(ctx, workspace); err != nil {
 		return err
+	}
+	return nil
+}
+
+// createCICDServiceAccount ensures a CICD ServiceAccount exists for the workspace on the data plane
+// and that it is referenced as a subject by the CICD ClusterRoleBinding.
+func (r *WorkspaceReconciler) createCICDServiceAccount(ctx context.Context, workspace *v1.Workspace) error {
+	if !commonconfig.IsCICDEnable() || workspace.Spec.Cluster == "" {
+		return nil
+	}
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
+	if err != nil {
+		return err
+	}
+	if !k8sClients.IsValid() {
+		return fmt.Errorf("invalid k8s clients")
+	}
+	clientSet := k8sClients.ClientSet()
+	saName := commonconfig.GetCICDRoleName()
+	saNamespace := workspace.Name
+
+	// Ensure ServiceAccount exists
+	if _, err = clientSet.CoreV1().ServiceAccounts(saNamespace).Get(ctx, saName, metav1.GetOptions{}); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+		sa := &corev1.ServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      saName,
+				Namespace: saNamespace,
+			},
+		}
+		if _, err = clientSet.CoreV1().ServiceAccounts(saNamespace).Create(ctx, sa, metav1.CreateOptions{}); err != nil {
+			return err
+		}
+		klog.Infof("create ServiceAccount %s/%s on cluster %s", saNamespace, saName, workspace.Spec.Cluster)
+	}
+
+	// Ensure CRB contains this SA as a subject
+	crbName := commonconfig.GetCICDRoleName()
+	if crbName == "" {
+		return nil
+	}
+	crb, err := clientSet.RbacV1().ClusterRoleBindings().Get(ctx, crbName, metav1.GetOptions{})
+	if err != nil {
+		// If CRB not found on data plane, skip silently (cluster controller may create it later)
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	// Check if subject already exists
+	found := false
+	for i := range crb.Subjects {
+		s := crb.Subjects[i]
+		if s.Kind == common.ServiceAccount && s.Name == saName && s.Namespace == saNamespace {
+			found = true
+			break
+		}
+	}
+	if !found {
+		crb.Subjects = append(crb.Subjects, rbacv1.Subject{
+			Kind:      common.ServiceAccount,
+			Name:      saName,
+			Namespace: saNamespace,
+		})
+		if _, err = clientSet.RbacV1().ClusterRoleBindings().Update(ctx, crb, metav1.UpdateOptions{}); err != nil {
+			return err
+		}
+		klog.Infof("add subject ServiceAccount %s/%s to ClusterRoleBinding %s on cluster %s", saNamespace, saName, crbName, workspace.Spec.Cluster)
+	}
+	return nil
+}
+
+// deleteCICDServiceAccount removes the workspace SA from the CRB and deletes the SA from data plane.
+func (r *WorkspaceReconciler) deleteCICDServiceAccount(ctx context.Context, workspace *v1.Workspace) error {
+	if !commonconfig.IsCICDEnable() || workspace.Spec.Cluster == "" {
+		return nil
+	}
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
+	if err != nil {
+		return err
+	}
+	if !k8sClients.IsValid() {
+		return fmt.Errorf("invalid k8s clients")
+	}
+	clientSet := k8sClients.ClientSet()
+	saName := commonconfig.GetCICDRoleName()
+	saNamespace := workspace.Name
+
+	// Remove subject from CRB if present
+	crbName := commonconfig.GetCICDRoleName()
+	if crbName != "" {
+		if crb, err := clientSet.RbacV1().ClusterRoleBindings().Get(ctx, crbName, metav1.GetOptions{}); err == nil {
+			newSubjects := make([]rbacv1.Subject, 0, len(crb.Subjects))
+			changed := false
+			for i := range crb.Subjects {
+				s := crb.Subjects[i]
+				if s.Kind == common.ServiceAccount && s.Name == saName && s.Namespace == saNamespace {
+					changed = true
+					continue
+				}
+				newSubjects = append(newSubjects, s)
+			}
+			if changed {
+				crb.Subjects = newSubjects
+				if _, err = clientSet.RbacV1().ClusterRoleBindings().Update(ctx, crb, metav1.UpdateOptions{}); err != nil && !apierrors.IsNotFound(err) {
+					return err
+				}
+				klog.Infof("remove subject ServiceAccount %s/%s from ClusterRoleBinding %s on cluster %s", saNamespace, saName, crbName, workspace.Spec.Cluster)
+			}
+		}
+	}
+
+	// Delete ServiceAccount
+	if err = clientSet.CoreV1().ServiceAccounts(saNamespace).Delete(ctx, saName, metav1.DeleteOptions{}); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+	} else {
+		klog.Infof("delete ServiceAccount %s/%s on cluster %s", saNamespace, saName, workspace.Spec.Cluster)
 	}
 	return nil
 }

@@ -34,6 +34,9 @@ data:
       enable: {{ .Values.ssh.enable }}
       # The secret for ssh, which contains the private key
       secret_path: {{ default "/etc/secrets/ssh" (default .Values.ssh).secret_path }}
+    cicd:
+      enable: {{ .Values.cicd.enable }}
+      role_name: {{ .Values.cicd.role_name }}
 kind: ConfigMap
 metadata:
   name: {{ .Release.Name }}-job-manager

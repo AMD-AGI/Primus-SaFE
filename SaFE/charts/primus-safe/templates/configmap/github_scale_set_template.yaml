@@ -14,7 +14,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     # The main container name should match the configuration defined in the template below
-    primus-safe.main.container: runner
+    primus-safe.main.container: runner-proxy
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 data:
@@ -39,10 +39,28 @@ data:
           env:
             - name: RUNNER_ALLOW_RUNASROOT
               value: "1"
-            - name: APISERVER_ENDPOINT
-              value: http://apiserver.{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}
-          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.image }}
-          name: runner
+            - name: APISERVER_NODE_PORT
+              value: "{{ .Values.apiserver.node_port }}"
+          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.runner }}
+          name: runner-proxy
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: "2"
+              memory: 4Gi
+          securityContext:
+            privileged: true
+        - command:
+            - /bin/bash
+            - -c
+            - run.sh
+          env:
+            - name: APISERVER_NODE_PORT
+              value: "{{ .Values.apiserver.node_port }}"
+          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.unified_build }}
+          name: unified-build-proxy
           resources:
             limits:
               cpu: "2"
@@ -53,7 +71,7 @@ data:
           securityContext:
             privileged: true
         restartPolicy: Never
-        serviceAccountName: {{ .Release.Name }}
+        serviceAccountName: {{ .Values.cicd.role_name }}
         tolerations:
           - effect: NoSchedule
             operator: Exists

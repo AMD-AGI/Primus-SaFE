@@ -100,4 +100,9 @@ const (
 	ssoPrefix     = "sso."
 	ssoEnable     = ssoPrefix + "enable"
 	ssoSecretPath = ssoPrefix + "secret_path"
+
+	// cicd
+	cicdPrefix   = "cicd."
+	cicdEnable   = cicdPrefix + "enable"
+	cicdRoleName = cicdPrefix + "role_name"
 )

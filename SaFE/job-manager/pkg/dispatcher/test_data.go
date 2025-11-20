@@ -322,7 +322,7 @@ metadata:
     primus-safe.workload.kind: CICDScaleSet
   annotations:
     # The main container name should match the configuration defined in the template below
-    primus-safe.main.container: runner
+    primus-safe.main.container: runner_proxy
 data:
  template: |
   apiVersion: actions.github.com/v1alpha1
@@ -346,10 +346,28 @@ data:
           env:
             - name: RUNNER_ALLOW_RUNASROOT
               value: "1"
-            - name: APISERVER_ENDPOINT
-              value: http://apiserver.tw325.primus-safe.amd.com
-          image: docker.io/primussafe/cicd-proxy.latest
-          name: runner
+            - name: APISERVER_NODE_PORT
+              value: "32495"
+          image: docker.io/primussafe/cicd-runner-proxy:latest
+          name: runner_proxy
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: "2"
+              memory: 4Gi
+          securityContext:
+            privileged: true
+        - command:
+            - /bin/bash
+            - -c
+            - run.sh
+          env:
+            - name: APISERVER_NODE_PORT
+              value: "32495"
+          image: docker.io/primussafe/cicd-unified-build-proxy:latest
+          name: unified_build
           resources:
             limits:
               cpu: "2"

@@ -293,6 +293,14 @@ func GeneratePriority(priority int) string {
 	return strPriority
 }
 
+// SetEnv sets or updates an environment variable in the workload's specification.
+func SetEnv(workload *v1.Workload, key, value string) {
+	if len(workload.Spec.Env) == 0 {
+		workload.Spec.Env = make(map[string]string)
+	}
+	workload.Spec.Env[key] = value
+}
+
 // GenerateMaxAvailResource generates maximum available resource for workload by NodeFlavor.
 func GenerateMaxAvailResource(nf *v1.NodeFlavor) *v1.WorkloadResource {
 	nodeResources := nf.ToResourceList(commonconfig.GetRdmaName())

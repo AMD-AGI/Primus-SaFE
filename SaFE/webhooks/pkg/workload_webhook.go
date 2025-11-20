@@ -360,9 +360,9 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 	workload.Spec.Resource.Replica = 1
 	workload.Spec.Timeout = nil
 	workload.Spec.Dependencies = nil
-	val, ok := workload.Spec.Env[common.CicdProxyEnable]
+	val, ok := workload.Spec.Env[common.UnifiedBuildEnable]
 	if ok && val == v1.TrueStr {
-		workload.Spec.Env[v1.CICDProxyEnableAnnotation] = v1.TrueStr
+		v1.SetAnnotation(workload, v1.CICDUnifiedBuildAnnotation, v1.TrueStr)
 	}
 }
 
