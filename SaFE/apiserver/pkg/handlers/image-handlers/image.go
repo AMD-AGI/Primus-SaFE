@@ -1095,7 +1095,6 @@ func (h *ImageHandler) convertOpsJobToPrewarmImageList(ctx context.Context, jobs
 			UserName:    dbutils.ParseNullString(job.UserName),
 		}
 
-		var workspaceId string
 		// Parse inputs to extract image and workspace
 		if len(job.Inputs) > 0 {
 			inputs := deserializeParams(string(job.Inputs))
@@ -1104,19 +1103,18 @@ func (h *ImageHandler) convertOpsJobToPrewarmImageList(ctx context.Context, jobs
 				case v1.ParameterImage:
 					item.ImageName = param.Value
 				case v1.ParameterWorkspace:
-					workspaceId = param.Value
+					item.WorkspaceId = param.Value
 				}
 			}
 		}
 
-		if workspaceId != "" {
-			item.WorkspaceId = workspaceId
+		if item.WorkspaceId != "" {
 			workspace := &v1.Workspace{}
-			if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err == nil {
+			if err := h.Get(ctx, client.ObjectKey{Name: item.WorkspaceId}, workspace); err == nil {
 				item.WorkspaceName = v1.GetDisplayName(workspace)
 			} else {
-				item.WorkspaceName = workspaceId
-				klog.V(4).ErrorS(err, "Failed to get workspace displayName, using ID as name", "workspaceId", workspaceId)
+				item.WorkspaceName = item.WorkspaceId
+				klog.V(4).ErrorS(err, "Failed to get workspace displayName, using ID as name", "workspaceId", item.WorkspaceId)
 			}
 		}
 
