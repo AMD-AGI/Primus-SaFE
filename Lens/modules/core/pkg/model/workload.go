@@ -59,3 +59,10 @@ type WorkloadInfoPod struct {
 	PodNamespace string `json:"podNamespace"`
 	PodName      string `json:"podName"`
 }
+
+type WorkloadStatisticResp struct {
+	RunningWorkloadsCount        int     `json:"running_workloads_count"`
+	AvgGpuAllocated              float64 `json:"avg_gpu_allocated"`
+	AvgGpuUtilization            float64 `json:"avg_gpu_utilization"`
+	LowUtilizationWorkloadsCount int     `json:"low_utilization_workloads_count"`
+}

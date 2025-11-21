@@ -26,6 +26,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	workloadGroup := group.Group("/workloads")
 	{
 		workloadGroup.GET("", listWorkloads)
+		workloadGroup.GET("statistic", getWorkloadsStatistic)
 		workloadGroup.GET("hierarchy", getWorkloadHierarchyByKindName)
 		workloadGroup.GET(":uid/hierarchy", getWorkloadHierarchy)
 		workloadGroup.GET(":uid", getWorkloadInfo)

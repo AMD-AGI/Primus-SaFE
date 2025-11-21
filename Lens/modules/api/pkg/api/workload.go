@@ -92,9 +92,13 @@ func listWorkloads(ctx *gin.Context) {
 		return
 	}
 
+	// By default, filter top-level workloads (ParentUID is empty)
+	// If ParentUid is nil, QueryWorkload will automatically filter ParentUID=""
+	emptyParentUid := ""
 	f := &filter.WorkloadFilter{
-		Limit:  page.PageSize,
-		Offset: (page.PageNum - 1) * page.PageSize,
+		Limit:     page.PageSize,
+		Offset:    (page.PageNum - 1) * page.PageSize,
+		ParentUid: &emptyParentUid,
 	}
 	if page.Name != "" {
 		f.Name = &page.Name
@@ -193,18 +197,18 @@ func cvtDBWorkloadListItem(ctx context.Context, clusterName string, dbWorkload *
 		result.GpuAllocated = gpuAllocated
 	}
 
-	// 获取workload统计信息
+	// Get workload statistics
 	statistic, err := database.GetFacadeForCluster(clusterName).GetWorkloadStatistic().GetByUID(ctx, clusterName, dbWorkload.UID)
 	if err != nil {
 		log.Errorf("Failed to get workload statistic: %v", err)
 	} else if statistic != nil {
-		// 设置历史统计数据
+		// Set historical statistics data
 		result.AvgGpuUtilization = statistic.AvgGpuUtilization
 		result.P50GpuUtilization = statistic.P50GpuUtilization
 		result.P90GpuUtilization = statistic.P90GpuUtilization
 		result.P95GpuUtilization = statistic.P95GpuUtilization
 
-		// 如果workload是running状态，设置当前GPU使用率，否则为nil
+		// If workload is running, set current GPU utilization, otherwise set to nil
 		if dbWorkload.Status == metadata.WorkloadStatusRunning {
 			result.InstantGpuUtilization = &statistic.InstantGpuUtilization
 		} else {
@@ -469,4 +473,85 @@ func getSource(dbWorkload *dbModel.GpuWorkload) string {
 		return constant.ContainerSourceK8S
 	}
 	return dbWorkload.Source
+}
+
+func getWorkloadsStatistic(ctx *gin.Context) {
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// 1. Get all workloads that have not ended using GetWorkloadNotEnd, then filter top-level running workloads
+	workloadFacade := database.GetFacadeForCluster(clients.ClusterName).GetWorkload()
+	allWorkloads, err := workloadFacade.GetWorkloadNotEnd(ctx)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// Filter out top-level (ParentUID is empty) and Running status workloads
+	runningWorkloads := make([]*dbModel.GpuWorkload, 0)
+	for _, w := range allWorkloads {
+		if w.ParentUID == "" && w.Status == metadata.WorkloadStatusRunning {
+			runningWorkloads = append(runningWorkloads, w)
+		}
+	}
+
+	resp := model.WorkloadStatisticResp{
+		RunningWorkloadsCount:        len(runningWorkloads),
+		AvgGpuAllocated:              0,
+		AvgGpuUtilization:            0,
+		LowUtilizationWorkloadsCount: 0,
+	}
+
+	// If no running workloads, return directly
+	if len(runningWorkloads) == 0 {
+		ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, resp))
+		return
+	}
+
+	// 2. Calculate average gpu_allocated
+	totalGpuAllocated := int64(0)
+	for _, w := range runningWorkloads {
+		totalGpuAllocated += int64(w.GpuRequest)
+	}
+	resp.AvgGpuAllocated = float64(totalGpuAllocated) / float64(len(runningWorkloads))
+
+	// 3 & 4. Get utilization data from workload_statistic table
+	statisticFacade := database.GetFacadeForCluster(clients.ClusterName).GetWorkloadStatistic()
+	totalUtilization := 0.0
+	utilizationCount := 0
+	lowUtilizationCount := 0
+
+	for _, w := range runningWorkloads {
+		statistic, err := statisticFacade.GetByUID(ctx, clients.ClusterName, w.UID)
+		if err != nil {
+			log.Warnf("Failed to get statistic for workload %s: %v", w.UID, err)
+			continue
+		}
+		if statistic == nil {
+			continue
+		}
+
+		// Accumulate average utilization
+		totalUtilization += statistic.InstantGpuUtilization
+		utilizationCount++
+
+		// Check if utilization is below 30%
+		if statistic.AvgGpuUtilization < 30.0 {
+			lowUtilizationCount++
+		}
+	}
+
+	// Calculate average utilization
+	if utilizationCount > 0 {
+		resp.AvgGpuUtilization = totalUtilization / float64(utilizationCount)
+	}
+	resp.LowUtilizationWorkloadsCount = lowUtilizationCount
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, resp))
 }
