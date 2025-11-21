@@ -80,6 +80,11 @@ func (h *Histogram) CalculatePercentile(percentile float64) float64 {
 	for _, bucket := range h.Buckets {
 		currentCount += bucket.Count
 		if currentCount >= targetCount {
+			// For single value case, return bucket midpoint as best estimate
+			if bucket.Count == 1 && totalCount == 1 {
+				return (bucket.Lower + bucket.Upper) / 2.0
+			}
+
 			// Linear interpolation within the bucket
 			bucketPosition := float64(targetCount-(currentCount-bucket.Count)) / float64(bucket.Count)
 			return bucket.Lower + (bucket.Upper-bucket.Lower)*bucketPosition
@@ -148,20 +153,35 @@ func calculatePercentilesFromHistogram(h *Histogram) (p50, p90, p95 float64) {
 		currentCount += bucket.Count
 
 		if !found50 && currentCount >= target50 {
-			bucketPosition := float64(target50-prevCount) / float64(bucket.Count)
-			p50 = bucket.Lower + (bucket.Upper-bucket.Lower)*bucketPosition
+			// For single value case, use bucket midpoint
+			if bucket.Count == 1 && totalCount == 1 {
+				p50 = (bucket.Lower + bucket.Upper) / 2.0
+			} else {
+				bucketPosition := float64(target50-prevCount) / float64(bucket.Count)
+				p50 = bucket.Lower + (bucket.Upper-bucket.Lower)*bucketPosition
+			}
 			found50 = true
 		}
 
 		if !found90 && currentCount >= target90 {
-			bucketPosition := float64(target90-prevCount) / float64(bucket.Count)
-			p90 = bucket.Lower + (bucket.Upper-bucket.Lower)*bucketPosition
+			// For single value case, use bucket midpoint
+			if bucket.Count == 1 && totalCount == 1 {
+				p90 = (bucket.Lower + bucket.Upper) / 2.0
+			} else {
+				bucketPosition := float64(target90-prevCount) / float64(bucket.Count)
+				p90 = bucket.Lower + (bucket.Upper-bucket.Lower)*bucketPosition
+			}
 			found90 = true
 		}
 
 		if !found95 && currentCount >= target95 {
-			bucketPosition := float64(target95-prevCount) / float64(bucket.Count)
-			p95 = bucket.Lower + (bucket.Upper-bucket.Lower)*bucketPosition
+			// For single value case, use bucket midpoint
+			if bucket.Count == 1 && totalCount == 1 {
+				p95 = (bucket.Lower + bucket.Upper) / 2.0
+			} else {
+				bucketPosition := float64(target95-prevCount) / float64(bucket.Count)
+				p95 = bucket.Lower + (bucket.Upper-bucket.Lower)*bucketPosition
+			}
 			found95 = true
 			break // Found all required percentiles
 		}
