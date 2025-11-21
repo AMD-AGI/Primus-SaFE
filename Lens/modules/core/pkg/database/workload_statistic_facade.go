@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/dal"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
@@ -49,18 +50,16 @@ func (f *WorkloadStatisticFacade) GetOrCreate(ctx context.Context, clusterName s
 	db := f.getDB()
 	q := dal.Use(db).WorkloadStatistic
 
-	// Get owner UID (prefer ParentUID, otherwise use UID)
-	ownerUID := workload.ParentUID
-	if ownerUID == "" {
-		ownerUID = workload.UID
-	}
+	// Use workload's own UID for statistics tracking
+	// Each workload (including child workloads) has its own independent statistic record
+	workloadUID := workload.UID
 
 	// Try to query existing record
 	record, err := q.WithContext(ctx).Where(
 		q.ClusterName.Eq(clusterName),
 		q.Namespace.Eq(workload.Namespace),
 		q.WorkloadName.Eq(workload.Name),
-		q.UID.Eq(ownerUID),
+		q.UID.Eq(workloadUID),
 		q.WorkloadStatus.In("Running", "Pending"),
 	).First()
 
@@ -76,7 +75,7 @@ func (f *WorkloadStatisticFacade) GetOrCreate(ctx context.Context, clusterName s
 
 	// Create new record with default values
 	newRecord := &model.WorkloadStatistic{
-		UID:                   ownerUID,
+		UID:                   workloadUID,
 		ClusterName:           clusterName,
 		Namespace:             workload.Namespace,
 		WorkloadName:          workload.Name,
@@ -112,8 +111,32 @@ func (f *WorkloadStatisticFacade) Update(ctx context.Context, record *model.Work
 		return err
 	}
 
-	// Create new record
-	return q.WithContext(ctx).Create(record)
+	// Try to create new record
+	err := q.WithContext(ctx).Create(record)
+	if err == nil {
+		return nil
+	}
+
+	// If create failed due to unique constraint violation (concurrent insert),
+	// try to find the existing record and update it
+	if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
+		existingRecord, findErr := q.WithContext(ctx).Where(
+			q.ClusterName.Eq(record.ClusterName),
+			q.Namespace.Eq(record.Namespace),
+			q.WorkloadName.Eq(record.WorkloadName),
+			q.UID.Eq(record.UID),
+			q.WorkloadStatus.In("Running", "Pending"),
+		).First()
+
+		if findErr == nil {
+			// Found the record created by another goroutine, update it
+			record.ID = existingRecord.ID
+			_, updateErr := q.WithContext(ctx).Where(q.ID.Eq(record.ID)).Updates(record)
+			return updateErr
+		}
+	}
+
+	return err
 }
 
 // GetByUID gets a workload statistic by UID

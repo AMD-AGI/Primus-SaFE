@@ -156,7 +156,31 @@ func (j *WorkloadStatisticJob) getActiveWorkloads(ctx context.Context, clusterNa
 		return nil, fmt.Errorf("failed to get active workloads: %w", err)
 	}
 
-	return workloads, nil
+	// Deduplicate workloads by (namespace, name, uid) to avoid concurrent processing of duplicate records
+	// Use a map to track unique workloads, keeping the latest record (highest ID)
+	uniqueWorkloads := make(map[string]*dbModel.GpuWorkload)
+	for _, workload := range workloads {
+		// Use workload's own UID (consistent with GetOrCreate logic)
+		// Each workload is tracked independently, regardless of parent-child relationships
+		key := fmt.Sprintf("%s/%s/%s", workload.Namespace, workload.Name, workload.UID)
+
+		// Keep the record with the highest ID (latest)
+		if existing, found := uniqueWorkloads[key]; !found || workload.ID > existing.ID {
+			uniqueWorkloads[key] = workload
+		}
+	}
+
+	// Convert map back to slice
+	result := make([]*dbModel.GpuWorkload, 0, len(uniqueWorkloads))
+	for _, workload := range uniqueWorkloads {
+		result = append(result, workload)
+	}
+
+	if len(workloads) != len(result) {
+		log.Warnf("Deduplicated %d workload records to %d unique workloads", len(workloads), len(result))
+	}
+
+	return result, nil
 }
 
 func (j *WorkloadStatisticJob) processWorkloads(ctx context.Context, clusterName string, workloads []*dbModel.GpuWorkload, storageClientSet *clientsets.StorageClientSet, stats *common.ExecutionStats) error {
