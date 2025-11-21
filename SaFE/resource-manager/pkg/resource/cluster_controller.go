@@ -469,13 +469,17 @@ func (r *ClusterReconciler) guaranteeCICDClusterRole(ctx context.Context, cluste
 	if !commonconfig.IsCICDEnable() {
 		return nil
 	}
+	targetName := commonconfig.GetCICDRoleName()
+	if targetName == "" {
+		klog.Error("failed to get cicd role name")
+		return nil
+	}
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
 		return err
 	}
 	clientSet := k8sClients.ClientSet()
 
-	targetName := commonconfig.GetCICDRoleName()
 	adminClusterRole, err := r.getAdminCICDClusterRole(ctx, targetName)
 	if err != nil || adminClusterRole == nil {
 		return err
@@ -542,15 +546,16 @@ func (r *ClusterReconciler) deleteCICDClusterRole(ctx context.Context, cluster *
 	if !commonconfig.IsCICDEnable() {
 		return nil
 	}
+	targetName := commonconfig.GetCICDRoleName()
+	if targetName == "" {
+		return nil
+	}
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
 		// During deletion, if the client is not found, the error will be ignored.
 		return nil
 	}
-	targetName := commonconfig.GetCICDRoleName()
-	if targetName == "" {
-		return nil
-	}
+
 	// First delete ClusterRoleBindings that reference this role by label
 	labelSelector := fmt.Sprintf("%s=%s", CICDClusterRoleBindingLabel, targetName)
 	crbList, err := k8sClients.ClientSet().RbacV1().ClusterRoleBindings().List(ctx, metav1.ListOptions{
@@ -588,6 +593,10 @@ func (r *ClusterReconciler) guaranteeCICDClusterRoleBinding(ctx context.Context,
 		return nil
 	}
 	roleName := commonconfig.GetCICDRoleName()
+	if roleName == "" {
+		klog.Error("failed to get cicd role name")
+		return nil
+	}
 
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {

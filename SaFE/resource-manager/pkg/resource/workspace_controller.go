@@ -560,6 +560,11 @@ func (r *WorkspaceReconciler) createCICDServiceAccount(ctx context.Context, work
 	if !commonconfig.IsCICDEnable() || workspace.Spec.Cluster == "" {
 		return nil
 	}
+	saName := commonconfig.GetCICDRoleName()
+	if saName == "" {
+		klog.Error("failed to get cicd role name")
+		return nil
+	}
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
 	if err != nil {
 		return err
@@ -567,10 +572,9 @@ func (r *WorkspaceReconciler) createCICDServiceAccount(ctx context.Context, work
 	if !k8sClients.IsValid() {
 		return fmt.Errorf("invalid k8s clients")
 	}
-	clientSet := k8sClients.ClientSet()
-	saName := commonconfig.GetCICDRoleName()
-	saNamespace := workspace.Name
 
+	clientSet := k8sClients.ClientSet()
+	saNamespace := workspace.Name
 	// Ensure ServiceAccount exists
 	if _, err = clientSet.CoreV1().ServiceAccounts(saNamespace).Get(ctx, saName, metav1.GetOptions{}); err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -589,38 +593,28 @@ func (r *WorkspaceReconciler) createCICDServiceAccount(ctx context.Context, work
 	}
 
 	// Ensure CRB contains this SA as a subject
-	crbName := commonconfig.GetCICDRoleName()
-	if crbName == "" {
-		return nil
-	}
+	crbName := saName
 	crb, err := clientSet.RbacV1().ClusterRoleBindings().Get(ctx, crbName, metav1.GetOptions{})
 	if err != nil {
-		// If CRB not found on data plane, skip silently (cluster controller may create it later)
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
 		return err
 	}
 	// Check if subject already exists
-	found := false
 	for i := range crb.Subjects {
 		s := crb.Subjects[i]
 		if s.Kind == common.ServiceAccountKind && s.Name == saName && s.Namespace == saNamespace {
-			found = true
-			break
+			return nil
 		}
 	}
-	if !found {
-		crb.Subjects = append(crb.Subjects, rbacv1.Subject{
-			Kind:      common.ServiceAccountKind,
-			Name:      saName,
-			Namespace: saNamespace,
-		})
-		if _, err = clientSet.RbacV1().ClusterRoleBindings().Update(ctx, crb, metav1.UpdateOptions{}); err != nil {
-			return err
-		}
-		klog.Infof("add subject ServiceAccount %s/%s to ClusterRoleBinding %s on cluster %s", saNamespace, saName, crbName, workspace.Spec.Cluster)
+
+	crb.Subjects = append(crb.Subjects, rbacv1.Subject{
+		Kind:      common.ServiceAccountKind,
+		Name:      saName,
+		Namespace: saNamespace,
+	})
+	if _, err = clientSet.RbacV1().ClusterRoleBindings().Update(ctx, crb, metav1.UpdateOptions{}); err != nil {
+		return err
 	}
+	klog.Infof("add subject ServiceAccount %s/%s to ClusterRoleBinding %s on cluster %s", saNamespace, saName, crbName, workspace.Spec.Cluster)
 	return nil
 }
 
