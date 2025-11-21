@@ -12,7 +12,7 @@ func TestNewHistogram(t *testing.T) {
 	assert.NotNil(t, hist)
 	assert.Equal(t, 10, len(hist.Buckets), "Should have 10 buckets (0-10, 10-20, ..., 90-100)")
 	
-	// 验证桶范围
+	// Verify bucket ranges
 	for i := 0; i < 10; i++ {
 		assert.Equal(t, float64(i*10), hist.Buckets[i].Lower)
 		assert.Equal(t, float64((i+1)*10), hist.Buckets[i].Upper)
@@ -23,20 +23,20 @@ func TestNewHistogram(t *testing.T) {
 func TestHistogramAddValues(t *testing.T) {
 	hist := NewHistogram()
 	
-	// 添加一些测试值
+	// Add some test values
 	values := []float64{5, 15, 25, 35, 45, 55, 65, 75, 85, 95}
 	hist.AddValues(values)
 	
-	// 每个桶应该有1个值
+	// Each bucket should have 1 value
 	for i := 0; i < 10; i++ {
 		assert.Equal(t, 1, hist.Buckets[i].Count, "Each bucket should have 1 value")
 	}
 	
-	// 测试边界值
+	// Test boundary values
 	hist2 := NewHistogram()
 	hist2.AddValues([]float64{0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100})
 	
-	// 0 应该在第一个桶，100 应该在最后一个桶
+	// 0 should be in the first bucket, 100 should be in the last bucket
 	assert.Greater(t, hist2.Buckets[0].Count, 0, "First bucket should have values")
 	assert.Greater(t, hist2.Buckets[9].Count, 0, "Last bucket should have values")
 }
@@ -44,7 +44,7 @@ func TestHistogramAddValues(t *testing.T) {
 func TestHistogramCalculatePercentile(t *testing.T) {
 	hist := NewHistogram()
 	
-	// 创建一个均匀分布
+	// Create a uniform distribution
 	values := make([]float64, 100)
 	for i := 0; i < 100; i++ {
 		values[i] = float64(i)
@@ -76,25 +76,25 @@ func TestHistogramJSON(t *testing.T) {
 	hist := NewHistogram()
 	hist.AddValues([]float64{25, 50, 75})
 	
-	// 转换为 JSON
+	// Convert to JSON
 	jsonData, err := hist.ToJSON()
 	assert.NoError(t, err)
 	assert.NotEmpty(t, jsonData)
 	
-	// 从 JSON 恢复
+	// Restore from JSON
 	hist2, err := FromJSON(jsonData)
 	assert.NoError(t, err)
 	assert.NotNil(t, hist2)
 	assert.Equal(t, len(hist.Buckets), len(hist2.Buckets))
 	
-	// 验证数据一致
+	// Verify data consistency
 	for i := range hist.Buckets {
 		assert.Equal(t, hist.Buckets[i].Count, hist2.Buckets[i].Count)
 	}
 }
 
 func TestHistogramEmptyJSON(t *testing.T) {
-	// 测试空 JSON
+	// Test empty JSON
 	hist, err := FromJSON([]byte{})
 	assert.NoError(t, err)
 	assert.NotNil(t, hist)
@@ -115,13 +115,13 @@ func TestHistogramGetTotalCount(t *testing.T) {
 func TestCalculatePercentilesFromHistogram(t *testing.T) {
 	hist := NewHistogram()
 	
-	// 创建测试数据
+	// Create test data
 	values := []float64{10, 20, 30, 40, 50, 60, 70, 80, 90, 95}
 	hist.AddValues(values)
 	
 	p50, p90, p95 := calculatePercentilesFromHistogram(hist)
 	
-	// 验证结果在合理范围内
+	// Verify results are within reasonable range
 	assert.InDelta(t, 50, p50, 15, "P50 should be around 50")
 	assert.InDelta(t, 90, p90, 10, "P90 should be around 90")
 	assert.InDelta(t, 95, p95, 10, "P95 should be around 95")
@@ -154,9 +154,9 @@ func TestHistogramEdgeCases(t *testing.T) {
 	
 	t.Run("Values outside range", func(t *testing.T) {
 		hist := NewHistogram()
-		hist.AddValues([]float64{-10, 150}) // 应该被裁剪到 0-100
+		hist.AddValues([]float64{-10, 150}) // Should be clamped to 0-100
 		
-		// 验证没有崩溃，并且值被正确处理
+		// Verify no crash and values are handled correctly
 		total := hist.GetTotalCount()
 		assert.Equal(t, 2, total)
 	})
@@ -165,12 +165,12 @@ func TestHistogramEdgeCases(t *testing.T) {
 func TestHistogramIncrementalUpdate(t *testing.T) {
 	hist := NewHistogram()
 	
-	// 第一次添加数据
+	// First data addition
 	hist.AddValues([]float64{10, 20, 30, 40, 50})
 	count1 := hist.GetTotalCount()
 	p50_1 := hist.CalculatePercentile(50)
 	
-	// 第二次添加数据（增量更新）
+	// Second data addition (incremental update)
 	hist.AddValues([]float64{60, 70, 80, 90})
 	count2 := hist.GetTotalCount()
 	p50_2 := hist.CalculatePercentile(50)
