@@ -555,3 +555,89 @@ func getWorkloadsStatistic(ctx *gin.Context) {
 
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, resp))
 }
+
+func getWorkloadGpuUtilizationHistoryByKindName(ctx *gin.Context) {
+	cm := clientsets.GetClusterManager()
+	// Get cluster name from query parameter, priority: specified cluster > default cluster > current cluster
+	clusterName := ctx.Query("cluster")
+	clients, err := cm.GetClusterClientsOrDefault(clusterName)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	// Get filter parameters from query
+	kind := ctx.Query("kind")
+	name := ctx.Query("name")
+	namespace := ctx.Query("namespace")
+	startStr := ctx.Query("start")
+	endStr := ctx.Query("end")
+	stepStr := ctx.DefaultQuery("step", "60")
+
+	// Validate required parameters
+	if kind == "" || name == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "kind and name are required"})
+		return
+	}
+
+	if startStr == "" || endStr == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "start and end timestamps are required"})
+		return
+	}
+
+	// Parse timestamps
+	startUnix, err := strconv.ParseInt(startStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid start timestamp"})
+		return
+	}
+	endUnix, err := strconv.ParseInt(endStr, 10, 64)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid end timestamp"})
+		return
+	}
+
+	startTime := time.Unix(startUnix, 0)
+	endTime := time.Unix(endUnix, 0)
+
+	step, err := strconv.Atoi(stepStr)
+	if err != nil || step <= 0 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid step value, must be positive integer (in seconds)"})
+		return
+	}
+
+	// Build filter to find workload by kind and name
+	f := &filter.WorkloadFilter{
+		Kind: &kind,
+		Name: &name,
+	}
+	if namespace != "" {
+		f.Namespace = &namespace
+	}
+
+	// Query workload by kind and name
+	workloads, _, err := database.GetFacadeForCluster(clients.ClusterName).GetWorkload().QueryWorkload(ctx, f)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	if len(workloads) == 0 {
+		_ = ctx.Error(errors.NewError().WithCode(errors.RequestDataNotExisted))
+		return
+	}
+
+	// If multiple workloads found (same kind+name in different namespaces), return the first one
+	// Or if namespace is specified, it should be unique
+	dbWorkload := workloads[0]
+
+	// Query GPU utilization history using the workload UID
+	storageClient := clients.StorageClientSet
+	gpuUtilHistory, err := workload.GetWorkloadGpuUtilizationHistory(ctx, dbWorkload.UID, startTime, endTime, step, storageClient)
+	if err != nil {
+		_ = ctx.Error(err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, gpuUtilHistory))
+}
