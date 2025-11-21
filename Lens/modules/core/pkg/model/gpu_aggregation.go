@@ -254,6 +254,8 @@ type GpuAggregationConfig struct {
 	Prometheus struct {
 		UtilizationQuery         string `json:"utilization_query"`
 		WorkloadUtilizationQuery string `json:"workload_utilization_query"`
+		GpuMemoryUsedQuery       string `json:"gpu_memory_used_query"`
+		GpuMemoryTotalQuery      string `json:"gpu_memory_total_query"`
 		QueryStep                int    `json:"query_step"`
 		QueryTimeout             string `json:"query_timeout"`
 	} `json:"prometheus"`
