@@ -42,6 +42,6 @@ func InitJobs() {
 		&gpu_history_cache_6h.GpuHistoryCache6hJob{},   // Every 5m - 6 hour history
 		&gpu_history_cache_24h.GpuHistoryCache24hJob{}, // Every 10m - 24 hour history
 		gpu_aggregation.NewGpuAggregationJob(),
-		workload_statistic.NewWorkloadStatisticJob(), // Every 5m - workload GPU utilization statistics
+		workload_statistic.NewWorkloadStatisticJob(), // Every 30s - workload GPU utilization statistics
 	}
 }
