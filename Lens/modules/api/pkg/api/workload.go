@@ -181,8 +181,11 @@ func cvtDBWorkloadListItem(ctx context.Context, clusterName string, dbWorkload *
 		Status:      dbWorkload.Status,
 		StatusColor: metadata.GetWorkloadStatusColor(dbWorkload.Status),
 		StartAt:     dbWorkload.CreatedAt.Unix(),
-		EndAt:       dbWorkload.EndAt.Unix(),
 		Source:      getSource(dbWorkload),
+	}
+	if !dbWorkload.EndAt.Equal(time.Time{}) {
+		ts := dbWorkload.EndAt.Unix()
+		result.EndAt = &ts
 	}
 	gpuAllocation, err := workload.GetWorkloadResource(ctx, clusterName, dbWorkload.UID)
 	if err != nil {
