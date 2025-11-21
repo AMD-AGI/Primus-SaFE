@@ -22,7 +22,7 @@ func histogramToExtType(hist *Histogram) dbModel.ExtType {
 func TestSchedule(t *testing.T) {
 	job := NewWorkloadStatisticJob()
 	schedule := job.Schedule()
-	assert.Equal(t, "@every 5m", schedule, "Schedule should be every 5 minutes")
+	assert.Equal(t, "@every 30s", schedule, "Schedule should be every 30 seconds")
 }
 
 func TestCalculateIncrementalStartTime(t *testing.T) {
