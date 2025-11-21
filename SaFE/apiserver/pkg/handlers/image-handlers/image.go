@@ -1069,8 +1069,12 @@ func buildPrewarmImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []stri
 	}
 
 	if query.Status != "" {
-		statusFilter := fmt.Sprintf(`[{"name": "status", "value": "%s"}]`, query.Status)
-		dbSql = append(dbSql, sqrl.Expr("outputs::jsonb @> ?::jsonb", statusFilter))
+		if query.Status == "Running" {
+			dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "Phase"): query.Status})
+		} else {
+			statusFilter := fmt.Sprintf(`[{"name": "status", "value": "%s"}]`, query.Status)
+			dbSql = append(dbSql, sqrl.Expr("outputs::jsonb @> ?::jsonb", statusFilter))
+		}
 	}
 
 	orderByField := dbClient.GetFieldTag(dbTags, "CreationTime")
