@@ -516,5 +516,5 @@ type StatisticData struct {
 // Schedule returns the job schedule expression
 // Runs every 5 minutes
 func (j *WorkloadStatisticJob) Schedule() string {
-	return "@every 5m"
+	return "@every 30s"
 }
