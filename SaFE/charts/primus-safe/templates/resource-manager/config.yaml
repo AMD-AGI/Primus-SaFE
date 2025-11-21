@@ -55,6 +55,11 @@ data:
       ttl_second: {{ default 300 (default .Values.ops_job).ttl_second }}
       # The timeout of the opsjob, in seconds. Default is 3600.
       timeout_second: {{ default 3600 (default .Values.ops_job).timeout_second }}
+      prewarm:
+        # The timeout for prewarm jobs, in seconds. Default is 900 (15 min).
+        timeout_second: {{ default 900 (default (default .Values.ops_job).prewarm).timeout_second }}
+        # The number of concurrent worker goroutines for prewarm jobs. Default is 10.
+        worker_concurrent: {{ default 10 (default (default .Values.ops_job).prewarm).worker_concurrent }}
     s3:
       # Whether to enable s3, it is used to download logs
       enable: {{ .Values.s3.enable }}
