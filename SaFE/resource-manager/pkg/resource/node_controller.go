@@ -263,7 +263,7 @@ func (r *NodeReconciler) observeCluster(_ context.Context, adminNode *v1.Node, k
 func (r *NodeReconciler) processNode(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	if result, err := r.updateK8sNode(ctx, adminNode, k8sNode); err != nil || result.RequeueAfter > 0 {
 		if err != nil {
-			klog.ErrorS(err, "failed to update k8s node")
+			klog.ErrorS(err, "failed to update k8s node", "node", adminNode.Name)
 		}
 		return result, err
 	}

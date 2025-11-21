@@ -199,6 +199,10 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	if err = r.guaranteeCICDClusterRole(ctx, cluster); err != nil {
 		return ctrlruntime.Result{}, err
 	}
+	// Ensure ClusterRoleBinding exists and is labeled to reference this role
+	if err = r.guaranteeCICDClusterRoleBinding(ctx, cluster); err != nil {
+		return ctrlruntime.Result{}, err
+	}
 	return ctrlruntime.Result{}, nil
 }
 
@@ -523,10 +527,6 @@ func (r *ClusterReconciler) guaranteeCICDClusterRole(ctx context.Context, cluste
 		return err
 	}
 	klog.Infof("copy ClusterRole %s to cluster %s", targetName, cluster.Name)
-	// Ensure ClusterRoleBinding exists and is labeled to reference this role
-	if err = r.guaranteeCICDClusterRoleBinding(ctx, cluster, targetName); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -576,7 +576,12 @@ func (r *ClusterReconciler) getAdminCICDClusterRole(ctx context.Context, name st
 }
 
 // guaranteeCICDClusterRoleBinding creates a ClusterRoleBinding for the given role if not present.
-func (r *ClusterReconciler) guaranteeCICDClusterRoleBinding(ctx context.Context, cluster *v1.Cluster, roleName string) error {
+func (r *ClusterReconciler) guaranteeCICDClusterRoleBinding(ctx context.Context, cluster *v1.Cluster) error {
+	if !commonconfig.IsCICDEnable() {
+		return nil
+	}
+	roleName := commonconfig.GetCICDRoleName()
+
 	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil {
 		return err
