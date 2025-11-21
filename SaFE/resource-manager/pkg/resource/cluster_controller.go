@@ -178,29 +178,36 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 		return ctrlruntime.Result{}, r.delete(ctx, cluster)
 	}
 	if err = r.guaranteeClusterControlPlane(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to guarantee cluster control plane")
 		return ctrlruntime.Result{}, err
 	}
 	if err = r.guaranteeClientFactory(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to guarantee client factory")
 		return ctrlruntime.Result{}, err
 	}
 	// if result, err := r.guaranteeStorage(ctx, cluster); err != nil || result.RequeueAfter > 0 {
 	// 	return result, err
 	// }
 	if result, err := r.guaranteeDefaultAddon(ctx, cluster); err != nil || result.RequeueAfter > 0 {
+		klog.ErrorS(err, "failed to guarantee default addon")
 		return result, err
 	}
 	if result, err := r.guaranteePriorityClass(ctx, cluster); err != nil || result.RequeueAfter > 0 {
+		klog.ErrorS(err, "failed to guarantee priority class")
 		return result, err
 	}
 	if err = r.guaranteeAllImageSecrets(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to guarantee image secrets")
 		return ctrlruntime.Result{}, err
 	}
 	// Sync CICD ClusterRole from admin plane to data plane (if present)
 	if err = r.guaranteeCICDClusterRole(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to guarantee cicd cluster role")
 		return ctrlruntime.Result{}, err
 	}
 	// Ensure ClusterRoleBinding exists and is labeled to reference this role
 	if err = r.guaranteeCICDClusterRoleBinding(ctx, cluster); err != nil {
+		klog.ErrorS(err, "failed to guarantee cicd cluster role binding")
 		return ctrlruntime.Result{}, err
 	}
 	return ctrlruntime.Result{}, nil
