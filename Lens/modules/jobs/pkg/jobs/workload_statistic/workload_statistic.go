@@ -12,9 +12,11 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/dal"
 	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/prom"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 	"go.opentelemetry.io/otel/attribute"
@@ -46,6 +48,30 @@ func NewWorkloadStatisticJob() *WorkloadStatisticJob {
 		queryWindow: DefaultQueryWindow,
 		queryStep:   DefaultQueryStep,
 	}
+}
+
+// getDBForCluster retrieves the database connection for the specified cluster
+func (j *WorkloadStatisticJob) getDBForCluster(clusterName string) *gorm.DB {
+	if clusterName == "" {
+		return sql.GetDefaultDB()
+	}
+
+	// Get the database of the specified cluster through ClusterManager
+	cm := clientsets.GetClusterManager()
+	clientSet, err := cm.GetClientSetByClusterName(clusterName)
+	if err != nil {
+		log.Errorf("getDBForCluster: error getting client set by cluster name '%s': %v", clusterName, err)
+		// If retrieval fails, return the default database
+		return sql.GetDefaultDB()
+	}
+
+	if clientSet.StorageClientSet == nil {
+		log.Errorf("getDBForCluster: cluster '%s' has no Storage configuration", clusterName)
+		// If the cluster has no Storage configuration, return the default database
+		return sql.GetDefaultDB()
+	}
+
+	return clientSet.StorageClientSet.DB
 }
 
 func (j *WorkloadStatisticJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
@@ -319,8 +345,9 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 
 // getOrCreateStatisticRecord gets or creates a statistic record for the workload
 func (j *WorkloadStatisticJob) getOrCreateStatisticRecord(ctx context.Context, clusterName string, workload *dbModel.GpuWorkload) (*dbModel.WorkloadStatistic, bool, error) {
-	facade := database.GetFacadeForCluster(clusterName)
-	q := facade.GetDAL().WorkloadStatistic
+	// Get database connection for the cluster
+	db := j.getDBForCluster(clusterName)
+	q := dal.Use(db).WorkloadStatistic
 
 	// Get owner UID (prefer ParentUID, otherwise use UID)
 	ownerUID := workload.ParentUID
@@ -491,8 +518,9 @@ func (j *WorkloadStatisticJob) updateStatisticsIncremental(record *dbModel.Workl
 
 // updateStatisticRecord updates or creates a statistic record
 func (j *WorkloadStatisticJob) updateStatisticRecord(ctx context.Context, clusterName string, record *dbModel.WorkloadStatistic) error {
-	facade := database.GetFacadeForCluster(clusterName)
-	q := facade.GetDAL().WorkloadStatistic
+	// Get database connection for the cluster
+	db := j.getDBForCluster(clusterName)
+	q := dal.Use(db).WorkloadStatistic
 
 	// If record exists (has ID), update it
 	if record.ID > 0 {
