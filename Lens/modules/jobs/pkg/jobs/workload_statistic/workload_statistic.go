@@ -3,7 +3,6 @@ package workload_statistic
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -12,16 +11,13 @@ import (
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/clientsets"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/dal"
 	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/prom"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/sql"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/common"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"gorm.io/gorm"
 )
 
 const (
@@ -48,30 +44,6 @@ func NewWorkloadStatisticJob() *WorkloadStatisticJob {
 		queryWindow: DefaultQueryWindow,
 		queryStep:   DefaultQueryStep,
 	}
-}
-
-// getDBForCluster retrieves the database connection for the specified cluster
-func (j *WorkloadStatisticJob) getDBForCluster(clusterName string) *gorm.DB {
-	if clusterName == "" {
-		return sql.GetDefaultDB()
-	}
-
-	// Get the database of the specified cluster through ClusterManager
-	cm := clientsets.GetClusterManager()
-	clientSet, err := cm.GetClientSetByClusterName(clusterName)
-	if err != nil {
-		log.Errorf("getDBForCluster: error getting client set by cluster name '%s': %v", clusterName, err)
-		// If retrieval fails, return the default database
-		return sql.GetDefaultDB()
-	}
-
-	if clientSet.StorageClientSet == nil {
-		log.Errorf("getDBForCluster: cluster '%s' has no Storage configuration", clusterName)
-		// If the cluster has no Storage configuration, return the default database
-		return sql.GetDefaultDB()
-	}
-
-	return clientSet.StorageClientSet.DB
 }
 
 func (j *WorkloadStatisticJob) Run(ctx context.Context, clientSets *clientsets.K8SClientSet, storageClientSet *clientsets.StorageClientSet) (*common.ExecutionStats, error) {
@@ -230,13 +202,27 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 
 	// 1. Get or create statistic record
 	getRecordSpan, getRecordCtx := trace.StartSpanFromContext(ctx, "getOrCreateRecord")
-	record, isNew, err := j.getOrCreateStatisticRecord(getRecordCtx, clusterName, workload)
+	facade := database.GetFacadeForCluster(clusterName).GetWorkloadStatistic()
+	record, isNew, err := facade.GetOrCreate(getRecordCtx, clusterName, workload)
 	if err != nil {
 		getRecordSpan.RecordError(err)
 		getRecordSpan.SetStatus(codes.Error, err.Error())
 		trace.FinishSpan(getRecordSpan)
 		return fmt.Errorf("failed to get or create record: %w", err)
 	}
+	
+	// Initialize histogram for new record
+	if isNew {
+		hist := NewHistogram()
+		histJSON, _ := hist.ToJSON()
+		var histMap map[string]interface{}
+		if err := json.Unmarshal(histJSON, &histMap); err != nil {
+			log.Errorf("Failed to unmarshal histogram: %v", err)
+			histMap = make(map[string]interface{})
+		}
+		record.Histogram = dbModel.ExtType(histMap)
+	}
+	
 	getRecordSpan.SetAttributes(attribute.Bool("is_new_record", isNew))
 	getRecordSpan.SetStatus(codes.Ok, "")
 	trace.FinishSpan(getRecordSpan)
@@ -285,7 +271,8 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 		record.LastQueryTime = endTime
 		record.StatEndTime = endTime
 
-		if err := j.updateStatisticRecord(ctx, clusterName, record); err != nil {
+		updateFacade := database.GetFacadeForCluster(clusterName).GetWorkloadStatistic()
+		if err := updateFacade.Update(ctx, record); err != nil {
 			return fmt.Errorf("failed to update record: %w", err)
 		}
 
@@ -325,7 +312,8 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 
 	// 7. Save to database
 	saveSpan, saveCtx := trace.StartSpanFromContext(ctx, "saveToDatabase")
-	err = j.updateStatisticRecord(saveCtx, clusterName, record)
+	saveFacade := database.GetFacadeForCluster(clusterName).GetWorkloadStatistic()
+	err = saveFacade.Update(saveCtx, record)
 	if err != nil {
 		saveSpan.RecordError(err)
 		saveSpan.SetStatus(codes.Error, err.Error())
@@ -341,76 +329,6 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 
 	span.SetStatus(codes.Ok, "")
 	return nil
-}
-
-// getOrCreateStatisticRecord gets or creates a statistic record for the workload
-func (j *WorkloadStatisticJob) getOrCreateStatisticRecord(ctx context.Context, clusterName string, workload *dbModel.GpuWorkload) (*dbModel.WorkloadStatistic, bool, error) {
-	// Get database connection for the cluster
-	db := j.getDBForCluster(clusterName)
-	q := dal.Use(db).WorkloadStatistic
-
-	// Get owner UID (prefer ParentUID, otherwise use UID)
-	ownerUID := workload.ParentUID
-	if ownerUID == "" {
-		ownerUID = workload.UID
-	}
-
-	// Try to query existing record
-	record, err := q.WithContext(ctx).Where(
-		q.ClusterName.Eq(clusterName),
-		q.Namespace.Eq(workload.Namespace),
-		q.WorkloadName.Eq(workload.Name),
-		q.UID.Eq(ownerUID),
-		q.WorkloadStatus.In("Running", "Pending"),
-	).First()
-
-	if err == nil {
-		// Found existing record
-		return record, false, nil
-	}
-
-	// If not "record not found" error, return error
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, false, fmt.Errorf("failed to query existing record: %w", err)
-	}
-
-	// Create new record
-	newRecord := &dbModel.WorkloadStatistic{
-		UID:                   ownerUID,
-		ClusterName:           clusterName,
-		Namespace:             workload.Namespace,
-		WorkloadName:          workload.Name,
-		WorkloadType:          workload.Kind,
-		WorkloadStatus:        string(workload.Status),
-		StatStartTime:         workload.CreatedAt,
-		StatEndTime:           time.Now(),
-		AllocatedGpuCount:     float64(workload.GpuRequest),
-		Labels:                workload.Labels,
-		Annotations:           workload.Annotations,
-		SampleCount:           0,
-		TotalSum:              0,
-		InstantGpuUtilization: 0,
-		AvgGpuUtilization:     0,
-		MaxGpuUtilization:     0,
-		MinGpuUtilization:     0,
-		P50GpuUtilization:     0,
-		P90GpuUtilization:     0,
-		P95GpuUtilization:     0,
-	}
-
-	// Initialize empty histogram
-	hist := NewHistogram()
-	histJSON, _ := hist.ToJSON()
-
-	// Convert JSON to ExtType (map[string]interface{})
-	var histMap map[string]interface{}
-	if err := json.Unmarshal(histJSON, &histMap); err != nil {
-		log.Errorf("Failed to unmarshal histogram: %v", err)
-		histMap = make(map[string]interface{})
-	}
-	newRecord.Histogram = dbModel.ExtType(histMap)
-
-	return newRecord, true, nil
 }
 
 // calculateIncrementalStartTime calculates the start time for incremental query
@@ -514,22 +432,6 @@ func (j *WorkloadStatisticJob) updateStatisticsIncremental(record *dbModel.Workl
 	if record.StatStartTime.IsZero() {
 		record.StatStartTime = startTime
 	}
-}
-
-// updateStatisticRecord updates or creates a statistic record
-func (j *WorkloadStatisticJob) updateStatisticRecord(ctx context.Context, clusterName string, record *dbModel.WorkloadStatistic) error {
-	// Get database connection for the cluster
-	db := j.getDBForCluster(clusterName)
-	q := dal.Use(db).WorkloadStatistic
-
-	// If record exists (has ID), update it
-	if record.ID > 0 {
-		_, err := q.WithContext(ctx).Where(q.ID.Eq(record.ID)).Updates(record)
-		return err
-	}
-
-	// Otherwise create new record
-	return q.WithContext(ctx).Create(record)
 }
 
 // calculateQueryStartTime calculates query start time (deprecated, kept for compatibility)
