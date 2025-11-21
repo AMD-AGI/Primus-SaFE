@@ -63,17 +63,15 @@ func (f *WorkloadStatisticFacade) GetOrCreate(ctx context.Context, clusterName s
 		q.WorkloadStatus.In("Running", "Pending"),
 	).First()
 
-
-	// If not "record not found" error, return error
-	if err != gorm.ErrRecordNotFound {
-		return nil, false, fmt.Errorf("failed to query existing record: %w", err)
-	}
-
+	// If found existing record, return it
 	if err == nil && record.ID > 0 {
-		// Found existing record
 		return record, false, nil
 	}
 
+	// If error is not "record not found", return error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return nil, false, fmt.Errorf("failed to query existing record: %w", err)
+	}
 
 	// Create new record with default values
 	newRecord := &model.WorkloadStatistic{
