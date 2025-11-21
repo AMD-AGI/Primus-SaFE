@@ -28,7 +28,7 @@ const (
 	// DefaultQueryStep is the default query step: 30 seconds
 	DefaultQueryStep = 30
 	// MaxConcurrentQueries is the maximum number of concurrent queries
-	MaxConcurrentQueries = 10
+	MaxConcurrentQueries = 5
 )
 
 // WorkloadStatisticJob is the job for collecting workload GPU utilization statistics
@@ -211,8 +211,8 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 		return fmt.Errorf("failed to get or create record: %w", err)
 	}
 
-	// Initialize histogram for new record
-	if isNew {
+	// Initialize histogram for new record or if histogram is nil/empty
+	if isNew || record.Histogram == nil || len(record.Histogram) == 0 {
 		hist := NewHistogram()
 		histJSON, _ := hist.ToJSON()
 		var histMap map[string]interface{}
@@ -271,6 +271,17 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 		record.LastQueryTime = endTime
 		record.StatEndTime = endTime
 
+		// Ensure ExtType fields are not nil before update
+		if record.Histogram == nil {
+			record.Histogram = dbModel.ExtType{}
+		}
+		if record.Labels == nil {
+			record.Labels = dbModel.ExtType{}
+		}
+		if record.Annotations == nil {
+			record.Annotations = dbModel.ExtType{}
+		}
+
 		updateFacade := database.GetFacadeForCluster(clusterName).GetWorkloadStatistic()
 		if err := updateFacade.Update(ctx, record); err != nil {
 			return fmt.Errorf("failed to update record: %w", err)
@@ -309,6 +320,17 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 	record.StatEndTime = endTime
 	record.WorkloadStatus = string(workload.Status)
 	record.AllocatedGpuCount = float64(workload.GpuRequest)
+
+	// Ensure ExtType fields are not nil before update
+	if record.Histogram == nil {
+		record.Histogram = dbModel.ExtType{}
+	}
+	if record.Labels == nil {
+		record.Labels = dbModel.ExtType{}
+	}
+	if record.Annotations == nil {
+		record.Annotations = dbModel.ExtType{}
+	}
 
 	// 7. Save to database
 	saveSpan, saveCtx := trace.StartSpanFromContext(ctx, "saveToDatabase")
