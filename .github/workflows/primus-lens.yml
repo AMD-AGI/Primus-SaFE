@@ -141,6 +141,7 @@ jobs:
 
           buildah bud \
             --layers \
+            --build-arg GOPROXY=${{ secrets.GOPROXY }},direct \
             --build-arg BUILDPATH=${{ matrix.buildpath }} \
             --build-arg BASEPATH=${{ matrix.basepath }} \
             --build-arg APPNAME=${{ matrix.name }} \

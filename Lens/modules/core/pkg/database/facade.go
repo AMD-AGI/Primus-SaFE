@@ -34,6 +34,8 @@ type FacadeInterface interface {
 	GetJobExecutionHistory() JobExecutionHistoryFacadeInterface
 	// GetNamespaceInfo returns the NamespaceInfo Facade interface
 	GetNamespaceInfo() NamespaceInfoFacadeInterface
+	// GetWorkloadStatistic returns the WorkloadStatistic Facade interface
+	GetWorkloadStatistic() WorkloadStatisticFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -56,6 +58,7 @@ type Facade struct {
 	SystemConfig         SystemConfigFacadeInterface
 	JobExecutionHistory  JobExecutionHistoryFacadeInterface
 	NamespaceInfo        NamespaceInfoFacadeInterface
+	WorkloadStatistic    WorkloadStatisticFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -77,6 +80,7 @@ func NewFacade() *Facade {
 		SystemConfig:         NewSystemConfigFacade(),
 		JobExecutionHistory:  NewJobExecutionHistoryFacade(),
 		NamespaceInfo:        NewNamespaceInfoFacade(),
+		WorkloadStatistic:    NewWorkloadStatisticFacade(),
 	}
 }
 
@@ -160,6 +164,11 @@ func (f *Facade) GetNamespaceInfo() NamespaceInfoFacadeInterface {
 	return f.NamespaceInfo
 }
 
+// GetWorkloadStatistic returns the WorkloadStatistic Facade interface
+func (f *Facade) GetWorkloadStatistic() WorkloadStatisticFacadeInterface {
+	return f.WorkloadStatistic
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -179,6 +188,7 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		SystemConfig:         f.SystemConfig.WithCluster(clusterName),
 		JobExecutionHistory:  f.JobExecutionHistory.WithCluster(clusterName),
 		NamespaceInfo:        f.NamespaceInfo.WithCluster(clusterName),
+		WorkloadStatistic:    f.WorkloadStatistic.WithCluster(clusterName),
 	}
 }
 
