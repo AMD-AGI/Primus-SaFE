@@ -2119,7 +2119,7 @@ func InitDefaultConfig(ctx context.Context, clusterName string) error {
 	defaultConfig.Dimensions.Workload.Enabled = true
 
 	// Prometheus configuration
-	defaultConfig.Prometheus.WorkloadUtilizationQuery = `avg(dcgm_gpu_utilization{workload_uid="%s"})`
+	defaultConfig.Prometheus.WorkloadUtilizationQuery = `avg(workload_gpu_utilization{workload_uid="%s"})`
 	defaultConfig.Prometheus.GpuMemoryUsedQuery = `avg(workload_gpu_used_vram{workload_uid="%s"})`
 	defaultConfig.Prometheus.GpuMemoryTotalQuery = `avg(workload_gpu_total_vram{workload_uid="%s"})`
 	defaultConfig.Prometheus.QueryStep = 30 // 30 seconds

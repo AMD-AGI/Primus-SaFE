@@ -480,7 +480,7 @@ func (j *WorkloadStatisticJob) calculateQueryStartTime(workload *dbModel.GpuWork
 // queryWorkloadInstantUtilization queries the instant GPU utilization of a workload
 func (j *WorkloadStatisticJob) queryWorkloadInstantUtilization(ctx context.Context, workload *dbModel.GpuWorkload, storageClientSet *clientsets.StorageClientSet) (float64, error) {
 	// Build Prometheus query, aggregate by workload_uid
-	query := fmt.Sprintf(`avg(gpu_utilization{workload_uid="%s"})`, workload.UID)
+	query := fmt.Sprintf(`avg(workload_gpu_utilization{workload_uid="%s"})`, workload.UID)
 
 	samples, err := prom.QueryInstant(ctx, storageClientSet, query)
 	if err != nil {
@@ -497,7 +497,7 @@ func (j *WorkloadStatisticJob) queryWorkloadInstantUtilization(ctx context.Conte
 // queryWorkloadHistoricalUtilization queries historical GPU utilization data of a workload
 func (j *WorkloadStatisticJob) queryWorkloadHistoricalUtilization(ctx context.Context, workload *dbModel.GpuWorkload, start, end time.Time, storageClientSet *clientsets.StorageClientSet) ([]float64, error) {
 	// Build Prometheus range query, aggregate by workload_uid
-	query := fmt.Sprintf(`avg(gpu_utilization{workload_uid="%s"})`, workload.UID)
+	query := fmt.Sprintf(`avg(workload_gpu_utilization{workload_uid="%s"})`, workload.UID)
 
 	// Don't filter labels, get all labels
 	series, err := prom.QueryRange(ctx, storageClientSet, query, start, end, j.queryStep, map[string]struct{}{})
