@@ -131,6 +131,7 @@ spec:
                   - Train
                   - Infer
                   - Authoring
+                  - CICD
                   type: string
                 type: array
               volumes:

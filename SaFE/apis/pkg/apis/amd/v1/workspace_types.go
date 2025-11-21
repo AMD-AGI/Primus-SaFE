@@ -15,7 +15,7 @@ import (
 type WorkspacePhase string
 type WorkspaceQueuePolicy string
 
-// +kubebuilder:validation:Enum=Train;Infer;Authoring
+// +kubebuilder:validation:Enum=Train;Infer;Authoring;CICD
 type WorkspaceScope string
 type FileSystemType string
 type VolumePurpose int

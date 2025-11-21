@@ -469,8 +469,13 @@ func (m *WorkloadMutator) mutateCronJobs(workload *v1.Workload) {
 // 2. Add default cluster image secret if no workspace but global config exists
 func (m *WorkloadMutator) mutateImageSecrets(workload *v1.Workload, workspace *v1.Workspace) {
 	secretsSet := sets.NewSet()
-	for _, s := range workload.Spec.Secrets {
-		secretsSet.Insert(s.Id)
+	for i, s := range workload.Spec.Secrets {
+		if s.Type == v1.SecretImage {
+			secretsSet.Insert(s.Id)
+		}
+		if s.Type == "" {
+			workload.Spec.Secrets[i].Type = v1.SecretDefault
+		}
 	}
 	if workspace != nil {
 		for _, s := range workspace.Spec.ImageSecrets {
