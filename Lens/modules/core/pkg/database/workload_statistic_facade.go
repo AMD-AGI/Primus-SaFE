@@ -19,7 +19,7 @@ type WorkloadStatisticFacadeInterface interface {
 	// Update updates or creates a statistic record
 	Update(ctx context.Context, record *model.WorkloadStatistic) error
 	// GetByUID gets a workload statistic by UID
-	GetByUID(ctx context.Context, clusterName string, uid string) (*model.WorkloadStatistic, error)
+	GetByUID(ctx context.Context, uid string) (*model.WorkloadStatistic, error)
 	// List lists workload statistics with optional filters
 	List(ctx context.Context, clusterName string, namespace string, workloadName string, statuses []string) ([]*model.WorkloadStatistic, error)
 	// Delete deletes a workload statistic record
@@ -140,12 +140,11 @@ func (f *WorkloadStatisticFacade) Update(ctx context.Context, record *model.Work
 }
 
 // GetByUID gets a workload statistic by UID
-func (f *WorkloadStatisticFacade) GetByUID(ctx context.Context, clusterName string, uid string) (*model.WorkloadStatistic, error) {
+func (f *WorkloadStatisticFacade) GetByUID(ctx context.Context, uid string) (*model.WorkloadStatistic, error) {
 	db := f.getDB()
 	q := dal.Use(db).WorkloadStatistic
 
 	record, err := q.WithContext(ctx).Where(
-		q.ClusterName.Eq(clusterName),
 		q.UID.Eq(uid),
 	).First()
 

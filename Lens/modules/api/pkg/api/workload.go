@@ -198,7 +198,7 @@ func cvtDBWorkloadListItem(ctx context.Context, clusterName string, dbWorkload *
 	}
 
 	// Get workload statistics
-	statistic, err := database.GetFacadeForCluster(clusterName).GetWorkloadStatistic().GetByUID(ctx, clusterName, dbWorkload.UID)
+	statistic, err := database.GetFacadeForCluster(clusterName).GetWorkloadStatistic().GetByUID(ctx, dbWorkload.UID)
 	if err != nil {
 		log.Errorf("Failed to get workload statistic: %v", err)
 	} else if statistic != nil {
@@ -528,7 +528,7 @@ func getWorkloadsStatistic(ctx *gin.Context) {
 	lowUtilizationCount := 0
 
 	for _, w := range runningWorkloads {
-		statistic, err := statisticFacade.GetByUID(ctx, clients.ClusterName, w.UID)
+		statistic, err := statisticFacade.GetByUID(ctx, w.UID)
 		if err != nil {
 			log.Warnf("Failed to get statistic for workload %s: %v", w.UID, err)
 			continue
