@@ -24,7 +24,7 @@ type WorkloadListItem struct {
 	StartAt               int64             `json:"start_at"`
 	EndAt                 int64             `json:"end_at"`
 	Source                string            `json:"source"`
-	InstantGpuUtilization *float64          `json:"instant_gpu_utilization,omitempty"`
+	InstantGpuUtilization *float64          `json:"instant_gpu_utilization"`
 	AvgGpuUtilization     float64           `json:"avg_gpu_utilization"`
 	P50GpuUtilization     float64           `json:"p50_gpu_utilization"`
 	P90GpuUtilization     float64           `json:"p90_gpu_utilization"`
