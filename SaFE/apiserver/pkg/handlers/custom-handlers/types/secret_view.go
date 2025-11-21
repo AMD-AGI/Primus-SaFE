@@ -25,7 +25,9 @@ const (
 
 type CreateSecretRequest struct {
 	// Used to generate the secret ID, which will do normalization processing, e.g. lowercase
-	Name string `json:"name,omitempty"`
+	Name string `json:"name"`
+	// Secret namespace, default namespace is primus-safe
+	Namespace string `json:"namespace,omitempty"`
 	// Secret type, e.g. image, ssh, default
 	Type v1.SecretType `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey and so on

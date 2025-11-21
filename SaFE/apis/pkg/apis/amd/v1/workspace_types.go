@@ -58,7 +58,7 @@ type WorkspaceSpec struct {
 	//    avoiding blockage by the front workload in the queue. However, it is still subject to priority constraints.
 	//    If a higher-priority task cannot be dispatched, lower-priority tasks will wait.
 	QueuePolicy WorkspaceQueuePolicy `json:"queuePolicy,omitempty"`
-	// Service modules available in this space. support: Train/Infer/Authoring, No limitation if not specified
+	// Service modules available in this space. support: Train/Infer/Authoring/CICD, No limitation if not specified
 	Scopes []WorkspaceScope `json:"scopes,omitempty"`
 	// Volumes used in this workspace
 	Volumes []WorkspaceVolume `json:"volumes,omitempty"`
@@ -186,6 +186,15 @@ func (w *Workspace) CurrentReplica() int {
 func (w *Workspace) HasImageSecret(name string) bool {
 	for _, secret := range w.Spec.ImageSecrets {
 		if secret.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *Workspace) HasScope(scope WorkspaceScope) bool {
+	for _, s := range w.Spec.Scopes {
+		if s == scope {
 			return true
 		}
 	}

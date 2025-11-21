@@ -861,14 +861,7 @@ func (v *WorkloadValidator) validateScope(ctx context.Context, workload *v1.Work
 	if workspace == nil || len(workspace.Spec.Scopes) == 0 {
 		return nil
 	}
-	hasFound := false
-	for _, s := range workspace.Spec.Scopes {
-		if s == scope {
-			hasFound = true
-			break
-		}
-	}
-	if !hasFound {
+	if !workspace.HasScope(scope) {
 		return commonerrors.NewForbidden(
 			fmt.Sprintf("The workspace only supports %v and does not suuport %s", workspace.Spec.Scopes, scope))
 	}

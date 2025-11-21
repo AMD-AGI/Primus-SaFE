@@ -78,20 +78,20 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	req, err := parseCreateSecretRequest(c)
+	if err != nil {
+		klog.ErrorS(err, "failed to parse request")
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: authority.SecretResourceKind,
 		Verb:         v1.CreateVerb,
 		User:         requestUser,
+		Workspaces:   []string{req.Namespace},
 	}); err != nil {
 		return nil, err
-	}
-
-	req := &types.CreateSecretRequest{}
-	body, err := apiutils.ParseRequestBody(c.Request, req)
-	if err != nil {
-		klog.ErrorS(err, "failed to parse request", "body", string(body))
-		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 	if req.BindAllWorkspaces {
 		if err = h.checkUpdateWorkspacesPermission(c.Request.Context(), requestUser); err != nil {
@@ -103,7 +103,7 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to generate secret")
 		return nil, err
 	}
-	if secret, err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Create(
+	if secret, err = h.clientSet.CoreV1().Secrets(req.Namespace).Create(
 		c.Request.Context(), secret, metav1.CreateOptions{}); err != nil {
 		klog.ErrorS(err, "failed to create secret")
 		return nil, err
@@ -445,14 +445,10 @@ func (h *Handler) checkUpdateWorkspacesPermission(ctx context.Context, requestUs
 // generateSecret creates a new secret object based on the creation request.
 // Validates the request parameters and populates the secret metadata and data.
 func generateSecret(req *types.CreateSecretRequest, requestUser *v1.User) (*corev1.Secret, error) {
-	if req.Name == "" {
-		return nil, commonerrors.NewBadRequest("the name is empty")
-	}
-
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      req.Name,
-			Namespace: common.PrimusSafeNamespace,
+			Namespace: req.Namespace,
 			Labels: map[string]string{
 				v1.SecretTypeLabel: string(req.Type),
 				v1.UserIdLabel:     requestUser.Name,
@@ -603,4 +599,22 @@ func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 		result.Params = append(result.Params, params)
 	}
 	return result
+}
+
+// parseCreateSecretRequest parses and validates the request for creating a secret.
+// It ensures required fields like name, type, and inputs are provided.
+func parseCreateSecretRequest(c *gin.Context) (*types.CreateSecretRequest, error) {
+	req := &types.CreateSecretRequest{}
+	_, err := apiutils.ParseRequestBody(c.Request, req)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	if req.Name == "" || req.Type == "" || len(req.Params) == 0 {
+		return nil, commonerrors.NewBadRequest("the name, type and params are required")
+	}
+	if req.Namespace == "" {
+		req.Namespace = common.PrimusSafeNamespace
+	}
+
+	return req, nil
 }

@@ -65,6 +65,8 @@ data:
     cicd:
       enable: {{ .Values.cicd.enable }}
       role_name: {{ .Values.cicd.role_name }}
+      controller_namespace: "arc-systems"
+      controller_name: "arc-gha-rs-controller"
 {{- if .Values.addon }}
     addon:
 {{ toYaml .Values.addon | indent 6 }}

@@ -587,7 +587,7 @@ func (r *ClusterReconciler) getAdminCICDClusterRole(ctx context.Context, name st
 	return adminClusterRole, nil
 }
 
-// guaranteeCICDClusterRoleBinding creates a ClusterRoleBinding for the given role if not present.
+// guaranteeCICDClusterRoleBinding creates a ClusterRoleBinding for the given role, binds service account of cicd controller namespace.
 func (r *ClusterReconciler) guaranteeCICDClusterRoleBinding(ctx context.Context, cluster *v1.Cluster) error {
 	if !commonconfig.IsCICDEnable() {
 		return nil
@@ -621,7 +621,11 @@ func (r *ClusterReconciler) guaranteeCICDClusterRoleBinding(ctx context.Context,
 			Kind:     common.ClusterRoleKind,
 			Name:     roleName,
 		},
-		// Subjects intentionally omitted; label ties binding to the role for management
+		Subjects: []rbacv1.Subject{{
+			Kind:      common.ServiceAccountKind,
+			Name:      commonconfig.GetCICDControllerName(),
+			Namespace: commonconfig.GetCICDControllerNamespace(),
+		}},
 	}
 	if _, err = clientSet.RbacV1().ClusterRoleBindings().Create(ctx, crb, metav1.CreateOptions{}); err != nil {
 		return err

@@ -382,3 +382,11 @@ func IsCICDEnable() bool {
 func GetCICDRoleName() string {
 	return getString(cicdRoleName, "")
 }
+
+func GetCICDControllerName() string {
+	return getString(cicdControllerName, "")
+}
+
+func GetCICDControllerNamespace() string {
+	return getString(cicdControllerNamespace, "")
+}

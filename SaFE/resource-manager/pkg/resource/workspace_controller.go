@@ -16,7 +16,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -33,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
@@ -97,20 +95,11 @@ func (r *WorkspaceReconciler) relevantChangePredicate() predicate.Predicate {
 		return false
 	}
 
-	const maxRetry = 30
-	waitTime := time.Second * 5
-	maxWaitTime := waitTime * maxRetry
 	return predicate.Funcs{
 		CreateFunc: func(evt event.CreateEvent) bool {
 			// On workspace creation, ensure SA and CRB subject on the data plane
 			if ws, ok := evt.Object.(*v1.Workspace); ok {
-				backoff.Retry(func() error {
-					if err := r.createCICDServiceAccount(context.TODO(), ws); err != nil {
-						klog.ErrorS(err, "failed to create workspace ServiceAccount", "workspace", ws.Name)
-						return err
-					}
-					return nil
-				}, maxWaitTime, waitTime)
+				r.retryCICDNoPermissionSA(context.Background(), ws, false)
 			}
 			return true
 		},
@@ -120,18 +109,17 @@ func (r *WorkspaceReconciler) relevantChangePredicate() predicate.Predicate {
 			if !ok1 || !ok2 {
 				return false
 			}
+			if !oldWorkspace.HasScope(v1.CICDScope) && newWorkspace.HasScope(v1.CICDScope) {
+				r.retryCICDNoPermissionSA(context.Background(), newWorkspace, false)
+			} else if oldWorkspace.HasScope(v1.CICDScope) && !newWorkspace.HasScope(v1.CICDScope) {
+				r.retryCICDNoPermissionSA(context.Background(), oldWorkspace, true)
+			}
 			return isRelevantFieldChanged(oldWorkspace, newWorkspace)
 		},
 		DeleteFunc: func(evt event.DeleteEvent) bool {
 			// On workspace deletion, remove SA and CRB subject from the data plane
 			if ws, ok := evt.Object.(*v1.Workspace); ok {
-				backoff.Retry(func() error {
-					if err := r.deleteCICDServiceAccount(context.TODO(), ws); err != nil {
-						klog.ErrorS(err, "failed to delete workspace ServiceAccount", "workspace", ws.Name)
-						return err
-					}
-					return nil
-				}, maxWaitTime, waitTime)
+				r.retryCICDNoPermissionSA(context.Background(), ws, true)
 			}
 			return false
 		},
@@ -554,121 +542,6 @@ func (r *WorkspaceReconciler) removeNodesAction(ctx context.Context, workspace *
 	return nil
 }
 
-// createCICDServiceAccount ensures a CICD ServiceAccount exists for the workspace on the data plane
-// and that it is referenced as a subject by the CICD ClusterRoleBinding.
-func (r *WorkspaceReconciler) createCICDServiceAccount(ctx context.Context, workspace *v1.Workspace) error {
-	if !commonconfig.IsCICDEnable() || workspace.Spec.Cluster == "" {
-		return nil
-	}
-	saName := commonconfig.GetCICDRoleName()
-	if saName == "" {
-		klog.Error("failed to get cicd role name")
-		return nil
-	}
-	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
-	if err != nil {
-		return err
-	}
-	if !k8sClients.IsValid() {
-		return fmt.Errorf("invalid k8s clients")
-	}
-
-	clientSet := k8sClients.ClientSet()
-	saNamespace := workspace.Name
-	// Ensure ServiceAccount exists
-	if _, err = clientSet.CoreV1().ServiceAccounts(saNamespace).Get(ctx, saName, metav1.GetOptions{}); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-		sa := &corev1.ServiceAccount{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      saName,
-				Namespace: saNamespace,
-			},
-		}
-		if _, err = clientSet.CoreV1().ServiceAccounts(saNamespace).Create(ctx, sa, metav1.CreateOptions{}); err != nil {
-			return err
-		}
-		klog.Infof("create ServiceAccount %s/%s on cluster %s", saNamespace, saName, workspace.Spec.Cluster)
-	}
-
-	// Ensure CRB contains this SA as a subject
-	crbName := saName
-	crb, err := clientSet.RbacV1().ClusterRoleBindings().Get(ctx, crbName, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-	// Check if subject already exists
-	for i := range crb.Subjects {
-		s := crb.Subjects[i]
-		if s.Kind == common.ServiceAccountKind && s.Name == saName && s.Namespace == saNamespace {
-			return nil
-		}
-	}
-
-	crb.Subjects = append(crb.Subjects, rbacv1.Subject{
-		Kind:      common.ServiceAccountKind,
-		Name:      saName,
-		Namespace: saNamespace,
-	})
-	if _, err = clientSet.RbacV1().ClusterRoleBindings().Update(ctx, crb, metav1.UpdateOptions{}); err != nil {
-		return err
-	}
-	klog.Infof("add subject ServiceAccount %s/%s to ClusterRoleBinding %s on cluster %s", saNamespace, saName, crbName, workspace.Spec.Cluster)
-	return nil
-}
-
-// deleteCICDServiceAccount removes the workspace SA from the CRB and deletes the SA from data plane.
-func (r *WorkspaceReconciler) deleteCICDServiceAccount(ctx context.Context, workspace *v1.Workspace) error {
-	if !commonconfig.IsCICDEnable() || workspace.Spec.Cluster == "" {
-		return nil
-	}
-	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
-	if err != nil {
-		return err
-	}
-	if !k8sClients.IsValid() {
-		return fmt.Errorf("invalid k8s clients")
-	}
-	clientSet := k8sClients.ClientSet()
-	saName := commonconfig.GetCICDRoleName()
-	saNamespace := workspace.Name
-
-	// Remove subject from CRB if present
-	crbName := commonconfig.GetCICDRoleName()
-	if crbName != "" {
-		if crb, err := clientSet.RbacV1().ClusterRoleBindings().Get(ctx, crbName, metav1.GetOptions{}); err == nil {
-			newSubjects := make([]rbacv1.Subject, 0, len(crb.Subjects))
-			changed := false
-			for i := range crb.Subjects {
-				s := crb.Subjects[i]
-				if s.Kind == common.ServiceAccountKind && s.Name == saName && s.Namespace == saNamespace {
-					changed = true
-					continue
-				}
-				newSubjects = append(newSubjects, s)
-			}
-			if changed {
-				crb.Subjects = newSubjects
-				if _, err = clientSet.RbacV1().ClusterRoleBindings().Update(ctx, crb, metav1.UpdateOptions{}); err != nil && !apierrors.IsNotFound(err) {
-					return err
-				}
-				klog.Infof("remove subject ServiceAccount %s/%s from ClusterRoleBinding %s on cluster %s", saNamespace, saName, crbName, workspace.Spec.Cluster)
-			}
-		}
-	}
-
-	// Delete ServiceAccount
-	if err = clientSet.CoreV1().ServiceAccounts(saNamespace).Delete(ctx, saName, metav1.DeleteOptions{}); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-	} else {
-		klog.Infof("delete ServiceAccount %s/%s on cluster %s", saNamespace, saName, workspace.Spec.Cluster)
-	}
-	return nil
-}
-
 // updateNodesBinding updates the binding of nodes to a Workspace.
 func (r *WorkspaceReconciler) updateNodesBinding(ctx context.Context,
 	workspace *v1.Workspace, nodes []*v1.Node, targets map[string]string) error {
@@ -748,4 +621,97 @@ func buildTargetList(nodes []*v1.Node, target string) map[string]string {
 		results[n.Name] = target
 	}
 	return results
+}
+
+// retryCICDNoPermissionSA handles CICD ServiceAccount operations (create/delete) with retry logic
+// for a given workspace on the data plane cluster.
+// Retries up to 30 times with 5-second intervals between attempts.
+func (r *WorkspaceReconciler) retryCICDNoPermissionSA(ctx context.Context, workspace *v1.Workspace, isDelete bool) {
+	if !commonconfig.IsCICDEnable() || workspace.Spec.Cluster == "" {
+		return
+	}
+	if len(workspace.Spec.Scopes) > 0 && !workspace.HasScope(v1.CICDScope) {
+		return
+	}
+
+	const maxRetry = 30
+	waitTime := time.Second * 5
+	maxWaitTime := waitTime * maxRetry
+
+	err := backoff.Retry(func() error {
+		var err error
+		if isDelete {
+			err = r.deleteCICDNoPermissionSA(ctx, workspace)
+		} else {
+			err = r.createCICDNoPermissionSA(ctx, workspace)
+		}
+		return err
+	}, maxWaitTime, waitTime)
+
+	if err != nil {
+		action := "create"
+		if isDelete {
+			action = "delete"
+		}
+		klog.ErrorS(err, fmt.Sprintf("failed to %s workspace ServiceAccount", action), "workspace", workspace.Name)
+	}
+}
+
+// createCICDNoPermissionSA creates a CICD ServiceAccount for the workspace on the data plane cluster.
+// It checks if the ServiceAccount already exists, and creates it if not found.
+func (r *WorkspaceReconciler) createCICDNoPermissionSA(ctx context.Context, workspace *v1.Workspace) error {
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
+	if err != nil {
+		return err
+	}
+	if !k8sClients.IsValid() {
+		return fmt.Errorf("invalid k8s clients")
+	}
+
+	clientSet := k8sClients.ClientSet()
+	saName := commonutils.GenerateCICDNoPermissionName()
+	saNamespace := workspace.Name
+	// Ensure ServiceAccount exists
+	_, err = clientSet.CoreV1().ServiceAccounts(saNamespace).Get(ctx, saName, metav1.GetOptions{})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return err
+	}
+	sa := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      saName,
+			Namespace: saNamespace,
+		},
+	}
+	if _, err = clientSet.CoreV1().ServiceAccounts(saNamespace).Create(ctx, sa, metav1.CreateOptions{}); err != nil {
+		return err
+	}
+	klog.Infof("create ServiceAccount %s/%s on cluster %s", saNamespace, saName, workspace.Spec.Cluster)
+	return nil
+}
+
+// deleteCICDNoPermissionSA removes the CICD ServiceAccount for the workspace from the data plane cluster.
+// If the ServiceAccount doesn't exist, it ignores the NotFound error.
+func (r *WorkspaceReconciler) deleteCICDNoPermissionSA(ctx context.Context, workspace *v1.Workspace) error {
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
+	if err != nil {
+		return err
+	}
+	if !k8sClients.IsValid() {
+		return fmt.Errorf("invalid k8s clients")
+	}
+	clientSet := k8sClients.ClientSet()
+	saName := commonutils.GenerateCICDNoPermissionName()
+	saNamespace := workspace.Name
+
+	if err = clientSet.CoreV1().ServiceAccounts(saNamespace).Delete(ctx, saName, metav1.DeleteOptions{}); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return err
+		}
+	} else {
+		klog.Infof("delete ServiceAccount %s/%s on cluster %s", saNamespace, saName, workspace.Spec.Cluster)
+	}
+	return nil
 }

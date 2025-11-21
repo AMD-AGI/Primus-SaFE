@@ -45,6 +45,8 @@ data:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
+              value: "true"
           image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.runner }}
           name: runner-proxy
           resources:
@@ -75,7 +77,7 @@ data:
           securityContext:
             privileged: true
         restartPolicy: Never
-        serviceAccountName: {{ .Values.cicd.role_name }}
+        serviceAccountName: "{{ .Values.cicd.role_name }}-no-permission"
         tolerations:
           - effect: NoSchedule
             operator: Exists
