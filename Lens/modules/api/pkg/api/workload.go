@@ -192,6 +192,26 @@ func cvtDBWorkloadListItem(ctx context.Context, clusterName string, dbWorkload *
 	} else {
 		result.GpuAllocated = gpuAllocated
 	}
+
+	// 获取workload统计信息
+	statistic, err := database.GetFacadeForCluster(clusterName).GetWorkloadStatistic().GetByUID(ctx, clusterName, dbWorkload.UID)
+	if err != nil {
+		log.Errorf("Failed to get workload statistic: %v", err)
+	} else if statistic != nil {
+		// 设置历史统计数据
+		result.AvgGpuUtilization = statistic.AvgGpuUtilization
+		result.P50GpuUtilization = statistic.P50GpuUtilization
+		result.P90GpuUtilization = statistic.P90GpuUtilization
+		result.P95GpuUtilization = statistic.P95GpuUtilization
+
+		// 如果workload是running状态，设置当前GPU使用率，否则为nil
+		if dbWorkload.Status == metadata.WorkloadStatusRunning {
+			result.InstantGpuUtilization = &statistic.InstantGpuUtilization
+		} else {
+			result.InstantGpuUtilization = nil
+		}
+	}
+
 	return result, nil
 }
 

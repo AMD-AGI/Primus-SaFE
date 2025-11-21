@@ -13,17 +13,22 @@ type SearchWorkloadReq struct {
 }
 
 type WorkloadListItem struct {
-	Kind          string            `json:"kind"`
-	Name          string            `json:"name"`
-	Namespace     string            `json:"namespace"`
-	Uid           string            `json:"uid"`
-	GpuAllocated  int               `json:"gpu_allocated"`
-	GpuAllocation GpuAllocationInfo `json:"gpu_allocation"`
-	Status        string            `json:"status"`
-	StatusColor   string            `json:"status_color"`
-	StartAt       int64             `json:"start_at"`
-	EndAt         int64             `json:"end_at"`
-	Source        string            `json:"source"`
+	Kind                  string            `json:"kind"`
+	Name                  string            `json:"name"`
+	Namespace             string            `json:"namespace"`
+	Uid                   string            `json:"uid"`
+	GpuAllocated          int               `json:"gpu_allocated"`
+	GpuAllocation         GpuAllocationInfo `json:"gpu_allocation"`
+	Status                string            `json:"status"`
+	StatusColor           string            `json:"status_color"`
+	StartAt               int64             `json:"start_at"`
+	EndAt                 int64             `json:"end_at"`
+	Source                string            `json:"source"`
+	InstantGpuUtilization *float64          `json:"instant_gpu_utilization,omitempty"`
+	AvgGpuUtilization     float64           `json:"avg_gpu_utilization"`
+	P50GpuUtilization     float64           `json:"p50_gpu_utilization"`
+	P90GpuUtilization     float64           `json:"p90_gpu_utilization"`
+	P95GpuUtilization     float64           `json:"p95_gpu_utilization"`
 }
 
 type GpuAllocationInfo map[string]float64
