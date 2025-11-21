@@ -148,7 +148,8 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 
 // createWorkloadImpl performs the actual workload creation in the system.
 // Handles authorization checks, workload creation in etcd, and initial phase setting.
-func (h *Handler) createWorkloadImpl(c *gin.Context, workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
+func (h *Handler) createWorkloadImpl(c *gin.Context,
+	workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) (interface{}, error) {
 	var err error
 	if err = h.authWorkloadAction(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
 		klog.ErrorS(err, "failed to auth workload", "workload", workload.Name,
@@ -160,6 +161,14 @@ func (h *Handler) createWorkloadImpl(c *gin.Context, workload *v1.Workload, requ
 			"priority", workload.Spec.Priority, "user", c.GetString(common.UserName))
 		return nil, err
 	}
+	for _, sec := range workload.Spec.Secrets {
+		if _, err = h.getAdminSecret(c.Request.Context(), sec.Id, requestUser, true); err != nil {
+			klog.ErrorS(err, "failed to auth workload secrets", "workload", workload.Name,
+				"secret", sec.Id, "user", c.GetString(common.UserName))
+			return nil, err
+		}
+	}
+
 	v1.SetLabel(workload, v1.UserIdLabel, requestUser.Name)
 	v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserName(requestUser))
 	if err = h.Create(c.Request.Context(), workload); err != nil {
@@ -443,7 +452,6 @@ func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1
 		return nil, err
 	}
 	workload := cvtDBWorkloadToAdminWorkload(dbWorkload)
-	// Only the user themselves or an administrator can get this info.
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: workload,
@@ -566,8 +574,7 @@ func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, w
 // authWorkloadAction performs authorization checks for workload-related actions.
 // Validates if the requesting user has permission to perform the specified action on the workload.
 func (h *Handler) authWorkloadAction(c *gin.Context,
-	adminWorkload *v1.Workload, verb v1.RoleVerb, requestUser *v1.User, roles []*v1.Role,
-) error {
+	adminWorkload *v1.Workload, verb v1.RoleVerb, requestUser *v1.User, roles []*v1.Role) error {
 	var workspaces []string
 	if adminWorkload.Spec.Workspace != "" {
 		workspaces = append(workspaces, adminWorkload.Spec.Workspace)
@@ -590,8 +597,7 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 // authWorkloadPriority performs authorization checks for workload priority operations.
 // Validates if the requesting user has permission to set the specified priority level.
 func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workload,
-	verb v1.RoleVerb, priority int, requestUser *v1.User, roles []*v1.Role,
-) error {
+	verb v1.RoleVerb, priority int, requestUser *v1.User, roles []*v1.Role) error {
 	priorityKind := fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority))
 	resourceOwner := ""
 	if verb == v1.UpdateVerb {

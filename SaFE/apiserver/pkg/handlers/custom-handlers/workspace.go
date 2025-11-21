@@ -101,7 +101,7 @@ func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", string(body))
 		return nil, err
 	}
-	workspace, err := h.generateWorkspace(c, req)
+	workspace, err := h.generateWorkspace(c.Request.Context(), requestUser, req)
 	if err != nil {
 		return nil, err
 	}
@@ -219,6 +219,11 @@ func (h *Handler) deleteWorkspace(c *gin.Context) (interface{}, error) {
 // patchWorkspace implements partial update logic for a workspace.
 // Parses the patch request and applies specified changes to the workspace.
 func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
 	ctx := c.Request.Context()
 	workspace, err := h.getAdminWorkspace(ctx, c.GetString(common.Name))
 	if err != nil {
@@ -229,7 +234,7 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 		Resource:   workspace,
 		Verb:       v1.UpdateVerb,
 		Workspaces: []string{workspace.Name},
-		UserId:     c.GetString(common.UserId),
+		User:       requestUser,
 	}); err != nil {
 		return nil, err
 	}
@@ -242,7 +247,7 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	}
 
 	originalWorkspace := client.MergeFrom(workspace.DeepCopy())
-	if err = h.updateWorkspace(ctx, workspace, req); err != nil {
+	if err = h.updateWorkspace(ctx, workspace, requestUser, req); err != nil {
 		return nil, err
 	}
 	if err = h.Patch(ctx, workspace, originalWorkspace); err != nil {
@@ -256,7 +261,7 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 // updateWorkspace applies updates to a workspace based on the patch request.
 // Handles changes to description, flavor, replica count, queue policy, scopes,
 // volumes, preemption settings, managers, default status, and image secrets.
-func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, req *types.PatchWorkspaceRequest) error {
+func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, requestUser *v1.User, req *types.PatchWorkspaceRequest) error {
 	if req.Description != nil {
 		v1.SetAnnotation(workspace, v1.DescriptionAnnotation, *req.Description)
 	}
@@ -285,7 +290,7 @@ func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, 
 		workspace.Spec.IsDefault = *req.IsDefault
 	}
 	if req.ImageSecretIds != nil {
-		if err := h.updateWorkspaceImageSecrets(ctx, workspace, *req.ImageSecretIds); err != nil {
+		if err := h.updateWorkspaceImageSecrets(ctx, workspace, requestUser, *req.ImageSecretIds); err != nil {
 			return err
 		}
 	}
@@ -294,10 +299,10 @@ func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, 
 
 // updateWorkspaceImageSecrets updates the image secrets associated with a workspace.
 // Retrieves secret objects by ID and updates the workspace's image secret references.
-func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1.Workspace, secretIds []string) error {
+func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1.Workspace, requestUser *v1.User, secretIds []string) error {
 	var imageSecrets []corev1.ObjectReference
 	for _, id := range secretIds {
-		secret, err := h.getAdminSecret(ctx, id)
+		secret, err := h.getAdminSecret(ctx, id, requestUser, true)
 		if err != nil {
 			return err
 		}
@@ -394,16 +399,17 @@ func (h *Handler) removeWorkspaceManager(ctx context.Context, workspaceId, userI
 
 // generateWorkspace creates a new workspace object based on the creation request.
 // Validates the request parameters and populates the workspace specification.
-func (h *Handler) generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRequest) (*v1.Workspace, error) {
+func (h *Handler) generateWorkspace(ctx context.Context,
+	requestUser *v1.User, req *types.CreateWorkspaceRequest) (*v1.Workspace, error) {
 	workspace := &v1.Workspace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: stringutil.NormalizeName(req.ClusterId + "-" + req.Name),
 			Labels: map[string]string{
 				v1.DisplayNameLabel: req.Name,
-				v1.UserIdLabel:      c.GetString(common.UserId),
+				v1.UserIdLabel:      requestUser.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation:    c.GetString(common.UserName),
+				v1.UserNameAnnotation:    v1.GetUserName(requestUser),
 				v1.DescriptionAnnotation: req.Description,
 			},
 		},
@@ -422,7 +428,7 @@ func (h *Handler) generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRe
 	if len(workspace.Spec.Scopes) == 0 {
 		workspace.Spec.Scopes = []v1.WorkspaceScope{v1.TrainScope, v1.InferScope, v1.AuthoringScope}
 	}
-	err := h.updateWorkspaceImageSecrets(c.Request.Context(), workspace, req.ImageSecretIds)
+	err := h.updateWorkspaceImageSecrets(ctx, workspace, requestUser, req.ImageSecretIds)
 	if err != nil {
 		return nil, err
 	}

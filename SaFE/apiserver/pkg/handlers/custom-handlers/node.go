@@ -110,11 +110,15 @@ func (h *Handler) DeleteNodes(c *gin.Context) {
 // Validates the request, generates a node object with specified parameters,
 // and persists it in the system.
 func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
-	if err := h.accessController.Authorize(authority.AccessInput{
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.NodeKind,
 		Verb:         v1.CreateVerb,
-		UserId:       c.GetString(common.UserId),
+		User:         requestUser,
 	}); err != nil {
 		return nil, err
 	}
@@ -126,7 +130,7 @@ func (h *Handler) createNode(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	node, err := h.generateNode(c, req, body)
+	node, err := h.generateNode(c.Request.Context(), requestUser, req, body)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate node")
 		return nil, err
@@ -675,7 +679,7 @@ func (h *Handler) getUsedResource(ctx context.Context, node *v1.Node) (*resource
 
 // generateNode creates a new node object based on the creation request.
 // Validates the request parameters and create References for the flavors and templates used internally.
-func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, body []byte) (*v1.Node, error) {
+func (h *Handler) generateNode(ctx context.Context, requestUser *v1.User, req *types.CreateNodeRequest, body []byte) (*v1.Node, error) {
 	node := &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Labels: req.Labels,
@@ -688,7 +692,6 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 	if err = validateCreateNodeRequest(req); err != nil {
 		return nil, err
 	}
-	ctx := c.Request.Context()
 	nf, err := h.getAdminNodeFlavor(ctx, req.FlavorId)
 	if err != nil {
 		return nil, err
@@ -703,12 +706,12 @@ func (h *Handler) generateNode(c *gin.Context, req *types.CreateNodeRequest, bod
 		node.Spec.NodeTemplate = commonutils.GenObjectReference(nt.TypeMeta, nt.ObjectMeta)
 	}
 
-	secret, err := h.getAdminSecret(ctx, req.SSHSecretId)
+	secret, err := h.getAdminSecret(ctx, req.SSHSecretId, requestUser, true)
 	if err != nil {
 		return nil, err
 	}
 	node.Spec.SSHSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
-	v1.SetLabel(node, v1.UserIdLabel, c.GetString(common.UserId))
+	v1.SetLabel(node, v1.UserIdLabel, requestUser.Name)
 	return node, nil
 }
 

@@ -164,17 +164,12 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 // getSecret implements the logic for retrieving a single secret's information.
 // Authorizes the request and retrieves the secret by name from the cluster.
 func (h *Handler) getSecret(c *gin.Context) (interface{}, error) {
-	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name))
+	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
 	}
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:      c.Request.Context(),
-		Resource:     secret,
-		ResourceKind: authority.SecretResourceKind,
-		Verb:         v1.GetVerb,
-		UserId:       c.GetString(common.UserId),
-	}); err != nil {
+	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name), requestUser, true)
+	if err != nil {
 		return nil, err
 	}
 	return cvtToSecretResponseItem(secret), nil
@@ -195,7 +190,7 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name))
+	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name), requestUser, false)
 	if err != nil {
 		return nil, err
 	}
@@ -324,7 +319,7 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("the secretId is empty")
 	}
-	secret, err := h.getAdminSecret(c.Request.Context(), name)
+	secret, err := h.getAdminSecret(c.Request.Context(), name, nil, false)
 	if err != nil {
 		return nil, err
 	}
@@ -406,11 +401,23 @@ func (h *Handler) deleteWorkspaceSecret(ctx context.Context, secretId string) er
 
 // getAdminSecret retrieves a secret resource by name from the Kubernetes cluster.
 // Returns the secret object or an error if retrieval fails.
-func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secret, error) {
+func (h *Handler) getAdminSecret(ctx context.Context, name string, requestUser *v1.User, needAuthorize bool) (*corev1.Secret, error) {
 	secret, err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(
 		ctx, name, metav1.GetOptions{})
 	if err != nil {
 		klog.ErrorS(err, "failed to get secret")
+		return nil, err
+	}
+	if needAuthorize {
+		if err = h.accessController.Authorize(authority.AccessInput{
+			Context:      ctx,
+			Resource:     secret,
+			ResourceKind: authority.SecretResourceKind,
+			Verb:         v1.GetVerb,
+			User:         requestUser,
+		}); err != nil {
+			return nil, err
+		}
 	}
 	return secret, err
 }
