@@ -600,13 +600,12 @@ func (r *ClusterReconciler) guaranteeCICDClusterRoleBinding(ctx context.Context,
 	} else if !apierrors.IsNotFound(err) {
 		return err
 	}
-	labels := map[string]string{
-		CICDClusterRoleBindingLabel: roleName,
-	}
 	crb := &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   roleName,
-			Labels: labels,
+			Name: roleName,
+			Labels: map[string]string{
+				CICDClusterRoleBindingLabel: roleName,
+			},
 		},
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: "rbac.authorization.k8s.io",

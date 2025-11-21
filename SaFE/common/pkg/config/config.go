@@ -380,5 +380,5 @@ func IsCICDEnable() bool {
 }
 
 func GetCICDRoleName() string {
-	return getFromFile(cicdRoleName, "")
+	return getString(cicdRoleName, "")
 }
