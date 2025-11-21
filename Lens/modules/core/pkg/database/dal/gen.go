@@ -63,6 +63,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		WorkloadGpuHourlyStats:    newWorkloadGpuHourlyStats(db, opts...),
 		WorkloadPodReference:      newWorkloadPodReference(db, opts...),
 		WorkloadResource:          newWorkloadResource(db, opts...),
+		WorkloadStatistic:         newWorkloadStatistic(db, opts...),
 	}
 }
 
@@ -114,6 +115,7 @@ type Query struct {
 	WorkloadGpuHourlyStats    workloadGpuHourlyStats
 	WorkloadPodReference      workloadPodReference
 	WorkloadResource          workloadResource
+	WorkloadStatistic         workloadStatistic
 }
 
 func (q *Query) Available() bool { return q.db != nil }
@@ -166,6 +168,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		WorkloadGpuHourlyStats:    q.WorkloadGpuHourlyStats.clone(db),
 		WorkloadPodReference:      q.WorkloadPodReference.clone(db),
 		WorkloadResource:          q.WorkloadResource.clone(db),
+		WorkloadStatistic:         q.WorkloadStatistic.clone(db),
 	}
 }
 
@@ -225,6 +228,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		WorkloadGpuHourlyStats:    q.WorkloadGpuHourlyStats.replaceDB(db),
 		WorkloadPodReference:      q.WorkloadPodReference.replaceDB(db),
 		WorkloadResource:          q.WorkloadResource.replaceDB(db),
+		WorkloadStatistic:         q.WorkloadStatistic.replaceDB(db),
 	}
 }
 
@@ -274,6 +278,7 @@ type queryCtx struct {
 	WorkloadGpuHourlyStats    *workloadGpuHourlyStatsDo
 	WorkloadPodReference      *workloadPodReferenceDo
 	WorkloadResource          *workloadResourceDo
+	WorkloadStatistic         *workloadStatisticDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
@@ -323,6 +328,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		WorkloadGpuHourlyStats:    q.WorkloadGpuHourlyStats.WithContext(ctx),
 		WorkloadPodReference:      q.WorkloadPodReference.WithContext(ctx),
 		WorkloadResource:          q.WorkloadResource.WithContext(ctx),
+		WorkloadStatistic:         q.WorkloadStatistic.WithContext(ctx),
 	}
 }
 

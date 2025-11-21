@@ -17,6 +17,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_realtime_cache"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_workload"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/storage_scan"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/workload_statistic"
 )
 
 type Job interface {
@@ -41,5 +42,6 @@ func InitJobs() {
 		&gpu_history_cache_6h.GpuHistoryCache6hJob{},   // Every 5m - 6 hour history
 		&gpu_history_cache_24h.GpuHistoryCache24hJob{}, // Every 10m - 24 hour history
 		gpu_aggregation.NewGpuAggregationJob(),
+		workload_statistic.NewWorkloadStatisticJob(), // Every 5m - workload GPU utilization statistics
 	}
 }
