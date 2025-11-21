@@ -210,7 +210,7 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 		trace.FinishSpan(getRecordSpan)
 		return fmt.Errorf("failed to get or create record: %w", err)
 	}
-	
+
 	// Initialize histogram for new record
 	if isNew {
 		hist := NewHistogram()
@@ -222,7 +222,7 @@ func (j *WorkloadStatisticJob) processWorkload(ctx context.Context, clusterName 
 		}
 		record.Histogram = dbModel.ExtType(histMap)
 	}
-	
+
 	getRecordSpan.SetAttributes(attribute.Bool("is_new_record", isNew))
 	getRecordSpan.SetStatus(codes.Ok, "")
 	trace.FinishSpan(getRecordSpan)

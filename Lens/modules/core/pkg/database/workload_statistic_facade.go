@@ -205,4 +205,3 @@ func (f *WorkloadStatisticFacade) WithCluster(clusterName string) WorkloadStatis
 	}
 	return newFacade
 }
-
