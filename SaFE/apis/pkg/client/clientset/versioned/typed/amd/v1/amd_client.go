@@ -20,6 +20,7 @@ type AmdV1Interface interface {
 	AddonTemplatesGetter
 	ClustersGetter
 	FaultsGetter
+	InferencesGetter
 	NodesGetter
 	NodeFlavorsGetter
 	NodeTemplatesGetter
@@ -50,6 +51,10 @@ func (c *AmdV1Client) Clusters(namespace string) ClusterInterface {
 
 func (c *AmdV1Client) Faults(namespace string) FaultInterface {
 	return newFaults(c, namespace)
+}
+
+func (c *AmdV1Client) Inferences(namespace string) InferenceInterface {
+	return newInferences(c, namespace)
 }
 
 func (c *AmdV1Client) Nodes(namespace string) NodeInterface {

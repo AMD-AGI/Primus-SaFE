@@ -27,6 +27,8 @@ type Interface interface {
 	WorkloadStatisticInterface
 	NodeStatisticInterface
 	UserTokenInterface
+	InferenceInterface
+	PlaygroundSessionInterface
 }
 
 type WorkloadInterface interface {
@@ -137,4 +139,21 @@ type NodeStatisticInterface interface {
 type UserTokenInterface interface {
 	UpsertUserToken(ctx context.Context, userToken *UserToken) error
 	SelectUserTokens(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*UserToken, error)
+}
+
+type InferenceInterface interface {
+	UpsertInference(ctx context.Context, inference *Inference) error
+	SelectInferences(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*Inference, error)
+	GetInference(ctx context.Context, inferenceId string) (*Inference, error)
+	CountInferences(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	SetInferenceDeleted(ctx context.Context, inferenceId string) error
+}
+
+type PlaygroundSessionInterface interface {
+	InsertPlaygroundSession(ctx context.Context, session *PlaygroundSession) error
+	UpdatePlaygroundSession(ctx context.Context, session *PlaygroundSession) error
+	SelectPlaygroundSessions(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*PlaygroundSession, error)
+	GetPlaygroundSession(ctx context.Context, id int64) (*PlaygroundSession, error)
+	CountPlaygroundSessions(ctx context.Context, query sqrl.Sqlizer) (int, error)
+	SetPlaygroundSessionDeleted(ctx context.Context, id int64) error
 }

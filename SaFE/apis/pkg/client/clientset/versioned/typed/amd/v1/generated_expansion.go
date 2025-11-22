@@ -14,6 +14,8 @@ type ClusterExpansion interface{}
 
 type FaultExpansion interface{}
 
+type InferenceExpansion interface{}
+
 type NodeExpansion interface{}
 
 type NodeFlavorExpansion interface{}

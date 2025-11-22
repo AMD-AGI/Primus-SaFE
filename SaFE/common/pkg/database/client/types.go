@@ -209,3 +209,48 @@ func GetUserTokenFieldTags() map[string]string {
 	token := UserToken{}
 	return getFieldTags(token)
 }
+
+type Inference struct {
+	Id           int64          `db:"id"`
+	InferenceId  string         `db:"inference_id"`
+	DisplayName  string         `db:"display_name"`
+	Description  sql.NullString `db:"description"`
+	UserId       string         `db:"user_id"`
+	UserName     sql.NullString `db:"user_name"`
+	ModelForm    string         `db:"model_form"`
+	ModelName    string         `db:"model_name"`
+	Instance     sql.NullString `db:"instance"`
+	Resource     sql.NullString `db:"resource"`
+	Config       sql.NullString `db:"config"`
+	Phase        sql.NullString `db:"phase"`
+	Events       sql.NullString `db:"events"`
+	Message      sql.NullString `db:"message"`
+	CreationTime pq.NullTime    `db:"creation_time"`
+	UpdateTime   pq.NullTime    `db:"update_time"`
+	DeletionTime pq.NullTime    `db:"deletion_time"`
+	IsDeleted    bool           `db:"is_deleted"`
+}
+
+// GetInferenceFieldTags returns the InferenceFieldTags value.
+func GetInferenceFieldTags() map[string]string {
+	inf := Inference{}
+	return getFieldTags(inf)
+}
+
+type PlaygroundSession struct {
+	Id           int64       `db:"id"`
+	UserId       string      `db:"user_id"`
+	ModelName    string      `db:"model_name"`
+	DisplayName  string      `db:"display_name"`
+	SystemPrompt string      `db:"system_prompt"`
+	Messages     string      `db:"messages"`
+	CreationTime pq.NullTime `db:"creation_time"`
+	UpdateTime   pq.NullTime `db:"update_time"`
+	IsDeleted    bool        `db:"is_deleted"`
+}
+
+// GetPlaygroundSessionFieldTags returns the PlaygroundSessionFieldTags value.
+func GetPlaygroundSessionFieldTags() map[string]string {
+	session := PlaygroundSession{}
+	return getFieldTags(session)
+}

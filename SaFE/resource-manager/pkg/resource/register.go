@@ -50,5 +50,8 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupImageImportJobReconciler(mgr); err != nil {
 		return fmt.Errorf("image import job controller: %v", err)
 	}
+	if err := SetupInferenceController(mgr); err != nil {
+		return fmt.Errorf("inference controller: %v", err)
+	}
 	return nil
 }

@@ -32,6 +32,10 @@ func (c *FakeAmdV1) Faults(namespace string) v1.FaultInterface {
 	return newFakeFaults(c, namespace)
 }
 
+func (c *FakeAmdV1) Inferences(namespace string) v1.InferenceInterface {
+	return newFakeInferences(c, namespace)
+}
+
 func (c *FakeAmdV1) Nodes(namespace string) v1.NodeInterface {
 	return newFakeNodes(c, namespace)
 }

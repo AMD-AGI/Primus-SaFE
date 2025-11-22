@@ -206,6 +206,76 @@ func faultFilter(oldObj, newObj *unstructured.Unstructured) bool {
 	return false
 }
 
+// inferenceMapper converts an unstructured inference object to a database inference model.
+func inferenceMapper(obj *unstructured.Unstructured) *dbclient.Inference {
+	inference := &v1.Inference{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, inference)
+	if err != nil {
+		klog.ErrorS(err, "failed to convert object to inference", "data", obj)
+		return nil
+	}
+
+	result := &dbclient.Inference{
+		InferenceId:  inference.Name,
+		DisplayName:  inference.Spec.DisplayName,
+		UserId:       inference.Spec.UserID,
+		ModelForm:    string(inference.Spec.ModelForm),
+		ModelName:    inference.Spec.ModelName,
+		CreationTime: dbutils.NullMetaV1Time(&inference.CreationTimestamp),
+		UpdateTime:   dbutils.NullMetaV1Time(inference.Status.UpdateTime),
+		DeletionTime: dbutils.NullMetaV1Time(inference.GetDeletionTimestamp()),
+	}
+	if inference.Spec.Description != "" {
+		result.Description = dbutils.NullString(inference.Spec.Description)
+	}
+	if inference.Spec.UserName != "" {
+		result.UserName = dbutils.NullString(inference.Spec.UserName)
+	}
+	if inference.Status.Phase != "" {
+		result.Phase = dbutils.NullString(string(inference.Status.Phase))
+	}
+	if inference.Status.Message != "" {
+		result.Message = dbutils.NullString(inference.Status.Message)
+	}
+	// Serialize complex fields to JSON
+	result.Instance = dbutils.NullString(string(jsonutils.MarshalSilently(inference.Spec.Instance)))
+	result.Resource = dbutils.NullString(string(jsonutils.MarshalSilently(inference.Spec.Resource)))
+	if len(inference.Status.Events) > 0 {
+		result.Events = dbutils.NullString(string(jsonutils.MarshalSilently(inference.Status.Events)))
+	}
+	// Config is optional
+	if inference.Spec.Config.Image != "" || inference.Spec.Config.EntryPoint != "" || inference.Spec.Config.ModelPath != "" {
+		result.Config = dbutils.NullString(string(jsonutils.MarshalSilently(inference.Spec.Config)))
+	}
+	return result
+}
+
+// inferenceFilter determines whether an inference update should be processed.
+// Returns true if the update should be filtered out (ignored), false otherwise.
+func inferenceFilter(oldObj, newObj *unstructured.Unstructured) bool {
+	if oldObj == nil || newObj == nil {
+		return false
+	}
+	oldInference := &v1.Inference{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(oldObj.Object, oldInference)
+	if err != nil {
+		return true
+	}
+	newInference := &v1.Inference{}
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(newObj.Object, newInference)
+	if err != nil {
+		return true
+	}
+	if oldInference.GetDeletionTimestamp().IsZero() && !newInference.GetDeletionTimestamp().IsZero() {
+		return false
+	}
+	if reflect.DeepEqual(oldInference.Spec, newInference.Spec) &&
+		reflect.DeepEqual(oldInference.Status, newInference.Status) {
+		return true
+	}
+	return false
+}
+
 // opsJobMapper converts an unstructured ops job object to a database ops job model.
 func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 	job := &v1.OpsJob{}
