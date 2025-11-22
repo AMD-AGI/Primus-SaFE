@@ -3,7 +3,7 @@
  * See LICENSE for license information.
  */
 
-package inference_handlers
+package model_handlers
 
 import (
 	"github.com/gin-gonic/gin"
