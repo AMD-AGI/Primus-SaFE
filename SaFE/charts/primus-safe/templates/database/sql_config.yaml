@@ -295,3 +295,50 @@ data:
     create index if not exists T_NODE_STAT_CREATED_AT_INDEX on node_statistic (created_at);
 
     alter table node_statistic owner to "primus-safe";
+
+
+    create table if not exists inference
+    (
+        id BIGSERIAL PRIMARY KEY,
+        inference_id VARCHAR(64) NOT NULL,
+        display_name VARCHAR(128) NOT NULL,
+        description TEXT,
+        user_id VARCHAR(64) NOT NULL,
+        user_name VARCHAR(128),
+        model_form VARCHAR(64) NOT NULL,
+        model_name VARCHAR(128) NOT NULL,
+        instance JSONB,
+        resource JSONB,
+        config JSONB,
+        phase VARCHAR(32),
+        events JSONB,
+        message TEXT,
+        creation_time TIMESTAMPTZ,
+        update_time TIMESTAMPTZ,
+        deletion_time TIMESTAMPTZ,
+        is_deleted BOOLEAN DEFAULT FALSE
+    );
+
+    create unique index if not exists T_INFERENCE_ID_INDEX on inference (inference_id);
+    create index if not exists T_INFERENCE_USER_QUERY_INDEX on inference (user_id, is_deleted);
+    create index if not exists T_INFERENCE_MODEL_QUERY_INDEX on inference (model_name, phase, is_deleted);
+
+    alter table inference owner to "primus-safe";
+
+
+    create table if not exists playground_session
+    (
+        id BIGSERIAL PRIMARY KEY,
+        user_id VARCHAR(64) NOT NULL,
+        model_name VARCHAR(128) NOT NULL,
+        display_name VARCHAR(128) NOT NULL,
+        system_prompt TEXT,
+        messages JSONB,
+        creation_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        update_time TIMESTAMPTZ,
+        is_deleted BOOLEAN DEFAULT FALSE
+    );
+
+    create index if not exists T_PLAYGROUND_SESSION_QUERY_INDEX on playground_session (user_id, model_name, is_deleted, update_time DESC);
+
+    alter table playground_session owner to "primus-safe";

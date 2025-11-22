@@ -124,6 +124,11 @@ const (
 	AddonPrefix       = PrimusSafePrefix + "addon."
 	AddonFinalizer    = AddonPrefix + "finalizer"
 	AddonDefaultLabel = AddonPrefix + "default"
+
+	// inference
+	InferencePrefix    = PrimusSafePrefix + "inference."
+	InferenceFinalizer = PrimusSafeDomain + "inference.finalizer"
+	InferenceIdLabel   = InferencePrefix + "id"
 )
 
 type SecretType string
