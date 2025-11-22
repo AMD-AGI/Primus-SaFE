@@ -14,7 +14,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	customhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers"
 	image_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/image-handlers"
-	inference_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/inference-handlers"
+	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
 	sshhandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/ssh-handlers"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -56,21 +56,21 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	}
 	sshhandler.InitWebShellRouters(engine, sshHandler)
 
-	// Initialize inference and playground handlers
+	// Initialize model and playground handlers
 	if commonconfig.IsDBEnable() {
-		inferenceHandler := InitInferenceHandlers(mgr)
-		inference_handlers.InitInferenceRouters(engine, inferenceHandler)
+		modelHandler := InitModelHandlers(mgr)
+		model_handlers.InitInferenceRouters(engine, modelHandler)
 	}
 
 	return engine, nil
 }
 
-// InitInferenceHandlers initializes the inference handlers for the API server.
-// It creates and returns a new inference handler instance configured with the provided manager.
-func InitInferenceHandlers(mgr ctrlruntime.Manager) *inference_handlers.Handler {
+// InitModelHandlers initializes the model handlers for the API server.
+// It creates and returns a new model handler instance configured with the provided manager.
+func InitModelHandlers(mgr ctrlruntime.Manager) *model_handlers.Handler {
 	dbClient := dbclient.NewClient()
 	accessController := authority.NewAccessController(mgr.GetClient())
-	return inference_handlers.NewHandler(mgr.GetClient(), dbClient, accessController)
+	return model_handlers.NewHandler(mgr.GetClient(), dbClient, accessController)
 }
 
 // InitSshHandlers initializes the SSH handlers for the API server.

@@ -3,7 +3,7 @@
  * See LICENSE for license information.
  */
 
-package inference_handlers
+package model_handlers
 
 import (
 	"bytes"
@@ -123,6 +123,15 @@ func (h *Handler) streamChat(c *gin.Context, baseUrl string, req *ChatRequest) {
 	if req.MaxTokens > 0 {
 		requestBody["max_tokens"] = req.MaxTokens
 	}
+	if req.FrequencyPenalty != 0 {
+		requestBody["frequency_penalty"] = req.FrequencyPenalty
+	}
+	if req.EnableThinking {
+		requestBody["enable_thinking"] = req.EnableThinking
+		if req.ThinkingBudget > 0 {
+			requestBody["thinking_budget"] = req.ThinkingBudget
+		}
+	}
 
 	bodyBytes, err := json.Marshal(requestBody)
 	if err != nil {
@@ -201,6 +210,15 @@ func (h *Handler) nonStreamChat(c *gin.Context, baseUrl string, req *ChatRequest
 	}
 	if req.MaxTokens > 0 {
 		requestBody["max_tokens"] = req.MaxTokens
+	}
+	if req.FrequencyPenalty != 0 {
+		requestBody["frequency_penalty"] = req.FrequencyPenalty
+	}
+	if req.EnableThinking {
+		requestBody["enable_thinking"] = req.EnableThinking
+		if req.ThinkingBudget > 0 {
+			requestBody["thinking_budget"] = req.ThinkingBudget
+		}
 	}
 
 	bodyBytes, err := json.Marshal(requestBody)
