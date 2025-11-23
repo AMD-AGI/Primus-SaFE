@@ -115,27 +115,6 @@ func TestCvtToSecretResponseItem(t *testing.T) {
 				assert.Contains(t, servers, "gcr.io")
 			},
 		},
-		{
-			name: "Secret binding all workspaces",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "global-secret",
-					CreationTimestamp: metav1.NewTime(now),
-					Labels: map[string]string{
-						v1.SecretTypeLabel:         string(v1.SecretSSH),
-						v1.SecretAllWorkspaceLabel: "true",
-					},
-				},
-				Data: map[string][]byte{
-					string(types.UserNameParam): []byte("admin"),
-					types.SSHAuthKey:            []byte("key"),
-					types.SSHAuthPubKey:         []byte("pub"),
-				},
-			},
-			validate: func(t *testing.T, result types.SecretResponseItem) {
-				assert.True(t, result.BindAllWorkspaces)
-			},
-		},
 	}
 
 	for _, tt := range tests {

@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	apitypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -32,13 +33,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
-	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 )
@@ -86,44 +85,17 @@ func SetupWorkspaceController(mgr manager.Manager, opt *WorkspaceReconcilerOptio
 
 // relevantChangePredicate defines which Workspace changes should trigger reconciliation.
 func (r *WorkspaceReconciler) relevantChangePredicate() predicate.Predicate {
-	isRelevantFieldChanged := func(oldWorkspace, newWorkspace *v1.Workspace) bool {
-		if oldWorkspace.Spec.Replica != newWorkspace.Spec.Replica ||
-			v1.GetWorkspaceNodesAction(oldWorkspace) == "" && v1.GetWorkspaceNodesAction(newWorkspace) != "" ||
-			(oldWorkspace.GetDeletionTimestamp().IsZero() && !newWorkspace.GetDeletionTimestamp().IsZero()) {
-			return true
-		}
-		return false
-	}
-
 	return predicate.Funcs{
-		CreateFunc: func(evt event.CreateEvent) bool {
-			// On workspace creation, ensure SA and CRB subject on the data plane
-			if ws, ok := evt.Object.(*v1.Workspace); ok {
-				r.retryCICDNoPermissionSA(context.Background(), ws, false)
-			}
-			return true
-		},
 		UpdateFunc: func(evt event.UpdateEvent) bool {
 			oldWorkspace, ok1 := evt.ObjectOld.(*v1.Workspace)
 			newWorkspace, ok2 := evt.ObjectNew.(*v1.Workspace)
 			if !ok1 || !ok2 {
 				return false
 			}
-			if !oldWorkspace.HasScope(v1.CICDScope) && newWorkspace.HasScope(v1.CICDScope) {
-				r.retryCICDNoPermissionSA(context.Background(), newWorkspace, false)
-			} else if oldWorkspace.HasScope(v1.CICDScope) && !newWorkspace.HasScope(v1.CICDScope) {
-				r.retryCICDNoPermissionSA(context.Background(), oldWorkspace, true)
+			if v1.GetWorkspaceNodesAction(oldWorkspace) == "" && v1.GetWorkspaceNodesAction(newWorkspace) != "" ||
+				(oldWorkspace.GetDeletionTimestamp().IsZero() && !newWorkspace.GetDeletionTimestamp().IsZero()) {
+				return true
 			}
-			return isRelevantFieldChanged(oldWorkspace, newWorkspace)
-		},
-		DeleteFunc: func(evt event.DeleteEvent) bool {
-			// On workspace deletion, remove SA and CRB subject from the data plane
-			if ws, ok := evt.Object.(*v1.Workspace); ok {
-				r.retryCICDNoPermissionSA(context.Background(), ws, true)
-			}
-			return false
-		},
-		GenericFunc: func(evt event.GenericEvent) bool {
 			return false
 		},
 	}
@@ -181,19 +153,90 @@ func (r *WorkspaceReconciler) handleNodeEvent() handler.EventHandler {
 	}
 }
 
+// guaranteeDataPlaneResources creates required resources in the data plane for a workspace.
+func (r *WorkspaceReconciler) guaranteeDataPlaneResources(ctx context.Context, workspace *v1.Workspace, clientSet kubernetes.Interface) error {
+	// create namespace for data plane
+	if err := createDataplaneNamespace(ctx, workspace.Name, clientSet); err != nil {
+		klog.ErrorS(err, "failed to create namespace for data plane", "name", workspace.Name)
+		return err
+	}
+	if err := createDataPlanePvc(ctx, workspace, clientSet); err != nil {
+		klog.ErrorS(err, "failed to create pvc for data plane", "name", workspace.Name)
+		return err
+	}
+	if err := createCICDNoPermissionSA(ctx, workspace, clientSet); err != nil {
+		klog.ErrorS(err, "failed to create service account for cicd with no permission", "name", workspace.Name)
+		return err
+	}
+	if err := syncDataPlanePVC(ctx, workspace, clientSet); err != nil {
+		klog.ErrorS(err, "failed to sync pvc for data plane", "name", workspace.Name)
+		return err
+	}
+	return nil
+}
+
+func (r *WorkspaceReconciler) getClientSetOfDataplane(ctx context.Context, clusterId string) (kubernetes.Interface, error) {
+	if clusterId == "" {
+		return nil, nil
+	}
+	cluster := &v1.Cluster{}
+	if err := r.Get(ctx, client.ObjectKey{Name: clusterId}, cluster); err != nil {
+		return nil, err
+	}
+	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, clusterId)
+	if err != nil || !k8sClients.IsValid() {
+		return nil, fmt.Errorf("the cluster(%s) clients is not ready", clusterId)
+	}
+	return k8sClients.ClientSet(), nil
+}
+
+// deleteDataPlaneResources deletes data plane resources when a workspace is deleted.
+func (r *WorkspaceReconciler) deleteDataPlaneResources(ctx context.Context, workspace *v1.Workspace) error {
+	clientSet, err := r.getClientSetOfDataplane(ctx, workspace.Spec.Cluster)
+	if err != nil || clientSet == nil {
+		return client.IgnoreNotFound(err)
+	}
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type == v1.HOSTPATH {
+			continue
+		}
+		if err = deletePVC(ctx, vol.GenFullVolumeId(), workspace.Name, clientSet); err != nil {
+			return err
+		}
+	}
+	if err = deleteCICDNoPermissionSA(ctx, workspace, clientSet); err != nil {
+		return err
+	}
+	if err = deleteWorkspaceSecrets(ctx, workspace, clientSet); err != nil {
+		return err
+	}
+	if err = deleteDataplaneNamespace(ctx, workspace.Name, clientSet); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Reconcile is the main control loop for Workspace resources.
 func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	startTime := time.Now().UTC()
-	defer func() {
-		klog.V(4).Infof("Finished reconcile %s %s cost (%v)", v1.WorkspaceKind, req.Name, time.Since(startTime))
-	}()
-
 	workspace := new(v1.Workspace)
 	if err := r.Get(ctx, req.NamespacedName, workspace); err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
 	if !workspace.GetDeletionTimestamp().IsZero() {
 		return ctrlruntime.Result{}, r.delete(ctx, workspace)
+	}
+	clientSet, err := r.getClientSetOfDataplane(ctx, workspace.Spec.Cluster)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrlruntime.Result{}, nil
+		}
+		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
+	}
+	if clientSet == nil {
+		return ctrlruntime.Result{}, nil
+	}
+	if err = r.guaranteeDataPlaneResources(ctx, workspace, clientSet); err != nil {
+		return ctrlruntime.Result{}, err
 	}
 	result, err := r.processWorkspace(ctx, workspace)
 	if err != nil {
@@ -205,18 +248,32 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 // delete handles the deletion of a Workspace resource by unbinding nodes and removing finalizers.
 func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspace) error {
 	var err error
-	nodeList := &v1.NodeList{}
-	labelSelector := labels.SelectorFromSet(map[string]string{v1.WorkspaceIdLabel: workspace.Name})
-	if err = r.List(ctx, nodeList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+	if err = r.updatePhase(ctx, workspace, v1.WorkspaceDeleting); err != nil {
+		klog.ErrorS(err, "failed to update phase for workspace", "name", workspace.Name)
 		return err
 	}
-	nodes := commonnodes.Nodes2PointerSlice(nodeList.Items)
+
+	nodeList := &v1.NodeList{}
+	if err = r.List(ctx, nodeList); err != nil {
+		return err
+	}
+	var nodes []*v1.Node
+	for i, item := range nodeList.Items {
+		if item.GetSpecWorkspace() == workspace.Name {
+			nodes = append(nodes, &nodeList.Items[i])
+		}
+	}
 	if err = r.updateNodesBinding(ctx, workspace, nodes, buildTargetList(nodes, "")); err != nil {
 		return err
 	}
+	// Wait for all expected unbind operations to be observed before proceeding
+	if !r.meetExpectations(workspace.Name) {
+		klog.Infof("Workspace(%s) delete waiting for node unbinding to complete", workspace.Name)
+		return nil
+	}
 	r.removeExpectations(workspace.Name)
-	if err = r.updatePhase(ctx, workspace, v1.WorkspaceDeleting); err != nil {
-		klog.ErrorS(err, "failed to update phase for workspace")
+	if err = r.deleteDataPlaneResources(ctx, workspace); err != nil {
+		klog.ErrorS(err, "failed to delete data plane resources for workspace", "name", workspace.Name)
 		return err
 	}
 	return utils.RemoveFinalizer(ctx, r.Client, workspace, v1.WorkspaceFinalizer)
@@ -289,6 +346,9 @@ func (r *WorkspaceReconciler) processWorkspace(ctx context.Context, workspace *v
 	}
 	if err = r.syncWorkspace(ctx, workspace); err != nil {
 		return ctrlruntime.Result{}, err
+	}
+	if workspace.Spec.NodeFlavor == "" {
+		return ctrlruntime.Result{}, nil
 	}
 
 	totalStatusCount := workspace.CurrentReplica()
@@ -505,7 +565,7 @@ func (r *WorkspaceReconciler) processNodesAction(ctx context.Context, workspace 
 		if err := r.Get(ctx, client.ObjectKey{Name: key}, node); client.IgnoreNotFound(err) != nil {
 			return false, err
 		}
-		if node == nil || !node.GetDeletionTimestamp().IsZero() {
+		if node == nil || node.Name == "" || !node.GetDeletionTimestamp().IsZero() {
 			continue
 		}
 		if val == v1.NodeActionRemove {
@@ -621,97 +681,4 @@ func buildTargetList(nodes []*v1.Node, target string) map[string]string {
 		results[n.Name] = target
 	}
 	return results
-}
-
-// retryCICDNoPermissionSA handles CICD ServiceAccount operations (create/delete) with retry logic
-// for a given workspace on the data plane cluster.
-// Retries up to 30 times with 5-second intervals between attempts.
-func (r *WorkspaceReconciler) retryCICDNoPermissionSA(ctx context.Context, workspace *v1.Workspace, isDelete bool) {
-	if !commonconfig.IsCICDEnable() || workspace.Spec.Cluster == "" {
-		return
-	}
-	if len(workspace.Spec.Scopes) > 0 && !workspace.HasScope(v1.CICDScope) {
-		return
-	}
-
-	const maxRetry = 30
-	waitTime := time.Second * 5
-	maxWaitTime := waitTime * maxRetry
-
-	err := backoff.Retry(func() error {
-		var err error
-		if isDelete {
-			err = r.deleteCICDNoPermissionSA(ctx, workspace)
-		} else {
-			err = r.createCICDNoPermissionSA(ctx, workspace)
-		}
-		return err
-	}, maxWaitTime, waitTime)
-
-	if err != nil {
-		action := "create"
-		if isDelete {
-			action = "delete"
-		}
-		klog.ErrorS(err, fmt.Sprintf("failed to %s workspace ServiceAccount", action), "workspace", workspace.Name)
-	}
-}
-
-// createCICDNoPermissionSA creates a CICD ServiceAccount for the workspace on the data plane cluster.
-// It checks if the ServiceAccount already exists, and creates it if not found.
-func (r *WorkspaceReconciler) createCICDNoPermissionSA(ctx context.Context, workspace *v1.Workspace) error {
-	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
-	if err != nil {
-		return err
-	}
-	if !k8sClients.IsValid() {
-		return fmt.Errorf("invalid k8s clients")
-	}
-
-	clientSet := k8sClients.ClientSet()
-	saName := commonutils.GenerateCICDNoPermissionName()
-	saNamespace := workspace.Name
-	// Ensure ServiceAccount exists
-	_, err = clientSet.CoreV1().ServiceAccounts(saNamespace).Get(ctx, saName, metav1.GetOptions{})
-	if err == nil {
-		return nil
-	}
-	if !apierrors.IsNotFound(err) {
-		return err
-	}
-	sa := &corev1.ServiceAccount{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      saName,
-			Namespace: saNamespace,
-		},
-	}
-	if _, err = clientSet.CoreV1().ServiceAccounts(saNamespace).Create(ctx, sa, metav1.CreateOptions{}); err != nil {
-		return err
-	}
-	klog.Infof("create ServiceAccount %s/%s on cluster %s", saNamespace, saName, workspace.Spec.Cluster)
-	return nil
-}
-
-// deleteCICDNoPermissionSA removes the CICD ServiceAccount for the workspace from the data plane cluster.
-// If the ServiceAccount doesn't exist, it ignores the NotFound error.
-func (r *WorkspaceReconciler) deleteCICDNoPermissionSA(ctx context.Context, workspace *v1.Workspace) error {
-	k8sClients, err := utils.GetK8sClientFactory(r.clientManager, workspace.Spec.Cluster)
-	if err != nil {
-		return err
-	}
-	if !k8sClients.IsValid() {
-		return fmt.Errorf("invalid k8s clients")
-	}
-	clientSet := k8sClients.ClientSet()
-	saName := commonutils.GenerateCICDNoPermissionName()
-	saNamespace := workspace.Name
-
-	if err = clientSet.CoreV1().ServiceAccounts(saNamespace).Delete(ctx, saName, metav1.DeleteOptions{}); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return err
-		}
-	} else {
-		klog.Infof("delete ServiceAccount %s/%s on cluster %s", saNamespace, saName, workspace.Spec.Cluster)
-	}
-	return nil
 }

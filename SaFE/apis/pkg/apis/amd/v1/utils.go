@@ -312,14 +312,14 @@ func GetCronjobTimestamp(obj metav1.Object) string {
 	return GetAnnotation(obj, CronJobTimestampAnnotation)
 }
 
-// IsSecretBindAllWorkspaces checks if a secret is bound to all workspaces.
-func IsSecretBindAllWorkspaces(obj metav1.Object) bool {
-	return GetLabel(obj, SecretAllWorkspaceLabel) == TrueStr
-}
-
 // IsCICDUnifiedBuildEnable checks whether cicd unified build is enabled
 func IsCICDUnifiedBuildEnable(obj metav1.Object) bool {
 	return GetAnnotation(obj, CICDUnifiedBuildAnnotation) == TrueStr
+}
+
+// IsSecretSharable checks whether the secret can be shared
+func IsSecretSharable(obj metav1.Object) bool {
+	return GetLabel(obj, SecretSharableLabel) == TrueStr
 }
 
 // atoi converts a string to an integer, returning 0 if conversion fails.

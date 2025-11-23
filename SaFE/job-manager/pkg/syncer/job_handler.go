@@ -67,11 +67,7 @@ func (r *SyncerReconciler) handleJobImpl(ctx context.Context, message *resourceM
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	var isNeedRetry bool
-	adminWorkload, isNeedRetry, err = r.updateAdminWorkloadStatus(ctx, adminWorkload, status, message)
-	if isNeedRetry {
-		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
-	}
+	adminWorkload, err = r.updateAdminWorkloadStatus(ctx, adminWorkload, status, message)
 	if err != nil {
 		klog.ErrorS(err, "failed to update admin workload status")
 		return ctrlruntime.Result{}, err
@@ -150,7 +146,7 @@ func (r *SyncerReconciler) waitAllPodsDeleted(ctx context.Context, message *reso
 	if len(podList.Items) == 0 {
 		return true
 	}
-	klog.Warningf("the pods of this workload %s still exist, this will retry again in 3 seconds.", message.workloadId)
+	klog.Warningf("the pods of this workload %s still exists, this will retry again in 3 seconds.", message.workloadId)
 	return false
 }
 
@@ -164,16 +160,16 @@ func (r *SyncerReconciler) waitJobDeleted(ctx context.Context, adminWorkload *v1
 			return true
 		}
 	}
-	klog.Warningf("the job of this workload %s still exist, this will retry again in 3 seconds.", adminWorkload.Name)
+	klog.Warningf("the job of this workload %s still exists, this will retry again in 3 seconds.", adminWorkload.Name)
 	return false
 }
 
 // updateAdminWorkloadStatus updates the admin workload status based on resource status.
 // Manages workload phase transitions and condition updates.
 func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, originalWorkload *v1.Workload,
-	status *jobutils.K8sResourceStatus, message *resourceMessage) (*v1.Workload, bool, error) {
+	status *jobutils.K8sResourceStatus, message *resourceMessage) (*v1.Workload, error) {
 	if originalWorkload.IsEnd() || status == nil || status.Phase == "" {
-		return originalWorkload, false, nil
+		return originalWorkload, nil
 	}
 	adminWorkload := originalWorkload.DeepCopy()
 	r.updateAdminWorkloadPhase(adminWorkload, status, message)
@@ -191,14 +187,14 @@ func (r *SyncerReconciler) updateAdminWorkloadStatus(ctx context.Context, origin
 		commonworkload.GenerateDispatchReason(message.dispatchCount))
 	updateWorkloadCondition(adminWorkload, cond)
 	if reflect.DeepEqual(adminWorkload.Status, originalWorkload.Status) {
-		return originalWorkload, false, nil
+		return originalWorkload, nil
 	}
 	if err := r.Status().Update(ctx, adminWorkload); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	klog.Infof("update workload status, name: %s, phase: %s, dispatchCount: %d, k8s.status: %s",
 		adminWorkload.Name, adminWorkload.Status.Phase, message.dispatchCount, jsonutils.MarshalSilently(status))
-	return adminWorkload, false, nil
+	return adminWorkload, nil
 }
 
 // updateAdminWorkloadPhase updates the workload phase based on resource status.

@@ -706,7 +706,7 @@ func (h *Handler) generateNode(ctx context.Context, requestUser *v1.User, req *t
 		node.Spec.NodeTemplate = commonutils.GenObjectReference(nt.TypeMeta, nt.ObjectMeta)
 	}
 
-	secret, err := h.getAdminSecret(ctx, req.SSHSecretId, requestUser, true)
+	secret, err := h.getAndAuthorizeSecret(ctx, req.SSHSecretId, "", requestUser, v1.GetVerb)
 	if err != nil {
 		return nil, err
 	}

@@ -25,8 +25,7 @@ Create new SSH key or image registry secret.
       "privateKey": "",
       "publicKey": ""
     }
-  ],
-  "bindAllWorkspaces": false
+  ]
 }
 ```
 
@@ -43,8 +42,7 @@ Create new SSH key or image registry secret.
       "privateKey": "LS0tLS1CRUdJTi...(Base64 encoded private key)",
       "publicKey": "c3NoLXJzYSBBQUFB...(Base64 encoded public key)"
     }
-  ],
-  "bindAllWorkspaces": false
+  ]
 }
 ```
 
@@ -65,8 +63,7 @@ Create new SSH key or image registry secret.
       "username": "dockeruser",
       "password": "RG9ja2VyMTIzNDU=(Base64 encoded password)"
     }
-  ],
-  "bindAllWorkspaces": true
+  ]
 }
 ```
 
@@ -77,7 +74,6 @@ Create new SSH key or image registry secret.
 | name | string | Yes | Secret name                                       |
 | type | string | Yes | Secret type: ssh/image                            |
 | params | []object | Yes | Authentication parameter list                     |
-| bindAllWorkspaces | bool | No | Whether to bind to all workspaces, only for image |
 
 **SSH Key Parameters**:
 
@@ -134,8 +130,7 @@ Get secret list with type filtering support.
       "server": "https://registry-1.docker.io",
       "username": "admin"
     }],
-    "creationTime": "2025-09-27T01:19:28",
-    "bindAllWorkspaces": true
+    "creationTime": "2025-09-27T01:19:28"
   }, {
     "secretId": "test-ssh-abc12",
     "secretName": "test-ssh",
@@ -219,8 +214,7 @@ Update secret authentication information or binding settings.
       "username": "newuser",
       "password": "TmV3UGFzc3dvcmQ="
     }
-  ],
-  "bindAllWorkspaces": true
+  ]
 }
 ```
 
@@ -277,13 +271,7 @@ Used for pulling images from private registries.
 
 ## Secret Binding
 
-### Bind to All Workspaces (bindAllWorkspaces=true)
-
-- All existing and new workspaces automatically get this secret
-- Suitable for globally shared image registry secrets
-- Only effective for image registry secrets
-
-### Manual Binding (bindAllWorkspaces=false)
+### Manual Binding 
 
 - Explicitly specify imageSecretIds when creating or updating workspace
 

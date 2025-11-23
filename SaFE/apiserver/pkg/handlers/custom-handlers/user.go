@@ -91,14 +91,9 @@ func (h *Handler) Logout(c *gin.Context) {
 // Parses the request, generates a user object with appropriate permissions and settings,
 // and creates it in the system.
 func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
-	requestUser, err := h.getAndSetUsername(c)
-	if err != nil {
-		return nil, err
-	}
 	if commonconfig.IsSSOEnable() {
 		return nil, commonerrors.NewInternalError("the user registration is not enabled")
 	}
-
 	req := &types.CreateUserRequest{}
 	body, err := apiutils.ParseRequestBody(c.Request, req)
 	if err != nil {
@@ -106,7 +101,7 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	user := generateUser(req, requestUser)
+	user := generateUser(req)
 	if err = h.Create(c.Request.Context(), user); err != nil {
 		return nil, err
 	}
@@ -116,7 +111,7 @@ func (h *Handler) createUser(c *gin.Context) (interface{}, error) {
 // generateUser creates a new user object based on the creation request.
 // Sets user metadata, roles, and properties based on the requester's permissions.
 // Handles password encoding and workspace assignments.
-func generateUser(req *types.CreateUserRequest, requestUser *v1.User) *v1.User {
+func generateUser(req *types.CreateUserRequest) *v1.User {
 	user := &v1.User{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonuser.GenerateUserIdByName(req.Name),

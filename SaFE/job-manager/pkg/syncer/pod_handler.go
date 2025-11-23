@@ -107,17 +107,8 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	if adminWorkload == nil {
 		return ctrlruntime.Result{}, err
 	}
-
 	if !v1.IsWorkloadDispatched(adminWorkload) {
 		return ctrlruntime.Result{RequeueAfter: time.Second}, nil
-	}
-	k8sNode := &corev1.Node{}
-	if pod.Spec.NodeName != "" {
-		if k8sNode, err = clusterInformer.dataClientFactory.ClientSet().
-			CoreV1().Nodes().Get(ctx, pod.Spec.NodeName, metav1.GetOptions{}); err != nil {
-			klog.ErrorS(err, "failed to get k8s node")
-			return ctrlruntime.Result{}, err
-		}
 	}
 
 	id := -1
@@ -131,6 +122,15 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 			return ctrlruntime.Result{}, nil
 		}
 		break
+	}
+
+	k8sNode := &corev1.Node{}
+	if pod.Spec.NodeName != "" {
+		if k8sNode, err = clusterInformer.dataClientFactory.ClientSet().
+			CoreV1().Nodes().Get(ctx, pod.Spec.NodeName, metav1.GetOptions{}); err != nil {
+			klog.ErrorS(err, "failed to get k8s node")
+			return ctrlruntime.Result{}, err
+		}
 	}
 
 	workloadPod := v1.WorkloadPod{
@@ -281,6 +281,10 @@ func buildPodTerminatedInfo(ctx context.Context,
 // getPodLog retrieves and filters logs from a pod's main container.
 // Extracts lines containing ERROR or SUCCESS markers for OpsJob workloads.
 func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod, mainContainerName string) string {
+	if mainContainerName == "" {
+		klog.Error("the main container is empty")
+		return ""
+	}
 	var tailLine int64 = LogTailLines
 	opt := &corev1.PodLogOptions{
 		Container: mainContainerName,

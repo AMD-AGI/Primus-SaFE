@@ -67,10 +67,11 @@ const (
 	NodeFlavorIdLabel = NodeFlavorPrefix + "id"
 
 	// workspace
-	WorkspacePrefix      = PrimusSafePrefix + "workspace."
-	WorkspaceFinalizer   = PrimusSafeDomain + "workspace.finalizer"
-	WorkspaceIdLabel     = WorkspacePrefix + "id"
-	WorkspaceNodesAction = WorkspacePrefix + "nodes.action"
+	WorkspacePrefix        = PrimusSafePrefix + "workspace."
+	WorkspaceFinalizer     = PrimusSafeDomain + "workspace.finalizer"
+	WorkspaceIdLabel       = WorkspacePrefix + "id"
+	WorkspaceNodesAction   = WorkspacePrefix + "nodes.action"
+	WorkspaceIdsAnnotation = WorkspacePrefix + "ids"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
@@ -105,9 +106,10 @@ const (
 	UserTypeLabel           = UserPrefix + "type"
 
 	// secret
-	SecretPrefix            = PrimusSafePrefix + "secret."
-	SecretTypeLabel         = SecretPrefix + "type"
-	SecretAllWorkspaceLabel = SecretPrefix + "all.workspace"
+	SecretPrefix        = PrimusSafePrefix + "secret."
+	SecretFinalizer     = PrimusSafeDomain + "secret.finalizer"
+	SecretTypeLabel     = SecretPrefix + "type"
+	SecretSharableLabel = SecretPrefix + "sharable"
 
 	// exporter
 	ExporterFinalizer = PrimusSafeDomain + "exporter.finalizer"

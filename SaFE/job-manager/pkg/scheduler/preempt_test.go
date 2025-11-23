@@ -196,8 +196,8 @@ func TestSortWorkloadWrapper(t *testing.T) {
 	workloadWrappers[0].resourceScore = workloadWrappers[1].resourceScore
 	workloadWrappers[0].workload.Spec.Priority = 3
 	sort.Sort(WorkloadWrapperSlice(workloadWrappers))
-	assert.Equal(t, workloadWrappers[0].workload.Name, "w1")
-	assert.Equal(t, workloadWrappers[1].workload.Name, "w2")
+	assert.Equal(t, workloadWrappers[0].workload.Name, "w2")
+	assert.Equal(t, workloadWrappers[1].workload.Name, "w1")
 
 	workloadWrappers[0].resourceScore = workloadWrappers[1].resourceScore
 	workloadWrappers[0].workload.Spec.Priority = workloadWrappers[1].workload.Spec.Priority

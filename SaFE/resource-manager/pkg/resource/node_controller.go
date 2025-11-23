@@ -76,10 +76,6 @@ func SetupNodeController(mgr manager.Manager) error {
 // relevantChangePredicate defines which Node changes should trigger reconciliation.
 func (r *NodeReconciler) relevantChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
-			_, ok := e.Object.(*v1.Node)
-			return ok
-		},
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldNode, ok1 := e.ObjectOld.(*v1.Node)
 			newNode, ok2 := e.ObjectNew.(*v1.Node)
@@ -87,12 +83,6 @@ func (r *NodeReconciler) relevantChangePredicate() predicate.Predicate {
 				return false
 			}
 			return r.isNodeRelevantFieldChanged(oldNode, newNode)
-		},
-		DeleteFunc: func(evt event.DeleteEvent) bool {
-			return false
-		},
-		GenericFunc: func(evt event.GenericEvent) bool {
-			return false
 		},
 	}
 }

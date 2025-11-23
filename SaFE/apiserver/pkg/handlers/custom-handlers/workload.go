@@ -162,7 +162,7 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 		return nil, err
 	}
 	for _, sec := range workload.Spec.Secrets {
-		if _, err = h.getAdminSecret(c.Request.Context(), sec.Id, requestUser, true); err != nil {
+		if _, err = h.getAndAuthorizeSecret(c.Request.Context(), sec.Id, workload.Spec.Workspace, requestUser, v1.GetVerb); err != nil {
 			klog.ErrorS(err, "failed to auth workload secrets", "workload", workload.Name,
 				"secret", sec.Id, "user", c.GetString(common.UserName))
 			return nil, err

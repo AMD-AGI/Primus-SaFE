@@ -71,11 +71,11 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 	if err = modifyTolerations(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
-	path = []string{"spec", "strategy"}
-	if err = modifyStrategy(obj, workload, path); err != nil {
-		return fmt.Errorf("failed to modify strategy: %v", err.Error())
-	}
 	if workload.Spec.Service != nil {
+		path = []string{"spec", "strategy"}
+		if err = modifyStrategy(obj, workload, path); err != nil {
+			return fmt.Errorf("failed to modify strategy: %v", err.Error())
+		}
 		path = []string{"spec", "selector"}
 		if err = modifySelector(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify selector: %v", err.Error())

@@ -153,7 +153,7 @@ func (h *Handler) generateCluster(ctx context.Context,
 	}
 
 	if cluster.Spec.ControlPlane.ImageSecret == nil && commonconfig.GetImageSecret() != "" {
-		imageSecret, err := h.getAdminSecret(ctx, commonconfig.GetImageSecret(), requestUser, true)
+		imageSecret, err := h.getAndAuthorizeSecret(ctx, commonconfig.GetImageSecret(), "", requestUser, v1.GetVerb)
 		if err != nil {
 			return nil, err
 		}
@@ -161,7 +161,7 @@ func (h *Handler) generateCluster(ctx context.Context,
 	}
 
 	if cluster.Spec.ControlPlane.SSHSecret == nil && req.SSHSecretId != "" {
-		sshSecret, err := h.getAdminSecret(ctx, req.SSHSecretId, requestUser, true)
+		sshSecret, err := h.getAndAuthorizeSecret(ctx, req.SSHSecretId, "", requestUser, v1.GetVerb)
 		if err != nil {
 			return nil, err
 		}

@@ -126,4 +126,9 @@ rules:
     - "*"
   verbs:
     - list
-    - get
+- resources:
+    - secret
+  grantedUsers:
+    - workspace-user
+  verbs:
+    - list

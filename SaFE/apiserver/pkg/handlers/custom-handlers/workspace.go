@@ -302,12 +302,19 @@ func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, 
 func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1.Workspace, requestUser *v1.User, secretIds []string) error {
 	var imageSecrets []corev1.ObjectReference
 	for _, id := range secretIds {
-		secret, err := h.getAdminSecret(ctx, id, requestUser, true)
+		secret, err := h.getAndAuthorizeSecret(ctx, id, workspace.Name, requestUser, v1.ListVerb)
 		if err != nil {
 			return err
 		}
 		if v1.GetSecretType(secret) != string(v1.SecretImage) {
 			return commonerrors.NewBadRequest("the secret type is not image")
+		}
+		if !v1.IsSecretSharable(secret) {
+			return commonerrors.NewBadRequest("the secret is not sharable")
+		}
+		workspaceIds := getSecretWorkspaces(secret)
+		if !sliceutil.Contains(workspaceIds, workspace.Name) {
+			return commonerrors.NewBadRequest("the secret is not associated with the workspace")
 		}
 		imageSecrets = append(imageSecrets, *commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
 	}
