@@ -30,6 +30,7 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -312,7 +313,7 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1
 		if !v1.IsSecretSharable(secret) {
 			return commonerrors.NewBadRequest("the secret is not sharable")
 		}
-		workspaceIds := getSecretWorkspaces(secret)
+		workspaceIds := commonsecret.GetSecretWorkspaces(secret)
 		if !sliceutil.Contains(workspaceIds, workspace.Name) {
 			return commonerrors.NewBadRequest("the secret is not associated with the workspace")
 		}
