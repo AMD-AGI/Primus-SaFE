@@ -126,10 +126,10 @@ func (r *SecretReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reques
 
 // delete handles secret deletion by removing the finalizer.
 func (r *SecretReconciler) delete(ctx context.Context, secret *corev1.Secret) error {
-	if err := r.deleteClusterRefSecret(ctx, secret); err != nil {
+	if err := r.removeSecretFromCluster(ctx, secret); err != nil {
 		return err
 	}
-	if err := r.deleteWorkspaceRefSecret(ctx, secret); err != nil {
+	if err := r.removeSecretFromWorkspaces(ctx, secret); err != nil {
 		return err
 	}
 	// If deleting, try to cleanup mirrored copies
@@ -251,48 +251,45 @@ func (r *SecretReconciler) cleanupMirroredSecrets(ctx context.Context, secretNam
 		return err
 	}
 	keepNamespaceSet := sets.NewSetByKeys(keepNamespaces...)
-	// group workspaces by cluster id to reuse clientSets
-	clusterToNamespaces := map[string][]string{}
-	for i := range wsList.Items {
-		ns := wsList.Items[i].Name
-		if keepNamespaceSet.Has(ns) {
+	for _, item := range wsList.Items {
+		if keepNamespaceSet.Has(item.Name) {
 			continue
 		}
-		clusterToNamespaces[wsList.Items[i].Spec.Cluster] = append(clusterToNamespaces[wsList.Items[i].Spec.Cluster], ns)
-	}
-	for clusterId, namespaces := range clusterToNamespaces {
-		clientSet, err := r.getClientSetOfDataplane(ctx, clusterId)
+		clientSet, err := r.getClientSetOfDataplane(ctx, item.Spec.Cluster)
 		if err != nil {
 			return err
 		}
 		if clientSet == nil {
 			continue
 		}
-		for _, ns := range namespaces {
-			sec, err := clientSet.CoreV1().Secrets(ns).Get(ctx, secretName, metav1.GetOptions{})
-			if err != nil {
-				if apierrors.IsNotFound(err) {
-					continue
-				}
-				return err
-			}
-			if sec.Labels == nil || sec.Labels[managedSecretLabelKey] != managedSecretLabelVal {
+		// remove the secret reference from the corresponding workspace if it exists
+		if err = r.removeSecretFromWorkspace(ctx, secretName, &item); err != nil {
+			return err
+		}
+
+		sec, err := clientSet.CoreV1().Secrets(item.Name).Get(ctx, secretName, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
 				continue
 			}
-			if err = clientSet.CoreV1().Secrets(ns).Delete(ctx, secretName, metav1.DeleteOptions{}); err != nil {
-				if !apierrors.IsNotFound(err) {
-					return err
-				}
-			} else {
-				klog.Infof("delete secret: %s/%s for data plane", ns, secretName)
+			return err
+		}
+		if sec.Labels == nil || sec.Labels[managedSecretLabelKey] != managedSecretLabelVal {
+			continue
+		}
+		if err = clientSet.CoreV1().Secrets(item.Name).Delete(ctx, secretName, metav1.DeleteOptions{}); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return err
 			}
+		} else {
+			klog.Infof("delete secret: %s/%s for data plane", item.Name, secretName)
 		}
 	}
 	return nil
 }
 
-// deleteClusterRefSecret removes secret references from cluster resources.
-func (r *SecretReconciler) deleteClusterRefSecret(ctx context.Context, secret *corev1.Secret) error {
+// removeSecretFromCluster removes secret references from cluster.
+func (r *SecretReconciler) removeSecretFromCluster(ctx context.Context, secret *corev1.Secret) error {
 	clusterList := &v1.ClusterList{}
 	if err := r.List(ctx, clusterList, &client.ListOptions{}); err != nil {
 		return err
@@ -310,8 +307,8 @@ func (r *SecretReconciler) deleteClusterRefSecret(ctx context.Context, secret *c
 	return nil
 }
 
-// deleteWorkspaceRefSecret removes secret references from workspace resources.
-func (r *SecretReconciler) deleteWorkspaceRefSecret(ctx context.Context, secret *corev1.Secret) error {
+// removeSecretFromWorkspaces removes secret references from all workspaces.
+func (r *SecretReconciler) removeSecretFromWorkspaces(ctx context.Context, secret *corev1.Secret) error {
 	workspaceIds := commonsecret.GetSecretWorkspaces(secret)
 	for _, id := range workspaceIds {
 		workspace := &v1.Workspace{}
@@ -322,20 +319,28 @@ func (r *SecretReconciler) deleteWorkspaceRefSecret(ctx context.Context, secret 
 			}
 			return err
 		}
+		if err = r.removeSecretFromWorkspace(ctx, secret.Name, workspace); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-		newSecrets := make([]corev1.ObjectReference, 0, len(workspace.Spec.ImageSecrets))
-		for i, currentSecret := range workspace.Spec.ImageSecrets {
-			if currentSecret.Name == secret.Name {
-				continue
-			}
-			newSecrets = append(newSecrets, workspace.Spec.ImageSecrets[i])
+// removeSecretFromWorkspaces removes secret references from the specified workspace.
+func (r *SecretReconciler) removeSecretFromWorkspace(ctx context.Context, secretName string, workspace *v1.Workspace) error {
+	newSecrets := make([]corev1.ObjectReference, 0, len(workspace.Spec.ImageSecrets))
+	for i, currentSecret := range workspace.Spec.ImageSecrets {
+		if currentSecret.Name == secretName {
+			continue
 		}
-		if len(newSecrets) != len(workspace.Spec.ImageSecrets) {
-			workspace.Spec.ImageSecrets = newSecrets
-			if err = r.Update(ctx, workspace); err != nil {
-				return err
-			}
+		newSecrets = append(newSecrets, workspace.Spec.ImageSecrets[i])
+	}
+	if len(newSecrets) != len(workspace.Spec.ImageSecrets) {
+		workspace.Spec.ImageSecrets = newSecrets
+		if err := r.Update(ctx, workspace); err != nil {
+			return err
 		}
+		klog.Infof("remove secret reference from workspace: %s/%s", workspace.Name, secretName)
 	}
 	return nil
 }

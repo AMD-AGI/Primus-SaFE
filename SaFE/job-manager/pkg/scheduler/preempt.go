@@ -38,7 +38,7 @@ func (r *SchedulerReconciler) preempt(ctx context.Context, requestWorkload *v1.W
 		return false, err
 	}
 	if len(targetWorkloads) == 0 {
-		klog.Infof("workload %s: Unable to obtain sufficient workloads to preempt resources. request", requestWorkload.Name)
+		klog.Infof("workload %s: Unable to obtain sufficient workloads to preempt resources.", requestWorkload.Name)
 		return false, nil
 	}
 	for _, w := range targetWorkloads {

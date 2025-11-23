@@ -529,7 +529,7 @@ func updateCICDScaleSet(obj *unstructured.Unstructured,
 	return nil
 }
 
-// updateCICDScaleSet updates the CICD scale set configuration in the unstructured object.
+// updateCICDGithub updates the CICD scale set configuration in the unstructured object.
 // It updates the GitHub configuration and then configures environment variables based on unified build settings.
 // Returns an error if no resource templates are found or if any update operation fails.
 func updateCICDGithub(adminWorkload *v1.Workload,
@@ -611,7 +611,7 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 				// Only update main container with resource variables
 				envs[jobutils.ResourcesEnv] = string(jsonutils.MarshalSilently(adminWorkload.Spec.Resource))
 				envs[jobutils.ImageEnv] = adminWorkload.Spec.Image
-				envs[jobutils.EntrypointEnv] = adminWorkload.Spec.EntryPoint
+				envs[jobutils.EntrypointEnv] = buildEntryPoint(adminWorkload)
 				updateContainerEnv(envs, container)
 				// Keep only the main container
 				newContainers := []interface{}{container}
