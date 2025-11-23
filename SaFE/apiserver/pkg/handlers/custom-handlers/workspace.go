@@ -307,6 +307,7 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1
 		if err != nil {
 			return err
 		}
+		klog.Infof("secret: %v", secret)
 		if v1.GetSecretType(secret) != string(v1.SecretImage) {
 			return commonerrors.NewBadRequest("the secret type is not image")
 		}
