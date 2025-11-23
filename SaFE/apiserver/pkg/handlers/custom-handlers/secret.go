@@ -453,6 +453,8 @@ func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 		Type:         v1.GetSecretType(secret),
 		CreationTime: timeutil.FormatRFC3339(secret.CreationTimestamp.Time),
 		IsSharable:   v1.GetLabel(secret, v1.SecretSharableLabel) == v1.TrueStr,
+		UserId:       v1.GetUserId(secret),
+		UserName:     v1.GetUserName(secret),
 	}
 	return result
 }

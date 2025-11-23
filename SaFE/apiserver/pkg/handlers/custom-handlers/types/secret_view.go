@@ -74,6 +74,10 @@ type SecretResponseItem struct {
 	CreationTime string `json:"creationTime"`
 	// Can be shared with other users in the same workspace.
 	IsSharable bool `json:"isSharable,omitempty"`
+	// The userId who created the secret
+	UserId string `json:"userId"`
+	// The userName who created the secret
+	UserName string `json:"userName"`
 }
 
 type GetSecretResponse struct {
