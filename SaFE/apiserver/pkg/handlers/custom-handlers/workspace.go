@@ -315,6 +315,7 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1
 		}
 		workspaceIds := commonsecret.GetSecretWorkspaces(secret)
 		if !sliceutil.Contains(workspaceIds, workspace.Name) {
+			klog.Errorf("the workspaces of secret are: %v, but the target workspace %s is not included", workspaceIds, workspace.Name)
 			return commonerrors.NewBadRequest("the secret is not associated with the workspace")
 		}
 		imageSecrets = append(imageSecrets, *commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
