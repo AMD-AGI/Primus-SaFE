@@ -14,7 +14,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     # The main container name should match the configuration defined in the template below
-    primus-safe.main.container: gha-runner
+    primus-safe.main.container: runner
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 data:
@@ -25,14 +25,13 @@ data:
     annotations:
       actions.github.com/runner-group-name: Default
     labels:
-      app.kubernetes.io/component: gha-runner
-      app.kubernetes.io/part-of: gha-runner-scale-set
+      app.kubernetes.io/component: runner
       app.kubernetes.io/version: 0.13.0
   spec:
     template:
       spec:
         containers:
-        - name: gha-runner
+        - name: runner
           imagePullPolicy: IfNotPresent
           env:
             - name: RUNNER_ALLOW_RUNASROOT
