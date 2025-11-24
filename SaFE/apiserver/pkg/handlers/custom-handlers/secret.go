@@ -513,7 +513,7 @@ func parseCreateSecretRequest(c *gin.Context) (*types.CreateSecretRequest, error
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 	if req.Name == "" || req.Type == "" || len(req.Params) == 0 {
-		return nil, commonerrors.NewBadRequest("the name, type and params are required")
+		return nil, commonerrors.NewBadRequest("the name, type and params of request are required")
 	}
 	return req, nil
 }
