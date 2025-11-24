@@ -20,14 +20,34 @@ type ReportData struct {
 	MarkdownReport string
 	ChartData      *ChartData
 	Summary        *ReportSummary
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // ChartData contains chart data from Conductor API
 type ChartData struct {
-	GpuUtilization []TimeSeriesPoint `json:"gpu_utilization"`
-	GpuAllocation  []TimeSeriesPoint `json:"gpu_allocation"`
-	NamespaceUsage []NamespaceData   `json:"namespace_usage"`
-	LowUtilUsers   []UserData        `json:"low_util_users"`
+	ClusterUsageTrend *EChartsData      `json:"cluster_usage_trend,omitempty"`
+	GpuUtilization    []TimeSeriesPoint `json:"gpu_utilization,omitempty"`
+	GpuAllocation     []TimeSeriesPoint `json:"gpu_allocation,omitempty"`
+	NamespaceUsage    []NamespaceData   `json:"namespace_usage,omitempty"`
+	LowUtilUsers      []UserData        `json:"low_util_users,omitempty"`
+}
+
+// EChartsData represents ECharts chart configuration data
+type EChartsData struct {
+	XAxis      []string        `json:"xAxis"`
+	Series     []EChartsSeries `json:"series"`
+	Title      string          `json:"title,omitempty"`
+	Cluster    string          `json:"cluster,omitempty"`
+	Metadata   interface{}     `json:"metadata,omitempty"`
+	TimeRangeDays int          `json:"time_range_days,omitempty"`
+}
+
+// EChartsSeries represents a series in ECharts
+type EChartsSeries struct {
+	Name   string        `json:"name"`
+	Type   string        `json:"type"`
+	Data   []interface{} `json:"data"`
+	Smooth bool          `json:"smooth,omitempty"`
 }
 
 // TimeSeriesPoint represents a single point in a time series chart
@@ -54,7 +74,7 @@ type UserData struct {
 
 // ReportSummary contains summary statistics for the report
 type ReportSummary struct {
-	TotalGPUs      int     `json:"total_gpus"`
+	TotalGPUs      int     `json:"total_gpus"`       // Can be populated from total_gpu_count or total_gpus in API response
 	AvgUtilization float64 `json:"avg_utilization"`
 	AvgAllocation  float64 `json:"avg_allocation"`
 	TotalGpuHours  float64 `json:"total_gpu_hours"`
@@ -75,9 +95,14 @@ type ConductorReportRequest struct {
 
 // ConductorReportResponse represents the response from Conductor API
 type ConductorReportResponse struct {
-	MarkdownReport string                 `json:"markdown_report"`
+	Status         string                 `json:"status"`
+	Report         string                 `json:"report"`          // Markdown report content
+	MarkdownReport string                 `json:"markdown_report"` // Alternative field name for backward compatibility
 	ChartData      map[string]interface{} `json:"chart_data"`
 	Summary        map[string]interface{} `json:"summary"`
+	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	Error          interface{}            `json:"error,omitempty"`
+	Timestamp      string                 `json:"timestamp,omitempty"`
 }
 
 // ToExtType converts ReportData to ExtType for database storage
@@ -87,6 +112,7 @@ func (r *ReportData) ToExtType() dbmodel.ExtType {
 		"markdown_report": r.MarkdownReport,
 		"chart_data":      r.ChartData,
 		"summary":         r.Summary,
+		"metadata":        r.Metadata,
 	}
 
 	// Convert to JSON and back to ExtType

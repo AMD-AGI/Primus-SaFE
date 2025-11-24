@@ -80,6 +80,21 @@ func (j *GpuUsageWeeklyReportJob) Run(ctx context.Context, clientSets *clientset
 	}
 	log.Infof("GpuUsageWeeklyReportJob: successfully fetched report data from Conductor API")
 
+	// Step 1.5: Get average GPU count from cluster_gpu_hourly_stats table
+	avgGpuCount, err := j.getAverageGpuCountFromDB(ctx, clusterName, period)
+	if err != nil {
+		log.Warnf("GpuUsageWeeklyReportJob: failed to get average GPU count from DB: %v", err)
+		// Non-critical error, continue with existing data
+	} else if avgGpuCount > 0 {
+		// Update TotalGPUs with database average if available
+		if reportData.Summary == nil {
+			reportData.Summary = &ReportSummary{}
+		}
+		// Use database value as the source of truth for total GPU count
+		reportData.Summary.TotalGPUs = avgGpuCount
+		log.Infof("GpuUsageWeeklyReportJob: updated total GPU count from database: %d", avgGpuCount)
+	}
+
 	// Step 2: Render report in multiple formats
 	log.Info("GpuUsageWeeklyReportJob: rendering report in multiple formats")
 	renderer := NewReportRenderer(j.config)
@@ -167,4 +182,32 @@ func (j *GpuUsageWeeklyReportJob) shouldRenderPDF() bool {
 		}
 	}
 	return false
+}
+
+// getAverageGpuCountFromDB calculates the average GPU count from cluster_gpu_hourly_stats table
+func (j *GpuUsageWeeklyReportJob) getAverageGpuCountFromDB(ctx context.Context, clusterName string, period ReportPeriod) (int, error) {
+	// Get GpuAggregation facade with cluster filter
+	aggFacade := database.GetFacade().GetGpuAggregation().WithCluster(clusterName)
+
+	// Query cluster hourly stats for the period
+	stats, err := aggFacade.GetClusterHourlyStats(ctx, period.StartTime, period.EndTime)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query cluster hourly stats: %w", err)
+	}
+
+	if len(stats) == 0 {
+		log.Warn("GpuUsageWeeklyReportJob: no cluster hourly stats found in database for the period")
+		return 0, nil
+	}
+
+	// Calculate average total_gpu_capacity
+	var totalGpuCapacity int64 = 0
+	for _, stat := range stats {
+		totalGpuCapacity += int64(stat.TotalGpuCapacity)
+	}
+
+	avgGpuCount := int(totalGpuCapacity / int64(len(stats)))
+	log.Infof("GpuUsageWeeklyReportJob: calculated average GPU count from %d hourly stats: %d", len(stats), avgGpuCount)
+
+	return avgGpuCount, nil
 }

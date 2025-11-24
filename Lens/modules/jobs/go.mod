@@ -6,6 +6,8 @@ replace github.com/AMD-AGI/Primus-SaFE/Lens/core => ../core
 
 require (
 	github.com/AMD-AGI/Primus-SaFE/Lens/core v0.0.0-00010101000000-000000000000
+	github.com/chromedp/cdproto v0.0.0-20241022234722-4d5d5faf59fb
+	github.com/chromedp/chromedp v0.11.2
 	github.com/gin-gonic/gin v1.10.1
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/gomarkdown/markdown v0.0.0-20250810172220-2e2c11897d1a
@@ -30,6 +32,7 @@ require (
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/cloudwego/base64x v0.1.4 // indirect
 	github.com/cloudwego/iasm v0.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -48,6 +51,9 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.20.0 // indirect
 	github.com/go-sql-driver/mysql v1.9.1 // indirect
+	github.com/gobwas/httphead v0.1.0 // indirect
+	github.com/gobwas/pool v0.2.1 // indirect
+	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/snappy v1.0.0 // indirect

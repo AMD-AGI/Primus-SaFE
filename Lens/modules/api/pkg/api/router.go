@@ -137,5 +137,20 @@ func RegisterRouter(group *gin.RouterGroup) error {
 		jobHistoryGroup.GET("/:id", GetJobExecutionHistory)
 	}
 
+	// Weekly Report routes - GPU usage weekly reports
+	weeklyReportGroup := group.Group("/weekly-reports")
+	{
+		// Get latest report - must be defined before :id
+		weeklyReportGroup.GET("/latest", GetLatestWeeklyReport)
+		// List reports with pagination
+		weeklyReportGroup.GET("", ListWeeklyReports)
+		// Get report metadata
+		weeklyReportGroup.GET("/:id", GetWeeklyReport)
+		// Download report in different formats
+		weeklyReportGroup.GET("/:id/html", DownloadWeeklyReportHTML)
+		weeklyReportGroup.GET("/:id/pdf", DownloadWeeklyReportPDF)
+		weeklyReportGroup.GET("/:id/json", DownloadWeeklyReportJSON)
+	}
+
 	return nil
 }

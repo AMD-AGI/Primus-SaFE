@@ -119,10 +119,17 @@ func (g *ReportGenerator) buildRequest(clusterName string, period ReportPeriod) 
 
 // parseResponse parses the Conductor API response into ReportData
 func (g *ReportGenerator) parseResponse(resp *ConductorReportResponse, clusterName string, period ReportPeriod) (*ReportData, error) {
+	// Use Report field first, fallback to MarkdownReport for backward compatibility
+	markdownReport := resp.Report
+	if markdownReport == "" {
+		markdownReport = resp.MarkdownReport
+	}
+
 	reportData := &ReportData{
 		ClusterName:    clusterName,
 		Period:         period,
-		MarkdownReport: resp.MarkdownReport,
+		MarkdownReport: markdownReport,
+		Metadata:       resp.Metadata,
 	}
 
 	// Parse chart data
@@ -185,6 +192,19 @@ func (g *ReportGenerator) parseSummary(data map[string]interface{}) (*ReportSumm
 	err = json.Unmarshal(jsonBytes, summary)
 	if err != nil {
 		return nil, err
+	}
+
+	// Handle total_gpu_count field (prioritize it over total_gpus)
+	if totalGpuCount, ok := data["total_gpu_count"]; ok {
+		switch v := totalGpuCount.(type) {
+		case float64:
+			summary.TotalGPUs = int(v)
+		case int:
+			summary.TotalGPUs = v
+		case int64:
+			summary.TotalGPUs = int(v)
+		}
+		log.Debugf("ReportGenerator: using total_gpu_count from response: %d", summary.TotalGPUs)
 	}
 
 	return summary, nil
