@@ -24,7 +24,7 @@ SHELL ["/bin/bash", "-c"]
 RUN echo "✅ GOPRIVATE=$GOPRIVATE" && \
     echo "✅ BUILDPATH=$BUILDPATH" && \
     echo "✅ BASEPATH=$BASEPATH" && \
-    echo "✅ APPNAME=$APPNAME" && \
+    echo "✅ APPNAME=$APPNAME"
    
 RUN echo "BUILDPATH: $BUILDPATH" && \
     echo "BASEPATH: $BASEPATH" && \
