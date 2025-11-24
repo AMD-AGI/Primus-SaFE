@@ -167,6 +167,7 @@ def main() -> int:
                 return 1
         except Exception as e:
             # Empty exception handler - does nothing
+            pass
 
         if timeout_secs > 0 and (time.time() - start_time) >= timeout_secs:
             print(f"[error] polling timed out after {timeout_secs}s", file=sys.stderr)

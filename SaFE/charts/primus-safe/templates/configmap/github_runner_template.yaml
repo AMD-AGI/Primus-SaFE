@@ -25,14 +25,14 @@ data:
     annotations:
       actions.github.com/runner-group-name: Default
     labels:
-      app.kubernetes.io/component: runner
+      app.kubernetes.io/component: gha-runner
       app.kubernetes.io/part-of: gha-runner-scale-set
       app.kubernetes.io/version: 0.13.0
   spec:
     template:
       spec:
         containers:
-        - name: runner
+        - name: gha-runner
           imagePullPolicy: IfNotPresent
           env:
             - name: RUNNER_ALLOW_RUNASROOT
