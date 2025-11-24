@@ -53,18 +53,18 @@ func TestCvtDBSessionToInfo(t *testing.T) {
 		Messages:     string(messagesJSON),
 		CreationTime: pq.NullTime{Valid: true, Time: createdAt},
 		UpdateTime:   pq.NullTime{Valid: true, Time: updatedAt},
-		IsDeleted:    false,
 	}
 
 	result := cvtDBSessionToInfo(dbSession)
 
 	assert.Equal(t, int64(123), result.Id)
+	assert.Equal(t, "user-001", result.UserId)
 	assert.Equal(t, "qwen-2.5-7b", result.ModelName)
 	assert.Equal(t, "Test Chat", result.DisplayName)
 	assert.Equal(t, "You are helpful", result.SystemPrompt)
-	assert.Equal(t, 3, result.MessageCount)
-	assert.Equal(t, createdAt, result.CreatedAt)
-	assert.Equal(t, updatedAt, result.UpdatedAt)
+	assert.Equal(t, string(messagesJSON), result.Messages)
+	assert.NotEmpty(t, result.CreationTime)
+	assert.NotEmpty(t, result.UpdateTime)
 }
 
 // TestCvtDBSessionToInfo_EmptyMessages tests conversion with empty messages
@@ -78,13 +78,12 @@ func TestCvtDBSessionToInfo_EmptyMessages(t *testing.T) {
 		Messages:     "",
 		CreationTime: pq.NullTime{Valid: true, Time: time.Now()},
 		UpdateTime:   pq.NullTime{Valid: true, Time: time.Now()},
-		IsDeleted:    false,
 	}
 
 	result := cvtDBSessionToInfo(dbSession)
 
 	assert.Equal(t, int64(456), result.Id)
-	assert.Equal(t, 0, result.MessageCount, "Empty messages should result in 0 count")
+	assert.Equal(t, "", result.Messages, "Empty messages should result in empty string")
 }
 
 // TestCvtDBSessionToInfo_InvalidJSON tests conversion with invalid JSON
@@ -98,12 +97,11 @@ func TestCvtDBSessionToInfo_InvalidJSON(t *testing.T) {
 		Messages:     "{invalid json}",
 		CreationTime: pq.NullTime{Valid: true, Time: time.Now()},
 		UpdateTime:   pq.NullTime{Valid: true, Time: time.Now()},
-		IsDeleted:    false,
 	}
 
 	result := cvtDBSessionToInfo(dbSession)
 
-	assert.Equal(t, 0, result.MessageCount, "Invalid JSON should result in 0 count")
+	assert.Equal(t, "{invalid json}", result.Messages, "Invalid JSON should be returned as-is")
 }
 
 // TestCvtDBSessionToDetail tests the conversion from DB session to SessionDetail
@@ -126,21 +124,19 @@ func TestCvtDBSessionToDetail(t *testing.T) {
 		Messages:     string(messagesJSON),
 		CreationTime: pq.NullTime{Valid: true, Time: createdAt},
 		UpdateTime:   pq.NullTime{Valid: true, Time: updatedAt},
-		IsDeleted:    false,
 	}
 
 	result := cvtDBSessionToDetail(dbSession)
 
 	assert.NotNil(t, result)
 	assert.Equal(t, int64(100), result.Id)
+	assert.Equal(t, "user-100", result.UserId)
 	assert.Equal(t, "qwen-2.5-7b", result.ModelName)
 	assert.Equal(t, "Detail Test", result.DisplayName)
 	assert.Equal(t, "Be concise", result.SystemPrompt)
-	assert.Equal(t, 2, len(result.Messages))
-	assert.Equal(t, "Hello", result.Messages[0].Content)
-	assert.Equal(t, "Hi!", result.Messages[1].Content)
-	assert.Equal(t, createdAt, result.CreatedAt)
-	assert.Equal(t, updatedAt, result.UpdatedAt)
+	assert.Equal(t, string(messagesJSON), result.Messages)
+	assert.NotEmpty(t, result.CreationTime)
+	assert.NotEmpty(t, result.UpdateTime)
 }
 
 // TestCvtDBSessionToDetail_EmptyMessages tests conversion with empty messages
@@ -154,13 +150,12 @@ func TestCvtDBSessionToDetail_EmptyMessages(t *testing.T) {
 		Messages:     "",
 		CreationTime: pq.NullTime{Valid: true, Time: time.Now()},
 		UpdateTime:   pq.NullTime{Valid: true, Time: time.Now()},
-		IsDeleted:    false,
 	}
 
 	result := cvtDBSessionToDetail(dbSession)
 
 	assert.NotNil(t, result)
-	assert.Equal(t, 0, len(result.Messages), "Empty messages should result in empty array")
+	assert.Equal(t, "", result.Messages, "Empty messages should result in empty string")
 }
 
 // TestCvtDBSessionToDetail_InvalidJSON tests conversion with invalid JSON
@@ -174,13 +169,12 @@ func TestCvtDBSessionToDetail_InvalidJSON(t *testing.T) {
 		Messages:     "not valid json",
 		CreationTime: pq.NullTime{Valid: true, Time: time.Now()},
 		UpdateTime:   pq.NullTime{Valid: true, Time: time.Now()},
-		IsDeleted:    false,
 	}
 
 	result := cvtDBSessionToDetail(dbSession)
 
 	assert.NotNil(t, result)
-	assert.Equal(t, 0, len(result.Messages), "Invalid JSON should result in empty array")
+	assert.Equal(t, "not valid json", result.Messages, "Invalid JSON should be returned as-is")
 }
 
 // TestChatRequest_AllParameters tests ChatRequest with all parameters
@@ -268,12 +262,13 @@ func TestMessageHistory(t *testing.T) {
 func TestPlaygroundSessionInfo_JSON(t *testing.T) {
 	info := PlaygroundSessionInfo{
 		Id:           123,
+		UserId:       "user-123",
 		ModelName:    "qwen-2.5-7b",
 		DisplayName:  "Test",
 		SystemPrompt: "Be helpful",
-		MessageCount: 5,
-		CreatedAt:    time.Now().UTC(),
-		UpdatedAt:    time.Now().UTC(),
+		Messages:     "[]",
+		CreationTime: time.Now().UTC().Format(time.RFC3339),
+		UpdateTime:   time.Now().UTC().Format(time.RFC3339),
 	}
 
 	jsonData, err := json.Marshal(info)
@@ -284,17 +279,21 @@ func TestPlaygroundSessionInfo_JSON(t *testing.T) {
 
 // TestPlaygroundSessionDetail_JSON tests JSON marshaling of SessionDetail
 func TestPlaygroundSessionDetail_JSON(t *testing.T) {
+	messages := []MessageHistory{
+		{Role: "user", Content: "Q1", Timestamp: time.Now()},
+		{Role: "assistant", Content: "A1", Timestamp: time.Now()},
+	}
+	messagesJSON, _ := json.Marshal(messages)
+
 	detail := &PlaygroundSessionDetail{
 		Id:           456,
+		UserId:       "user-456",
 		ModelName:    "llama-3-8b",
 		DisplayName:  "Detailed Test",
 		SystemPrompt: "You are an expert",
-		Messages: []MessageHistory{
-			{Role: "user", Content: "Q1", Timestamp: time.Now()},
-			{Role: "assistant", Content: "A1", Timestamp: time.Now()},
-		},
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
+		Messages:     string(messagesJSON),
+		CreationTime: time.Now().UTC().Format(time.RFC3339),
+		UpdateTime:   time.Now().UTC().Format(time.RFC3339),
 	}
 
 	jsonData, err := json.Marshal(detail)
@@ -437,6 +436,7 @@ func TestStreamChat(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/chat", nil)
 
 	// Create handler and call streamChat
 	handler := &Handler{}
@@ -467,7 +467,10 @@ func TestNonStreamChat(t *testing.T) {
 		err := json.NewDecoder(r.Body).Decode(&reqBody)
 		require.NoError(t, err)
 
-		assert.False(t, reqBody["stream"].(bool), "Stream should be false")
+		// Stream field may not be present or may be false for non-streaming requests
+		if stream, ok := reqBody["stream"]; ok {
+			assert.False(t, stream.(bool), "Stream should be false")
+		}
 		assert.NotNil(t, reqBody["messages"])
 
 		// Check all parameters (OpenAI compatible only)
@@ -529,6 +532,7 @@ func TestNonStreamChat(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/chat", nil)
 
 	// Create handler and call nonStreamChat
 	handler := &Handler{}
@@ -574,6 +578,7 @@ func TestStreamChat_ErrorHandling(t *testing.T) {
 		gin.SetMode(gin.TestMode)
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("POST", "/chat", nil)
 
 		handler := &Handler{}
 		handler.streamChat(c, mockServer.URL, "test-api-key", "test-model", req)
@@ -595,6 +600,7 @@ func TestStreamChat_ErrorHandling(t *testing.T) {
 		gin.SetMode(gin.TestMode)
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("POST", "/chat", nil)
 
 		handler := &Handler{}
 		// This should still work, as we don't validate message structure
@@ -627,6 +633,7 @@ func TestNonStreamChat_ErrorHandling(t *testing.T) {
 		gin.SetMode(gin.TestMode)
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("POST", "/chat", nil)
 
 		handler := &Handler{}
 		handler.nonStreamChat(c, mockServer.URL, "test-api-key", "test-model", req)

@@ -122,24 +122,26 @@ type ListPlaygroundSessionResponse struct {
 
 // PlaygroundSessionInfo represents basic session information.
 type PlaygroundSessionInfo struct {
-	Id           int64     `json:"id"`
-	ModelName    string    `json:"modelName"`
-	DisplayName  string    `json:"displayName"`
-	SystemPrompt string    `json:"systemPrompt"`
-	MessageCount int       `json:"messageCount"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	Id           int64  `json:"id"`
+	UserId       string `json:"userId"`
+	ModelName    string `json:"modelName"`
+	DisplayName  string `json:"displayName"`
+	SystemPrompt string `json:"systemPrompt"`
+	Messages     string `json:"messages"`
+	CreationTime string `json:"creationTime"`
+	UpdateTime   string `json:"updateTime"`
 }
 
 // PlaygroundSessionDetail represents detailed session information.
 type PlaygroundSessionDetail struct {
-	Id           int64            `json:"id"`
-	ModelName    string           `json:"modelName"`
-	DisplayName  string           `json:"displayName"`
-	SystemPrompt string           `json:"systemPrompt"`
-	Messages     []MessageHistory `json:"messages"`
-	CreatedAt    time.Time        `json:"createdAt"`
-	UpdatedAt    time.Time        `json:"updatedAt"`
+	Id           int64  `json:"id"`
+	UserId       string `json:"userId"`
+	ModelName    string `json:"modelName"`
+	DisplayName  string `json:"displayName"`
+	SystemPrompt string `json:"systemPrompt"`
+	Messages     string `json:"messages"`
+	CreationTime string `json:"creationTime"`
+	UpdateTime   string `json:"updateTime"`
 }
 
 // MessageHistory represents a chat message.

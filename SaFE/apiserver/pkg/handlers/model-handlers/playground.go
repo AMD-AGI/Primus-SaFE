@@ -113,6 +113,43 @@ func (h *Handler) DeletePlaygroundSession(c *gin.Context) {
 	handle(c, h.deletePlaygroundSession)
 }
 
+// deletePlaygroundSession implements the session deletion logic.
+func (h *Handler) deletePlaygroundSession(c *gin.Context) (interface{}, error) {
+	sessionIdStr := c.Param("id")
+	if sessionIdStr == "" {
+		return nil, commonerrors.NewBadRequest("session id is required")
+	}
+
+	sessionId, err := strconv.ParseInt(sessionIdStr, 10, 64)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest("invalid session id")
+	}
+
+	userId := c.GetString(common.UserId)
+	if userId == "" {
+		return nil, commonerrors.NewUnauthorized("user not authenticated")
+	}
+
+	// Get session
+	dbSession, err := h.dbClient.GetPlaygroundSession(c.Request.Context(), sessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check ownership
+	if dbSession.UserId != userId {
+		return nil, commonerrors.NewForbidden("not authorized to delete this session")
+	}
+
+	// Mark as deleted
+	if err := h.dbClient.SetPlaygroundSessionDeleted(c.Request.Context(), sessionId); err != nil {
+		return nil, err
+	}
+
+	klog.Infof("deleted playground session: id=%d, user: %s", sessionId, userId)
+	return nil, nil
+}
+
 // streamChat handles streaming chat using SSE with OpenAI SDK.
 func (h *Handler) streamChat(c *gin.Context, baseUrl string, apiKey string, modelName string, req *ChatRequest) {
 	// Set SSE headers
@@ -417,43 +454,6 @@ func (h *Handler) getPlaygroundSession(c *gin.Context) (interface{}, error) {
 	return cvtDBSessionToDetail(dbSession), nil
 }
 
-// deletePlaygroundSession implements the session deletion logic.
-func (h *Handler) deletePlaygroundSession(c *gin.Context) (interface{}, error) {
-	sessionIdStr := c.Param("id")
-	if sessionIdStr == "" {
-		return nil, commonerrors.NewBadRequest("session id is required")
-	}
-
-	sessionId, err := strconv.ParseInt(sessionIdStr, 10, 64)
-	if err != nil {
-		return nil, commonerrors.NewBadRequest("invalid session id")
-	}
-
-	userId := c.GetString(common.UserId)
-	if userId == "" {
-		return nil, commonerrors.NewUnauthorized("user not authenticated")
-	}
-
-	// Get session
-	dbSession, err := h.dbClient.GetPlaygroundSession(c.Request.Context(), sessionId)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check ownership
-	if dbSession.UserId != userId {
-		return nil, commonerrors.NewForbidden("not authorized to delete this session")
-	}
-
-	// Mark as deleted
-	if err := h.dbClient.SetPlaygroundSessionDeleted(c.Request.Context(), sessionId); err != nil {
-		return nil, err
-	}
-
-	klog.Infof("deleted playground session: id=%d, user: %s", sessionId, userId)
-	return gin.H{"message": "session deleted successfully"}, nil
-}
-
 // parseListPlaygroundSessionQuery parses query parameters for listing sessions.
 func parseListPlaygroundSessionQuery(c *gin.Context) (*ListPlaygroundSessionQuery, error) {
 	query := &ListPlaygroundSessionQuery{}
@@ -474,43 +474,29 @@ func parseListPlaygroundSessionQuery(c *gin.Context) (*ListPlaygroundSessionQuer
 
 // cvtDBSessionToInfo converts database session to SessionInfo.
 func cvtDBSessionToInfo(dbSession *dbclient.PlaygroundSession) PlaygroundSessionInfo {
-	var messages []MessageHistory
-	messageCount := 0
-	if dbSession.Messages != "" {
-		if err := jsonutils.Unmarshal([]byte(dbSession.Messages), &messages); err == nil {
-			messageCount = len(messages)
-		}
-	}
-
 	return PlaygroundSessionInfo{
 		Id:           dbSession.Id,
+		UserId:       dbSession.UserId,
 		ModelName:    dbSession.ModelName,
 		DisplayName:  dbSession.DisplayName,
 		SystemPrompt: dbSession.SystemPrompt,
-		MessageCount: messageCount,
-		CreatedAt:    getTime(dbSession.CreationTime),
-		UpdatedAt:    getTime(dbSession.UpdateTime),
+		Messages:     dbSession.Messages,
+		CreationTime: formatTime(dbSession.CreationTime),
+		UpdateTime:   formatTime(dbSession.UpdateTime),
 	}
 }
 
 // cvtDBSessionToDetail converts database session to SessionDetail.
 func cvtDBSessionToDetail(dbSession *dbclient.PlaygroundSession) *PlaygroundSessionDetail {
-	var messages []MessageHistory
-	if dbSession.Messages != "" {
-		if err := jsonutils.Unmarshal([]byte(dbSession.Messages), &messages); err != nil {
-			klog.ErrorS(err, "failed to unmarshal messages", "id", dbSession.Id)
-			messages = []MessageHistory{}
-		}
-	}
-
 	return &PlaygroundSessionDetail{
 		Id:           dbSession.Id,
+		UserId:       dbSession.UserId,
 		ModelName:    dbSession.ModelName,
 		DisplayName:  dbSession.DisplayName,
 		SystemPrompt: dbSession.SystemPrompt,
-		Messages:     messages,
-		CreatedAt:    getTime(dbSession.CreationTime),
-		UpdatedAt:    getTime(dbSession.UpdateTime),
+		Messages:     dbSession.Messages,
+		CreationTime: formatTime(dbSession.CreationTime),
+		UpdateTime:   formatTime(dbSession.UpdateTime),
 	}
 }
 
@@ -520,4 +506,12 @@ func toNullTime(t time.Time) pq.NullTime {
 		Valid: true,
 		Time:  t,
 	}
+}
+
+// formatTime formats pq.NullTime to RFC3339 string.
+func formatTime(nt pq.NullTime) string {
+	if nt.Valid {
+		return nt.Time.Format(time.RFC3339)
+	}
+	return ""
 }
