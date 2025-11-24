@@ -88,6 +88,7 @@ def build_payload() -> Dict[str, Any]:
         "groupVersionKind": {"kind": kind, "version": version},
         "priority": priority,
         "timeout": timeout_secs,
+        "ttlSecondsAfterFinished": 300,
     }
     return payload
 
