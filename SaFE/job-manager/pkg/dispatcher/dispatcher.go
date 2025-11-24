@@ -566,6 +566,9 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 		return err
 	}
 	envs := maps.Copy(adminWorkload.Spec.Env)
+	envs[jobutils.UserEnv] = v1.GetUserId(adminWorkload)
+	envs[jobutils.WorkloadEnv] = adminWorkload.Name
+	envs[jobutils.WorkspaceEnv] = adminWorkload.Spec.Workspace
 	mainContainerName := v1.GetMainContainer(adminWorkload)
 
 	if v1.IsCICDUnifiedBuildEnable(adminWorkload) {
@@ -579,9 +582,6 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 		envs[jobutils.NfsPathEnv] = pfsPath
 		envs[jobutils.NfsInputEnv] = UnifiedBuildInput
 		envs[jobutils.NfsOutputEnv] = UnifiedBuildOutput
-		envs[jobutils.WorkloadEnv] = adminWorkload.Name
-		envs[jobutils.WorkspaceEnv] = adminWorkload.Spec.Workspace
-		envs[jobutils.UserEnv] = v1.GetUserId(adminWorkload)
 
 		// When unified build is enabled, update all containers with envs
 		// and add resource variables to main container

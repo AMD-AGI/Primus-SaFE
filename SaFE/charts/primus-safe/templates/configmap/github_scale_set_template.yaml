@@ -32,10 +32,7 @@ data:
     template:
       spec:
         containers:
-        - command:
-            - /bin/bash
-            - -c
-            - run.sh
+        - name: runner-proxy
           env:
             - name: RUNNER_ALLOW_RUNASROOT
               value: "1"
@@ -48,25 +45,22 @@ data:
             - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
               value: "true"
           image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.runner }}
-          name: runner-proxy
           resources:
             limits:
               cpu: "2"
               memory: 4Gi
+              ephemeral-storage: 50Gi
             requests:
               cpu: "2"
               memory: 4Gi
+              ephemeral-storage: 50Gi
           securityContext:
             privileged: true
-        - command:
-            - /bin/bash
-            - -c
-            - run.sh
+        - name: unified-build-proxy
           env:
             - name: APISERVER_NODE_PORT
               value: "{{ .Values.apiserver.node_port }}"
           image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.unified_build }}
-          name: unified-build-proxy
           resources:
             limits:
               cpu: "2"
@@ -78,10 +72,3 @@ data:
             privileged: true
         restartPolicy: Never
         serviceAccountName: "{{ .Values.cicd.role_name }}-no-permission"
-        tolerations:
-          - effect: NoSchedule
-            operator: Exists
-          - effect: PreferNoSchedule
-            operator: Exists
-          - effect: NoExecute
-            operator: Exists

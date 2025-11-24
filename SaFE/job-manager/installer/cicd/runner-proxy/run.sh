@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
-# Run workload client and return its exit code
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+pip install -r "${SCRIPT_DIR}/requirements.txt" >/dev/null
+
 exec python3 "${SCRIPT_DIR}/workload_client.py"
