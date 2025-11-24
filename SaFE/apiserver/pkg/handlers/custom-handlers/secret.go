@@ -400,7 +400,7 @@ func buildSecretData(reqType v1.SecretType, allParams []map[types.SecretParam]st
 		} else {
 			return fmt.Errorf("the password or keypair is empty")
 		}
-	case v1.SecretDefault:
+	case v1.SecretGeneral:
 		secretType = corev1.SecretTypeOpaque
 		if len(allParams) == 0 {
 			return fmt.Errorf("the input params are empty")
@@ -493,7 +493,7 @@ func cvtToGetSecretResponse(secret *corev1.Secret) types.GetSecretResponse {
 			}
 		}
 		result.Params = append(result.Params, params)
-	case string(v1.SecretDefault):
+	case string(v1.SecretGeneral):
 		result.Params = make([]map[types.SecretParam]string, 0, len(secret.Data))
 		params := make(map[types.SecretParam]string)
 		for k, v := range secret.Data {

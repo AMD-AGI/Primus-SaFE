@@ -229,7 +229,7 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workl
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	for _, secret := range workload.Spec.Secrets {
-		if secret.Type != v1.SecretDefault {
+		if secret.Type != v1.SecretGeneral {
 			continue
 		}
 		mountPath := fmt.Sprintf("/etc/secrets/%s", secret.Id)
@@ -271,7 +271,7 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 		hasNewVolume = true
 	}
 	for _, secret := range workload.Spec.Secrets {
-		if secret.Type == v1.SecretDefault {
+		if secret.Type == v1.SecretGeneral {
 			volumes = append(volumes, buildSecretVolume(secret.Id))
 			hasNewVolume = true
 		}
@@ -636,7 +636,7 @@ func buildImageSecret(secretId string) interface{} {
 func buildGithubConfig(workload *v1.Workload) map[string]interface{} {
 	secretId := ""
 	for _, item := range workload.Spec.Secrets {
-		if item.Type == v1.SecretDefault {
+		if item.Type == v1.SecretGeneral {
 			secretId = item.Id
 			break
 		}

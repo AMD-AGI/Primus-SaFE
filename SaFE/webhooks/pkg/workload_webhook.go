@@ -474,7 +474,7 @@ func (m *WorkloadMutator) mutateImageSecrets(workload *v1.Workload, workspace *v
 			secretsSet.Insert(s.Id)
 		}
 		if s.Type == "" {
-			workload.Spec.Secrets[i].Type = v1.SecretDefault
+			workload.Spec.Secrets[i].Type = v1.SecretGeneral
 		}
 	}
 	if workspace != nil {

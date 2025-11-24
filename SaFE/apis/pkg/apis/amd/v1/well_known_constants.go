@@ -138,5 +138,5 @@ const (
 
 	SecretImage   SecretType = "image"
 	SecretSSH     SecretType = "ssh"
-	SecretDefault SecretType = "default"
+	SecretGeneral SecretType = "general"
 )

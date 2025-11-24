@@ -487,7 +487,7 @@ func TestCreateCICDScaleSet(t *testing.T) {
 		Version: "v1",
 		Kind:    common.CICDScaleSetKind,
 	}
-	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretDefault}}
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
 	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
 	workload.Spec.Workspace = workspace.Name
@@ -529,7 +529,7 @@ func TestCICDScaleSetWithUnifiedBuild(t *testing.T) {
 		Kind:    common.CICDScaleSetKind,
 	}
 	workload.Spec.Resource.Replica = 2
-	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretDefault}}
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
 	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
 	v1.SetAnnotation(workload, v1.CICDUnifiedBuildAnnotation, v1.TrueStr)
