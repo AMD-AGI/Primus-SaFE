@@ -51,13 +51,6 @@ data:
         schedulerName: kube-scheduler-plugins
         serviceAccountName: {{ .Values.cicd.role_name }}
         terminationGracePeriodSeconds: 30
-        tolerations:
-          - effect: NoSchedule
-            operator: Exists
-          - effect: PreferNoSchedule
-            operator: Exists
-          - effect: NoExecute
-            operator: Exists
         volumes:
           - name: kube-api-access-gq8sq
             projected:
