@@ -297,13 +297,13 @@ func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secr
 }
 
 // getAndAuthorizeSecret retrieves a secret by name and performs authorization check with specified verb
+// If a workspace is set, validate permissions only on that workspace; otherwise, validate across all workspaces the secret belongs to.
 func (h *Handler) getAndAuthorizeSecret(ctx context.Context,
 	name, workspaceId string, requestUser *v1.User, verb v1.RoleVerb) (*corev1.Secret, error) {
 	secret, err := h.getAdminSecret(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-
 	var workspaceIds []string
 	if workspaceId != "" {
 		workspaceIds = []string{workspaceId}
@@ -320,7 +320,7 @@ func (h *Handler) getAndAuthorizeSecret(ctx context.Context,
 	}); err != nil {
 		return nil, err
 	}
-	return secret, err
+	return secret, nil
 }
 
 // generateSecret creates a new secret object based on the creation request.
