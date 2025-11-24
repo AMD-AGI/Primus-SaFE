@@ -64,7 +64,7 @@ def build_payload() -> Dict[str, Any]:
     # Optional metadata/config
     workspace_id = getenv_str("WORKSPACE_ID")
     display_name = getenv_str("WORKLOAD_ID") + "-runner"
-    kind = "CICDRunner"
+    kind = "AutoscalingRunner"
     version = "v1"
     priority = 0
 

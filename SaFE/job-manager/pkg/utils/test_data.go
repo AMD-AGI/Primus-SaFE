@@ -636,7 +636,7 @@ var (
 			Name: "job",
 			Labels: map[string]string{
 				v1.WorkloadVersionLabel: "v1",
-				v1.WorkloadKindLabel:    common.CICDScaleSetKind,
+				v1.WorkloadKindLabel:    common.CICDScaleRunnerSetKind,
 			},
 		},
 		Spec: v1.ResourceTemplateSpec{

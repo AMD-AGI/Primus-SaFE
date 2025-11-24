@@ -10,7 +10,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     primus-safe.workload.version: v1
-    primus-safe.workload.kind: CICDRunner
+    primus-safe.workload.kind: AutoscalingRunner
     app.kubernetes.io/managed-by: Helm
   annotations:
     # The main container name should match the configuration defined in the template below

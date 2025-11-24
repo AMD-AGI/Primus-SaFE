@@ -171,7 +171,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	if shouldUpdateNodes {
 		r.updateWorkloadNodes(adminWorkload, message)
 	}
-	if adminWorkload.SpecKind() == common.CICDScaleSetKind &&
+	if adminWorkload.SpecKind() == common.CICDScaleRunnerSetKind &&
 		len(adminWorkload.Status.Pods) > 0 {
 		adminWorkload.Status.Phase = v1.WorkloadPhase(adminWorkload.Status.Pods[0].Phase)
 	}

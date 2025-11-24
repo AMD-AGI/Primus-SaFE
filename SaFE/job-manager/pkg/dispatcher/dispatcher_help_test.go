@@ -22,7 +22,7 @@ import (
 
 func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, replica int) {
 	path := append(template.PrePaths, template.ReplicasPaths...)
-	if workload.SpecKind() != common.CICDScaleSetKind {
+	if workload.SpecKind() != common.CICDScaleRunnerSetKind {
 		objReplica := jobutils.GetUnstructuredInt(obj.Object, path)
 		assert.Equal(t, objReplica, int64(replica))
 		if workload.SpecKind() == common.JobKind {
@@ -99,7 +99,7 @@ func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Worklo
 	ok := findEnv(envs, "HANG_CHECK_INTERVAL", "")
 	assert.Equal(t, ok, false)
 
-	if workload.SpecKind() != common.JobKind && workload.SpecKind() != common.CICDScaleSetKind {
+	if workload.SpecKind() != common.JobKind && workload.SpecKind() != common.CICDScaleRunnerSetKind {
 		if v1.IsEnableHostNetwork(workload) {
 			ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "ens51f0")
 			assert.Equal(t, ok, true)

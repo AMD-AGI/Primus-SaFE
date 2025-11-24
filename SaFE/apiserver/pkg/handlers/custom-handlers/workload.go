@@ -648,7 +648,7 @@ func (h *Handler) generateWorkload(ctx context.Context, req *types.CreateWorkloa
 	if req.WorkspaceId != "" {
 		workload.Spec.Workspace = req.WorkspaceId
 	}
-	if req.Kind == common.CICDScaleSetKind {
+	if req.Kind == common.CICDScaleRunnerSetKind {
 		workload.Name = req.DisplayName
 		if !commonconfig.IsCICDEnable() {
 			return nil, commonerrors.NewNotImplemented("the CICD is not enabled")

@@ -485,7 +485,7 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
 		Version: "v1",
-		Kind:    common.CICDScaleSetKind,
+		Kind:    common.CICDScaleRunnerSetKind,
 	}
 	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
@@ -526,7 +526,7 @@ func TestCICDScaleSetWithUnifiedBuild(t *testing.T) {
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
 		Version: "v1",
-		Kind:    common.CICDScaleSetKind,
+		Kind:    common.CICDScaleRunnerSetKind,
 	}
 	workload.Spec.Resource.Replica = 2
 	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}

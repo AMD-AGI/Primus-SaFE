@@ -117,7 +117,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 		m.mutateStatefulSet(workload)
 	case common.AuthoringKind:
 		m.mutateAuthoring(workload)
-	case common.CICDScaleSetKind:
+	case common.CICDScaleRunnerSetKind:
 		m.mutateCICDScaleSet(workload)
 	}
 

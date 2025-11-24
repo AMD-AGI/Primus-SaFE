@@ -289,10 +289,10 @@ spec:
 apiVersion: amd.com/v1
 kind: ResourceTemplate
 metadata:
-  name: cicd-runner-job
+  name: cicd-autoscaling-runner
   labels:
     app.kubernetes.io/managed-by: Helm
-    primus-safe.workload.kind: CICDRunner
+    primus-safe.workload.kind: AutoscalingRunner
     primus-safe.workload.version: v1
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
@@ -337,7 +337,7 @@ metadata:
   name: cicd-autoscaling-set
   labels:
     app.kubernetes.io/managed-by: Helm
-    primus-safe.workload.kind: CICDScaleSet
+    primus-safe.workload.kind: AutoscalingRunnerSet
     primus-safe.workload.version: v1
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}

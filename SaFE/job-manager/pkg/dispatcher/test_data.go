@@ -319,7 +319,7 @@ metadata:
   namespace: "primus-safe"
   labels:
     primus-safe.workload.version: v1
-    primus-safe.workload.kind: CICDScaleSet
+    primus-safe.workload.kind: AutoscalingRunnerSet
   annotations:
     # The main container name should match the configuration defined in the template below
     primus-safe.main.container: runner_proxy

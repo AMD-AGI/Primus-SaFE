@@ -210,7 +210,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer, gpuName string) ([]int64, []corev1.ResourceList, error) {
 	var replicaList []int64
 	var resourceList []corev1.ResourceList
-	if v1.IsCICDUnifiedBuildEnable(unstructuredObj) {
+	if unstructuredObj.GetKind() == common.CICDScaleRunnerSetKind {
 		resourceStr, err := getEnvValue(unstructuredObj, rt, mainContainer, ResourcesEnv)
 		if err != nil {
 			return nil, nil, err
@@ -289,7 +289,7 @@ func GetResources(unstructuredObj *unstructured.Unstructured,
 // GetCommand Retrieve the command of the main container.
 func GetCommand(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) ([]string, error) {
-	if v1.IsCICDUnifiedBuildEnable(unstructuredObj) {
+	if unstructuredObj.GetKind() == common.CICDScaleRunnerSetKind {
 		val, err := getEnvValue(unstructuredObj, rt, mainContainer, EntrypointEnv)
 		return []string{val}, err
 	}
@@ -338,7 +338,7 @@ func GetCommand(unstructuredObj *unstructured.Unstructured,
 // GetImage Retrieve the image address of the main container.
 func GetImage(unstructuredObj *unstructured.Unstructured,
 	rt *v1.ResourceTemplate, mainContainer string) (string, error) {
-	if v1.IsCICDUnifiedBuildEnable(unstructuredObj) {
+	if unstructuredObj.GetKind() == common.CICDScaleRunnerSetKind {
 		return getEnvValue(unstructuredObj, rt, mainContainer, ImageEnv)
 	}
 

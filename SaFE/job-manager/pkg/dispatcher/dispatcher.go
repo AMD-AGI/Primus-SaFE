@@ -452,7 +452,7 @@ func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstru
 // updateUnstructuredObject updates the unstructured object with workload specifications.
 func updateUnstructuredObject(obj *unstructured.Unstructured,
 	adminWorkload *v1.Workload, workspace *v1.Workspace, rt *v1.ResourceTemplate) error {
-	if adminWorkload.SpecKind() == common.CICDScaleSetKind {
+	if adminWorkload.SpecKind() == common.CICDScaleRunnerSetKind {
 		return updateCICDScaleSet(obj, adminWorkload, workspace, rt)
 	}
 
