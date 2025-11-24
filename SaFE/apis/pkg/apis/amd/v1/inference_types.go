@@ -44,6 +44,9 @@ type (
 		BaseUrl string `json:"baseUrl,omitempty"`
 		// ApiKey is the inference service API key
 		ApiKey string `json:"apiKey,omitempty"`
+		// Model is the model name for OpenAI API requests (e.g., "gpt-4", "deepseek-chat")
+		// If not specified, will fallback to Inference.Spec.ModelName
+		Model string `json:"model,omitempty"`
 		// ContextLength is the context length
 		ContextLength int `json:"contextLength,omitempty"`
 		// WorkloadID is the workload ID

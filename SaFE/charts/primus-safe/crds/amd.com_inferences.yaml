@@ -93,6 +93,11 @@ spec:
                   contextLength:
                     description: ContextLength is the context length
                     type: integer
+                  model:
+                    description: |-
+                      Model is the model name for OpenAI API requests (e.g., "gpt-4", "deepseek-chat")
+                      If not specified, will fallback to Inference.Spec.ModelName
+                    type: string
                   workloadID:
                     description: WorkloadID is the workload ID
                     type: string

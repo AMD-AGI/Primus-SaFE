@@ -46,6 +46,14 @@ type InferenceListerExpansion interface{}
 // InferenceNamespaceLister.
 type InferenceNamespaceListerExpansion interface{}
 
+// ModelListerExpansion allows custom methods to be added to
+// ModelLister.
+type ModelListerExpansion interface{}
+
+// ModelNamespaceListerExpansion allows custom methods to be added to
+// ModelNamespaceLister.
+type ModelNamespaceListerExpansion interface{}
+
 // NodeListerExpansion allows custom methods to be added to
 // NodeLister.
 type NodeListerExpansion interface{}

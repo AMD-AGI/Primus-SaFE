@@ -11,6 +11,7 @@ package v1
 type InferenceInstanceApplyConfiguration struct {
 	BaseUrl       *string `json:"baseUrl,omitempty"`
 	ApiKey        *string `json:"apiKey,omitempty"`
+	Model         *string `json:"model,omitempty"`
 	ContextLength *int    `json:"contextLength,omitempty"`
 	WorkloadID    *string `json:"workloadID,omitempty"`
 }
@@ -34,6 +35,14 @@ func (b *InferenceInstanceApplyConfiguration) WithBaseUrl(value string) *Inferen
 // If called multiple times, the ApiKey field is set to the value of the last call.
 func (b *InferenceInstanceApplyConfiguration) WithApiKey(value string) *InferenceInstanceApplyConfiguration {
 	b.ApiKey = &value
+	return b
+}
+
+// WithModel sets the Model field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Model field is set to the value of the last call.
+func (b *InferenceInstanceApplyConfiguration) WithModel(value string) *InferenceInstanceApplyConfiguration {
+	b.Model = &value
 	return b
 }
 
