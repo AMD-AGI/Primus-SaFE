@@ -22,6 +22,8 @@ type Interface interface {
 	Faults() FaultInformer
 	// Inferences returns a InferenceInformer.
 	Inferences() InferenceInformer
+	// Models returns a ModelInformer.
+	Models() ModelInformer
 	// Nodes returns a NodeInformer.
 	Nodes() NodeInformer
 	// NodeFlavors returns a NodeFlavorInformer.
@@ -76,6 +78,11 @@ func (v *version) Faults() FaultInformer {
 // Inferences returns a InferenceInformer.
 func (v *version) Inferences() InferenceInformer {
 	return &inferenceInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// Models returns a ModelInformer.
+func (v *version) Models() ModelInformer {
+	return &modelInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Nodes returns a NodeInformer.

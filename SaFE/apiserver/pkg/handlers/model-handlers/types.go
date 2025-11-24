@@ -86,12 +86,11 @@ type ChatRequest struct {
 	Messages         []map[string]interface{} `json:"messages" binding:"required"` // OpenAI format messages (prepared by frontend)
 	Stream           bool                     `json:"stream"`                      // Enable streaming (SSE)
 	Temperature      float64                  `json:"temperature"`                 // Controls randomness (0.0-2.0)
-	TopK             int                      `json:"topK"`                        // Top-K sampling
 	TopP             float64                  `json:"topP"`                        // Nucleus sampling (0.0-1.0)
 	MaxTokens        int                      `json:"maxTokens"`                   // Maximum tokens to generate
 	FrequencyPenalty float64                  `json:"frequencyPenalty"`            // Penalize frequent tokens (-2.0 to 2.0)
-	EnableThinking   bool                     `json:"enableThinking"`              // Enable reasoning/thinking mode
-	ThinkingBudget   int                      `json:"thinkingBudget"`              // Thinking tokens budget
+	PresencePenalty  float64                  `json:"presencePenalty"`             // Penalize tokens based on presence (-2.0 to 2.0)
+	N                int                      `json:"n"`                           // Number of completions to generate (1-10)
 }
 
 // SaveSessionRequest represents the request to save a chat session.

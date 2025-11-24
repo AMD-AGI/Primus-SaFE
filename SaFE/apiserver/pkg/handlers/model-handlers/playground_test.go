@@ -190,23 +190,21 @@ func TestChatRequest_AllParameters(t *testing.T) {
 		Messages:         []map[string]interface{}{{"role": "user", "content": "Hello"}},
 		Stream:           true,
 		Temperature:      0.8,
-		TopK:             40,
 		TopP:             0.95,
 		MaxTokens:        2048,
 		FrequencyPenalty: 0.5,
-		EnableThinking:   true,
-		ThinkingBudget:   512,
+		PresencePenalty:  0.3,
+		N:                1,
 	}
 
 	assert.Equal(t, "inf-001", req.InferenceId)
 	assert.True(t, req.Stream)
 	assert.Equal(t, 0.8, req.Temperature)
-	assert.Equal(t, 40, req.TopK)
 	assert.Equal(t, 0.95, req.TopP)
 	assert.Equal(t, 2048, req.MaxTokens)
 	assert.Equal(t, 0.5, req.FrequencyPenalty)
-	assert.True(t, req.EnableThinking)
-	assert.Equal(t, 512, req.ThinkingBudget)
+	assert.Equal(t, 0.3, req.PresencePenalty)
+	assert.Equal(t, 1, req.N)
 }
 
 // TestSaveSessionRequest tests SaveSessionRequest
@@ -384,12 +382,9 @@ func TestStreamChat(t *testing.T) {
 		assert.True(t, reqBody["stream"].(bool), "Stream should be true")
 		assert.NotNil(t, reqBody["messages"])
 
-		// Check parameters
+		// Check parameters (OpenAI compatible only)
 		if temp, ok := reqBody["temperature"]; ok {
 			assert.Equal(t, 0.7, temp)
-		}
-		if topK, ok := reqBody["top_k"]; ok {
-			assert.Equal(t, float64(40), topK)
 		}
 		if topP, ok := reqBody["top_p"]; ok {
 			assert.Equal(t, 0.95, topP)
@@ -399,9 +394,6 @@ func TestStreamChat(t *testing.T) {
 		}
 		if freqPenalty, ok := reqBody["frequency_penalty"]; ok {
 			assert.Equal(t, 0.5, freqPenalty)
-		}
-		if enableThinking, ok := reqBody["enable_thinking"]; ok {
-			assert.True(t, enableThinking.(bool))
 		}
 
 		// Send SSE response
@@ -434,12 +426,11 @@ func TestStreamChat(t *testing.T) {
 		Messages:         []map[string]interface{}{{"role": "user", "content": "Hi"}},
 		Stream:           true,
 		Temperature:      0.7,
-		TopK:             40,
 		TopP:             0.95,
 		MaxTokens:        2048,
 		FrequencyPenalty: 0.5,
-		EnableThinking:   true,
-		ThinkingBudget:   512,
+		PresencePenalty:  0.3,
+		N:                1,
 	}
 
 	// Create mock gin context with response recorder
@@ -449,7 +440,7 @@ func TestStreamChat(t *testing.T) {
 
 	// Create handler and call streamChat
 	handler := &Handler{}
-	handler.streamChat(c, mockInferenceServer.URL, req)
+	handler.streamChat(c, mockInferenceServer.URL, "test-api-key", "test-model", req)
 
 	// Verify response
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -479,12 +470,9 @@ func TestNonStreamChat(t *testing.T) {
 		assert.False(t, reqBody["stream"].(bool), "Stream should be false")
 		assert.NotNil(t, reqBody["messages"])
 
-		// Check all parameters
+		// Check all parameters (OpenAI compatible only)
 		if temp, ok := reqBody["temperature"]; ok {
 			assert.Equal(t, 0.8, temp)
-		}
-		if topK, ok := reqBody["top_k"]; ok {
-			assert.Equal(t, float64(50), topK)
 		}
 		if topP, ok := reqBody["top_p"]; ok {
 			assert.Equal(t, 0.9, topP)
@@ -530,11 +518,11 @@ func TestNonStreamChat(t *testing.T) {
 		Messages:         []map[string]interface{}{{"role": "user", "content": "Hello"}},
 		Stream:           false,
 		Temperature:      0.8,
-		TopK:             50,
 		TopP:             0.9,
 		MaxTokens:        1024,
 		FrequencyPenalty: 0.3,
-		EnableThinking:   false,
+		PresencePenalty:  0.2,
+		N:                1,
 	}
 
 	// Create mock gin context with response recorder
@@ -544,7 +532,7 @@ func TestNonStreamChat(t *testing.T) {
 
 	// Create handler and call nonStreamChat
 	handler := &Handler{}
-	handler.nonStreamChat(c, mockInferenceServer.URL, req)
+	handler.nonStreamChat(c, mockInferenceServer.URL, "test-api-key", "test-model", req)
 
 	// Verify response
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -588,7 +576,7 @@ func TestStreamChat_ErrorHandling(t *testing.T) {
 		c, _ := gin.CreateTestContext(w)
 
 		handler := &Handler{}
-		handler.streamChat(c, mockServer.URL, req)
+		handler.streamChat(c, mockServer.URL, "test-api-key", "test-model", req)
 
 		// Should contain error message
 		body := w.Body.String()
@@ -610,7 +598,7 @@ func TestStreamChat_ErrorHandling(t *testing.T) {
 
 		handler := &Handler{}
 		// This should still work, as we don't validate message structure
-		handler.streamChat(c, "http://invalid-url", req)
+		handler.streamChat(c, "http://invalid-url", "test-api-key", "test-model", req)
 
 		// Should contain error
 		body := w.Body.String()
@@ -641,7 +629,7 @@ func TestNonStreamChat_ErrorHandling(t *testing.T) {
 		c, _ := gin.CreateTestContext(w)
 
 		handler := &Handler{}
-		handler.nonStreamChat(c, mockServer.URL, req)
+		handler.nonStreamChat(c, mockServer.URL, "test-api-key", "test-model", req)
 
 		// Should return error
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -658,48 +646,20 @@ func TestBuildRequestBody_AllParameters(t *testing.T) {
 		Messages:         []map[string]interface{}{{"role": "user", "content": "test"}},
 		Stream:           true,
 		Temperature:      1.5,
-		TopK:             100,
 		TopP:             0.99,
 		MaxTokens:        4096,
 		FrequencyPenalty: 1.0,
-		EnableThinking:   true,
-		ThinkingBudget:   2048,
+		PresencePenalty:  0.8,
+		N:                2,
 	}
 
-	// Build request body (simulating what streamChat/nonStreamChat do)
-	requestBody := map[string]interface{}{
-		"messages": req.Messages,
-		"stream":   req.Stream,
-	}
-	if req.Temperature > 0 {
-		requestBody["temperature"] = req.Temperature
-	}
-	if req.TopK > 0 {
-		requestBody["top_k"] = req.TopK
-	}
-	if req.TopP > 0 {
-		requestBody["top_p"] = req.TopP
-	}
-	if req.MaxTokens > 0 {
-		requestBody["max_tokens"] = req.MaxTokens
-	}
-	if req.FrequencyPenalty != 0 {
-		requestBody["frequency_penalty"] = req.FrequencyPenalty
-	}
-	if req.EnableThinking {
-		requestBody["enable_thinking"] = req.EnableThinking
-		if req.ThinkingBudget > 0 {
-			requestBody["thinking_budget"] = req.ThinkingBudget
-		}
-	}
-
-	// Verify all parameters are present
-	assert.Equal(t, true, requestBody["stream"])
-	assert.Equal(t, 1.5, requestBody["temperature"])
-	assert.Equal(t, 100, requestBody["top_k"])
-	assert.Equal(t, 0.99, requestBody["top_p"])
-	assert.Equal(t, 4096, requestBody["max_tokens"])
-	assert.Equal(t, 1.0, requestBody["frequency_penalty"])
-	assert.Equal(t, true, requestBody["enable_thinking"])
-	assert.Equal(t, 2048, requestBody["thinking_budget"])
+	// Verify all parameters are set correctly (OpenAI compatible only)
+	assert.Equal(t, "test", req.InferenceId)
+	assert.Equal(t, true, req.Stream)
+	assert.Equal(t, 1.5, req.Temperature)
+	assert.Equal(t, 0.99, req.TopP)
+	assert.Equal(t, 4096, req.MaxTokens)
+	assert.Equal(t, 1.0, req.FrequencyPenalty)
+	assert.Equal(t, 0.8, req.PresencePenalty)
+	assert.Equal(t, 2, req.N)
 }

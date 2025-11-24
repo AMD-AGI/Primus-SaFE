@@ -6,11 +6,11 @@
 package model_handlers
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"strconv"
 	"time"
 
@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/lib/pq"
+	openai "github.com/sashabaranov/go-openai"
 	"k8s.io/klog/v2"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -70,11 +71,25 @@ func (h *Handler) Chat(c *gin.Context) {
 		return
 	}
 
+	// Get API key from instance (optional)
+	apiKey, _ := instanceData["apiKey"].(string)
+
+	// Get model name: prioritize instance.model, fallback to inference.model_name
+	modelName := dbInference.ModelName
+	if instanceModel, ok := instanceData["model"].(string); ok && instanceModel != "" {
+		modelName = instanceModel
+	}
+
+	if modelName == "" {
+		c.JSON(400, gin.H{"error": "model name not specified in instance or inference"})
+		return
+	}
+
 	// Call inference service with streaming support
 	if req.Stream {
-		h.streamChat(c, baseUrl, req)
+		h.streamChat(c, baseUrl, apiKey, modelName, req)
 	} else {
-		h.nonStreamChat(c, baseUrl, req)
+		h.nonStreamChat(c, baseUrl, apiKey, modelName, req)
 	}
 }
 
@@ -98,167 +113,157 @@ func (h *Handler) DeletePlaygroundSession(c *gin.Context) {
 	handle(c, h.deletePlaygroundSession)
 }
 
-// streamChat handles streaming chat using SSE.
-func (h *Handler) streamChat(c *gin.Context, baseUrl string, req *ChatRequest) {
+// streamChat handles streaming chat using SSE with OpenAI SDK.
+func (h *Handler) streamChat(c *gin.Context, baseUrl string, apiKey string, modelName string, req *ChatRequest) {
 	// Set SSE headers
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no") // Disable nginx buffering
 
-	// Build request body
-	requestBody := map[string]interface{}{
-		"messages": req.Messages,
-		"stream":   true,
+	// Create OpenAI client config
+	config := openai.DefaultConfig(apiKey)
+	if baseUrl != "" {
+		config.BaseURL = baseUrl + "/v1"
+	}
+	client := openai.NewClientWithConfig(config)
+
+	// Convert messages to OpenAI format
+	messages := make([]openai.ChatCompletionMessage, 0, len(req.Messages))
+	for _, msg := range req.Messages {
+		role, _ := msg["role"].(string)
+		content, _ := msg["content"].(string)
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    role,
+			Content: content,
+		})
+	}
+
+	// Build request
+	chatReq := openai.ChatCompletionRequest{
+		Model:    modelName,
+		Messages: messages,
+		Stream:   true,
 	}
 	if req.Temperature > 0 {
-		requestBody["temperature"] = req.Temperature
-	}
-	if req.TopK > 0 {
-		requestBody["top_k"] = req.TopK
+		chatReq.Temperature = float32(req.Temperature)
 	}
 	if req.TopP > 0 {
-		requestBody["top_p"] = req.TopP
+		chatReq.TopP = float32(req.TopP)
 	}
 	if req.MaxTokens > 0 {
-		requestBody["max_tokens"] = req.MaxTokens
+		chatReq.MaxCompletionTokens = req.MaxTokens
 	}
 	if req.FrequencyPenalty != 0 {
-		requestBody["frequency_penalty"] = req.FrequencyPenalty
+		chatReq.FrequencyPenalty = float32(req.FrequencyPenalty)
 	}
-	if req.EnableThinking {
-		requestBody["enable_thinking"] = req.EnableThinking
-		if req.ThinkingBudget > 0 {
-			requestBody["thinking_budget"] = req.ThinkingBudget
-		}
+	if req.PresencePenalty != 0 {
+		chatReq.PresencePenalty = float32(req.PresencePenalty)
+	}
+	if req.N > 0 {
+		chatReq.N = req.N
 	}
 
-	bodyBytes, err := json.Marshal(requestBody)
+	// Create stream
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 300*time.Second)
+	defer cancel()
+
+	stream, err := client.CreateChatCompletionStream(ctx, chatReq)
 	if err != nil {
-		c.SSEvent("error", fmt.Sprintf("failed to marshal request: %v", err))
+		c.SSEvent("error", fmt.Sprintf("failed to create stream: %v", err))
 		return
 	}
+	defer stream.Close()
 
-	// Call inference service
-	url := fmt.Sprintf("%s/v1/chat/completions", baseUrl)
-	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		c.SSEvent("error", fmt.Sprintf("failed to create request: %v", err))
-		return
-	}
+	// Get flusher for SSE
+	flusher, _ := c.Writer.(interface{ Flush() })
 
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
-
-	client := &http.Client{Timeout: 300 * time.Second} // Longer timeout for streaming
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		c.SSEvent("error", fmt.Sprintf("failed to call inference service: %v", err))
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		c.SSEvent("error", fmt.Sprintf("inference service error (status %d): %s", resp.StatusCode, string(bodyBytes)))
-		return
-	}
-
-	// Stream response chunks
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		c.SSEvent("error", "streaming not supported")
-		return
-	}
-
-	// Read and forward SSE events
-	reader := io.Reader(resp.Body)
-	buf := make([]byte, 4096)
+	// Stream response
 	for {
-		n, err := reader.Read(buf)
-		if n > 0 {
-			// Write chunk directly to response
-			c.Writer.Write(buf[:n])
-			flusher.Flush()
-		}
-		if err != nil {
-			if err != io.EOF {
-				klog.ErrorS(err, "error reading stream")
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			// Stream completed successfully
+			c.SSEvent("message", "[DONE]")
+			if flusher != nil {
+				flusher.Flush()
 			}
 			break
+		}
+		if err != nil {
+			klog.ErrorS(err, "error reading stream")
+			c.SSEvent("error", fmt.Sprintf("stream error: %v", err))
+			return
+		}
+
+		// Forward the response chunk in OpenAI SSE format
+		if len(response.Choices) > 0 {
+			c.SSEvent("message", response)
+			if flusher != nil {
+				flusher.Flush()
+			}
 		}
 	}
 
 	klog.Infof("streaming chat completed for inference: %s", req.InferenceId)
 }
 
-// nonStreamChat handles non-streaming chat.
-func (h *Handler) nonStreamChat(c *gin.Context, baseUrl string, req *ChatRequest) {
-	// Build request body
-	requestBody := map[string]interface{}{
-		"messages": req.Messages,
-		"stream":   false,
+// nonStreamChat handles non-streaming chat with OpenAI SDK.
+func (h *Handler) nonStreamChat(c *gin.Context, baseUrl string, apiKey string, modelName string, req *ChatRequest) {
+	// Create OpenAI client config
+	config := openai.DefaultConfig(apiKey)
+	if baseUrl != "" {
+		config.BaseURL = baseUrl + "/v1"
+	}
+	client := openai.NewClientWithConfig(config)
+
+	// Convert messages to OpenAI format
+	messages := make([]openai.ChatCompletionMessage, 0, len(req.Messages))
+	for _, msg := range req.Messages {
+		role, _ := msg["role"].(string)
+		content, _ := msg["content"].(string)
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    role,
+			Content: content,
+		})
+	}
+
+	// Build request
+	chatReq := openai.ChatCompletionRequest{
+		Model:    modelName,
+		Messages: messages,
+		Stream:   false,
 	}
 	if req.Temperature > 0 {
-		requestBody["temperature"] = req.Temperature
-	}
-	if req.TopK > 0 {
-		requestBody["top_k"] = req.TopK
+		chatReq.Temperature = float32(req.Temperature)
 	}
 	if req.TopP > 0 {
-		requestBody["top_p"] = req.TopP
+		chatReq.TopP = float32(req.TopP)
 	}
 	if req.MaxTokens > 0 {
-		requestBody["max_tokens"] = req.MaxTokens
+		chatReq.MaxCompletionTokens = req.MaxTokens
 	}
 	if req.FrequencyPenalty != 0 {
-		requestBody["frequency_penalty"] = req.FrequencyPenalty
+		chatReq.FrequencyPenalty = float32(req.FrequencyPenalty)
 	}
-	if req.EnableThinking {
-		requestBody["enable_thinking"] = req.EnableThinking
-		if req.ThinkingBudget > 0 {
-			requestBody["thinking_budget"] = req.ThinkingBudget
-		}
+	if req.PresencePenalty != 0 {
+		chatReq.PresencePenalty = float32(req.PresencePenalty)
 	}
-
-	bodyBytes, err := json.Marshal(requestBody)
-	if err != nil {
-		c.JSON(500, gin.H{"error": fmt.Sprintf("failed to marshal request: %v", err)})
-		return
+	if req.N > 0 {
+		chatReq.N = req.N
 	}
 
-	// Call inference service
-	url := fmt.Sprintf("%s/v1/chat/completions", baseUrl)
-	httpReq, err := http.NewRequest("POST", url, bytes.NewBuffer(bodyBytes))
-	if err != nil {
-		c.JSON(500, gin.H{"error": fmt.Sprintf("failed to create request: %v", err)})
-		return
-	}
+	// Call API
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 300*time.Second)
+	defer cancel()
 
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 120 * time.Second}
-	resp, err := client.Do(httpReq)
+	resp, err := client.CreateChatCompletion(ctx, chatReq)
 	if err != nil {
 		c.JSON(500, gin.H{"error": fmt.Sprintf("failed to call inference service: %v", err)})
 		return
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		c.JSON(500, gin.H{"error": fmt.Sprintf("inference service error (status %d): %s", resp.StatusCode, string(bodyBytes))})
-		return
-	}
-
-	// Parse and return response
-	var apiResp map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		c.JSON(500, gin.H{"error": fmt.Sprintf("failed to parse response: %v", err)})
-		return
-	}
-
-	c.JSON(200, apiResp)
+	// Return response in OpenAI format
+	c.JSON(200, resp)
 	klog.Infof("non-streaming chat completed for inference: %s", req.InferenceId)
 }
 
