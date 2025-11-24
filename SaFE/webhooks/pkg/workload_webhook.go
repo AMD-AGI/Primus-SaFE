@@ -360,9 +360,9 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 	workload.Spec.Resource.Replica = 1
 	workload.Spec.Timeout = nil
 	workload.Spec.Dependencies = nil
-	val, ok := workload.Spec.Env[common.UnifiedBuildEnable]
+	val, ok := workload.Spec.Env[common.UnifiedJobKind]
 	if ok && val == v1.TrueStr {
-		v1.SetAnnotation(workload, v1.CICDUnifiedBuildAnnotation, v1.TrueStr)
+		v1.SetAnnotation(workload, v1.CICDUnifiedJobAnnotation, v1.TrueStr)
 	}
 }
 
@@ -781,7 +781,7 @@ func validateResourceEnough(nf *v1.NodeFlavor, res *v1.WorkloadResource) error {
 
 // validateTemplate ensures the resource template and task template for the workload kind exist.
 func (v *WorkloadValidator) validateTemplate(ctx context.Context, workload *v1.Workload) error {
-	if _, err := getResourceTemplate(ctx, v.Client, workload.Spec.GroupVersionKind); err != nil {
+	if _, err := commonworkload.GetResourceTemplate(ctx, v.Client, workload.ToSchemaGVK()); err != nil {
 		return err
 	}
 	_, err := commonworkload.GetWorkloadTemplate(ctx, v.Client, workload)

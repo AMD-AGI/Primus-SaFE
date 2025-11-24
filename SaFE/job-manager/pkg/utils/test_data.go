@@ -405,7 +405,9 @@ var (
 			Name: "pytorch-job",
 			Labels: map[string]string{
 				v1.WorkloadVersionLabel: "v1",
-				v1.WorkloadKindLabel:    "PyTorchJob",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: "PyTorchJob",
 			},
 		},
 		Spec: v1.ResourceTemplateSpec{
@@ -466,7 +468,9 @@ var (
 			Name: "job",
 			Labels: map[string]string{
 				v1.WorkloadVersionLabel: "v1",
-				v1.WorkloadKindLabel:    common.JobKind,
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: common.JobKind,
 			},
 		},
 		Spec: v1.ResourceTemplateSpec{
@@ -510,7 +514,9 @@ var (
 			Name: "deployment",
 			Labels: map[string]string{
 				v1.WorkloadVersionLabel: "v1",
-				v1.WorkloadKindLabel:    "Deployment",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: "Deployment",
 			},
 		},
 		Spec: v1.ResourceTemplateSpec{
@@ -561,7 +567,9 @@ var (
 			Name: "statefulset",
 			Labels: map[string]string{
 				v1.WorkloadVersionLabel: "v1",
-				v1.WorkloadKindLabel:    "StatefulSet",
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: "StatefulSet",
 			},
 		},
 		Spec: v1.ResourceTemplateSpec{
@@ -636,7 +644,9 @@ var (
 			Name: "job",
 			Labels: map[string]string{
 				v1.WorkloadVersionLabel: "v1",
-				v1.WorkloadKindLabel:    common.CICDScaleRunnerSetKind,
+			},
+			Annotations: map[string]string{
+				v1.WorkloadKindLabel: common.CICDScaleRunnerSetKind,
 			},
 		},
 		Spec: v1.ResourceTemplateSpec{

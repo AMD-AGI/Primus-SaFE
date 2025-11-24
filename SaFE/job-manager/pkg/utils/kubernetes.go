@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -24,6 +23,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
 const (
@@ -31,24 +31,9 @@ const (
 	WorkloadGracePeriod = 180
 )
 
-// GetResourceTemplate Retrieve the corresponding resource_template based on the workload's GVK.
-func GetResourceTemplate(ctx context.Context, adminClient client.Client, gvk schema.GroupVersionKind) (*v1.ResourceTemplate, error) {
-	templateList := &v1.ResourceTemplateList{}
-	labelSelector := labels.SelectorFromSet(map[string]string{
-		v1.WorkloadKindLabel: gvk.Kind, v1.WorkloadVersionLabel: gvk.Version})
-	if err := adminClient.List(ctx, templateList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
-		return nil, err
-	}
-	if len(templateList.Items) == 0 {
-		return nil, commonerrors.NewInternalError(
-			fmt.Sprintf("the resource template is not found, kind: %s, version: %s", gvk.Kind, gvk.Version))
-	}
-	return &templateList.Items[0], nil
-}
-
 // GenObjectReference constructs a reference object pointing to a k8s object based on the workload.
 func GenObjectReference(ctx context.Context, adminClient client.Client, workload *v1.Workload) (*unstructured.Unstructured, error) {
-	rt, err := GetResourceTemplate(ctx, adminClient, workload.ToSchemaGVK())
+	rt, err := commonworkload.GetResourceTemplate(ctx, adminClient, workload.ToSchemaGVK())
 	if err != nil {
 		return nil, err
 	}

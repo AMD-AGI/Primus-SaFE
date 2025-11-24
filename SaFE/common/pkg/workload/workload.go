@@ -9,9 +9,11 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -25,6 +27,7 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/floatutil"
+	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 )
 
 // GetWorkloadsOfWorkspace retrieves workloads belonging to specified workspace(s) and cluster.
@@ -197,7 +200,7 @@ func GetPodResources(res *v1.WorkloadResource) (corev1.ResourceList, error) {
 // GetScope determines the workspace scope based on workload kind.
 func GetScope(w *v1.Workload) v1.WorkspaceScope {
 	switch w.SpecKind() {
-	case common.PytorchJobKind:
+	case common.PytorchJobKind, common.UnifiedJobKind:
 		return v1.TrainScope
 	case common.DeploymentKind, common.StatefulSetKind:
 		return v1.InferScope
@@ -221,8 +224,9 @@ func IsApplication(w *v1.Workload) bool {
 
 // IsJob returns true if the workload is a job type (PyTorchJob, Authoring, or Job).
 func IsJob(w *v1.Workload) bool {
-	if w.SpecKind() == common.PytorchJobKind ||
-		w.SpecKind() == common.AuthoringKind || w.SpecKind() == common.JobKind {
+	kind := w.SpecKind()
+	if kind == common.PytorchJobKind || kind == common.AuthoringKind ||
+		kind == common.JobKind || kind == common.UnifiedJobKind {
 		return true
 	}
 	return false
@@ -331,4 +335,22 @@ func GenerateMaxAvailResource(nf *v1.NodeFlavor) *v1.WorkloadResource {
 		result.GPU = nf.Spec.Gpu.Quantity.String()
 	}
 	return result
+}
+
+// GetResourceTemplate Retrieve the corresponding resource_template based on the workload's GVK.
+func GetResourceTemplate(ctx context.Context, cli client.Client, gvk schema.GroupVersionKind) (*v1.ResourceTemplate, error) {
+	templateList := &v1.ResourceTemplateList{}
+	labelSelector := labels.SelectorFromSet(map[string]string{v1.WorkloadVersionLabel: gvk.Version})
+	if err := cli.List(ctx, templateList, &client.ListOptions{LabelSelector: labelSelector}); err != nil {
+		return nil, err
+	}
+	for i, item := range templateList.Items {
+		kinds := strings.Split(v1.GetAnnotation(&item, v1.WorkloadKindLabel), ",")
+		if sliceutil.Contains(kinds, gvk.Kind) {
+			return &templateList.Items[i], nil
+		}
+	}
+	return nil, commonerrors.NewInternalError(
+		fmt.Sprintf("the resource template is not found, kind: %s, version: %s", gvk.Kind, gvk.Version))
+
 }

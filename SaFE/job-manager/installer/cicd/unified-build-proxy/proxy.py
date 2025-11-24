@@ -79,7 +79,7 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("input missing required field: image")
 
     workspace_id = getenv_str(WORKSPACE_ID_ENV)
-    gvk_kind = "PyTorchJob"
+    gvk_kind = "UnifiedJob"
     gvk_version = "v1"
 
     payload: Dict[str, Any] = {

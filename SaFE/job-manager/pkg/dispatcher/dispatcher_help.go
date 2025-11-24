@@ -496,7 +496,8 @@ func buildPorts(workload *v1.Workload) []interface{} {
 		"containerPort": int64(workload.Spec.JobPort),
 		"protocol":      "TCP",
 	}
-	if workload.SpecKind() == common.PytorchJobKind || workload.SpecKind() == common.AuthoringKind {
+	kind := workload.SpecKind()
+	if kind == common.PytorchJobKind || kind == common.AuthoringKind || kind == common.UnifiedJobKind {
 		jobPort["name"] = common.PytorchJobPortName
 	}
 	sshPort := map[string]interface{}{

@@ -134,7 +134,7 @@ type WorkloadSpec struct {
 	IsSupervised bool `json:"isSupervised,omitempty"`
 	// Group: An extension field that is not currently in use
 	// Version: version of workload, default value is v1
-	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring/CICD, default PyTorchJob
+	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet/UnifiedJob, default PyTorchJob
 	GroupVersionKind `json:"groupVersionKind"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`

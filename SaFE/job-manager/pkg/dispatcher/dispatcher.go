@@ -136,7 +136,7 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, workload *v1
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, workload.ToSchemaGVK())
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, workload.ToSchemaGVK())
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
@@ -225,7 +225,7 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 		return nil, err
 	}
 
-	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
 	if err != nil {
 		klog.Error(err.Error())
 		return nil, err
@@ -327,7 +327,7 @@ func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1
 // updateK8sObject updates the existing Kubernetes object when workload specs change.
 func (r *DispatcherReconciler) updateK8sObject(ctx context.Context, adminWorkload *v1.Workload,
 	clusterInformer *syncer.ClusterInformer, obj *unstructured.Unstructured) error {
-	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, adminWorkload.ToSchemaGVK())
 	if err != nil {
 		klog.ErrorS(err, "", "gvk", adminWorkload.Spec.GroupVersionKind)
 		return err
@@ -572,7 +572,7 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 	envs[jobutils.WorkspaceEnv] = adminWorkload.Spec.Workspace
 	mainContainerName := v1.GetMainContainer(adminWorkload)
 
-	if v1.IsCICDUnifiedBuildEnable(adminWorkload) {
+	if v1.IsCICDUnifiedJobEnable(adminWorkload) {
 		pfsPath := ""
 		for _, vol := range workspace.Spec.Volumes {
 			if vol.Type == v1.PFS {
@@ -580,7 +580,7 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 				break
 			}
 		}
-		envs[common.UnifiedBuildEnable] = v1.TrueStr
+		envs[common.UnifiedJobKind] = v1.TrueStr
 		envs[jobutils.NfsPathEnv] = pfsPath + "/" + uuid.New().String()
 		envs[jobutils.NfsInputEnv] = UnifiedBuildInput
 		envs[jobutils.NfsOutputEnv] = UnifiedBuildOutput

@@ -532,7 +532,7 @@ func TestCICDScaleSetWithUnifiedBuild(t *testing.T) {
 	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
 	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
-	v1.SetAnnotation(workload, v1.CICDUnifiedBuildAnnotation, v1.TrueStr)
+	v1.SetAnnotation(workload, v1.CICDUnifiedJobAnnotation, v1.TrueStr)
 	workload.Spec.Workspace = workspace.Name
 
 	configmap, err := parseConfigmap(TestCICDScaleSetTemplateConfig)
@@ -605,15 +605,15 @@ func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload, need
 		ok = findEnv(envs, jobutils.ResourcesEnv, string(jsonutils.MarshalSilently(workload.Spec.Resource)))
 		assert.Equal(t, ok, true)
 	}
-	ok = findEnv(envs, "WORKLOAD_ID", workload.Name)
+	ok = findEnv(envs, jobutils.ScaleRunnerSetEnv, workload.Name)
 	assert.Equal(t, ok, true)
 	ok = findEnv(envs, common.AdminControlPlane, "10.0.0.1")
 	assert.Equal(t, ok, true)
 	ok = findEnv(envs, "APISERVER_NODE_PORT", "32495")
 	assert.Equal(t, ok, true)
 
-	if v1.IsCICDUnifiedBuildEnable(workload) {
-		ok = findEnv(envs, jobutils.NfsPathEnv, "/ceph")
+	if v1.IsCICDUnifiedJobEnable(workload) {
+		ok = findEnv(envs, common.UnifiedJobKind, v1.TrueStr)
 		assert.Equal(t, ok, true)
 		ok = findEnv(envs, jobutils.NfsInputEnv, UnifiedBuildInput)
 		assert.Equal(t, ok, true)

@@ -107,7 +107,7 @@ func (r *SyncerReconciler) getK8sResourceStatus(ctx context.Context, message *re
 		klog.ErrorS(err, "failed to get k8s object", "name", message.name, "namespace", message.namespace)
 		return nil, err
 	}
-	rt, err := jobutils.GetResourceTemplate(ctx, r.Client, message.gvk)
+	rt, err := commonworkload.GetResourceTemplate(ctx, r.Client, message.gvk)
 	if err != nil {
 		klog.ErrorS(err, "failed to get resource template", "name", message.name, "kind", message.gvk.Kind)
 		return nil, err

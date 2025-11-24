@@ -20,15 +20,15 @@ const (
 	StatefulSetKind        = "StatefulSet"
 	CICDScaleRunnerSetKind = "AutoscalingRunnerSet"
 	CICDScaleRunnerKind    = "AutoscalingRunner"
+	UnifiedJobKind         = "UnifiedJob"
 	PodKind                = "Pod"
 	EventKind              = "Event"
 	ConfigmapKind          = "ConfigMap"
 	ClusterRoleKind        = "ClusterRole"
 	ServiceAccountKind     = "ServiceAccount"
 
-	GithubConfigUrl    = "GITHUB_CONFIG_URL"
-	AdminControlPlane  = "ADMIN_CONTROL_PLANE"
-	UnifiedBuildEnable = "UNIFIED_BUILD_ENABLE"
+	GithubConfigUrl   = "GITHUB_CONFIG_URL"
+	AdminControlPlane = "ADMIN_CONTROL_PLANE"
 
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"

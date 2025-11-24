@@ -148,7 +148,7 @@ def get_workload_phase(s: requests.Session, base_url: str, workload_id: str) -> 
 
 def main() -> int:
     # Unified build mode: extend timeout and manage NFS path lifecycle
-    unified_build_enabled = getenv_bool("UNIFIED_BUILD_ENABLE", False)
+    unified_build_enabled = getenv_bool("UnifiedJob", False)
     cleanup_path: Optional[str] = None
     if unified_build_enabled:
         global timeout_secs
