@@ -470,7 +470,7 @@ func buildEnvironment(workload *v1.Workload) []interface{} {
 		})
 	}
 	result = append(result, map[string]interface{}{
-		"name":  jobutils.WorkloadEnv,
+		"name":  "WORKLOAD_ID",
 		"value": workload.Name,
 	})
 	result = append(result, map[string]interface{}{

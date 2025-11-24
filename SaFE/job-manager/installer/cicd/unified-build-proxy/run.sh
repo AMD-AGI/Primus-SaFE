@@ -5,6 +5,13 @@
 # See LICENSE for license information.
 #
 
-echo "hello world!"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-sleep 600
+pip install -r "${SCRIPT_DIR}/requirements.txt" > /dev/null
+
+python3 "${SCRIPT_DIR}/proxy.py"
+exit_code=$?
+
+echo "proxy exited with code: ${exit_code}"
+
+exit ${exit_code}

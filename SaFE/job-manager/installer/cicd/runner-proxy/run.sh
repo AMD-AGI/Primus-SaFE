@@ -9,9 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 pip install -r "${SCRIPT_DIR}/requirements.txt" > /dev/null
 
-python3 "${SCRIPT_DIR}/workload_client.py"
+python3 "${SCRIPT_DIR}/proxy.py"
 exit_code=$?
 
-echo "Workload client exited with code: ${exit_code}"
+echo "proxy exited with code: ${exit_code}"
 
 exit ${exit_code}

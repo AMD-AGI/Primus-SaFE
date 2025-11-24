@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -567,7 +568,7 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 	}
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.UserEnv] = v1.GetUserId(adminWorkload)
-	envs[jobutils.WorkloadEnv] = adminWorkload.Name
+	envs[jobutils.ScaleRunnerSetEnv] = adminWorkload.Name
 	envs[jobutils.WorkspaceEnv] = adminWorkload.Spec.Workspace
 	mainContainerName := v1.GetMainContainer(adminWorkload)
 
@@ -579,7 +580,8 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 				break
 			}
 		}
-		envs[jobutils.NfsPathEnv] = pfsPath
+		envs[common.UnifiedBuildEnable] = v1.TrueStr
+		envs[jobutils.NfsPathEnv] = pfsPath + "/" + uuid.New().String()
 		envs[jobutils.NfsInputEnv] = UnifiedBuildInput
 		envs[jobutils.NfsOutputEnv] = UnifiedBuildOutput
 

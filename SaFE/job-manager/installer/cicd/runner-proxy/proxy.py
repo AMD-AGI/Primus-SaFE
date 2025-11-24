@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import base64
+import atexit
 import json
 import os
 import sys
 import time
+import shutil
 from typing import Any, Dict, Optional, Tuple
 import requests
 
@@ -14,6 +16,13 @@ def getenv_str(name: str, default: Optional[str] = None) -> Optional[str]:
     if val is None or val == "":
         return default
     return val
+
+
+def getenv_bool(name: str, default: bool = False) -> bool:
+    val = getenv_str(name)
+    if val is None:
+        return default
+    return val.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def is_base64(s: str) -> bool:
@@ -63,14 +72,14 @@ def build_payload() -> Dict[str, Any]:
 
     # Optional metadata/config
     workspace_id = getenv_str("WORKSPACE_ID")
-    display_name = getenv_str("WORKLOAD_ID") + "-runner"
+    display_name = getenv_str("SCALE_RUNNER_SET") + "-runner"
     kind = "AutoscalingRunner"
     version = "v1"
     priority = 0
 
     # Inject only the two requested environment variables if present
     env_map: Dict[str, str] = {}
-    for key in ("ACTIONS_RUNNER_INPUT_JITCONFIG", "GITHUB_ACTIONS_RUNNER_EXTRA_USER_AGENT", "WORKLOAD_ID"):
+    for key in ("ACTIONS_RUNNER_INPUT_JITCONFIG", "GITHUB_ACTIONS_RUNNER_EXTRA_USER_AGENT", "SCALE_RUNNER_SET"):
         val = getenv_str(key)
         if val is not None:
             env_map[key] = val
@@ -138,6 +147,27 @@ def get_workload_phase(s: requests.Session, base_url: str, workload_id: str) -> 
 
 
 def main() -> int:
+    # Unified build mode: extend timeout and manage NFS path lifecycle
+    unified_build_enabled = getenv_bool("UNIFIED_BUILD_ENABLE", False)
+    cleanup_path: Optional[str] = None
+    if unified_build_enabled:
+        global timeout_secs
+        timeout_secs = 24 * 60 * 60  # 24h
+        nfs_path = getenv_str("SAFE_NFS_PATH")
+        if nfs_path:
+            try:
+                os.makedirs(nfs_path, exist_ok=True)
+                cleanup_path = nfs_path
+            except Exception as e:
+                print(f"[warn] failed to create SAFE_NFS_PATH directory '{nfs_path}': {e}", file=sys.stderr)
+        if cleanup_path:
+            def _cleanup() -> None:
+                try:
+                    shutil.rmtree(cleanup_path, ignore_errors=True)
+                except Exception:
+                    pass
+            atexit.register(_cleanup)
+
     try:
         payload = build_payload()
         session, base_url = build_session()
