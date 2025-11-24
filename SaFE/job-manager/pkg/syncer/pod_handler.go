@@ -22,6 +22,7 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -169,6 +170,10 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	}
 	if shouldUpdateNodes {
 		r.updateWorkloadNodes(adminWorkload, message)
+	}
+	if adminWorkload.SpecKind() == common.CICDScaleSetKind &&
+		len(adminWorkload.Status.Pods) > 0 {
+		adminWorkload.Status.Phase = v1.WorkloadPhase(adminWorkload.Status.Pods[0].Phase)
 	}
 	return ctrlruntime.Result{}, r.Status().Update(ctx, adminWorkload)
 }
