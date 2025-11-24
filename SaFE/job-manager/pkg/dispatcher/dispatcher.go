@@ -613,7 +613,7 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 				envs[jobutils.ImageEnv] = adminWorkload.Spec.Image
 				envs[jobutils.EntrypointEnv] = buildEntryPoint(adminWorkload)
 				updateContainerEnv(envs, container)
-				// Keep only the main container
+				// Keep only the main container and remove other container(e.g. unified-build)
 				newContainers := []interface{}{container}
 				return unstructured.SetNestedField(obj.Object, newContainers, path...)
 			}
