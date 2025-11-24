@@ -106,10 +106,9 @@ const (
 	UserTypeLabel           = UserPrefix + "type"
 
 	// secret
-	SecretPrefix        = PrimusSafePrefix + "secret."
-	SecretFinalizer     = PrimusSafeDomain + "secret.finalizer"
-	SecretTypeLabel     = SecretPrefix + "type"
-	SecretSharableLabel = SecretPrefix + "sharable"
+	SecretPrefix    = PrimusSafePrefix + "secret."
+	SecretFinalizer = PrimusSafeDomain + "secret.finalizer"
+	SecretTypeLabel = SecretPrefix + "type"
 
 	// exporter
 	ExporterFinalizer = PrimusSafeDomain + "exporter.finalizer"

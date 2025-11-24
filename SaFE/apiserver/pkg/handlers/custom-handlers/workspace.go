@@ -310,9 +310,6 @@ func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1
 		if v1.GetSecretType(secret) != string(v1.SecretImage) {
 			return commonerrors.NewBadRequest("the secret type is not image")
 		}
-		if !v1.IsSecretSharable(secret) {
-			return commonerrors.NewBadRequest("the secret is not sharable")
-		}
 		workspaceIds := commonsecret.GetSecretWorkspaces(secret)
 		if !sliceutil.Contains(workspaceIds, workspace.Name) {
 			klog.Errorf("secret(%s) workspaces %v do not include target workspace %s",

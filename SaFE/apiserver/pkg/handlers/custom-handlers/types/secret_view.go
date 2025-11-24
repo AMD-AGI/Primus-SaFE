@@ -36,8 +36,6 @@ type CreateSecretRequest struct {
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params []map[SecretParam]string `json:"params"`
-	// if true, it can be shared with other users in the same workspace.
-	IsSharable bool `json:"isSharable,omitempty"`
 }
 
 type CreateSecretResponse struct {
@@ -51,8 +49,6 @@ type ListSecretRequest struct {
 	Type string `form:"type" binding:"omitempty"`
 	// the workspace which the secret belongs to
 	WorkspaceId *string `json:"workspaceId,omitempty"`
-	// if true, it can be shared with other users in the same workspace.
-	IsSharable *bool `json:"isSharable,omitempty"`
 }
 
 type ListSecretResponse struct {
@@ -72,8 +68,6 @@ type SecretResponseItem struct {
 	Type string `json:"type"`
 	// Creation timestamp of the secret
 	CreationTime string `json:"creationTime"`
-	// Can be shared with other users in the same workspace.
-	IsSharable bool `json:"isSharable,omitempty"`
 	// The userId who created the secret
 	UserId string `json:"userId"`
 	// The userName who created the secret
@@ -102,8 +96,6 @@ type PatchSecretRequest struct {
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params *[]map[SecretParam]string `json:"params,omitempty"`
-	// if true, it can be shared with other users in the same workspace.
-	IsSharable *bool `json:"isSharable,omitempty"`
 	// the workspaces which the secret belongs to
 	WorkspaceIds *[]string `json:"workspaceIds,omitempty"`
 }

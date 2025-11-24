@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -246,9 +245,6 @@ func updateSecret(secret *corev1.Secret, req *types.PatchSecretRequest) error {
 			return err
 		}
 	}
-	if req.IsSharable != nil {
-		v1.SetLabel(secret, v1.SecretSharableLabel, strconv.FormatBool(*req.IsSharable))
-	}
 	if req.WorkspaceIds != nil {
 		v1.SetAnnotation(secret, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(*req.WorkspaceIds)))
 	}
@@ -345,9 +341,6 @@ func generateSecret(req *types.CreateSecretRequest, requestUser *v1.User) (*core
 	if req.Name != "" {
 		v1.SetLabel(secret, v1.DisplayNameLabel, req.Name)
 	}
-	if req.IsSharable {
-		v1.SetLabel(secret, v1.SecretSharableLabel, v1.TrueStr)
-	}
 	if len(req.WorkspaceIds) > 0 {
 		v1.SetAnnotation(secret, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(req.WorkspaceIds)))
 	}
@@ -432,15 +425,6 @@ func buildSecretLabelSelector(query *types.ListSecretRequest) labels.Selector {
 		req, _ := labels.NewRequirement(v1.SecretTypeLabel, selection.In, typeList)
 		labelSelector = labelSelector.Add(*req)
 	}
-	if query.IsSharable != nil {
-		var req *labels.Requirement
-		if *query.IsSharable {
-			req, _ = labels.NewRequirement(v1.SecretSharableLabel, selection.Equals, []string{v1.TrueStr})
-		} else {
-			req, _ = labels.NewRequirement(v1.SecretSharableLabel, selection.NotEquals, []string{v1.TrueStr})
-		}
-		labelSelector = labelSelector.Add(*req)
-	}
 	return labelSelector
 }
 
@@ -452,7 +436,6 @@ func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 		WorkspaceIds: commonsecret.GetSecretWorkspaces(secret),
 		Type:         v1.GetSecretType(secret),
 		CreationTime: timeutil.FormatRFC3339(secret.CreationTimestamp.Time),
-		IsSharable:   v1.GetLabel(secret, v1.SecretSharableLabel) == v1.TrueStr,
 		UserId:       v1.GetUserId(secret),
 		UserName:     v1.GetUserName(secret),
 	}

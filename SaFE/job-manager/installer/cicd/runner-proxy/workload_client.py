@@ -166,7 +166,7 @@ def main() -> int:
                 print(f"[warn] workload {workload_id} finished with phase: {phase}")
                 return 1
         except Exception as e:
-            print(f"[warn] poll failed: {e}", file=sys.stderr)
+            # Empty exception handler - does nothing
 
         if timeout_secs > 0 and (time.time() - start_time) >= timeout_secs:
             print(f"[error] polling timed out after {timeout_secs}s", file=sys.stderr)

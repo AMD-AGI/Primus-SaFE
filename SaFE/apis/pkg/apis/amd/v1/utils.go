@@ -317,11 +317,6 @@ func IsCICDUnifiedBuildEnable(obj metav1.Object) bool {
 	return GetAnnotation(obj, CICDUnifiedBuildAnnotation) == TrueStr
 }
 
-// IsSecretSharable checks whether the secret can be shared
-func IsSecretSharable(obj metav1.Object) bool {
-	return GetLabel(obj, SecretSharableLabel) == TrueStr
-}
-
 // atoi converts a string to an integer, returning 0 if conversion fails.
 func atoi(str string) int {
 	if str == "" {

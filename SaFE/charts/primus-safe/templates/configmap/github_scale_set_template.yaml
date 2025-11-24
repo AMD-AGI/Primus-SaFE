@@ -29,6 +29,7 @@ data:
       app.kubernetes.io/part-of: gha-rs
       app.kubernetes.io/version: 0.13.0
   spec:
+    minRunners: 0
     template:
       spec:
         containers:
