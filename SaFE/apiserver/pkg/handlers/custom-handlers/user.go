@@ -382,7 +382,7 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-// getAdminUser retrieves a user resource by ID from the system.
+// getAdminUser retrieves a user resource by ID from the admin data plane.
 // Returns an error if the user doesn't exist or the ID is empty.
 func (h *Handler) getAdminUser(ctx context.Context, userId string) (*v1.User, error) {
 	if userId == "" {
