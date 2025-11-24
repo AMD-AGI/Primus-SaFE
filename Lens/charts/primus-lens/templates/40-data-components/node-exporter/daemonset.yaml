@@ -1,0 +1,86 @@
+{{- if and (eq (include "primus-lens.data.enabled" .) "true") .Values.data.nodeExporter.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-node-exporter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-exporter
+spec:
+  selector:
+    matchLabels:
+      {{- include "primus-lens.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: node-exporter
+  template:
+    metadata:
+      labels:
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: node-exporter
+    spec:
+      hostNetwork: true
+      hostPID: true
+      serviceAccountName: {{ include "primus-lens.serviceAccountName" . }}
+      containers:
+      - name: node-exporter
+        image: {{ .Values.global.imageRegistry }}/{{ .Values.data.nodeExporter.image.repository }}:{{ .Values.data.nodeExporter.image.tag }}
+        imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+              - SYS_ADMIN
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: CONTAINERD_SOCKET
+          value: {{ .Values.data.nodeExporter.containerdSocket }}
+        - name: DOCKER_SOCKET
+          value: {{ .Values.data.nodeExporter.dockerSocket }}
+        - name: GRPC_SERVER
+          value: "{{ include "primus-lens.fullname" . }}-jobs:50051"
+        {{- with .Values.data.nodeExporter.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        volumeMounts:
+        - name: containerd-socket
+          mountPath: /run/containerd
+          readOnly: false
+        - name: docker-socket
+          mountPath: /var/run/docker.sock
+          readOnly: false
+        - name: sys
+          mountPath: /sys
+          readOnly: true
+        - name: dev
+          mountPath: /dev
+          readOnly: false
+        resources:
+          {{- toYaml .Values.data.nodeExporter.resources | nindent 10 }}
+      volumes:
+      - name: containerd-socket
+        hostPath:
+          path: /run/containerd
+          type: DirectoryOrCreate
+      - name: docker-socket
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket
+      - name: sys
+        hostPath:
+          path: /sys
+          type: Directory
+      - name: dev
+        hostPath:
+          path: /dev
+          type: Directory
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      tolerations:
+      - operator: Exists
+{{- end }}
+

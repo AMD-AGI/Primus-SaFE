@@ -1,0 +1,32 @@
+{{- if and (eq (include "primus-lens.middleware.enabled" .) "true") .Values.middleware.otelCollector.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-otel-collector
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "185"
+spec:
+  type: ClusterIP
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: otlp-grpc
+    protocol: TCP
+  - name: otlp-http
+    port: 4318
+    targetPort: otlp-http
+    protocol: TCP
+  - name: metrics
+    port: 8889
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    {{- include "primus-lens.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+{{- end }}
+

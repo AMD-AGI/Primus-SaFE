@@ -1,0 +1,29 @@
+{{- if and (eq (include "primus-lens.middleware.enabled" .) "true") .Values.middleware.victoriametrics.enabled }}
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAgent
+metadata:
+  name: primus-lens-vmagent
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vmagent
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "165"
+spec:
+  serviceScrapeNamespaceSelector: {}
+  podScrapeNamespaceSelector: {}
+  podScrapeSelector: {}
+  serviceScrapeSelector: {}
+  nodeScrapeSelector: {}
+  staticScrapeSelector: {}
+  
+  replicaCount: {{ .Values.middleware.victoriametrics.vmagent.replicas }}
+  
+  remoteWrite:
+    - url: http://primus-lens-vm-vminsert:8480/insert/0/prometheus/api/v1/write
+  
+  resources:
+    {{- toYaml .Values.middleware.victoriametrics.vmagent.resources | nindent 4 }}
+{{- end }}
+

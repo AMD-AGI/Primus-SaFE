@@ -7,8 +7,11 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/controller"
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/modules/jobs/pkg/jobs/gpu_usage_weekly_report"
+	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -43,9 +46,20 @@ func Init(ctx context.Context, cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
-	err = jobs.Start(ctx)
+
+	// Register weekly report test API if weekly report is enabled
+	if cfg.Jobs.WeeklyReport != nil && cfg.Jobs.WeeklyReport.Enabled {
+		server.AddRegister(func(g *gin.RouterGroup) {
+			gpu_usage_weekly_report.RegisterTestAPI(g, cfg.Jobs.WeeklyReport)
+		})
+		log.Info("Weekly report test API registered")
+	}
+
+	// Start jobs with configuration
+	err = jobs.Start(ctx, cfg.Jobs)
 	if err != nil {
 		return err
 	}
+
 	return nil
 }

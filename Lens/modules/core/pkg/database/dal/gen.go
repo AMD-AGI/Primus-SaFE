@@ -35,6 +35,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		GpuDevice:                 newGpuDevice(db, opts...),
 		GpuPods:                   newGpuPods(db, opts...),
 		GpuPodsEvent:              newGpuPodsEvent(db, opts...),
+		GpuUsageWeeklyReports:     newGpuUsageWeeklyReports(db, opts...),
 		GpuWorkload:               newGpuWorkload(db, opts...),
 		GpuWorkloadSnapshot:       newGpuWorkloadSnapshot(db, opts...),
 		JobExecutionHistory:       newJobExecutionHistory(db, opts...),
@@ -87,6 +88,7 @@ type Query struct {
 	GpuDevice                 gpuDevice
 	GpuPods                   gpuPods
 	GpuPodsEvent              gpuPodsEvent
+	GpuUsageWeeklyReports     gpuUsageWeeklyReports
 	GpuWorkload               gpuWorkload
 	GpuWorkloadSnapshot       gpuWorkloadSnapshot
 	JobExecutionHistory       jobExecutionHistory
@@ -140,6 +142,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		GpuDevice:                 q.GpuDevice.clone(db),
 		GpuPods:                   q.GpuPods.clone(db),
 		GpuPodsEvent:              q.GpuPodsEvent.clone(db),
+		GpuUsageWeeklyReports:     q.GpuUsageWeeklyReports.clone(db),
 		GpuWorkload:               q.GpuWorkload.clone(db),
 		GpuWorkloadSnapshot:       q.GpuWorkloadSnapshot.clone(db),
 		JobExecutionHistory:       q.JobExecutionHistory.clone(db),
@@ -200,6 +203,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		GpuDevice:                 q.GpuDevice.replaceDB(db),
 		GpuPods:                   q.GpuPods.replaceDB(db),
 		GpuPodsEvent:              q.GpuPodsEvent.replaceDB(db),
+		GpuUsageWeeklyReports:     q.GpuUsageWeeklyReports.replaceDB(db),
 		GpuWorkload:               q.GpuWorkload.replaceDB(db),
 		GpuWorkloadSnapshot:       q.GpuWorkloadSnapshot.replaceDB(db),
 		JobExecutionHistory:       q.JobExecutionHistory.replaceDB(db),
@@ -250,6 +254,7 @@ type queryCtx struct {
 	GpuDevice                 *gpuDeviceDo
 	GpuPods                   *gpuPodsDo
 	GpuPodsEvent              *gpuPodsEventDo
+	GpuUsageWeeklyReports     *gpuUsageWeeklyReportsDo
 	GpuWorkload               *gpuWorkloadDo
 	GpuWorkloadSnapshot       *gpuWorkloadSnapshotDo
 	JobExecutionHistory       *jobExecutionHistoryDo
@@ -300,6 +305,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		GpuDevice:                 q.GpuDevice.WithContext(ctx),
 		GpuPods:                   q.GpuPods.WithContext(ctx),
 		GpuPodsEvent:              q.GpuPodsEvent.WithContext(ctx),
+		GpuUsageWeeklyReports:     q.GpuUsageWeeklyReports.WithContext(ctx),
 		GpuWorkload:               q.GpuWorkload.WithContext(ctx),
 		GpuWorkloadSnapshot:       q.GpuWorkloadSnapshot.WithContext(ctx),
 		JobExecutionHistory:       q.JobExecutionHistory.WithContext(ctx),

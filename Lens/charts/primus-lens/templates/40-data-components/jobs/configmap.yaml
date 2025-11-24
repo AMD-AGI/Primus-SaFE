@@ -1,0 +1,36 @@
+{{- if and (eq (include "primus-lens.data.enabled" .) "true") .Values.data.jobs.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-jobs-data-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jobs-data
+data:
+  config.yaml: |
+    mode: {{ .Values.data.jobs.mode }}
+    grpcPort: {{ .Values.data.jobs.service.grpcPort }}
+    multiCluster: false
+    
+    # Data mode enabled jobs
+    enabledJobs:
+      {{- range .Values.data.jobs.enabledJobs }}
+      - {{ . }}
+      {{- end }}
+    
+    # Job intervals (seconds)
+    intervals:
+      nodeInfo: 10
+      deviceInfo: 10
+      gpuWorkload: 20
+      gpuPod: 5
+    
+    database:
+      host: ${DB_HOST}
+      port: ${DB_PORT}
+      database: ${DB_NAME}
+      user: ${DB_USER}
+      password: ${DB_PASSWORD}
+{{- end }}
+

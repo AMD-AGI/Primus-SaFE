@@ -1,0 +1,80 @@
+{{- if not (eq (include "primus-lens.middleware.enabled" .) "true") }}
+{{- /* 当不部署本地中间件时，创建远程中间件配置 */ -}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: primus-lens-middleware-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: remote-middleware-config
+data:
+  # PostgreSQL 远程配置
+  pg_host: {{ .Values.middleware.remote.postgresql.host | quote }}
+  pg_port: {{ .Values.middleware.remote.postgresql.port | quote }}
+  pg_database: {{ .Values.middleware.remote.postgresql.database | quote }}
+  pg_user: {{ .Values.middleware.remote.postgresql.user | default "primus_lens" | quote }}
+  
+  # OpenSearch 远程配置
+  opensearch_host: {{ .Values.middleware.remote.opensearch.host | quote }}
+  opensearch_port: {{ .Values.middleware.remote.opensearch.port | quote }}
+  
+  # VictoriaMetrics 远程配置
+  victoriametrics_host: {{ .Values.middleware.remote.victoriametrics.host | quote }}
+  victoriametrics_port: {{ .Values.middleware.remote.victoriametrics.port | quote }}
+  
+  # Otel Collector 远程配置
+  otel_collector_endpoint: {{ .Values.middleware.remote.otelCollector.endpoint | quote }}
+
+{{- if .Values.middleware.remote.postgresql.existingSecret }}
+---
+{{- /* 如果提供了远程数据库密码 Secret，创建引用 */ -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: primus-lens-remote-db-password
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: remote-middleware-config
+type: Opaque
+stringData:
+  password: ""  # 用户需要手动创建包含实际密码的 Secret
+{{- end }}
+
+---
+{{- /* 创建一个说明性的 ConfigMap */ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: primus-lens-remote-middleware-info
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+data:
+  README: |
+    This cluster is configured to use remote middleware.
+    
+    Remote Middleware Configuration:
+    - PostgreSQL: {{ .Values.middleware.remote.postgresql.host }}:{{ .Values.middleware.remote.postgresql.port }}
+    - OpenSearch: {{ .Values.middleware.remote.opensearch.host }}:{{ .Values.middleware.remote.opensearch.port }}
+    - VictoriaMetrics: {{ .Values.middleware.remote.victoriametrics.host }}:{{ .Values.middleware.remote.victoriametrics.port }}
+    - Otel Collector: {{ .Values.middleware.remote.otelCollector.endpoint }}
+    
+    Make sure:
+    1. Remote middleware services are accessible from this cluster
+    2. Network policies allow connections
+    3. Credentials are properly configured in secrets
+    
+    For PostgreSQL password, create a secret:
+      kubectl create secret generic primus-lens-remote-db-password \
+        --from-literal=password='your-password' \
+        -n {{ .Values.global.namespace }}
+    
+    Then update the ConfigMap:
+      kubectl get configmap primus-lens-middleware-config -n {{ .Values.global.namespace }} -o yaml | \
+        sed 's/pg_password:.*/pg_password: "$(kubectl get secret primus-lens-remote-db-password -n {{ .Values.global.namespace }} -o jsonpath='{.data.password}' | base64 -d)"/' | \
+        kubectl apply -f -
+{{- end }}
+

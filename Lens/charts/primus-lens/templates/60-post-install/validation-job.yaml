@@ -1,0 +1,106 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-validation
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: validator
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: validator
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "primus-lens.serviceAccountName" . }}
+      containers:
+      - name: validator
+        image: bitnami/kubectl:1.28
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          
+          echo "================================================================"
+          echo "  PRIMUS-LENS INSTALLATION VALIDATION"
+          echo "================================================================"
+          echo ""
+          echo "Deployment Mode: {{ .Values.deploymentMode }}"
+          echo "Cluster Name: {{ .Values.global.clusterName }}"
+          echo "Namespace: {{ .Values.global.namespace }}"
+          echo ""
+          
+          NAMESPACE="{{ .Values.global.namespace }}"
+          ERRORS=0
+          
+          {{- if eq (include "primus-lens.management.enabled" .) "true" }}
+          echo "Checking Management Cluster Components..."
+          
+          {{- if .Values.management.api.enabled }}
+          if kubectl get deployment {{ include "primus-lens.fullname" . }}-api -n $NAMESPACE >/dev/null 2>&1; then
+            echo "✅ API Deployment found"
+          else
+            echo "❌ API Deployment not found"
+            ERRORS=$((ERRORS+1))
+          fi
+          {{- end }}
+          
+          {{- if .Values.management.grafana.enabled }}
+          echo "✅ Grafana configured"
+          {{- end }}
+          {{- end }}
+          
+          {{- if eq (include "primus-lens.data.enabled" .) "true" }}
+          echo "Checking Data Cluster Components..."
+          
+          {{- if .Values.data.nodeExporter.enabled }}
+          if kubectl get daemonset {{ include "primus-lens.fullname" . }}-node-exporter -n $NAMESPACE >/dev/null 2>&1; then
+            echo "✅ Node Exporter DaemonSet found"
+          else
+            echo "❌ Node Exporter DaemonSet not found"
+            ERRORS=$((ERRORS+1))
+          fi
+          {{- end }}
+          {{- end }}
+          
+          {{- if eq (include "primus-lens.middleware.enabled" .) "true" }}
+          echo "Checking Middleware Components..."
+          
+          {{- if .Values.middleware.postgresql.enabled }}
+          if kubectl get postgrescluster primus-lens -n $NAMESPACE >/dev/null 2>&1; then
+            echo "✅ PostgreSQL Cluster found"
+          else
+            echo "⚠️  PostgreSQL Cluster not found"
+            ERRORS=$((ERRORS+1))
+          fi
+          {{- end }}
+          {{- end }}
+          
+          echo ""
+          echo "================================================================"
+          if [ $ERRORS -eq 0 ]; then
+            echo "✅ All components validated successfully!"
+            echo "================================================================"
+            exit 0
+          else
+            echo "⚠️  Validation completed with $ERRORS errors"
+            echo "================================================================"
+            echo ""
+            echo "Please check the pods:"
+            kubectl get pods -n $NAMESPACE
+            exit 0
+          fi
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+

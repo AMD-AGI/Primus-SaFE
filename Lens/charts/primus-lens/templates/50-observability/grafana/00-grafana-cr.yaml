@@ -1,0 +1,37 @@
+{{- if and (eq (include "primus-lens.management.enabled" .) "true") .Values.management.grafana.enabled }}
+apiVersion: grafana.integreatly.org/v1beta1
+kind: Grafana
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-grafana
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  config:
+    server:
+      {{- if eq .Values.management.grafana.accessType "ingress" }}
+      root_url: http://{{ .Values.management.grafana.domain }}/grafana
+      {{- else }}
+      root_url: http://127.0.0.1:{{ .Values.management.grafana.nginx.nodePort }}/grafana
+      {{- end }}
+      serve_from_sub_path: true
+    
+    auth.anonymous:
+      enabled: false
+    
+    security:
+      admin_user: admin
+      admin_password: admin
+  
+  deployment:
+    spec:
+      replicas: {{ .Values.management.grafana.instance.replicas }}
+      template:
+        spec:
+          containers:
+          - name: grafana
+            resources:
+              {{- toYaml .Values.management.grafana.instance.resources | nindent 14 }}
+{{- end }}
+

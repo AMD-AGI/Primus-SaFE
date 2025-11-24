@@ -1,0 +1,59 @@
+{{- if and (eq (include "primus-lens.middleware.enabled" .) "true") .Values.middleware.victoriametrics.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-install-vm-operator
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: victoriametrics-operator-installer
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "50"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: victoriametrics-operator-installer
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "primus-lens.serviceAccountName" . }}
+      containers:
+      - name: installer
+        image: alpine/helm:3.13.0
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -ex
+          
+          echo "Installing VictoriaMetrics Operator..."
+          
+          # 添加 Helm Repo
+          helm repo add vm https://victoriametrics.github.io/helm-charts/ || true
+          helm repo update
+          
+          # 检查是否已安装
+          if helm list -n {{ .Values.global.namespace }} | grep -q "^primus-lens-vm\s"; then
+            echo "VictoriaMetrics Operator already installed, skipping..."
+            exit 0
+          fi
+          
+          # 安装 Operator
+          helm install primus-lens-vm \
+            vm/victoria-metrics-operator \
+            --namespace {{ .Values.global.namespace }} \
+            --create-namespace \
+            --wait \
+            --timeout 5m
+          
+          echo "✅ VictoriaMetrics Operator installed successfully"
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+

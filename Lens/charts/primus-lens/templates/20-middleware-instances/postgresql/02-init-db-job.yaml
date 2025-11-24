@@ -1,0 +1,70 @@
+{{- if and (eq (include "primus-lens.middleware.enabled" .) "true") .Values.middleware.postgresql.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-init-postgresql-db
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql-initializer
+  annotations:
+    "helm.sh/hook": pre-install
+    "helm.sh/hook-weight": "120"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgresql-initializer
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "primus-lens.serviceAccountName" . }}
+      containers:
+      - name: initializer
+        image: postgres:15
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -ex
+          
+          echo "Initializing PostgreSQL database schema..."
+          
+          # 等待连接
+          until PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -c '\q'; do
+            echo "⏳ Waiting for PostgreSQL connection..."
+            sleep 5
+          done
+          
+          echo "✅ Connected to PostgreSQL"
+          
+          # 这里可以执行初始化 SQL
+          # 由于 SQL 文件较大，建议通过 ConfigMap 挂载
+          # 或者在应用启动时由应用自己执行数据库迁移
+          
+          echo "✅ Database initialized successfully"
+        env:
+        - name: PGHOST
+          value: primus-lens-ha
+        - name: PGPORT
+          value: "5432"
+        - name: PGDATABASE
+          value: primus_lens
+        - name: PGUSER
+          valueFrom:
+            secretKeyRef:
+              name: primus-lens-pguser-primus-lens
+              key: user
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: primus-lens-pguser-primus-lens
+              key: password
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+

@@ -1,0 +1,49 @@
+{{- if and (eq (include "primus-lens.middleware.enabled" .) "true") .Values.middleware.opensearch.enabled }}
+apiVersion: opensearch.opster.io/v1
+kind: OpenSearchCluster
+metadata:
+  name: primus-lens-opensearch
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: opensearch
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "140"
+spec:
+  general:
+    serviceName: primus-lens-opensearch
+    version: "2.11.0"
+    httpPort: 9200
+    vendor: opensearch
+    drainDataNodes: true
+  
+  dashboards:
+    enable: true
+    version: "2.11.0"
+    replicas: 1
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+  
+  nodePools:
+    - component: masters
+      replicas: 3
+      diskSize: {{ include "primus-lens.opensearch.diskSize" . | quote }}
+      resources:
+        requests:
+          cpu: {{ include "primus-lens.opensearch.cpu" . | quote }}
+          memory: {{ include "primus-lens.opensearch.memory" . | quote }}
+        limits:
+          cpu: {{ include "primus-lens.opensearch.cpu" . | quote }}
+          memory: {{ include "primus-lens.opensearch.memory" . | quote }}
+      jvm: "-Xms2g -Xmx2g"
+      roles:
+        - master
+        - data
+{{- end }}
+

@@ -1,0 +1,61 @@
+{{- if and (eq (include "primus-lens.data.enabled" .) "true") .Values.data.jobs.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-jobs-data
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jobs-data
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "primus-lens.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: jobs-data
+  template:
+    metadata:
+      labels:
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: jobs-data
+    spec:
+      serviceAccountName: {{ include "primus-lens.serviceAccountName" . }}
+      containers:
+      - name: jobs
+        image: {{ .Values.global.imageRegistry }}/{{ .Values.data.jobs.image.repository }}:{{ .Values.data.jobs.image.tag }}
+        imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        ports:
+        - name: grpc
+          containerPort: {{ .Values.data.jobs.service.grpcPort }}
+          protocol: TCP
+        env:
+        - name: DEPLOYMENT_MODE
+          value: {{ .Values.data.jobs.mode | quote }}
+        - name: CLUSTER_NAME
+          value: {{ .Values.global.clusterName | quote }}
+        - name: GRPC_PORT
+          value: {{ .Values.data.jobs.service.grpcPort | quote }}
+        envFrom:
+        - configMapRef:
+            name: {{ include "primus-lens.fullname" . }}-jobs-data-config
+        - configMapRef:
+            name: primus-lens-middleware-config
+            optional: true
+        {{- with .Values.data.jobs.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        volumeMounts:
+        - name: config
+          mountPath: /etc/primus-lens
+        resources:
+          {{- toYaml .Values.data.jobs.resources | nindent 10 }}
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "primus-lens.fullname" . }}-jobs-data-config
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+

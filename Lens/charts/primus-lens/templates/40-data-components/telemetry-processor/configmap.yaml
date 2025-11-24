@@ -1,0 +1,36 @@
+{{- if and (eq (include "primus-lens.data.enabled" .) "true") .Values.data.telemetryProcessor.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-telemetry-processor-data-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-processor-data
+data:
+  config.yaml: |
+    mode: {{ .Values.data.telemetryProcessor.mode }}
+    httpPort: {{ .Values.data.telemetryProcessor.service.httpPort }}
+    prometheusPort: {{ .Values.data.telemetryProcessor.service.prometheusPort }}
+    
+    # Prometheus remote write endpoint
+    prometheus:
+      remoteWriteURL: {{ include "primus-lens.victoriametricsURL" . }}/api/v1/write
+    
+    # Log processing
+    logs:
+      endpoint: /logs
+      enableTrainingMetrics: true
+    
+    # OpenSearch configuration
+    opensearch:
+      url: {{ include "primus-lens.opensearchURL" . }}
+    
+    database:
+      host: ${DB_HOST}
+      port: ${DB_PORT}
+      database: ${DB_NAME}
+      user: ${DB_USER}
+      password: ${DB_PASSWORD}
+{{- end }}
+

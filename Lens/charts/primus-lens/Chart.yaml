@@ -1,0 +1,28 @@
+apiVersion: v2
+name: primus-lens
+description: A comprehensive Kubernetes GPU cluster monitoring and management platform for AI/ML workloads
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.23.0-0"
+
+keywords:
+  - gpu
+  - monitoring
+  - observability
+  - amd
+  - kubernetes
+  - ml
+  - ai
+  - rocm
+
+home: https://github.com/AMD-AGI/Primus-SaFE
+sources:
+  - https://github.com/AMD-AGI/Primus-SaFE/tree/main/Lens
+
+maintainers:
+  - name: AMD-AGI Team
+    email: support@amd-agi.com
+
+icon: https://raw.githubusercontent.com/AMD-AGI/Primus-SaFE/main/docs/images/primus-lens-logo.png
+

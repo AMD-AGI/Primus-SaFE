@@ -1,0 +1,58 @@
+{{- if and (eq (include "primus-lens.management.enabled" .) "true") .Values.management.grafana.enabled .Values.management.grafana.operator.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-wait-grafana-operator
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana-operator-waiter
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "90"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: grafana-operator-waiter
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "primus-lens.serviceAccountName" . }}
+      containers:
+      - name: waiter
+        image: bitnami/kubectl:1.28
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -ex
+          
+          echo "Waiting for Grafana Operator to be ready..."
+          
+          # 等待 Operator Deployment 就绪
+          kubectl wait --for=condition=Available deployment \
+            -l app.kubernetes.io/name=grafana-operator \
+            -n {{ .Values.global.namespace }} \
+            --timeout=300s || true
+          
+          # 等待 CRDs 注册完成
+          for i in {1..30}; do
+            if kubectl get crd grafanas.grafana.integreatly.org >/dev/null 2>&1; then
+              echo "✅ Grafana Operator CRDs are ready"
+              exit 0
+            fi
+            echo "⏳ [$i/30] Waiting for Grafana Operator CRDs..."
+            sleep 5
+          done
+          
+          echo "❌ Timeout waiting for Grafana Operator CRDs"
+          exit 1
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+

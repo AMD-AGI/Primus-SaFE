@@ -1,0 +1,47 @@
+{{- if and (eq (include "primus-lens.management.enabled" .) "true") .Values.management.multiClusterConfigExporter.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-multi-cluster-config-exporter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: multi-cluster-config-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "primus-lens.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: multi-cluster-config-exporter
+  template:
+    metadata:
+      labels:
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: multi-cluster-config-exporter
+    spec:
+      serviceAccountName: {{ include "primus-lens.serviceAccountName" . }}
+      containers:
+      - name: exporter
+        image: {{ .Values.global.imageRegistry }}/{{ .Values.management.multiClusterConfigExporter.image.repository }}:{{ .Values.management.multiClusterConfigExporter.image.tag }}
+        imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        env:
+        - name: SCAN_INTERVAL
+          value: {{ .Values.management.multiClusterConfigExporter.scanInterval | quote }}
+        {{- with .Values.management.multiClusterConfigExporter.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        volumeMounts:
+        - name: config
+          mountPath: /etc/primus-lens
+        resources:
+          {{- toYaml .Values.management.multiClusterConfigExporter.resources | nindent 10 }}
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "primus-lens.fullname" . }}-multi-cluster-config-exporter-config
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+

@@ -1,0 +1,25 @@
+{{- if and (eq (include "primus-lens.management.enabled" .) "true") .Values.management.telemetryProcessor.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-telemetry-processor-management
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-processor-management
+spec:
+  type: ClusterIP
+  ports:
+  - port: {{ .Values.management.telemetryProcessor.service.httpPort }}
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: {{ .Values.management.telemetryProcessor.service.prometheusPort }}
+    targetPort: prometheus
+    protocol: TCP
+    name: prometheus
+  selector:
+    {{- include "primus-lens.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-processor-management
+{{- end }}
+

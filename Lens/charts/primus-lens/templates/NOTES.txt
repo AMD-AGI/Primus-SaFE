@@ -1,0 +1,241 @@
+Thank you for installing {{ .Chart.Name }}.
+
+Your release is named {{ .Release.Name }}.
+
+================================================================
+  PRIMUS-LENS DEPLOYMENT SUMMARY
+================================================================
+
+Deployment Mode: {{ .Values.deploymentMode }}
+Cluster Name: {{ .Values.global.clusterName }}
+Namespace: {{ .Values.global.namespace }}
+Profile: {{ .Values.global.profile }}
+
+{{- if or (eq .Values.deploymentMode "management") (eq .Values.deploymentMode "all-in-one") }}
+
+================================================================
+  MANAGEMENT CLUSTER COMPONENTS
+================================================================
+
+{{ if .Values.management.api.enabled }}
+✓ Primus Lens API
+  Service: {{ include "primus-lens.fullname" . }}-api
+  Port: {{ .Values.management.api.service.port }}
+  
+  Access the API:
+    kubectl port-forward svc/{{ include "primus-lens.fullname" . }}-api {{ .Values.management.api.service.port }}:{{ .Values.management.api.service.port }} -n {{ .Values.global.namespace }}
+    
+  Then visit: http://localhost:{{ .Values.management.api.service.port }}
+{{- end }}
+
+{{ if .Values.management.safeAdapter.enabled }}
+✓ Primus SaFE Adapter
+  Service: {{ include "primus-lens.fullname" . }}-safe-adapter
+  Port: {{ .Values.management.safeAdapter.service.port }}
+{{- end }}
+
+{{ if .Values.management.jobs.enabled }}
+✓ Jobs (Management Mode)
+  Enabled Jobs: {{ .Values.management.jobs.enabledJobs | join ", " }}
+  gRPC Port: {{ .Values.management.jobs.service.grpcPort }}
+{{- end }}
+
+{{ if .Values.management.telemetryProcessor.enabled }}
+✓ Telemetry Processor (Management Mode)
+  HTTP Port: {{ .Values.management.telemetryProcessor.service.httpPort }}
+  Prometheus Port: {{ .Values.management.telemetryProcessor.service.prometheusPort }}
+{{- end }}
+
+{{ if .Values.management.grafana.enabled }}
+✓ Grafana Dashboard
+{{- if eq .Values.management.grafana.accessType "ssh-tunnel" }}
+  Access via SSH Tunnel:
+    kubectl port-forward svc/{{ include "primus-lens.fullname" . }}-nginx {{ .Values.management.grafana.nginx.nodePort }}:80 -n {{ .Values.global.namespace }}
+    
+  URL: http://127.0.0.1:{{ .Values.management.grafana.nginx.nodePort }}/grafana
+{{- else if eq .Values.management.grafana.accessType "ingress" }}
+  Access via Ingress:
+    URL: http://{{ .Values.management.grafana.domain }}/grafana
+{{- end }}
+  
+  Default Credentials: admin / admin
+  ⚠️  Please change the password on first login!
+{{- end }}
+
+{{- end }}
+
+{{- if or (eq .Values.deploymentMode "data") (eq .Values.deploymentMode "all-in-one") }}
+
+================================================================
+  DATA CLUSTER COMPONENTS
+================================================================
+
+{{ if .Values.data.nodeExporter.enabled }}
+✓ Node Exporter (DaemonSet)
+  Collecting GPU, RDMA, and container metrics from all nodes
+{{- end }}
+
+{{ if .Values.data.gpuResourceExporter.enabled }}
+✓ GPU Resource Exporter
+  Tracking GPU pod lifecycle and workload management
+{{- end }}
+
+{{ if .Values.data.jobs.enabled }}
+✓ Jobs (Data Mode)
+  Enabled Jobs: {{ .Values.data.jobs.enabledJobs | join ", " }}
+  gRPC Port: {{ .Values.data.jobs.service.grpcPort }}
+{{- end }}
+
+{{ if .Values.data.telemetryProcessor.enabled }}
+✓ Telemetry Processor (Data Mode)
+  Processing metrics and logs from data cluster nodes
+{{- end }}
+
+{{- end }}
+
+{{- if eq (include "primus-lens.middleware.enabled" .) "true" }}
+
+================================================================
+  MIDDLEWARE COMPONENTS
+================================================================
+
+{{ if .Values.middleware.postgresql.enabled }}
+✓ PostgreSQL
+  Cluster: primus-lens
+  Service: primus-lens-ha
+  Database: primus_lens
+  Replicas: {{ include "primus-lens.postgresql.replicas" . }}
+  
+  Connection info stored in: primus-lens-middleware-config ConfigMap
+{{- end }}
+
+{{ if .Values.middleware.opensearch.enabled }}
+✓ OpenSearch
+  Cluster: primus-lens-opensearch
+  Port: 9200
+  
+  Access OpenSearch Dashboards:
+    kubectl port-forward svc/primus-lens-opensearch-dashboards 5601:5601 -n {{ .Values.global.namespace }}
+    URL: http://localhost:5601
+{{- end }}
+
+{{ if .Values.middleware.victoriametrics.enabled }}
+✓ VictoriaMetrics
+  VMCluster: primus-lens-vm
+  VMSelect: http://primus-lens-vm-vmselect:8481/select/0/prometheus
+  VMInsert: http://primus-lens-vm-vminsert:8480/insert/0/prometheus
+  
+  Storage Replicas: {{ include "primus-lens.victoriametrics.storageReplicas" . }}
+  Storage Size: {{ include "primus-lens.victoriametrics.storageSize" . }}
+{{- end }}
+
+{{ if .Values.middleware.otelCollector.enabled }}
+✓ OpenTelemetry Collector
+  Endpoint: {{ include "primus-lens.otelCollectorEndpoint" . }}
+{{- end }}
+
+{{- else }}
+
+================================================================
+  REMOTE MIDDLEWARE CONFIGURATION
+================================================================
+
+✓ Using remote middleware services:
+  PostgreSQL: {{ .Values.middleware.remote.postgresql.host }}:{{ .Values.middleware.remote.postgresql.port }}
+  OpenSearch: {{ .Values.middleware.remote.opensearch.host }}:{{ .Values.middleware.remote.opensearch.port }}
+  VictoriaMetrics: {{ .Values.middleware.remote.victoriametrics.host }}:{{ .Values.middleware.remote.victoriametrics.port }}
+  Otel Collector: {{ .Values.middleware.remote.otelCollector.endpoint }}
+
+{{- end }}
+
+{{ if .Values.systemTuner.enabled }}
+
+================================================================
+  SYSTEM TUNER
+================================================================
+
+✓ System Tuner (DaemonSet)
+  vm.max_map_count: {{ .Values.systemTuner.parameters.vmMaxMapCount }}
+  nofile limit: {{ .Values.systemTuner.parameters.nofileLimit }}
+  Check interval: {{ .Values.systemTuner.checkInterval }}s
+{{- end }}
+
+================================================================
+  VERIFICATION
+================================================================
+
+Check deployment status:
+  kubectl get pods -n {{ .Values.global.namespace }}
+
+Check services:
+  kubectl get svc -n {{ .Values.global.namespace }}
+
+View logs (API):
+  kubectl logs -n {{ .Values.global.namespace }} -l app.kubernetes.io/component=api
+
+View all logs:
+  kubectl logs -n {{ .Values.global.namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+================================================================
+  NEXT STEPS
+================================================================
+
+1. Verify all pods are running:
+   kubectl get pods -n {{ .Values.global.namespace }} -w
+
+2. Check Hook Jobs (installation process):
+   kubectl get jobs -n {{ .Values.global.namespace }}
+
+3. Access Grafana dashboard to view metrics
+
+4. Review API documentation:
+   curl http://localhost:{{ .Values.management.api.service.port }}/api/docs
+
+5. Configure multi-cluster setup (if needed):
+   See: https://github.com/AMD-AGI/Primus-SaFE/tree/main/Lens/docs
+
+================================================================
+  TROUBLESHOOTING
+================================================================
+
+{{- if .Values.troubleshooting }}
+
+If you encounter issues:
+
+1. Check Hook Jobs:
+   kubectl get jobs -n {{ .Values.global.namespace }}
+   kubectl logs -n {{ .Values.global.namespace }} job/<job-name>
+
+2. Check Operators:
+   kubectl get pods -n {{ .Values.global.namespace }} -l app.kubernetes.io/component=operator
+
+3. Verify CRDs:
+   kubectl get crd | grep -E 'postgres|opensearch|victoriametrics|grafana'
+
+4. Check Middleware:
+   kubectl get postgresclusters -n {{ .Values.global.namespace }}
+   kubectl get opensearchclusters -n {{ .Values.global.namespace }}
+   kubectl get vmclusters -n {{ .Values.global.namespace }}
+
+5. View Events:
+   kubectl get events -n {{ .Values.global.namespace }} --sort-by='.lastTimestamp'
+
+6. Check System Tuner:
+   kubectl logs -n {{ .Values.global.namespace }} -l app=system-tuner --tail=50
+
+For more help, visit:
+  https://github.com/AMD-AGI/Primus-SaFE/issues
+
+{{- end }}
+
+================================================================
+  DOCUMENTATION
+================================================================
+
+For more information, visit:
+  Homepage: {{ .Chart.Home }}
+  Documentation: https://github.com/AMD-AGI/Primus-SaFE/tree/main/Lens/docs
+  Issues: https://github.com/AMD-AGI/Primus-SaFE/issues
+
+Thank you for using Primus-Lens! 🚀
+

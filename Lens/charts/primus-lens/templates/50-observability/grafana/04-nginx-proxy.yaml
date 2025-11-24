@@ -1,0 +1,88 @@
+{{- if and (eq (include "primus-lens.management.enabled" .) "true") .Values.management.grafana.enabled .Values.management.grafana.nginx.enabled (eq .Values.management.grafana.accessType "ssh-tunnel") }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-nginx-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nginx-proxy
+data:
+  nginx.conf: |
+    events {
+        worker_connections 1024;
+    }
+    
+    http {
+        server {
+            listen 80;
+            
+            location /grafana/ {
+                proxy_pass http://{{ include "primus-lens.fullname" . }}-grafana-service:3000/;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            }
+        }
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-nginx
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nginx-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "primus-lens.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: nginx-proxy
+  template:
+    metadata:
+      labels:
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: nginx-proxy
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        resources:
+          {{- toYaml .Values.management.grafana.nginx.resources | nindent 10 }}
+      volumes:
+      - name: config
+        configMap:
+          name: {{ include "primus-lens.fullname" . }}-nginx-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-nginx
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nginx-proxy
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: {{ .Values.management.grafana.nginx.nodePort }}
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "primus-lens.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: nginx-proxy
+{{- end }}
+

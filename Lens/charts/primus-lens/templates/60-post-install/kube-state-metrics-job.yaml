@@ -1,0 +1,52 @@
+{{- if .Values.kubeStateMetrics.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-install-kube-state-metrics
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kube-state-metrics-installer
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: kube-state-metrics-installer
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "primus-lens.serviceAccountName" . }}
+      containers:
+      - name: installer
+        image: bitnami/kubectl:1.28
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -ex
+          
+          echo "Installing Kube State Metrics..."
+          
+          # 检查是否已安装
+          if kubectl get deployment kube-state-metrics -n kube-system >/dev/null 2>&1; then
+            echo "Kube State Metrics already installed"
+            exit 0
+          fi
+          
+          # 下载和安装
+          KSM_VERSION="{{ .Values.kubeStateMetrics.version }}"
+          
+          kubectl apply -f "https://github.com/kubernetes/kube-state-metrics/releases/download/${KSM_VERSION}/standard.yaml"
+          
+          echo "✅ Kube State Metrics installed successfully"
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+

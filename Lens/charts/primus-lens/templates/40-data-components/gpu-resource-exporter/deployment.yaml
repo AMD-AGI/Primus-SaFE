@@ -1,0 +1,46 @@
+{{- if and (eq (include "primus-lens.data.enabled" .) "true") .Values.data.gpuResourceExporter.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "primus-lens.fullname" . }}-gpu-resource-exporter
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "primus-lens.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gpu-resource-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "primus-lens.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: gpu-resource-exporter
+  template:
+    metadata:
+      labels:
+        {{- include "primus-lens.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: gpu-resource-exporter
+    spec:
+      serviceAccountName: {{ include "primus-lens.serviceAccountName" . }}
+      containers:
+      - name: exporter
+        image: {{ .Values.global.imageRegistry }}/{{ .Values.data.gpuResourceExporter.image.repository }}:{{ .Values.data.gpuResourceExporter.image.tag }}
+        imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+        env:
+        - name: CLUSTER_NAME
+          value: {{ .Values.global.clusterName | quote }}
+        - name: NAMESPACE
+          value: {{ .Values.global.namespace }}
+        envFrom:
+        - configMapRef:
+            name: primus-lens-middleware-config
+            optional: true
+        {{- with .Values.data.gpuResourceExporter.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.data.gpuResourceExporter.resources | nindent 10 }}
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
