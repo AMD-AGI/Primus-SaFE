@@ -7,6 +7,11 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-pip install -r "${SCRIPT_DIR}/requirements.txt" >/dev/null
+pip install -r "${SCRIPT_DIR}/requirements.txt" > /dev/null
 
-exec python3 "${SCRIPT_DIR}/workload_client.py"
+python3 "${SCRIPT_DIR}/workload_client.py"
+exit_code=$?
+
+echo "Workload client exited with code: ${exit_code}"
+
+exit ${exit_code}

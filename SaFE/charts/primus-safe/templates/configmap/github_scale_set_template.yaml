@@ -49,11 +49,11 @@ data:
             limits:
               cpu: "2"
               memory: 4Gi
-              ephemeral-storage: 50Gi
+              ephemeral-storage: 10Gi
             requests:
               cpu: "2"
               memory: 4Gi
-              ephemeral-storage: 50Gi
+              ephemeral-storage: 10Gi
           securityContext:
             privileged: true
         - name: unified-build-proxy

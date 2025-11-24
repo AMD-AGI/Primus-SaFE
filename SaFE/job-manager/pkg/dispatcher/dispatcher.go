@@ -190,7 +190,7 @@ func (r *DispatcherReconciler) dispatch(ctx context.Context,
 
 // generateUniquePorts generates unique job and SSH ports for the workload to avoid conflicts.
 func (r *DispatcherReconciler) generateUniquePorts(ctx context.Context, workload *v1.Workload) error {
-	if workload.SpecKind() == common.CICDScaleSetKind {
+	if commonworkload.IsCICD(workload) {
 		return nil
 	}
 	rand.Seed(time.Now().UnixNano())

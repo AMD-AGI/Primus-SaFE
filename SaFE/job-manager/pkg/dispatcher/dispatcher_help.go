@@ -141,7 +141,7 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 	modifyEnv(mainContainer, env, v1.IsEnableHostNetwork(workload))
 	modifyVolumeMounts(mainContainer, workload, workspace)
 	modifySecurityContext(mainContainer, workload)
-	if workload.SpecKind() != common.CICDScaleSetKind {
+	if !commonworkload.IsCICD(workload) {
 		mainContainer["ports"] = buildPorts(workload)
 	}
 	if healthz := buildHealthCheck(workload.Spec.Liveness); healthz != nil {
@@ -412,7 +412,7 @@ func buildCommands(workload *v1.Workload) []interface{} {
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload) string {
 	result := ""
-	if workload.SpecKind() == common.CICDScaleSetKind {
+	if commonworkload.IsCICD(workload) {
 		result = workload.Spec.EntryPoint
 	} else {
 		result = Launcher + " '" + workload.Spec.EntryPoint + "'"
