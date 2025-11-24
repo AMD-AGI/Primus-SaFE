@@ -25,10 +25,7 @@ RUN echo "✅ GOPRIVATE=$GOPRIVATE" && \
     echo "✅ BUILDPATH=$BUILDPATH" && \
     echo "✅ BASEPATH=$BASEPATH" && \
     echo "✅ APPNAME=$APPNAME" && \
-    echo "✅ GITHUB_TOKEN=$(echo $GITHUB_TOKEN | cut -c1-6)******"
-
-RUN git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-
+   
 RUN echo "BUILDPATH: $BUILDPATH" && \
     echo "BASEPATH: $BASEPATH" && \
     echo "APPNAME: $APPNAME" && \
