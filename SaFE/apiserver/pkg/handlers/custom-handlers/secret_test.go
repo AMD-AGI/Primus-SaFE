@@ -26,7 +26,7 @@ func TestCvtToSecretResponseItem(t *testing.T) {
 	tests := []struct {
 		name     string
 		secret   *corev1.Secret
-		validate func(*testing.T, types.SecretResponseItem)
+		validate func(*testing.T, types.GetSecretResponse)
 	}{
 		{
 			name: "SSH secret",
@@ -45,7 +45,7 @@ func TestCvtToSecretResponseItem(t *testing.T) {
 					types.SSHAuthPubKey:         []byte("public-key-content"),
 				},
 			},
-			validate: func(t *testing.T, result types.SecretResponseItem) {
+			validate: func(t *testing.T, result types.GetSecretResponse) {
 				assert.Equal(t, "ssh-secret-test", result.SecretId)
 				assert.Equal(t, "Test SSH Secret", result.SecretName)
 				assert.Equal(t, string(v1.SecretSSH), result.Type)
@@ -72,7 +72,7 @@ func TestCvtToSecretResponseItem(t *testing.T) {
 					types.DockerConfigJson: genDockerConfigData(t, "docker.io", "username", "password"),
 				},
 			},
-			validate: func(t *testing.T, result types.SecretResponseItem) {
+			validate: func(t *testing.T, result types.GetSecretResponse) {
 				assert.Equal(t, "registry-secret", result.SecretId)
 				assert.Equal(t, "Docker Registry", result.SecretName)
 				assert.Equal(t, string(v1.SecretImage), result.Type)
@@ -101,7 +101,7 @@ func TestCvtToSecretResponseItem(t *testing.T) {
 					}),
 				},
 			},
-			validate: func(t *testing.T, result types.SecretResponseItem) {
+			validate: func(t *testing.T, result types.GetSecretResponse) {
 				assert.Equal(t, "multi-registry", result.SecretId)
 				assert.Equal(t, string(v1.SecretImage), result.Type)
 				assert.Len(t, result.Params, 2)
@@ -119,7 +119,7 @@ func TestCvtToSecretResponseItem(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := cvtToSecretResponseItem(tt.secret)
+			result := cvtToGetSecretResponse(tt.secret)
 			tt.validate(t, result)
 			// Verify creation time is formatted
 			assert.Contains(t, result.CreationTime, now.Format("2006-01-02"))
