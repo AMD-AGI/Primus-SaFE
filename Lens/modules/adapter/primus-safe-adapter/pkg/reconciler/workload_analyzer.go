@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
@@ -35,9 +34,9 @@ type ComponentDetectionResult struct {
 }
 
 // NewWorkloadAnalyzer Create analyzer
-func NewWorkloadAnalyzer(configMgr *config.Manager) *WorkloadAnalyzer {
+func NewWorkloadAnalyzer() *WorkloadAnalyzer {
 	return &WorkloadAnalyzer{
-		frameworkRules: loadFrameworkRules(configMgr),
+		frameworkRules: loadFrameworkRules(),
 	}
 }
 
@@ -73,20 +72,20 @@ func (a *WorkloadAnalyzer) matchRule(
 	matchedEnvVars := make(map[string]string)
 
 	// Extract image, command, args, env from workload
-	image := ""
+	image := workload.Spec.Image
 	command := []string{}
 	args := []string{}
 	env := make(map[string]string)
 
-	if len(workload.Spec.Template.Containers) > 0 {
-		container := workload.Spec.Template.Containers[0]
-		image = container.Image
-		command = container.Command
-		args = container.Args
+	// Extract command and args from EntryPoint
+	if workload.Spec.EntryPoint != "" {
+		command = []string{"sh", "-c"}
+		args = []string{workload.Spec.EntryPoint}
+	}
 
-		for _, envVar := range container.Env {
-			env[envVar.Name] = envVar.Value
-		}
+	// Extract environment variables
+	if workload.Spec.Env != nil {
+		env = workload.Spec.Env
 	}
 
 	// 1. Check image name
@@ -152,8 +151,8 @@ func (a *WorkloadAnalyzer) matchImagePattern(image, pattern string) bool {
 	return strings.Contains(strings.ToLower(image), strings.ToLower(pattern))
 }
 
-// loadFrameworkRules Load framework rules (from config or hardcoded)
-func loadFrameworkRules(configMgr *config.Manager) map[string]*FrameworkRule {
+// loadFrameworkRules Load framework rules (hardcoded)
+func loadFrameworkRules() map[string]*FrameworkRule {
 	rules := make(map[string]*FrameworkRule)
 
 	// Primus

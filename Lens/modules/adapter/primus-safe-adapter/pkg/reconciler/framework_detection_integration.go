@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/framework"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
@@ -21,12 +20,11 @@ type FrameworkDetectionIntegration struct {
 
 // NewFrameworkDetectionIntegration Create framework detection integrator
 func NewFrameworkDetectionIntegration(
-	db database.WorkloadFacadeInterface,
-	configMgr *config.Manager,
+	db database.AiWorkloadMetadataFacadeInterface,
 ) (*FrameworkDetectionIntegration, error) {
 
 	// Initialize ReuseEngine
-	reuseConfig := framework.ReuseConfig{
+	reuseConfig := model.ReuseConfig{
 		Enabled:             true,
 		MinSimilarityScore:  0.85,
 		TimeWindowDays:      30,
@@ -39,16 +37,20 @@ func NewFrameworkDetectionIntegration(
 	reuseEngine := framework.NewReuseEngine(db, reuseConfig)
 
 	// Initialize DetectionManager
-	detectionConfig := framework.DetectionConfig{
-		MinConfidenceThreshold: 0.5,
-		ConflictPenalty:        0.2,
-		MultiSourceBoost:       0.1,
+	detectionConfig := &framework.DetectionConfig{
+		SuspectedThreshold: 0.3,
+		ConfirmedThreshold: 0.6,
+		VerifiedThreshold:  0.85,
+		ConflictPenalty:    0.2,
+		MultiSourceBoost:   0.1,
+		EnableCache:        true,
+		CacheTTLSec:        300,
 	}
 
 	detectionManager := framework.NewFrameworkDetectionManager(db, detectionConfig)
 
 	// Initialize WorkloadAnalyzer
-	analyzer := NewWorkloadAnalyzer(configMgr)
+	analyzer := NewWorkloadAnalyzer()
 
 	return &FrameworkDetectionIntegration{
 		reuseEngine:      reuseEngine,
@@ -194,32 +196,27 @@ func (f *FrameworkDetectionIntegration) analyzeWorkloadComponents(
 }
 
 // convertToInternalWorkload Convert PrimusSafe Workload to internal workload type
-func convertToInternalWorkload(w *primusSafeV1.Workload) *model.Workload {
+func convertToInternalWorkload(w *primusSafeV1.Workload) *framework.Workload {
 	// Extract image from workload spec
-	image := ""
-	if len(w.Spec.Template.Containers) > 0 {
-		image = w.Spec.Template.Containers[0].Image
-	}
+	image := w.Spec.Image
 
-	// Extract command and args
+	// Extract command and args from EntryPoint
 	command := []string{}
 	args := []string{}
-	if len(w.Spec.Template.Containers) > 0 {
-		command = w.Spec.Template.Containers[0].Command
-		args = w.Spec.Template.Containers[0].Args
+	if w.Spec.EntryPoint != "" {
+		// EntryPoint is base64 encoded, we can use it as a single command
+		command = []string{"sh", "-c"}
+		args = []string{w.Spec.EntryPoint}
 	}
 
 	// Extract environment variables
 	env := make(map[string]string)
-	if len(w.Spec.Template.Containers) > 0 {
-		for _, envVar := range w.Spec.Template.Containers[0].Env {
-			env[envVar.Name] = envVar.Value
-		}
+	if w.Spec.Env != nil {
+		env = w.Spec.Env
 	}
 
-	return &model.Workload{
+	return &framework.Workload{
 		UID:       string(w.UID),
-		Name:      w.Name,
 		Namespace: w.Namespace,
 		Image:     image,
 		Command:   command,
@@ -231,25 +228,21 @@ func convertToInternalWorkload(w *primusSafeV1.Workload) *model.Workload {
 
 // extractImage Extract image from workload
 func extractImage(w *primusSafeV1.Workload) string {
-	if len(w.Spec.Template.Containers) > 0 {
-		return w.Spec.Template.Containers[0].Image
-	}
-	return ""
+	return w.Spec.Image
 }
 
 // extractCommand Extract command from workload
 func extractCommand(w *primusSafeV1.Workload) []string {
-	if len(w.Spec.Template.Containers) > 0 {
-		return w.Spec.Template.Containers[0].Command
+	if w.Spec.EntryPoint != "" {
+		return []string{"sh", "-c"}
 	}
 	return []string{}
 }
 
 // extractArgs Extract args from workload
 func extractArgs(w *primusSafeV1.Workload) []string {
-	if len(w.Spec.Template.Containers) > 0 {
-		return w.Spec.Template.Containers[0].Args
+	if w.Spec.EntryPoint != "" {
+		return []string{w.Spec.EntryPoint}
 	}
 	return []string{}
 }
-

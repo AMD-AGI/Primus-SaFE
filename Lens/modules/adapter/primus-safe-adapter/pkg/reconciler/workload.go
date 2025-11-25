@@ -38,8 +38,7 @@ func (r *WorkloadReconciler) Init(ctx context.Context) error {
 
 	// Initialize framework detection integration
 	facade := database.GetFacade()
-	configMgr := config.GetConfig()
-	frameworkDetection, err := NewFrameworkDetectionIntegration(facade.GetAiWorkloadMetadata(), configMgr)
+	frameworkDetection, err := NewFrameworkDetectionIntegration(facade.GetAiWorkloadMetadata())
 	if err != nil {
 		log.Errorf("Failed to initialize framework detection: %v", err)
 		// Don't fail, continue with degraded functionality
