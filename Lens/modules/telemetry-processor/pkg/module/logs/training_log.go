@@ -91,7 +91,6 @@ func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Ti
 	// Get workload information from cache
 	workloadRefs := pods.GetWorkloadsByPodUid(podUid)
 	if len(workloadRefs) == 0 {
-		log.Debugf("No workload reference found for pod %s, skipping log processing", podUid)
 		return nil
 	}
 

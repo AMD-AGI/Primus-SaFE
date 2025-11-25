@@ -61,6 +61,9 @@ func initRouter(group *gin.RouterGroup) error {
 	group.GET("metrics/debug/records", metrics.GetDebugRecordsHandler)
 	group.DELETE("metrics/debug/records", metrics.ClearDebugRecordsHandler)
 	group.POST("metrics/debug/disable", metrics.DisableDebugHandler)
+	
+	// Active metrics endpoint
+	group.GET("metrics/active", metrics.GetActiveMetricsHandler)
 
 	// Container event endpoints
 	group.POST("container-events", containers.ReceiveContainerEvent)

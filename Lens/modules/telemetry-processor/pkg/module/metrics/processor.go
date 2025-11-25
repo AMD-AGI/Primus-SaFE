@@ -168,8 +168,8 @@ func processTimeSeries(timeseries []prompb.TimeSeries) error {
 		}
 	}
 	if len(newTimeseries) > 0 {
-		log.Infof("Pushing %d new timeseries to Prometheus", len(newTimeseries))
-		log.Infof("timeseries names: %v", newTsNames)
+		// 记录活跃的metrics到缓存，减少日志输出
+		RecordActiveMetrics(newTsNames, len(newTimeseries))
 		for i := range newTimeseries {
 			ts := newTimeseries[i]
 			err := clientsets.GetClusterManager().GetCurrentClusterClients().StorageClientSet.PrometheusWrite.Push(ts)

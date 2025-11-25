@@ -100,3 +100,14 @@ func DisableDebugHandler(ctx *gin.Context) {
 		"message": "Debug disabled successfully",
 	}))
 }
+
+// GetActiveMetricsHandler 获取最近5分钟活跃的metrics列表
+// GET /api/v1/metrics/active
+func GetActiveMetricsHandler(ctx *gin.Context) {
+	metrics := GetActiveMetricsList()
+	stats := GetActiveMetricsStats()
+	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx, gin.H{
+		"metrics": metrics,
+		"stats":   stats,
+	}))
+}
