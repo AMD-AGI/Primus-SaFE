@@ -77,25 +77,32 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("input missing required field: command")
     if not image:
         raise ValueError("input missing required field: image")
-    for key in ("SCALE_RUNNER_SET", "SAFE_NFS_PATH", "SAFE_NFS_INPUT", "SAFE_NFS_OUTPUT"):
+    for key in ("SCALE_RUNNER_SET_ID", "SAFE_NFS_INPUT", "SAFE_NFS_OUTPUT"):
         val = getenv_str(key)
         if val is not None:
             env_map[key] = val
 
+    nfs_path = get_unified_nfs_path()
+    if nfs_path is not None:
+        env_map["SAFE_NFS_PATH"] = nfs_path
+    val = getenv_str("POD_NAME")
+    if val is not None:
+        env_map["SCALE_RUNNER_ID"] = val
+
     workspace_id = getenv_str(WORKSPACE_ID_ENV)
     gvk_kind = "UnifiedJob"
     gvk_version = "v1"
-    description = "scale-set-name:" + getenv_str("SCALE_RUNNER_SET")
+    display_name = getenv_str("SCALE_RUNNER_SET") + "-unified-trainer"
+    description = "scale-set-name: " + getenv_str("SCALE_RUNNER_SET") + ", model: " + model
 
     payload: Dict[str, Any] = {
-        "displayName": model,
+        "displayName": display_name,
         "workspaceId": workspace_id,
         "resource": resources,
         "image": image,
         "entryPoint": ensure_base64(command),
         "env": env_map,
         "groupVersionKind": {"kind": gvk_kind, "version": gvk_version},
-        "ttlSecondsAfterFinished": 300,
         "description": description,
     }
     if isinstance(timeout, int) and timeout > 0:
@@ -146,13 +153,19 @@ def write_output(path: str, content: str) -> None:
         obj = {"phase": content if content is not None else ""}
         f.write(json.dumps(obj, ensure_ascii=False))
 
+def get_unified_nfs_path() -> Optional[str]:
+    nfs_path = getenv_str(NFS_PATH_ENV)
+    pod_name = getenv_str("POD_NAME")
+    if nfs_path and pod_name:
+        return os.path.join(nfs_path, pod_name)
+    return None
 
 def main() -> int:
-    nfs_root = getenv_str(NFS_PATH_ENV)
+    nfs_root = get_unified_nfs_path()
     nfs_input_rel = getenv_str(NFS_INPUT_ENV)
     nfs_output_rel = getenv_str(NFS_OUTPUT_ENV)
     if not nfs_root:
-        print(f"[error] {NFS_PATH_ENV} not set", file=sys.stderr)
+        print(f"[error] {NFS_PATH_ENV} OR POD_NAME not set", file=sys.stderr)
         return 2
     if not nfs_input_rel:
         print(f"[error] {NFS_INPUT_ENV} not set", file=sys.stderr)
@@ -177,6 +190,7 @@ def main() -> int:
         inp = load_input_json(input_path)
     except Exception as e:
         print(f"[error] failed to parse input JSON: {e}", file=sys.stderr)
+        write_output(output_path, "Failed")
         return 3
 
     try:
@@ -184,6 +198,7 @@ def main() -> int:
         session, base_url = build_session()
     except Exception as e:
         print(f"[error] initialization failed: {e}", file=sys.stderr)
+        write_output(output_path, "Failed")
         return 4
 
     try:
@@ -191,7 +206,7 @@ def main() -> int:
         print(f"[info] workload created: {workload_id}")
     except Exception as e:
         print(f"[error] create workload failed: {e}", file=sys.stderr)
-        write_output(output_path, "CreateFailed")
+        write_output(output_path, "Failed")
         return 5
 
     poll_timeout = inp.get("timeout") if isinstance(inp.get("timeout"), int) else DEFAULT_POLL_TIMEOUT_SECS

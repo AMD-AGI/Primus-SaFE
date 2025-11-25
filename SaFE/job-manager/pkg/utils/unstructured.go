@@ -25,14 +25,14 @@ import (
 )
 
 const (
-	ResourcesEnv  = "RESOURCES"
-	ImageEnv      = "IMAGE"
-	EntrypointEnv = "ENTRYPOINT"
-	WorkspaceEnv  = "WORKSPACE_ID"
-	UserEnv       = "USER_ID"
-	NfsPathEnv    = "SAFE_NFS_PATH"
-	NfsInputEnv   = "SAFE_NFS_INPUT"
-	NfsOutputEnv  = "SAFE_NFS_OUTPUT"
+	ResourcesEnv   = "RESOURCES"
+	ImageEnv       = "IMAGE"
+	EntrypointEnv  = "ENTRYPOINT"
+	WorkspaceIdEnv = "WORKSPACE_ID"
+	UserIdEnv      = "USER_ID"
+	NfsPathEnv     = "SAFE_NFS_PATH"
+	NfsInputEnv    = "SAFE_NFS_INPUT"
+	NfsOutputEnv   = "SAFE_NFS_OUTPUT"
 )
 
 type K8sResourceStatus struct {

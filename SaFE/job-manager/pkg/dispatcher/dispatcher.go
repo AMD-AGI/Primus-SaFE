@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -477,7 +476,7 @@ func updateUnstructuredObject(obj *unstructured.Unstructured,
 		if err := updateReplica(adminWorkload, obj, t, replica); err != nil {
 			return fmt.Errorf("failed to update replica: %v", err.Error())
 		}
-		if err := updateMainContainer(adminWorkload, obj, t); err != nil {
+		if err := updateContainers(adminWorkload, obj, t); err != nil {
 			return fmt.Errorf("failed to update main container: %v", err.Error())
 		}
 		if err := updateSharedMemory(adminWorkload, obj, t); err != nil {
@@ -567,9 +566,9 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 		return err
 	}
 	envs := maps.Copy(adminWorkload.Spec.Env)
-	envs[jobutils.UserEnv] = v1.GetUserId(adminWorkload)
-	envs[common.ScaleRunnerSet] = adminWorkload.Name
-	envs[jobutils.WorkspaceEnv] = adminWorkload.Spec.Workspace
+	envs[jobutils.UserIdEnv] = v1.GetUserId(adminWorkload)
+	envs[common.ScaleRunnerSetID] = adminWorkload.Name
+	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
 	mainContainerName := v1.GetMainContainer(adminWorkload)
 
 	val, ok := adminWorkload.Spec.Env[common.UnifiedJobEnable]
@@ -578,7 +577,7 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 		if pfsPath == "" {
 			return commonerrors.NewInternalError("failed to get NFS path from workspace")
 		}
-		envs[jobutils.NfsPathEnv] = pfsPath + "/cicd/" + uuid.New().String()
+		envs[jobutils.NfsPathEnv] = pfsPath + "/cicd"
 		envs[jobutils.NfsInputEnv] = UnifiedJobInput
 		envs[jobutils.NfsOutputEnv] = UnifiedJobOutput
 
@@ -638,27 +637,32 @@ func getNfsPathFromWorkspace(workspace *v1.Workspace) string {
 	return result
 }
 
-// updateMainContainer updates the main container configuration in the unstructured object.
-func updateMainContainer(adminWorkload *v1.Workload,
+// updateContainers updates all container configurations in the unstructured object.
+// For each container, it updates environment variables. For the main container,
+// it also updates resources, image, and command based on the workload spec.
+func updateContainers(adminWorkload *v1.Workload,
 	obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec) error {
 	containers, path, err := getContainers(obj, resourceSpec)
 	if err != nil {
 		return err
 	}
 
-	mainContainer, err := getMainContainer(containers, v1.GetMainContainer(adminWorkload))
-	if err != nil {
-		return err
-	}
+	mainContainerName := v1.GetMainContainer(adminWorkload)
 	resources := buildResources(adminWorkload)
-	mainContainer["resources"] = map[string]interface{}{
-		"limits":   resources,
-		"requests": resources,
-	}
-	mainContainer["image"] = adminWorkload.Spec.Image
-	mainContainer["command"] = buildCommands(adminWorkload)
-	if len(adminWorkload.Spec.Env) > 0 {
-		updateContainerEnv(adminWorkload.Spec.Env, mainContainer)
+	for i := range containers {
+		container := containers[i].(map[string]interface{})
+		if len(adminWorkload.Spec.Env) > 0 {
+			updateContainerEnv(adminWorkload.Spec.Env, container)
+		}
+		name := jobutils.GetUnstructuredString(container, []string{"name"})
+		if name == mainContainerName {
+			container["resources"] = map[string]interface{}{
+				"limits":   resources,
+				"requests": resources,
+			}
+			container["image"] = adminWorkload.Spec.Image
+			container["command"] = buildCommands(adminWorkload)
+		}
 	}
 	if err = unstructured.SetNestedField(obj.Object, containers, path...); err != nil {
 		return err
@@ -682,9 +686,9 @@ func getContainers(obj *unstructured.Unstructured, resourceSpec v1.ResourceSpec)
 }
 
 // updateContainerEnv updates environment variables in the container.
-func updateContainerEnv(envs map[string]string, mainContainer map[string]interface{}) {
+func updateContainerEnv(envs map[string]string, container map[string]interface{}) {
 	var currentEnv []interface{}
-	envObjs, ok := mainContainer["env"]
+	envObjs, ok := container["env"]
 	if ok {
 		currentEnv = envObjs.([]interface{})
 	}
@@ -739,7 +743,7 @@ func updateContainerEnv(envs map[string]string, mainContainer map[string]interfa
 	if !isChanged {
 		return
 	}
-	mainContainer["env"] = newEnv
+	container["env"] = newEnv
 }
 
 // updateSharedMemory updates the shared memory volume configuration.

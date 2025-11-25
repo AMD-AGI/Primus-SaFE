@@ -30,7 +30,8 @@ const (
 	GithubConfigUrl   = "GITHUB_CONFIG_URL"
 	AdminControlPlane = "ADMIN_CONTROL_PLANE"
 	UnifiedJobEnable  = "UNIFIED_JOB_ENABLE"
-	ScaleRunnerSet    = "SCALE_RUNNER_SET"
+	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"
+	ScaleRunnerID     = "SCALE_RUNNER_ID"
 
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"
@@ -66,7 +67,7 @@ const (
 	UserId                = "userId"
 	UserType              = "userType"
 	UserSelf              = "self"
-	UserSystem            = "system"
+	UserSystem            = "primus-safe-system"
 	UserWorkspaces        = "workspaces"
 	UserManagedWorkspaces = "managedWorkspaces"
 	Name                  = "name"

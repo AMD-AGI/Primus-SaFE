@@ -43,8 +43,6 @@ data:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
-              value: "true"
           image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.runner }}
           resources:
             limits:
@@ -61,6 +59,10 @@ data:
           env:
             - name: APISERVER_NODE_PORT
               value: "{{ .Values.apiserver.node_port }}"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.unified_job }}
           resources:
             limits:

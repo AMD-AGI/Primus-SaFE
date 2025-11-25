@@ -93,6 +93,7 @@ const (
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
+	ScaleRunnerIdLabel                = PrimusSafePrefix + "scale.runner.id"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."

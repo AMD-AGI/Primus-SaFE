@@ -415,6 +415,8 @@ func (w *Workload) IsDependenciesFinish() bool {
 	return true
 }
 
+// HasSpecifiedNodes checks if the workload has specified node constraints.
+// It returns true if CustomerLabels contains a non-empty K8sHostName label
 func (w *Workload) HasSpecifiedNodes() bool {
 	if len(w.Spec.CustomerLabels) > 0 {
 		if val, ok := w.Spec.CustomerLabels[K8sHostName]; ok && val != "" {
@@ -422,4 +424,15 @@ func (w *Workload) HasSpecifiedNodes() bool {
 		}
 	}
 	return false
+}
+
+// GetEnv retrieves the value of an environment variable by name from the workload's spec.
+// It returns the value if found, otherwise returns an empty string.
+func (w *Workload) GetEnv(name string) string {
+	for key, val := range w.Spec.Env {
+		if key == name {
+			return val
+		}
+	}
+	return ""
 }

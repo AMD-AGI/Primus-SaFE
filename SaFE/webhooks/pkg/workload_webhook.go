@@ -17,6 +17,7 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/labels"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -158,12 +159,9 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 	if workload.Name != "" {
 		workload.Name = stringutil.NormalizeName(workload.Name)
 	}
+
+	m.mutateOwnerReference(ctx, workload, workspace)
 	if workspace != nil {
-		if !hasOwnerReferences(workload, workspace.Name) {
-			if err := controllerutil.SetControllerReference(workspace, workload, m.Client.Scheme()); err != nil {
-				klog.ErrorS(err, "failed to SetControllerReference")
-			}
-		}
 		v1.SetLabel(workload, v1.ClusterIdLabel, workspace.Spec.Cluster)
 		v1.SetLabel(workload, v1.NodeFlavorIdLabel, workspace.Spec.NodeFlavor)
 		if workspace.Spec.EnablePreempt {
@@ -171,6 +169,9 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 		}
 	}
 
+	if val := workload.GetEnv(common.ScaleRunnerID); val != "" {
+		v1.SetLabel(workload, v1.ScaleRunnerIdLabel, val)
+	}
 	v1.SetLabel(workload, v1.WorkspaceIdLabel, workload.Spec.Workspace)
 	v1.SetLabel(workload, v1.WorkloadKindLabel, workload.Spec.Kind)
 	v1.SetLabel(workload, v1.WorkloadIdLabel, workload.Name)
@@ -187,6 +188,43 @@ func (m *WorkloadMutator) mutateMeta(ctx context.Context, workload *v1.Workload,
 		}
 	}
 	controllerutil.AddFinalizer(workload, v1.WorkloadFinalizer)
+}
+
+func (m *WorkloadMutator) mutateOwnerReference(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) {
+	var err error
+	switch workload.SpecKind() {
+	case common.CICDScaleRunnerKind:
+		scaleRunnerSetId := workload.GetEnv(common.ScaleRunnerSetID)
+		if scaleRunnerSetId == "" {
+			break
+		}
+		scaleRunnerSetWorkload := &v1.Workload{}
+		if err = m.Get(ctx, client.ObjectKey{Name: scaleRunnerSetId}, scaleRunnerSetWorkload); err == nil {
+			if !hasOwnerReferences(workload, scaleRunnerSetId) {
+				err = controllerutil.SetControllerReference(scaleRunnerSetWorkload, workload, m.Client.Scheme())
+			}
+		}
+	case common.UnifiedJobKind:
+		scaleRunnerId := workload.GetEnv(common.ScaleRunnerID)
+		if scaleRunnerId == "" {
+			break
+		}
+		labelSelector := labels.SelectorFromSet(map[string]string{
+			v1.WorkloadKindLabel: common.CICDScaleRunnerKind, v1.ScaleRunnerIdLabel: scaleRunnerId})
+		scaleRunnerWorkloads := &v1.WorkloadList{}
+		if err = m.List(ctx, scaleRunnerWorkloads, &client.ListOptions{LabelSelector: labelSelector}); err == nil {
+			if len(scaleRunnerWorkloads.Items) > 0 && !hasOwnerReferences(workload, scaleRunnerWorkloads.Items[0].Name) {
+				err = controllerutil.SetControllerReference(&scaleRunnerWorkloads.Items[0], workload, m.Client.Scheme())
+			}
+		}
+	default:
+		if workspace != nil && !hasOwnerReferences(workload, workspace.Name) {
+			err = controllerutil.SetControllerReference(workspace, workload, m.Client.Scheme())
+		}
+	}
+	if err != nil {
+		klog.ErrorS(err, "failed to SetControllerReference")
+	}
 }
 
 // mutateGvk defaults kind/version and clears group.
@@ -465,12 +503,9 @@ func (m *WorkloadMutator) mutateCronJobs(workload *v1.Workload) {
 // 2. Add default cluster image secret if no workspace but global config exists
 func (m *WorkloadMutator) mutateImageSecrets(workload *v1.Workload, workspace *v1.Workspace) {
 	secretsSet := sets.NewSet()
-	for i, s := range workload.Spec.Secrets {
+	for _, s := range workload.Spec.Secrets {
 		if s.Type == v1.SecretImage {
 			secretsSet.Insert(s.Id)
-		}
-		if s.Type == "" {
-			workload.Spec.Secrets[i].Type = v1.SecretGeneral
 		}
 	}
 	if workspace != nil {

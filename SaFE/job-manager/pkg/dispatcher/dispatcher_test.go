@@ -605,7 +605,7 @@ func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload, need
 		ok = findEnv(envs, jobutils.ResourcesEnv, string(jsonutils.MarshalSilently(workload.Spec.Resource)))
 		assert.Equal(t, ok, true)
 	}
-	ok = findEnv(envs, common.ScaleRunnerSet, workload.Name)
+	ok = findEnv(envs, common.ScaleRunnerSetID, workload.Name)
 	assert.Equal(t, ok, true)
 	ok = findEnv(envs, common.AdminControlPlane, "10.0.0.1")
 	assert.Equal(t, ok, true)

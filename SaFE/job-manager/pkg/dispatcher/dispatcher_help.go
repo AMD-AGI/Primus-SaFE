@@ -390,23 +390,6 @@ func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, pa
 	return nil
 }
 
-// getMainContainer finds and returns the main container from a list of containers.
-func getMainContainer(containers []interface{}, mainContainerName string) (map[string]interface{}, error) {
-	var mainContainer map[string]interface{}
-	for i := range containers {
-		container := containers[i].(map[string]interface{})
-		name := jobutils.GetUnstructuredString(container, []string{"name"})
-		if name == mainContainerName {
-			mainContainer = container
-			break
-		}
-	}
-	if mainContainer == nil {
-		return nil, fmt.Errorf("failed to find main container, name: %s", mainContainerName)
-	}
-	return mainContainer, nil
-}
-
 // buildCommands constructs the command array for executing the workload entry point.
 func buildCommands(workload *v1.Workload) []interface{} {
 	return []interface{}{"/bin/sh", "-c", buildEntryPoint(workload)}

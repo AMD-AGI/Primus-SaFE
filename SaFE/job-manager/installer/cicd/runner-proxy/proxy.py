@@ -81,10 +81,19 @@ def build_payload() -> Dict[str, Any]:
     # Inject only the two requested environment variables if present
     env_map: Dict[str, str] = {}
     for key in ("ACTIONS_RUNNER_INPUT_JITCONFIG", "GITHUB_ACTIONS_RUNNER_EXTRA_USER_AGENT",
-                "SCALE_RUNNER_SET", "SAFE_NFS_PATH", "SAFE_NFS_INPUT", "SAFE_NFS_OUTPUT"):
+                "SCALE_RUNNER_SET_ID", "SAFE_NFS_INPUT", "SAFE_NFS_OUTPUT"):
         val = getenv_str(key)
         if val is not None:
             env_map[key] = val
+
+    unified_build_enabled = getenv_bool("UNIFIED_JOB_ENABLE", False)
+    if unified_build_enabled:
+        nfs_path = get_unified_nfs_path()
+        if nfs_path is not None:
+            env_map["SAFE_NFS_PATH"] = nfs_path
+    val = getenv_str("POD_NAME")
+    if val is not None:
+        env_map["SCALE_RUNNER_ID"] = val
 
     # Compose request (CreateWorkloadRequest embeds WorkloadSpec)
     payload: Dict[str, Any] = {
@@ -100,7 +109,6 @@ def build_payload() -> Dict[str, Any]:
         "priority": priority,
         "description": description,
         "timeout": timeout_secs,
-        "ttlSecondsAfterFinished": 300,
     }
     return payload
 
@@ -148,6 +156,12 @@ def get_workload_phase(s: requests.Session, base_url: str, workload_id: str) -> 
     phase = data.get("phase")
     return phase
 
+def get_unified_nfs_path() -> Optional[str]:
+    nfs_path = getenv_str("SAFE_NFS_PATH")
+    pod_name = getenv_str("POD_NAME")
+    if nfs_path and pod_name:
+        return os.path.join(nfs_path, pod_name)
+    return None
 
 def main() -> int:
     # Unified build mode: extend timeout and manage NFS path lifecycle
@@ -156,7 +170,11 @@ def main() -> int:
     if unified_build_enabled:
         global timeout_secs
         timeout_secs = 24 * 60 * 60  # 24h
-        nfs_path = getenv_str("SAFE_NFS_PATH")
+        nfs_path = get_unified_nfs_path()
+        # Handle case where NFS path could not be constructed
+        if nfs_path is None:
+            print("[error] Failed to construct NFS path: missing SAFE_NFS_PATH or POD_NAME", file=sys.stderr)
+            return 5
         if nfs_path:
             try:
                 os.makedirs(nfs_path, exist_ok=True)
