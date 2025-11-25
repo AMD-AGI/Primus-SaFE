@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"sync"
 	"time"
-	
+
 	"github.com/patrickmn/go-cache"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
-	
+
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 )
@@ -17,21 +17,25 @@ import (
 // FrameworkDetectionManager manages framework detection from multiple sources
 type FrameworkDetectionManager struct {
 	mu sync.RWMutex
-	
+
 	// Storage layer
-	storage *database.FrameworkDetectionStorage
-	
+	storage        *database.FrameworkDetectionStorage
+	workloadFacade database.AiWorkloadMetadataFacadeInterface
+
 	// Detection components
 	confidenceCalculator *ConfidenceCalculator
 	statusManager        *StatusManager
 	conflictResolver     *ConflictResolver
 	conflictDetector     *ConflictDetector
-	
+
 	// Configuration
 	config *DetectionConfig
-	
+
 	// Cache (optional)
 	cache *cache.Cache
+
+	// Workload hierarchy cache: workloadUID -> parentUID
+	hierarchyCache *cache.Cache
 }
 
 // NewFrameworkDetectionManager creates a new framework detection manager
@@ -42,28 +46,34 @@ func NewFrameworkDetectionManager(
 	if config == nil {
 		config = DefaultDetectionConfig()
 	}
-	
+
 	storage := database.NewFrameworkDetectionStorage(metadataFacade)
-	
+
 	var cacheInstance *cache.Cache
+	var hierarchyCacheInstance *cache.Cache
 	if config.EnableCache {
 		cacheTTL := time.Duration(config.CacheTTLSec) * time.Second
 		cacheInstance = cache.New(cacheTTL, cacheTTL*2)
+		// Hierarchy cache with longer TTL (5 minutes)
+		hierarchyCacheInstance = cache.New(5*time.Minute, 10*time.Minute)
 	}
-	
+
 	return &FrameworkDetectionManager{
 		storage:              storage,
+		workloadFacade:       metadataFacade,
 		confidenceCalculator: NewConfidenceCalculator(config),
 		statusManager:        NewStatusManager(config),
 		conflictResolver:     NewConflictResolver(config),
 		conflictDetector:     NewConflictDetector(),
 		config:               config,
 		cache:                cacheInstance,
+		hierarchyCache:       hierarchyCacheInstance,
 	}
 }
 
 // ReportDetection reports a detection result from a data source
 // This is the main entry point for adding detection information
+// It propagates the detection to the root of the workload hierarchy
 func (m *FrameworkDetectionManager) ReportDetection(
 	ctx context.Context,
 	workloadUID string,
@@ -75,26 +85,38 @@ func (m *FrameworkDetectionManager) ReportDetection(
 ) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	startTime := time.Now()
 	defer func() {
 		logrus.Debugf("ReportDetection took %v", time.Since(startTime))
 	}()
-	
+
 	// Validate input
 	if err := m.validateInput(source, framework, confidence); err != nil {
 		return fmt.Errorf("invalid input: %w", err)
 	}
-	
+
 	logrus.Infof("Reporting detection for workload %s: source=%s, framework=%s, confidence=%.2f",
 		workloadUID, source, framework, confidence)
-	
-	// Load existing detection
-	existing, err := m.loadDetection(ctx, workloadUID)
+
+	// Get root workload in hierarchy
+	rootUID, err := m.getRootWorkload(ctx, workloadUID)
+	if err != nil {
+		logrus.Warnf("Failed to get root workload for %s: %v, using current workload", workloadUID, err)
+		rootUID = workloadUID
+	}
+
+	// If child workload differs from root, log it
+	if rootUID != workloadUID {
+		logrus.Infof("Propagating detection from child workload %s to root workload %s", workloadUID, rootUID)
+	}
+
+	// Load existing detection from root
+	existing, err := m.loadDetection(ctx, rootUID)
 	if err != nil && err != gorm.ErrRecordNotFound {
 		return fmt.Errorf("failed to load detection: %w", err)
 	}
-	
+
 	// Create new source entry
 	newSource := model.DetectionSource{
 		Source:     source,
@@ -104,65 +126,90 @@ func (m *FrameworkDetectionManager) ReportDetection(
 		DetectedAt: time.Now(),
 		Evidence:   evidence,
 	}
-	
+
 	// Merge with existing detection
 	merged, err := m.MergeDetections(existing, &newSource)
 	if err != nil {
 		return fmt.Errorf("failed to merge detections: %w", err)
 	}
-	
-	// Save to database
-	if err := m.saveDetection(ctx, workloadUID, merged); err != nil {
+
+	// Save to database for root workload
+	if err := m.saveDetection(ctx, rootUID, merged); err != nil {
 		return fmt.Errorf("failed to save detection: %w", err)
 	}
-	
+
 	// Record metrics
 	m.recordMetrics(merged)
-	
-	// Invalidate cache
+
+	// Invalidate cache for both child and root
 	if m.cache != nil {
 		m.cache.Delete(workloadUID)
+		if rootUID != workloadUID {
+			m.cache.Delete(rootUID)
+		}
 	}
-	
-	logrus.Infof("Detection reported successfully: workload=%s, framework=%s, status=%s, confidence=%.2f",
-		workloadUID, merged.Framework, merged.Status, merged.Confidence)
-	
+
+	logrus.Infof("Detection reported successfully: workload=%s (root=%s), framework=%s, status=%s, confidence=%.2f",
+		workloadUID, rootUID, merged.Framework, merged.Status, merged.Confidence)
+
 	return nil
 }
 
 // GetDetection retrieves the current detection result for a workload
+// It searches along the workload inheritance chain (from child to parent)
 func (m *FrameworkDetectionManager) GetDetection(
 	ctx context.Context,
 	workloadUID string,
 ) (*model.FrameworkDetection, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
-	// Check cache first
-	if m.cache != nil {
-		if cached, found := m.cache.Get(workloadUID); found {
-			RecordCacheHit()
-			logrus.Debugf("Cache hit for workload %s", workloadUID)
-			return cached.(*model.FrameworkDetection), nil
-		}
-		RecordCacheMiss()
-	}
-	
-	// Load from storage
-	detection, err := m.storage.GetDetection(ctx, workloadUID)
+
+	// Get workload inheritance chain (including self)
+	chain, err := m.getWorkloadHierarchyChain(ctx, workloadUID)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, nil
+		logrus.Warnf("Failed to get workload hierarchy chain for %s: %v", workloadUID, err)
+		// Fall back to single workload lookup
+		chain = []string{workloadUID}
+	}
+
+	// Search along the hierarchy chain
+	for _, uid := range chain {
+		// Check cache first
+		if m.cache != nil {
+			if cached, found := m.cache.Get(uid); found {
+				RecordCacheHit()
+				logrus.Debugf("Cache hit for workload %s (searched from %s)", uid, workloadUID)
+				return cached.(*model.FrameworkDetection), nil
+			}
 		}
-		return nil, err
+
+		// Load from storage
+		detection, err := m.storage.GetDetection(ctx, uid)
+		if err != nil {
+			if err == gorm.ErrRecordNotFound {
+				// Try next in chain
+				continue
+			}
+			return nil, err
+		}
+
+		if detection != nil {
+			// Found detection in hierarchy
+			if uid != workloadUID {
+				logrus.Infof("Found detection for workload %s from parent %s", workloadUID, uid)
+			}
+
+			// Update cache for the queried workload
+			if m.cache != nil {
+				m.cache.Set(workloadUID, detection, cache.DefaultExpiration)
+			}
+
+			return detection, nil
+		}
 	}
-	
-	// Update cache
-	if m.cache != nil && detection != nil {
-		m.cache.Set(workloadUID, detection, cache.DefaultExpiration)
-	}
-	
-	return detection, nil
+
+	RecordCacheMiss()
+	return nil, nil
 }
 
 // MergeDetections merges a new detection source with existing detection
@@ -177,7 +224,7 @@ func (m *FrameworkDetectionManager) MergeDetections(
 			newSource.Confidence,
 			[]model.DetectionSource{*newSource},
 		)
-		
+
 		return &model.FrameworkDetection{
 			Framework:  newSource.Framework,
 			Type:       newSource.Type,
@@ -189,9 +236,9 @@ func (m *FrameworkDetectionManager) MergeDetections(
 			UpdatedAt:  time.Now(),
 		}, nil
 	}
-	
+
 	// Scenario 2: Update existing detection
-	
+
 	// Check if source already exists (update case)
 	sourceExists := false
 	for i, src := range existing.Sources {
@@ -202,32 +249,32 @@ func (m *FrameworkDetectionManager) MergeDetections(
 			break
 		}
 	}
-	
+
 	// Add new source if not exists
 	if !sourceExists {
 		existing.Sources = append(existing.Sources, *newSource)
 		logrus.Debugf("Added new source: %s", newSource.Source)
 	}
-	
+
 	// Detect conflicts
 	conflicts := m.conflictDetector.DetectConflicts(existing.Sources)
-	
+
 	if len(conflicts) > 0 {
 		// Handle conflicts
 		logrus.Warnf("Detected %d conflicts for workload", len(conflicts))
 		return m.handleConflicts(existing, conflicts)
 	}
-	
+
 	// No conflicts: all sources agree
 	existing.Framework = newSource.Framework
 	existing.Type = newSource.Type
 	existing.Confidence = m.confidenceCalculator.Calculate(existing.Sources)
 	existing.Status = m.statusManager.DetermineStatus(existing.Confidence, existing.Sources)
 	existing.UpdatedAt = time.Now()
-	
+
 	logrus.Debugf("Merged detection: framework=%s, confidence=%.2f, status=%s",
 		existing.Framework, existing.Confidence, existing.Status)
-	
+
 	return existing, nil
 }
 
@@ -241,16 +288,16 @@ func (m *FrameworkDetectionManager) handleConflicts(
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve conflict: %w", err)
 	}
-	
+
 	logrus.Infof("Conflict resolved: chose %s from source %s (reason: %s)",
 		resolved.Framework, resolved.Source, reason)
-	
+
 	// Update detection with resolved framework
 	detection.Framework = resolved.Framework
 	detection.Type = resolved.Type
 	detection.Confidence = m.confidenceCalculator.Calculate(detection.Sources)
 	detection.Status = model.DetectionStatusConflict
-	
+
 	// Update conflict records
 	for i := range conflicts {
 		conflicts[i].Resolution = reason
@@ -258,7 +305,7 @@ func (m *FrameworkDetectionManager) handleConflicts(
 	}
 	detection.Conflicts = append(detection.Conflicts, conflicts...)
 	detection.UpdatedAt = time.Now()
-	
+
 	return detection, nil
 }
 
@@ -303,14 +350,14 @@ func (m *FrameworkDetectionManager) recordMetrics(detection *model.FrameworkDete
 		lastSource := detection.Sources[len(detection.Sources)-1]
 		RecordDetection(lastSource.Source, detection.Framework, detection.Status, detection.Confidence)
 	}
-	
+
 	// Record conflicts
 	if len(detection.Conflicts) > 0 {
 		for _, conflict := range detection.Conflicts {
 			RecordConflict(conflict.Source1, conflict.Source2)
 		}
 	}
-	
+
 	logrus.Debugf("Metrics recorded: framework=%s, status=%s, confidence=%.2f, sources=%d, conflicts=%d",
 		detection.Framework, detection.Status, detection.Confidence,
 		len(detection.Sources), len(detection.Conflicts))
@@ -326,26 +373,26 @@ func (m *FrameworkDetectionManager) GetStats() map[string]interface{} {
 	stats := map[string]interface{}{
 		"cache_enabled": m.config.EnableCache,
 	}
-	
+
 	if m.cache != nil {
 		stats["cache_items"] = m.cache.ItemCount()
 	}
-	
+
 	return stats
 }
 
 // DetectionStatistics 框架检测统计信息
 type DetectionStatistics struct {
-	TotalWorkloads     int64                      `json:"total_workloads"`
-	ByFramework        map[string]int64           `json:"by_framework"`
-	ByStatus           map[string]int64           `json:"by_status"`
-	BySource           map[string]int64           `json:"by_source"`
-	AverageConfidence  float64                    `json:"average_confidence"`
-	ConflictRate       float64                    `json:"conflict_rate"`
-	ReuseRate          float64                    `json:"reuse_rate"`
-	StartTime          string                     `json:"start_time,omitempty"`
-	EndTime            string                     `json:"end_time,omitempty"`
-	Namespace          string                     `json:"namespace,omitempty"`
+	TotalWorkloads    int64            `json:"total_workloads"`
+	ByFramework       map[string]int64 `json:"by_framework"`
+	ByStatus          map[string]int64 `json:"by_status"`
+	BySource          map[string]int64 `json:"by_source"`
+	AverageConfidence float64          `json:"average_confidence"`
+	ConflictRate      float64          `json:"conflict_rate"`
+	ReuseRate         float64          `json:"reuse_rate"`
+	StartTime         string           `json:"start_time,omitempty"`
+	EndTime           string           `json:"end_time,omitempty"`
+	Namespace         string           `json:"namespace,omitempty"`
 }
 
 // GetStatistics 获取详细的统计信息
@@ -355,16 +402,16 @@ func (m *FrameworkDetectionManager) GetStatistics(
 	endTime string,
 	namespace string,
 ) (*DetectionStatistics, error) {
-	
+
 	logrus.Debugf("Getting statistics: startTime=%s, endTime=%s, namespace=%s",
 		startTime, endTime, namespace)
-	
+
 	// 调用 storage 层的统计方法
 	stats, err := m.storage.GetStatistics(ctx, startTime, endTime, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get statistics: %w", err)
 	}
-	
+
 	// 构造返回结果
 	result := &DetectionStatistics{
 		TotalWorkloads:    stats.TotalWorkloads,
@@ -378,7 +425,94 @@ func (m *FrameworkDetectionManager) GetStatistics(
 		EndTime:           endTime,
 		Namespace:         namespace,
 	}
-	
+
 	return result, nil
 }
 
+// getWorkloadHierarchyChain returns the workload hierarchy chain from child to root
+// Returns: [workloadUID, parentUID, grandparentUID, ..., rootUID]
+func (m *FrameworkDetectionManager) getWorkloadHierarchyChain(
+	ctx context.Context,
+	workloadUID string,
+) ([]string, error) {
+	chain := []string{workloadUID}
+	visited := make(map[string]bool)
+	visited[workloadUID] = true
+
+	currentUID := workloadUID
+	maxDepth := 10 // Prevent infinite loops
+
+	for i := 0; i < maxDepth; i++ {
+		parentUID, err := m.getParentWorkload(ctx, currentUID)
+		if err != nil {
+			return chain, err
+		}
+
+		// No parent found, reached root
+		if parentUID == "" {
+			break
+		}
+
+		// Check for cycles
+		if visited[parentUID] {
+			logrus.Warnf("Detected cycle in workload hierarchy at %s", parentUID)
+			break
+		}
+
+		chain = append(chain, parentUID)
+		visited[parentUID] = true
+		currentUID = parentUID
+	}
+
+	return chain, nil
+}
+
+// getRootWorkload returns the root workload UID in the hierarchy
+func (m *FrameworkDetectionManager) getRootWorkload(
+	ctx context.Context,
+	workloadUID string,
+) (string, error) {
+	chain, err := m.getWorkloadHierarchyChain(ctx, workloadUID)
+	if err != nil {
+		return workloadUID, err
+	}
+
+	// Return the last element (root)
+	if len(chain) > 0 {
+		return chain[len(chain)-1], nil
+	}
+
+	return workloadUID, nil
+}
+
+// getParentWorkload returns the parent workload UID, or empty string if no parent
+func (m *FrameworkDetectionManager) getParentWorkload(
+	ctx context.Context,
+	workloadUID string,
+) (string, error) {
+	// Check hierarchy cache first
+	if m.hierarchyCache != nil {
+		if cached, found := m.hierarchyCache.Get(workloadUID); found {
+			return cached.(string), nil
+		}
+	}
+
+	// Query workload from database using the global facade
+	workload, err := database.GetFacade().GetWorkload().GetGpuWorkloadByUid(ctx, workloadUID)
+	if err != nil {
+		return "", err
+	}
+
+	if workload == nil {
+		return "", nil
+	}
+
+	parentUID := workload.ParentUID
+
+	// Update hierarchy cache
+	if m.hierarchyCache != nil {
+		m.hierarchyCache.Set(workloadUID, parentUID, cache.DefaultExpiration)
+	}
+
+	return parentUID, nil
+}

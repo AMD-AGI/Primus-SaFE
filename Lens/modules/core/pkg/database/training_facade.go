@@ -14,6 +14,7 @@ type TrainingFacadeInterface interface {
 	// TrainingPerformance operations
 	GetTrainingPerformanceByWorkloadIdSerialAndIteration(ctx context.Context, workloadUid string, serial int, iteration int) (*model.TrainingPerformance, error)
 	CreateTrainingPerformance(ctx context.Context, trainingPerformance *model.TrainingPerformance) error
+	UpdateTrainingPerformance(ctx context.Context, trainingPerformance *model.TrainingPerformance) error
 	ListWorkloadPerformanceByWorkloadIdAndTimeRange(ctx context.Context, workloadUid string, start, end time.Time) ([]*model.TrainingPerformance, error)
 	ListTrainingPerformanceByWorkloadIdsAndTimeRange(ctx context.Context, workloadUids []string, start, end time.Time) ([]*model.TrainingPerformance, error)
 
@@ -54,6 +55,28 @@ func (f *TrainingFacade) GetTrainingPerformanceByWorkloadIdSerialAndIteration(ct
 }
 
 func (f *TrainingFacade) CreateTrainingPerformance(ctx context.Context, trainingPerformance *model.TrainingPerformance) error {
+	return f.getDAL().TrainingPerformance.WithContext(ctx).Create(trainingPerformance)
+}
+
+// UpdateTrainingPerformance updates an existing training performance record
+// It deletes the old record and creates a new one with updated data
+// This approach preserves the original created_at timestamp while updating the performance data
+func (f *TrainingFacade) UpdateTrainingPerformance(ctx context.Context, trainingPerformance *model.TrainingPerformance) error {
+	if trainingPerformance.ID == 0 {
+		return errors.New("cannot update training performance with ID = 0")
+	}
+
+	db := f.getDB()
+
+	// Delete the old record
+	if err := db.WithContext(ctx).Delete(&model.TrainingPerformance{}, trainingPerformance.ID).Error; err != nil {
+		return err
+	}
+
+	// Reset ID to 0 for creation
+	trainingPerformance.ID = 0
+
+	// Create new record with updated data
 	return f.getDAL().TrainingPerformance.WithContext(ctx).Create(trainingPerformance)
 }
 

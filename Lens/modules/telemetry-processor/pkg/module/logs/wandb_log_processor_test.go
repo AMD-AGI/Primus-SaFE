@@ -228,29 +228,36 @@ func TestWandBLogProcessor_ProcessLogs(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name: "Valid logs request",
+			name: "Valid training data request",
 			req: &WandBLogsRequest{
 				WorkloadUID: "workload-123",
 				PodUID:      "pod-456",
 				RunID:       "run-789",
 				Logs: []WandBLog{
 					{
-						Level:     "info",
-						Message:   "[Primus] Training started",
+						Step:      100,
 						Timestamp: float64(time.Now().Unix()),
-						Source:    "stdout",
+						Data: map[string]interface{}{
+							"loss":     0.5,
+							"accuracy": 0.92,
+							"lr":       0.001,
+						},
 					},
 				},
 			},
 			wantErr: false,
 		},
 		{
-			name: "Missing workload_uid",
+			name: "Missing workload_uid and pod_name",
 			req: &WandBLogsRequest{
-				Logs: []WandBLog{{Message: "test"}},
+				Logs: []WandBLog{{
+					Step:      50,
+					Timestamp: float64(time.Now().Unix()),
+					Data:      map[string]interface{}{"loss": 0.8},
+				}},
 			},
 			wantErr: true,
-			errMsg:  "workload_uid is required",
+			errMsg:  "either workload_uid or pod_name is required",
 		},
 		{
 			name: "Empty logs",
@@ -313,4 +320,3 @@ func TestInMemoryMetricsStorage_GetMetricsCount(t *testing.T) {
 
 	assert.Equal(t, 8, storage.GetMetricsCount())
 }
-

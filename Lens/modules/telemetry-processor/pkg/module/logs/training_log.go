@@ -3,7 +3,8 @@ package logs
 import (
 	"context"
 	"fmt"
-	"regexp"
+	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,8 +18,8 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/mapUtil"
-	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/regexUtil"
 	tpapi "github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/api"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/pods"
 )
 
 var (
@@ -26,46 +27,6 @@ var (
 	detectionManager *framework.FrameworkDetectionManager
 	configManager    *FrameworkConfigManager
 	patternMatchers  map[string]*PatternMatcher
-	
-	perfRegexps = map[string]*regexp.Regexp{
-		"primus-legancy": regexp.MustCompile(`\.*iteration\s+(?P<CurrentIteration>\d+)\s*/\s*(?P<TargetIteration>\d+)\s*\|\s*consumed samples:\s+(?P<ConsumedSamples>\d+)\s*\|\s*elapsed\stime\sper\siteration\s\(ms\):\s+(?P<ElapsedTimePerIterationMS>\d+(?:\.\d+)*)/\d+(?:\.\d+)*\s+\|\s+mem\s+usages:\s+(?P<MemUsages>\d+\.\d+)\s+\|\s+throughput\s+per\s+GPU\s+\(TFLOP/s/GPU\):\s+(?P<TFLOPS>\d+(?:\.\d+)*)/\d+(?:\.\d+)*\s+\|\s+tokens\s+per\s+GPU\s+\(tokens/s/GPU\):\s+(?P<TokensPerGPU>\d+(?:\.\d+)*)/\d+(?:\.\d+)*\s+\|\s+learning\s+rate:\s+(?P<LearningRate>[+-]?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?)\s+\|\s+global\s+batch\s+size:\s+(?P<GlobalBatchSize>\d+(?:\.\d+)*)\s+\|\s+lm\s+loss:\s+(?P<LmLoss>[+-]?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?)\s+\|\s+loss\s+scale:\s+(?P<LossScale>\d+(?:\.\d+)*)\s+\|\s+grad\s+norm:\s+(?P<GradNorm>\d+(?:\.\d+)*)\s+\|\s+num\s+zeros:\s(?P<NumZeros>\d+(?:\.\d+)*)\s+\|\s+number\s+of\s+skipped\s+iterations:\s+(?P<SkippedIterationsNumber>\d+)\s+\|\s+number\s+of\s+nan\s+iterations:\s+(?P<NanIterationsNumber>\d+)\.*`),
-		"primus": regexp.MustCompile(`\.*iteration\s+(?P<CurrentIteration>\d+)\s*/\s*(?P<TargetIteration>\d+)\s*\|` +
-			`\s*consumed samples:\s+(?P<ConsumedSamples>\d+)\s*\|` +
-			`\s*elapsed\stime\sper\siteration\s\(ms\):\s+(?P<ElapsedTimePerIterationMS>\d+(?:\.\d+)*)/\d+(?:\.\d+)*\s+\|` +
-			`\s+rocm\s+mem\s+usage/free/total/usage_ratio:\s+` +
-			`(?P<MemUsage>\d+\.\d+)GB/` +
-			`(?P<MemFree>\d+\.\d+)GB/` +
-			`(?P<MemTotal>\d+\.\d+)GB/` +
-			`(?P<MemUsageRatio>\d+\.\d+)%\s+\|` +
-			`\s+throughput\s+per\s+GPU\s+\(TFLOP/s/GPU\):\s+(?P<TFLOPS>\d+(?:\.\d+)*)/\d+(?:\.\d+)*\s+\|` +
-			`\s+tokens\s+per\s+GPU\s+\(tokens/s/GPU\):\s+(?P<TokensPerGPU>\d+(?:\.\d+)*)/\d+(?:\.\d+)*\s+\|` +
-			`\s*learning\s+rate:\s+(?P<LearningRate>[+-]?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?)\s*\|` +
-			`\s+global\s+batch\s+size:\s+(?P<GlobalBatchSize>\d+(?:\.\d+)*)\s+\|` +
-			`\s+lm\s+loss:\s+(?P<LmLoss>[+-]?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?)\s+\|` +
-			`\s+loss\s+scale:\s+(?P<LossScale>\d+(?:\.\d+)*)\s+\|` +
-			`\s+grad\s+norm:\s+(?P<GradNorm>\d+(?:\.\d+)*)\s+\|` +
-			`\s+num\s+zeros:\s(?P<NumZeros>\d+(?:\.\d+)*)\s+\|` +
-			`\s+number\s+of\s+skipped\s+iterations:\s+(?P<SkippedIterationsNumber>\d+)\s+\|` +
-			`\s+number\s+of\s+nan\s+iterations:\s+(?P<NanIterationsNumber>\d+)\.*`),
-		"primus-hip-memory": regexp.MustCompile(`\.*iteration\s+(?P<CurrentIteration>\d+)\s*/\s*(?P<TargetIteration>\d+)\s*\|` +
-			`\s*consumed samples:\s+(?P<ConsumedSamples>\d+)\s*\|` +
-			`\s*elapsed\stime\sper\siteration\s\(ms\):\s+(?P<ElapsedTimePerIterationMS>\d+(?:\.\d+)*)/\d+(?:\.\d+)*\s+\|` +
-			`\s+hip\s+mem\s+usage/free/total/usage_ratio:\s+` +
-			`(?P<MemUsage>\d+\.\d+)GB/` +
-			`(?P<MemFree>\d+\.\d+)GB/` +
-			`(?P<MemTotal>\d+\.\d+)GB/` +
-			`(?P<MemUsageRatio>\d+\.\d+)%\s+\|` +
-			`\s+throughput\s+per\s+GPU\s+\(TFLOP/s/GPU\):\s+(?P<TFLOPS>\d+(?:\.\d+)*)/\d+(?:\.\d+)*\s+\|` +
-			`\s+tokens\s+per\s+GPU\s+\(tokens/s/GPU\):\s+(?P<TokensPerGPU>\d+(?:\.\d+)*)/\d+(?:\.\d+)*\s+\|` +
-			`\s*learning\s+rate:\s+(?P<LearningRate>[+-]?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?)\s*\|` +
-			`\s+global\s+batch\s+size:\s+(?P<GlobalBatchSize>\d+(?:\.\d+)*)\s+\|` +
-			`\s+lm\s+loss:\s+(?P<LmLoss>[+-]?\d+(?:\.\d+)?(?:[Ee][+-]?\d+)?)\s+\|` +
-			`\s+loss\s+scale:\s+(?P<LossScale>\d+(?:\.\d+)*)\s+\|` +
-			`\s+grad\s+norm:\s+(?P<GradNorm>\d+(?:\.\d+)*)\s+\|` +
-			`\s+num\s+zeros:\s(?P<NumZeros>\d+(?:\.\d+)*)\s+\|` +
-			`\s+number\s+of\s+skipped\s+iterations:\s+(?P<SkippedIterationsNumber>\d+)\s+\|` +
-			`\s+number\s+of\s+nan\s+iterations:\s+(?P<NanIterationsNumber>\d+)\.*`),
-	}
 )
 
 // InitializeFrameworkDetection initializes framework detection components
@@ -78,16 +39,16 @@ func InitializeFrameworkDetection(
 		metadataFacade,
 		framework.DefaultDetectionConfig(),
 	)
-	
+
 	// Initialize config manager
 	configManager = NewFrameworkConfigManager(systemConfigMgr)
-	
+
 	// Load all framework configurations
 	ctx := context.Background()
 	if err := configManager.LoadAllFrameworks(ctx); err != nil {
 		logrus.Warnf("Failed to load some framework configs: %v", err)
 	}
-	
+
 	// Initialize pattern matchers
 	patternMatchers = make(map[string]*PatternMatcher)
 	for _, frameworkName := range configManager.ListFrameworks() {
@@ -95,173 +56,215 @@ func InitializeFrameworkDetection(
 		if patterns == nil {
 			continue
 		}
-		
+
 		matcher, err := NewPatternMatcher(patterns)
 		if err != nil {
 			logrus.Warnf("Failed to create matcher for %s: %v", frameworkName, err)
 			continue
 		}
-		
+
 		patternMatchers[frameworkName] = matcher
 		logrus.Infof("Initialized pattern matcher for framework: %s", frameworkName)
 	}
-	
+
 	logrus.Infof("Framework detection initialized with %d frameworks", len(patternMatchers))
-	
+
 	// Initialize WandB components
 	wandbDetector := NewWandBFrameworkDetector(detectionManager)
 	metricsStorage := NewInMemoryMetricsStorage(10000) // Max 10000 metrics per workload
 	wandbLogProcessor := NewWandBLogProcessor(metricsStorage)
-	
+
 	// Initialize WandB Handler
 	InitWandBHandler(wandbDetector, wandbLogProcessor)
 	logrus.Info("WandB handler initialized successfully")
-	
+
 	// Initialize Framework Detection API Handler
 	tpapi.InitFrameworkDetectionHandler(detectionManager)
 	logrus.Info("Framework detection API handler initialized successfully")
-	
+
 	return nil
 }
 
 func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Time) error {
 	log.Tracef("before consume workload log , pod uid %s", podUid)
-	
-	// Get workload information
-	workloadRefs, err := database.GetFacade().GetWorkload().ListWorkloadPodReferencesByPodUids(ctx, []string{podUid})
-	if err != nil || len(workloadRefs) == 0 {
-		// If no workload reference, fall back to old logic
-		err := singleWorkloadLog(ctx, podUid, msg, logTime)
-		if err != nil {
-			log.GlobalLogger().WithError(err).Errorln("singleWorkloadLog error")
-		}
+
+	// Get workload information from cache
+	workloadRefs := pods.GetWorkloadsByPodUid(podUid)
+	if len(workloadRefs) == 0 {
+		log.Debugf("No workload reference found for pod %s, skipping log processing", podUid)
 		return nil
 	}
-	workloadUID := workloadRefs[0].WorkloadUID
-	
-	// If framework detection is initialized, use it
-	if detectionManager != nil && len(patternMatchers) > 0 {
-		// Get current detection result
-		detection, err := detectionManager.GetDetection(ctx, workloadUID)
-		if err != nil {
-			logrus.Warnf("Failed to get detection for %s: %v", workloadUID, err)
-		}
-		
-		// Determine framework to use
-		var frameworkName string
-		needsDetection := false
-		
-		if detection != nil && detection.Confidence >= 0.5 {
-			// Use existing detection
-			frameworkName = detection.Framework
-			logrus.Debugf("Using existing framework detection: %s (confidence: %.2f)",
-				frameworkName, detection.Confidence)
-		} else {
-			// Need to detect framework from log
-			frameworkName, err = detectFrameworkFromLog(ctx, workloadUID, msg)
-			if err != nil {
-				logrus.Debugf("Framework not detected from log, using default")
-				frameworkName = "primus" // Default
-			}
-			needsDetection = true
-		}
-		
-		// Report detection if needed
-		if needsDetection && frameworkName != "" {
-			confidence := calculateDetectionConfidence(frameworkName, msg)
-			
-			err = detectionManager.ReportDetection(
-				ctx,
-				workloadUID,
-				"log",
-				frameworkName,
-				"training",
-				confidence,
-				map[string]interface{}{
-					"method":     "log_pattern_match",
-					"sample_log": truncateLog(msg, 200),
-				},
-			)
-			if err != nil {
-				logrus.Errorf("Failed to report log detection: %v", err)
-			} else {
-				logrus.Infof("Reported log detection: workload=%s, framework=%s, confidence=%.2f",
-					workloadUID, frameworkName, confidence)
-			}
-		}
-		
-		// Process log with framework-specific parser
-		if err := processLogWithFramework(ctx, podUid, workloadUID, msg, logTime, frameworkName); err != nil {
-			logrus.Errorf("Failed to process log with framework: %v", err)
-		}
+
+	// Framework detection must be initialized
+	if detectionManager == nil || len(patternMatchers) == 0 {
+		logrus.Errorf("Framework detection not initialized - cannot process logs for pod %s", podUid)
+		return fmt.Errorf("framework detection not initialized")
+	}
+
+	// workloadRefs is [][]string, each element is []string{workloadName, workloadUID}
+	// Since detection manager automatically handles workload hierarchy,
+	// we only need to detect framework once (using first workload)
+	firstWorkloadUID := workloadRefs[0][1]
+
+	// Get or detect framework (only once, shared by all workloads in hierarchy)
+	detection, err := detectionManager.GetDetection(ctx, firstWorkloadUID)
+	if err != nil {
+		logrus.Warnf("Failed to get detection for %s: %v", firstWorkloadUID, err)
+	}
+
+	// Determine framework to use
+	var frameworkName string
+	needsDetection := false
+
+	if detection != nil && detection.Confidence >= 0.5 {
+		// Use existing detection (shared across workload hierarchy)
+		frameworkName = detection.Framework
+		logrus.Debugf("Using existing framework detection: %s (confidence: %.2f)",
+			frameworkName, detection.Confidence)
 	} else {
-		// Fall back to old logic if detection not initialized
-		err := singleWorkloadLog(ctx, podUid, msg, logTime)
+		// Need to detect framework from log (only once)
+		frameworkName, err = detectFrameworkFromLog(ctx, firstWorkloadUID, msg)
 		if err != nil {
-			log.GlobalLogger().WithError(err).Errorln("singleWorkloadLog error")
+			logrus.Debugf("Framework not detected from log, using default")
+			frameworkName = "primus" // Default
 		}
+		needsDetection = true
 	}
-	
-	log.Tracef("workload log  consume success.before consume diagnosis")
-	return nil
-}
 
-func singleWorkloadLog(ctx context.Context, podUid string, msg string, docTime time.Time) error {
-	if hit, err := saveStartTrain(ctx, msg, podUid, docTime); hit {
-		log.GlobalLogger().Debugf("start train, podUid: %s, ", podUid)
-		IncLogAnalysisCount(constant.TrainingEventStartTrain)
+	// Report detection if needed (only once, automatically propagates to root)
+	if needsDetection && frameworkName != "" {
+		confidence := calculateDetectionConfidence(frameworkName, msg)
+
+		err = detectionManager.ReportDetection(
+			ctx,
+			firstWorkloadUID,
+			"log",
+			frameworkName,
+			"training",
+			confidence,
+			map[string]interface{}{
+				"method":     "log_pattern_match",
+				"sample_log": truncateLog(msg, 200),
+			},
+		)
 		if err != nil {
-			return err
-		}
-	} else if err != nil {
-		log.Errorf("saveStartTrain err %+v", err)
-	}
-	if hit, err := saveTrainingPerformance(ctx, msg, podUid, docTime); hit {
-		log.GlobalLogger().Debugf("Got training performance, podUid: %s, ", podUid)
-		IncLogAnalysisCount(constant.TrainingPerformance)
-		if err != nil {
-			return err
-		}
-	} else if err != nil {
-		log.Errorf("saveTrainingPerformance err %+v", err)
-	}
-
-	return nil
-}
-
-func saveTrainingPerformance(ctx context.Context, msg, podUid string, docTime time.Time) (bool, error) {
-	performance, err := filterTrainingPerformance(msg)
-	if err != nil {
-		return false, err
-	}
-	if performance == nil {
-		return false, nil
-	}
-	log.Tracef("save training performance, podUid: %s, peformance %+v ", podUid, performance)
-	nearestWorkloadUid := ""
-	nearestWorkload, err := database.GetFacade().GetWorkload().GetNearestWorkloadByPodUid(ctx, podUid)
-	if err != nil {
-		return true, err
-	}
-	if nearestWorkload != nil {
-		nearestWorkloadUid = nearestWorkload.UID
-	}
-	log.Tracef("nearest workload uid: %s", nearestWorkloadUid)
-
-	workloadReferences, err := database.GetFacade().GetWorkload().ListWorkloadPodReferencesByPodUids(ctx, []string{podUid})
-	if err != nil {
-		return true, err
-	}
-	log.Tracef("workload references %+v", workloadReferences)
-	for _, reference := range workloadReferences {
-		err = saveTrainingPerformanceForSingleWorkload(ctx, podUid, reference.WorkloadUID, nearestWorkloadUid, performance, docTime)
-		if err != nil {
-			log.Errorf("saveStartTrainForSingleWorkload err %+v", err)
+			logrus.Errorf("Failed to report log detection: %v", err)
 		} else {
-			log.Tracef("save training performance for workload %s", reference.WorkloadUID)
+			logrus.Infof("Reported log detection: workload=%s, framework=%s, confidence=%.2f (shared with hierarchy)",
+				firstWorkloadUID, frameworkName, confidence)
 		}
 	}
-	return true, nil
+
+	// Process log with framework-specific parser (only once)
+	// The processing functions will internally handle all workloads associated with this pod
+	if err := processLogWithFramework(ctx, podUid, firstWorkloadUID, msg, logTime, frameworkName); err != nil {
+		logrus.Errorf("Failed to process log with framework: %v", err)
+	}
+
+	log.Tracef("workload log consume success")
+	return nil
+}
+
+// groupsToPerformance converts regex captured groups to TrainingPerformance model using reflection
+// This dynamically maps group names to struct fields, eliminating hardcoded field mappings
+func groupsToPerformance(groups map[string]string) *model.TrainingPerformance {
+	perf := &model.TrainingPerformance{}
+
+	// Use reflection to dynamically set fields based on group names
+	perfValue := reflect.ValueOf(perf).Elem()
+	perfType := perfValue.Type()
+
+	// Iterate through all fields in TrainingPerformance struct
+	for i := 0; i < perfValue.NumField(); i++ {
+		field := perfValue.Field(i)
+		fieldType := perfType.Field(i)
+		fieldName := fieldType.Name
+
+		// Skip unexported fields
+		if !field.CanSet() {
+			continue
+		}
+
+		// Look for matching group (case-sensitive match with field name)
+		groupValue, exists := groups[fieldName]
+		if !exists {
+			// Try alternative names for backward compatibility
+			groupValue = tryAlternativeNames(groups, fieldName)
+			if groupValue == "" {
+				continue
+			}
+		}
+
+		// Set field value based on its type
+		if err := setFieldValue(field, groupValue); err != nil {
+			logrus.Warnf("Failed to set field %s with value %s: %v", fieldName, groupValue, err)
+		}
+	}
+
+	return perf
+}
+
+// tryAlternativeNames tries alternative group names for common field name variations
+func tryAlternativeNames(groups map[string]string, fieldName string) string {
+	// Map field names to alternative group names
+	alternatives := map[string][]string{
+		"MemUsages": {"MemUsage"}, // MemUsages can also come from MemUsage group
+	}
+
+	if altNames, ok := alternatives[fieldName]; ok {
+		for _, altName := range altNames {
+			if val, exists := groups[altName]; exists && val != "" {
+				return val
+			}
+		}
+	}
+
+	return ""
+}
+
+// setFieldValue sets a reflect.Value based on string input and field type
+func setFieldValue(field reflect.Value, value string) error {
+	if value == "" {
+		return nil // Skip empty values
+	}
+
+	switch field.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		intVal, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse int: %w", err)
+		}
+		field.SetInt(intVal)
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		uintVal, err := strconv.ParseUint(value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse uint: %w", err)
+		}
+		field.SetUint(uintVal)
+
+	case reflect.Float32, reflect.Float64:
+		floatVal, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse float: %w", err)
+		}
+		field.SetFloat(floatVal)
+
+	case reflect.String:
+		field.SetString(value)
+
+	case reflect.Bool:
+		boolVal, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("failed to parse bool: %w", err)
+		}
+		field.SetBool(boolVal)
+
+	default:
+		return fmt.Errorf("unsupported field type: %s", field.Kind())
+	}
+
+	return nil
 }
 
 func saveTrainingPerformanceForSingleWorkload(ctx context.Context, podId, workloadId, nearestWorkloadId string, perf *model.TrainingPerformance, docTime time.Time) error {
@@ -293,29 +296,12 @@ func saveTrainingPerformanceForSingleWorkload(ctx context.Context, podId, worklo
 	return nil
 }
 
-func filterTrainingPerformance(msg string) (*model.TrainingPerformance, error) {
-	for name, reg := range perfRegexps {
-		if !reg.MatchString(msg) {
-			continue
-		}
-		if strings.Contains(msg, "rocm mem usage/free/total/usage_ratio") {
-			log.Debugf("msg %s match regular expression %s", msg, name)
-		}
-		result := &model.TrainingPerformance{}
-		err := regexUtil.RegexToStruct(reg, msg, result)
-		if err != nil {
-			log.Errorf("Regex match error for %s. %+v", name, err)
-		} else {
-			return result, nil
-		}
-	}
-	return nil, nil
-}
-
 func saveStartTrain(ctx context.Context, msg, podId string, docTime time.Time) (bool, error) {
 	if !strings.Contains(strings.TrimSpace(msg), "training ...") {
 		return false, nil
 	}
+
+	// Get nearest workload (still from DB as it's complex logic)
 	nearestWorkloadUid := ""
 	nearestWorkload, err := database.GetFacade().GetWorkload().GetNearestWorkloadByPodUid(ctx, podId)
 	if err != nil {
@@ -325,12 +311,18 @@ func saveStartTrain(ctx context.Context, msg, podId string, docTime time.Time) (
 		nearestWorkloadUid = nearestWorkload.UID
 	}
 
-	workloadReferences, err := database.GetFacade().GetWorkload().ListWorkloadPodReferencesByPodUids(ctx, []string{podId})
-	if err != nil {
-		return true, err
+	// Get workload references from cache instead of database
+	workloadRefs := pods.GetWorkloadsByPodUid(podId)
+	if workloadRefs == nil || len(workloadRefs) == 0 {
+		return true, nil
 	}
-	for _, reference := range workloadReferences {
-		err = saveStartTrainForSingleWorkload(ctx, podId, reference.WorkloadUID, nearestWorkloadUid, docTime)
+
+	for _, workloadRef := range workloadRefs {
+		if len(workloadRef) < 2 {
+			continue
+		}
+		workloadUID := workloadRef[1]
+		err = saveStartTrainForSingleWorkload(ctx, podId, workloadUID, nearestWorkloadUid, docTime)
 		if err != nil {
 			log.Errorf("saveStartTrainForSingleWorkload err %+v", err)
 		}
@@ -382,7 +374,7 @@ func detectFrameworkFromLog(ctx context.Context, workloadUID, logLine string) (s
 	// Try each framework's pattern matcher
 	bestMatch := ""
 	bestConfidence := 0.0
-	
+
 	for frameworkName, matcher := range patternMatchers {
 		result := matcher.MatchIdentify(logLine)
 		if result.Matched && result.Confidence > bestConfidence {
@@ -390,12 +382,12 @@ func detectFrameworkFromLog(ctx context.Context, workloadUID, logLine string) (s
 			bestConfidence = result.Confidence
 		}
 	}
-	
+
 	if bestMatch != "" {
 		logrus.Infof("Detected framework %s from log with confidence %.2f", bestMatch, bestConfidence)
 		return bestMatch, nil
 	}
-	
+
 	return "", fmt.Errorf("no framework detected")
 }
 
@@ -405,12 +397,12 @@ func calculateDetectionConfidence(frameworkName, logLine string) float64 {
 	if !ok {
 		return 0.5 // Default confidence
 	}
-	
+
 	result := matcher.MatchIdentify(logLine)
 	if result.Matched {
 		return result.Confidence
 	}
-	
+
 	return 0.5
 }
 
@@ -423,15 +415,15 @@ func processLogWithFramework(
 ) error {
 	matcher, ok := patternMatchers[frameworkName]
 	if !ok {
-		logrus.Debugf("No pattern matcher for framework: %s, using legacy logic", frameworkName)
-		return singleWorkloadLog(ctx, podUid, msg, logTime)
+		logrus.Warnf("No pattern matcher for framework: %s - skipping log processing", frameworkName)
+		return fmt.Errorf("no pattern matcher for framework: %s", frameworkName)
 	}
-	
+
 	// Try performance pattern
 	if result := matcher.MatchPerformance(msg); result.Matched {
 		return handlePerformanceLog(ctx, workloadUID, podUid, result.Groups, logTime)
 	}
-	
+
 	// Try training events
 	if result := matcher.MatchTrainingEvent(msg, "start_training"); result.Matched {
 		return handleTrainingEvent(ctx, workloadUID, podUid, "StartTrain", logTime)
@@ -439,7 +431,7 @@ func processLogWithFramework(
 	if result := matcher.MatchTrainingEvent(msg, "end_training"); result.Matched {
 		return handleTrainingEvent(ctx, workloadUID, podUid, "EndTrain", logTime)
 	}
-	
+
 	// Try checkpoint events
 	if result := matcher.MatchCheckpointEvent(msg, "start_saving"); result.Matched {
 		return handleCheckpointEvent(ctx, workloadUID, podUid, "start_saving", result.Groups, logTime)
@@ -450,9 +442,10 @@ func processLogWithFramework(
 	if result := matcher.MatchCheckpointEvent(msg, "loading"); result.Matched {
 		return handleCheckpointEvent(ctx, workloadUID, podUid, "loading", result.Groups, logTime)
 	}
-	
-	// No pattern matched, try legacy logic
-	return singleWorkloadLog(ctx, podUid, msg, logTime)
+
+	// No pattern matched - this is normal for most logs
+	logrus.Tracef("No pattern matched for log from pod %s, workload %s", podUid, workloadUID)
+	return nil
 }
 
 // handlePerformanceLog handles performance log extraction
@@ -462,11 +455,44 @@ func handlePerformanceLog(
 	groups map[string]string,
 	logTime time.Time,
 ) error {
-	// Convert groups to TrainingPerformance model
-	// For now, delegate to existing logic
-	// TODO: Use groups directly to construct performance data
-	_, err := saveTrainingPerformance(ctx, formatGroupsToLogLine(groups), podUid, logTime)
-	return err
+	// Convert groups (extracted from regex) to TrainingPerformance model
+	performance := groupsToPerformance(groups)
+	if performance == nil {
+		return fmt.Errorf("failed to convert groups to performance data")
+	}
+
+	// Get nearest workload for serial calculation
+	nearestWorkloadUid := ""
+	nearestWorkload, err := database.GetFacade().GetWorkload().GetNearestWorkloadByPodUid(ctx, podUid)
+	if err != nil {
+		return err
+	}
+	if nearestWorkload != nil {
+		nearestWorkloadUid = nearestWorkload.UID
+	}
+
+	// Get workload references from cache
+	workloadRefs := pods.GetWorkloadsByPodUid(podUid)
+	if workloadRefs == nil || len(workloadRefs) == 0 {
+		log.Tracef("no workload references found in cache for pod %s", podUid)
+		return nil
+	}
+
+	// Save performance data for each workload
+	for _, workloadRef := range workloadRefs {
+		if len(workloadRef) < 2 {
+			continue
+		}
+		wUID := workloadRef[1]
+		err = saveTrainingPerformanceForSingleWorkload(ctx, podUid, wUID, nearestWorkloadUid, performance, logTime)
+		if err != nil {
+			log.Errorf("saveTrainingPerformanceForSingleWorkload err %+v", err)
+		} else {
+			log.Tracef("save training performance for workload %s", wUID)
+		}
+	}
+
+	return nil
 }
 
 // handleTrainingEvent handles training lifecycle events
@@ -481,13 +507,6 @@ func handleTrainingEvent(
 		return err
 	}
 	return nil
-}
-
-// formatGroupsToLogLine formats extracted groups back to log line format
-// This is a helper for backward compatibility with legacy parsing
-func formatGroupsToLogLine(groups map[string]string) string {
-	// For now, return empty to trigger fallback
-	return ""
 }
 
 // truncateLog truncates log line to specified length

@@ -6,22 +6,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/framework"
+	"github.com/sirupsen/logrus"
 )
 
 // WandBDetectionRequest wandb-exporter 上报的请求数据
 type WandBDetectionRequest struct {
-	Source      string                 `json:"source"`       // "wandb"
-	Type        string                 `json:"type"`         // "framework_detection_raw"
-	Version     string                 `json:"version"`      // "1.0"
-	WorkloadUID string                 `json:"workload_uid"` // 必需
-	PodUID      string                 `json:"pod_uid"`
-	PodName     string                 `json:"pod_name"`
-	Namespace   string                 `json:"namespace"`
-	Evidence    WandBEvidence          `json:"evidence"`     // 原始证据
-	Hints       WandBHints             `json:"hints"`        // 轻量级 hints
-	Timestamp   float64                `json:"timestamp"`
+	Source      string        `json:"source"`                 // "wandb"
+	Type        string        `json:"type"`                   // "framework_detection_raw"
+	Version     string        `json:"version"`                // "1.0"
+	WorkloadUID string        `json:"workload_uid,omitempty"` // 可选（兼容性）
+	PodUID      string        `json:"pod_uid,omitempty"`
+	PodName     string        `json:"pod_name"` // 必需：客户端从环境变量获取
+	Namespace   string        `json:"namespace"`
+	Evidence    WandBEvidence `json:"evidence"` // 原始证据
+	Hints       WandBHints    `json:"hints"`    // 轻量级 hints
+	Timestamp   float64       `json:"timestamp"`
 }
 
 // WandBEvidence 原始证据数据
@@ -43,10 +43,10 @@ type WandBInfo struct {
 
 // PyTorchInfo PyTorch 环境信息
 type PyTorchInfo struct {
-	Available       bool              `json:"available"`
-	Version         string            `json:"version"`
-	CudaAvailable   bool              `json:"cuda_available"`
-	DetectedModules map[string]bool   `json:"detected_modules"`
+	Available       bool            `json:"available"`
+	Version         string          `json:"version"`
+	CudaAvailable   bool            `json:"cuda_available"`
+	DetectedModules map[string]bool `json:"detected_modules"`
 }
 
 // WandBHints 预判断线索
@@ -84,12 +84,13 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 	ctx context.Context,
 	req *WandBDetectionRequest,
 ) error {
-	logrus.Infof("Processing WandB detection for workload %s", req.WorkloadUID)
-
-	// 1. 验证必需字段
-	if req.WorkloadUID == "" {
-		return fmt.Errorf("workload_uid is required")
+	// 1. 从 PodName 解析 WorkloadUID
+	workloadUID, err := resolveWorkloadUID(req.WorkloadUID, req.PodName)
+	if err != nil {
+		return err
 	}
+
+	logrus.Infof("Processing WandB detection for pod %s -> workload %s", req.PodName, workloadUID)
 
 	// 2. 记录 hints（用于监控和调优）
 	if len(req.Hints.PossibleFrameworks) > 0 {
@@ -117,13 +118,14 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 		"environment_vars": result.MatchedEnvVars,
 		"pytorch_modules":  result.MatchedModules,
 		"hints":            req.Hints,
+		"pod_name":         req.PodName,
 		"detected_at":      time.Now().Format(time.RFC3339),
 	}
 
 	// 5. 上报到 FrameworkDetectionManager
-	err := d.detectionManager.ReportDetection(
+	err = d.detectionManager.ReportDetection(
 		ctx,
-		req.WorkloadUID,
+		workloadUID,
 		"wandb",
 		result.Framework,
 		"training",
@@ -136,7 +138,7 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 		return err
 	}
 
-	logrus.Infof("✓ Successfully reported WandB detection for workload %s", req.WorkloadUID)
+	logrus.Infof("✓ Successfully reported WandB detection for workload %s", workloadUID)
 
 	return nil
 }
@@ -336,4 +338,3 @@ func hasAnyKey(m map[string]string, keys []string) []string {
 	}
 	return matched
 }
-

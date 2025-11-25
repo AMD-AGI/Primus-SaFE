@@ -53,9 +53,10 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 		return
 	}
 
-	if req.WorkloadUID == "" {
+	// 验证：必须提供 workload_uid 或 pod_name
+	if req.WorkloadUID == "" && req.PodName == "" {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(),
-			http.StatusBadRequest, "workload_uid is required", nil))
+			http.StatusBadRequest, "either workload_uid or pod_name is required", nil))
 		return
 	}
 
@@ -89,9 +90,10 @@ func ReceiveWandBMetrics(ctx *gin.Context) {
 		return
 	}
 
-	if req.WorkloadUID == "" {
+	// 验证：必须提供 workload_uid 或 pod_name
+	if req.WorkloadUID == "" && req.PodName == "" {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(),
-			http.StatusBadRequest, "workload_uid is required", nil))
+			http.StatusBadRequest, "either workload_uid or pod_name is required", nil))
 		return
 	}
 
@@ -108,8 +110,10 @@ func ReceiveWandBMetrics(ctx *gin.Context) {
 	}))
 }
 
-// ReceiveWandBLogs 处理日志上报
+// ReceiveWandBLogs handles training data reporting from wandb.log()
 // POST /wandb/logs
+// Note: Despite the name, this endpoint receives structured training metrics
+// from wandb.log(), not text logs. Data is stored in training_performance table.
 func ReceiveWandBLogs(ctx *gin.Context) {
 	if wandbHandler == nil {
 		log.GlobalLogger().WithContext(ctx).Errorf("WandB handler not initialized")
@@ -126,9 +130,10 @@ func ReceiveWandBLogs(ctx *gin.Context) {
 		return
 	}
 
-	if req.WorkloadUID == "" {
+	// 验证：必须提供 workload_uid 或 pod_name
+	if req.WorkloadUID == "" && req.PodName == "" {
 		ctx.JSON(http.StatusBadRequest, rest.ErrorResp(ctx.Request.Context(),
-			http.StatusBadRequest, "workload_uid is required", nil))
+			http.StatusBadRequest, "either workload_uid or pod_name is required", nil))
 		return
 	}
 
@@ -140,7 +145,7 @@ func ReceiveWandBLogs(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
-		"message": "logs reported successfully",
+		"message": "training data reported successfully",
 		"count":   len(req.Logs),
 	}))
 }
