@@ -17,6 +17,7 @@ import (
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -122,6 +123,9 @@ func workloadMapper(obj *unstructured.Unstructured) *dbclient.Workload {
 	}
 	if len(workload.Spec.Secrets) > 0 {
 		result.Secrets = dbutils.NullString(string(jsonutils.MarshalSilently(workload.Spec.Secrets)))
+	}
+	if val := workload.GetEnv(common.ScaleRunnerSetID); val != "" {
+		result.ScaleRunnerSet = dbutils.NullString(val)
 	}
 	return result
 }

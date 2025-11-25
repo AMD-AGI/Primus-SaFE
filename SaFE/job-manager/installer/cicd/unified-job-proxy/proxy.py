@@ -94,7 +94,7 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
     gvk_kind = "UnifiedJob"
     gvk_version = "v1"
     display_name = getenv_str(SCALE_RUNNER_SET_ENV) + "-unified-trainer"
-    description = "scale-set-name: " + getenv_str(SCALE_RUNNER_SET_ENV) + ", model: " + model
+    description = "model: " + model
 
     payload: Dict[str, Any] = {
         "displayName": display_name,

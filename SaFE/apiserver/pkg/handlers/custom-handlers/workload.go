@@ -862,6 +862,9 @@ func cvtToListWorkloadSql(query *types.ListWorkloadRequest) (sqrl.Sqlizer, []str
 			dbclient.GetFieldTag(dbTags, "WorkloadId"): fmt.Sprintf("%%%s%%", workloadId),
 		})
 	}
+	if scaleRunnerSet := strings.TrimSpace(query.ScaleRunnerSet); scaleRunnerSet != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbclient.GetFieldTag(dbTags, "ScaleRunnerSet"): scaleRunnerSet})
+	}
 	orderBy := buildOrderBy(query.SortBy, query.Order, dbTags)
 	return dbSql, orderBy
 }
@@ -952,25 +955,26 @@ func (h *Handler) cvtDBWorkloadToResponseItem(ctx context.Context,
 	w *dbclient.Workload,
 ) types.WorkloadResponseItem {
 	result := types.WorkloadResponseItem{
-		WorkloadId:    w.WorkloadId,
-		WorkspaceId:   w.Workspace,
-		ClusterId:     w.Cluster,
-		Phase:         dbutils.ParseNullString(w.Phase),
-		CreationTime:  dbutils.ParseNullTimeToString(w.CreationTime),
-		StartTime:     dbutils.ParseNullTimeToString(w.StartTime),
-		EndTime:       dbutils.ParseNullTimeToString(w.EndTime),
-		DeletionTime:  dbutils.ParseNullTimeToString(w.DeletionTime),
-		QueuePosition: w.QueuePosition,
-		DispatchCount: w.DispatchCount,
-		DisplayName:   w.DisplayName,
-		Description:   dbutils.ParseNullString(w.Description),
-		UserId:        dbutils.ParseNullString(w.UserId),
-		UserName:      dbutils.ParseNullString(w.UserName),
-		Priority:      w.Priority,
-		IsTolerateAll: w.IsTolerateAll,
-		WorkloadUid:   dbutils.ParseNullString(w.WorkloadUId),
-		K8sObjectUid:  dbutils.ParseNullString(w.K8sObjectUid),
-		AvgGpuUsage:   -1, // Default value when statistics are not available
+		WorkloadId:     w.WorkloadId,
+		WorkspaceId:    w.Workspace,
+		ClusterId:      w.Cluster,
+		Phase:          dbutils.ParseNullString(w.Phase),
+		CreationTime:   dbutils.ParseNullTimeToString(w.CreationTime),
+		StartTime:      dbutils.ParseNullTimeToString(w.StartTime),
+		EndTime:        dbutils.ParseNullTimeToString(w.EndTime),
+		DeletionTime:   dbutils.ParseNullTimeToString(w.DeletionTime),
+		QueuePosition:  w.QueuePosition,
+		DispatchCount:  w.DispatchCount,
+		DisplayName:    w.DisplayName,
+		Description:    dbutils.ParseNullString(w.Description),
+		UserId:         dbutils.ParseNullString(w.UserId),
+		UserName:       dbutils.ParseNullString(w.UserName),
+		Priority:       w.Priority,
+		IsTolerateAll:  w.IsTolerateAll,
+		WorkloadUid:    dbutils.ParseNullString(w.WorkloadUId),
+		K8sObjectUid:   dbutils.ParseNullString(w.K8sObjectUid),
+		AvgGpuUsage:    -1, // Default value when statistics are not available
+		ScaleRunnerSet: dbutils.ParseNullString(w.ScaleRunnerSet),
 	}
 	if result.EndTime == "" && result.DeletionTime != "" {
 		result.EndTime = result.DeletionTime
@@ -1220,6 +1224,12 @@ func cvtDBWorkloadToAdminWorkload(dbItem *dbclient.Workload) *v1.Workload {
 	}
 	if str := dbutils.ParseNullString(dbItem.Secrets); str != "" {
 		json.Unmarshal([]byte(str), &result.Spec.Secrets)
+	}
+	if str := dbutils.ParseNullString(dbItem.ScaleRunnerSet); str != "" {
+		if len(result.Spec.Env) == 0 {
+			result.Spec.Env = make(map[string]string)
+		}
+		result.Spec.Env[common.ScaleRunnerSetID] = str
 	}
 	return result
 }

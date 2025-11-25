@@ -59,6 +59,8 @@ type ListWorkloadRequest struct {
 	Until string `form:"until" binding:"omitempty"`
 	// Filter by workload ID (fuzzy match)
 	WorkloadId string `form:"workloadId" binding:"omitempty,max=64"`
+	// If it is a CI/CD workload, it would be associated with a scale runner set.
+	ScaleRunnerSet string `json:"scaleRunnerSet,omitempty"`
 }
 
 type ListWorkloadResponse struct {
@@ -121,6 +123,8 @@ type WorkloadResponseItem struct {
 	K8sObjectUid string `json:"k8sObjectUid"`
 	// Average GPU usage in the last 3 hours. Returns -1 if no statistics available
 	AvgGpuUsage float64 `json:"avgGpuUsage"`
+	// If it is a CI/CD workload, it would be associated with a scale runner set.
+	ScaleRunnerSet string `json:"scaleRunnerSet,omitempty"`
 }
 
 type GetWorkloadResponse struct {

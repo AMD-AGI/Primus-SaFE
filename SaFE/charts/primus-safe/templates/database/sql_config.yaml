@@ -69,6 +69,7 @@ data:
     alter table workload add column if not exists ranks TEXT;
     alter table workload add column if not exists cron_jobs TEXT;
     alter table workload add column if not exists secrets TEXT;
+    alter table workload add column if not exists scale_runner_set VARCHAR(64);
 
     create table if not exists fault
     (
