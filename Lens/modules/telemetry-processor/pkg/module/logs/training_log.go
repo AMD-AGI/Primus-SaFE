@@ -148,9 +148,13 @@ func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Ti
 		)
 		if err != nil {
 			logrus.Errorf("Failed to report log detection: %v", err)
+			IncFrameworkDetectionErrors("log", "report_failed")
 		} else {
 			logrus.Infof("Reported log detection: workload=%s, framework=%s, confidence=%.2f (shared with hierarchy)",
 				firstWorkloadUID, frameworkName, confidence)
+			// Record detection metrics
+			IncFrameworkDetectionCount(frameworkName, "log_pattern", "log")
+			ObserveFrameworkDetectionConfidence(frameworkName, "log_pattern", confidence)
 		}
 	}
 
@@ -312,7 +316,7 @@ func saveStartTrain(ctx context.Context, msg, podId string, docTime time.Time) (
 
 	// Get workload references from cache instead of database
 	workloadRefs := pods.GetWorkloadsByPodUid(podId)
-	if workloadRefs == nil || len(workloadRefs) == 0 {
+	if len(workloadRefs) == 0 {
 		return true, nil
 	}
 
@@ -384,9 +388,13 @@ func detectFrameworkFromLog(ctx context.Context, workloadUID, logLine string) (s
 
 	if bestMatch != "" {
 		logrus.Infof("Detected framework %s from log with confidence %.2f", bestMatch, bestConfidence)
+		// Record pattern match success
+		IncLogPatternMatchCount(bestMatch, "identify")
 		return bestMatch, nil
 	}
 
+	// Record detection failure
+	IncFrameworkDetectionErrors("log", "no_match")
 	return "", fmt.Errorf("no framework detected")
 }
 
@@ -420,26 +428,51 @@ func processLogWithFramework(
 
 	// Try performance pattern
 	if result := matcher.MatchPerformance(msg); result.Matched {
-		return handlePerformanceLog(ctx, workloadUID, podUid, result.Groups, logTime)
+		IncLogPatternMatchCount(frameworkName, "performance")
+		err := handlePerformanceLog(ctx, workloadUID, podUid, result.Groups, logTime, frameworkName)
+		if err != nil {
+			IncLogPatternMatchErrors(frameworkName, "performance", "processing_failed")
+		}
+		return err
 	}
 
 	// Try training events
 	if result := matcher.MatchTrainingEvent(msg, "start_training"); result.Matched {
+		IncLogPatternMatchCount(frameworkName, "training_event")
 		return handleTrainingEvent(ctx, workloadUID, podUid, "StartTrain", logTime)
 	}
 	if result := matcher.MatchTrainingEvent(msg, "end_training"); result.Matched {
+		IncLogPatternMatchCount(frameworkName, "training_event")
 		return handleTrainingEvent(ctx, workloadUID, podUid, "EndTrain", logTime)
 	}
 
 	// Try checkpoint events
 	if result := matcher.MatchCheckpointEvent(msg, "start_saving"); result.Matched {
-		return handleCheckpointEvent(ctx, workloadUID, podUid, "start_saving", result.Groups, logTime)
+		IncLogPatternMatchCount(frameworkName, "checkpoint_event")
+		IncCheckpointEventCount("start_saving", frameworkName)
+		err := handleCheckpointEvent(ctx, workloadUID, podUid, "start_saving", result.Groups, logTime)
+		if err != nil {
+			IncCheckpointEventErrors("start_saving", frameworkName, "processing_failed")
+		}
+		return err
 	}
 	if result := matcher.MatchCheckpointEvent(msg, "end_saving"); result.Matched {
-		return handleCheckpointEvent(ctx, workloadUID, podUid, "end_saving", result.Groups, logTime)
+		IncLogPatternMatchCount(frameworkName, "checkpoint_event")
+		IncCheckpointEventCount("end_saving", frameworkName)
+		err := handleCheckpointEvent(ctx, workloadUID, podUid, "end_saving", result.Groups, logTime)
+		if err != nil {
+			IncCheckpointEventErrors("end_saving", frameworkName, "processing_failed")
+		}
+		return err
 	}
 	if result := matcher.MatchCheckpointEvent(msg, "loading"); result.Matched {
-		return handleCheckpointEvent(ctx, workloadUID, podUid, "loading", result.Groups, logTime)
+		IncLogPatternMatchCount(frameworkName, "checkpoint_event")
+		IncCheckpointEventCount("loading", frameworkName)
+		err := handleCheckpointEvent(ctx, workloadUID, podUid, "loading", result.Groups, logTime)
+		if err != nil {
+			IncCheckpointEventErrors("loading", frameworkName, "processing_failed")
+		}
+		return err
 	}
 
 	// No pattern matched - this is normal for most logs
@@ -453,6 +486,7 @@ func handlePerformanceLog(
 	workloadUID, podUid string,
 	groups map[string]string,
 	logTime time.Time,
+	frameworkName string,
 ) error {
 	// Convert groups (extracted from regex) to TrainingPerformance model
 	performance := groupsToPerformance(groups)
@@ -472,7 +506,7 @@ func handlePerformanceLog(
 
 	// Get workload references from cache
 	workloadRefs := pods.GetWorkloadsByPodUid(podUid)
-	if workloadRefs == nil || len(workloadRefs) == 0 {
+	if len(workloadRefs) == 0 {
 		log.Tracef("no workload references found in cache for pod %s", podUid)
 		return nil
 	}
@@ -486,8 +520,10 @@ func handlePerformanceLog(
 		err = saveTrainingPerformanceForSingleWorkload(ctx, podUid, wUID, nearestWorkloadUid, performance, logTime)
 		if err != nil {
 			log.Errorf("saveTrainingPerformanceForSingleWorkload err %+v", err)
+			IncTrainingPerformanceSaveErrors(wUID, "log", "db_error")
 		} else {
 			log.Tracef("save training performance for workload %s", wUID)
+			IncTrainingPerformanceSaveCount(wUID, "log")
 		}
 	}
 

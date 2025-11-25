@@ -84,9 +84,17 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 	ctx context.Context,
 	req *WandBDetectionRequest,
 ) error {
+	// Record metrics: request count and duration
+	startTime := time.Now()
+	IncWandBRequestCount("detection")
+	defer func() {
+		ObserveWandBRequestDuration("detection", time.Since(startTime).Seconds())
+	}()
+
 	// 1. 从 PodName 解析 WorkloadUID
 	workloadUID, err := resolveWorkloadUID(req.WorkloadUID, req.PodName)
 	if err != nil {
+		IncWandBRequestErrorCount("detection", "validation")
 		return err
 	}
 
@@ -104,11 +112,16 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 	result := d.detectFramework(req)
 	if result == nil || result.Framework == "" {
 		logrus.Debug("No framework detected from WandB data")
+		IncFrameworkDetectionErrors("wandb", "no_match")
 		return nil
 	}
 
 	logrus.Infof("✓ Detected framework from WandB: %s (confidence: %.2f, method: %s)",
 		result.Framework, result.Confidence, result.Method)
+
+	// Record detection metrics
+	IncFrameworkDetectionCount(result.Framework, result.Method, "wandb")
+	ObserveFrameworkDetectionConfidence(result.Framework, result.Method, result.Confidence)
 
 	// 4. 构造证据
 	evidence := map[string]interface{}{
@@ -135,6 +148,8 @@ func (d *WandBFrameworkDetector) ProcessWandBDetection(
 
 	if err != nil {
 		logrus.Errorf("Failed to report WandB detection: %v", err)
+		IncFrameworkDetectionErrors("wandb", "report_failed")
+		IncWandBRequestErrorCount("detection", "report_failed")
 		return err
 	}
 

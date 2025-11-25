@@ -89,14 +89,25 @@ func (p *WandBLogProcessor) ProcessMetrics(
 	ctx context.Context,
 	req *WandBMetricsRequest,
 ) error {
+	// Record metrics: request count and duration
+	startTime := time.Now()
+	IncWandBRequestCount("metrics")
+	defer func() {
+		ObserveWandBRequestDuration("metrics", time.Since(startTime).Seconds())
+	}()
+
 	// 1. 从 PodName 解析 WorkloadUID
 	workloadUID, err := resolveWorkloadUID(req.WorkloadUID, req.PodName)
 	if err != nil {
+		IncWandBRequestErrorCount("metrics", "validation")
 		return err
 	}
 
 	logrus.Infof("Processing WandB metrics for pod %s -> workload %s, %d metrics",
 		req.PodName, workloadUID, len(req.Metrics))
+
+	// Record data point count
+	ObserveWandBMetricsDataPointCount(workloadUID, len(req.Metrics))
 
 	if len(req.Metrics) == 0 {
 		logrus.Debug("No metrics to process")
@@ -124,10 +135,12 @@ func (p *WandBLogProcessor) ProcessMetrics(
 		// 存储到时序数据库或指标存储
 		if err := p.metricsStorage.Store(ctx, storedMetric); err != nil {
 			logrus.Errorf("Failed to store metric %s: %v", metric.Name, err)
+			IncWandBMetricsStoreErrors(workloadUID)
 			errorCount++
 			// 继续处理其他指标
 			continue
 		}
+		IncWandBMetricsStoreCount(workloadUID)
 		successCount++
 	}
 
@@ -135,6 +148,7 @@ func (p *WandBLogProcessor) ProcessMetrics(
 		successCount, errorCount, workloadUID)
 
 	if errorCount > 0 {
+		IncWandBRequestErrorCount("metrics", "storage")
 		return fmt.Errorf("failed to store %d metrics", errorCount)
 	}
 
@@ -147,6 +161,13 @@ func (p *WandBLogProcessor) ProcessLogs(
 	ctx context.Context,
 	req *WandBLogsRequest,
 ) error {
+	// Record metrics: request count and duration
+	startTime := time.Now()
+	IncWandBRequestCount("logs")
+	defer func() {
+		ObserveWandBRequestDuration("logs", time.Since(startTime).Seconds())
+	}()
+
 	if len(req.Logs) == 0 {
 		logrus.Debug("No training data to process")
 		return nil
@@ -155,11 +176,15 @@ func (p *WandBLogProcessor) ProcessLogs(
 	// 1. Resolve WorkloadUID from PodName
 	workloadUID, err := resolveWorkloadUID(req.WorkloadUID, req.PodName)
 	if err != nil {
+		IncWandBRequestErrorCount("logs", "validation")
 		return err
 	}
 
 	logrus.Infof("Processing WandB training data for pod %s -> workload %s, %d entries",
 		req.PodName, workloadUID, len(req.Logs))
+
+	// Record data point count
+	ObserveWandBLogsDataPointCount(workloadUID, len(req.Logs))
 
 	// 2. Store training data to training_performance table
 	successCount := 0
@@ -172,10 +197,12 @@ func (p *WandBLogProcessor) ProcessLogs(
 		// Store each training data entry as training performance
 		if err := p.storeTrainingData(ctx, workloadUID, req.PodUID, req.RunID, &log, logTime); err != nil {
 			logrus.Errorf("Failed to store training data at step %d: %v", log.Step, err)
+			IncTrainingPerformanceSaveErrors(workloadUID, "wandb", "db_error")
 			errorCount++
 			// Continue processing other entries
 			continue
 		}
+		IncTrainingPerformanceSaveCount(workloadUID, "wandb")
 		successCount++
 	}
 
@@ -183,6 +210,7 @@ func (p *WandBLogProcessor) ProcessLogs(
 		successCount, errorCount, workloadUID)
 
 	if errorCount > 0 {
+		IncWandBRequestErrorCount("logs", "storage")
 		return fmt.Errorf("failed to store %d training data entries", errorCount)
 	}
 
