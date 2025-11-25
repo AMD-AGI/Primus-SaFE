@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	configHelper "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/helper/config"
 	log "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
@@ -36,6 +38,17 @@ func Bootstrap(ctx context.Context) error {
 	}()
 
 	return server.InitServerWithPreInitFunc(ctx, func(ctx context.Context, cfg *config.Config) error {
+		// Initialize framework detection components
+		metadataFacade := database.NewAiWorkloadMetadataFacade()
+		systemConfigMgr := configHelper.GetDefaultConfigManager()
+		
+		if err := logs.InitializeFrameworkDetection(metadataFacade, systemConfigMgr); err != nil {
+			log.Errorf("Failed to initialize framework detection: %v", err)
+			// Don't block startup, degrade to no framework detection
+		} else {
+			log.Info("Framework detection initialized successfully")
+		}
+		
 		router.RegisterGroup(initRouter)
 		pods.StartRefreshCaches(ctx)
 		return nil
