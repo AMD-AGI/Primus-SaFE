@@ -312,11 +312,6 @@ func GetCronjobTimestamp(obj metav1.Object) string {
 	return GetAnnotation(obj, CronJobTimestampAnnotation)
 }
 
-// IsCICDUnifiedJobEnable checks whether cicd unified job is enabled
-func IsCICDUnifiedJobEnable(obj metav1.Object) bool {
-	return GetAnnotation(obj, CICDUnifiedJobAnnotation) == TrueStr
-}
-
 // atoi converts a string to an integer, returning 0 if conversion fails.
 func atoi(str string) int {
 	if str == "" {

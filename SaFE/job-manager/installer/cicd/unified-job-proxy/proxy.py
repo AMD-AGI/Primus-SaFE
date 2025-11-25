@@ -77,10 +77,15 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("input missing required field: command")
     if not image:
         raise ValueError("input missing required field: image")
+    for key in ("SCALE_RUNNER_SET"):
+        val = getenv_str(key)
+        if val is not None:
+            env_map[key] = val
 
     workspace_id = getenv_str(WORKSPACE_ID_ENV)
     gvk_kind = "UnifiedJob"
     gvk_version = "v1"
+    description = "scale-set-name:" + getenv_str("SCALE_RUNNER_SET")
 
     payload: Dict[str, Any] = {
         "displayName": model,
@@ -91,6 +96,7 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         "env": env_map,
         "groupVersionKind": {"kind": gvk_kind, "version": gvk_version},
         "ttlSecondsAfterFinished": 300,
+        "description": description,
     }
     if isinstance(timeout, int) and timeout > 0:
         payload["timeout"] = timeout

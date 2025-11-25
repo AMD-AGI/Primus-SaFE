@@ -65,6 +65,10 @@ jobs:
             - SaFE/utils/**
           preprocess:
             - SaFE/job-manager/installer/preprocess/**
+          cicd_runner_proxy:
+            - SaFE/job-manager/installer/cicd/runner-proxy/**
+          cicd_unified_job_proxy:
+            - SaFE/job-manager/installer/cicd/unified-job-proxy/**
           webhooks:
             - SaFE/apis/**
             - SaFE/webhooks/**
@@ -108,6 +112,12 @@ jobs:
         if [[ "${{ steps.changed-files.outputs.preprocess_any_changed }}" == "true" ]]; then
           MATRIX+='{"name":"preprocess","basepath":"SaFE/job-manager/installer/preprocess",dockerfile_path:"SaFE/job-manager/installer/preprocess/Dockerfile"},'
         fi
+        if [[ "${{ steps.changed-files.outputs.cicd_runner_proxy_any_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"cicd_runner_proxy","basepath":"SaFE/job-manager/installer/cicd/runner-proxy",dockerfile_path:"SaFE/job-manager/installer/cicd/runner-proxy/Dockerfile"},'
+        fi
+        if [[ "${{ steps.changed-files.outputs.cicd_unified_job_proxy_any_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"cicd_unified_job_proxy","basepath":"SaFE/job-manager/installer/cicd/unified-job-proxy",dockerfile_path:"SaFE/job-manager/installer/cicd/unified-job-proxy/Dockerfile"},'
+        fi
         if [[ "${{ steps.changed-files.outputs.webhooks_any_changed }}" == "true" ]]; then
           MATRIX+='{"name":"webhooks","basepath":"SaFE/webhooks",dockerfile_path:"SaFE/webhooks/installer/Dockerfile"},'
         fi
@@ -123,7 +133,7 @@ jobs:
         echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
   build:
     needs: detect-changes
-    runs-on: test-safe-cicd
+    runs-on: primus-safe-tw
     outputs:
       primary_tag: ${{ steps.build-and-push.outputs.primary_tag }}
     timeout-minutes: 7200

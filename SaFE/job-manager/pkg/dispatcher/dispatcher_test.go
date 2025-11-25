@@ -517,11 +517,11 @@ func TestCreateCICDScaleSet(t *testing.T) {
 	envs := getEnvs(t, obj, &templates[0])
 	checkCICDEnvs(t, envs, workload, true)
 
-	assert.Equal(t, getContainer(obj, "runner_proxy", &templates[0]) != nil, true)
-	assert.Equal(t, getContainer(obj, "unified_build", &templates[0]) != nil, false)
+	assert.Equal(t, getContainer(obj, "runner", &templates[0]) != nil, true)
+	assert.Equal(t, getContainer(obj, "unified_job", &templates[0]) != nil, false)
 }
 
-func TestCICDScaleSetWithUnifiedBuild(t *testing.T) {
+func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
@@ -532,7 +532,7 @@ func TestCICDScaleSetWithUnifiedBuild(t *testing.T) {
 	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}
 	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
 	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
-	v1.SetAnnotation(workload, v1.CICDUnifiedJobAnnotation, v1.TrueStr)
+	workload.Spec.Env[common.UnifiedJobEnable] = v1.TrueStr
 	workload.Spec.Workspace = workspace.Name
 
 	configmap, err := parseConfigmap(TestCICDScaleSetTemplateConfig)
@@ -556,9 +556,9 @@ func TestCICDScaleSetWithUnifiedBuild(t *testing.T) {
 	checkHostNetwork(t, obj, workload, &templates[0])
 
 	checkCICDContainer(t, obj, workload, &templates[0],
-		"runner_proxy", "docker.io/primussafe/cicd-runner-proxy:latest")
+		"runner", "docker.io/primussafe/cicd-runner-proxy:latest")
 	checkCICDContainer(t, obj, workload, &templates[0],
-		"unified_build", "docker.io/primussafe/cicd-unified-build-proxy:latest")
+		"unified_job", "docker.io/primussafe/cicd-unified-job-proxy:latest")
 }
 
 func checkGithubConfig(t *testing.T, obj *unstructured.Unstructured) {
@@ -605,19 +605,20 @@ func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload, need
 		ok = findEnv(envs, jobutils.ResourcesEnv, string(jsonutils.MarshalSilently(workload.Spec.Resource)))
 		assert.Equal(t, ok, true)
 	}
-	ok = findEnv(envs, jobutils.ScaleRunnerSetEnv, workload.Name)
+	ok = findEnv(envs, common.ScaleRunnerSet, workload.Name)
 	assert.Equal(t, ok, true)
 	ok = findEnv(envs, common.AdminControlPlane, "10.0.0.1")
 	assert.Equal(t, ok, true)
 	ok = findEnv(envs, "APISERVER_NODE_PORT", "32495")
 	assert.Equal(t, ok, true)
 
-	if v1.IsCICDUnifiedJobEnable(workload) {
-		ok = findEnv(envs, common.UnifiedJobKind, v1.TrueStr)
+	val, ok := workload.Spec.Env[common.UnifiedJobEnable]
+	if ok && val == v1.TrueStr {
+		ok = findEnv(envs, common.UnifiedJobEnable, v1.TrueStr)
 		assert.Equal(t, ok, true)
-		ok = findEnv(envs, jobutils.NfsInputEnv, UnifiedBuildInput)
+		ok = findEnv(envs, jobutils.NfsInputEnv, UnifiedJobInput)
 		assert.Equal(t, ok, true)
-		ok = findEnv(envs, jobutils.NfsOutputEnv, UnifiedBuildOutput)
+		ok = findEnv(envs, jobutils.NfsOutputEnv, UnifiedJobOutput)
 		assert.Equal(t, ok, true)
 	}
 }

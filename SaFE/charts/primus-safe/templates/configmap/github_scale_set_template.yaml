@@ -57,11 +57,11 @@ data:
               ephemeral-storage: 10Gi
           securityContext:
             privileged: true
-        - name: unified-build-proxy
+        - name: unified-job
           env:
             - name: APISERVER_NODE_PORT
               value: "{{ .Values.apiserver.node_port }}"
-          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.unified_build }}
+          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.unified_job }}
           resources:
             limits:
               cpu: "2"

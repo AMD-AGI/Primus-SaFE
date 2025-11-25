@@ -61,6 +61,7 @@ data:
     create index if not exists T_WORKLOAD_WORKSPACE_INDEX on workload (workspace);
     create index if not exists T_WORKLOAD_CREATION_TIME_INDEX on workload (creation_time);
     create index if not exists T_WORKLOAD_ENDTIME_INDEX on workload (end_time);
+    create index if not exists T_WORKLOAD_DESCRIPTION_INDEX on workload (description);
 
     alter table workload add column if not exists user_id VARCHAR(64);
     alter table workload add column if not exists k8s_object_uid VARCHAR(36);

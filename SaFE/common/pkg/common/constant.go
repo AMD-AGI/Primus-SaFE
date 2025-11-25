@@ -29,6 +29,8 @@ const (
 
 	GithubConfigUrl   = "GITHUB_CONFIG_URL"
 	AdminControlPlane = "ADMIN_CONTROL_PLANE"
+	UnifiedJobEnable  = "UNIFIED_JOB_ENABLE"
+	ScaleRunnerSet    = "SCALE_RUNNER_SET"
 
 	HigressNamespace = "higress-system"
 	HigressGateway   = "higress-gateway"

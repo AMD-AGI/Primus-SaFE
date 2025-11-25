@@ -43,8 +43,8 @@ import (
 )
 
 const (
-	UnifiedBuildInput  = "unified-build-input"
-	UnifiedBuildOutput = "unified-build-output"
+	UnifiedJobInput  = "unified-job-input"
+	UnifiedJobOutput = "unified-job-output"
 )
 
 // DispatcherReconciler reconciles Workload objects and handles their dispatching to target clusters.
@@ -568,11 +568,12 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 	}
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.UserEnv] = v1.GetUserId(adminWorkload)
-	envs[jobutils.ScaleRunnerSetEnv] = adminWorkload.Name
+	envs[common.ScaleRunnerSet] = adminWorkload.Name
 	envs[jobutils.WorkspaceEnv] = adminWorkload.Spec.Workspace
 	mainContainerName := v1.GetMainContainer(adminWorkload)
 
-	if v1.IsCICDUnifiedJobEnable(adminWorkload) {
+	val, ok := adminWorkload.Spec.Env[common.UnifiedJobEnable]
+	if ok && val == v1.TrueStr {
 		pfsPath := ""
 		for _, vol := range workspace.Spec.Volumes {
 			if vol.Type == v1.PFS {
@@ -580,10 +581,9 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 				break
 			}
 		}
-		envs[common.UnifiedJobKind] = v1.TrueStr
 		envs[jobutils.NfsPathEnv] = pfsPath + "/" + uuid.New().String()
-		envs[jobutils.NfsInputEnv] = UnifiedBuildInput
-		envs[jobutils.NfsOutputEnv] = UnifiedBuildOutput
+		envs[jobutils.NfsInputEnv] = UnifiedJobInput
+		envs[jobutils.NfsOutputEnv] = UnifiedJobOutput
 
 		// When unified build is enabled, update all containers with envs
 		// and add resource variables to main container
@@ -615,7 +615,7 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 				envs[jobutils.ImageEnv] = adminWorkload.Spec.Image
 				envs[jobutils.EntrypointEnv] = buildEntryPoint(adminWorkload)
 				updateContainerEnv(envs, container)
-				// Keep only the main container and remove other container(e.g. unified-build)
+				// Keep only the main container and remove other container
 				newContainers := []interface{}{container}
 				return unstructured.SetNestedField(obj.Object, newContainers, path...)
 			}

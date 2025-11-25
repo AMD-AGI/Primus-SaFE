@@ -360,10 +360,6 @@ func (m *WorkloadMutator) mutateCICDScaleSet(workload *v1.Workload) {
 	workload.Spec.Resource.Replica = 1
 	workload.Spec.Timeout = nil
 	workload.Spec.Dependencies = nil
-	val, ok := workload.Spec.Env[common.UnifiedJobKind]
-	if ok && val == v1.TrueStr {
-		v1.SetAnnotation(workload, v1.CICDUnifiedJobAnnotation, v1.TrueStr)
-	}
 }
 
 // mutateImage trims image name and entry point.

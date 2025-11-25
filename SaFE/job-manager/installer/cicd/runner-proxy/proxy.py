@@ -73,6 +73,7 @@ def build_payload() -> Dict[str, Any]:
     # Optional metadata/config
     workspace_id = getenv_str("WORKSPACE_ID")
     display_name = getenv_str("SCALE_RUNNER_SET") + "-runner"
+    description = "scale-set-name:" + getenv_str("SCALE_RUNNER_SET")
     kind = "AutoscalingRunner"
     version = "v1"
     priority = 0
@@ -96,6 +97,7 @@ def build_payload() -> Dict[str, Any]:
         "env": env_map,
         "groupVersionKind": {"kind": kind, "version": version},
         "priority": priority,
+        "description": description,
         "timeout": timeout_secs,
         "ttlSecondsAfterFinished": 300,
     }
@@ -148,7 +150,7 @@ def get_workload_phase(s: requests.Session, base_url: str, workload_id: str) -> 
 
 def main() -> int:
     # Unified build mode: extend timeout and manage NFS path lifecycle
-    unified_build_enabled = getenv_bool("UnifiedJob", False)
+    unified_build_enabled = getenv_bool("UNIFIED_JOB_ENABLE", False)
     cleanup_path: Optional[str] = None
     if unified_build_enabled:
         global timeout_secs

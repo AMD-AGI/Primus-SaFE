@@ -322,7 +322,7 @@ metadata:
     primus-safe.workload.kind: AutoscalingRunnerSet
   annotations:
     # The main container name should match the configuration defined in the template below
-    primus-safe.main.container: runner_proxy
+    primus-safe.main.container: runner
 data:
  template: |
   apiVersion: actions.github.com/v1alpha1
@@ -349,7 +349,7 @@ data:
             - name: APISERVER_NODE_PORT
               value: "32495"
           image: docker.io/primussafe/cicd-runner-proxy:latest
-          name: runner_proxy
+          name: runner
           resources:
             limits:
               cpu: "2"
@@ -366,8 +366,8 @@ data:
           env:
             - name: APISERVER_NODE_PORT
               value: "32495"
-          image: docker.io/primussafe/cicd-unified-build-proxy:latest
-          name: unified_build
+          image: docker.io/primussafe/cicd-unified-job-proxy:latest
+          name: unified_job
           resources:
             limits:
               cpu: "2"
