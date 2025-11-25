@@ -1,0 +1,255 @@
+package reconciler
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/config"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/framework"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/logger/log"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/model"
+	primusSafeV1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+)
+
+// FrameworkDetectionIntegration Framework detection integration point
+type FrameworkDetectionIntegration struct {
+	reuseEngine      *framework.ReuseEngine
+	detectionManager *framework.FrameworkDetectionManager
+	workloadAnalyzer *WorkloadAnalyzer
+}
+
+// NewFrameworkDetectionIntegration Create framework detection integrator
+func NewFrameworkDetectionIntegration(
+	db database.WorkloadFacadeInterface,
+	configMgr *config.Manager,
+) (*FrameworkDetectionIntegration, error) {
+
+	// Initialize ReuseEngine
+	reuseConfig := framework.ReuseConfig{
+		Enabled:             true,
+		MinSimilarityScore:  0.85,
+		TimeWindowDays:      30,
+		MinConfidence:       0.75,
+		ConfidenceDecayRate: 0.9,
+		MaxCandidates:       100,
+		CacheTTLMinutes:     10,
+	}
+
+	reuseEngine := framework.NewReuseEngine(db, reuseConfig)
+
+	// Initialize DetectionManager
+	detectionConfig := framework.DetectionConfig{
+		MinConfidenceThreshold: 0.5,
+		ConflictPenalty:        0.2,
+		MultiSourceBoost:       0.1,
+	}
+
+	detectionManager := framework.NewFrameworkDetectionManager(db, detectionConfig)
+
+	// Initialize WorkloadAnalyzer
+	analyzer := NewWorkloadAnalyzer(configMgr)
+
+	return &FrameworkDetectionIntegration{
+		reuseEngine:      reuseEngine,
+		detectionManager: detectionManager,
+		workloadAnalyzer: analyzer,
+	}, nil
+}
+
+// OnWorkloadCreated Triggered when Workload is created
+func (f *FrameworkDetectionIntegration) OnWorkloadCreated(
+	ctx context.Context,
+	workload *primusSafeV1.Workload,
+) error {
+	log.Infof("Starting framework detection for workload %s", workload.UID)
+
+	// ========== Step 1: Try to reuse Metadata ==========
+	reusedDetection, err := f.tryReuseMetadata(ctx, workload)
+	if err != nil {
+		log.Errorf("Failed to try reuse: %v", err)
+		// Don't block, continue execution
+	}
+
+	if reusedDetection != nil {
+		log.Infof("✓ Reused metadata from %s, framework=%s, confidence=%.2f",
+			reusedDetection.ReuseInfo.ReusedFrom,
+			reusedDetection.Framework,
+			reusedDetection.Confidence)
+	}
+
+	// ========== Step 2: Execute component analysis ==========
+	componentDetection, err := f.analyzeWorkloadComponents(ctx, workload)
+	if err != nil {
+		log.Errorf("Failed to analyze components: %v", err)
+		// Don't block, continue execution
+	}
+
+	if componentDetection != nil {
+		log.Infof("✓ Component detection: framework=%s, confidence=%.2f",
+			componentDetection.Framework,
+			componentDetection.Confidence)
+	}
+
+	// ========== Step 3: Get final detection result ==========
+	finalDetection, err := f.detectionManager.GetDetection(ctx, string(workload.UID))
+	if err != nil {
+		return fmt.Errorf("failed to get final detection: %w", err)
+	}
+
+	if finalDetection != nil {
+		log.Infof("✓ Framework detection completed: framework=%s, confidence=%.2f, status=%s, sources=%d",
+			finalDetection.Framework,
+			finalDetection.Confidence,
+			finalDetection.Status,
+			len(finalDetection.Sources))
+	}
+
+	return nil
+}
+
+// tryReuseMetadata Try to reuse existing Metadata
+func (f *FrameworkDetectionIntegration) tryReuseMetadata(
+	ctx context.Context,
+	workload *primusSafeV1.Workload,
+) (*model.FrameworkDetection, error) {
+
+	// Convert to internal workload type for ReuseEngine
+	internalWorkload := convertToInternalWorkload(workload)
+
+	// Call ReuseEngine
+	detection, err := f.reuseEngine.TryReuse(ctx, internalWorkload)
+	if err != nil {
+		return nil, err
+	}
+
+	if detection == nil {
+		log.Debug("No similar workload found for reuse")
+		return nil, nil
+	}
+
+	// Report reuse result to DetectionManager
+	evidence := map[string]interface{}{
+		"method":           "workload_similarity",
+		"reused_from":      detection.ReuseInfo.ReusedFrom,
+		"similarity_score": detection.ReuseInfo.SimilarityScore,
+		"reuse_reason":     "high_similarity_match",
+	}
+
+	err = f.detectionManager.ReportDetection(
+		ctx,
+		string(workload.UID),
+		"reuse",
+		detection.Framework,
+		detection.Type,
+		detection.Confidence,
+		evidence,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to report reuse detection: %w", err)
+	}
+
+	return detection, nil
+}
+
+// analyzeWorkloadComponents Analyze Workload component features
+func (f *FrameworkDetectionIntegration) analyzeWorkloadComponents(
+	ctx context.Context,
+	workload *primusSafeV1.Workload,
+) (*ComponentDetectionResult, error) {
+
+	// Call WorkloadAnalyzer
+	result := f.workloadAnalyzer.Analyze(workload)
+	if result.Framework == "" || result.Framework == "unknown" {
+		log.Debug("Component analysis did not detect framework")
+		return nil, nil
+	}
+
+	// Report component detection result
+	evidence := map[string]interface{}{
+		"method":           "component_analysis",
+		"image":            extractImage(workload),
+		"command":          extractCommand(workload),
+		"args":             extractArgs(workload),
+		"matched_env_vars": result.MatchedEnvVars,
+		"reason":           result.Reason,
+	}
+
+	err := f.detectionManager.ReportDetection(
+		ctx,
+		string(workload.UID),
+		"component",
+		result.Framework,
+		result.Type,
+		result.Confidence,
+		evidence,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to report component detection: %w", err)
+	}
+
+	return result, nil
+}
+
+// convertToInternalWorkload Convert PrimusSafe Workload to internal workload type
+func convertToInternalWorkload(w *primusSafeV1.Workload) *model.Workload {
+	// Extract image from workload spec
+	image := ""
+	if len(w.Spec.Template.Containers) > 0 {
+		image = w.Spec.Template.Containers[0].Image
+	}
+
+	// Extract command and args
+	command := []string{}
+	args := []string{}
+	if len(w.Spec.Template.Containers) > 0 {
+		command = w.Spec.Template.Containers[0].Command
+		args = w.Spec.Template.Containers[0].Args
+	}
+
+	// Extract environment variables
+	env := make(map[string]string)
+	if len(w.Spec.Template.Containers) > 0 {
+		for _, envVar := range w.Spec.Template.Containers[0].Env {
+			env[envVar.Name] = envVar.Value
+		}
+	}
+
+	return &model.Workload{
+		UID:       string(w.UID),
+		Name:      w.Name,
+		Namespace: w.Namespace,
+		Image:     image,
+		Command:   command,
+		Args:      args,
+		Env:       env,
+		Labels:    w.Labels,
+	}
+}
+
+// extractImage Extract image from workload
+func extractImage(w *primusSafeV1.Workload) string {
+	if len(w.Spec.Template.Containers) > 0 {
+		return w.Spec.Template.Containers[0].Image
+	}
+	return ""
+}
+
+// extractCommand Extract command from workload
+func extractCommand(w *primusSafeV1.Workload) []string {
+	if len(w.Spec.Template.Containers) > 0 {
+		return w.Spec.Template.Containers[0].Command
+	}
+	return []string{}
+}
+
+// extractArgs Extract args from workload
+func extractArgs(w *primusSafeV1.Workload) []string {
+	if len(w.Spec.Template.Containers) > 0 {
+		return w.Spec.Template.Containers[0].Args
+	}
+	return []string{}
+}
+

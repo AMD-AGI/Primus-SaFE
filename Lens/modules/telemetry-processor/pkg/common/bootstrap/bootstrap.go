@@ -8,6 +8,7 @@ import (
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/router"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/server"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/trace"
+	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/api"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/alerts"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/containers"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/telemetry-processor/pkg/module/logs"
@@ -48,6 +49,12 @@ func initRouter(group *gin.RouterGroup) error {
 	group.GET("pods/workload/cache", metrics.GetPodWorkloadCache)
 	group.POST("logs", logs.ReceiveHttpLogs)
 	
+	// WandB data reporting endpoints
+	group.POST("wandb/detection", logs.ReceiveWandBDetection)
+	group.POST("wandb/metrics", logs.ReceiveWandBMetrics)
+	group.POST("wandb/logs", logs.ReceiveWandBLogs)
+	group.POST("wandb/batch", logs.ReceiveWandBBatch)
+	
 	// Metrics debug endpoints
 	group.POST("metrics/debug/config", metrics.SetDebugConfigHandler)
 	group.GET("metrics/debug/config", metrics.GetDebugConfigHandler)
@@ -82,6 +89,12 @@ func initRouter(group *gin.RouterGroup) error {
 	group.POST("silences", alerts.CreateSilence)
 	group.GET("silences", alerts.ListSilences)
 	group.DELETE("silences/:id", alerts.DeleteSilence)
+	
+	// Framework detection query endpoints
+	group.GET("workloads/:uid/framework-detection", api.GetFrameworkDetection)
+	group.POST("workloads/:uid/framework-detection", api.UpdateFrameworkDetection)
+	group.POST("workloads/framework-detection/batch", api.GetFrameworkDetectionBatch)
+	group.GET("framework-detection/stats", api.GetFrameworkDetectionStats)
 
 	return nil
 }

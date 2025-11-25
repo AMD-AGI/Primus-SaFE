@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "primus-lens-wandb-exporter"
+version = "0.1.0"
+description = "自动劫持 WandB 上报的工具，无需修改用户代码"
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Primus Team"}
+]
+keywords = ["machine-learning", "monitoring", "wandb", "telemetry", "observability"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+dependencies = [
+    "psutil>=5.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=3.0.0",
+]
+gpu = [
+    "nvidia-ml-py3>=7.352.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+primus_lens_wandb_exporter = ["*.pth"]
+
