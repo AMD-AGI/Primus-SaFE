@@ -33,10 +33,10 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 		group.DELETE("playground/sessions/:id", h.DeletePlaygroundSession) // Delete session
 
 		// Playground Model Management
-		group.POST("playground/models", h.CreatePlaygroundModel)
-		group.GET("playground/models", h.ListPlaygroundModels)
-		group.GET("playground/models/:id", h.GetPlaygroundModel)
-		group.DELETE("playground/models/:id", h.DeletePlaygroundModel)
-		group.POST("playground/models/:id/toggle", h.TogglePlaygroundModel)
+		group.POST("playground/models", h.CreateModel)
+		group.GET("playground/models", h.ListModels)
+		group.GET("playground/models/:id", h.GetModel)
+		group.DELETE("playground/models/:id", h.DeleteModel)
+		group.POST("playground/models/:id/toggle", h.ToggleModel)
 	}
 }
