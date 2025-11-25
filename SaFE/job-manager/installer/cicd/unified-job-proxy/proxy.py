@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import time
+import atexit
 from typing import Any, Dict, Optional, Tuple
 import requests
 
@@ -148,6 +149,17 @@ def get_workload_phase(s: requests.Session, base_url: str, workload_id: str) -> 
     return data.get("phase")
 
 
+def stop_workload(s: requests.Session, base_url: str, workload_id: str) -> None:
+    try:
+        url = f"{base_url}/api/v1/workloads/{workload_id}/stop"
+        print(f"[debug] POST {url}")
+        resp = s.post(url, timeout=30)
+        if resp.status_code >= 300:
+            print(f"[warn] stop workload failed: HTTP {resp.status_code} {resp.text}", file=sys.stderr)
+    except Exception as e:
+        print(f"[warn] stop workload exception: {e}", file=sys.stderr)
+
+
 def write_output(path: str, content: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
         obj = {"phase": content if content is not None else ""}
@@ -204,6 +216,12 @@ def main() -> int:
     try:
         workload_id = create_workload(session, base_url, payload)
         print(f"[info] workload created: {workload_id}")
+        # Register stop on exit unless workload already reached terminal phase
+        finished = {"done": False}
+        def _stop_on_exit() -> None:
+            if not finished["done"]:
+                stop_workload(session, base_url, workload_id)
+        atexit.register(_stop_on_exit)
     except Exception as e:
         print(f"[error] create workload failed: {e}", file=sys.stderr)
         write_output(output_path, "Failed")
@@ -218,12 +236,16 @@ def main() -> int:
             phase = get_workload_phase(session, base_url, workload_id)
             if phase in terminal_phases:
                 final_phase = phase
+                # mark finished to avoid stopping on exit
+                finished["done"] = True
                 break
         except Exception:
             pass
 
         if poll_timeout > 0 and (time.time() - start_time) >= poll_timeout:
             final_phase = "Failed"
+            # mark finished to avoid stopping on exit
+            finished["done"] = True
             break
         time.sleep(POLL_INTERVAL_SECS)
 

@@ -370,17 +370,22 @@ func (h *Handler) stopWorkloadImpl(c *gin.Context, name string, requestUser *v1.
 		if err != nil {
 			return nil, commonerrors.IgnoreFound(err)
 		}
-		if dbutils.ParseNullString(dbWorkload.Phase) != string(v1.WorkloadStopped) {
-			adminWorkload = generateWorkloadForAuth(name,
-				dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-			if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
-				return nil, err
-			}
-			if err = h.dbClient.SetWorkloadStopped(c.Request.Context(), name); err != nil {
-				return nil, err
-			}
+		phase := dbutils.ParseNullString(dbWorkload.Phase)
+		if phase == string(v1.WorkloadStopped) || phase == string(v1.WorkloadSucceeded) || phase == string(v1.WorkloadFailed) {
+			return nil, nil
+		}
+		adminWorkload = generateWorkloadForAuth(name,
+			dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
+		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
+			return nil, err
+		}
+		if err = h.dbClient.SetWorkloadStopped(c.Request.Context(), name); err != nil {
+			return nil, err
 		}
 	} else {
+		if adminWorkload.IsEnd() || adminWorkload.IsStopped() {
+			return nil, nil
+		}
 		if err = h.authWorkloadAction(c, adminWorkload, v1.DeleteVerb, requestUser, roles); err != nil {
 			return nil, err
 		}
