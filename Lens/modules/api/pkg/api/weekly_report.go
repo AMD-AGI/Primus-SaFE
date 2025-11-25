@@ -43,7 +43,7 @@ type GetWeeklyReportResponse struct {
 	Error   string                 `json:"error,omitempty"`
 }
 
-// ListWeeklyReports handles GET /weekly-reports
+// ListWeeklyReports handles GET /weekly-reports/gpu_utilization
 // Query parameters:
 // - cluster: cluster name (optional)
 // - status: report status (optional)
@@ -106,7 +106,7 @@ func ListWeeklyReports(c *gin.Context) {
 	})
 }
 
-// GetWeeklyReport handles GET /weekly-reports/:id
+// GetWeeklyReport handles GET /weekly-reports/gpu_utilization/:id
 func GetWeeklyReport(c *gin.Context) {
 	id := c.Param("id")
 
@@ -151,7 +151,7 @@ func GetWeeklyReport(c *gin.Context) {
 	})
 }
 
-// DownloadWeeklyReportHTML handles GET /weekly-reports/:id/html
+// DownloadWeeklyReportHTML handles GET /weekly-reports/gpu_utilization/:id/html
 // Download the HTML version of the report
 func DownloadWeeklyReportHTML(c *gin.Context) {
 	id := c.Param("id")
@@ -194,7 +194,7 @@ func DownloadWeeklyReportHTML(c *gin.Context) {
 	c.Data(http.StatusOK, "text/html; charset=utf-8", report.HTMLContent)
 }
 
-// DownloadWeeklyReportPDF handles GET /weekly-reports/:id/pdf
+// DownloadWeeklyReportPDF handles GET /weekly-reports/gpu_utilization/:id/pdf
 // Download the PDF version of the report
 func DownloadWeeklyReportPDF(c *gin.Context) {
 	id := c.Param("id")
@@ -237,7 +237,7 @@ func DownloadWeeklyReportPDF(c *gin.Context) {
 	c.Data(http.StatusOK, "application/pdf", report.PdfContent)
 }
 
-// DownloadWeeklyReportJSON handles GET /weekly-reports/:id/json
+// DownloadWeeklyReportJSON handles GET /weekly-reports/gpu_utilization/:id/json
 // Download the JSON data of the report
 func DownloadWeeklyReportJSON(c *gin.Context) {
 	id := c.Param("id")
@@ -290,7 +290,7 @@ func DownloadWeeklyReportJSON(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json", jsonBytes)
 }
 
-// GetLatestWeeklyReport handles GET /weekly-reports/latest
+// GetLatestWeeklyReport handles GET /weekly-reports/gpu_utilization/latest
 // Get the latest report for the specified cluster
 func GetLatestWeeklyReport(c *gin.Context) {
 	clusterName := c.Query("cluster")

@@ -138,7 +138,7 @@ func RegisterRouter(group *gin.RouterGroup) error {
 	}
 
 	// Weekly Report routes - GPU usage weekly reports
-	weeklyReportGroup := group.Group("/weekly-reports")
+	weeklyReportGroup := group.Group("/weekly-reports/gpu_utilization")
 	{
 		// Get latest report - must be defined before :id
 		weeklyReportGroup.GET("/latest", GetLatestWeeklyReport)
