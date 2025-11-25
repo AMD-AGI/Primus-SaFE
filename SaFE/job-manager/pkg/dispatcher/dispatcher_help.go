@@ -48,7 +48,7 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "containers")
-	if err = modifyMainContainer(obj, workload, workspace, path); err != nil {
+	if err = modifyContainers(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify main container: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "volumes")
@@ -122,9 +122,9 @@ func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Worklo
 	return nil
 }
 
-// modifyMainContainer configures the main container of a workload with environment variables,
+// modifyContainers configures the containers of a workload with environment variables,
 // volume mounts, security context, ports, and health checks based on the workload specification.
-func modifyMainContainer(obj *unstructured.Unstructured,
+func modifyContainers(obj *unstructured.Unstructured,
 	workload *v1.Workload, workspace *v1.Workspace, path []string) error {
 	containers, found, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
@@ -133,22 +133,26 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 	if !found || len(containers) == 0 {
 		return fmt.Errorf("failed to find container with path: %v", path)
 	}
-	mainContainer, err := getMainContainer(containers, v1.GetMainContainer(workload))
-	if err != nil {
-		return err
-	}
 	env := buildEnvironment(workload)
-	modifyEnv(mainContainer, env, v1.IsEnableHostNetwork(workload))
-	modifyVolumeMounts(mainContainer, workload, workspace)
-	modifySecurityContext(mainContainer, workload)
-	if !commonworkload.IsCICD(workload) {
-		mainContainer["ports"] = buildPorts(workload)
-	}
-	if healthz := buildHealthCheck(workload.Spec.Liveness); healthz != nil {
-		mainContainer["livenessProbe"] = healthz
-	}
-	if healthz := buildHealthCheck(workload.Spec.Readiness); healthz != nil {
-		mainContainer["readinessProbe"] = healthz
+	mainContainerName := v1.GetMainContainer(workload)
+	for i := range containers {
+		container := containers[i].(map[string]interface{})
+		modifyEnv(container, env, v1.IsEnableHostNetwork(workload))
+		modifyVolumeMounts(container, workload, workspace)
+		modifySecurityContext(container, workload)
+
+		name := jobutils.GetUnstructuredString(container, []string{"name"})
+		if name == mainContainerName {
+			if !commonworkload.IsCICD(workload) {
+				container["ports"] = buildPorts(workload)
+			}
+			if healthz := buildHealthCheck(workload.Spec.Liveness); healthz != nil {
+				container["livenessProbe"] = healthz
+			}
+			if healthz := buildHealthCheck(workload.Spec.Readiness); healthz != nil {
+				container["readinessProbe"] = healthz
+			}
+		}
 	}
 	if err = unstructured.SetNestedField(obj.Object, containers, path...); err != nil {
 		return err
@@ -158,12 +162,12 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 
 // modifyEnv updates environment variables in the main container.
 // It handles special network interface names when host networking is not enabled.
-func modifyEnv(mainContainer map[string]interface{}, envs []interface{}, isHostNetwork bool) {
+func modifyEnv(container map[string]interface{}, envs []interface{}, isHostNetwork bool) {
 	if len(envs) == 0 && isHostNetwork {
 		return
 	}
 	var currentEnv []interface{}
-	envObjs, ok := mainContainer["env"]
+	envObjs, ok := container["env"]
 	if ok {
 		currentEnv = envObjs.([]interface{})
 	}
@@ -196,14 +200,14 @@ func modifyEnv(mainContainer map[string]interface{}, envs []interface{}, isHostN
 		}
 		currentEnv = append(currentEnv, envs[i])
 	}
-	mainContainer["env"] = currentEnv
+	container["env"] = currentEnv
 }
 
 // modifyVolumeMounts configures volume mounts for the container based on workspace and workload specifications.
 // It includes shared memory volumes, workspace volumes, host path volumes and secret with default-type of workload.
-func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workload, workspace *v1.Workspace) {
+func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload, workspace *v1.Workspace) {
 	var volumeMounts []interface{}
-	volumeMountObjs, ok := mainContainer["volumeMounts"]
+	volumeMountObjs, ok := container["volumeMounts"]
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
@@ -236,7 +240,7 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workl
 		volumeMount := buildVolumeMount(secret.Id, mountPath, "", true)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
-	mainContainer["volumeMounts"] = volumeMounts
+	container["volumeMounts"] = volumeMounts
 }
 
 // modifyVolumes adds volume definitions to the Kubernetes object based on workspace and workload specifications.
@@ -304,10 +308,9 @@ func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, p
 
 // modifySecurityContext configures the security context for OpsJob preflight operations.
 // Sets privileged mode for preflight checks.
-func modifySecurityContext(mainContainer map[string]interface{}, workload *v1.Workload) {
-	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) ||
-		commonworkload.IsCICD(workload) {
-		mainContainer["securityContext"] = map[string]interface{}{
+func modifySecurityContext(container map[string]interface{}, workload *v1.Workload) {
+	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
+		container["securityContext"] = map[string]interface{}{
 			"privileged": true,
 		}
 	}

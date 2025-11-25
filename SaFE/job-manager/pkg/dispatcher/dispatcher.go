@@ -574,14 +574,11 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 
 	val, ok := adminWorkload.Spec.Env[common.UnifiedJobEnable]
 	if ok && val == v1.TrueStr {
-		pfsPath := ""
-		for _, vol := range workspace.Spec.Volumes {
-			if vol.Type == v1.PFS {
-				pfsPath = vol.MountPath
-				break
-			}
+		pfsPath := getNfsPathFromWorkspace(workspace)
+		if pfsPath == "" {
+			return commonerrors.NewInternalError("failed to get NFS path from workspace")
 		}
-		envs[jobutils.NfsPathEnv] = pfsPath + "/" + uuid.New().String()
+		envs[jobutils.NfsPathEnv] = pfsPath + "/cicd/" + uuid.New().String()
 		envs[jobutils.NfsInputEnv] = UnifiedJobInput
 		envs[jobutils.NfsOutputEnv] = UnifiedJobOutput
 
@@ -623,6 +620,22 @@ func updateCICDEnvironments(obj *unstructured.Unstructured,
 		return fmt.Errorf("no main container found")
 	}
 	return nil
+}
+
+// getNfsPathFromWorkspace retrieves the NFS path from the workspace's volumes.
+// It prioritizes PFS type volumes, otherwise falls back to the first available volume's mount path.
+func getNfsPathFromWorkspace(workspace *v1.Workspace) string {
+	result := ""
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type == v1.PFS {
+			result = vol.MountPath
+			break
+		}
+	}
+	if result == "" && len(workspace.Spec.Volumes) > 0 {
+		result = workspace.Spec.Volumes[0].MountPath
+	}
+	return result
 }
 
 // updateMainContainer updates the main container configuration in the unstructured object.

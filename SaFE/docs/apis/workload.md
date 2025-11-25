@@ -87,7 +87,7 @@ Create a new workload.
 | displayName                  | string | Yes      | Workload display name                                                     |
 | description                  | string | No       | Workload description                                                      |
 | workspaceId                  | string | Yes      | Workspace ID                                                              |
-| groupVersionKind.kind        | string | Yes      | Workload type: PyTorchJob/Deployment/StatefulSet/Authoring                |
+| groupVersionKind.kind        | string | Yes      | Workload type: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet                |
 | groupVersionKind.version     | string | Yes      | Version, usually v1                                                       |
 | image                        | string | Yes      | Image address                                                             |
 | entryPoint                   | string | Yes      | Startup command/script (Base64 encoded)                                   |

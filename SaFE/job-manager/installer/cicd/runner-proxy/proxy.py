@@ -80,7 +80,8 @@ def build_payload() -> Dict[str, Any]:
 
     # Inject only the two requested environment variables if present
     env_map: Dict[str, str] = {}
-    for key in ("ACTIONS_RUNNER_INPUT_JITCONFIG", "GITHUB_ACTIONS_RUNNER_EXTRA_USER_AGENT", "SCALE_RUNNER_SET"):
+    for key in ("ACTIONS_RUNNER_INPUT_JITCONFIG", "GITHUB_ACTIONS_RUNNER_EXTRA_USER_AGENT",
+                "SCALE_RUNNER_SET", "SAFE_NFS_PATH", "SAFE_NFS_INPUT", "SAFE_NFS_OUTPUT"):
         val = getenv_str(key)
         if val is not None:
             env_map[key] = val

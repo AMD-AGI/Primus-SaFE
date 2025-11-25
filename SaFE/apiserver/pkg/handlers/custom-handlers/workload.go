@@ -161,12 +161,14 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 			"priority", workload.Spec.Priority, "user", c.GetString(common.UserName))
 		return nil, err
 	}
-	for _, sec := range workload.Spec.Secrets {
-		if _, err = h.getAndAuthorizeSecret(c.Request.Context(), sec.Id, workload.Spec.Workspace, requestUser, v1.GetVerb); err != nil {
+	for i, sec := range workload.Spec.Secrets {
+		secret, err := h.getAndAuthorizeSecret(c.Request.Context(), sec.Id, workload.Spec.Workspace, requestUser, v1.GetVerb)
+		if err != nil {
 			klog.ErrorS(err, "failed to auth workload secrets", "workload", workload.Name,
 				"secret", sec.Id, "user", c.GetString(common.UserName))
 			return nil, err
 		}
+		workload.Spec.Secrets[i].Type = v1.SecretType(v1.GetSecretType(secret))
 	}
 
 	v1.SetLabel(workload, v1.UserIdLabel, requestUser.Name)
@@ -649,10 +651,10 @@ func (h *Handler) generateWorkload(ctx context.Context, req *types.CreateWorkloa
 		workload.Spec.Workspace = req.WorkspaceId
 	}
 	if req.Kind == common.CICDScaleRunnerSetKind {
-		workload.Name = req.DisplayName
 		if !commonconfig.IsCICDEnable() {
 			return nil, commonerrors.NewNotImplemented("the CICD is not enabled")
 		}
+		workload.Name = req.DisplayName
 		controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
 		if err != nil {
 			return nil, err

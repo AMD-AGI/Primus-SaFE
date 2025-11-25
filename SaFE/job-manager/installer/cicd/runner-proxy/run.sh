@@ -5,6 +5,8 @@
 # See LICENSE for license information.
 #
 
+echo "Starting runner proxy..."
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 pip install -r "${SCRIPT_DIR}/requirements.txt" > /dev/null
@@ -12,6 +14,6 @@ pip install -r "${SCRIPT_DIR}/requirements.txt" > /dev/null
 python3 "${SCRIPT_DIR}/proxy.py"
 exit_code=$?
 
-echo "proxy exited with code: ${exit_code}"
+echo "runner proxy exited with code: ${exit_code}"
 
 exit ${exit_code}

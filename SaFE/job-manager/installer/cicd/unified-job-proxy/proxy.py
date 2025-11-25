@@ -77,7 +77,7 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("input missing required field: command")
     if not image:
         raise ValueError("input missing required field: image")
-    for key in ("SCALE_RUNNER_SET"):
+    for key in ("SCALE_RUNNER_SET", "SAFE_NFS_PATH", "SAFE_NFS_INPUT", "SAFE_NFS_OUTPUT"):
         val = getenv_str(key)
         if val is not None:
             env_map[key] = val
