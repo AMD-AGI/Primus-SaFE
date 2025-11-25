@@ -103,6 +103,25 @@ func SetupExporters(ctx context.Context, mgr manager.Manager) error {
 			},
 			filter: inferenceFilter,
 		},
+		{
+			gvk: v1.SchemeGroupVersion.WithKind(v1.ModelKind),
+			handler: func(ctx context.Context, obj *unstructured.Unstructured) error {
+				dbModel := modelMapper(obj)
+				if dbModel == nil {
+					return nil
+				}
+				if err := dbClient.UpsertModel(ctx, dbModel); err != nil {
+					if !obj.GetDeletionTimestamp().IsZero() &&
+						time.Now().UTC().Sub(obj.GetDeletionTimestamp().Time).Hours() > MaxTTLHour {
+						klog.Errorf("failed to upsert model(%s), ignore it: %v", dbModel.ID, err)
+						return nil
+					}
+					return err
+				}
+				return nil
+			},
+			filter: nil,
+		},
 	} {
 		if err := addExporter(ctx, mgr, toRegister.gvk, toRegister.handler, toRegister.filter); err != nil {
 			return err

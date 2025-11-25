@@ -342,3 +342,37 @@ data:
     create index if not exists T_PLAYGROUND_SESSION_QUERY_INDEX on playground_session (user_id, model_name, is_deleted, update_time DESC);
 
     alter table playground_session owner to "primus-safe";
+
+    create table if not exists model
+    (
+        id VARCHAR(64) PRIMARY KEY,
+        display_name VARCHAR(128),
+        description TEXT,
+        icon TEXT,
+        label VARCHAR(64),
+        tags TEXT,
+        version VARCHAR(64),
+        source_url TEXT,
+        access_mode VARCHAR(32),
+        source_token VARCHAR(128),
+        download_type VARCHAR(32),
+        local_path TEXT,
+        s3_config TEXT,
+        cpu VARCHAR(32),
+        memory VARCHAR(32),
+        gpu VARCHAR(32),
+        phase VARCHAR(32),
+        message TEXT,
+        inference_id VARCHAR(64),
+        inference_phase VARCHAR(32),
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ,
+        deletion_time TIMESTAMPTZ,
+        is_deleted BOOLEAN DEFAULT FALSE
+    );
+
+    create index if not exists T_MODEL_INFERENCE_PHASE_INDEX on model (inference_phase, is_deleted);
+    create index if not exists T_MODEL_ACCESS_MODE_INDEX on model (access_mode, is_deleted);
+    create index if not exists T_MODEL_CREATED_AT_INDEX on model (created_at, is_deleted);
+
+    alter table model owner to "primus-safe";

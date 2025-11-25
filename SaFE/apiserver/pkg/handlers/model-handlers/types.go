@@ -9,6 +9,7 @@ import (
 	"time"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
 // CreateInferenceRequest represents the request to create an inference service.
@@ -34,6 +35,14 @@ type ListInferenceQuery struct {
 	UserId    string `form:"userId" binding:"omitempty"` // Optional: filter by user ID
 	ModelForm string `form:"modelForm" binding:"omitempty"`
 	Phase     string `form:"phase" binding:"omitempty"`
+}
+
+// ListPlaygroundModelQuery represents query parameters for listing playground models.
+type ListPlaygroundModelQuery struct {
+	Limit           int    `form:"limit" binding:"omitempty,min=1"`
+	Offset          int    `form:"offset" binding:"omitempty,min=0"`
+	InferenceStatus string `form:"inferenceStatus" binding:"omitempty"`
+	AccessMode      string `form:"accessMode" binding:"omitempty"`
 }
 
 // ListInferenceResponse represents the response for listing inferences.
@@ -149,4 +158,59 @@ type MessageHistory struct {
 	Role      string    `json:"role"` // system, user, assistant
 	Content   string    `json:"content"`
 	Timestamp time.Time `json:"timestamp"`
+}
+
+// --- Model Management Types (CRD based) ---
+
+type CreatePlaygroundModelRequest struct {
+	Source ModelSourceReq `json:"source"`
+
+	DownloadTarget *DownloadTargetReq `json:"downloadTarget"`
+
+	Resources *ResourceReq `json:"resources"`
+}
+
+type ModelSourceReq struct {
+	URL        string `json:"url"`
+	AccessMode string `json:"accessMode"` // "remote_api", "local"
+	Token      string `json:"token"`      // Plaintext token
+}
+
+type ResourceReq struct {
+	CPU    string `json:"cpu"`
+	Memory string `json:"memory"`
+	GPU    string `json:"gpu"`
+}
+
+type DownloadTargetReq struct {
+	Type      string       `json:"type"`
+	LocalPath string       `json:"localPath"`
+	S3Config  *S3ConfigReq `json:"s3Config"`
+}
+
+type S3ConfigReq struct {
+	Endpoint        string `json:"endpoint"`
+	Bucket          string `json:"bucket"`
+	Region          string `json:"region"`
+	AccessKeyID     string `json:"accessKeyID"`
+	SecretAccessKey string `json:"secretAccessKey"`
+}
+
+type CreateResponse struct {
+	ID string `json:"id"`
+}
+
+type PatchPlaygroundModelRequest struct {
+	DisplayName *string `json:"displayName"`
+	Description *string `json:"description"`
+}
+
+// ListPlaygroundModelResponse represents the response for listing playground models.
+type ListPlaygroundModelResponse struct {
+	Total int64            `json:"total"`
+	Items []dbclient.Model `json:"items"`
+}
+
+type ToggleModelRequest struct {
+	Enabled bool `json:"enabled"`
 }

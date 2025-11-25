@@ -16,7 +16,7 @@ import (
 
 // Handler handles HTTP requests for inference and playground resources.
 type Handler struct {
-	k8sClient        client.Client
+	k8sClient        client.Client // TODO Multi-cluster k8sclient
 	dbClient         dbclient.Interface
 	accessController *authority.AccessController
 }
