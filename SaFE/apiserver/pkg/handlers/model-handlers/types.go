@@ -37,8 +37,8 @@ type ListInferenceQuery struct {
 	Phase     string `form:"phase" binding:"omitempty"`
 }
 
-// ListPlaygroundModelQuery represents query parameters for listing playground models.
-type ListPlaygroundModelQuery struct {
+// ListModelQuery represents query parameters for listing models.
+type ListModelQuery struct {
 	Limit           int    `form:"limit" binding:"omitempty,min=1"`
 	Offset          int    `form:"offset" binding:"omitempty,min=0"`
 	InferenceStatus string `form:"inferenceStatus" binding:"omitempty"`
@@ -162,7 +162,14 @@ type MessageHistory struct {
 
 // --- Model Management Types (CRD based) ---
 
-type CreatePlaygroundModelRequest struct {
+type CreateModelRequest struct {
+	// Metadata fields (required for remote_api mode, auto-filled for local mode)
+	DisplayName string   `json:"displayName"` // Model display name
+	Description string   `json:"description"` // Model description
+	Icon        string   `json:"icon"`        // Model icon URL
+	Label       string   `json:"label"`       // Model author/organization
+	Tags        []string `json:"tags"`        // Model tags
+
 	Source ModelSourceReq `json:"source"`
 
 	DownloadTarget *DownloadTargetReq `json:"downloadTarget"`
@@ -200,13 +207,13 @@ type CreateResponse struct {
 	ID string `json:"id"`
 }
 
-type PatchPlaygroundModelRequest struct {
+type PatchModelRequest struct {
 	DisplayName *string `json:"displayName"`
 	Description *string `json:"description"`
 }
 
-// ListPlaygroundModelResponse represents the response for listing playground models.
-type ListPlaygroundModelResponse struct {
+// ListModelResponse represents the response for listing models.
+type ListModelResponse struct {
 	Total int64            `json:"total"`
 	Items []dbclient.Model `json:"items"`
 }
