@@ -97,27 +97,27 @@ data:
         serviceAccountName: {{ .Values.cicd.role_name }}
         terminationGracePeriodSeconds: 30
         volumes:
-          - name: kube-api-access-gq8sq
-            projected:
-              defaultMode: 420
-              sources:
-              - serviceAccountToken:
-                  expirationSeconds: 3607
-                  path: token
-              - configMap:
-                  items:
-                  - key: ca.crt
-                    path: ca.crt
-                  name: kube-root-ca.crt
-              - downwardAPI:
-                  items:
-                  - fieldRef:
-                      apiVersion: v1
-                      fieldPath: metadata.namespace
-                    path: namespace
-              - name: work
-                emptyDir: {}
-              - name: dind-sock
-                emptyDir: {}
-              - name: dind-externals
-                emptyDir: {}
+        - name: kube-api-access-gq8sq
+          projected:
+            defaultMode: 420
+            sources:
+            - serviceAccountToken:
+                expirationSeconds: 3607
+                path: token
+            - configMap:
+                items:
+                - key: ca.crt
+                  path: ca.crt
+                name: kube-root-ca.crt
+            - downwardAPI:
+                items:
+                - fieldRef:
+                    apiVersion: v1
+                    fieldPath: metadata.namespace
+                  path: namespace
+        - name: work
+          emptyDir: {}
+        - name: dind-sock
+          emptyDir: {}
+        - name: dind-externals
+          emptyDir: {}

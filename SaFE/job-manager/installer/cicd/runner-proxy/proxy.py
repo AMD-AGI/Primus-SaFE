@@ -72,8 +72,8 @@ def build_payload() -> Dict[str, Any]:
 
     # Optional metadata/config
     workspace_id = getenv_str("WORKSPACE_ID")
-    display_name = getenv_str("SCALE_RUNNER_SET") + "-runner"
-    description = "scale-set-name:" + getenv_str("SCALE_RUNNER_SET")
+    display_name = getenv_str("SCALE_RUNNER_SET_ID") + "-runner"
+    description = "scale-set-name:" + getenv_str("SCALE_RUNNER_SET_ID")
     kind = "AutoscalingRunner"
     version = "v1"
     priority = 0

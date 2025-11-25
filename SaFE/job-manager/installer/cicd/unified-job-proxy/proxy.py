@@ -17,7 +17,7 @@ ADMIN_CONTROL_PLANE_ENV = "ADMIN_CONTROL_PLANE"
 APISERVER_NODE_PORT_ENV = "APISERVER_NODE_PORT"
 USER_ID_ENV = "USER_ID"
 WORKSPACE_ID_ENV = "WORKSPACE_ID"
-SCALE_RUNNER_SET_ENV = "SCALE_RUNNER_SET"
+SCALE_RUNNER_SET_ENV = "SCALE_RUNNER_SET_ID"
 
 # Optional overrides
 GVK_KIND_ENV = "GVK_KIND"        # default: Deployment
@@ -77,7 +77,7 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("input missing required field: command")
     if not image:
         raise ValueError("input missing required field: image")
-    for key in ("SCALE_RUNNER_SET_ID", "SAFE_NFS_INPUT", "SAFE_NFS_OUTPUT"):
+    for key in (SCALE_RUNNER_SET_ENV, "SAFE_NFS_INPUT", "SAFE_NFS_OUTPUT"):
         val = getenv_str(key)
         if val is not None:
             env_map[key] = val
@@ -92,8 +92,8 @@ def build_payload_from_input(inp: Dict[str, Any]) -> Dict[str, Any]:
     workspace_id = getenv_str(WORKSPACE_ID_ENV)
     gvk_kind = "UnifiedJob"
     gvk_version = "v1"
-    display_name = getenv_str("SCALE_RUNNER_SET") + "-unified-trainer"
-    description = "scale-set-name: " + getenv_str("SCALE_RUNNER_SET") + ", model: " + model
+    display_name = getenv_str(SCALE_RUNNER_SET_ENV) + "-unified-trainer"
+    description = "scale-set-name: " + getenv_str(SCALE_RUNNER_SET_ENV) + ", model: " + model
 
     payload: Dict[str, Any] = {
         "displayName": display_name,
