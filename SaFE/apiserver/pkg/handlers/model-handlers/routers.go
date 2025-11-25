@@ -18,7 +18,7 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 	// Inference and Playground API requires authentication and preprocessing.
 	group := e.Group(common.PrimusRouterCustomRootPath, middle.Authorize(), middle.Preprocess())
 	{
-		// Inference service routes
+		// Inference service routes (Low-level API for managing running services)
 		group.POST("inferences", h.CreateInference)
 		group.GET("inferences", h.ListInference)
 		group.GET("inferences/:id", h.GetInference)
@@ -31,5 +31,12 @@ func InitInferenceRouters(e *gin.Engine, h *Handler) {
 		group.GET("playground/sessions", h.ListPlaygroundSession)          // List sessions
 		group.GET("playground/sessions/:id", h.GetPlaygroundSession)       // Get session detail
 		group.DELETE("playground/sessions/:id", h.DeletePlaygroundSession) // Delete session
+
+		// Playground Model Management
+		group.POST("playground/models", h.CreatePlaygroundModel)
+		group.GET("playground/models", h.ListPlaygroundModels)
+		group.GET("playground/models/:id", h.GetPlaygroundModel)
+		group.DELETE("playground/models/:id", h.DeletePlaygroundModel)
+		group.POST("playground/models/:id/toggle", h.TogglePlaygroundModel)
 	}
 }

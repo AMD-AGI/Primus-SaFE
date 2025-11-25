@@ -337,3 +337,52 @@ func opsJobMapper(obj *unstructured.Unstructured) *dbclient.OpsJob {
 	}
 	return result
 }
+
+// modelMapper converts an unstructured object to a database Model.
+func modelMapper(obj *unstructured.Unstructured) *dbclient.Model {
+	cr := &v1.Model{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, cr)
+	if err != nil {
+		klog.ErrorS(err, "failed to convert object to model", "data", obj)
+		return nil
+	}
+
+	dbModel := &dbclient.Model{
+		ID:             cr.Name,
+		DisplayName:    cr.Spec.DisplayName,
+		Description:    cr.Spec.Description,
+		Icon:           cr.Spec.Icon,
+		Tags:           strings.Join(cr.Spec.Tags, ","),
+		SourceURL:      cr.Spec.Source.URL,
+		AccessMode:     string(cr.Spec.Source.AccessMode),
+		Phase:          string(cr.Status.Phase),
+		Message:        cr.Status.Message,
+		InferenceID:    cr.Status.InferenceID,
+		InferencePhase: cr.Status.InferencePhase,
+		CreatedAt:      cr.CreationTimestamp.Time,
+		DeletionTime:   dbutils.NullMetaV1Time(cr.GetDeletionTimestamp()),
+		IsDeleted:      !cr.GetDeletionTimestamp().IsZero(),
+	}
+
+	if cr.Spec.DownloadTarget != nil {
+		dbModel.DownloadType = string(cr.Spec.DownloadTarget.Type)
+		dbModel.LocalPath = cr.Spec.DownloadTarget.LocalPath
+	}
+
+	// Store Secret name (not the actual token)
+	if cr.Spec.Source.Token != nil {
+		dbModel.SourceToken = cr.Spec.Source.Token.Name
+	}
+
+	// Extract Resources
+	dbModel.CPU = fmt.Sprintf("%d", cr.Spec.Resource.Cpu)
+	dbModel.Memory = fmt.Sprintf("%dGi", cr.Spec.Resource.Memory)
+	dbModel.GPU = cr.Spec.Resource.Gpu
+
+	// Serialize complex fields
+	if cr.Spec.DownloadTarget != nil && cr.Spec.DownloadTarget.S3Config != nil {
+		dbModel.S3Config = string(jsonutils.MarshalSilently(cr.Spec.DownloadTarget.S3Config))
+	}
+
+	return dbModel
+}

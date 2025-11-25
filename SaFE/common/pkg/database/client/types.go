@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/lib/pq"
 )
@@ -253,4 +254,41 @@ type PlaygroundSession struct {
 func GetPlaygroundSessionFieldTags() map[string]string {
 	session := PlaygroundSession{}
 	return getFieldTags(session)
+}
+
+type Model struct {
+	ID             string      `gorm:"column:id;primaryKey" json:"id" db:"id"`
+	DisplayName    string      `gorm:"column:display_name" json:"displayName" db:"display_name"`
+	Description    string      `gorm:"column:description" json:"description" db:"description"`
+	Icon           string      `gorm:"column:icon" json:"icon" db:"icon"`
+	Label          string      `gorm:"column:label" json:"label" db:"label"`
+	Tags           string      `gorm:"column:tags" json:"tags" db:"tags"`
+	Version        string      `gorm:"column:version" json:"version" db:"version"`
+	SourceURL      string      `gorm:"column:source_url" json:"sourceURL" db:"source_url"`
+	AccessMode     string      `gorm:"column:access_mode" json:"accessMode" db:"access_mode"`
+	SourceToken    string      `gorm:"column:source_token" json:"sourceToken" db:"source_token"`
+	DownloadType   string      `gorm:"column:download_type" json:"downloadType" db:"download_type"`
+	LocalPath      string      `gorm:"column:local_path" json:"localPath" db:"local_path"`
+	S3Config       string      `gorm:"column:s3_config" json:"s3Config" db:"s3_config"`
+	CPU            string      `gorm:"column:cpu" json:"cpu" db:"cpu"`
+	Memory         string      `gorm:"column:memory" json:"memory" db:"memory"`
+	GPU            string      `gorm:"column:gpu" json:"gpu" db:"gpu"`
+	Phase          string      `gorm:"column:phase" json:"phase" db:"phase"`
+	Message        string      `gorm:"column:message" json:"message" db:"message"`
+	InferenceID    string      `gorm:"column:inference_id" json:"inferenceID" db:"inference_id"`
+	InferencePhase string      `gorm:"column:inference_phase" json:"inferencePhase" db:"inference_phase"`
+	CreatedAt      time.Time   `gorm:"column:created_at;autoCreateTime" json:"createdAt" db:"created_at"`
+	UpdatedAt      time.Time   `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt" db:"updated_at"`
+	DeletionTime   pq.NullTime `gorm:"column:deletion_time" json:"deletionTime" db:"deletion_time"`
+	IsDeleted      bool        `gorm:"column:is_deleted" json:"isDeleted" db:"is_deleted"`
+}
+
+func (Model) TableName() string {
+	return "model"
+}
+
+// GetModelFieldTags returns the ModelFieldTags value.
+func GetModelFieldTags() map[string]string {
+	m := Model{}
+	return getFieldTags(m)
 }

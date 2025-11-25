@@ -53,5 +53,8 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupInferenceController(mgr); err != nil {
 		return fmt.Errorf("inference controller: %v", err)
 	}
+	if err := SetupModelController(mgr); err != nil {
+		return fmt.Errorf("model controller: %v", err)
+	}
 	return nil
 }
