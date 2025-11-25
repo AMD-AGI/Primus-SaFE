@@ -17,7 +17,7 @@ func RegisterGroup(group GroupRegister) {
 
 func InitRouter(engine *gin.Engine, cfg *config.Config) error {
 	g := engine.Group("/v1")
-
+	g.Use(middleware.HandleMetrics())
 	// 根据配置决定是否启用日志中间件
 	if cfg.Middleware.IsLoggingEnabled() {
 		log.Info("HTTP request logging middleware enabled")
