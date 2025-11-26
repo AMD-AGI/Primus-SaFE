@@ -130,9 +130,9 @@ func init() {
 	// 框架检测次数（按框架名称和检测方法）
 	frameworkDetectionCount = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Subsystem: "framework_detection",
+			Subsystem: "log_framework_detection",
 			Name:      "total",
-			Help:      "Total number of framework detections",
+			Help:      "Total number of framework detections from log processing",
 		},
 		[]string{"framework", "method", "source"}, // method: env_vars/config/modules/project_name/log_pattern, source: wandb/log
 	)
@@ -141,9 +141,9 @@ func init() {
 	// 框架检测置信度分布
 	frameworkDetectionConfidence = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Subsystem: "framework_detection",
+			Subsystem: "log_framework_detection",
 			Name:      "confidence",
-			Help:      "Framework detection confidence distribution",
+			Help:      "Framework detection confidence distribution from log processing",
 			Buckets:   []float64{0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 1.0},
 		},
 		[]string{"framework", "method"},
@@ -153,9 +153,9 @@ func init() {
 	// 框架检测失败计数
 	frameworkDetectionErrors = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Subsystem: "framework_detection",
+			Subsystem: "log_framework_detection",
 			Name:      "error_total",
-			Help:      "Total number of framework detection errors",
+			Help:      "Total number of framework detection errors from log processing",
 		},
 		[]string{"source", "error_type"}, // source: wandb/log, error_type: no_match/report_failed
 	)
