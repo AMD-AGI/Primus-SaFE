@@ -7,6 +7,7 @@ package model_handlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -514,4 +515,20 @@ func formatTime(nt pq.NullTime) string {
 		return nt.Time.Format(time.RFC3339)
 	}
 	return ""
+}
+
+// getString safely extracts string from sql.NullString.
+func getString(ns sql.NullString) string {
+	if ns.Valid {
+		return ns.String
+	}
+	return ""
+}
+
+// getTime safely extracts time from pq.NullTime.
+func getTime(nt pq.NullTime) time.Time {
+	if nt.Valid {
+		return nt.Time
+	}
+	return time.Time{}
 }

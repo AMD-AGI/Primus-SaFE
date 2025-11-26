@@ -217,7 +217,76 @@ Import image from external registry to internal Harbor.
 
 ---
 
-### 7. Get Harbor Statistics
+### 7. List Prewarm Images
+
+**Endpoint**: `GET /api/v1/images/prewarm`
+
+**Authentication Required**: Yes
+
+**Description**: Lists image prewarm jobs that have been created using OpsJob (type: prewarm). This endpoint queries the ops_job table to retrieve prewarm history and shows the status of image pre-pulling operations across cluster nodes.
+
+**Query Parameters**: Same as "List Images" endpoint, except:
+- Does NOT support `tag` parameter (no tag field in ops_job table)
+- Does NOT support `flat` parameter (always returns list format)
+- `ready=true` filters jobs with phase='Succeeded'
+- **NEW**: `image=xxx` filters by image name
+- **NEW**: `workspace=xxx` filters by workspace ID
+- **NEW**: `status=xxx` filters by prewarm status (from outputs.status field)
+
+**Response Example**:
+```json
+{
+  "totalCount": 2,
+  "items": [
+    {
+      "imageName": "harbor.example.com/ai/pytorch:2.0-rocm5.7",
+      "workspaceId": "workspace-001",
+      "workspaceName": "AI Training Workspace",
+      "status": "Completed",
+      "prewarmProgress": "100%",
+      "createdTime": "2024-11-20T10:30:00Z",
+      "endTime": "2024-11-20T10:35:00Z",
+      "userName": "admin",
+      "errorMessage": ""
+    },
+    {
+      "imageName": "docker.io/rocm/pytorch:rocm6.0_ubuntu22.04_py3.10",
+      "workspaceId": "workspace-002",
+      "workspaceName": "Test Workspace",
+      "status": "Failed",
+      "prewarmProgress": "50%",
+      "createdTime": "2024-11-20T11:00:00Z",
+      "endTime": "2024-11-20T11:05:00Z",
+      "userName": "user123",
+      "errorMessage": "Failed to pull image: connection timeout"
+    }
+  ]
+}
+```
+
+**Field Description** (9 fields total):
+1. `imageName`: Full image path to prewarm (from ops_job.inputs.image)
+2. `workspaceId`: Target workspace ID (from ops_job.inputs.workspace)
+3. `workspaceName`: Target workspace display name (fetched from Workspace CR)
+4. `status`: Prewarm job status (from ops_job.outputs.status): `Completed`/`Failed`/`Running`
+5. `prewarmProgress`: Progress percentage (from ops_job.outputs.prewarm_progress), e.g. `85%`
+6. `createdTime`: Prewarm job creation time (from ops_job.creation_time, RFC3339 format)
+7. `endTime`: Prewarm job completion time (from ops_job.end_time, RFC3339 format)
+8. `userName`: User who created the prewarm job (from ops_job.user_name)
+9. `errorMessage`: Error details if failed (from ops_job.conditions[].message)
+
+**Notes**:
+- This endpoint queries the `ops_job` table (type='prewarm'), not the `image` table
+- Returns a list format with **9 fields** including progress tracking
+- The prewarm job creates a DaemonSet to pull images to all nodes in the specified workspace
+- Use `ready=true` to filter only successfully completed prewarm jobs (phase='Succeeded')
+- Use `status=Completed` to filter by the actual prewarm operation status (from outputs)
+- Use `workspace=xxx` to view prewarm operations for a specific workspace
+- Progress is reported in real-time: `0%` → `50%` → `100%`
+
+---
+
+### 8. Get Harbor Statistics
 
 **Endpoint**: `GET /api/v1/harbor/stats`
 

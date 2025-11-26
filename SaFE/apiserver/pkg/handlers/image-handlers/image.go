@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
@@ -189,6 +190,43 @@ func (h *ImageHandler) listExportedImage(c *gin.Context) (interface{}, error) {
 	}
 
 	klog.V(4).Infof("listed %d exported images", len(items))
+	return results, nil
+}
+
+// listPrewarmImage lists prewarm image jobs by querying ops_job table.
+func (h *ImageHandler) listPrewarmImage(c *gin.Context) (interface{}, error) {
+	query, err := parseListImageQuery(c)
+	if err != nil {
+		klog.ErrorS(err, "fail to parseListImageQuery")
+		return nil, err
+	}
+
+	// Build SQL query for prewarm jobs from ops_job table
+	dbSql, orderBy := buildPrewarmImageJobQuery(query)
+
+	// Query prewarm jobs from ops_job table
+	jobs, err := h.dbClient.SelectJobs(c, dbSql, orderBy, query.PageSize, (query.PageNum-1)*query.PageSize)
+	if err != nil {
+		klog.ErrorS(err, "failed to query prewarm jobs")
+		return nil, err
+	}
+
+	// Count total records
+	count, err := h.dbClient.CountJobs(c, dbSql)
+	if err != nil {
+		klog.ErrorS(err, "failed to count prewarm jobs")
+		return nil, err
+	}
+
+	// Convert ops_job records to prewarm image list format
+	items := h.convertOpsJobToPrewarmImageList(c.Request.Context(), jobs)
+
+	results := &PrewarmImageListResponse{
+		TotalCount: count,
+		Items:      items,
+	}
+
+	klog.V(4).Infof("listed %d prewarm images", len(items))
 	return results, nil
 }
 
@@ -952,10 +990,12 @@ func deserializeParams(strInput string) []v1.Parameter {
 		// Trim spaces and quotes (handle "label:value" format)
 		p = strings.TrimSpace(p)
 		p = strings.Trim(p, "\"")
-
-		param := v1.CvtStringToParam(p)
-		if param != nil {
-			result = append(result, *param)
+		parts := strings.SplitN(p, ":", 2)
+		if len(parts) == 2 {
+			result = append(result, v1.Parameter{
+				Name:  parts[0],
+				Value: parts[1],
+			})
 		}
 	}
 	return result
@@ -999,6 +1039,119 @@ func buildExportImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []strin
 	orderBy := []string{fmt.Sprintf("%s %s", orderByField, order)}
 
 	return dbSql, orderBy
+}
+
+// buildPrewarmImageJobQuery builds SQL query for prewarm image jobs from ops_job table.
+func buildPrewarmImageJobQuery(query *ImageServiceRequest) (sqrl.Sqlizer, []string) {
+	dbTags := dbClient.GetOpsJobFieldTags()
+
+	dbSql := sqrl.And{
+		sqrl.Eq{dbClient.GetFieldTag(dbTags, "Type"): string(v1.OpsJobPrewarmType)},
+		sqrl.Eq{dbClient.GetFieldTag(dbTags, "IsDeleted"): false},
+	}
+
+	if query.UserName != "" {
+		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "UserName"): query.UserName})
+	}
+
+	if query.Ready {
+		dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "Phase"): string(v1.OpsJobSucceeded)})
+	}
+
+	if query.Image != "" {
+		pattern := fmt.Sprintf("image:%s[,}]", query.Image)
+		dbSql = append(dbSql, sqrl.Expr("inputs::text ~ ?", pattern))
+	}
+
+	if query.Workspace != "" {
+		pattern := fmt.Sprintf("workspace:%s[,}]", query.Workspace)
+		dbSql = append(dbSql, sqrl.Expr("inputs::text ~ ?", pattern))
+	}
+
+	if query.Status != "" {
+		if query.Status == "Running" {
+			dbSql = append(dbSql, sqrl.Eq{dbClient.GetFieldTag(dbTags, "Phase"): query.Status})
+		} else {
+			statusFilter := fmt.Sprintf(`[{"name": "status", "value": "%s"}]`, query.Status)
+			dbSql = append(dbSql, sqrl.Expr("outputs::jsonb @> ?::jsonb", statusFilter))
+		}
+	}
+
+	orderByField := dbClient.GetFieldTag(dbTags, "CreationTime")
+	order := "DESC"
+	if query.Order != "" {
+		order = strings.ToUpper(query.Order)
+	}
+	orderBy := []string{fmt.Sprintf("%s %s", orderByField, order)}
+
+	return dbSql, orderBy
+}
+
+// convertOpsJobToPrewarmImageList converts ops_job records to PrewarmImageListItem slice.
+func (h *ImageHandler) convertOpsJobToPrewarmImageList(ctx context.Context, jobs []*dbClient.OpsJob) []PrewarmImageListItem {
+	result := make([]PrewarmImageListItem, 0, len(jobs))
+
+	for _, job := range jobs {
+		item := PrewarmImageListItem{
+			Status:      dbutils.ParseNullString(job.Phase),
+			CreatedTime: timeutil.FormatRFC3339(dbutils.ParseNullTime(job.CreationTime)),
+			EndTime:     timeutil.FormatRFC3339(dbutils.ParseNullTime(job.EndTime)),
+			UserName:    dbutils.ParseNullString(job.UserName),
+		}
+
+		// Parse inputs to extract image and workspace
+		if len(job.Inputs) > 0 {
+			inputs := deserializeParams(string(job.Inputs))
+			for _, param := range inputs {
+				switch param.Name {
+				case v1.ParameterImage:
+					item.ImageName = param.Value
+				case v1.ParameterWorkspace:
+					item.WorkspaceId = param.Value
+				}
+			}
+		}
+
+		if item.WorkspaceId != "" {
+			workspace := &v1.Workspace{}
+			if err := h.Get(ctx, client.ObjectKey{Name: item.WorkspaceId}, workspace); err == nil {
+				item.WorkspaceName = v1.GetDisplayName(workspace)
+			} else {
+				item.WorkspaceName = item.WorkspaceId
+				klog.V(4).ErrorS(err, "Failed to get workspace displayName, using ID as name", "workspaceId", item.WorkspaceId)
+			}
+		}
+
+		// Parse outputs to extract status and prewarm_progress
+		if outputsStr := dbutils.ParseNullString(job.Outputs); outputsStr != "" {
+			var outputs []v1.Parameter
+			if err := json.Unmarshal([]byte(outputsStr), &outputs); err == nil {
+				for _, param := range outputs {
+					switch param.Name {
+					case "status":
+						item.Status = param.Value
+					case "prewarm_progress":
+						item.PrewarmProgress = param.Value
+					}
+				}
+			}
+		}
+
+		if conditionsStr := dbutils.ParseNullString(job.Conditions); conditionsStr != "" {
+			var conditions []metav1.Condition
+			if err := json.Unmarshal([]byte(conditionsStr), &conditions); err == nil {
+				for i := len(conditions) - 1; i >= 0; i-- {
+					if conditions[i].Message != "" {
+						item.ErrorMessage = conditions[i].Message
+						break
+					}
+				}
+			}
+		}
+
+		result = append(result, item)
+	}
+	return result
 }
 
 // convertOpsJobToExportedImageList converts ops_job records to ExportedImageListItem slice.
