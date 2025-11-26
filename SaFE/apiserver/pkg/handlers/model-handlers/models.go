@@ -28,34 +28,34 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
-// CreatePlaygroundModel handles the creation of a new playground model.
-func (h *Handler) CreatePlaygroundModel(c *gin.Context) {
-	handle(c, h.createPlaygroundModel)
+// CreateModel handles the creation of a new playground model.
+func (h *Handler) CreateModel(c *gin.Context) {
+	handle(c, h.createModel)
 }
 
-// ListPlaygroundModels handles listing of playground models.
-func (h *Handler) ListPlaygroundModels(c *gin.Context) {
-	handle(c, h.listPlaygroundModels)
+// ListModels handles listing of playground models.
+func (h *Handler) ListModels(c *gin.Context) {
+	handle(c, h.listModels)
 }
 
-// GetPlaygroundModel handles getting a single playground model by ID.
-func (h *Handler) GetPlaygroundModel(c *gin.Context) {
-	handle(c, h.getPlaygroundModel)
+// GetModel handles getting a single playground model by ID.
+func (h *Handler) GetModel(c *gin.Context) {
+	handle(c, h.getModel)
 }
 
-// TogglePlaygroundModel handles enabling/disabling (start/stop) a model instance for the user.
-func (h *Handler) TogglePlaygroundModel(c *gin.Context) {
-	handle(c, h.togglePlaygroundModel)
+// ToggleModel handles enabling/disabling (start/stop) a model instance for the user.
+func (h *Handler) ToggleModel(c *gin.Context) {
+	handle(c, h.toggleModel)
 }
 
-// DeletePlaygroundModel handles the deletion of a playground model.
-func (h *Handler) DeletePlaygroundModel(c *gin.Context) {
-	handle(c, h.deletePlaygroundModel)
+// DeleteModel handles the deletion of a playground model.
+func (h *Handler) DeleteModel(c *gin.Context) {
+	handle(c, h.deleteModel)
 }
 
-// createPlaygroundModel implements the model creation logic.
-func (h *Handler) createPlaygroundModel(c *gin.Context) (interface{}, error) {
-	var req CreatePlaygroundModelRequest
+// createModel implements the model creation logic.
+func (h *Handler) createModel(c *gin.Context) (interface{}, error) {
+	var req CreateModelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		return nil, commonerrors.NewBadRequest(fmt.Sprintf("invalid request body: %v", err))
 	}
@@ -67,6 +67,11 @@ func (h *Handler) createPlaygroundModel(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest("model source url is required")
 	}
 
+	// Validate AccessMode
+	if req.Source.AccessMode != string(v1.AccessModeLocal) && req.Source.AccessMode != string(v1.AccessModeRemoteAPI) {
+		return nil, commonerrors.NewBadRequest("accessMode must be 'local' or 'remote_api'")
+	}
+
 	var (
 		displayName string
 		description string
@@ -75,9 +80,13 @@ func (h *Handler) createPlaygroundModel(c *gin.Context) (interface{}, error) {
 		tags        []string
 	)
 
-	// 0. Auto-fill metadata from Hugging Face
-	// We assume if user provides a simple "org/repo" string as URL, it's HF.
-	if strings.Contains(req.Source.URL, "huggingface.co") {
+	// 0. Handle metadata based on AccessMode
+	if req.Source.AccessMode == string(v1.AccessModeLocal) {
+		// Local mode: Auto-fill metadata from Hugging Face
+		if !strings.Contains(req.Source.URL, "huggingface.co") {
+			return nil, commonerrors.NewBadRequest("local mode only supports Hugging Face URLs")
+		}
+
 		if hfInfo, err := GetHFModelInfo(req.Source.URL); err == nil {
 			displayName = hfInfo.DisplayName
 			description = hfInfo.Description
@@ -87,10 +96,25 @@ func (h *Handler) createPlaygroundModel(c *gin.Context) (interface{}, error) {
 			klog.InfoS("Auto-filled model metadata from Hugging Face", "model", hfInfo.DisplayName)
 		} else {
 			klog.ErrorS(err, "Failed to fetch metadata from Hugging Face", "url", req.Source.URL)
-			return nil, commonerrors.NewBadRequest("Can't got model info")
+			return nil, commonerrors.NewBadRequest("failed to fetch model info from Hugging Face: " + err.Error())
 		}
 	} else {
-		return nil, commonerrors.NewBadRequest("Only support Hugging Face Now.")
+		// Remote API mode: Use user-provided metadata
+		if req.DisplayName == "" {
+			return nil, commonerrors.NewBadRequest("displayName is required for remote_api mode")
+		}
+		if req.Label == "" {
+			return nil, commonerrors.NewBadRequest("label is required for remote_api mode")
+		}
+		if req.Description == "" {
+			return nil, commonerrors.NewBadRequest("description is required for remote_api mode")
+		}
+		displayName = req.DisplayName
+		description = req.Description
+		icon = req.Icon
+		label = req.Label
+		tags = req.Tags
+		klog.InfoS("Using user-provided metadata for remote API model", "displayName", displayName)
 	}
 
 	// Generate Name
@@ -191,8 +215,8 @@ func (h *Handler) createPlaygroundModel(c *gin.Context) (interface{}, error) {
 	return &CreateResponse{ID: name}, nil
 }
 
-// getPlaygroundModel implements the logic to get a single model by ID.
-func (h *Handler) getPlaygroundModel(c *gin.Context) (interface{}, error) {
+// getModel implements the logic to get a single model by ID.
+func (h *Handler) getModel(c *gin.Context) (interface{}, error) {
 	modelId := c.Param("id")
 	if modelId == "" {
 		return nil, commonerrors.NewBadRequest("model id is required")
@@ -216,8 +240,8 @@ func (h *Handler) getPlaygroundModel(c *gin.Context) (interface{}, error) {
 	return nil, commonerrors.NewInternalError("database client type mismatch")
 }
 
-func parseListPlaygroundModelQuery(c *gin.Context) (*ListPlaygroundModelQuery, error) {
-	query := &ListPlaygroundModelQuery{}
+func parseListModelQuery(c *gin.Context) (*ListModelQuery, error) {
+	query := &ListModelQuery{}
 	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
@@ -231,10 +255,10 @@ func parseListPlaygroundModelQuery(c *gin.Context) (*ListPlaygroundModelQuery, e
 	return query, nil
 }
 
-// listPlaygroundModels implements the model listing logic with aggregated inference status.
-func (h *Handler) listPlaygroundModels(c *gin.Context) (interface{}, error) {
+// listModels implements the model listing logic with aggregated inference status.
+func (h *Handler) listModels(c *gin.Context) (interface{}, error) {
 	// Parse query parameters for filtering
-	queryArgs, err := parseListPlaygroundModelQuery(c)
+	queryArgs, err := parseListModelQuery(c)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +294,7 @@ func (h *Handler) listPlaygroundModels(c *gin.Context) (interface{}, error) {
 			return nil, commonerrors.NewInternalError("failed to fetch models")
 		}
 
-		return &ListPlaygroundModelResponse{
+		return &ListModelResponse{
 			Total: total,
 			Items: models,
 		}, nil
@@ -279,8 +303,8 @@ func (h *Handler) listPlaygroundModels(c *gin.Context) (interface{}, error) {
 	return nil, commonerrors.NewInternalError("database client type mismatch")
 }
 
-// togglePlaygroundModel handles enabling/disabling an inference service for the model.
-func (h *Handler) togglePlaygroundModel(c *gin.Context) (interface{}, error) {
+// toggleModel handles enabling/disabling an inference service for the model.
+func (h *Handler) toggleModel(c *gin.Context) (interface{}, error) {
 	modelId := c.Param("id")
 	if modelId == "" {
 		return nil, commonerrors.NewBadRequest("model id is required")
@@ -398,8 +422,8 @@ func (h *Handler) togglePlaygroundModel(c *gin.Context) (interface{}, error) {
 	}
 }
 
-// deletePlaygroundModel implements the model deletion logic.
-func (h *Handler) deletePlaygroundModel(c *gin.Context) (interface{}, error) {
+// deleteModel implements the model deletion logic.
+func (h *Handler) deleteModel(c *gin.Context) (interface{}, error) {
 	modelId := c.Param("id")
 	if modelId == "" {
 		return nil, commonerrors.NewBadRequest("model id is required")

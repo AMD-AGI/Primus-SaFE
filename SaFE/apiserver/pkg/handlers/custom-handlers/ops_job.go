@@ -94,6 +94,8 @@ func (h *Handler) createOpsJob(c *gin.Context) (interface{}, error) {
 		job, err = h.generateRebootJob(c, body)
 	case v1.OpsJobExportImageType:
 		job, err = h.generateExportImageJob(c, body)
+	case v1.OpsJobPrewarmType:
+		job, err = h.generatePrewarmImageJob(c, body)
 	default:
 		err = fmt.Errorf("unsupported ops job type(%s)", req.Type)
 	}
@@ -465,6 +467,77 @@ func (h *Handler) generateExportImageJob(c *gin.Context, body []byte) (*v1.OpsJo
 	// Add export-image specific labels
 	job.Labels[v1.WorkloadIdLabel] = workloadId
 	job.Labels[v1.WorkspaceIdLabel] = adminWorkload.Spec.Workspace
+
+	return job, nil
+}
+
+// generatePrewarmImageJob creates a prewarm-type ops job.
+// It parses the workload ID from request body, retrieves workload information,
+// and generates a job object to prewarm the workload image on cluster nodes.
+func (h *Handler) generatePrewarmImageJob(c *gin.Context, body []byte) (*v1.OpsJob, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse request to get workload ID
+	req := &types.BaseOpsJobRequest{}
+	if err := json.Unmarshal(body, req); err != nil {
+		return nil, commonerrors.NewBadRequest("failed to parse request body: " + err.Error())
+	}
+
+	// Extract image and workspace from inputs
+	var image, workspace string
+	for _, param := range req.Inputs {
+		if param.Name == v1.ParameterImage {
+			image = param.Value
+		}
+		if param.Name == v1.ParameterWorkspace {
+			workspace = param.Value
+		}
+	}
+	if image == "" {
+		return nil, commonerrors.NewBadRequest("image is required in inputs")
+	}
+	if workspace == "" {
+		return nil, commonerrors.NewBadRequest("workspace is required in inputs")
+	}
+
+	// Get workspace information to retrieve cluster id
+	ctx := c.Request.Context()
+	workspaceObj, err := h.getAdminWorkspace(ctx, workspace)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest("failed to get workspace: " + err.Error())
+	}
+
+	// Check authorization
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:    ctx,
+		Resource:   workspaceObj,
+		Verb:       v1.GetVerb,
+		User:       requestUser,
+		Workspaces: []string{workspace},
+	}); err != nil {
+		return nil, err
+	}
+
+	jobName := fmt.Sprintf("prewarm-%s", time.Now().Format("200601021504"))
+
+	// Build BaseOpsJobRequest for prewarm job
+	jobReq := &types.BaseOpsJobRequest{
+		Name:                    jobName,
+		Type:                    v1.OpsJobPrewarmType,
+		Inputs:                  req.Inputs,
+		TimeoutSecond:           commonconfig.GetOpsJobTimeoutSecond(),
+		TTLSecondsAfterFinished: commonconfig.GetOpsJobTTLSecond(),
+	}
+
+	// Generate base OpsJob using genDefaultOpsJob
+	job := genDefaultOpsJob(c, jobReq)
+
+	// Add workspace and cluster labels for statistics and tracking
+	job.Labels[v1.WorkspaceIdLabel] = workspace
+	job.Labels[v1.ClusterIdLabel] = workspaceObj.Spec.Cluster
 
 	return job, nil
 }
