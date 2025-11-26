@@ -159,8 +159,12 @@ func (a *AccessController) authorize(in AccessInput) error {
 		}
 	}
 	if len(commonuser.GetManagedWorkspace(in.User)) > 0 {
+		isWorkspaceManager := false
+		if len(in.Workspaces) > 0 && commonuser.HasWorkspaceManagedRight(in.User, in.Workspaces...) {
+			isWorkspaceManager = true
+		}
 		if role, err := a.getWorkspaceAdminRole(in.Context); err == nil {
-			rules := a.getPolicyRules(role, resourceKind, resourceName, isOwner, isWorkspaceUser)
+			rules := a.getPolicyRules(role, resourceKind, resourceName, isOwner, isWorkspaceManager)
 			if isMatchVerb(rules, in.Verb) {
 				return nil
 			}
@@ -184,7 +188,7 @@ func (a *AccessController) checkUserStatus(user *v1.User) error {
 // Determines the resource type and identifier for authorization checks.
 func (a *AccessController) extractResourceInfo(in AccessInput) (resourceKind, resourceName string) {
 	resourceKind = in.ResourceKind
-	if resourceKind == "" {
+	if resourceKind == "" && in.Resource != nil {
 		resourceKind = in.Resource.GetObjectKind().GroupVersionKind().Kind
 	}
 	resourceKind = strings.ToLower(resourceKind)
@@ -198,7 +202,7 @@ func (a *AccessController) extractResourceInfo(in AccessInput) (resourceKind, re
 // determineOwnership checks if the user is the owner of the resource
 // or has workspace-level access to the resource.
 func (a *AccessController) determineOwnership(in *AccessInput) (isOwner bool, isWorkspaceUser bool) {
-	if in.ResourceOwner == "" {
+	if in.ResourceOwner == "" && in.Resource != nil {
 		in.ResourceOwner = v1.GetUserId(in.Resource)
 	}
 

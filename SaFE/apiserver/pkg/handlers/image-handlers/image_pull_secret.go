@@ -11,11 +11,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
+
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
@@ -94,7 +95,7 @@ func (h *ImageHandler) getDesiredImageImportSecret(registries []*model.RegistryI
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      common.ImageImportSecretName,
-			Namespace: common.DefaultNamespace,
+			Namespace: common.PrimusSafeNamespace,
 		},
 		StringData: map[string]string{
 			"config.json": string(jsonByte),
@@ -176,7 +177,7 @@ func (h *ImageHandler) getDesiredImagePullSecret(registries []*model.RegistryInf
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ImagePullSecretName,
-			Namespace: common.DefaultNamespace,
+			Namespace: common.PrimusSafeNamespace,
 		},
 		StringData: map[string]string{
 			".dockerconfigjson": string(jsonByte),

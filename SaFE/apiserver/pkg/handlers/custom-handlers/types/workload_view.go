@@ -40,7 +40,7 @@ type ListWorkloadRequest struct {
 	UserId string `form:"userId" binding:"omitempty,max=64"`
 	// Filter results by username (fuzzy match)
 	UserName string `form:"userName" binding:"omitempty"`
-	// Filter by workload kind: Deployment/PyTorchJob/StatefulSet/Authoring (comma-separated)
+	// Filter by workload kind: Deployment/PyTorchJob/StatefulSet/Authoring/AutoscalingRunnerSet (comma-separated)
 	Kind string `form:"kind" binding:"omitempty"`
 	// Filter by description (fuzzy match)
 	Description string `form:"description" binding:"omitempty"`
@@ -59,6 +59,8 @@ type ListWorkloadRequest struct {
 	Until string `form:"until" binding:"omitempty"`
 	// Filter by workload ID (fuzzy match)
 	WorkloadId string `form:"workloadId" binding:"omitempty,max=64"`
+	// Filter by scale runner set.
+	ScaleRunnerSet string `form:"scaleRunnerSet" binding:"omitempty,max=64"`
 }
 
 type ListWorkloadResponse struct {
@@ -121,6 +123,8 @@ type WorkloadResponseItem struct {
 	K8sObjectUid string `json:"k8sObjectUid"`
 	// Average GPU usage in the last 3 hours. Returns -1 if no statistics available
 	AvgGpuUsage float64 `json:"avgGpuUsage"`
+	// If it is a CI/CD workload, it would be associated with a scale runner set.
+	ScaleRunnerSet string `json:"scaleRunnerSet,omitempty"`
 }
 
 type GetWorkloadResponse struct {
@@ -162,6 +166,8 @@ type GetWorkloadResponse struct {
 	Dependencies []string `json:"dependencies,omitempty"`
 	// Cron Job configuration
 	CronJobs []v1.CronJob `json:"cronJobs,omitempty"`
+	// The secrets used by the workload. Only the user themselves or an administrator can get this info.
+	Secrets []v1.SecretEntity `json:"secrets,omitempty"`
 }
 
 type WorkloadPodWrapper struct {

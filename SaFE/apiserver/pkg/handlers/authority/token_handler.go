@@ -54,7 +54,7 @@ func parseTokenFromRequest(c *gin.Context) error {
 	}
 
 	var tokenInstance TokenInterface
-	if userType == string(v1.SSOUser) {
+	if userType == string(v1.SSOUserType) {
 		tokenInstance = SSOInstance()
 	} else {
 		tokenInstance = DefaultTokenInstance()

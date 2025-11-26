@@ -25,8 +25,7 @@ Create new SSH key or image registry secret.
       "privateKey": "",
       "publicKey": ""
     }
-  ],
-  "bindAllWorkspaces": false
+  ]
 }
 ```
 
@@ -43,8 +42,7 @@ Create new SSH key or image registry secret.
       "privateKey": "LS0tLS1CRUdJTi...(Base64 encoded private key)",
       "publicKey": "c3NoLXJzYSBBQUFB...(Base64 encoded public key)"
     }
-  ],
-  "bindAllWorkspaces": false
+  ]
 }
 ```
 
@@ -54,6 +52,7 @@ Create new SSH key or image registry secret.
 {
   "name": "harbor-secret",
   "type": "image",
+  "workspaceIds": ["dev"],
   "params": [
     {
       "server": "harbor.example.com",
@@ -65,8 +64,20 @@ Create new SSH key or image registry secret.
       "username": "dockeruser",
       "password": "RG9ja2VyMTIzNDU=(Base64 encoded password)"
     }
-  ],
-  "bindAllWorkspaces": true
+  ]
+}
+```
+
+**GitHub PAT Secret Request Example**:
+
+```json
+{
+  "name": "github-secret",
+  "type": "general",
+  "workspaceIds": ["dev"],
+  "params": [{
+        "github_token": "your github token"
+  }]
 }
 ```
 
@@ -75,9 +86,9 @@ Create new SSH key or image registry secret.
 | Field | Type | Required | Description                                       |
 |-------|------|----------|---------------------------------------------------|
 | name | string | Yes | Secret name                                       |
-| type | string | Yes | Secret type: ssh/image                            |
+| type | string | Yes | Secret type: ssh/image/general                            |
+| workspaceIds | []string | No | The workspace used by this Secret. If not specified, it can be cluster-wide(but it is typically configurable by administrators)                            |
 | params | []object | Yes | Authentication parameter list                     |
-| bindAllWorkspaces | bool | No | Whether to bind to all workspaces, only for image |
 
 **SSH Key Parameters**:
 
@@ -95,6 +106,22 @@ Create new SSH key or image registry secret.
 | server | string | Yes | Image registry address |
 | username | string | Yes | Username |
 | password | string | Yes | Password (Base64 encoded) |
+
+
+**General Parameters**:
+
+For secrets with type=general:
+
+- params is a list of free-form key-value maps (map<string, string>)
+- Keys and values are fully user-defined
+- Use Base64 for sensitive values when needed (tokens, passwords)
+- Example: store a GitHub Personal Access Token (PAT) with key github_token
+
+| Example Key | Value Description                 |
+|-------------|-----------------------------------|
+| github_token| GitHub Personal Access Token (PAT)|
+
+
 
 **Response Example**:
 
@@ -118,7 +145,8 @@ Get secret list with type filtering support.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| type | string | No | Filter by type: ssh/image (comma-separated) |
+| type | string | No | Filter by type: ssh/image/general (comma-separated) |
+| workspaceId | string | No | Filter by workspace ID, e.g. 'dev' |
 
 **Response Example**:
 
@@ -128,31 +156,33 @@ Get secret list with type filtering support.
   "items": [{
     "secretId": "test-image-abc12",
     "secretName": "test-image",
+    "workspaceIds": [
+      "dev", "prod"
+    ],
     "type": "image",
-    "params": [{
-      "password": "SGFyYm9yMTIzNDU=",
-      "server": "https://registry-1.docker.io",
-      "username": "admin"
-    }],
     "creationTime": "2025-09-27T01:19:28",
-    "bindAllWorkspaces": true
+    "userId": "user-zhangsan-abc123",
+    "userName": "zhangsan"
   }, {
     "secretId": "test-ssh-abc12",
     "secretName": "test-ssh",
     "type": "ssh",
-    "params": [{
-      "privateKey": "LS0tLS1CRUdJTi...",
-      "publicKey": "c3NoLXJzYSBBQUFB...",
-      "username": "admin"
-    }],
-    "creationTime": "2025-09-25T09:41:27"
+    "creationTime": "2025-09-25T09:41:27",
+    "userId": "user-zhangsan-abc123",
+    "userName": "zhangsan"
   }]
 }
 ```
 
 **Field Description**:
 
-The response fields are consistent with the "Create Secret" request above.
+Most response fields are consistent with the "Create Secret" request above.
+Additional fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| userId | string | Secret creator user ID |
+| userName | string | Secret creator username |
 
 ---
 
@@ -176,15 +206,25 @@ Get detailed information about a specific secret.
 {
   "secretId": "my-ssh-key",
   "secretName": "my-ssh-key",
-  "type": "ssh",
+  "type": "image",
+  "workspaceIds": [
+      "dev", "prod"
+  ],
   "params": [
     {
-      "username": "root",
-      "privateKey": "LS0tLS1CRUdJTi...",
-      "publicKey": "c3NoLXJzYSBBQUFB..."
+      "server": "harbor.example.com",
+      "username": "admin",
+      "password": "SGFyYm9yMTIzNDU=(Base64 encoded password)"
+    },
+    {
+      "server": "docker.io",
+      "username": "dockeruser",
+      "password": "RG9ja2VyMTIzNDU=(Base64 encoded password)"
     }
   ],
-  "creationTime": "2025-01-10T10:00:00"
+  "creationTime": "2025-01-10T10:00:00",
+  "userId": "user-zhangsan-abc123",
+  "userName": "zhangsan"
 }
 ```
 
@@ -218,13 +258,26 @@ Update secret authentication information or binding settings.
       "server": "harbor.example.com",
       "username": "newuser",
       "password": "TmV3UGFzc3dvcmQ="
+    },
+    {
+      "server": "docker.io",
+      "username": "dockeruser",
+      "password": "RG9ja2VyMTIzNDU="
     }
   ],
-  "bindAllWorkspaces": true
+  "workspaceIds": ["dev", "prod"]
 }
 ```
 
-**Field Description**: All fields are optional, only provided fields will be updated
+**Field Description**:
+
+- All fields are optional; only provided fields will be updated
+- When provided, `params` and `workspaceIds` will replace the existing configuration
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| params | []object | No | Update secret parameters. For image secrets supports multiple registries; sensitive values should be Base64 |
+| workspaceIds | []string | No | Replace the set of workspaces bound to this secret |
 
 **Response**: 200 OK with no response body
 
@@ -247,6 +300,12 @@ Delete a specific secret.
 **Prerequisites**: Secret is not being used by any cluster or node
 
 **Response**: 200 OK with no response body
+
+---
+
+### Deletion Behavior
+
+- When a secret is deleted, the system will automatically remove its bindings from associated clusters and workspaces (e.g., workspace-level secret references), preventing dangling references.
 
 ---
 
@@ -275,17 +334,26 @@ Used for pulling images from private registries.
 - Bind imageSecretIds to workspace
 - Specify imageSecretId during cluster creation
 
+### General Secret (type=general)
+
+Used for storing arbitrary key-value authentication/configuration data.
+
+**Features**:
+- params is a list of free-form maps; keys and values are user-defined
+- Use Base64 for sensitive values (e.g., tokens, passwords)
+- Flexible for various integrations (e.g., GitHub PAT, cloud tokens)
+
+**Use Cases**:
+- Store GitHub Personal Access Token under key `github_token`
+- Provide custom credentials for third-party services or tools
+
 ## Secret Binding
 
-### Bind to All Workspaces (bindAllWorkspaces=true)
+### Manual Binding 
 
-- All existing and new workspaces automatically get this secret
-- Suitable for globally shared image registry secrets
-- Only effective for image registry secrets
+- Per-secret assignment (by user): When creating or updating a secret, specify `workspaceIds` to declare which workspaces the secret belongs to. The secret owner (or admins) can use the secret in those workspaces; other members cannot by default.
+- Workspace-level binding (by admin): Administrators can bind selected secrets to a workspace for organization-wide use via the Workspace update API. When bound, all members of that workspace can reference the secret. 
 
-### Manual Binding (bindAllWorkspaces=false)
-
-- Explicitly specify imageSecretIds when creating or updating workspace
 
 ## Base64 Encoding
 

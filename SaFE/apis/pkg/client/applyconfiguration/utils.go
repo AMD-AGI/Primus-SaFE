@@ -124,6 +124,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.ResourceTemplateSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Role"):
 		return &amdv1.RoleApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("SecretEntity"):
+		return &amdv1.SecretEntityApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Service"):
 		return &amdv1.ServiceApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Storage"):

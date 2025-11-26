@@ -9,9 +9,9 @@ metadata:
   name: pytorch-job
   labels:
     app.kubernetes.io/managed-by: Helm
-    primus-safe.workload.kind: PyTorchJob
     primus-safe.workload.version: v1
   annotations:
+    primus-safe.workload.kind: "PyTorchJob,UnifiedJob"
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
@@ -89,9 +89,9 @@ metadata:
   name: authoring
   labels:
     app.kubernetes.io/managed-by: Helm
-    primus-safe.workload.kind: Authoring
     primus-safe.workload.version: v1
   annotations:
+    primus-safe.workload.kind: Authoring
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
@@ -161,9 +161,9 @@ metadata:
   name: deployment
   labels:
     app.kubernetes.io/managed-by: Helm
-    primus-safe.workload.kind: Deployment
     primus-safe.workload.version: v1
   annotations:
+    primus-safe.workload.kind: Deployment
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
@@ -211,9 +211,9 @@ metadata:
   name: stateful-set
   labels:
     app.kubernetes.io/managed-by: Helm
-    primus-safe.workload.kind: StatefulSet
     primus-safe.workload.version: v1
   annotations:
+    primus-safe.workload.kind: StatefulSet
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
@@ -247,9 +247,9 @@ metadata:
   name: job
   labels:
     app.kubernetes.io/managed-by: Helm
-    primus-safe.workload.kind: Job
     primus-safe.workload.version: v1
   annotations:
+    primus-safe.workload.kind: "Job,AutoscalingRunner"
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 spec:
@@ -285,3 +285,26 @@ spec:
     prePaths:
       - status
     replicaPath: active
+---
+apiVersion: amd.com/v1
+kind: ResourceTemplate
+metadata:
+  name: cicd-autoscaling-set
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    primus-safe.workload.version: v1
+  annotations:
+    primus-safe.workload.kind: AutoscalingRunnerSet
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  groupVersionKind:
+    group: "actions.github.com"
+    version: v1alpha1
+    kind: AutoscalingRunnerSet
+  resourceSpecs:
+    - prePaths:
+        - spec
+      templatePaths:
+        - template
+      replica: 1

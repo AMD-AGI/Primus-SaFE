@@ -20,7 +20,7 @@ spec:
     - protocol: TCP
       port: {{ default 8088 (default .Values.apiserver).port }}
       targetPort: {{ default 8088 (default .Values.apiserver).port }}
-      nodePort: 32495
+      nodePort: {{ default 32495 (default .Values.apiserver).node_port }}
       name: http-port
     {{- if .Values.ssh.enable }}
     - protocol: TCP

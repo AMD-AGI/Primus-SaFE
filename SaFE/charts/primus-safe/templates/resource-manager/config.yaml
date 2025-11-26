@@ -67,6 +67,11 @@ data:
       secret_path: {{ .Values.s3.secret_path }}
       # The expire day of object in s3. This feature requires system support to be enabled and needs to be confirmed with the administrator.
       expire_day: 0
+    cicd:
+      enable: {{ .Values.cicd.enable }}
+      role_name: {{ .Values.cicd.role_name }}
+      controller_namespace: "arc-systems"
+      controller_name: "arc-gha-rs-controller"
 {{- if .Values.addon }}
     addon:
 {{ toYaml .Values.addon | indent 6 }}

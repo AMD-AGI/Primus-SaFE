@@ -27,19 +27,19 @@ var (
 // SetupControllers initializes and registers all resource controllers with the controller manager.
 func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupClusterController(mgr); err != nil {
-		return fmt.Errorf("cluster controller: %v", err)
+		return fmt.Errorf("failed to set up cluster controller: %v", err)
 	}
 	if err := SetupNodeController(mgr); err != nil {
-		return fmt.Errorf("node controller: %v", err)
+		return fmt.Errorf("failed to set up node controller: %v", err)
 	}
 	if err := SetupNodeK8sController(ctx, mgr); err != nil {
-		return fmt.Errorf("k8s-node controller: %v", err)
+		return fmt.Errorf("failed to set up k8s-node controller: %v", err)
 	}
 	if err := SetupWorkspaceController(mgr, &defaultWorkspaceOption); err != nil {
-		return fmt.Errorf("workspace controller: %v", err)
+		return fmt.Errorf("failed to set up workspace controller: %v", err)
 	}
 	if err := SetupFaultController(mgr, &defaultFaultOption); err != nil {
-		return fmt.Errorf("fault controller: %v", err)
+		return fmt.Errorf("failed to set up fault controller: %v", err)
 	}
 	if err := SetupAddonController(mgr); err != nil {
 		return fmt.Errorf("failed to set up addon controller: %+v", err)
@@ -48,7 +48,10 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 		return fmt.Errorf("failed to set up addon controller: %+v", err)
 	}
 	if err := SetupImageImportJobReconciler(mgr); err != nil {
-		return fmt.Errorf("image import job controller: %v", err)
+		return fmt.Errorf("failed to set up image import job controller: %v", err)
+	}
+	if err := SetupSecretController(mgr); err != nil {
+		return fmt.Errorf("failed to set up secret controller: %v", err)
 	}
 	return nil
 }

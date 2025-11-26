@@ -27,7 +27,7 @@ func genMockUser() *v1.User {
 			},
 		},
 		Spec: v1.UserSpec{
-			Type:  v1.DefaultUser,
+			Type:  v1.DefaultUserType,
 			Roles: []v1.UserRole{v1.SystemAdminRole},
 		},
 	}

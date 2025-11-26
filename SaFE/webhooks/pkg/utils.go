@@ -25,12 +25,12 @@ const (
 	WebhookPathPrefix = "amd-primus-safe-v1-"
 	DisplayNameRule   = "^[a-z][-a-z0-9\\.]{0,%d}[a-z0-9]$"
 	DNSNameRule       = "^[a-z][-a-z0-9]{0,%d}[a-z0-9]$"
-	LabelKeyRule      = "^[a-z0-9]([a-z0-9._-]{0,%d}[a-z0-9])?$"
+	LabelKeyRule      = "^[a-z0-9]([a-zA-Z0-9._-]{0,%d}[a-z0-9])?$"
 	DisplayNamePrompt = "the name(%s) must consist of 1 to %d lower case alphanumeric characters or '-' or '.', " +
 		"start with an alphabetic character, and end with an alphanumeric character"
 	DNSNamePrompt = "the name(%s) must consist of 1 to %d lower case alphanumeric characters or '-', " +
 		"start with an alphabetic character, and end with an alphanumeric character"
-	LabelKeyPrompt = "the name(%s) must consist of 1 to %d lower case alphanumeric characters or '-' or '.' or '_', " +
+	LabelKeyPrompt = "the name(%s) must consist of 1 to %d alphanumeric characters or '-' or '.' or '_', " +
 		"start and end with an alphanumeric character."
 	MinPort = 1
 	MaxPort = 65535

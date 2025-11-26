@@ -18,7 +18,7 @@ type StorageStatusApplyConfiguration struct {
 	ClusterId                 *string                 `json:"clusterId,omitempty"`
 	Monitors                  []string                `json:"monitors,omitempty"`
 	Pool                      *string                 `json:"pool,omitempty"`
-	Phase                     *amdv1.Phase            `json:"phase,omitempty"`
+	Phase                     *string                 `json:"phase,omitempty"`
 	Ref                       *corev1.ObjectReference `json:"ref,omitempty"`
 	AccessKey                 *string                 `json:"accessKey,omitempty"`
 	SecretKey                 *string                 `json:"secretKey,omitempty"`
@@ -124,7 +124,7 @@ func (b *StorageStatusApplyConfiguration) WithPool(value string) *StorageStatusA
 // WithPhase sets the Phase field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Phase field is set to the value of the last call.
-func (b *StorageStatusApplyConfiguration) WithPhase(value amdv1.Phase) *StorageStatusApplyConfiguration {
+func (b *StorageStatusApplyConfiguration) WithPhase(value string) *StorageStatusApplyConfiguration {
 	b.Phase = &value
 	return b
 }

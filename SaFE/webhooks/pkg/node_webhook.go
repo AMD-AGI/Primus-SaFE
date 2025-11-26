@@ -100,7 +100,7 @@ func (m *NodeMutator) mutateOnUpdate(ctx context.Context, node *v1.Node) bool {
 	return m.mutateCommon(ctx, node)
 }
 
-// mutateSpec applies mutations to the resource.
+// mutateSpec normalizes hostname, private IP and default SSH port.
 func (m *NodeMutator) mutateSpec(_ context.Context, node *v1.Node) {
 	node.Spec.PrivateIP = strings.Trim(node.Spec.PrivateIP, " ")
 	if node.GetSpecHostName() == "" {
@@ -113,7 +113,7 @@ func (m *NodeMutator) mutateSpec(_ context.Context, node *v1.Node) {
 	}
 }
 
-// mutateMeta applies mutations to the resource.
+// mutateMeta sets node name, default labels and finalizer.
 func (m *NodeMutator) mutateMeta(_ context.Context, node *v1.Node) {
 	node.Name = stringutil.NormalizeName(node.GetSpecHostName())
 	if v1.GetDisplayName(node) == "" {
@@ -123,7 +123,7 @@ func (m *NodeMutator) mutateMeta(_ context.Context, node *v1.Node) {
 	controllerutil.AddFinalizer(node, v1.NodeFinalizer)
 }
 
-// mutateCommon applies mutations to the resource.
+// mutateCommon syncs labels, flavor-derived fields and taints.
 func (m *NodeMutator) mutateCommon(ctx context.Context, node *v1.Node) bool {
 	isChanged := false
 	if m.mutateLabels(node) {
@@ -138,7 +138,7 @@ func (m *NodeMutator) mutateCommon(ctx context.Context, node *v1.Node) bool {
 	return isChanged
 }
 
-// mutateLabels applies mutations to the resource.
+// mutateLabels updates flavor/cluster/workspace labels and clears reset flags.
 func (m *NodeMutator) mutateLabels(node *v1.Node) bool {
 	isChanged := false
 	if node.Spec.NodeFlavor != nil {
@@ -159,7 +159,7 @@ func (m *NodeMutator) mutateLabels(node *v1.Node) bool {
 	return isChanged
 }
 
-// mutateByNodeFlavor applies mutations to the resource.
+// mutateByNodeFlavor syncs GPU annotations/labels from the node flavor.
 func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, node *v1.Node) bool {
 	nf, _ := getNodeFlavor(ctx, m.Client, v1.GetNodeFlavorId(node))
 	if nf == nil {
@@ -184,7 +184,7 @@ func (m *NodeMutator) mutateByNodeFlavor(ctx context.Context, node *v1.Node) boo
 	return isChanged
 }
 
-// mutateTaints applies mutations to the resource.
+// mutateTaints clears taints for unmanaged nodes or timestamps taints when managed.
 func (m *NodeMutator) mutateTaints(node *v1.Node) bool {
 	isChanged := false
 	if node.GetSpecCluster() == "" {

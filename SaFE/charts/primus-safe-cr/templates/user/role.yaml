@@ -53,6 +53,8 @@ rules:
     - workload/low-priority
     - workload/med-priority
     - user
+    - secret
+    - preflight
     - opsjob
   grantedUsers:
     - owner
@@ -102,11 +104,13 @@ rules:
   grantedUsers:
     - "*"
   verbs:
+    - "*"
+- resources:
+    - secret
+  grantedUsers:
+    - workspace-user
+  verbs:
     - create
-    - get
-    - list
-    - update
-    - delete
 ---
 apiVersion: amd.com/v1
 kind: Role
@@ -140,4 +144,9 @@ rules:
     - "*"
   verbs:
     - list
-    - get
+- resources:
+    - secret
+  grantedUsers:
+    - workspace-user
+  verbs:
+    - list

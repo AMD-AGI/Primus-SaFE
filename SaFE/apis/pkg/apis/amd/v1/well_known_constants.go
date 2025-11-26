@@ -67,10 +67,11 @@ const (
 	NodeFlavorIdLabel = NodeFlavorPrefix + "id"
 
 	// workspace
-	WorkspacePrefix      = PrimusSafePrefix + "workspace."
-	WorkspaceFinalizer   = PrimusSafeDomain + "workspace.finalizer"
-	WorkspaceIdLabel     = WorkspacePrefix + "id"
-	WorkspaceNodesAction = WorkspacePrefix + "nodes.action"
+	WorkspacePrefix        = PrimusSafePrefix + "workspace."
+	WorkspaceFinalizer     = PrimusSafeDomain + "workspace.finalizer"
+	WorkspaceIdLabel       = WorkspacePrefix + "id"
+	WorkspaceNodesAction   = WorkspacePrefix + "nodes.action"
+	WorkspaceIdsAnnotation = WorkspacePrefix + "ids"
 
 	// fault
 	FaultPrefix    = PrimusSafePrefix + "fault."
@@ -92,6 +93,7 @@ const (
 	WorkloadDisableFailoverAnnotation = WorkloadPrefix + "disable.failover"
 	WorkloadEnablePreemptAnnotation   = WorkloadPrefix + "enable.preempt"
 	CronJobTimestampAnnotation        = WorkloadPrefix + "cronjob"
+	ScaleRunnerIdLabel                = PrimusSafePrefix + "scale.runner.id"
 
 	// user
 	UserPrefix              = PrimusSafePrefix + "user."
@@ -104,9 +106,9 @@ const (
 	UserTypeLabel           = UserPrefix + "type"
 
 	// secret
-	SecretPrefix            = PrimusSafePrefix + "secret."
-	SecretTypeLabel         = SecretPrefix + "type"
-	SecretAllWorkspaceLabel = SecretPrefix + "all.workspace"
+	SecretPrefix    = PrimusSafePrefix + "secret."
+	SecretFinalizer = PrimusSafeDomain + "secret.finalizer"
+	SecretTypeLabel = SecretPrefix + "type"
 
 	// exporter
 	ExporterFinalizer = PrimusSafeDomain + "exporter.finalizer"
@@ -129,16 +131,11 @@ const (
 type SecretType string
 
 const (
-	Pending  Phase = "Pending"
-	Creating Phase = "Creating"
-	Ready    Phase = "Ready"
-	Unknown  Phase = "Unknown"
-	Deleted  Phase = "Deleted"
-
 	TrueStr = "true"
 
 	K8sHostName = "kubernetes.io/hostname"
 
-	SecretImage SecretType = "image"
-	SecretSSH   SecretType = "ssh"
+	SecretImage   SecretType = "image"
+	SecretSSH     SecretType = "ssh"
+	SecretGeneral SecretType = "general"
 )

@@ -19,8 +19,6 @@ Create a new user account.
   "name": "zhangsan",
   "email": "zhangsan@example.com",
   "password": "SecurePassword123!",
-  "type": "default",
-  "workspaces": [],
   "avatarUrl": "https://example.com/avatar.jpg"
 }
 ```
@@ -32,8 +30,6 @@ Create a new user account.
 | name | string | Yes | Username (unique)                                                |
 | email | string | No | Email address                                                    |
 | password | string | Yes* | Password (required for regular user registration)                |
-| type | string | No | User type: default/sso, only system admin can specify            |
-| workspaces | []string | No | List of accessible workspace IDs (only system admin can specify) |
 | avatarUrl | string | No | Avatar URL                                                       |
 
 **Response Example**:
@@ -105,20 +101,20 @@ User authentication and access token retrieval.
 
 **Response Field Description**:
 
-| Field | Type | Description                                     |
-|-------|------|-------------------------------------------------|
-| id | string | User ID                                         |
-| name | string | Username                                        |
-| email | string | Email address                                   |
-| type | string | User type: default/sso                          |
-| roles | []string | User roles. e.g. system-admin, default          |
-| workspaces | []object | Workspaces the user can access (non-admin only) |
-| managedWorkspaces | []object | Workspaces the user can manage (non-admin only) |
-| creationTime | string | User creation time (RFC3339)                    |
-| restrictedType | int | Restriction: 0 normal, 1 frozen                 |
-| avatarUrl | string | Avatar URL                                      |
-| token | string | User token, encrypted internally.               |
-| expire | int | Token expire time (Unix seconds)                |
+| Field | Type | Description                                                   |
+|-------|------|---------------------------------------------------------------|
+| id | string | User ID                                                       |
+| name | string | Username                                                      |
+| email | string | Email address                                                 |
+| type | string | User type: default/sso                                        |
+| roles | []string | User roles. e.g. system-admin, system-admin-readonly, default |
+| workspaces | []object | Workspaces the user can access (non-admin only)               |
+| managedWorkspaces | []object | Workspaces the user can manage (non-admin only)               |
+| creationTime | string | User creation time (RFC3339)                                  |
+| restrictedType | int | Restriction: 0 normal, 1 frozen                               |
+| avatarUrl | string | Avatar URL                                                    |
+| token | string | User token, encrypted internally.                             |
+| expire | int | Token expire time (Unix seconds)                              |
 
 Nested workspace object:
 
@@ -311,10 +307,11 @@ Delete a specific user.
 
 ## User Roles
 
-| Role | Description | Permissions                                             |
-|------|-------------|---------------------------------------------------------|
-| system-admin | System administrator | Full control, can manage all resources                  |
-| default | Regular user | Can only access authorized workspaces or other resource |
+| Role              | Description                    | Permissions                                             |
+|-------------------|--------------------------------|---------------------------------------------------------|
+| system-admin      | System administrator           | Full control, can manage all resources                  |
+| system-admin-only | System administrator read-only | Can view all resources, but cannot perform operations such as creating, updating, or deleting                            |
+| default           | Regular user                   | Can only access authorized workspaces or other resource |
 
 ## User Restriction Types
 
