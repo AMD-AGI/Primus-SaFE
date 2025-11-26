@@ -287,55 +287,55 @@ func TestGetHFModelInfo_DetailedOutput(t *testing.T) {
 // Modify the url variable to test different models
 // Run with: go test -v -run TestSingleURL
 func TestSingleURL(t *testing.T) {
-	// ⭐ 修改这里的 URL 来测试不同的模型 ⭐
+	// ⭐ Modify this URL to test different models ⭐
 	url := "Qwen/Qwen2.5-7B-Instruct"
-	// 其他示例:
+	// Other examples:
 	// url := "meta-llama/Llama-2-7b-hf"
 	// url := "https://huggingface.co/gpt2"
 	// url := "bert-base-uncased"
 	// url := "facebook/opt-350m"
 
 	t.Logf("\n%s", strings.Repeat("=", 100))
-	t.Logf("🔍 测试模型: %s", url)
+	t.Logf("🔍 Testing Model: %s", url)
 	t.Logf("%s", strings.Repeat("=", 100))
 
 	info, err := GetHFModelInfo(url)
 
 	if err != nil {
-		t.Logf("⚠️  警告: %v", err)
+		t.Logf("⚠️  Warning: %v", err)
 	}
 
 	if info == nil {
-		t.Fatal("❌ 错误: 无法获取模型信息")
+		t.Fatal("❌ Error: Unable to get model information")
 	}
 
-	// 打印所有提取的信息
-	t.Logf("\n📋 模型信息:")
+	// Print all extracted information
+	t.Logf("\n📋 Model Information:")
 	t.Logf("%s", strings.Repeat("-", 100))
-	t.Logf("✓ DisplayName (显示名称):  %s", info.DisplayName)
-	t.Logf("✓ Label (标签/作者):       %s", info.Label)
-	t.Logf("✓ Icon (图标):             %s", info.Icon)
-	t.Logf("\n✓ Description (描述):")
+	t.Logf("✓ DisplayName:  %s", info.DisplayName)
+	t.Logf("✓ Label:        %s", info.Label)
+	t.Logf("✓ Icon:         %s", info.Icon)
+	t.Logf("\n✓ Description:")
 	if info.Description != "" {
-		t.Logf(" %s", info.Description)
+		t.Logf("  %s", info.Description)
 	} else {
-		t.Logf("  (无描述)")
+		t.Logf("  (no description)")
 	}
-	t.Logf("\n✓ Tags (标签列表) - 总共 %d 个:", len(info.Tags))
+	t.Logf("\n✓ Tags - Total: %d", len(info.Tags))
 	if len(info.Tags) > 0 {
 		for i, tag := range info.Tags {
-			if i < 30 { // 显示前30个标签
+			if i < 30 { // Show first 30 tags
 				t.Logf("  %2d. %s", i+1, tag)
 			}
 		}
 		if len(info.Tags) > 30 {
-			t.Logf("  ... 还有 %d 个标签", len(info.Tags)-30)
+			t.Logf("  ... and %d more tags", len(info.Tags)-30)
 		}
 	} else {
-		t.Logf("  (无标签)")
+		t.Logf("  (no tags)")
 	}
 	t.Logf("%s", strings.Repeat("-", 100))
-	t.Logf("\n✅ 测试完成！")
+	t.Logf("\n✅ Test completed!")
 }
 
 // Helper function to truncate text for logging
