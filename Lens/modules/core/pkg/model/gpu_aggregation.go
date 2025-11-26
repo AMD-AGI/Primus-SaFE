@@ -45,6 +45,7 @@ type NamespaceGpuHourlyStats struct {
 
 	// GPU allocation statistics
 	AllocatedGpuCount float64 `gorm:"type:double precision;not null;default:0" json:"allocatedGpuCount"`
+	AllocationRate    float64 `gorm:"type:double precision;not null;default:0;comment:GPU allocation rate (allocated_gpu_count / total_gpu_capacity) during this hour" json:"allocationRate"`
 
 	// GPU utilization statistics
 	AvgUtilization float64 `gorm:"type:double precision;not null;default:0" json:"avgUtilization"`
@@ -148,6 +149,7 @@ type WorkloadSnapshot struct {
 	Kind         string  `json:"kind"`
 	AllocatedGPU int     `json:"allocatedGpu"`
 	Utilization  float64 `json:"utilization"`
+	ReplicaCount int     `json:"replicaCount"`
 }
 
 // ReportQuery is report query parameters
@@ -252,6 +254,8 @@ type GpuAggregationConfig struct {
 	Prometheus struct {
 		UtilizationQuery         string `json:"utilization_query"`
 		WorkloadUtilizationQuery string `json:"workload_utilization_query"`
+		GpuMemoryUsedQuery       string `json:"gpu_memory_used_query"`
+		GpuMemoryTotalQuery      string `json:"gpu_memory_total_query"`
 		QueryStep                int    `json:"query_step"`
 		QueryTimeout             string `json:"query_timeout"`
 	} `json:"prometheus"`

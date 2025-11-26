@@ -214,6 +214,8 @@ type WorkloadPod struct {
 	StartTime string `json:"startTime,omitempty"`
 	// Pod end time
 	EndTime string `json:"endTime,omitempty"`
+	// Pod failed reason. may be empty
+	FailedMessage string `json:"failedMessage,omitempty"`
 	// The Container info of pod
 	Containers []Container `json:"containers,omitempty"`
 }

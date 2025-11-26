@@ -25,6 +25,7 @@ type Interface interface {
 	SshSessionRecordsInterface
 	NotificationInterface
 	WorkloadStatisticInterface
+	NodeStatisticInterface
 	UserTokenInterface
 }
 
@@ -117,6 +118,20 @@ type WorkloadStatisticInterface interface {
 	UpdateWorkloadStatistic(ctx context.Context, stat *model.WorkloadStatistic) error
 	DeleteWorkloadStatistic(ctx context.Context, id int32) error
 	DeleteWorkloadStatisticsByWorkloadID(ctx context.Context, workloadID string) error
+}
+
+type NodeStatisticInterface interface {
+	GetNodeStatisticByID(ctx context.Context, id int32) (*model.NodeStatistic, error)
+	GetNodeStatisticByClusterAndNode(ctx context.Context, cluster, nodeName string) (*model.NodeStatistic, error)
+	GetNodeStatisticsByCluster(ctx context.Context, cluster string) ([]*model.NodeStatistic, error)
+	GetNodeStatisticsByNodeNames(ctx context.Context, cluster string, nodeNames []string) ([]*model.NodeStatistic, error)
+	GetNodeGpuUtilizationMap(ctx context.Context, cluster string, nodeNames []string) (map[string]float64, error)
+	CreateNodeStatistic(ctx context.Context, stat *model.NodeStatistic) error
+	UpdateNodeStatistic(ctx context.Context, stat *model.NodeStatistic) error
+	UpsertNodeStatistic(ctx context.Context, stat *model.NodeStatistic) error
+	DeleteNodeStatistic(ctx context.Context, id int32) error
+	DeleteNodeStatisticByClusterAndNode(ctx context.Context, cluster, nodeName string) error
+	DeleteNodeStatisticsByCluster(ctx context.Context, cluster string) error
 }
 
 type UserTokenInterface interface {

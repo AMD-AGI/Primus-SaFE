@@ -32,6 +32,10 @@ type FacadeInterface interface {
 	GetSystemConfig() SystemConfigFacadeInterface
 	// GetJobExecutionHistory returns the JobExecutionHistory Facade interface
 	GetJobExecutionHistory() JobExecutionHistoryFacadeInterface
+	// GetNamespaceInfo returns the NamespaceInfo Facade interface
+	GetNamespaceInfo() NamespaceInfoFacadeInterface
+	// GetWorkloadStatistic returns the WorkloadStatistic Facade interface
+	GetWorkloadStatistic() WorkloadStatisticFacadeInterface
 	// WithCluster returns a new Facade instance using the specified cluster
 	WithCluster(clusterName string) FacadeInterface
 }
@@ -53,6 +57,8 @@ type Facade struct {
 	GpuAggregation       GpuAggregationFacadeInterface
 	SystemConfig         SystemConfigFacadeInterface
 	JobExecutionHistory  JobExecutionHistoryFacadeInterface
+	NamespaceInfo        NamespaceInfoFacadeInterface
+	WorkloadStatistic    WorkloadStatisticFacadeInterface
 }
 
 // NewFacade creates a new Facade instance
@@ -73,6 +79,8 @@ func NewFacade() *Facade {
 		GpuAggregation:       NewGpuAggregationFacade(),
 		SystemConfig:         NewSystemConfigFacade(),
 		JobExecutionHistory:  NewJobExecutionHistoryFacade(),
+		NamespaceInfo:        NewNamespaceInfoFacade(),
+		WorkloadStatistic:    NewWorkloadStatisticFacade(),
 	}
 }
 
@@ -151,6 +159,16 @@ func (f *Facade) GetJobExecutionHistory() JobExecutionHistoryFacadeInterface {
 	return f.JobExecutionHistory
 }
 
+// GetNamespaceInfo returns the NamespaceInfo Facade interface
+func (f *Facade) GetNamespaceInfo() NamespaceInfoFacadeInterface {
+	return f.NamespaceInfo
+}
+
+// GetWorkloadStatistic returns the WorkloadStatistic Facade interface
+func (f *Facade) GetWorkloadStatistic() WorkloadStatisticFacadeInterface {
+	return f.WorkloadStatistic
+}
+
 // WithCluster returns a new Facade instance, all sub-Facades use the specified cluster
 func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 	return &Facade{
@@ -169,6 +187,8 @@ func (f *Facade) WithCluster(clusterName string) FacadeInterface {
 		GpuAggregation:       f.GpuAggregation.WithCluster(clusterName),
 		SystemConfig:         f.SystemConfig.WithCluster(clusterName),
 		JobExecutionHistory:  f.JobExecutionHistory.WithCluster(clusterName),
+		NamespaceInfo:        f.NamespaceInfo.WithCluster(clusterName),
+		WorkloadStatistic:    f.WorkloadStatistic.WithCluster(clusterName),
 	}
 }
 

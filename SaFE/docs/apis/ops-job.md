@@ -93,13 +93,32 @@ OpsJob(operations job) performs specific administrative tasks in the system. Com
 - The system will automatically retrieve the workload's image and add it to inputs as `{ "name": "image", "value": "..." }`.
 - The `label` parameter is optional and will be displayed as "remark" in the exported image list (`GET /api/v1/images/custom`).
 
+**Request Example (prewarm)**:
+```json
+{
+  "name": "prewarm-pytorch-image",
+  "type": "prewarm",
+  "inputs": [
+    { "name": "image", "value": "harbor.example.com/ai/pytorch:2.0-rocm5.7" },
+    { "name": "workspace", "value": "workspace-001" }
+  ],
+  "timeoutSecond": 1800
+}
+```
+
+**Notes**:
+- The `prewarm` type pulls the specified image to all nodes in the workspace to reduce container startup time.
+- The system creates a DaemonSet to distribute the image across nodes.
+- Both `image` and `workspace` parameters are required.
+- You can check prewarm job status via `GET /api/v1/images/prewarm` endpoint.
+
 **Request Parameters**:
 
 | Parameter | Type | Required | Description                                                                                               |
 |-----------|------|----------|-----------------------------------------------------------------------------------------------------------|
 | name | string | Yes | Used to generate ops job ID; normalized with random suffix                                                |
-| type | string | Yes | Ops job type: addon/preflight/dumplog/reboot/exportimage                                                  |
-| inputs[].name | string | Yes | Target selector; allowed: node, addon.template, workload, workspace, cluster, node.template               |
+| type | string | Yes | Ops job type: addon/preflight/dumplog/reboot/exportimage/prewarm                                          |
+| inputs[].name | string | Yes | Target selector; allowed: node, addon.template, workload, workspace, cluster, node.template, image        |
 | inputs[].value | string | Yes | Value for the selector (e.g. nodeId, workloadId, workspaceId, clusterId)                                  |
 | timeoutSecond | int | No | Timeout seconds; ≤0 means no timeout                                                                      |
 | ttlSecondsAfterFinished | int | No | Job TTL after completion                                                                                  |
@@ -120,6 +139,7 @@ Notes:
 - For addon, typically include `addon.template` and one of node/workload/workspace/cluster.
 - For preflight, inputs must include one of node/workload/workspace/cluster.
 - For exportimage, inputs must include a workload selector. The job will export the workload's image to Harbor registry.
+- For prewarm, inputs must include both `image` and `workspace`. The job will pre-pull the image to all nodes in the workspace.
 
 **Response**: `{ "jobId": "opsjob-abc123" }`
 
@@ -144,7 +164,7 @@ Notes:
 | clusterId | string | No | Filter by cluster ID                                       |
 | userName | string | No | Filter by submitter username (fuzzy match)                 |
 | phase | string | No | Filter by job status: Succeeded/Failed/Running/Pending     |
-| type | string | No | Filter by job type: addon/dumplog/preflight/reboot/exportimage |
+| type | string | No | Filter by job type: addon/dumplog/preflight/reboot/exportimage/prewarm |
 
 **Response Example**:
 ```json
@@ -181,7 +201,7 @@ Notes:
 | workspaceId | string | The workspace which the job belongs to              |
 | userId | string | User ID of job submitter                            |
 | userName | string | Username of job submitter                           |
-| type | string | Job type: addon/dumplog/preflight/reboot/exportimage |
+| type | string | Job type: addon/dumplog/preflight/reboot/exportimage/prewarm |
 | phase | string | Job status: Succeeded/Failed/Running/Pending        |
 | creationTime | string | Creation time (RFC3339)                             |
 | startTime | string | Start time (RFC3339), empty if not started          |

@@ -252,7 +252,7 @@ func (r *ExportImageJobReconciler) Do(ctx context.Context, jobName string) (ctrl
 
 	// Update OpsJob status to succeeded with full image path
 	outputs := []v1.Parameter{
-		{Name: "status", Value: "completed"},
+		{Name: "status", Value: "Completed"},
 		{Name: "target", Value: fullTargetImage}, // Store full path with registry
 		{Name: "message", Value: "Image exported successfully"},
 	}
@@ -556,7 +556,7 @@ func getWorkloadIdFromJob(job *v1.OpsJob) string {
 // getSourceImageFromJob extracts source image from OpsJob parameters
 func getSourceImageFromJob(job *v1.OpsJob) string {
 	for _, param := range job.Spec.Inputs {
-		if param.Name == "image" {
+		if param.Name == v1.ParameterImage {
 			return param.Value
 		}
 	}

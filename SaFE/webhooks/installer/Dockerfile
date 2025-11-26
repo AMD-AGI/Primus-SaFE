@@ -1,7 +1,7 @@
 ARG REGISTRY=docker.io
 ARG GO_VERSION=1.24.7
 ARG GOPROXY
-FROM golang:${GO_VERSION} AS builder
+FROM ${REGISTRY}/library/golang:${GO_VERSION} AS builder
 
 ARG GOPROXY
 ENV LANG="en_US.UTF-8"

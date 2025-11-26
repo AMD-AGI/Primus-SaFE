@@ -60,6 +60,7 @@ type NamespaceGpuData struct {
 	UtilizationSum float64
 	WorkloadCount  int
 	Workloads      []model.WorkloadSnapshot
+	processedPods  map[string]bool // Track processed pod names to avoid duplicates (namespace+name as key)
 }
 
 // LabelGpuData is GPU data at the label/annotation dimension
@@ -87,6 +88,9 @@ type WorkloadGpuData struct {
 	WorkloadStatus    string
 	OwnerUID          string
 	OwnerName         string
+	// GPU Memory statistics
+	GpuMemoryUsedValues  []float64 // GPU memory used (GB) at each sampling point
+	GpuMemoryTotalValues []float64 // GPU memory total (GB) at each sampling point
 }
 
 // NewGpuAggregationJob creates a new aggregation job
@@ -349,11 +353,28 @@ func (j *GpuAggregationJob) sample(ctx context.Context,
 	utilizationQueryCount := 0
 	utilizationErrorCount := 0
 
+	// Track processed pods to avoid duplicates (pods with same namespace+name but different UIDs)
+	processedPods := make(map[string]bool)
+	duplicateCount := 0
+
 	for _, dbPod := range dbPods {
 		gpuRequest := int(dbPod.GpuAllocated)
 		if gpuRequest == 0 {
 			continue
 		}
+
+		// Create unique key for deduplication: namespace+name
+		podKey := dbPod.Namespace + "/" + dbPod.Name
+
+		// Check if this pod (by name) has already been processed
+		if processedPods[podKey] {
+			duplicateCount++
+			log.Debugf("Duplicate pod detected: %s (UID: %s), skipping", dbPod.Name, dbPod.UID)
+			continue
+		}
+
+		// Mark this pod as processed
+		processedPods[podKey] = true
 
 		allocatedGPU += gpuRequest
 
@@ -368,6 +389,14 @@ func (j *GpuAggregationJob) sample(ctx context.Context,
 
 		utilizationSum += utilization * float64(gpuRequest)
 		activeGPUCount += gpuRequest
+
+		// Query GPU memory usage for this pod from Prometheus
+		memoryUsed, memoryTotal, err := j.queryWorkloadGpuMemory(collectCtx, storageClientSet, dbPod.UID)
+		if err != nil {
+			log.Debugf("Failed to query GPU memory for pod %s: %v", dbPod.UID, err)
+			memoryUsed = 0
+			memoryTotal = 0
+		}
 
 		// Get workload information associated with this pod (for labels and annotations)
 		// A pod may be associated with multiple workloads
@@ -392,8 +421,12 @@ func (j *GpuAggregationJob) sample(ctx context.Context,
 
 		// 7. Collect workload dimension data for all associated workloads
 		for _, workload := range workloads {
-			j.collectWorkloadDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization)
+			j.collectWorkloadDataFromDB(&snapshot, dbPod, workload, gpuRequest, utilization, memoryUsed, memoryTotal)
 		}
+	}
+
+	if duplicateCount > 0 {
+		log.Infof("Skipped %d duplicate pods during collection", duplicateCount)
 	}
 
 	collectSpan.SetAttributes(
@@ -401,6 +434,8 @@ func (j *GpuAggregationJob) sample(ctx context.Context,
 		attribute.Int("gpu.active_count", activeGPUCount),
 		attribute.Int("utilization.query_count", utilizationQueryCount),
 		attribute.Int("utilization.error_count", utilizationErrorCount),
+		attribute.Int("pods.duplicate_count", duplicateCount),
+		attribute.Int("pods.processed_count", len(processedPods)),
 	)
 	collectSpan.SetStatus(codes.Ok, "")
 	trace.FinishSpan(collectSpan)
@@ -461,11 +496,25 @@ func (j *GpuAggregationJob) collectNamespaceDataFromDB(
 	nsData, exists := snapshot.NamespaceData[namespace]
 	if !exists {
 		nsData = &NamespaceGpuData{
-			Namespace: namespace,
-			Workloads: make([]model.WorkloadSnapshot, 0),
+			Namespace:     namespace,
+			Workloads:     make([]model.WorkloadSnapshot, 0),
+			processedPods: make(map[string]bool),
 		}
 		snapshot.NamespaceData[namespace] = nsData
 	}
+
+	// Create unique key for deduplication: namespace+name
+	podKey := namespace + "/" + dbPod.Name
+
+	// Check if this pod (by name) has already been processed
+	if nsData.processedPods[podKey] {
+		log.Debugf("Pod %s (UID: %s) already processed in namespace %s, skipping duplicate",
+			dbPod.Name, dbPod.UID, namespace)
+		return
+	}
+
+	// Mark this pod as processed
+	nsData.processedPods[podKey] = true
 
 	nsData.AllocatedGPU += gpuRequest
 	nsData.UtilizationSum += utilization * float64(gpuRequest)
@@ -484,6 +533,7 @@ func (j *GpuAggregationJob) collectNamespaceDataFromDB(
 		Kind:         workloadKind,
 		AllocatedGPU: gpuRequest,
 		Utilization:  utilization,
+		ReplicaCount: 1, // Each pod in namespace data represents 1 replica
 	}
 	nsData.Workloads = append(nsData.Workloads, workloadSnapshot)
 }
@@ -519,7 +569,7 @@ func (j *GpuAggregationJob) collectLabelDataFromDB(
 	for _, labelKey := range j.config.Dimensions.Label.LabelKeys {
 		labelValue := labels[labelKey]
 		if labelValue == "" {
-			labelValue = j.config.Dimensions.Label.DefaultValue
+			continue
 		}
 
 		// Ensure labelKey's map exists
@@ -574,7 +624,7 @@ func (j *GpuAggregationJob) collectAnnotationDataFromDB(
 	for _, annotationKey := range j.config.Dimensions.Label.AnnotationKeys {
 		annotationValue := annotations[annotationKey]
 		if annotationValue == "" {
-			annotationValue = j.config.Dimensions.Label.DefaultValue
+			continue
 		}
 
 		// Ensure annotationKey's map exists
@@ -604,7 +654,9 @@ func (j *GpuAggregationJob) collectWorkloadDataFromDB(
 	dbPod *dbmodel.GpuPods,
 	workload *dbmodel.GpuWorkload,
 	gpuRequest int,
-	utilization float64) {
+	utilization float64,
+	memoryUsed float64,
+	memoryTotal float64) {
 
 	if workload == nil {
 		// Cannot collect without workload information
@@ -625,19 +677,21 @@ func (j *GpuAggregationJob) collectWorkloadDataFromDB(
 	wData, exists := snapshot.WorkloadData[workloadUID]
 	if !exists {
 		wData = &WorkloadGpuData{
-			WorkloadUID:       workload.UID,
-			WorkloadName:      workload.Name,
-			Namespace:         workload.Namespace,
-			WorkloadType:      workload.Kind,
-			Labels:            workload.Labels,
-			Annotations:       workload.Annotations,
-			RequestedGPU:      0,
-			AllocatedGPU:      0,
-			UtilizationValues: make([]float64, 0),
-			ReplicaCount:      0,
-			WorkloadStatus:    workload.Status,
-			OwnerUID:          workload.ParentUID, // Use ParentUID as OwnerUID
-			OwnerName:         "",                 // GpuWorkload doesn't have OwnerName field
+			WorkloadUID:          workload.UID,
+			WorkloadName:         workload.Name,
+			Namespace:            workload.Namespace,
+			WorkloadType:         workload.Kind,
+			Labels:               workload.Labels,
+			Annotations:          workload.Annotations,
+			RequestedGPU:         0,
+			AllocatedGPU:         0,
+			UtilizationValues:    make([]float64, 0),
+			ReplicaCount:         0,
+			WorkloadStatus:       workload.Status,
+			OwnerUID:             workload.ParentUID, // Use ParentUID as OwnerUID
+			OwnerName:            "",                 // GpuWorkload doesn't have OwnerName field
+			GpuMemoryUsedValues:  make([]float64, 0),
+			GpuMemoryTotalValues: make([]float64, 0),
 		}
 		snapshot.WorkloadData[workloadUID] = wData
 	}
@@ -646,6 +700,12 @@ func (j *GpuAggregationJob) collectWorkloadDataFromDB(
 	wData.RequestedGPU += gpuRequest // Assume requested and allocated are the same
 	wData.UtilizationValues = append(wData.UtilizationValues, utilization)
 	wData.ReplicaCount++ // Each pod counts as one replica
+
+	// Collect GPU memory data
+	if memoryUsed > 0 || memoryTotal > 0 {
+		wData.GpuMemoryUsedValues = append(wData.GpuMemoryUsedValues, memoryUsed)
+		wData.GpuMemoryTotalValues = append(wData.GpuMemoryTotalValues, memoryTotal)
+	}
 }
 
 // shouldExcludeNamespace determines whether this namespace should be excluded
@@ -730,6 +790,82 @@ func (j *GpuAggregationJob) queryWorkloadUtilization(
 	span.SetStatus(codes.Ok, "")
 
 	return avg, nil
+}
+
+// queryWorkloadGpuMemory queries the GPU memory usage of a workload
+// Returns (memoryUsedGB, memoryTotalGB, error)
+func (j *GpuAggregationJob) queryWorkloadGpuMemory(
+	ctx context.Context,
+	storageClientSet *clientsets.StorageClientSet,
+	workloadUID string) (float64, float64, error) {
+
+	span, ctx := trace.StartSpanFromContext(ctx, "queryWorkloadGpuMemory")
+	defer trace.FinishSpan(span)
+
+	span.SetAttributes(
+		attribute.String("workload.uid", workloadUID),
+		attribute.Int("prometheus.query_step", j.config.Prometheus.QueryStep),
+	)
+
+	// Query average for the last 1 minute
+	endTime := time.Now()
+	startTime := endTime.Add(-1 * time.Minute)
+
+	// Query GPU memory used (in bytes, convert to GB)
+	memoryUsedQuery := fmt.Sprintf(j.config.Prometheus.GpuMemoryUsedQuery, workloadUID)
+	span.SetAttributes(attribute.String("prometheus.memory_used_query", memoryUsedQuery))
+
+	memoryUsedSeries, err := prom.QueryRange(ctx, storageClientSet, memoryUsedQuery, startTime, endTime,
+		j.config.Prometheus.QueryStep, map[string]struct{}{"__name__": {}})
+
+	if err != nil {
+		span.RecordError(err)
+		span.SetAttributes(attribute.String("error.message", err.Error()))
+		span.SetStatus(codes.Error, err.Error())
+		return 0, 0, err
+	}
+
+	var memoryUsedGB float64
+	if len(memoryUsedSeries) > 0 && len(memoryUsedSeries[0].Values) > 0 {
+		sum := 0.0
+		for _, point := range memoryUsedSeries[0].Values {
+			sum += point.Value
+		}
+		// Convert from bytes to GB
+		memoryUsedGB = (sum / float64(len(memoryUsedSeries[0].Values))) / (1024 * 1024 * 1024)
+	}
+
+	// Query GPU memory total (in bytes, convert to GB)
+	memoryTotalQuery := fmt.Sprintf(j.config.Prometheus.GpuMemoryTotalQuery, workloadUID)
+	span.SetAttributes(attribute.String("prometheus.memory_total_query", memoryTotalQuery))
+
+	memoryTotalSeries, err := prom.QueryRange(ctx, storageClientSet, memoryTotalQuery, startTime, endTime,
+		j.config.Prometheus.QueryStep, map[string]struct{}{"__name__": {}})
+
+	if err != nil {
+		span.RecordError(err)
+		span.SetAttributes(attribute.String("error.message", err.Error()))
+		span.SetStatus(codes.Error, err.Error())
+		return memoryUsedGB, 0, err
+	}
+
+	var memoryTotalGB float64
+	if len(memoryTotalSeries) > 0 && len(memoryTotalSeries[0].Values) > 0 {
+		sum := 0.0
+		for _, point := range memoryTotalSeries[0].Values {
+			sum += point.Value
+		}
+		// Convert from bytes to GB
+		memoryTotalGB = (sum / float64(len(memoryTotalSeries[0].Values))) / (1024 * 1024 * 1024)
+	}
+
+	span.SetAttributes(
+		attribute.Float64("gpu_memory.used_gb", memoryUsedGB),
+		attribute.Float64("gpu_memory.total_gb", memoryTotalGB),
+	)
+	span.SetStatus(codes.Ok, "")
+
+	return memoryUsedGB, memoryTotalGB, nil
 }
 
 // aggregateHourlyDataFromDB aggregates hourly data by loading snapshots from database
@@ -846,7 +982,7 @@ func (j *GpuAggregationJob) aggregateHourlyData(
 			attribute.String("stat.hour", hour.Format(time.RFC3339)),
 		)
 
-		namespaceStats := j.aggregateNamespaceStats(clusterName, hour)
+		namespaceStats := j.aggregateNamespaceStats(nsCtx, clusterName, hour)
 		nsSpan.SetAttributes(attribute.Int("namespace.stats_count", len(namespaceStats)))
 
 		if err := j.saveNamespaceStats(nsCtx, namespaceStats); err != nil {
@@ -958,6 +1094,7 @@ func (j *GpuAggregationJob) convertDBSnapshotsToMemory(
 				UtilizationSum: nsAlloc.Utilization * float64(nsAlloc.AllocatedGPU),
 				WorkloadCount:  nsAlloc.WorkloadCount,
 				Workloads:      nsAlloc.Workloads,
+				processedPods:  make(map[string]bool), // Initialize for consistency
 			}
 			snapshot.NamespaceData[namespace] = nsData
 		}
@@ -997,7 +1134,7 @@ func (j *GpuAggregationJob) convertDBSnapshotsToMemory(
 				WorkloadType:      wSnapshot.Kind,
 				AllocatedGPU:      wSnapshot.AllocatedGPU,
 				UtilizationValues: []float64{wSnapshot.Utilization}, // Store as single value
-				ReplicaCount:      1,
+				ReplicaCount:      wSnapshot.ReplicaCount,
 			}
 			snapshot.WorkloadData[workloadUID] = wData
 		}
@@ -1082,6 +1219,7 @@ func (j *GpuAggregationJob) aggregateClusterStats(
 
 // aggregateNamespaceStats aggregates namespace-level statistics
 func (j *GpuAggregationJob) aggregateNamespaceStats(
+	ctx context.Context,
 	clusterName string,
 	hour time.Time) []*model.NamespaceGpuHourlyStats {
 
@@ -1140,6 +1278,31 @@ func (j *GpuAggregationJob) aggregateNamespaceStats(
 		}
 
 		results = append(results, stats)
+	}
+
+	// Query namespace_info to get GpuResource and calculate AllocationRate
+	namespaceInfoList, err := database.GetFacadeForCluster(clusterName).GetNamespaceInfo().List(ctx)
+	if err != nil {
+		log.Warnf("Failed to query namespace_info: %v, AllocationRate will not be calculated", err)
+	} else {
+		// Build namespace -> GpuResource mapping
+		namespaceGpuResourceMap := make(map[string]int32)
+		for _, nsInfo := range namespaceInfoList {
+			namespaceGpuResourceMap[nsInfo.Name] = nsInfo.GpuResource
+		}
+
+		// Set TotalGpuCapacity and calculate AllocationRate for each namespace
+		for _, stats := range results {
+			if gpuResource, exists := namespaceGpuResourceMap[stats.Namespace]; exists && gpuResource > 0 {
+				stats.TotalGpuCapacity = int(gpuResource)
+				stats.AllocationRate = (stats.AllocatedGpuCount / float64(stats.TotalGpuCapacity)) * 100
+			} else {
+				// If namespace_info doesn't exist or GpuResource is 0, set to 0
+				stats.TotalGpuCapacity = 0
+				stats.AllocationRate = 0
+				log.Debugf("Namespace %s not found in namespace_info or has 0 GpuResource", stats.Namespace)
+			}
+		}
 	}
 
 	return results
@@ -1275,19 +1438,21 @@ func (j *GpuAggregationJob) aggregateWorkloadStats(
 			agg, exists := workloadAggregates[workloadUID]
 			if !exists {
 				agg = &workloadAggregate{
-					workloadUID:       workloadUID,
-					workloadName:      data.WorkloadName,
-					namespace:         data.Namespace,
-					workloadType:      data.WorkloadType,
-					labels:            data.Labels,
-					annotations:       data.Annotations,
-					allocatedSum:      0,
-					requestedSum:      0,
-					utilizationValues: make([]float64, 0),
-					replicaCounts:     make([]int, 0),
-					workloadStatus:    data.WorkloadStatus,
-					ownerUID:          data.OwnerUID,
-					ownerName:         data.OwnerName,
+					workloadUID:          workloadUID,
+					workloadName:         data.WorkloadName,
+					namespace:            data.Namespace,
+					workloadType:         data.WorkloadType,
+					labels:               data.Labels,
+					annotations:          data.Annotations,
+					allocatedSum:         0,
+					requestedSum:         0,
+					utilizationValues:    make([]float64, 0),
+					replicaCounts:        make([]int, 0),
+					workloadStatus:       data.WorkloadStatus,
+					ownerUID:             data.OwnerUID,
+					ownerName:            data.OwnerName,
+					gpuMemoryUsedValues:  make([]float64, 0),
+					gpuMemoryTotalValues: make([]float64, 0),
 				}
 				workloadAggregates[workloadUID] = agg
 			}
@@ -1298,6 +1463,10 @@ func (j *GpuAggregationJob) aggregateWorkloadStats(
 
 			// Merge utilization data for this workload in this snapshot
 			agg.utilizationValues = append(agg.utilizationValues, data.UtilizationValues...)
+
+			// Merge GPU memory data for this workload in this snapshot
+			agg.gpuMemoryUsedValues = append(agg.gpuMemoryUsedValues, data.GpuMemoryUsedValues...)
+			agg.gpuMemoryTotalValues = append(agg.gpuMemoryTotalValues, data.GpuMemoryTotalValues...)
 		}
 	}
 
@@ -1369,11 +1538,32 @@ func (j *GpuAggregationJob) aggregateWorkloadStats(
 			stats.MinReplicaCount = int32(minReplica)
 		}
 
-		// TODO: Add GPU memory related statistics (requires Prometheus query)
-		// Set to 0 for now
-		stats.AvgGpuMemoryUsed = 0
-		stats.MaxGpuMemoryUsed = 0
-		stats.AvgGpuMemoryTotal = 0
+		// Calculate GPU memory statistics
+		if len(agg.gpuMemoryUsedValues) > 0 {
+			memoryUsedSum := 0.0
+			maxMemoryUsed := 0.0
+			for _, v := range agg.gpuMemoryUsedValues {
+				memoryUsedSum += v
+				if v > maxMemoryUsed {
+					maxMemoryUsed = v
+				}
+			}
+			stats.AvgGpuMemoryUsed = memoryUsedSum / float64(len(agg.gpuMemoryUsedValues))
+			stats.MaxGpuMemoryUsed = maxMemoryUsed
+		} else {
+			stats.AvgGpuMemoryUsed = 0
+			stats.MaxGpuMemoryUsed = 0
+		}
+
+		if len(agg.gpuMemoryTotalValues) > 0 {
+			memoryTotalSum := 0.0
+			for _, v := range agg.gpuMemoryTotalValues {
+				memoryTotalSum += v
+			}
+			stats.AvgGpuMemoryTotal = memoryTotalSum / float64(len(agg.gpuMemoryTotalValues))
+		} else {
+			stats.AvgGpuMemoryTotal = 0
+		}
 
 		results = append(results, stats)
 	}
@@ -1399,19 +1589,21 @@ type labelAggregate struct {
 }
 
 type workloadAggregate struct {
-	workloadUID       string
-	workloadName      string
-	namespace         string
-	workloadType      string
-	labels            map[string]interface{}
-	annotations       map[string]interface{}
-	allocatedSum      int
-	requestedSum      int
-	utilizationValues []float64
-	replicaCounts     []int
-	workloadStatus    string
-	ownerUID          string
-	ownerName         string
+	workloadUID          string
+	workloadName         string
+	namespace            string
+	workloadType         string
+	labels               map[string]interface{}
+	annotations          map[string]interface{}
+	allocatedSum         int
+	requestedSum         int
+	utilizationValues    []float64
+	replicaCounts        []int
+	workloadStatus       string
+	ownerUID             string
+	ownerName            string
+	gpuMemoryUsedValues  []float64 // GPU memory used (GB) values
+	gpuMemoryTotalValues []float64 // GPU memory total (GB) values
 }
 
 // saveClusterStats saves cluster-level statistics to database
@@ -1559,6 +1751,7 @@ func (j *GpuAggregationJob) saveSnapshotToDatabase(
 			Kind:         data.WorkloadType,
 			AllocatedGPU: data.AllocatedGPU,
 			Utilization:  utilization,
+			ReplicaCount: data.ReplicaCount,
 		}
 	}
 
@@ -1644,6 +1837,7 @@ func convertToDBNamespaceStats(stats *model.NamespaceGpuHourlyStats) *dbmodel.Na
 		StatHour:            stats.StatHour,
 		TotalGpuCapacity:    int32(stats.TotalGpuCapacity),
 		AllocatedGpuCount:   stats.AllocatedGpuCount,
+		AllocationRate:      stats.AllocationRate,
 		AvgUtilization:      stats.AvgUtilization,
 		MaxUtilization:      stats.MaxUtilization,
 		MinUtilization:      stats.MinUtilization,
@@ -1925,7 +2119,9 @@ func InitDefaultConfig(ctx context.Context, clusterName string) error {
 	defaultConfig.Dimensions.Workload.Enabled = true
 
 	// Prometheus configuration
-	defaultConfig.Prometheus.WorkloadUtilizationQuery = `avg(dcgm_gpu_utilization{pod_uid="%s"})`
+	defaultConfig.Prometheus.WorkloadUtilizationQuery = `avg(workload_gpu_utilization{workload_uid="%s"})`
+	defaultConfig.Prometheus.GpuMemoryUsedQuery = `avg(workload_gpu_used_vram{workload_uid="%s"})`
+	defaultConfig.Prometheus.GpuMemoryTotalQuery = `avg(workload_gpu_total_vram{workload_uid="%s"})`
 	defaultConfig.Prometheus.QueryStep = 30 // 30 seconds
 	defaultConfig.Prometheus.QueryTimeout = "30s"
 

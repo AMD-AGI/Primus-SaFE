@@ -10,7 +10,11 @@ import (
 
 func Start(ctx context.Context) error {
 	InitJobs()
-	c := cron.New()
+	// Use SkipIfStillRunning to prevent concurrent execution of the same job
+	// If a job is still running when the next scheduled time arrives, the new execution will be skipped
+	c := cron.New(cron.WithChain(
+		cron.SkipIfStillRunning(cron.DefaultLogger),
+	))
 	cm := clientsets.GetClusterManager()
 	currentCluster := cm.GetCurrentClusterClients()
 

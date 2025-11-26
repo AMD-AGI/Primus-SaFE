@@ -45,6 +45,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		LogAlertRules:             newLogAlertRules(db, opts...),
 		MetricAlertRules:          newMetricAlertRules(db, opts...),
 		NamespaceGpuHourlyStats:   newNamespaceGpuHourlyStats(db, opts...),
+		NamespaceInfo:             newNamespaceInfo(db, opts...),
 		Node:                      newNode(db, opts...),
 		NodeContainer:             newNodeContainer(db, opts...),
 		NodeContainerDevices:      newNodeContainerDevices(db, opts...),
@@ -62,6 +63,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		WorkloadGpuHourlyStats:    newWorkloadGpuHourlyStats(db, opts...),
 		WorkloadPodReference:      newWorkloadPodReference(db, opts...),
 		WorkloadResource:          newWorkloadResource(db, opts...),
+		WorkloadStatistic:         newWorkloadStatistic(db, opts...),
 	}
 }
 
@@ -95,6 +97,7 @@ type Query struct {
 	LogAlertRules             logAlertRules
 	MetricAlertRules          metricAlertRules
 	NamespaceGpuHourlyStats   namespaceGpuHourlyStats
+	NamespaceInfo             namespaceInfo
 	Node                      node
 	NodeContainer             nodeContainer
 	NodeContainerDevices      nodeContainerDevices
@@ -112,6 +115,7 @@ type Query struct {
 	WorkloadGpuHourlyStats    workloadGpuHourlyStats
 	WorkloadPodReference      workloadPodReference
 	WorkloadResource          workloadResource
+	WorkloadStatistic         workloadStatistic
 }
 
 func (q *Query) Available() bool { return q.db != nil }
@@ -146,6 +150,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		LogAlertRules:             q.LogAlertRules.clone(db),
 		MetricAlertRules:          q.MetricAlertRules.clone(db),
 		NamespaceGpuHourlyStats:   q.NamespaceGpuHourlyStats.clone(db),
+		NamespaceInfo:             q.NamespaceInfo.clone(db),
 		Node:                      q.Node.clone(db),
 		NodeContainer:             q.NodeContainer.clone(db),
 		NodeContainerDevices:      q.NodeContainerDevices.clone(db),
@@ -163,6 +168,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		WorkloadGpuHourlyStats:    q.WorkloadGpuHourlyStats.clone(db),
 		WorkloadPodReference:      q.WorkloadPodReference.clone(db),
 		WorkloadResource:          q.WorkloadResource.clone(db),
+		WorkloadStatistic:         q.WorkloadStatistic.clone(db),
 	}
 }
 
@@ -204,6 +210,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		LogAlertRules:             q.LogAlertRules.replaceDB(db),
 		MetricAlertRules:          q.MetricAlertRules.replaceDB(db),
 		NamespaceGpuHourlyStats:   q.NamespaceGpuHourlyStats.replaceDB(db),
+		NamespaceInfo:             q.NamespaceInfo.replaceDB(db),
 		Node:                      q.Node.replaceDB(db),
 		NodeContainer:             q.NodeContainer.replaceDB(db),
 		NodeContainerDevices:      q.NodeContainerDevices.replaceDB(db),
@@ -221,6 +228,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		WorkloadGpuHourlyStats:    q.WorkloadGpuHourlyStats.replaceDB(db),
 		WorkloadPodReference:      q.WorkloadPodReference.replaceDB(db),
 		WorkloadResource:          q.WorkloadResource.replaceDB(db),
+		WorkloadStatistic:         q.WorkloadStatistic.replaceDB(db),
 	}
 }
 
@@ -252,6 +260,7 @@ type queryCtx struct {
 	LogAlertRules             *logAlertRulesDo
 	MetricAlertRules          *metricAlertRulesDo
 	NamespaceGpuHourlyStats   *namespaceGpuHourlyStatsDo
+	NamespaceInfo             *namespaceInfoDo
 	Node                      *nodeDo
 	NodeContainer             *nodeContainerDo
 	NodeContainerDevices      *nodeContainerDevicesDo
@@ -269,6 +278,7 @@ type queryCtx struct {
 	WorkloadGpuHourlyStats    *workloadGpuHourlyStatsDo
 	WorkloadPodReference      *workloadPodReferenceDo
 	WorkloadResource          *workloadResourceDo
+	WorkloadStatistic         *workloadStatisticDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
@@ -300,6 +310,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		LogAlertRules:             q.LogAlertRules.WithContext(ctx),
 		MetricAlertRules:          q.MetricAlertRules.WithContext(ctx),
 		NamespaceGpuHourlyStats:   q.NamespaceGpuHourlyStats.WithContext(ctx),
+		NamespaceInfo:             q.NamespaceInfo.WithContext(ctx),
 		Node:                      q.Node.WithContext(ctx),
 		NodeContainer:             q.NodeContainer.WithContext(ctx),
 		NodeContainerDevices:      q.NodeContainerDevices.WithContext(ctx),
@@ -317,6 +328,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		WorkloadGpuHourlyStats:    q.WorkloadGpuHourlyStats.WithContext(ctx),
 		WorkloadPodReference:      q.WorkloadPodReference.WithContext(ctx),
 		WorkloadResource:          q.WorkloadResource.WithContext(ctx),
+		WorkloadStatistic:         q.WorkloadStatistic.WithContext(ctx),
 	}
 }
 

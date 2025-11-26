@@ -127,17 +127,12 @@ func doSync(ctx context.Context, controlPlaneClient client.Client, clientManager
 			klog.Errorf("Failed to get controller runtime client for cluster %s, err: %v", cluster.Name, err)
 			continue
 		}
-		opensearchConfig, err := initOpensearchClient(ctx, cluster.Name, controllerRuntimeClient, controlPlaneClient)
-		if err != nil {
-			klog.Errorf("Failed to init opensearch client for cluster %s, err: %v", cluster.Name, err)
-			continue
-		}
 		opensearchClient, err := initOpensearchClient(ctx, cluster.Name, controllerRuntimeClient, controlPlaneClient)
 		if err != nil {
 			klog.Errorf("Failed to init opensearch client for cluster %s, err: %v", cluster.Name, err)
 			continue
 		}
-		if opensearchClient == nil || opensearchConfig == nil {
+		if opensearchClient == nil {
 			klog.Infof("Opensearch is not configured for cluster %s", cluster.Name)
 			continue
 		}

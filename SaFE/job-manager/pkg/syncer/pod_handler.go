@@ -154,15 +154,7 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 			adminWorkload.Status.Pods[id].Rank != workloadPod.Rank {
 			shouldUpdateNodes = true
 		}
-		adminWorkload.Status.Pods[id].K8sNodeName = workloadPod.K8sNodeName
-		adminWorkload.Status.Pods[id].AdminNodeName = workloadPod.AdminNodeName
-		adminWorkload.Status.Pods[id].Phase = workloadPod.Phase
-		adminWorkload.Status.Pods[id].HostIp = workloadPod.HostIp
-		adminWorkload.Status.Pods[id].PodIp = workloadPod.PodIp
-		adminWorkload.Status.Pods[id].StartTime = workloadPod.StartTime
-		adminWorkload.Status.Pods[id].EndTime = workloadPod.EndTime
-		adminWorkload.Status.Pods[id].Containers = workloadPod.Containers
-		adminWorkload.Status.Pods[id].Rank = workloadPod.Rank
+		adminWorkload.Status.Pods[id] = workloadPod
 	} else {
 		adminWorkload.Status.Pods = append(adminWorkload.Status.Pods, workloadPod)
 		shouldUpdateNodes = true
@@ -258,7 +250,9 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 	}
 	newPods := append(adminWorkload.Status.Pods[:id], adminWorkload.Status.Pods[id+1:]...)
 	adminWorkload.Status.Pods = newPods
-	r.updateWorkloadNodes(adminWorkload, message)
+	if commonworkload.IsApplication(adminWorkload) {
+		r.updateWorkloadNodes(adminWorkload, message)
+	}
 	if err = r.Status().Update(ctx, adminWorkload); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", adminWorkload.Name)
 		return err
@@ -270,7 +264,17 @@ func (r *SyncerReconciler) removeWorkloadPod(ctx context.Context, message *resou
 // Extracts container termination details and finished time for completed pods.
 func buildPodTerminatedInfo(ctx context.Context,
 	clientSet kubernetes.Interface, adminWorkload *v1.Workload, pod *corev1.Pod, workloadPod *v1.WorkloadPod) {
-	if pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed {
+	if pod.Status.Phase == corev1.PodFailed {
+		if pod.Status.Reason != "" {
+			workloadPod.FailedMessage += pod.Status.Reason
+		}
+		if pod.Status.Message != "" {
+			if workloadPod.FailedMessage != "" {
+				workloadPod.FailedMessage += ", "
+			}
+			workloadPod.FailedMessage += pod.Status.Message
+		}
+	} else if pod.Status.Phase != corev1.PodSucceeded {
 		return
 	}
 

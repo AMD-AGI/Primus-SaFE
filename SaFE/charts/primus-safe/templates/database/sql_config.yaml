@@ -280,3 +280,21 @@ data:
     create index if not exists T_WORKLOAD_STAT_TYPE_INDEX on workload_statistic (statistic_type);
 
     alter table workload_statistic owner to "primus-safe";
+
+
+    create table if not exists node_statistic
+    (
+        id SERIAL PRIMARY KEY,
+        cluster VARCHAR(64) not null,
+        node_name VARCHAR(128) not null,
+        gpu_utilization DECIMAL(5, 2),
+        created_at TIMESTAMPTZ not null default now(),
+        updated_at TIMESTAMPTZ,
+        deleted_at TIMESTAMPTZ
+        );
+
+    create index if not exists T_NODE_STAT_CLUSTER_INDEX on node_statistic (cluster);
+    create index if not exists T_NODE_STAT_NODE_NAME_INDEX on node_statistic (node_name);
+    create index if not exists T_NODE_STAT_CREATED_AT_INDEX on node_statistic (created_at);
+
+    alter table node_statistic owner to "primus-safe";
