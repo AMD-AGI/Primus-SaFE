@@ -121,16 +121,20 @@ func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Ti
 		logrus.Debugf("Using existing framework detection: %s (confidence: %.2f)",
 			frameworkName, detection.Confidence)
 	} else {
-		// Need to detect framework from log (only once)
+		// Try to detect framework from log (only once)
 		frameworkName, err = detectFrameworkFromLog(ctx, firstWorkloadUID, msg)
 		if err != nil {
-			logrus.Debugf("Framework not detected from log, using default")
-			frameworkName = "primus" // Default
+			// Framework not detected from this log - this is OK
+			// Don't use a default value, keep it unknown
+			logrus.Tracef("Framework not detected from log: %v - skipping framework-specific processing", err)
+			frameworkName = "" // No framework detected
+		} else {
+			// Successfully detected framework from log
+			needsDetection = true
 		}
-		needsDetection = true
 	}
 
-	// Report detection if needed (only once, automatically propagates to root)
+	// Report detection only if we actually detected something (only once, automatically propagates to root)
 	if needsDetection && frameworkName != "" {
 		confidence := calculateDetectionConfidence(frameworkName, msg)
 
@@ -159,9 +163,13 @@ func WorkloadLog(ctx context.Context, podUid string, msg string, logTime time.Ti
 	}
 
 	// Process log with framework-specific parser (only once)
-	// The processing functions will internally handle all workloads associated with this pod
-	if err := processLogWithFramework(ctx, podUid, firstWorkloadUID, msg, logTime, frameworkName); err != nil {
-		logrus.Errorf("Failed to process log with framework: %v", err)
+	// Skip if framework is unknown - we don't want to force processing with a default framework
+	if frameworkName != "" {
+		if err := processLogWithFramework(ctx, podUid, firstWorkloadUID, msg, logTime, frameworkName); err != nil {
+			logrus.Debugf("Failed to process log with framework %s: %v", frameworkName, err)
+		}
+	} else {
+		logrus.Tracef("Skipping framework-specific log processing - framework not yet determined")
 	}
 
 	log.Tracef("workload log consume success")
