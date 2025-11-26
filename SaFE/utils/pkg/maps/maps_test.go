@@ -36,11 +36,22 @@ func TestMerge(t *testing.T) {
 		"key1": "value11",
 		"key3": "value3",
 	}
-	result := Merge(m1, m2)
+	result := Append(m1, m2, false)
 	assert.DeepEqual(t, EqualIgnoreOrder(result, map[string]string{
 		"key1": "value1",
 		"key2": "value2",
 		"key3": "value3",
+	}), true)
+
+	m1 = map[string]string{
+		"key1": "value1",
+	}
+	m2 = map[string]string{
+		"key1": "value11",
+	}
+	result = Append(m1, m2, true)
+	assert.DeepEqual(t, EqualIgnoreOrder(result, map[string]string{
+		"key1": "value11",
 	}), true)
 }
 

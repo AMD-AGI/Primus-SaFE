@@ -18,7 +18,6 @@ const (
 )
 
 type (
-	Phase               string
 	ClusterPhase        string
 	ClusterManageAction string
 	StorageUseType      string
@@ -91,7 +90,7 @@ type StorageStatus struct {
 	ClusterId string                  `json:"clusterId"`
 	Monitors  []string                `json:"monitors,omitempty"`
 	Pool      string                  `json:"pool"`
-	Phase     Phase                   `json:"phase,omitempty"`
+	Phase     string                  `json:"phase,omitempty"`
 	Ref       *corev1.ObjectReference `json:"ref,omitempty"`
 	AccessKey string                  `json:"accessKey,omitempty"`
 	SecretKey string                  `json:"secretKey,omitempty"`

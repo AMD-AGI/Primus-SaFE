@@ -136,7 +136,6 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 	if err != nil {
 		return nil, nil, err
 	}
-	klog.Infof("user id: %s, email: %s, code: %s", userInfo.Id, userInfo.Email, input.Code)
 
 	// Synchronize user with system
 	user, err := c.synchronizeUser(ctx, userInfo)
@@ -240,7 +239,7 @@ func (c *ssoToken) synchronizeUser(ctx context.Context, userInfo *UserInfo) (*v1
 				},
 			},
 			Spec: v1.UserSpec{
-				Type: v1.SSOUser,
+				Type: v1.SSOUserType,
 			},
 		}
 		if err = c.Create(ctx, user); err != nil {

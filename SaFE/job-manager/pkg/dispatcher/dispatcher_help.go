@@ -16,9 +16,9 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -48,7 +48,7 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 		return fmt.Errorf("failed to modify nodeSelectorTerms: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "containers")
-	if err = modifyMainContainer(obj, workload, workspace, path); err != nil {
+	if err = modifyContainers(obj, workload, workspace, path); err != nil {
 		return fmt.Errorf("failed to modify main container: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "volumes")
@@ -56,7 +56,7 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 		return fmt.Errorf("failed to modify volumes: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "imagePullSecrets")
-	if err = modifyImageSecrets(obj, workload, workspace, path); err != nil {
+	if err = modifyImageSecrets(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify image secrets: %v", err.Error())
 	}
 	path = append(templatePath, "spec", "priorityClassName")
@@ -71,11 +71,11 @@ func modifyObjectOnCreation(obj *unstructured.Unstructured,
 	if err = modifyTolerations(obj, workload, path); err != nil {
 		return fmt.Errorf("failed to modify tolerations: %v", err.Error())
 	}
-	path = []string{"spec", "strategy"}
-	if err = modifyStrategy(obj, workload, path); err != nil {
-		return fmt.Errorf("failed to modify strategy: %v", err.Error())
-	}
 	if workload.Spec.Service != nil {
+		path = []string{"spec", "strategy"}
+		if err = modifyStrategy(obj, workload, path); err != nil {
+			return fmt.Errorf("failed to modify strategy: %v", err.Error())
+		}
 		path = []string{"spec", "selector"}
 		if err = modifySelector(obj, workload, path); err != nil {
 			return fmt.Errorf("failed to modify selector: %v", err.Error())
@@ -122,9 +122,9 @@ func modifyNodeSelectorTerms(obj *unstructured.Unstructured, workload *v1.Worklo
 	return nil
 }
 
-// modifyMainContainer configures the main container of a workload with environment variables,
+// modifyContainers configures the containers of a workload with environment variables,
 // volume mounts, security context, ports, and health checks based on the workload specification.
-func modifyMainContainer(obj *unstructured.Unstructured,
+func modifyContainers(obj *unstructured.Unstructured,
 	workload *v1.Workload, workspace *v1.Workspace, path []string) error {
 	containers, found, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
@@ -133,20 +133,26 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 	if !found || len(containers) == 0 {
 		return fmt.Errorf("failed to find container with path: %v", path)
 	}
-	mainContainer, err := getMainContainer(containers, v1.GetMainContainer(workload))
-	if err != nil {
-		return err
-	}
 	env := buildEnvironment(workload)
-	modifyEnv(mainContainer, env, v1.IsEnableHostNetwork(workload))
-	modifyVolumeMounts(mainContainer, workload, workspace)
-	modifySecurityContext(mainContainer, workload)
-	mainContainer["ports"] = buildPorts(workload)
-	if healthz := buildHealthCheck(workload.Spec.Liveness); healthz != nil {
-		mainContainer["livenessProbe"] = healthz
-	}
-	if healthz := buildHealthCheck(workload.Spec.Readiness); healthz != nil {
-		mainContainer["readinessProbe"] = healthz
+	mainContainerName := v1.GetMainContainer(workload)
+	for i := range containers {
+		container := containers[i].(map[string]interface{})
+		modifyEnv(container, env, v1.IsEnableHostNetwork(workload))
+		modifyVolumeMounts(container, workload, workspace)
+		modifySecurityContext(container, workload)
+
+		name := jobutils.GetUnstructuredString(container, []string{"name"})
+		if name == mainContainerName {
+			if !commonworkload.IsCICD(workload) {
+				container["ports"] = buildPorts(workload)
+			}
+			if healthz := buildHealthCheck(workload.Spec.Liveness); healthz != nil {
+				container["livenessProbe"] = healthz
+			}
+			if healthz := buildHealthCheck(workload.Spec.Readiness); healthz != nil {
+				container["readinessProbe"] = healthz
+			}
+		}
 	}
 	if err = unstructured.SetNestedField(obj.Object, containers, path...); err != nil {
 		return err
@@ -156,44 +162,58 @@ func modifyMainContainer(obj *unstructured.Unstructured,
 
 // modifyEnv updates environment variables in the main container.
 // It handles special network interface names when host networking is not enabled.
-func modifyEnv(mainContainer map[string]interface{}, env []interface{}, isHostNetwork bool) {
-	if len(env) == 0 && isHostNetwork {
+func modifyEnv(container map[string]interface{}, envs []interface{}, isHostNetwork bool) {
+	if len(envs) == 0 && isHostNetwork {
 		return
 	}
 	var currentEnv []interface{}
-	envObjs, ok := mainContainer["env"]
+	envObjs, ok := container["env"]
 	if ok {
 		currentEnv = envObjs.([]interface{})
 	}
 
-	if !isHostNetwork {
-		for i := range currentEnv {
-			envObj := currentEnv[i].(map[string]interface{})
-			name, ok := envObj["name"]
-			if !ok {
-				continue
-			}
-			if stringutil.StrCaseEqual(name.(string), "NCCL_SOCKET_IFNAME") ||
-				stringutil.StrCaseEqual(name.(string), "GLOO_SOCKET_IFNAME") {
+	currentNameSet := sets.NewSet()
+	for i := range currentEnv {
+		envObj := currentEnv[i].(map[string]interface{})
+		name, ok := envObj["name"]
+		if !ok {
+			continue
+		}
+		nameStr := name.(string)
+		currentNameSet.Insert(nameStr)
+		if !isHostNetwork {
+			if stringutil.StrCaseEqual(nameStr, "NCCL_SOCKET_IFNAME") ||
+				stringutil.StrCaseEqual(nameStr, "GLOO_SOCKET_IFNAME") {
 				envObj["value"] = "eth0"
 			}
 		}
 	}
-	if len(env) > 0 {
-		currentEnv = append(currentEnv, env...)
+	for i := range envs {
+		envObj := envs[i].(map[string]interface{})
+		name, ok := envObj["name"]
+		if !ok {
+			continue
+		}
+		nameStr := name.(string)
+		if currentNameSet.Has(nameStr) {
+			continue
+		}
+		currentEnv = append(currentEnv, envs[i])
 	}
-	mainContainer["env"] = currentEnv
+	container["env"] = currentEnv
 }
 
 // modifyVolumeMounts configures volume mounts for the container based on workspace and workload specifications.
-// It includes shared memory volumes, workspace volumes, and host path volumes of workload.
-func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workload, workspace *v1.Workspace) {
+// It includes shared memory volumes, workspace volumes, host path volumes and secret with default-type of workload.
+func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload, workspace *v1.Workspace) {
 	var volumeMounts []interface{}
-	volumeMountObjs, ok := mainContainer["volumeMounts"]
+	volumeMountObjs, ok := container["volumeMounts"]
 	if ok {
 		volumeMounts = volumeMountObjs.([]interface{})
 	}
-	volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", ""))
+	if commonworkload.IsJob(workload) {
+		volumeMounts = append(volumeMounts, buildVolumeMount(SharedMemoryVolume, "/dev/shm", "", false))
+	}
 	maxId := 0
 	if workspace != nil {
 		for _, vol := range workspace.Spec.Volumes {
@@ -201,7 +221,7 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workl
 				maxId = vol.Id
 			}
 			if vol.MountPath != "" {
-				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath)
+				volumeMount := buildVolumeMount(vol.GenFullVolumeId(), vol.MountPath, vol.SubPath, false)
 				volumeMounts = append(volumeMounts, volumeMount)
 			}
 		}
@@ -209,10 +229,18 @@ func modifyVolumeMounts(mainContainer map[string]interface{}, workload *v1.Workl
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volumeMount := buildVolumeMount(volumeName, hostpath, "")
+		volumeMount := buildVolumeMount(volumeName, hostpath, "", false)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
-	mainContainer["volumeMounts"] = volumeMounts
+	for _, secret := range workload.Spec.Secrets {
+		if secret.Type != v1.SecretGeneral {
+			continue
+		}
+		mountPath := fmt.Sprintf("/etc/secrets/%s", secret.Id)
+		volumeMount := buildVolumeMount(secret.Id, mountPath, "", true)
+		volumeMounts = append(volumeMounts, volumeMount)
+	}
+	container["volumeMounts"] = volumeMounts
 }
 
 // modifyVolumes adds volume definitions to the Kubernetes object based on workspace and workload specifications.
@@ -240,13 +268,17 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 			hasNewVolume = true
 		}
 	}
-
 	for _, hostpath := range workload.Spec.Hostpath {
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
-		volume := buildHostPathVolume(volumeName, hostpath)
-		volumes = append(volumes, volume)
+		volumes = append(volumes, buildHostPathVolume(volumeName, hostpath))
 		hasNewVolume = true
+	}
+	for _, secret := range workload.Spec.Secrets {
+		if secret.Type == v1.SecretGeneral {
+			volumes = append(volumes, buildSecretVolume(secret.Id))
+			hasNewVolume = true
+		}
 	}
 	if !hasNewVolume {
 		return nil
@@ -257,20 +289,16 @@ func modifyVolumes(obj *unstructured.Unstructured, workload *v1.Workload, worksp
 	return nil
 }
 
-// modifyImageSecrets adds image pull secrets to the Kubernetes object based on workspace configuration.
-func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace, path []string) error {
+// modifyImageSecrets adds image pull secrets to the Kubernetes object based on workload configuration.
+func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	secrets, _, err := unstructured.NestedSlice(obj.Object, path...)
 	if err != nil {
 		return err
 	}
-
-	if workspace != nil {
-		for _, s := range workspace.Spec.ImageSecrets {
-			secrets = append(secrets, buildImageSecret(s.Name))
+	for _, s := range workload.Spec.Secrets {
+		if s.Type == v1.SecretImage {
+			secrets = append(secrets, buildImageSecret(s.Id))
 		}
-	} else if commonconfig.GetImageSecret() != "" {
-		imageSecret := commonutils.GenerateClusterSecret(v1.GetClusterId(workload), commonconfig.GetImageSecret())
-		secrets = append(secrets, buildImageSecret(imageSecret))
 	}
 	if err = unstructured.SetNestedSlice(obj.Object, secrets, path...); err != nil {
 		return err
@@ -280,12 +308,11 @@ func modifyImageSecrets(obj *unstructured.Unstructured, workload *v1.Workload, w
 
 // modifySecurityContext configures the security context for OpsJob preflight operations.
 // Sets privileged mode for preflight checks.
-func modifySecurityContext(mainContainer map[string]interface{}, workload *v1.Workload) {
-	if v1.GetOpsJobType(workload) != string(v1.OpsJobPreflightType) {
-		return
-	}
-	mainContainer["securityContext"] = map[string]interface{}{
-		"privileged": true,
+func modifySecurityContext(container map[string]interface{}, workload *v1.Workload) {
+	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
+		container["securityContext"] = map[string]interface{}{
+			"privileged": true,
+		}
 	}
 }
 
@@ -363,23 +390,6 @@ func modifyTolerations(obj *unstructured.Unstructured, workload *v1.Workload, pa
 	return nil
 }
 
-// getMainContainer finds and returns the main container from a list of containers.
-func getMainContainer(containers []interface{}, mainContainerName string) (map[string]interface{}, error) {
-	var mainContainer map[string]interface{}
-	for i := range containers {
-		container := containers[i].(map[string]interface{})
-		name := jobutils.GetUnstructuredString(container, []string{"name"})
-		if name == mainContainerName {
-			mainContainer = container
-			break
-		}
-	}
-	if mainContainer == nil {
-		return nil, fmt.Errorf("failed to find main container, name: %s", mainContainerName)
-	}
-	return mainContainer, nil
-}
-
 // buildCommands constructs the command array for executing the workload entry point.
 func buildCommands(workload *v1.Workload) []interface{} {
 	return []interface{}{"/bin/sh", "-c", buildEntryPoint(workload)}
@@ -388,9 +398,12 @@ func buildCommands(workload *v1.Workload) []interface{} {
 // buildEntryPoint constructs the command entry point for a workload.
 func buildEntryPoint(workload *v1.Workload) string {
 	result := ""
-	if commonworkload.IsOpsJob(workload) {
+	switch workload.SpecKind() {
+	case common.CICDScaleRunnerSetKind:
+		result = workload.Spec.EntryPoint
+	case common.CICDScaleRunnerKind:
 		result = stringutil.Base64Decode(workload.Spec.EntryPoint)
-	} else {
+	default:
 		result = Launcher + " '" + workload.Spec.EntryPoint + "'"
 	}
 	return result
@@ -398,10 +411,11 @@ func buildEntryPoint(workload *v1.Workload) string {
 
 // buildLabels creates a map of labels for workload identification and tracking.
 func buildLabels(workload *v1.Workload) map[string]interface{} {
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		v1.WorkloadIdLabel:          workload.Name,
 		v1.WorkloadDispatchCntLabel: buildDispatchCount(workload),
 	}
+	return result
 }
 
 // buildResources constructs resource requirements for the workload container.
@@ -453,10 +467,12 @@ func buildEnvironment(workload *v1.Workload) []interface{} {
 		"name":  "DISPATCH_COUNT",
 		"value": strconv.Itoa(v1.GetWorkloadDispatchCnt(workload) + 1),
 	})
-	result = append(result, map[string]interface{}{
-		"name":  "SSH_PORT",
-		"value": strconv.Itoa(workload.Spec.SSHPort),
-	})
+	if workload.Spec.SSHPort > 0 {
+		result = append(result, map[string]interface{}{
+			"name":  "SSH_PORT",
+			"value": strconv.Itoa(workload.Spec.SSHPort),
+		})
+	}
 	return result
 }
 
@@ -466,7 +482,8 @@ func buildPorts(workload *v1.Workload) []interface{} {
 		"containerPort": int64(workload.Spec.JobPort),
 		"protocol":      "TCP",
 	}
-	if workload.SpecKind() == common.PytorchJobKind || workload.SpecKind() == common.AuthoringKind {
+	kind := workload.SpecKind()
+	if kind == common.PytorchJobKind || kind == common.AuthoringKind || kind == common.UnifiedJobKind {
 		jobPort["name"] = common.PytorchJobPortName
 	}
 	sshPort := map[string]interface{}{
@@ -494,10 +511,11 @@ func buildHealthCheck(healthz *v1.HealthCheck) map[string]interface{} {
 }
 
 // buildVolumeMount creates a volume mount definition.
-func buildVolumeMount(name, mountPath, subPath string) interface{} {
+func buildVolumeMount(name, mountPath, subPath string, readOnly bool) interface{} {
 	volMount := map[string]interface{}{
 		"mountPath": mountPath,
 		"name":      name,
+		"readOnly":  readOnly,
 	}
 	if subPath != "" {
 		volMount["subPath"] = subPath
@@ -522,6 +540,17 @@ func buildPvcVolume(volumeName string) interface{} {
 			"claimName": volumeName,
 		},
 		"name": volumeName,
+	}
+}
+
+// buildSecretVolume creates a volume definition for a Kubernetes secret.
+// This allows containers to mount the secret data as a volume.
+func buildSecretVolume(secretName string) interface{} {
+	return map[string]interface{}{
+		"secret": map[string]interface{}{
+			"secretName": secretName,
+		},
+		"name": secretName,
 	}
 }
 
@@ -593,16 +622,20 @@ func buildImageSecret(secretId string) interface{} {
 	}
 }
 
-// convertToStringMap converts a map[string]interface{} to map[string]string.
-// Only includes entries where the value is a string.
-func convertToStringMap(input map[string]interface{}) map[string]string {
-	result := make(map[string]string)
-	for key, value := range input {
-		if strValue, ok := value.(string); ok {
-			result[key] = strValue
+// buildGithubConfig constructs GitHub configuration parameters for a workload.
+func buildGithubConfig(workload *v1.Workload) map[string]interface{} {
+	secretId := ""
+	for _, item := range workload.Spec.Secrets {
+		if item.Type == v1.SecretGeneral {
+			secretId = item.Id
+			break
 		}
 	}
-	return result
+	configUrl := workload.Spec.Env[common.GithubConfigUrl]
+	return map[string]interface{}{
+		"githubConfigSecret": secretId,
+		"githubConfigUrl":    configUrl,
+	}
 }
 
 // convertEnvsToStringMap extracts name-value pairs from environment variable definitions.
