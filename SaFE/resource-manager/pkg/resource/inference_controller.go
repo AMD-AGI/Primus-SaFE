@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -286,10 +287,6 @@ func (r *InferenceReconciler) handleTerminalState(ctx context.Context, inference
 
 // createWorkload creates a workload for the inference
 func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.Inference) (*v1.Workload, error) {
-	// TODO: Get model configuration from model table (currently hardcoded)
-	// For now, use a mock configuration
-	modelConfig := r.getMockModelConfig()
-
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: fmt.Sprintf("inference-%s-%d", inference.Name, time.Now().Unix()),
@@ -309,10 +306,10 @@ func (r *InferenceReconciler) createWorkload(ctx context.Context, inference *v1.
 				GPU:     inference.Spec.Resource.Gpu,
 			},
 			Workspace:  inference.Spec.Resource.Workspace,
-			Image:      modelConfig.Image,
-			EntryPoint: modelConfig.EntryPoint,
+			Image:      inference.Spec.Config.Image,
+			EntryPoint: inference.Spec.Config.EntryPoint,
 			GroupVersionKind: v1.GroupVersionKind{
-				Kind:    "Deployment", // Use Deployment for inference services
+				Kind:    common.PytorchJobKind,
 				Version: "v1",
 			},
 			Priority: 1,
@@ -419,19 +416,4 @@ func (r *InferenceReconciler) updatePhase(ctx context.Context, inference *v1.Inf
 
 	klog.Infof("Updated inference %s to phase %s: %s", inference.Name, phase, message)
 	return ctrlruntime.Result{}, nil
-}
-
-// getMockModelConfig returns a mock model configuration
-// TODO: Replace with actual model table lookup
-func (r *InferenceReconciler) getMockModelConfig() *ModelConfig {
-	return &ModelConfig{
-		Image:      "vllm/vllm-openai:latest",
-		EntryPoint: "python -m vllm.entrypoints.openai.api_server --model /model --port 8000",
-	}
-}
-
-// ModelConfig represents model configuration
-type ModelConfig struct {
-	Image      string
-	EntryPoint string
 }
