@@ -109,6 +109,7 @@ Notes for CICD (AutoscalingRunnerSet):
 - Required env: `GITHUB_CONFIG_URL` must be set in `env` to the GitHub repository/organization URL.
 - Required secret: a GitHub token secret must be included in `secrets` (e.g., a general-type secret storing a PAT), otherwise the workload creation will be rejected.
 - Multi-node evaluation: set `"UNIFIED_JOB_ENABLE": "true"` in `env` to enable multi-node evaluation in CICD.
+- Required NFS storage: CICD workloads require NFS storage support enabled in the workspace. This is especially important when `UNIFIED_JOB_ENABLE` is set to `true` in the environment variables for multi-node evaluation scenarios.
 
 **Field Description**:
 
