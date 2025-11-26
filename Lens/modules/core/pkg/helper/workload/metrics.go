@@ -126,3 +126,19 @@ func GetTFLOPSMetrics(ctx context.Context, workloadUid string, start, end time.T
 		},
 	}, nil
 }
+
+func GetWorkloadGpuUtilizationHistory(ctx context.Context, workloadUid string, start, end time.Time, step int, clientSets *clientsets.StorageClientSet) (*model.MetricsGraph, error) {
+	query := fmt.Sprintf(`avg(workload_gpu_utilization{workload_uid="%s"})`, workloadUid)
+	data, err := prom.QueryRange(ctx, clientSets, query, start, end, step, map[string]struct{}{
+		"__name__": {},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &model.MetricsGraph{
+		Series: data,
+		Config: model.MetricsGraphConfig{
+			YAxisUnit: "%",
+		},
+	}, nil
+}

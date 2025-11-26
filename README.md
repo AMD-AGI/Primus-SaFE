@@ -114,8 +114,8 @@ cd Primus-SaFE
 ```bash
 cd Bootstrap
 
-# Edit hosts.yaml to specify your cluster nodes and roles
-vim hosts.yaml
+# Edit hosts.ini to specify your cluster nodes and roles
+vim hosts.ini
 
 # Run the bootstrap script to deploy Kubernetes
 bash bootstrap.sh
@@ -203,7 +203,7 @@ Primus-Bootstrap automates the deployment of a production-grade Kubernetes clust
 **Usage:**
 ```bash
 cd Bootstrap
-vim hosts.yaml  # Configure your cluster nodes
+vim hosts.ini  # Configure your cluster nodes
 bash bootstrap.sh
 ```
 

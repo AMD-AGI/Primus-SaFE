@@ -11,15 +11,18 @@ import (
 )
 
 type ImageServiceRequest struct {
-	PageNum  int    `form:"page_num" binding:"omitempty,min=0" `
-	PageSize int    `form:"page_size" binding:"omitempty,min=1"`
-	OrderBy  string `form:"orderBy" binding:"omitempty"`
-	Order    string `form:"order" binding:"omitempty,oneof=desc asc"`
-	Tag      string `form:"tag" binding:"omitempty"`
-	Ready    bool   `form:"ready"  binding:"omitempty"`
-	UserName string `form:"userName" binding:"omitempty"`
-	Workload string `form:"workload" binding:"omitempty"` // Filter by workload ID
-	Flat     bool   `form:"flat" binding:"omitempty"`
+	PageNum   int    `form:"page_num" binding:"omitempty,min=0" `
+	PageSize  int    `form:"page_size" binding:"omitempty,min=1"`
+	OrderBy   string `form:"orderBy" binding:"omitempty"`
+	Order     string `form:"order" binding:"omitempty,oneof=desc asc"`
+	Tag       string `form:"tag" binding:"omitempty"`
+	Ready     bool   `form:"ready"  binding:"omitempty"`
+	UserName  string `form:"userName" binding:"omitempty"`
+	Workload  string `form:"workload" binding:"omitempty"` // Filter by workload ID
+	Image     string `form:"image" binding:"omitempty"`
+	Workspace string `form:"workspace" binding:"omitempty"`
+	Status    string `form:"status" binding:"omitempty"`
+	Flat      bool   `form:"flat" binding:"omitempty"`
 }
 
 type ArtifactItem struct {
@@ -204,8 +207,8 @@ type Image struct {
 
 // ExportedImageListResponse represents the response for listing exported images.
 type ExportedImageListResponse struct {
-	TotalCount int                      `json:"totalCount"`
-	Items      []ExportedImageListItem  `json:"items"`
+	TotalCount int                     `json:"totalCount"`
+	Items      []ExportedImageListItem `json:"items"`
 }
 
 // ExportedImageListItem represents a single exported image record in the list.
@@ -216,4 +219,23 @@ type ExportedImageListItem struct {
 	CreatedTime string `json:"createdTime"` // Export creation time (RFC3339)
 	Label       string `json:"label"`       // User-defined label from inputs
 	Log         string `json:"log"`         // Message from conditions field
+}
+
+// PrewarmImageListResponse represents the response for listing prewarm images.
+type PrewarmImageListResponse struct {
+	TotalCount int                    `json:"totalCount"`
+	Items      []PrewarmImageListItem `json:"items"`
+}
+
+// PrewarmImageListItem represents a single prewarm image record in the list.
+type PrewarmImageListItem struct {
+	ImageName       string `json:"imageName"`
+	WorkspaceId     string `json:"workspaceId"`
+	WorkspaceName   string `json:"workspaceName"`
+	Status          string `json:"status"`
+	PrewarmProgress string `json:"prewarmProgress"`
+	CreatedTime     string `json:"createdTime"`
+	EndTime         string `json:"endTime"`
+	UserName        string `json:"userName"`
+	ErrorMessage    string `json:"errorMessage"`
 }
