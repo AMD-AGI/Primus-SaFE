@@ -87,13 +87,13 @@ class TestDataCollector(unittest.TestCase):
         
         # 设置测试环境变量
         os.environ["WORKLOAD_UID"] = "test-workload-123"
-        os.environ["POD_UID"] = "test-pod-456"
+        os.environ["POD_NAME"] = "test-pod-456"
         os.environ["PRIMUS_CONFIG"] = "/test/config.yaml"
         os.environ["PRIMUS_VERSION"] = "1.2.3"
     
     def tearDown(self):
         """清理环境变量"""
-        env_vars = ["WORKLOAD_UID", "POD_UID", "PRIMUS_CONFIG", "PRIMUS_VERSION"]
+        env_vars = ["WORKLOAD_UID", "POD_NAME", "PRIMUS_CONFIG", "PRIMUS_VERSION"]
         for var in env_vars:
             if var in os.environ:
                 del os.environ[var]
@@ -168,12 +168,12 @@ class TestIntegration(unittest.TestCase):
     def setUp(self):
         """设置测试环境"""
         os.environ["WORKLOAD_UID"] = "integration-test-workload"
-        os.environ["POD_UID"] = "integration-test-pod"
+        os.environ["POD_NAME"] = "integration-test-pod"
         os.environ["PRIMUS_CONFIG"] = "/config/primus.yaml"
     
     def tearDown(self):
         """清理环境"""
-        env_vars = ["WORKLOAD_UID", "POD_UID", "PRIMUS_CONFIG"]
+        env_vars = ["WORKLOAD_UID", "POD_NAME", "PRIMUS_CONFIG"]
         for var in env_vars:
             if var in os.environ:
                 del os.environ[var]

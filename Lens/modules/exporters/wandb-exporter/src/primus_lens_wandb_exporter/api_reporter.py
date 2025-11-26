@@ -11,6 +11,9 @@ from typing import Dict, List, Any, Optional
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 
+# 导入日志模块
+from .logger import debug_log, error_log, warning_log
+
 
 class AsyncAPIReporter:
     """异步 API 上报器 - 使用后台线程上报数据"""
@@ -58,7 +61,7 @@ class AsyncAPIReporter:
             self.running = True
             self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
             self.worker_thread.start()
-            print(f"[Primus Lens API Reporter] Started (API: {self.api_base_url})")
+            debug_log(f"[Primus Lens API Reporter] Started (API: {self.api_base_url})")
     
     def stop(self):
         """停止后台线程"""
@@ -75,7 +78,7 @@ class AsyncAPIReporter:
         if self.worker_thread and self.worker_thread.is_alive():
             self.worker_thread.join(timeout=5.0)
         
-        print(f"[Primus Lens API Reporter] Stopped. Stats: {self.stats}")
+        debug_log(f"[Primus Lens API Reporter] Stopped. Stats: {self.stats}")
     
     def report_detection(self, detection_data: Dict[str, Any]):
         """
@@ -88,7 +91,7 @@ class AsyncAPIReporter:
             self.detection_queue.put_nowait(detection_data)
         except:
             # 队列满了，丢弃数据（避免阻塞）
-            print("[Primus Lens API Reporter] Detection queue full, dropping data")
+            warning_log("[Primus Lens API Reporter] Detection queue full, dropping data")
     
     def report_metrics(self, metrics_data: Dict[str, Any]):
         """
@@ -100,7 +103,7 @@ class AsyncAPIReporter:
         try:
             self.metrics_queue.put_nowait(metrics_data)
         except:
-            print("[Primus Lens API Reporter] Metrics queue full, dropping data")
+            warning_log("[Primus Lens API Reporter] Metrics queue full, dropping data")
     
     def report_logs(self, logs_data: Dict[str, Any]):
         """
@@ -112,7 +115,7 @@ class AsyncAPIReporter:
         try:
             self.logs_queue.put_nowait(logs_data)
         except:
-            print("[Primus Lens API Reporter] Logs queue full, dropping data")
+            warning_log("[Primus Lens API Reporter] Logs queue full, dropping data")
     
     def _worker_loop(self):
         """后台线程工作循环"""
@@ -130,7 +133,7 @@ class AsyncAPIReporter:
                 time.sleep(0.1)
                 
             except Exception as e:
-                print(f"[Primus Lens API Reporter] Worker error: {e}")
+                error_log(f"[Primus Lens API Reporter] Worker error: {e}")
                 import traceback
                 traceback.print_exc()
     
@@ -316,19 +319,19 @@ class AsyncAPIReporter:
                 if response.status == 200:
                     return True
                 else:
-                    print(f"[Primus Lens API Reporter] Request failed: {response.status}")
+                    warning_log(f"[Primus Lens API Reporter] Request failed: {response.status}")
                     return False
         
         except HTTPError as e:
-            print(f"[Primus Lens API Reporter] HTTP error: {e.code} {e.reason}")
+            warning_log(f"[Primus Lens API Reporter] HTTP error: {e.code} {e.reason}")
             return False
         
         except URLError as e:
-            print(f"[Primus Lens API Reporter] URL error: {e.reason}")
+            warning_log(f"[Primus Lens API Reporter] URL error: {e.reason}")
             return False
         
         except Exception as e:
-            print(f"[Primus Lens API Reporter] Request error: {e}")
+            warning_log(f"[Primus Lens API Reporter] Request error: {e}")
             return False
 
 

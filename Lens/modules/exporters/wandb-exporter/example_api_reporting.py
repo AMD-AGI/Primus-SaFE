@@ -24,7 +24,6 @@ import wandb
 
 # 1. Workload 标识（必需）
 os.environ["WORKLOAD_UID"] = "example-workload-123"
-os.environ["POD_UID"] = "example-pod-456"
 os.environ["POD_NAME"] = "example-pod"
 os.environ["POD_NAMESPACE"] = "default"
 
@@ -46,7 +45,7 @@ print("=" * 60)
 print()
 print("Environment Configuration:")
 print(f"  WORKLOAD_UID: {os.environ.get('WORKLOAD_UID')}")
-print(f"  POD_UID: {os.environ.get('POD_UID')}")
+print(f"  POD_NAME: {os.environ.get('POD_NAME')}")
 print(f"  PRIMUS_CONFIG: {os.environ.get('PRIMUS_CONFIG')}")
 print(f"  API_BASE_URL: {os.environ.get('PRIMUS_LENS_API_BASE_URL')}")
 print()

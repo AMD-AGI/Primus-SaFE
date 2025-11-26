@@ -6,6 +6,9 @@ import sys
 import time
 from typing import Dict, List, Any, Optional
 
+# 导入日志模块
+from .logger import debug_log, error_log, warning_log
+
 
 class DataCollector:
     """数据采集器 - 采集原始证据数据"""
@@ -36,7 +39,7 @@ class DataCollector:
             "type": "framework_detection_raw",
             "version": "1.0",
             "workload_uid": os.environ.get("WORKLOAD_UID", ""),
-            "pod_uid": os.environ.get("POD_UID", ""),
+            "pod_uid": os.environ.get("POD_NAME", ""),
             "pod_name": os.environ.get("POD_NAME", ""),
             "namespace": os.environ.get("POD_NAMESPACE", ""),
             "evidence": evidence,
@@ -93,7 +96,7 @@ class DataCollector:
                 "tags": tags,
             }
         except Exception as e:
-            print(f"[Primus Lens Data Collector] Failed to extract wandb info: {e}")
+            warning_log(f"[Primus Lens Data Collector] Failed to extract wandb info: {e}")
             return {}
     
     def _safe_get_config(self, wandb_run) -> Dict[str, Any]:
@@ -112,7 +115,7 @@ class DataCollector:
                     return {k: v for k, v in wandb_run.config.__dict__.items() 
                             if not k.startswith('_')}
         except Exception as e:
-            print(f"[Primus Lens Data Collector] Failed to get config: {e}")
+            warning_log(f"[Primus Lens Data Collector] Failed to get config: {e}")
         
         return {}
     
@@ -192,7 +195,7 @@ class DataCollector:
         except ImportError:
             return {"available": False}
         except Exception as e:
-            print(f"[Primus Lens Data Collector] Failed to extract PyTorch info: {e}")
+            warning_log(f"[Primus Lens Data Collector] Failed to extract PyTorch info: {e}")
             return {"available": False, "error": str(e)}
     
     def _get_framework_hints(self, evidence: Dict[str, Any]) -> Dict[str, Any]:

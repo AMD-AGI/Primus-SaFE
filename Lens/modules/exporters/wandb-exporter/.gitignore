@@ -51,3 +51,15 @@ tmp/
 # WandB
 wandb/
 
+# PyPI Publishing
+.env
+pypi.env
+.pypirc
+*.token
+test_output.txt
+debug_wandb_log.py
+
+# Build artifacts
+*.whl
+*.tar.gz
+
