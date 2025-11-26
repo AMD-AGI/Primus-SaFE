@@ -76,6 +76,11 @@ const (
 	opsJobTTLSecond     = opsJobPrefix + "ttl_second"
 	opsJobTimeoutSecond = opsJobPrefix + "timeout_second"
 
+	// prewarm
+	prewarmPrefix           = opsJobPrefix + "prewarm."
+	prewarmTimeoutSecond    = prewarmPrefix + "timeout_second"
+	prewarmWorkerConcurrent = prewarmPrefix + "worker_concurrent"
+
 	// s3
 	s3Prefix     = "s3."
 	s3Enable     = s3Prefix + "enable"

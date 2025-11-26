@@ -109,7 +109,23 @@ func (c *Client) GetNodeGpuUtilizationMap(ctx context.Context, cluster string, n
 		result[stat.NodeName] = stat.GpuUtilization
 	}
 
+	// Debug logging (only if results don't match expectations)
+	if len(result) != len(nodeNames) {
+		// Use fmt.Printf as klog might not be available in this package
+		fmt.Printf("WARNING: GetNodeGpuUtilizationMap - requested %d nodes, got %d results. cluster=%q, requested=%v, found=%v\n",
+			len(nodeNames), len(result), cluster, nodeNames, getKeys(result))
+	}
+
 	return result, nil
+}
+
+// Helper function to get keys from map for debugging
+func getKeys(m map[string]float64) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // CreateNodeStatistic creates a new node statistic.
