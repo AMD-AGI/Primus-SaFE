@@ -403,7 +403,7 @@ Add or remove nodes from a workspace.
 | Train     | Training jobs        |
 | Infer     | Inference services   |
 | Authoring | Development environment |
-| CICD      | CICD jobs            |
+| CICD      | CICD runner            |
 
 ## Resource Quota
 

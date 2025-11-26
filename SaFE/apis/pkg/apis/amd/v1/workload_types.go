@@ -135,6 +135,7 @@ type WorkloadSpec struct {
 	// Group: An extension field that is not currently in use
 	// Version: version of workload, default value is v1
 	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet, default PyTorchJob
+	// AutoscalingRunnerSet is a CI/CD configuration, and if enabled, it requires NFS storage support.
 	GroupVersionKind `json:"groupVersionKind"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`

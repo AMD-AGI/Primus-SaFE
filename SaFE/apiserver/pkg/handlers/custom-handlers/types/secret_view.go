@@ -31,7 +31,7 @@ type CreateSecretRequest struct {
 	// Secret type, e.g. image, ssh, default
 	Type v1.SecretType `json:"type"`
 	// Parameters required for creating the secret, including username, password, privateKey, publicKey and so on
-	// for a default secret, you can define any parameters.
+	// for a general secret, you can define any parameters.
 	// the private key, public key and password need to be Base64 encoded.
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
@@ -44,7 +44,7 @@ type CreateSecretResponse struct {
 }
 
 type ListSecretRequest struct {
-	// Secret type, e.g. ssh, image
+	// Secret type, e.g. ssh, image, general
 	// if specifying multiple phase queries, separate them with commas
 	Type string `form:"type" binding:"omitempty"`
 	// the workspace which the secret belongs to
@@ -95,7 +95,9 @@ type PatchSecretRequest struct {
 	// the private key, public key and password need to be Base64 encoded.
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
+	// When provided, the params list will REPLACE the existing parameters.
 	Params *[]map[SecretParam]string `json:"params,omitempty"`
-	// the workspaces which the secret belongs to
+	// the workspaces which the secret belongs to.
+	// When provided, this list will REPLACE the existing bound workspaces.
 	WorkspaceIds *[]string `json:"workspaceIds,omitempty"`
 }
