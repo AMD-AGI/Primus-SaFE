@@ -24,7 +24,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
 const (
@@ -112,7 +112,7 @@ func (r *ClusterInformer) GetResourceInformer(ctx context.Context, gvk schema.Gr
 	if informer != nil {
 		return informer.GenericInformer, nil
 	}
-	if _, err := jobutils.GetResourceTemplate(ctx, r.adminClient, gvk); err != nil {
+	if _, err := commonworkload.GetResourceTemplate(ctx, r.adminClient, gvk); err != nil {
 		return nil, err
 	}
 	return nil, fmt.Errorf("failed to find informer, gvk: %v", gvk)

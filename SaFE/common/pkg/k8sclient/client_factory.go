@@ -120,7 +120,7 @@ func (f *ClientFactory) Release() error {
 	return nil
 }
 
-// IsValid returns true if the condition is met.
+// IsValid returns true if factory is valid
 func (f *ClientFactory) IsValid() bool {
 	return f.valid
 }

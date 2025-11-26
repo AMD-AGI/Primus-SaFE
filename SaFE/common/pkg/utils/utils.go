@@ -12,6 +12,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
+
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
 const (
@@ -65,6 +67,11 @@ func GenerateClusterPriorityClass(clusterId, priorityClass string) string {
 // GenerateClusterSecret creates a cluster-specific secret name.
 func GenerateClusterSecret(clusterId, secretName string) string {
 	return clusterId + "-" + secretName
+}
+
+// GenerateCICDNoPermissionName creates a cicd service account name.
+func GenerateCICDNoPermissionName() string {
+	return commonconfig.GetCICDRoleName() + "-no-permission"
 }
 
 // TransMapToStruct converts a map to a struct using JSON serialization.

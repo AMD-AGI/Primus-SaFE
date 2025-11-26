@@ -26,7 +26,7 @@ func TestCvtToSecretResponseItem(t *testing.T) {
 	tests := []struct {
 		name     string
 		secret   *corev1.Secret
-		validate func(*testing.T, types.SecretResponseItem)
+		validate func(*testing.T, types.GetSecretResponse)
 	}{
 		{
 			name: "SSH secret",
@@ -45,7 +45,7 @@ func TestCvtToSecretResponseItem(t *testing.T) {
 					types.SSHAuthPubKey:         []byte("public-key-content"),
 				},
 			},
-			validate: func(t *testing.T, result types.SecretResponseItem) {
+			validate: func(t *testing.T, result types.GetSecretResponse) {
 				assert.Equal(t, "ssh-secret-test", result.SecretId)
 				assert.Equal(t, "Test SSH Secret", result.SecretName)
 				assert.Equal(t, string(v1.SecretSSH), result.Type)
@@ -72,7 +72,7 @@ func TestCvtToSecretResponseItem(t *testing.T) {
 					types.DockerConfigJson: genDockerConfigData(t, "docker.io", "username", "password"),
 				},
 			},
-			validate: func(t *testing.T, result types.SecretResponseItem) {
+			validate: func(t *testing.T, result types.GetSecretResponse) {
 				assert.Equal(t, "registry-secret", result.SecretId)
 				assert.Equal(t, "Docker Registry", result.SecretName)
 				assert.Equal(t, string(v1.SecretImage), result.Type)
@@ -101,7 +101,7 @@ func TestCvtToSecretResponseItem(t *testing.T) {
 					}),
 				},
 			},
-			validate: func(t *testing.T, result types.SecretResponseItem) {
+			validate: func(t *testing.T, result types.GetSecretResponse) {
 				assert.Equal(t, "multi-registry", result.SecretId)
 				assert.Equal(t, string(v1.SecretImage), result.Type)
 				assert.Len(t, result.Params, 2)
@@ -115,32 +115,11 @@ func TestCvtToSecretResponseItem(t *testing.T) {
 				assert.Contains(t, servers, "gcr.io")
 			},
 		},
-		{
-			name: "Secret binding all workspaces",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:              "global-secret",
-					CreationTimestamp: metav1.NewTime(now),
-					Labels: map[string]string{
-						v1.SecretTypeLabel:         string(v1.SecretSSH),
-						v1.SecretAllWorkspaceLabel: "true",
-					},
-				},
-				Data: map[string][]byte{
-					string(types.UserNameParam): []byte("admin"),
-					types.SSHAuthKey:            []byte("key"),
-					types.SSHAuthPubKey:         []byte("pub"),
-				},
-			},
-			validate: func(t *testing.T, result types.SecretResponseItem) {
-				assert.True(t, result.BindAllWorkspaces)
-			},
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := cvtToSecretResponseItem(tt.secret)
+			result := cvtToGetSecretResponse(tt.secret)
 			tt.validate(t, result)
 			// Verify creation time is formatted
 			assert.Contains(t, result.CreationTime, now.Format("2006-01-02"))

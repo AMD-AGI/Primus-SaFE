@@ -189,7 +189,7 @@ func TestAuthorize(t *testing.T) {
 	testUser := &v1.User{
 		ObjectMeta: metav1.ObjectMeta{Name: "testuser"},
 		Spec: v1.UserSpec{
-			Type:           v1.DefaultUser,
+			Type:           v1.DefaultUserType,
 			Roles:          []v1.UserRole{v1.DefaultRole},
 			RestrictedType: v1.UserNormal,
 			Resources: map[string][]string{
@@ -234,7 +234,7 @@ func TestAuthorize(t *testing.T) {
 				User: &v1.User{
 					ObjectMeta: metav1.ObjectMeta{Name: "admin"},
 					Spec: v1.UserSpec{
-						Type:  v1.DefaultUser,
+						Type:  v1.DefaultUserType,
 						Roles: []v1.UserRole{v1.SystemAdminRole},
 					},
 				},
@@ -276,7 +276,7 @@ func TestAuthorize(t *testing.T) {
 				User: &v1.User{
 					ObjectMeta: metav1.ObjectMeta{Name: "workspaceuser"},
 					Spec: v1.UserSpec{
-						Type:  v1.DefaultUser,
+						Type:  v1.DefaultUserType,
 						Roles: []v1.UserRole{v1.DefaultRole},
 						Resources: map[string][]string{
 							common.UserWorkspaces:        {"test-workspace"},
@@ -298,7 +298,7 @@ func TestAuthorize(t *testing.T) {
 				User: &v1.User{
 					ObjectMeta: metav1.ObjectMeta{Name: "restricteduser"},
 					Spec: v1.UserSpec{
-						Type:           v1.DefaultUser,
+						Type:           v1.DefaultUserType,
 						Roles:          []v1.UserRole{v1.DefaultRole},
 						RestrictedType: v1.UserFrozen,
 					},
@@ -331,7 +331,7 @@ func TestGetRequestUser(t *testing.T) {
 	testUser := &v1.User{
 		ObjectMeta: metav1.ObjectMeta{Name: "testuser"},
 		Spec: v1.UserSpec{
-			Type:  v1.DefaultUser,
+			Type:  v1.DefaultUserType,
 			Roles: []v1.UserRole{v1.DefaultRole},
 		},
 	}

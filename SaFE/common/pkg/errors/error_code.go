@@ -60,7 +60,7 @@ const (
 	NodeNotFound = PrimusPrefix + "03002"
 )
 
-// IsPrimus returns true if the condition is met.
+// IsPrimus returns true if error is primus-error
 func IsPrimus(err error) bool {
 	if err == nil {
 		return false

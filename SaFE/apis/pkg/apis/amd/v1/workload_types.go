@@ -27,7 +27,7 @@ const (
 	WorkloadRunning   WorkloadPhase = "Running"
 	// only for deployment/statefulSet
 	WorkloadUpdating WorkloadPhase = "Updating"
-	// only for deployment/statefulSet
+	// only for deployment/statefulSet/AutoscalingRunnerSet
 	WorkloadNotReady WorkloadPhase = "NotReady"
 	WorkloadStopped  WorkloadPhase = "Stopped"
 
@@ -108,6 +108,13 @@ type CronJob struct {
 	Action CronAction `json:"action"`
 }
 
+type SecretEntity struct {
+	// Secret id, required
+	Id string `json:"id"`
+	// Secret type, optional. e.g. ssh/image/default
+	Type SecretType `json:"type"`
+}
+
 type WorkloadSpec struct {
 	// Workload resource requirements
 	Resource WorkloadResource `json:"resource"`
@@ -127,7 +134,8 @@ type WorkloadSpec struct {
 	IsSupervised bool `json:"isSupervised,omitempty"`
 	// Group: An extension field that is not currently in use
 	// Version: version of workload, default value is v1
-	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring, default PyTorchJob
+	// Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet, default PyTorchJob
+	// AutoscalingRunnerSet is a CI/CD configuration, and if enabled, it requires NFS storage support.
 	GroupVersionKind `json:"groupVersionKind"`
 	// Failure retry limit. default: 0
 	MaxRetry int `json:"maxRetry,omitempty"`
@@ -157,6 +165,9 @@ type WorkloadSpec struct {
 	Dependencies []string `json:"dependencies,omitempty"`
 	// Cron Job configuration
 	CronJobs []CronJob `json:"cronJobs,omitempty"`
+	// The secrets used by the workload. Including some token secrets (only for CI/CD) and specified image secrets.
+	// Image secrets automatically use all image secrets bound to the workspace.
+	Secrets []SecretEntity `json:"secrets,omitempty"`
 }
 
 type WorkloadStatus struct {
@@ -407,6 +418,8 @@ func (w *Workload) IsDependenciesFinish() bool {
 	return true
 }
 
+// HasSpecifiedNodes checks if the workload has specified node constraints.
+// It returns true if CustomerLabels contains a non-empty K8sHostName label
 func (w *Workload) HasSpecifiedNodes() bool {
 	if len(w.Spec.CustomerLabels) > 0 {
 		if val, ok := w.Spec.CustomerLabels[K8sHostName]; ok && val != "" {
@@ -414,4 +427,15 @@ func (w *Workload) HasSpecifiedNodes() bool {
 		}
 	}
 	return false
+}
+
+// GetEnv retrieves the value of an environment variable by name from the workload's spec.
+// It returns the value if found, otherwise returns an empty string.
+func (w *Workload) GetEnv(name string) string {
+	for key, val := range w.Spec.Env {
+		if key == name {
+			return val
+		}
+	}
+	return ""
 }
