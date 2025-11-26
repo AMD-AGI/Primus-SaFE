@@ -59,8 +59,8 @@ type ListWorkloadRequest struct {
 	Until string `form:"until" binding:"omitempty"`
 	// Filter by workload ID (fuzzy match)
 	WorkloadId string `form:"workloadId" binding:"omitempty,max=64"`
-	// If it is a CI/CD workload, it would be associated with a scale runner set.
-	ScaleRunnerSet string `json:"scaleRunnerSet,omitempty"`
+	// Filter by scale runner set.
+	ScaleRunnerSet string `form:"scaleRunnerSet" binding:"omitempty,max=64"`
 }
 
 type ListWorkloadResponse struct {

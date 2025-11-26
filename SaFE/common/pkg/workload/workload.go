@@ -248,6 +248,14 @@ func IsCICD(w *v1.Workload) bool {
 	return false
 }
 
+// IsCICDScalingRunnerSet returns true if the workload is an AutoscalingRunnerSet type.
+func IsCICDScalingRunnerSet(w *v1.Workload) bool {
+	if w.SpecKind() == common.CICDScaleRunnerSetKind {
+		return true
+	}
+	return false
+}
+
 // IsJob returns true if the workload is about ops job
 func IsOpsJob(w *v1.Workload) bool {
 	return v1.GetOpsJobId(w) != ""

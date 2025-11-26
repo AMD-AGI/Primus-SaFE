@@ -210,7 +210,8 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 	case v1.K8sFailed, v1.K8sDeleted:
 		if isWorkloadEnd(adminWorkload, status, message.dispatchCount) {
 			adminWorkload.Status.Phase = v1.WorkloadFailed
-		} else if adminWorkload.IsRunning() && commonworkload.IsApplication(adminWorkload) {
+		} else if adminWorkload.IsRunning() &&
+			(commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICDScalingRunnerSet(adminWorkload)) {
 			adminWorkload.Status.Phase = v1.WorkloadNotReady
 		}
 	case v1.K8sRunning:
@@ -305,7 +306,8 @@ func updateWorkloadCondition(adminWorkload *v1.Workload, newCondition *metav1.Co
 // isWorkloadEnd determines if a workload has reached its end state.
 // Considers retry limits and failover settings.
 func isWorkloadEnd(adminWorkload *v1.Workload, status *jobutils.K8sResourceStatus, count int) bool {
-	if commonworkload.IsApplication(adminWorkload) || v1.IsWorkloadPreempted(adminWorkload) {
+	if commonworkload.IsApplication(adminWorkload) || v1.IsWorkloadPreempted(adminWorkload) ||
+		commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
 		return false
 	}
 	switch v1.WorkloadConditionType(status.Phase) {

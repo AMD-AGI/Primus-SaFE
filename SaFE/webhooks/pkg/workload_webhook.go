@@ -858,7 +858,7 @@ func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Wor
 	if !sliceutil.EqualIgnoreOrder(oldWorkload.Spec.Hostpath, newWorkload.Spec.Hostpath) {
 		return commonerrors.NewForbidden("hostpath cannot be changed once the workload has been scheduled")
 	}
-	if commonworkload.IsApplication(newWorkload) || newWorkload.SpecKind() == common.CICDScaleRunnerSetKind {
+	if commonworkload.IsApplication(newWorkload) || commonworkload.IsCICDScalingRunnerSet(newWorkload) {
 		return nil
 	}
 	if oldWorkload.Spec.EntryPoint != newWorkload.Spec.EntryPoint {

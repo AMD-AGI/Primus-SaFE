@@ -22,7 +22,6 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
@@ -171,11 +170,29 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 	if shouldUpdateNodes {
 		r.updateWorkloadNodes(adminWorkload, message)
 	}
-	if adminWorkload.SpecKind() == common.CICDScaleRunnerSetKind &&
-		len(adminWorkload.Status.Pods) > 0 {
-		adminWorkload.Status.Phase = v1.WorkloadPhase(adminWorkload.Status.Pods[0].Phase)
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		updateCICDScalingRunnerSetPhase(adminWorkload)
 	}
 	return ctrlruntime.Result{}, r.Status().Update(ctx, adminWorkload)
+}
+
+// updateCICDScalingRunnerSetPhase updates the workload phase for CICD scaling runner sets
+// based on the phase of its first pod, since these workloads don't have inherent status.
+// Running pods result in WorkloadRunning status, pending pods result in WorkloadPending,
+// and all other pod phases result in WorkloadNotReady status.
+func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload) {
+	if len(adminWorkload.Status.Pods) == 0 {
+		adminWorkload.Status.Phase = v1.WorkloadPending
+	} else {
+		switch adminWorkload.Status.Pods[0].Phase {
+		case corev1.PodRunning:
+			adminWorkload.Status.Phase = v1.WorkloadRunning
+		case corev1.PodPending:
+			adminWorkload.Status.Phase = v1.WorkloadPending
+		default:
+			adminWorkload.Status.Phase = v1.WorkloadNotReady
+		}
+	}
 }
 
 // updateWorkloadNodes updates the node information for a workload.
