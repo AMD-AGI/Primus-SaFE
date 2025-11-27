@@ -36,6 +36,8 @@ type CreateSecretRequest struct {
 	// each server can have only one auth entry.
 	// Multiple auths may be created for image secret, so the params is a slice
 	Params []map[SecretParam]string `json:"params"`
+	// The secret owner, For internal use.
+	Owner string `json:"-"`
 }
 
 type CreateSecretResponse struct {
