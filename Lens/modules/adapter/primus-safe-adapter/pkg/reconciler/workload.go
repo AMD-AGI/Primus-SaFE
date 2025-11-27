@@ -64,13 +64,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, err
 	}
 	if workload.DeletionTimestamp != nil {
-		// Use raw patch with resource version to remove finalizer
-		finalizers := []string{}
-		for _, f := range workload.Finalizers {
-			if f != constant.PrimusLensGpuWorkloadExporterFinalizer {
-				finalizers = append(finalizers, f)
-			}
+		if !controllerutil.RemoveFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {
+			return reconcile.Result{}, nil
 		}
+		finalizers := workload.GetFinalizers()
 		patchObj := map[string]any{
 			"metadata": map[string]any{
 				"resourceVersion": workload.ResourceVersion,
@@ -88,9 +85,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		}
 		return reconcile.Result{}, nil
 	}
-	if !controllerutil.ContainsFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {
+	if controllerutil.AddFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {
 		// Use raw patch with resource version to add finalizer
-		finalizers := append(workload.Finalizers, constant.PrimusLensGpuWorkloadExporterFinalizer)
+		finalizers := workload.GetFinalizers()
 		patchObj := map[string]any{
 			"metadata": map[string]any{
 				"resourceVersion": workload.ResourceVersion,
