@@ -12,13 +12,6 @@ import (
 	"strings"
 	"time"
 
-	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
-	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
-	rmutils "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -30,6 +23,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	rmutils "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
 type PrewarmJobReconciler struct {
@@ -181,7 +182,7 @@ func (r *PrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context, job 
 	}
 
 	// Get DaemonSet status
-	ds, err := k8sClients.ClientSet().AppsV1().DaemonSets(common.DefaultNamespace).Get(ctx, dsName, metav1.GetOptions{})
+	ds, err := k8sClients.ClientSet().AppsV1().DaemonSets(common.PrimusSafeNamespace).Get(ctx, dsName, metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			const gracePeriod = 30 * time.Second
@@ -277,7 +278,7 @@ func (r *PrewarmJobReconciler) buildJobOutputs(status, message string, ready, de
 // getFailedPodsInfo retrieves information about failed pods in the DaemonSet
 func (r *PrewarmJobReconciler) getFailedPodsInfo(ctx context.Context, k8sClients *k8sclient.ClientFactory, dsName string) string {
 	labelSelector := fmt.Sprintf("app=%s", dsName)
-	pods, err := k8sClients.ClientSet().CoreV1().Pods(common.DefaultNamespace).List(ctx, metav1.ListOptions{
+	pods, err := k8sClients.ClientSet().CoreV1().Pods(common.PrimusSafeNamespace).List(ctx, metav1.ListOptions{
 		LabelSelector: labelSelector,
 	})
 	if err != nil {
@@ -321,7 +322,7 @@ func (r *PrewarmJobReconciler) getFailedPodsInfo(ctx context.Context, k8sClients
 
 // daemonSetExists checks if a DaemonSet with the given name exists
 func (r *PrewarmJobReconciler) daemonSetExists(ctx context.Context, k8sClients *k8sclient.ClientFactory, dsName string) (bool, error) {
-	_, err := k8sClients.ClientSet().AppsV1().DaemonSets(common.DefaultNamespace).Get(ctx, dsName, metav1.GetOptions{})
+	_, err := k8sClients.ClientSet().AppsV1().DaemonSets(common.PrimusSafeNamespace).Get(ctx, dsName, metav1.GetOptions{})
 	if err != nil {
 		klog.ErrorS(err, "Error checking DaemonSet existence", "daemonset", dsName)
 		return false, err
@@ -337,7 +338,7 @@ func (r *PrewarmJobReconciler) createPrewarmDaemonSet(ctx context.Context, k8sCl
 	ds := &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      dsName,
-			Namespace: common.DefaultNamespace,
+			Namespace: common.PrimusSafeNamespace,
 		},
 		Spec: appsv1.DaemonSetSpec{
 			Selector: &metav1.LabelSelector{
@@ -370,7 +371,7 @@ func (r *PrewarmJobReconciler) createPrewarmDaemonSet(ctx context.Context, k8sCl
 			},
 		},
 	}
-	ds, err := k8sClients.ClientSet().AppsV1().DaemonSets(common.DefaultNamespace).Create(ctx, ds, metav1.CreateOptions{})
+	ds, err := k8sClients.ClientSet().AppsV1().DaemonSets(common.PrimusSafeNamespace).Create(ctx, ds, metav1.CreateOptions{})
 	if err != nil {
 		klog.ErrorS(err, "Failed to create DaemonSet", "daemonset", dsName, "image", image)
 		return nil, err
@@ -418,7 +419,7 @@ func (r *PrewarmJobReconciler) updatePrewarmProgress(ctx context.Context, jobNam
 // deleteDaemonSet deletes the DaemonSet after image prewarming is complete
 func (r *PrewarmJobReconciler) deleteDaemonSet(ctx context.Context, k8sClients *k8sclient.ClientFactory, dsName string) error {
 
-	err := k8sClients.ClientSet().AppsV1().DaemonSets(common.DefaultNamespace).Delete(ctx, dsName, metav1.DeleteOptions{})
+	err := k8sClients.ClientSet().AppsV1().DaemonSets(common.PrimusSafeNamespace).Delete(ctx, dsName, metav1.DeleteOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			klog.V(4).Infof("DaemonSet %s already deleted", dsName)

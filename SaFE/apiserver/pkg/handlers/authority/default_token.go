@@ -67,8 +67,7 @@ func (t *defaultToken) Login(ctx context.Context, input TokenInput) (*v1.User, *
 	if err != nil {
 		return nil, nil, commonerrors.NewUserNotRegistered(input.Username)
 	}
-	// Validate password if set
-	if user.Spec.Password != "" && user.Spec.Password != stringutil.Base64Encode(input.Password) {
+	if user.Spec.Password != stringutil.Base64Encode(input.Password) {
 		return nil, nil, commonerrors.NewUnauthorized("the password is incorrect")
 	}
 
@@ -134,7 +133,7 @@ func generateDefaultToken(userId string, expire int64) (string, error) {
 	if userId == "" {
 		return "", fmt.Errorf("invalid token item parameters")
 	}
-	tokenStr := userId + TokenDelim + strconv.FormatInt(expire, 10) + TokenDelim + string(v1.DefaultUser)
+	tokenStr := userId + TokenDelim + strconv.FormatInt(expire, 10) + TokenDelim + string(v1.DefaultUserType)
 	if !commonconfig.IsCryptoEnable() {
 		return tokenStr, nil
 	}

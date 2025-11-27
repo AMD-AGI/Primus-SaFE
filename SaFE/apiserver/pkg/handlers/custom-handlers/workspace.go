@@ -7,12 +7,14 @@ package custom_handlers
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -30,8 +32,10 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
+	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -101,7 +105,7 @@ func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", string(body))
 		return nil, err
 	}
-	workspace, err := h.generateWorkspace(c, req)
+	workspace, err := h.generateWorkspace(c.Request.Context(), requestUser, req)
 	if err != nil {
 		return nil, err
 	}
@@ -219,8 +223,14 @@ func (h *Handler) deleteWorkspace(c *gin.Context) (interface{}, error) {
 // patchWorkspace implements partial update logic for a workspace.
 // Parses the patch request and applies specified changes to the workspace.
 func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+
 	ctx := c.Request.Context()
-	workspace, err := h.getAdminWorkspace(ctx, c.GetString(common.Name))
+	name := c.GetString(common.Name)
+	workspace, err := h.getAdminWorkspace(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +239,7 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 		Resource:   workspace,
 		Verb:       v1.UpdateVerb,
 		Workspaces: []string{workspace.Name},
-		UserId:     c.GetString(common.UserId),
+		User:       requestUser,
 	}); err != nil {
 		return nil, err
 	}
@@ -241,22 +251,34 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	originalWorkspace := client.MergeFrom(workspace.DeepCopy())
-	if err = h.updateWorkspace(ctx, workspace, req); err != nil {
+	if err = backoff.ConflictRetry(func() error {
+		var innerError error
+		if innerError = h.modifyWorkspace(ctx, workspace, requestUser, req); innerError != nil {
+			return innerError
+		}
+		if innerError = h.Update(ctx, workspace); innerError == nil {
+			return nil
+		} else {
+			if apierrors.IsConflict(innerError) {
+				if workspace, _ = h.getAdminWorkspace(ctx, name); workspace == nil {
+					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("The workspace %s is not found", name))
+				}
+			}
+			return innerError
+		}
+	}, defaultRetryCount, defaultRetryDelay); err != nil {
+		klog.ErrorS(err, "failed to update workspace", "name", workspace.Name)
 		return nil, err
 	}
-	if err = h.Patch(ctx, workspace, originalWorkspace); err != nil {
-		klog.ErrorS(err, "failed to patch workspace", "data", string(body))
-		return nil, err
-	}
-	klog.Infof("patch workspace, name: %s, request: %s", workspace.Name, string(jsonutils.MarshalSilently(*req)))
+	klog.Infof("update workspace, name: %s, request: %s",
+		workspace.Name, string(jsonutils.MarshalSilently(*req)))
 	return nil, nil
 }
 
-// updateWorkspace applies updates to a workspace based on the patch request.
+// modifyWorkspace applies updates to a workspace based on the patch request.
 // Handles changes to description, flavor, replica count, queue policy, scopes,
 // volumes, preemption settings, managers, default status, and image secrets.
-func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, req *types.PatchWorkspaceRequest) error {
+func (h *Handler) modifyWorkspace(ctx context.Context, workspace *v1.Workspace, requestUser *v1.User, req *types.PatchWorkspaceRequest) error {
 	if req.Description != nil {
 		v1.SetAnnotation(workspace, v1.DescriptionAnnotation, *req.Description)
 	}
@@ -285,7 +307,7 @@ func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, 
 		workspace.Spec.IsDefault = *req.IsDefault
 	}
 	if req.ImageSecretIds != nil {
-		if err := h.updateWorkspaceImageSecrets(ctx, workspace, *req.ImageSecretIds); err != nil {
+		if err := h.updateWorkspaceImageSecrets(ctx, workspace, requestUser, *req.ImageSecretIds); err != nil {
 			return err
 		}
 	}
@@ -294,12 +316,21 @@ func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, 
 
 // updateWorkspaceImageSecrets updates the image secrets associated with a workspace.
 // Retrieves secret objects by ID and updates the workspace's image secret references.
-func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1.Workspace, secretIds []string) error {
+func (h *Handler) updateWorkspaceImageSecrets(ctx context.Context, workspace *v1.Workspace, requestUser *v1.User, secretIds []string) error {
 	var imageSecrets []corev1.ObjectReference
 	for _, id := range secretIds {
-		secret, err := h.getAdminSecret(ctx, id)
+		secret, err := h.getAndAuthorizeSecret(ctx, id, workspace.Name, requestUser, v1.ListVerb)
 		if err != nil {
 			return err
+		}
+		if v1.GetSecretType(secret) != string(v1.SecretImage) {
+			return commonerrors.NewBadRequest("the secret type is not image")
+		}
+		workspaceIds := commonsecret.GetSecretWorkspaces(secret)
+		if !sliceutil.Contains(workspaceIds, workspace.Name) {
+			klog.Errorf("secret(%s) workspaces %v do not include target workspace %s",
+				id, workspaceIds, workspace.Name)
+			return commonerrors.NewBadRequest("the secret is not associated with the workspace")
 		}
 		imageSecrets = append(imageSecrets, *commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
 	}
@@ -391,16 +422,17 @@ func (h *Handler) removeWorkspaceManager(ctx context.Context, workspaceId, userI
 
 // generateWorkspace creates a new workspace object based on the creation request.
 // Validates the request parameters and populates the workspace specification.
-func (h *Handler) generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRequest) (*v1.Workspace, error) {
+func (h *Handler) generateWorkspace(ctx context.Context,
+	requestUser *v1.User, req *types.CreateWorkspaceRequest) (*v1.Workspace, error) {
 	workspace := &v1.Workspace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: stringutil.NormalizeName(req.ClusterId + "-" + req.Name),
 			Labels: map[string]string{
 				v1.DisplayNameLabel: req.Name,
-				v1.UserIdLabel:      c.GetString(common.UserId),
+				v1.UserIdLabel:      requestUser.Name,
 			},
 			Annotations: map[string]string{
-				v1.UserNameAnnotation:    c.GetString(common.UserName),
+				v1.UserNameAnnotation:    v1.GetUserName(requestUser),
 				v1.DescriptionAnnotation: req.Description,
 			},
 		},
@@ -419,7 +451,7 @@ func (h *Handler) generateWorkspace(c *gin.Context, req *types.CreateWorkspaceRe
 	if len(workspace.Spec.Scopes) == 0 {
 		workspace.Spec.Scopes = []v1.WorkspaceScope{v1.TrainScope, v1.InferScope, v1.AuthoringScope}
 	}
-	err := h.updateWorkspaceImageSecrets(c.Request.Context(), workspace, req.ImageSecretIds)
+	err := h.updateWorkspaceImageSecrets(ctx, workspace, requestUser, req.ImageSecretIds)
 	if err != nil {
 		return nil, err
 	}

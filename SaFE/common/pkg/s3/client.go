@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,9 +21,7 @@ const (
 	DefaultTimeout = 180
 )
 
-// Option Expiration time can only be configured for subdirectories.
 type Option struct {
-	Subdir    string
 	ExpireDay int32
 }
 
@@ -65,9 +62,6 @@ func newFromConfig(config *Config, opt Option) (*Client, error) {
 		opt:      opt,
 		s3Client: s3Client,
 	}
-	if !strings.HasSuffix(cli.opt.Subdir, "/") {
-		cli.opt.Subdir += "/"
-	}
 	return cli, nil
 }
 
@@ -96,7 +90,6 @@ func (c *Client) setLifecycleRule(ctx context.Context) error {
 			Rules: []types.LifecycleRule{
 				{
 					ID:     aws.String(fmt.Sprintf("expire-after-%d-day", c.opt.ExpireDay)),
-					Prefix: pointer.String(c.opt.Subdir),
 					Status: types.ExpirationStatusEnabled,
 					Expiration: &types.LifecycleExpiration{
 						Days: pointer.Int32(c.opt.ExpireDay),
@@ -121,7 +114,7 @@ func (c *Client) CreateMultiPartUpload(ctx context.Context, key string, timeout 
 
 	resp, err := c.s3Client.CreateMultipartUpload(timeoutCtx, &s3.CreateMultipartUploadInput{
 		Bucket: c.Bucket,
-		Key:    aws.String(c.WithPrefixKey(key)),
+		Key:    aws.String(key),
 	})
 	if err != nil {
 		return "", err
@@ -136,7 +129,7 @@ func (c *Client) MultiPartUpload(ctx context.Context, param *MultiUploadParam, t
 	}
 	input := &s3.UploadPartInput{
 		Bucket:     c.Bucket,
-		Key:        aws.String(c.WithPrefixKey(param.Key)),
+		Key:        aws.String(param.Key),
 		UploadId:   aws.String(param.UploadId),
 		PartNumber: pointer.Int32(param.PartNumber),
 		Body:       bytes.NewReader([]byte(param.Value)),
@@ -167,7 +160,7 @@ func (c *Client) CompleteMultiPartUpload(ctx context.Context,
 
 	input := &s3.CompleteMultipartUploadInput{
 		Bucket:          c.Bucket,
-		Key:             aws.String(c.WithPrefixKey(param.Key)),
+		Key:             aws.String(param.Key),
 		UploadId:        aws.String(param.UploadId),
 		MultipartUpload: &types.CompletedMultipartUpload{Parts: param.CompletedParts},
 	}
@@ -187,7 +180,7 @@ func (c *Client) AbortMultiPartUpload(ctx context.Context, param *MultiUploadPar
 	}
 	input := &s3.AbortMultipartUploadInput{
 		Bucket:   c.Bucket,
-		Key:      aws.String(c.WithPrefixKey(param.Key)),
+		Key:      aws.String(param.Key),
 		UploadId: aws.String(param.UploadId),
 	}
 	timeoutCtx, cancel := WithOptionalTimeout(ctx, timeout)
@@ -207,7 +200,7 @@ func (c *Client) PutObject(ctx context.Context, key, value string, timeout int64
 	}
 	input := &s3.PutObjectInput{
 		Bucket: c.Bucket,
-		Key:    aws.String(c.WithPrefixKey(key)),
+		Key:    aws.String(key),
 		Body:   bytes.NewReader([]byte(value)),
 	}
 	timeoutCtx, cancel := WithOptionalTimeout(ctx, timeout)
@@ -229,7 +222,7 @@ func (c *Client) DeleteObject(ctx context.Context, key string, timeout int64) er
 
 	_, err := c.s3Client.DeleteObject(timeoutCtx, &s3.DeleteObjectInput{
 		Bucket: c.Bucket,
-		Key:    aws.String(c.WithPrefixKey(key)),
+		Key:    aws.String(key),
 	})
 	if err != nil {
 		return err
@@ -243,7 +236,7 @@ func (c *Client) GeneratePresignedURL(ctx context.Context, key string, expireHou
 
 	resp, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket: c.Bucket,
-		Key:    aws.String(c.WithPrefixKey(key)),
+		Key:    aws.String(key),
 	}, func(o *s3.PresignOptions) {
 		o.Expires = time.Duration(expireHour) * time.Hour
 	})
@@ -251,11 +244,6 @@ func (c *Client) GeneratePresignedURL(ctx context.Context, key string, expireHou
 		return "", err
 	}
 	return resp.URL, nil
-}
-
-// WithPrefixKey add subdirectory prefix to object key name.
-func (c *Client) WithPrefixKey(key string) string {
-	return c.opt.Subdir + key
 }
 
 // WithOptionalTimeout add optional timeout to context.

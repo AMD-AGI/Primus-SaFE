@@ -25,6 +25,7 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	unstructuredutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/unstructured"
 )
 
@@ -76,6 +77,10 @@ func TestCreatePytorchJob(t *testing.T) {
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Spec.Workspace = workspace.Name
+	workload.Spec.Secrets = []v1.SecretEntity{{
+		Id:   workspace.Spec.ImageSecrets[0].Name,
+		Type: v1.SecretImage,
+	}}
 	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 
 	configmap, err := parseConfigmap(TestPytorchJobTemplateConfig)
@@ -96,7 +101,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0])
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkImage(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload.Spec.Image, &templates[0])
 	checkLabels(t, obj, workload, &templates[0])
 	checkHostNetwork(t, obj, workload, &templates[0])
 	checkTolerations(t, obj, workload, &templates[0])
@@ -118,7 +123,7 @@ func TestCreatePytorchJob(t *testing.T) {
 	checkVolumeMounts(t, obj, &templates[1])
 	checkVolumes(t, obj, workload, &templates[1])
 	checkNodeSelectorTerms(t, obj, workload, &templates[1])
-	checkImage(t, obj, workload, &templates[1])
+	checkImage(t, obj, workload.Spec.Image, &templates[1])
 	checkLabels(t, obj, workload, &templates[1])
 	checkHostNetwork(t, obj, workload, &templates[1])
 	checkTolerations(t, obj, workload, &templates[1])
@@ -165,7 +170,7 @@ func TestCreateDeployment(t *testing.T) {
 	checkVolumeMounts(t, obj, &templates[0])
 	checkVolumes(t, obj, workload, &templates[0])
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
-	checkImage(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload.Spec.Image, &templates[0])
 	checkLabels(t, obj, workload, &templates[0])
 	checkHostNetwork(t, obj, workload, &templates[0])
 	checkSelector(t, obj, workload)
@@ -179,7 +184,7 @@ func TestUpdateDeployment(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
-	err = updateUnstructuredObject(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
+	err = updateUnstructuredObject(workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	deployment := &appsv1.Deployment{}
 	err = unstructuredutils.ConvertUnstructuredToObject(workloadObj, deployment)
@@ -224,7 +229,7 @@ func TestUpdatePytorchJob(t *testing.T) {
 	}
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.EnableHostNetworkAnnotation, "true")
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
-	err = updateUnstructuredObject(workloadObj, adminWorkload, jobutils.TestPytorchResourceTemplate)
+	err = updateUnstructuredObject(workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
 
 	pytorchJob := &PytorchJob{}
@@ -266,7 +271,7 @@ func TestUpdatePytorchJobMaster(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	adminWorkload.Spec.Resource.RdmaResource = ""
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "pytorch")
-	err = updateUnstructuredObject(workloadObj, adminWorkload, jobutils.TestPytorchResourceTemplate)
+	err = updateUnstructuredObject(workloadObj, adminWorkload, nil, jobutils.TestPytorchResourceTemplate)
 	assert.NilError(t, err)
 
 	pytorchJob := &PytorchJob{}
@@ -374,7 +379,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	metav1.SetMetaDataAnnotation(&adminWorkload.ObjectMeta, v1.MainContainerAnnotation, "test")
 
-	err = updateUnstructuredObject(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
+	err = updateUnstructuredObject(workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	envs, err := jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
 	assert.NilError(t, err)
@@ -396,7 +401,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 		"NCCL_SOCKET_IFNAME": "eth1",
 		"key":                "val",
 	}
-	err = updateUnstructuredObject(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
+	err = updateUnstructuredObject(workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
 	assert.NilError(t, err)
@@ -418,7 +423,7 @@ func TestUpdateDeploymentEnv(t *testing.T) {
 		"NCCL_SOCKET_IFNAME": "eth1",
 		"key":                "",
 	}
-	err = updateUnstructuredObject(workloadObj, adminWorkload, jobutils.TestDeploymentTemplate)
+	err = updateUnstructuredObject(workloadObj, adminWorkload, nil, jobutils.TestDeploymentTemplate)
 	assert.NilError(t, err)
 	envs, err = jobutils.GetEnv(workloadObj, jobutils.TestDeploymentTemplate, "test")
 	assert.NilError(t, err)
@@ -467,10 +472,153 @@ func TestCreateK8sJob(t *testing.T) {
 	checkPorts(t, obj, workload, &templates[0])
 	checkNodeSelectorTerms(t, obj, workload, &templates[0])
 	checkEnvs(t, obj, workload, &templates[0])
-	checkImage(t, obj, workload, &templates[0])
+	checkImage(t, obj, workload.Spec.Image, &templates[0])
 	checkLabels(t, obj, workload, &templates[0])
 	checkHostNetwork(t, obj, workload, &templates[0])
 	checkHostPid(t, obj, workload, &templates[0])
 	checkPriorityClass(t, obj, workload, &templates[0])
 	checkSecurityContext(t, obj, workload, &templates[0])
+}
+
+func TestCreateCICDScaleSet(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
+		Version: "v1",
+		Kind:    common.CICDScaleRunnerSetKind,
+	}
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}
+	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
+	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.EntryPoint = stringutil.Base64Encode("bash test.sh")
+
+	configmap, err := parseConfigmap(TestCICDScaleSetTemplateConfig)
+	assert.NilError(t, err)
+	metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap,
+		jobutils.TestCICDScaleSetTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload)
+	assert.NilError(t, err)
+	// fmt.Println(unstructuredutils.ToString(obj))
+
+	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
+	checkGithubConfig(t, obj)
+	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkLabels(t, obj, workload, &templates[0])
+	checkSecurityContext(t, obj, workload, &templates[0])
+	checkEnvs(t, obj, workload, &templates[0])
+	checkImage(t, obj, "docker.io/primussafe/cicd-runner-proxy:latest", &templates[0])
+	checkHostNetwork(t, obj, workload, &templates[0])
+	envs := getEnvs(t, obj, &templates[0])
+	checkCICDEnvs(t, envs, workload, true)
+
+	assert.Equal(t, getContainer(obj, "runner", &templates[0]) != nil, true)
+	assert.Equal(t, getContainer(obj, "unified_job", &templates[0]) != nil, false)
+}
+
+func TestCICDScaleSetWithUnifiedJob(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{
+		Version: "v1",
+		Kind:    common.CICDScaleRunnerSetKind,
+	}
+	workload.Spec.Resource.Replica = 2
+	workload.Spec.Secrets = []v1.SecretEntity{{Id: "test-secret", Type: v1.SecretGeneral}}
+	workload.Spec.Env[common.GithubConfigUrl] = "test-url"
+	workload.Spec.Env[common.AdminControlPlane] = "10.0.0.1"
+	workload.Spec.Env[common.UnifiedJobEnable] = v1.TrueStr
+	workload.Spec.Workspace = workspace.Name
+
+	configmap, err := parseConfigmap(TestCICDScaleSetTemplateConfig)
+	assert.NilError(t, err)
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	adminClient := fake.NewClientBuilder().WithObjects(configmap,
+		jobutils.TestCICDScaleSetTemplate, workspace).WithScheme(scheme).Build()
+
+	r := DispatcherReconciler{Client: adminClient}
+	obj, err := r.generateK8sObject(context.Background(), workload)
+	assert.NilError(t, err)
+	// fmt.Println(unstructuredutils.ToString(obj))
+
+	templates := jobutils.TestJobTemplate.Spec.ResourceSpecs
+	checkNodeSelectorTerms(t, obj, workload, &templates[0])
+	checkLabels(t, obj, workload, &templates[0])
+	checkSecurityContext(t, obj, workload, &templates[0])
+	checkEnvs(t, obj, workload, &templates[0])
+	checkHostNetwork(t, obj, workload, &templates[0])
+
+	checkCICDContainer(t, obj, workload, &templates[0],
+		"runner", "docker.io/primussafe/cicd-runner-proxy:latest")
+	checkCICDContainer(t, obj, workload, &templates[0],
+		"unified_job", "docker.io/primussafe/cicd-unified-job-proxy:latest")
+}
+
+func checkGithubConfig(t *testing.T, obj *unstructured.Unstructured) {
+	specObject, found, err := unstructured.NestedMap(obj.Object, []string{"spec"}...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, len(specObject) == 0, false)
+
+	val, found := specObject["githubConfigSecret"]
+	assert.Equal(t, found, true)
+	assert.Equal(t, val.(string), "test-secret")
+
+	val, found = specObject["githubConfigUrl"]
+	assert.Equal(t, found, true)
+	assert.Equal(t, val.(string), "test-url")
+}
+
+func checkCICDContainer(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload,
+	resourceSpec *v1.ResourceSpec, containerName, containerImage string) {
+	container := getContainer(obj, containerName, resourceSpec)
+	assert.Equal(t, container != nil, true)
+	image, found, err := unstructured.NestedString(container, []string{"image"}...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, image, containerImage)
+	envs, found, err := unstructured.NestedSlice(container, []string{"env"}...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+
+	needCheckResource := false
+	if containerName == v1.GetMainContainer(workload) {
+		needCheckResource = true
+	}
+	checkCICDEnvs(t, envs, workload, needCheckResource)
+}
+
+func checkCICDEnvs(t *testing.T, envs []interface{}, workload *v1.Workload, needCheckResource bool) {
+	var ok bool
+	if needCheckResource {
+		ok = findEnv(envs, jobutils.EntrypointEnv, buildEntryPoint(workload))
+		assert.Equal(t, ok, true)
+		ok = findEnv(envs, jobutils.ImageEnv, workload.Spec.Image)
+		assert.Equal(t, ok, true)
+		ok = findEnv(envs, jobutils.ResourcesEnv, string(jsonutils.MarshalSilently(workload.Spec.Resource)))
+		assert.Equal(t, ok, true)
+	}
+	ok = findEnv(envs, common.ScaleRunnerSetID, workload.Name)
+	assert.Equal(t, ok, true)
+	ok = findEnv(envs, common.AdminControlPlane, "10.0.0.1")
+	assert.Equal(t, ok, true)
+	ok = findEnv(envs, "APISERVER_NODE_PORT", "32495")
+	assert.Equal(t, ok, true)
+
+	val, ok := workload.Spec.Env[common.UnifiedJobEnable]
+	if ok && val == v1.TrueStr {
+		ok = findEnv(envs, common.UnifiedJobEnable, v1.TrueStr)
+		assert.Equal(t, ok, true)
+		ok = findEnv(envs, jobutils.NfsInputEnv, UnifiedJobInput)
+		assert.Equal(t, ok, true)
+		ok = findEnv(envs, jobutils.NfsOutputEnv, UnifiedJobOutput)
+		assert.Equal(t, ok, true)
+	}
 }

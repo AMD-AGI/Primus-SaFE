@@ -16,16 +16,17 @@ func Difference(m1, m2 map[string]string) map[string]string {
 	return result
 }
 
-// Merge combines two maps, with m1's values taking precedence over m2's values for duplicate keys.
-func Merge(m1, m2 map[string]string) map[string]string {
-	result := make(map[string]string)
+// Append combines two maps into one, with an option to control whether existing keys in m1 should be overwritten by those from m2.
+// Returns the modified m1 after appending m2 to it based on the overwrite rule.
+func Append(m1, m2 map[string]string, overwrite bool) map[string]string {
 	for key, value := range m2 {
-		result[key] = value
+		_, ok := m1[key]
+		if ok && !overwrite {
+			continue
+		}
+		m1[key] = value
 	}
-	for key, value := range m1 {
-		result[key] = value
-	}
-	return result
+	return m1
 }
 
 // EqualIgnoreOrder checks if two maps have the same key-value pairs regardless of order.

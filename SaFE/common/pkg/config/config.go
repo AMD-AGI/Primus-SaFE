@@ -384,3 +384,19 @@ func GetSSOEndpoint() string {
 func GetSSORedirectURI() string {
 	return getFromFile(ssoSecretPath, "redirect_uri")
 }
+
+func IsCICDEnable() bool {
+	return getBool(cicdEnable, false)
+}
+
+func GetCICDRoleName() string {
+	return getString(cicdRoleName, "")
+}
+
+func GetCICDControllerName() string {
+	return getString(cicdControllerName, "")
+}
+
+func GetCICDControllerNamespace() string {
+	return getString(cicdControllerNamespace, "")
+}

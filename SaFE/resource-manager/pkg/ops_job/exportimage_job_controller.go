@@ -305,7 +305,7 @@ func (r *ExportImageJobReconciler) getHarborCredentials(ctx context.Context, reg
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, apitypes.NamespacedName{
 		Name:      common.ImageImportSecretName,
-		Namespace: common.DefaultNamespace,
+		Namespace: common.PrimusSafeNamespace,
 	}, secret); err != nil {
 		return "", "", fmt.Errorf("failed to get secret %s: %w", common.ImageImportSecretName, err)
 	}

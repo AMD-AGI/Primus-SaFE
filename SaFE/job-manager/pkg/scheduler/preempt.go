@@ -11,12 +11,14 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 type WorkloadWrapper struct {
@@ -38,14 +40,21 @@ func (r *SchedulerReconciler) preempt(ctx context.Context, requestWorkload *v1.W
 		return false, err
 	}
 	if len(targetWorkloads) == 0 {
-		klog.Infof("workoad %s: Unable to obtain sufficient workloads to preempt resources. request", requestWorkload.Name)
+		klog.Infof("workload %s: Unable to obtain sufficient workloads to preempt resources.", requestWorkload.Name)
 		return false, nil
 	}
 	for _, w := range targetWorkloads {
-		originalWorkload := client.MergeFrom(w.DeepCopy())
-		v1.SetAnnotation(w, v1.WorkloadPreemptedAnnotation, time.Now().UTC().String())
-		if err = r.Patch(ctx, w, originalWorkload); err != nil {
-			klog.ErrorS(err, "failed to patch workload")
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"resourceVersion": w.ResourceVersion,
+				"annotations": map[string]any{
+					v1.WorkloadPreemptedAnnotation: time.Now().UTC().String(),
+				},
+			},
+		}
+		p := jsonutils.MarshalSilently(patchObj)
+		if err = r.Patch(ctx, w, client.RawPatch(types.MergePatchType, p)); err != nil {
+			klog.ErrorS(err, "failed to update workload")
 			return false, err
 		}
 		klog.Infof("the workload(%s) is preempted due to workload(%s)", w.Name, requestWorkload.Name)

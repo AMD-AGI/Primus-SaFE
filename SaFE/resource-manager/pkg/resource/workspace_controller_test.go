@@ -88,6 +88,12 @@ func TestDeleteWorkspace(t *testing.T) {
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: workspace.Name}, workspace)
 	assert.NilError(t, err)
 	assert.Equal(t, workspace.Status.Phase, v1.WorkspaceDeleting)
+	assert.Equal(t, controllerutil.ContainsFinalizer(workspace, v1.WorkspaceFinalizer), true)
+
+	r.observeNode(workspace.Name, adminNode1.Name)
+	r.observeNode(workspace.Name, adminNode2.Name)
+	err = r.delete(context.Background(), workspace)
+	assert.NilError(t, err)
 	assert.Equal(t, controllerutil.ContainsFinalizer(workspace, v1.WorkspaceFinalizer), false)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: adminNode1.Name}, adminNode1)
 	assert.NilError(t, err)
@@ -100,6 +106,12 @@ func TestDeleteWorkspace(t *testing.T) {
 func TestReconcile(t *testing.T) {
 	nodeFlavor := genMockNodeFlavor()
 	clusterName := "cluster"
+	cluster := &v1.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: clusterName,
+		},
+	}
+
 	workspace := genMockWorkspace(clusterName, nodeFlavor.Name, 2)
 	workspace.Status.Phase = v1.WorkspaceAbnormal
 	adminNode1 := genMockAdminNode("node1", clusterName, nodeFlavor)
@@ -108,10 +120,16 @@ func TestReconcile(t *testing.T) {
 	adminNode2.Status.Unschedulable = true
 	metav1.SetMetaDataLabel(&adminNode2.ObjectMeta, v1.WorkspaceIdLabel, workspace.Name)
 
-	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace).
+	adminClient := fake.NewClientBuilder().WithObjects(adminNode1, adminNode2, workspace, cluster).
 		WithStatusSubresource(workspace).WithScheme(scheme.Scheme).Build()
 	r := newMockWorkspaceReconciler(adminClient)
-	k8sClients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), clusterName, nil)
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: workspace.Name,
+		},
+	}
+	k8sClient := k8sfake.NewClientset(ns)
+	k8sClients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), clusterName, k8sClient)
 	r.clientManager.AddOrReplace(clusterName, k8sClients)
 
 	req := ctrlruntime.Request{
@@ -121,9 +139,9 @@ func TestReconcile(t *testing.T) {
 	assert.NilError(t, err)
 	err = adminClient.Get(context.Background(), client.ObjectKey{Name: workspace.Name}, workspace)
 	assert.NilError(t, err)
-	assert.Equal(t, workspace.Status.Phase, v1.WorkspaceRunning)
 	assert.Equal(t, workspace.Status.AvailableReplica, 1)
 	assert.Equal(t, workspace.Status.AbnormalReplica, 1)
+	assert.Equal(t, workspace.Status.Phase, v1.WorkspaceRunning)
 }
 
 func TestScaleUpWorkspace(t *testing.T) {

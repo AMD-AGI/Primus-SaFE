@@ -63,7 +63,7 @@ Create a new workspace in a cluster.
 | flavorId | string | Yes | Node flavor ID                                                                                                                           |
 | replica | int | No | Expected number of nodes                                                                                                                 |
 | queuePolicy | string | No | Queue policy: fifo (first-in-first-out)/balance (load balancing), default fifo                                                           |
-| scopes | []string | No | Supported service modules: Train/Infer/Authoring, no limitation if not specified                                                         |
+| scopes | []string | No | Supported service modules: Train/Infer/Authoring/CICD, no limitation if not specified                                                    |
 | volumes | []object | No | Storage volume configuration list                                                                                                        |
 | enablePreempt | bool | No | Whether to enable preemption, default false.  If enabled, higher-priority workload will preempt the lower-priority one in this workspace |
 | managers | []string | No | List of manager user IDs                                                                                                                 |
@@ -398,11 +398,12 @@ Add or remove nodes from a workspace.
 
 ## Service Modules
 
-| Module | Description |
-|--------|-------------|
-| Train | Training tasks |
-| Infer | Inference services |
+| Module    | Description          |
+|-----------|----------------------|
+| Train     | Training jobs        |
+| Infer     | Inference services   |
 | Authoring | Development environment |
+| CICD      | CICD runner            |
 
 ## Resource Quota
 

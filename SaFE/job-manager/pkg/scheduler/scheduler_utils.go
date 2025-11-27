@@ -103,7 +103,7 @@ func buildReason(workload *v1.Workload, podResources corev1.ResourceList, nodes 
 		reason = fmt.Sprintf("Insufficient %s due to node fragmentation", formatResourceName(key))
 	}
 	if len(workload.Spec.CustomerLabels) > 0 {
-		reason += "or not enough nodes match the specified label."
+		reason += " or not enough nodes match the specified label."
 	}
 	return reason
 }
