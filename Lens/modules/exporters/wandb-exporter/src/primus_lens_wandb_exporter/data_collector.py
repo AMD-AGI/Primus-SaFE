@@ -46,7 +46,7 @@ class DataCollector:
             "type": "framework_detection_raw",
             "version": "1.0",
             "workload_uid": os.environ.get("WORKLOAD_UID", ""),
-            "pod_uid": os.environ.get("POD_NAME", ""),
+            "pod_uid": os.environ.get("POD_UID", ""),  # 修复：使用正确的环境变量 POD_UID
             "pod_name": os.environ.get("POD_NAME", ""),
             "namespace": os.environ.get("POD_NAMESPACE", ""),
             "evidence": evidence,

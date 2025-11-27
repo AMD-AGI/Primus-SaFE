@@ -178,13 +178,14 @@ class WandbInterceptor:
             metrics_data = {
                 "source": "wandb",
                 "workload_uid": os.environ.get("WORKLOAD_UID", ""),
-                "pod_uid": os.environ.get("POD_NAME", ""),
+                "pod_uid": os.environ.get("POD_UID", ""),  # 修复：使用正确的环境变量 POD_UID
+                "pod_name": os.environ.get("POD_NAME", ""),  # 添加：缺失的 pod_name 字段
                 "run_id": self.run_id or "",
                 "metrics": metrics,
                 "timestamp": current_time,
             }
             
-            debug_log(f"[Primus Lens WandB] Metrics data prepared, workload_uid={metrics_data['workload_uid']}, run_id={metrics_data['run_id']}")
+            debug_log(f"[Primus Lens WandB] Metrics data prepared, workload_uid={metrics_data['workload_uid']}, pod_name={metrics_data['pod_name']}, run_id={metrics_data['run_id']}")
             
             # 异步上报
             debug_log(f"[Primus Lens WandB] Calling api_reporter.report_metrics()...")

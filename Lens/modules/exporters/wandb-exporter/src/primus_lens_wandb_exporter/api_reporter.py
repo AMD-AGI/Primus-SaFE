@@ -289,12 +289,16 @@ class AsyncAPIReporter:
                 merged_metrics.extend(item["metrics"])
         
         batch_data = {
+            "source": first_item.get("source", "wandb"),  # 添加：source 字段
             "workload_uid": first_item.get("workload_uid"),
             "pod_uid": first_item.get("pod_uid"),
+            "pod_name": first_item.get("pod_name"),  # 添加：缺失的 pod_name 字段
             "run_id": first_item.get("run_id"),
             "metrics": merged_metrics,
             "timestamp": time.time(),
         }
+        
+        debug_log(f"[Primus Lens API Reporter] Batch metrics data - workload_uid={batch_data['workload_uid']}, pod_name={batch_data['pod_name']}, metrics_count={len(merged_metrics)}")
         
         return self._send_metrics(batch_data)
     
@@ -312,12 +316,16 @@ class AsyncAPIReporter:
                 merged_logs.extend(item["logs"])
         
         batch_data = {
+            "source": first_item.get("source", "wandb"),  # 添加：source 字段
             "workload_uid": first_item.get("workload_uid"),
             "pod_uid": first_item.get("pod_uid"),
+            "pod_name": first_item.get("pod_name"),  # 添加：缺失的 pod_name 字段
             "run_id": first_item.get("run_id"),
             "logs": merged_logs,
             "timestamp": time.time(),
         }
+        
+        debug_log(f"[Primus Lens API Reporter] Batch logs data - workload_uid={batch_data['workload_uid']}, pod_name={batch_data['pod_name']}, logs_count={len(merged_logs)}")
         
         return self._send_logs(batch_data)
     

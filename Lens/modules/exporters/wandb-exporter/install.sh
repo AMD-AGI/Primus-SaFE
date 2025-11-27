@@ -90,16 +90,44 @@ install_package() {
     if $PYTHON_CMD -c "import primus_lens_wandb_exporter" 2>/dev/null; then
         INSTALLED_VERSION=$($PYTHON_CMD -c "import primus_lens_wandb_exporter; print(primus_lens_wandb_exporter.__version__)" 2>/dev/null)
         print_info "Already installed version: $INSTALLED_VERSION"
-        read -p "Reinstall? [y/N] " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_info "Skipping package installation"
-            return 0
+        
+        # Check latest version from PyPI
+        print_info "Checking latest version from PyPI..."
+        LATEST_VERSION=$($PIP_CMD index versions primus-lens-wandb-exporter 2>/dev/null | grep "primus-lens-wandb-exporter" | head -1 | awk '{print $2}' | tr -d '()')
+        
+        if [ -n "$LATEST_VERSION" ]; then
+            print_info "Latest version on PyPI: $LATEST_VERSION"
+            
+            if [ "$INSTALLED_VERSION" = "$LATEST_VERSION" ]; then
+                print_success "Already at latest version"
+                read -p "Reinstall anyway? [y/N] " -n 1 -r
+                echo
+                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                    print_info "Skipping package installation"
+                    return 0
+                fi
+            else
+                print_warning "Newer version available: $LATEST_VERSION"
+                read -p "Upgrade to latest version? [Y/n] " -n 1 -r
+                echo
+                if [[ $REPLY =~ ^[Nn]$ ]]; then
+                    print_info "Skipping package upgrade"
+                    return 0
+                fi
+            fi
+        else
+            read -p "Reinstall? [y/N] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                print_info "Skipping package installation"
+                return 0
+            fi
         fi
     fi
     
-    print_info "Installing primus-lens-wandb-exporter..."
-    if $PIP_CMD install -q primus-lens-wandb-exporter; then
+    print_info "Installing primus-lens-wandb-exporter (with --upgrade --no-cache-dir)..."
+    # 使用 --upgrade 强制更新，--no-cache-dir 清除缓存，确保获取最新版本
+    if $PIP_CMD install --upgrade --no-cache-dir primus-lens-wandb-exporter; then
         VERSION=$($PYTHON_CMD -c "import primus_lens_wandb_exporter; print(primus_lens_wandb_exporter.__version__)" 2>/dev/null)
         print_success "Package installed successfully (v$VERSION)"
         return 0
