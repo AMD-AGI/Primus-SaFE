@@ -62,16 +62,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, err
 	}
 	if workload.DeletionTimestamp != nil {
+		// Use patch to remove finalizer
+		patch := client.MergeFrom(workload.DeepCopy())
 		controllerutil.RemoveFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer)
-		err = r.client.ControllerRuntimeClient.Update(ctx, workload)
+		err = r.client.ControllerRuntimeClient.Patch(ctx, workload, patch)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
 		return reconcile.Result{}, nil
 	}
 	if !controllerutil.ContainsFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer) {
+		// Use patch to add finalizer
+		patch := client.MergeFrom(workload.DeepCopy())
 		controllerutil.AddFinalizer(workload, constant.PrimusLensGpuWorkloadExporterFinalizer)
-		err = r.client.ControllerRuntimeClient.Update(ctx, workload)
+		err = r.client.ControllerRuntimeClient.Patch(ctx, workload, patch)
 		if err != nil {
 			return reconcile.Result{}, err
 		}
