@@ -60,8 +60,8 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 	// 打印请求体详情
 	reqJSON, _ := json.MarshalIndent(req, "", "  ")
 	logrus.Debugf("[WandB Detection API] Request body:\n%s", string(reqJSON))
-	logrus.Infof("[WandB Detection API] Detection request - WorkloadUID: %s, PodName: %s, RunID: %s, Framework: %s",
-		req.WorkloadUID, req.PodName, req.RunID, req.Framework)
+	logrus.Infof("[WandB Detection API] Detection request - WorkloadUID: %s, PodName: %s, RunID: %s, PossibleFrameworks: %v",
+		req.WorkloadUID, req.PodName, req.Evidence.WandB.ID, req.Hints.PossibleFrameworks)
 
 	// 验证：必须提供 workload_uid 或 pod_name
 	if req.WorkloadUID == "" && req.PodName == "" {
@@ -79,8 +79,8 @@ func ReceiveWandBDetection(ctx *gin.Context) {
 		return
 	}
 
-	logrus.Infof("[WandB Detection API] ✓ Detection processed successfully - Framework: %s, WorkloadUID: %s",
-		req.Framework, req.WorkloadUID)
+	logrus.Infof("[WandB Detection API] ✓ Detection processed successfully - PossibleFrameworks: %v, WorkloadUID: %s",
+		req.Hints.PossibleFrameworks, req.WorkloadUID)
 	ctx.JSON(http.StatusOK, rest.SuccessResp(ctx.Request.Context(), gin.H{
 		"message": "detection reported successfully",
 	}))
@@ -268,8 +268,8 @@ func ReceiveWandBBatch(ctx *gin.Context) {
 
 	// 处理框架检测
 	if req.Detection != nil {
-		logrus.Infof("[WandB Batch API] Processing detection - Framework: %s, WorkloadUID: %s",
-			req.Detection.Framework, req.Detection.WorkloadUID)
+		logrus.Infof("[WandB Batch API] Processing detection - PossibleFrameworks: %v, WorkloadUID: %s",
+			req.Detection.Hints.PossibleFrameworks, req.Detection.WorkloadUID)
 		if err := wandbHandler.detector.ProcessWandBDetection(ctx.Request.Context(), req.Detection); err != nil {
 			logrus.Errorf("[WandB Batch API] Failed to process detection: %v", err)
 			result["results"].(gin.H)["detection"] = gin.H{
