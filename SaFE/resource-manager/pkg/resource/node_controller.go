@@ -294,13 +294,12 @@ func (r *NodeReconciler) updateMachineStatus(ctx context.Context,
 	if node.Status.MachineStatus.Phase == phase && node.Status.MachineStatus.HostName == hostname {
 		return nil
 	}
-	originalNode := client.MergeFrom(node.DeepCopy())
 	node.Status.MachineStatus.Phase = phase
 	if hostname != "" {
 		node.Status.MachineStatus.HostName = hostname
 	}
 	node.Status.MachineStatus.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
-	if err := r.Status().Patch(ctx, node, originalNode); err != nil {
+	if err := r.Status().Update(ctx, node); err != nil {
 		klog.ErrorS(err, "failed to patch status", "node", node.Name)
 		return err
 	}
@@ -494,7 +493,6 @@ func (r *NodeReconciler) updateK8sNodeWorkspace(adminNode *v1.Node, k8sNode *cor
 func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v1.Node, k8sNode *corev1.Node) (ctrlruntime.Result, error) {
 	var err error
 	var result ctrlruntime.Result
-	originalNode := client.MergeFrom(adminNode.DeepCopy())
 	if adminNode.GetSpecCluster() != "" {
 		result, err = r.manage(ctx, adminNode, k8sNode)
 	} else {
@@ -515,7 +513,7 @@ func (r *NodeReconciler) processNodeManagement(ctx context.Context, adminNode *v
 		klog.ErrorS(err, "failed to handle node", "node", adminNode.Name)
 		return ctrlruntime.Result{}, err
 	}
-	if err = r.Status().Patch(ctx, adminNode, originalNode); err != nil {
+	if err = r.Status().Update(ctx, adminNode); err != nil {
 		klog.ErrorS(err, "failed to update node status", "node", adminNode.Name)
 		return ctrlruntime.Result{}, err
 	}
@@ -758,7 +756,8 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	}
 	data, err := json.Marshal(map[string]interface{}{
 		"metadata": map[string]interface{}{
-			"labels": labels,
+			"resourceVersion": k8sNode.ResourceVersion,
+			"labels":          labels,
 		},
 	})
 	if err != nil {

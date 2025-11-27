@@ -88,6 +88,7 @@ spec:
                   Group: An extension field that is not currently in use
                   Version: version of workload, default value is v1
                   Kind: kind of workload, Valid values includes: PyTorchJob/Deployment/StatefulSet/Authoring/AutoscalingRunnerSet, default PyTorchJob
+                  AutoscalingRunnerSet is a CI/CD configuration, and if enabled, it requires NFS storage support.
                 properties:
                   group:
                     type: string
@@ -212,11 +213,10 @@ spec:
                       description: Secret id, required
                       type: string
                     type:
-                      description: Secret type, optional. e.g. ssh/image/default
+                      description: Secret type, optional. e.g. ssh/image/general
                       type: string
                   required:
                   - id
-                  - type
                   type: object
                 type: array
               service:

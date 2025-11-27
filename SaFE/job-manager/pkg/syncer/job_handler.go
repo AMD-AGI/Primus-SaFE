@@ -16,7 +16,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -227,7 +226,6 @@ func (r *SyncerReconciler) updateAdminWorkloadPhase(adminWorkload *v1.Workload,
 // reSchedule handles workload rescheduling by resetting status and annotations.
 // Clears workload state and marks for rescheduling.
 func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload, count int) error {
-	originalWorkload := client.MergeFrom(workload.DeepCopy())
 	isStatusChanged := false
 	if len(workload.Status.Pods) > 0 {
 		workload.Status.Pods = nil
@@ -249,20 +247,19 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 		isStatusChanged = true
 	}
 	if isStatusChanged {
-		if err := r.Status().Patch(ctx, workload, originalWorkload); err != nil {
+		if err := r.Status().Update(ctx, workload); err != nil {
 			return err
 		}
 	}
 
 	if v1.IsWorkloadDispatched(workload) {
-		originalWorkload = client.MergeFrom(workload.DeepCopy())
 		annotations := workload.GetAnnotations()
 		delete(annotations, v1.WorkloadDispatchedAnnotation)
 		delete(annotations, v1.WorkloadScheduledAnnotation)
 		// Upon rescheduling, the task is enqueued with high priority
 		annotations[v1.WorkloadReScheduledAnnotation] = ""
 		workload.SetAnnotations(annotations)
-		if err := r.Patch(ctx, workload, originalWorkload); err != nil {
+		if err := r.Update(ctx, workload); err != nil {
 			return err
 		}
 	}

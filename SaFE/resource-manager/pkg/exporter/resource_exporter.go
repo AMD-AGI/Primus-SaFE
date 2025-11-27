@@ -162,21 +162,17 @@ func (r *ResourceExporter) Do(ctx context.Context, msg types.NamespacedName) (ct
 // addFinalizer adds the exporter finalizer to the object if it doesn't already exist.
 // It uses a patch operation to update the object's metadata.
 func (r *ResourceExporter) addFinalizer(ctx context.Context, object *unstructured.Unstructured) error {
-	if ctrlutil.ContainsFinalizer(object, v1.ExporterFinalizer) {
-		return nil
+	if ctrlutil.AddFinalizer(object, v1.ExporterFinalizer) {
+		return r.Update(ctx, object)
 	}
-	originalObject := client.MergeFrom(object.DeepCopy())
-	ctrlutil.AddFinalizer(object, v1.ExporterFinalizer)
-	return r.Patch(ctx, object, originalObject)
+	return nil
 }
 
 // removeFinalizer removes the exporter finalizer from the object if it exists.
 // It uses a patch operation to update the object's metadata.
 func (r *ResourceExporter) removeFinalizer(ctx context.Context, object *unstructured.Unstructured) error {
-	if !ctrlutil.ContainsFinalizer(object, v1.ExporterFinalizer) {
-		return nil
+	if ctrlutil.RemoveFinalizer(object, v1.ExporterFinalizer) {
+		return r.Update(ctx, object)
 	}
-	originalObject := client.MergeFrom(object.DeepCopy())
-	ctrlutil.RemoveFinalizer(object, v1.ExporterFinalizer)
-	return r.Patch(ctx, object, originalObject)
+	return nil
 }

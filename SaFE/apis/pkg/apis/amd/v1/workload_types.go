@@ -111,8 +111,8 @@ type CronJob struct {
 type SecretEntity struct {
 	// Secret id, required
 	Id string `json:"id"`
-	// Secret type, optional. e.g. ssh/image/default
-	Type SecretType `json:"type"`
+	// Secret type, optional. e.g. ssh/image/general
+	Type SecretType `json:"type,omitempty"`
 }
 
 type WorkloadSpec struct {

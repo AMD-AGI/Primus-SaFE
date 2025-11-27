@@ -148,10 +148,9 @@ func (cj *CronJob) doStart() error {
 		if workload.HasScheduled() {
 			return nil
 		}
-		originalWorkload := client.MergeFrom(workload.DeepCopy())
 		// Activate the workload by setting cronjob timestamp
 		v1.SetAnnotation(workload, v1.CronJobTimestampAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
-		if err = cj.Patch(context.Background(), workload, originalWorkload); err != nil {
+		if err = cj.Update(context.Background(), workload); err != nil {
 			return err
 		}
 		klog.Infof("activate workload %s by cronjob", workload.Name)

@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -29,6 +30,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -187,17 +189,35 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name))
+	name := c.GetString(common.Name)
+	secret, err := h.getAdminSecret(c.Request.Context(), name)
 	if err != nil {
 		return nil, err
 	}
 	if err = h.authSecretUpdate(c, req, secret); err != nil {
 		return nil, err
 	}
-	if err = updateSecret(secret, req); err != nil {
+
+	if err = backoff.ConflictRetry(func() error {
+		var innerError error
+		if innerError = modifySecret(secret, req); innerError != nil {
+			return innerError
+		}
+		if innerError = h.Update(c.Request.Context(), secret); innerError == nil {
+			return nil
+		} else {
+			if apierrors.IsConflict(innerError) {
+				if secret, _ = h.getAdminSecret(c.Request.Context(), name); secret == nil {
+					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("secret %s not found", name))
+				}
+			}
+			return innerError
+		}
+	}, defaultRetryCount, defaultRetryDelay); err != nil {
+		klog.ErrorS(err, "failed to update secret", "name", secret.Name)
 		return nil, err
 	}
-	return nil, h.Update(c.Request.Context(), secret)
+	return nil, nil
 }
 
 // authSecretUpdate validates user authorization for updating a secret.
@@ -237,12 +257,12 @@ func (h *Handler) authSecretUpdate(c *gin.Context, req *types.PatchSecretRequest
 	return nil
 }
 
-// updateSecret applies updates to a secret based on the patch request.
-func updateSecret(secret *corev1.Secret, req *types.PatchSecretRequest) error {
+// modifySecret applies updates to a secret based on the patch request.
+func modifySecret(secret *corev1.Secret, req *types.PatchSecretRequest) error {
 	if req.Params != nil {
 		reqType := v1.SecretType(v1.GetSecretType(secret))
 		if err := buildSecretData(reqType, *req.Params, secret); err != nil {
-			return err
+			return commonerrors.NewBadRequest(err.Error())
 		}
 	}
 	if req.WorkspaceIds != nil {

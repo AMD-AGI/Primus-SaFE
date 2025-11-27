@@ -37,6 +37,7 @@ import (
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/concurrent"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
@@ -48,7 +49,9 @@ import (
 type WorkloadBatchAction string
 
 const (
-	DefaultLogTailLine int64 = 1000
+	defaultLogTailLine int64 = 1000
+	defaultRetryCount        = 3
+	defaultRetryDelay        = 100 * time.Millisecond
 
 	BatchDelete WorkloadBatchAction = "delete"
 	BatchStop   WorkloadBatchAction = "stop"
@@ -176,7 +179,7 @@ func (h *Handler) createWorkloadImpl(c *gin.Context,
 	if err = h.Create(c.Request.Context(), workload); err != nil {
 		return nil, err
 	}
-	if err = h.patchPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
+	if err = h.updateWorkloadPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
 		return nil, err
 	}
 	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d",
@@ -328,7 +331,7 @@ func (h *Handler) deleteAdminWorkload(ctx context.Context, adminWorkload *v1.Wor
 		Message: message,
 	}
 
-	if err := h.patchPhase(ctx, adminWorkload, v1.WorkloadStopped, cond); err != nil {
+	if err := h.updateWorkloadPhase(ctx, adminWorkload, v1.WorkloadStopped, cond); err != nil {
 		return err
 	}
 	if err := h.Delete(ctx, adminWorkload); err != nil {
@@ -430,15 +433,27 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		}
 	}
 
-	originalWorkload := client.MergeFrom(adminWorkload.DeepCopy())
-	if err = updateWorkload(adminWorkload, req); err != nil {
+	if err = backoff.ConflictRetry(func() error {
+		var innerError error
+		if innerError = modifyWorkload(adminWorkload, req); innerError != nil {
+			return innerError
+		}
+		if innerError = h.Update(c.Request.Context(), adminWorkload); innerError == nil {
+			return nil
+		} else {
+			if apierrors.IsConflict(innerError) {
+				adminWorkload, _ = h.getAdminWorkload(c.Request.Context(), name)
+				if adminWorkload == nil {
+					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("The workload %s is not found", name))
+				}
+			}
+			return innerError
+		}
+	}, defaultRetryCount, defaultRetryDelay); err != nil {
+		klog.ErrorS(err, "failed to update workload", "name", adminWorkload.Name)
 		return nil, err
 	}
-	if err = h.Patch(c.Request.Context(), adminWorkload, originalWorkload); err != nil {
-		return nil, err
-	}
-
-	klog.Infof("patch workload, name: %s, request: %s", name, string(jsonutils.MarshalSilently(*req)))
+	klog.Infof("update workload, name: %s, request: %s", name, string(jsonutils.MarshalSilently(*req)))
 	return nil, nil
 }
 
@@ -507,30 +522,42 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
-// patchPhase updates the phase of a workload and optionally adds a condition.
+// updateWorkloadPhase updates the phase of a workload and optionally adds a condition.
 // Handles status updates including setting end time for stopped workloads.
-func (h *Handler) patchPhase(ctx context.Context,
+func (h *Handler) updateWorkloadPhase(ctx context.Context,
 	workload *v1.Workload, phase v1.WorkloadPhase, cond *metav1.Condition) error {
-	originalWorkload := client.MergeFrom(workload.DeepCopy())
-	if phase != "" {
-		workload.Status.Phase = phase
-		if phase == v1.WorkloadStopped && workload.Status.EndTime == nil {
-			workload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
+	name := workload.Name
+	if err := backoff.ConflictRetry(func() error {
+		if phase != "" {
+			workload.Status.Phase = phase
+			if phase == v1.WorkloadStopped && workload.Status.EndTime == nil {
+				workload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
+			}
 		}
-	}
-
-	if cond != nil {
-		cond.LastTransitionTime = metav1.NewTime(time.Now())
-		cond.Reason = commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload))
-		if cond2 := workload.GetLastCondition(); cond2 != nil && cond2.Type == cond.Type {
-			meta.SetStatusCondition(&workload.Status.Conditions, *cond)
+		if cond != nil {
+			cond.LastTransitionTime = metav1.NewTime(time.Now())
+			cond.Reason = commonworkload.GenerateDispatchReason(v1.GetWorkloadDispatchCnt(workload))
+			if cond2 := workload.GetLastCondition(); cond2 != nil && cond2.Type == cond.Type {
+				meta.SetStatusCondition(&workload.Status.Conditions, *cond)
+			} else {
+				workload.Status.Conditions = append(workload.Status.Conditions, *cond)
+			}
+		}
+		if innerError := h.Status().Update(ctx, workload); innerError == nil {
+			return nil
 		} else {
-			workload.Status.Conditions = append(workload.Status.Conditions, *cond)
+			if apierrors.IsConflict(innerError) {
+				if workload, _ = h.getAdminWorkload(ctx, name); workload == nil {
+					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("The workload %s is not found", name))
+				}
+			}
+			return innerError
 		}
-	}
-	if err := h.Status().Patch(ctx, workload, originalWorkload); err != nil {
+	}, defaultRetryCount, defaultRetryDelay); err != nil {
+		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err
 	}
+
 	return nil
 }
 
@@ -787,7 +814,7 @@ func parseGetPodLogQuery(c *gin.Context, mainContainerName string) (*types.GetPo
 		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
 	if query.TailLines <= 0 {
-		query.TailLines = DefaultLogTailLine
+		query.TailLines = defaultLogTailLine
 	}
 	if query.Container == "" {
 		query.Container = mainContainerName
@@ -897,9 +924,9 @@ func buildOrderBy(sortBy, order string, dbTags map[string]string) []string {
 	return orderBy
 }
 
-// updateWorkload applies updates to a workload based on the patch request.
+// modifyWorkload applies updates to a workload based on the patch request.
 // Handles changes to priority, resources, image, entrypoint, and other workload properties.
-func updateWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest) error {
+func modifyWorkload(adminWorkload *v1.Workload, req *types.PatchWorkloadRequest) error {
 	if req.Priority != nil {
 		adminWorkload.Spec.Priority = *req.Priority
 	}
