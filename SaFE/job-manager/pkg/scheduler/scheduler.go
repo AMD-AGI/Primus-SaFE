@@ -7,7 +7,6 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
@@ -202,7 +201,7 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 		return ctrlruntime.Result{}, err
 	}
 	if controllerutil.RemoveFinalizer(adminWorkload, v1.WorkloadFinalizer) {
-		if err = r.Update(ctx, adminWorkload); err != nil {
+		if err = commonutils.PatchObjectFinalizer(ctx, r.Client, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
 		}
 	}
@@ -522,14 +521,17 @@ func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.
 		return err
 	}
 
-	annotations := workload.GetAnnotations()
-	if annotations == nil {
-		annotations = make(map[string]string)
+	patchObj := map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": workload.ResourceVersion,
+			"annotations": map[string]any{
+				v1.WorkloadReScheduledAnnotation: nil,
+				v1.WorkloadScheduledAnnotation:   timeutil.FormatRFC3339(time.Now().UTC()),
+			},
+		},
 	}
-	annotations[v1.WorkloadScheduledAnnotation] = timeutil.FormatRFC3339(time.Now().UTC())
-	delete(annotations, v1.WorkloadReScheduledAnnotation)
-	workload.SetAnnotations(annotations)
-	if err := r.Update(ctx, workload); err != nil {
+	p := jsonutils.MarshalSilently(patchObj)
+	if err := r.Patch(ctx, workload, client.RawPatch(types.MergePatchType, p)); err != nil {
 		klog.ErrorS(err, "failed to update workload", "name", workload.Name)
 		return err
 	}
@@ -561,6 +563,7 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads [
 		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
 			continue
 		}
+		patch := client.MergeFrom(workloads[i].DeepCopy())
 		isChanged := false
 		if workloads[i].Status.QueuePosition != position {
 			workloads[i].Status.QueuePosition = position
@@ -575,21 +578,7 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads [
 			isChanged = true
 		}
 		if isChanged {
-			patchObj := map[string]any{
-				"metadata": map[string]any{
-					"resourceVersion": workloads[i].ResourceVersion,
-				},
-				"status": map[string]any{
-					"queuePosition": position,
-					"message":       reason,
-				},
-			}
-			p, err := json.Marshal(patchObj)
-			if err != nil {
-				klog.ErrorS(err, "failed to marshal patch object")
-				continue
-			}
-			if err := r.Status().Patch(ctx, workloads[i], client.RawPatch(types.MergePatchType, p)); err != nil {
+			if err := r.Status().Patch(ctx, workloads[i], patch); err != nil {
 				klog.ErrorS(err, "failed to patch workload status", "name", workloads[i].Name)
 			}
 		}
