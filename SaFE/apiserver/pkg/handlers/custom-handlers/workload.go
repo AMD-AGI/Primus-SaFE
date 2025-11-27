@@ -436,7 +436,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	if err = backoff.ConflictRetry(func() error {
 		var innerError error
 		if innerError = modifyWorkload(adminWorkload, req); innerError != nil {
-			return err
+			return innerError
 		}
 		if innerError = h.Update(c.Request.Context(), adminWorkload); innerError == nil {
 			return nil

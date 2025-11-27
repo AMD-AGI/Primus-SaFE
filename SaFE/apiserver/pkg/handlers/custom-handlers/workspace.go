@@ -253,7 +253,7 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 
 	if err = backoff.ConflictRetry(func() error {
 		var innerError error
-		if innerError = h.modifyWorkspace(ctx, workspace, requestUser, req); err != nil {
+		if innerError = h.modifyWorkspace(ctx, workspace, requestUser, req); innerError != nil {
 			return innerError
 		}
 		if innerError = h.Update(ctx, workspace); innerError == nil {
