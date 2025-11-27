@@ -556,7 +556,6 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads [
 		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
 			continue
 		}
-		originalWorkload := client.MergeFrom(workloads[i].DeepCopy())
 		isChanged := false
 		if workloads[i].Status.QueuePosition != position {
 			workloads[i].Status.QueuePosition = position
