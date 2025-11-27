@@ -304,18 +304,18 @@ func (r *NodeK8sReconciler) Do(ctx context.Context, message *nodeQueueMessage) (
 func (r *NodeK8sReconciler) handleNodeUnmanaged(ctx context.Context, message *nodeQueueMessage, adminNode *v1.Node) error {
 	clusterName := message.clusterName
 	workspaceId := v1.GetWorkspaceId(adminNode)
-	deleteConcernedMeta(adminNode)
-	if err := r.Update(ctx, adminNode); err != nil {
-		klog.ErrorS(err, "failed to update node", "node", adminNode.Name)
-		return err
+	if deleteConcernedMeta(adminNode) {
+		if err := r.Update(ctx, adminNode); err != nil {
+			klog.ErrorS(err, "failed to update node", "node", adminNode.Name)
+			return err
+		}
 	}
-
-	originalNode := client.MergeFrom(adminNode.DeepCopy())
+	
 	adminNode.Status.Taints = nil
 	adminNode.Status.Resources = nil
 	adminNode.Status.Conditions = nil
 	adminNode.Status.Unschedulable = true
-	if err := r.Status().Patch(ctx, adminNode, originalNode); err != nil {
+	if err := r.Status().Update(ctx, adminNode); err != nil {
 		klog.ErrorS(err, "failed to update node status", "node", adminNode.Name)
 		return err
 	}
@@ -444,14 +444,23 @@ func (r *NodeK8sReconciler) processFault(ctx context.Context, adminNode *v1.Node
 }
 
 // deleteConcernedMeta removes all concerned labels and annotations from the admin node.
-func deleteConcernedMeta(adminNode *v1.Node) {
+// Returns true if any metadata was removed, false otherwise.
+func deleteConcernedMeta(adminNode *v1.Node) bool {
+	isChanged := false
 	for _, k := range concernedK8sLabelKeys {
-		v1.RemoveLabel(adminNode, k)
+		if v1.RemoveLabel(adminNode, k) {
+			isChanged = true
+		}
 	}
 	for _, k := range concernedK8sAnnotationKeys {
-		v1.RemoveAnnotation(adminNode, k)
+		if v1.RemoveAnnotation(adminNode, k) {
+			isChanged = true
+		}
 	}
-	v1.RemoveAnnotation(adminNode, v1.NodeTemplateInstalledAnnotation)
+	if v1.RemoveAnnotation(adminNode, v1.NodeTemplateInstalledAnnotation) {
+		isChanged = true
+	}
+	return isChanged
 }
 
 // isConcernedLabelsEqual checks if the concerned labels and annotations are equal between two objects.

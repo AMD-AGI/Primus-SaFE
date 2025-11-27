@@ -142,7 +142,6 @@ func (r *WorkloadTTLController) deleteWorkload(ctx context.Context, workload *v1
 
 // addTimeoutCondition adds a timeout condition to a workload that has exceeded its timeout.
 func (r *WorkloadTTLController) addTimeoutCondition(ctx context.Context, workload *v1.Workload) error {
-	originalWorkload := client.MergeFrom(workload.DeepCopy())
 	workload.Status.Phase = v1.WorkloadStopped
 	if workload.Status.EndTime == nil {
 		workload.Status.EndTime = &metav1.Time{Time: time.Now().UTC()}
@@ -154,7 +153,7 @@ func (r *WorkloadTTLController) addTimeoutCondition(ctx context.Context, workloa
 		Message: fmt.Sprintf("the workload has timed out"),
 	}
 	meta.SetStatusCondition(&workload.Status.Conditions, cond)
-	if err := r.Status().Patch(ctx, workload, originalWorkload); err != nil {
+	if err := r.Status().Update(ctx, workload); err != nil {
 		klog.ErrorS(err, "failed to patch workload phase", "workload", workload.Name)
 		return err
 	}

@@ -1,0 +1,77 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: github-scale-set-template
+  namespace: {{ .Release.Namespace }}
+  labels:
+    primus-safe.workload.version: v1
+    primus-safe.workload.kind: AutoscalingRunnerSet
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    # The main container name should match the configuration defined in the template below
+    primus-safe.main.container: runner
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+data:
+ template: |
+  apiVersion: actions.github.com/v1alpha1
+  kind: AutoscalingRunnerSet
+  metadata:
+    annotations:
+      actions.github.com/runner-group-name: Default
+    labels:
+      app.kubernetes.io/component: autoscaling-runner-set
+      app.kubernetes.io/part-of: gha-rs
+      app.kubernetes.io/version: 0.13.0
+  spec:
+    minRunners: 0
+    template:
+      spec:
+        containers:
+        - name: runner
+          env:
+            - name: RUNNER_ALLOW_RUNASROOT
+              value: "1"
+            - name: APISERVER_NODE_PORT
+              value: "{{ .Values.apiserver.node_port }}"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.runner }}
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+              ephemeral-storage: 10Gi
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              ephemeral-storage: 10Gi
+          securityContext:
+            privileged: true
+        - name: unified-job
+          env:
+            - name: APISERVER_NODE_PORT
+              value: "{{ .Values.apiserver.node_port }}"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          image: {{ .Values.global.image_registry }}/primussafe/{{ .Values.cicd.unified_job }}
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: "2"
+              memory: 4Gi
+          securityContext:
+            privileged: true
+        restartPolicy: Never
+        serviceAccountName: "{{ .Values.cicd.role_name }}-no-permission"

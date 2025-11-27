@@ -16,8 +16,8 @@ type UserRestrictedType int
 const (
 	UserKind = "User"
 
-	DefaultUser UserType = "default"
-	SSOUser     UserType = "sso"
+	DefaultUserType UserType = "default"
+	SSOUserType     UserType = "sso"
 
 	UserNormal UserRestrictedType = 0
 	UserFrozen UserRestrictedType = 1
@@ -77,12 +77,12 @@ func init() {
 	SchemeBuilder.Register(&User{}, &UserList{})
 }
 
-// IsSystemAdmin returns true if the user has the SystemAdminRole role.
+// IsSystemAdmin returns true if the user is system-admin
 func (u *User) IsSystemAdmin() bool {
 	return IsContainRole(u.Spec.Roles, SystemAdminRole)
 }
 
-// IsSystemAdminReadonly returns true if the user has the SystemAdminReadonlyRole role.
+// IsRestricted returns true if the user is restricted
 func (u *User) IsSystemAdminReadonly() bool {
 	return IsContainRole(u.Spec.Roles, SystemAdminReadonlyRole)
 }

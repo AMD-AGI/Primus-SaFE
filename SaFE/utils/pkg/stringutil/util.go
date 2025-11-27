@@ -94,10 +94,12 @@ func ExtractNumber(s string) int64 {
 	return num
 }
 
-// IsNumber checks if a string can be converted to an integer.
-func IsNumber(s string) bool {
-	_, err := strconv.Atoi(s)
-	return err == nil
+// Atoi converts a string to an integer, returning 0 for empty strings
+func Atoi(s string) (int, error) {
+	if s == "" {
+		return 0, nil
+	}
+	return strconv.Atoi(s)
 }
 
 // ConvertToString converts various types to string representation.

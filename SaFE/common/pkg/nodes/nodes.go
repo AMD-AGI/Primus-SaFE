@@ -90,7 +90,7 @@ func FilterDeletingNode(n v1.Node) bool {
 	return false
 }
 
-// IsPodRunning returns true if the condition is met.
+// IsPodRunning returns true if the pod is running
 func IsPodRunning(p corev1.Pod) bool {
 	return corev1.PodSucceeded != p.Status.Phase &&
 		corev1.PodFailed != p.Status.Phase &&
