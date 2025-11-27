@@ -72,9 +72,9 @@ func (h *Handler) DeleteSecret(c *gin.Context) {
 	handle(c, h.deleteSecret)
 }
 
-// createSecret implements the secret creation logic.
-// Validates the request, generates a secret object, creates it in the cluster,
-// and updates workspace secret associations.
+// createSecret handles the HTTP request for creating a new secret.
+// It extracts the user context, parses the creation request, and delegates to createSecretImpl
+// to perform the actual secret creation logic.
 func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -85,8 +85,21 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request")
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:      c.Request.Context(),
+	secret, err := h.createSecretImpl(c.Request.Context(), req, requestUser)
+	if err != nil {
+		return nil, err
+	}
+	return &types.CreateSecretResponse{
+		SecretId: secret.Name,
+	}, nil
+}
+
+// createSecretImpl performs the core logic for secret creation.
+// It authorizes the user, generates the secret object based on request parameters,
+// creates the secret in the Kubernetes cluster, and returns the created secret ID.
+func (h *Handler) createSecretImpl(ctx context.Context, req *types.CreateSecretRequest, requestUser *v1.User) (*corev1.Secret, error) {
+	if err := h.accessController.Authorize(authority.AccessInput{
+		Context:      ctx,
 		ResourceKind: authority.SecretResourceKind,
 		Verb:         v1.CreateVerb,
 		User:         requestUser,
@@ -101,14 +114,12 @@ func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if secret, err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Create(
-		c.Request.Context(), secret, metav1.CreateOptions{}); err != nil {
+		ctx, secret, metav1.CreateOptions{}); err != nil {
 		klog.ErrorS(err, "failed to create secret")
 		return nil, err
 	}
 	klog.Infof("created secret %s", secret.Name)
-	return &types.CreateSecretResponse{
-		SecretId: secret.Name,
-	}, nil
+	return secret, nil
 }
 
 // listSecret implements the secret listing logic.
@@ -354,6 +365,9 @@ func generateSecret(req *types.CreateSecretRequest, requestUser *v1.User) (*core
 				v1.UserNameAnnotation: v1.GetUserName(requestUser),
 			},
 		},
+	}
+	if req.Owner != "" {
+		v1.SetLabel(secret, v1.OwnerLabel, req.Owner)
 	}
 	if err := buildSecretData(req.Type, req.Params, secret); err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())

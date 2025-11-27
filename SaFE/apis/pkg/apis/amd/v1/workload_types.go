@@ -27,7 +27,7 @@ const (
 	WorkloadRunning   WorkloadPhase = "Running"
 	// only for deployment/statefulSet
 	WorkloadUpdating WorkloadPhase = "Updating"
-	// only for deployment/statefulSet/AutoscalingRunnerSet
+	// only for deployment/statefulSet
 	WorkloadNotReady WorkloadPhase = "NotReady"
 	WorkloadStopped  WorkloadPhase = "Stopped"
 

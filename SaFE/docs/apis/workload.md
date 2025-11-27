@@ -95,21 +95,18 @@ Create a new workload.
     "ephemeralStorage": "100Gi"
   },
   "env": {
-    "GITHUB_CONFIG_URL": "https://github.com/AMD-AGI/Primus-SaFE"
-  },
-  "secrets": [
-    {
-      "id": "primus-safe-github-token"
-    }
-  ]
+    "GITHUB_CONFIG_URL": "https://github.com/AMD-AGI/Primus-SaFE",
+    "GITHUB_PAT": "your token"
+  }
 }
 ```
 
 Notes for CICD (AutoscalingRunnerSet):
 - Required env: `GITHUB_CONFIG_URL` must be set in `env` to the GitHub repository/organization URL.
-- Required secret: a GitHub token secret must be included in `secrets` (e.g., a general-type secret storing a PAT), otherwise the workload creation will be rejected.
+- Required env: `GITHUB_PAT` must be provided in `env` (GitHub Personal Access Token). The system will automatically create a secret (with key `github_token`) from this PAT and attach it to the workload(Its lifecycle is also controlled by the workload)
 - Multi-node evaluation: set `"UNIFIED_JOB_ENABLE": "true"` in `env` to enable multi-node evaluation in CICD.
 - Required NFS storage: CICD workloads require NFS storage support enabled in the workspace. This is especially important when `UNIFIED_JOB_ENABLE` is set to `true` in the environment variables for multi-node evaluation scenarios.
+
 
 **Field Description**:
 
@@ -715,7 +712,7 @@ Get Service information associated with the workload.
 | Failed | Execution failed |
 | Stopped | Stopped |
 | Updating | Being updated |
-| NotReady | not ready, only for deployment/AutoscalingRunnerSet |
+| NotReady | not ready, only for Deployment/StatefulSet |
 
 
 ## Workload Types
