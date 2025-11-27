@@ -6,12 +6,15 @@
 package utils
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
@@ -95,4 +98,28 @@ func StringsIn(str string, strs []string) bool {
 		}
 	}
 	return false
+}
+
+// PatchObjectFinalizer updates the finalizers of a structured Kubernetes object using a merge patch.
+// This function is used to add or remove finalizers from Kubernetes resources.
+func PatchObjectFinalizer(ctx context.Context, cli client.Client, object client.Object) error {
+	finalizers := object.GetFinalizers()
+	if finalizers == nil {
+		finalizers = []string{}
+	}
+
+	patchObj := map[string]any{
+		"metadata": map[string]any{
+			"resourceVersion": object.GetResourceVersion(),
+			"finalizers":      finalizers,
+		},
+	}
+	p, err := json.Marshal(patchObj)
+	if err != nil {
+		return err
+	}
+	if err = cli.Patch(ctx, object, client.RawPatch(types.MergePatchType, p)); err != nil {
+		return err
+	}
+	return nil
 }

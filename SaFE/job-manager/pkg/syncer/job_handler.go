@@ -14,8 +14,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
@@ -253,13 +255,18 @@ func (r *SyncerReconciler) reSchedule(ctx context.Context, workload *v1.Workload
 	}
 
 	if v1.IsWorkloadDispatched(workload) {
-		annotations := workload.GetAnnotations()
-		delete(annotations, v1.WorkloadDispatchedAnnotation)
-		delete(annotations, v1.WorkloadScheduledAnnotation)
-		// Upon rescheduling, the task is enqueued with high priority
-		annotations[v1.WorkloadReScheduledAnnotation] = ""
-		workload.SetAnnotations(annotations)
-		if err := r.Update(ctx, workload); err != nil {
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"resourceVersion": workload.ResourceVersion,
+				"annotations": map[string]any{
+					v1.WorkloadDispatchedAnnotation:  nil,
+					v1.WorkloadScheduledAnnotation:   nil,
+					v1.WorkloadReScheduledAnnotation: "",
+				},
+			},
+		}
+		p := jsonutils.MarshalSilently(patchObj)
+		if err := r.Patch(ctx, workload, client.RawPatch(types.MergePatchType, p)); err != nil {
 			return err
 		}
 	}

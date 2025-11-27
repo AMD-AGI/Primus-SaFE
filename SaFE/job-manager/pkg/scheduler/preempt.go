@@ -7,7 +7,6 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"sort"
 	"time"
 
@@ -19,6 +18,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 )
 
 type WorkloadWrapper struct {
@@ -52,8 +52,7 @@ func (r *SchedulerReconciler) preempt(ctx context.Context, requestWorkload *v1.W
 				},
 			},
 		}
-		p, _ := json.Marshal(patchObj)
-
+		p := jsonutils.MarshalSilently(patchObj)
 		if err = r.Patch(ctx, w, client.RawPatch(types.MergePatchType, p)); err != nil {
 			klog.ErrorS(err, "failed to update workload")
 			return false, err
