@@ -88,11 +88,15 @@ func (h *Handler) GetClusterPodLog(c *gin.Context) {
 // Authorizes the request, parses the creation request, generates a cluster object,
 // and persists it in the k8s cluster.
 func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
 	if err := h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: v1.ClusterKind,
 		Verb:         v1.CreateVerb,
-		UserId:       c.GetString(common.UserId),
+		User:         requestUser,
 	}); err != nil {
 		return nil, err
 	}
@@ -103,7 +107,7 @@ func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
 	}
-	cluster, err := h.generateCluster(c, req, body)
+	cluster, err := h.generateCluster(c.Request.Context(), requestUser, req, body)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate cluster")
 		return nil, err
@@ -121,14 +125,14 @@ func (h *Handler) createCluster(c *gin.Context) (interface{}, error) {
 
 // generateCluster convert the CreateClusterRequest passed from the API into a v1.Cluster object,
 // then pass it to the createCluster function for invocation.
-func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterRequest, body []byte) (*v1.Cluster, error) {
-	ctx := c.Request.Context()
+func (h *Handler) generateCluster(ctx context.Context,
+	requestUser *v1.User, req *types.CreateClusterRequest, body []byte) (*v1.Cluster, error) {
 	cluster := &v1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: req.Name,
 			Labels: map[string]string{
 				v1.DisplayNameLabel: req.Name,
-				v1.UserIdLabel:      c.GetString(common.UserId),
+				v1.UserIdLabel:      requestUser.Name,
 			},
 		},
 	}
@@ -149,7 +153,7 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 	}
 
 	if cluster.Spec.ControlPlane.ImageSecret == nil && commonconfig.GetImageSecret() != "" {
-		imageSecret, err := h.getAdminSecret(ctx, commonconfig.GetImageSecret())
+		imageSecret, err := h.getAndAuthorizeSecret(ctx, commonconfig.GetImageSecret(), "", requestUser, v1.GetVerb)
 		if err != nil {
 			return nil, err
 		}
@@ -157,7 +161,7 @@ func (h *Handler) generateCluster(c *gin.Context, req *types.CreateClusterReques
 	}
 
 	if cluster.Spec.ControlPlane.SSHSecret == nil && req.SSHSecretId != "" {
-		sshSecret, err := h.getAdminSecret(ctx, req.SSHSecretId)
+		sshSecret, err := h.getAndAuthorizeSecret(ctx, req.SSHSecretId, "", requestUser, v1.GetVerb)
 		if err != nil {
 			return nil, err
 		}

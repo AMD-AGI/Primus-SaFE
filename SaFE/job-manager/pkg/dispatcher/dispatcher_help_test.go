@@ -22,12 +22,14 @@ import (
 
 func checkResources(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, template *v1.ResourceSpec, replica int) {
 	path := append(template.PrePaths, template.ReplicasPaths...)
-	objReplica := jobutils.GetUnstructuredInt(obj.Object, path)
-	assert.Equal(t, objReplica, int64(replica))
-	if workload.Spec.Kind == common.JobKind {
-		path = append(template.PrePaths, "completions")
-		objReplica = jobutils.GetUnstructuredInt(obj.Object, path)
+	if !commonworkload.IsCICDScalingRunnerSet(workload) {
+		objReplica := jobutils.GetUnstructuredInt(obj.Object, path)
 		assert.Equal(t, objReplica, int64(replica))
+		if workload.SpecKind() == common.JobKind {
+			path = append(template.PrePaths, "completions")
+			objReplica = jobutils.GetUnstructuredInt(obj.Object, path)
+			assert.Equal(t, objReplica, int64(replica))
+		}
 	}
 
 	path = append(template.PrePaths, template.TemplatePaths...)
@@ -84,19 +86,7 @@ func checkPorts(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 }
 
 func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
-	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
-	containerPath = append(containerPath, "spec", "containers")
-
-	values, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
-	assert.NilError(t, err)
-	assert.Equal(t, found, true)
-	assert.Equal(t, len(values) == 0, false)
-
-	mainContainer, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
-	assert.NilError(t, err)
-	envs, found, err := unstructured.NestedSlice(mainContainer, []string{"env"}...)
-	assert.NilError(t, err)
-
+	envs := getEnvs(t, obj, resourceSpec)
 	for key, val := range workload.Spec.Env {
 		ok := findEnv(envs, key, val)
 		assert.Equal(t, ok, true)
@@ -109,7 +99,7 @@ func checkEnvs(t *testing.T, obj *unstructured.Unstructured, workload *v1.Worklo
 	ok := findEnv(envs, "HANG_CHECK_INTERVAL", "")
 	assert.Equal(t, ok, false)
 
-	if workload.Spec.GroupVersionKind.Kind != common.JobKind {
+	if workload.SpecKind() != common.JobKind && !commonworkload.IsCICDScalingRunnerSet(workload) {
 		if v1.IsEnableHostNetwork(workload) {
 			ok = findEnv(envs, "NCCL_SOCKET_IFNAME", "ens51f0")
 			assert.Equal(t, ok, true)
@@ -156,9 +146,12 @@ func checkVolumeMounts(t *testing.T, obj *unstructured.Unstructured, resourceSpe
 	volumeMounts, found, err := unstructured.NestedSlice(mainContainer, []string{"volumeMounts"}...)
 	assert.NilError(t, err)
 
-	volumeMount := findVolumeMount(volumeMounts, SharedMemoryVolume)
-	assert.Equal(t, volumeMount != nil, true)
-	volumeMount = findVolumeMount(volumeMounts, v1.GenFullVolumeId(v1.PFS, 1))
+	if obj.GetKind() == common.PytorchJobKind {
+		volumeMount := findVolumeMount(volumeMounts, SharedMemoryVolume)
+		assert.Equal(t, volumeMount != nil, true)
+	}
+
+	volumeMount := findVolumeMount(volumeMounts, v1.GenFullVolumeId(v1.PFS, 1))
 	assert.Equal(t, volumeMount != nil, true)
 	path, ok := volumeMount["mountPath"]
 	assert.Equal(t, ok, true)
@@ -197,16 +190,18 @@ func checkVolumes(t *testing.T, obj *unstructured.Unstructured, workload *v1.Wor
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
 
-	volume := findVolume(volumes, SharedMemoryVolume)
-	assert.Equal(t, volume != nil, true)
-	emptyDir, ok := volume["emptyDir"]
-	assert.Equal(t, ok, true)
-	sizeLimit, ok := emptyDir.(map[string]interface{})["sizeLimit"]
-	assert.Equal(t, ok, true)
-	assert.Equal(t, sizeLimit.(string), workload.Spec.Resource.SharedMemory)
+	if workload.SpecKind() == common.PytorchJobKind {
+		volume := findVolume(volumes, SharedMemoryVolume)
+		assert.Equal(t, volume != nil, true)
+		emptyDir, ok := volume["emptyDir"]
+		assert.Equal(t, ok, true)
+		sizeLimit, ok := emptyDir.(map[string]interface{})["sizeLimit"]
+		assert.Equal(t, ok, true)
+		assert.Equal(t, sizeLimit.(string), workload.Spec.Resource.SharedMemory)
+	}
 
 	volumeName := v1.GenFullVolumeId(v1.PFS, 1)
-	volume = findVolume(volumes, volumeName)
+	volume := findVolume(volumes, volumeName)
 	assert.Equal(t, volume != nil, true)
 	persistentVolumeObj, ok := volume["persistentVolumeClaim"]
 	assert.Equal(t, ok, true)
@@ -283,7 +278,7 @@ func checkNodeSelectorTerms(t *testing.T, obj *unstructured.Unstructured, worklo
 	assert.Equal(t, valuesSlice[0].(string) == val, true)
 }
 
-func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
+func checkImage(t *testing.T, obj *unstructured.Unstructured, inputImage string, resourceSpec *v1.ResourceSpec) {
 	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
 	containerPath = append(containerPath, "spec", "containers")
 
@@ -296,7 +291,7 @@ func checkImage(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workl
 	image, found, err := unstructured.NestedString(mainContainer, []string{"image"}...)
 	assert.NilError(t, err)
 	assert.Equal(t, found, true)
-	assert.Equal(t, image, workload.Spec.Image)
+	assert.Equal(t, image, inputImage)
 }
 
 func checkHostNetwork(t *testing.T, obj *unstructured.Unstructured, workload *v1.Workload, resourceSpec *v1.ResourceSpec) {
@@ -393,7 +388,7 @@ func checkSecurityContext(t *testing.T, obj *unstructured.Unstructured, workload
 	securityContext, found, err := unstructured.NestedMap(mainContainer, []string{"securityContext"}...)
 	assert.NilError(t, err)
 	privileged, ok := securityContext["privileged"]
-	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) {
+	if v1.GetOpsJobType(workload) == string(v1.OpsJobPreflightType) || commonworkload.IsCICD(workload) {
 		assert.Equal(t, ok, true)
 		assert.Equal(t, privileged.(bool), true)
 		_, ok := securityContext["capabilities"]
@@ -425,4 +420,45 @@ func checkImageSecrets(t *testing.T, obj *unstructured.Unstructured, resourceSpe
 	name, ok := secret.(map[string]interface{})["name"]
 	assert.Equal(t, ok, true)
 	assert.Equal(t, name, "test-image")
+}
+
+func getEnvs(t *testing.T, obj *unstructured.Unstructured, resourceSpec *v1.ResourceSpec) []interface{} {
+	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
+	containerPath = append(containerPath, "spec", "containers")
+
+	values, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	assert.Equal(t, len(values) == 0, false)
+
+	mainContainer, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&values[0])
+	assert.NilError(t, err)
+	envs, found, err := unstructured.NestedSlice(mainContainer, []string{"env"}...)
+	assert.NilError(t, err)
+	assert.Equal(t, found, true)
+	return envs
+}
+
+func getContainer(obj *unstructured.Unstructured, name string, resourceSpec *v1.ResourceSpec) map[string]interface{} {
+	containerPath := append(resourceSpec.PrePaths, resourceSpec.TemplatePaths...)
+	containerPath = append(containerPath, "spec", "containers")
+
+	values, found, err := unstructured.NestedSlice(obj.Object, containerPath...)
+	if err != nil || !found {
+		return nil
+	}
+
+	for _, val := range values {
+		container, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&val)
+		if err != nil {
+			return nil
+		}
+		_, ok := container["name"]
+		if ok {
+			if container["name"] == name {
+				return container
+			}
+		}
+	}
+	return nil
 }

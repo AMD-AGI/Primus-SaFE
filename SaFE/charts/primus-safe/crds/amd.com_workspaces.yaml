@@ -124,13 +124,14 @@ spec:
                 description: The expected number of nodes in the workspace
                 type: integer
               scopes:
-                description: 'Service modules available in this space. support: Train/Infer/Authoring,
+                description: 'Service modules available in this space. support: Train/Infer/Authoring/CICD,
                   No limitation if not specified'
                 items:
                   enum:
                   - Train
                   - Infer
                   - Authoring
+                  - CICD
                   type: string
                 type: array
               volumes:

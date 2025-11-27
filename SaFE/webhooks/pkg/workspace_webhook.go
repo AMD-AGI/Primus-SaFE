@@ -15,8 +15,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -31,7 +29,6 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -119,9 +116,6 @@ func (m *WorkspaceMutator) mutateOnUpdate(ctx context.Context, oldWorkspace, new
 // mutateCommon applies node flavor, image secrets, volumes, queue policy, preemption and manager mutations.
 func (m *WorkspaceMutator) mutateCommon(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	if err := m.mutateByNodeFlavor(ctx, newWorkspace); err != nil {
-		return err
-	}
-	if err := m.mutateImageSecret(ctx, newWorkspace); err != nil {
 		return err
 	}
 	m.mutateVolumes(newWorkspace)
@@ -292,7 +286,6 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 		return err
 	}
 	for _, w := range workloads {
-		originalWorkload := client.MergeFrom(w.DeepCopy())
 		if workspace.Spec.EnablePreempt {
 			if v1.IsWorkloadEnablePreempt(w) {
 				continue
@@ -304,7 +297,7 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 			}
 			v1.RemoveAnnotation(w, v1.WorkloadEnablePreemptAnnotation)
 		}
-		if err = m.Patch(ctx, w, originalWorkload); err != nil {
+		if err = m.Update(ctx, w); err != nil {
 			klog.ErrorS(err, "failed to patch workload")
 		}
 	}
@@ -377,30 +370,6 @@ func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, new
 				return err
 			}
 		}
-	}
-	return nil
-}
-
-// mutateImageSecret adds all-workspace image secrets to the workspace.
-func (m *WorkspaceMutator) mutateImageSecret(ctx context.Context, workspace *v1.Workspace) error {
-	labelSelector := labels.NewSelector()
-	req1, _ := labels.NewRequirement(v1.SecretTypeLabel, selection.Equals, []string{string(v1.SecretImage)})
-	labelSelector = labelSelector.Add(*req1)
-	req2, _ := labels.NewRequirement(v1.SecretAllWorkspaceLabel, selection.Equals, []string{v1.TrueStr})
-	labelSelector = labelSelector.Add(*req2)
-	secretList := &corev1.SecretList{}
-	if err := m.List(ctx, secretList, &client.ListOptions{
-		LabelSelector: labelSelector,
-		Namespace:     common.PrimusSafeNamespace,
-	}); err != nil {
-		return err
-	}
-	for _, secret := range secretList.Items {
-		if workspace.HasImageSecret(secret.Name) {
-			continue
-		}
-		workspace.Spec.ImageSecrets = append(workspace.Spec.ImageSecrets,
-			*commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta))
 	}
 	return nil
 }

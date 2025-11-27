@@ -33,7 +33,8 @@ func GetIdByTaintKey(taintKey string) string {
 	return taintKey[len(v1.PrimusSafePrefix):]
 }
 
-// IsTaintsEqualIgnoreOrder returns true if the condition is met.
+// IsTaintsEqualIgnoreOrder compares two taint slices for equality, ignoring the order of elements.
+// Returns true if both slices contain the same taints (same key, value, and effect), false otherwise.
 func IsTaintsEqualIgnoreOrder(taints1, taints2 []corev1.Taint) bool {
 	if len(taints1) != len(taints2) {
 		return false

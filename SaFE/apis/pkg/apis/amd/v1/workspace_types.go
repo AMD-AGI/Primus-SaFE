@@ -15,7 +15,7 @@ import (
 type WorkspacePhase string
 type WorkspaceQueuePolicy string
 
-// +kubebuilder:validation:Enum=Train;Infer;Authoring
+// +kubebuilder:validation:Enum=Train;Infer;Authoring;CICD
 type WorkspaceScope string
 type FileSystemType string
 type VolumePurpose int
@@ -36,6 +36,7 @@ const (
 	TrainScope     WorkspaceScope = "Train"
 	InferScope     WorkspaceScope = "Infer"
 	AuthoringScope WorkspaceScope = "Authoring"
+	CICDScope      WorkspaceScope = "CICD"
 
 	HOSTPATH WorkspaceVolumeType = "hostpath"
 	PFS      WorkspaceVolumeType = "pfs"
@@ -57,7 +58,7 @@ type WorkspaceSpec struct {
 	//    avoiding blockage by the front workload in the queue. However, it is still subject to priority constraints.
 	//    If a higher-priority task cannot be dispatched, lower-priority tasks will wait.
 	QueuePolicy WorkspaceQueuePolicy `json:"queuePolicy,omitempty"`
-	// Service modules available in this space. support: Train/Infer/Authoring, No limitation if not specified
+	// Service modules available in this space. support: Train/Infer/Authoring/CICD, No limitation if not specified
 	Scopes []WorkspaceScope `json:"scopes,omitempty"`
 	// Volumes used in this workspace
 	Volumes []WorkspaceVolume `json:"volumes,omitempty"`
@@ -152,7 +153,7 @@ func (w *Workspace) IsEnd() bool {
 	return false
 }
 
-// IsAbnormal returns true if the condition is met.
+// IsAbnormal returns true if the workspace is abnormal
 func (w *Workspace) IsAbnormal() bool {
 	if w.Status.Phase == WorkspaceAbnormal {
 		return true
@@ -168,7 +169,8 @@ func (w *Workspace) IsPending() bool {
 	return false
 }
 
-// IsEnableFifo returns true if the condition is met.
+// IsEnableFifo returns true if the workspace uses FIFO (First In, First Out) queue policy.
+// If QueuePolicy is not set, FIFO mode is enabled.
 func (w *Workspace) IsEnableFifo() bool {
 	if w.Spec.QueuePolicy == "" || w.Spec.QueuePolicy == QueueFifoPolicy {
 		return true
@@ -184,6 +186,15 @@ func (w *Workspace) CurrentReplica() int {
 func (w *Workspace) HasImageSecret(name string) bool {
 	for _, secret := range w.Spec.ImageSecrets {
 		if secret.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *Workspace) HasScope(scope WorkspaceScope) bool {
+	for _, s := range w.Spec.Scopes {
+		if s == scope {
 			return true
 		}
 	}

@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 
 	admissionv1 "k8s.io/api/admission/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -111,20 +110,4 @@ func (v *ResourceTemplateValidator) validateTemplate(rt *v1.ResourceTemplate) er
 		return commonerrors.NewInternalError("If more than one template is defined, only one can have an empty replica field")
 	}
 	return nil
-}
-
-// getResourceTemplate retrieves the requested information.
-func getResourceTemplate(ctx context.Context, cli client.Client, gvk v1.GroupVersionKind) (*v1.ResourceTemplate, error) {
-	labelSelector := labels.SelectorFromSet(map[string]string{
-		v1.WorkloadKindLabel: gvk.Kind, v1.WorkloadVersionLabel: gvk.Version,
-	})
-	rtl := &v1.ResourceTemplateList{}
-	err := cli.List(ctx, rtl, &client.ListOptions{LabelSelector: labelSelector})
-	if err != nil {
-		return nil, err
-	}
-	if len(rtl.Items) == 0 {
-		return nil, commonerrors.NewNotFound(v1.ResourceTemplateKind, gvk.VersionKind())
-	}
-	return &rtl.Items[0], nil
 }

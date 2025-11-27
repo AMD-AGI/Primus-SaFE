@@ -11,16 +11,17 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -28,9 +29,10 @@ import (
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
+	sliceutil "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
@@ -74,37 +76,36 @@ func (h *Handler) DeleteSecret(c *gin.Context) {
 // Validates the request, generates a secret object, creates it in the cluster,
 // and updates workspace secret associations.
 func (h *Handler) createSecret(c *gin.Context) (interface{}, error) {
-	if err := h.accessController.Authorize(authority.AccessInput{
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return nil, err
+	}
+	req, err := parseCreateSecretRequest(c)
+	if err != nil {
+		klog.ErrorS(err, "failed to parse request")
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:      c.Request.Context(),
 		ResourceKind: authority.SecretResourceKind,
 		Verb:         v1.CreateVerb,
-		UserId:       c.GetString(common.UserId),
+		User:         requestUser,
+		Workspaces:   req.WorkspaceIds,
 	}); err != nil {
 		return nil, err
 	}
 
-	req := &types.CreateSecretRequest{}
-	body, err := apiutils.ParseRequestBody(c.Request, req)
-	if err != nil {
-		klog.ErrorS(err, "failed to parse request", "body", string(body))
-		return nil, commonerrors.NewBadRequest(err.Error())
-	}
-
-	secret, err := generateSecret(req)
+	secret, err := generateSecret(req, requestUser)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate secret")
 		return nil, err
 	}
-
 	if secret, err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Create(
 		c.Request.Context(), secret, metav1.CreateOptions{}); err != nil {
 		klog.ErrorS(err, "failed to create secret")
 		return nil, err
 	}
 	klog.Infof("created secret %s", secret.Name)
-	if err = h.updateWorkspaceSecret(c.Request.Context(), secret); err != nil {
-		return nil, err
-	}
 	return &types.CreateSecretResponse{
 		SecretId: secret.Name,
 	}, nil
@@ -119,20 +120,30 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	query, err := parseListSecretQuery(c)
-	if err != nil {
-		klog.ErrorS(err, "failed to parse query")
-		return nil, err
+	query := &types.ListSecretRequest{}
+	if err = c.ShouldBindWith(&query, binding.Query); err != nil {
+		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
 	}
 	labelSelector := buildSecretLabelSelector(query)
 	secretList := &corev1.SecretList{}
-	if err = h.List(c.Request.Context(),
-		secretList, &client.ListOptions{LabelSelector: labelSelector, Namespace: common.PrimusSafeNamespace}); err != nil {
+	if err = h.List(c.Request.Context(), secretList,
+		&client.ListOptions{LabelSelector: labelSelector, Namespace: common.PrimusSafeNamespace}); err != nil {
 		return nil, err
 	}
 	result := &types.ListSecretResponse{}
 	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	for _, item := range secretList.Items {
+		workspaceIds := commonsecret.GetSecretWorkspaces(&item)
+		if query.WorkspaceId != nil {
+			if *query.WorkspaceId == "" {
+				if len(workspaceIds) > 0 {
+					continue
+				}
+			} else if !sliceutil.Contains(workspaceIds, *query.WorkspaceId) {
+				continue
+			}
+			workspaceIds = []string{*query.WorkspaceId}
+		}
 		if err = h.accessController.Authorize(authority.AccessInput{
 			Context:      c.Request.Context(),
 			Resource:     &item,
@@ -140,10 +151,10 @@ func (h *Handler) listSecret(c *gin.Context) (interface{}, error) {
 			Verb:         v1.ListVerb,
 			User:         requestUser,
 			Roles:        roles,
+			Workspaces:   workspaceIds,
 		}); err != nil {
 			continue
 		}
-
 		result.Items = append(result.Items, cvtToSecretResponseItem(&item))
 	}
 	sort.Slice(result.Items, func(i, j int) bool {
@@ -160,19 +171,12 @@ func (h *Handler) getSecret(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:      c.Request.Context(),
-		ResourceKind: authority.SecretResourceKind,
-		Verb:         v1.GetVerb,
-		User:         requestUser,
-	}); err != nil {
-		return nil, err
-	}
-	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name))
+	secret, err := h.getAndAuthorizeSecret(c.Request.Context(),
+		c.GetString(common.Name), "", requestUser, v1.GetVerb)
 	if err != nil {
 		return nil, err
 	}
-	return cvtToSecretResponseItem(secret), nil
+	return cvtToGetSecretResponse(secret), nil
 }
 
 // patchSecret implements partial update logic for a secret.
@@ -185,122 +189,84 @@ func (h *Handler) patchSecret(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-
-	requestUser, err := h.getAndSetUsername(c)
+	name := c.GetString(common.Name)
+	secret, err := h.getAdminSecret(c.Request.Context(), name)
 	if err != nil {
 		return nil, err
 	}
-	if err = h.accessController.Authorize(authority.AccessInput{
-		Context:      c.Request.Context(),
-		ResourceKind: authority.SecretResourceKind,
-		Verb:         v1.UpdateVerb,
-		User:         requestUser,
-	}); err != nil {
+	if err = h.authSecretUpdate(c, req, secret); err != nil {
 		return nil, err
 	}
 
-	secret, err := h.getAdminSecret(c.Request.Context(), c.GetString(common.Name))
-	if err != nil {
-		return nil, err
-	}
-	if err = updateSecret(secret, req); err != nil {
-		return nil, err
-	}
-	err = h.Update(c.Request.Context(), secret)
-	if err != nil {
-		return nil, err
-	}
-	// Update the resources associated with the secret simultaneously
-	if err = h.updateClusterSecret(c.Request.Context(), secret); err != nil {
-		return nil, err
-	}
-	if err = h.updateWorkspaceSecret(c.Request.Context(), secret); err != nil {
+	if err = backoff.ConflictRetry(func() error {
+		var innerError error
+		if innerError = modifySecret(secret, req); innerError != nil {
+			return innerError
+		}
+		if innerError = h.Update(c.Request.Context(), secret); innerError == nil {
+			return nil
+		} else {
+			if apierrors.IsConflict(innerError) {
+				if secret, _ = h.getAdminSecret(c.Request.Context(), name); secret == nil {
+					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("secret %s not found", name))
+				}
+			}
+			return innerError
+		}
+	}, defaultRetryCount, defaultRetryDelay); err != nil {
+		klog.ErrorS(err, "failed to update secret", "name", secret.Name)
 		return nil, err
 	}
 	return nil, nil
 }
 
-// updateSecret applies updates to a secret based on the patch request.
-func updateSecret(secret *corev1.Secret, req *types.PatchSecretRequest) error {
+// authSecretUpdate validates user authorization for updating a secret.
+// Checks both update permission on the secret and create permission if workspace IDs are being modified.
+func (h *Handler) authSecretUpdate(c *gin.Context, req *types.PatchSecretRequest, secret *corev1.Secret) error {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
+		return err
+	}
+
+	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      c.Request.Context(),
+		Resource:     secret,
+		ResourceKind: authority.SecretResourceKind,
+		Verb:         v1.UpdateVerb,
+		Workspaces:   commonsecret.GetSecretWorkspaces(secret),
+		User:         requestUser,
+		Roles:        roles,
+	}); err != nil {
+		return err
+	}
+	if req.WorkspaceIds != nil {
+		currentWorkspaceIds := commonsecret.GetSecretWorkspaces(secret)
+		workspaceIdsToAdd := sliceutil.Difference(*req.WorkspaceIds, currentWorkspaceIds)
+		if err = h.accessController.Authorize(authority.AccessInput{
+			Context:      c.Request.Context(),
+			ResourceKind: authority.SecretResourceKind,
+			Verb:         v1.CreateVerb,
+			Workspaces:   workspaceIdsToAdd,
+			User:         requestUser,
+			Roles:        roles,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// modifySecret applies updates to a secret based on the patch request.
+func modifySecret(secret *corev1.Secret, req *types.PatchSecretRequest) error {
 	if req.Params != nil {
 		reqType := v1.SecretType(v1.GetSecretType(secret))
 		if err := buildSecretData(reqType, *req.Params, secret); err != nil {
-			return err
+			return commonerrors.NewBadRequest(err.Error())
 		}
 	}
-	if req.BindAllWorkspaces != nil {
-		if *req.BindAllWorkspaces {
-			v1.SetLabel(secret, v1.SecretAllWorkspaceLabel, v1.TrueStr)
-		} else {
-			v1.RemoveLabel(secret, v1.SecretAllWorkspaceLabel)
-		}
-	}
-	return nil
-}
-
-// updateClusterSecret updates cluster resources that reference the specified secret.
-// If any cluster references the secret and the resource version has changed,
-// it updates the cluster's reference to point to the new secret version.
-func (h *Handler) updateClusterSecret(ctx context.Context, secret *corev1.Secret) error {
-	clusterList := &v1.ClusterList{}
-	if err := h.List(ctx, clusterList, &client.ListOptions{}); err != nil {
-		return err
-	}
-	for _, cluster := range clusterList.Items {
-		imageSecret := cluster.Spec.ControlPlane.ImageSecret
-		if imageSecret == nil || imageSecret.Name != secret.Name {
-			continue
-		}
-		if imageSecret.ResourceVersion != secret.ResourceVersion {
-			cluster.Spec.ControlPlane.ImageSecret = commonutils.GenObjectReference(secret.TypeMeta, secret.ObjectMeta)
-			if err := h.Update(ctx, &cluster); err != nil {
-				return err
-			}
-		}
-		break
-	}
-	return nil
-}
-
-// updateWorkspaceSecret updates workspace resources to synchronize secret references.
-// Ensures all workspaces that should reference the secret have up-to-date references,
-// including handling the bind-all-workspaces flag.
-func (h *Handler) updateWorkspaceSecret(ctx context.Context, inputSecret *corev1.Secret) error {
-	isApplyAllWorkspace := v1.IsSecretBindAllWorkspaces(inputSecret)
-	secretReference := commonutils.GenObjectReference(inputSecret.TypeMeta, inputSecret.ObjectMeta)
-
-	if err := backoff.ConflictRetry(func() error {
-		workspaceList := &v1.WorkspaceList{}
-		if err := h.List(ctx, workspaceList, &client.ListOptions{}); err != nil {
-			return err
-		}
-		for _, workspace := range workspaceList.Items {
-			isChanged := false
-			isExist := false
-			for i, currentSecret := range workspace.Spec.ImageSecrets {
-				if currentSecret.Name == secretReference.Name {
-					isExist = true
-					if currentSecret.ResourceVersion != secretReference.ResourceVersion {
-						workspace.Spec.ImageSecrets[i] = *secretReference
-						isChanged = true
-					}
-					break
-				}
-			}
-			if !isExist && isApplyAllWorkspace {
-				workspace.Spec.ImageSecrets = append(workspace.Spec.ImageSecrets, *secretReference)
-				isChanged = true
-			}
-			if isChanged {
-				if err := h.Update(ctx, &workspace); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}, types.MaxRetry, time.Millisecond*100); err != nil {
-		klog.ErrorS(err, "failed to update workspace secret", "secret", inputSecret.Name)
-		return err
+	if req.WorkspaceIds != nil {
+		v1.SetAnnotation(secret, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(*req.WorkspaceIds)))
 	}
 	return nil
 }
@@ -310,9 +276,6 @@ func (h *Handler) updateWorkspaceSecret(ctx context.Context, inputSecret *corev1
 // in associated clusters and workspaces.
 func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 	name := c.GetString(common.Name)
-	if name == "" {
-		return nil, commonerrors.NewBadRequest("the secretId is empty")
-	}
 	secret, err := h.getAdminSecret(c.Request.Context(), name)
 	if err != nil {
 		return nil, err
@@ -323,13 +286,8 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 		ResourceKind: authority.SecretResourceKind,
 		Verb:         v1.DeleteVerb,
 		UserId:       c.GetString(common.UserId),
+		Workspaces:   commonsecret.GetSecretWorkspaces(secret),
 	}); err != nil {
-		return nil, err
-	}
-	if err = h.deleteClusterSecret(c.Request.Context(), name); err != nil {
-		return nil, err
-	}
-	if err = h.deleteWorkspaceSecret(c.Request.Context(), name); err != nil {
 		return nil, err
 	}
 	if err = h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Delete(
@@ -337,90 +295,65 @@ func (h *Handler) deleteSecret(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	klog.Infof("delete secret %s", name)
-
 	return nil, nil
 }
 
-// deleteClusterSecret removes secret references from cluster resources.
-// Clears image secret references in clusters that reference the deleted secret.
-func (h *Handler) deleteClusterSecret(ctx context.Context, secretId string) error {
-	clusterList := &v1.ClusterList{}
-	if err := h.List(ctx, clusterList, &client.ListOptions{}); err != nil {
-		return err
-	}
-	for _, cluster := range clusterList.Items {
-		imageSecret := cluster.Spec.ControlPlane.ImageSecret
-		if imageSecret == nil || imageSecret.Name != secretId {
-			continue
-		}
-		cluster.Spec.ControlPlane.ImageSecret = nil
-		if err := h.Update(ctx, &cluster); err != nil {
-			return err
-		}
-		break
-	}
-	return nil
-}
-
-// deleteWorkspaceSecret removes secret references from workspace resources.
-// Cleans up image secret references in workspaces that reference the deleted secret.
-func (h *Handler) deleteWorkspaceSecret(ctx context.Context, secretId string) error {
-	if err := backoff.ConflictRetry(func() error {
-		workspaceList := &v1.WorkspaceList{}
-		if err := h.List(ctx, workspaceList, &client.ListOptions{}); err != nil {
-			return err
-		}
-		for _, workspace := range workspaceList.Items {
-			newSecrets := make([]corev1.ObjectReference, 0, len(workspace.Spec.ImageSecrets))
-			for i, currentSecret := range workspace.Spec.ImageSecrets {
-				if currentSecret.Name == secretId {
-					continue
-				}
-				newSecrets = append(newSecrets, workspace.Spec.ImageSecrets[i])
-			}
-			if len(newSecrets) != len(workspace.Spec.ImageSecrets) {
-				workspace.Spec.ImageSecrets = newSecrets
-				if err := h.Update(ctx, &workspace); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}, types.MaxRetry, time.Millisecond*100); err != nil {
-		klog.ErrorS(err, "failed to update workspace secret", "secret", secretId)
-		return err
-	}
-	return nil
-}
-
-// getAdminSecret retrieves a secret resource by name from the Kubernetes cluster.
+// getAdminSecret retrieves a secret resource by name without authorization.
 // Returns the secret object or an error if retrieval fails.
 func (h *Handler) getAdminSecret(ctx context.Context, name string) (*corev1.Secret, error) {
-	secret, err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(
-		ctx, name, metav1.GetOptions{})
+	if name == "" {
+		return nil, commonerrors.NewBadRequest("the secretId is empty")
+	}
+	secret, err := h.clientSet.CoreV1().Secrets(common.PrimusSafeNamespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		klog.ErrorS(err, "failed to get secret")
+		return nil, err
 	}
 	return secret, err
 }
 
+// getAndAuthorizeSecret retrieves a secret by name and performs authorization check with specified verb
+// If a workspace is set, validate permissions only on that workspace; otherwise, validate across all workspaces the secret belongs to.
+func (h *Handler) getAndAuthorizeSecret(ctx context.Context,
+	name, workspaceId string, requestUser *v1.User, verb v1.RoleVerb) (*corev1.Secret, error) {
+	secret, err := h.getAdminSecret(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	var workspaceIds []string
+	if workspaceId != "" {
+		workspaceIds = []string{workspaceId}
+	} else {
+		workspaceIds = commonsecret.GetSecretWorkspaces(secret)
+	}
+	if err = h.accessController.Authorize(authority.AccessInput{
+		Context:      ctx,
+		Resource:     secret,
+		ResourceKind: authority.SecretResourceKind,
+		Verb:         verb,
+		User:         requestUser,
+		Workspaces:   workspaceIds,
+	}); err != nil {
+		return nil, err
+	}
+	return secret, nil
+}
+
 // generateSecret creates a new secret object based on the creation request.
 // Validates the request parameters and populates the secret metadata and data.
-func generateSecret(req *types.CreateSecretRequest) (*corev1.Secret, error) {
-	if req.Name == "" {
-		return nil, commonerrors.NewBadRequest("the name is empty")
-	}
+func generateSecret(req *types.CreateSecretRequest, requestUser *v1.User) (*corev1.Secret, error) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      req.Name,
 			Namespace: common.PrimusSafeNamespace,
 			Labels: map[string]string{
 				v1.SecretTypeLabel: string(req.Type),
+				v1.UserIdLabel:     requestUser.Name,
+			},
+			Annotations: map[string]string{
+				v1.UserNameAnnotation: v1.GetUserName(requestUser),
 			},
 		},
-	}
-	if req.BindAllWorkspaces {
-		v1.SetLabel(secret, v1.SecretAllWorkspaceLabel, v1.TrueStr)
 	}
 	if err := buildSecretData(req.Type, req.Params, secret); err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
@@ -428,6 +361,10 @@ func generateSecret(req *types.CreateSecretRequest) (*corev1.Secret, error) {
 	if req.Name != "" {
 		v1.SetLabel(secret, v1.DisplayNameLabel, req.Name)
 	}
+	if len(req.WorkspaceIds) > 0 {
+		v1.SetAnnotation(secret, v1.WorkspaceIdsAnnotation, string(jsonutils.MarshalSilently(req.WorkspaceIds)))
+	}
+	controllerutil.AddFinalizer(secret, v1.SecretFinalizer)
 	return secret, nil
 }
 
@@ -460,7 +397,7 @@ func buildSecretData(reqType v1.SecretType, allParams []map[types.SecretParam]st
 		data[types.DockerConfigJson] = jsonutils.MarshalSilently(dockerConf)
 	case v1.SecretSSH:
 		if len(allParams) == 0 {
-			return fmt.Errorf("the input params is empty")
+			return fmt.Errorf("the input params are empty")
 		}
 		params := allParams[0]
 		if !existKey(params, types.UserNameParam) {
@@ -476,6 +413,15 @@ func buildSecretData(reqType v1.SecretType, allParams []map[types.SecretParam]st
 		} else {
 			return fmt.Errorf("the password or keypair is empty")
 		}
+	case v1.SecretGeneral:
+		secretType = corev1.SecretTypeOpaque
+		if len(allParams) == 0 {
+			return fmt.Errorf("the input params are empty")
+		}
+		params := allParams[0]
+		for k, v := range params {
+			data[string(k)] = []byte(v)
+		}
 	default:
 		return fmt.Errorf("the secret type %s is not supported", reqType)
 	}
@@ -490,39 +436,38 @@ func existKey(params map[types.SecretParam]string, key types.SecretParam) bool {
 	return val != ""
 }
 
-// parseListSecretQuery parses and validates the query parameters for listing secrets.
-func parseListSecretQuery(c *gin.Context) (*types.ListSecretRequest, error) {
-	query := &types.ListSecretRequest{}
-	if err := c.ShouldBindWith(&query, binding.Query); err != nil {
-		return nil, commonerrors.NewBadRequest("invalid query: " + err.Error())
-	}
-	return query, nil
-}
-
 // buildSecretLabelSelector constructs a label selector based on query parameters.
 // Used to filter secrets by type criteria.
 func buildSecretLabelSelector(query *types.ListSecretRequest) labels.Selector {
-	var req1 *labels.Requirement
 	var labelSelector = labels.NewSelector()
 	if query.Type != "" {
 		typeList := strings.Split(query.Type, ",")
-		req1, _ = labels.NewRequirement(v1.SecretTypeLabel, selection.In, typeList)
-		labelSelector = labelSelector.Add(*req1)
+		req, _ := labels.NewRequirement(v1.SecretTypeLabel, selection.In, typeList)
+		labelSelector = labelSelector.Add(*req)
 	}
 	return labelSelector
 }
 
 // cvtToSecretResponseItem converts a secret object to a response item format.
-// Maps the secret data to the appropriate response structure with proper value handling.
 func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 	result := types.SecretResponseItem{
-		SecretId:          secret.Name,
-		SecretName:        v1.GetDisplayName(secret),
-		Type:              v1.GetSecretType(secret),
-		CreationTime:      timeutil.FormatRFC3339(secret.CreationTimestamp.Time),
-		BindAllWorkspaces: v1.IsSecretBindAllWorkspaces(secret),
+		SecretId:     secret.Name,
+		SecretName:   v1.GetDisplayName(secret),
+		WorkspaceIds: commonsecret.GetSecretWorkspaces(secret),
+		Type:         v1.GetSecretType(secret),
+		CreationTime: timeutil.FormatRFC3339(secret.CreationTimestamp.Time),
+		UserId:       v1.GetUserId(secret),
+		UserName:     v1.GetUserName(secret),
 	}
+	return result
+}
 
+// cvtToGetSecretResponse converts a secret object to a response format.
+// Maps the secret data to the appropriate response structure with proper value handling.
+func cvtToGetSecretResponse(secret *corev1.Secret) types.GetSecretResponse {
+	result := types.GetSecretResponse{
+		SecretResponseItem: cvtToSecretResponseItem(secret),
+	}
 	switch result.Type {
 	case string(v1.SecretImage):
 		dockerConf := &types.DockerConfig{}
@@ -540,9 +485,38 @@ func cvtToSecretResponseItem(secret *corev1.Secret) types.SecretResponseItem {
 		result.Params = make([]map[types.SecretParam]string, 0, 1)
 		params := make(map[types.SecretParam]string)
 		params[types.UserNameParam] = string(secret.Data[string(types.UserNameParam)])
-		params[types.PrivateKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthKey]))
-		params[types.PublicKeyParam] = stringutil.Base64Encode(string(secret.Data[types.SSHAuthPubKey]))
+		if pwd, ok := secret.Data[string(types.PasswordParam)]; ok && len(pwd) > 0 {
+			params[types.PasswordParam] = stringutil.Base64Encode(string(pwd))
+		} else {
+			if priv := secret.Data[types.SSHAuthKey]; len(priv) > 0 {
+				params[types.PrivateKeyParam] = stringutil.Base64Encode(string(priv))
+			}
+			if pub := secret.Data[types.SSHAuthPubKey]; len(pub) > 0 {
+				params[types.PublicKeyParam] = stringutil.Base64Encode(string(pub))
+			}
+		}
+		result.Params = append(result.Params, params)
+	case string(v1.SecretGeneral):
+		result.Params = make([]map[types.SecretParam]string, 0, len(secret.Data))
+		params := make(map[types.SecretParam]string)
+		for k, v := range secret.Data {
+			params[types.SecretParam(k)] = string(v)
+		}
 		result.Params = append(result.Params, params)
 	}
 	return result
+}
+
+// parseCreateSecretRequest parses and validates the request for creating a secret.
+// It ensures required fields like name, type, and inputs are provided.
+func parseCreateSecretRequest(c *gin.Context) (*types.CreateSecretRequest, error) {
+	req := &types.CreateSecretRequest{}
+	_, err := apiutils.ParseRequestBody(c.Request, req)
+	if err != nil {
+		return nil, commonerrors.NewBadRequest(err.Error())
+	}
+	if req.Name == "" || req.Type == "" || len(req.Params) == 0 {
+		return nil, commonerrors.NewBadRequest("the name, type and params of request are required")
+	}
+	return req, nil
 }
