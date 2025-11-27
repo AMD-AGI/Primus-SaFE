@@ -7,10 +7,12 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -42,10 +44,18 @@ func (r *SchedulerReconciler) preempt(ctx context.Context, requestWorkload *v1.W
 		return false, nil
 	}
 	for _, w := range targetWorkloads {
-		originalWorkload := client.MergeFrom(w.DeepCopy())
-		v1.SetAnnotation(w, v1.WorkloadPreemptedAnnotation, time.Now().UTC().String())
-		if err = r.Patch(ctx, w, originalWorkload); err != nil {
-			klog.ErrorS(err, "failed to patch workload")
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"resourceVersion": w.ResourceVersion,
+				"annotations": map[string]any{
+					v1.WorkloadPreemptedAnnotation: time.Now().UTC().String(),
+				},
+			},
+		}
+		p, _ := json.Marshal(patchObj)
+
+		if err = r.Patch(ctx, w, client.RawPatch(types.MergePatchType, p)); err != nil {
+			klog.ErrorS(err, "failed to update workload")
 			return false, err
 		}
 		klog.Infof("the workload(%s) is preempted due to workload(%s)", w.Name, requestWorkload.Name)

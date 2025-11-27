@@ -94,7 +94,7 @@ data:
         dnsPolicy: ClusterFirst
         enableServiceLinks: true
         schedulerName: kube-scheduler-plugins
-        serviceAccountName: {{ .Values.cicd.role_name }}
+        serviceAccountName: "{{ .Values.cicd.role_name }}-no-permission"
         terminationGracePeriodSeconds: 30
         volumes:
         - name: kube-api-access-gq8sq
