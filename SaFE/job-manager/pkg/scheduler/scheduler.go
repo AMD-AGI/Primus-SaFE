@@ -7,6 +7,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
@@ -14,6 +15,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -27,6 +29,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
@@ -501,21 +504,24 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 
 // updateScheduled updates a workload's status to indicate it has been scheduled.
 func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.Workload) error {
+	name := workload.Name
 	if err := backoff.ConflictRetry(func() error {
-		err := r.updateStatus(ctx, workload)
-		if err == nil {
+		if innerError := r.updateStatus(ctx, workload); innerError == nil {
 			return nil
+		} else {
+			if apierrors.IsConflict(innerError) {
+				r.Get(ctx, client.ObjectKey{Name: name}, workload)
+				if workload == nil {
+					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("The workload %s is not found", name))
+				}
+			}
+			return innerError
 		}
-		if apierrors.IsConflict(err) {
-			r.Get(ctx, client.ObjectKey{Namespace: workload.Namespace, Name: workload.Name}, workload)
-		}
-		return err
 	}, defaultRetryCount, defaultRetryDelay); err != nil {
 		klog.ErrorS(err, "failed to update workload status", "name", workload.Name)
 		return err
 	}
 
-	originalWorkload := client.MergeFrom(workload.DeepCopy())
 	annotations := workload.GetAnnotations()
 	if annotations == nil {
 		annotations = make(map[string]string)
@@ -523,8 +529,8 @@ func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.
 	annotations[v1.WorkloadScheduledAnnotation] = timeutil.FormatRFC3339(time.Now().UTC())
 	delete(annotations, v1.WorkloadReScheduledAnnotation)
 	workload.SetAnnotations(annotations)
-	if err := r.Patch(ctx, workload, originalWorkload); err != nil {
-		klog.ErrorS(err, "failed to patch workload", "name", workload.Name)
+	if err := r.Update(ctx, workload); err != nil {
+		klog.ErrorS(err, "failed to update workload", "name", workload.Name)
 		return err
 	}
 	return nil
@@ -555,7 +561,6 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads [
 		if v1.IsWorkloadScheduled(w) || w.IsEnd() {
 			continue
 		}
-		originalWorkload := client.MergeFrom(workloads[i].DeepCopy())
 		isChanged := false
 		if workloads[i].Status.QueuePosition != position {
 			workloads[i].Status.QueuePosition = position
@@ -570,8 +575,22 @@ func (r *SchedulerReconciler) updateUnScheduled(ctx context.Context, workloads [
 			isChanged = true
 		}
 		if isChanged {
-			if err := r.Status().Patch(ctx, workloads[i], originalWorkload); err != nil {
-				klog.ErrorS(err, "failed to patch workload", "name", workloads[i].Name)
+			patchObj := map[string]any{
+				"metadata": map[string]any{
+					"resourceVersion": workloads[i].ResourceVersion,
+				},
+				"status": map[string]any{
+					"queuePosition": position,
+					"message":       reason,
+				},
+			}
+			p, err := json.Marshal(patchObj)
+			if err != nil {
+				klog.ErrorS(err, "failed to marshal patch object")
+				continue
+			}
+			if err := r.Status().Patch(ctx, workloads[i], client.RawPatch(types.MergePatchType, p)); err != nil {
+				klog.ErrorS(err, "failed to patch workload status", "name", workloads[i].Name)
 			}
 		}
 		position++

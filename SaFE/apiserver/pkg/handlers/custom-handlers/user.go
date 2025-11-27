@@ -29,6 +29,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/slice"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -245,13 +246,36 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	isChanged, err := h.authUserUpdate(c, targetUser, req)
 	if !isChanged || err != nil {
 		return nil, err
 	}
 
-	originalUser := client.MergeFrom(targetUser.DeepCopy())
+	if err = backoff.ConflictRetry(func() error {
+		modifyUser(targetUser, req)
+		if innerError := h.Update(c.Request.Context(), targetUser); innerError == nil {
+			return nil
+		} else {
+			if apierrors.IsConflict(innerError) {
+				targetUser, _ = h.getAdminUser(c.Request.Context(), targetUserId)
+				if targetUser == nil {
+					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("user %s not found", targetUserId))
+				}
+			}
+			return innerError
+		}
+	}, defaultRetryCount, defaultRetryDelay); err != nil {
+		klog.ErrorS(err, "failed to update user", "name", targetUser.Name)
+		return nil, err
+	}
+	klog.Infof("patch user, target.user: %s, request.user: %s, request: %s",
+		targetUserId, c.GetString(common.UserName), string(jsonutils.MarshalSilently(req)))
+	return nil, nil
+}
+
+// modifyUser updates the target user with values from the patch request.
+// Only modifies fields that are present in the request.
+func modifyUser(targetUser *v1.User, req *types.PatchUserRequest) {
 	if req.Workspaces != nil {
 		commonuser.AssignWorkspace(targetUser, *req.Workspaces...)
 	}
@@ -271,13 +295,6 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 		v1.SetLabel(targetUser, v1.UserEmailMd5Label, stringutil.MD5(*req.Email))
 		v1.SetAnnotation(targetUser, v1.UserEmailAnnotation, *req.Email)
 	}
-	if err = h.Patch(c.Request.Context(), targetUser, originalUser); err != nil {
-		klog.ErrorS(err, "fail to patch user", "body", string(body))
-		return nil, err
-	}
-	klog.Infof("patch user, target.user: %s, request.user: %s, request: %s",
-		targetUserId, c.GetString(common.UserName), string(jsonutils.MarshalSilently(req)))
-	return nil, nil
 }
 
 // authUserUpdate validates authorization for user patch operations.

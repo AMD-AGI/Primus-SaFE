@@ -286,7 +286,6 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 		return err
 	}
 	for _, w := range workloads {
-		originalWorkload := client.MergeFrom(w.DeepCopy())
 		if workspace.Spec.EnablePreempt {
 			if v1.IsWorkloadEnablePreempt(w) {
 				continue
@@ -298,7 +297,7 @@ func (m *WorkspaceMutator) mutatePreempt(ctx context.Context, workspace *v1.Work
 			}
 			v1.RemoveAnnotation(w, v1.WorkloadEnablePreemptAnnotation)
 		}
-		if err = m.Patch(ctx, w, originalWorkload); err != nil {
+		if err = m.Update(ctx, w); err != nil {
 			klog.ErrorS(err, "failed to patch workload")
 		}
 	}
