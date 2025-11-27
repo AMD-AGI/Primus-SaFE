@@ -311,11 +311,10 @@ func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1
 	}
 
 	if !v1.IsWorkloadDispatched(workload) {
-		originalWorkload := client.MergeFrom(workload.DeepCopy())
 		v1.SetAnnotation(workload, v1.WorkloadDispatchedAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
 		v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, buildDispatchCount(workload))
 		v1.RemoveAnnotation(workload, v1.WorkloadPreemptedAnnotation)
-		if err := r.Patch(ctx, workload, originalWorkload); err != nil {
+		if err := r.Update(ctx, workload); err != nil {
 			klog.ErrorS(err, "failed to patch workload", "name", workload.Name)
 			return err
 		}

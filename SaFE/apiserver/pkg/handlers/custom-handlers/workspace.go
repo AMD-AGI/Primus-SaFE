@@ -7,12 +7,14 @@ package custom_handlers
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -33,6 +35,7 @@ import (
 	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -226,7 +229,8 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 	}
 
 	ctx := c.Request.Context()
-	workspace, err := h.getAdminWorkspace(ctx, c.GetString(common.Name))
+	name := c.GetString(common.Name)
+	workspace, err := h.getAdminWorkspace(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -247,22 +251,34 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 
-	originalWorkspace := client.MergeFrom(workspace.DeepCopy())
-	if err = h.updateWorkspace(ctx, workspace, requestUser, req); err != nil {
+	if err = backoff.ConflictRetry(func() error {
+		var innerError error
+		if innerError = h.modifyWorkspace(ctx, workspace, requestUser, req); innerError != nil {
+			return innerError
+		}
+		if innerError = h.Update(ctx, workspace); innerError == nil {
+			return nil
+		} else {
+			if apierrors.IsConflict(innerError) {
+				if workspace, _ = h.getAdminWorkspace(ctx, name); workspace == nil {
+					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("The workspace %s is not found", name))
+				}
+			}
+			return innerError
+		}
+	}, defaultRetryCount, defaultRetryDelay); err != nil {
+		klog.ErrorS(err, "failed to update workspace", "name", workspace.Name)
 		return nil, err
 	}
-	if err = h.Patch(ctx, workspace, originalWorkspace); err != nil {
-		klog.ErrorS(err, "failed to patch workspace", "data", string(body))
-		return nil, err
-	}
-	klog.Infof("patch workspace, name: %s, request: %s", workspace.Name, string(jsonutils.MarshalSilently(*req)))
+	klog.Infof("update workspace, name: %s, request: %s",
+		workspace.Name, string(jsonutils.MarshalSilently(*req)))
 	return nil, nil
 }
 
-// updateWorkspace applies updates to a workspace based on the patch request.
+// modifyWorkspace applies updates to a workspace based on the patch request.
 // Handles changes to description, flavor, replica count, queue policy, scopes,
 // volumes, preemption settings, managers, default status, and image secrets.
-func (h *Handler) updateWorkspace(ctx context.Context, workspace *v1.Workspace, requestUser *v1.User, req *types.PatchWorkspaceRequest) error {
+func (h *Handler) modifyWorkspace(ctx context.Context, workspace *v1.Workspace, requestUser *v1.User, req *types.PatchWorkspaceRequest) error {
 	if req.Description != nil {
 		v1.SetAnnotation(workspace, v1.DescriptionAnnotation, *req.Description)
 	}

@@ -464,8 +464,7 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
 	}
-
-	maxRetry := 3
+	
 	if err = backoff.ConflictRetry(func() error {
 		shouldUpdate, innerErr := h.updateNode(ctx, node, req)
 		if innerErr != nil || !shouldUpdate {
@@ -476,7 +475,7 @@ func (h *Handler) patchNode(c *gin.Context) (interface{}, error) {
 			h.getAdminNode(ctx, nodeId)
 		}
 		return innerErr
-	}, maxRetry, time.Millisecond*200); err != nil {
+	}, defaultRetryCount, defaultRetryDelay); err != nil {
 		klog.ErrorS(err, "failed to update node", "name", node.Name)
 		return nil, err
 	}

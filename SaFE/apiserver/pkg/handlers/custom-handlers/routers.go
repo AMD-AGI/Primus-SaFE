@@ -9,7 +9,6 @@ import (
 	"fmt"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middle"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/custom-handlers/types"

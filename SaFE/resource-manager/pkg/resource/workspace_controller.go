@@ -284,10 +284,9 @@ func (r *WorkspaceReconciler) updatePhase(ctx context.Context, workspace *v1.Wor
 	if workspace.Status.Phase == phase {
 		return nil
 	}
-	originalWorkspace := client.MergeFrom(workspace.DeepCopy())
 	workspace.Status.UpdateTime = &metav1.Time{Time: time.Now().UTC()}
 	workspace.Status.Phase = phase
-	if err := r.Status().Patch(ctx, workspace, originalWorkspace); err != nil {
+	if err := r.Status().Update(ctx, workspace); err != nil {
 		return err
 	}
 	return nil
