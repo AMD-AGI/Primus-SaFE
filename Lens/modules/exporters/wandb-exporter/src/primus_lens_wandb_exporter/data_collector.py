@@ -27,11 +27,18 @@ class DataCollector:
         Returns:
             Dict: 完整的检测数据
         """
+        debug_log(f"[Primus Lens Data Collector] collect_detection_data() called")
+        debug_log(f"[Primus Lens Data Collector] WandB run: {wandb_run.name if wandb_run and hasattr(wandb_run, 'name') else 'None'}")
+        
         # 采集原始证据
+        debug_log(f"[Primus Lens Data Collector] Collecting raw evidence...")
         evidence = self._collect_raw_evidence(wandb_run)
+        debug_log(f"[Primus Lens Data Collector] Evidence collected, keys: {list(evidence.keys())}")
         
         # 生成 hints
+        debug_log(f"[Primus Lens Data Collector] Generating framework hints...")
         hints = self._get_framework_hints(evidence)
+        debug_log(f"[Primus Lens Data Collector] Hints generated: possible_frameworks={hints.get('possible_frameworks')}, confidence={hints.get('confidence')}")
         
         # 构造完整的上报数据
         detection_data = {
@@ -47,6 +54,8 @@ class DataCollector:
             "timestamp": time.time(),
         }
         
+        debug_log(f"[Primus Lens Data Collector] Detection data prepared, workload_uid={detection_data['workload_uid']}")
+        
         return detection_data
     
     def _collect_raw_evidence(self, wandb_run) -> Dict[str, Any]:
@@ -59,16 +68,27 @@ class DataCollector:
         Returns:
             Dict: 原始证据数据
         """
+        debug_log(f"[Primus Lens Data Collector] _collect_raw_evidence() started")
+        
+        # 1. WandB 相关信息
+        debug_log(f"[Primus Lens Data Collector] Extracting WandB info...")
+        wandb_info = self._extract_wandb_info(wandb_run)
+        debug_log(f"[Primus Lens Data Collector] WandB info extracted: project={wandb_info.get('project')}, run_id={wandb_info.get('id')}")
+        
+        # 2. 环境变量（框架识别相关）
+        debug_log(f"[Primus Lens Data Collector] Extracting environment variables...")
+        env_vars = self._extract_environment_vars()
+        debug_log(f"[Primus Lens Data Collector] Found {len(env_vars)} relevant environment variables")
+        
+        # 3. PyTorch 信息（如果可用）
+        debug_log(f"[Primus Lens Data Collector] Extracting PyTorch info...")
+        pytorch_info = self._extract_pytorch_info()
+        debug_log(f"[Primus Lens Data Collector] PyTorch available: {pytorch_info.get('available', False)}")
+        
         evidence = {
-            # 1. WandB 相关信息
-            "wandb": self._extract_wandb_info(wandb_run),
-            
-            # 2. 环境变量（框架识别相关）
-            "environment": self._extract_environment_vars(),
-            
-            # 3. PyTorch 信息（如果可用）
-            "pytorch": self._extract_pytorch_info(),
-            
+            "wandb": wandb_info,
+            "environment": env_vars,
+            "pytorch": pytorch_info,
             # 4. 系统信息
             "system": {
                 "python_version": sys.version,
@@ -76,6 +96,8 @@ class DataCollector:
                 "platform": sys.platform,
             },
         }
+        
+        debug_log(f"[Primus Lens Data Collector] _collect_raw_evidence() completed")
         
         return evidence
     
@@ -208,6 +230,8 @@ class DataCollector:
         Returns:
             Dict: hints 数据
         """
+        debug_log(f"[Primus Lens Data Collector] _get_framework_hints() started")
+        
         hints = {
             "possible_frameworks": [],
             "confidence": "low",  # low/medium/high
@@ -222,22 +246,34 @@ class DataCollector:
         # === 收集线索 ===
         
         # 1. 从环境变量收集（强指标）
+        debug_log(f"[Primus Lens Data Collector] Collecting hints from environment variables...")
         self._collect_env_hints(env, hints)
+        debug_log(f"[Primus Lens Data Collector] Env hints: frameworks={hints['possible_frameworks']}, indicators={hints['primary_indicators']}")
         
         # 2. 从 wandb config 收集（中等指标）
+        debug_log(f"[Primus Lens Data Collector] Collecting hints from WandB config...")
         self._collect_config_hints(wandb_config, hints)
+        debug_log(f"[Primus Lens Data Collector] Config hints: frameworks={hints['possible_frameworks']}, indicators={hints['primary_indicators']}")
         
         # 3. 从 PyTorch 模块收集（弱指标）
+        debug_log(f"[Primus Lens Data Collector] Collecting hints from PyTorch modules...")
         self._collect_pytorch_hints(pytorch_info, hints)
+        debug_log(f"[Primus Lens Data Collector] PyTorch hints: frameworks={hints['possible_frameworks']}, indicators={hints['primary_indicators']}")
         
         # 4. 从 wandb project name 收集（最弱指标）
+        debug_log(f"[Primus Lens Data Collector] Collecting hints from project name...")
         self._collect_project_hints(evidence.get("wandb", {}), hints)
+        debug_log(f"[Primus Lens Data Collector] Project hints: frameworks={hints['possible_frameworks']}, indicators={hints['primary_indicators']}")
         
         # === 评估置信度 ===
         hints["confidence"] = self._evaluate_confidence(hints["primary_indicators"])
+        debug_log(f"[Primus Lens Data Collector] Confidence evaluated: {hints['confidence']}")
         
         # 去重
         hints["possible_frameworks"] = list(set(hints["possible_frameworks"]))
+        
+        debug_log(f"[Primus Lens Data Collector] _get_framework_hints() completed")
+        debug_log(f"[Primus Lens Data Collector] Final hints: {hints['possible_frameworks']} (confidence: {hints['confidence']})")
         
         return hints
     

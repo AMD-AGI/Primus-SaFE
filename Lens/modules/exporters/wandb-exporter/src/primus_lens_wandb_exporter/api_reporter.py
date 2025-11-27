@@ -87,8 +87,11 @@ class AsyncAPIReporter:
         Args:
             detection_data: 框架检测数据
         """
+        debug_log(f"[Primus Lens API Reporter] report_detection() called")
+        debug_log(f"[Primus Lens API Reporter] Detection data keys: {list(detection_data.keys())}")
         try:
             self.detection_queue.put_nowait(detection_data)
+            debug_log(f"[Primus Lens API Reporter] Detection data queued successfully, queue size: {self.detection_queue.qsize()}")
         except:
             # 队列满了，丢弃数据（避免阻塞）
             warning_log("[Primus Lens API Reporter] Detection queue full, dropping data")
@@ -100,8 +103,11 @@ class AsyncAPIReporter:
         Args:
             metrics_data: 训练指标数据
         """
+        debug_log(f"[Primus Lens API Reporter] report_metrics() called")
+        debug_log(f"[Primus Lens API Reporter] Metrics count: {len(metrics_data.get('metrics', []))}")
         try:
             self.metrics_queue.put_nowait(metrics_data)
+            debug_log(f"[Primus Lens API Reporter] Metrics data queued successfully, queue size: {self.metrics_queue.qsize()}")
         except:
             warning_log("[Primus Lens API Reporter] Metrics queue full, dropping data")
     
@@ -112,8 +118,11 @@ class AsyncAPIReporter:
         Args:
             logs_data: 训练日志数据
         """
+        debug_log(f"[Primus Lens API Reporter] report_logs() called")
+        debug_log(f"[Primus Lens API Reporter] Logs count: {len(logs_data.get('logs', []))}")
         try:
             self.logs_queue.put_nowait(logs_data)
+            debug_log(f"[Primus Lens API Reporter] Logs data queued successfully, queue size: {self.logs_queue.qsize()}")
         except:
             warning_log("[Primus Lens API Reporter] Logs queue full, dropping data")
     
@@ -165,13 +174,18 @@ class AsyncAPIReporter:
         if not items:
             return
         
+        debug_log(f"[Primus Lens API Reporter] Flushing {len(items)} detection item(s)")
+        
         # 发送检测数据（单个发送，因为通常只有一次）
         for item in items:
+            debug_log(f"[Primus Lens API Reporter] Sending detection data...")
             success = self._send_detection(item)
             if success:
                 self.stats["detection_sent"] += 1
+                debug_log(f"[Primus Lens API Reporter] Detection data sent successfully")
             else:
                 self.stats["errors"] += 1
+                debug_log(f"[Primus Lens API Reporter] Detection data failed to send")
     
     def _flush_metrics_queue(self):
         """刷新指标队列"""
@@ -186,20 +200,28 @@ class AsyncAPIReporter:
         if not items:
             return
         
+        debug_log(f"[Primus Lens API Reporter] Flushing {len(items)} metrics item(s)")
+        
         # 批量发送指标（如果有多个）
         if len(items) == 1:
+            debug_log(f"[Primus Lens API Reporter] Sending single metrics data...")
             success = self._send_metrics(items[0])
             if success:
                 self.stats["metrics_sent"] += 1
+                debug_log(f"[Primus Lens API Reporter] Metrics data sent successfully")
             else:
                 self.stats["errors"] += 1
+                debug_log(f"[Primus Lens API Reporter] Metrics data failed to send")
         else:
             # 批量上报
+            debug_log(f"[Primus Lens API Reporter] Sending batched metrics data ({len(items)} items)...")
             success = self._send_metrics_batch(items)
             if success:
                 self.stats["metrics_sent"] += len(items)
+                debug_log(f"[Primus Lens API Reporter] Batched metrics data sent successfully")
             else:
                 self.stats["errors"] += len(items)
+                debug_log(f"[Primus Lens API Reporter] Batched metrics data failed to send")
     
     def _flush_logs_queue(self):
         """刷新日志队列"""
@@ -214,20 +236,28 @@ class AsyncAPIReporter:
         if not items:
             return
         
+        debug_log(f"[Primus Lens API Reporter] Flushing {len(items)} logs item(s)")
+        
         # 批量发送日志（如果有多个）
         if len(items) == 1:
+            debug_log(f"[Primus Lens API Reporter] Sending single logs data...")
             success = self._send_logs(items[0])
             if success:
                 self.stats["logs_sent"] += 1
+                debug_log(f"[Primus Lens API Reporter] Logs data sent successfully")
             else:
                 self.stats["errors"] += 1
+                debug_log(f"[Primus Lens API Reporter] Logs data failed to send")
         else:
             # 批量上报
+            debug_log(f"[Primus Lens API Reporter] Sending batched logs data ({len(items)} items)...")
             success = self._send_logs_batch(items)
             if success:
                 self.stats["logs_sent"] += len(items)
+                debug_log(f"[Primus Lens API Reporter] Batched logs data sent successfully")
             else:
                 self.stats["errors"] += len(items)
+                debug_log(f"[Primus Lens API Reporter] Batched logs data failed to send")
     
     def _send_detection(self, data: Dict[str, Any]) -> bool:
         """发送框架检测数据"""
@@ -303,8 +333,12 @@ class AsyncAPIReporter:
         Returns:
             bool: 是否成功
         """
+        debug_log(f"[Primus Lens API Reporter] Preparing to send request to {url}")
+        debug_log(f"[Primus Lens API Reporter] Data keys: {list(data.keys())}")
+        
         try:
             json_data = json.dumps(data).encode('utf-8')
+            debug_log(f"[Primus Lens API Reporter] Request payload size: {len(json_data)} bytes")
             
             req = Request(
                 url,
@@ -315,8 +349,10 @@ class AsyncAPIReporter:
                 }
             )
             
+            debug_log(f"[Primus Lens API Reporter] Sending HTTP POST request...")
             with urlopen(req, timeout=timeout) as response:
                 if response.status == 200:
+                    debug_log(f"[Primus Lens API Reporter] Request successful (200 OK)")
                     return True
                 else:
                     warning_log(f"[Primus Lens API Reporter] Request failed: {response.status}")
@@ -324,14 +360,17 @@ class AsyncAPIReporter:
         
         except HTTPError as e:
             warning_log(f"[Primus Lens API Reporter] HTTP error: {e.code} {e.reason}")
+            debug_log(f"[Primus Lens API Reporter] Failed URL: {url}")
             return False
         
         except URLError as e:
             warning_log(f"[Primus Lens API Reporter] URL error: {e.reason}")
+            debug_log(f"[Primus Lens API Reporter] Failed URL: {url}")
             return False
         
         except Exception as e:
             warning_log(f"[Primus Lens API Reporter] Request error: {e}")
+            debug_log(f"[Primus Lens API Reporter] Failed URL: {url}")
             return False
 
 

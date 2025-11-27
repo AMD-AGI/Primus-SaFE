@@ -114,16 +114,23 @@ class WandbInterceptor:
     
     def _report_framework_detection(self, wandb_run):
         """异步上报框架检测数据（不阻塞）"""
+        debug_log(f"[Primus Lens WandB] _report_framework_detection() called")
+        debug_log(f"[Primus Lens WandB] WandB run name: {wandb_run.name if wandb_run else 'None'}")
+        
         try:
             # 采集检测数据
+            debug_log(f"[Primus Lens WandB] Collecting detection data...")
             detection_data = self.data_collector.collect_detection_data(wandb_run)
+            debug_log(f"[Primus Lens WandB] Detection data collected, keys: {list(detection_data.keys())}")
             
             # 验证必需字段
             if not detection_data.get("workload_uid"):
                 warning_log("[Primus Lens WandB] Warning: WORKLOAD_UID not set, detection may not be associated with workload")
             
             # 异步上报
+            debug_log(f"[Primus Lens WandB] Calling api_reporter.report_detection()...")
             self.api_reporter.report_detection(detection_data)
+            debug_log(f"[Primus Lens WandB] api_reporter.report_detection() completed")
             
             debug_log(f"[Primus Lens WandB] Framework detection data queued for reporting")
             if detection_data.get("hints", {}).get("possible_frameworks"):
@@ -137,6 +144,9 @@ class WandbInterceptor:
     
     def _report_metrics(self, data: Dict[str, Any], step: Optional[int] = None):
         """异步上报指标数据（不阻塞）"""
+        debug_log(f"[Primus Lens WandB] _report_metrics() called, step={step}")
+        debug_log(f"[Primus Lens WandB] Input data keys: {list(data.keys())}")
+        
         try:
             # 构造指标数据
             current_time = time.time()
@@ -146,6 +156,7 @@ class WandbInterceptor:
             for key, value in data.items():
                 # 跳过非数值类型
                 if not isinstance(value, (int, float)):
+                    debug_log(f"[Primus Lens WandB] Skipping non-numeric metric: {key} (type: {type(value).__name__})")
                     continue
                 
                 metric = {
@@ -158,7 +169,10 @@ class WandbInterceptor:
                 metrics.append(metric)
             
             if not metrics:
+                debug_log(f"[Primus Lens WandB] No numeric metrics to report")
                 return
+            
+            debug_log(f"[Primus Lens WandB] Prepared {len(metrics)} metric(s) for reporting")
             
             # 构造请求数据
             metrics_data = {
@@ -170,12 +184,18 @@ class WandbInterceptor:
                 "timestamp": current_time,
             }
             
+            debug_log(f"[Primus Lens WandB] Metrics data prepared, workload_uid={metrics_data['workload_uid']}, run_id={metrics_data['run_id']}")
+            
             # 异步上报
+            debug_log(f"[Primus Lens WandB] Calling api_reporter.report_metrics()...")
             self.api_reporter.report_metrics(metrics_data)
+            debug_log(f"[Primus Lens WandB] api_reporter.report_metrics() completed")
         
         except Exception as e:
-            # 不打印错误，避免日志过多
-            pass
+            # 打印错误到debug日志
+            debug_log(f"[Primus Lens WandB] Error in _report_metrics: {e}")
+            import traceback
+            debug_log(f"[Primus Lens WandB] Traceback: {traceback.format_exc()}")
     
     def patch_wandb(self):
         """Patch wandb 的关键方法"""
@@ -195,7 +215,10 @@ class WandbInterceptor:
         # 创建拦截方法
         def intercepted_init(*args, **kwargs):
             """拦截 wandb.init"""
-            debug_log("[Primus Lens WandB] Intercepted wandb.init()")
+            debug_log("[Primus Lens WandB] ============================================")
+            debug_log("[Primus Lens WandB] intercepted_init() called")
+            debug_log(f"[Primus Lens WandB] Args: {args}")
+            debug_log(f"[Primus Lens WandB] Kwargs keys: {list(kwargs.keys())}")
             
             rank_info = self._get_rank_info()
             debug_log(f"[Primus Lens WandB] Rank info: {rank_info}")
@@ -204,36 +227,55 @@ class WandbInterceptor:
             output_path = self._setup_metrics_output()
             if output_path:
                 debug_log(f"[Primus Lens WandB] Metrics will be saved to: {output_path}")
+            else:
+                debug_log(f"[Primus Lens WandB] No output path configured (PRIMUS_LENS_WANDB_OUTPUT_PATH not set)")
             
             # 调用原始 init
+            debug_log(f"[Primus Lens WandB] Calling original wandb.init()...")
             result = self.original_init(*args, **kwargs)
+            debug_log(f"[Primus Lens WandB] Original wandb.init() completed")
             
             # 保存 run 对象
             self.wandb_run = result
             if result:
                 self.run_id = result.id if hasattr(result, 'id') else None
-                debug_log(f"[Primus Lens WandB] WandB run initialized: {result.name}")
-                debug_log(f"[Primus Lens WandB] Project: {result.project}")
-                debug_log(f"[Primus Lens WandB] Run ID: {self.run_id}")
+                debug_log(f"[Primus Lens WandB] WandB run initialized successfully")
+                debug_log(f"[Primus Lens WandB]   Name: {result.name}")
+                debug_log(f"[Primus Lens WandB]   Project: {result.project}")
+                debug_log(f"[Primus Lens WandB]   Run ID: {self.run_id}")
+                debug_log(f"[Primus Lens WandB]   API reporting enabled: {self.api_reporting_enabled}")
                 
                 # 异步上报框架检测数据
                 if self.api_reporting_enabled:
+                    debug_log(f"[Primus Lens WandB] Starting framework detection reporting...")
                     self._report_framework_detection(result)
+                    debug_log(f"[Primus Lens WandB] Framework detection reporting completed")
+            else:
+                warning_log("[Primus Lens WandB] wandb.init() returned None")
             
             # 重要：wandb.init() 会覆盖 wandb.log，需要重新劫持
             # 同时更新 original_log 为 run 对象的 log 方法
             import wandb
             if result and hasattr(result, 'log'):
                 self.original_log = result.log  # 使用 run 对象的 log 方法
+                debug_log(f"[Primus Lens WandB] Using run.log method")
             else:
                 self.original_log = wandb.log  # 回退到模块级别的 log
+                debug_log(f"[Primus Lens WandB] Using wandb.log method")
             wandb.log = intercepted_log
+            debug_log(f"[Primus Lens WandB] wandb.log re-patched")
+            debug_log("[Primus Lens WandB] ============================================")
             
             return result
         
         def intercepted_log(data: Dict[str, Any], step: Optional[int] = None, *args, **kwargs):
             """拦截 wandb.log"""
-            debug_log(f"[Primus Lens WandB] DEBUG: intercepted_log called, step={step}, data keys={list(data.keys())}")
+            debug_log(f"[Primus Lens WandB] --------------------------------------------")
+            debug_log(f"[Primus Lens WandB] intercepted_log() called")
+            debug_log(f"[Primus Lens WandB] Step: {step}")
+            debug_log(f"[Primus Lens WandB] Data keys: {list(data.keys())}")
+            debug_log(f"[Primus Lens WandB] Data values sample: {dict(list(data.items())[:5])}")
+            
             # 复制数据，避免修改原始数据
             enhanced_data = data.copy()
             
@@ -241,11 +283,15 @@ class WandbInterceptor:
             enhanced_data["_primus_lens_enabled"] = True
             
             # 根据配置添加额外的系统指标
-            if os.environ.get("PRIMUS_LENS_WANDB_ENHANCE_METRICS", "false").lower() == "true":
+            enhance_metrics = os.environ.get("PRIMUS_LENS_WANDB_ENHANCE_METRICS", "false").lower() == "true"
+            debug_log(f"[Primus Lens WandB] Enhance metrics: {enhance_metrics}")
+            
+            if enhance_metrics:
                 try:
                     import psutil
                     enhanced_data["_primus_sys_cpu_percent"] = psutil.cpu_percent()
                     enhanced_data["_primus_sys_memory_percent"] = psutil.virtual_memory().percent
+                    debug_log(f"[Primus Lens WandB] Added system metrics (CPU, Memory)")
                     
                     # GPU 指标（如果可用）
                     try:
@@ -258,22 +304,37 @@ class WandbInterceptor:
                             mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
                             enhanced_data[f"_primus_gpu_{i}_util"] = util.gpu
                             enhanced_data[f"_primus_gpu_{i}_mem_used_mb"] = mem.used / 1024 / 1024
+                        debug_log(f"[Primus Lens WandB] Added GPU metrics for {device_count} device(s)")
                     except:
                         pass  # GPU 指标收集失败，忽略
                         
                 except ImportError:
-                    pass  # psutil 未安装，跳过系统指标
+                    debug_log(f"[Primus Lens WandB] psutil not available, skipping system metrics")
             
             # 保存指标到本地
-            if os.environ.get("PRIMUS_LENS_WANDB_SAVE_LOCAL", "true").lower() == "true":
+            save_local = os.environ.get("PRIMUS_LENS_WANDB_SAVE_LOCAL", "true").lower() == "true"
+            debug_log(f"[Primus Lens WandB] Save local: {save_local}")
+            
+            if save_local:
+                debug_log(f"[Primus Lens WandB] Saving metrics to local file...")
                 self._save_metrics(enhanced_data, step)
+                debug_log(f"[Primus Lens WandB] Local save completed")
             
             # 异步上报指标到 API
+            debug_log(f"[Primus Lens WandB] API reporting enabled: {self.api_reporting_enabled}")
+            
             if self.api_reporting_enabled:
+                debug_log(f"[Primus Lens WandB] Starting metrics API reporting...")
                 self._report_metrics(data, step)
+                debug_log(f"[Primus Lens WandB] Metrics API reporting completed")
             
             # 调用原始 log 方法
-            return self.original_log(enhanced_data, step=step, *args, **kwargs)
+            debug_log(f"[Primus Lens WandB] Calling original wandb.log()...")
+            result = self.original_log(enhanced_data, step=step, *args, **kwargs)
+            debug_log(f"[Primus Lens WandB] Original wandb.log() completed")
+            debug_log(f"[Primus Lens WandB] --------------------------------------------")
+            
+            return result
         
         # 应用 patch
         wandb.init = intercepted_init

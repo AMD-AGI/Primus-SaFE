@@ -299,6 +299,7 @@ func saveTrainingPerformanceForSingleWorkload(ctx context.Context, podId, worklo
 		CreatedAt:   docTime,
 		Serial:      int32(serial),
 		WorkloadUID: workloadId,
+		DataSource:  constant.DataSourceLog, // Data parsed from application logs
 	}
 	err = database.GetFacade().GetTraining().CreateTrainingPerformance(ctx, existDbPerformance)
 	if err != nil {
