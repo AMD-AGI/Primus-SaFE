@@ -308,6 +308,8 @@ data:
         approval_result VARCHAR(64),
         env_config TEXT NOT NULL,
         description TEXT,
+        rejection_reason TEXT,
+        failure_reason TEXT,
         rollback_from_id BIGINT,
         created_at TIMESTAMPTZ,
         updated_at TIMESTAMPTZ,

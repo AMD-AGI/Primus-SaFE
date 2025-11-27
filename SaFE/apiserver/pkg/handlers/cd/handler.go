@@ -127,9 +127,9 @@ func (h *Handler) createDeploymentRequest(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
 
-	// Validate image versions
-	if len(req.ImageVersions) == 0 {
-		return nil, commonerrors.NewBadRequest("image_versions cannot be empty")
+	// Validate: at least one of image_versions or env_file_config must be provided
+	if len(req.ImageVersions) == 0 && req.EnvFileConfig == "" {
+		return nil, commonerrors.NewBadRequest("at least one of image_versions or env_file_config must be provided")
 	}
 
 	// Wrap into DeploymentConfig
@@ -308,13 +308,7 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 	} else {
 		req.Status = StatusRejected
 		req.ApprovalResult = dbutils.NullString(StatusRejected)
-		// Append rejection reason if description exists
-		desc := ""
-		if req.Description.Valid {
-			desc = req.Description.String + ". "
-		}
-		desc += fmt.Sprintf("Rejection reason: %s", body.Reason)
-		req.Description = dbutils.NullString(desc)
+		req.RejectionReason = dbutils.NullString(body.Reason)
 
 		if err := h.dbClient.UpdateDeploymentRequest(c.Request.Context(), req); err != nil {
 			return nil, err

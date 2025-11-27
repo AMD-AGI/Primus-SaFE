@@ -213,17 +213,19 @@ func GetUserTokenFieldTags() map[string]string {
 }
 
 type DeploymentRequest struct {
-	Id             int64          `db:"id"`
-	DeployName     string         `db:"deploy_name"`
-	Status         string         `db:"status"`
-	ApproverName   sql.NullString `db:"approver_name"`
-	ApprovalResult sql.NullString `db:"approval_result"`
-	EnvConfig      string         `db:"env_config"` // JSON string
-	Description    sql.NullString `db:"description"`
-	RollbackFromId sql.NullInt64  `db:"rollback_from_id"`
-	CreatedAt      pq.NullTime    `db:"created_at"`
-	UpdatedAt      pq.NullTime    `db:"updated_at"`
-	ApprovedAt     pq.NullTime    `db:"approved_at"`
+	Id              int64          `db:"id"`
+	DeployName      string         `db:"deploy_name"`
+	Status          string         `db:"status"`
+	ApproverName    sql.NullString `db:"approver_name"`
+	ApprovalResult  sql.NullString `db:"approval_result"`
+	EnvConfig       string         `db:"env_config"` // JSON string
+	Description     sql.NullString `db:"description"`
+	RejectionReason sql.NullString `db:"rejection_reason"`
+	FailureReason   sql.NullString `db:"failure_reason"`
+	RollbackFromId  sql.NullInt64  `db:"rollback_from_id"`
+	CreatedAt       pq.NullTime    `db:"created_at"`
+	UpdatedAt       pq.NullTime    `db:"updated_at"`
+	ApprovedAt      pq.NullTime    `db:"approved_at"`
 }
 
 func GetDeploymentRequestFieldTags() map[string]string {

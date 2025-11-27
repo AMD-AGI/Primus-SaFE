@@ -294,7 +294,7 @@ func (s *Service) VerifyDeploymentRollout(ctx context.Context, envConfig string)
 		"job_manager":      "primus-safe-job-manager",
 		"webhooks":         "primus-safe-webhooks",
 		"web":              "primus-safe-web",
-		// Add other mappings if needed
+		// TODO Add other mappings if needed
 	}
 
 	// 3. Poll for readiness
@@ -351,11 +351,6 @@ func (s *Service) checkDeploymentStatus(ctx context.Context, name, namespace str
 		return fmt.Errorf("failed to get deployment %s: %v", name, err)
 	}
 
-	// Check if generation matches (ensure we are observing the new version)
-	if deploy.Generation != deploy.Status.ObservedGeneration {
-		return fmt.Errorf("deployment generation mismatch")
-	}
-
 	// Check readiness
 	if deploy.Status.AvailableReplicas == *deploy.Spec.Replicas {
 		// Ready!
@@ -394,7 +389,7 @@ func (s *Service) checkDeploymentStatus(ctx context.Context, name, namespace str
 	return fmt.Errorf("not ready")
 }
 
-func (s *Service) UpdateRequestStatus(ctx context.Context, reqId int64, status, reason string) error {
+func (s *Service) UpdateRequestStatus(ctx context.Context, reqId int64, status, failureReason string) error {
 	req, err := s.dbClient.GetDeploymentRequest(ctx, reqId)
 	if err != nil {
 		klog.ErrorS(err, "Failed to get request for update", "id", reqId)
@@ -402,14 +397,8 @@ func (s *Service) UpdateRequestStatus(ctx context.Context, reqId int64, status, 
 	}
 
 	req.Status = status
-	if reason != "" {
-		desc := req.Description.String
-		if desc != "" {
-			desc += ". " + reason
-		} else {
-			desc = reason
-		}
-		req.Description = dbutils.NullString(desc)
+	if failureReason != "" {
+		req.FailureReason = dbutils.NullString(failureReason)
 	}
 
 	return s.dbClient.UpdateDeploymentRequest(ctx, req)
@@ -551,15 +540,17 @@ func (s *Service) CreateSnapshot(ctx context.Context, reqId int64, newConfigStr 
 
 func (s *Service) cvtDBRequestToItem(req *dbclient.DeploymentRequest) *DeploymentRequestItem {
 	return &DeploymentRequestItem{
-		Id:             req.Id,
-		DeployName:     req.DeployName,
-		Status:         req.Status,
-		ApproverName:   dbutils.ParseNullString(req.ApproverName),
-		ApprovalResult: dbutils.ParseNullString(req.ApprovalResult),
-		Description:    dbutils.ParseNullString(req.Description),
-		RollbackFromId: req.RollbackFromId.Int64,
-		CreatedAt:      dbutils.ParseNullTimeToString(req.CreatedAt),
-		UpdatedAt:      dbutils.ParseNullTimeToString(req.UpdatedAt),
-		ApprovedAt:     dbutils.ParseNullTimeToString(req.ApprovedAt),
+		Id:              req.Id,
+		DeployName:      req.DeployName,
+		Status:          req.Status,
+		ApproverName:    dbutils.ParseNullString(req.ApproverName),
+		ApprovalResult:  dbutils.ParseNullString(req.ApprovalResult),
+		Description:     dbutils.ParseNullString(req.Description),
+		RejectionReason: dbutils.ParseNullString(req.RejectionReason),
+		FailureReason:   dbutils.ParseNullString(req.FailureReason),
+		RollbackFromId:  req.RollbackFromId.Int64,
+		CreatedAt:       dbutils.ParseNullTimeToString(req.CreatedAt),
+		UpdatedAt:       dbutils.ParseNullTimeToString(req.UpdatedAt),
+		ApprovedAt:      dbutils.ParseNullTimeToString(req.ApprovedAt),
 	}
 }

@@ -41,16 +41,18 @@ type ApprovalReq struct {
 
 // DeploymentRequestItem is the view model for the list
 type DeploymentRequestItem struct {
-	Id             int64  `json:"id"`
-	DeployName     string `json:"deploy_name"`
-	Status         string `json:"status"`
-	ApproverName   string `json:"approver_name"`
-	ApprovalResult string `json:"approval_result"`
-	Description    string `json:"description"`
-	RollbackFromId int64  `json:"rollback_from_id,omitempty"`
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
-	ApprovedAt     string `json:"approved_at"`
+	Id              int64  `json:"id"`
+	DeployName      string `json:"deploy_name"`
+	Status          string `json:"status"`
+	ApproverName    string `json:"approver_name"`
+	ApprovalResult  string `json:"approval_result"`
+	Description     string `json:"description"`
+	RejectionReason string `json:"rejection_reason,omitempty"`
+	FailureReason   string `json:"failure_reason,omitempty"`
+	RollbackFromId  int64  `json:"rollback_from_id,omitempty"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+	ApprovedAt      string `json:"approved_at"`
 }
 
 // ListDeploymentRequestsResp is the list response
