@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/klog/v2"
@@ -205,12 +206,13 @@ func (r *DispatcherReconciler) generateUniquePorts(ctx context.Context, workload
 			ports[item.Spec.SSHPort] = true
 		}
 	}
+	patch := client.MergeFrom(workload.DeepCopy())
 	workload.Spec.JobPort = generateRandomPort(ports)
 	workload.Spec.SSHPort = generateRandomPort(ports)
 	if workload.Spec.JobPort == 0 || workload.Spec.SSHPort == 0 {
 		return commonerrors.NewInternalError("failed to generate job or SSH port")
 	}
-	if err := r.Update(ctx, workload); err != nil {
+	if err := r.Patch(ctx, workload, patch); err != nil {
 		return err
 	}
 	return nil
@@ -311,10 +313,20 @@ func (r *DispatcherReconciler) patchDispatched(ctx context.Context, workload *v1
 	}
 
 	if !v1.IsWorkloadDispatched(workload) {
-		v1.SetAnnotation(workload, v1.WorkloadDispatchedAnnotation, timeutil.FormatRFC3339(time.Now().UTC()))
-		v1.SetLabel(workload, v1.WorkloadDispatchCntLabel, buildDispatchCount(workload))
-		v1.RemoveAnnotation(workload, v1.WorkloadPreemptedAnnotation)
-		if err := r.Update(ctx, workload); err != nil {
+		patchObj := map[string]any{
+			"metadata": map[string]any{
+				"resourceVersion": workload.ResourceVersion,
+				"labels": map[string]any{
+					v1.WorkloadDispatchCntLabel: buildDispatchCount(workload),
+				},
+				"annotations": map[string]any{
+					v1.WorkloadDispatchedAnnotation: timeutil.FormatRFC3339(time.Now().UTC()),
+					v1.WorkloadPreemptedAnnotation:  nil,
+				},
+			},
+		}
+		p := jsonutils.MarshalSilently(patchObj)
+		if err := r.Patch(ctx, workload, client.RawPatch(types.MergePatchType, p)); err != nil {
 			klog.ErrorS(err, "failed to patch workload", "name", workload.Name)
 			return err
 		}
