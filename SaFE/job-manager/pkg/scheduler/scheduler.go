@@ -14,6 +14,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -200,6 +201,11 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 		klog.ErrorS(err, "failed to delete k8s object")
 		return ctrlruntime.Result{}, err
 	}
+	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
+		if err = r.deleteRelatedSecrets(ctx, adminWorkload); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+	}
 	if controllerutil.RemoveFinalizer(adminWorkload, v1.WorkloadFinalizer) {
 		if err = commonutils.PatchObjectFinalizer(ctx, r.Client, adminWorkload); err != nil {
 			return ctrlruntime.Result{}, err
@@ -207,6 +213,30 @@ func (r *SchedulerReconciler) delete(ctx context.Context, adminWorkload *v1.Work
 	}
 	klog.Infof("delete workload, name: %s", adminWorkload.Name)
 	return ctrlruntime.Result{}, nil
+}
+
+// deleteRelatedSecrets removes all secrets associated with a CICD scaling runner set workload.
+// This ensures proper cleanup of GitHub token secrets when the workload is deleted.
+func (r *SchedulerReconciler) deleteRelatedSecrets(ctx context.Context, adminWorkload *v1.Workload) error {
+	secList := &corev1.SecretList{}
+	selector := labels.SelectorFromSet(map[string]string{v1.OwnerLabel: adminWorkload.Name})
+	if err := r.List(ctx, secList, &client.ListOptions{
+		Namespace:     common.PrimusSafeNamespace,
+		LabelSelector: selector,
+	}); err != nil {
+		klog.ErrorS(err, "failed to list cicd token secrets", "workload", adminWorkload.Name)
+		return err
+	}
+	for i := range secList.Items {
+		sec := &secList.Items[i]
+		if delErr := r.Client.Delete(ctx, sec); delErr != nil && !apierrors.IsNotFound(delErr) {
+			klog.ErrorS(delErr, "failed to delete cicd token secret", "secret", sec.Name, "workload", adminWorkload.Name)
+			return delErr
+		} else {
+			klog.Infof("deleted cicd token secret %s for workload %s", sec.Name, adminWorkload.Name)
+		}
+	}
+	return nil
 }
 
 // Start implements Runnable interface in controller runtime package.

@@ -34,6 +34,9 @@ import (
 const (
 	ForceDeleteDelaySeconds = 20
 	LogTailLines            = 1000
+
+	appComponent     = "app.kubernetes.io/component"
+	scaleSetListener = "runner-scale-set-listener"
 )
 
 // handlePod processes Pod resource events (add, update, delete).
@@ -163,28 +166,12 @@ func (r *SyncerReconciler) updateWorkloadPod(ctx context.Context, obj *unstructu
 		r.updateWorkloadNodes(adminWorkload, message)
 	}
 	if commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-		updateCICDScalingRunnerSetPhase(adminWorkload)
-	}
-	return ctrlruntime.Result{}, r.Status().Update(ctx, adminWorkload)
-}
-
-// updateCICDScalingRunnerSetPhase updates the workload phase for CICD scaling runner sets
-// based on the phase of its first pod, since these workloads don't have inherent status.
-// Running pods result in WorkloadRunning status, pending pods result in WorkloadPending,
-// and all other pod phases result in WorkloadNotReady status.
-func updateCICDScalingRunnerSetPhase(adminWorkload *v1.Workload) {
-	if len(adminWorkload.Status.Pods) == 0 {
-		adminWorkload.Status.Phase = v1.WorkloadPending
-	} else {
-		switch adminWorkload.Status.Pods[0].Phase {
-		case corev1.PodRunning:
-			adminWorkload.Status.Phase = v1.WorkloadRunning
-		case corev1.PodPending:
-			adminWorkload.Status.Phase = v1.WorkloadPending
-		default:
-			adminWorkload.Status.Phase = v1.WorkloadNotReady
+		val, ok := pod.Labels[appComponent]
+		if ok && val == scaleSetListener {
+			adminWorkload.Status.Phase = v1.WorkloadPhase(pod.Status.Phase)
 		}
 	}
+	return ctrlruntime.Result{}, r.Status().Update(ctx, adminWorkload)
 }
 
 // updateWorkloadNodes updates the node information for a workload.

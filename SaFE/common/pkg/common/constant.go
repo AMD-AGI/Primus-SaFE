@@ -28,6 +28,7 @@ const (
 	ServiceAccountKind     = "ServiceAccount"
 
 	GithubConfigUrl   = "GITHUB_CONFIG_URL"
+	GithubPAT         = "GITHUB_PAT"
 	AdminControlPlane = "ADMIN_CONTROL_PLANE"
 	UnifiedJobEnable  = "UNIFIED_JOB_ENABLE"
 	ScaleRunnerSetID  = "SCALE_RUNNER_SET_ID"

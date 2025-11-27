@@ -50,8 +50,8 @@ type WorkloadBatchAction string
 
 const (
 	defaultLogTailLine int64 = 1000
-	defaultRetryCount        = 3
-	defaultRetryDelay        = 100 * time.Millisecond
+	defaultRetryCount        = 5
+	defaultRetryDelay        = 200 * time.Millisecond
 
 	BatchDelete WorkloadBatchAction = "delete"
 	BatchStop   WorkloadBatchAction = "stop"
@@ -140,7 +140,7 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	workload, err := h.generateWorkload(c.Request.Context(), req, body)
+	workload, err := h.generateWorkload(c.Request.Context(), req, body, requestUser)
 	if err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
@@ -474,6 +474,9 @@ func (h *Handler) cloneWorkloadImpl(c *gin.Context, name string, requestUser *v1
 		return nil, err
 	}
 	workload := cvtDBWorkloadToAdminWorkload(dbWorkload)
+	if commonworkload.IsCICDScalingRunnerSet(workload) {
+		return nil, commonerrors.NewNotImplemented("the clone function is not supported for cicd scaling runner")
+	}
 	if err = h.accessController.Authorize(authority.AccessInput{
 		Context:  c.Request.Context(),
 		Resource: workload,
@@ -653,7 +656,8 @@ func (h *Handler) authWorkloadPriority(c *gin.Context, adminWorkload *v1.Workloa
 
 // generateWorkload creates a new workload object based on the creation request.
 // Populates workload metadata, specifications, and customer labels.
-func (h *Handler) generateWorkload(ctx context.Context, req *types.CreateWorkloadRequest, body []byte) (*v1.Workload, error) {
+func (h *Handler) generateWorkload(ctx context.Context,
+	req *types.CreateWorkloadRequest, body []byte, requestUser *v1.User) (*v1.Workload, error) {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: commonutils.GenerateName(req.DisplayName),
@@ -683,17 +687,52 @@ func (h *Handler) generateWorkload(ctx context.Context, req *types.CreateWorkloa
 		workload.Spec.Workspace = req.WorkspaceId
 	}
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
-		if !commonconfig.IsCICDEnable() {
-			return nil, commonerrors.NewNotImplemented("the CICD is not enabled")
-		}
-		workload.Name = req.DisplayName
-		controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
-		if err != nil {
+		if err = h.generateCICDSalesRunnerSet(ctx, workload, req, requestUser); err != nil {
 			return nil, err
 		}
-		commonworkload.SetEnv(workload, common.AdminControlPlane, controlPlaneIp)
 	}
 	return workload, nil
+}
+
+// generateCICDSalesRunnerSet configures a workload for CICD scaling runner set.
+// It validates CICD settings, creates a GitHub token secret, and sets the control plane IP.
+func (h *Handler) generateCICDSalesRunnerSet(ctx context.Context,
+	workload *v1.Workload, req *types.CreateWorkloadRequest, requestUser *v1.User) error {
+	if !commonconfig.IsCICDEnable() {
+		return commonerrors.NewNotImplemented("the CICD is not enabled")
+	}
+	workload.Name = req.DisplayName
+	val, _ := workload.Spec.Env[common.GithubConfigUrl]
+	if val == "" {
+		return commonerrors.NewBadRequest("the github config url is empty")
+	}
+	val, _ = workload.Spec.Env[common.GithubPAT]
+	if val == "" {
+		return commonerrors.NewBadRequest("the github pat(token) is empty")
+	}
+	createSecretReq := &types.CreateSecretRequest{
+		Name:         v1.GetDisplayName(workload),
+		WorkspaceIds: []string{workload.Spec.Workspace},
+		Type:         v1.SecretGeneral,
+		Owner:        workload.Name,
+		Params: []map[types.SecretParam]string{
+			{
+				"github_token": val,
+			},
+		},
+	}
+	secret, err := h.createSecretImpl(ctx, createSecretReq, requestUser)
+	if err != nil {
+		return err
+	}
+	workload.Spec.Secrets = append(workload.Spec.Secrets,
+		v1.SecretEntity{Id: secret.Name, Type: v1.SecretGeneral})
+	controlPlaneIp, err := h.getAdminControlPlaneIp(ctx)
+	if err != nil {
+		return err
+	}
+	commonworkload.SetEnv(workload, common.AdminControlPlane, controlPlaneIp)
+	return nil
 }
 
 func (h *Handler) getAdminControlPlaneIp(ctx context.Context) (string, error) {
