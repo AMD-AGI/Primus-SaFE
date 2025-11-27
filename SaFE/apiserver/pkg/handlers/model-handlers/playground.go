@@ -7,11 +7,13 @@ package model_handlers
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -159,10 +161,17 @@ func (h *Handler) streamChat(c *gin.Context, baseUrl string, apiKey string, mode
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no") // Disable nginx buffering
 
-	// Create OpenAI client config
+	// Create OpenAI client config with custom HTTP client that skips TLS verification
 	config := openai.DefaultConfig(apiKey)
 	if baseUrl != "" {
 		config.BaseURL = baseUrl + "/v1"
+	}
+	// Configure HTTP client to skip TLS certificate verification
+	config.HTTPClient = &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		Timeout: 300 * time.Second,
 	}
 	client := openai.NewClientWithConfig(config)
 
@@ -247,10 +256,17 @@ func (h *Handler) streamChat(c *gin.Context, baseUrl string, apiKey string, mode
 
 // nonStreamChat handles non-streaming chat with OpenAI SDK.
 func (h *Handler) nonStreamChat(c *gin.Context, baseUrl string, apiKey string, modelName string, req *ChatRequest) {
-	// Create OpenAI client config
+	// Create OpenAI client config with custom HTTP client that skips TLS verification
 	config := openai.DefaultConfig(apiKey)
 	if baseUrl != "" {
 		config.BaseURL = baseUrl + "/v1"
+	}
+	// Configure HTTP client to skip TLS certificate verification
+	config.HTTPClient = &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+		Timeout: 300 * time.Second,
 	}
 	client := openai.NewClientWithConfig(config)
 
