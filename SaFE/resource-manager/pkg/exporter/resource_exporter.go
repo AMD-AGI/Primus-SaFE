@@ -166,7 +166,7 @@ func (r *ResourceExporter) addFinalizer(ctx context.Context, object *unstructure
 	if !ctrlutil.AddFinalizer(object, v1.ExporterFinalizer) {
 		return nil
 	}
-	return commonutils.PatchUnstructuredFinalizer(ctx, r.Client, object)
+	return commonutils.PatchObjectFinalizer(ctx, r.Client, object)
 }
 
 // removeFinalizer removes the exporter finalizer from the object if it exists.
@@ -175,5 +175,5 @@ func (r *ResourceExporter) removeFinalizer(ctx context.Context, object *unstruct
 	if !ctrlutil.RemoveFinalizer(object, v1.ExporterFinalizer) {
 		return nil
 	}
-	return commonutils.PatchUnstructuredFinalizer(ctx, r.Client, object)
+	return commonutils.PatchObjectFinalizer(ctx, r.Client, object)
 }
