@@ -13,7 +13,6 @@ const (
 	StatusDeploying       = "deploying"
 	StatusDeployed        = "deployed"
 	StatusFailed          = "failed"
-	StatusRolledBack      = "rolled_back"
 )
 
 // CreateDeploymentRequestReq defines the payload for creating a deployment request

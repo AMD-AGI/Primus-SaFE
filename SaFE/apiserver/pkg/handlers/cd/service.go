@@ -417,25 +417,34 @@ func (s *Service) UpdateRequestStatus(ctx context.Context, reqId int64, status, 
 
 // Rollback creates a new request based on a previous snapshot
 func (s *Service) Rollback(ctx context.Context, reqId int64, username string) (int64, error) {
-	// Find the snapshot associated with the request
-	// In a real system, we might look up the snapshot by request ID, or find the *previous* successful deployment
-	// For this design, we assume we rollback TO the state of reqId.
-
+	// 1. Validate target request exists and is in valid state
 	targetReq, err := s.dbClient.GetDeploymentRequest(ctx, reqId)
 	if err != nil {
 		return 0, err
 	}
 
-	if targetReq.Status != StatusDeployed && targetReq.Status != StatusRolledBack {
-		return 0, fmt.Errorf("cannot rollback to a request with status %s (must be %s or %s)",
-			targetReq.Status, StatusDeployed, StatusRolledBack)
+	if targetReq.Status != StatusDeployed {
+		return 0, fmt.Errorf("cannot rollback to a request with status %s (must be %s)",
+			targetReq.Status, StatusDeployed)
 	}
 
-	// Create a new request that applies the old config
+	// 2. Get the full config from snapshot (not from request, because request may contain partial config)
+	var envConfig string
+	snapshot, err := s.dbClient.GetEnvironmentSnapshotByRequestId(ctx, reqId)
+	if err != nil {
+		// Snapshot not found, fallback to request's EnvConfig (for backward compatibility)
+		klog.Warningf("Snapshot not found for request %d, falling back to request EnvConfig", reqId)
+		envConfig = targetReq.EnvConfig
+	} else {
+		// Use snapshot's full config
+		envConfig = snapshot.EnvConfig
+	}
+
+	// 3. Create a new request that applies the old config
 	newReq := &dbclient.DeploymentRequest{
 		DeployName:     username,
-		Status:         StatusPendingApproval, // Or auto-approve for rollback?
-		EnvConfig:      targetReq.EnvConfig,
+		Status:         StatusPendingApproval,
+		EnvConfig:      envConfig,
 		Description:    dbutils.NullString(fmt.Sprintf("Rollback to version from request %d", reqId)),
 		RollbackFromId: sql.NullInt64{Int64: reqId, Valid: true},
 	}

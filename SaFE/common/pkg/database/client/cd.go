@@ -193,6 +193,20 @@ func (c *Client) GetEnvironmentSnapshot(ctx context.Context, id int64) (*Environ
 	return list[0], nil
 }
 
+// GetEnvironmentSnapshotByRequestId gets a snapshot by deployment_request_id
+func (c *Client) GetEnvironmentSnapshotByRequestId(ctx context.Context, reqId int64) (*EnvironmentSnapshot, error) {
+	dbTags := GetEnvironmentSnapshotFieldTags()
+	query := sqrl.Eq{GetFieldTag(dbTags, "DeploymentRequestId"): reqId}
+	list, err := c.ListEnvironmentSnapshots(ctx, query, nil, 1, 0)
+	if err != nil {
+		return nil, err
+	}
+	if len(list) == 0 {
+		return nil, commonerrors.NewNotFound("environment_snapshot", fmt.Sprintf("request_id=%d", reqId))
+	}
+	return list[0], nil
+}
+
 // ListEnvironmentSnapshots lists snapshots
 func (c *Client) ListEnvironmentSnapshots(ctx context.Context, query sqrl.Sqlizer, orderBy []string, limit, offset int) ([]*EnvironmentSnapshot, error) {
 	db, err := c.getDB()
