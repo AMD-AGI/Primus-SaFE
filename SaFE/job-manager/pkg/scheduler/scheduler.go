@@ -29,6 +29,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
@@ -503,12 +504,16 @@ func (r *SchedulerReconciler) getLeftTotalResources(ctx context.Context,
 
 // updateScheduled updates a workload's status to indicate it has been scheduled.
 func (r *SchedulerReconciler) updateScheduled(ctx context.Context, workload *v1.Workload) error {
+	name := workload.Name
 	if err := backoff.ConflictRetry(func() error {
 		if innerError := r.updateStatus(ctx, workload); innerError == nil {
 			return nil
 		} else {
 			if apierrors.IsConflict(innerError) {
-				r.Get(ctx, client.ObjectKey{Namespace: workload.Namespace, Name: workload.Name}, workload)
+				r.Get(ctx, client.ObjectKey{Name: name}, workload)
+				if workload == nil {
+					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("The workload %s is not found", name))
+				}
 			}
 			return innerError
 		}

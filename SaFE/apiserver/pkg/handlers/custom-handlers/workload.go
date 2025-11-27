@@ -526,6 +526,7 @@ func (h *Handler) getWorkloadPodLog(c *gin.Context) (interface{}, error) {
 // Handles status updates including setting end time for stopped workloads.
 func (h *Handler) updateWorkloadPhase(ctx context.Context,
 	workload *v1.Workload, phase v1.WorkloadPhase, cond *metav1.Condition) error {
+	name := workload.Name
 	if err := backoff.ConflictRetry(func() error {
 		if phase != "" {
 			workload.Status.Phase = phase
@@ -546,7 +547,9 @@ func (h *Handler) updateWorkloadPhase(ctx context.Context,
 			return nil
 		} else {
 			if apierrors.IsConflict(innerError) {
-				h.Get(ctx, client.ObjectKey{Name: workload.Name}, workload)
+				if workload, _ = h.getAdminWorkload(ctx, name); workload == nil {
+					return commonerrors.NewNotFoundWithMessage(fmt.Sprintf("The workload %s is not found", name))
+				}
 			}
 			return innerError
 		}
