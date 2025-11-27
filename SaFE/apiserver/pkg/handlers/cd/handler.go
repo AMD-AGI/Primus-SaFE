@@ -300,9 +300,14 @@ func (h *Handler) approveDeploymentRequest(c *gin.Context) (interface{}, error) 
 				return
 			}
 
-			// Success: Update status and create snapshot
+			// Success: Update status and Handle Snapshot Logic
 			h.service.UpdateRequestStatus(ctx, req.Id, StatusDeployed, "")
-			h.service.CreateSnapshot(ctx, req.Id, req.EnvConfig)
+			if req.RollbackFromId.Valid && req.RollbackFromId.Int64 > 0 {
+				klog.Infof("Request %d is a rollback from %d. Skip snapshot creation and mark previous request as rolled_back.", req.Id, req.RollbackFromId.Int64)
+				h.service.UpdateRequestStatus(ctx, req.RollbackFromId.Int64, StatusRolledBack, fmt.Sprintf("Rolled back by request %d", req.Id))
+			} else {
+				h.service.CreateSnapshot(ctx, req.Id, req.EnvConfig)
+			}
 		}()
 
 	} else {

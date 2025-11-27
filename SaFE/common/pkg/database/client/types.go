@@ -218,6 +218,7 @@ type DeploymentRequest struct {
 	ApprovalResult sql.NullString `db:"approval_result"`
 	EnvConfig      string         `db:"env_config"` // JSON string
 	Description    sql.NullString `db:"description"`
+	RollbackFromId sql.NullInt64  `db:"rollback_from_id"`
 	CreatedAt      pq.NullTime    `db:"created_at"`
 	UpdatedAt      pq.NullTime    `db:"updated_at"`
 	ApprovedAt     pq.NullTime    `db:"approved_at"`

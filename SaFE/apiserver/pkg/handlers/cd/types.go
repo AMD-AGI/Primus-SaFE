@@ -48,6 +48,7 @@ type DeploymentRequestItem struct {
 	ApproverName   string `json:"approver_name"`
 	ApprovalResult string `json:"approval_result"`
 	Description    string `json:"description"`
+	RollbackFromId int64  `json:"rollback_from_id,omitempty"`
 	CreatedAt      string `json:"created_at"`
 	UpdatedAt      string `json:"updated_at"`
 	ApprovedAt     string `json:"approved_at"`

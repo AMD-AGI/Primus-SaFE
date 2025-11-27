@@ -7,6 +7,7 @@ package cd
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -426,15 +427,17 @@ func (s *Service) Rollback(ctx context.Context, reqId int64, username string) (i
 	}
 
 	if targetReq.Status != StatusDeployed && targetReq.Status != StatusRolledBack {
-		// stricter check?
+		return 0, fmt.Errorf("cannot rollback to a request with status %s (must be %s or %s)",
+			targetReq.Status, StatusDeployed, StatusRolledBack)
 	}
 
 	// Create a new request that applies the old config
 	newReq := &dbclient.DeploymentRequest{
-		DeployName:  username,
-		Status:      StatusPendingApproval, // Or auto-approve for rollback?
-		EnvConfig:   targetReq.EnvConfig,
-		Description: dbutils.NullString(fmt.Sprintf("Rollback to version from request %d", reqId)),
+		DeployName:     username,
+		Status:         StatusPendingApproval, // Or auto-approve for rollback?
+		EnvConfig:      targetReq.EnvConfig,
+		Description:    dbutils.NullString(fmt.Sprintf("Rollback to version from request %d", reqId)),
+		RollbackFromId: sql.NullInt64{Int64: reqId, Valid: true},
 	}
 
 	return s.dbClient.CreateDeploymentRequest(ctx, newReq)
@@ -545,6 +548,7 @@ func (s *Service) cvtDBRequestToItem(req *dbclient.DeploymentRequest) *Deploymen
 		ApproverName:   dbutils.ParseNullString(req.ApproverName),
 		ApprovalResult: dbutils.ParseNullString(req.ApprovalResult),
 		Description:    dbutils.ParseNullString(req.Description),
+		RollbackFromId: req.RollbackFromId.Int64,
 		CreatedAt:      dbutils.ParseNullTimeToString(req.CreatedAt),
 		UpdatedAt:      dbutils.ParseNullTimeToString(req.UpdatedAt),
 		ApprovedAt:     dbutils.ParseNullTimeToString(req.ApprovedAt),
