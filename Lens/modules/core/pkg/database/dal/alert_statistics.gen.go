@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -47,7 +48,7 @@ func newAlertStatistics(db *gorm.DB, opts ...gen.DOOption) alertStatistics {
 }
 
 type alertStatistics struct {
-	alertStatisticsDo alertStatisticsDo
+	alertStatisticsDo
 
 	ALL                  field.Asterisk
 	ID                   field.Int64
@@ -98,18 +99,6 @@ func (a *alertStatistics) updateTableName(table string) *alertStatistics {
 	return a
 }
 
-func (a *alertStatistics) WithContext(ctx context.Context) *alertStatisticsDo {
-	return a.alertStatisticsDo.WithContext(ctx)
-}
-
-func (a alertStatistics) TableName() string { return a.alertStatisticsDo.TableName() }
-
-func (a alertStatistics) Alias() string { return a.alertStatisticsDo.Alias() }
-
-func (a alertStatistics) Columns(cols ...field.Expr) gen.Columns {
-	return a.alertStatisticsDo.Columns(cols...)
-}
-
 func (a *alertStatistics) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := a.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -148,95 +137,158 @@ func (a alertStatistics) replaceDB(db *gorm.DB) alertStatistics {
 
 type alertStatisticsDo struct{ gen.DO }
 
-func (a alertStatisticsDo) Debug() *alertStatisticsDo {
+type IAlertStatisticsDo interface {
+	gen.SubQuery
+	Debug() IAlertStatisticsDo
+	WithContext(ctx context.Context) IAlertStatisticsDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IAlertStatisticsDo
+	WriteDB() IAlertStatisticsDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IAlertStatisticsDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IAlertStatisticsDo
+	Not(conds ...gen.Condition) IAlertStatisticsDo
+	Or(conds ...gen.Condition) IAlertStatisticsDo
+	Select(conds ...field.Expr) IAlertStatisticsDo
+	Where(conds ...gen.Condition) IAlertStatisticsDo
+	Order(conds ...field.Expr) IAlertStatisticsDo
+	Distinct(cols ...field.Expr) IAlertStatisticsDo
+	Omit(cols ...field.Expr) IAlertStatisticsDo
+	Join(table schema.Tabler, on ...field.Expr) IAlertStatisticsDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IAlertStatisticsDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IAlertStatisticsDo
+	Group(cols ...field.Expr) IAlertStatisticsDo
+	Having(conds ...gen.Condition) IAlertStatisticsDo
+	Limit(limit int) IAlertStatisticsDo
+	Offset(offset int) IAlertStatisticsDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IAlertStatisticsDo
+	Unscoped() IAlertStatisticsDo
+	Create(values ...*model.AlertStatistics) error
+	CreateInBatches(values []*model.AlertStatistics, batchSize int) error
+	Save(values ...*model.AlertStatistics) error
+	First() (*model.AlertStatistics, error)
+	Take() (*model.AlertStatistics, error)
+	Last() (*model.AlertStatistics, error)
+	Find() ([]*model.AlertStatistics, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.AlertStatistics, err error)
+	FindInBatches(result *[]*model.AlertStatistics, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.AlertStatistics) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IAlertStatisticsDo
+	Assign(attrs ...field.AssignExpr) IAlertStatisticsDo
+	Joins(fields ...field.RelationField) IAlertStatisticsDo
+	Preload(fields ...field.RelationField) IAlertStatisticsDo
+	FirstOrInit() (*model.AlertStatistics, error)
+	FirstOrCreate() (*model.AlertStatistics, error)
+	FindByPage(offset int, limit int) (result []*model.AlertStatistics, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IAlertStatisticsDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (a alertStatisticsDo) Debug() IAlertStatisticsDo {
 	return a.withDO(a.DO.Debug())
 }
 
-func (a alertStatisticsDo) WithContext(ctx context.Context) *alertStatisticsDo {
+func (a alertStatisticsDo) WithContext(ctx context.Context) IAlertStatisticsDo {
 	return a.withDO(a.DO.WithContext(ctx))
 }
 
-func (a alertStatisticsDo) ReadDB() *alertStatisticsDo {
+func (a alertStatisticsDo) ReadDB() IAlertStatisticsDo {
 	return a.Clauses(dbresolver.Read)
 }
 
-func (a alertStatisticsDo) WriteDB() *alertStatisticsDo {
+func (a alertStatisticsDo) WriteDB() IAlertStatisticsDo {
 	return a.Clauses(dbresolver.Write)
 }
 
-func (a alertStatisticsDo) Session(config *gorm.Session) *alertStatisticsDo {
+func (a alertStatisticsDo) Session(config *gorm.Session) IAlertStatisticsDo {
 	return a.withDO(a.DO.Session(config))
 }
 
-func (a alertStatisticsDo) Clauses(conds ...clause.Expression) *alertStatisticsDo {
+func (a alertStatisticsDo) Clauses(conds ...clause.Expression) IAlertStatisticsDo {
 	return a.withDO(a.DO.Clauses(conds...))
 }
 
-func (a alertStatisticsDo) Returning(value interface{}, columns ...string) *alertStatisticsDo {
+func (a alertStatisticsDo) Returning(value interface{}, columns ...string) IAlertStatisticsDo {
 	return a.withDO(a.DO.Returning(value, columns...))
 }
 
-func (a alertStatisticsDo) Not(conds ...gen.Condition) *alertStatisticsDo {
+func (a alertStatisticsDo) Not(conds ...gen.Condition) IAlertStatisticsDo {
 	return a.withDO(a.DO.Not(conds...))
 }
 
-func (a alertStatisticsDo) Or(conds ...gen.Condition) *alertStatisticsDo {
+func (a alertStatisticsDo) Or(conds ...gen.Condition) IAlertStatisticsDo {
 	return a.withDO(a.DO.Or(conds...))
 }
 
-func (a alertStatisticsDo) Select(conds ...field.Expr) *alertStatisticsDo {
+func (a alertStatisticsDo) Select(conds ...field.Expr) IAlertStatisticsDo {
 	return a.withDO(a.DO.Select(conds...))
 }
 
-func (a alertStatisticsDo) Where(conds ...gen.Condition) *alertStatisticsDo {
+func (a alertStatisticsDo) Where(conds ...gen.Condition) IAlertStatisticsDo {
 	return a.withDO(a.DO.Where(conds...))
 }
 
-func (a alertStatisticsDo) Order(conds ...field.Expr) *alertStatisticsDo {
+func (a alertStatisticsDo) Order(conds ...field.Expr) IAlertStatisticsDo {
 	return a.withDO(a.DO.Order(conds...))
 }
 
-func (a alertStatisticsDo) Distinct(cols ...field.Expr) *alertStatisticsDo {
+func (a alertStatisticsDo) Distinct(cols ...field.Expr) IAlertStatisticsDo {
 	return a.withDO(a.DO.Distinct(cols...))
 }
 
-func (a alertStatisticsDo) Omit(cols ...field.Expr) *alertStatisticsDo {
+func (a alertStatisticsDo) Omit(cols ...field.Expr) IAlertStatisticsDo {
 	return a.withDO(a.DO.Omit(cols...))
 }
 
-func (a alertStatisticsDo) Join(table schema.Tabler, on ...field.Expr) *alertStatisticsDo {
+func (a alertStatisticsDo) Join(table schema.Tabler, on ...field.Expr) IAlertStatisticsDo {
 	return a.withDO(a.DO.Join(table, on...))
 }
 
-func (a alertStatisticsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *alertStatisticsDo {
+func (a alertStatisticsDo) LeftJoin(table schema.Tabler, on ...field.Expr) IAlertStatisticsDo {
 	return a.withDO(a.DO.LeftJoin(table, on...))
 }
 
-func (a alertStatisticsDo) RightJoin(table schema.Tabler, on ...field.Expr) *alertStatisticsDo {
+func (a alertStatisticsDo) RightJoin(table schema.Tabler, on ...field.Expr) IAlertStatisticsDo {
 	return a.withDO(a.DO.RightJoin(table, on...))
 }
 
-func (a alertStatisticsDo) Group(cols ...field.Expr) *alertStatisticsDo {
+func (a alertStatisticsDo) Group(cols ...field.Expr) IAlertStatisticsDo {
 	return a.withDO(a.DO.Group(cols...))
 }
 
-func (a alertStatisticsDo) Having(conds ...gen.Condition) *alertStatisticsDo {
+func (a alertStatisticsDo) Having(conds ...gen.Condition) IAlertStatisticsDo {
 	return a.withDO(a.DO.Having(conds...))
 }
 
-func (a alertStatisticsDo) Limit(limit int) *alertStatisticsDo {
+func (a alertStatisticsDo) Limit(limit int) IAlertStatisticsDo {
 	return a.withDO(a.DO.Limit(limit))
 }
 
-func (a alertStatisticsDo) Offset(offset int) *alertStatisticsDo {
+func (a alertStatisticsDo) Offset(offset int) IAlertStatisticsDo {
 	return a.withDO(a.DO.Offset(offset))
 }
 
-func (a alertStatisticsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *alertStatisticsDo {
+func (a alertStatisticsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IAlertStatisticsDo {
 	return a.withDO(a.DO.Scopes(funcs...))
 }
 
-func (a alertStatisticsDo) Unscoped() *alertStatisticsDo {
+func (a alertStatisticsDo) Unscoped() IAlertStatisticsDo {
 	return a.withDO(a.DO.Unscoped())
 }
 
@@ -302,22 +354,22 @@ func (a alertStatisticsDo) FindInBatches(result *[]*model.AlertStatistics, batch
 	return a.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (a alertStatisticsDo) Attrs(attrs ...field.AssignExpr) *alertStatisticsDo {
+func (a alertStatisticsDo) Attrs(attrs ...field.AssignExpr) IAlertStatisticsDo {
 	return a.withDO(a.DO.Attrs(attrs...))
 }
 
-func (a alertStatisticsDo) Assign(attrs ...field.AssignExpr) *alertStatisticsDo {
+func (a alertStatisticsDo) Assign(attrs ...field.AssignExpr) IAlertStatisticsDo {
 	return a.withDO(a.DO.Assign(attrs...))
 }
 
-func (a alertStatisticsDo) Joins(fields ...field.RelationField) *alertStatisticsDo {
+func (a alertStatisticsDo) Joins(fields ...field.RelationField) IAlertStatisticsDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Joins(_f))
 	}
 	return &a
 }
 
-func (a alertStatisticsDo) Preload(fields ...field.RelationField) *alertStatisticsDo {
+func (a alertStatisticsDo) Preload(fields ...field.RelationField) IAlertStatisticsDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Preload(_f))
 	}

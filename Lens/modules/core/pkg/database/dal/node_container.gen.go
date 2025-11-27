@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -45,7 +46,7 @@ func newNodeContainer(db *gorm.DB, opts ...gen.DOOption) nodeContainer {
 }
 
 type nodeContainer struct {
-	nodeContainerDo nodeContainerDo
+	nodeContainerDo
 
 	ALL           field.Asterisk
 	ID            field.Int32
@@ -92,18 +93,6 @@ func (n *nodeContainer) updateTableName(table string) *nodeContainer {
 	return n
 }
 
-func (n *nodeContainer) WithContext(ctx context.Context) *nodeContainerDo {
-	return n.nodeContainerDo.WithContext(ctx)
-}
-
-func (n nodeContainer) TableName() string { return n.nodeContainerDo.TableName() }
-
-func (n nodeContainer) Alias() string { return n.nodeContainerDo.Alias() }
-
-func (n nodeContainer) Columns(cols ...field.Expr) gen.Columns {
-	return n.nodeContainerDo.Columns(cols...)
-}
-
 func (n *nodeContainer) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := n.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -140,95 +129,158 @@ func (n nodeContainer) replaceDB(db *gorm.DB) nodeContainer {
 
 type nodeContainerDo struct{ gen.DO }
 
-func (n nodeContainerDo) Debug() *nodeContainerDo {
+type INodeContainerDo interface {
+	gen.SubQuery
+	Debug() INodeContainerDo
+	WithContext(ctx context.Context) INodeContainerDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() INodeContainerDo
+	WriteDB() INodeContainerDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) INodeContainerDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) INodeContainerDo
+	Not(conds ...gen.Condition) INodeContainerDo
+	Or(conds ...gen.Condition) INodeContainerDo
+	Select(conds ...field.Expr) INodeContainerDo
+	Where(conds ...gen.Condition) INodeContainerDo
+	Order(conds ...field.Expr) INodeContainerDo
+	Distinct(cols ...field.Expr) INodeContainerDo
+	Omit(cols ...field.Expr) INodeContainerDo
+	Join(table schema.Tabler, on ...field.Expr) INodeContainerDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) INodeContainerDo
+	RightJoin(table schema.Tabler, on ...field.Expr) INodeContainerDo
+	Group(cols ...field.Expr) INodeContainerDo
+	Having(conds ...gen.Condition) INodeContainerDo
+	Limit(limit int) INodeContainerDo
+	Offset(offset int) INodeContainerDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) INodeContainerDo
+	Unscoped() INodeContainerDo
+	Create(values ...*model.NodeContainer) error
+	CreateInBatches(values []*model.NodeContainer, batchSize int) error
+	Save(values ...*model.NodeContainer) error
+	First() (*model.NodeContainer, error)
+	Take() (*model.NodeContainer, error)
+	Last() (*model.NodeContainer, error)
+	Find() ([]*model.NodeContainer, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.NodeContainer, err error)
+	FindInBatches(result *[]*model.NodeContainer, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.NodeContainer) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) INodeContainerDo
+	Assign(attrs ...field.AssignExpr) INodeContainerDo
+	Joins(fields ...field.RelationField) INodeContainerDo
+	Preload(fields ...field.RelationField) INodeContainerDo
+	FirstOrInit() (*model.NodeContainer, error)
+	FirstOrCreate() (*model.NodeContainer, error)
+	FindByPage(offset int, limit int) (result []*model.NodeContainer, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) INodeContainerDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (n nodeContainerDo) Debug() INodeContainerDo {
 	return n.withDO(n.DO.Debug())
 }
 
-func (n nodeContainerDo) WithContext(ctx context.Context) *nodeContainerDo {
+func (n nodeContainerDo) WithContext(ctx context.Context) INodeContainerDo {
 	return n.withDO(n.DO.WithContext(ctx))
 }
 
-func (n nodeContainerDo) ReadDB() *nodeContainerDo {
+func (n nodeContainerDo) ReadDB() INodeContainerDo {
 	return n.Clauses(dbresolver.Read)
 }
 
-func (n nodeContainerDo) WriteDB() *nodeContainerDo {
+func (n nodeContainerDo) WriteDB() INodeContainerDo {
 	return n.Clauses(dbresolver.Write)
 }
 
-func (n nodeContainerDo) Session(config *gorm.Session) *nodeContainerDo {
+func (n nodeContainerDo) Session(config *gorm.Session) INodeContainerDo {
 	return n.withDO(n.DO.Session(config))
 }
 
-func (n nodeContainerDo) Clauses(conds ...clause.Expression) *nodeContainerDo {
+func (n nodeContainerDo) Clauses(conds ...clause.Expression) INodeContainerDo {
 	return n.withDO(n.DO.Clauses(conds...))
 }
 
-func (n nodeContainerDo) Returning(value interface{}, columns ...string) *nodeContainerDo {
+func (n nodeContainerDo) Returning(value interface{}, columns ...string) INodeContainerDo {
 	return n.withDO(n.DO.Returning(value, columns...))
 }
 
-func (n nodeContainerDo) Not(conds ...gen.Condition) *nodeContainerDo {
+func (n nodeContainerDo) Not(conds ...gen.Condition) INodeContainerDo {
 	return n.withDO(n.DO.Not(conds...))
 }
 
-func (n nodeContainerDo) Or(conds ...gen.Condition) *nodeContainerDo {
+func (n nodeContainerDo) Or(conds ...gen.Condition) INodeContainerDo {
 	return n.withDO(n.DO.Or(conds...))
 }
 
-func (n nodeContainerDo) Select(conds ...field.Expr) *nodeContainerDo {
+func (n nodeContainerDo) Select(conds ...field.Expr) INodeContainerDo {
 	return n.withDO(n.DO.Select(conds...))
 }
 
-func (n nodeContainerDo) Where(conds ...gen.Condition) *nodeContainerDo {
+func (n nodeContainerDo) Where(conds ...gen.Condition) INodeContainerDo {
 	return n.withDO(n.DO.Where(conds...))
 }
 
-func (n nodeContainerDo) Order(conds ...field.Expr) *nodeContainerDo {
+func (n nodeContainerDo) Order(conds ...field.Expr) INodeContainerDo {
 	return n.withDO(n.DO.Order(conds...))
 }
 
-func (n nodeContainerDo) Distinct(cols ...field.Expr) *nodeContainerDo {
+func (n nodeContainerDo) Distinct(cols ...field.Expr) INodeContainerDo {
 	return n.withDO(n.DO.Distinct(cols...))
 }
 
-func (n nodeContainerDo) Omit(cols ...field.Expr) *nodeContainerDo {
+func (n nodeContainerDo) Omit(cols ...field.Expr) INodeContainerDo {
 	return n.withDO(n.DO.Omit(cols...))
 }
 
-func (n nodeContainerDo) Join(table schema.Tabler, on ...field.Expr) *nodeContainerDo {
+func (n nodeContainerDo) Join(table schema.Tabler, on ...field.Expr) INodeContainerDo {
 	return n.withDO(n.DO.Join(table, on...))
 }
 
-func (n nodeContainerDo) LeftJoin(table schema.Tabler, on ...field.Expr) *nodeContainerDo {
+func (n nodeContainerDo) LeftJoin(table schema.Tabler, on ...field.Expr) INodeContainerDo {
 	return n.withDO(n.DO.LeftJoin(table, on...))
 }
 
-func (n nodeContainerDo) RightJoin(table schema.Tabler, on ...field.Expr) *nodeContainerDo {
+func (n nodeContainerDo) RightJoin(table schema.Tabler, on ...field.Expr) INodeContainerDo {
 	return n.withDO(n.DO.RightJoin(table, on...))
 }
 
-func (n nodeContainerDo) Group(cols ...field.Expr) *nodeContainerDo {
+func (n nodeContainerDo) Group(cols ...field.Expr) INodeContainerDo {
 	return n.withDO(n.DO.Group(cols...))
 }
 
-func (n nodeContainerDo) Having(conds ...gen.Condition) *nodeContainerDo {
+func (n nodeContainerDo) Having(conds ...gen.Condition) INodeContainerDo {
 	return n.withDO(n.DO.Having(conds...))
 }
 
-func (n nodeContainerDo) Limit(limit int) *nodeContainerDo {
+func (n nodeContainerDo) Limit(limit int) INodeContainerDo {
 	return n.withDO(n.DO.Limit(limit))
 }
 
-func (n nodeContainerDo) Offset(offset int) *nodeContainerDo {
+func (n nodeContainerDo) Offset(offset int) INodeContainerDo {
 	return n.withDO(n.DO.Offset(offset))
 }
 
-func (n nodeContainerDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *nodeContainerDo {
+func (n nodeContainerDo) Scopes(funcs ...func(gen.Dao) gen.Dao) INodeContainerDo {
 	return n.withDO(n.DO.Scopes(funcs...))
 }
 
-func (n nodeContainerDo) Unscoped() *nodeContainerDo {
+func (n nodeContainerDo) Unscoped() INodeContainerDo {
 	return n.withDO(n.DO.Unscoped())
 }
 
@@ -294,22 +346,22 @@ func (n nodeContainerDo) FindInBatches(result *[]*model.NodeContainer, batchSize
 	return n.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (n nodeContainerDo) Attrs(attrs ...field.AssignExpr) *nodeContainerDo {
+func (n nodeContainerDo) Attrs(attrs ...field.AssignExpr) INodeContainerDo {
 	return n.withDO(n.DO.Attrs(attrs...))
 }
 
-func (n nodeContainerDo) Assign(attrs ...field.AssignExpr) *nodeContainerDo {
+func (n nodeContainerDo) Assign(attrs ...field.AssignExpr) INodeContainerDo {
 	return n.withDO(n.DO.Assign(attrs...))
 }
 
-func (n nodeContainerDo) Joins(fields ...field.RelationField) *nodeContainerDo {
+func (n nodeContainerDo) Joins(fields ...field.RelationField) INodeContainerDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Joins(_f))
 	}
 	return &n
 }
 
-func (n nodeContainerDo) Preload(fields ...field.RelationField) *nodeContainerDo {
+func (n nodeContainerDo) Preload(fields ...field.RelationField) INodeContainerDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Preload(_f))
 	}

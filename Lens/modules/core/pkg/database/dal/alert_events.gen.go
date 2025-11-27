@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -55,7 +56,7 @@ func newAlertEvents(db *gorm.DB, opts ...gen.DOOption) alertEvents {
 }
 
 type alertEvents struct {
-	alertEventsDo alertEventsDo
+	alertEventsDo
 
 	ALL                field.Asterisk
 	ID                 field.String
@@ -122,16 +123,6 @@ func (a *alertEvents) updateTableName(table string) *alertEvents {
 	return a
 }
 
-func (a *alertEvents) WithContext(ctx context.Context) *alertEventsDo {
-	return a.alertEventsDo.WithContext(ctx)
-}
-
-func (a alertEvents) TableName() string { return a.alertEventsDo.TableName() }
-
-func (a alertEvents) Alias() string { return a.alertEventsDo.Alias() }
-
-func (a alertEvents) Columns(cols ...field.Expr) gen.Columns { return a.alertEventsDo.Columns(cols...) }
-
 func (a *alertEvents) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := a.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -178,95 +169,158 @@ func (a alertEvents) replaceDB(db *gorm.DB) alertEvents {
 
 type alertEventsDo struct{ gen.DO }
 
-func (a alertEventsDo) Debug() *alertEventsDo {
+type IAlertEventsDo interface {
+	gen.SubQuery
+	Debug() IAlertEventsDo
+	WithContext(ctx context.Context) IAlertEventsDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IAlertEventsDo
+	WriteDB() IAlertEventsDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IAlertEventsDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IAlertEventsDo
+	Not(conds ...gen.Condition) IAlertEventsDo
+	Or(conds ...gen.Condition) IAlertEventsDo
+	Select(conds ...field.Expr) IAlertEventsDo
+	Where(conds ...gen.Condition) IAlertEventsDo
+	Order(conds ...field.Expr) IAlertEventsDo
+	Distinct(cols ...field.Expr) IAlertEventsDo
+	Omit(cols ...field.Expr) IAlertEventsDo
+	Join(table schema.Tabler, on ...field.Expr) IAlertEventsDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IAlertEventsDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IAlertEventsDo
+	Group(cols ...field.Expr) IAlertEventsDo
+	Having(conds ...gen.Condition) IAlertEventsDo
+	Limit(limit int) IAlertEventsDo
+	Offset(offset int) IAlertEventsDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IAlertEventsDo
+	Unscoped() IAlertEventsDo
+	Create(values ...*model.AlertEvents) error
+	CreateInBatches(values []*model.AlertEvents, batchSize int) error
+	Save(values ...*model.AlertEvents) error
+	First() (*model.AlertEvents, error)
+	Take() (*model.AlertEvents, error)
+	Last() (*model.AlertEvents, error)
+	Find() ([]*model.AlertEvents, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.AlertEvents, err error)
+	FindInBatches(result *[]*model.AlertEvents, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.AlertEvents) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IAlertEventsDo
+	Assign(attrs ...field.AssignExpr) IAlertEventsDo
+	Joins(fields ...field.RelationField) IAlertEventsDo
+	Preload(fields ...field.RelationField) IAlertEventsDo
+	FirstOrInit() (*model.AlertEvents, error)
+	FirstOrCreate() (*model.AlertEvents, error)
+	FindByPage(offset int, limit int) (result []*model.AlertEvents, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IAlertEventsDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (a alertEventsDo) Debug() IAlertEventsDo {
 	return a.withDO(a.DO.Debug())
 }
 
-func (a alertEventsDo) WithContext(ctx context.Context) *alertEventsDo {
+func (a alertEventsDo) WithContext(ctx context.Context) IAlertEventsDo {
 	return a.withDO(a.DO.WithContext(ctx))
 }
 
-func (a alertEventsDo) ReadDB() *alertEventsDo {
+func (a alertEventsDo) ReadDB() IAlertEventsDo {
 	return a.Clauses(dbresolver.Read)
 }
 
-func (a alertEventsDo) WriteDB() *alertEventsDo {
+func (a alertEventsDo) WriteDB() IAlertEventsDo {
 	return a.Clauses(dbresolver.Write)
 }
 
-func (a alertEventsDo) Session(config *gorm.Session) *alertEventsDo {
+func (a alertEventsDo) Session(config *gorm.Session) IAlertEventsDo {
 	return a.withDO(a.DO.Session(config))
 }
 
-func (a alertEventsDo) Clauses(conds ...clause.Expression) *alertEventsDo {
+func (a alertEventsDo) Clauses(conds ...clause.Expression) IAlertEventsDo {
 	return a.withDO(a.DO.Clauses(conds...))
 }
 
-func (a alertEventsDo) Returning(value interface{}, columns ...string) *alertEventsDo {
+func (a alertEventsDo) Returning(value interface{}, columns ...string) IAlertEventsDo {
 	return a.withDO(a.DO.Returning(value, columns...))
 }
 
-func (a alertEventsDo) Not(conds ...gen.Condition) *alertEventsDo {
+func (a alertEventsDo) Not(conds ...gen.Condition) IAlertEventsDo {
 	return a.withDO(a.DO.Not(conds...))
 }
 
-func (a alertEventsDo) Or(conds ...gen.Condition) *alertEventsDo {
+func (a alertEventsDo) Or(conds ...gen.Condition) IAlertEventsDo {
 	return a.withDO(a.DO.Or(conds...))
 }
 
-func (a alertEventsDo) Select(conds ...field.Expr) *alertEventsDo {
+func (a alertEventsDo) Select(conds ...field.Expr) IAlertEventsDo {
 	return a.withDO(a.DO.Select(conds...))
 }
 
-func (a alertEventsDo) Where(conds ...gen.Condition) *alertEventsDo {
+func (a alertEventsDo) Where(conds ...gen.Condition) IAlertEventsDo {
 	return a.withDO(a.DO.Where(conds...))
 }
 
-func (a alertEventsDo) Order(conds ...field.Expr) *alertEventsDo {
+func (a alertEventsDo) Order(conds ...field.Expr) IAlertEventsDo {
 	return a.withDO(a.DO.Order(conds...))
 }
 
-func (a alertEventsDo) Distinct(cols ...field.Expr) *alertEventsDo {
+func (a alertEventsDo) Distinct(cols ...field.Expr) IAlertEventsDo {
 	return a.withDO(a.DO.Distinct(cols...))
 }
 
-func (a alertEventsDo) Omit(cols ...field.Expr) *alertEventsDo {
+func (a alertEventsDo) Omit(cols ...field.Expr) IAlertEventsDo {
 	return a.withDO(a.DO.Omit(cols...))
 }
 
-func (a alertEventsDo) Join(table schema.Tabler, on ...field.Expr) *alertEventsDo {
+func (a alertEventsDo) Join(table schema.Tabler, on ...field.Expr) IAlertEventsDo {
 	return a.withDO(a.DO.Join(table, on...))
 }
 
-func (a alertEventsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *alertEventsDo {
+func (a alertEventsDo) LeftJoin(table schema.Tabler, on ...field.Expr) IAlertEventsDo {
 	return a.withDO(a.DO.LeftJoin(table, on...))
 }
 
-func (a alertEventsDo) RightJoin(table schema.Tabler, on ...field.Expr) *alertEventsDo {
+func (a alertEventsDo) RightJoin(table schema.Tabler, on ...field.Expr) IAlertEventsDo {
 	return a.withDO(a.DO.RightJoin(table, on...))
 }
 
-func (a alertEventsDo) Group(cols ...field.Expr) *alertEventsDo {
+func (a alertEventsDo) Group(cols ...field.Expr) IAlertEventsDo {
 	return a.withDO(a.DO.Group(cols...))
 }
 
-func (a alertEventsDo) Having(conds ...gen.Condition) *alertEventsDo {
+func (a alertEventsDo) Having(conds ...gen.Condition) IAlertEventsDo {
 	return a.withDO(a.DO.Having(conds...))
 }
 
-func (a alertEventsDo) Limit(limit int) *alertEventsDo {
+func (a alertEventsDo) Limit(limit int) IAlertEventsDo {
 	return a.withDO(a.DO.Limit(limit))
 }
 
-func (a alertEventsDo) Offset(offset int) *alertEventsDo {
+func (a alertEventsDo) Offset(offset int) IAlertEventsDo {
 	return a.withDO(a.DO.Offset(offset))
 }
 
-func (a alertEventsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *alertEventsDo {
+func (a alertEventsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IAlertEventsDo {
 	return a.withDO(a.DO.Scopes(funcs...))
 }
 
-func (a alertEventsDo) Unscoped() *alertEventsDo {
+func (a alertEventsDo) Unscoped() IAlertEventsDo {
 	return a.withDO(a.DO.Unscoped())
 }
 
@@ -332,22 +386,22 @@ func (a alertEventsDo) FindInBatches(result *[]*model.AlertEvents, batchSize int
 	return a.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (a alertEventsDo) Attrs(attrs ...field.AssignExpr) *alertEventsDo {
+func (a alertEventsDo) Attrs(attrs ...field.AssignExpr) IAlertEventsDo {
 	return a.withDO(a.DO.Attrs(attrs...))
 }
 
-func (a alertEventsDo) Assign(attrs ...field.AssignExpr) *alertEventsDo {
+func (a alertEventsDo) Assign(attrs ...field.AssignExpr) IAlertEventsDo {
 	return a.withDO(a.DO.Assign(attrs...))
 }
 
-func (a alertEventsDo) Joins(fields ...field.RelationField) *alertEventsDo {
+func (a alertEventsDo) Joins(fields ...field.RelationField) IAlertEventsDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Joins(_f))
 	}
 	return &a
 }
 
-func (a alertEventsDo) Preload(fields ...field.RelationField) *alertEventsDo {
+func (a alertEventsDo) Preload(fields ...field.RelationField) IAlertEventsDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Preload(_f))
 	}

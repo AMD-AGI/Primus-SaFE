@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -40,7 +41,7 @@ func newGenericCache(db *gorm.DB, opts ...gen.DOOption) genericCache {
 }
 
 type genericCache struct {
-	genericCacheDo genericCacheDo
+	genericCacheDo
 
 	ALL       field.Asterisk
 	ID        field.Int64
@@ -77,18 +78,6 @@ func (g *genericCache) updateTableName(table string) *genericCache {
 	return g
 }
 
-func (g *genericCache) WithContext(ctx context.Context) *genericCacheDo {
-	return g.genericCacheDo.WithContext(ctx)
-}
-
-func (g genericCache) TableName() string { return g.genericCacheDo.TableName() }
-
-func (g genericCache) Alias() string { return g.genericCacheDo.Alias() }
-
-func (g genericCache) Columns(cols ...field.Expr) gen.Columns {
-	return g.genericCacheDo.Columns(cols...)
-}
-
 func (g *genericCache) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := g.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -120,95 +109,158 @@ func (g genericCache) replaceDB(db *gorm.DB) genericCache {
 
 type genericCacheDo struct{ gen.DO }
 
-func (g genericCacheDo) Debug() *genericCacheDo {
+type IGenericCacheDo interface {
+	gen.SubQuery
+	Debug() IGenericCacheDo
+	WithContext(ctx context.Context) IGenericCacheDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IGenericCacheDo
+	WriteDB() IGenericCacheDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IGenericCacheDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IGenericCacheDo
+	Not(conds ...gen.Condition) IGenericCacheDo
+	Or(conds ...gen.Condition) IGenericCacheDo
+	Select(conds ...field.Expr) IGenericCacheDo
+	Where(conds ...gen.Condition) IGenericCacheDo
+	Order(conds ...field.Expr) IGenericCacheDo
+	Distinct(cols ...field.Expr) IGenericCacheDo
+	Omit(cols ...field.Expr) IGenericCacheDo
+	Join(table schema.Tabler, on ...field.Expr) IGenericCacheDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IGenericCacheDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IGenericCacheDo
+	Group(cols ...field.Expr) IGenericCacheDo
+	Having(conds ...gen.Condition) IGenericCacheDo
+	Limit(limit int) IGenericCacheDo
+	Offset(offset int) IGenericCacheDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IGenericCacheDo
+	Unscoped() IGenericCacheDo
+	Create(values ...*model.GenericCache) error
+	CreateInBatches(values []*model.GenericCache, batchSize int) error
+	Save(values ...*model.GenericCache) error
+	First() (*model.GenericCache, error)
+	Take() (*model.GenericCache, error)
+	Last() (*model.GenericCache, error)
+	Find() ([]*model.GenericCache, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.GenericCache, err error)
+	FindInBatches(result *[]*model.GenericCache, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.GenericCache) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IGenericCacheDo
+	Assign(attrs ...field.AssignExpr) IGenericCacheDo
+	Joins(fields ...field.RelationField) IGenericCacheDo
+	Preload(fields ...field.RelationField) IGenericCacheDo
+	FirstOrInit() (*model.GenericCache, error)
+	FirstOrCreate() (*model.GenericCache, error)
+	FindByPage(offset int, limit int) (result []*model.GenericCache, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IGenericCacheDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (g genericCacheDo) Debug() IGenericCacheDo {
 	return g.withDO(g.DO.Debug())
 }
 
-func (g genericCacheDo) WithContext(ctx context.Context) *genericCacheDo {
+func (g genericCacheDo) WithContext(ctx context.Context) IGenericCacheDo {
 	return g.withDO(g.DO.WithContext(ctx))
 }
 
-func (g genericCacheDo) ReadDB() *genericCacheDo {
+func (g genericCacheDo) ReadDB() IGenericCacheDo {
 	return g.Clauses(dbresolver.Read)
 }
 
-func (g genericCacheDo) WriteDB() *genericCacheDo {
+func (g genericCacheDo) WriteDB() IGenericCacheDo {
 	return g.Clauses(dbresolver.Write)
 }
 
-func (g genericCacheDo) Session(config *gorm.Session) *genericCacheDo {
+func (g genericCacheDo) Session(config *gorm.Session) IGenericCacheDo {
 	return g.withDO(g.DO.Session(config))
 }
 
-func (g genericCacheDo) Clauses(conds ...clause.Expression) *genericCacheDo {
+func (g genericCacheDo) Clauses(conds ...clause.Expression) IGenericCacheDo {
 	return g.withDO(g.DO.Clauses(conds...))
 }
 
-func (g genericCacheDo) Returning(value interface{}, columns ...string) *genericCacheDo {
+func (g genericCacheDo) Returning(value interface{}, columns ...string) IGenericCacheDo {
 	return g.withDO(g.DO.Returning(value, columns...))
 }
 
-func (g genericCacheDo) Not(conds ...gen.Condition) *genericCacheDo {
+func (g genericCacheDo) Not(conds ...gen.Condition) IGenericCacheDo {
 	return g.withDO(g.DO.Not(conds...))
 }
 
-func (g genericCacheDo) Or(conds ...gen.Condition) *genericCacheDo {
+func (g genericCacheDo) Or(conds ...gen.Condition) IGenericCacheDo {
 	return g.withDO(g.DO.Or(conds...))
 }
 
-func (g genericCacheDo) Select(conds ...field.Expr) *genericCacheDo {
+func (g genericCacheDo) Select(conds ...field.Expr) IGenericCacheDo {
 	return g.withDO(g.DO.Select(conds...))
 }
 
-func (g genericCacheDo) Where(conds ...gen.Condition) *genericCacheDo {
+func (g genericCacheDo) Where(conds ...gen.Condition) IGenericCacheDo {
 	return g.withDO(g.DO.Where(conds...))
 }
 
-func (g genericCacheDo) Order(conds ...field.Expr) *genericCacheDo {
+func (g genericCacheDo) Order(conds ...field.Expr) IGenericCacheDo {
 	return g.withDO(g.DO.Order(conds...))
 }
 
-func (g genericCacheDo) Distinct(cols ...field.Expr) *genericCacheDo {
+func (g genericCacheDo) Distinct(cols ...field.Expr) IGenericCacheDo {
 	return g.withDO(g.DO.Distinct(cols...))
 }
 
-func (g genericCacheDo) Omit(cols ...field.Expr) *genericCacheDo {
+func (g genericCacheDo) Omit(cols ...field.Expr) IGenericCacheDo {
 	return g.withDO(g.DO.Omit(cols...))
 }
 
-func (g genericCacheDo) Join(table schema.Tabler, on ...field.Expr) *genericCacheDo {
+func (g genericCacheDo) Join(table schema.Tabler, on ...field.Expr) IGenericCacheDo {
 	return g.withDO(g.DO.Join(table, on...))
 }
 
-func (g genericCacheDo) LeftJoin(table schema.Tabler, on ...field.Expr) *genericCacheDo {
+func (g genericCacheDo) LeftJoin(table schema.Tabler, on ...field.Expr) IGenericCacheDo {
 	return g.withDO(g.DO.LeftJoin(table, on...))
 }
 
-func (g genericCacheDo) RightJoin(table schema.Tabler, on ...field.Expr) *genericCacheDo {
+func (g genericCacheDo) RightJoin(table schema.Tabler, on ...field.Expr) IGenericCacheDo {
 	return g.withDO(g.DO.RightJoin(table, on...))
 }
 
-func (g genericCacheDo) Group(cols ...field.Expr) *genericCacheDo {
+func (g genericCacheDo) Group(cols ...field.Expr) IGenericCacheDo {
 	return g.withDO(g.DO.Group(cols...))
 }
 
-func (g genericCacheDo) Having(conds ...gen.Condition) *genericCacheDo {
+func (g genericCacheDo) Having(conds ...gen.Condition) IGenericCacheDo {
 	return g.withDO(g.DO.Having(conds...))
 }
 
-func (g genericCacheDo) Limit(limit int) *genericCacheDo {
+func (g genericCacheDo) Limit(limit int) IGenericCacheDo {
 	return g.withDO(g.DO.Limit(limit))
 }
 
-func (g genericCacheDo) Offset(offset int) *genericCacheDo {
+func (g genericCacheDo) Offset(offset int) IGenericCacheDo {
 	return g.withDO(g.DO.Offset(offset))
 }
 
-func (g genericCacheDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *genericCacheDo {
+func (g genericCacheDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IGenericCacheDo {
 	return g.withDO(g.DO.Scopes(funcs...))
 }
 
-func (g genericCacheDo) Unscoped() *genericCacheDo {
+func (g genericCacheDo) Unscoped() IGenericCacheDo {
 	return g.withDO(g.DO.Unscoped())
 }
 
@@ -274,22 +326,22 @@ func (g genericCacheDo) FindInBatches(result *[]*model.GenericCache, batchSize i
 	return g.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (g genericCacheDo) Attrs(attrs ...field.AssignExpr) *genericCacheDo {
+func (g genericCacheDo) Attrs(attrs ...field.AssignExpr) IGenericCacheDo {
 	return g.withDO(g.DO.Attrs(attrs...))
 }
 
-func (g genericCacheDo) Assign(attrs ...field.AssignExpr) *genericCacheDo {
+func (g genericCacheDo) Assign(attrs ...field.AssignExpr) IGenericCacheDo {
 	return g.withDO(g.DO.Assign(attrs...))
 }
 
-func (g genericCacheDo) Joins(fields ...field.RelationField) *genericCacheDo {
+func (g genericCacheDo) Joins(fields ...field.RelationField) IGenericCacheDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Joins(_f))
 	}
 	return &g
 }
 
-func (g genericCacheDo) Preload(fields ...field.RelationField) *genericCacheDo {
+func (g genericCacheDo) Preload(fields ...field.RelationField) IGenericCacheDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Preload(_f))
 	}

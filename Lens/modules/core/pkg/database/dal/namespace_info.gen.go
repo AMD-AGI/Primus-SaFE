@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -40,7 +41,7 @@ func newNamespaceInfo(db *gorm.DB, opts ...gen.DOOption) namespaceInfo {
 }
 
 type namespaceInfo struct {
-	namespaceInfoDo namespaceInfoDo
+	namespaceInfoDo
 
 	ALL         field.Asterisk
 	ID          field.Int64
@@ -77,18 +78,6 @@ func (n *namespaceInfo) updateTableName(table string) *namespaceInfo {
 	return n
 }
 
-func (n *namespaceInfo) WithContext(ctx context.Context) *namespaceInfoDo {
-	return n.namespaceInfoDo.WithContext(ctx)
-}
-
-func (n namespaceInfo) TableName() string { return n.namespaceInfoDo.TableName() }
-
-func (n namespaceInfo) Alias() string { return n.namespaceInfoDo.Alias() }
-
-func (n namespaceInfo) Columns(cols ...field.Expr) gen.Columns {
-	return n.namespaceInfoDo.Columns(cols...)
-}
-
 func (n *namespaceInfo) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := n.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -120,95 +109,158 @@ func (n namespaceInfo) replaceDB(db *gorm.DB) namespaceInfo {
 
 type namespaceInfoDo struct{ gen.DO }
 
-func (n namespaceInfoDo) Debug() *namespaceInfoDo {
+type INamespaceInfoDo interface {
+	gen.SubQuery
+	Debug() INamespaceInfoDo
+	WithContext(ctx context.Context) INamespaceInfoDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() INamespaceInfoDo
+	WriteDB() INamespaceInfoDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) INamespaceInfoDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) INamespaceInfoDo
+	Not(conds ...gen.Condition) INamespaceInfoDo
+	Or(conds ...gen.Condition) INamespaceInfoDo
+	Select(conds ...field.Expr) INamespaceInfoDo
+	Where(conds ...gen.Condition) INamespaceInfoDo
+	Order(conds ...field.Expr) INamespaceInfoDo
+	Distinct(cols ...field.Expr) INamespaceInfoDo
+	Omit(cols ...field.Expr) INamespaceInfoDo
+	Join(table schema.Tabler, on ...field.Expr) INamespaceInfoDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) INamespaceInfoDo
+	RightJoin(table schema.Tabler, on ...field.Expr) INamespaceInfoDo
+	Group(cols ...field.Expr) INamespaceInfoDo
+	Having(conds ...gen.Condition) INamespaceInfoDo
+	Limit(limit int) INamespaceInfoDo
+	Offset(offset int) INamespaceInfoDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) INamespaceInfoDo
+	Unscoped() INamespaceInfoDo
+	Create(values ...*model.NamespaceInfo) error
+	CreateInBatches(values []*model.NamespaceInfo, batchSize int) error
+	Save(values ...*model.NamespaceInfo) error
+	First() (*model.NamespaceInfo, error)
+	Take() (*model.NamespaceInfo, error)
+	Last() (*model.NamespaceInfo, error)
+	Find() ([]*model.NamespaceInfo, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.NamespaceInfo, err error)
+	FindInBatches(result *[]*model.NamespaceInfo, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.NamespaceInfo) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) INamespaceInfoDo
+	Assign(attrs ...field.AssignExpr) INamespaceInfoDo
+	Joins(fields ...field.RelationField) INamespaceInfoDo
+	Preload(fields ...field.RelationField) INamespaceInfoDo
+	FirstOrInit() (*model.NamespaceInfo, error)
+	FirstOrCreate() (*model.NamespaceInfo, error)
+	FindByPage(offset int, limit int) (result []*model.NamespaceInfo, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) INamespaceInfoDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (n namespaceInfoDo) Debug() INamespaceInfoDo {
 	return n.withDO(n.DO.Debug())
 }
 
-func (n namespaceInfoDo) WithContext(ctx context.Context) *namespaceInfoDo {
+func (n namespaceInfoDo) WithContext(ctx context.Context) INamespaceInfoDo {
 	return n.withDO(n.DO.WithContext(ctx))
 }
 
-func (n namespaceInfoDo) ReadDB() *namespaceInfoDo {
+func (n namespaceInfoDo) ReadDB() INamespaceInfoDo {
 	return n.Clauses(dbresolver.Read)
 }
 
-func (n namespaceInfoDo) WriteDB() *namespaceInfoDo {
+func (n namespaceInfoDo) WriteDB() INamespaceInfoDo {
 	return n.Clauses(dbresolver.Write)
 }
 
-func (n namespaceInfoDo) Session(config *gorm.Session) *namespaceInfoDo {
+func (n namespaceInfoDo) Session(config *gorm.Session) INamespaceInfoDo {
 	return n.withDO(n.DO.Session(config))
 }
 
-func (n namespaceInfoDo) Clauses(conds ...clause.Expression) *namespaceInfoDo {
+func (n namespaceInfoDo) Clauses(conds ...clause.Expression) INamespaceInfoDo {
 	return n.withDO(n.DO.Clauses(conds...))
 }
 
-func (n namespaceInfoDo) Returning(value interface{}, columns ...string) *namespaceInfoDo {
+func (n namespaceInfoDo) Returning(value interface{}, columns ...string) INamespaceInfoDo {
 	return n.withDO(n.DO.Returning(value, columns...))
 }
 
-func (n namespaceInfoDo) Not(conds ...gen.Condition) *namespaceInfoDo {
+func (n namespaceInfoDo) Not(conds ...gen.Condition) INamespaceInfoDo {
 	return n.withDO(n.DO.Not(conds...))
 }
 
-func (n namespaceInfoDo) Or(conds ...gen.Condition) *namespaceInfoDo {
+func (n namespaceInfoDo) Or(conds ...gen.Condition) INamespaceInfoDo {
 	return n.withDO(n.DO.Or(conds...))
 }
 
-func (n namespaceInfoDo) Select(conds ...field.Expr) *namespaceInfoDo {
+func (n namespaceInfoDo) Select(conds ...field.Expr) INamespaceInfoDo {
 	return n.withDO(n.DO.Select(conds...))
 }
 
-func (n namespaceInfoDo) Where(conds ...gen.Condition) *namespaceInfoDo {
+func (n namespaceInfoDo) Where(conds ...gen.Condition) INamespaceInfoDo {
 	return n.withDO(n.DO.Where(conds...))
 }
 
-func (n namespaceInfoDo) Order(conds ...field.Expr) *namespaceInfoDo {
+func (n namespaceInfoDo) Order(conds ...field.Expr) INamespaceInfoDo {
 	return n.withDO(n.DO.Order(conds...))
 }
 
-func (n namespaceInfoDo) Distinct(cols ...field.Expr) *namespaceInfoDo {
+func (n namespaceInfoDo) Distinct(cols ...field.Expr) INamespaceInfoDo {
 	return n.withDO(n.DO.Distinct(cols...))
 }
 
-func (n namespaceInfoDo) Omit(cols ...field.Expr) *namespaceInfoDo {
+func (n namespaceInfoDo) Omit(cols ...field.Expr) INamespaceInfoDo {
 	return n.withDO(n.DO.Omit(cols...))
 }
 
-func (n namespaceInfoDo) Join(table schema.Tabler, on ...field.Expr) *namespaceInfoDo {
+func (n namespaceInfoDo) Join(table schema.Tabler, on ...field.Expr) INamespaceInfoDo {
 	return n.withDO(n.DO.Join(table, on...))
 }
 
-func (n namespaceInfoDo) LeftJoin(table schema.Tabler, on ...field.Expr) *namespaceInfoDo {
+func (n namespaceInfoDo) LeftJoin(table schema.Tabler, on ...field.Expr) INamespaceInfoDo {
 	return n.withDO(n.DO.LeftJoin(table, on...))
 }
 
-func (n namespaceInfoDo) RightJoin(table schema.Tabler, on ...field.Expr) *namespaceInfoDo {
+func (n namespaceInfoDo) RightJoin(table schema.Tabler, on ...field.Expr) INamespaceInfoDo {
 	return n.withDO(n.DO.RightJoin(table, on...))
 }
 
-func (n namespaceInfoDo) Group(cols ...field.Expr) *namespaceInfoDo {
+func (n namespaceInfoDo) Group(cols ...field.Expr) INamespaceInfoDo {
 	return n.withDO(n.DO.Group(cols...))
 }
 
-func (n namespaceInfoDo) Having(conds ...gen.Condition) *namespaceInfoDo {
+func (n namespaceInfoDo) Having(conds ...gen.Condition) INamespaceInfoDo {
 	return n.withDO(n.DO.Having(conds...))
 }
 
-func (n namespaceInfoDo) Limit(limit int) *namespaceInfoDo {
+func (n namespaceInfoDo) Limit(limit int) INamespaceInfoDo {
 	return n.withDO(n.DO.Limit(limit))
 }
 
-func (n namespaceInfoDo) Offset(offset int) *namespaceInfoDo {
+func (n namespaceInfoDo) Offset(offset int) INamespaceInfoDo {
 	return n.withDO(n.DO.Offset(offset))
 }
 
-func (n namespaceInfoDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *namespaceInfoDo {
+func (n namespaceInfoDo) Scopes(funcs ...func(gen.Dao) gen.Dao) INamespaceInfoDo {
 	return n.withDO(n.DO.Scopes(funcs...))
 }
 
-func (n namespaceInfoDo) Unscoped() *namespaceInfoDo {
+func (n namespaceInfoDo) Unscoped() INamespaceInfoDo {
 	return n.withDO(n.DO.Unscoped())
 }
 
@@ -274,22 +326,22 @@ func (n namespaceInfoDo) FindInBatches(result *[]*model.NamespaceInfo, batchSize
 	return n.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (n namespaceInfoDo) Attrs(attrs ...field.AssignExpr) *namespaceInfoDo {
+func (n namespaceInfoDo) Attrs(attrs ...field.AssignExpr) INamespaceInfoDo {
 	return n.withDO(n.DO.Attrs(attrs...))
 }
 
-func (n namespaceInfoDo) Assign(attrs ...field.AssignExpr) *namespaceInfoDo {
+func (n namespaceInfoDo) Assign(attrs ...field.AssignExpr) INamespaceInfoDo {
 	return n.withDO(n.DO.Assign(attrs...))
 }
 
-func (n namespaceInfoDo) Joins(fields ...field.RelationField) *namespaceInfoDo {
+func (n namespaceInfoDo) Joins(fields ...field.RelationField) INamespaceInfoDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Joins(_f))
 	}
 	return &n
 }
 
-func (n namespaceInfoDo) Preload(fields ...field.RelationField) *namespaceInfoDo {
+func (n namespaceInfoDo) Preload(fields ...field.RelationField) INamespaceInfoDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Preload(_f))
 	}

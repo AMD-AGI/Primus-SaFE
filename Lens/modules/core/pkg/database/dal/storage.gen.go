@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -43,7 +44,7 @@ func newStorage(db *gorm.DB, opts ...gen.DOOption) storage {
 }
 
 type storage struct {
-	storageDo storageDo
+	storageDo
 
 	ALL       field.Asterisk
 	ID        field.Int32
@@ -86,14 +87,6 @@ func (s *storage) updateTableName(table string) *storage {
 	return s
 }
 
-func (s *storage) WithContext(ctx context.Context) *storageDo { return s.storageDo.WithContext(ctx) }
-
-func (s storage) TableName() string { return s.storageDo.TableName() }
-
-func (s storage) Alias() string { return s.storageDo.Alias() }
-
-func (s storage) Columns(cols ...field.Expr) gen.Columns { return s.storageDo.Columns(cols...) }
-
 func (s *storage) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := s.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -128,95 +121,158 @@ func (s storage) replaceDB(db *gorm.DB) storage {
 
 type storageDo struct{ gen.DO }
 
-func (s storageDo) Debug() *storageDo {
+type IStorageDo interface {
+	gen.SubQuery
+	Debug() IStorageDo
+	WithContext(ctx context.Context) IStorageDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IStorageDo
+	WriteDB() IStorageDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IStorageDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IStorageDo
+	Not(conds ...gen.Condition) IStorageDo
+	Or(conds ...gen.Condition) IStorageDo
+	Select(conds ...field.Expr) IStorageDo
+	Where(conds ...gen.Condition) IStorageDo
+	Order(conds ...field.Expr) IStorageDo
+	Distinct(cols ...field.Expr) IStorageDo
+	Omit(cols ...field.Expr) IStorageDo
+	Join(table schema.Tabler, on ...field.Expr) IStorageDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IStorageDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IStorageDo
+	Group(cols ...field.Expr) IStorageDo
+	Having(conds ...gen.Condition) IStorageDo
+	Limit(limit int) IStorageDo
+	Offset(offset int) IStorageDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IStorageDo
+	Unscoped() IStorageDo
+	Create(values ...*model.Storage) error
+	CreateInBatches(values []*model.Storage, batchSize int) error
+	Save(values ...*model.Storage) error
+	First() (*model.Storage, error)
+	Take() (*model.Storage, error)
+	Last() (*model.Storage, error)
+	Find() ([]*model.Storage, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.Storage, err error)
+	FindInBatches(result *[]*model.Storage, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.Storage) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IStorageDo
+	Assign(attrs ...field.AssignExpr) IStorageDo
+	Joins(fields ...field.RelationField) IStorageDo
+	Preload(fields ...field.RelationField) IStorageDo
+	FirstOrInit() (*model.Storage, error)
+	FirstOrCreate() (*model.Storage, error)
+	FindByPage(offset int, limit int) (result []*model.Storage, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IStorageDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (s storageDo) Debug() IStorageDo {
 	return s.withDO(s.DO.Debug())
 }
 
-func (s storageDo) WithContext(ctx context.Context) *storageDo {
+func (s storageDo) WithContext(ctx context.Context) IStorageDo {
 	return s.withDO(s.DO.WithContext(ctx))
 }
 
-func (s storageDo) ReadDB() *storageDo {
+func (s storageDo) ReadDB() IStorageDo {
 	return s.Clauses(dbresolver.Read)
 }
 
-func (s storageDo) WriteDB() *storageDo {
+func (s storageDo) WriteDB() IStorageDo {
 	return s.Clauses(dbresolver.Write)
 }
 
-func (s storageDo) Session(config *gorm.Session) *storageDo {
+func (s storageDo) Session(config *gorm.Session) IStorageDo {
 	return s.withDO(s.DO.Session(config))
 }
 
-func (s storageDo) Clauses(conds ...clause.Expression) *storageDo {
+func (s storageDo) Clauses(conds ...clause.Expression) IStorageDo {
 	return s.withDO(s.DO.Clauses(conds...))
 }
 
-func (s storageDo) Returning(value interface{}, columns ...string) *storageDo {
+func (s storageDo) Returning(value interface{}, columns ...string) IStorageDo {
 	return s.withDO(s.DO.Returning(value, columns...))
 }
 
-func (s storageDo) Not(conds ...gen.Condition) *storageDo {
+func (s storageDo) Not(conds ...gen.Condition) IStorageDo {
 	return s.withDO(s.DO.Not(conds...))
 }
 
-func (s storageDo) Or(conds ...gen.Condition) *storageDo {
+func (s storageDo) Or(conds ...gen.Condition) IStorageDo {
 	return s.withDO(s.DO.Or(conds...))
 }
 
-func (s storageDo) Select(conds ...field.Expr) *storageDo {
+func (s storageDo) Select(conds ...field.Expr) IStorageDo {
 	return s.withDO(s.DO.Select(conds...))
 }
 
-func (s storageDo) Where(conds ...gen.Condition) *storageDo {
+func (s storageDo) Where(conds ...gen.Condition) IStorageDo {
 	return s.withDO(s.DO.Where(conds...))
 }
 
-func (s storageDo) Order(conds ...field.Expr) *storageDo {
+func (s storageDo) Order(conds ...field.Expr) IStorageDo {
 	return s.withDO(s.DO.Order(conds...))
 }
 
-func (s storageDo) Distinct(cols ...field.Expr) *storageDo {
+func (s storageDo) Distinct(cols ...field.Expr) IStorageDo {
 	return s.withDO(s.DO.Distinct(cols...))
 }
 
-func (s storageDo) Omit(cols ...field.Expr) *storageDo {
+func (s storageDo) Omit(cols ...field.Expr) IStorageDo {
 	return s.withDO(s.DO.Omit(cols...))
 }
 
-func (s storageDo) Join(table schema.Tabler, on ...field.Expr) *storageDo {
+func (s storageDo) Join(table schema.Tabler, on ...field.Expr) IStorageDo {
 	return s.withDO(s.DO.Join(table, on...))
 }
 
-func (s storageDo) LeftJoin(table schema.Tabler, on ...field.Expr) *storageDo {
+func (s storageDo) LeftJoin(table schema.Tabler, on ...field.Expr) IStorageDo {
 	return s.withDO(s.DO.LeftJoin(table, on...))
 }
 
-func (s storageDo) RightJoin(table schema.Tabler, on ...field.Expr) *storageDo {
+func (s storageDo) RightJoin(table schema.Tabler, on ...field.Expr) IStorageDo {
 	return s.withDO(s.DO.RightJoin(table, on...))
 }
 
-func (s storageDo) Group(cols ...field.Expr) *storageDo {
+func (s storageDo) Group(cols ...field.Expr) IStorageDo {
 	return s.withDO(s.DO.Group(cols...))
 }
 
-func (s storageDo) Having(conds ...gen.Condition) *storageDo {
+func (s storageDo) Having(conds ...gen.Condition) IStorageDo {
 	return s.withDO(s.DO.Having(conds...))
 }
 
-func (s storageDo) Limit(limit int) *storageDo {
+func (s storageDo) Limit(limit int) IStorageDo {
 	return s.withDO(s.DO.Limit(limit))
 }
 
-func (s storageDo) Offset(offset int) *storageDo {
+func (s storageDo) Offset(offset int) IStorageDo {
 	return s.withDO(s.DO.Offset(offset))
 }
 
-func (s storageDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *storageDo {
+func (s storageDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IStorageDo {
 	return s.withDO(s.DO.Scopes(funcs...))
 }
 
-func (s storageDo) Unscoped() *storageDo {
+func (s storageDo) Unscoped() IStorageDo {
 	return s.withDO(s.DO.Unscoped())
 }
 
@@ -282,22 +338,22 @@ func (s storageDo) FindInBatches(result *[]*model.Storage, batchSize int, fc fun
 	return s.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (s storageDo) Attrs(attrs ...field.AssignExpr) *storageDo {
+func (s storageDo) Attrs(attrs ...field.AssignExpr) IStorageDo {
 	return s.withDO(s.DO.Attrs(attrs...))
 }
 
-func (s storageDo) Assign(attrs ...field.AssignExpr) *storageDo {
+func (s storageDo) Assign(attrs ...field.AssignExpr) IStorageDo {
 	return s.withDO(s.DO.Assign(attrs...))
 }
 
-func (s storageDo) Joins(fields ...field.RelationField) *storageDo {
+func (s storageDo) Joins(fields ...field.RelationField) IStorageDo {
 	for _, _f := range fields {
 		s = *s.withDO(s.DO.Joins(_f))
 	}
 	return &s
 }
 
-func (s storageDo) Preload(fields ...field.RelationField) *storageDo {
+func (s storageDo) Preload(fields ...field.RelationField) IStorageDo {
 	for _, _f := range fields {
 		s = *s.withDO(s.DO.Preload(_f))
 	}

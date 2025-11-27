@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -45,7 +46,7 @@ func newLogAlertRuleTemplates(db *gorm.DB, opts ...gen.DOOption) logAlertRuleTem
 }
 
 type logAlertRuleTemplates struct {
-	logAlertRuleTemplatesDo logAlertRuleTemplatesDo
+	logAlertRuleTemplatesDo
 
 	ALL            field.Asterisk
 	ID             field.Int64
@@ -92,18 +93,6 @@ func (l *logAlertRuleTemplates) updateTableName(table string) *logAlertRuleTempl
 	return l
 }
 
-func (l *logAlertRuleTemplates) WithContext(ctx context.Context) *logAlertRuleTemplatesDo {
-	return l.logAlertRuleTemplatesDo.WithContext(ctx)
-}
-
-func (l logAlertRuleTemplates) TableName() string { return l.logAlertRuleTemplatesDo.TableName() }
-
-func (l logAlertRuleTemplates) Alias() string { return l.logAlertRuleTemplatesDo.Alias() }
-
-func (l logAlertRuleTemplates) Columns(cols ...field.Expr) gen.Columns {
-	return l.logAlertRuleTemplatesDo.Columns(cols...)
-}
-
 func (l *logAlertRuleTemplates) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := l.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -140,95 +129,158 @@ func (l logAlertRuleTemplates) replaceDB(db *gorm.DB) logAlertRuleTemplates {
 
 type logAlertRuleTemplatesDo struct{ gen.DO }
 
-func (l logAlertRuleTemplatesDo) Debug() *logAlertRuleTemplatesDo {
+type ILogAlertRuleTemplatesDo interface {
+	gen.SubQuery
+	Debug() ILogAlertRuleTemplatesDo
+	WithContext(ctx context.Context) ILogAlertRuleTemplatesDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() ILogAlertRuleTemplatesDo
+	WriteDB() ILogAlertRuleTemplatesDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) ILogAlertRuleTemplatesDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) ILogAlertRuleTemplatesDo
+	Not(conds ...gen.Condition) ILogAlertRuleTemplatesDo
+	Or(conds ...gen.Condition) ILogAlertRuleTemplatesDo
+	Select(conds ...field.Expr) ILogAlertRuleTemplatesDo
+	Where(conds ...gen.Condition) ILogAlertRuleTemplatesDo
+	Order(conds ...field.Expr) ILogAlertRuleTemplatesDo
+	Distinct(cols ...field.Expr) ILogAlertRuleTemplatesDo
+	Omit(cols ...field.Expr) ILogAlertRuleTemplatesDo
+	Join(table schema.Tabler, on ...field.Expr) ILogAlertRuleTemplatesDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) ILogAlertRuleTemplatesDo
+	RightJoin(table schema.Tabler, on ...field.Expr) ILogAlertRuleTemplatesDo
+	Group(cols ...field.Expr) ILogAlertRuleTemplatesDo
+	Having(conds ...gen.Condition) ILogAlertRuleTemplatesDo
+	Limit(limit int) ILogAlertRuleTemplatesDo
+	Offset(offset int) ILogAlertRuleTemplatesDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) ILogAlertRuleTemplatesDo
+	Unscoped() ILogAlertRuleTemplatesDo
+	Create(values ...*model.LogAlertRuleTemplates) error
+	CreateInBatches(values []*model.LogAlertRuleTemplates, batchSize int) error
+	Save(values ...*model.LogAlertRuleTemplates) error
+	First() (*model.LogAlertRuleTemplates, error)
+	Take() (*model.LogAlertRuleTemplates, error)
+	Last() (*model.LogAlertRuleTemplates, error)
+	Find() ([]*model.LogAlertRuleTemplates, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.LogAlertRuleTemplates, err error)
+	FindInBatches(result *[]*model.LogAlertRuleTemplates, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.LogAlertRuleTemplates) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) ILogAlertRuleTemplatesDo
+	Assign(attrs ...field.AssignExpr) ILogAlertRuleTemplatesDo
+	Joins(fields ...field.RelationField) ILogAlertRuleTemplatesDo
+	Preload(fields ...field.RelationField) ILogAlertRuleTemplatesDo
+	FirstOrInit() (*model.LogAlertRuleTemplates, error)
+	FirstOrCreate() (*model.LogAlertRuleTemplates, error)
+	FindByPage(offset int, limit int) (result []*model.LogAlertRuleTemplates, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) ILogAlertRuleTemplatesDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (l logAlertRuleTemplatesDo) Debug() ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Debug())
 }
 
-func (l logAlertRuleTemplatesDo) WithContext(ctx context.Context) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) WithContext(ctx context.Context) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.WithContext(ctx))
 }
 
-func (l logAlertRuleTemplatesDo) ReadDB() *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) ReadDB() ILogAlertRuleTemplatesDo {
 	return l.Clauses(dbresolver.Read)
 }
 
-func (l logAlertRuleTemplatesDo) WriteDB() *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) WriteDB() ILogAlertRuleTemplatesDo {
 	return l.Clauses(dbresolver.Write)
 }
 
-func (l logAlertRuleTemplatesDo) Session(config *gorm.Session) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Session(config *gorm.Session) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Session(config))
 }
 
-func (l logAlertRuleTemplatesDo) Clauses(conds ...clause.Expression) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Clauses(conds ...clause.Expression) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Clauses(conds...))
 }
 
-func (l logAlertRuleTemplatesDo) Returning(value interface{}, columns ...string) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Returning(value interface{}, columns ...string) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Returning(value, columns...))
 }
 
-func (l logAlertRuleTemplatesDo) Not(conds ...gen.Condition) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Not(conds ...gen.Condition) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Not(conds...))
 }
 
-func (l logAlertRuleTemplatesDo) Or(conds ...gen.Condition) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Or(conds ...gen.Condition) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Or(conds...))
 }
 
-func (l logAlertRuleTemplatesDo) Select(conds ...field.Expr) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Select(conds ...field.Expr) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Select(conds...))
 }
 
-func (l logAlertRuleTemplatesDo) Where(conds ...gen.Condition) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Where(conds ...gen.Condition) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Where(conds...))
 }
 
-func (l logAlertRuleTemplatesDo) Order(conds ...field.Expr) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Order(conds ...field.Expr) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Order(conds...))
 }
 
-func (l logAlertRuleTemplatesDo) Distinct(cols ...field.Expr) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Distinct(cols ...field.Expr) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Distinct(cols...))
 }
 
-func (l logAlertRuleTemplatesDo) Omit(cols ...field.Expr) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Omit(cols ...field.Expr) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Omit(cols...))
 }
 
-func (l logAlertRuleTemplatesDo) Join(table schema.Tabler, on ...field.Expr) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Join(table schema.Tabler, on ...field.Expr) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Join(table, on...))
 }
 
-func (l logAlertRuleTemplatesDo) LeftJoin(table schema.Tabler, on ...field.Expr) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) LeftJoin(table schema.Tabler, on ...field.Expr) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.LeftJoin(table, on...))
 }
 
-func (l logAlertRuleTemplatesDo) RightJoin(table schema.Tabler, on ...field.Expr) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) RightJoin(table schema.Tabler, on ...field.Expr) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.RightJoin(table, on...))
 }
 
-func (l logAlertRuleTemplatesDo) Group(cols ...field.Expr) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Group(cols ...field.Expr) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Group(cols...))
 }
 
-func (l logAlertRuleTemplatesDo) Having(conds ...gen.Condition) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Having(conds ...gen.Condition) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Having(conds...))
 }
 
-func (l logAlertRuleTemplatesDo) Limit(limit int) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Limit(limit int) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Limit(limit))
 }
 
-func (l logAlertRuleTemplatesDo) Offset(offset int) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Offset(offset int) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Offset(offset))
 }
 
-func (l logAlertRuleTemplatesDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Scopes(funcs ...func(gen.Dao) gen.Dao) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Scopes(funcs...))
 }
 
-func (l logAlertRuleTemplatesDo) Unscoped() *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Unscoped() ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Unscoped())
 }
 
@@ -294,22 +346,22 @@ func (l logAlertRuleTemplatesDo) FindInBatches(result *[]*model.LogAlertRuleTemp
 	return l.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (l logAlertRuleTemplatesDo) Attrs(attrs ...field.AssignExpr) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Attrs(attrs ...field.AssignExpr) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Attrs(attrs...))
 }
 
-func (l logAlertRuleTemplatesDo) Assign(attrs ...field.AssignExpr) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Assign(attrs ...field.AssignExpr) ILogAlertRuleTemplatesDo {
 	return l.withDO(l.DO.Assign(attrs...))
 }
 
-func (l logAlertRuleTemplatesDo) Joins(fields ...field.RelationField) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Joins(fields ...field.RelationField) ILogAlertRuleTemplatesDo {
 	for _, _f := range fields {
 		l = *l.withDO(l.DO.Joins(_f))
 	}
 	return &l
 }
 
-func (l logAlertRuleTemplatesDo) Preload(fields ...field.RelationField) *logAlertRuleTemplatesDo {
+func (l logAlertRuleTemplatesDo) Preload(fields ...field.RelationField) ILogAlertRuleTemplatesDo {
 	for _, _f := range fields {
 		l = *l.withDO(l.DO.Preload(_f))
 	}

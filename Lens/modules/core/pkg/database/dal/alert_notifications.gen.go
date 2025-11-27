@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -44,7 +45,7 @@ func newAlertNotifications(db *gorm.DB, opts ...gen.DOOption) alertNotifications
 }
 
 type alertNotifications struct {
-	alertNotificationsDo alertNotificationsDo
+	alertNotificationsDo
 
 	ALL                 field.Asterisk
 	ID                  field.Int64
@@ -89,18 +90,6 @@ func (a *alertNotifications) updateTableName(table string) *alertNotifications {
 	return a
 }
 
-func (a *alertNotifications) WithContext(ctx context.Context) *alertNotificationsDo {
-	return a.alertNotificationsDo.WithContext(ctx)
-}
-
-func (a alertNotifications) TableName() string { return a.alertNotificationsDo.TableName() }
-
-func (a alertNotifications) Alias() string { return a.alertNotificationsDo.Alias() }
-
-func (a alertNotifications) Columns(cols ...field.Expr) gen.Columns {
-	return a.alertNotificationsDo.Columns(cols...)
-}
-
 func (a *alertNotifications) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := a.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -136,95 +125,158 @@ func (a alertNotifications) replaceDB(db *gorm.DB) alertNotifications {
 
 type alertNotificationsDo struct{ gen.DO }
 
-func (a alertNotificationsDo) Debug() *alertNotificationsDo {
+type IAlertNotificationsDo interface {
+	gen.SubQuery
+	Debug() IAlertNotificationsDo
+	WithContext(ctx context.Context) IAlertNotificationsDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IAlertNotificationsDo
+	WriteDB() IAlertNotificationsDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IAlertNotificationsDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IAlertNotificationsDo
+	Not(conds ...gen.Condition) IAlertNotificationsDo
+	Or(conds ...gen.Condition) IAlertNotificationsDo
+	Select(conds ...field.Expr) IAlertNotificationsDo
+	Where(conds ...gen.Condition) IAlertNotificationsDo
+	Order(conds ...field.Expr) IAlertNotificationsDo
+	Distinct(cols ...field.Expr) IAlertNotificationsDo
+	Omit(cols ...field.Expr) IAlertNotificationsDo
+	Join(table schema.Tabler, on ...field.Expr) IAlertNotificationsDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IAlertNotificationsDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IAlertNotificationsDo
+	Group(cols ...field.Expr) IAlertNotificationsDo
+	Having(conds ...gen.Condition) IAlertNotificationsDo
+	Limit(limit int) IAlertNotificationsDo
+	Offset(offset int) IAlertNotificationsDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IAlertNotificationsDo
+	Unscoped() IAlertNotificationsDo
+	Create(values ...*model.AlertNotifications) error
+	CreateInBatches(values []*model.AlertNotifications, batchSize int) error
+	Save(values ...*model.AlertNotifications) error
+	First() (*model.AlertNotifications, error)
+	Take() (*model.AlertNotifications, error)
+	Last() (*model.AlertNotifications, error)
+	Find() ([]*model.AlertNotifications, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.AlertNotifications, err error)
+	FindInBatches(result *[]*model.AlertNotifications, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.AlertNotifications) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IAlertNotificationsDo
+	Assign(attrs ...field.AssignExpr) IAlertNotificationsDo
+	Joins(fields ...field.RelationField) IAlertNotificationsDo
+	Preload(fields ...field.RelationField) IAlertNotificationsDo
+	FirstOrInit() (*model.AlertNotifications, error)
+	FirstOrCreate() (*model.AlertNotifications, error)
+	FindByPage(offset int, limit int) (result []*model.AlertNotifications, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IAlertNotificationsDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (a alertNotificationsDo) Debug() IAlertNotificationsDo {
 	return a.withDO(a.DO.Debug())
 }
 
-func (a alertNotificationsDo) WithContext(ctx context.Context) *alertNotificationsDo {
+func (a alertNotificationsDo) WithContext(ctx context.Context) IAlertNotificationsDo {
 	return a.withDO(a.DO.WithContext(ctx))
 }
 
-func (a alertNotificationsDo) ReadDB() *alertNotificationsDo {
+func (a alertNotificationsDo) ReadDB() IAlertNotificationsDo {
 	return a.Clauses(dbresolver.Read)
 }
 
-func (a alertNotificationsDo) WriteDB() *alertNotificationsDo {
+func (a alertNotificationsDo) WriteDB() IAlertNotificationsDo {
 	return a.Clauses(dbresolver.Write)
 }
 
-func (a alertNotificationsDo) Session(config *gorm.Session) *alertNotificationsDo {
+func (a alertNotificationsDo) Session(config *gorm.Session) IAlertNotificationsDo {
 	return a.withDO(a.DO.Session(config))
 }
 
-func (a alertNotificationsDo) Clauses(conds ...clause.Expression) *alertNotificationsDo {
+func (a alertNotificationsDo) Clauses(conds ...clause.Expression) IAlertNotificationsDo {
 	return a.withDO(a.DO.Clauses(conds...))
 }
 
-func (a alertNotificationsDo) Returning(value interface{}, columns ...string) *alertNotificationsDo {
+func (a alertNotificationsDo) Returning(value interface{}, columns ...string) IAlertNotificationsDo {
 	return a.withDO(a.DO.Returning(value, columns...))
 }
 
-func (a alertNotificationsDo) Not(conds ...gen.Condition) *alertNotificationsDo {
+func (a alertNotificationsDo) Not(conds ...gen.Condition) IAlertNotificationsDo {
 	return a.withDO(a.DO.Not(conds...))
 }
 
-func (a alertNotificationsDo) Or(conds ...gen.Condition) *alertNotificationsDo {
+func (a alertNotificationsDo) Or(conds ...gen.Condition) IAlertNotificationsDo {
 	return a.withDO(a.DO.Or(conds...))
 }
 
-func (a alertNotificationsDo) Select(conds ...field.Expr) *alertNotificationsDo {
+func (a alertNotificationsDo) Select(conds ...field.Expr) IAlertNotificationsDo {
 	return a.withDO(a.DO.Select(conds...))
 }
 
-func (a alertNotificationsDo) Where(conds ...gen.Condition) *alertNotificationsDo {
+func (a alertNotificationsDo) Where(conds ...gen.Condition) IAlertNotificationsDo {
 	return a.withDO(a.DO.Where(conds...))
 }
 
-func (a alertNotificationsDo) Order(conds ...field.Expr) *alertNotificationsDo {
+func (a alertNotificationsDo) Order(conds ...field.Expr) IAlertNotificationsDo {
 	return a.withDO(a.DO.Order(conds...))
 }
 
-func (a alertNotificationsDo) Distinct(cols ...field.Expr) *alertNotificationsDo {
+func (a alertNotificationsDo) Distinct(cols ...field.Expr) IAlertNotificationsDo {
 	return a.withDO(a.DO.Distinct(cols...))
 }
 
-func (a alertNotificationsDo) Omit(cols ...field.Expr) *alertNotificationsDo {
+func (a alertNotificationsDo) Omit(cols ...field.Expr) IAlertNotificationsDo {
 	return a.withDO(a.DO.Omit(cols...))
 }
 
-func (a alertNotificationsDo) Join(table schema.Tabler, on ...field.Expr) *alertNotificationsDo {
+func (a alertNotificationsDo) Join(table schema.Tabler, on ...field.Expr) IAlertNotificationsDo {
 	return a.withDO(a.DO.Join(table, on...))
 }
 
-func (a alertNotificationsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *alertNotificationsDo {
+func (a alertNotificationsDo) LeftJoin(table schema.Tabler, on ...field.Expr) IAlertNotificationsDo {
 	return a.withDO(a.DO.LeftJoin(table, on...))
 }
 
-func (a alertNotificationsDo) RightJoin(table schema.Tabler, on ...field.Expr) *alertNotificationsDo {
+func (a alertNotificationsDo) RightJoin(table schema.Tabler, on ...field.Expr) IAlertNotificationsDo {
 	return a.withDO(a.DO.RightJoin(table, on...))
 }
 
-func (a alertNotificationsDo) Group(cols ...field.Expr) *alertNotificationsDo {
+func (a alertNotificationsDo) Group(cols ...field.Expr) IAlertNotificationsDo {
 	return a.withDO(a.DO.Group(cols...))
 }
 
-func (a alertNotificationsDo) Having(conds ...gen.Condition) *alertNotificationsDo {
+func (a alertNotificationsDo) Having(conds ...gen.Condition) IAlertNotificationsDo {
 	return a.withDO(a.DO.Having(conds...))
 }
 
-func (a alertNotificationsDo) Limit(limit int) *alertNotificationsDo {
+func (a alertNotificationsDo) Limit(limit int) IAlertNotificationsDo {
 	return a.withDO(a.DO.Limit(limit))
 }
 
-func (a alertNotificationsDo) Offset(offset int) *alertNotificationsDo {
+func (a alertNotificationsDo) Offset(offset int) IAlertNotificationsDo {
 	return a.withDO(a.DO.Offset(offset))
 }
 
-func (a alertNotificationsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *alertNotificationsDo {
+func (a alertNotificationsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IAlertNotificationsDo {
 	return a.withDO(a.DO.Scopes(funcs...))
 }
 
-func (a alertNotificationsDo) Unscoped() *alertNotificationsDo {
+func (a alertNotificationsDo) Unscoped() IAlertNotificationsDo {
 	return a.withDO(a.DO.Unscoped())
 }
 
@@ -290,22 +342,22 @@ func (a alertNotificationsDo) FindInBatches(result *[]*model.AlertNotifications,
 	return a.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (a alertNotificationsDo) Attrs(attrs ...field.AssignExpr) *alertNotificationsDo {
+func (a alertNotificationsDo) Attrs(attrs ...field.AssignExpr) IAlertNotificationsDo {
 	return a.withDO(a.DO.Attrs(attrs...))
 }
 
-func (a alertNotificationsDo) Assign(attrs ...field.AssignExpr) *alertNotificationsDo {
+func (a alertNotificationsDo) Assign(attrs ...field.AssignExpr) IAlertNotificationsDo {
 	return a.withDO(a.DO.Assign(attrs...))
 }
 
-func (a alertNotificationsDo) Joins(fields ...field.RelationField) *alertNotificationsDo {
+func (a alertNotificationsDo) Joins(fields ...field.RelationField) IAlertNotificationsDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Joins(_f))
 	}
 	return &a
 }
 
-func (a alertNotificationsDo) Preload(fields ...field.RelationField) *alertNotificationsDo {
+func (a alertNotificationsDo) Preload(fields ...field.RelationField) IAlertNotificationsDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Preload(_f))
 	}

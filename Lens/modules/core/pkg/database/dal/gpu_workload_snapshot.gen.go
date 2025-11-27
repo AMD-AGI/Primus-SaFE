@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -44,7 +45,7 @@ func newGpuWorkloadSnapshot(db *gorm.DB, opts ...gen.DOOption) gpuWorkloadSnapsh
 }
 
 type gpuWorkloadSnapshot struct {
-	gpuWorkloadSnapshotDo gpuWorkloadSnapshotDo
+	gpuWorkloadSnapshotDo
 
 	ALL             field.Asterisk
 	ID              field.Int32
@@ -89,18 +90,6 @@ func (g *gpuWorkloadSnapshot) updateTableName(table string) *gpuWorkloadSnapshot
 	return g
 }
 
-func (g *gpuWorkloadSnapshot) WithContext(ctx context.Context) *gpuWorkloadSnapshotDo {
-	return g.gpuWorkloadSnapshotDo.WithContext(ctx)
-}
-
-func (g gpuWorkloadSnapshot) TableName() string { return g.gpuWorkloadSnapshotDo.TableName() }
-
-func (g gpuWorkloadSnapshot) Alias() string { return g.gpuWorkloadSnapshotDo.Alias() }
-
-func (g gpuWorkloadSnapshot) Columns(cols ...field.Expr) gen.Columns {
-	return g.gpuWorkloadSnapshotDo.Columns(cols...)
-}
-
 func (g *gpuWorkloadSnapshot) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := g.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -136,95 +125,158 @@ func (g gpuWorkloadSnapshot) replaceDB(db *gorm.DB) gpuWorkloadSnapshot {
 
 type gpuWorkloadSnapshotDo struct{ gen.DO }
 
-func (g gpuWorkloadSnapshotDo) Debug() *gpuWorkloadSnapshotDo {
+type IGpuWorkloadSnapshotDo interface {
+	gen.SubQuery
+	Debug() IGpuWorkloadSnapshotDo
+	WithContext(ctx context.Context) IGpuWorkloadSnapshotDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IGpuWorkloadSnapshotDo
+	WriteDB() IGpuWorkloadSnapshotDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IGpuWorkloadSnapshotDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IGpuWorkloadSnapshotDo
+	Not(conds ...gen.Condition) IGpuWorkloadSnapshotDo
+	Or(conds ...gen.Condition) IGpuWorkloadSnapshotDo
+	Select(conds ...field.Expr) IGpuWorkloadSnapshotDo
+	Where(conds ...gen.Condition) IGpuWorkloadSnapshotDo
+	Order(conds ...field.Expr) IGpuWorkloadSnapshotDo
+	Distinct(cols ...field.Expr) IGpuWorkloadSnapshotDo
+	Omit(cols ...field.Expr) IGpuWorkloadSnapshotDo
+	Join(table schema.Tabler, on ...field.Expr) IGpuWorkloadSnapshotDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IGpuWorkloadSnapshotDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IGpuWorkloadSnapshotDo
+	Group(cols ...field.Expr) IGpuWorkloadSnapshotDo
+	Having(conds ...gen.Condition) IGpuWorkloadSnapshotDo
+	Limit(limit int) IGpuWorkloadSnapshotDo
+	Offset(offset int) IGpuWorkloadSnapshotDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IGpuWorkloadSnapshotDo
+	Unscoped() IGpuWorkloadSnapshotDo
+	Create(values ...*model.GpuWorkloadSnapshot) error
+	CreateInBatches(values []*model.GpuWorkloadSnapshot, batchSize int) error
+	Save(values ...*model.GpuWorkloadSnapshot) error
+	First() (*model.GpuWorkloadSnapshot, error)
+	Take() (*model.GpuWorkloadSnapshot, error)
+	Last() (*model.GpuWorkloadSnapshot, error)
+	Find() ([]*model.GpuWorkloadSnapshot, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.GpuWorkloadSnapshot, err error)
+	FindInBatches(result *[]*model.GpuWorkloadSnapshot, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.GpuWorkloadSnapshot) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IGpuWorkloadSnapshotDo
+	Assign(attrs ...field.AssignExpr) IGpuWorkloadSnapshotDo
+	Joins(fields ...field.RelationField) IGpuWorkloadSnapshotDo
+	Preload(fields ...field.RelationField) IGpuWorkloadSnapshotDo
+	FirstOrInit() (*model.GpuWorkloadSnapshot, error)
+	FirstOrCreate() (*model.GpuWorkloadSnapshot, error)
+	FindByPage(offset int, limit int) (result []*model.GpuWorkloadSnapshot, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IGpuWorkloadSnapshotDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (g gpuWorkloadSnapshotDo) Debug() IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Debug())
 }
 
-func (g gpuWorkloadSnapshotDo) WithContext(ctx context.Context) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) WithContext(ctx context.Context) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.WithContext(ctx))
 }
 
-func (g gpuWorkloadSnapshotDo) ReadDB() *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) ReadDB() IGpuWorkloadSnapshotDo {
 	return g.Clauses(dbresolver.Read)
 }
 
-func (g gpuWorkloadSnapshotDo) WriteDB() *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) WriteDB() IGpuWorkloadSnapshotDo {
 	return g.Clauses(dbresolver.Write)
 }
 
-func (g gpuWorkloadSnapshotDo) Session(config *gorm.Session) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Session(config *gorm.Session) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Session(config))
 }
 
-func (g gpuWorkloadSnapshotDo) Clauses(conds ...clause.Expression) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Clauses(conds ...clause.Expression) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Clauses(conds...))
 }
 
-func (g gpuWorkloadSnapshotDo) Returning(value interface{}, columns ...string) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Returning(value interface{}, columns ...string) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Returning(value, columns...))
 }
 
-func (g gpuWorkloadSnapshotDo) Not(conds ...gen.Condition) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Not(conds ...gen.Condition) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Not(conds...))
 }
 
-func (g gpuWorkloadSnapshotDo) Or(conds ...gen.Condition) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Or(conds ...gen.Condition) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Or(conds...))
 }
 
-func (g gpuWorkloadSnapshotDo) Select(conds ...field.Expr) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Select(conds ...field.Expr) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Select(conds...))
 }
 
-func (g gpuWorkloadSnapshotDo) Where(conds ...gen.Condition) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Where(conds ...gen.Condition) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Where(conds...))
 }
 
-func (g gpuWorkloadSnapshotDo) Order(conds ...field.Expr) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Order(conds ...field.Expr) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Order(conds...))
 }
 
-func (g gpuWorkloadSnapshotDo) Distinct(cols ...field.Expr) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Distinct(cols ...field.Expr) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Distinct(cols...))
 }
 
-func (g gpuWorkloadSnapshotDo) Omit(cols ...field.Expr) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Omit(cols ...field.Expr) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Omit(cols...))
 }
 
-func (g gpuWorkloadSnapshotDo) Join(table schema.Tabler, on ...field.Expr) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Join(table schema.Tabler, on ...field.Expr) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Join(table, on...))
 }
 
-func (g gpuWorkloadSnapshotDo) LeftJoin(table schema.Tabler, on ...field.Expr) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) LeftJoin(table schema.Tabler, on ...field.Expr) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.LeftJoin(table, on...))
 }
 
-func (g gpuWorkloadSnapshotDo) RightJoin(table schema.Tabler, on ...field.Expr) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) RightJoin(table schema.Tabler, on ...field.Expr) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.RightJoin(table, on...))
 }
 
-func (g gpuWorkloadSnapshotDo) Group(cols ...field.Expr) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Group(cols ...field.Expr) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Group(cols...))
 }
 
-func (g gpuWorkloadSnapshotDo) Having(conds ...gen.Condition) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Having(conds ...gen.Condition) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Having(conds...))
 }
 
-func (g gpuWorkloadSnapshotDo) Limit(limit int) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Limit(limit int) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Limit(limit))
 }
 
-func (g gpuWorkloadSnapshotDo) Offset(offset int) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Offset(offset int) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Offset(offset))
 }
 
-func (g gpuWorkloadSnapshotDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Scopes(funcs...))
 }
 
-func (g gpuWorkloadSnapshotDo) Unscoped() *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Unscoped() IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Unscoped())
 }
 
@@ -290,22 +342,22 @@ func (g gpuWorkloadSnapshotDo) FindInBatches(result *[]*model.GpuWorkloadSnapsho
 	return g.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (g gpuWorkloadSnapshotDo) Attrs(attrs ...field.AssignExpr) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Attrs(attrs ...field.AssignExpr) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Attrs(attrs...))
 }
 
-func (g gpuWorkloadSnapshotDo) Assign(attrs ...field.AssignExpr) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Assign(attrs ...field.AssignExpr) IGpuWorkloadSnapshotDo {
 	return g.withDO(g.DO.Assign(attrs...))
 }
 
-func (g gpuWorkloadSnapshotDo) Joins(fields ...field.RelationField) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Joins(fields ...field.RelationField) IGpuWorkloadSnapshotDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Joins(_f))
 	}
 	return &g
 }
 
-func (g gpuWorkloadSnapshotDo) Preload(fields ...field.RelationField) *gpuWorkloadSnapshotDo {
+func (g gpuWorkloadSnapshotDo) Preload(fields ...field.RelationField) IGpuWorkloadSnapshotDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Preload(_f))
 	}

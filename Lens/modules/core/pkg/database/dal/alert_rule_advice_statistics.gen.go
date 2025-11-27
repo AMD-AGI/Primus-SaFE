@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -53,7 +54,7 @@ func newAlertRuleAdviceStatistics(db *gorm.DB, opts ...gen.DOOption) alertRuleAd
 }
 
 type alertRuleAdviceStatistics struct {
-	alertRuleAdviceStatisticsDo alertRuleAdviceStatisticsDo
+	alertRuleAdviceStatisticsDo
 
 	ALL                field.Asterisk
 	ID                 field.Int64
@@ -116,20 +117,6 @@ func (a *alertRuleAdviceStatistics) updateTableName(table string) *alertRuleAdvi
 	return a
 }
 
-func (a *alertRuleAdviceStatistics) WithContext(ctx context.Context) *alertRuleAdviceStatisticsDo {
-	return a.alertRuleAdviceStatisticsDo.WithContext(ctx)
-}
-
-func (a alertRuleAdviceStatistics) TableName() string {
-	return a.alertRuleAdviceStatisticsDo.TableName()
-}
-
-func (a alertRuleAdviceStatistics) Alias() string { return a.alertRuleAdviceStatisticsDo.Alias() }
-
-func (a alertRuleAdviceStatistics) Columns(cols ...field.Expr) gen.Columns {
-	return a.alertRuleAdviceStatisticsDo.Columns(cols...)
-}
-
 func (a *alertRuleAdviceStatistics) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := a.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -174,95 +161,158 @@ func (a alertRuleAdviceStatistics) replaceDB(db *gorm.DB) alertRuleAdviceStatist
 
 type alertRuleAdviceStatisticsDo struct{ gen.DO }
 
-func (a alertRuleAdviceStatisticsDo) Debug() *alertRuleAdviceStatisticsDo {
+type IAlertRuleAdviceStatisticsDo interface {
+	gen.SubQuery
+	Debug() IAlertRuleAdviceStatisticsDo
+	WithContext(ctx context.Context) IAlertRuleAdviceStatisticsDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IAlertRuleAdviceStatisticsDo
+	WriteDB() IAlertRuleAdviceStatisticsDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IAlertRuleAdviceStatisticsDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IAlertRuleAdviceStatisticsDo
+	Not(conds ...gen.Condition) IAlertRuleAdviceStatisticsDo
+	Or(conds ...gen.Condition) IAlertRuleAdviceStatisticsDo
+	Select(conds ...field.Expr) IAlertRuleAdviceStatisticsDo
+	Where(conds ...gen.Condition) IAlertRuleAdviceStatisticsDo
+	Order(conds ...field.Expr) IAlertRuleAdviceStatisticsDo
+	Distinct(cols ...field.Expr) IAlertRuleAdviceStatisticsDo
+	Omit(cols ...field.Expr) IAlertRuleAdviceStatisticsDo
+	Join(table schema.Tabler, on ...field.Expr) IAlertRuleAdviceStatisticsDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IAlertRuleAdviceStatisticsDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IAlertRuleAdviceStatisticsDo
+	Group(cols ...field.Expr) IAlertRuleAdviceStatisticsDo
+	Having(conds ...gen.Condition) IAlertRuleAdviceStatisticsDo
+	Limit(limit int) IAlertRuleAdviceStatisticsDo
+	Offset(offset int) IAlertRuleAdviceStatisticsDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IAlertRuleAdviceStatisticsDo
+	Unscoped() IAlertRuleAdviceStatisticsDo
+	Create(values ...*model.AlertRuleAdviceStatistics) error
+	CreateInBatches(values []*model.AlertRuleAdviceStatistics, batchSize int) error
+	Save(values ...*model.AlertRuleAdviceStatistics) error
+	First() (*model.AlertRuleAdviceStatistics, error)
+	Take() (*model.AlertRuleAdviceStatistics, error)
+	Last() (*model.AlertRuleAdviceStatistics, error)
+	Find() ([]*model.AlertRuleAdviceStatistics, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.AlertRuleAdviceStatistics, err error)
+	FindInBatches(result *[]*model.AlertRuleAdviceStatistics, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.AlertRuleAdviceStatistics) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IAlertRuleAdviceStatisticsDo
+	Assign(attrs ...field.AssignExpr) IAlertRuleAdviceStatisticsDo
+	Joins(fields ...field.RelationField) IAlertRuleAdviceStatisticsDo
+	Preload(fields ...field.RelationField) IAlertRuleAdviceStatisticsDo
+	FirstOrInit() (*model.AlertRuleAdviceStatistics, error)
+	FirstOrCreate() (*model.AlertRuleAdviceStatistics, error)
+	FindByPage(offset int, limit int) (result []*model.AlertRuleAdviceStatistics, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IAlertRuleAdviceStatisticsDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (a alertRuleAdviceStatisticsDo) Debug() IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Debug())
 }
 
-func (a alertRuleAdviceStatisticsDo) WithContext(ctx context.Context) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) WithContext(ctx context.Context) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.WithContext(ctx))
 }
 
-func (a alertRuleAdviceStatisticsDo) ReadDB() *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) ReadDB() IAlertRuleAdviceStatisticsDo {
 	return a.Clauses(dbresolver.Read)
 }
 
-func (a alertRuleAdviceStatisticsDo) WriteDB() *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) WriteDB() IAlertRuleAdviceStatisticsDo {
 	return a.Clauses(dbresolver.Write)
 }
 
-func (a alertRuleAdviceStatisticsDo) Session(config *gorm.Session) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Session(config *gorm.Session) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Session(config))
 }
 
-func (a alertRuleAdviceStatisticsDo) Clauses(conds ...clause.Expression) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Clauses(conds ...clause.Expression) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Clauses(conds...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Returning(value interface{}, columns ...string) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Returning(value interface{}, columns ...string) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Returning(value, columns...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Not(conds ...gen.Condition) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Not(conds ...gen.Condition) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Not(conds...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Or(conds ...gen.Condition) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Or(conds ...gen.Condition) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Or(conds...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Select(conds ...field.Expr) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Select(conds ...field.Expr) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Select(conds...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Where(conds ...gen.Condition) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Where(conds ...gen.Condition) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Where(conds...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Order(conds ...field.Expr) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Order(conds ...field.Expr) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Order(conds...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Distinct(cols ...field.Expr) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Distinct(cols ...field.Expr) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Distinct(cols...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Omit(cols ...field.Expr) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Omit(cols ...field.Expr) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Omit(cols...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Join(table schema.Tabler, on ...field.Expr) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Join(table schema.Tabler, on ...field.Expr) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Join(table, on...))
 }
 
-func (a alertRuleAdviceStatisticsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) LeftJoin(table schema.Tabler, on ...field.Expr) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.LeftJoin(table, on...))
 }
 
-func (a alertRuleAdviceStatisticsDo) RightJoin(table schema.Tabler, on ...field.Expr) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) RightJoin(table schema.Tabler, on ...field.Expr) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.RightJoin(table, on...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Group(cols ...field.Expr) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Group(cols ...field.Expr) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Group(cols...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Having(conds ...gen.Condition) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Having(conds ...gen.Condition) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Having(conds...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Limit(limit int) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Limit(limit int) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Limit(limit))
 }
 
-func (a alertRuleAdviceStatisticsDo) Offset(offset int) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Offset(offset int) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Offset(offset))
 }
 
-func (a alertRuleAdviceStatisticsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Scopes(funcs...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Unscoped() *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Unscoped() IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Unscoped())
 }
 
@@ -328,22 +378,22 @@ func (a alertRuleAdviceStatisticsDo) FindInBatches(result *[]*model.AlertRuleAdv
 	return a.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (a alertRuleAdviceStatisticsDo) Attrs(attrs ...field.AssignExpr) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Attrs(attrs ...field.AssignExpr) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Attrs(attrs...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Assign(attrs ...field.AssignExpr) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Assign(attrs ...field.AssignExpr) IAlertRuleAdviceStatisticsDo {
 	return a.withDO(a.DO.Assign(attrs...))
 }
 
-func (a alertRuleAdviceStatisticsDo) Joins(fields ...field.RelationField) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Joins(fields ...field.RelationField) IAlertRuleAdviceStatisticsDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Joins(_f))
 	}
 	return &a
 }
 
-func (a alertRuleAdviceStatisticsDo) Preload(fields ...field.RelationField) *alertRuleAdviceStatisticsDo {
+func (a alertRuleAdviceStatisticsDo) Preload(fields ...field.RelationField) IAlertRuleAdviceStatisticsDo {
 	for _, _f := range fields {
 		a = *a.withDO(a.DO.Preload(_f))
 	}

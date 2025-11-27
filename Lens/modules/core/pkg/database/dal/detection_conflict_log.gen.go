@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -49,7 +50,7 @@ func newDetectionConflictLog(db *gorm.DB, opts ...gen.DOOption) detectionConflic
 }
 
 type detectionConflictLog struct {
-	detectionConflictLogDo detectionConflictLogDo
+	detectionConflictLogDo
 
 	ALL                field.Asterisk
 	ID                 field.Int64
@@ -104,18 +105,6 @@ func (d *detectionConflictLog) updateTableName(table string) *detectionConflictL
 	return d
 }
 
-func (d *detectionConflictLog) WithContext(ctx context.Context) *detectionConflictLogDo {
-	return d.detectionConflictLogDo.WithContext(ctx)
-}
-
-func (d detectionConflictLog) TableName() string { return d.detectionConflictLogDo.TableName() }
-
-func (d detectionConflictLog) Alias() string { return d.detectionConflictLogDo.Alias() }
-
-func (d detectionConflictLog) Columns(cols ...field.Expr) gen.Columns {
-	return d.detectionConflictLogDo.Columns(cols...)
-}
-
 func (d *detectionConflictLog) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := d.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -156,95 +145,158 @@ func (d detectionConflictLog) replaceDB(db *gorm.DB) detectionConflictLog {
 
 type detectionConflictLogDo struct{ gen.DO }
 
-func (d detectionConflictLogDo) Debug() *detectionConflictLogDo {
+type IDetectionConflictLogDo interface {
+	gen.SubQuery
+	Debug() IDetectionConflictLogDo
+	WithContext(ctx context.Context) IDetectionConflictLogDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IDetectionConflictLogDo
+	WriteDB() IDetectionConflictLogDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IDetectionConflictLogDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IDetectionConflictLogDo
+	Not(conds ...gen.Condition) IDetectionConflictLogDo
+	Or(conds ...gen.Condition) IDetectionConflictLogDo
+	Select(conds ...field.Expr) IDetectionConflictLogDo
+	Where(conds ...gen.Condition) IDetectionConflictLogDo
+	Order(conds ...field.Expr) IDetectionConflictLogDo
+	Distinct(cols ...field.Expr) IDetectionConflictLogDo
+	Omit(cols ...field.Expr) IDetectionConflictLogDo
+	Join(table schema.Tabler, on ...field.Expr) IDetectionConflictLogDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IDetectionConflictLogDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IDetectionConflictLogDo
+	Group(cols ...field.Expr) IDetectionConflictLogDo
+	Having(conds ...gen.Condition) IDetectionConflictLogDo
+	Limit(limit int) IDetectionConflictLogDo
+	Offset(offset int) IDetectionConflictLogDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IDetectionConflictLogDo
+	Unscoped() IDetectionConflictLogDo
+	Create(values ...*model.DetectionConflictLog) error
+	CreateInBatches(values []*model.DetectionConflictLog, batchSize int) error
+	Save(values ...*model.DetectionConflictLog) error
+	First() (*model.DetectionConflictLog, error)
+	Take() (*model.DetectionConflictLog, error)
+	Last() (*model.DetectionConflictLog, error)
+	Find() ([]*model.DetectionConflictLog, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.DetectionConflictLog, err error)
+	FindInBatches(result *[]*model.DetectionConflictLog, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.DetectionConflictLog) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IDetectionConflictLogDo
+	Assign(attrs ...field.AssignExpr) IDetectionConflictLogDo
+	Joins(fields ...field.RelationField) IDetectionConflictLogDo
+	Preload(fields ...field.RelationField) IDetectionConflictLogDo
+	FirstOrInit() (*model.DetectionConflictLog, error)
+	FirstOrCreate() (*model.DetectionConflictLog, error)
+	FindByPage(offset int, limit int) (result []*model.DetectionConflictLog, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IDetectionConflictLogDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (d detectionConflictLogDo) Debug() IDetectionConflictLogDo {
 	return d.withDO(d.DO.Debug())
 }
 
-func (d detectionConflictLogDo) WithContext(ctx context.Context) *detectionConflictLogDo {
+func (d detectionConflictLogDo) WithContext(ctx context.Context) IDetectionConflictLogDo {
 	return d.withDO(d.DO.WithContext(ctx))
 }
 
-func (d detectionConflictLogDo) ReadDB() *detectionConflictLogDo {
+func (d detectionConflictLogDo) ReadDB() IDetectionConflictLogDo {
 	return d.Clauses(dbresolver.Read)
 }
 
-func (d detectionConflictLogDo) WriteDB() *detectionConflictLogDo {
+func (d detectionConflictLogDo) WriteDB() IDetectionConflictLogDo {
 	return d.Clauses(dbresolver.Write)
 }
 
-func (d detectionConflictLogDo) Session(config *gorm.Session) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Session(config *gorm.Session) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Session(config))
 }
 
-func (d detectionConflictLogDo) Clauses(conds ...clause.Expression) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Clauses(conds ...clause.Expression) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Clauses(conds...))
 }
 
-func (d detectionConflictLogDo) Returning(value interface{}, columns ...string) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Returning(value interface{}, columns ...string) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Returning(value, columns...))
 }
 
-func (d detectionConflictLogDo) Not(conds ...gen.Condition) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Not(conds ...gen.Condition) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Not(conds...))
 }
 
-func (d detectionConflictLogDo) Or(conds ...gen.Condition) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Or(conds ...gen.Condition) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Or(conds...))
 }
 
-func (d detectionConflictLogDo) Select(conds ...field.Expr) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Select(conds ...field.Expr) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Select(conds...))
 }
 
-func (d detectionConflictLogDo) Where(conds ...gen.Condition) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Where(conds ...gen.Condition) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Where(conds...))
 }
 
-func (d detectionConflictLogDo) Order(conds ...field.Expr) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Order(conds ...field.Expr) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Order(conds...))
 }
 
-func (d detectionConflictLogDo) Distinct(cols ...field.Expr) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Distinct(cols ...field.Expr) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Distinct(cols...))
 }
 
-func (d detectionConflictLogDo) Omit(cols ...field.Expr) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Omit(cols ...field.Expr) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Omit(cols...))
 }
 
-func (d detectionConflictLogDo) Join(table schema.Tabler, on ...field.Expr) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Join(table schema.Tabler, on ...field.Expr) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Join(table, on...))
 }
 
-func (d detectionConflictLogDo) LeftJoin(table schema.Tabler, on ...field.Expr) *detectionConflictLogDo {
+func (d detectionConflictLogDo) LeftJoin(table schema.Tabler, on ...field.Expr) IDetectionConflictLogDo {
 	return d.withDO(d.DO.LeftJoin(table, on...))
 }
 
-func (d detectionConflictLogDo) RightJoin(table schema.Tabler, on ...field.Expr) *detectionConflictLogDo {
+func (d detectionConflictLogDo) RightJoin(table schema.Tabler, on ...field.Expr) IDetectionConflictLogDo {
 	return d.withDO(d.DO.RightJoin(table, on...))
 }
 
-func (d detectionConflictLogDo) Group(cols ...field.Expr) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Group(cols ...field.Expr) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Group(cols...))
 }
 
-func (d detectionConflictLogDo) Having(conds ...gen.Condition) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Having(conds ...gen.Condition) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Having(conds...))
 }
 
-func (d detectionConflictLogDo) Limit(limit int) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Limit(limit int) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Limit(limit))
 }
 
-func (d detectionConflictLogDo) Offset(offset int) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Offset(offset int) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Offset(offset))
 }
 
-func (d detectionConflictLogDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Scopes(funcs...))
 }
 
-func (d detectionConflictLogDo) Unscoped() *detectionConflictLogDo {
+func (d detectionConflictLogDo) Unscoped() IDetectionConflictLogDo {
 	return d.withDO(d.DO.Unscoped())
 }
 
@@ -310,22 +362,22 @@ func (d detectionConflictLogDo) FindInBatches(result *[]*model.DetectionConflict
 	return d.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (d detectionConflictLogDo) Attrs(attrs ...field.AssignExpr) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Attrs(attrs ...field.AssignExpr) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Attrs(attrs...))
 }
 
-func (d detectionConflictLogDo) Assign(attrs ...field.AssignExpr) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Assign(attrs ...field.AssignExpr) IDetectionConflictLogDo {
 	return d.withDO(d.DO.Assign(attrs...))
 }
 
-func (d detectionConflictLogDo) Joins(fields ...field.RelationField) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Joins(fields ...field.RelationField) IDetectionConflictLogDo {
 	for _, _f := range fields {
 		d = *d.withDO(d.DO.Joins(_f))
 	}
 	return &d
 }
 
-func (d detectionConflictLogDo) Preload(fields ...field.RelationField) *detectionConflictLogDo {
+func (d detectionConflictLogDo) Preload(fields ...field.RelationField) IDetectionConflictLogDo {
 	for _, _f := range fields {
 		d = *d.withDO(d.DO.Preload(_f))
 	}

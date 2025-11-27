@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -42,7 +43,7 @@ func newNodeDeviceChangelog(db *gorm.DB, opts ...gen.DOOption) nodeDeviceChangel
 }
 
 type nodeDeviceChangelog struct {
-	nodeDeviceChangelogDo nodeDeviceChangelogDo
+	nodeDeviceChangelogDo
 
 	ALL        field.Asterisk
 	ID         field.Int32
@@ -83,18 +84,6 @@ func (n *nodeDeviceChangelog) updateTableName(table string) *nodeDeviceChangelog
 	return n
 }
 
-func (n *nodeDeviceChangelog) WithContext(ctx context.Context) *nodeDeviceChangelogDo {
-	return n.nodeDeviceChangelogDo.WithContext(ctx)
-}
-
-func (n nodeDeviceChangelog) TableName() string { return n.nodeDeviceChangelogDo.TableName() }
-
-func (n nodeDeviceChangelog) Alias() string { return n.nodeDeviceChangelogDo.Alias() }
-
-func (n nodeDeviceChangelog) Columns(cols ...field.Expr) gen.Columns {
-	return n.nodeDeviceChangelogDo.Columns(cols...)
-}
-
 func (n *nodeDeviceChangelog) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := n.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -128,95 +117,158 @@ func (n nodeDeviceChangelog) replaceDB(db *gorm.DB) nodeDeviceChangelog {
 
 type nodeDeviceChangelogDo struct{ gen.DO }
 
-func (n nodeDeviceChangelogDo) Debug() *nodeDeviceChangelogDo {
+type INodeDeviceChangelogDo interface {
+	gen.SubQuery
+	Debug() INodeDeviceChangelogDo
+	WithContext(ctx context.Context) INodeDeviceChangelogDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() INodeDeviceChangelogDo
+	WriteDB() INodeDeviceChangelogDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) INodeDeviceChangelogDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) INodeDeviceChangelogDo
+	Not(conds ...gen.Condition) INodeDeviceChangelogDo
+	Or(conds ...gen.Condition) INodeDeviceChangelogDo
+	Select(conds ...field.Expr) INodeDeviceChangelogDo
+	Where(conds ...gen.Condition) INodeDeviceChangelogDo
+	Order(conds ...field.Expr) INodeDeviceChangelogDo
+	Distinct(cols ...field.Expr) INodeDeviceChangelogDo
+	Omit(cols ...field.Expr) INodeDeviceChangelogDo
+	Join(table schema.Tabler, on ...field.Expr) INodeDeviceChangelogDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) INodeDeviceChangelogDo
+	RightJoin(table schema.Tabler, on ...field.Expr) INodeDeviceChangelogDo
+	Group(cols ...field.Expr) INodeDeviceChangelogDo
+	Having(conds ...gen.Condition) INodeDeviceChangelogDo
+	Limit(limit int) INodeDeviceChangelogDo
+	Offset(offset int) INodeDeviceChangelogDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) INodeDeviceChangelogDo
+	Unscoped() INodeDeviceChangelogDo
+	Create(values ...*model.NodeDeviceChangelog) error
+	CreateInBatches(values []*model.NodeDeviceChangelog, batchSize int) error
+	Save(values ...*model.NodeDeviceChangelog) error
+	First() (*model.NodeDeviceChangelog, error)
+	Take() (*model.NodeDeviceChangelog, error)
+	Last() (*model.NodeDeviceChangelog, error)
+	Find() ([]*model.NodeDeviceChangelog, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.NodeDeviceChangelog, err error)
+	FindInBatches(result *[]*model.NodeDeviceChangelog, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.NodeDeviceChangelog) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) INodeDeviceChangelogDo
+	Assign(attrs ...field.AssignExpr) INodeDeviceChangelogDo
+	Joins(fields ...field.RelationField) INodeDeviceChangelogDo
+	Preload(fields ...field.RelationField) INodeDeviceChangelogDo
+	FirstOrInit() (*model.NodeDeviceChangelog, error)
+	FirstOrCreate() (*model.NodeDeviceChangelog, error)
+	FindByPage(offset int, limit int) (result []*model.NodeDeviceChangelog, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) INodeDeviceChangelogDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (n nodeDeviceChangelogDo) Debug() INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Debug())
 }
 
-func (n nodeDeviceChangelogDo) WithContext(ctx context.Context) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) WithContext(ctx context.Context) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.WithContext(ctx))
 }
 
-func (n nodeDeviceChangelogDo) ReadDB() *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) ReadDB() INodeDeviceChangelogDo {
 	return n.Clauses(dbresolver.Read)
 }
 
-func (n nodeDeviceChangelogDo) WriteDB() *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) WriteDB() INodeDeviceChangelogDo {
 	return n.Clauses(dbresolver.Write)
 }
 
-func (n nodeDeviceChangelogDo) Session(config *gorm.Session) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Session(config *gorm.Session) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Session(config))
 }
 
-func (n nodeDeviceChangelogDo) Clauses(conds ...clause.Expression) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Clauses(conds ...clause.Expression) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Clauses(conds...))
 }
 
-func (n nodeDeviceChangelogDo) Returning(value interface{}, columns ...string) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Returning(value interface{}, columns ...string) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Returning(value, columns...))
 }
 
-func (n nodeDeviceChangelogDo) Not(conds ...gen.Condition) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Not(conds ...gen.Condition) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Not(conds...))
 }
 
-func (n nodeDeviceChangelogDo) Or(conds ...gen.Condition) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Or(conds ...gen.Condition) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Or(conds...))
 }
 
-func (n nodeDeviceChangelogDo) Select(conds ...field.Expr) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Select(conds ...field.Expr) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Select(conds...))
 }
 
-func (n nodeDeviceChangelogDo) Where(conds ...gen.Condition) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Where(conds ...gen.Condition) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Where(conds...))
 }
 
-func (n nodeDeviceChangelogDo) Order(conds ...field.Expr) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Order(conds ...field.Expr) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Order(conds...))
 }
 
-func (n nodeDeviceChangelogDo) Distinct(cols ...field.Expr) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Distinct(cols ...field.Expr) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Distinct(cols...))
 }
 
-func (n nodeDeviceChangelogDo) Omit(cols ...field.Expr) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Omit(cols ...field.Expr) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Omit(cols...))
 }
 
-func (n nodeDeviceChangelogDo) Join(table schema.Tabler, on ...field.Expr) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Join(table schema.Tabler, on ...field.Expr) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Join(table, on...))
 }
 
-func (n nodeDeviceChangelogDo) LeftJoin(table schema.Tabler, on ...field.Expr) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) LeftJoin(table schema.Tabler, on ...field.Expr) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.LeftJoin(table, on...))
 }
 
-func (n nodeDeviceChangelogDo) RightJoin(table schema.Tabler, on ...field.Expr) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) RightJoin(table schema.Tabler, on ...field.Expr) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.RightJoin(table, on...))
 }
 
-func (n nodeDeviceChangelogDo) Group(cols ...field.Expr) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Group(cols ...field.Expr) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Group(cols...))
 }
 
-func (n nodeDeviceChangelogDo) Having(conds ...gen.Condition) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Having(conds ...gen.Condition) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Having(conds...))
 }
 
-func (n nodeDeviceChangelogDo) Limit(limit int) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Limit(limit int) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Limit(limit))
 }
 
-func (n nodeDeviceChangelogDo) Offset(offset int) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Offset(offset int) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Offset(offset))
 }
 
-func (n nodeDeviceChangelogDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Scopes(funcs ...func(gen.Dao) gen.Dao) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Scopes(funcs...))
 }
 
-func (n nodeDeviceChangelogDo) Unscoped() *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Unscoped() INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Unscoped())
 }
 
@@ -282,22 +334,22 @@ func (n nodeDeviceChangelogDo) FindInBatches(result *[]*model.NodeDeviceChangelo
 	return n.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (n nodeDeviceChangelogDo) Attrs(attrs ...field.AssignExpr) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Attrs(attrs ...field.AssignExpr) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Attrs(attrs...))
 }
 
-func (n nodeDeviceChangelogDo) Assign(attrs ...field.AssignExpr) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Assign(attrs ...field.AssignExpr) INodeDeviceChangelogDo {
 	return n.withDO(n.DO.Assign(attrs...))
 }
 
-func (n nodeDeviceChangelogDo) Joins(fields ...field.RelationField) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Joins(fields ...field.RelationField) INodeDeviceChangelogDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Joins(_f))
 	}
 	return &n
 }
 
-func (n nodeDeviceChangelogDo) Preload(fields ...field.RelationField) *nodeDeviceChangelogDo {
+func (n nodeDeviceChangelogDo) Preload(fields ...field.RelationField) INodeDeviceChangelogDo {
 	for _, _f := range fields {
 		n = *n.withDO(n.DO.Preload(_f))
 	}

@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -43,7 +44,7 @@ func newPodSnapshot(db *gorm.DB, opts ...gen.DOOption) podSnapshot {
 }
 
 type podSnapshot struct {
-	podSnapshotDo podSnapshotDo
+	podSnapshotDo
 
 	ALL             field.Asterisk
 	ID              field.Int32
@@ -86,16 +87,6 @@ func (p *podSnapshot) updateTableName(table string) *podSnapshot {
 	return p
 }
 
-func (p *podSnapshot) WithContext(ctx context.Context) *podSnapshotDo {
-	return p.podSnapshotDo.WithContext(ctx)
-}
-
-func (p podSnapshot) TableName() string { return p.podSnapshotDo.TableName() }
-
-func (p podSnapshot) Alias() string { return p.podSnapshotDo.Alias() }
-
-func (p podSnapshot) Columns(cols ...field.Expr) gen.Columns { return p.podSnapshotDo.Columns(cols...) }
-
 func (p *podSnapshot) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := p.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -130,95 +121,158 @@ func (p podSnapshot) replaceDB(db *gorm.DB) podSnapshot {
 
 type podSnapshotDo struct{ gen.DO }
 
-func (p podSnapshotDo) Debug() *podSnapshotDo {
+type IPodSnapshotDo interface {
+	gen.SubQuery
+	Debug() IPodSnapshotDo
+	WithContext(ctx context.Context) IPodSnapshotDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IPodSnapshotDo
+	WriteDB() IPodSnapshotDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IPodSnapshotDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IPodSnapshotDo
+	Not(conds ...gen.Condition) IPodSnapshotDo
+	Or(conds ...gen.Condition) IPodSnapshotDo
+	Select(conds ...field.Expr) IPodSnapshotDo
+	Where(conds ...gen.Condition) IPodSnapshotDo
+	Order(conds ...field.Expr) IPodSnapshotDo
+	Distinct(cols ...field.Expr) IPodSnapshotDo
+	Omit(cols ...field.Expr) IPodSnapshotDo
+	Join(table schema.Tabler, on ...field.Expr) IPodSnapshotDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IPodSnapshotDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IPodSnapshotDo
+	Group(cols ...field.Expr) IPodSnapshotDo
+	Having(conds ...gen.Condition) IPodSnapshotDo
+	Limit(limit int) IPodSnapshotDo
+	Offset(offset int) IPodSnapshotDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IPodSnapshotDo
+	Unscoped() IPodSnapshotDo
+	Create(values ...*model.PodSnapshot) error
+	CreateInBatches(values []*model.PodSnapshot, batchSize int) error
+	Save(values ...*model.PodSnapshot) error
+	First() (*model.PodSnapshot, error)
+	Take() (*model.PodSnapshot, error)
+	Last() (*model.PodSnapshot, error)
+	Find() ([]*model.PodSnapshot, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.PodSnapshot, err error)
+	FindInBatches(result *[]*model.PodSnapshot, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.PodSnapshot) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IPodSnapshotDo
+	Assign(attrs ...field.AssignExpr) IPodSnapshotDo
+	Joins(fields ...field.RelationField) IPodSnapshotDo
+	Preload(fields ...field.RelationField) IPodSnapshotDo
+	FirstOrInit() (*model.PodSnapshot, error)
+	FirstOrCreate() (*model.PodSnapshot, error)
+	FindByPage(offset int, limit int) (result []*model.PodSnapshot, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IPodSnapshotDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (p podSnapshotDo) Debug() IPodSnapshotDo {
 	return p.withDO(p.DO.Debug())
 }
 
-func (p podSnapshotDo) WithContext(ctx context.Context) *podSnapshotDo {
+func (p podSnapshotDo) WithContext(ctx context.Context) IPodSnapshotDo {
 	return p.withDO(p.DO.WithContext(ctx))
 }
 
-func (p podSnapshotDo) ReadDB() *podSnapshotDo {
+func (p podSnapshotDo) ReadDB() IPodSnapshotDo {
 	return p.Clauses(dbresolver.Read)
 }
 
-func (p podSnapshotDo) WriteDB() *podSnapshotDo {
+func (p podSnapshotDo) WriteDB() IPodSnapshotDo {
 	return p.Clauses(dbresolver.Write)
 }
 
-func (p podSnapshotDo) Session(config *gorm.Session) *podSnapshotDo {
+func (p podSnapshotDo) Session(config *gorm.Session) IPodSnapshotDo {
 	return p.withDO(p.DO.Session(config))
 }
 
-func (p podSnapshotDo) Clauses(conds ...clause.Expression) *podSnapshotDo {
+func (p podSnapshotDo) Clauses(conds ...clause.Expression) IPodSnapshotDo {
 	return p.withDO(p.DO.Clauses(conds...))
 }
 
-func (p podSnapshotDo) Returning(value interface{}, columns ...string) *podSnapshotDo {
+func (p podSnapshotDo) Returning(value interface{}, columns ...string) IPodSnapshotDo {
 	return p.withDO(p.DO.Returning(value, columns...))
 }
 
-func (p podSnapshotDo) Not(conds ...gen.Condition) *podSnapshotDo {
+func (p podSnapshotDo) Not(conds ...gen.Condition) IPodSnapshotDo {
 	return p.withDO(p.DO.Not(conds...))
 }
 
-func (p podSnapshotDo) Or(conds ...gen.Condition) *podSnapshotDo {
+func (p podSnapshotDo) Or(conds ...gen.Condition) IPodSnapshotDo {
 	return p.withDO(p.DO.Or(conds...))
 }
 
-func (p podSnapshotDo) Select(conds ...field.Expr) *podSnapshotDo {
+func (p podSnapshotDo) Select(conds ...field.Expr) IPodSnapshotDo {
 	return p.withDO(p.DO.Select(conds...))
 }
 
-func (p podSnapshotDo) Where(conds ...gen.Condition) *podSnapshotDo {
+func (p podSnapshotDo) Where(conds ...gen.Condition) IPodSnapshotDo {
 	return p.withDO(p.DO.Where(conds...))
 }
 
-func (p podSnapshotDo) Order(conds ...field.Expr) *podSnapshotDo {
+func (p podSnapshotDo) Order(conds ...field.Expr) IPodSnapshotDo {
 	return p.withDO(p.DO.Order(conds...))
 }
 
-func (p podSnapshotDo) Distinct(cols ...field.Expr) *podSnapshotDo {
+func (p podSnapshotDo) Distinct(cols ...field.Expr) IPodSnapshotDo {
 	return p.withDO(p.DO.Distinct(cols...))
 }
 
-func (p podSnapshotDo) Omit(cols ...field.Expr) *podSnapshotDo {
+func (p podSnapshotDo) Omit(cols ...field.Expr) IPodSnapshotDo {
 	return p.withDO(p.DO.Omit(cols...))
 }
 
-func (p podSnapshotDo) Join(table schema.Tabler, on ...field.Expr) *podSnapshotDo {
+func (p podSnapshotDo) Join(table schema.Tabler, on ...field.Expr) IPodSnapshotDo {
 	return p.withDO(p.DO.Join(table, on...))
 }
 
-func (p podSnapshotDo) LeftJoin(table schema.Tabler, on ...field.Expr) *podSnapshotDo {
+func (p podSnapshotDo) LeftJoin(table schema.Tabler, on ...field.Expr) IPodSnapshotDo {
 	return p.withDO(p.DO.LeftJoin(table, on...))
 }
 
-func (p podSnapshotDo) RightJoin(table schema.Tabler, on ...field.Expr) *podSnapshotDo {
+func (p podSnapshotDo) RightJoin(table schema.Tabler, on ...field.Expr) IPodSnapshotDo {
 	return p.withDO(p.DO.RightJoin(table, on...))
 }
 
-func (p podSnapshotDo) Group(cols ...field.Expr) *podSnapshotDo {
+func (p podSnapshotDo) Group(cols ...field.Expr) IPodSnapshotDo {
 	return p.withDO(p.DO.Group(cols...))
 }
 
-func (p podSnapshotDo) Having(conds ...gen.Condition) *podSnapshotDo {
+func (p podSnapshotDo) Having(conds ...gen.Condition) IPodSnapshotDo {
 	return p.withDO(p.DO.Having(conds...))
 }
 
-func (p podSnapshotDo) Limit(limit int) *podSnapshotDo {
+func (p podSnapshotDo) Limit(limit int) IPodSnapshotDo {
 	return p.withDO(p.DO.Limit(limit))
 }
 
-func (p podSnapshotDo) Offset(offset int) *podSnapshotDo {
+func (p podSnapshotDo) Offset(offset int) IPodSnapshotDo {
 	return p.withDO(p.DO.Offset(offset))
 }
 
-func (p podSnapshotDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *podSnapshotDo {
+func (p podSnapshotDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IPodSnapshotDo {
 	return p.withDO(p.DO.Scopes(funcs...))
 }
 
-func (p podSnapshotDo) Unscoped() *podSnapshotDo {
+func (p podSnapshotDo) Unscoped() IPodSnapshotDo {
 	return p.withDO(p.DO.Unscoped())
 }
 
@@ -284,22 +338,22 @@ func (p podSnapshotDo) FindInBatches(result *[]*model.PodSnapshot, batchSize int
 	return p.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (p podSnapshotDo) Attrs(attrs ...field.AssignExpr) *podSnapshotDo {
+func (p podSnapshotDo) Attrs(attrs ...field.AssignExpr) IPodSnapshotDo {
 	return p.withDO(p.DO.Attrs(attrs...))
 }
 
-func (p podSnapshotDo) Assign(attrs ...field.AssignExpr) *podSnapshotDo {
+func (p podSnapshotDo) Assign(attrs ...field.AssignExpr) IPodSnapshotDo {
 	return p.withDO(p.DO.Assign(attrs...))
 }
 
-func (p podSnapshotDo) Joins(fields ...field.RelationField) *podSnapshotDo {
+func (p podSnapshotDo) Joins(fields ...field.RelationField) IPodSnapshotDo {
 	for _, _f := range fields {
 		p = *p.withDO(p.DO.Joins(_f))
 	}
 	return &p
 }
 
-func (p podSnapshotDo) Preload(fields ...field.RelationField) *podSnapshotDo {
+func (p podSnapshotDo) Preload(fields ...field.RelationField) IPodSnapshotDo {
 	for _, _f := range fields {
 		p = *p.withDO(p.DO.Preload(_f))
 	}

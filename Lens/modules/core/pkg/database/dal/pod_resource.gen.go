@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -40,7 +41,7 @@ func newPodResource(db *gorm.DB, opts ...gen.DOOption) podResource {
 }
 
 type podResource struct {
-	podResourceDo podResourceDo
+	podResourceDo
 
 	ALL          field.Asterisk
 	ID           field.Int32
@@ -77,16 +78,6 @@ func (p *podResource) updateTableName(table string) *podResource {
 	return p
 }
 
-func (p *podResource) WithContext(ctx context.Context) *podResourceDo {
-	return p.podResourceDo.WithContext(ctx)
-}
-
-func (p podResource) TableName() string { return p.podResourceDo.TableName() }
-
-func (p podResource) Alias() string { return p.podResourceDo.Alias() }
-
-func (p podResource) Columns(cols ...field.Expr) gen.Columns { return p.podResourceDo.Columns(cols...) }
-
 func (p *podResource) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := p.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -118,95 +109,158 @@ func (p podResource) replaceDB(db *gorm.DB) podResource {
 
 type podResourceDo struct{ gen.DO }
 
-func (p podResourceDo) Debug() *podResourceDo {
+type IPodResourceDo interface {
+	gen.SubQuery
+	Debug() IPodResourceDo
+	WithContext(ctx context.Context) IPodResourceDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IPodResourceDo
+	WriteDB() IPodResourceDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IPodResourceDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IPodResourceDo
+	Not(conds ...gen.Condition) IPodResourceDo
+	Or(conds ...gen.Condition) IPodResourceDo
+	Select(conds ...field.Expr) IPodResourceDo
+	Where(conds ...gen.Condition) IPodResourceDo
+	Order(conds ...field.Expr) IPodResourceDo
+	Distinct(cols ...field.Expr) IPodResourceDo
+	Omit(cols ...field.Expr) IPodResourceDo
+	Join(table schema.Tabler, on ...field.Expr) IPodResourceDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IPodResourceDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IPodResourceDo
+	Group(cols ...field.Expr) IPodResourceDo
+	Having(conds ...gen.Condition) IPodResourceDo
+	Limit(limit int) IPodResourceDo
+	Offset(offset int) IPodResourceDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IPodResourceDo
+	Unscoped() IPodResourceDo
+	Create(values ...*model.PodResource) error
+	CreateInBatches(values []*model.PodResource, batchSize int) error
+	Save(values ...*model.PodResource) error
+	First() (*model.PodResource, error)
+	Take() (*model.PodResource, error)
+	Last() (*model.PodResource, error)
+	Find() ([]*model.PodResource, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.PodResource, err error)
+	FindInBatches(result *[]*model.PodResource, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.PodResource) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IPodResourceDo
+	Assign(attrs ...field.AssignExpr) IPodResourceDo
+	Joins(fields ...field.RelationField) IPodResourceDo
+	Preload(fields ...field.RelationField) IPodResourceDo
+	FirstOrInit() (*model.PodResource, error)
+	FirstOrCreate() (*model.PodResource, error)
+	FindByPage(offset int, limit int) (result []*model.PodResource, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IPodResourceDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (p podResourceDo) Debug() IPodResourceDo {
 	return p.withDO(p.DO.Debug())
 }
 
-func (p podResourceDo) WithContext(ctx context.Context) *podResourceDo {
+func (p podResourceDo) WithContext(ctx context.Context) IPodResourceDo {
 	return p.withDO(p.DO.WithContext(ctx))
 }
 
-func (p podResourceDo) ReadDB() *podResourceDo {
+func (p podResourceDo) ReadDB() IPodResourceDo {
 	return p.Clauses(dbresolver.Read)
 }
 
-func (p podResourceDo) WriteDB() *podResourceDo {
+func (p podResourceDo) WriteDB() IPodResourceDo {
 	return p.Clauses(dbresolver.Write)
 }
 
-func (p podResourceDo) Session(config *gorm.Session) *podResourceDo {
+func (p podResourceDo) Session(config *gorm.Session) IPodResourceDo {
 	return p.withDO(p.DO.Session(config))
 }
 
-func (p podResourceDo) Clauses(conds ...clause.Expression) *podResourceDo {
+func (p podResourceDo) Clauses(conds ...clause.Expression) IPodResourceDo {
 	return p.withDO(p.DO.Clauses(conds...))
 }
 
-func (p podResourceDo) Returning(value interface{}, columns ...string) *podResourceDo {
+func (p podResourceDo) Returning(value interface{}, columns ...string) IPodResourceDo {
 	return p.withDO(p.DO.Returning(value, columns...))
 }
 
-func (p podResourceDo) Not(conds ...gen.Condition) *podResourceDo {
+func (p podResourceDo) Not(conds ...gen.Condition) IPodResourceDo {
 	return p.withDO(p.DO.Not(conds...))
 }
 
-func (p podResourceDo) Or(conds ...gen.Condition) *podResourceDo {
+func (p podResourceDo) Or(conds ...gen.Condition) IPodResourceDo {
 	return p.withDO(p.DO.Or(conds...))
 }
 
-func (p podResourceDo) Select(conds ...field.Expr) *podResourceDo {
+func (p podResourceDo) Select(conds ...field.Expr) IPodResourceDo {
 	return p.withDO(p.DO.Select(conds...))
 }
 
-func (p podResourceDo) Where(conds ...gen.Condition) *podResourceDo {
+func (p podResourceDo) Where(conds ...gen.Condition) IPodResourceDo {
 	return p.withDO(p.DO.Where(conds...))
 }
 
-func (p podResourceDo) Order(conds ...field.Expr) *podResourceDo {
+func (p podResourceDo) Order(conds ...field.Expr) IPodResourceDo {
 	return p.withDO(p.DO.Order(conds...))
 }
 
-func (p podResourceDo) Distinct(cols ...field.Expr) *podResourceDo {
+func (p podResourceDo) Distinct(cols ...field.Expr) IPodResourceDo {
 	return p.withDO(p.DO.Distinct(cols...))
 }
 
-func (p podResourceDo) Omit(cols ...field.Expr) *podResourceDo {
+func (p podResourceDo) Omit(cols ...field.Expr) IPodResourceDo {
 	return p.withDO(p.DO.Omit(cols...))
 }
 
-func (p podResourceDo) Join(table schema.Tabler, on ...field.Expr) *podResourceDo {
+func (p podResourceDo) Join(table schema.Tabler, on ...field.Expr) IPodResourceDo {
 	return p.withDO(p.DO.Join(table, on...))
 }
 
-func (p podResourceDo) LeftJoin(table schema.Tabler, on ...field.Expr) *podResourceDo {
+func (p podResourceDo) LeftJoin(table schema.Tabler, on ...field.Expr) IPodResourceDo {
 	return p.withDO(p.DO.LeftJoin(table, on...))
 }
 
-func (p podResourceDo) RightJoin(table schema.Tabler, on ...field.Expr) *podResourceDo {
+func (p podResourceDo) RightJoin(table schema.Tabler, on ...field.Expr) IPodResourceDo {
 	return p.withDO(p.DO.RightJoin(table, on...))
 }
 
-func (p podResourceDo) Group(cols ...field.Expr) *podResourceDo {
+func (p podResourceDo) Group(cols ...field.Expr) IPodResourceDo {
 	return p.withDO(p.DO.Group(cols...))
 }
 
-func (p podResourceDo) Having(conds ...gen.Condition) *podResourceDo {
+func (p podResourceDo) Having(conds ...gen.Condition) IPodResourceDo {
 	return p.withDO(p.DO.Having(conds...))
 }
 
-func (p podResourceDo) Limit(limit int) *podResourceDo {
+func (p podResourceDo) Limit(limit int) IPodResourceDo {
 	return p.withDO(p.DO.Limit(limit))
 }
 
-func (p podResourceDo) Offset(offset int) *podResourceDo {
+func (p podResourceDo) Offset(offset int) IPodResourceDo {
 	return p.withDO(p.DO.Offset(offset))
 }
 
-func (p podResourceDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *podResourceDo {
+func (p podResourceDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IPodResourceDo {
 	return p.withDO(p.DO.Scopes(funcs...))
 }
 
-func (p podResourceDo) Unscoped() *podResourceDo {
+func (p podResourceDo) Unscoped() IPodResourceDo {
 	return p.withDO(p.DO.Unscoped())
 }
 
@@ -272,22 +326,22 @@ func (p podResourceDo) FindInBatches(result *[]*model.PodResource, batchSize int
 	return p.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (p podResourceDo) Attrs(attrs ...field.AssignExpr) *podResourceDo {
+func (p podResourceDo) Attrs(attrs ...field.AssignExpr) IPodResourceDo {
 	return p.withDO(p.DO.Attrs(attrs...))
 }
 
-func (p podResourceDo) Assign(attrs ...field.AssignExpr) *podResourceDo {
+func (p podResourceDo) Assign(attrs ...field.AssignExpr) IPodResourceDo {
 	return p.withDO(p.DO.Assign(attrs...))
 }
 
-func (p podResourceDo) Joins(fields ...field.RelationField) *podResourceDo {
+func (p podResourceDo) Joins(fields ...field.RelationField) IPodResourceDo {
 	for _, _f := range fields {
 		p = *p.withDO(p.DO.Joins(_f))
 	}
 	return &p
 }
 
-func (p podResourceDo) Preload(fields ...field.RelationField) *podResourceDo {
+func (p podResourceDo) Preload(fields ...field.RelationField) IPodResourceDo {
 	for _, _f := range fields {
 		p = *p.withDO(p.DO.Preload(_f))
 	}

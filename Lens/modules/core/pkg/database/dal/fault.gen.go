@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -43,7 +44,7 @@ func newFault(db *gorm.DB, opts ...gen.DOOption) fault {
 }
 
 type fault struct {
-	faultDo faultDo
+	faultDo
 
 	ALL     field.Asterisk
 	ID      field.Int32
@@ -86,14 +87,6 @@ func (f *fault) updateTableName(table string) *fault {
 	return f
 }
 
-func (f *fault) WithContext(ctx context.Context) *faultDo { return f.faultDo.WithContext(ctx) }
-
-func (f fault) TableName() string { return f.faultDo.TableName() }
-
-func (f fault) Alias() string { return f.faultDo.Alias() }
-
-func (f fault) Columns(cols ...field.Expr) gen.Columns { return f.faultDo.Columns(cols...) }
-
 func (f *fault) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := f.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -128,95 +121,158 @@ func (f fault) replaceDB(db *gorm.DB) fault {
 
 type faultDo struct{ gen.DO }
 
-func (f faultDo) Debug() *faultDo {
+type IFaultDo interface {
+	gen.SubQuery
+	Debug() IFaultDo
+	WithContext(ctx context.Context) IFaultDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IFaultDo
+	WriteDB() IFaultDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IFaultDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IFaultDo
+	Not(conds ...gen.Condition) IFaultDo
+	Or(conds ...gen.Condition) IFaultDo
+	Select(conds ...field.Expr) IFaultDo
+	Where(conds ...gen.Condition) IFaultDo
+	Order(conds ...field.Expr) IFaultDo
+	Distinct(cols ...field.Expr) IFaultDo
+	Omit(cols ...field.Expr) IFaultDo
+	Join(table schema.Tabler, on ...field.Expr) IFaultDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IFaultDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IFaultDo
+	Group(cols ...field.Expr) IFaultDo
+	Having(conds ...gen.Condition) IFaultDo
+	Limit(limit int) IFaultDo
+	Offset(offset int) IFaultDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IFaultDo
+	Unscoped() IFaultDo
+	Create(values ...*model.Fault) error
+	CreateInBatches(values []*model.Fault, batchSize int) error
+	Save(values ...*model.Fault) error
+	First() (*model.Fault, error)
+	Take() (*model.Fault, error)
+	Last() (*model.Fault, error)
+	Find() ([]*model.Fault, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.Fault, err error)
+	FindInBatches(result *[]*model.Fault, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.Fault) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IFaultDo
+	Assign(attrs ...field.AssignExpr) IFaultDo
+	Joins(fields ...field.RelationField) IFaultDo
+	Preload(fields ...field.RelationField) IFaultDo
+	FirstOrInit() (*model.Fault, error)
+	FirstOrCreate() (*model.Fault, error)
+	FindByPage(offset int, limit int) (result []*model.Fault, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IFaultDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (f faultDo) Debug() IFaultDo {
 	return f.withDO(f.DO.Debug())
 }
 
-func (f faultDo) WithContext(ctx context.Context) *faultDo {
+func (f faultDo) WithContext(ctx context.Context) IFaultDo {
 	return f.withDO(f.DO.WithContext(ctx))
 }
 
-func (f faultDo) ReadDB() *faultDo {
+func (f faultDo) ReadDB() IFaultDo {
 	return f.Clauses(dbresolver.Read)
 }
 
-func (f faultDo) WriteDB() *faultDo {
+func (f faultDo) WriteDB() IFaultDo {
 	return f.Clauses(dbresolver.Write)
 }
 
-func (f faultDo) Session(config *gorm.Session) *faultDo {
+func (f faultDo) Session(config *gorm.Session) IFaultDo {
 	return f.withDO(f.DO.Session(config))
 }
 
-func (f faultDo) Clauses(conds ...clause.Expression) *faultDo {
+func (f faultDo) Clauses(conds ...clause.Expression) IFaultDo {
 	return f.withDO(f.DO.Clauses(conds...))
 }
 
-func (f faultDo) Returning(value interface{}, columns ...string) *faultDo {
+func (f faultDo) Returning(value interface{}, columns ...string) IFaultDo {
 	return f.withDO(f.DO.Returning(value, columns...))
 }
 
-func (f faultDo) Not(conds ...gen.Condition) *faultDo {
+func (f faultDo) Not(conds ...gen.Condition) IFaultDo {
 	return f.withDO(f.DO.Not(conds...))
 }
 
-func (f faultDo) Or(conds ...gen.Condition) *faultDo {
+func (f faultDo) Or(conds ...gen.Condition) IFaultDo {
 	return f.withDO(f.DO.Or(conds...))
 }
 
-func (f faultDo) Select(conds ...field.Expr) *faultDo {
+func (f faultDo) Select(conds ...field.Expr) IFaultDo {
 	return f.withDO(f.DO.Select(conds...))
 }
 
-func (f faultDo) Where(conds ...gen.Condition) *faultDo {
+func (f faultDo) Where(conds ...gen.Condition) IFaultDo {
 	return f.withDO(f.DO.Where(conds...))
 }
 
-func (f faultDo) Order(conds ...field.Expr) *faultDo {
+func (f faultDo) Order(conds ...field.Expr) IFaultDo {
 	return f.withDO(f.DO.Order(conds...))
 }
 
-func (f faultDo) Distinct(cols ...field.Expr) *faultDo {
+func (f faultDo) Distinct(cols ...field.Expr) IFaultDo {
 	return f.withDO(f.DO.Distinct(cols...))
 }
 
-func (f faultDo) Omit(cols ...field.Expr) *faultDo {
+func (f faultDo) Omit(cols ...field.Expr) IFaultDo {
 	return f.withDO(f.DO.Omit(cols...))
 }
 
-func (f faultDo) Join(table schema.Tabler, on ...field.Expr) *faultDo {
+func (f faultDo) Join(table schema.Tabler, on ...field.Expr) IFaultDo {
 	return f.withDO(f.DO.Join(table, on...))
 }
 
-func (f faultDo) LeftJoin(table schema.Tabler, on ...field.Expr) *faultDo {
+func (f faultDo) LeftJoin(table schema.Tabler, on ...field.Expr) IFaultDo {
 	return f.withDO(f.DO.LeftJoin(table, on...))
 }
 
-func (f faultDo) RightJoin(table schema.Tabler, on ...field.Expr) *faultDo {
+func (f faultDo) RightJoin(table schema.Tabler, on ...field.Expr) IFaultDo {
 	return f.withDO(f.DO.RightJoin(table, on...))
 }
 
-func (f faultDo) Group(cols ...field.Expr) *faultDo {
+func (f faultDo) Group(cols ...field.Expr) IFaultDo {
 	return f.withDO(f.DO.Group(cols...))
 }
 
-func (f faultDo) Having(conds ...gen.Condition) *faultDo {
+func (f faultDo) Having(conds ...gen.Condition) IFaultDo {
 	return f.withDO(f.DO.Having(conds...))
 }
 
-func (f faultDo) Limit(limit int) *faultDo {
+func (f faultDo) Limit(limit int) IFaultDo {
 	return f.withDO(f.DO.Limit(limit))
 }
 
-func (f faultDo) Offset(offset int) *faultDo {
+func (f faultDo) Offset(offset int) IFaultDo {
 	return f.withDO(f.DO.Offset(offset))
 }
 
-func (f faultDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *faultDo {
+func (f faultDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IFaultDo {
 	return f.withDO(f.DO.Scopes(funcs...))
 }
 
-func (f faultDo) Unscoped() *faultDo {
+func (f faultDo) Unscoped() IFaultDo {
 	return f.withDO(f.DO.Unscoped())
 }
 
@@ -282,22 +338,22 @@ func (f faultDo) FindInBatches(result *[]*model.Fault, batchSize int, fc func(tx
 	return f.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (f faultDo) Attrs(attrs ...field.AssignExpr) *faultDo {
+func (f faultDo) Attrs(attrs ...field.AssignExpr) IFaultDo {
 	return f.withDO(f.DO.Attrs(attrs...))
 }
 
-func (f faultDo) Assign(attrs ...field.AssignExpr) *faultDo {
+func (f faultDo) Assign(attrs ...field.AssignExpr) IFaultDo {
 	return f.withDO(f.DO.Assign(attrs...))
 }
 
-func (f faultDo) Joins(fields ...field.RelationField) *faultDo {
+func (f faultDo) Joins(fields ...field.RelationField) IFaultDo {
 	for _, _f := range fields {
 		f = *f.withDO(f.DO.Joins(_f))
 	}
 	return &f
 }
 
-func (f faultDo) Preload(fields ...field.RelationField) *faultDo {
+func (f faultDo) Preload(fields ...field.RelationField) IFaultDo {
 	for _, _f := range fields {
 		f = *f.withDO(f.DO.Preload(_f))
 	}

@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -49,7 +50,7 @@ func newCheckpointEvent(db *gorm.DB, opts ...gen.DOOption) checkpointEvent {
 }
 
 type checkpointEvent struct {
-	checkpointEventDo checkpointEventDo
+	checkpointEventDo
 
 	ALL            field.Asterisk
 	ID             field.Int64
@@ -104,18 +105,6 @@ func (c *checkpointEvent) updateTableName(table string) *checkpointEvent {
 	return c
 }
 
-func (c *checkpointEvent) WithContext(ctx context.Context) *checkpointEventDo {
-	return c.checkpointEventDo.WithContext(ctx)
-}
-
-func (c checkpointEvent) TableName() string { return c.checkpointEventDo.TableName() }
-
-func (c checkpointEvent) Alias() string { return c.checkpointEventDo.Alias() }
-
-func (c checkpointEvent) Columns(cols ...field.Expr) gen.Columns {
-	return c.checkpointEventDo.Columns(cols...)
-}
-
 func (c *checkpointEvent) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := c.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -156,95 +145,158 @@ func (c checkpointEvent) replaceDB(db *gorm.DB) checkpointEvent {
 
 type checkpointEventDo struct{ gen.DO }
 
-func (c checkpointEventDo) Debug() *checkpointEventDo {
+type ICheckpointEventDo interface {
+	gen.SubQuery
+	Debug() ICheckpointEventDo
+	WithContext(ctx context.Context) ICheckpointEventDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() ICheckpointEventDo
+	WriteDB() ICheckpointEventDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) ICheckpointEventDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) ICheckpointEventDo
+	Not(conds ...gen.Condition) ICheckpointEventDo
+	Or(conds ...gen.Condition) ICheckpointEventDo
+	Select(conds ...field.Expr) ICheckpointEventDo
+	Where(conds ...gen.Condition) ICheckpointEventDo
+	Order(conds ...field.Expr) ICheckpointEventDo
+	Distinct(cols ...field.Expr) ICheckpointEventDo
+	Omit(cols ...field.Expr) ICheckpointEventDo
+	Join(table schema.Tabler, on ...field.Expr) ICheckpointEventDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) ICheckpointEventDo
+	RightJoin(table schema.Tabler, on ...field.Expr) ICheckpointEventDo
+	Group(cols ...field.Expr) ICheckpointEventDo
+	Having(conds ...gen.Condition) ICheckpointEventDo
+	Limit(limit int) ICheckpointEventDo
+	Offset(offset int) ICheckpointEventDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) ICheckpointEventDo
+	Unscoped() ICheckpointEventDo
+	Create(values ...*model.CheckpointEvent) error
+	CreateInBatches(values []*model.CheckpointEvent, batchSize int) error
+	Save(values ...*model.CheckpointEvent) error
+	First() (*model.CheckpointEvent, error)
+	Take() (*model.CheckpointEvent, error)
+	Last() (*model.CheckpointEvent, error)
+	Find() ([]*model.CheckpointEvent, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.CheckpointEvent, err error)
+	FindInBatches(result *[]*model.CheckpointEvent, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.CheckpointEvent) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) ICheckpointEventDo
+	Assign(attrs ...field.AssignExpr) ICheckpointEventDo
+	Joins(fields ...field.RelationField) ICheckpointEventDo
+	Preload(fields ...field.RelationField) ICheckpointEventDo
+	FirstOrInit() (*model.CheckpointEvent, error)
+	FirstOrCreate() (*model.CheckpointEvent, error)
+	FindByPage(offset int, limit int) (result []*model.CheckpointEvent, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) ICheckpointEventDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (c checkpointEventDo) Debug() ICheckpointEventDo {
 	return c.withDO(c.DO.Debug())
 }
 
-func (c checkpointEventDo) WithContext(ctx context.Context) *checkpointEventDo {
+func (c checkpointEventDo) WithContext(ctx context.Context) ICheckpointEventDo {
 	return c.withDO(c.DO.WithContext(ctx))
 }
 
-func (c checkpointEventDo) ReadDB() *checkpointEventDo {
+func (c checkpointEventDo) ReadDB() ICheckpointEventDo {
 	return c.Clauses(dbresolver.Read)
 }
 
-func (c checkpointEventDo) WriteDB() *checkpointEventDo {
+func (c checkpointEventDo) WriteDB() ICheckpointEventDo {
 	return c.Clauses(dbresolver.Write)
 }
 
-func (c checkpointEventDo) Session(config *gorm.Session) *checkpointEventDo {
+func (c checkpointEventDo) Session(config *gorm.Session) ICheckpointEventDo {
 	return c.withDO(c.DO.Session(config))
 }
 
-func (c checkpointEventDo) Clauses(conds ...clause.Expression) *checkpointEventDo {
+func (c checkpointEventDo) Clauses(conds ...clause.Expression) ICheckpointEventDo {
 	return c.withDO(c.DO.Clauses(conds...))
 }
 
-func (c checkpointEventDo) Returning(value interface{}, columns ...string) *checkpointEventDo {
+func (c checkpointEventDo) Returning(value interface{}, columns ...string) ICheckpointEventDo {
 	return c.withDO(c.DO.Returning(value, columns...))
 }
 
-func (c checkpointEventDo) Not(conds ...gen.Condition) *checkpointEventDo {
+func (c checkpointEventDo) Not(conds ...gen.Condition) ICheckpointEventDo {
 	return c.withDO(c.DO.Not(conds...))
 }
 
-func (c checkpointEventDo) Or(conds ...gen.Condition) *checkpointEventDo {
+func (c checkpointEventDo) Or(conds ...gen.Condition) ICheckpointEventDo {
 	return c.withDO(c.DO.Or(conds...))
 }
 
-func (c checkpointEventDo) Select(conds ...field.Expr) *checkpointEventDo {
+func (c checkpointEventDo) Select(conds ...field.Expr) ICheckpointEventDo {
 	return c.withDO(c.DO.Select(conds...))
 }
 
-func (c checkpointEventDo) Where(conds ...gen.Condition) *checkpointEventDo {
+func (c checkpointEventDo) Where(conds ...gen.Condition) ICheckpointEventDo {
 	return c.withDO(c.DO.Where(conds...))
 }
 
-func (c checkpointEventDo) Order(conds ...field.Expr) *checkpointEventDo {
+func (c checkpointEventDo) Order(conds ...field.Expr) ICheckpointEventDo {
 	return c.withDO(c.DO.Order(conds...))
 }
 
-func (c checkpointEventDo) Distinct(cols ...field.Expr) *checkpointEventDo {
+func (c checkpointEventDo) Distinct(cols ...field.Expr) ICheckpointEventDo {
 	return c.withDO(c.DO.Distinct(cols...))
 }
 
-func (c checkpointEventDo) Omit(cols ...field.Expr) *checkpointEventDo {
+func (c checkpointEventDo) Omit(cols ...field.Expr) ICheckpointEventDo {
 	return c.withDO(c.DO.Omit(cols...))
 }
 
-func (c checkpointEventDo) Join(table schema.Tabler, on ...field.Expr) *checkpointEventDo {
+func (c checkpointEventDo) Join(table schema.Tabler, on ...field.Expr) ICheckpointEventDo {
 	return c.withDO(c.DO.Join(table, on...))
 }
 
-func (c checkpointEventDo) LeftJoin(table schema.Tabler, on ...field.Expr) *checkpointEventDo {
+func (c checkpointEventDo) LeftJoin(table schema.Tabler, on ...field.Expr) ICheckpointEventDo {
 	return c.withDO(c.DO.LeftJoin(table, on...))
 }
 
-func (c checkpointEventDo) RightJoin(table schema.Tabler, on ...field.Expr) *checkpointEventDo {
+func (c checkpointEventDo) RightJoin(table schema.Tabler, on ...field.Expr) ICheckpointEventDo {
 	return c.withDO(c.DO.RightJoin(table, on...))
 }
 
-func (c checkpointEventDo) Group(cols ...field.Expr) *checkpointEventDo {
+func (c checkpointEventDo) Group(cols ...field.Expr) ICheckpointEventDo {
 	return c.withDO(c.DO.Group(cols...))
 }
 
-func (c checkpointEventDo) Having(conds ...gen.Condition) *checkpointEventDo {
+func (c checkpointEventDo) Having(conds ...gen.Condition) ICheckpointEventDo {
 	return c.withDO(c.DO.Having(conds...))
 }
 
-func (c checkpointEventDo) Limit(limit int) *checkpointEventDo {
+func (c checkpointEventDo) Limit(limit int) ICheckpointEventDo {
 	return c.withDO(c.DO.Limit(limit))
 }
 
-func (c checkpointEventDo) Offset(offset int) *checkpointEventDo {
+func (c checkpointEventDo) Offset(offset int) ICheckpointEventDo {
 	return c.withDO(c.DO.Offset(offset))
 }
 
-func (c checkpointEventDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *checkpointEventDo {
+func (c checkpointEventDo) Scopes(funcs ...func(gen.Dao) gen.Dao) ICheckpointEventDo {
 	return c.withDO(c.DO.Scopes(funcs...))
 }
 
-func (c checkpointEventDo) Unscoped() *checkpointEventDo {
+func (c checkpointEventDo) Unscoped() ICheckpointEventDo {
 	return c.withDO(c.DO.Unscoped())
 }
 
@@ -310,22 +362,22 @@ func (c checkpointEventDo) FindInBatches(result *[]*model.CheckpointEvent, batch
 	return c.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (c checkpointEventDo) Attrs(attrs ...field.AssignExpr) *checkpointEventDo {
+func (c checkpointEventDo) Attrs(attrs ...field.AssignExpr) ICheckpointEventDo {
 	return c.withDO(c.DO.Attrs(attrs...))
 }
 
-func (c checkpointEventDo) Assign(attrs ...field.AssignExpr) *checkpointEventDo {
+func (c checkpointEventDo) Assign(attrs ...field.AssignExpr) ICheckpointEventDo {
 	return c.withDO(c.DO.Assign(attrs...))
 }
 
-func (c checkpointEventDo) Joins(fields ...field.RelationField) *checkpointEventDo {
+func (c checkpointEventDo) Joins(fields ...field.RelationField) ICheckpointEventDo {
 	for _, _f := range fields {
 		c = *c.withDO(c.DO.Joins(_f))
 	}
 	return &c
 }
 
-func (c checkpointEventDo) Preload(fields ...field.RelationField) *checkpointEventDo {
+func (c checkpointEventDo) Preload(fields ...field.RelationField) ICheckpointEventDo {
 	for _, _f := range fields {
 		c = *c.withDO(c.DO.Preload(_f))
 	}

@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -48,7 +49,7 @@ func newClusterGpuHourlyStats(db *gorm.DB, opts ...gen.DOOption) clusterGpuHourl
 }
 
 type clusterGpuHourlyStats struct {
-	clusterGpuHourlyStatsDo clusterGpuHourlyStatsDo
+	clusterGpuHourlyStatsDo
 
 	ALL               field.Asterisk
 	ID                field.Int32
@@ -101,18 +102,6 @@ func (c *clusterGpuHourlyStats) updateTableName(table string) *clusterGpuHourlyS
 	return c
 }
 
-func (c *clusterGpuHourlyStats) WithContext(ctx context.Context) *clusterGpuHourlyStatsDo {
-	return c.clusterGpuHourlyStatsDo.WithContext(ctx)
-}
-
-func (c clusterGpuHourlyStats) TableName() string { return c.clusterGpuHourlyStatsDo.TableName() }
-
-func (c clusterGpuHourlyStats) Alias() string { return c.clusterGpuHourlyStatsDo.Alias() }
-
-func (c clusterGpuHourlyStats) Columns(cols ...field.Expr) gen.Columns {
-	return c.clusterGpuHourlyStatsDo.Columns(cols...)
-}
-
 func (c *clusterGpuHourlyStats) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := c.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -152,95 +141,158 @@ func (c clusterGpuHourlyStats) replaceDB(db *gorm.DB) clusterGpuHourlyStats {
 
 type clusterGpuHourlyStatsDo struct{ gen.DO }
 
-func (c clusterGpuHourlyStatsDo) Debug() *clusterGpuHourlyStatsDo {
+type IClusterGpuHourlyStatsDo interface {
+	gen.SubQuery
+	Debug() IClusterGpuHourlyStatsDo
+	WithContext(ctx context.Context) IClusterGpuHourlyStatsDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IClusterGpuHourlyStatsDo
+	WriteDB() IClusterGpuHourlyStatsDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IClusterGpuHourlyStatsDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IClusterGpuHourlyStatsDo
+	Not(conds ...gen.Condition) IClusterGpuHourlyStatsDo
+	Or(conds ...gen.Condition) IClusterGpuHourlyStatsDo
+	Select(conds ...field.Expr) IClusterGpuHourlyStatsDo
+	Where(conds ...gen.Condition) IClusterGpuHourlyStatsDo
+	Order(conds ...field.Expr) IClusterGpuHourlyStatsDo
+	Distinct(cols ...field.Expr) IClusterGpuHourlyStatsDo
+	Omit(cols ...field.Expr) IClusterGpuHourlyStatsDo
+	Join(table schema.Tabler, on ...field.Expr) IClusterGpuHourlyStatsDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IClusterGpuHourlyStatsDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IClusterGpuHourlyStatsDo
+	Group(cols ...field.Expr) IClusterGpuHourlyStatsDo
+	Having(conds ...gen.Condition) IClusterGpuHourlyStatsDo
+	Limit(limit int) IClusterGpuHourlyStatsDo
+	Offset(offset int) IClusterGpuHourlyStatsDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IClusterGpuHourlyStatsDo
+	Unscoped() IClusterGpuHourlyStatsDo
+	Create(values ...*model.ClusterGpuHourlyStats) error
+	CreateInBatches(values []*model.ClusterGpuHourlyStats, batchSize int) error
+	Save(values ...*model.ClusterGpuHourlyStats) error
+	First() (*model.ClusterGpuHourlyStats, error)
+	Take() (*model.ClusterGpuHourlyStats, error)
+	Last() (*model.ClusterGpuHourlyStats, error)
+	Find() ([]*model.ClusterGpuHourlyStats, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.ClusterGpuHourlyStats, err error)
+	FindInBatches(result *[]*model.ClusterGpuHourlyStats, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.ClusterGpuHourlyStats) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IClusterGpuHourlyStatsDo
+	Assign(attrs ...field.AssignExpr) IClusterGpuHourlyStatsDo
+	Joins(fields ...field.RelationField) IClusterGpuHourlyStatsDo
+	Preload(fields ...field.RelationField) IClusterGpuHourlyStatsDo
+	FirstOrInit() (*model.ClusterGpuHourlyStats, error)
+	FirstOrCreate() (*model.ClusterGpuHourlyStats, error)
+	FindByPage(offset int, limit int) (result []*model.ClusterGpuHourlyStats, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IClusterGpuHourlyStatsDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (c clusterGpuHourlyStatsDo) Debug() IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Debug())
 }
 
-func (c clusterGpuHourlyStatsDo) WithContext(ctx context.Context) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) WithContext(ctx context.Context) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.WithContext(ctx))
 }
 
-func (c clusterGpuHourlyStatsDo) ReadDB() *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) ReadDB() IClusterGpuHourlyStatsDo {
 	return c.Clauses(dbresolver.Read)
 }
 
-func (c clusterGpuHourlyStatsDo) WriteDB() *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) WriteDB() IClusterGpuHourlyStatsDo {
 	return c.Clauses(dbresolver.Write)
 }
 
-func (c clusterGpuHourlyStatsDo) Session(config *gorm.Session) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Session(config *gorm.Session) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Session(config))
 }
 
-func (c clusterGpuHourlyStatsDo) Clauses(conds ...clause.Expression) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Clauses(conds ...clause.Expression) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Clauses(conds...))
 }
 
-func (c clusterGpuHourlyStatsDo) Returning(value interface{}, columns ...string) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Returning(value interface{}, columns ...string) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Returning(value, columns...))
 }
 
-func (c clusterGpuHourlyStatsDo) Not(conds ...gen.Condition) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Not(conds ...gen.Condition) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Not(conds...))
 }
 
-func (c clusterGpuHourlyStatsDo) Or(conds ...gen.Condition) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Or(conds ...gen.Condition) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Or(conds...))
 }
 
-func (c clusterGpuHourlyStatsDo) Select(conds ...field.Expr) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Select(conds ...field.Expr) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Select(conds...))
 }
 
-func (c clusterGpuHourlyStatsDo) Where(conds ...gen.Condition) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Where(conds ...gen.Condition) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Where(conds...))
 }
 
-func (c clusterGpuHourlyStatsDo) Order(conds ...field.Expr) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Order(conds ...field.Expr) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Order(conds...))
 }
 
-func (c clusterGpuHourlyStatsDo) Distinct(cols ...field.Expr) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Distinct(cols ...field.Expr) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Distinct(cols...))
 }
 
-func (c clusterGpuHourlyStatsDo) Omit(cols ...field.Expr) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Omit(cols ...field.Expr) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Omit(cols...))
 }
 
-func (c clusterGpuHourlyStatsDo) Join(table schema.Tabler, on ...field.Expr) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Join(table schema.Tabler, on ...field.Expr) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Join(table, on...))
 }
 
-func (c clusterGpuHourlyStatsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) LeftJoin(table schema.Tabler, on ...field.Expr) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.LeftJoin(table, on...))
 }
 
-func (c clusterGpuHourlyStatsDo) RightJoin(table schema.Tabler, on ...field.Expr) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) RightJoin(table schema.Tabler, on ...field.Expr) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.RightJoin(table, on...))
 }
 
-func (c clusterGpuHourlyStatsDo) Group(cols ...field.Expr) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Group(cols ...field.Expr) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Group(cols...))
 }
 
-func (c clusterGpuHourlyStatsDo) Having(conds ...gen.Condition) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Having(conds ...gen.Condition) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Having(conds...))
 }
 
-func (c clusterGpuHourlyStatsDo) Limit(limit int) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Limit(limit int) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Limit(limit))
 }
 
-func (c clusterGpuHourlyStatsDo) Offset(offset int) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Offset(offset int) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Offset(offset))
 }
 
-func (c clusterGpuHourlyStatsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Scopes(funcs...))
 }
 
-func (c clusterGpuHourlyStatsDo) Unscoped() *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Unscoped() IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Unscoped())
 }
 
@@ -306,22 +358,22 @@ func (c clusterGpuHourlyStatsDo) FindInBatches(result *[]*model.ClusterGpuHourly
 	return c.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (c clusterGpuHourlyStatsDo) Attrs(attrs ...field.AssignExpr) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Attrs(attrs ...field.AssignExpr) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Attrs(attrs...))
 }
 
-func (c clusterGpuHourlyStatsDo) Assign(attrs ...field.AssignExpr) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Assign(attrs ...field.AssignExpr) IClusterGpuHourlyStatsDo {
 	return c.withDO(c.DO.Assign(attrs...))
 }
 
-func (c clusterGpuHourlyStatsDo) Joins(fields ...field.RelationField) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Joins(fields ...field.RelationField) IClusterGpuHourlyStatsDo {
 	for _, _f := range fields {
 		c = *c.withDO(c.DO.Joins(_f))
 	}
 	return &c
 }
 
-func (c clusterGpuHourlyStatsDo) Preload(fields ...field.RelationField) *clusterGpuHourlyStatsDo {
+func (c clusterGpuHourlyStatsDo) Preload(fields ...field.RelationField) IClusterGpuHourlyStatsDo {
 	for _, _f := range fields {
 		c = *c.withDO(c.DO.Preload(_f))
 	}

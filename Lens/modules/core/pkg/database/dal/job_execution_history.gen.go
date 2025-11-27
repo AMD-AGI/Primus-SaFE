@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -49,7 +50,7 @@ func newJobExecutionHistory(db *gorm.DB, opts ...gen.DOOption) jobExecutionHisto
 }
 
 type jobExecutionHistory struct {
-	jobExecutionHistoryDo jobExecutionHistoryDo
+	jobExecutionHistoryDo
 
 	ALL             field.Asterisk
 	ID              field.Int64
@@ -104,18 +105,6 @@ func (j *jobExecutionHistory) updateTableName(table string) *jobExecutionHistory
 	return j
 }
 
-func (j *jobExecutionHistory) WithContext(ctx context.Context) *jobExecutionHistoryDo {
-	return j.jobExecutionHistoryDo.WithContext(ctx)
-}
-
-func (j jobExecutionHistory) TableName() string { return j.jobExecutionHistoryDo.TableName() }
-
-func (j jobExecutionHistory) Alias() string { return j.jobExecutionHistoryDo.Alias() }
-
-func (j jobExecutionHistory) Columns(cols ...field.Expr) gen.Columns {
-	return j.jobExecutionHistoryDo.Columns(cols...)
-}
-
 func (j *jobExecutionHistory) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := j.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -156,95 +145,158 @@ func (j jobExecutionHistory) replaceDB(db *gorm.DB) jobExecutionHistory {
 
 type jobExecutionHistoryDo struct{ gen.DO }
 
-func (j jobExecutionHistoryDo) Debug() *jobExecutionHistoryDo {
+type IJobExecutionHistoryDo interface {
+	gen.SubQuery
+	Debug() IJobExecutionHistoryDo
+	WithContext(ctx context.Context) IJobExecutionHistoryDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IJobExecutionHistoryDo
+	WriteDB() IJobExecutionHistoryDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IJobExecutionHistoryDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IJobExecutionHistoryDo
+	Not(conds ...gen.Condition) IJobExecutionHistoryDo
+	Or(conds ...gen.Condition) IJobExecutionHistoryDo
+	Select(conds ...field.Expr) IJobExecutionHistoryDo
+	Where(conds ...gen.Condition) IJobExecutionHistoryDo
+	Order(conds ...field.Expr) IJobExecutionHistoryDo
+	Distinct(cols ...field.Expr) IJobExecutionHistoryDo
+	Omit(cols ...field.Expr) IJobExecutionHistoryDo
+	Join(table schema.Tabler, on ...field.Expr) IJobExecutionHistoryDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IJobExecutionHistoryDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IJobExecutionHistoryDo
+	Group(cols ...field.Expr) IJobExecutionHistoryDo
+	Having(conds ...gen.Condition) IJobExecutionHistoryDo
+	Limit(limit int) IJobExecutionHistoryDo
+	Offset(offset int) IJobExecutionHistoryDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IJobExecutionHistoryDo
+	Unscoped() IJobExecutionHistoryDo
+	Create(values ...*model.JobExecutionHistory) error
+	CreateInBatches(values []*model.JobExecutionHistory, batchSize int) error
+	Save(values ...*model.JobExecutionHistory) error
+	First() (*model.JobExecutionHistory, error)
+	Take() (*model.JobExecutionHistory, error)
+	Last() (*model.JobExecutionHistory, error)
+	Find() ([]*model.JobExecutionHistory, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.JobExecutionHistory, err error)
+	FindInBatches(result *[]*model.JobExecutionHistory, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.JobExecutionHistory) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IJobExecutionHistoryDo
+	Assign(attrs ...field.AssignExpr) IJobExecutionHistoryDo
+	Joins(fields ...field.RelationField) IJobExecutionHistoryDo
+	Preload(fields ...field.RelationField) IJobExecutionHistoryDo
+	FirstOrInit() (*model.JobExecutionHistory, error)
+	FirstOrCreate() (*model.JobExecutionHistory, error)
+	FindByPage(offset int, limit int) (result []*model.JobExecutionHistory, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IJobExecutionHistoryDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (j jobExecutionHistoryDo) Debug() IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Debug())
 }
 
-func (j jobExecutionHistoryDo) WithContext(ctx context.Context) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) WithContext(ctx context.Context) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.WithContext(ctx))
 }
 
-func (j jobExecutionHistoryDo) ReadDB() *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) ReadDB() IJobExecutionHistoryDo {
 	return j.Clauses(dbresolver.Read)
 }
 
-func (j jobExecutionHistoryDo) WriteDB() *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) WriteDB() IJobExecutionHistoryDo {
 	return j.Clauses(dbresolver.Write)
 }
 
-func (j jobExecutionHistoryDo) Session(config *gorm.Session) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Session(config *gorm.Session) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Session(config))
 }
 
-func (j jobExecutionHistoryDo) Clauses(conds ...clause.Expression) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Clauses(conds ...clause.Expression) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Clauses(conds...))
 }
 
-func (j jobExecutionHistoryDo) Returning(value interface{}, columns ...string) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Returning(value interface{}, columns ...string) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Returning(value, columns...))
 }
 
-func (j jobExecutionHistoryDo) Not(conds ...gen.Condition) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Not(conds ...gen.Condition) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Not(conds...))
 }
 
-func (j jobExecutionHistoryDo) Or(conds ...gen.Condition) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Or(conds ...gen.Condition) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Or(conds...))
 }
 
-func (j jobExecutionHistoryDo) Select(conds ...field.Expr) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Select(conds ...field.Expr) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Select(conds...))
 }
 
-func (j jobExecutionHistoryDo) Where(conds ...gen.Condition) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Where(conds ...gen.Condition) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Where(conds...))
 }
 
-func (j jobExecutionHistoryDo) Order(conds ...field.Expr) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Order(conds ...field.Expr) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Order(conds...))
 }
 
-func (j jobExecutionHistoryDo) Distinct(cols ...field.Expr) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Distinct(cols ...field.Expr) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Distinct(cols...))
 }
 
-func (j jobExecutionHistoryDo) Omit(cols ...field.Expr) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Omit(cols ...field.Expr) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Omit(cols...))
 }
 
-func (j jobExecutionHistoryDo) Join(table schema.Tabler, on ...field.Expr) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Join(table schema.Tabler, on ...field.Expr) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Join(table, on...))
 }
 
-func (j jobExecutionHistoryDo) LeftJoin(table schema.Tabler, on ...field.Expr) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) LeftJoin(table schema.Tabler, on ...field.Expr) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.LeftJoin(table, on...))
 }
 
-func (j jobExecutionHistoryDo) RightJoin(table schema.Tabler, on ...field.Expr) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) RightJoin(table schema.Tabler, on ...field.Expr) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.RightJoin(table, on...))
 }
 
-func (j jobExecutionHistoryDo) Group(cols ...field.Expr) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Group(cols ...field.Expr) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Group(cols...))
 }
 
-func (j jobExecutionHistoryDo) Having(conds ...gen.Condition) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Having(conds ...gen.Condition) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Having(conds...))
 }
 
-func (j jobExecutionHistoryDo) Limit(limit int) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Limit(limit int) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Limit(limit))
 }
 
-func (j jobExecutionHistoryDo) Offset(offset int) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Offset(offset int) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Offset(offset))
 }
 
-func (j jobExecutionHistoryDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Scopes(funcs...))
 }
 
-func (j jobExecutionHistoryDo) Unscoped() *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Unscoped() IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Unscoped())
 }
 
@@ -310,22 +362,22 @@ func (j jobExecutionHistoryDo) FindInBatches(result *[]*model.JobExecutionHistor
 	return j.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (j jobExecutionHistoryDo) Attrs(attrs ...field.AssignExpr) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Attrs(attrs ...field.AssignExpr) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Attrs(attrs...))
 }
 
-func (j jobExecutionHistoryDo) Assign(attrs ...field.AssignExpr) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Assign(attrs ...field.AssignExpr) IJobExecutionHistoryDo {
 	return j.withDO(j.DO.Assign(attrs...))
 }
 
-func (j jobExecutionHistoryDo) Joins(fields ...field.RelationField) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Joins(fields ...field.RelationField) IJobExecutionHistoryDo {
 	for _, _f := range fields {
 		j = *j.withDO(j.DO.Joins(_f))
 	}
 	return &j
 }
 
-func (j jobExecutionHistoryDo) Preload(fields ...field.RelationField) *jobExecutionHistoryDo {
+func (j jobExecutionHistoryDo) Preload(fields ...field.RelationField) IJobExecutionHistoryDo {
 	for _, _f := range fields {
 		j = *j.withDO(j.DO.Preload(_f))
 	}

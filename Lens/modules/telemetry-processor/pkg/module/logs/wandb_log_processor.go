@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/constant"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database"
 	dbModel "github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/database/model"
 	"github.com/AMD-AGI/Primus-SaFE/Lens/core/pkg/utils/mapUtil"
@@ -123,7 +124,7 @@ func (p *WandBLogProcessor) ProcessMetrics(
 		storedMetric := &StoredMetric{
 			WorkloadUID: workloadUID,
 			PodUID:      req.PodUID,
-			Source:      "wandb",
+			Source:      constant.DataSourceWandB, // Use constant from constant package
 			RunID:       req.RunID,
 			Name:        metric.Name,
 			Value:       metric.Value,
@@ -197,12 +198,12 @@ func (p *WandBLogProcessor) ProcessLogs(
 		// Store each training data entry as training performance
 		if err := p.storeTrainingData(ctx, workloadUID, req.PodUID, req.RunID, &log, logTime); err != nil {
 			logrus.Errorf("Failed to store training data at step %d: %v", log.Step, err)
-			IncTrainingPerformanceSaveErrors(workloadUID, "wandb", "db_error")
+			IncTrainingPerformanceSaveErrors(workloadUID, constant.DataSourceWandB, "db_error")
 			errorCount++
 			// Continue processing other entries
 			continue
 		}
-		IncTrainingPerformanceSaveCount(workloadUID, "wandb")
+		IncTrainingPerformanceSaveCount(workloadUID, constant.DataSourceWandB)
 		successCount++
 	}
 
@@ -230,7 +231,7 @@ func (p *WandBLogProcessor) storeTrainingData(
 	newPerformanceData := make(map[string]interface{})
 
 	// Add WandB metadata
-	newPerformanceData["source"] = "wandb"
+	newPerformanceData["source"] = constant.DataSourceWandB // Use constant from constant package
 	newPerformanceData["run_id"] = runID
 	newPerformanceData["step"] = data.Step
 
@@ -338,6 +339,7 @@ func (p *WandBLogProcessor) storeTrainingData(
 		CreatedAt:   createdAt,
 		Serial:      int32(serial),
 		WorkloadUID: workloadUID,
+		DataSource:  constant.DataSourceWandB, // Use constant from constant package
 	}
 
 	// Save training performance (creates if ID=0, updates if ID>0)

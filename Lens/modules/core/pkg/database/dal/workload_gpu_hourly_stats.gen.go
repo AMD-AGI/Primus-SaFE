@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -61,7 +62,7 @@ func newWorkloadGpuHourlyStats(db *gorm.DB, opts ...gen.DOOption) workloadGpuHou
 }
 
 type workloadGpuHourlyStats struct {
-	workloadGpuHourlyStatsDo workloadGpuHourlyStatsDo
+	workloadGpuHourlyStatsDo
 
 	ALL               field.Asterisk
 	ID                field.Int32
@@ -140,18 +141,6 @@ func (w *workloadGpuHourlyStats) updateTableName(table string) *workloadGpuHourl
 	return w
 }
 
-func (w *workloadGpuHourlyStats) WithContext(ctx context.Context) *workloadGpuHourlyStatsDo {
-	return w.workloadGpuHourlyStatsDo.WithContext(ctx)
-}
-
-func (w workloadGpuHourlyStats) TableName() string { return w.workloadGpuHourlyStatsDo.TableName() }
-
-func (w workloadGpuHourlyStats) Alias() string { return w.workloadGpuHourlyStatsDo.Alias() }
-
-func (w workloadGpuHourlyStats) Columns(cols ...field.Expr) gen.Columns {
-	return w.workloadGpuHourlyStatsDo.Columns(cols...)
-}
-
 func (w *workloadGpuHourlyStats) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := w.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -204,95 +193,158 @@ func (w workloadGpuHourlyStats) replaceDB(db *gorm.DB) workloadGpuHourlyStats {
 
 type workloadGpuHourlyStatsDo struct{ gen.DO }
 
-func (w workloadGpuHourlyStatsDo) Debug() *workloadGpuHourlyStatsDo {
+type IWorkloadGpuHourlyStatsDo interface {
+	gen.SubQuery
+	Debug() IWorkloadGpuHourlyStatsDo
+	WithContext(ctx context.Context) IWorkloadGpuHourlyStatsDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IWorkloadGpuHourlyStatsDo
+	WriteDB() IWorkloadGpuHourlyStatsDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IWorkloadGpuHourlyStatsDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IWorkloadGpuHourlyStatsDo
+	Not(conds ...gen.Condition) IWorkloadGpuHourlyStatsDo
+	Or(conds ...gen.Condition) IWorkloadGpuHourlyStatsDo
+	Select(conds ...field.Expr) IWorkloadGpuHourlyStatsDo
+	Where(conds ...gen.Condition) IWorkloadGpuHourlyStatsDo
+	Order(conds ...field.Expr) IWorkloadGpuHourlyStatsDo
+	Distinct(cols ...field.Expr) IWorkloadGpuHourlyStatsDo
+	Omit(cols ...field.Expr) IWorkloadGpuHourlyStatsDo
+	Join(table schema.Tabler, on ...field.Expr) IWorkloadGpuHourlyStatsDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IWorkloadGpuHourlyStatsDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IWorkloadGpuHourlyStatsDo
+	Group(cols ...field.Expr) IWorkloadGpuHourlyStatsDo
+	Having(conds ...gen.Condition) IWorkloadGpuHourlyStatsDo
+	Limit(limit int) IWorkloadGpuHourlyStatsDo
+	Offset(offset int) IWorkloadGpuHourlyStatsDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IWorkloadGpuHourlyStatsDo
+	Unscoped() IWorkloadGpuHourlyStatsDo
+	Create(values ...*model.WorkloadGpuHourlyStats) error
+	CreateInBatches(values []*model.WorkloadGpuHourlyStats, batchSize int) error
+	Save(values ...*model.WorkloadGpuHourlyStats) error
+	First() (*model.WorkloadGpuHourlyStats, error)
+	Take() (*model.WorkloadGpuHourlyStats, error)
+	Last() (*model.WorkloadGpuHourlyStats, error)
+	Find() ([]*model.WorkloadGpuHourlyStats, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.WorkloadGpuHourlyStats, err error)
+	FindInBatches(result *[]*model.WorkloadGpuHourlyStats, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.WorkloadGpuHourlyStats) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IWorkloadGpuHourlyStatsDo
+	Assign(attrs ...field.AssignExpr) IWorkloadGpuHourlyStatsDo
+	Joins(fields ...field.RelationField) IWorkloadGpuHourlyStatsDo
+	Preload(fields ...field.RelationField) IWorkloadGpuHourlyStatsDo
+	FirstOrInit() (*model.WorkloadGpuHourlyStats, error)
+	FirstOrCreate() (*model.WorkloadGpuHourlyStats, error)
+	FindByPage(offset int, limit int) (result []*model.WorkloadGpuHourlyStats, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IWorkloadGpuHourlyStatsDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (w workloadGpuHourlyStatsDo) Debug() IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Debug())
 }
 
-func (w workloadGpuHourlyStatsDo) WithContext(ctx context.Context) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) WithContext(ctx context.Context) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.WithContext(ctx))
 }
 
-func (w workloadGpuHourlyStatsDo) ReadDB() *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) ReadDB() IWorkloadGpuHourlyStatsDo {
 	return w.Clauses(dbresolver.Read)
 }
 
-func (w workloadGpuHourlyStatsDo) WriteDB() *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) WriteDB() IWorkloadGpuHourlyStatsDo {
 	return w.Clauses(dbresolver.Write)
 }
 
-func (w workloadGpuHourlyStatsDo) Session(config *gorm.Session) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Session(config *gorm.Session) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Session(config))
 }
 
-func (w workloadGpuHourlyStatsDo) Clauses(conds ...clause.Expression) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Clauses(conds ...clause.Expression) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Clauses(conds...))
 }
 
-func (w workloadGpuHourlyStatsDo) Returning(value interface{}, columns ...string) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Returning(value interface{}, columns ...string) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Returning(value, columns...))
 }
 
-func (w workloadGpuHourlyStatsDo) Not(conds ...gen.Condition) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Not(conds ...gen.Condition) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Not(conds...))
 }
 
-func (w workloadGpuHourlyStatsDo) Or(conds ...gen.Condition) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Or(conds ...gen.Condition) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Or(conds...))
 }
 
-func (w workloadGpuHourlyStatsDo) Select(conds ...field.Expr) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Select(conds ...field.Expr) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Select(conds...))
 }
 
-func (w workloadGpuHourlyStatsDo) Where(conds ...gen.Condition) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Where(conds ...gen.Condition) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Where(conds...))
 }
 
-func (w workloadGpuHourlyStatsDo) Order(conds ...field.Expr) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Order(conds ...field.Expr) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Order(conds...))
 }
 
-func (w workloadGpuHourlyStatsDo) Distinct(cols ...field.Expr) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Distinct(cols ...field.Expr) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Distinct(cols...))
 }
 
-func (w workloadGpuHourlyStatsDo) Omit(cols ...field.Expr) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Omit(cols ...field.Expr) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Omit(cols...))
 }
 
-func (w workloadGpuHourlyStatsDo) Join(table schema.Tabler, on ...field.Expr) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Join(table schema.Tabler, on ...field.Expr) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Join(table, on...))
 }
 
-func (w workloadGpuHourlyStatsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) LeftJoin(table schema.Tabler, on ...field.Expr) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.LeftJoin(table, on...))
 }
 
-func (w workloadGpuHourlyStatsDo) RightJoin(table schema.Tabler, on ...field.Expr) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) RightJoin(table schema.Tabler, on ...field.Expr) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.RightJoin(table, on...))
 }
 
-func (w workloadGpuHourlyStatsDo) Group(cols ...field.Expr) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Group(cols ...field.Expr) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Group(cols...))
 }
 
-func (w workloadGpuHourlyStatsDo) Having(conds ...gen.Condition) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Having(conds ...gen.Condition) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Having(conds...))
 }
 
-func (w workloadGpuHourlyStatsDo) Limit(limit int) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Limit(limit int) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Limit(limit))
 }
 
-func (w workloadGpuHourlyStatsDo) Offset(offset int) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Offset(offset int) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Offset(offset))
 }
 
-func (w workloadGpuHourlyStatsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Scopes(funcs...))
 }
 
-func (w workloadGpuHourlyStatsDo) Unscoped() *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Unscoped() IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Unscoped())
 }
 
@@ -358,22 +410,22 @@ func (w workloadGpuHourlyStatsDo) FindInBatches(result *[]*model.WorkloadGpuHour
 	return w.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (w workloadGpuHourlyStatsDo) Attrs(attrs ...field.AssignExpr) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Attrs(attrs ...field.AssignExpr) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Attrs(attrs...))
 }
 
-func (w workloadGpuHourlyStatsDo) Assign(attrs ...field.AssignExpr) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Assign(attrs ...field.AssignExpr) IWorkloadGpuHourlyStatsDo {
 	return w.withDO(w.DO.Assign(attrs...))
 }
 
-func (w workloadGpuHourlyStatsDo) Joins(fields ...field.RelationField) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Joins(fields ...field.RelationField) IWorkloadGpuHourlyStatsDo {
 	for _, _f := range fields {
 		w = *w.withDO(w.DO.Joins(_f))
 	}
 	return &w
 }
 
-func (w workloadGpuHourlyStatsDo) Preload(fields ...field.RelationField) *workloadGpuHourlyStatsDo {
+func (w workloadGpuHourlyStatsDo) Preload(fields ...field.RelationField) IWorkloadGpuHourlyStatsDo {
 	for _, _f := range fields {
 		w = *w.withDO(w.DO.Preload(_f))
 	}

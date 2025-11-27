@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -46,7 +47,7 @@ func newReuseEffectivenessLog(db *gorm.DB, opts ...gen.DOOption) reuseEffectiven
 }
 
 type reuseEffectivenessLog struct {
-	reuseEffectivenessLogDo reuseEffectivenessLogDo
+	reuseEffectivenessLogDo
 
 	ALL               field.Asterisk
 	ID                field.Int64
@@ -95,18 +96,6 @@ func (r *reuseEffectivenessLog) updateTableName(table string) *reuseEffectivenes
 	return r
 }
 
-func (r *reuseEffectivenessLog) WithContext(ctx context.Context) *reuseEffectivenessLogDo {
-	return r.reuseEffectivenessLogDo.WithContext(ctx)
-}
-
-func (r reuseEffectivenessLog) TableName() string { return r.reuseEffectivenessLogDo.TableName() }
-
-func (r reuseEffectivenessLog) Alias() string { return r.reuseEffectivenessLogDo.Alias() }
-
-func (r reuseEffectivenessLog) Columns(cols ...field.Expr) gen.Columns {
-	return r.reuseEffectivenessLogDo.Columns(cols...)
-}
-
 func (r *reuseEffectivenessLog) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := r.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -144,95 +133,158 @@ func (r reuseEffectivenessLog) replaceDB(db *gorm.DB) reuseEffectivenessLog {
 
 type reuseEffectivenessLogDo struct{ gen.DO }
 
-func (r reuseEffectivenessLogDo) Debug() *reuseEffectivenessLogDo {
+type IReuseEffectivenessLogDo interface {
+	gen.SubQuery
+	Debug() IReuseEffectivenessLogDo
+	WithContext(ctx context.Context) IReuseEffectivenessLogDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IReuseEffectivenessLogDo
+	WriteDB() IReuseEffectivenessLogDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IReuseEffectivenessLogDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IReuseEffectivenessLogDo
+	Not(conds ...gen.Condition) IReuseEffectivenessLogDo
+	Or(conds ...gen.Condition) IReuseEffectivenessLogDo
+	Select(conds ...field.Expr) IReuseEffectivenessLogDo
+	Where(conds ...gen.Condition) IReuseEffectivenessLogDo
+	Order(conds ...field.Expr) IReuseEffectivenessLogDo
+	Distinct(cols ...field.Expr) IReuseEffectivenessLogDo
+	Omit(cols ...field.Expr) IReuseEffectivenessLogDo
+	Join(table schema.Tabler, on ...field.Expr) IReuseEffectivenessLogDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IReuseEffectivenessLogDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IReuseEffectivenessLogDo
+	Group(cols ...field.Expr) IReuseEffectivenessLogDo
+	Having(conds ...gen.Condition) IReuseEffectivenessLogDo
+	Limit(limit int) IReuseEffectivenessLogDo
+	Offset(offset int) IReuseEffectivenessLogDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IReuseEffectivenessLogDo
+	Unscoped() IReuseEffectivenessLogDo
+	Create(values ...*model.ReuseEffectivenessLog) error
+	CreateInBatches(values []*model.ReuseEffectivenessLog, batchSize int) error
+	Save(values ...*model.ReuseEffectivenessLog) error
+	First() (*model.ReuseEffectivenessLog, error)
+	Take() (*model.ReuseEffectivenessLog, error)
+	Last() (*model.ReuseEffectivenessLog, error)
+	Find() ([]*model.ReuseEffectivenessLog, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.ReuseEffectivenessLog, err error)
+	FindInBatches(result *[]*model.ReuseEffectivenessLog, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.ReuseEffectivenessLog) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IReuseEffectivenessLogDo
+	Assign(attrs ...field.AssignExpr) IReuseEffectivenessLogDo
+	Joins(fields ...field.RelationField) IReuseEffectivenessLogDo
+	Preload(fields ...field.RelationField) IReuseEffectivenessLogDo
+	FirstOrInit() (*model.ReuseEffectivenessLog, error)
+	FirstOrCreate() (*model.ReuseEffectivenessLog, error)
+	FindByPage(offset int, limit int) (result []*model.ReuseEffectivenessLog, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IReuseEffectivenessLogDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (r reuseEffectivenessLogDo) Debug() IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Debug())
 }
 
-func (r reuseEffectivenessLogDo) WithContext(ctx context.Context) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) WithContext(ctx context.Context) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.WithContext(ctx))
 }
 
-func (r reuseEffectivenessLogDo) ReadDB() *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) ReadDB() IReuseEffectivenessLogDo {
 	return r.Clauses(dbresolver.Read)
 }
 
-func (r reuseEffectivenessLogDo) WriteDB() *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) WriteDB() IReuseEffectivenessLogDo {
 	return r.Clauses(dbresolver.Write)
 }
 
-func (r reuseEffectivenessLogDo) Session(config *gorm.Session) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Session(config *gorm.Session) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Session(config))
 }
 
-func (r reuseEffectivenessLogDo) Clauses(conds ...clause.Expression) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Clauses(conds ...clause.Expression) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Clauses(conds...))
 }
 
-func (r reuseEffectivenessLogDo) Returning(value interface{}, columns ...string) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Returning(value interface{}, columns ...string) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Returning(value, columns...))
 }
 
-func (r reuseEffectivenessLogDo) Not(conds ...gen.Condition) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Not(conds ...gen.Condition) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Not(conds...))
 }
 
-func (r reuseEffectivenessLogDo) Or(conds ...gen.Condition) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Or(conds ...gen.Condition) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Or(conds...))
 }
 
-func (r reuseEffectivenessLogDo) Select(conds ...field.Expr) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Select(conds ...field.Expr) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Select(conds...))
 }
 
-func (r reuseEffectivenessLogDo) Where(conds ...gen.Condition) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Where(conds ...gen.Condition) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Where(conds...))
 }
 
-func (r reuseEffectivenessLogDo) Order(conds ...field.Expr) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Order(conds ...field.Expr) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Order(conds...))
 }
 
-func (r reuseEffectivenessLogDo) Distinct(cols ...field.Expr) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Distinct(cols ...field.Expr) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Distinct(cols...))
 }
 
-func (r reuseEffectivenessLogDo) Omit(cols ...field.Expr) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Omit(cols ...field.Expr) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Omit(cols...))
 }
 
-func (r reuseEffectivenessLogDo) Join(table schema.Tabler, on ...field.Expr) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Join(table schema.Tabler, on ...field.Expr) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Join(table, on...))
 }
 
-func (r reuseEffectivenessLogDo) LeftJoin(table schema.Tabler, on ...field.Expr) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) LeftJoin(table schema.Tabler, on ...field.Expr) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.LeftJoin(table, on...))
 }
 
-func (r reuseEffectivenessLogDo) RightJoin(table schema.Tabler, on ...field.Expr) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) RightJoin(table schema.Tabler, on ...field.Expr) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.RightJoin(table, on...))
 }
 
-func (r reuseEffectivenessLogDo) Group(cols ...field.Expr) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Group(cols ...field.Expr) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Group(cols...))
 }
 
-func (r reuseEffectivenessLogDo) Having(conds ...gen.Condition) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Having(conds ...gen.Condition) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Having(conds...))
 }
 
-func (r reuseEffectivenessLogDo) Limit(limit int) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Limit(limit int) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Limit(limit))
 }
 
-func (r reuseEffectivenessLogDo) Offset(offset int) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Offset(offset int) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Offset(offset))
 }
 
-func (r reuseEffectivenessLogDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Scopes(funcs...))
 }
 
-func (r reuseEffectivenessLogDo) Unscoped() *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Unscoped() IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Unscoped())
 }
 
@@ -298,22 +350,22 @@ func (r reuseEffectivenessLogDo) FindInBatches(result *[]*model.ReuseEffectivene
 	return r.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (r reuseEffectivenessLogDo) Attrs(attrs ...field.AssignExpr) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Attrs(attrs ...field.AssignExpr) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Attrs(attrs...))
 }
 
-func (r reuseEffectivenessLogDo) Assign(attrs ...field.AssignExpr) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Assign(attrs ...field.AssignExpr) IReuseEffectivenessLogDo {
 	return r.withDO(r.DO.Assign(attrs...))
 }
 
-func (r reuseEffectivenessLogDo) Joins(fields ...field.RelationField) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Joins(fields ...field.RelationField) IReuseEffectivenessLogDo {
 	for _, _f := range fields {
 		r = *r.withDO(r.DO.Joins(_f))
 	}
 	return &r
 }
 
-func (r reuseEffectivenessLogDo) Preload(fields ...field.RelationField) *reuseEffectivenessLogDo {
+func (r reuseEffectivenessLogDo) Preload(fields ...field.RelationField) IReuseEffectivenessLogDo {
 	for _, _f := range fields {
 		r = *r.withDO(r.DO.Preload(_f))
 	}

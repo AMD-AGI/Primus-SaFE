@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -44,7 +45,7 @@ func newGpuAllocationSnapshots(db *gorm.DB, opts ...gen.DOOption) gpuAllocationS
 }
 
 type gpuAllocationSnapshots struct {
-	gpuAllocationSnapshotsDo gpuAllocationSnapshotsDo
+	gpuAllocationSnapshotsDo
 
 	ALL               field.Asterisk
 	ID                field.Int32
@@ -89,18 +90,6 @@ func (g *gpuAllocationSnapshots) updateTableName(table string) *gpuAllocationSna
 	return g
 }
 
-func (g *gpuAllocationSnapshots) WithContext(ctx context.Context) *gpuAllocationSnapshotsDo {
-	return g.gpuAllocationSnapshotsDo.WithContext(ctx)
-}
-
-func (g gpuAllocationSnapshots) TableName() string { return g.gpuAllocationSnapshotsDo.TableName() }
-
-func (g gpuAllocationSnapshots) Alias() string { return g.gpuAllocationSnapshotsDo.Alias() }
-
-func (g gpuAllocationSnapshots) Columns(cols ...field.Expr) gen.Columns {
-	return g.gpuAllocationSnapshotsDo.Columns(cols...)
-}
-
 func (g *gpuAllocationSnapshots) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := g.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -136,95 +125,158 @@ func (g gpuAllocationSnapshots) replaceDB(db *gorm.DB) gpuAllocationSnapshots {
 
 type gpuAllocationSnapshotsDo struct{ gen.DO }
 
-func (g gpuAllocationSnapshotsDo) Debug() *gpuAllocationSnapshotsDo {
+type IGpuAllocationSnapshotsDo interface {
+	gen.SubQuery
+	Debug() IGpuAllocationSnapshotsDo
+	WithContext(ctx context.Context) IGpuAllocationSnapshotsDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IGpuAllocationSnapshotsDo
+	WriteDB() IGpuAllocationSnapshotsDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IGpuAllocationSnapshotsDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IGpuAllocationSnapshotsDo
+	Not(conds ...gen.Condition) IGpuAllocationSnapshotsDo
+	Or(conds ...gen.Condition) IGpuAllocationSnapshotsDo
+	Select(conds ...field.Expr) IGpuAllocationSnapshotsDo
+	Where(conds ...gen.Condition) IGpuAllocationSnapshotsDo
+	Order(conds ...field.Expr) IGpuAllocationSnapshotsDo
+	Distinct(cols ...field.Expr) IGpuAllocationSnapshotsDo
+	Omit(cols ...field.Expr) IGpuAllocationSnapshotsDo
+	Join(table schema.Tabler, on ...field.Expr) IGpuAllocationSnapshotsDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IGpuAllocationSnapshotsDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IGpuAllocationSnapshotsDo
+	Group(cols ...field.Expr) IGpuAllocationSnapshotsDo
+	Having(conds ...gen.Condition) IGpuAllocationSnapshotsDo
+	Limit(limit int) IGpuAllocationSnapshotsDo
+	Offset(offset int) IGpuAllocationSnapshotsDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IGpuAllocationSnapshotsDo
+	Unscoped() IGpuAllocationSnapshotsDo
+	Create(values ...*model.GpuAllocationSnapshots) error
+	CreateInBatches(values []*model.GpuAllocationSnapshots, batchSize int) error
+	Save(values ...*model.GpuAllocationSnapshots) error
+	First() (*model.GpuAllocationSnapshots, error)
+	Take() (*model.GpuAllocationSnapshots, error)
+	Last() (*model.GpuAllocationSnapshots, error)
+	Find() ([]*model.GpuAllocationSnapshots, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.GpuAllocationSnapshots, err error)
+	FindInBatches(result *[]*model.GpuAllocationSnapshots, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.GpuAllocationSnapshots) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IGpuAllocationSnapshotsDo
+	Assign(attrs ...field.AssignExpr) IGpuAllocationSnapshotsDo
+	Joins(fields ...field.RelationField) IGpuAllocationSnapshotsDo
+	Preload(fields ...field.RelationField) IGpuAllocationSnapshotsDo
+	FirstOrInit() (*model.GpuAllocationSnapshots, error)
+	FirstOrCreate() (*model.GpuAllocationSnapshots, error)
+	FindByPage(offset int, limit int) (result []*model.GpuAllocationSnapshots, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IGpuAllocationSnapshotsDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (g gpuAllocationSnapshotsDo) Debug() IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Debug())
 }
 
-func (g gpuAllocationSnapshotsDo) WithContext(ctx context.Context) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) WithContext(ctx context.Context) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.WithContext(ctx))
 }
 
-func (g gpuAllocationSnapshotsDo) ReadDB() *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) ReadDB() IGpuAllocationSnapshotsDo {
 	return g.Clauses(dbresolver.Read)
 }
 
-func (g gpuAllocationSnapshotsDo) WriteDB() *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) WriteDB() IGpuAllocationSnapshotsDo {
 	return g.Clauses(dbresolver.Write)
 }
 
-func (g gpuAllocationSnapshotsDo) Session(config *gorm.Session) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Session(config *gorm.Session) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Session(config))
 }
 
-func (g gpuAllocationSnapshotsDo) Clauses(conds ...clause.Expression) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Clauses(conds ...clause.Expression) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Clauses(conds...))
 }
 
-func (g gpuAllocationSnapshotsDo) Returning(value interface{}, columns ...string) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Returning(value interface{}, columns ...string) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Returning(value, columns...))
 }
 
-func (g gpuAllocationSnapshotsDo) Not(conds ...gen.Condition) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Not(conds ...gen.Condition) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Not(conds...))
 }
 
-func (g gpuAllocationSnapshotsDo) Or(conds ...gen.Condition) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Or(conds ...gen.Condition) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Or(conds...))
 }
 
-func (g gpuAllocationSnapshotsDo) Select(conds ...field.Expr) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Select(conds ...field.Expr) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Select(conds...))
 }
 
-func (g gpuAllocationSnapshotsDo) Where(conds ...gen.Condition) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Where(conds ...gen.Condition) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Where(conds...))
 }
 
-func (g gpuAllocationSnapshotsDo) Order(conds ...field.Expr) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Order(conds ...field.Expr) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Order(conds...))
 }
 
-func (g gpuAllocationSnapshotsDo) Distinct(cols ...field.Expr) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Distinct(cols ...field.Expr) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Distinct(cols...))
 }
 
-func (g gpuAllocationSnapshotsDo) Omit(cols ...field.Expr) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Omit(cols ...field.Expr) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Omit(cols...))
 }
 
-func (g gpuAllocationSnapshotsDo) Join(table schema.Tabler, on ...field.Expr) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Join(table schema.Tabler, on ...field.Expr) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Join(table, on...))
 }
 
-func (g gpuAllocationSnapshotsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) LeftJoin(table schema.Tabler, on ...field.Expr) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.LeftJoin(table, on...))
 }
 
-func (g gpuAllocationSnapshotsDo) RightJoin(table schema.Tabler, on ...field.Expr) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) RightJoin(table schema.Tabler, on ...field.Expr) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.RightJoin(table, on...))
 }
 
-func (g gpuAllocationSnapshotsDo) Group(cols ...field.Expr) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Group(cols ...field.Expr) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Group(cols...))
 }
 
-func (g gpuAllocationSnapshotsDo) Having(conds ...gen.Condition) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Having(conds ...gen.Condition) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Having(conds...))
 }
 
-func (g gpuAllocationSnapshotsDo) Limit(limit int) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Limit(limit int) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Limit(limit))
 }
 
-func (g gpuAllocationSnapshotsDo) Offset(offset int) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Offset(offset int) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Offset(offset))
 }
 
-func (g gpuAllocationSnapshotsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Scopes(funcs...))
 }
 
-func (g gpuAllocationSnapshotsDo) Unscoped() *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Unscoped() IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Unscoped())
 }
 
@@ -290,22 +342,22 @@ func (g gpuAllocationSnapshotsDo) FindInBatches(result *[]*model.GpuAllocationSn
 	return g.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (g gpuAllocationSnapshotsDo) Attrs(attrs ...field.AssignExpr) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Attrs(attrs ...field.AssignExpr) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Attrs(attrs...))
 }
 
-func (g gpuAllocationSnapshotsDo) Assign(attrs ...field.AssignExpr) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Assign(attrs ...field.AssignExpr) IGpuAllocationSnapshotsDo {
 	return g.withDO(g.DO.Assign(attrs...))
 }
 
-func (g gpuAllocationSnapshotsDo) Joins(fields ...field.RelationField) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Joins(fields ...field.RelationField) IGpuAllocationSnapshotsDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Joins(_f))
 	}
 	return &g
 }
 
-func (g gpuAllocationSnapshotsDo) Preload(fields ...field.RelationField) *gpuAllocationSnapshotsDo {
+func (g gpuAllocationSnapshotsDo) Preload(fields ...field.RelationField) IGpuAllocationSnapshotsDo {
 	for _, _f := range fields {
 		g = *g.withDO(g.DO.Preload(_f))
 	}

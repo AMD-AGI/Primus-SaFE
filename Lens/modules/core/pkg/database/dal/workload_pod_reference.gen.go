@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -38,7 +39,7 @@ func newWorkloadPodReference(db *gorm.DB, opts ...gen.DOOption) workloadPodRefer
 }
 
 type workloadPodReference struct {
-	workloadPodReferenceDo workloadPodReferenceDo
+	workloadPodReferenceDo
 
 	ALL         field.Asterisk
 	ID          field.Int32
@@ -71,18 +72,6 @@ func (w *workloadPodReference) updateTableName(table string) *workloadPodReferen
 	return w
 }
 
-func (w *workloadPodReference) WithContext(ctx context.Context) *workloadPodReferenceDo {
-	return w.workloadPodReferenceDo.WithContext(ctx)
-}
-
-func (w workloadPodReference) TableName() string { return w.workloadPodReferenceDo.TableName() }
-
-func (w workloadPodReference) Alias() string { return w.workloadPodReferenceDo.Alias() }
-
-func (w workloadPodReference) Columns(cols ...field.Expr) gen.Columns {
-	return w.workloadPodReferenceDo.Columns(cols...)
-}
-
 func (w *workloadPodReference) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := w.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -112,95 +101,158 @@ func (w workloadPodReference) replaceDB(db *gorm.DB) workloadPodReference {
 
 type workloadPodReferenceDo struct{ gen.DO }
 
-func (w workloadPodReferenceDo) Debug() *workloadPodReferenceDo {
+type IWorkloadPodReferenceDo interface {
+	gen.SubQuery
+	Debug() IWorkloadPodReferenceDo
+	WithContext(ctx context.Context) IWorkloadPodReferenceDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() IWorkloadPodReferenceDo
+	WriteDB() IWorkloadPodReferenceDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) IWorkloadPodReferenceDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) IWorkloadPodReferenceDo
+	Not(conds ...gen.Condition) IWorkloadPodReferenceDo
+	Or(conds ...gen.Condition) IWorkloadPodReferenceDo
+	Select(conds ...field.Expr) IWorkloadPodReferenceDo
+	Where(conds ...gen.Condition) IWorkloadPodReferenceDo
+	Order(conds ...field.Expr) IWorkloadPodReferenceDo
+	Distinct(cols ...field.Expr) IWorkloadPodReferenceDo
+	Omit(cols ...field.Expr) IWorkloadPodReferenceDo
+	Join(table schema.Tabler, on ...field.Expr) IWorkloadPodReferenceDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) IWorkloadPodReferenceDo
+	RightJoin(table schema.Tabler, on ...field.Expr) IWorkloadPodReferenceDo
+	Group(cols ...field.Expr) IWorkloadPodReferenceDo
+	Having(conds ...gen.Condition) IWorkloadPodReferenceDo
+	Limit(limit int) IWorkloadPodReferenceDo
+	Offset(offset int) IWorkloadPodReferenceDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) IWorkloadPodReferenceDo
+	Unscoped() IWorkloadPodReferenceDo
+	Create(values ...*model.WorkloadPodReference) error
+	CreateInBatches(values []*model.WorkloadPodReference, batchSize int) error
+	Save(values ...*model.WorkloadPodReference) error
+	First() (*model.WorkloadPodReference, error)
+	Take() (*model.WorkloadPodReference, error)
+	Last() (*model.WorkloadPodReference, error)
+	Find() ([]*model.WorkloadPodReference, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.WorkloadPodReference, err error)
+	FindInBatches(result *[]*model.WorkloadPodReference, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.WorkloadPodReference) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) IWorkloadPodReferenceDo
+	Assign(attrs ...field.AssignExpr) IWorkloadPodReferenceDo
+	Joins(fields ...field.RelationField) IWorkloadPodReferenceDo
+	Preload(fields ...field.RelationField) IWorkloadPodReferenceDo
+	FirstOrInit() (*model.WorkloadPodReference, error)
+	FirstOrCreate() (*model.WorkloadPodReference, error)
+	FindByPage(offset int, limit int) (result []*model.WorkloadPodReference, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) IWorkloadPodReferenceDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (w workloadPodReferenceDo) Debug() IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Debug())
 }
 
-func (w workloadPodReferenceDo) WithContext(ctx context.Context) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) WithContext(ctx context.Context) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.WithContext(ctx))
 }
 
-func (w workloadPodReferenceDo) ReadDB() *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) ReadDB() IWorkloadPodReferenceDo {
 	return w.Clauses(dbresolver.Read)
 }
 
-func (w workloadPodReferenceDo) WriteDB() *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) WriteDB() IWorkloadPodReferenceDo {
 	return w.Clauses(dbresolver.Write)
 }
 
-func (w workloadPodReferenceDo) Session(config *gorm.Session) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Session(config *gorm.Session) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Session(config))
 }
 
-func (w workloadPodReferenceDo) Clauses(conds ...clause.Expression) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Clauses(conds ...clause.Expression) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Clauses(conds...))
 }
 
-func (w workloadPodReferenceDo) Returning(value interface{}, columns ...string) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Returning(value interface{}, columns ...string) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Returning(value, columns...))
 }
 
-func (w workloadPodReferenceDo) Not(conds ...gen.Condition) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Not(conds ...gen.Condition) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Not(conds...))
 }
 
-func (w workloadPodReferenceDo) Or(conds ...gen.Condition) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Or(conds ...gen.Condition) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Or(conds...))
 }
 
-func (w workloadPodReferenceDo) Select(conds ...field.Expr) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Select(conds ...field.Expr) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Select(conds...))
 }
 
-func (w workloadPodReferenceDo) Where(conds ...gen.Condition) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Where(conds ...gen.Condition) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Where(conds...))
 }
 
-func (w workloadPodReferenceDo) Order(conds ...field.Expr) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Order(conds ...field.Expr) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Order(conds...))
 }
 
-func (w workloadPodReferenceDo) Distinct(cols ...field.Expr) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Distinct(cols ...field.Expr) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Distinct(cols...))
 }
 
-func (w workloadPodReferenceDo) Omit(cols ...field.Expr) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Omit(cols ...field.Expr) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Omit(cols...))
 }
 
-func (w workloadPodReferenceDo) Join(table schema.Tabler, on ...field.Expr) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Join(table schema.Tabler, on ...field.Expr) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Join(table, on...))
 }
 
-func (w workloadPodReferenceDo) LeftJoin(table schema.Tabler, on ...field.Expr) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) LeftJoin(table schema.Tabler, on ...field.Expr) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.LeftJoin(table, on...))
 }
 
-func (w workloadPodReferenceDo) RightJoin(table schema.Tabler, on ...field.Expr) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) RightJoin(table schema.Tabler, on ...field.Expr) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.RightJoin(table, on...))
 }
 
-func (w workloadPodReferenceDo) Group(cols ...field.Expr) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Group(cols ...field.Expr) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Group(cols...))
 }
 
-func (w workloadPodReferenceDo) Having(conds ...gen.Condition) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Having(conds ...gen.Condition) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Having(conds...))
 }
 
-func (w workloadPodReferenceDo) Limit(limit int) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Limit(limit int) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Limit(limit))
 }
 
-func (w workloadPodReferenceDo) Offset(offset int) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Offset(offset int) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Offset(offset))
 }
 
-func (w workloadPodReferenceDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Scopes(funcs ...func(gen.Dao) gen.Dao) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Scopes(funcs...))
 }
 
-func (w workloadPodReferenceDo) Unscoped() *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Unscoped() IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Unscoped())
 }
 
@@ -266,22 +318,22 @@ func (w workloadPodReferenceDo) FindInBatches(result *[]*model.WorkloadPodRefere
 	return w.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (w workloadPodReferenceDo) Attrs(attrs ...field.AssignExpr) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Attrs(attrs ...field.AssignExpr) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Attrs(attrs...))
 }
 
-func (w workloadPodReferenceDo) Assign(attrs ...field.AssignExpr) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Assign(attrs ...field.AssignExpr) IWorkloadPodReferenceDo {
 	return w.withDO(w.DO.Assign(attrs...))
 }
 
-func (w workloadPodReferenceDo) Joins(fields ...field.RelationField) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Joins(fields ...field.RelationField) IWorkloadPodReferenceDo {
 	for _, _f := range fields {
 		w = *w.withDO(w.DO.Joins(_f))
 	}
 	return &w
 }
 
-func (w workloadPodReferenceDo) Preload(fields ...field.RelationField) *workloadPodReferenceDo {
+func (w workloadPodReferenceDo) Preload(fields ...field.RelationField) IWorkloadPodReferenceDo {
 	for _, _f := range fields {
 		w = *w.withDO(w.DO.Preload(_f))
 	}

@@ -6,6 +6,7 @@ package dal
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -47,7 +48,7 @@ func newLabelGpuHourlyStats(db *gorm.DB, opts ...gen.DOOption) labelGpuHourlySta
 }
 
 type labelGpuHourlyStats struct {
-	labelGpuHourlyStatsDo labelGpuHourlyStatsDo
+	labelGpuHourlyStatsDo
 
 	ALL                 field.Asterisk
 	ID                  field.Int32
@@ -98,18 +99,6 @@ func (l *labelGpuHourlyStats) updateTableName(table string) *labelGpuHourlyStats
 	return l
 }
 
-func (l *labelGpuHourlyStats) WithContext(ctx context.Context) *labelGpuHourlyStatsDo {
-	return l.labelGpuHourlyStatsDo.WithContext(ctx)
-}
-
-func (l labelGpuHourlyStats) TableName() string { return l.labelGpuHourlyStatsDo.TableName() }
-
-func (l labelGpuHourlyStats) Alias() string { return l.labelGpuHourlyStatsDo.Alias() }
-
-func (l labelGpuHourlyStats) Columns(cols ...field.Expr) gen.Columns {
-	return l.labelGpuHourlyStatsDo.Columns(cols...)
-}
-
 func (l *labelGpuHourlyStats) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 	_f, ok := l.fieldMap[fieldName]
 	if !ok || _f == nil {
@@ -148,95 +137,158 @@ func (l labelGpuHourlyStats) replaceDB(db *gorm.DB) labelGpuHourlyStats {
 
 type labelGpuHourlyStatsDo struct{ gen.DO }
 
-func (l labelGpuHourlyStatsDo) Debug() *labelGpuHourlyStatsDo {
+type ILabelGpuHourlyStatsDo interface {
+	gen.SubQuery
+	Debug() ILabelGpuHourlyStatsDo
+	WithContext(ctx context.Context) ILabelGpuHourlyStatsDo
+	WithResult(fc func(tx gen.Dao)) gen.ResultInfo
+	ReplaceDB(db *gorm.DB)
+	ReadDB() ILabelGpuHourlyStatsDo
+	WriteDB() ILabelGpuHourlyStatsDo
+	As(alias string) gen.Dao
+	Session(config *gorm.Session) ILabelGpuHourlyStatsDo
+	Columns(cols ...field.Expr) gen.Columns
+	Clauses(conds ...clause.Expression) ILabelGpuHourlyStatsDo
+	Not(conds ...gen.Condition) ILabelGpuHourlyStatsDo
+	Or(conds ...gen.Condition) ILabelGpuHourlyStatsDo
+	Select(conds ...field.Expr) ILabelGpuHourlyStatsDo
+	Where(conds ...gen.Condition) ILabelGpuHourlyStatsDo
+	Order(conds ...field.Expr) ILabelGpuHourlyStatsDo
+	Distinct(cols ...field.Expr) ILabelGpuHourlyStatsDo
+	Omit(cols ...field.Expr) ILabelGpuHourlyStatsDo
+	Join(table schema.Tabler, on ...field.Expr) ILabelGpuHourlyStatsDo
+	LeftJoin(table schema.Tabler, on ...field.Expr) ILabelGpuHourlyStatsDo
+	RightJoin(table schema.Tabler, on ...field.Expr) ILabelGpuHourlyStatsDo
+	Group(cols ...field.Expr) ILabelGpuHourlyStatsDo
+	Having(conds ...gen.Condition) ILabelGpuHourlyStatsDo
+	Limit(limit int) ILabelGpuHourlyStatsDo
+	Offset(offset int) ILabelGpuHourlyStatsDo
+	Count() (count int64, err error)
+	Scopes(funcs ...func(gen.Dao) gen.Dao) ILabelGpuHourlyStatsDo
+	Unscoped() ILabelGpuHourlyStatsDo
+	Create(values ...*model.LabelGpuHourlyStats) error
+	CreateInBatches(values []*model.LabelGpuHourlyStats, batchSize int) error
+	Save(values ...*model.LabelGpuHourlyStats) error
+	First() (*model.LabelGpuHourlyStats, error)
+	Take() (*model.LabelGpuHourlyStats, error)
+	Last() (*model.LabelGpuHourlyStats, error)
+	Find() ([]*model.LabelGpuHourlyStats, error)
+	FindInBatch(batchSize int, fc func(tx gen.Dao, batch int) error) (results []*model.LabelGpuHourlyStats, err error)
+	FindInBatches(result *[]*model.LabelGpuHourlyStats, batchSize int, fc func(tx gen.Dao, batch int) error) error
+	Pluck(column field.Expr, dest interface{}) error
+	Delete(...*model.LabelGpuHourlyStats) (info gen.ResultInfo, err error)
+	Update(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	Updates(value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumn(column field.Expr, value interface{}) (info gen.ResultInfo, err error)
+	UpdateColumnSimple(columns ...field.AssignExpr) (info gen.ResultInfo, err error)
+	UpdateColumns(value interface{}) (info gen.ResultInfo, err error)
+	UpdateFrom(q gen.SubQuery) gen.Dao
+	Attrs(attrs ...field.AssignExpr) ILabelGpuHourlyStatsDo
+	Assign(attrs ...field.AssignExpr) ILabelGpuHourlyStatsDo
+	Joins(fields ...field.RelationField) ILabelGpuHourlyStatsDo
+	Preload(fields ...field.RelationField) ILabelGpuHourlyStatsDo
+	FirstOrInit() (*model.LabelGpuHourlyStats, error)
+	FirstOrCreate() (*model.LabelGpuHourlyStats, error)
+	FindByPage(offset int, limit int) (result []*model.LabelGpuHourlyStats, count int64, err error)
+	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
+	Scan(result interface{}) (err error)
+	Returning(value interface{}, columns ...string) ILabelGpuHourlyStatsDo
+	UnderlyingDB() *gorm.DB
+	schema.Tabler
+}
+
+func (l labelGpuHourlyStatsDo) Debug() ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Debug())
 }
 
-func (l labelGpuHourlyStatsDo) WithContext(ctx context.Context) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) WithContext(ctx context.Context) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.WithContext(ctx))
 }
 
-func (l labelGpuHourlyStatsDo) ReadDB() *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) ReadDB() ILabelGpuHourlyStatsDo {
 	return l.Clauses(dbresolver.Read)
 }
 
-func (l labelGpuHourlyStatsDo) WriteDB() *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) WriteDB() ILabelGpuHourlyStatsDo {
 	return l.Clauses(dbresolver.Write)
 }
 
-func (l labelGpuHourlyStatsDo) Session(config *gorm.Session) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Session(config *gorm.Session) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Session(config))
 }
 
-func (l labelGpuHourlyStatsDo) Clauses(conds ...clause.Expression) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Clauses(conds ...clause.Expression) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Clauses(conds...))
 }
 
-func (l labelGpuHourlyStatsDo) Returning(value interface{}, columns ...string) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Returning(value interface{}, columns ...string) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Returning(value, columns...))
 }
 
-func (l labelGpuHourlyStatsDo) Not(conds ...gen.Condition) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Not(conds ...gen.Condition) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Not(conds...))
 }
 
-func (l labelGpuHourlyStatsDo) Or(conds ...gen.Condition) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Or(conds ...gen.Condition) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Or(conds...))
 }
 
-func (l labelGpuHourlyStatsDo) Select(conds ...field.Expr) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Select(conds ...field.Expr) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Select(conds...))
 }
 
-func (l labelGpuHourlyStatsDo) Where(conds ...gen.Condition) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Where(conds ...gen.Condition) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Where(conds...))
 }
 
-func (l labelGpuHourlyStatsDo) Order(conds ...field.Expr) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Order(conds ...field.Expr) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Order(conds...))
 }
 
-func (l labelGpuHourlyStatsDo) Distinct(cols ...field.Expr) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Distinct(cols ...field.Expr) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Distinct(cols...))
 }
 
-func (l labelGpuHourlyStatsDo) Omit(cols ...field.Expr) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Omit(cols ...field.Expr) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Omit(cols...))
 }
 
-func (l labelGpuHourlyStatsDo) Join(table schema.Tabler, on ...field.Expr) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Join(table schema.Tabler, on ...field.Expr) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Join(table, on...))
 }
 
-func (l labelGpuHourlyStatsDo) LeftJoin(table schema.Tabler, on ...field.Expr) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) LeftJoin(table schema.Tabler, on ...field.Expr) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.LeftJoin(table, on...))
 }
 
-func (l labelGpuHourlyStatsDo) RightJoin(table schema.Tabler, on ...field.Expr) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) RightJoin(table schema.Tabler, on ...field.Expr) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.RightJoin(table, on...))
 }
 
-func (l labelGpuHourlyStatsDo) Group(cols ...field.Expr) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Group(cols ...field.Expr) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Group(cols...))
 }
 
-func (l labelGpuHourlyStatsDo) Having(conds ...gen.Condition) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Having(conds ...gen.Condition) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Having(conds...))
 }
 
-func (l labelGpuHourlyStatsDo) Limit(limit int) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Limit(limit int) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Limit(limit))
 }
 
-func (l labelGpuHourlyStatsDo) Offset(offset int) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Offset(offset int) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Offset(offset))
 }
 
-func (l labelGpuHourlyStatsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Scopes(funcs ...func(gen.Dao) gen.Dao) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Scopes(funcs...))
 }
 
-func (l labelGpuHourlyStatsDo) Unscoped() *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Unscoped() ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Unscoped())
 }
 
@@ -302,22 +354,22 @@ func (l labelGpuHourlyStatsDo) FindInBatches(result *[]*model.LabelGpuHourlyStat
 	return l.DO.FindInBatches(result, batchSize, fc)
 }
 
-func (l labelGpuHourlyStatsDo) Attrs(attrs ...field.AssignExpr) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Attrs(attrs ...field.AssignExpr) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Attrs(attrs...))
 }
 
-func (l labelGpuHourlyStatsDo) Assign(attrs ...field.AssignExpr) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Assign(attrs ...field.AssignExpr) ILabelGpuHourlyStatsDo {
 	return l.withDO(l.DO.Assign(attrs...))
 }
 
-func (l labelGpuHourlyStatsDo) Joins(fields ...field.RelationField) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Joins(fields ...field.RelationField) ILabelGpuHourlyStatsDo {
 	for _, _f := range fields {
 		l = *l.withDO(l.DO.Joins(_f))
 	}
 	return &l
 }
 
-func (l labelGpuHourlyStatsDo) Preload(fields ...field.RelationField) *labelGpuHourlyStatsDo {
+func (l labelGpuHourlyStatsDo) Preload(fields ...field.RelationField) ILabelGpuHourlyStatsDo {
 	for _, _f := range fields {
 		l = *l.withDO(l.DO.Preload(_f))
 	}
