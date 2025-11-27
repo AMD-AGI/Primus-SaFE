@@ -115,7 +115,7 @@ func (p *WandBLogProcessor) ProcessMetrics(
 		return nil
 	}
 
-	// 2. 转换为内部格式并存储
+	// 2. 转换为内部格式并存储到 MetricsStorage
 	successCount := 0
 	errorCount := 0
 
@@ -145,12 +145,58 @@ func (p *WandBLogProcessor) ProcessMetrics(
 		successCount++
 	}
 
-	logrus.Infof("✓ WandB metrics processed: %d success, %d errors (workload: %s)",
+	logrus.Infof("✓ WandB metrics stored to MetricsStorage: %d success, %d errors (workload: %s)",
 		successCount, errorCount, workloadUID)
 
-	if errorCount > 0 {
+	// 3. 将 metrics 按 step 聚合，存储到 training_performance 表
+	stepMetrics := make(map[int64]map[string]interface{})
+	stepTimestamps := make(map[int64]time.Time)
+
+	for _, metric := range req.Metrics {
+		step := metric.Step
+		if stepMetrics[step] == nil {
+			stepMetrics[step] = make(map[string]interface{})
+		}
+		stepMetrics[step][metric.Name] = metric.Value
+
+		// 记录每个 step 的时间戳（使用该 step 的第一个 metric 的时间戳）
+		if _, exists := stepTimestamps[step]; !exists {
+			stepTimestamps[step] = time.Unix(0, int64(metric.Timestamp*1e9))
+		}
+	}
+
+	logrus.Infof("Aggregated metrics into %d step(s) for training_performance storage", len(stepMetrics))
+
+	// 4. 将每个 step 的 metrics 存储到 training_performance 表
+	trainingSuccessCount := 0
+	trainingErrorCount := 0
+
+	for step, data := range stepMetrics {
+		// 构造 WandBLog 格式的数据
+		logData := &WandBLog{
+			Step:      step,
+			Timestamp: float64(stepTimestamps[step].UnixNano()) / 1e9,
+			Data:      data,
+		}
+
+		// 存储到 training_performance 表
+		if err := p.storeTrainingData(ctx, workloadUID, req.PodUID, req.RunID, logData, stepTimestamps[step]); err != nil {
+			logrus.Errorf("Failed to store training data for step %d: %v", step, err)
+			IncTrainingPerformanceSaveErrors(workloadUID, constant.DataSourceWandB, "db_error")
+			trainingErrorCount++
+			continue
+		}
+		IncTrainingPerformanceSaveCount(workloadUID, constant.DataSourceWandB)
+		trainingSuccessCount++
+	}
+
+	logrus.Infof("✓ WandB metrics stored to training_performance: %d steps success, %d errors (workload: %s)",
+		trainingSuccessCount, trainingErrorCount, workloadUID)
+
+	if errorCount > 0 || trainingErrorCount > 0 {
 		IncWandBRequestErrorCount("metrics", "storage")
-		return fmt.Errorf("failed to store %d metrics", errorCount)
+		return fmt.Errorf("failed to store %d metrics to MetricsStorage, %d steps to training_performance",
+			errorCount, trainingErrorCount)
 	}
 
 	return nil
