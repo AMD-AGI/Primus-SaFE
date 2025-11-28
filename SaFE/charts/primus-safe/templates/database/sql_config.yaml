@@ -199,7 +199,7 @@ data:
     alter table image
         owner to "primus-safe";
 
-    CREATE TABLE public_key (
+    CREATE TABLE IF NOT EXISTS public_key (
        id BIGSERIAL PRIMARY KEY,
        user_id VARCHAR(64) NOT NULL,
        description VARCHAR(100) NOT NULL,
@@ -214,7 +214,7 @@ data:
     CREATE UNIQUE INDEX idx_publickey_userid_pubkey ON public_key(user_id, public_key, delete_time);
     alter table public_key owner to "primus-safe";
 
-    CREATE TABLE ssh_session_records (
+    CREATE TABLE IF NOT EXISTS ssh_session_records (
        id BIGSERIAL PRIMARY KEY,
        user_id VARCHAR(64) NOT NULL,
        ssh_type VARCHAR(64) NOT NULL,
